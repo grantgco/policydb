@@ -11,7 +11,7 @@ DB_PATH = DB_DIR / "policydb.sqlite"
 EXPORTS_DIR = DB_DIR / "exports"
 CONFIG_PATH = DB_DIR / "config.yaml"
 
-_MIGRATIONS_DIR = Path(__file__).parent.parent.parent / "migrations"
+_MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 
 
 def get_db_path() -> Path:
