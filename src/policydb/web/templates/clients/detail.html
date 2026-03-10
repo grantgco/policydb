@@ -1,0 +1,213 @@
+{% extends "base.html" %}
+{% block title %}{{ client.name }} — PolicyDB{% endblock %}
+{% block content %}
+
+<!-- Header -->
+<div class="flex items-start justify-between mb-6">
+  <div>
+    <div class="flex items-center gap-2 text-sm text-gray-400 mb-1">
+      <a href="/clients" class="hover:text-marsh">Clients</a>
+      <span>/</span>
+      <span class="text-gray-600">{{ client.name }}</span>
+    </div>
+    <h1 class="text-2xl font-bold text-gray-900">{{ client.name }}</h1>
+    <p class="text-gray-500 text-sm mt-1">{{ client.industry_segment }}</p>
+  </div>
+  <div class="flex gap-2">
+    <a href="/clients/{{ client.id }}/edit" class="border border-gray-300 hover:border-marsh text-gray-700 hover:text-marsh text-sm font-medium px-4 py-2 rounded-lg transition-colors">Edit</a>
+    <a href="/clients/{{ client.id }}/export/schedule" class="border border-gray-300 hover:border-marsh text-gray-700 hover:text-marsh text-sm font-medium px-4 py-2 rounded-lg transition-colors">Schedule ↓</a>
+    <a href="/clients/{{ client.id }}/export/llm" class="border border-gray-300 hover:border-marsh text-gray-700 hover:text-marsh text-sm font-medium px-4 py-2 rounded-lg transition-colors">LLM Export ↓</a>
+  </div>
+</div>
+
+<!-- Summary cards -->
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+  <div class="card p-4">
+    <p class="text-xs text-gray-500 uppercase tracking-wide">Total Premium</p>
+    <p class="text-xl font-bold text-gray-900 mt-1">{{ summary.total_premium | currency }}</p>
+  </div>
+  <div class="card p-4">
+    <p class="text-xs text-gray-500 uppercase tracking-wide">Policies</p>
+    <p class="text-xl font-bold text-gray-900 mt-1">{{ summary.total_policies }}</p>
+    <p class="text-xs text-gray-400">{{ summary.standalone_count }} standalone</p>
+  </div>
+  <div class="card p-4">
+    <p class="text-xs text-gray-500 uppercase tracking-wide">Carriers</p>
+    <p class="text-xl font-bold text-gray-900 mt-1">{{ summary.carrier_count }}</p>
+    <p class="text-xs text-gray-400">{{ summary.coverage_lines }} lines</p>
+  </div>
+  <div class="card p-4 {{ 'border-amber-300 bg-amber-50' if summary.next_renewal_days and summary.next_renewal_days <= 90 else '' }}">
+    <p class="text-xs text-gray-500 uppercase tracking-wide">Next Renewal</p>
+    <p class="text-xl font-bold {% if summary.next_renewal_days and summary.next_renewal_days <= 90 %}text-amber-700{% else %}text-gray-900{% endif %} mt-1">
+      {% if summary.next_renewal_days %}{{ summary.next_renewal_days }}d{% else %}—{% endif %}
+    </p>
+  </div>
+</div>
+
+<!-- Contact info -->
+<div class="card p-5 mb-6 grid grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
+  <div>
+    <p class="text-xs text-gray-400 mb-1">Primary Contact</p>
+    <p class="text-gray-800">{{ client.primary_contact or '—' }}</p>
+  </div>
+  <div>
+    <p class="text-xs text-gray-400 mb-1">Email</p>
+    {% if client.contact_email %}
+    <a href="mailto:{{ client.contact_email }}" class="text-marsh hover:underline">{{ client.contact_email }}</a>
+    {% else %}<p class="text-gray-800">—</p>{% endif %}
+  </div>
+  <div>
+    <p class="text-xs text-gray-400 mb-1">Phone</p>
+    <p class="text-gray-800">{{ client.contact_phone or '—' }}</p>
+  </div>
+  <div>
+    <p class="text-xs text-gray-400 mb-1">Onboarded</p>
+    <p class="text-gray-800">{{ client.date_onboarded }}</p>
+  </div>
+  {% if client.cn_number %}
+  <div>
+    <p class="text-xs text-gray-400 mb-1">CN Number</p>
+    <p class="text-gray-800 font-mono text-sm">{{ client.cn_number }}</p>
+  </div>
+  {% endif %}
+  {% if client.notes %}
+  <div class="col-span-2 lg:col-span-4 border-t border-gray-100 pt-3 mt-1">
+    <p class="text-xs text-gray-400 mb-1">Notes</p>
+    <p class="text-gray-700">{{ client.notes }}</p>
+  </div>
+  {% endif %}
+</div>
+
+<!-- Policies -->
+<div class="card mb-6">
+  <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+    <h2 class="font-semibold text-gray-900">Policies</h2>
+    <a href="/policies/new?client={{ client.id }}" class="text-xs text-marsh hover:underline">+ Add Policy</a>
+  </div>
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="border-b border-gray-100 text-left text-xs text-gray-500 uppercase tracking-wide bg-gray-50">
+          <th class="px-4 py-3">UID</th>
+          <th class="px-4 py-3">Line of Business</th>
+          <th class="px-4 py-3">Carrier</th>
+          <th class="px-4 py-3">Expires</th>
+          <th class="px-4 py-3 text-right">Premium</th>
+          <th class="px-4 py-3 text-right">Limit</th>
+          <th class="px-4 py-3">Status</th>
+          <th class="px-4 py-3">!</th>
+          <th class="px-4 py-3"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for project_name, group in policy_groups %}
+        {% if policy_groups | length > 1 or project_name %}
+        <tr class="bg-gray-50 border-t-2 border-gray-200">
+          <td colspan="9" class="px-4 py-2 flex items-center gap-2">
+            <span class="text-xs font-semibold text-gray-600 uppercase tracking-wide">
+              {{ project_name if project_name else "Corporate / Standalone" }}
+            </span>
+            <span class="text-xs text-gray-400">· {{ group | length }} polic{{ 'y' if group | length == 1 else 'ies' }}</span>
+          </td>
+        </tr>
+        {% endif %}
+        {% for p in group %}
+        <tr class="hover:bg-gray-50 border-t border-gray-100">
+          <td class="px-4 py-3 font-mono text-xs text-gray-400">{{ p.policy_uid }}</td>
+          <td class="px-4 py-3">
+            <span class="font-medium text-gray-800">{{ p.policy_type }}</span>
+            {% if p.layer_position and p.layer_position != 'Primary' %}
+            <p class="text-xs text-gray-400">{{ p.layer_position }}</p>
+            {% endif %}
+          </td>
+          <td class="px-4 py-3 text-gray-600">{{ p.carrier }}</td>
+          <td class="px-4 py-3">
+            <span class="block text-gray-700">{{ p.expiration_date }}</span>
+            {% if p.days_to_renewal is not none %}
+            <span class="{{ p.urgency | urgency_class }} text-xs px-1.5 py-0.5 rounded font-medium">{{ p.days_to_renewal }}d</span>
+            {% endif %}
+          </td>
+          <td class="px-4 py-3 text-right tabular-nums text-gray-700">{{ p.premium | currency }}</td>
+          <td class="px-4 py-3 text-right tabular-nums text-gray-500 text-xs">{{ p.limit_amount | currency_short if p.limit_amount else '—' }}</td>
+          <td class="px-4 py-3" id="status-{{ p.policy_uid }}">
+            {% include "policies/_status_badge.html" %}
+          </td>
+          <td class="px-4 py-3">
+            <span class="{{ p.urgency | urgency_class }} text-xs font-bold px-1.5 py-0.5 rounded">{{ p.urgency }}</span>
+          </td>
+          <td class="px-4 py-3">
+            <a href="/policies/{{ p.policy_uid }}/edit" class="text-xs text-marsh hover:underline">Edit</a>
+          </td>
+        </tr>
+        {% endfor %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Activity -->
+<div class="card">
+  <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+    <h2 class="font-semibold text-gray-900">Activity <span class="text-sm font-normal text-gray-400">last 90 days</span></h2>
+    <button
+      onclick="document.getElementById('log-form').classList.toggle('hidden')"
+      class="text-xs bg-marsh hover:bg-marsh-light text-white px-3 py-1.5 rounded-lg transition-colors">
+      + Log Activity
+    </button>
+  </div>
+
+  <!-- Inline log form (hidden by default) -->
+  <div id="log-form" class="hidden border-b border-gray-100 p-5 bg-gray-50">
+    <form hx-post="/activities/log"
+          hx-target="#activity-list"
+          hx-swap="afterbegin"
+          hx-on::after-request="this.reset(); document.getElementById('log-form').classList.add('hidden')"
+          class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <input type="hidden" name="client_id" value="{{ client.id }}">
+      <div>
+        <label class="block text-xs font-medium text-gray-600 mb-1">Type</label>
+        <select name="activity_type" class="form-select w-full" required>
+          {% for t in activity_types %}
+          <option>{{ t }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-gray-600 mb-1">Contact Person</label>
+        <input type="text" name="contact_person" placeholder="{{ client.primary_contact or '' }}" class="form-input w-full">
+      </div>
+      <div class="sm:col-span-2">
+        <label class="block text-xs font-medium text-gray-600 mb-1">Subject <span class="text-red-400">*</span></label>
+        <input type="text" name="subject" required class="form-input w-full">
+      </div>
+      <div class="sm:col-span-2">
+        <label class="block text-xs font-medium text-gray-600 mb-1">Details</label>
+        <textarea name="details" rows="2" class="form-input w-full"></textarea>
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-gray-600 mb-1">Follow-Up Date</label>
+        <input type="date" name="follow_up_date" class="form-input w-full">
+      </div>
+      <div class="flex items-end">
+        <button type="submit" class="bg-marsh hover:bg-marsh-light text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors w-full">Save Activity</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- Activity list -->
+  <ul class="divide-y divide-gray-50" id="activity-list">
+    {% for a in activities %}
+    {% include "activities/_activity_row.html" %}
+    {% else %}
+    <li class="px-5 py-8 text-center text-sm text-gray-400">No activity in the last 90 days.</li>
+    {% endfor %}
+  </ul>
+</div>
+
+<style>
+  .form-input { @apply border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-marsh; }
+  .form-select { @apply border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-marsh bg-white; }
+</style>
+
+{% endblock %}

@@ -1,0 +1,3 @@
+[console_scripts]
+pdb = policydb.cli:main
+policydb = policydb.cli:main

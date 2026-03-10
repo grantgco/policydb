@@ -1,0 +1,216 @@
+{% extends "base.html" %}
+{% block title %}Edit {{ policy.policy_uid }} — PolicyDB{% endblock %}
+{% block content %}
+
+<div class="mb-6">
+  <div class="flex items-center gap-2 text-sm text-gray-400 mb-1">
+    <a href="/clients" class="hover:text-marsh">Clients</a>
+    <span>/</span>
+    <a href="/clients/{{ policy.client_id }}" class="hover:text-marsh">{{ policy.client_name }}</a>
+    <span>/</span>
+    <span class="text-gray-600">{{ policy.policy_uid }}</span>
+  </div>
+  <h1 class="text-2xl font-bold text-gray-900">Edit Policy</h1>
+  <p class="text-sm text-gray-500 mt-1">{{ policy.policy_type }} · {{ policy.carrier }}</p>
+</div>
+
+<form method="post" action="/policies/{{ policy.policy_uid }}/edit" class="space-y-6">
+
+  <!-- Core fields -->
+  <div class="card-section">
+    <div class="card-header">
+      <span class="section-title">Core Fields</span>
+    </div>
+    <div class="p-6">
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+
+        <div class="sm:col-span-2 lg:col-span-1">
+          <label class="field-label">Line of Business <span class="text-red-400">*</span></label>
+          <select name="policy_type" class="form-select w-full" required>
+            {% for t in policy_types %}
+            <option value="{{ t }}" {% if t == policy.policy_type %}selected{% endif %}>{{ t }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div>
+          <label class="field-label">Carrier <span class="text-red-400">*</span></label>
+          <input type="text" name="carrier" value="{{ policy.carrier }}" required class="form-input w-full">
+        </div>
+
+        <div>
+          <label class="field-label">Policy Number</label>
+          <input type="text" name="policy_number" value="{{ policy.policy_number or '' }}" class="form-input w-full">
+        </div>
+
+        <div>
+          <label class="field-label">Effective Date <span class="text-red-400">*</span></label>
+          <input type="date" name="effective_date" value="{{ policy.effective_date }}" required class="form-input w-full">
+        </div>
+
+        <div>
+          <label class="field-label">Expiration Date <span class="text-red-400">*</span></label>
+          <input type="date" name="expiration_date" value="{{ policy.expiration_date }}" required class="form-input w-full">
+        </div>
+
+        <div>
+          <label class="field-label">Annual Premium <span class="text-red-400">*</span></label>
+          <input type="number" name="premium" value="{{ policy.premium }}" step="0.01" min="0" required class="form-input w-full">
+        </div>
+
+        <div>
+          <label class="field-label">Limit</label>
+          <input type="number" name="limit_amount" value="{{ policy.limit_amount or '' }}" step="0.01" min="0" class="form-input w-full">
+        </div>
+
+        <div>
+          <label class="field-label">Deductible</label>
+          <input type="number" name="deductible" value="{{ policy.deductible or '' }}" step="0.01" min="0" class="form-input w-full">
+        </div>
+
+        <div>
+          <label class="field-label">Coverage Form</label>
+          <select name="coverage_form" class="form-select w-full">
+            <option value="">—</option>
+            {% for f in coverage_forms %}
+            <option value="{{ f }}" {% if f == policy.coverage_form %}selected{% endif %}>{{ f }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div>
+          <label class="field-label">Project / Location</label>
+          <input type="text" name="project_name" value="{{ policy.project_name or '' }}"
+            placeholder="e.g. Main Street Condos" class="form-input w-full">
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- Description (client-facing) -->
+  <div class="card-section">
+    <div class="card-header">
+      <span class="section-title">Description <span class="font-normal text-gray-400 normal-case tracking-normal">client-facing · appears on schedule of insurance</span></span>
+    </div>
+    <div class="p-6">
+      <textarea name="description" rows="3" placeholder="Plain-English summary of what this policy covers and why the client has it."
+        class="form-input w-full">{{ policy.description or '' }}</textarea>
+    </div>
+  </div>
+
+  <!-- Placement & Renewal -->
+  <div class="card-section">
+    <div class="card-header">
+      <span class="section-title">Placement &amp; Renewal</span>
+    </div>
+    <div class="p-6">
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+
+        <div>
+          <label class="field-label">Renewal Status</label>
+          <select name="renewal_status" class="form-select w-full">
+            {% for s in renewal_statuses %}
+            <option value="{{ s }}" {% if s == policy.renewal_status %}selected{% endif %}>{{ s }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div>
+          <label class="field-label">Placement Colleague</label>
+          <input type="text" name="placement_colleague" value="{{ policy.placement_colleague or '' }}" class="form-input w-full">
+        </div>
+
+        <div>
+          <label class="field-label">Underwriter</label>
+          <input type="text" name="underwriter_name" value="{{ policy.underwriter_name or '' }}" class="form-input w-full">
+        </div>
+
+        <div>
+          <label class="field-label">Underwriter Contact</label>
+          <input type="text" name="underwriter_contact" value="{{ policy.underwriter_contact or '' }}" class="form-input w-full">
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- Structure -->
+  <div class="card-section">
+    <div class="card-header">
+      <span class="section-title">Program Structure</span>
+    </div>
+    <div class="p-6">
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+
+        <div>
+          <label class="field-label">Layer Position</label>
+          <input type="text" name="layer_position" value="{{ policy.layer_position or 'Primary' }}" placeholder="Primary" class="form-input w-full">
+        </div>
+
+        <div>
+          <label class="field-label">Tower Group</label>
+          <input type="text" name="tower_group" value="{{ policy.tower_group or '' }}" placeholder="e.g. GL Tower" class="form-input w-full">
+        </div>
+
+        <div class="flex items-center gap-3 pt-5">
+          <input type="checkbox" name="is_standalone" id="is_standalone" value="1" {% if policy.is_standalone %}checked{% endif %}
+            class="w-4 h-4 rounded border-gray-300 text-marsh focus:ring-marsh">
+          <label for="is_standalone" class="text-sm text-gray-700">Standalone policy</label>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- Internal -->
+  <div class="card-section">
+    <div class="card-header">
+      <span class="section-title">Internal <span class="font-normal text-gray-400 normal-case tracking-normal">never client-facing</span></span>
+    </div>
+    <div class="p-6">
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+
+        <div>
+          <label class="field-label">Commission Rate</label>
+          <input type="number" name="commission_rate" value="{{ policy.commission_rate or '' }}" step="0.001" min="0" max="1" placeholder="0.12 = 12%" class="form-input w-full">
+        </div>
+
+        <div>
+          <label class="field-label">Prior Premium</label>
+          <input type="number" name="prior_premium" value="{{ policy.prior_premium or '' }}" step="0.01" min="0" class="form-input w-full">
+        </div>
+
+        <div class="sm:col-span-2 lg:col-span-3">
+          <label class="field-label">Internal Notes</label>
+          <textarea name="notes" rows="2" class="form-input w-full">{{ policy.notes or '' }}</textarea>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- Actions -->
+  <div class="flex items-center justify-between">
+    <a href="/clients/{{ policy.client_id }}" class="text-sm text-gray-500 hover:text-gray-700">← Cancel</a>
+    <div class="flex gap-3">
+      <button type="submit" name="action" value="save_continue"
+        class="border border-marsh text-marsh hover:bg-marsh hover:text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
+        Save &amp; Continue Editing
+      </button>
+      <button type="submit" name="action" value="save"
+        class="bg-marsh hover:bg-marsh-light text-white text-sm font-medium px-6 py-2 rounded-lg transition-colors">
+        Save
+      </button>
+    </div>
+  </div>
+
+</form>
+
+<style>
+  .form-input { @apply border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-marsh; }
+  .form-select { @apply border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-marsh bg-white; }
+  .field-label { @apply block text-xs font-medium text-gray-600 mb-1; }
+</style>
+
+{% endblock %}
