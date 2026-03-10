@@ -1,0 +1,25 @@
+{% for c in clients %}
+<tr class="hover:bg-gray-50 cursor-pointer" onclick="window.location='/clients/{{ c.id }}'">
+  <td class="px-4 py-3">
+    <a href="/clients/{{ c.id }}" class="font-medium text-marsh hover:underline">{{ c.name }}</a>
+    {% if c.primary_contact %}<p class="text-xs text-gray-400">{{ c.primary_contact }}</p>{% endif %}
+  </td>
+  <td class="px-4 py-3 text-gray-600">{{ c.industry_segment }}</td>
+  <td class="px-4 py-3 text-right text-gray-700">{{ c.total_policies }}</td>
+  <td class="px-4 py-3 text-right tabular-nums text-gray-700">{{ c.total_premium | currency }}</td>
+  <td class="px-4 py-3 text-right">
+    {% if c.next_renewal_days is not none %}
+      <span class="{% if c.next_renewal_days <= 90 %}text-red-600 font-semibold{% elif c.next_renewal_days <= 180 %}text-amber-600{% else %}text-gray-500{% endif %}">
+        {{ c.next_renewal_days }}d
+      </span>
+    {% else %}
+      <span class="text-gray-300">—</span>
+    {% endif %}
+  </td>
+  <td class="px-4 py-3 text-right">
+    <span class="{% if c.activity_last_90d == 0 %}text-red-400{% else %}text-gray-500{% endif %}">{{ c.activity_last_90d }}</span>
+  </td>
+</tr>
+{% else %}
+<tr><td colspan="6" class="px-4 py-10 text-center text-gray-400">No clients found.</td></tr>
+{% endfor %}

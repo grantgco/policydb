@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}Renewals — PolicyDB{% endblock %}
+{% block content %}
+
+<div class="flex items-center justify-between mb-6">
+  <div>
+    <h1 class="text-2xl font-bold text-gray-900">Renewal Pipeline</h1>
+    <p class="text-sm text-gray-500 mt-1">{{ rows | length }} policies · next {{ window }} days</p>
+  </div>
+  <div class="flex gap-2">
+    <a href="/renewals?window=90" class="btn-filter {{ 'active' if window == 90 else '' }}">90d</a>
+    <a href="/renewals?window=120" class="btn-filter {{ 'active' if window == 120 else '' }}">120d</a>
+    <a href="/renewals?window=180" class="btn-filter {{ 'active' if window == 180 else '' }}">180d</a>
+  </div>
+</div>
+
+<div class="card overflow-hidden">
+  <table class="w-full text-sm">
+    <thead>
+      <tr class="border-b border-gray-200 text-left text-xs text-gray-500 uppercase tracking-wide bg-gray-50">
+        <th class="px-4 py-3">Client / Line</th>
+        <th class="px-4 py-3">Carrier</th>
+        <th class="px-4 py-3">Expires</th>
+        <th class="px-4 py-3 text-right">Premium</th>
+        <th class="px-4 py-3">Urgency</th>
+        <th class="px-4 py-3">Status</th>
+        <th class="px-4 py-3">Colleague</th>
+        <th class="px-4 py-3"></th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for p in rows %}
+      <tr class="hover:bg-gray-50">
+        <td class="px-4 py-3">
+          <a href="/clients/{{ p.client_id }}" class="font-medium text-marsh hover:underline">{{ p.client_name }}</a>
+          <p class="text-xs text-gray-500">{{ p.policy_type }}</p>
+        </td>
+        <td class="px-4 py-3 text-gray-600 text-xs">{{ p.carrier }}</td>
+        <td class="px-4 py-3">
+          <span class="block">{{ p.expiration_date }}</span>
+          <span class="text-xs text-gray-400">{{ p.days_to_renewal }}d</span>
+        </td>
+        <td class="px-4 py-3 text-right tabular-nums text-gray-700">{{ p.premium | currency }}</td>
+        <td class="px-4 py-3">
+          <span class="{{ p.urgency | urgency_class }} text-xs font-semibold px-2 py-0.5 rounded">{{ p.urgency }}</span>
+        </td>
+        <td class="px-4 py-3" id="status-{{ p.policy_uid }}">
+          {% include "policies/_status_badge.html" %}
+        </td>
+        <td class="px-4 py-3 text-xs text-gray-500">{{ p.placement_colleague or '—' }}</td>
+        <td class="px-4 py-3">
+          <a href="/policies/{{ p.policy_uid }}/edit" class="text-xs text-marsh hover:underline">Edit</a>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="8" class="px-4 py-10 text-center text-gray-400">No renewals in this window.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<style>
+  .btn-filter { @apply border border-gray-300 text-gray-600 hover:border-marsh hover:text-marsh text-sm px-3 py-1.5 rounded-lg transition-colors; }
+  .btn-filter.active { @apply border-marsh text-marsh bg-blue-50; }
+</style>
+
+{% endblock %}

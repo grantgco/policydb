@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}New Policy — PolicyDB{% endblock %}
+{% block content %}
+
+<div class="mb-6">
+  <h1 class="text-2xl font-bold text-gray-900">Add Policy</h1>
+</div>
+
+<form method="post" action="/policies/new" class="space-y-6">
+
+  <div class="card p-6">
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+
+      <div class="sm:col-span-2 lg:col-span-3">
+        <label class="field-label">Client <span class="text-red-400">*</span></label>
+        <select name="client_id" class="form-select w-full" required>
+          {% for c in all_clients %}
+          <option value="{{ c.id }}" {% if client and c.id == client.id %}selected{% endif %}>{{ c.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div>
+        <label class="field-label">Line of Business <span class="text-red-400">*</span></label>
+        <select name="policy_type" class="form-select w-full" required>
+          {% for t in policy_types %}
+          <option>{{ t }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div>
+        <label class="field-label">Carrier <span class="text-red-400">*</span></label>
+        <input type="text" name="carrier" required class="form-input w-full">
+      </div>
+
+      <div>
+        <label class="field-label">Policy Number</label>
+        <input type="text" name="policy_number" class="form-input w-full">
+      </div>
+
+      <div>
+        <label class="field-label">Effective Date <span class="text-red-400">*</span></label>
+        <input type="date" name="effective_date" required class="form-input w-full">
+      </div>
+
+      <div>
+        <label class="field-label">Expiration Date <span class="text-red-400">*</span></label>
+        <input type="date" name="expiration_date" required class="form-input w-full">
+      </div>
+
+      <div>
+        <label class="field-label">Annual Premium <span class="text-red-400">*</span></label>
+        <input type="number" name="premium" step="0.01" min="0" required class="form-input w-full">
+      </div>
+
+      <div>
+        <label class="field-label">Limit</label>
+        <input type="number" name="limit_amount" step="0.01" min="0" class="form-input w-full">
+      </div>
+
+      <div>
+        <label class="field-label">Deductible</label>
+        <input type="number" name="deductible" step="0.01" min="0" class="form-input w-full">
+      </div>
+
+      <div>
+        <label class="field-label">Renewal Status</label>
+        <select name="renewal_status" class="form-select w-full">
+          {% for s in renewal_statuses %}
+          <option>{{ s }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div>
+        <label class="field-label">Placement Colleague</label>
+        <input type="text" name="placement_colleague" class="form-input w-full">
+      </div>
+
+      <div>
+        <label class="field-label">Project / Location</label>
+        <input type="text" name="project_name" placeholder="e.g. Main Street Condos" class="form-input w-full">
+      </div>
+
+      <div class="sm:col-span-2 lg:col-span-3">
+        <label class="field-label">Description <span class="text-gray-400 font-normal">(client-facing)</span></label>
+        <textarea name="description" rows="2" placeholder="Plain-English summary of what this policy covers."
+          class="form-input w-full"></textarea>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="flex items-center justify-between">
+    <a href="/clients" class="text-sm text-gray-500 hover:text-gray-700">← Cancel</a>
+    <button type="submit" class="bg-marsh hover:bg-marsh-light text-white text-sm font-medium px-6 py-2 rounded-lg transition-colors">
+      Add Policy
+    </button>
+  </div>
+
+</form>
+
+<style>
+  .form-input { @apply border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-marsh; }
+  .form-select { @apply border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-marsh bg-white; }
+  .field-label { @apply block text-xs font-medium text-gray-600 mb-1; }
+</style>
+
+{% endblock %}

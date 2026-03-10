@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — PolicyDB{% endblock %}
+{% block content %}
+
+<div class="mb-6">
+  <h1 class="text-2xl font-bold text-gray-900">Dashboard</h1>
+  <p class="text-sm text-gray-500 mt-1">Book of business overview · {{ today }}</p>
+</div>
+
+<!-- KPI Cards -->
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+  <div class="card p-5">
+    <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Clients</p>
+    <p class="text-3xl font-bold text-gray-900 mt-1">{{ metrics.book.total_clients }}</p>
+  </div>
+  <div class="card p-5">
+    <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Total Premium</p>
+    <p class="text-3xl font-bold text-gray-900 mt-1">{{ metrics.book.total_premium | currency }}</p>
+  </div>
+  <div class="card p-5">
+    <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Policies</p>
+    <p class="text-3xl font-bold text-gray-900 mt-1">{{ metrics.book.total_policies }}</p>
+  </div>
+  <div class="card p-5 {{ 'border-red-300 bg-red-50' if urgent_count > 0 else '' }}">
+    <p class="text-xs font-medium {{ 'text-red-600' if urgent_count > 0 else 'text-gray-500' }} uppercase tracking-wide">Urgent Renewals</p>
+    <p class="text-3xl font-bold {{ 'text-red-700' if urgent_count > 0 else 'text-gray-900' }} mt-1">{{ urgent_count }}</p>
+    <p class="text-xs text-gray-400 mt-1">≤ 90 days</p>
+  </div>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+  <!-- Renewal Pipeline -->
+  <div class="lg:col-span-2 card">
+    <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+      <h2 class="font-semibold text-gray-900">Renewal Pipeline <span class="text-sm font-normal text-gray-400">next 90 days</span></h2>
+      <a href="/renewals" class="text-xs text-marsh hover:underline">View all →</a>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="border-b border-gray-100 text-left text-xs text-gray-500 uppercase tracking-wide">
+            <th class="px-4 py-3">Client / Line</th>
+            <th class="px-4 py-3">Expires</th>
+            <th class="px-4 py-3 text-right">Premium</th>
+            <th class="px-4 py-3">Status</th>
+            <th class="px-4 py-3">Colleague</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-50">
+          {% for p in pipeline %}
+          <tr class="hover:bg-gray-50">
+            <td class="px-4 py-3">
+              <a href="/clients/{{ p.client_id }}" class="font-medium text-marsh hover:underline">{{ p.client_name }}</a>
+              <p class="text-gray-500 text-xs">{{ p.policy_type }}</p>
+            </td>
+            <td class="px-4 py-3">
+              <span class="block text-gray-900">{{ p.expiration_date }}</span>
+              <span class="{{ p.urgency | urgency_class }} text-xs font-medium px-1.5 py-0.5 rounded">{{ p.days_to_renewal }}d · {{ p.urgency }}</span>
+            </td>
+            <td class="px-4 py-3 text-right tabular-nums text-gray-700">{{ p.premium | currency }}</td>
+            <td class="px-4 py-3" id="status-{{ p.policy_uid }}">
+              {% include "policies/_status_badge.html" %}
+            </td>
+            <td class="px-4 py-3 text-gray-500 text-xs">{{ p.placement_colleague or '—' }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="5" class="px-4 py-8 text-center text-gray-400">No urgent renewals.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Right column -->
+  <div class="flex flex-col gap-6">
+
+    <!-- Urgency breakdown -->
+    <div class="card p-5">
+      <h2 class="font-semibold text-gray-900 mb-4">Urgency Breakdown</h2>
+      {% for label, data in urgency_breakdown %}
+      <div class="flex items-center justify-between py-1.5">
+        <span class="{{ label | urgency_class }} text-xs font-semibold px-2 py-0.5 rounded">{{ label }}</span>
+        <span class="text-sm text-gray-700">{{ data.count }} <span class="text-gray-400 text-xs">· {{ data.premium | currency_short }}</span></span>
+      </div>
+      {% endfor %}
+    </div>
+
+    <!-- Overdue follow-ups -->
+    <div class="card">
+      <div class="px-5 py-4 border-b border-gray-100">
+        <h2 class="font-semibold text-gray-900">Overdue Follow-Ups
+          {% if overdue %}<span class="ml-2 bg-red-100 text-red-700 text-xs font-bold px-2 py-0.5 rounded-full">{{ overdue | length }}</span>{% endif %}
+        </h2>
+      </div>
+      <ul class="divide-y divide-gray-50" id="overdue-list">
+        {% for o in overdue %}
+        <li class="px-4 py-3 flex items-start justify-between gap-2" id="followup-{{ o.id }}">
+          <div>
+            <p class="text-sm font-medium text-gray-900">{{ o.subject }}</p>
+            <p class="text-xs text-gray-500">{{ o.client_name }} · due {{ o.follow_up_date }} <span class="text-red-500">({{ o.days_overdue }}d overdue)</span></p>
+          </div>
+          <button
+            hx-post="/activities/{{ o.id }}/complete"
+            hx-target="#followup-{{ o.id }}"
+            hx-swap="outerHTML"
+            class="shrink-0 text-xs bg-green-50 hover:bg-green-100 text-green-700 border border-green-200 rounded px-2 py-1">
+            Done
+          </button>
+        </li>
+        {% else %}
+        <li class="px-4 py-6 text-center text-sm text-gray-400">No overdue items.</li>
+        {% endfor %}
+      </ul>
+    </div>
+
+  </div>
+</div>
+
+{% endblock %}

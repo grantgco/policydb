@@ -1,0 +1,5 @@
+client_name,policy_type,carrier,policy_number,effective_date,expiration_date,premium,limit,deductible,description,coverage_form,layer_position,is_standalone,placement_colleague,renewal_status,commission_rate
+Redwood Properties LLC,General Liability,Travelers,GL-RW-2025-001,01/01/2025,01/01/2026,"$62,000","$2,000,000","$10,000","GL for all property development operations in CA.","Occurrence","Primary",0,Lisa Park,Not Started,0.115
+Redwood Properties LLC,Umbrella / Excess,Swiss Re,UMB-RW-2025-001,01/01/2025,01/01/2026,"$24,000","$5,000,000",,5M umbrella over GL.,Occurrence,"$5M xs $2M",0,Lisa Park,Not Started,0.10
+Pacific Edge Technology,Cyber / Tech E&O,Coalition,CYBER-PE-2025-001,03/15/2025,03/15/2026,"$98,000","$5,000,000","$50,000","Cyber liability and tech E&O for SaaS platform operations.","Claims-Made","Primary",0,Marcus Webb,In Progress,0.08
+Pacific Edge Technology,Directors & Officers,Chubb,DO-PE-2025-001,03/15/2025,03/15/2026,"$55,000","$5,000,000","$25,000","D&O for the executive team and board.","Claims-Made","Primary",1,Marcus Webb,In Progress,0.12

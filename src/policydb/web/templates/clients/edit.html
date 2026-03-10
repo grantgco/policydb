@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}{% if client %}Edit {{ client.name }}{% else %}New Client{% endif %} — PolicyDB{% endblock %}
+{% block content %}
+
+<div class="mb-6">
+  <div class="flex items-center gap-2 text-sm text-gray-400 mb-1">
+    <a href="/clients" class="hover:text-marsh">Clients</a>
+    {% if client %}<span>/</span><a href="/clients/{{ client.id }}" class="hover:text-marsh">{{ client.name }}</a>{% endif %}
+    <span>/</span>
+    <span class="text-gray-600">{% if client %}Edit{% else %}New{% endif %}</span>
+  </div>
+  <h1 class="text-2xl font-bold text-gray-900">{% if client %}Edit Client{% else %}Add Client{% endif %}</h1>
+</div>
+
+<form method="post" action="{% if client %}/clients/{{ client.id }}/edit{% else %}/clients/new{% endif %}" class="space-y-6">
+
+  <div class="card p-6">
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+
+      <div class="sm:col-span-2">
+        <label class="field-label">Client Name <span class="text-red-400">*</span></label>
+        <input type="text" name="name" value="{{ client.name if client else '' }}" required class="form-input w-full">
+      </div>
+
+      <div>
+        <label class="field-label">CN Number <span class="text-gray-400 font-normal">(internal)</span></label>
+        <input type="text" name="cn_number" value="{{ client.cn_number if client else '' }}" placeholder="e.g. CN-00123" class="form-input w-full">
+      </div>
+
+      <div>
+        <label class="field-label">Industry Segment <span class="text-red-400">*</span></label>
+        <select name="industry_segment" class="form-select w-full" required>
+          {% for seg in industry_segments %}
+          <option value="{{ seg }}" {% if client and seg == client.industry_segment %}selected{% endif %}>{{ seg }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div>
+        <label class="field-label">Primary Contact</label>
+        <input type="text" name="primary_contact" value="{{ client.primary_contact if client else '' }}" class="form-input w-full">
+      </div>
+
+      <div>
+        <label class="field-label">Contact Email</label>
+        <input type="email" name="contact_email" value="{{ client.contact_email if client else '' }}" class="form-input w-full">
+      </div>
+
+      <div>
+        <label class="field-label">Contact Phone</label>
+        <input type="text" name="contact_phone" value="{{ client.contact_phone if client else '' }}" class="form-input w-full">
+      </div>
+
+      <div class="sm:col-span-2">
+        <label class="field-label">Address</label>
+        <input type="text" name="address" value="{{ client.address if client else '' }}" class="form-input w-full">
+      </div>
+
+      <div class="sm:col-span-2">
+        <label class="field-label">Notes</label>
+        <textarea name="notes" rows="3" class="form-input w-full">{{ client.notes if client else '' }}</textarea>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="flex items-center justify-between">
+    <a href="{% if client %}/clients/{{ client.id }}{% else %}/clients{% endif %}" class="text-sm text-gray-500 hover:text-gray-700">← Cancel</a>
+    <button type="submit" class="bg-marsh hover:bg-marsh-light text-white text-sm font-medium px-6 py-2 rounded-lg transition-colors">
+      {% if client %}Save Changes{% else %}Add Client{% endif %}
+    </button>
+  </div>
+
+</form>
+
+<style>
+  .form-input { @apply border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-marsh; }
+  .form-select { @apply border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-marsh bg-white; }
+  .field-label { @apply block text-xs font-medium text-gray-600 mb-1; }
+</style>
+
+{% endblock %}
