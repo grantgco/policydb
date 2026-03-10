@@ -31,3 +31,10 @@ datasette = ["datasette>=0.64"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+policydb = [
+    "migrations/*.sql",
+    "web/templates/**/*.html",
+    "web/templates/*.html",
+]
