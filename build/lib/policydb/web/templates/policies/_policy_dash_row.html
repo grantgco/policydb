@@ -1,0 +1,35 @@
+<tr id="dash-row-{{ p.policy_uid }}" class="hover:bg-gray-50">
+  <td class="px-4 py-3">
+    <a href="/clients/{{ p.client_id }}" class="font-medium text-marsh hover:underline">{{ p.client_name }}</a>
+    <p class="text-gray-500 text-xs">{{ p.policy_type }}</p>
+  </td>
+  <td class="px-4 py-3">
+    <span class="block text-gray-900">{{ p.expiration_date }}</span>
+    <span class="{{ p.urgency | urgency_class }} text-xs font-medium px-1.5 py-0.5 rounded">{{ p.days_to_renewal }}d · {{ p.urgency }}</span>
+  </td>
+  <td class="px-4 py-3 text-right tabular-nums text-gray-700">{{ p.premium | currency }}</td>
+  <td class="px-4 py-3" id="status-{{ p.policy_uid }}">
+    {% include "policies/_status_badge.html" %}
+  </td>
+  <td class="px-4 py-3 text-xs space-y-1">
+    {% if p.placement_colleague %}
+    <p class="text-gray-700 font-medium">{{ p.placement_colleague }}
+      {% if p.placement_colleague_email %}<a href="mailto:{{ p.placement_colleague_email }}" class="text-marsh hover:underline ml-1">✉</a>{% endif %}
+    </p>
+    {% endif %}
+    {% if p.underwriter_name %}
+    <p class="text-gray-500">{{ p.underwriter_name }}
+      {% if p.underwriter_contact %}<span class="text-gray-400"> · {{ p.underwriter_contact }}</span>{% endif %}
+    </p>
+    {% endif %}
+    {% if not p.placement_colleague and not p.underwriter_name %}<span class="text-gray-300">—</span>{% endif %}
+  </td>
+  <td class="px-4 py-3 flex items-center gap-3">
+    <button
+      hx-get="/policies/{{ p.policy_uid }}/dash/log"
+      hx-target="#dash-row-{{ p.policy_uid }}"
+      hx-swap="outerHTML"
+      class="text-xs text-amber-600 hover:underline">Log</button>
+    <a href="/policies/{{ p.policy_uid }}/edit" class="text-xs text-gray-400 hover:underline">Edit →</a>
+  </td>
+</tr>

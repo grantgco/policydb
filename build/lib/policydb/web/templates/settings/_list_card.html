@@ -1,0 +1,40 @@
+<div class="card-section" id="list-{{ key }}">
+  <div class="card-header">
+    <span class="section-title">{{ label }}</span>
+    <span class="text-xs text-gray-400">{{ items | length }} items</span>
+  </div>
+  <ul class="divide-y divide-gray-100">
+    {% for item in items %}
+    <li class="flex items-center justify-between px-5 py-2.5">
+      <span class="text-sm text-gray-800">{{ item }}</span>
+      <form hx-post="/settings/list/remove"
+            hx-target="#list-{{ key }}"
+            hx-swap="outerHTML">
+        <input type="hidden" name="key" value="{{ key }}">
+        <input type="hidden" name="item" value="{{ item }}">
+        <button type="submit"
+          class="text-xs text-red-400 hover:text-red-600 hover:bg-red-50 rounded px-2 py-0.5 transition-colors">
+          Remove
+        </button>
+      </form>
+    </li>
+    {% else %}
+    <li class="px-5 py-4 text-sm text-gray-400 italic">No items — add one below.</li>
+    {% endfor %}
+  </ul>
+  <div class="px-5 py-3 border-t border-gray-100 bg-gray-50/60">
+    <form hx-post="/settings/list/add"
+          hx-target="#list-{{ key }}"
+          hx-swap="outerHTML"
+          hx-on::after-request="this.reset()"
+          class="flex gap-2">
+      <input type="hidden" name="key" value="{{ key }}">
+      <input type="text" name="item" required placeholder="Add new option…"
+        class="flex-1 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-marsh">
+      <button type="submit"
+        class="bg-marsh hover:bg-marsh-light text-white text-sm font-medium px-4 py-1.5 rounded-lg transition-colors">
+        Add
+      </button>
+    </form>
+  </div>
+</div>

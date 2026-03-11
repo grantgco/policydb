@@ -1,0 +1,396 @@
+{% extends "base.html" %}
+{% block title %}Edit {{ policy.policy_uid }} — PolicyDB{% endblock %}
+{% block content %}
+
+<div class="mb-6">
+  <div class="flex items-center gap-2 text-sm text-gray-400 mb-1">
+    <a href="/clients" class="hover:text-marsh">Clients</a>
+    <span>/</span>
+    <a href="/clients/{{ policy.client_id }}" class="hover:text-marsh">{{ policy.client_name }}</a>
+    <span>/</span>
+    <span class="text-gray-600">{{ policy.policy_uid }}</span>
+  </div>
+  <h1 class="text-2xl font-bold text-gray-900">Edit Policy</h1>
+  <p class="text-sm text-gray-500 mt-1">{{ policy.policy_type }} · {{ policy.carrier }}</p>
+</div>
+
+<form method="post" action="/policies/{{ policy.policy_uid }}/edit" class="space-y-6">
+
+  <!-- Core fields -->
+  <div class="card-section">
+    <div class="card-header">
+      <span class="section-title">Core Fields</span>
+    </div>
+    <div class="p-6">
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+
+        <div class="sm:col-span-2 lg:col-span-1">
+          <label class="field-label">Line of Business <span class="text-red-400">*</span></label>
+          <select name="policy_type" class="form-select w-full" required>
+            {% for t in policy_types %}
+            <option value="{{ t }}" {% if t == policy.policy_type %}selected{% endif %}>{{ t }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div>
+          <label class="field-label">Carrier <span class="text-red-400">*</span></label>
+          <input type="text" name="carrier" value="{{ policy.carrier }}" required class="form-input w-full"
+            list="ac-carrier" autocomplete="off">
+        </div>
+
+        <div>
+          <label class="field-label">Policy Number</label>
+          <input type="text" name="policy_number" value="{{ policy.policy_number or '' }}" class="form-input w-full">
+        </div>
+
+        <div>
+          <label class="field-label">Effective Date <span class="text-red-400">*</span></label>
+          <input type="date" name="effective_date" value="{{ policy.effective_date }}" required class="form-input w-full">
+        </div>
+
+        <div>
+          <label class="field-label">Expiration Date <span class="text-red-400">*</span></label>
+          <input type="date" name="expiration_date" value="{{ policy.expiration_date }}" required class="form-input w-full">
+        </div>
+
+        <div>
+          <label class="field-label">Annual Premium <span class="text-red-400">*</span></label>
+          <input type="number" name="premium" value="{{ policy.premium }}" step="0.01" min="0" required class="form-input w-full">
+        </div>
+
+        <div>
+          <label class="field-label">Limit</label>
+          <input type="number" name="limit_amount" value="{{ policy.limit_amount or '' }}" step="0.01" min="0" class="form-input w-full">
+        </div>
+
+        <div>
+          <label class="field-label">Deductible</label>
+          <input type="number" name="deductible" value="{{ policy.deductible or '' }}" step="0.01" min="0" class="form-input w-full">
+        </div>
+
+        <div>
+          <label class="field-label">Coverage Form</label>
+          <select name="coverage_form" class="form-select w-full">
+            <option value="">—</option>
+            {% for f in coverage_forms %}
+            <option value="{{ f }}" {% if f == policy.coverage_form %}selected{% endif %}>{{ f }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div>
+          <label class="field-label">Project / Location</label>
+          <input type="text" name="project_name" value="{{ policy.project_name or '' }}"
+            placeholder="e.g. Main Street Condos" class="form-input w-full"
+            list="ac-project_name" autocomplete="off">
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- Description (client-facing) -->
+  <div class="card-section">
+    <div class="card-header">
+      <span class="section-title">Description <span class="font-normal text-gray-400 normal-case tracking-normal">client-facing · appears on schedule of insurance</span></span>
+    </div>
+    <div class="p-6">
+      <textarea name="description" rows="3" placeholder="Plain-English summary of what this policy covers and why the client has it."
+        class="form-input w-full">{{ policy.description or '' }}</textarea>
+    </div>
+  </div>
+
+  <!-- Placement & Renewal -->
+  <div class="card-section">
+    <div class="card-header">
+      <span class="section-title">Placement &amp; Renewal</span>
+    </div>
+    <div class="p-6">
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+
+        <div>
+          <label class="field-label">Renewal Status</label>
+          <select name="renewal_status" class="form-select w-full">
+            {% for s in renewal_statuses %}
+            <option value="{{ s }}" {% if s == policy.renewal_status %}selected{% endif %}>{{ s }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div>
+          <label class="field-label">Placement Colleague</label>
+          <input type="text" name="placement_colleague" value="{{ policy.placement_colleague or '' }}" class="form-input w-full"
+            list="ac-placement_colleague" autocomplete="off">
+        </div>
+
+        <div>
+          <label class="field-label">Underwriter</label>
+          <input type="text" name="underwriter_name" value="{{ policy.underwriter_name or '' }}" class="form-input w-full"
+            list="ac-underwriter_name" autocomplete="off">
+        </div>
+
+        <div>
+          <label class="field-label">Underwriter Contact</label>
+          <input type="text" name="underwriter_contact" value="{{ policy.underwriter_contact or '' }}" class="form-input w-full">
+        </div>
+
+        <div>
+          <label class="field-label">Follow-Up Date</label>
+          <input type="date" name="follow_up_date" value="{{ policy.follow_up_date or '' }}" class="form-input w-full">
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- Structure -->
+  <div class="card-section">
+    <div class="card-header">
+      <span class="section-title">Program Structure</span>
+    </div>
+    <div class="p-6">
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+
+        <div>
+          <label class="field-label">Layer Position</label>
+          <input type="text" name="layer_position" value="{{ policy.layer_position or 'Primary' }}" placeholder="Primary" class="form-input w-full">
+        </div>
+
+        <div>
+          <label class="field-label">Tower Group</label>
+          <input type="text" name="tower_group" value="{{ policy.tower_group or '' }}" placeholder="e.g. GL Tower" class="form-input w-full">
+        </div>
+
+        <div class="flex items-center gap-3 pt-5">
+          <input type="checkbox" name="is_standalone" id="is_standalone" value="1" {% if policy.is_standalone %}checked{% endif %}
+            class="w-4 h-4 rounded border-gray-300 text-marsh focus:ring-marsh">
+          <label for="is_standalone" class="text-sm text-gray-700">Standalone policy</label>
+        </div>
+
+        <div>
+          <label class="field-label">Attachment Point ($)</label>
+          <input type="number" id="attachment_point" name="attachment_point"
+            value="{{ policy.attachment_point or '' }}"
+            step="0.01" min="0" placeholder="Blank = Primary · 0 = X Primary · e.g. 5000000 = X $5M"
+            class="form-input w-full">
+          <p id="layer-notation-preview" class="text-xs text-marsh mt-1 font-mono"></p>
+        </div>
+
+        <div>
+          <label class="field-label">Part Of Layer ($)</label>
+          <input type="number" id="participation_of" name="participation_of"
+            value="{{ policy.participation_of or '' }}"
+            step="0.01" min="0" placeholder="e.g. 25000000 for $12.5M PO $25M"
+            class="form-input w-full">
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- Exposure -->
+  <div class="card-section">
+    <div class="card-header">
+      <span class="section-title">Exposure</span>
+    </div>
+    <div class="p-6 space-y-4">
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+
+        <div>
+          <label class="field-label">Exposure Basis</label>
+          <input type="text" name="exposure_basis" value="{{ policy.exposure_basis or '' }}"
+            placeholder="e.g. Payroll, Revenue, Sq Ft" class="form-input w-full"
+            list="ac-exposure_basis" autocomplete="off">
+        </div>
+
+        <div>
+          <label class="field-label">Exposure Amount</label>
+          <input type="number" name="exposure_amount" value="{{ policy.exposure_amount or '' }}"
+            step="0.01" min="0" class="form-input w-full">
+        </div>
+
+        <div>
+          <label class="field-label">Exposure Unit</label>
+          <input type="text" name="exposure_unit" value="{{ policy.exposure_unit or '' }}"
+            placeholder="e.g. per $100, per $1,000, per unit" class="form-input w-full"
+            list="ac-exposure_unit" autocomplete="off">
+        </div>
+
+      </div>
+
+      <!-- Primary exposure address -->
+      <div>
+        <p class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-3">Primary Exposure Address / Location</p>
+        <div class="grid grid-cols-1 sm:grid-cols-6 gap-4">
+
+          <div class="sm:col-span-6">
+            <label class="field-label">Street Address</label>
+            <input type="text" name="exposure_address" value="{{ policy.exposure_address or '' }}"
+              placeholder="123 Main St, Suite 100" class="form-input w-full">
+          </div>
+
+          <div class="sm:col-span-3">
+            <label class="field-label">City</label>
+            <input type="text" name="exposure_city" value="{{ policy.exposure_city or '' }}"
+              class="form-input w-full" list="ac-exposure_city" autocomplete="off">
+          </div>
+
+          <div class="sm:col-span-2">
+            <label class="field-label">State</label>
+            <select name="exposure_state" class="form-select w-full">
+              <option value="">—</option>
+              {% for abbr, name in us_states %}
+              <option value="{{ abbr }}" {% if abbr == policy.exposure_state %}selected{% endif %}>{{ abbr }} – {{ name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="sm:col-span-1">
+            <label class="field-label">ZIP</label>
+            <input type="text" name="exposure_zip" value="{{ policy.exposure_zip or '' }}"
+              placeholder="12345" maxlength="10" class="form-input w-full">
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Internal -->
+  <div class="card-section">
+    <div class="card-header">
+      <span class="section-title">Internal <span class="font-normal text-gray-400 normal-case tracking-normal">never client-facing</span></span>
+    </div>
+    <div class="p-6">
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+
+        <div>
+          <label class="field-label">Commission Rate</label>
+          <input type="number" name="commission_rate" value="{{ policy.commission_rate or '' }}" step="0.001" min="0" max="1" placeholder="0.12 = 12%" class="form-input w-full">
+        </div>
+
+        <div>
+          <label class="field-label">Prior Premium</label>
+          <input type="number" name="prior_premium" value="{{ policy.prior_premium or '' }}" step="0.01" min="0" class="form-input w-full">
+        </div>
+
+        <div class="sm:col-span-2 lg:col-span-3">
+          <label class="field-label">Internal Notes</label>
+          <textarea name="notes" rows="2" class="form-input w-full">{{ policy.notes or '' }}</textarea>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- Actions -->
+  <div class="flex items-center justify-between">
+    <a href="/clients/{{ policy.client_id }}" class="text-sm text-gray-500 hover:text-gray-700">← Cancel</a>
+    <div class="flex gap-3">
+      <button type="submit" name="action" value="save_continue"
+        class="border border-marsh text-marsh hover:bg-marsh hover:text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
+        Save &amp; Continue Editing
+      </button>
+      <button type="submit" name="action" value="save"
+        class="bg-marsh hover:bg-marsh-light text-white text-sm font-medium px-6 py-2 rounded-lg transition-colors">
+        Save
+      </button>
+    </div>
+  </div>
+
+</form>
+
+<!-- Renew action — separate form to avoid conflict with edit POST -->
+<div class="mt-4 pt-4 border-t border-gray-200 flex items-center justify-between">
+  <p class="text-xs text-gray-400">Ready to start the next term? This archives the current policy and opens the new term for editing.</p>
+  <form method="post" action="/policies/{{ policy.policy_uid }}/renew"
+        onsubmit="return confirm('Create renewal term for {{ policy.policy_uid }} ({{ policy.policy_type }})?\n\nThis will archive the current record and open the new term for editing.')">
+    <button type="submit"
+      class="border border-blue-500 text-blue-600 hover:bg-blue-500 hover:text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
+      Renew Policy →
+    </button>
+  </form>
+</div>
+
+<!-- Archive action — for policies entered in error -->
+<div class="mt-4 pt-4 border-t border-gray-200 flex items-center justify-between">
+  <p class="text-xs text-gray-400">Entered in error or no longer needed? Archiving hides this policy from all views. Data is preserved but the policy will not appear anywhere.</p>
+  <form method="post" action="/policies/{{ policy.policy_uid }}/archive"
+        onsubmit="return confirm('Archive {{ policy.policy_uid }} ({{ policy.policy_type }})?\n\nThis hides the policy from all views. Use this for policies entered in error — not for renewals (use Renew Policy for end-of-term).')">
+    <button type="submit"
+      class="border border-red-300 text-red-500 hover:bg-red-50 text-sm font-medium px-4 py-2 rounded-lg transition-colors">
+      Archive Policy
+    </button>
+  </form>
+</div>
+
+<!-- Datalist elements populated from prior DB entries -->
+<datalist id="ac-carrier"></datalist>
+<datalist id="ac-placement_colleague"></datalist>
+<datalist id="ac-underwriter_name"></datalist>
+<datalist id="ac-exposure_basis"></datalist>
+<datalist id="ac-exposure_unit"></datalist>
+<datalist id="ac-project_name"></datalist>
+<datalist id="ac-exposure_city"></datalist>
+
+<style>
+  .form-input { @apply border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-marsh; }
+  .form-select { @apply border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-marsh bg-white; }
+  .field-label { @apply block text-xs font-medium text-gray-600 mb-1; }
+</style>
+
+<script>
+(function () {
+  const AC_FIELDS = ["carrier", "placement_colleague", "underwriter_name",
+                     "exposure_basis", "exposure_unit", "project_name", "exposure_city"];
+
+  function loadList(field) {
+    fetch(`/policies/autocomplete?field=${field}`)
+      .then(r => r.json())
+      .then(values => {
+        const dl = document.getElementById(`ac-${field}`);
+        if (!dl) return;
+        dl.innerHTML = values.map(v => `<option value="${v.replace(/"/g, '&quot;')}"></option>`).join('');
+      });
+  }
+
+  AC_FIELDS.forEach(loadList);
+
+  // Live tower notation preview
+  (function () {
+    var limEl  = document.querySelector('input[name="limit_amount"]');
+    var attEl  = document.getElementById('attachment_point');
+    var poEl   = document.getElementById('participation_of');
+    var prev   = document.getElementById('layer-notation-preview');
+    if (!limEl || !attEl || !prev) return;
+    function fmtM(v) {
+      var m = v / 1000000;
+      return '$' + (m % 1 === 0 ? m.toFixed(0) : m) + 'M';
+    }
+    function update() {
+      var lim = parseFloat(limEl.value);
+      var attRaw = attEl.value.trim();
+      var att = attRaw === '' ? null : parseFloat(attRaw);
+      var po  = parseFloat(poEl ? poEl.value : '') || 0;
+      if (!lim) { prev.textContent = ''; return; }
+      var s = fmtM(lim);
+      if (po) s += ' PO ' + fmtM(po);
+      if (att === null) {
+        s += ' Primary';
+      } else if (att === 0) {
+        s += ' X Primary';
+      } else {
+        s += ' X ' + fmtM(att);
+      }
+      prev.textContent = '→ ' + s;
+    }
+    [limEl, attEl, poEl].forEach(function (el) {
+      if (el) el.addEventListener('input', update);
+    });
+    update();
+  })();
+})();
+</script>
+
+{% endblock %}
