@@ -1,0 +1,62 @@
+<tr id="dash-row-{{ p.policy_uid }}" class="border-t-2 border-amber-400 bg-amber-50">
+  <td colspan="6" class="px-4 py-4">
+
+    <form
+      hx-post="/policies/{{ p.policy_uid }}/dash/log"
+      hx-target="#dash-row-{{ p.policy_uid }}"
+      hx-swap="outerHTML"
+      class="space-y-3">
+
+      <input type="hidden" name="client_id" value="{{ p.client_id }}">
+      <input type="hidden" name="policy_id" value="{{ p.id }}">
+
+      <!-- Row 1: Type, Subject, Follow-Up -->
+      <div class="grid grid-cols-4 gap-3">
+        <div>
+          <p class="text-xs text-gray-500 mb-0.5">Type</p>
+          <select name="activity_type" required
+            class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-amber-400 bg-white">
+            {% for t in activity_types %}
+            <option>{{ t }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-span-2">
+          <p class="text-xs text-gray-500 mb-0.5">Subject <span class="text-red-400">*</span></p>
+          <input type="text" name="subject" required autofocus
+            class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-amber-400">
+        </div>
+        <div>
+          <p class="text-xs text-gray-500 mb-0.5">Follow-Up Date</p>
+          <input type="date" name="follow_up_date"
+            class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-amber-400">
+        </div>
+      </div>
+
+      <!-- Row 2: Details -->
+      <div>
+        <p class="text-xs text-gray-500 mb-0.5">Details <span class="text-gray-400">(optional)</span></p>
+        <textarea name="details" rows="2"
+          class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-amber-400"></textarea>
+      </div>
+
+      <!-- Row 3: Actions -->
+      <div class="flex items-center gap-3">
+        <button type="submit"
+          class="bg-amber-500 hover:bg-amber-600 text-white text-xs font-medium px-4 py-1.5 rounded-lg transition-colors">
+          Save Activity
+        </button>
+        <button type="button"
+          hx-get="/policies/{{ p.policy_uid }}/dash/row"
+          hx-target="#dash-row-{{ p.policy_uid }}"
+          hx-swap="outerHTML"
+          class="text-xs text-gray-500 hover:text-gray-700 hover:underline">
+          Cancel
+        </button>
+        <span class="text-xs text-gray-400 ml-auto font-mono">{{ p.policy_uid }} · {{ p.policy_type }} · {{ p.client_name }}</span>
+      </div>
+
+    </form>
+
+  </td>
+</tr>
