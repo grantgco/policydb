@@ -8,7 +8,7 @@
       class="space-y-3">
 
       <!-- Row 1: Identifiers -->
-      <div class="grid grid-cols-4 gap-3">
+      <div class="grid grid-cols-5 gap-3">
         <div>
           <p class="text-xs text-gray-500 mb-0.5">Line of Business <span class="text-red-400">*</span></p>
           <select name="policy_type" required
@@ -27,6 +27,12 @@
         <div>
           <p class="text-xs text-gray-500 mb-0.5">Policy Number</p>
           <input type="text" name="policy_number" value="{{ p.policy_number or '' }}"
+            class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh">
+        </div>
+        <div>
+          <p class="text-xs text-gray-500 mb-0.5">First Named Insured</p>
+          <input type="text" name="first_named_insured" value="{{ p.first_named_insured or '' }}"
+            placeholder="If different from client"
             class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh">
         </div>
         <div>
@@ -132,10 +138,12 @@
     <script>
     (function(){
       var uid = "{{ p.policy_uid }}";
+      var clientId = "{{ p.client_id }}";
+      var clientScoped = new Set(["project_name", "exposure_city"]);
       [["carrier", "ac-carrier-row-" + uid],
-       ["project_name", "ac-project-row-" + uid],
-       ["placement_colleague", "ac-placement_colleague-row-" + uid]].forEach(function(pair){
-        fetch("/policies/autocomplete?field=" + pair[0])
+       ["project_name", "ac-project-row-" + uid]].forEach(function(pair){
+        var clientParam = clientScoped.has(pair[0]) && clientId ? '&client_id=' + clientId : '';
+        fetch("/policies/autocomplete?field=" + pair[0] + clientParam)
           .then(function(r){ return r.json(); })
           .then(function(vals){
             var dl = document.getElementById(pair[1]);
@@ -145,6 +153,24 @@
             }).join('');
           });
       });
+
+      // Load colleague names + wire auto-fill for email
+      fetch("/policies/colleague-data")
+        .then(function(r){ return r.json(); })
+        .then(function(colleagues){
+          var dl = document.getElementById("ac-placement_colleague-row-" + uid);
+          if (dl) dl.innerHTML = Object.keys(colleagues).map(function(n){
+            return '<option value="' + n.replace(/"/g, '&quot;') + '"></option>';
+          }).join('');
+          var nameEl = document.querySelector('input[name="placement_colleague"]');
+          var emailEl = document.querySelector('input[name="placement_colleague_email"]');
+          if (nameEl && emailEl) {
+            nameEl.addEventListener('change', function(){
+              var data = colleagues[this.value];
+              if (data && data.email && !emailEl.value) emailEl.value = data.email;
+            });
+          }
+        });
     })();
     </script>
 

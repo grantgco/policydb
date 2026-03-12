@@ -1,0 +1,285 @@
+{% extends "base.html" %}
+{% block title %}Reconcile — PolicyDB{% endblock %}
+{% block content %}
+
+<div class="mb-4">
+  <h1 class="text-2xl font-bold text-gray-900">Data Reconciliation</h1>
+  <p class="text-sm text-gray-500 mt-1">Upload a CSV export from AMS360, Applied Epic, HawkSoft, or any AMS to compare against PolicyDB.</p>
+</div>
+
+<!-- Upload form -->
+<div class="card p-5 mb-5">
+  <form action="/reconcile" method="post" enctype="multipart/form-data" class="space-y-4">
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+
+      <!-- File -->
+      <div class="md:col-span-1">
+        <label class="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">CSV File</label>
+        <input type="file" name="file" id="reconcile-file-input" accept=".csv,.txt" required
+          class="block w-full text-sm text-gray-700 border border-gray-300 rounded-lg px-3 py-2
+                 file:mr-3 file:py-1 file:px-3 file:rounded file:border-0
+                 file:text-xs file:font-medium file:bg-marsh file:text-white hover:file:bg-marsh-light
+                 focus:outline-none focus:ring-2 focus:ring-marsh">
+        <p class="text-xs text-gray-400 mt-1">Any CSV — map your columns below after selecting.</p>
+      </div>
+
+      <!-- Client filter -->
+      <div>
+        <label class="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Limit to Client</label>
+        <select name="client_id"
+          class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-marsh bg-white">
+          <option value="0" {% if selected_client_id == 0 %}selected{% endif %}>— All Clients —</option>
+          {% for c in all_clients %}
+          <option value="{{ c.id }}" {% if selected_client_id == c.id %}selected{% endif %}>{{ c.name }}</option>
+          {% endfor %}
+        </select>
+        <p class="text-xs text-gray-400 mt-1">Recommended: filter to one client at a time</p>
+      </div>
+
+      <!-- Scope -->
+      <div>
+        <label class="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">PolicyDB Scope</label>
+        <div class="space-y-1.5 pt-1">
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input type="radio" name="scope" value="active" {% if selected_scope == 'active' %}checked{% endif %}
+              class="text-marsh focus:ring-marsh">
+            <span class="text-sm text-gray-700">Active policies <span class="text-gray-400 text-xs">(expiring within last 365d)</span></span>
+          </label>
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input type="radio" name="scope" value="all" {% if selected_scope == 'all' %}checked{% endif %}
+              class="text-marsh focus:ring-marsh">
+            <span class="text-sm text-gray-700">All non-archived <span class="text-gray-400 text-xs">(includes older terms)</span></span>
+          </label>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Column mapping (shown after file is selected) -->
+    <input type="hidden" name="column_mapping_json" id="col-map-json">
+    <div id="col-map-ui" class="hidden border-t border-gray-100 pt-4">
+      <p class="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Map Your Columns</p>
+      <div id="col-map-rows" class="space-y-2 mb-2"></div>
+      <p class="text-xs text-gray-400">Columns set to "— Ignore —" are excluded from matching and create forms.</p>
+    </div>
+
+    <div class="flex items-center gap-3 pt-2 border-t border-gray-100">
+      <button type="submit"
+        class="bg-marsh hover:bg-marsh-light text-white font-medium text-sm px-5 py-2 rounded-lg transition-colors">
+        Run Reconciliation
+      </button>
+      {% if results is not none %}
+      <span class="text-xs text-gray-400">Last run: {{ run_date }} · {{ filename }}</span>
+      {% endif %}
+    </div>
+  </form>
+</div>
+
+<!-- Errors -->
+{% if errors %}
+<div class="bg-red-50 border border-red-200 rounded-lg px-4 py-3 mb-4">
+  {% for e in errors %}
+  <p class="text-sm text-red-700">{{ e }}</p>
+  {% endfor %}
+</div>
+{% endif %}
+
+<!-- Warnings -->
+{% if warnings %}
+<div class="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 mb-4">
+  <p class="text-xs font-semibold text-amber-800 mb-1">Parse warnings ({{ warnings | length }})</p>
+  {% for w in warnings %}
+  <p class="text-xs text-amber-700">{{ w }}</p>
+  {% endfor %}
+</div>
+{% endif %}
+
+<!-- Results -->
+{% if results is not none %}
+
+<!-- Summary badges -->
+<div class="flex flex-wrap gap-3 mb-4">
+  <button data-filter-btn data-filter="all" onclick="filterRows('all')"
+    class="filter-badge px-4 py-2 rounded-lg border-2 border-gray-300 bg-white text-sm font-semibold text-gray-600 hover:border-gray-400 active-filter">
+    All <span class="ml-1 font-bold">{{ summary.total }}</span>
+  </button>
+  <button data-filter-btn data-filter="DIFF" onclick="filterRows('DIFF')"
+    class="filter-badge px-4 py-2 rounded-lg border-2 border-amber-300 bg-amber-50 text-sm font-semibold text-amber-700 hover:border-amber-500">
+    Differences <span class="ml-1 font-bold">{{ summary.diff }}</span>
+  </button>
+  <button data-filter-btn data-filter="MISSING" onclick="filterRows('MISSING')"
+    class="filter-badge px-4 py-2 rounded-lg border-2 border-red-300 bg-red-50 text-sm font-semibold text-red-700 hover:border-red-500">
+    Missing from PolicyDB <span class="ml-1 font-bold">{{ summary.missing }}</span>
+  </button>
+  <button data-filter-btn data-filter="EXTRA" onclick="filterRows('EXTRA')"
+    class="filter-badge px-4 py-2 rounded-lg border-2 border-blue-300 bg-blue-50 text-sm font-semibold text-blue-700 hover:border-blue-500">
+    Extra in PolicyDB <span class="ml-1 font-bold">{{ summary.extra }}</span>
+  </button>
+  <button data-filter-btn data-filter="MATCH" onclick="filterRows('MATCH')"
+    class="filter-badge px-4 py-2 rounded-lg border-2 border-green-300 bg-green-50 text-sm font-semibold text-green-700 hover:border-green-500">
+    Matched <span class="ml-1 font-bold">{{ summary.match }}</span>
+  </button>
+</div>
+
+{% include "reconcile/_results_table.html" %}
+
+<!-- Download -->
+<div class="mt-4">
+  <p class="text-xs text-gray-400 mb-2">To download the full XLSX report, re-select your file and click Download.</p>
+  <form action="/reconcile/download" method="post" enctype="multipart/form-data" class="flex items-center gap-3">
+    <input type="hidden" name="client_id" value="{{ selected_client_id }}">
+    <input type="hidden" name="scope" value="{{ selected_scope }}">
+    <input type="hidden" name="column_mapping_json" value="{{ column_mapping_json | default('') }}">
+    <input type="file" name="file" accept=".csv,.txt" required
+      class="text-sm text-gray-700 border border-gray-300 rounded px-2 py-1
+             file:mr-2 file:py-0.5 file:px-2 file:rounded file:border-0
+             file:text-xs file:font-medium file:bg-gray-100 file:text-gray-700">
+    <button type="submit"
+      class="border border-green-600 hover:bg-green-600 text-green-700 hover:text-white text-sm font-medium px-4 py-1.5 rounded-lg transition-colors">
+      Download XLSX ↓
+    </button>
+  </form>
+</div>
+
+{% endif %}
+
+<style>
+  .filter-badge { transition: border-color 0.15s, box-shadow 0.15s; }
+  .filter-badge.active-filter { box-shadow: 0 0 0 2px currentColor; }
+</style>
+
+<script>
+  // ── Column Mapping ──────────────────────────────────────────────────────────
+  const POLICYDB_FIELDS = [
+    { value: "ignore",                  label: "— Ignore —" },
+    { value: "client_name",             label: "Client / Insured" },
+    { value: "policy_type",             label: "Policy Type / Coverage" },
+    { value: "carrier",                 label: "Carrier" },
+    { value: "policy_number",           label: "Policy Number" },
+    { value: "effective_date",          label: "Effective Date" },
+    { value: "expiration_date",         label: "Expiration / Expiry Date" },
+    { value: "premium",                 label: "Premium" },
+    { value: "limit_amount",            label: "Limit Amount" },
+    { value: "deductible",              label: "Deductible" },
+    { value: "description",             label: "Description / Notes" },
+    { value: "coverage_form",           label: "Coverage Form" },
+    { value: "layer_position",          label: "Layer Position" },
+    { value: "tower_group",             label: "Tower Group" },
+    { value: "project_name",            label: "Project / Location Name" },
+    { value: "placement_colleague",     label: "Placement Colleague" },
+    { value: "underwriter_name",        label: "Underwriter Name" },
+    { value: "underwriter_contact",     label: "Underwriter Contact / Email" },
+    { value: "commission_rate",         label: "Commission Rate" },
+    { value: "prior_premium",           label: "Prior Premium" },
+    { value: "renewal_status",          label: "Renewal Status" },
+    { value: "exposure_address",        label: "Exposure Address" },
+    { value: "exposure_city",           label: "Exposure City" },
+    { value: "exposure_state",          label: "Exposure State" },
+    { value: "exposure_zip",            label: "Exposure ZIP" },
+    { value: "exposure_basis",          label: "Exposure Basis" },
+    { value: "exposure_amount",         label: "Exposure Amount" },
+    { value: "is_standalone",           label: "Standalone (1/0)" },
+  ];
+
+  const ALIASES = {
+    "insured": "client_name", "client": "client_name",
+    "insured_name": "client_name", "named_insured": "client_name",
+    "coverage": "policy_type", "coverage_type": "policy_type",
+    "lob": "policy_type", "line_of_business": "policy_type",
+    "type": "policy_type", "line": "policy_type",
+    "carrier_name": "carrier", "company": "carrier", "insurer": "carrier",
+    "policy_expiry": "expiration_date", "expiry": "expiration_date",
+    "expiry_date": "expiration_date", "expiration": "expiration_date",
+    "policy_expiration": "expiration_date",
+    "effective": "effective_date", "eff": "effective_date", "eff_date": "effective_date",
+    "policy_number": "policy_number", "pol_no": "policy_number",
+    "pol_num": "policy_number", "pol_number": "policy_number",
+    "premium": "premium", "annual_premium": "premium",
+    "written_premium": "premium", "total_premium": "premium",
+    "limit": "limit_amount", "limits": "limit_amount",
+    "ded": "deductible", "deductible": "deductible",
+    "notes": "description", "coverage_form": "coverage_form",
+    "layer": "layer_position", "tower": "tower_group",
+    "project": "project_name", "location": "project_name",
+    "colleague": "placement_colleague", "underwriter": "underwriter_name",
+    "uw": "underwriter_name", "commission": "commission_rate",
+    "comm_rate": "commission_rate", "prior": "prior_premium",
+    "status": "renewal_status", "standalone": "is_standalone",
+  };
+
+  function autoDetect(header) {
+    const key = header.toLowerCase().trim().replace(/[\s\-\/\.#]+/g, '_').replace(/[^a-z0-9_]/g, '');
+    return ALIASES[key] || key;  // return key itself in case it's already a canonical field name
+  }
+
+  function buildMappingUI(headers) {
+    const container = document.getElementById('col-map-rows');
+    container.innerHTML = '';
+    const validValues = new Set(POLICYDB_FIELDS.map(f => f.value));
+    headers.forEach(header => {
+      const detected = autoDetect(header);
+      const suggested = validValues.has(detected) ? detected : 'ignore';
+      const row = document.createElement('div');
+      row.className = 'flex items-center gap-3';
+      const opts = POLICYDB_FIELDS.map(f =>
+        `<option value="${f.value}"${f.value === suggested ? ' selected' : ''}>${f.label}</option>`
+      ).join('');
+      row.innerHTML = `
+        <span class="text-sm text-gray-700 w-52 shrink-0 truncate font-mono bg-gray-100 rounded px-2 py-0.5" title="${header}">${header}</span>
+        <span class="text-gray-400">→</span>
+        <select data-col="${header.replace(/"/g, '&quot;')}" class="col-map-select border border-gray-300 rounded px-2 py-1 text-sm bg-white flex-1 focus:outline-none focus:ring-1 focus:ring-marsh">${opts}</select>`;
+      container.appendChild(row);
+    });
+    document.getElementById('col-map-ui').classList.remove('hidden');
+  }
+
+  document.getElementById('reconcile-file-input').addEventListener('change', function () {
+    const file = this.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function (e) {
+      const firstLine = e.target.result.split(/\r?\n/).find(l => l.trim());
+      if (!firstLine) return;
+      // Split on comma, respecting quoted fields
+      const headers = firstLine.split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+      buildMappingUI(headers);
+    };
+    reader.readAsText(file);
+  });
+
+  document.querySelector('form[action="/reconcile"]').addEventListener('submit', function () {
+    const mapping = {};
+    document.querySelectorAll('.col-map-select').forEach(sel => {
+      if (sel.value !== 'ignore') mapping[sel.dataset.col] = sel.value;
+    });
+    document.getElementById('col-map-json').value = JSON.stringify(mapping);
+  });
+
+  // ── Filter / toggle ─────────────────────────────────────────────────────────
+  function filterRows(status) {
+    const rows = document.querySelectorAll('tr[data-status]');
+    rows.forEach(row => {
+      const detail = document.getElementById('detail-' + row.dataset.uid);
+      if (status === 'all' || row.dataset.status === status) {
+        row.style.display = '';
+      } else {
+        row.style.display = 'none';
+        if (detail) detail.style.display = 'none';
+      }
+    });
+    // Update active badge styling
+    document.querySelectorAll('[data-filter-btn]').forEach(btn => {
+      btn.classList.toggle('active-filter', btn.dataset.filter === status);
+    });
+  }
+
+  // Toggle detail row
+  function toggleDetail(uid) {
+    const detail = document.getElementById('detail-' + uid);
+    if (detail) {
+      detail.style.display = detail.style.display === 'none' ? '' : 'none';
+    }
+  }
+</script>
+
+{% endblock %}
