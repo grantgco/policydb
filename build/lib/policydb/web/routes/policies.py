@@ -29,7 +29,7 @@ US_STATES = [
 
 # Fields that can serve autocomplete suggestions from prior DB entries
 _AUTOCOMPLETE_FIELDS = {
-    "carrier", "placement_colleague", "underwriter_name",
+    "carrier", "placement_colleague", "placement_colleague_email", "underwriter_name",
     "exposure_basis", "exposure_unit", "project_name",
     "exposure_city", "exposure_state",
 }
@@ -144,6 +144,8 @@ def policy_row_edit_post(
     participation_of: str = Form(""),
     placement_colleague: str = Form(""),
     placement_colleague_email: str = Form(""),
+    description: str = Form(""),
+    notes: str = Form(""),
     conn=Depends(get_db),
 ):
     """HTMX partial: save inline row edits, return updated display row."""
@@ -160,7 +162,8 @@ def policy_row_edit_post(
            effective_date=?, expiration_date=?, premium=?,
            limit_amount=?, commission_rate=?, project_name=?,
            follow_up_date=?, attachment_point=?, participation_of=?,
-           placement_colleague=?, placement_colleague_email=?
+           placement_colleague=?, placement_colleague_email=?,
+           description=?, notes=?
            WHERE policy_uid=?""",
         (
             policy_type, carrier, policy_number or None,
@@ -170,6 +173,7 @@ def policy_row_edit_post(
             follow_up_date or None,
             _float(attachment_point), _float(participation_of),
             placement_colleague or None, placement_colleague_email or None,
+            description or None, notes or None,
             uid,
         ),
     )

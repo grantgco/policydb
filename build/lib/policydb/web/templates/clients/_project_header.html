@@ -1,13 +1,12 @@
-<div id="proj-hdr-{{ client.id }}-{{ project_name | replace(' ', '_') | replace('/', '_') }}"
-     class="px-4 py-1.5 bg-gray-50 border-b border-gray-100 flex items-center gap-2">
+<div class="proj-hdr-wrap px-4 py-1.5 bg-gray-50 border-b border-gray-100 flex items-center gap-2">
   {% if note %}
   <p class="text-xs text-gray-500 italic flex-1">{{ note }}</p>
   {% else %}
   <p class="text-xs text-gray-300 italic flex-1">No notes</p>
   {% endif %}
-  <button
+  <button type="button"
     hx-get="/clients/{{ client.id }}/project-note/edit?project={{ project_name | urlencode }}"
-    hx-target="#proj-hdr-{{ client.id }}-{{ project_name | replace(' ', '_') | replace('/', '_') }}"
+    hx-target="closest .proj-hdr-wrap"
     hx-swap="outerHTML"
     class="text-xs text-gray-300 hover:text-marsh shrink-0">✎ Edit note</button>
 </div>

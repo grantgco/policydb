@@ -1,0 +1,18 @@
+<div id="client-scratchpad-{{ client.id }}" class="card p-4">
+  <div class="flex items-center justify-between mb-2">
+    <h2 class="font-semibold text-gray-900">Working Notes</h2>
+    <span class="text-xs text-gray-400 italic">
+      {% if client_scratchpad_updated %}saved {{ client_scratchpad_updated[:16] }}{% endif %}
+    </span>
+  </div>
+  <textarea
+    name="content"
+    rows="5"
+    placeholder="Working notes about this client — not client-facing…"
+    hx-post="/clients/{{ client.id }}/scratchpad"
+    hx-trigger="keyup changed delay:800ms"
+    hx-target="#client-scratchpad-{{ client.id }}"
+    hx-swap="outerHTML"
+    hx-include="this"
+    class="w-full text-sm text-gray-800 bg-transparent resize-none focus:outline-none placeholder-gray-300 leading-relaxed">{{ client_scratchpad }}</textarea>
+</div>

@@ -30,6 +30,8 @@ src/policydb/migrations/009_add_policy_followup_date.sql
 src/policydb/migrations/010_add_tower_fields.sql
 src/policydb/migrations/011_add_placement_colleague_email.sql
 src/policydb/migrations/012_add_project_notes.sql
+src/policydb/migrations/013_add_scratchpad.sql
+src/policydb/migrations/014_add_client_scratchpad.sql
 src/policydb/migrations/__init__.py
 src/policydb/web/__init__.py
 src/policydb/web/app.py
@@ -50,10 +52,12 @@ src/policydb/web/templates/activities/_activity_row.html
 src/policydb/web/templates/activities/list.html
 src/policydb/web/templates/clients/_project_header.html
 src/policydb/web/templates/clients/_project_header_edit.html
+src/policydb/web/templates/clients/_scratchpad.html
 src/policydb/web/templates/clients/_table_rows.html
 src/policydb/web/templates/clients/detail.html
 src/policydb/web/templates/clients/edit.html
 src/policydb/web/templates/clients/list.html
+src/policydb/web/templates/dashboard/_scratchpad.html
 src/policydb/web/templates/policies/_pipeline_table.html
 src/policydb/web/templates/policies/_policy_dash_row.html
 src/policydb/web/templates/policies/_policy_dash_row_log.html

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
@@ -58,6 +58,19 @@ def dashboard(request: Request, conn=Depends(get_db)):
 
     pipeline_dicts = _attach_client_ids(conn, [dict(p) for p in pipeline])
 
+    note_row = conn.execute("SELECT content, updated_at FROM user_notes WHERE id=1").fetchone()
+    scratchpad_content = note_row["content"] if note_row else ""
+    scratchpad_updated = note_row["updated_at"] if note_row else ""
+
+    recent_client_notes = [dict(r) for r in conn.execute(
+        """SELECT c.id AS client_id, c.name AS client_name,
+                  cs.content, cs.updated_at
+           FROM client_scratchpad cs
+           JOIN clients c ON cs.client_id = c.id
+           WHERE cs.content != ''
+           ORDER BY cs.updated_at DESC LIMIT 5"""
+    ).fetchall()]
+
     return templates.TemplateResponse("dashboard.html", {
         "request": request,
         "active": "dashboard",
@@ -71,6 +84,26 @@ def dashboard(request: Request, conn=Depends(get_db)):
         "renewal_statuses": cfg.get("renewal_statuses"),
         "dash_window": 90,
         "dash_status": "",
+        "scratchpad_content": scratchpad_content,
+        "scratchpad_updated": scratchpad_updated,
+        "recent_client_notes": recent_client_notes,
+    })
+
+
+@router.post("/dashboard/scratchpad", response_class=HTMLResponse)
+def save_scratchpad(request: Request, content: str = Form(""), conn=Depends(get_db)):
+    """HTMX: auto-save global dashboard scratchpad."""
+    conn.execute(
+        "INSERT INTO user_notes (id, content) VALUES (1, ?) "
+        "ON CONFLICT(id) DO UPDATE SET content=excluded.content",
+        (content,),
+    )
+    conn.commit()
+    row = conn.execute("SELECT updated_at FROM user_notes WHERE id=1").fetchone()
+    return templates.TemplateResponse("dashboard/_scratchpad.html", {
+        "request": request,
+        "scratchpad_content": content,
+        "scratchpad_updated": row["updated_at"] if row else "",
     })
 
 
