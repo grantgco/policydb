@@ -1,0 +1,120 @@
+{% set form_id = 'tpl-form-' ~ (t.id if t.id else 'new') %}
+{% set subj_id = 'tpl-subject-' ~ (t.id if t.id else 'new') %}
+{% set body_id = 'tpl-body-' ~ (t.id if t.id else 'new') %}
+
+{% if editing %}<div id="template-card-{{ t.id }}" class="card p-4">{% endif %}
+<form
+  {% if editing %}
+  hx-post="/templates/{{ t.id }}/edit"
+  hx-target="#template-card-{{ t.id }}"
+  hx-swap="outerHTML"
+  {% else %}
+  action="/templates/new"
+  method="post"
+  {% endif %}
+  id="{{ form_id }}"
+  class="space-y-4">
+
+  <!-- Name + Context row -->
+  <div class="grid grid-cols-2 gap-3">
+    <div>
+      <label class="text-xs font-medium text-gray-600 block mb-1">Template Name *</label>
+      <input name="name" value="{{ t.name or '' }}" required placeholder="e.g. Renewal Intro Email"
+        class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-marsh">
+    </div>
+    <div>
+      <label class="text-xs font-medium text-gray-600 block mb-1">Context</label>
+      <select name="context" id="{{ form_id }}-ctx"
+        onchange="updatePills('{{ subj_id }}', '{{ body_id }}', this.value)"
+        class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-marsh">
+        <option value="policy" {% if t.context == 'policy' or not t.context %}selected{% endif %}>Policy</option>
+        <option value="client" {% if t.context == 'client' %}selected{% endif %}>Client</option>
+        <option value="general" {% if t.context == 'general' %}selected{% endif %}>General</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- Description -->
+  <div>
+    <label class="text-xs font-medium text-gray-600 block mb-1">Description <span class="font-normal text-gray-400">(optional)</span></label>
+    <input name="description" value="{{ t.description or '' }}" placeholder="Brief note about when to use this template"
+      class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-marsh">
+  </div>
+
+  <!-- Subject field with pill toolbar -->
+  <div>
+    <label class="text-xs font-medium text-gray-600 block mb-1">Email Subject</label>
+    <div id="pills-subject-{{ form_id }}" class="flex flex-wrap gap-1 mb-1.5">
+      {% set init_ctx = t.context or 'policy' %}
+      {% for token_key, token_label in context_tokens.get(init_ctx, []) %}
+      <button type="button" onclick="insertToken('{{ subj_id }}', '{{ token_key }}')"
+        class="pill-btn">{{ token_label }}</button>
+      {% endfor %}
+    </div>
+    <input name="subject_template" id="{{ subj_id }}" value="{{ t.subject_template or '' }}"
+      placeholder="Re: &#123;&#123;client_name&#125;&#125; — &#123;&#123;policy_type&#125;&#125;"
+      class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-marsh">
+  </div>
+
+  <!-- Body field with pill toolbar -->
+  <div>
+    <label class="text-xs font-medium text-gray-600 block mb-1">Email Body</label>
+    <div id="pills-body-{{ form_id }}" class="flex flex-wrap gap-1 mb-1.5">
+      {% for token_key, token_label in context_tokens.get(init_ctx, []) %}
+      <button type="button" onclick="insertToken('{{ body_id }}', '{{ token_key }}')"
+        class="pill-btn">{{ token_label }}</button>
+      {% endfor %}
+    </div>
+    <textarea name="body_template" id="{{ body_id }}" rows="10"
+      placeholder="Dear &#123;&#123;primary_contact&#125;&#125;,&#10;&#10;I am reaching out regarding your &#123;&#123;policy_type&#125;&#125; with &#123;&#123;carrier&#125;&#125;..."
+      class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-marsh resize-y">{{ t.body_template or '' }}</textarea>
+  </div>
+
+  <div class="flex gap-2">
+    <button type="submit"
+      class="bg-marsh text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-marsh-light transition-colors">
+      {% if editing %}Save Changes{% else %}Create Template{% endif %}
+    </button>
+    {% if editing %}
+    <button type="button"
+      hx-get="/templates"
+      hx-target="#template-card-{{ t.id }}"
+      hx-swap="outerHTML"
+      class="text-sm text-gray-500 hover:text-gray-700 border border-gray-200 rounded-lg px-4 py-2">
+      Cancel
+    </button>
+    {% else %}
+    <button type="button"
+      onclick="document.getElementById('new-template-form').classList.add('hidden')"
+      class="text-sm text-gray-500 hover:text-gray-700 border border-gray-200 rounded-lg px-4 py-2">
+      Cancel
+    </button>
+    {% endif %}
+  </div>
+</form>
+
+<script>
+// Token data for each context (for dynamic pill updates)
+var CONTEXT_TOKENS_DATA = {{ context_tokens_json if context_tokens_json is defined else '{}' }};
+
+function updatePills(subjId, bodyId, ctx) {
+  var tokens = CONTEXT_TOKENS_DATA[ctx] || [];
+  ['pills-subject-', 'pills-body-'].forEach(function(prefix) {
+    // Find the pill container — it's the sibling before the input
+    var input = document.getElementById(prefix === 'pills-subject-' ? subjId : bodyId);
+    if (!input) return;
+    var container = input.previousElementSibling;
+    if (!container) return;
+    container.innerHTML = '';
+    tokens.forEach(function(t) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'pill-btn';
+      btn.textContent = t[1];
+      btn.onclick = function() { insertToken(prefix === 'pills-subject-' ? subjId : bodyId, t[0]); };
+      container.appendChild(btn);
+    });
+  });
+}
+</script>
+{% if editing %}</div>{% endif %}

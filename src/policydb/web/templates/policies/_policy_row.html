@@ -7,8 +7,11 @@
     <p class="text-xs text-gray-400 font-mono">{{ notation }}</p>
     {% endif %}
   </td>
-  <td class="px-4 py-3 text-gray-600">{{ p.carrier }}</td>
-  <td class="px-4 py-3">
+  <td class="px-4 py-3 text-gray-600">
+    {{ p.carrier }}
+    {% if p.first_named_insured %}<p class="text-xs text-gray-400 mt-0.5">FNI: {{ p.first_named_insured }}</p>{% endif %}
+  </td>
+  <td class="px-4 py-3 whitespace-nowrap">
     <span class="block text-gray-700">{{ p.expiration_date }}</span>
     {% if p.days_to_renewal is not none %}
     <span class="{{ p.urgency | urgency_class }} text-xs px-1.5 py-0.5 rounded font-medium">{{ p.days_to_renewal }}d</span>
