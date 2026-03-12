@@ -244,6 +244,15 @@ def init_db(path: Path | None = None) -> None:
         )
         conn.commit()
 
+    if 23 not in applied:
+        sql = (_MIGRATIONS_DIR / "023_add_client_fields.sql").read_text()
+        conn.executescript(sql)
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (23, "Add website, renewal_month, client_since, preferred_contact_method, referral_source to clients"),
+        )
+        conn.commit()
+
     _create_views(conn)
     conn.commit()
     conn.close()
