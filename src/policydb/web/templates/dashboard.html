@@ -126,7 +126,7 @@
             </div>
             <p class="text-xs text-gray-700 truncate">{{ o.subject }}</p>
             <p class="text-xs text-gray-400 mt-0.5">
-              {% if o.contact_person %}<span class="text-gray-500">{{ o.contact_person }}</span>{% if o.contact_email %}<a href="mailto:{{ o.contact_email }}{% if o.internal_cc %}?cc={{ o.internal_cc | urlencode }}{% endif %}" class="ml-1 text-marsh hover:underline">✉</a>{% endif %} · {% endif %}
+              {% if o.contact_person %}<span class="text-gray-500">{{ o.contact_person }}</span>{% if o.contact_email %}<a href="mailto:{{ o.contact_email }}?subject={{ o.mailto_subject | urlencode }}{% if o.internal_cc %}&cc={{ o.internal_cc | urlencode }}{% endif %}" class="ml-1 text-marsh hover:underline">✉</a>{% endif %} · {% endif %}
               {% if o.policy_type %}<span>{{ o.policy_type }}{% if o.carrier %} · {{ o.carrier }}{% endif %}</span> · {% endif %}
               <span class="text-red-500">{{ o.days_overdue }}d overdue</span>
             </p>
@@ -162,7 +162,7 @@
             </div>
             <p class="text-xs text-gray-700 truncate">{{ u.subject }}</p>
             <p class="text-xs text-gray-400 mt-0.5">
-              {% if u.contact_person %}<span class="text-gray-500">{{ u.contact_person }}</span>{% if u.contact_email %}<a href="mailto:{{ u.contact_email }}{% if u.internal_cc %}?cc={{ u.internal_cc | urlencode }}{% endif %}" class="ml-1 text-marsh hover:underline">✉</a>{% endif %} · {% endif %}
+              {% if u.contact_person %}<span class="text-gray-500">{{ u.contact_person }}</span>{% if u.contact_email %}<a href="mailto:{{ u.contact_email }}?subject={{ u.mailto_subject | urlencode }}{% if u.internal_cc %}&cc={{ u.internal_cc | urlencode }}{% endif %}" class="ml-1 text-marsh hover:underline">✉</a>{% endif %} · {% endif %}
               {% if u.policy_type %}<span>{{ u.policy_type }}{% if u.carrier %} · {{ u.carrier }}{% endif %}</span> · {% endif %}
               <span class="text-amber-600">due {{ u.follow_up_date }}</span>
             </p>
