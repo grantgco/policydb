@@ -1,0 +1,55 @@
+<div id="team-contacts-card" class="card p-4">
+  <h2 class="font-semibold text-gray-900 mb-3 text-sm">Internal Team</h2>
+  {% if team_contacts %}
+  <ul class="divide-y divide-gray-100 mb-3">
+    {% for c in team_contacts %}
+    <li class="py-2">
+      <div class="flex items-start justify-between gap-2">
+        <div>
+          <p class="text-sm font-medium text-gray-900">{{ c.name }}{% if c.title %} <span class="text-gray-400 font-normal text-xs">· {{ c.title }}</span>{% endif %}</p>
+          {% if c.role %}<p class="text-xs text-indigo-600 font-medium">{{ c.role }}</p>{% endif %}
+          {% if c.email %}<p class="text-xs text-gray-500"><a href="mailto:{{ c.email }}?subject={{ mailto_subject | urlencode }}" class="hover:text-marsh">{{ c.email }}</a></p>{% endif %}
+          {% if c.phone %}<p class="text-xs text-gray-500">{{ c.phone }}</p>{% endif %}
+        </div>
+        <div class="flex gap-2 shrink-0 mt-0.5">
+          <button onclick="document.getElementById('edit-team-{{ c.id }}').classList.toggle('hidden')"
+            class="text-xs text-gray-300 hover:text-marsh">✎</button>
+          <button
+            hx-post="/clients/{{ client.id }}/team/{{ c.id }}/delete"
+            hx-target="#team-contacts-card" hx-swap="outerHTML"
+            hx-confirm="Remove {{ c.name }} from internal team?"
+            class="text-xs text-gray-300 hover:text-red-400">✕</button>
+        </div>
+      </div>
+      <div id="edit-team-{{ c.id }}" class="hidden mt-2">
+        <form hx-post="/clients/{{ client.id }}/team/{{ c.id }}/edit"
+              hx-target="#team-contacts-card" hx-swap="outerHTML"
+              class="grid grid-cols-2 gap-2">
+          <input name="name" value="{{ c.name }}" required placeholder="Name *" class="col-span-2 border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-marsh">
+          <input name="title" value="{{ c.title or '' }}" placeholder="Title" class="border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-marsh">
+          <input name="role" value="{{ c.role or '' }}" placeholder="Role" class="border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-marsh">
+          <input name="phone" value="{{ c.phone or '' }}" placeholder="Phone" class="border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-marsh">
+          <input name="email" value="{{ c.email or '' }}" placeholder="Email" type="email" class="border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-marsh">
+          <button type="submit" class="bg-marsh text-white text-xs font-medium py-1.5 rounded hover:bg-marsh-light transition-colors">Save</button>
+          <button type="button" onclick="document.getElementById('edit-team-{{ c.id }}').classList.add('hidden')"
+            class="text-xs text-gray-500 hover:text-gray-700 border border-gray-200 rounded py-1.5">Cancel</button>
+        </form>
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  <details class="{% if team_contacts %}border-t border-gray-100 pt-2{% endif %}">
+    <summary class="text-xs text-marsh hover:underline cursor-pointer select-none list-none">+ Add Team Member</summary>
+    <form hx-post="/clients/{{ client.id }}/team/add"
+          hx-target="#team-contacts-card" hx-swap="outerHTML"
+          class="grid grid-cols-2 gap-2 mt-2">
+      <input name="name" placeholder="Name *" required class="col-span-2 border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-marsh">
+      <input name="title" placeholder="Title (e.g. Account Manager)" class="border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-marsh">
+      <input name="role" placeholder="Role (e.g. CSR, Producer)" class="border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-marsh">
+      <input name="phone" placeholder="Phone" class="border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-marsh">
+      <input name="email" placeholder="Email" type="email" class="border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-marsh">
+      <button type="submit" class="col-span-2 bg-marsh text-white text-xs font-medium py-1.5 rounded hover:bg-marsh-light transition-colors">Add Team Member</button>
+    </form>
+  </details>
+</div>

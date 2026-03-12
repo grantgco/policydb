@@ -1,0 +1,121 @@
+{% set today = today if today is defined else '' %}
+{% set col_headers %}
+<tr class="border-b border-gray-100 text-left text-xs text-gray-500 uppercase tracking-wide bg-gray-50">
+  <th class="px-4 py-3">Client</th>
+  <th class="px-4 py-3">Subject</th>
+  <th class="px-4 py-3">Type</th>
+  <th class="px-4 py-3">Contact</th>
+  <th class="px-4 py-3">Policy</th>
+  <th class="px-4 py-3">Due</th>
+  <th class="px-4 py-3"></th>
+</tr>
+{% endset %}
+
+{% if overdue %}
+<div class="card overflow-hidden mb-5">
+  <div class="px-5 py-3 bg-red-50 border-b border-red-100 flex items-center gap-2">
+    <h2 class="font-semibold text-red-700">Overdue</h2>
+    <span class="bg-red-100 text-red-700 text-xs font-bold px-2 py-0.5 rounded-full">{{ overdue | length }}</span>
+  </div>
+  <table class="w-full text-sm">
+    <thead>{{ col_headers }}</thead>
+    <tbody class="divide-y divide-gray-50">
+      {% for r in overdue %}
+      {% set r = r | dict_merge({'_is_overdue': true}) %}
+      {% include "followups/_row.html" %}
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% if upcoming %}
+<div class="card overflow-hidden mb-5">
+  <div class="px-5 py-3 bg-amber-50 border-b border-amber-100 flex items-center gap-2">
+    <h2 class="font-semibold text-amber-700">Upcoming · next {{ window }} days</h2>
+    <span class="bg-amber-100 text-amber-700 text-xs font-bold px-2 py-0.5 rounded-full">{{ upcoming | length }}</span>
+  </div>
+  <table class="w-full text-sm">
+    <thead>{{ col_headers }}</thead>
+    <tbody class="divide-y divide-gray-50">
+      {% for r in upcoming %}
+      {% set r = r | dict_merge({'_is_overdue': false}) %}
+      {% include "followups/_row.html" %}
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% if suggested %}
+<div class="card overflow-hidden mb-5">
+  <div class="px-5 py-3 bg-gray-50 border-b border-gray-200 flex items-center gap-2">
+    <h2 class="font-semibold text-gray-700">Needs Follow-Up</h2>
+    <span class="bg-gray-200 text-gray-600 text-xs font-bold px-2 py-0.5 rounded-full">{{ suggested | length }}</span>
+    <span class="text-xs text-gray-400 ml-1">— approaching renewals with no follow-up scheduled</span>
+  </div>
+  <table class="w-full text-sm">
+    <thead>
+      <tr class="border-b border-gray-100 text-left text-xs text-gray-500 uppercase tracking-wide bg-gray-50">
+        <th class="px-4 py-3">Client</th>
+        <th class="px-4 py-3">Coverage</th>
+        <th class="px-4 py-3">Expires</th>
+        <th class="px-4 py-3">Status</th>
+        <th class="px-4 py-3">Last Activity</th>
+        <th class="px-4 py-3"></th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-gray-50">
+      {% for s in suggested %}
+      <tr class="hover:bg-gray-50" id="suggested-{{ s.policy_uid }}">
+        <td class="px-4 py-3">
+          <a href="/clients/{{ s.client_id }}" class="font-medium text-marsh hover:underline">{{ s.client_name }}</a>
+          {% if s.project_name %}<span class="text-xs text-gray-400 ml-1">· {{ s.project_name }}</span>{% endif %}
+        </td>
+        <td class="px-4 py-3 text-sm text-gray-700">
+          {{ s.policy_type }}
+          <span class="text-xs text-gray-400">· {{ s.carrier }}</span>
+        </td>
+        <td class="px-4 py-3 text-xs whitespace-nowrap">
+          <span class="{{ 'text-red-600 font-medium' if s.days_to_renewal <= 30 else 'text-amber-700' if s.days_to_renewal <= 60 else 'text-gray-700' }}">
+            {{ s.expiration_date }}
+          </span>
+          <span class="{{ 'bg-red-100 text-red-700' if s.days_to_renewal <= 30 else 'bg-amber-100 text-amber-700' if s.days_to_renewal <= 60 else 'bg-gray-100 text-gray-600' }} text-xs px-1.5 py-0.5 rounded ml-1">
+            {{ s.days_to_renewal }}d
+          </span>
+        </td>
+        <td class="px-4 py-3">
+          <span class="text-xs {{ 'bg-red-100 text-red-700' if s.renewal_status == 'Not Started' else 'bg-amber-100 text-amber-700' }} px-2 py-0.5 rounded">
+            {{ s.renewal_status }}
+          </span>
+        </td>
+        <td class="px-4 py-3 text-xs text-gray-400">
+          {{ s.last_activity_date or 'Never' }}
+        </td>
+        <td class="px-4 py-3" id="suggested-actions-{{ s.policy_uid }}">
+          <div class="flex gap-1.5 items-center">
+            <button
+              hx-get="/policies/{{ s.policy_uid }}/followup-form"
+              hx-target="#suggested-actions-{{ s.policy_uid }}"
+              hx-swap="innerHTML"
+              class="text-xs border border-marsh text-marsh bg-white hover:bg-marsh hover:text-white px-2 py-1 rounded transition-colors">
+              Schedule Follow-Up
+            </button>
+            <a href="/policies/{{ s.policy_uid }}/edit"
+               class="text-xs text-gray-400 hover:text-marsh hover:underline">
+              Edit →
+            </a>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% if not overdue and not upcoming and not suggested %}
+<div class="card p-12 text-center">
+  <p class="text-gray-400 text-sm">No pending follow-ups in the next {{ window }} days.</p>
+</div>
+{% endif %}

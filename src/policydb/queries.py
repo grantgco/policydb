@@ -132,6 +132,7 @@ def get_renewal_pipeline(
     window_days: int = 180,
     urgency: Optional[str] = None,
     renewal_status: Optional[str] = None,
+    excluded_statuses: Optional[list] = None,
 ) -> list[sqlite3.Row]:
     sql = "SELECT * FROM v_renewal_pipeline WHERE days_to_renewal <= ?"
     params: list = [window_days]
@@ -141,6 +142,10 @@ def get_renewal_pipeline(
     if renewal_status:
         sql += " AND renewal_status = ?"
         params.append(renewal_status)
+    if excluded_statuses:
+        placeholders = ",".join("?" * len(excluded_statuses))
+        sql += f" AND (renewal_status NOT IN ({placeholders}) OR renewal_status IS NULL)"
+        params.extend(excluded_statuses)
     sql += " ORDER BY expiration_date ASC"
     return conn.execute(sql, params).fetchall()
 
@@ -149,17 +154,21 @@ def get_stale_renewals(
     conn: sqlite3.Connection,
     window_days: int = 180,
     stale_days: int = 14,
+    excluded_statuses: Optional[list] = None,
 ) -> list[sqlite3.Row]:
-    return conn.execute(
-        """SELECT v.*, p.created_at AS policy_created
+    sql = """SELECT v.*, p.created_at AS policy_created
            FROM v_renewal_pipeline v
            JOIN policies p ON p.policy_uid = v.policy_uid
            WHERE v.days_to_renewal <= ?
              AND v.renewal_status = 'Not Started'
-             AND julianday('now') - julianday(p.created_at) > ?
-           ORDER BY v.expiration_date ASC""",
-        (window_days, stale_days),
-    ).fetchall()
+             AND julianday('now') - julianday(p.created_at) > ?"""
+    params: list = [window_days, stale_days]
+    if excluded_statuses:
+        placeholders = ",".join("?" * len(excluded_statuses))
+        sql += f" AND (v.renewal_status NOT IN ({placeholders}) OR v.renewal_status IS NULL)"
+        params.extend(excluded_statuses)
+    sql += " ORDER BY v.expiration_date ASC"
+    return conn.execute(sql, params).fetchall()
 
 
 def get_renewal_metrics(conn: sqlite3.Connection) -> dict:
@@ -309,11 +318,22 @@ def get_all_followups(
     sql = """
     SELECT 'activity' AS source,
            a.id, a.subject, a.follow_up_date, a.activity_type,
-           c.name AS client_name, c.id AS client_id, p.policy_uid,
-           CAST(julianday('now') - julianday(a.follow_up_date) AS INTEGER) AS days_overdue
+           a.contact_person,
+           c.name AS client_name, c.id AS client_id,
+           p.policy_uid, p.policy_type, p.carrier, p.project_name,
+           CAST(julianday('now') - julianday(a.follow_up_date) AS INTEGER) AS days_overdue,
+           cc.email AS contact_email,
+           (SELECT GROUP_CONCAT(ic.email, ',')
+            FROM client_contacts ic
+            WHERE ic.client_id = c.id AND ic.contact_type = 'internal' AND ic.email IS NOT NULL
+           ) AS internal_cc
     FROM activity_log a
     JOIN clients c ON a.client_id = c.id
     LEFT JOIN policies p ON a.policy_id = p.id
+    LEFT JOIN client_contacts cc ON cc.client_id = c.id
+      AND cc.name = a.contact_person
+      AND cc.contact_type = 'client'
+      AND cc.email IS NOT NULL
     WHERE a.follow_up_done = 0 AND a.follow_up_date IS NOT NULL
 
     UNION ALL
@@ -323,11 +343,27 @@ def get_all_followups(
            p.policy_type || ' – ' || p.carrier AS subject,
            p.follow_up_date,
            'Policy Reminder' AS activity_type,
-           c.name AS client_name, c.id AS client_id, p.policy_uid,
-           CAST(julianday('now') - julianday(p.follow_up_date) AS INTEGER) AS days_overdue
+           COALESCE(
+               (SELECT pc.name FROM policy_contacts pc
+                WHERE pc.policy_id = p.id ORDER BY pc.id LIMIT 1),
+               p.placement_colleague
+           ) AS contact_person,
+           c.name AS client_name, c.id AS client_id,
+           p.policy_uid, p.policy_type, p.carrier, p.project_name,
+           CAST(julianday('now') - julianday(p.follow_up_date) AS INTEGER) AS days_overdue,
+           COALESCE(
+               (SELECT pc.email FROM policy_contacts pc
+                WHERE pc.policy_id = p.id AND pc.email IS NOT NULL ORDER BY pc.id LIMIT 1),
+               p.placement_colleague_email
+           ) AS contact_email,
+           (SELECT GROUP_CONCAT(ic.email, ',')
+            FROM client_contacts ic
+            WHERE ic.client_id = c.id AND ic.contact_type = 'internal' AND ic.email IS NOT NULL
+           ) AS internal_cc
     FROM policies p
     JOIN clients c ON p.client_id = c.id
     WHERE p.follow_up_date IS NOT NULL AND p.archived = 0
+      AND (p.is_opportunity = 0 OR p.is_opportunity IS NULL)
 
     ORDER BY follow_up_date ASC
     """
@@ -337,6 +373,47 @@ def get_all_followups(
     overdue = [r for r in rows if r["follow_up_date"] < today]
     upcoming = [r for r in rows if today <= r["follow_up_date"] <= cutoff]
     return overdue, upcoming
+
+
+def get_suggested_followups(
+    conn: sqlite3.Connection,
+    excluded_statuses: Optional[list] = None,
+) -> list[dict]:
+    """Return policies that likely need a follow-up but have none scheduled.
+
+    Criteria: expiring within 90 days, no follow_up_date set, AND either:
+    - renewal_status is 'Not Started', or
+    - no activity logged in the last 30 days
+    """
+    excl_clause = ""
+    excl_params: list = []
+    if excluded_statuses:
+        placeholders = ",".join("?" * len(excluded_statuses))
+        excl_clause = f"AND (p.renewal_status NOT IN ({placeholders}) OR p.renewal_status IS NULL)"
+        excl_params = list(excluded_statuses)
+
+    sql = f"""
+    SELECT p.policy_uid, p.policy_type, p.carrier, p.expiration_date,
+           p.renewal_status, p.client_id, p.project_name,
+           c.name AS client_name,
+           CAST(julianday(p.expiration_date) - julianday('now') AS INTEGER) AS days_to_renewal,
+           (SELECT MAX(a.activity_date) FROM activity_log a WHERE a.policy_id = p.id) AS last_activity_date
+    FROM policies p
+    JOIN clients c ON p.client_id = c.id
+    WHERE p.archived = 0
+      AND p.follow_up_date IS NULL
+      AND julianday(p.expiration_date) - julianday('now') <= 90
+      AND julianday(p.expiration_date) - julianday('now') > 0
+      {excl_clause}
+      AND (
+        p.renewal_status = 'Not Started'
+        OR (SELECT COUNT(*) FROM activity_log a
+            WHERE a.policy_id = p.id
+              AND a.activity_date >= date('now', '-30 days')) = 0
+      )
+    ORDER BY p.expiration_date ASC
+    """
+    return [dict(r) for r in conn.execute(sql, excl_params).fetchall()]
 
 
 def get_overdue_followups(conn: sqlite3.Connection) -> list[sqlite3.Row]:
