@@ -154,6 +154,24 @@ def init_db(path: Path | None = None) -> None:
         )
         conn.commit()
 
+    if 13 not in applied:
+        sql = (_MIGRATIONS_DIR / "013_add_scratchpad.sql").read_text()
+        conn.executescript(sql)
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (13, "Add user_notes scratchpad"),
+        )
+        conn.commit()
+
+    if 14 not in applied:
+        sql = (_MIGRATIONS_DIR / "014_add_client_scratchpad.sql").read_text()
+        conn.executescript(sql)
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (14, "Add client_scratchpad table"),
+        )
+        conn.commit()
+
     _create_views(conn)
     conn.commit()
     conn.close()

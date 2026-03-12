@@ -202,6 +202,13 @@ def client_detail(request: Request, client_id: int, conn=Depends(get_db)):
                 "exposure_zip":     p.get("exposure_zip") or "",
             }
 
+    scratch_row = conn.execute(
+        "SELECT content, updated_at FROM client_scratchpad WHERE client_id=?",
+        (client_id,),
+    ).fetchone()
+    client_scratchpad = scratch_row["content"] if scratch_row else ""
+    client_scratchpad_updated = scratch_row["updated_at"] if scratch_row else ""
+
     return templates.TemplateResponse("clients/detail.html", {
         "request": request,
         "active": "clients",
@@ -215,6 +222,8 @@ def client_detail(request: Request, client_id: int, conn=Depends(get_db)):
         "project_notes": project_notes,
         "project_addresses": project_addresses,
         "archived_policies": archived_policies,
+        "client_scratchpad": client_scratchpad,
+        "client_scratchpad_updated": client_scratchpad_updated,
     })
 
 
@@ -265,6 +274,32 @@ def client_edit_post(
     )
     conn.commit()
     return RedirectResponse(f"/clients/{client_id}", status_code=303)
+
+
+@router.post("/{client_id}/scratchpad", response_class=HTMLResponse)
+def client_scratchpad_save(
+    request: Request,
+    client_id: int,
+    content: str = Form(""),
+    conn=Depends(get_db),
+):
+    """HTMX: auto-save per-client working notes."""
+    conn.execute(
+        "INSERT INTO client_scratchpad (client_id, content) VALUES (?, ?) "
+        "ON CONFLICT(client_id) DO UPDATE SET content=excluded.content",
+        (client_id, content),
+    )
+    conn.commit()
+    row = conn.execute(
+        "SELECT updated_at FROM client_scratchpad WHERE client_id=?", (client_id,)
+    ).fetchone()
+    client = conn.execute("SELECT * FROM clients WHERE id=?", (client_id,)).fetchone()
+    return templates.TemplateResponse("clients/_scratchpad.html", {
+        "request": request,
+        "client": dict(client) if client else {},
+        "client_scratchpad": content,
+        "client_scratchpad_updated": row["updated_at"] if row else "",
+    })
 
 
 @router.get("/{client_id}/export/schedule")

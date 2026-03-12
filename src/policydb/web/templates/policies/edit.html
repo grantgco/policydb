@@ -127,7 +127,8 @@
         <div>
           <label class="field-label">Colleague Email</label>
           <input type="email" name="placement_colleague_email" value="{{ policy.placement_colleague_email or '' }}"
-            placeholder="colleague@example.com" class="form-input w-full">
+            placeholder="colleague@example.com" class="form-input w-full"
+            list="ac-placement_colleague_email" autocomplete="off">
         </div>
 
         <div>
@@ -334,6 +335,7 @@
 <!-- Datalist elements populated from prior DB entries -->
 <datalist id="ac-carrier"></datalist>
 <datalist id="ac-placement_colleague"></datalist>
+<datalist id="ac-placement_colleague_email"></datalist>
 <datalist id="ac-underwriter_name"></datalist>
 <datalist id="ac-exposure_basis"></datalist>
 <datalist id="ac-exposure_unit"></datalist>
@@ -348,8 +350,9 @@
 
 <script>
 (function () {
-  const AC_FIELDS = ["carrier", "placement_colleague", "underwriter_name",
-                     "exposure_basis", "exposure_unit", "project_name", "exposure_city"];
+  const AC_FIELDS = ["carrier", "placement_colleague", "placement_colleague_email",
+                     "underwriter_name", "exposure_basis", "exposure_unit",
+                     "project_name", "exposure_city"];
 
   function loadList(field) {
     fetch(`/policies/autocomplete?field=${field}`)

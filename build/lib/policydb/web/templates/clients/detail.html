@@ -61,7 +61,7 @@
 </div>
 
 <!-- Contact info -->
-<div class="card p-5 mb-6 grid grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
+<div class="card p-5 mb-4 grid grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
   <div>
     <p class="text-xs text-gray-400 mb-1">Primary Contact</p>
     <p class="text-gray-800">{{ client.primary_contact or '—' }}</p>
@@ -92,6 +92,11 @@
     <p class="text-gray-700">{{ client.notes }}</p>
   </div>
   {% endif %}
+</div>
+
+<!-- Working Notes (per-client scratchpad) -->
+<div class="mb-6">
+{% include "clients/_scratchpad.html" %}
 </div>
 
 <!-- Tower Structure (only shown when at least one tower group exists) -->

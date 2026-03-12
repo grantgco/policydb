@@ -2,42 +2,45 @@
 {% block title %}Dashboard — PolicyDB{% endblock %}
 {% block content %}
 
-<div class="mb-6">
+<div class="mb-3">
   <h1 class="text-2xl font-bold text-gray-900">Dashboard</h1>
   <p class="text-sm text-gray-500 mt-1">Book of business overview · {{ today }}</p>
 </div>
 
 <!-- KPI Cards -->
-<div class="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
-  <div class="card p-5">
+<div class="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
+  <div class="card p-3">
     <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Clients</p>
-    <p class="text-3xl font-bold text-gray-900 mt-1">{{ metrics.book.total_clients }}</p>
+    <p class="text-2xl font-bold text-gray-900 mt-1">{{ metrics.book.total_clients }}</p>
   </div>
-  <div class="card p-5">
+  <div class="card p-3">
     <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Total Premium</p>
-    <p class="text-3xl font-bold text-gray-900 mt-1">{{ metrics.book.total_premium | currency }}</p>
+    <p class="text-2xl font-bold text-gray-900 mt-1">{{ metrics.book.total_premium | currency }}</p>
   </div>
-  <div class="card p-5">
+  <div class="card p-3">
     <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Est. Revenue</p>
-    <p class="text-3xl font-bold text-gray-900 mt-1">{{ metrics.book.total_revenue | currency }}</p>
+    <p class="text-2xl font-bold text-gray-900 mt-1">{{ metrics.book.total_revenue | currency }}</p>
     <p class="text-xs text-gray-400 mt-1">comm + fees</p>
   </div>
-  <div class="card p-5">
+  <div class="card p-3">
     <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Policies</p>
-    <p class="text-3xl font-bold text-gray-900 mt-1">{{ metrics.book.total_policies }}</p>
+    <p class="text-2xl font-bold text-gray-900 mt-1">{{ metrics.book.total_policies }}</p>
   </div>
-  <div class="card p-5 {{ 'border-red-300 bg-red-50' if urgent_count > 0 else '' }}">
+  <div class="card p-3 {{ 'border-red-300 bg-red-50' if urgent_count > 0 else '' }}">
     <p class="text-xs font-medium {{ 'text-red-600' if urgent_count > 0 else 'text-gray-500' }} uppercase tracking-wide">Urgent Renewals</p>
-    <p class="text-3xl font-bold {{ 'text-red-700' if urgent_count > 0 else 'text-gray-900' }} mt-1">{{ urgent_count }}</p>
+    <p class="text-2xl font-bold {{ 'text-red-700' if urgent_count > 0 else 'text-gray-900' }} mt-1">{{ urgent_count }}</p>
     <p class="text-xs text-gray-400 mt-1">≤ 90 days</p>
   </div>
 </div>
 
-<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+<!-- Scratchpad -->
+{% include "dashboard/_scratchpad.html" %}
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
 
   <!-- Renewal Pipeline -->
   <div class="lg:col-span-2 card">
-    <div class="px-5 pt-4 pb-3 border-b border-gray-100">
+    <div class="px-5 pt-3 pb-2 border-b border-gray-100">
       <div class="flex items-center justify-between mb-3">
         <h2 class="font-semibold text-gray-900">Renewal Pipeline</h2>
         <a href="/renewals" class="text-xs text-marsh hover:underline">View all →</a>
@@ -69,13 +72,13 @@
   </div>
 
   <!-- Right column -->
-  <div class="flex flex-col gap-6">
+  <div class="flex flex-col gap-4">
 
     <!-- Urgency breakdown -->
-    <div class="card p-5">
-      <h2 class="font-semibold text-gray-900 mb-4">Urgency Breakdown</h2>
+    <div class="card p-4">
+      <h2 class="font-semibold text-gray-900 mb-3">Urgency Breakdown</h2>
       {% for label, data in urgency_breakdown %}
-      <div class="flex items-center justify-between py-1.5">
+      <div class="flex items-center justify-between py-1">
         <span class="{{ label | urgency_class }} text-xs font-semibold px-2 py-0.5 rounded">{{ label }}</span>
         <span class="text-sm text-gray-700">{{ data.count }} <span class="text-gray-400 text-xs">· {{ data.premium | currency_short }}</span></span>
       </div>
@@ -84,7 +87,7 @@
 
     <!-- Follow-ups -->
     <div class="card">
-      <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+      <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
         <h2 class="font-semibold text-gray-900">Follow-Ups</h2>
         <div class="flex gap-2">
           {% if overdue %}<span class="bg-red-100 text-red-700 text-xs font-bold px-2 py-0.5 rounded-full">{{ overdue | length }} overdue</span>{% endif %}
@@ -162,6 +165,24 @@
       <p class="px-4 py-6 text-center text-sm text-gray-400">No pending follow-ups.</p>
       {% endif %}
     </div>
+
+    <!-- Recent Client Notes -->
+    {% if recent_client_notes %}
+    <div class="card">
+      <div class="px-4 py-3 border-b border-gray-100">
+        <h2 class="font-semibold text-gray-900 text-sm">Client Notes</h2>
+      </div>
+      <ul class="divide-y divide-gray-50">
+        {% for n in recent_client_notes %}
+        <li class="px-4 py-2.5">
+          <a href="/clients/{{ n.client_id }}" class="text-sm font-medium text-marsh hover:underline block">{{ n.client_name }}</a>
+          <p class="text-xs text-gray-600 mt-0.5">{{ n.content[:120] }}{% if n.content | length > 120 %}…{% endif %}</p>
+          <p class="text-xs text-gray-400 mt-0.5">{{ n.updated_at[:16] }}</p>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
 
   </div>
 </div>
