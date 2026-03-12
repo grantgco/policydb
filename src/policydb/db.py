@@ -172,6 +172,78 @@ def init_db(path: Path | None = None) -> None:
         )
         conn.commit()
 
+    if 15 not in applied:
+        sql = (_MIGRATIONS_DIR / "015_add_client_contacts.sql").read_text()
+        conn.executescript(sql)
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (15, "Add client_contacts table"),
+        )
+        conn.commit()
+
+    if 16 not in applied:
+        sql = (_MIGRATIONS_DIR / "016_add_policy_milestones.sql").read_text()
+        conn.executescript(sql)
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (16, "Add policy_milestones table"),
+        )
+        conn.commit()
+
+    if 17 not in applied:
+        sql = (_MIGRATIONS_DIR / "017_add_contact_role.sql").read_text()
+        conn.executescript(sql)
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (17, "Add role column to client_contacts"),
+        )
+        conn.commit()
+
+    if 18 not in applied:
+        sql = (_MIGRATIONS_DIR / "018_add_contact_type.sql").read_text()
+        conn.executescript(sql)
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (18, "Add contact_type column to client_contacts"),
+        )
+        conn.commit()
+
+    if 19 not in applied:
+        sql = (_MIGRATIONS_DIR / "019_add_policy_contacts.sql").read_text()
+        conn.executescript(sql)
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (19, "Add policy_contacts table"),
+        )
+        conn.commit()
+
+    if 20 not in applied:
+        sql = (_MIGRATIONS_DIR / "020_add_email_templates.sql").read_text()
+        conn.executescript(sql)
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (20, "Add email_templates table"),
+        )
+        conn.commit()
+
+    if 22 not in applied:
+        sql = (_MIGRATIONS_DIR / "022_add_opportunity_fields.sql").read_text()
+        conn.executescript(sql)
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (22, "Add is_opportunity, opportunity_status, target_effective_date to policies"),
+        )
+        conn.commit()
+
+    if 21 not in applied:
+        sql = (_MIGRATIONS_DIR / "021_add_first_named_insured.sql").read_text()
+        conn.executescript(sql)
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (21, "Add first_named_insured column to policies"),
+        )
+        conn.commit()
+
     _create_views(conn)
     conn.commit()
     conn.close()

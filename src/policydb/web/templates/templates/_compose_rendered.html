@@ -1,0 +1,47 @@
+{% set render_uid = (selected_template.id | string) ~ '-' ~ (policy_uid or client_id | string) %}
+<div class="space-y-3 border-t border-gray-100 pt-3 mt-1">
+
+  <!-- Subject row -->
+  <div>
+    <div class="flex items-center justify-between mb-1">
+      <label class="text-xs font-medium text-gray-500">Subject</label>
+      <button type="button" onclick="copyRendered('subject-{{ render_uid }}', this)"
+        class="text-xs text-marsh hover:underline">Copy</button>
+    </div>
+    <input id="subject-{{ render_uid }}" type="text" readonly
+      value="{{ rendered_subject }}"
+      class="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm bg-gray-50 font-mono focus:outline-none select-all cursor-text">
+  </div>
+
+  <!-- Body -->
+  <div>
+    <div class="flex items-center justify-between mb-1">
+      <label class="text-xs font-medium text-gray-500">Body</label>
+      <div class="flex gap-3">
+        <button type="button" onclick="copyRendered('body-{{ render_uid }}', this)"
+          class="text-xs text-marsh hover:underline">Copy</button>
+        {% if rendered_subject and (policy_uid or ctx) %}
+        <a href="mailto:?subject={{ rendered_subject | urlencode }}"
+           class="text-xs text-gray-400 hover:text-marsh">Open in Mail →</a>
+        {% endif %}
+      </div>
+    </div>
+    <textarea id="body-{{ render_uid }}" readonly rows="12"
+      class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-gray-50 font-mono resize-y focus:outline-none cursor-text">{{ rendered_body }}</textarea>
+  </div>
+
+</div>
+
+<script>
+function copyRendered(elemId, btn) {
+  var el = document.getElementById(elemId);
+  if (!el) return;
+  var text = el.value;
+  navigator.clipboard.writeText(text).then(function() {
+    var orig = btn.textContent;
+    btn.textContent = 'Copied!';
+    btn.classList.add('text-green-600');
+    setTimeout(function() { btn.textContent = orig; btn.classList.remove('text-green-600'); }, 1800);
+  });
+}
+</script>

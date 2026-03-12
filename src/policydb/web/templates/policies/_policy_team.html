@@ -1,0 +1,129 @@
+<div id="policy-team-card" class="card p-4">
+  <h2 class="font-semibold text-gray-900 mb-3 text-sm">Policy Team
+    <span class="normal-case font-normal text-gray-400 text-xs">— placement colleagues &amp; underwriters</span>
+  </h2>
+
+  {% if policy_contacts %}
+  <ul class="divide-y divide-gray-100 mb-3">
+    {% for c in policy_contacts %}
+    <li class="py-2">
+      <div class="flex items-start justify-between gap-2">
+        <div>
+          <p class="text-sm font-medium text-gray-900">{{ c.name }}{% if c.title %} <span class="text-gray-400 font-normal text-xs">· {{ c.title }}</span>{% endif %}</p>
+          {% if c.role %}<p class="text-xs text-indigo-500 font-medium">{{ c.role }}</p>{% endif %}
+          {% if c.email %}<p class="text-xs text-gray-500">
+            <a href="mailto:{{ c.email }}?subject={{ mailto_subject | urlencode }}{% if internal_cc %}&cc={{ internal_cc | urlencode }}{% endif %}"
+               class="hover:text-marsh">{{ c.email }}</a>
+          </p>{% endif %}
+          {% if c.phone %}<p class="text-xs text-gray-500">{{ c.phone }}</p>{% endif %}
+        </div>
+        <div class="flex gap-2 shrink-0 mt-0.5">
+          <button onclick="document.getElementById('edit-policy-contact-{{ c.id }}').classList.toggle('hidden')"
+            class="text-xs text-gray-300 hover:text-marsh">✎</button>
+          <button
+            hx-post="/policies/{{ policy.policy_uid }}/team/{{ c.id }}/delete"
+            hx-target="#policy-team-card"
+            hx-swap="outerHTML"
+            hx-confirm="Remove {{ c.name }} from this policy?"
+            class="text-xs text-gray-300 hover:text-red-400">✕</button>
+        </div>
+      </div>
+      <div id="edit-policy-contact-{{ c.id }}" class="hidden mt-2">
+        <form hx-post="/policies/{{ policy.policy_uid }}/team/{{ c.id }}/edit"
+              hx-target="#policy-team-card"
+              hx-swap="outerHTML"
+              class="grid grid-cols-2 gap-2">
+          <input name="name" value="{{ c.name }}" required placeholder="Name *"
+            list="policy-team-all-names"
+            class="col-span-2 border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-marsh">
+          <input name="title" value="{{ c.title or '' }}" placeholder="Title"
+            class="border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-marsh">
+          <input name="role" value="{{ c.role or '' }}" placeholder="Role" list="policy-team-roles"
+            class="border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-marsh">
+          <input name="phone" value="{{ c.phone or '' }}" placeholder="Phone"
+            class="border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-marsh">
+          <input name="email" value="{{ c.email or '' }}" placeholder="Email" type="email"
+            class="border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-marsh">
+          <button type="submit" class="bg-marsh text-white text-xs font-medium py-1.5 rounded hover:bg-marsh-light transition-colors">Save</button>
+          <button type="button" onclick="document.getElementById('edit-policy-contact-{{ c.id }}').classList.add('hidden')"
+            class="text-xs text-gray-500 hover:text-gray-700 border border-gray-200 rounded py-1.5">Cancel</button>
+        </form>
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+
+  {% if team_contacts %}
+  <p class="text-xs text-gray-400 mb-2 border-t border-gray-100 pt-2">
+    Account team CC'd on emails:
+    {% for t in team_contacts %}{% if t.email %}<span class="text-gray-500">{{ t.name }}</span>{% if not loop.last %}, {% endif %}{% endif %}{% endfor %}
+  </p>
+  {% endif %}
+
+  <details class="{% if policy_contacts or team_contacts %}border-t border-gray-100 pt-2{% endif %}">
+    <summary class="text-xs text-marsh hover:underline cursor-pointer select-none list-none">+ Add person</summary>
+    <form hx-post="/policies/{{ policy.policy_uid }}/team/add"
+          hx-target="#policy-team-card"
+          hx-swap="outerHTML"
+          class="grid grid-cols-2 gap-2 mt-2">
+      <div class="col-span-2">
+        <input type="text" name="name" required placeholder="Name *" autocomplete="off"
+          list="policy-team-all-names"
+          class="w-full border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-marsh">
+        <datalist id="policy-team-all-names">
+          {% for n in all_contact_names %}<option value="{{ n }}">{% endfor %}
+        </datalist>
+      </div>
+      <input type="text" name="title" placeholder="Title"
+        class="border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-marsh">
+      <input type="text" name="role" placeholder="Role" list="policy-team-roles"
+        class="border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-marsh">
+      <datalist id="policy-team-roles">
+        <option>Placement Colleague</option>
+        <option>Underwriter</option>
+        <option>Broker</option>
+        <option>Account Manager</option>
+        <option>CSR</option>
+        <option>Other</option>
+      </datalist>
+      <input type="text" name="phone" placeholder="Phone"
+        class="border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-marsh">
+      <input type="email" name="email" placeholder="Email"
+        class="border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-marsh">
+      <button type="submit" class="col-span-2 bg-marsh text-white text-xs font-medium py-1.5 rounded hover:bg-marsh-light transition-colors">Add Person</button>
+    </form>
+  </details>
+
+</div>
+
+<script>
+(function() {
+  var CONTACTS = {{ all_contacts_for_ac_json }};
+
+  function wireAutocomplete(nameInput, overwrite) {
+    nameInput.addEventListener('change', function() {
+      var data = CONTACTS[this.value];
+      if (!data) return;
+      var form = this.closest('form');
+      if (!form) return;
+      ['email', 'role', 'phone', 'title'].forEach(function(field) {
+        var el = form.querySelector('input[name="' + field + '"]');
+        if (el && data[field] && (overwrite || !el.value)) el.value = data[field];
+      });
+    });
+  }
+
+  // Wire add form — only fill empty fields
+  var addForm = document.querySelector('#policy-team-card details form');
+  if (addForm) {
+    var addName = addForm.querySelector('input[name="name"]');
+    if (addName) wireAutocomplete(addName, false);
+  }
+
+  // Wire all inline edit forms — overwrite when name changes
+  document.querySelectorAll('#policy-team-card [id^="edit-policy-contact-"] form input[name="name"]').forEach(function(el) {
+    wireAutocomplete(el, true);
+  });
+})();
+</script>
