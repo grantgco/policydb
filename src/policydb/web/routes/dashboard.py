@@ -62,6 +62,11 @@ def dashboard(request: Request, conn=Depends(get_db)):
     pipeline = get_renewal_pipeline(conn, window_days=90, excluded_statuses=excluded)
     overdue, upcoming = get_all_followups(conn, window=30)
 
+    from policydb.email_templates import followup_context, render_tokens as _render_tokens
+    _subj_tpl = cfg.get("email_subject_followup", cfg.get("email_subject_policy", "Re: {{client_name}} — {{policy_type}}"))
+    for row in overdue + upcoming:
+        row["mailto_subject"] = _render_tokens(_subj_tpl, followup_context(row))
+
     urgent_count = metrics.get("URGENT", {}).get("count", 0) + metrics.get("EXPIRED", {}).get("count", 0)
     urgency_breakdown = [(u, metrics.get(u, {"count": 0, "premium": 0})) for u in URGENCY_ORDER]
 
