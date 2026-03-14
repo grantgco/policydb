@@ -1,0 +1,74 @@
+{% set row_id = "contact-" ~ (c.name | replace(' ', '-') | lower) %}
+<tr class="hover:bg-gray-50/60 align-top" id="{{ row_id }}">
+  <td class="px-4 py-3 font-medium text-gray-800">{{ c.name }}</td>
+  <td class="px-4 py-3 text-gray-600 text-xs">{{ c.organization or '—' }}</td>
+  <td class="px-4 py-3">
+    {% if c.role %}
+    <span class="text-xs text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded">{{ c.role }}</span>
+    {% else %}<span class="text-gray-300 text-xs">—</span>{% endif %}
+  </td>
+  <td class="px-4 py-3 text-xs">
+    {% if c.email %}
+    <a href="mailto:{{ c.email }}" class="text-marsh hover:underline">{{ c.email }}</a>
+    {% else %}<span class="text-gray-300">—</span>{% endif %}
+  </td>
+  <td class="px-4 py-3 text-xs text-gray-600">{{ c.phone or '—' }}</td>
+  <td class="px-4 py-3 text-xs">
+    {% set policies = c.get('policies', []) %}
+    {% if policies %}
+    <details class="group">
+      <summary class="cursor-pointer list-none text-gray-500 hover:text-marsh select-none">
+        <span class="font-medium text-gray-700">{{ c.policy_count }}</span>
+        <span class="text-gray-400"> polic{{ 'ies' if c.policy_count != 1 else 'y' }}</span>
+        <span class="text-gray-300 group-open:hidden"> ▸</span>
+        <span class="text-gray-300 hidden group-open:inline"> ▾</span>
+      </summary>
+      <ul class="mt-2 space-y-1.5 pl-1 border-l-2 border-gray-100">
+        {% for p in policies %}
+        <li class="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+          {% if p.is_opportunity %}
+          <span class="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-medium">Opp</span>
+          {% endif %}
+          <a href="/policies/{{ p.policy_uid }}/edit"
+             class="font-mono text-gray-400 hover:text-marsh transition-colors">{{ p.policy_uid }}</a>
+          <span class="text-gray-300">·</span>
+          <a href="/clients/{{ p.client_id }}"
+             class="text-gray-600 hover:text-marsh transition-colors">{{ p.client_name }}</a>
+          <span class="text-gray-300">·</span>
+          <span class="text-gray-700">{{ p.policy_type }}</span>
+          {% if p.carrier %}<span class="text-gray-400">· {{ p.carrier }}</span>{% endif %}
+          {% set date_str = p.expiration_date if not p.is_opportunity else p.target_effective_date %}
+          {% if date_str %}
+          <span class="text-gray-300 tabular-nums">
+            {{ 'exp' if not p.is_opportunity else 'eff' }} {{ date_str }}
+          </span>
+          {% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+    </details>
+    {% else %}
+    <span class="text-gray-300">—</span>
+    {% endif %}
+  </td>
+  <td class="px-4 py-3">
+    <div class="flex flex-col gap-1.5">
+      <button
+        hx-get="/contacts/{{ c.name | path_quote }}/edit"
+        hx-target="#{{ row_id }}"
+        hx-swap="outerHTML"
+        class="text-xs text-marsh hover:underline text-left">Edit</button>
+      <details class="group/attach">
+        <summary class="text-xs text-gray-400 hover:text-marsh cursor-pointer select-none list-none">Attach to policy</summary>
+        <div class="flex gap-1 mt-1" data-contact="{{ c.name }}">
+          <input type="text" placeholder="Policy UID"
+            class="border border-gray-200 rounded px-2 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-marsh w-28"
+            onkeydown="if(event.key==='Enter'){var v=this.value.trim().toUpperCase();if(v)window.location='/policies/'+encodeURIComponent(v)+'/edit?add_contact='+encodeURIComponent(this.closest('[data-contact]').dataset.contact);}">
+          <button type="button"
+            onclick="var inp=this.previousElementSibling;var v=inp.value.trim().toUpperCase();if(v)window.location='/policies/'+encodeURIComponent(v)+'/edit?add_contact='+encodeURIComponent(this.closest('[data-contact]').dataset.contact);"
+            class="text-xs bg-marsh text-white px-2 py-0.5 rounded hover:bg-marsh-light transition-colors shrink-0">Go →</button>
+        </div>
+      </details>
+    </div>
+  </td>
+</tr>

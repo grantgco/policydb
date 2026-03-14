@@ -10,10 +10,16 @@
       <div class="flex items-start justify-between gap-2">
         <div>
           <p class="text-sm font-medium text-gray-900">{{ c.name }}{% if c.title %} <span class="text-gray-400 font-normal text-xs">· {{ c.title }}</span>{% endif %}</p>
-          {% if c.role %}<p class="text-xs text-indigo-500 font-medium">{{ c.role }}</p>{% endif %}
+          <p class="text-xs leading-tight">
+            {% if c.role %}<span class="text-indigo-500 font-medium">{{ c.role }}</span>{% endif %}
+            {% if c.organization %}<span class="text-gray-400">{% if c.role %} · {% endif %}{{ c.organization }}</span>{% endif %}
+          </p>
           {% if c.email %}<p class="text-xs text-gray-500">
-            <a href="mailto:{{ c.email }}?subject={{ mailto_subject | urlencode }}{% if internal_cc %}&cc={{ internal_cc | urlencode }}{% endif %}"
-               class="hover:text-marsh">{{ c.email }}</a>
+            <button type="button" class="ep-trigger hover:text-marsh"
+              data-to="{{ c.email }}"
+              data-to-label="{{ c.name }}"
+              data-subject="{{ mailto_subject }}"
+              data-cc="{{ team_cc_json }}">✉ {{ c.email }}</button>
           </p>{% endif %}
           {% if c.phone %}<p class="text-xs text-gray-500">{{ c.phone }}</p>{% endif %}
         </div>
@@ -36,6 +42,8 @@
           <input name="name" value="{{ c.name }}" required placeholder="Name *"
             list="policy-team-all-names"
             class="col-span-2 border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-marsh">
+          <input name="organization" value="{{ c.organization or '' }}" placeholder="Organization / Firm"
+            class="col-span-2 border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-marsh">
           <input name="title" value="{{ c.title or '' }}" placeholder="Title"
             class="border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-marsh">
           <input name="role" value="{{ c.role or '' }}" placeholder="Role" list="policy-team-roles"
@@ -47,6 +55,7 @@
           <button type="submit" class="bg-marsh text-white text-xs font-medium py-1.5 rounded hover:bg-marsh-light transition-colors">Save</button>
           <button type="button" onclick="document.getElementById('edit-policy-contact-{{ c.id }}').classList.add('hidden')"
             class="text-xs text-gray-500 hover:text-gray-700 border border-gray-200 rounded py-1.5">Cancel</button>
+          <p class="text-xs text-gray-400 italic col-span-2 mt-0.5">Updates this policy only. <a href="/contacts" class="text-marsh hover:underline">Contacts directory →</a> updates all occurrences.</p>
         </form>
       </div>
     </li>
@@ -56,12 +65,13 @@
 
   {% if team_contacts %}
   <p class="text-xs text-gray-400 mb-2 border-t border-gray-100 pt-2">
-    Account team CC'd on emails:
+    Team on this client:
     {% for t in team_contacts %}{% if t.email %}<span class="text-gray-500">{{ t.name }}</span>{% if not loop.last %}, {% endif %}{% endif %}{% endfor %}
+    <span class="text-gray-300 ml-1">· select as CC when composing</span>
   </p>
   {% endif %}
 
-  <details class="{% if policy_contacts or team_contacts %}border-t border-gray-100 pt-2{% endif %}">
+  <details class="{% if policy_contacts or team_contacts %}border-t border-gray-100 pt-2{% endif %}" id="policy-team-add-details">
     <summary class="text-xs text-marsh hover:underline cursor-pointer select-none list-none">+ Add person</summary>
     <form hx-post="/policies/{{ policy.policy_uid }}/team/add"
           hx-target="#policy-team-card"
@@ -75,6 +85,8 @@
           {% for n in all_contact_names %}<option value="{{ n }}">{% endfor %}
         </datalist>
       </div>
+      <input type="text" name="organization" placeholder="Organization / Firm"
+        class="col-span-2 border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-marsh">
       <input type="text" name="title" placeholder="Title"
         class="border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-marsh">
       <input type="text" name="role" placeholder="Role" list="policy-team-roles"
@@ -102,16 +114,20 @@
   var CONTACTS = {{ all_contacts_for_ac_json }};
 
   function wireAutocomplete(nameInput, overwrite) {
-    nameInput.addEventListener('change', function() {
-      var data = CONTACTS[this.value];
+    function tryFill() {
+      var data = CONTACTS[nameInput.value];
       if (!data) return;
-      var form = this.closest('form');
+      var form = nameInput.closest('form');
       if (!form) return;
-      ['email', 'role', 'phone', 'title'].forEach(function(field) {
+      ['email', 'role', 'phone', 'title', 'organization'].forEach(function(field) {
         var el = form.querySelector('input[name="' + field + '"]');
         if (el && data[field] && (overwrite || !el.value)) el.value = data[field];
       });
-    });
+    }
+    // 'input' fires immediately on datalist selection in all browsers;
+    // 'change' is a fallback for manual typing + blur.
+    nameInput.addEventListener('input', tryFill);
+    nameInput.addEventListener('change', tryFill);
   }
 
   // Wire add form — only fill empty fields
@@ -125,5 +141,22 @@
   document.querySelectorAll('#policy-team-card [id^="edit-policy-contact-"] form input[name="name"]').forEach(function(el) {
     wireAutocomplete(el, true);
   });
+
+  // Auto-open add panel and pre-fill name if ?add_contact param is present
+  {% if add_contact %}
+  (function() {
+    var details = document.getElementById('policy-team-add-details');
+    if (details) {
+      details.open = true;
+      details.scrollIntoView({behavior: 'smooth', block: 'center'});
+    }
+    var nameInput = document.querySelector('#policy-team-card details form input[name="name"]');
+    if (nameInput) {
+      nameInput.value = {{ add_contact | tojson }};
+      nameInput.dispatchEvent(new Event('input'));
+      nameInput.dispatchEvent(new Event('change'));
+    }
+  })();
+  {% endif %}
 })();
 </script>

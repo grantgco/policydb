@@ -21,6 +21,12 @@ from policydb.web.app import get_db, templates
 router = APIRouter(prefix="/clients")
 
 
+_CLIENT_SORT_FIELDS = {
+    "name", "industry_segment", "total_policies", "total_premium",
+    "total_revenue", "next_renewal_days", "activity_last_90d",
+}
+
+
 def _apply_client_filters(clients, segment="", urgent="", inactive=""):
     if segment:
         clients = [c for c in clients if c["industry_segment"] == segment]
@@ -31,6 +37,16 @@ def _apply_client_filters(clients, segment="", urgent="", inactive=""):
     return clients
 
 
+def _sort_clients(clients, sort="name", dir="asc"):
+    field = sort if sort in _CLIENT_SORT_FIELDS else "name"
+    reverse = dir == "desc"
+    clients.sort(
+        key=lambda c: (c.get(field) is None, c.get(field) if c.get(field) is not None else ""),
+        reverse=reverse,
+    )
+    return clients
+
+
 @router.get("", response_class=HTMLResponse)
 def client_list(
     request: Request,
@@ -38,10 +54,13 @@ def client_list(
     segment: str = "",
     urgent: str = "",
     inactive: str = "",
+    sort: str = "name",
+    dir: str = "asc",
     conn=Depends(get_db),
 ):
     clients = [dict(r) for r in get_all_clients(conn)]
     clients = _apply_client_filters(clients, segment, urgent, inactive)
+    clients = _sort_clients(clients, sort, dir)
     return templates.TemplateResponse("clients/list.html", {
         "request": request,
         "active": "clients",
@@ -50,6 +69,8 @@ def client_list(
         "segment": segment,
         "urgent": urgent,
         "inactive": inactive,
+        "sort": sort if sort in _CLIENT_SORT_FIELDS else "name",
+        "dir": dir,
         "industry_segments": cfg.get("industry_segments", []),
     })
 
@@ -61,6 +82,8 @@ def client_search(
     segment: str = "",
     urgent: str = "",
     inactive: str = "",
+    sort: str = "name",
+    dir: str = "asc",
     conn=Depends(get_db),
 ):
     """HTMX partial: filtered client table rows."""
@@ -72,6 +95,7 @@ def client_search(
     else:
         clients = [dict(r) for r in get_all_clients(conn)]
     clients = _apply_client_filters(clients, segment, urgent, inactive)
+    clients = _sort_clients(clients, sort, dir)
     return templates.TemplateResponse("clients/_table_rows.html", {
         "request": request,
         "clients": clients,
@@ -137,7 +161,7 @@ def client_new_post(
 
 
 @router.get("/{client_id}", response_class=HTMLResponse)
-def client_detail(request: Request, client_id: int, conn=Depends(get_db)):
+def client_detail(request: Request, client_id: int, add_contact: str = "", conn=Depends(get_db)):
     from collections import defaultdict
     client = get_client_by_id(conn, client_id)
     if not client:
@@ -146,6 +170,21 @@ def client_detail(request: Request, client_id: int, conn=Depends(get_db)):
     all_policies = [dict(p) for p in get_policies_for_client(conn, client_id)]
     opportunities = [p for p in all_policies if p.get("is_opportunity")]
     policies = [p for p in all_policies if not p.get("is_opportunity")]
+
+    # Attach full policy_contacts list to each opportunity for per-contact email links
+    if opportunities:
+        opp_ids = [o["id"] for o in opportunities]
+        _pc_placeholders = ",".join("?" * len(opp_ids))
+        _opp_contacts = conn.execute(
+            f"SELECT policy_id, name, email, phone, role, organization FROM policy_contacts "  # noqa: S608
+            f"WHERE policy_id IN ({_pc_placeholders}) ORDER BY id",
+            opp_ids,
+        ).fetchall()
+        _opp_contacts_map: dict[int, list] = {}
+        for _c in _opp_contacts:
+            _opp_contacts_map.setdefault(_c["policy_id"], []).append(dict(_c))
+        for o in opportunities:
+            o["team"] = _opp_contacts_map.get(o["id"], [])
     activities = [dict(a) for a in get_activities(conn, client_id=client_id, days=90)]
     activity_types = cfg.get("activity_types")
 
@@ -200,12 +239,13 @@ def client_detail(request: Request, client_id: int, conn=Depends(get_db)):
         (client_id,),
     ).fetchall()]
 
-    # Load project notes keyed by normalized project_name
+    # Load project notes keyed by normalized project name (from projects table)
     notes_rows = conn.execute(
-        "SELECT LOWER(TRIM(project_name)) AS key, notes FROM project_notes WHERE client_id = ?",
+        "SELECT id, LOWER(TRIM(name)) AS key, name, notes FROM projects WHERE client_id = ?",
         (client_id,),
     ).fetchall()
     project_notes = {r["key"]: r["notes"] for r in notes_rows}
+    project_ids = {r["key"]: r["id"] for r in notes_rows}
 
     # Build project address dict from most recent policy per project
     project_addresses: dict = {}
@@ -245,12 +285,12 @@ def client_detail(request: Request, client_id: int, conn=Depends(get_db)):
     _pol_subj_tpl = cfg.get("email_subject_policy", "Re: {{client_name}} \u2014 {{policy_type}}")
     _colleagues: dict[str, dict] = {}
 
-    def _add_colleague(name: str, email: str, policy_dict: dict) -> None:
+    def _add_colleague(name: str, email: str, policy_dict: dict, organization: str = "") -> None:
         name = name.strip()
         if not name:
             return
         if name not in _colleagues:
-            _colleagues[name] = {"name": name, "email": email.strip(), "policies": []}
+            _colleagues[name] = {"name": name, "email": email.strip(), "organization": organization, "policies": []}
         elif not _colleagues[name]["email"] and email:
             _colleagues[name]["email"] = email.strip()
         p = policy_dict
@@ -273,9 +313,9 @@ def client_detail(request: Request, client_id: int, conn=Depends(get_db)):
             "mailto_subject": _render_tokens(_pol_subj_tpl, _pol_ctx),
         })
 
-    # Primary source: policy_contacts table
+    # Source: policy_contacts table only
     _pc_rows = conn.execute(
-        """SELECT pc.name, pc.email, p.id AS policy_id
+        """SELECT pc.name, pc.email, pc.organization, p.id AS policy_id
            FROM policy_contacts pc
            JOIN policies p ON pc.policy_id = p.id
            WHERE p.client_id = ? AND p.archived = 0
@@ -285,20 +325,33 @@ def client_detail(request: Request, client_id: int, conn=Depends(get_db)):
     for row in _pc_rows:
         p = _pol_map.get(row["policy_id"])
         if p:
-            _add_colleague(row["name"] or "", row["email"] or "", p)
-
-    # Fallback: legacy placement_colleague text field (for policies without policy_contacts entries)
-    _policies_with_contacts = {row["policy_id"] for row in _pc_rows}
-    for p in all_policies:
-        if p["id"] not in _policies_with_contacts:
-            _add_colleague(p.get("placement_colleague") or "", p.get("placement_colleague_email") or "", p)
+            _add_colleague(row["name"] or "", row["email"] or "", p, row["organization"] or "")
 
     placement_colleagues = sorted(_colleagues.values(), key=lambda x: x["name"].lower())
+
+    # Render per-opportunity mailto subjects now that _pol_subj_tpl is available
+    for o in opportunities:
+        _opp_ctx = {
+            "client_name": client["name"],
+            "policy_type": o.get("policy_type") or "",
+            "carrier": o.get("carrier") or "",
+            "policy_uid": o.get("policy_uid") or "",
+            "effective_date": o.get("target_effective_date") or "",
+            "expiration_date": "",
+            "project_name": (o.get("project_name") or "").strip(),
+            "project_name_sep": f" \u2014 {o.get('project_name')}" if o.get("project_name") else "",
+        }
+        o["mailto_subject"] = _render_tokens(_pol_subj_tpl, _opp_ctx)
 
     # All contacts JSON for the contacts card autocomplete
     import json as _json
     _ac_rows = conn.execute(
-        """SELECT name, email, phone, title, role FROM client_contacts
+        """SELECT name,
+                  MAX(email)  AS email,
+                  MAX(phone)  AS phone,
+                  MAX(title)  AS title,
+                  MAX(role)   AS role
+           FROM client_contacts
            WHERE contact_type='client' AND name IS NOT NULL AND name != ''
            GROUP BY name ORDER BY name"""
     ).fetchall()
@@ -319,6 +372,7 @@ def client_detail(request: Request, client_id: int, conn=Depends(get_db)):
         "activity_types": activity_types,
         "renewal_statuses": cfg.get("renewal_statuses"),
         "project_notes": project_notes,
+        "project_ids": project_ids,
         "project_addresses": project_addresses,
         "archived_policies": archived_policies,
         "client_scratchpad": client_scratchpad,
@@ -329,6 +383,7 @@ def client_detail(request: Request, client_id: int, conn=Depends(get_db)):
         "placement_colleagues": placement_colleagues,
         "mailto_subject": mailto_subject,
         "all_contacts_json": all_contacts_json,
+        "add_contact": add_contact,
     })
 
 
@@ -345,7 +400,12 @@ def _contacts_response(request, conn, client_id: int):
     mailto_subject = _render_tokens(cfg.get("email_subject_client", "Re: {{client_name}}"), _mail_ctx)
     # All known contacts across all clients for autocomplete fill
     all_ac_rows = conn.execute(
-        """SELECT name, email, phone, title, role FROM client_contacts
+        """SELECT name,
+                  MAX(email)  AS email,
+                  MAX(phone)  AS phone,
+                  MAX(title)  AS title,
+                  MAX(role)   AS role
+           FROM client_contacts
            WHERE contact_type='client' AND name IS NOT NULL AND name != ''
            GROUP BY name ORDER BY name"""
     ).fetchall()
@@ -365,15 +425,39 @@ def _contacts_response(request, conn, client_id: int):
 
 def _internal_contacts_response(request, conn, client_id: int):
     """Shared helper: return the internal team contacts card partial with fresh data."""
+    import json as _json
     team_contacts = [dict(r) for r in conn.execute(
         "SELECT * FROM client_contacts WHERE client_id=? AND contact_type='internal' ORDER BY name",
         (client_id,),
     ).fetchall()]
     client = conn.execute("SELECT * FROM clients WHERE id=?", (client_id,)).fetchone()
+    from policydb.email_templates import client_context as _client_ctx, render_tokens as _render_tokens
+    _mail_ctx = _client_ctx(conn, client_id)
+    mailto_subject = _render_tokens(cfg.get("email_subject_client", "Re: {{client_name}}"), _mail_ctx)
+    # Autocomplete: all internal contacts across all clients, deduped by name
+    _ac_rows = conn.execute(
+        """SELECT name,
+                  MAX(title) AS title,
+                  MAX(email) AS email,
+                  MAX(phone) AS phone,
+                  MAX(role)  AS role
+           FROM client_contacts
+           WHERE contact_type='internal' AND name IS NOT NULL AND name != ''
+           GROUP BY LOWER(TRIM(name)) ORDER BY name"""
+    ).fetchall()
+    all_internal_contacts_json = _json.dumps({
+        r["name"]: {"title": r["title"] or "", "email": r["email"] or "",
+                    "phone": r["phone"] or "", "role": r["role"] or ""}
+        for r in _ac_rows
+    })
+    team_cc_json = _json.dumps([{"name": c["name"], "email": c["email"]} for c in team_contacts if c.get("email")])
     return templates.TemplateResponse("clients/_team_contacts.html", {
         "request": request,
         "client": dict(client) if client else {},
         "team_contacts": team_contacts,
+        "mailto_subject": mailto_subject,
+        "all_internal_contacts_json": all_internal_contacts_json,
+        "team_cc_json": team_cc_json,
     })
 
 
@@ -466,13 +550,15 @@ def team_contact_add(
     name: str = Form(...),
     title: str = Form(""),
     role: str = Form(""),
+    assignment: str = Form(""),
     email: str = Form(""),
     phone: str = Form(""),
     conn=Depends(get_db),
 ):
     conn.execute(
-        "INSERT INTO client_contacts (client_id, name, title, role, email, phone, contact_type) VALUES (?,?,?,?,?,?,?)",
-        (client_id, name, title or None, role or None, email or None, format_phone(phone) or None, "internal"),
+        "INSERT INTO client_contacts (client_id, name, title, role, assignment, email, phone, contact_type) VALUES (?,?,?,?,?,?,?,?)",
+        (client_id, name, title or None, role or None, assignment or None,
+         email or None, format_phone(phone) or None, "internal"),
     )
     conn.commit()
     return _internal_contacts_response(request, conn, client_id)
@@ -486,13 +572,15 @@ def team_contact_edit(
     name: str = Form(...),
     title: str = Form(""),
     role: str = Form(""),
+    assignment: str = Form(""),
     email: str = Form(""),
     phone: str = Form(""),
     conn=Depends(get_db),
 ):
     conn.execute(
-        "UPDATE client_contacts SET name=?, title=?, role=?, email=?, phone=? WHERE id=? AND client_id=? AND contact_type='internal'",
-        (name, title or None, role or None, email or None, format_phone(phone) or None, contact_id, client_id),
+        "UPDATE client_contacts SET name=?, title=?, role=?, assignment=?, email=?, phone=? WHERE id=? AND client_id=? AND contact_type='internal'",
+        (name, title or None, role or None, assignment or None,
+         email or None, format_phone(phone) or None, contact_id, client_id),
     )
     conn.commit()
     return _internal_contacts_response(request, conn, client_id)
@@ -658,7 +746,7 @@ def export_schedule(client_id: int, fmt: str = "md", conn=Depends(get_db)):
 def _project_note_ctx(conn, client_id: int, project_name: str) -> dict:
     """Shared context builder for project note partials."""
     row = conn.execute(
-        "SELECT notes FROM project_notes WHERE client_id = ? AND LOWER(TRIM(project_name)) = LOWER(TRIM(?))",
+        "SELECT id, notes FROM projects WHERE client_id = ? AND LOWER(TRIM(name)) = LOWER(TRIM(?))",
         (client_id, project_name),
     ).fetchone()
     policy_count = conn.execute(
@@ -677,6 +765,7 @@ def _project_note_ctx(conn, client_id: int, project_name: str) -> dict:
     ).fetchone()
     return {
         "project_name": project_name,
+        "project_id": row["id"] if row else None,
         "note": row["notes"] if row else "",
         "policy_count": policy_count,
         "client": dict(client) if client else {},
@@ -715,8 +804,8 @@ def project_note_save(
 ):
     """HTMX: upsert project note and bulk-update location address on all policies in the project."""
     conn.execute(
-        "INSERT INTO project_notes (client_id, project_name, notes) VALUES (?, ?, ?) "
-        "ON CONFLICT(client_id, project_name) DO UPDATE SET notes=excluded.notes",
+        "INSERT INTO projects (client_id, name, notes) VALUES (?, ?, ?) "
+        "ON CONFLICT(client_id, name) DO UPDATE SET notes=excluded.notes",
         (client_id, project_name, notes.strip()),
     )
     conn.execute(
