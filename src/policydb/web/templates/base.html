@@ -357,10 +357,7 @@ function insertToken(fieldId, token) {
     msPop.style.display = 'block';
 
     // Load checklist via HTMX
-    htmx.ajax('GET', '/policies/' + uid + '/milestones/popover', {
-      target: '#milestone-popover',
-      swap: 'innerHTML'
-    });
+    htmx.ajax('GET', '/policies/' + uid + '/milestones/popover', '#milestone-popover');
   }
 
   // Event delegation for .ms-trigger clicks
