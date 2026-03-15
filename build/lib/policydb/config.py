@@ -75,6 +75,13 @@ _DEFAULTS: dict[str, Any] = {
         "Pending Bind",
         "Bound",
     ],
+    "renewal_statuses_excluded": [],
+    "opportunity_statuses": [
+        "Prospecting",
+        "Quoting",
+        "Submitted",
+        "Pending Bind",
+    ],
     "activity_types": [
         "Call",
         "Email",
@@ -129,6 +136,19 @@ _DEFAULTS: dict[str, Any] = {
         "Per $1M Contract",
         "Flat",
     ],
+    "renewal_milestones": [
+        "Submission Sent",
+        "Loss Runs Received",
+        "Quote Received",
+        "Coverage Comparison Prepared",
+        "Client Approved",
+        "Binder Requested",
+        "Policy Received",
+    ],
+    "review_cycle_default": "1w",
+    "email_subject_policy": "Re: {{client_name}}{{project_name_sep}} \u2014 {{policy_type}} \u2014 Eff. {{effective_date}}",
+    "email_subject_client": "Re: {{client_name}}",
+    "email_subject_followup": "Re: {{client_name}}{{project_name_sep}} \u2014 {{policy_type}} \u2014 {{subject}}",
 }
 
 _config: dict[str, Any] | None = None
@@ -182,6 +202,22 @@ def add_list_item(key: str, item: str) -> None:
 def remove_list_item(key: str, item: str) -> None:
     cfg = dict(load_config())
     cfg[key] = [v for v in cfg.get(key, []) if v != item]
+    save_config(cfg)
+    reload_config()
+
+
+def reorder_list_item(key: str, item: str, direction: str) -> None:
+    """Move item one position up or down in the list."""
+    cfg = dict(load_config())
+    lst = list(cfg.get(key, []))
+    if item not in lst:
+        return
+    idx = lst.index(item)
+    if direction == "up" and idx > 0:
+        lst[idx], lst[idx - 1] = lst[idx - 1], lst[idx]
+    elif direction == "down" and idx < len(lst) - 1:
+        lst[idx], lst[idx + 1] = lst[idx + 1], lst[idx]
+    cfg[key] = lst
     save_config(cfg)
     reload_config()
 

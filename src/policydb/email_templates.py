@@ -6,6 +6,16 @@ import sqlite3
 from datetime import date
 
 
+_REVIEW_CYCLE_LABELS = {
+    "1w": "Weekly", "2w": "Every 2 Weeks", "1m": "Monthly",
+    "1q": "Quarterly", "6m": "Every 6 Months", "1y": "Annually",
+}
+
+
+def _cycle_label(cycle: str | None) -> str:
+    return _REVIEW_CYCLE_LABELS.get(cycle or "1w", cycle or "Weekly")
+
+
 def render_tokens(template_text: str, context: dict) -> str:
     """Replace {{token}} placeholders. Missing/None values render as empty string."""
     for key, value in context.items():
@@ -31,6 +41,7 @@ def policy_context(conn: sqlite3.Connection, policy_uid: str) -> dict:
         """SELECT p.policy_uid, p.policy_type, p.carrier, p.policy_number,
                   p.effective_date, p.expiration_date, p.premium, p.limit_amount,
                   p.deductible, p.project_name, p.renewal_status, p.account_exec,
+                  p.access_point, p.last_reviewed_at, p.review_cycle,
                   c.id AS client_id, c.name AS client_name, c.industry_segment AS industry,
                   c.primary_contact, c.contact_email AS client_email,
                   c.website, c.client_since, c.referral_source
@@ -72,8 +83,11 @@ def policy_context(conn: sqlite3.Connection, policy_uid: str) -> dict:
         "primary_contact": primary_name,
         "primary_email": primary_email,
         "industry": row["industry"] or "",
+        "access_point": row["access_point"] or "",
         "website": row["website"] or "",
         "client_since": row["client_since"] or "",
+        "last_reviewed_at": row["last_reviewed_at"] or "",
+        "review_cycle": _cycle_label(row["review_cycle"]),
         "today": date.today().strftime("%B %d, %Y"),
         "today_iso": date.today().isoformat(),
     }
@@ -117,6 +131,7 @@ def followup_context(row: dict) -> dict:
         "project_name_sep": f" \u2014 {proj}" if proj else "",
         "subject": row.get("subject") or "",
         "contact_person": row.get("contact_person") or "",
+        "duration_minutes": str(row["duration_minutes"]) if row.get("duration_minutes") else "",
         "today": date.today().strftime("%B %d, %Y"),
         "today_iso": date.today().isoformat(),
     }
@@ -138,12 +153,15 @@ CONTEXT_TOKENS: dict[str, list[tuple[str, str]]] = {
         ("project_name", "Project / Location"),
         ("project_name_sep", "Project (with separator)"),
         ("renewal_status", "Renewal Status"),
+        ("access_point", "Access Point"),
         ("account_exec", "Account Exec"),
         ("primary_contact", "Primary Contact"),
         ("primary_email", "Primary Email"),
         ("industry", "Industry"),
         ("website", "Client Website"),
         ("client_since", "Client Since"),
+        ("last_reviewed_at", "Last Reviewed Date"),
+        ("review_cycle", "Review Cycle"),
         ("today", "Today's Date"),
     ],
     "client": [
@@ -169,6 +187,7 @@ CONTEXT_TOKENS: dict[str, list[tuple[str, str]]] = {
         ("project_name_sep", "Project (with separator)"),
         ("subject", "Follow-Up Subject"),
         ("contact_person", "Contact Person"),
+        ("duration_minutes", "Duration (min)"),
         ("today", "Today's Date"),
     ],
 }

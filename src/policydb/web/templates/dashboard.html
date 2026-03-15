@@ -7,7 +7,64 @@
   <p class="text-sm text-gray-500 mt-1">Book of business overview · {{ today }}</p>
 </div>
 
-{% if stale %}
+{% if escalation_alerts is defined and escalation_alerts %}
+<!-- Tiered Escalation Alerts -->
+{% set critical = escalation_alerts | selectattr('escalation_tier', 'equalto', 'CRITICAL') | list %}
+{% set warning = escalation_alerts | selectattr('escalation_tier', 'equalto', 'WARNING') | list %}
+{% set nudge = escalation_alerts | selectattr('escalation_tier', 'equalto', 'NUDGE') | list %}
+
+{% if critical %}
+<div class="bg-red-50 border border-red-300 rounded-lg px-4 py-3 mb-3 flex items-start gap-3">
+  <span class="text-red-600 text-base leading-none mt-0.5 font-bold">!!</span>
+  <div>
+    <p class="text-sm font-bold text-red-800">CRITICAL — {{ critical | length }} renewal{{ 's' if critical | length != 1 }} require immediate attention</p>
+    <ul class="mt-1 space-y-0.5">
+      {% for r in critical %}
+      <li class="text-xs text-red-700">
+        <a href="/clients/{{ r.client_id }}" class="font-medium hover:underline">{{ r.client_name }}</a>
+        — {{ r.policy_type }} · expires {{ r.expiration_date }} ({{ r.days_to_renewal }}d) — placement team must be engaged
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+</div>
+{% endif %}
+
+{% if warning %}
+<div class="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 mb-3 flex items-start gap-3">
+  <span class="text-amber-500 text-base leading-none mt-0.5">⚠</span>
+  <div>
+    <p class="text-sm font-semibold text-amber-800">{{ warning | length }} renewal{{ 's' if warning | length != 1 }} not yet started</p>
+    <ul class="mt-1 space-y-0.5">
+      {% for r in warning %}
+      <li class="text-xs text-amber-700">
+        <a href="/clients/{{ r.client_id }}" class="font-medium hover:underline">{{ r.client_name }}</a>
+        — {{ r.policy_type }} · expires {{ r.expiration_date }} ({{ r.days_to_renewal }}d)
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+</div>
+{% endif %}
+
+{% if nudge %}
+<div class="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 mb-3 flex items-start gap-3">
+  <span class="text-blue-400 text-base leading-none mt-0.5">i</span>
+  <div>
+    <p class="text-sm font-medium text-blue-800">{{ nudge | length }} renewal{{ 's' if nudge | length != 1 }} could use a check-in</p>
+    <ul class="mt-1 space-y-0.5">
+      {% for r in nudge %}
+      <li class="text-xs text-blue-700">
+        <a href="/clients/{{ r.client_id }}" class="font-medium hover:underline">{{ r.client_name }}</a>
+        — {{ r.policy_type }} · expires {{ r.expiration_date }} ({{ r.days_to_renewal }}d) — no follow-up scheduled
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+</div>
+{% endif %}
+
+{% elif stale %}
 <div class="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 mb-4 flex items-start gap-3">
   <span class="text-amber-500 text-base leading-none mt-0.5">⚠</span>
   <div>
@@ -53,6 +110,9 @@
 <!-- Scratchpad -->
 {% include "dashboard/_scratchpad.html" %}
 
+<!-- Open Opportunities -->
+{% include "policies/_opportunities_section.html" %}
+
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
 
   <!-- Renewal Pipeline -->
@@ -91,15 +151,43 @@
   <!-- Right column -->
   <div class="flex flex-col gap-4">
 
-    <!-- Urgency breakdown -->
+    <!-- Pipeline Summary: Urgency + Readiness -->
     <div class="card p-4">
-      <h2 class="font-semibold text-gray-900 mb-3">Urgency Breakdown</h2>
-      {% for label, data in urgency_breakdown %}
-      <div class="flex items-center justify-between py-1">
-        <span class="{{ label | urgency_class }} text-xs font-semibold px-2 py-0.5 rounded">{{ label }}</span>
-        <span class="text-sm text-gray-700">{{ data.count }} <span class="text-gray-400 text-xs">· {{ data.premium | currency_short }}</span></span>
+      <h2 class="font-semibold text-gray-900 mb-3">Pipeline Summary</h2>
+      <div class="grid grid-cols-2 gap-4">
+        <div>
+          <p class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Urgency</p>
+          {% for label, data in urgency_breakdown %}
+          <div class="flex items-center justify-between py-0.5">
+            <span class="{{ label | urgency_class }} text-xs font-semibold px-2 py-0.5 rounded">{{ label }}</span>
+            <span class="text-sm text-gray-700">{{ data.count }} <span class="text-gray-400 text-xs">· {{ data.premium | currency_short }}</span></span>
+          </div>
+          {% endfor %}
+        </div>
+        {% if readiness_counts is defined %}
+        <div>
+          <p class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Readiness</p>
+          <div class="space-y-1">
+            <div class="flex justify-between items-center">
+              <span class="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded font-medium">CRITICAL</span>
+              <span class="text-sm font-medium text-gray-700">{{ readiness_counts.critical }}</span>
+            </div>
+            <div class="flex justify-between items-center">
+              <span class="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded font-medium">AT RISK</span>
+              <span class="text-sm font-medium text-gray-700">{{ readiness_counts.at_risk }}</span>
+            </div>
+            <div class="flex justify-between items-center">
+              <span class="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-medium">ON TRACK</span>
+              <span class="text-sm font-medium text-gray-700">{{ readiness_counts.on_track }}</span>
+            </div>
+            <div class="flex justify-between items-center">
+              <span class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded font-medium">READY</span>
+              <span class="text-sm font-medium text-gray-700">{{ readiness_counts.ready }}</span>
+            </div>
+          </div>
+        </div>
+        {% endif %}
       </div>
-      {% endfor %}
     </div>
 
     <!-- Follow-ups -->
@@ -117,7 +205,7 @@
       {% if overdue %}
       <p class="px-4 pt-3 text-xs font-semibold text-red-600 uppercase tracking-wide">Overdue</p>
       <ul class="divide-y divide-gray-50">
-        {% for o in overdue %}
+        {% for o in overdue[:5] %}
         <li class="px-4 py-2.5 flex items-start justify-between gap-2" id="followup-{{ o.source }}-{{ o.id }}">
           <div class="min-w-0">
             <div class="flex items-baseline gap-1.5 flex-wrap">
@@ -126,7 +214,7 @@
             </div>
             <p class="text-xs text-gray-700 truncate">{{ o.subject }}</p>
             <p class="text-xs text-gray-400 mt-0.5">
-              {% if o.contact_person %}<span class="text-gray-500">{{ o.contact_person }}</span>{% if o.contact_email %}<a href="mailto:{{ o.contact_email }}?subject={{ o.mailto_subject | urlencode }}{% if o.internal_cc %}&cc={{ o.internal_cc | urlencode }}{% endif %}" class="ml-1 text-marsh hover:underline">✉</a>{% endif %} · {% endif %}
+              {% if o.contact_person %}<span class="text-gray-500">{{ o.contact_person }}</span>{% if o.contact_email %}<button type="button" class="ep-trigger ml-1 text-marsh hover:text-marsh-light" data-to="{{ o.contact_email }}" data-to-label="{{ o.contact_person }}" data-subject="{{ o.mailto_subject }}" {% if o.policy_uid %}data-cc-url="/policies/{{ o.policy_uid }}/team-cc"{% endif %}>✉</button>{% endif %} · {% endif %}
               {% if o.policy_type %}<span>{{ o.policy_type }}{% if o.carrier %} · {{ o.carrier }}{% endif %}</span> · {% endif %}
               <span class="text-red-500">{{ o.days_overdue }}d overdue</span>
             </p>
@@ -135,25 +223,42 @@
             {% if o.source == 'policy' %}
             <button hx-post="/policies/{{ o.policy_uid }}/clear-followup" hx-target="#followup-{{ o.source }}-{{ o.id }}" hx-swap="outerHTML"
               class="text-xs bg-green-50 hover:bg-green-100 text-green-700 border border-green-200 rounded px-2 py-1">Clear</button>
-            <button hx-post="/policies/{{ o.policy_uid }}/snooze-followup?days=7" hx-target="#followup-{{ o.source }}-{{ o.id }}" hx-swap="delete"
-              class="text-xs text-gray-400 hover:text-amber-600 border border-gray-200 hover:border-amber-300 rounded px-2 py-1">+7d</button>
+            <div class="flex gap-0.5">
+              <button hx-post="/policies/{{ o.policy_uid }}/snooze-followup?days=1" hx-target="#followup-{{ o.source }}-{{ o.id }}" hx-swap="delete"
+                class="text-xs text-gray-400 hover:text-amber-600 border border-gray-200 hover:border-amber-300 rounded px-1 py-1">+1d</button>
+              <button hx-post="/policies/{{ o.policy_uid }}/snooze-followup?days=3" hx-target="#followup-{{ o.source }}-{{ o.id }}" hx-swap="delete"
+                class="text-xs text-gray-400 hover:text-amber-600 border border-gray-200 hover:border-amber-300 rounded px-1 py-1">+3d</button>
+              <button hx-post="/policies/{{ o.policy_uid }}/snooze-followup?days=7" hx-target="#followup-{{ o.source }}-{{ o.id }}" hx-swap="delete"
+                class="text-xs text-gray-400 hover:text-amber-600 border border-gray-200 hover:border-amber-300 rounded px-1 py-1">+7d</button>
+            </div>
             {% else %}
             <button hx-post="/activities/{{ o.id }}/complete" hx-target="#followup-{{ o.source }}-{{ o.id }}" hx-swap="outerHTML"
               class="text-xs bg-green-50 hover:bg-green-100 text-green-700 border border-green-200 rounded px-2 py-1">Done</button>
-            <button hx-post="/activities/{{ o.id }}/snooze?days=7" hx-target="#followup-{{ o.source }}-{{ o.id }}" hx-swap="delete"
-              class="text-xs text-gray-400 hover:text-amber-600 border border-gray-200 hover:border-amber-300 rounded px-2 py-1">+7d</button>
+            <div class="flex gap-0.5">
+              <button hx-post="/activities/{{ o.id }}/snooze?days=1" hx-target="#followup-{{ o.source }}-{{ o.id }}" hx-swap="delete"
+                class="text-xs text-gray-400 hover:text-amber-600 border border-gray-200 hover:border-amber-300 rounded px-1 py-1">+1d</button>
+              <button hx-post="/activities/{{ o.id }}/snooze?days=3" hx-target="#followup-{{ o.source }}-{{ o.id }}" hx-swap="delete"
+                class="text-xs text-gray-400 hover:text-amber-600 border border-gray-200 hover:border-amber-300 rounded px-1 py-1">+3d</button>
+              <button hx-post="/activities/{{ o.id }}/snooze?days=7" hx-target="#followup-{{ o.source }}-{{ o.id }}" hx-swap="delete"
+                class="text-xs text-gray-400 hover:text-amber-600 border border-gray-200 hover:border-amber-300 rounded px-1 py-1">+7d</button>
+            </div>
             {% endif %}
           </div>
         </li>
         {% endfor %}
       </ul>
+      {% if overdue | length > 5 %}
+      <p class="px-4 py-2 text-center border-t border-gray-50">
+        <a href="/followups" class="text-xs text-marsh hover:underline">View all {{ overdue | length }} overdue →</a>
+      </p>
+      {% endif %}
       {% endif %}
 
       <!-- Upcoming -->
       {% if upcoming %}
       <p class="px-4 pt-3 text-xs font-semibold text-amber-600 uppercase tracking-wide {% if overdue %}border-t border-gray-100{% endif %}">Upcoming · next 30 days</p>
       <ul class="divide-y divide-gray-50">
-        {% for u in upcoming %}
+        {% for u in upcoming[:5] %}
         <li class="px-4 py-2.5 flex items-start justify-between gap-2" id="followup-{{ u.source }}-{{ u.id }}">
           <div class="min-w-0">
             <div class="flex items-baseline gap-1.5 flex-wrap">
@@ -162,7 +267,7 @@
             </div>
             <p class="text-xs text-gray-700 truncate">{{ u.subject }}</p>
             <p class="text-xs text-gray-400 mt-0.5">
-              {% if u.contact_person %}<span class="text-gray-500">{{ u.contact_person }}</span>{% if u.contact_email %}<a href="mailto:{{ u.contact_email }}?subject={{ u.mailto_subject | urlencode }}{% if u.internal_cc %}&cc={{ u.internal_cc | urlencode }}{% endif %}" class="ml-1 text-marsh hover:underline">✉</a>{% endif %} · {% endif %}
+              {% if u.contact_person %}<span class="text-gray-500">{{ u.contact_person }}</span>{% if u.contact_email %}<button type="button" class="ep-trigger ml-1 text-marsh hover:text-marsh-light" data-to="{{ u.contact_email }}" data-to-label="{{ u.contact_person }}" data-subject="{{ u.mailto_subject }}" {% if u.policy_uid %}data-cc-url="/policies/{{ u.policy_uid }}/team-cc"{% endif %}>✉</button>{% endif %} · {% endif %}
               {% if u.policy_type %}<span>{{ u.policy_type }}{% if u.carrier %} · {{ u.carrier }}{% endif %}</span> · {% endif %}
               <span class="text-amber-600">due {{ u.follow_up_date }}</span>
             </p>
@@ -171,18 +276,35 @@
             {% if u.source == 'policy' %}
             <button hx-post="/policies/{{ u.policy_uid }}/clear-followup" hx-target="#followup-{{ u.source }}-{{ u.id }}" hx-swap="outerHTML"
               class="text-xs bg-green-50 hover:bg-green-100 text-green-700 border border-green-200 rounded px-2 py-1">Clear</button>
-            <button hx-post="/policies/{{ u.policy_uid }}/snooze-followup?days=7" hx-target="#followup-{{ u.source }}-{{ u.id }}" hx-swap="delete"
-              class="text-xs text-gray-400 hover:text-amber-600 border border-gray-200 hover:border-amber-300 rounded px-2 py-1">+7d</button>
+            <div class="flex gap-0.5">
+              <button hx-post="/policies/{{ u.policy_uid }}/snooze-followup?days=1" hx-target="#followup-{{ u.source }}-{{ u.id }}" hx-swap="delete"
+                class="text-xs text-gray-400 hover:text-amber-600 border border-gray-200 hover:border-amber-300 rounded px-1 py-1">+1d</button>
+              <button hx-post="/policies/{{ u.policy_uid }}/snooze-followup?days=3" hx-target="#followup-{{ u.source }}-{{ u.id }}" hx-swap="delete"
+                class="text-xs text-gray-400 hover:text-amber-600 border border-gray-200 hover:border-amber-300 rounded px-1 py-1">+3d</button>
+              <button hx-post="/policies/{{ u.policy_uid }}/snooze-followup?days=7" hx-target="#followup-{{ u.source }}-{{ u.id }}" hx-swap="delete"
+                class="text-xs text-gray-400 hover:text-amber-600 border border-gray-200 hover:border-amber-300 rounded px-1 py-1">+7d</button>
+            </div>
             {% else %}
             <button hx-post="/activities/{{ u.id }}/complete" hx-target="#followup-{{ u.source }}-{{ u.id }}" hx-swap="outerHTML"
               class="text-xs bg-green-50 hover:bg-green-100 text-green-700 border border-green-200 rounded px-2 py-1">Done</button>
-            <button hx-post="/activities/{{ u.id }}/snooze?days=7" hx-target="#followup-{{ u.source }}-{{ u.id }}" hx-swap="delete"
-              class="text-xs text-gray-400 hover:text-amber-600 border border-gray-200 hover:border-amber-300 rounded px-2 py-1">+7d</button>
+            <div class="flex gap-0.5">
+              <button hx-post="/activities/{{ u.id }}/snooze?days=1" hx-target="#followup-{{ u.source }}-{{ u.id }}" hx-swap="delete"
+                class="text-xs text-gray-400 hover:text-amber-600 border border-gray-200 hover:border-amber-300 rounded px-1 py-1">+1d</button>
+              <button hx-post="/activities/{{ u.id }}/snooze?days=3" hx-target="#followup-{{ u.source }}-{{ u.id }}" hx-swap="delete"
+                class="text-xs text-gray-400 hover:text-amber-600 border border-gray-200 hover:border-amber-300 rounded px-1 py-1">+3d</button>
+              <button hx-post="/activities/{{ u.id }}/snooze?days=7" hx-target="#followup-{{ u.source }}-{{ u.id }}" hx-swap="delete"
+                class="text-xs text-gray-400 hover:text-amber-600 border border-gray-200 hover:border-amber-300 rounded px-1 py-1">+7d</button>
+            </div>
             {% endif %}
           </div>
         </li>
         {% endfor %}
       </ul>
+      {% if upcoming | length > 5 %}
+      <p class="px-4 py-2 text-center border-t border-gray-50">
+        <a href="/followups" class="text-xs text-marsh hover:underline">View all {{ upcoming | length }} upcoming →</a>
+      </p>
+      {% endif %}
       {% endif %}
 
       {% if not overdue and not upcoming %}

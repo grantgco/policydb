@@ -23,6 +23,19 @@
     </div>
   </div>
 
+  <!-- Opportunity toggle -->
+  <div class="card-section">
+    <div class="p-4 flex items-center gap-3">
+      <input type="checkbox" name="is_opportunity" id="is_opportunity" value="1"
+        {% if default_opportunity %}checked{% endif %}
+        onchange="toggleOpportunityMode(this.checked)"
+        class="w-4 h-4 accent-amber-500">
+      <label for="is_opportunity" class="text-sm font-medium text-gray-700 cursor-pointer">
+        This is an <span class="text-amber-600 font-semibold">Opportunity</span> — prospective new coverage, not yet bound
+      </label>
+    </div>
+  </div>
+
   <!-- Core fields -->
   <div class="card-section">
     <div class="card-header">
@@ -41,9 +54,25 @@
         </div>
 
         <div>
-          <label class="field-label">Carrier <span class="text-red-400">*</span></label>
-          <input type="text" name="carrier" required class="form-input w-full"
+          <label class="field-label opp-label-carrier">Carrier <span class="text-red-400 opp-required-star">*</span></label>
+          <input type="text" name="carrier" id="new-carrier" class="form-input w-full"
             list="ac-carrier" autocomplete="off">
+        </div>
+
+        <!-- Opportunity-only fields (hidden by default unless checkbox checked) -->
+        <div id="opp-status-field" class="hidden">
+          <label class="field-label">Opportunity Status</label>
+          <select name="opportunity_status" class="form-select w-full">
+            <option value="">— Select —</option>
+            {% for s in opportunity_statuses %}
+            <option>{{ s }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div id="opp-target-date-field" class="hidden">
+          <label class="field-label">Target Effective Date</label>
+          <input type="date" name="target_effective_date" class="form-input w-full">
         </div>
 
         <div>
@@ -52,18 +81,26 @@
         </div>
 
         <div>
+          <label class="field-label">First Named Insured</label>
+          <input type="text" name="first_named_insured"
+            placeholder="If different from client name"
+            class="form-input w-full">
+        </div>
+
+        <!-- Bound-policy date fields (hidden for opportunities) -->
+        <div id="bound-effective-field">
           <label class="field-label">Effective Date <span class="text-red-400">*</span></label>
-          <input type="date" name="effective_date" required class="form-input w-full">
+          <input type="date" name="effective_date" id="new-effective-date" class="form-input w-full">
         </div>
 
-        <div>
+        <div id="bound-expiration-field">
           <label class="field-label">Expiration Date <span class="text-red-400">*</span></label>
-          <input type="date" name="expiration_date" required class="form-input w-full">
+          <input type="date" name="expiration_date" id="new-expiration-date" class="form-input w-full">
         </div>
 
         <div>
-          <label class="field-label">Annual Premium <span class="text-red-400">*</span></label>
-          <input type="number" name="premium" step="0.01" min="0" required class="form-input w-full">
+          <label class="field-label">Annual Premium <span id="premium-required-star" class="text-red-400">*</span></label>
+          <input type="number" name="premium" id="new-premium" step="0.01" min="0" class="form-input w-full">
         </div>
 
         <div>
@@ -113,6 +150,7 @@
       <span class="section-title">Placement &amp; Renewal</span>
     </div>
     <div class="p-6">
+      <p class="text-xs text-gray-400 mb-4">Placement colleagues and underwriters can be added from the Policy Team panel after saving.</p>
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
 
         <div>
@@ -122,29 +160,6 @@
             <option>{{ s }}</option>
             {% endfor %}
           </select>
-        </div>
-
-        <div>
-          <label class="field-label">Placement Colleague</label>
-          <input type="text" name="placement_colleague" class="form-input w-full"
-            list="ac-placement_colleague" autocomplete="off">
-        </div>
-
-        <div>
-          <label class="field-label">Colleague Email</label>
-          <input type="email" name="placement_colleague_email" placeholder="colleague@example.com"
-            class="form-input w-full" list="ac-placement_colleague_email" autocomplete="off">
-        </div>
-
-        <div>
-          <label class="field-label">Underwriter</label>
-          <input type="text" name="underwriter_name" class="form-input w-full"
-            list="ac-underwriter_name" autocomplete="off">
-        </div>
-
-        <div>
-          <label class="field-label">Underwriter Contact</label>
-          <input type="text" name="underwriter_contact" class="form-input w-full">
         </div>
 
         <div>
@@ -292,17 +307,42 @@
   <!-- Actions -->
   <div class="flex items-center justify-between">
     <a href="/clients" class="text-sm text-gray-500 hover:text-gray-700">← Cancel</a>
-    <button type="submit" class="bg-marsh hover:bg-marsh-light text-white text-sm font-medium px-6 py-2 rounded-lg transition-colors">
+    <button type="submit" id="new-submit-btn" class="bg-marsh hover:bg-marsh-light text-white text-sm font-medium px-6 py-2 rounded-lg transition-colors">
       Add Policy
     </button>
   </div>
 
 </form>
 
+<script>
+function toggleOpportunityMode(isOpp) {
+  // Opportunity-only fields
+  document.getElementById('opp-status-field').classList.toggle('hidden', !isOpp);
+  document.getElementById('opp-target-date-field').classList.toggle('hidden', !isOpp);
+  // Bound-policy date fields
+  document.getElementById('bound-effective-field').classList.toggle('hidden', isOpp);
+  document.getElementById('bound-expiration-field').classList.toggle('hidden', isOpp);
+  // Required attributes
+  var effDate = document.getElementById('new-effective-date');
+  var expDate = document.getElementById('new-expiration-date');
+  var carrier = document.getElementById('new-carrier');
+  var premium = document.getElementById('new-premium');
+  if (effDate) effDate.required = !isOpp;
+  if (expDate) expDate.required = !isOpp;
+  if (carrier) carrier.required = !isOpp;
+  // Update button label + required star
+  document.getElementById('new-submit-btn').textContent = isOpp ? 'Add Opportunity' : 'Add Policy';
+  var star = document.getElementById('premium-required-star');
+  if (star) star.style.display = isOpp ? 'none' : '';
+}
+// Run on load to reflect default_opportunity
+document.addEventListener('DOMContentLoaded', function() {
+  var cb = document.getElementById('is_opportunity');
+  if (cb) toggleOpportunityMode(cb.checked);
+});
+</script>
+
 <datalist id="ac-carrier"></datalist>
-<datalist id="ac-placement_colleague"></datalist>
-<datalist id="ac-placement_colleague_email"></datalist>
-<datalist id="ac-underwriter_name"></datalist>
 <datalist id="ac-exposure_basis"></datalist>
 <datalist id="ac-exposure_unit"></datalist>
 <datalist id="ac-project_name"></datalist>
@@ -316,18 +356,34 @@
 
 <script>
 (function () {
-  const AC_FIELDS = ["carrier", "placement_colleague", "placement_colleague_email",
-                     "underwriter_name", "exposure_basis", "exposure_unit",
-                     "project_name", "exposure_city"];
-  AC_FIELDS.forEach(function(field) {
-    fetch(`/policies/autocomplete?field=${field}`)
+  const AC_FIELDS = ["carrier", "exposure_basis", "exposure_unit", "project_name", "exposure_city"];
+  const CLIENT_SCOPED = new Set(["project_name", "exposure_city"]);
+
+  function getClientId() {
+    var sel = document.querySelector('select[name="client_id"]');
+    return sel ? sel.value : 0;
+  }
+
+  function loadAcField(field) {
+    var clientParam = CLIENT_SCOPED.has(field) ? ('&client_id=' + getClientId()) : '';
+    fetch('/policies/autocomplete?field=' + field + clientParam)
       .then(r => r.json())
       .then(values => {
         const dl = document.getElementById(`ac-${field}`);
         if (!dl) return;
         dl.innerHTML = values.map(v => `<option value="${v.replace(/"/g, '&quot;')}"></option>`).join('');
       });
-  });
+  }
+
+  AC_FIELDS.forEach(loadAcField);
+
+  // Re-load client-scoped lists when client selection changes
+  var clientSel = document.querySelector('select[name="client_id"]');
+  if (clientSel) {
+    clientSel.addEventListener('change', function() {
+      CLIENT_SCOPED.forEach(loadAcField);
+    });
+  }
 
   // Auto-populate location fields when a known project is selected
   var projectInput = document.querySelector('input[name="project_name"]');

@@ -150,6 +150,7 @@
       <span class="section-title">Placement &amp; Renewal</span>
     </div>
     <div class="p-6">
+      <p class="text-xs text-gray-400 mb-4">Placement colleagues and underwriters can be added from the Policy Team panel after saving.</p>
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
 
         <div>
@@ -159,29 +160,6 @@
             <option>{{ s }}</option>
             {% endfor %}
           </select>
-        </div>
-
-        <div>
-          <label class="field-label">Placement Colleague</label>
-          <input type="text" name="placement_colleague" class="form-input w-full"
-            list="ac-placement_colleague" autocomplete="off">
-        </div>
-
-        <div>
-          <label class="field-label">Colleague Email</label>
-          <input type="email" name="placement_colleague_email" placeholder="colleague@example.com"
-            class="form-input w-full" list="ac-placement_colleague_email" autocomplete="off">
-        </div>
-
-        <div>
-          <label class="field-label">Underwriter</label>
-          <input type="text" name="underwriter_name" class="form-input w-full"
-            list="ac-underwriter_name" autocomplete="off">
-        </div>
-
-        <div>
-          <label class="field-label">Underwriter Contact</label>
-          <input type="text" name="underwriter_contact" class="form-input w-full">
         </div>
 
         <div>
@@ -365,9 +343,6 @@ document.addEventListener('DOMContentLoaded', function() {
 </script>
 
 <datalist id="ac-carrier"></datalist>
-<datalist id="ac-placement_colleague"></datalist>
-<datalist id="ac-placement_colleague_email"></datalist>
-<datalist id="ac-underwriter_name"></datalist>
 <datalist id="ac-exposure_basis"></datalist>
 <datalist id="ac-exposure_unit"></datalist>
 <datalist id="ac-project_name"></datalist>
@@ -409,33 +384,6 @@ document.addEventListener('DOMContentLoaded', function() {
       CLIENT_SCOPED.forEach(loadAcField);
     });
   }
-
-  // Load colleague data and wire auto-fill
-  fetch('/policies/colleague-data')
-    .then(r => r.json())
-    .then(colleagues => {
-      var dlColleague = document.getElementById('ac-placement_colleague');
-      if (dlColleague) dlColleague.innerHTML = Object.keys(colleagues).map(n =>
-        `<option value="${n.replace(/"/g, '&quot;')}"></option>`
-      ).join('');
-      var nameEl = document.querySelector('input[name="placement_colleague"]');
-      var emailEl = document.querySelector('input[name="placement_colleague_email"]');
-      if (nameEl && emailEl) {
-        nameEl.addEventListener('change', function() {
-          var data = colleagues[this.value];
-          if (data && data.email && !emailEl.value) emailEl.value = data.email;
-        });
-      }
-    });
-
-  // Wire underwriter name → contact auto-fill
-  fetch('/policies/autocomplete?field=underwriter_name')
-    .then(r => r.json())
-    .then(names => {
-      var dl = document.getElementById('ac-underwriter_name');
-      if (dl) dl.innerHTML = names.map(n => `<option value="${n.replace(/"/g, '&quot;')}"></option>`).join('');
-    });
-  // Note: underwriter_contact is phone/fax, no structured lookup available
 
   // Auto-populate location fields when a known project is selected
   var projectInput = document.querySelector('input[name="project_name"]');

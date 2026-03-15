@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -14,10 +14,11 @@ from policydb.queries import (
     get_activities,
     get_activity_by_id,
     get_all_followups,
+    get_open_opportunities,
     get_renewal_pipeline,
     get_suggested_followups,
 )
-from policydb.web.routes.policies import _attach_milestone_progress
+from policydb.web.routes.policies import _attach_milestone_progress, _attach_readiness_score
 from policydb.web.app import get_db, templates
 
 router = APIRouter()
@@ -33,16 +34,23 @@ def activity_log(
     details: str = Form(""),
     contact_person: str = Form(""),
     follow_up_date: str = Form(""),
+    duration_minutes: str = Form(""),
     conn=Depends(get_db),
 ):
+    def _int(v):
+        try:
+            return int(v) if str(v).strip() else None
+        except ValueError:
+            return None
+
     account_exec = cfg.get("default_account_exec", "Grant")
     cursor = conn.execute(
         """INSERT INTO activity_log
-           (activity_date, client_id, policy_id, activity_type, contact_person, subject, details, follow_up_date, account_exec)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+           (activity_date, client_id, policy_id, activity_type, contact_person, subject, details, follow_up_date, account_exec, duration_minutes)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (date.today().isoformat(), client_id, policy_id or None, activity_type,
          contact_person or None, subject, details or None,
-         follow_up_date or None, account_exec),
+         follow_up_date or None, account_exec, _int(duration_minutes)),
     )
     conn.commit()
     # Return the new activity row as HTMX partial
@@ -95,6 +103,32 @@ def activity_snooze(request: Request, activity_id: int, days: int = 7, conn=Depe
     return templates.TemplateResponse("followups/_row.html", {"request": request, "r": r, "today": today})
 
 
+@router.post("/activities/{activity_id}/reschedule", response_class=HTMLResponse)
+def activity_reschedule(request: Request, activity_id: int, new_date: str = Form(...), conn=Depends(get_db)):
+    """Reschedule an activity follow-up to a specific date."""
+    conn.execute(
+        "UPDATE activity_log SET follow_up_date = ? WHERE id=?",
+        (new_date, activity_id),
+    )
+    conn.commit()
+    row = conn.execute(
+        """SELECT a.*, c.name AS client_name, p.policy_uid, p.policy_type, p.carrier, p.project_name,
+                  CAST(julianday('now') - julianday(a.follow_up_date) AS INTEGER) AS days_overdue,
+                  NULL AS contact_email, NULL AS internal_cc
+           FROM activity_log a
+           JOIN clients c ON a.client_id = c.id
+           LEFT JOIN policies p ON a.policy_id = p.id
+           WHERE a.id = ?""",
+        (activity_id,),
+    ).fetchone()
+    if not row:
+        return HTMLResponse("")
+    r = dict(row)
+    today = date.today().isoformat()
+    r["_is_overdue"] = r["follow_up_date"] < today
+    return templates.TemplateResponse("followups/_row.html", {"request": request, "r": r, "today": today})
+
+
 def _add_mailto_subjects(rows: list, subject_tpl: str) -> list:
     """Convert rows to dicts and add rendered mailto_subject to each."""
     result = []
@@ -120,14 +154,23 @@ def _followups_ctx(conn, window: int, activity_type: str, q: str) -> dict:
     subject_tpl = cfg.get("email_subject_followup", "Re: {{client_name}} — {{policy_type}} — {{subject}}")
     overdue  = _add_mailto_subjects(overdue_raw,  subject_tpl)
     upcoming = _add_mailto_subjects(upcoming_raw, subject_tpl)
+    # Split upcoming into triage groups
+    today_str = date.today().isoformat()
+    tomorrow_str = (date.today() + timedelta(days=1)).isoformat()
+    today_items = [r for r in upcoming if r.get("follow_up_date") == today_str]
+    tomorrow_items = [r for r in upcoming if r.get("follow_up_date") == tomorrow_str]
+    later_items = [r for r in upcoming if r.get("follow_up_date", "") > tomorrow_str]
     return {
         "overdue": overdue,
         "upcoming": upcoming,
+        "today_items": today_items,
+        "tomorrow_items": tomorrow_items,
+        "later_items": later_items,
         "suggested": suggested,
         "window": window,
         "activity_type": activity_type,
         "q": q,
-        "today": date.today().isoformat(),
+        "today": today_str,
         "activity_types": cfg.get("activity_types", []),
         "renewal_statuses": cfg.get("renewal_statuses", []),
     }
@@ -247,8 +290,14 @@ def renewals_export(window: int = 180, fmt: str = "xlsx", conn=Depends(get_db)):
     )
 
 
+_RENEWAL_SORT_FIELDS = {
+    "client_name", "carrier", "expiration_date", "days_to_renewal",
+    "premium", "renewal_status", "follow_up_date",
+}
+
 @router.get("/renewals", response_class=HTMLResponse)
-def renewals(request: Request, window: int = 180, urgency: str = "", status: str = "", conn=Depends(get_db)):
+def renewals(request: Request, window: int = 180, urgency: str = "", status: str = "",
+             sort: str = "expiration_date", dir: str = "asc", conn=Depends(get_db)):
     excluded = cfg.get("renewal_statuses_excluded", [])
     rows = get_renewal_pipeline(
         conn,
@@ -271,7 +320,16 @@ def renewals(request: Request, window: int = 180, urgency: str = "", status: str
         _mail_ctx = _policy_ctx(conn, d["policy_uid"])
         d["mailto_subject"] = _render_tokens(_subj_tpl, _mail_ctx)
         pipeline.append(d)
-    pipeline = _attach_milestone_progress(conn, pipeline)
+    pipeline = _attach_readiness_score(conn, _attach_milestone_progress(conn, pipeline))
+
+    sort_field = sort if sort in _RENEWAL_SORT_FIELDS else "expiration_date"
+    reverse = dir == "desc"
+    pipeline.sort(
+        key=lambda r: (r.get(sort_field) is None, r.get(sort_field) or ""),
+        reverse=reverse,
+    )
+
+    open_opportunities = get_open_opportunities(conn)
 
     return templates.TemplateResponse("renewals.html", {
         "request": request,
@@ -280,5 +338,60 @@ def renewals(request: Request, window: int = 180, urgency: str = "", status: str
         "window": window,
         "urgency": urgency,
         "status": status,
+        "sort": sort_field,
+        "dir": dir,
         "renewal_statuses": cfg.get("renewal_statuses"),
+        "open_opportunities": open_opportunities,
+        "today": date.today().isoformat(),
     })
+
+
+# ── Bulk triage actions ──────────────────────────────────────────────────────
+
+@router.post("/followups/bulk-reschedule", response_class=HTMLResponse)
+def bulk_reschedule(
+    request: Request,
+    ids: str = Form(...),
+    new_date: str = Form(...),
+    conn=Depends(get_db),
+):
+    """Bulk reschedule selected follow-ups to a specific date."""
+    for item in ids.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        source, item_id = item.split("-", 1)
+        if source == "activity":
+            conn.execute("UPDATE activity_log SET follow_up_date=? WHERE id=?", (new_date, int(item_id)))
+        elif source == "policy":
+            conn.execute("UPDATE policies SET follow_up_date=? WHERE policy_uid=?", (new_date, item_id))
+    conn.commit()
+    # Return refreshed results partial
+    window = 30
+    ctx = _followups_ctx(conn, window, "", "")
+    ctx["request"] = request
+    return templates.TemplateResponse("followups/_results.html", ctx)
+
+
+@router.post("/followups/bulk-complete", response_class=HTMLResponse)
+def bulk_complete(
+    request: Request,
+    ids: str = Form(...),
+    conn=Depends(get_db),
+):
+    """Bulk complete/clear selected follow-ups."""
+    for item in ids.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        source, item_id = item.split("-", 1)
+        if source == "activity":
+            conn.execute("UPDATE activity_log SET follow_up_done=1 WHERE id=?", (int(item_id),))
+        elif source == "policy":
+            conn.execute("UPDATE policies SET follow_up_date=NULL WHERE policy_uid=?", (item_id,))
+    conn.commit()
+    # Return refreshed results partial
+    window = 30
+    ctx = _followups_ctx(conn, window, "", "")
+    ctx["request"] = request
+    return templates.TemplateResponse("followups/_results.html", ctx)

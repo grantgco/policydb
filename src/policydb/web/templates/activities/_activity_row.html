@@ -4,6 +4,7 @@
       <span class="text-xs font-medium bg-gray-100 text-gray-600 px-2 py-0.5 rounded">{{ a.activity_type }}</span>
       {% if a.policy_uid %}<a href="/policies/{{ a.policy_uid }}/edit" class="text-xs font-mono text-marsh hover:underline">{{ a.policy_uid }}</a>{% endif %}
       <span class="text-sm font-medium text-gray-800">{{ a.subject }}</span>
+      {% if a.duration_minutes %}<span class="text-xs bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded">{{ a.duration_minutes }}m</span>{% endif %}
     </div>
     {% if a.details %}<p class="text-xs text-gray-500 mt-1 line-clamp-2">{{ a.details }}</p>{% endif %}
     <p class="text-xs text-gray-400 mt-1">

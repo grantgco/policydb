@@ -44,22 +44,6 @@
         </div>
       </div>
 
-      <!-- Row 1b: Placement -->
-      <div class="grid grid-cols-4 gap-3">
-        <div>
-          <p class="text-xs text-gray-500 mb-0.5">Placement Colleague</p>
-          <input type="text" name="placement_colleague" value="{{ p.placement_colleague or '' }}"
-            list="ac-placement_colleague-row-{{ p.policy_uid }}" autocomplete="off"
-            class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh">
-        </div>
-        <div>
-          <p class="text-xs text-gray-500 mb-0.5">Colleague Email</p>
-          <input type="email" name="placement_colleague_email" value="{{ p.placement_colleague_email or '' }}"
-            placeholder="colleague@example.com"
-            class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh">
-        </div>
-      </div>
-
       <!-- Row 2: Dates + financials -->
       <div class="grid grid-cols-6 gap-3">
         <div>
@@ -91,6 +75,16 @@
         <div>
           <p class="text-xs text-gray-500 mb-0.5">Follow-Up</p>
           <input type="date" name="follow_up_date" value="{{ p.follow_up_date or '' }}"
+            class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh">
+        </div>
+      </div>
+
+      <!-- Row 2b: Access Point -->
+      <div class="grid grid-cols-3 gap-3">
+        <div>
+          <p class="text-xs text-gray-500 mb-0.5">Access Point</p>
+          <input type="text" name="access_point" value="{{ p.access_point or '' }}"
+            placeholder="Wholesaler, etc."
             class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh">
         </div>
       </div>
@@ -133,7 +127,6 @@
 
     <datalist id="ac-carrier-row-{{ p.policy_uid }}"></datalist>
     <datalist id="ac-project-row-{{ p.policy_uid }}"></datalist>
-    <datalist id="ac-placement_colleague-row-{{ p.policy_uid }}"></datalist>
 
     <script>
     (function(){
@@ -153,24 +146,6 @@
             }).join('');
           });
       });
-
-      // Load colleague names + wire auto-fill for email
-      fetch("/policies/colleague-data")
-        .then(function(r){ return r.json(); })
-        .then(function(colleagues){
-          var dl = document.getElementById("ac-placement_colleague-row-" + uid);
-          if (dl) dl.innerHTML = Object.keys(colleagues).map(function(n){
-            return '<option value="' + n.replace(/"/g, '&quot;') + '"></option>';
-          }).join('');
-          var nameEl = document.querySelector('input[name="placement_colleague"]');
-          var emailEl = document.querySelector('input[name="placement_colleague_email"]');
-          if (nameEl && emailEl) {
-            nameEl.addEventListener('change', function(){
-              var data = colleagues[this.value];
-              if (data && data.email && !emailEl.value) emailEl.value = data.email;
-            });
-          }
-        });
     })();
     </script>
 

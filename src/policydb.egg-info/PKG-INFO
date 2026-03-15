@@ -16,5 +16,6 @@ Requires-Dist: uvicorn>=0.29
 Requires-Dist: jinja2>=3.1
 Requires-Dist: python-multipart>=0.0.9
 Requires-Dist: openpyxl>=3.1
+Requires-Dist: phonenumbers>=8.13
 Provides-Extra: datasette
 Requires-Dist: datasette>=0.64; extra == "datasette"

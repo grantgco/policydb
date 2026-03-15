@@ -117,20 +117,45 @@ def db_seed():
 
 
 @db_group.command("backup")
-@click.option("--path", "dest", default=None, help="Destination file path.")
-def db_backup(dest):
-    """Copy database file to backup location."""
+@click.option("--dest-dir", default=None, help="Directory to write backup into (default: ~/.policydb/backups/).")
+@click.option("--keep", default=30, show_default=True, help="Number of daily backups to retain before pruning.")
+def db_backup(dest_dir, keep):
+    """Back up the database to a timestamped file and prune old backups.
+
+    Creates ~/.policydb/backups/policydb_YYYY-MM-DD_HHMMSS.sqlite.
+    Run daily via launchd or cron; old copies beyond --keep days are deleted.
+    """
     import shutil
-    from datetime import date
+    import datetime
+
     src = get_db_path()
     if not src.exists():
         raise click.ClickException("No database found.")
-    if dest is None:
-        dest = src.parent / f"policydb_backup_{date.today().isoformat()}.sqlite"
-    else:
-        dest = Path(dest)
+
+    backup_dir = Path(dest_dir) if dest_dir else src.parent / "backups"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+
+    ts = datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    dest = backup_dir / f"policydb_{ts}.sqlite"
+
     shutil.copy2(src, dest)
     click.echo(f"Backup saved: {dest}")
+
+    # Prune backups older than --keep days
+    cutoff = datetime.datetime.now() - datetime.timedelta(days=keep)
+    pruned = 0
+    for f in sorted(backup_dir.glob("policydb_*.sqlite")):
+        if f == dest:
+            continue
+        try:
+            mtime = datetime.datetime.fromtimestamp(f.stat().st_mtime)
+            if mtime < cutoff:
+                f.unlink()
+                pruned += 1
+        except OSError:
+            pass
+    if pruned:
+        click.echo(f"Pruned {pruned} backup(s) older than {keep} days.")
 
 
 @db_group.command("stats")

@@ -111,10 +111,13 @@ def export_schedule_json(conn: sqlite3.Connection, client_id: int, client_name: 
 # ─── LLM CLIENT EXPORT ───────────────────────────────────────────────────────
 
 def export_llm_client_md(conn: sqlite3.Connection, client_id: int) -> str:
+    from collections import defaultdict
+    from policydb.analysis import layer_notation as _ln
+
     client = conn.execute("SELECT * FROM clients WHERE id = ?", (client_id,)).fetchone()
     summary = conn.execute("SELECT * FROM v_client_summary WHERE id = ?", (client_id,)).fetchone()
     policies = conn.execute(
-        "SELECT * FROM v_policy_status WHERE client_id = ? ORDER BY project_name, policy_type, layer_position",
+        "SELECT * FROM v_policy_status WHERE client_id = ? ORDER BY policy_type, layer_position",
         (client_id,),
     ).fetchall()
     pipeline = conn.execute(
@@ -122,9 +125,11 @@ def export_llm_client_md(conn: sqlite3.Connection, client_id: int) -> str:
         (client["name"],),
     ).fetchall()
     activities = conn.execute(
-        """SELECT a.*, c.name AS client_name FROM activity_log a
+        """SELECT a.*, c.name AS client_name, p.policy_uid, p.policy_type AS policy_type_ref
+           FROM activity_log a
            JOIN clients c ON a.client_id = c.id
-           WHERE a.client_id = ? AND a.activity_date >= date('now', '-90 days')
+           LEFT JOIN policies p ON a.policy_id = p.id
+           WHERE a.client_id = ? AND a.activity_date >= date('now', '-180 days')
            ORDER BY a.activity_date DESC""",
         (client_id,),
     ).fetchall()
@@ -142,28 +147,75 @@ def export_llm_client_md(conn: sqlite3.Connection, client_id: int) -> str:
         (client_id,),
     ).fetchall()
     history = conn.execute(
-        """SELECT * FROM premium_history WHERE client_id = ?
-           ORDER BY policy_type, term_effective DESC""",
+        "SELECT * FROM premium_history WHERE client_id = ? ORDER BY policy_type, term_effective DESC",
         (client_id,),
     ).fetchall()
-    project_notes = conn.execute(
-        "SELECT project_name, notes FROM project_notes WHERE client_id = ? AND notes != '' ORDER BY project_name",
+    project_notes_rows = conn.execute(
+        "SELECT name AS project_name, notes FROM projects WHERE client_id = ? AND notes != '' ORDER BY name",
         (client_id,),
     ).fetchall()
+    contacts = conn.execute(
+        "SELECT * FROM client_contacts WHERE client_id = ? ORDER BY is_primary DESC, name",
+        (client_id,),
+    ).fetchall()
+    scratchpad_row = conn.execute(
+        "SELECT content FROM client_scratchpad WHERE client_id = ?", (client_id,)
+    ).fetchone()
     audit = build_program_audit(conn, client_id)
 
+    policy_contacts_rows = conn.execute(
+        """SELECT pc.policy_id, pc.name, pc.email, pc.phone, pc.role, p.policy_uid
+           FROM policy_contacts pc JOIN policies p ON pc.policy_id = p.id
+           WHERE p.client_id = ? ORDER BY pc.name""",
+        (client_id,),
+    ).fetchall()
+
+    client_dict = dict(client)
     s = summary
     total_premium = s["total_premium"] if s else 0
     total_commission = s["total_commission"] if s else 0
     total_fees = s["total_fees"] if s else 0
     total_revenue = s["total_revenue"] if s else 0
-    next_renewal_days = s["next_renewal_days"] if s else None
+    next_pol = pipeline[0] if pipeline else None
 
-    # Find next renewing policy
-    next_pol = None
-    if pipeline:
-        next_pol = pipeline[0]
+    # Build lookup maps
+    project_notes_map = {r["project_name"]: r["notes"] for r in project_notes_rows}
 
+    # Policy contacts grouped by policy_id
+    from collections import defaultdict as _dd
+    policy_contacts_map: dict = _dd(list)
+    for pc in policy_contacts_rows:
+        policy_contacts_map[pc["policy_id"]].append(dict(pc))
+
+    # Primary location address per project (from most recent policy)
+    project_addresses: dict[str, str] = {}
+    for p in sorted([dict(r) for r in policies], key=lambda x: x.get("id", 0)):
+        proj = (p.get("project_name") or "").strip()
+        if proj not in project_addresses:
+            parts = [p.get("exposure_address"), p.get("exposure_city"),
+                     p.get("exposure_state"), p.get("exposure_zip")]
+            addr = ", ".join(x for x in parts if x)
+            if addr:
+                project_addresses[proj] = addr
+
+    # Tower layers grouped by project then tower_group
+    tower_by_project: dict = defaultdict(lambda: defaultdict(list))
+    for p_dict in [dict(p) for p in policies]:
+        tg = p_dict.get("tower_group")
+        if tg:
+            proj = (p_dict.get("project_name") or "").strip()
+            tower_by_project[proj][tg].append(p_dict)
+
+    # Group policies by project
+    policy_groups: dict[str, list] = defaultdict(list)
+    for p in policies:
+        proj = (dict(p).get("project_name") or "").strip()
+        policy_groups[proj].append(dict(p))
+
+    # Sort projects: named A-Z, blank ("Corporate / Standalone") last
+    sorted_projects = sorted(policy_groups.keys(), key=lambda x: "\xff" if not x else x.lower())
+
+    # ─── YAML frontmatter ────────────────────────────────────────────────────
     lines = [
         "---",
         "export_type: client_program_summary",
@@ -172,60 +224,112 @@ def export_llm_client_md(conn: sqlite3.Connection, client_id: int) -> str:
         f'account_executive: "{client["account_exec"]}"',
         f'export_date: "{TODAY}"',
         f"total_policies: {len(policies)}",
-        f"standalone_policies: {audit['standalone_count']}",
         f"total_annual_premium: {fmt_currency(total_premium)}",
-        f"total_annual_commission: {fmt_currency(total_commission)}",
-        f"total_annual_fees: {fmt_currency(total_fees)}",
-        f"total_annual_revenue: {fmt_currency(total_revenue)}",
+        f"estimated_annual_revenue: {fmt_currency(total_revenue)}",
     ]
     if next_pol:
         lines.append(
-            f'next_renewal: "{next_pol["expiration_date"]} ({next_pol["days_to_renewal"]} days — {next_pol["policy_uid"]}, {next_pol["policy_type"]})"'
+            f'next_renewal: "{next_pol["expiration_date"]} ({next_pol["days_to_renewal"]}d'
+            f' — {next_pol["policy_uid"]}, {next_pol["policy_type"]})"'
         )
     lines += ["---", ""]
 
-    lines += [
-        f"# Client Program Summary: {client['name']}",
-        "",
-        "## Client Profile",
-        f"- **Industry:** {client['industry_segment']}",
-        f"- **Primary Contact:** {client['primary_contact'] or '—'} ({client['contact_email'] or ''}, {client['contact_phone'] or ''})",
-        f"- **Address:** {client['address'] or '—'}",
-        f"- **Onboarded:** {client['date_onboarded']}",
-        f"- **Notes:** {client['notes'] or '—'}",
-    ]
-    client_dict = dict(client)
+    # ─── Title + business description ────────────────────────────────────────
+    lines += [f"# Client Program Summary: {client['name']}", ""]
+
     if client_dict.get("business_description"):
-        lines += [
-            "",
-            "### Business Description",
-            client_dict["business_description"],
-        ]
-    if project_notes:
-        lines += ["", "### Project / Location Notes", ""]
-        for pn in project_notes:
-            lines.append(f"**{pn['project_name']}:** {pn['notes']}")
+        lines += [client_dict["business_description"], ""]
+
+    meta = f"**Industry:** {client['industry_segment']}"
+    if client_dict.get("cn_number"):
+        meta += f" | **CN:** {client['cn_number']}"
+    meta += f" | **Onboarded:** {client['date_onboarded']} | **Account Executive:** {client['account_exec']}"
+    if client_dict.get("client_since"):
+        meta += f" | **Client Since:** {client_dict['client_since']}"
+    if client_dict.get("website"):
+        meta += f" | **Web:** {client_dict['website']}"
+    if client_dict.get("preferred_contact_method"):
+        meta += f" | **Preferred Contact:** {client_dict['preferred_contact_method']}"
+    if client_dict.get("referral_source"):
+        meta += f" | **Source:** {client_dict['referral_source']}"
+    lines += [meta, ""]
+
+    if client_dict.get("renewal_month"):
+        import calendar
+        month_name = calendar.month_name[client_dict["renewal_month"]]
+        lines += [f"*Typical renewal month: {month_name}*", ""]
+
+    # Contacts
+    if contacts:
+        lines += ["### Contacts", ""]
+        for c in contacts:
+            c = dict(c)
+            primary_marker = " ★" if c.get("is_primary") else ""
+            entry = f"- **{c['name']}{primary_marker}**"
+            if c.get("title"):
+                entry += f", {c['title']}"
+            if c.get("role"):
+                entry += f" ({c['role']})"
+            if c.get("contact_type") == "internal":
+                if c.get("assignment"):
+                    entry += f" — {c['assignment']}"
+                else:
+                    entry += " [internal]"
+            if c.get("email"):
+                entry += f" — {c['email']}"
+            if c.get("phone"):
+                entry += f" · {c['phone']}"
+            lines.append(entry)
+        lines.append("")
+    elif client_dict.get("primary_contact"):
+        contact_line = f"- **{client['primary_contact']}**"
+        if client_dict.get("contact_email"):
+            contact_line += f" — {client['contact_email']}"
+        if client_dict.get("contact_phone"):
+            contact_line += f" · {client['contact_phone']}"
+        lines += ["### Contacts", "", contact_line, ""]
+
+    if client_dict.get("notes"):
+        lines += ["### Account Notes (Legacy)", "", client_dict["notes"], ""]
+
+    scratchpad_content = (scratchpad_row["content"] if scratchpad_row else "").strip()
+    if scratchpad_content:
+        lines += ["### Working Notes", "", scratchpad_content, ""]
+
+    # ─── Program Overview ────────────────────────────────────────────────────
+    rev_detail = ""
+    if total_commission and total_fees:
+        rev_detail = f" ({fmt_currency(total_commission)} commission + {fmt_currency(total_fees)} flat fee)"
+    elif total_commission:
+        rev_detail = " (commission)"
+    elif total_fees:
+        rev_detail = " (flat fee)"
+
     lines += [
-        "",
         "## Program Overview",
         "",
-        f"- Total annual premium: {fmt_currency(total_premium)}",
-        f"- Total annual commission: {fmt_currency(total_commission)}",
-        f"- Annual broker fee: {fmt_currency(total_fees) if total_fees else '—'}",
-        f"- Estimated total revenue: {fmt_currency(total_revenue)}",
-        f"- Active policies: {len(policies)} ({audit['standalone_count']} standalone)",
-        f"- Coverage lines: {', '.join(audit['coverage_lines'])}",
-        f"- Carriers on account: {', '.join(audit['carriers'])}",
+        f"- **Total annual premium:** {fmt_currency(total_premium)}",
+        f"- **Estimated annual revenue:** {fmt_currency(total_revenue)}{rev_detail}",
+        f"- **Active policies:** {len(policies)} ({audit['standalone_count']} standalone)",
+        f"- **Coverage lines:** {', '.join(audit['coverage_lines'])}",
+        f"- **Carriers:** {', '.join(audit['carriers'])}",
         "",
     ]
+    if next_pol:
+        lines += [
+            f"Next renewal: **{next_pol['policy_type']}** ({next_pol['policy_uid']}) with "
+            f"{next_pol['carrier']} — expires {next_pol['expiration_date']}, "
+            f"{next_pol['days_to_renewal']} days out.",
+            "",
+        ]
 
-    # Renewal pipeline
+    # ─── Renewal Pipeline ────────────────────────────────────────────────────
     if pipeline:
         lines += [
             "## Renewal Pipeline (Next 180 Days)",
             "",
-            "| Policy | Line | Carrier | Expires | Days | Premium | Urgency | Renewal Status | Colleague |",
-            "|--------|------|---------|---------|------|---------|---------|----------------|-----------|",
+            "| Policy | Line of Business | Carrier | Expires | Days | Premium | Urgency | Status | Colleague |",
+            "|--------|------------------|---------|---------|------|---------|---------|--------|-----------|",
         ]
         for r in pipeline:
             lines.append(
@@ -236,81 +340,108 @@ def export_llm_client_md(conn: sqlite3.Connection, client_id: int) -> str:
             )
         lines.append("")
 
-    # Complete policy schedule — grouped by project
-    lines += ["## Complete Policy Schedule", ""]
-    current_project = "__UNSET__"
-    for p in policies:
-        proj = (p["project_name"] or "").strip() or ""
-        if proj != current_project:
-            current_project = proj
-            section = proj if proj else "Corporate / Standalone"
-            lines += [
-                f"### {section}",
-                "",
-                "| UID | Line of Business | Carrier | Policy # | Effective | Expires | Premium | Limit | Ded. | Layer | Renewal Status | Colleague | Colleague Email |",
-                "|-----|------------------|---------|----------|-----------|---------|---------|-------|------|-------|----------------|-----------|-----------------|",
-            ]
-        desc = (p["description"] or "").replace("|", "\\|")
-        lines.append(
-            f"| {p['policy_uid']} | {p['policy_type']} | {p['carrier']}"
-            f" | {p['policy_number'] or ''} | {p['effective_date']} | {p['expiration_date']}"
-            f" | {fmt_currency(p['premium'])} | {fmt_limit(p['limit_amount'])}"
-            f" | {fmt_limit(p['deductible'])}"
-            f" | {p['layer_position'] or 'Primary'}"
-            f" | {p['renewal_status']} | {p['placement_colleague'] or '—'}"
-            f" | {p['placement_colleague_email'] or '—'} |"
+    # ─── Insurance Program (grouped by project) ───────────────────────────
+    lines += ["## Insurance Program", ""]
+
+    for proj in sorted_projects:
+        group = policy_groups[proj]
+        display_name = proj if proj else "Corporate / Standalone"
+        lines += [f"### {display_name}", ""]
+
+        addr = project_addresses.get(proj, "")
+        if addr:
+            lines += [f"**Location:** {addr}", ""]
+
+        note = project_notes_map.get(proj, "")
+        if note:
+            lines += [note, ""]
+
+        # Policy summary table
+        lines += [
+            "| UID | Line of Business | Carrier | Policy # | Effective | Expires | Premium | Limit | Ded. | Status |",
+            "|-----|------------------|---------|----------|-----------|---------|---------|-------|------|--------|",
+        ]
+        for p in group:
+            lines.append(
+                f"| {p['policy_uid']} | {p['policy_type']} | {p['carrier']}"
+                f" | {p.get('policy_number') or '—'} | {p['effective_date']} | {p['expiration_date']}"
+                f" | {fmt_currency(p['premium'])} | {fmt_limit(p.get('limit_amount'))}"
+                f" | {fmt_limit(p.get('deductible'))} | {p['renewal_status']} |"
+            )
+        lines.append("")
+
+        # Per-policy narrative detail (description, placement, team, internal notes)
+        for p in group:
+            details = []
+            if p.get("first_named_insured") and p["first_named_insured"] != client["name"]:
+                details.append(f"First Named Insured: {p['first_named_insured']}")
+            if p.get("access_point"):
+                details.append(f"Access Point: {p['access_point']}")
+            if p.get("description"):
+                details.append(p["description"])
+            # Policy team contacts (new system)
+            team = policy_contacts_map.get(p.get("id", 0), [])
+            if team:
+                team_parts = []
+                for tm in team:
+                    part = tm["name"]
+                    if tm.get("role"):
+                        part += f" ({tm['role']})"
+                    if tm.get("email"):
+                        part += f" <{tm['email']}>"
+                    team_parts.append(part)
+                details.append("Team: " + "; ".join(team_parts))
+            elif p.get("placement_colleague"):
+                col = f"Placement: {p['placement_colleague']}"
+                if p.get("placement_colleague_email"):
+                    col += f" ({p['placement_colleague_email']})"
+                details.append(col)
+            if p.get("underwriter_name"):
+                uw = f"Underwriter: {p['underwriter_name']}"
+                if p.get("underwriter_contact"):
+                    uw += f" ({p['underwriter_contact']})"
+                details.append(uw)
+            if p.get("notes"):
+                details.append(f"Internal notes: {p['notes']}")
+            if details:
+                lines.append(f"**{p['policy_uid']} — {p['policy_type']}:** " + " | ".join(details))
+        has_details = any(
+            p.get("description") or p.get("placement_colleague") or p.get("notes")
+            or p.get("underwriter_name") or p.get("first_named_insured")
+            or p.get("access_point") or policy_contacts_map.get(p.get("id", 0))
+            for p in group
         )
-    lines.append("")
+        if has_details:
+            lines.append("")
 
-    # Tower structure — two-level: project → tower group → layers
-    towers = audit["towers"]
-    if towers:
-        # Build project→tower_group→layers from raw tower dict {group: [policies]}
-        from collections import defaultdict as _dd
-        tower_by_project: dict = _dd(lambda: _dd(list))
-        for group_name, group_policies in towers.items():
-            for p in group_policies:
-                proj = (p.get("project_name") or "").strip() or "Corporate / Standalone"
-                tower_by_project[proj][group_name].append(p)
-
-        lines += ["## Tower / Layer Structure", ""]
-        for proj in sorted(tower_by_project, key=lambda x: "\xff" if x == "Corporate / Standalone" else x.lower()):
-            lines += [f"### {proj}", ""]
-            for group_name in sorted(tower_by_project[proj]):
-                group_policies = sorted(
-                    tower_by_project[proj][group_name],
-                    key=lambda p: p.get("attachment_point") or 0,
-                    reverse=True,  # highest layer first (top of tower)
+        # Tower structure for this project (inline)
+        proj_towers = tower_by_project.get(proj, {})
+        if proj_towers:
+            for tg_name in sorted(proj_towers.keys()):
+                layers = sorted(
+                    proj_towers[tg_name],
+                    key=lambda lp: lp.get("attachment_point") or 0,
+                    reverse=True,
                 )
+                total_tower_premium = sum(lp.get("premium") or 0 for lp in layers)
                 lines += [
-                    f"#### {group_name}",
+                    f"**Tower: {tg_name}** ({fmt_currency(total_tower_premium)} total, {len(layers)} carrier{'s' if len(layers) != 1 else ''})",
                     "",
-                    "| Layer Notation | Carrier | Limit | Premium | Colleague |",
-                    "|----------------|---------|-------|---------|-----------|",
+                    "| Layer | Carrier | Limit | Premium | Colleague |",
+                    "|-------|---------|-------|---------|-----------|",
                 ]
-                from policydb.analysis import layer_notation as _ln
-                for p in group_policies:
-                    notation = _ln(p.get("limit_amount"), p.get("attachment_point"), p.get("participation_of"))
+                for lp in layers:
+                    notation = _ln(lp.get("limit_amount"), lp.get("attachment_point"), lp.get("participation_of"))
                     lines.append(
-                        f"| {notation or p.get('layer_position', 'Primary')} | {p['carrier']}"
-                        f" | {fmt_limit(p.get('limit_amount'))} | {fmt_currency(p['premium'])}"
-                        f" | {p.get('placement_colleague') or '—'} |"
+                        f"| {notation or lp.get('layer_position', 'Primary')}"
+                        f" | {lp['carrier']} | {fmt_limit(lp.get('limit_amount'))}"
+                        f" | {fmt_currency(lp['premium'])} | {lp.get('placement_colleague') or '—'} |"
                     )
                 lines.append("")
 
-    # Coverage gap analysis
-    gaps = audit["gap_observations"]
-    lines += ["## Coverage Gap Analysis", ""]
-    if gaps:
-        for obs in gaps:
-            lines.append(f"- {obs}")
-    else:
-        lines.append("- No coverage gaps detected based on configured rules.")
-    lines.append("")
-
-    # Premium history
+    # ─── Premium History ──────────────────────────────────────────────────────
     if history:
-        lines += ["## Premium Trending", ""]
+        lines += ["## Premium History", ""]
         current_type = None
         for r in history:
             if r["policy_type"] != current_type:
@@ -328,52 +459,70 @@ def export_llm_client_md(conn: sqlite3.Connection, client_id: int) -> str:
             )
         lines.append("")
 
-    # Recent activity
+    # ─── Account Activity ────────────────────────────────────────────────────
     if activities:
         lines += [
-            "## Recent Activity (Last 90 Days)",
+            "## Account Activity (Last 180 Days)",
             "",
-            "| Date | Type | Contact | Subject | Follow-Up |",
-            "|------|------|---------|---------|-----------|",
+            "| Date | Type | Policy | Contact | Subject | Follow-Up |",
+            "|------|------|--------|---------|---------|-----------|",
         ]
+        detail_blocks = []
         for a in activities:
+            subject = (a["subject"] or "").replace("|", "\\|")
+            policy_ref = (a["policy_uid"] or "")
             lines.append(
                 f"| {a['activity_date']} | {a['activity_type']}"
-                f" | {a['contact_person'] or '—'} | {a['subject']}"
+                f" | {policy_ref or '—'} | {a['contact_person'] or '—'} | {subject}"
                 f" | {a['follow_up_date'] or '—'} |"
             )
+            if a["details"] and a["details"].strip():
+                detail_blocks.append((a["activity_date"], a["subject"], a["details"].strip(), policy_ref))
         lines.append("")
+        if detail_blocks:
+            lines += ["### Activity Notes", ""]
+            for date, subject, details, policy_ref in detail_blocks:
+                header = f"**{date} — {subject}**"
+                if policy_ref:
+                    header += f" [{policy_ref}]"
+                lines.append(header)
+                lines.append(f"{details}")
+                lines.append("")
 
-    # Overdue follow-ups
-    if overdue:
-        lines += [
-            "## Overdue Follow-Ups",
-            "",
-            "| Due | Overdue By | Type | Subject | Activity Date |",
-            "|-----|------------|------|---------|---------------|",
-        ]
-        for o in overdue:
+    # ─── Opportunities ────────────────────────────────────────────────────────
+    opportunities = [p for p in [dict(r) for r in policies] if p.get("is_opportunity")]
+    if opportunities:
+        lines += ["## Opportunities / New Business", "", "| UID | Line | Status | Target Effective | Premium |",
+                  "|-----|------|--------|-----------------|---------|"]
+        for op in opportunities:
             lines.append(
-                f"| {o['follow_up_date']} | {o['days_overdue']}d"
-                f" | {o['activity_type']} | {o['subject']} | {o['activity_date']} |"
+                f"| {op['policy_uid']} | {op['policy_type']} | {op.get('opportunity_status') or '—'}"
+                f" | {op.get('target_effective_date') or '—'} | {fmt_currency(op['premium'])} |"
             )
         lines.append("")
 
-    # Upcoming follow-ups
-    if upcoming_followups:
-        lines += [
-            "## Upcoming Follow-Ups",
-            "",
-            "| Due | Type | Subject | Contact | Policy |",
-            "|-----|------|---------|---------|--------|",
-        ]
-        for u in upcoming_followups:
-            lines.append(
-                f"| {u['follow_up_date']} | {u['activity_type']}"
-                f" | {u['subject']} | {u['contact_person'] or '—'}"
-                f" | {u['policy_uid'] or '—'} |"
-            )
-        lines.append("")
+    # ─── Open Follow-Ups ─────────────────────────────────────────────────────
+    if overdue or upcoming_followups:
+        lines += ["## Open Follow-Ups", ""]
+        if overdue:
+            lines += ["**Overdue:**", ""]
+            for o in overdue:
+                lines.append(
+                    f"- {o['follow_up_date']} ({o['days_overdue']}d overdue) — "
+                    f"{o['activity_type']}: {o['subject']}"
+                )
+            lines.append("")
+        if upcoming_followups:
+            lines += ["**Upcoming:**", ""]
+            for u in upcoming_followups:
+                u = dict(u)
+                entry = f"- {u['follow_up_date']} — {u['activity_type']}: {u['subject']}"
+                if u.get("contact_person"):
+                    entry += f" (w/ {u['contact_person']})"
+                if u.get("policy_uid"):
+                    entry += f" [{u['policy_uid']}]"
+                lines.append(entry)
+            lines.append("")
 
     return "\n".join(lines)
 
@@ -407,10 +556,29 @@ def export_llm_client_json(conn: sqlite3.Connection, client_id: int) -> str:
         (client_id,),
     ).fetchall()
     proj_notes = conn.execute(
-        "SELECT project_name, notes FROM project_notes WHERE client_id = ? AND notes != '' ORDER BY project_name",
+        "SELECT name AS project_name, notes FROM projects WHERE client_id = ? AND notes != '' ORDER BY name",
         (client_id,),
     ).fetchall()
+    contacts = conn.execute(
+        "SELECT name, title, email, phone, role, assignment, contact_type, notes, is_primary FROM client_contacts WHERE client_id = ? ORDER BY is_primary DESC, name",
+        (client_id,),
+    ).fetchall()
+    policy_contacts = conn.execute(
+        """SELECT pc.policy_id, pc.name, pc.email, pc.phone, pc.role, p.policy_uid
+           FROM policy_contacts pc JOIN policies p ON pc.policy_id = p.id
+           WHERE p.client_id = ? ORDER BY p.policy_uid, pc.name""",
+        (client_id,),
+    ).fetchall()
+    scratchpad = conn.execute(
+        "SELECT content, updated_at FROM client_scratchpad WHERE client_id = ?", (client_id,)
+    ).fetchone()
     audit = build_program_audit(conn, client_id)
+
+    # Group policy_contacts by policy_uid
+    from collections import defaultdict as _dd2
+    pc_by_uid: dict = _dd2(list)
+    for pc in policy_contacts:
+        pc_by_uid[pc["policy_uid"]].append(dict(pc))
 
     data = {
         "metadata": {
@@ -420,10 +588,13 @@ def export_llm_client_json(conn: sqlite3.Connection, client_id: int) -> str:
         },
         "client": dict(client),
         "summary": dict(summary) if summary else {},
+        "contacts": [dict(c) for c in contacts],
+        "working_notes": scratchpad["content"] if scratchpad else "",
         "project_notes": [dict(r) for r in proj_notes],
         "policies": [
             {
                 **dict(p),
+                "team": pc_by_uid.get(p["policy_uid"], []),
                 "computed": {
                     "days_to_renewal": p["days_to_renewal"],
                     "urgency": p["urgency"],
@@ -586,6 +757,20 @@ def export_renewals_md(conn: sqlite3.Connection, window_days: int = 180) -> str:
            ORDER BY expiration_date""",
         (window_days,),
     ).fetchall()
+
+    # Build policy_contacts map keyed by policy_uid
+    pc_rows = conn.execute(
+        """SELECT p.policy_uid, pc.name, pc.role, pc.email
+           FROM policy_contacts pc JOIN policies p ON pc.policy_id = p.id
+           WHERE p.policy_uid IN (SELECT policy_uid FROM v_renewal_pipeline WHERE days_to_renewal <= ?)
+           ORDER BY pc.name""",
+        (window_days,),
+    ).fetchall()
+    from collections import defaultdict as _ddr
+    pc_map: dict = _ddr(list)
+    for pc in pc_rows:
+        pc_map[pc["policy_uid"]].append(pc["name"])
+
     total = sum(r["premium"] or 0 for r in rows)
     lines = [
         f"# Renewal Pipeline — Next {window_days} Days",
@@ -594,15 +779,17 @@ def export_renewals_md(conn: sqlite3.Connection, window_days: int = 180) -> str:
         f"**Policies:** {len(rows)}  ",
         f"**Premium at Risk:** {fmt_currency(total)}",
         "",
-        "| UID | Client | Line | Carrier | Expires | Days | Urgency | Premium | Status | Colleague |",
-        "|-----|--------|------|---------|---------|------|---------|---------|--------|-----------|",
+        "| UID | Client | Line | Carrier | Expires | Days | Urgency | Premium | Status | Team |",
+        "|-----|--------|------|---------|---------|------|---------|---------|--------|------|",
     ]
     for r in rows:
+        team = pc_map.get(r["policy_uid"])
+        team_str = "; ".join(team) if team else (r["placement_colleague"] or "—")
         lines.append(
             f"| {r['policy_uid']} | {r['client_name']} | {r['policy_type']}"
             f" | {r['carrier']} | {r['expiration_date']} | {r['days_to_renewal']}"
             f" | {r['urgency']} | {fmt_currency(r['premium'])}"
-            f" | {r['renewal_status']} | {r['placement_colleague'] or '—'} |"
+            f" | {r['renewal_status']} | {team_str} |"
         )
     return "\n".join(lines)
 
@@ -702,7 +889,7 @@ def export_schedule_xlsx(conn: sqlite3.Connection, client_id: int, client_name: 
 
     # Project Notes sheet (if any)
     notes_rows = conn.execute(
-        "SELECT project_name AS \"Project / Location\", notes AS \"Notes\" FROM project_notes WHERE client_id = ? AND notes != '' ORDER BY project_name",
+        "SELECT name AS \"Project / Location\", notes AS \"Notes\" FROM projects WHERE client_id = ? AND notes != '' ORDER BY name",
         (client_id,),
     ).fetchall()
     if notes_rows:
@@ -724,6 +911,87 @@ def export_client_xlsx(conn: sqlite3.Connection, client_id: int) -> bytes:
     wb.remove(wb.active)
     _write_sheet(wb, "Policies", [dict(r) for r in policies])
     _write_sheet(wb, "Premium History", [dict(r) for r in history])
+    return _wb_to_bytes(wb)
+
+
+def export_full_xlsx(conn: sqlite3.Connection, client_id: int, client_name: str) -> bytes:
+    """Full internal data export: all policy fields + contacts + notes + activities."""
+    policies = conn.execute(
+        """SELECT policy_uid, policy_type, carrier, policy_number,
+                  effective_date, expiration_date, premium, limit_amount, deductible,
+                  description, coverage_form, layer_position, tower_group, is_standalone,
+                  project_name, renewal_status, commission_rate, commission_amount,
+                  prior_premium, rate_change,
+                  placement_colleague, placement_colleague_email,
+                  underwriter_name, underwriter_contact,
+                  follow_up_date, attachment_point, participation_of,
+                  exposure_basis, exposure_amount, exposure_unit,
+                  exposure_address, exposure_city, exposure_state, exposure_zip,
+                  notes, account_exec, urgency, days_to_renewal,
+                  first_named_insured, access_point
+           FROM v_policy_status WHERE client_id = ?
+           ORDER BY project_name, policy_type, layer_position""",
+        (client_id,),
+    ).fetchall()
+
+    contacts = conn.execute(
+        "SELECT name, title, role, assignment, contact_type, email, phone, notes, is_primary, created_at FROM client_contacts WHERE client_id = ? ORDER BY is_primary DESC, name",
+        (client_id,),
+    ).fetchall()
+
+    policy_team = conn.execute(
+        """SELECT p.policy_uid, p.policy_type, pc.name, pc.role, pc.email, pc.phone
+           FROM policy_contacts pc JOIN policies p ON pc.policy_id = p.id
+           WHERE p.client_id = ? ORDER BY p.policy_uid, pc.name""",
+        (client_id,),
+    ).fetchall()
+
+    project_notes = conn.execute(
+        """SELECT name AS project_name, notes, created_at, updated_at
+           FROM projects WHERE client_id = ? ORDER BY name""",
+        (client_id,),
+    ).fetchall()
+
+    activities = conn.execute(
+        """SELECT activity_date, activity_type, contact_person, subject, details,
+                  follow_up_date, follow_up_done, account_exec, created_at
+           FROM activity_log WHERE client_id = ?
+           ORDER BY activity_date DESC""",
+        (client_id,),
+    ).fetchall()
+
+    history = conn.execute(
+        "SELECT policy_type, term_effective, term_expiration, carrier, premium, limit_amount, deductible, notes FROM premium_history WHERE client_id = ? ORDER BY policy_type, term_effective DESC",
+        (client_id,),
+    ).fetchall()
+
+    scratchpad = conn.execute(
+        "SELECT content, updated_at FROM client_scratchpad WHERE client_id = ?",
+        (client_id,),
+    ).fetchone()
+
+    wb = Workbook()
+    wb.remove(wb.active)
+    _write_sheet(wb, "Policies (Full)", [dict(r) for r in policies])
+    _write_sheet(wb, "Contacts", [dict(r) for r in contacts])
+    _write_sheet(wb, "Policy Team", [dict(r) for r in policy_team])
+    _write_sheet(wb, "Project Notes", [dict(r) for r in project_notes])
+    _write_sheet(wb, "Activities", [dict(r) for r in activities])
+    _write_sheet(wb, "Premium History", [dict(r) for r in history])
+
+    # Working Notes as a simple text sheet
+    ws = wb.create_sheet("Working Notes")
+    ws.append(["Working Notes"])
+    ws["A1"].font = Font(bold=True)
+    if scratchpad and scratchpad["content"]:
+        for line in scratchpad["content"].splitlines():
+            ws.append([line])
+        ws.append([])
+        ws.append([f"Last updated: {scratchpad['updated_at']}"])
+    else:
+        ws.append(["(no working notes)"])
+    ws.column_dimensions["A"].width = 80
+
     return _wb_to_bytes(wb)
 
 

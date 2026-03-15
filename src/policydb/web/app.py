@@ -54,6 +54,15 @@ def _urgency_class(urgency: str) -> str:
     }.get(urgency, "bg-gray-100 text-gray-600")
 
 
+def _readiness_class(label: str) -> str:
+    return {
+        "CRITICAL": "bg-red-100 text-red-700",
+        "AT RISK": "bg-amber-100 text-amber-700",
+        "ON TRACK": "bg-blue-100 text-blue-700",
+        "READY": "bg-green-100 text-green-700",
+    }.get(label, "bg-gray-100 text-gray-600")
+
+
 def _fmt_layer_notation(p) -> str:
     from policydb.analysis import layer_notation
     notation = layer_notation(
@@ -70,11 +79,19 @@ def _dict_merge(d, extra: dict) -> dict:
     return result
 
 
+def _path_quote(s: str) -> str:
+    """URL-encode a string for use in a URL path segment (spaces → %20, not +)."""
+    from urllib.parse import quote
+    return quote(str(s), safe="")
+
+
 templates.env.filters["currency"] = _fmt_currency
 templates.env.filters["currency_short"] = _fmt_currency_short
 templates.env.filters["urgency_class"] = _urgency_class
 templates.env.filters["layer_notation"] = _fmt_layer_notation
+templates.env.filters["readiness_class"] = _readiness_class
 templates.env.filters["dict_merge"] = _dict_merge
+templates.env.filters["path_quote"] = _path_quote
 
 
 # ── DB dependency ─────────────────────────────────────────────────────────────
@@ -88,7 +105,7 @@ def get_db() -> Generator[sqlite3.Connection, None, None]:
 
 
 # ── Register routers ──────────────────────────────────────────────────────────
-from policydb.web.routes import dashboard, clients, policies, activities, settings, reconcile, templates as tpl_routes  # noqa: E402
+from policydb.web.routes import dashboard, clients, policies, activities, settings, reconcile, templates as tpl_routes, contacts, review  # noqa: E402
 
 app.include_router(dashboard.router)
 app.include_router(clients.router)
@@ -97,3 +114,5 @@ app.include_router(activities.router)
 app.include_router(settings.router)
 app.include_router(reconcile.router)
 app.include_router(tpl_routes.router)
+app.include_router(contacts.router)
+app.include_router(review.router)

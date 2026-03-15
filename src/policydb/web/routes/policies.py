@@ -263,10 +263,14 @@ def policy_row_log_form(request: Request, policy_uid: str, conn=Depends(get_db))
     policy = get_policy_by_uid(conn, policy_uid.upper())
     if not policy:
         return HTMLResponse("", status_code=404)
+    p = dict(policy)
+    default_subject = f"{p.get('policy_type', '')} — {p.get('renewal_status', '')}"
     return templates.TemplateResponse("policies/_policy_row_log.html", {
         "request": request,
-        "p": dict(policy),
+        "p": p,
         "activity_types": cfg.get("activity_types", ["Call", "Email", "Meeting", "Note", "Other"]),
+        "quick_templates": cfg.get("quick_log_templates", []),
+        "default_subject": default_subject,
     })
 
 
@@ -280,20 +284,27 @@ def policy_row_log_post(
     subject: str = Form(...),
     details: str = Form(""),
     follow_up_date: str = Form(""),
+    duration_minutes: str = Form(""),
     conn=Depends(get_db),
 ):
     """HTMX: save activity log entry, restore the policy row."""
     from datetime import date as _date
 
+    def _int(v):
+        try:
+            return int(v) if str(v).strip() else None
+        except ValueError:
+            return None
+
     account_exec = cfg.get("default_account_exec", "Grant")
     conn.execute(
         """INSERT INTO activity_log
-           (activity_date, client_id, policy_id, activity_type, subject, details, follow_up_date, account_exec)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+           (activity_date, client_id, policy_id, activity_type, subject, details, follow_up_date, account_exec, duration_minutes)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             _date.today().isoformat(), client_id, policy_id,
             activity_type, subject, details or None,
-            follow_up_date or None, account_exec,
+            follow_up_date or None, account_exec, _int(duration_minutes),
         ),
     )
     conn.commit()
@@ -376,10 +387,14 @@ def policy_dash_log_form(request: Request, policy_uid: str, conn=Depends(get_db)
     policy = get_policy_by_uid(conn, policy_uid.upper())
     if not policy:
         return HTMLResponse("", status_code=404)
+    p = dict(policy)
+    default_subject = f"{p.get('policy_type', '')} — {p.get('renewal_status', '')}"
     return templates.TemplateResponse("policies/_policy_dash_row_log.html", {
         "request": request,
-        "p": dict(policy),
+        "p": p,
         "activity_types": cfg.get("activity_types", ["Call", "Email", "Meeting", "Note", "Other"]),
+        "quick_templates": cfg.get("quick_log_templates", []),
+        "default_subject": default_subject,
     })
 
 
@@ -393,20 +408,27 @@ def policy_dash_log_post(
     subject: str = Form(...),
     details: str = Form(""),
     follow_up_date: str = Form(""),
+    duration_minutes: str = Form(""),
     conn=Depends(get_db),
 ):
     """HTMX: save activity from dashboard, restore the dashboard pipeline row."""
     from datetime import date as _date
 
+    def _int(v):
+        try:
+            return int(v) if str(v).strip() else None
+        except ValueError:
+            return None
+
     account_exec = cfg.get("default_account_exec", "Grant")
     conn.execute(
         """INSERT INTO activity_log
-           (activity_date, client_id, policy_id, activity_type, subject, details, follow_up_date, account_exec)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+           (activity_date, client_id, policy_id, activity_type, subject, details, follow_up_date, account_exec, duration_minutes)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             _date.today().isoformat(), client_id, policy_id,
             activity_type, subject, details or None,
-            follow_up_date or None, account_exec,
+            follow_up_date or None, account_exec, _int(duration_minutes),
         ),
     )
     conn.commit()
@@ -522,10 +544,14 @@ def policy_renew_log_form(request: Request, policy_uid: str, conn=Depends(get_db
     policy = get_policy_by_uid(conn, policy_uid.upper())
     if not policy:
         return HTMLResponse("", status_code=404)
+    p = dict(policy)
+    default_subject = f"{p.get('policy_type', '')} — {p.get('renewal_status', '')}"
     return templates.TemplateResponse("policies/_policy_renew_row_log.html", {
         "request": request,
-        "p": dict(policy),
+        "p": p,
         "activity_types": cfg.get("activity_types", ["Call", "Email", "Meeting", "Note", "Other"]),
+        "quick_templates": cfg.get("quick_log_templates", []),
+        "default_subject": default_subject,
     })
 
 
@@ -539,20 +565,27 @@ def policy_renew_log_post(
     subject: str = Form(...),
     details: str = Form(""),
     follow_up_date: str = Form(""),
+    duration_minutes: str = Form(""),
     conn=Depends(get_db),
 ):
     """HTMX: save activity from renewals page, restore the renewals pipeline row."""
     from datetime import date as _date
 
+    def _int(v):
+        try:
+            return int(v) if str(v).strip() else None
+        except ValueError:
+            return None
+
     account_exec = cfg.get("default_account_exec", "Grant")
     conn.execute(
         """INSERT INTO activity_log
-           (activity_date, client_id, policy_id, activity_type, subject, details, follow_up_date, account_exec)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+           (activity_date, client_id, policy_id, activity_type, subject, details, follow_up_date, account_exec, duration_minutes)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             _date.today().isoformat(), client_id, policy_id,
             activity_type, subject, details or None,
-            follow_up_date or None, account_exec,
+            follow_up_date or None, account_exec, _int(duration_minutes),
         ),
     )
     conn.commit()
@@ -698,6 +731,67 @@ def _attach_milestone_progress(conn, rows: list[dict]) -> list[dict]:
     return rows
 
 
+def _attach_readiness_score(conn, rows: list[dict]) -> list[dict]:
+    """Attach renewal readiness score (0-100) and label to pipeline rows."""
+    if not rows:
+        return rows
+    from datetime import date as _date
+    # Batch-fetch last activity dates
+    ids = [r["id"] for r in rows if r.get("id")]
+    last_activity_map: dict = {}
+    if ids:
+        placeholders = ",".join("?" * len(ids))
+        la_rows = conn.execute(
+            f"SELECT policy_id, MAX(activity_date) AS last_date FROM activity_log "  # noqa: S608
+            f"WHERE policy_id IN ({placeholders}) GROUP BY policy_id",
+            ids,
+        ).fetchall()
+        last_activity_map = {r["policy_id"]: r["last_date"] for r in la_rows}
+
+    today = _date.today()
+    for p in rows:
+        score = 0
+        status = p.get("renewal_status") or "Not Started"
+
+        # Status (0-40)
+        status_scores = {
+            "Not Started": 0, "In Progress": 20, "Submitted": 30,
+            "Pending Bind": 35, "Bound": 40,
+        }
+        score += status_scores.get(status, 10)
+
+        # Checklist (0-25)
+        done = p.get("milestone_done", 0)
+        total = max(p.get("milestone_total", 1) or 1, 1)
+        score += int(25 * done / total)
+
+        # Recent activity (0-15)
+        last_act = last_activity_map.get(p.get("id"))
+        if last_act:
+            try:
+                days_since = (today - _date.fromisoformat(last_act)).days
+                score += 15 if days_since <= 7 else 10 if days_since <= 14 else 5 if days_since <= 30 else 0
+            except (ValueError, TypeError):
+                pass
+
+        # Follow-up scheduled (0-10)
+        if p.get("follow_up_date"):
+            score += 10
+
+        # Placement colleague assigned (0-10)
+        if p.get("placement_colleague"):
+            score += 10
+
+        p["readiness_score"] = min(score, 100)
+        p["readiness_label"] = (
+            "READY" if score >= 75 else
+            "ON TRACK" if score >= 50 else
+            "AT RISK" if score >= 25 else
+            "CRITICAL"
+        )
+    return rows
+
+
 @router.post("/{policy_uid}/milestones/{milestone}", response_class=HTMLResponse)
 def toggle_milestone(
     request: Request,
@@ -727,10 +821,36 @@ def toggle_milestone(
     policy = get_policy_by_uid(conn, uid)
     if not policy:
         return HTMLResponse("", status_code=404)
-    return templates.TemplateResponse("policies/_milestones.html", {
+    checklist = _build_checklist(conn, uid)
+    done = sum(1 for c in checklist if c["completed"])
+    total = len(cfg.get("renewal_milestones", []))
+    import json as _json_ms
+    response = templates.TemplateResponse("policies/_milestones.html", {
         "request": request,
         "policy": dict(policy),
-        "checklist": _build_checklist(conn, uid),
+        "checklist": checklist,
+    })
+    response.headers["HX-Trigger"] = _json_ms.dumps({
+        "milestoneUpdated": {"uid": uid, "done": done, "total": total}
+    })
+    return response
+
+
+@router.get("/{policy_uid}/milestones/popover", response_class=HTMLResponse)
+def milestones_popover(request: Request, policy_uid: str, conn=Depends(get_db)):
+    """HTMX partial: milestone checklist popover content."""
+    uid = policy_uid.upper()
+    policy = get_policy_by_uid(conn, uid)
+    if not policy:
+        return HTMLResponse("", status_code=404)
+    checklist = _build_checklist(conn, uid)
+    done = sum(1 for c in checklist if c["completed"])
+    return templates.TemplateResponse("policies/_milestones_popover.html", {
+        "request": request,
+        "policy": dict(policy),
+        "checklist": checklist,
+        "done": done,
+        "total": len(checklist),
     })
 
 
@@ -795,6 +915,7 @@ def policy_edit_form(request: Request, policy_uid: str, add_contact: str = "", c
     from policydb.email_templates import policy_context as _policy_ctx, render_tokens as _render_tokens
     _mail_ctx = _policy_ctx(conn, uid)
     mailto_subject = _render_tokens(cfg.get("email_subject_policy", "Re: {{client_name}} — {{policy_type}}"), _mail_ctx)
+    from policydb.queries import REVIEW_CYCLE_LABELS as _REVIEW_CYCLE_LABELS
     return templates.TemplateResponse("policies/edit.html", {
         "request": request,
         "active": "",
@@ -815,6 +936,7 @@ def policy_edit_form(request: Request, policy_uid: str, add_contact: str = "", c
         "activity_types": cfg.get("activity_types", ["Call", "Email", "Meeting", "Note", "Other"]),
         "opportunity_statuses": cfg.get("opportunity_statuses"),
         "add_contact": add_contact,
+        "cycle_labels": _REVIEW_CYCLE_LABELS,
     })
 
 
@@ -1132,6 +1254,39 @@ def policy_snooze_followup(
     conn.execute(
         "UPDATE policies SET follow_up_date = date(follow_up_date, ?) WHERE policy_uid=?",
         (f"+{days} days", uid),
+    )
+    conn.commit()
+    row = conn.execute(
+        """SELECT p.id, p.policy_uid, p.policy_type, p.carrier, p.follow_up_date,
+                  p.project_name, p.client_id,
+                  c.name AS client_name,
+                  'policy' AS source,
+                  'Policy Reminder' AS activity_type,
+                  NULL AS contact_person, NULL AS contact_email, NULL AS internal_cc,
+                  p.policy_type || ' – ' || p.carrier AS subject,
+                  CAST(julianday('now') - julianday(p.follow_up_date) AS INTEGER) AS days_overdue
+           FROM policies p JOIN clients c ON p.client_id = c.id
+           WHERE p.policy_uid = ?""",
+        (uid,),
+    ).fetchone()
+    if not row:
+        return HTMLResponse("")
+    r = dict(row)
+    today = _date.today().isoformat()
+    r["_is_overdue"] = r["follow_up_date"] < today
+    return templates.TemplateResponse("followups/_row.html", {"request": request, "r": r, "today": today})
+
+
+@router.post("/{policy_uid}/reschedule-followup", response_class=HTMLResponse)
+def policy_reschedule_followup(
+    request: Request, policy_uid: str, new_date: str = Form(...), conn=Depends(get_db)
+):
+    """Reschedule a policy follow-up to a specific date."""
+    from datetime import date as _date
+    uid = policy_uid.upper()
+    conn.execute(
+        "UPDATE policies SET follow_up_date = ? WHERE policy_uid=?",
+        (new_date, uid),
     )
     conn.commit()
     row = conn.execute(

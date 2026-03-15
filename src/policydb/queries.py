@@ -171,6 +171,45 @@ def get_stale_renewals(
     return conn.execute(sql, params).fetchall()
 
 
+def get_escalation_alerts(
+    conn: sqlite3.Connection,
+    excluded_statuses: Optional[list] = None,
+) -> list[dict]:
+    """Return renewal alerts with escalation tiers: CRITICAL, WARNING, NUDGE."""
+    inner = """
+        SELECT v.*, p.created_at AS policy_created,
+               (SELECT MAX(a.activity_date) FROM activity_log a WHERE a.policy_id = p.id) AS last_activity_date,
+               CASE
+                   WHEN v.days_to_renewal <= 60
+                        AND v.renewal_status = 'Not Started'
+                        AND ((SELECT MAX(a.activity_date) FROM activity_log a WHERE a.policy_id = p.id) IS NULL
+                             OR julianday('now') - julianday((SELECT MAX(a.activity_date) FROM activity_log a WHERE a.policy_id = p.id)) > 14)
+                   THEN 'CRITICAL'
+                   WHEN v.days_to_renewal <= 90 AND v.renewal_status = 'Not Started'
+                   THEN 'WARNING'
+                   WHEN v.days_to_renewal <= 120 AND v.follow_up_date IS NULL
+                        AND ((SELECT MAX(a.activity_date) FROM activity_log a WHERE a.policy_id = p.id) IS NULL
+                             OR julianday('now') - julianday((SELECT MAX(a.activity_date) FROM activity_log a WHERE a.policy_id = p.id)) > 30)
+                   THEN 'NUDGE'
+               END AS escalation_tier
+        FROM v_renewal_pipeline v
+        JOIN policies p ON p.policy_uid = v.policy_uid
+        WHERE 1=1"""
+    params: list = []
+    if excluded_statuses:
+        placeholders = ",".join("?" * len(excluded_statuses))
+        inner += f" AND (v.renewal_status NOT IN ({placeholders}) OR v.renewal_status IS NULL)"
+        params.extend(excluded_statuses)
+    sql = f"""
+        SELECT * FROM ({inner})
+        WHERE escalation_tier IS NOT NULL
+        ORDER BY
+            CASE escalation_tier WHEN 'CRITICAL' THEN 1 WHEN 'WARNING' THEN 2 WHEN 'NUDGE' THEN 3 END,
+            expiration_date ASC"""
+    rows = conn.execute(sql, params).fetchall()
+    return [dict(r) for r in rows]
+
+
 def get_renewal_metrics(conn: sqlite3.Connection) -> dict:
     rows = conn.execute("""
         SELECT
@@ -245,25 +284,38 @@ def renew_policy(conn: sqlite3.Connection, uid: str) -> str:
             effective_date, expiration_date, premium, prior_premium,
             limit_amount, deductible, description, coverage_form,
             layer_position, tower_group, is_standalone,
-            placement_colleague, underwriter_name, underwriter_contact,
             renewal_status, commission_rate, account_exec, notes,
-            project_name, exposure_basis, exposure_amount, exposure_unit,
+            project_name, project_id, exposure_basis, exposure_amount, exposure_unit,
             exposure_address, exposure_city, exposure_state, exposure_zip,
             prior_policy_uid)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (
             new_uid, old["client_id"], old["policy_type"], old["carrier"], None,
             new_eff.isoformat(), new_exp.isoformat(),
             old["premium"], old["premium"],  # premium carries over; prior_premium = old premium
             old["limit_amount"], old["deductible"], old["description"], old["coverage_form"],
             old["layer_position"] or "Primary", old["tower_group"], old["is_standalone"],
-            old["placement_colleague"], old["underwriter_name"], old["underwriter_contact"],
             "Not Started", old["commission_rate"], old["account_exec"], None,
-            old["project_name"], old["exposure_basis"], old["exposure_amount"], old["exposure_unit"],
+            old["project_name"], old["project_id"],
+            old["exposure_basis"], old["exposure_amount"], old["exposure_unit"],
             old["exposure_address"], old["exposure_city"], old["exposure_state"], old["exposure_zip"],
             uid,
         ),
     )
+
+    # Copy policy_contacts (team members) from the expiring term to the new term
+    new_policy_id = conn.execute(
+        "SELECT id FROM policies WHERE policy_uid=?", (new_uid,)
+    ).fetchone()["id"]
+    old_contacts = conn.execute(
+        "SELECT name, title, role, phone, email, organization FROM policy_contacts WHERE policy_id=?",
+        (old["id"],),
+    ).fetchall()
+    for c in old_contacts:
+        conn.execute(
+            "INSERT INTO policy_contacts (policy_id, name, title, role, phone, email, organization) VALUES (?,?,?,?,?,?,?)",
+            (new_policy_id, c["name"], c["title"], c["role"], c["phone"], c["email"], c["organization"]),
+        )
 
     # Snapshot the expiring term to premium_history (ignore if already recorded)
     conn.execute(
@@ -275,6 +327,16 @@ def renew_policy(conn: sqlite3.Connection, uid: str) -> str:
             old["effective_date"], old["expiration_date"],
             old["premium"], old["carrier"], old["limit_amount"], old["deductible"],
         ),
+    )
+
+    # Auto-schedule follow-up for the new term
+    from policydb import config as _cfg
+    auto_days = _cfg.get("auto_followup_days_before_expiry", 120)
+    from datetime import timedelta as _td
+    auto_fu_date = (new_exp - _td(days=auto_days)).isoformat()
+    conn.execute(
+        "UPDATE policies SET follow_up_date=? WHERE policy_uid=?",
+        (auto_fu_date, new_uid),
     )
 
     # Archive the prior term
@@ -321,6 +383,7 @@ def get_all_followups(
            a.contact_person,
            c.name AS client_name, c.id AS client_id,
            p.policy_uid, p.policy_type, p.carrier, p.project_name,
+           0 AS is_opportunity,
            CAST(julianday('now') - julianday(a.follow_up_date) AS INTEGER) AS days_overdue,
            cc.email AS contact_email,
            (SELECT GROUP_CONCAT(ic.email, ',')
@@ -340,22 +403,17 @@ def get_all_followups(
 
     SELECT 'policy' AS source,
            p.id,
-           p.policy_type || ' – ' || p.carrier AS subject,
+           COALESCE(p.carrier, p.policy_type) AS subject,
            p.follow_up_date,
-           'Policy Reminder' AS activity_type,
-           COALESCE(
-               (SELECT pc.name FROM policy_contacts pc
-                WHERE pc.policy_id = p.id ORDER BY pc.id LIMIT 1),
-               p.placement_colleague
-           ) AS contact_person,
+           CASE WHEN p.is_opportunity = 1 THEN 'Opportunity' ELSE 'Policy Reminder' END AS activity_type,
+           (SELECT pc.name FROM policy_contacts pc
+            WHERE pc.policy_id = p.id ORDER BY pc.id LIMIT 1) AS contact_person,
            c.name AS client_name, c.id AS client_id,
            p.policy_uid, p.policy_type, p.carrier, p.project_name,
+           p.is_opportunity,
            CAST(julianday('now') - julianday(p.follow_up_date) AS INTEGER) AS days_overdue,
-           COALESCE(
-               (SELECT pc.email FROM policy_contacts pc
-                WHERE pc.policy_id = p.id AND pc.email IS NOT NULL ORDER BY pc.id LIMIT 1),
-               p.placement_colleague_email
-           ) AS contact_email,
+           (SELECT pc.email FROM policy_contacts pc
+            WHERE pc.policy_id = p.id AND pc.email IS NOT NULL ORDER BY pc.id LIMIT 1) AS contact_email,
            (SELECT GROUP_CONCAT(ic.email, ',')
             FROM client_contacts ic
             WHERE ic.client_id = c.id AND ic.contact_type = 'internal' AND ic.email IS NOT NULL
@@ -363,7 +421,6 @@ def get_all_followups(
     FROM policies p
     JOIN clients c ON p.client_id = c.id
     WHERE p.follow_up_date IS NOT NULL AND p.archived = 0
-      AND (p.is_opportunity = 0 OR p.is_opportunity IS NULL)
 
     ORDER BY follow_up_date ASC
     """
@@ -414,6 +471,65 @@ def get_suggested_followups(
     ORDER BY p.expiration_date ASC
     """
     return [dict(r) for r in conn.execute(sql, excl_params).fetchall()]
+
+
+_OPPORTUNITY_SELECT = """SELECT p.id, p.policy_uid, p.policy_type, p.carrier, p.opportunity_status,
+                  p.target_effective_date, p.premium, p.project_name, p.description,
+                  p.follow_up_date, p.client_id,
+                  c.name AS client_name,
+                  COALESCE(
+                      (SELECT pc.name FROM policy_contacts pc WHERE pc.policy_id = p.id ORDER BY pc.id LIMIT 1),
+                      p.placement_colleague
+                  ) AS placement_colleague,
+                  COALESCE(
+                      (SELECT pc.email FROM policy_contacts pc
+                       WHERE pc.policy_id = p.id AND pc.email IS NOT NULL ORDER BY pc.id LIMIT 1),
+                      p.placement_colleague_email
+                  ) AS placement_colleague_email
+           FROM policies p
+           JOIN clients c ON p.client_id = c.id
+           WHERE p.is_opportunity = 1 AND p.archived = 0"""
+
+
+def get_opportunity_by_uid(conn: sqlite3.Connection, policy_uid: str) -> dict | None:
+    """Return a single opportunity row by policy_uid."""
+    row = conn.execute(
+        _OPPORTUNITY_SELECT + " AND p.policy_uid = ?", (policy_uid.upper(),)
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def get_open_opportunities(conn: sqlite3.Connection) -> list[dict]:
+    """Return all active (non-archived) opportunities, sorted by status priority then target date."""
+    rows = conn.execute(
+        """SELECT p.id, p.policy_uid, p.policy_type, p.carrier, p.opportunity_status,
+                  p.target_effective_date, p.premium, p.project_name, p.description,
+                  p.follow_up_date, p.client_id,
+                  c.name AS client_name,
+                  COALESCE(
+                      (SELECT pc.name FROM policy_contacts pc WHERE pc.policy_id = p.id ORDER BY pc.id LIMIT 1),
+                      p.placement_colleague
+                  ) AS placement_colleague,
+                  COALESCE(
+                      (SELECT pc.email FROM policy_contacts pc
+                       WHERE pc.policy_id = p.id AND pc.email IS NOT NULL ORDER BY pc.id LIMIT 1),
+                      p.placement_colleague_email
+                  ) AS placement_colleague_email
+           FROM policies p
+           JOIN clients c ON p.client_id = c.id
+           WHERE p.is_opportunity = 1 AND p.archived = 0
+           ORDER BY
+               CASE p.opportunity_status
+                   WHEN 'Pending Bind' THEN 1
+                   WHEN 'Submitted'    THEN 2
+                   WHEN 'Quoting'      THEN 3
+                   WHEN 'Prospecting'  THEN 4
+                   ELSE 5
+               END,
+               p.target_effective_date ASC NULLS LAST,
+               c.name ASC"""
+    ).fetchall()
+    return [dict(r) for r in rows]
 
 
 def get_overdue_followups(conn: sqlite3.Connection) -> list[sqlite3.Row]:
@@ -489,6 +605,128 @@ def full_text_search(conn: sqlite3.Connection, query: str) -> dict[str, list[sql
         (pattern, pattern),
     ).fetchall()
     return {"clients": clients, "policies": policies, "activities": activities}
+
+
+# ─── REVIEW QUERIES ───────────────────────────────────────────────────────────
+
+REVIEW_CYCLE_DAYS: dict[str, int] = {
+    "1w": 7,
+    "2w": 14,
+    "1m": 30,
+    "1q": 90,
+    "6m": 180,
+    "1y": 365,
+}
+
+REVIEW_CYCLE_LABELS: dict[str, str] = {
+    "1w": "Weekly",
+    "2w": "Every 2 Weeks",
+    "1m": "Monthly",
+    "1q": "Quarterly",
+    "6m": "Every 6 Months",
+    "1y": "Annually",
+}
+
+
+def get_review_queue(conn: sqlite3.Connection) -> dict:
+    """Return records needing review, split into policies, opportunities, and clients."""
+    all_rows = [dict(r) for r in conn.execute("SELECT * FROM v_review_queue").fetchall()]
+    policies = [r for r in all_rows if not r.get("is_opportunity")]
+    opportunities = [r for r in all_rows if r.get("is_opportunity")]
+    clients = [dict(r) for r in conn.execute("SELECT * FROM v_review_clients").fetchall()]
+    return {"policies": policies, "opportunities": opportunities, "clients": clients}
+
+
+def get_review_stats(conn: sqlite3.Connection) -> dict:
+    """Return counts for the review progress banner."""
+    # Needing review = all rows in v_review_queue + v_review_clients
+    policy_needing = conn.execute(
+        "SELECT COUNT(*) AS n FROM v_review_queue WHERE is_opportunity = 0 OR is_opportunity IS NULL"
+    ).fetchone()["n"]
+    opp_needing = conn.execute(
+        "SELECT COUNT(*) AS n FROM v_review_queue WHERE is_opportunity = 1"
+    ).fetchone()["n"]
+    client_needing = conn.execute(
+        "SELECT COUNT(*) AS n FROM v_review_clients"
+    ).fetchone()["n"]
+
+    # Reviewed this week = last_reviewed_at >= Monday of current week
+    reviewed_policies = conn.execute(
+        """SELECT COUNT(*) AS n FROM policies
+           WHERE archived = 0
+             AND last_reviewed_at >= date('now', 'weekday 0', '-6 days')"""
+    ).fetchone()["n"]
+    reviewed_clients = conn.execute(
+        """SELECT COUNT(*) AS n FROM clients
+           WHERE archived = 0
+             AND last_reviewed_at >= date('now', 'weekday 0', '-6 days')"""
+    ).fetchone()["n"]
+
+    total_needing = policy_needing + opp_needing + client_needing
+    reviewed_this_week = reviewed_policies + reviewed_clients
+    return {
+        "total_needing": total_needing,
+        "reviewed_this_week": reviewed_this_week,
+        "policies_needing": policy_needing,
+        "opps_needing": opp_needing,
+        "clients_needing": client_needing,
+    }
+
+
+def mark_reviewed(
+    conn: sqlite3.Connection,
+    record_type: str,
+    record_id: str | int,
+    review_cycle: str | None = None,
+) -> None:
+    """Set last_reviewed_at = now for a policy (by uid) or client (by id).
+    Optionally update review_cycle at the same time.
+    """
+    if record_type == "policy":
+        if review_cycle and review_cycle in REVIEW_CYCLE_DAYS:
+            conn.execute(
+                "UPDATE policies SET last_reviewed_at = CURRENT_TIMESTAMP, review_cycle = ? WHERE policy_uid = ?",
+                (review_cycle, record_id),
+            )
+        else:
+            conn.execute(
+                "UPDATE policies SET last_reviewed_at = CURRENT_TIMESTAMP WHERE policy_uid = ?",
+                (record_id,),
+            )
+    elif record_type == "client":
+        if review_cycle and review_cycle in REVIEW_CYCLE_DAYS:
+            conn.execute(
+                "UPDATE clients SET last_reviewed_at = CURRENT_TIMESTAMP, review_cycle = ? WHERE id = ?",
+                (review_cycle, record_id),
+            )
+        else:
+            conn.execute(
+                "UPDATE clients SET last_reviewed_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (record_id,),
+            )
+    conn.commit()
+
+
+def set_review_cycle(
+    conn: sqlite3.Connection,
+    record_type: str,
+    record_id: str | int,
+    cycle: str,
+) -> None:
+    """Update review_cycle without marking reviewed."""
+    if cycle not in REVIEW_CYCLE_DAYS:
+        return
+    if record_type == "policy":
+        conn.execute(
+            "UPDATE policies SET review_cycle = ? WHERE policy_uid = ?",
+            (cycle, record_id),
+        )
+    elif record_type == "client":
+        conn.execute(
+            "UPDATE clients SET review_cycle = ? WHERE id = ?",
+            (cycle, record_id),
+        )
+    conn.commit()
 
 
 # ─── DB STATS ─────────────────────────────────────────────────────────────────

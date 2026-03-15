@@ -7,6 +7,9 @@
   <td class="px-3 py-2 whitespace-nowrap">
     <span class="block text-gray-900 text-xs">{{ p.expiration_date }}</span>
     <span class="{{ p.urgency | urgency_class }} text-xs font-medium px-1.5 py-0.5 rounded">{{ p.days_to_renewal }}d</span>
+    {% if p.readiness_label is defined %}
+    <span class="text-xs px-1.5 py-0.5 rounded block mt-0.5 {{ p.readiness_label | readiness_class }}">{{ p.readiness_label }}</span>
+    {% endif %}
   </td>
   <td class="px-3 py-2 text-right tabular-nums text-gray-700 text-xs">{{ p.premium | currency }}</td>
   <td class="px-3 py-2" id="status-{{ p.policy_uid }}">
@@ -17,7 +20,7 @@
   </td>
   <td class="px-3 py-2">
     {% if p.milestone_total %}
-    <a href="/policies/{{ p.policy_uid }}/edit" class="text-xs {% if p.milestone_done == p.milestone_total %}text-green-600{% elif p.milestone_done > 0 %}text-amber-600{% else %}text-gray-400{% endif %} tabular-nums hover:underline">{{ p.milestone_done }}/{{ p.milestone_total }}</a>
+    <button type="button" class="ms-trigger text-xs {% if p.milestone_done == p.milestone_total %}text-green-600{% elif p.milestone_done > 0 %}text-amber-600{% else %}text-gray-400{% endif %} tabular-nums hover:underline cursor-pointer" data-uid="{{ p.policy_uid }}">{{ p.milestone_done }}/{{ p.milestone_total }}</button>
     {% else %}<span class="text-gray-300 text-xs">—</span>{% endif %}
   </td>
   <td class="px-3 py-2 flex items-center gap-2">

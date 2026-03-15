@@ -1,0 +1,119 @@
+{% set is_overdue = r.get('_is_overdue', r.follow_up_date < today) %}
+{% set row_id = "followup-" ~ r.source ~ "-" ~ r.id %}
+{% set mailto_subject = r.get('mailto_subject') or ('Re: ' ~ r.client_name ~ ' — ' ~ r.subject) %}
+<tr class="hover:bg-{{ 'red' if is_overdue else 'amber' }}-50/40" id="{{ row_id }}">
+  <td class="px-4 py-3">
+    <a href="/clients/{{ r.client_id }}" class="font-medium text-marsh hover:underline">{{ r.client_name }}</a>
+    {% if r.project_name %}<span class="text-xs text-gray-400 ml-1">· {{ r.project_name }}</span>{% endif %}
+  </td>
+  <td class="px-4 py-3 text-gray-800 text-sm">
+    {% if r.source == 'policy' %}
+      {{ r.policy_type }}{% if r.carrier %} <span class="text-gray-400">· {{ r.carrier }}</span>{% endif %}
+    {% else %}
+      {{ r.subject }}
+    {% endif %}
+  </td>
+  <td class="px-4 py-3">
+    {% if r.source == 'policy' and r.get('is_opportunity') %}
+    <span class="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded">Opportunity</span>
+    {% elif r.source == 'policy' %}
+    <span class="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded">Policy Reminder</span>
+    {% else %}
+    <span class="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">{{ r.activity_type }}</span>
+    {% endif %}
+  </td>
+  <td class="px-4 py-3 text-xs text-gray-600">
+    {% if r.contact_person %}
+    <span class="text-gray-700">{{ r.contact_person }}</span>
+    {% if r.contact_email %}
+    <button type="button" class="ep-trigger text-marsh hover:text-marsh-light ml-1.5"
+      data-to="{{ r.contact_email }}"
+      data-to-label="{{ r.contact_person }}"
+      data-subject="{{ mailto_subject }}"
+      {% if r.policy_uid %}data-cc-url="/policies/{{ r.policy_uid }}/team-cc"{% endif %}>✉</button>
+    {% endif %}
+    {% else %}—{% endif %}
+  </td>
+  <td class="px-4 py-3 font-mono text-xs">
+    {% if r.policy_uid %}
+    <a href="/policies/{{ r.policy_uid }}/edit" class="text-marsh hover:underline">{{ r.policy_uid }}</a>
+    {% if r.get('policy_type') and r.source == 'activity' %}
+    <span class="text-gray-400 font-sans ml-1">· {{ r.policy_type }}{% if r.carrier %} · {{ r.carrier }}{% endif %}</span>
+    {% endif %}
+    {% else %}—{% endif %}
+  </td>
+  <td class="px-4 py-3 text-xs whitespace-nowrap">
+    {% if is_overdue %}
+    <span class="text-red-600 font-medium">{{ r.follow_up_date }}</span>
+    <span class="text-red-400"> ({{ r.days_overdue }}d)</span>
+    {% else %}
+    <span class="text-amber-700">{{ r.follow_up_date }}</span>
+    {% endif %}
+  </td>
+  <td class="px-4 py-3">
+    <div class="flex gap-1.5 items-center">
+      {% if r.source == 'policy' %}
+      <button
+        hx-post="/policies/{{ r.policy_uid }}/clear-followup"
+        hx-target="#{{ row_id }}"
+        hx-swap="outerHTML"
+        class="text-xs bg-green-50 hover:bg-green-100 text-green-700 border border-green-200 rounded px-2 py-1">
+        Clear
+      </button>
+      <button
+        hx-post="/policies/{{ r.policy_uid }}/snooze-followup?days=7"
+        hx-target="#{{ row_id }}"
+        hx-swap="outerHTML"
+        class="text-xs text-gray-400 hover:text-amber-600 border border-gray-200 hover:border-amber-300 rounded px-2 py-1">
+        +7d
+      </button>
+      {% else %}
+      <button
+        hx-post="/activities/{{ r.id }}/complete"
+        hx-target="#{{ row_id }}"
+        hx-swap="outerHTML"
+        class="text-xs bg-green-50 hover:bg-green-100 text-green-700 border border-green-200 rounded px-2 py-1">
+        Done
+      </button>
+      <button
+        hx-post="/activities/{{ r.id }}/snooze?days=7"
+        hx-target="#{{ row_id }}"
+        hx-swap="outerHTML"
+        class="text-xs text-gray-400 hover:text-amber-600 border border-gray-200 hover:border-amber-300 rounded px-2 py-1">
+        +7d
+      </button>
+      {% endif %}
+      <button type="button"
+        onclick="toggleComposeRow('{{ row_id }}')"
+        class="text-xs text-gray-300 hover:text-marsh border border-gray-200 hover:border-marsh rounded px-2 py-1">
+        ✉+
+      </button>
+    </div>
+  </td>
+</tr>
+<tr id="compose-row-{{ row_id }}" class="hidden bg-gray-50/50">
+  <td colspan="7" class="px-4 py-2">
+    <div id="compose-area-{{ row_id }}">
+      <div class="text-xs text-gray-400 italic">Loading compose panel…</div>
+    </div>
+  </td>
+</tr>
+
+<script>
+function toggleComposeRow(rowId) {
+  var composeRow = document.getElementById('compose-row-' + rowId);
+  var area = document.getElementById('compose-area-' + rowId);
+  if (composeRow.classList.contains('hidden')) {
+    composeRow.classList.remove('hidden');
+    // Lazy-load compose panel on first open
+    if (area.querySelector('div.text-xs')) {
+      htmx.ajax('GET', '/templates/compose?context=policy{% if r.policy_uid %}&policy_uid={{ r.policy_uid }}{% endif %}&client_id={{ r.client_id }}', {
+        target: '#compose-area-' + rowId,
+        swap: 'innerHTML'
+      });
+    }
+  } else {
+    composeRow.classList.add('hidden');
+  }
+}
+</script>

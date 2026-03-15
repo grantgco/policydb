@@ -9,6 +9,7 @@
   </td>
   <td class="px-4 py-3 text-gray-600">
     {{ p.carrier }}
+    {% if p.access_point %}<p class="text-xs text-gray-400 mt-0.5">via {{ p.access_point }}</p>{% endif %}
     {% if p.first_named_insured %}<p class="text-xs text-gray-400 mt-0.5">FNI: {{ p.first_named_insured }}</p>{% endif %}
   </td>
   <td class="px-4 py-3 whitespace-nowrap">

@@ -1,6 +1,7 @@
 {% set today = today if today is defined else '' %}
 {% set col_headers %}
 <tr class="border-b border-gray-100 text-left text-xs text-gray-500 uppercase tracking-wide bg-gray-50">
+  <th class="px-3 py-3 w-8"><input type="checkbox" class="rounded border-gray-300" onchange="toggleAllChecks(this)"></th>
   <th class="px-4 py-3">Client</th>
   <th class="px-4 py-3">Subject</th>
   <th class="px-4 py-3">Type</th>
@@ -29,7 +30,64 @@
 </div>
 {% endif %}
 
-{% if upcoming %}
+{% if today_items or tomorrow_items or later_items %}
+<div class="card overflow-hidden mb-5">
+  <div class="px-5 py-3 bg-amber-50 border-b border-amber-100 flex items-center gap-2">
+    <h2 class="font-semibold text-amber-700">Upcoming · next {{ window }} days</h2>
+    <span class="bg-amber-100 text-amber-700 text-xs font-bold px-2 py-0.5 rounded-full">{{ (today_items | length) + (tomorrow_items | length) + (later_items | length) }}</span>
+  </div>
+
+  {% if today_items %}
+  <div class="px-5 py-2 bg-amber-50/50 border-b border-amber-100">
+    <span class="text-xs font-semibold text-amber-800 uppercase tracking-wide">Today</span>
+    <span class="text-xs text-amber-600 ml-1">{{ today_items | length }}</span>
+  </div>
+  <table class="w-full text-sm">
+    <thead>{{ col_headers }}</thead>
+    <tbody class="divide-y divide-gray-50">
+      {% for r in today_items %}
+      {% set r = r | dict_merge({'_is_overdue': false}) %}
+      {% include "followups/_row.html" %}
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  {% if tomorrow_items %}
+  <div class="px-5 py-2 bg-gray-50 border-b border-gray-200 {% if today_items %}border-t{% endif %}">
+    <span class="text-xs font-semibold text-gray-700 uppercase tracking-wide">Tomorrow</span>
+    <span class="text-xs text-gray-500 ml-1">{{ tomorrow_items | length }}</span>
+  </div>
+  <table class="w-full text-sm">
+    <thead>{{ col_headers }}</thead>
+    <tbody class="divide-y divide-gray-50">
+      {% for r in tomorrow_items %}
+      {% set r = r | dict_merge({'_is_overdue': false}) %}
+      {% include "followups/_row.html" %}
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  {% if later_items %}
+  <div class="px-5 py-2 bg-gray-50 border-b border-gray-200 {% if today_items or tomorrow_items %}border-t{% endif %}">
+    <span class="text-xs font-semibold text-gray-600 uppercase tracking-wide">Later</span>
+    <span class="text-xs text-gray-400 ml-1">{{ later_items | length }}</span>
+  </div>
+  <table class="w-full text-sm">
+    <thead>{{ col_headers }}</thead>
+    <tbody class="divide-y divide-gray-50">
+      {% for r in later_items %}
+      {% set r = r | dict_merge({'_is_overdue': false}) %}
+      {% include "followups/_row.html" %}
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</div>
+
+{% elif upcoming %}
+<!-- Fallback: flat upcoming list if triage groups not available -->
 <div class="card overflow-hidden mb-5">
   <div class="px-5 py-3 bg-amber-50 border-b border-amber-100 flex items-center gap-2">
     <h2 class="font-semibold text-amber-700">Upcoming · next {{ window }} days</h2>
@@ -114,7 +172,7 @@
 </div>
 {% endif %}
 
-{% if not overdue and not upcoming and not suggested %}
+{% if not overdue and not upcoming and not today_items and not tomorrow_items and not later_items and not suggested %}
 <div class="card p-12 text-center">
   <p class="text-gray-400 text-sm">No pending follow-ups in the next {{ window }} days.</p>
 </div>

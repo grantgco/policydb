@@ -17,6 +17,7 @@
     <a href="/clients/{{ client.id }}/edit" class="border border-gray-300 hover:border-marsh text-gray-700 hover:text-marsh text-sm font-medium px-4 py-2 rounded-lg transition-colors">Edit</a>
     <a href="/clients/{{ client.id }}/export/schedule?fmt=csv" class="border border-gray-300 hover:border-marsh text-gray-700 hover:text-marsh text-sm font-medium px-4 py-2 rounded-lg transition-colors">Schedule CSV ↓</a>
     <a href="/clients/{{ client.id }}/export/schedule?fmt=xlsx" class="border border-green-600 hover:bg-green-600 text-green-700 hover:text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">Schedule XLSX ↓</a>
+    <a href="/clients/{{ client.id }}/export/full" class="border border-gray-300 hover:border-marsh text-gray-700 hover:text-marsh text-sm font-medium px-4 py-2 rounded-lg transition-colors">Full XLSX ↓</a>
     <a href="/clients/{{ client.id }}/export/llm" class="border border-gray-300 hover:border-marsh text-gray-700 hover:text-marsh text-sm font-medium px-4 py-2 rounded-lg transition-colors">LLM Export ↓</a>
   </div>
 </div>
@@ -60,39 +61,44 @@
   </div>
 </div>
 
-<!-- Contact info -->
-<div class="card p-5 mb-4 grid grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
-  <div>
-    <p class="text-xs text-gray-400 mb-1">Primary Contact</p>
-    <p class="text-gray-800">{{ client.primary_contact or '—' }}</p>
+<!-- Contacts + account meta -->
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
+  <div class="lg:col-span-2 space-y-4">
+    {% include "clients/_contacts.html" %}
+    {% include "clients/_team_contacts.html" %}
+    {% include "clients/_placement_colleagues.html" %}
   </div>
-  <div>
-    <p class="text-xs text-gray-400 mb-1">Email</p>
-    {% if client.contact_email %}
-    <a href="mailto:{{ client.contact_email }}" class="text-marsh hover:underline">{{ client.contact_email }}</a>
-    {% else %}<p class="text-gray-800">—</p>{% endif %}
+  <div class="card p-4 text-sm flex flex-col gap-3">
+    {% if client.cn_number %}
+    <div>
+      <p class="text-xs text-gray-400 mb-0.5">CN Number</p>
+      <p class="text-gray-800 font-mono text-sm">{{ client.cn_number }}</p>
+    </div>
+    {% endif %}
+    <div>
+      <p class="text-xs text-gray-400 mb-0.5">Onboarded</p>
+      <p class="text-gray-800">{{ client.date_onboarded }}</p>
+    </div>
+    {% if client.notes %}
+    <div>
+      <p class="text-xs text-gray-400 mb-0.5">Notes</p>
+      <p class="text-gray-700 text-xs">{{ client.notes }}</p>
+    </div>
+    {% endif %}
   </div>
-  <div>
-    <p class="text-xs text-gray-400 mb-1">Phone</p>
-    <p class="text-gray-800">{{ client.contact_phone or '—' }}</p>
-  </div>
-  <div>
-    <p class="text-xs text-gray-400 mb-1">Onboarded</p>
-    <p class="text-gray-800">{{ client.date_onboarded }}</p>
-  </div>
-  {% if client.cn_number %}
-  <div>
-    <p class="text-xs text-gray-400 mb-1">CN Number</p>
-    <p class="text-gray-800 font-mono text-sm">{{ client.cn_number }}</p>
-  </div>
-  {% endif %}
-  {% if client.notes %}
-  <div class="col-span-2 lg:col-span-4 border-t border-gray-100 pt-3 mt-1">
-    <p class="text-xs text-gray-400 mb-1">Notes</p>
-    <p class="text-gray-700">{{ client.notes }}</p>
-  </div>
-  {% endif %}
 </div>
+
+<!-- Compose Email -->
+<details id="compose-panel-client" class="card mb-4">
+  <summary class="px-4 py-2.5 cursor-pointer text-sm font-medium text-marsh hover:bg-gray-50 rounded-xl select-none list-none flex items-center gap-2">
+    <span>✉</span> Compose Email
+  </summary>
+  <div hx-get="/templates/compose?context=client&client_id={{ client.id }}"
+       hx-trigger="toggle from:#compose-panel-client once"
+       hx-swap="innerHTML">
+    <div class="p-4 text-sm text-gray-400">Loading templates…</div>
+  </div>
+</details>
 
 <!-- Working Notes (per-client scratchpad) -->
 <div class="mb-6">
@@ -142,11 +148,17 @@
 </div>
 {% endif %}
 
+<!-- Opportunities -->
+{% include "clients/_opportunities.html" %}
+
 <!-- Policies -->
 <div class="mb-6">
   <div class="flex items-center justify-between mb-3">
     <h2 class="font-semibold text-gray-900 text-lg">Policies</h2>
-    <a href="/policies/new?client={{ client.id }}" class="text-xs text-marsh hover:underline">+ Add Policy</a>
+    <div class="flex gap-3">
+      <a href="/policies/new?client={{ client.id }}&opp=1" class="text-xs text-amber-600 hover:underline">+ Opportunity</a>
+      <a href="/policies/new?client={{ client.id }}" class="text-xs text-marsh hover:underline">+ Add Policy</a>
+    </div>
   </div>
 
   {% set col_headers %}
@@ -244,7 +256,8 @@
       </div>
       <div>
         <label class="block text-xs font-medium text-gray-600 mb-1">Contact Person</label>
-        <input type="text" name="contact_person" placeholder="{{ client.primary_contact or '' }}" class="form-input w-full">
+        <input type="text" name="contact_person" placeholder="{{ client.primary_contact or '' }}"
+          list="contacts-list-{{ client.id }}" autocomplete="off" class="form-input w-full">
       </div>
       <div class="sm:col-span-2">
         <label class="block text-xs font-medium text-gray-600 mb-1">Subject <span class="text-red-400">*</span></label>
@@ -302,8 +315,8 @@
           <td class="px-4 py-2">{{ p.policy_type }}</td>
           <td class="px-4 py-2">{{ p.carrier or '—' }}</td>
           <td class="px-4 py-2 text-xs text-gray-400">{{ p.project_name or '—' }}</td>
-          <td class="px-4 py-2 text-xs">{{ p.effective_date or '—' }}</td>
-          <td class="px-4 py-2 text-xs">{{ p.expiration_date or '—' }}</td>
+          <td class="px-4 py-2 text-xs whitespace-nowrap">{{ p.effective_date or '—' }}</td>
+          <td class="px-4 py-2 text-xs whitespace-nowrap">{{ p.expiration_date or '—' }}</td>
           <td class="px-4 py-2 text-right text-xs">{{ p.premium | currency if p.premium else '—' }}</td>
         </tr>
         {% endfor %}

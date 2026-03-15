@@ -1,0 +1,44 @@
+<tr id="review-row-{{ p.policy_uid }}" class="border-t-2 border-amber-400 bg-amber-50">
+  <td colspan="9" class="px-4 py-3">
+    <form hx-post="/review/policies/{{ p.policy_uid }}/row/log"
+          hx-target="#review-row-{{ p.policy_uid }}"
+          hx-swap="outerHTML"
+          class="flex flex-wrap items-end gap-3">
+      <input type="hidden" name="client_id" value="{{ p.client_id }}">
+      <input type="hidden" name="policy_id" value="{{ p.id }}">
+      <div>
+        <label class="block text-xs text-gray-500 mb-1">Type</label>
+        <select name="activity_type"
+                class="text-sm border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-marsh">
+          {% for t in activity_types %}
+          <option value="{{ t }}">{{ t }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="flex-1 min-w-48">
+        <label class="block text-xs text-gray-500 mb-1">Subject</label>
+        <input type="text" name="subject" required placeholder="Activity subject…"
+               class="w-full text-sm border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-marsh">
+      </div>
+      <div class="flex-1 min-w-48">
+        <label class="block text-xs text-gray-500 mb-1">Details</label>
+        <input type="text" name="details" placeholder="Optional details…"
+               class="w-full text-sm border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-marsh">
+      </div>
+      <div>
+        <label class="block text-xs text-gray-500 mb-1">Follow-Up</label>
+        <input type="date" name="follow_up_date"
+               class="text-sm border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-marsh">
+      </div>
+      <div class="flex gap-2">
+        <button type="submit"
+                class="text-xs bg-amber-500 text-white px-3 py-1.5 rounded hover:bg-amber-600 transition-colors">Log</button>
+        <button type="button"
+                hx-get="/review/policies/{{ p.policy_uid }}/row"
+                hx-target="#review-row-{{ p.policy_uid }}"
+                hx-swap="outerHTML"
+                class="text-xs text-gray-400 hover:text-gray-600 px-2 py-1.5">Cancel</button>
+      </div>
+    </form>
+  </td>
+</tr>

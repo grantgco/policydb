@@ -13,7 +13,10 @@
     {% for p in pipeline %}
     {% include "policies/_policy_dash_row.html" %}
     {% else %}
-    <tr><td colspan="6" class="px-3 py-8 text-center text-gray-400">No renewals in this window.</td></tr>
+    <tr><td colspan="6" class="px-3 py-8 text-center">
+      <p class="text-gray-400">No renewals in this window.</p>
+      <p class="text-xs text-gray-300 mt-1">Try expanding to a wider window above.</p>
+    </td></tr>
     {% endfor %}
   </tbody>
 </table>

@@ -61,4 +61,66 @@
   {% include "followups/_results.html" %}
 </div>
 
+<!-- Bulk action bar -->
+<div id="bulk-bar" class="hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-lg px-6 py-3 flex items-center gap-3 z-50">
+  <span id="bulk-count" class="text-sm font-medium text-gray-700">0 selected</span>
+  <span class="border-l border-gray-200 h-6 mx-1"></span>
+  <input type="date" id="bulk-date" class="text-sm border border-gray-300 rounded px-2 py-1">
+  <button onclick="bulkReschedule()" class="bg-amber-500 hover:bg-amber-600 text-white text-sm px-3 py-1.5 rounded transition-colors">Reschedule Selected</button>
+  <button onclick="bulkComplete()" class="bg-green-500 hover:bg-green-600 text-white text-sm px-3 py-1.5 rounded transition-colors">Complete Selected</button>
+  <button onclick="clearChecks()" class="text-sm text-gray-400 hover:text-gray-600 ml-auto">Clear</button>
+</div>
+
+<script>
+function getCheckedIds() {
+  return Array.from(document.querySelectorAll('.followup-check:checked')).map(function(cb) { return cb.value; });
+}
+
+function updateBulkBar() {
+  var ids = getCheckedIds();
+  var bar = document.getElementById('bulk-bar');
+  var count = document.getElementById('bulk-count');
+  if (ids.length > 0) {
+    bar.classList.remove('hidden');
+    count.textContent = ids.length + ' selected';
+  } else {
+    bar.classList.add('hidden');
+  }
+}
+
+function toggleAllChecks(master) {
+  var table = master.closest('table');
+  table.querySelectorAll('.followup-check').forEach(function(cb) { cb.checked = master.checked; });
+  updateBulkBar();
+}
+
+function clearChecks() {
+  document.querySelectorAll('.followup-check').forEach(function(cb) { cb.checked = false; });
+  updateBulkBar();
+}
+
+function bulkReschedule() {
+  var ids = getCheckedIds();
+  var newDate = document.getElementById('bulk-date').value;
+  if (!ids.length || !newDate) { alert('Select items and pick a date.'); return; }
+  htmx.ajax('POST', '/followups/bulk-reschedule', {
+    target: '#followup-results',
+    swap: 'innerHTML',
+    values: { ids: ids.join(','), new_date: newDate }
+  });
+  document.getElementById('bulk-bar').classList.add('hidden');
+}
+
+function bulkComplete() {
+  var ids = getCheckedIds();
+  if (!ids.length) return;
+  htmx.ajax('POST', '/followups/bulk-complete', {
+    target: '#followup-results',
+    swap: 'innerHTML',
+    values: { ids: ids.join(',') }
+  });
+  document.getElementById('bulk-bar').classList.add('hidden');
+}
+</script>
+
 {% endblock %}
