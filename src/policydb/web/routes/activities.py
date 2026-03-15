@@ -18,7 +18,6 @@ from policydb.queries import (
     get_renewal_pipeline,
     get_suggested_followups,
 )
-from policydb.web.routes.policies import _attach_milestone_progress, _attach_readiness_score
 from policydb.web.app import get_db, templates
 
 router = APIRouter()
@@ -320,6 +319,7 @@ def renewals(request: Request, window: int = 180, urgency: str = "", status: str
         _mail_ctx = _policy_ctx(conn, d["policy_uid"])
         d["mailto_subject"] = _render_tokens(_subj_tpl, _mail_ctx)
         pipeline.append(d)
+    from policydb.web.routes.policies import _attach_milestone_progress, _attach_readiness_score
     pipeline = _attach_readiness_score(conn, _attach_milestone_progress(conn, pipeline))
 
     sort_field = sort if sort in _RENEWAL_SORT_FIELDS else "expiration_date"
