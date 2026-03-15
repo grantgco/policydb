@@ -674,19 +674,26 @@ def opp_log_post(
     subject: str = Form(...),
     details: str = Form(""),
     follow_up_date: str = Form(""),
+    duration_minutes: str = Form(""),
+    contact_person: str = Form(""),
     conn=Depends(get_db),
 ):
     """HTMX: save activity for an opportunity, restore the opportunity row."""
     from datetime import date as _date
+    def _int(v):
+        try:
+            return int(v) if str(v).strip() else None
+        except ValueError:
+            return None
     account_exec = cfg.get("default_account_exec", "Grant")
     conn.execute(
         """INSERT INTO activity_log
-           (activity_date, client_id, policy_id, activity_type, subject, details, follow_up_date, account_exec)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+           (activity_date, client_id, policy_id, activity_type, contact_person, subject, details, follow_up_date, account_exec, duration_minutes)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             _date.today().isoformat(), client_id, policy_id,
-            activity_type, subject, details or None,
-            follow_up_date or None, account_exec,
+            activity_type, contact_person or None, subject, details or None,
+            follow_up_date or None, account_exec, _int(duration_minutes),
         ),
     )
     conn.commit()
