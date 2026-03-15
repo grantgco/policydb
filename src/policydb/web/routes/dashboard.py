@@ -19,7 +19,6 @@ from policydb.queries import (
     get_suggested_followups,
     full_text_search,
 )
-from policydb.web.routes.policies import _attach_milestone_progress, _attach_readiness_score
 from policydb.web.app import get_db, templates
 
 router = APIRouter()
@@ -41,6 +40,7 @@ def _attach_client_ids(conn, rows: list[dict]) -> list[dict]:
 @router.get("/dashboard/pipeline", response_class=HTMLResponse)
 def dashboard_pipeline(request: Request, window: int = 90, status: str = "", conn=Depends(get_db)):
     """HTMX partial: pipeline table for dashboard window/status filter."""
+    from policydb.web.routes.policies import _attach_milestone_progress, _attach_readiness_score
     excluded = cfg.get("renewal_statuses_excluded", [])
     rows = get_renewal_pipeline(conn, window_days=window, renewal_status=status or None, excluded_statuses=excluded)
     pipeline = _attach_readiness_score(conn, _attach_milestone_progress(
@@ -59,6 +59,7 @@ def dashboard_pipeline(request: Request, window: int = 90, status: str = "", con
 
 @router.get("/", response_class=HTMLResponse)
 def dashboard(request: Request, conn=Depends(get_db)):
+    from policydb.web.routes.policies import _attach_milestone_progress, _attach_readiness_score
     excluded = cfg.get("renewal_statuses_excluded", [])
     metrics = get_renewal_metrics(conn)
     pipeline = get_renewal_pipeline(conn, window_days=90, excluded_statuses=excluded)

@@ -17,13 +17,13 @@ from policydb.queries import (
     set_review_cycle,
 )
 from policydb.web.app import get_db, templates
-from policydb.web.routes.policies import _attach_milestone_progress
 
 router = APIRouter(prefix="/review")
 
 
 def _enrich_policy_rows(conn, rows: list[dict]) -> list[dict]:
     """Attach client_id and milestone progress to review queue rows."""
+    from policydb.web.routes.policies import _attach_milestone_progress
     for r in rows:
         if "client_id" not in r or not r.get("client_id"):
             client_row = conn.execute(
@@ -96,6 +96,7 @@ def policy_mark_reviewed(
     if not row:
         return HTMLResponse("")
     r = dict(row)
+    from policydb.web.routes.policies import _attach_milestone_progress
     rows = _attach_milestone_progress(conn, [r])
     r = rows[0]
     return templates.TemplateResponse("review/_policy_row.html", {
@@ -137,6 +138,7 @@ def policy_set_cycle(
     if not row:
         return HTMLResponse("")
     r = dict(row)
+    from policydb.web.routes.policies import _attach_milestone_progress
     rows = _attach_milestone_progress(conn, [r])
     r = rows[0]
     return templates.TemplateResponse("review/_policy_row.html", {
@@ -172,6 +174,7 @@ def policy_row(request: Request, uid: str, conn=Depends(get_db)):
     if not row:
         return HTMLResponse("")
     r = dict(row)
+    from policydb.web.routes.policies import _attach_milestone_progress
     rows = _attach_milestone_progress(conn, [r])
     r = rows[0]
     return templates.TemplateResponse("review/_policy_row.html", {
@@ -283,6 +286,7 @@ def policy_row_edit_save(
     if not row:
         return HTMLResponse("")
     r = dict(row)
+    from policydb.web.routes.policies import _attach_milestone_progress
     rows = _attach_milestone_progress(conn, [r])
     r = rows[0]
     return templates.TemplateResponse("review/_policy_row.html", {
@@ -365,6 +369,7 @@ def policy_row_log_save(
     if not row:
         return HTMLResponse("")
     r = dict(row)
+    from policydb.web.routes.policies import _attach_milestone_progress
     rows = _attach_milestone_progress(conn, [r])
     r = rows[0]
     return templates.TemplateResponse("review/_policy_row.html", {
