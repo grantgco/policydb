@@ -757,6 +757,7 @@ def _attach_readiness_score(conn, rows: list[dict]) -> list[dict]:
 
     today = _date.today()
     for p in rows:
+        parts = []
         score = 0
         status = p.get("renewal_status") or "Not Started"
 
@@ -765,38 +766,51 @@ def _attach_readiness_score(conn, rows: list[dict]) -> list[dict]:
             "Not Started": 0, "In Progress": 20, "Submitted": 30,
             "Pending Bind": 35, "Bound": 40,
         }
-        score += status_scores.get(status, 10)
+        s_pts = status_scores.get(status, 10)
+        score += s_pts
+        parts.append(f"Status: {s_pts}/40 ({status})")
 
         # Checklist (0-25)
         done = p.get("milestone_done", 0)
         total = max(p.get("milestone_total", 1) or 1, 1)
-        score += int(25 * done / total)
+        c_pts = int(25 * done / total)
+        score += c_pts
+        parts.append(f"Checklist: {c_pts}/25 ({done}/{total})")
 
         # Recent activity (0-15)
         last_act = last_activity_map.get(p.get("id"))
+        a_pts = 0
+        a_desc = "none"
         if last_act:
             try:
                 days_since = (today - _date.fromisoformat(last_act)).days
-                score += 15 if days_since <= 7 else 10 if days_since <= 14 else 5 if days_since <= 30 else 0
+                a_pts = 15 if days_since <= 7 else 10 if days_since <= 14 else 5 if days_since <= 30 else 0
+                a_desc = f"{days_since}d ago"
             except (ValueError, TypeError):
                 pass
+        score += a_pts
+        parts.append(f"Activity: {a_pts}/15 ({a_desc})")
 
         # Follow-up scheduled (0-10)
-        if p.get("follow_up_date"):
-            score += 10
+        f_pts = 10 if p.get("follow_up_date") else 0
+        score += f_pts
+        parts.append(f"Follow-up: {f_pts}/10")
 
         # Placement colleague assigned (0-10)
-        if p.get("placement_colleague"):
-            score += 10
+        pc_pts = 10 if p.get("placement_colleague") else 0
+        score += pc_pts
+        parts.append(f"Placement: {pc_pts}/10")
 
-        p["readiness_score"] = min(score, 100)
+        total_score = min(score, 100)
+        p["readiness_score"] = total_score
         rt = cfg.get("readiness_thresholds", {})
         p["readiness_label"] = (
-            "READY" if score >= rt.get("ready", 75) else
-            "ON TRACK" if score >= rt.get("on_track", 50) else
-            "AT RISK" if score >= rt.get("at_risk", 25) else
+            "READY" if total_score >= rt.get("ready", 75) else
+            "ON TRACK" if total_score >= rt.get("on_track", 50) else
+            "AT RISK" if total_score >= rt.get("at_risk", 25) else
             "CRITICAL"
         )
+        p["readiness_tooltip"] = f"Score: {total_score}/100\n" + "\n".join(parts)
     return rows
 
 
