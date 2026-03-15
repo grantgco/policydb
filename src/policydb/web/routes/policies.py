@@ -790,10 +790,11 @@ def _attach_readiness_score(conn, rows: list[dict]) -> list[dict]:
             score += 10
 
         p["readiness_score"] = min(score, 100)
+        rt = cfg.get("readiness_thresholds", {})
         p["readiness_label"] = (
-            "READY" if score >= 75 else
-            "ON TRACK" if score >= 50 else
-            "AT RISK" if score >= 25 else
+            "READY" if score >= rt.get("ready", 75) else
+            "ON TRACK" if score >= rt.get("on_track", 50) else
+            "AT RISK" if score >= rt.get("at_risk", 25) else
             "CRITICAL"
         )
     return rows

@@ -145,6 +145,18 @@ _DEFAULTS: dict[str, Any] = {
         "Binder Requested",
         "Policy Received",
     ],
+    "escalation_thresholds": {
+        "critical_days": 60,
+        "critical_stale_days": 14,
+        "warning_days": 90,
+        "nudge_days": 120,
+        "nudge_stale_days": 30,
+    },
+    "readiness_thresholds": {
+        "ready": 75,
+        "on_track": 50,
+        "at_risk": 25,
+    },
     "review_cycle_default": "1w",
     "auto_followup_days_before_expiry": 120,
     "quick_log_templates": [
