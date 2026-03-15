@@ -33,6 +33,8 @@ def settings_page(request: Request):
         "email_subject_policy": cfg.get("email_subject_policy", ""),
         "email_subject_client": cfg.get("email_subject_client", ""),
         "email_subject_followup": cfg.get("email_subject_followup", ""),
+        "escalation_thresholds": cfg.get("escalation_thresholds", {}),
+        "readiness_thresholds": cfg.get("readiness_thresholds", {}),
     })
 
 
@@ -79,6 +81,38 @@ def _render_list(request: Request, key: str) -> HTMLResponse:
     if key == "renewal_statuses":
         ctx["excluded_items"] = cfg.get("renewal_statuses_excluded", [])
     return templates.TemplateResponse("settings/_list_card.html", ctx)
+
+
+@router.post("/thresholds", response_class=HTMLResponse)
+def save_thresholds(
+    request: Request,
+    critical_days: int = Form(60),
+    critical_stale_days: int = Form(14),
+    warning_days: int = Form(90),
+    nudge_days: int = Form(120),
+    nudge_stale_days: int = Form(30),
+    readiness_ready: int = Form(75),
+    readiness_on_track: int = Form(50),
+    readiness_at_risk: int = Form(25),
+):
+    full = dict(cfg.load_config())
+    full["escalation_thresholds"] = {
+        "critical_days": critical_days,
+        "critical_stale_days": critical_stale_days,
+        "warning_days": warning_days,
+        "nudge_days": nudge_days,
+        "nudge_stale_days": nudge_stale_days,
+    }
+    full["readiness_thresholds"] = {
+        "ready": readiness_ready,
+        "on_track": readiness_on_track,
+        "at_risk": readiness_at_risk,
+    }
+    cfg.save_config(full)
+    cfg.reload_config()
+    return HTMLResponse(
+        '<span id="thresh-status" class="text-xs text-green-600 font-medium">Saved</span>'
+    )
 
 
 @router.post("/renewal-status/toggle-exclude", response_class=HTMLResponse)

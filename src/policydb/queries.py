@@ -176,20 +176,27 @@ def get_escalation_alerts(
     excluded_statuses: Optional[list] = None,
 ) -> list[dict]:
     """Return renewal alerts with escalation tiers: CRITICAL, WARNING, NUDGE."""
-    inner = """
+    from policydb import config as cfg
+    esc = cfg.get("escalation_thresholds", {})
+    critical_days = esc.get("critical_days", 60)
+    critical_stale = esc.get("critical_stale_days", 14)
+    warning_days = esc.get("warning_days", 90)
+    nudge_days = esc.get("nudge_days", 120)
+    nudge_stale = esc.get("nudge_stale_days", 30)
+    inner = f"""
         SELECT v.*, p.created_at AS policy_created,
                (SELECT MAX(a.activity_date) FROM activity_log a WHERE a.policy_id = p.id) AS last_activity_date,
                CASE
-                   WHEN v.days_to_renewal <= 60
+                   WHEN v.days_to_renewal <= {critical_days}
                         AND v.renewal_status = 'Not Started'
                         AND ((SELECT MAX(a.activity_date) FROM activity_log a WHERE a.policy_id = p.id) IS NULL
-                             OR julianday('now') - julianday((SELECT MAX(a.activity_date) FROM activity_log a WHERE a.policy_id = p.id)) > 14)
+                             OR julianday('now') - julianday((SELECT MAX(a.activity_date) FROM activity_log a WHERE a.policy_id = p.id)) > {critical_stale})
                    THEN 'CRITICAL'
-                   WHEN v.days_to_renewal <= 90 AND v.renewal_status = 'Not Started'
+                   WHEN v.days_to_renewal <= {warning_days} AND v.renewal_status = 'Not Started'
                    THEN 'WARNING'
-                   WHEN v.days_to_renewal <= 120 AND v.follow_up_date IS NULL
+                   WHEN v.days_to_renewal <= {nudge_days} AND v.follow_up_date IS NULL
                         AND ((SELECT MAX(a.activity_date) FROM activity_log a WHERE a.policy_id = p.id) IS NULL
-                             OR julianday('now') - julianday((SELECT MAX(a.activity_date) FROM activity_log a WHERE a.policy_id = p.id)) > 30)
+                             OR julianday('now') - julianday((SELECT MAX(a.activity_date) FROM activity_log a WHERE a.policy_id = p.id)) > {nudge_stale})
                    THEN 'NUDGE'
                END AS escalation_tier
         FROM v_renewal_pipeline v
