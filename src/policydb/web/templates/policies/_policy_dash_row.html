@@ -8,7 +8,7 @@
     <span class="block text-gray-900 text-xs">{{ p.expiration_date }}</span>
     <span class="{{ p.urgency | urgency_class }} text-xs font-medium px-1.5 py-0.5 rounded">{{ p.days_to_renewal }}d</span>
     {% if p.readiness_label is defined %}
-    <span class="text-xs px-1.5 py-0.5 rounded block mt-0.5 {{ p.readiness_label | readiness_class }}">{{ p.readiness_label }}</span>
+    <span class="text-xs px-1.5 py-0.5 rounded block mt-0.5 {{ p.readiness_label | readiness_class }} cursor-help" title="{{ p.readiness_tooltip or '' }}">{{ p.readiness_label }}</span>
     {% endif %}
   </td>
   <td class="px-3 py-2 text-right tabular-nums text-gray-700 text-xs">{{ p.premium | currency }}</td>

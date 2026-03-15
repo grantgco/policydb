@@ -15,7 +15,7 @@
   <td class="px-4 py-3">
     <span class="{{ p.urgency | urgency_class }} text-xs font-semibold px-2 py-0.5 rounded">{{ p.urgency }}</span>
     {% if p.readiness_label is defined %}
-    <span class="text-xs px-1.5 py-0.5 rounded ml-1 {{ p.readiness_label | readiness_class }}">{{ p.readiness_label }}</span>
+    <span class="text-xs px-1.5 py-0.5 rounded ml-1 {{ p.readiness_label | readiness_class }} cursor-help" title="{{ p.readiness_tooltip or '' }}">{{ p.readiness_label }}</span>
     {% endif %}
   </td>
   <td class="px-4 py-3" id="status-{{ p.policy_uid }}">
