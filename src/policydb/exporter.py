@@ -125,8 +125,10 @@ def export_llm_client_md(conn: sqlite3.Connection, client_id: int) -> str:
         (client["name"],),
     ).fetchall()
     activities = conn.execute(
-        """SELECT a.*, c.name AS client_name FROM activity_log a
+        """SELECT a.*, c.name AS client_name, p.policy_uid, p.policy_type AS policy_type_ref
+           FROM activity_log a
            JOIN clients c ON a.client_id = c.id
+           LEFT JOIN policies p ON a.policy_id = p.id
            WHERE a.client_id = ? AND a.activity_date >= date('now', '-180 days')
            ORDER BY a.activity_date DESC""",
         (client_id,),
@@ -149,7 +151,7 @@ def export_llm_client_md(conn: sqlite3.Connection, client_id: int) -> str:
         (client_id,),
     ).fetchall()
     project_notes_rows = conn.execute(
-        "SELECT project_name, notes FROM project_notes WHERE client_id = ? AND notes != '' ORDER BY project_name",
+        "SELECT name AS project_name, notes FROM projects WHERE client_id = ? AND notes != '' ORDER BY name",
         (client_id,),
     ).fetchall()
     contacts = conn.execute(
@@ -161,6 +163,13 @@ def export_llm_client_md(conn: sqlite3.Connection, client_id: int) -> str:
     ).fetchone()
     audit = build_program_audit(conn, client_id)
 
+    policy_contacts_rows = conn.execute(
+        """SELECT pc.policy_id, pc.name, pc.email, pc.phone, pc.role, p.policy_uid
+           FROM policy_contacts pc JOIN policies p ON pc.policy_id = p.id
+           WHERE p.client_id = ? ORDER BY pc.name""",
+        (client_id,),
+    ).fetchall()
+
     client_dict = dict(client)
     s = summary
     total_premium = s["total_premium"] if s else 0
@@ -171,6 +180,12 @@ def export_llm_client_md(conn: sqlite3.Connection, client_id: int) -> str:
 
     # Build lookup maps
     project_notes_map = {r["project_name"]: r["notes"] for r in project_notes_rows}
+
+    # Policy contacts grouped by policy_id
+    from collections import defaultdict as _dd
+    policy_contacts_map: dict = _dd(list)
+    for pc in policy_contacts_rows:
+        policy_contacts_map[pc["policy_id"]].append(dict(pc))
 
     # Primary location address per project (from most recent policy)
     project_addresses: dict[str, str] = {}
@@ -229,16 +244,37 @@ def export_llm_client_md(conn: sqlite3.Connection, client_id: int) -> str:
     if client_dict.get("cn_number"):
         meta += f" | **CN:** {client['cn_number']}"
     meta += f" | **Onboarded:** {client['date_onboarded']} | **Account Executive:** {client['account_exec']}"
+    if client_dict.get("client_since"):
+        meta += f" | **Client Since:** {client_dict['client_since']}"
+    if client_dict.get("website"):
+        meta += f" | **Web:** {client_dict['website']}"
+    if client_dict.get("preferred_contact_method"):
+        meta += f" | **Preferred Contact:** {client_dict['preferred_contact_method']}"
+    if client_dict.get("referral_source"):
+        meta += f" | **Source:** {client_dict['referral_source']}"
     lines += [meta, ""]
+
+    if client_dict.get("renewal_month"):
+        import calendar
+        month_name = calendar.month_name[client_dict["renewal_month"]]
+        lines += [f"*Typical renewal month: {month_name}*", ""]
 
     # Contacts
     if contacts:
         lines += ["### Contacts", ""]
         for c in contacts:
             c = dict(c)
-            entry = f"- **{c['name']}**"
+            primary_marker = " ★" if c.get("is_primary") else ""
+            entry = f"- **{c['name']}{primary_marker}**"
             if c.get("title"):
                 entry += f", {c['title']}"
+            if c.get("role"):
+                entry += f" ({c['role']})"
+            if c.get("contact_type") == "internal":
+                if c.get("assignment"):
+                    entry += f" — {c['assignment']}"
+                else:
+                    entry += " [internal]"
             if c.get("email"):
                 entry += f" — {c['email']}"
             if c.get("phone"):
@@ -254,7 +290,7 @@ def export_llm_client_md(conn: sqlite3.Connection, client_id: int) -> str:
         lines += ["### Contacts", "", contact_line, ""]
 
     if client_dict.get("notes"):
-        lines += ["### Account Notes", "", client_dict["notes"], ""]
+        lines += ["### Account Notes (Legacy)", "", client_dict["notes"], ""]
 
     scratchpad_content = (scratchpad_row["content"] if scratchpad_row else "").strip()
     if scratchpad_content:
@@ -334,28 +370,48 @@ def export_llm_client_md(conn: sqlite3.Connection, client_id: int) -> str:
             )
         lines.append("")
 
-        # Per-policy narrative detail (description, placement, internal notes)
+        # Per-policy narrative detail (description, placement, team, internal notes)
         for p in group:
             details = []
+            if p.get("first_named_insured") and p["first_named_insured"] != client["name"]:
+                details.append(f"First Named Insured: {p['first_named_insured']}")
+            if p.get("access_point"):
+                details.append(f"Access Point: {p['access_point']}")
             if p.get("description"):
                 details.append(p["description"])
-            if p.get("placement_colleague"):
+            # Policy team contacts (new system)
+            team = policy_contacts_map.get(p.get("id", 0), [])
+            if team:
+                team_parts = []
+                for tm in team:
+                    part = tm["name"]
+                    if tm.get("role"):
+                        part += f" ({tm['role']})"
+                    if tm.get("email"):
+                        part += f" <{tm['email']}>"
+                    team_parts.append(part)
+                details.append("Team: " + "; ".join(team_parts))
+            elif p.get("placement_colleague"):
                 col = f"Placement: {p['placement_colleague']}"
                 if p.get("placement_colleague_email"):
                     col += f" ({p['placement_colleague_email']})"
-                if p.get("underwriter_name"):
-                    col += f" · Underwriter: {p['underwriter_name']}"
-                    if p.get("underwriter_contact"):
-                        col += f" ({p['underwriter_contact']})"
                 details.append(col)
+            if p.get("underwriter_name"):
+                uw = f"Underwriter: {p['underwriter_name']}"
+                if p.get("underwriter_contact"):
+                    uw += f" ({p['underwriter_contact']})"
+                details.append(uw)
             if p.get("notes"):
                 details.append(f"Internal notes: {p['notes']}")
             if details:
                 lines.append(f"**{p['policy_uid']} — {p['policy_type']}:** " + " | ".join(details))
-        if any(
+        has_details = any(
             p.get("description") or p.get("placement_colleague") or p.get("notes")
+            or p.get("underwriter_name") or p.get("first_named_insured")
+            or p.get("access_point") or policy_contacts_map.get(p.get("id", 0))
             for p in group
-        ):
+        )
+        if has_details:
             lines.append("")
 
         # Tower structure for this project (inline)
@@ -408,26 +464,42 @@ def export_llm_client_md(conn: sqlite3.Connection, client_id: int) -> str:
         lines += [
             "## Account Activity (Last 180 Days)",
             "",
-            "| Date | Type | Contact | Subject | Follow-Up |",
-            "|------|------|---------|---------|-----------|",
+            "| Date | Type | Policy | Contact | Subject | Follow-Up |",
+            "|------|------|--------|---------|---------|-----------|",
         ]
         detail_blocks = []
         for a in activities:
             subject = (a["subject"] or "").replace("|", "\\|")
+            policy_ref = (a["policy_uid"] or "")
             lines.append(
                 f"| {a['activity_date']} | {a['activity_type']}"
-                f" | {a['contact_person'] or '—'} | {subject}"
+                f" | {policy_ref or '—'} | {a['contact_person'] or '—'} | {subject}"
                 f" | {a['follow_up_date'] or '—'} |"
             )
             if a["details"] and a["details"].strip():
-                detail_blocks.append((a["activity_date"], a["subject"], a["details"].strip()))
+                detail_blocks.append((a["activity_date"], a["subject"], a["details"].strip(), policy_ref))
         lines.append("")
         if detail_blocks:
             lines += ["### Activity Notes", ""]
-            for date, subject, details in detail_blocks:
-                lines.append(f"**{date} — {subject}**")
+            for date, subject, details, policy_ref in detail_blocks:
+                header = f"**{date} — {subject}**"
+                if policy_ref:
+                    header += f" [{policy_ref}]"
+                lines.append(header)
                 lines.append(f"{details}")
                 lines.append("")
+
+    # ─── Opportunities ────────────────────────────────────────────────────────
+    opportunities = [p for p in [dict(r) for r in policies] if p.get("is_opportunity")]
+    if opportunities:
+        lines += ["## Opportunities / New Business", "", "| UID | Line | Status | Target Effective | Premium |",
+                  "|-----|------|--------|-----------------|---------|"]
+        for op in opportunities:
+            lines.append(
+                f"| {op['policy_uid']} | {op['policy_type']} | {op.get('opportunity_status') or '—'}"
+                f" | {op.get('target_effective_date') or '—'} | {fmt_currency(op['premium'])} |"
+            )
+        lines.append("")
 
     # ─── Open Follow-Ups ─────────────────────────────────────────────────────
     if overdue or upcoming_followups:
@@ -484,10 +556,29 @@ def export_llm_client_json(conn: sqlite3.Connection, client_id: int) -> str:
         (client_id,),
     ).fetchall()
     proj_notes = conn.execute(
-        "SELECT project_name, notes FROM project_notes WHERE client_id = ? AND notes != '' ORDER BY project_name",
+        "SELECT name AS project_name, notes FROM projects WHERE client_id = ? AND notes != '' ORDER BY name",
         (client_id,),
     ).fetchall()
+    contacts = conn.execute(
+        "SELECT name, title, email, phone, role, assignment, contact_type, notes, is_primary FROM client_contacts WHERE client_id = ? ORDER BY is_primary DESC, name",
+        (client_id,),
+    ).fetchall()
+    policy_contacts = conn.execute(
+        """SELECT pc.policy_id, pc.name, pc.email, pc.phone, pc.role, p.policy_uid
+           FROM policy_contacts pc JOIN policies p ON pc.policy_id = p.id
+           WHERE p.client_id = ? ORDER BY p.policy_uid, pc.name""",
+        (client_id,),
+    ).fetchall()
+    scratchpad = conn.execute(
+        "SELECT content, updated_at FROM client_scratchpad WHERE client_id = ?", (client_id,)
+    ).fetchone()
     audit = build_program_audit(conn, client_id)
+
+    # Group policy_contacts by policy_uid
+    from collections import defaultdict as _dd2
+    pc_by_uid: dict = _dd2(list)
+    for pc in policy_contacts:
+        pc_by_uid[pc["policy_uid"]].append(dict(pc))
 
     data = {
         "metadata": {
@@ -497,10 +588,13 @@ def export_llm_client_json(conn: sqlite3.Connection, client_id: int) -> str:
         },
         "client": dict(client),
         "summary": dict(summary) if summary else {},
+        "contacts": [dict(c) for c in contacts],
+        "working_notes": scratchpad["content"] if scratchpad else "",
         "project_notes": [dict(r) for r in proj_notes],
         "policies": [
             {
                 **dict(p),
+                "team": pc_by_uid.get(p["policy_uid"], []),
                 "computed": {
                     "days_to_renewal": p["days_to_renewal"],
                     "urgency": p["urgency"],
@@ -663,6 +757,20 @@ def export_renewals_md(conn: sqlite3.Connection, window_days: int = 180) -> str:
            ORDER BY expiration_date""",
         (window_days,),
     ).fetchall()
+
+    # Build policy_contacts map keyed by policy_uid
+    pc_rows = conn.execute(
+        """SELECT p.policy_uid, pc.name, pc.role, pc.email
+           FROM policy_contacts pc JOIN policies p ON pc.policy_id = p.id
+           WHERE p.policy_uid IN (SELECT policy_uid FROM v_renewal_pipeline WHERE days_to_renewal <= ?)
+           ORDER BY pc.name""",
+        (window_days,),
+    ).fetchall()
+    from collections import defaultdict as _ddr
+    pc_map: dict = _ddr(list)
+    for pc in pc_rows:
+        pc_map[pc["policy_uid"]].append(pc["name"])
+
     total = sum(r["premium"] or 0 for r in rows)
     lines = [
         f"# Renewal Pipeline — Next {window_days} Days",
@@ -671,15 +779,17 @@ def export_renewals_md(conn: sqlite3.Connection, window_days: int = 180) -> str:
         f"**Policies:** {len(rows)}  ",
         f"**Premium at Risk:** {fmt_currency(total)}",
         "",
-        "| UID | Client | Line | Carrier | Expires | Days | Urgency | Premium | Status | Colleague |",
-        "|-----|--------|------|---------|---------|------|---------|---------|--------|-----------|",
+        "| UID | Client | Line | Carrier | Expires | Days | Urgency | Premium | Status | Team |",
+        "|-----|--------|------|---------|---------|------|---------|---------|--------|------|",
     ]
     for r in rows:
+        team = pc_map.get(r["policy_uid"])
+        team_str = "; ".join(team) if team else (r["placement_colleague"] or "—")
         lines.append(
             f"| {r['policy_uid']} | {r['client_name']} | {r['policy_type']}"
             f" | {r['carrier']} | {r['expiration_date']} | {r['days_to_renewal']}"
             f" | {r['urgency']} | {fmt_currency(r['premium'])}"
-            f" | {r['renewal_status']} | {r['placement_colleague'] or '—'} |"
+            f" | {r['renewal_status']} | {team_str} |"
         )
     return "\n".join(lines)
 
@@ -779,7 +889,7 @@ def export_schedule_xlsx(conn: sqlite3.Connection, client_id: int, client_name: 
 
     # Project Notes sheet (if any)
     notes_rows = conn.execute(
-        "SELECT project_name AS \"Project / Location\", notes AS \"Notes\" FROM project_notes WHERE client_id = ? AND notes != '' ORDER BY project_name",
+        "SELECT name AS \"Project / Location\", notes AS \"Notes\" FROM projects WHERE client_id = ? AND notes != '' ORDER BY name",
         (client_id,),
     ).fetchall()
     if notes_rows:
@@ -817,20 +927,28 @@ def export_full_xlsx(conn: sqlite3.Connection, client_id: int, client_name: str)
                   follow_up_date, attachment_point, participation_of,
                   exposure_basis, exposure_amount, exposure_unit,
                   exposure_address, exposure_city, exposure_state, exposure_zip,
-                  notes, account_exec, urgency, days_to_renewal
+                  notes, account_exec, urgency, days_to_renewal,
+                  first_named_insured, access_point
            FROM v_policy_status WHERE client_id = ?
            ORDER BY project_name, policy_type, layer_position""",
         (client_id,),
     ).fetchall()
 
     contacts = conn.execute(
-        "SELECT name, title, email, phone, notes, is_primary, created_at FROM client_contacts WHERE client_id = ? ORDER BY is_primary DESC, name",
+        "SELECT name, title, role, assignment, contact_type, email, phone, notes, is_primary, created_at FROM client_contacts WHERE client_id = ? ORDER BY is_primary DESC, name",
+        (client_id,),
+    ).fetchall()
+
+    policy_team = conn.execute(
+        """SELECT p.policy_uid, p.policy_type, pc.name, pc.role, pc.email, pc.phone
+           FROM policy_contacts pc JOIN policies p ON pc.policy_id = p.id
+           WHERE p.client_id = ? ORDER BY p.policy_uid, pc.name""",
         (client_id,),
     ).fetchall()
 
     project_notes = conn.execute(
-        """SELECT project_name, notes, created_at, updated_at
-           FROM project_notes WHERE client_id = ? ORDER BY project_name""",
+        """SELECT name AS project_name, notes, created_at, updated_at
+           FROM projects WHERE client_id = ? ORDER BY name""",
         (client_id,),
     ).fetchall()
 
@@ -856,6 +974,7 @@ def export_full_xlsx(conn: sqlite3.Connection, client_id: int, client_name: str)
     wb.remove(wb.active)
     _write_sheet(wb, "Policies (Full)", [dict(r) for r in policies])
     _write_sheet(wb, "Contacts", [dict(r) for r in contacts])
+    _write_sheet(wb, "Policy Team", [dict(r) for r in policy_team])
     _write_sheet(wb, "Project Notes", [dict(r) for r in project_notes])
     _write_sheet(wb, "Activities", [dict(r) for r in activities])
     _write_sheet(wb, "Premium History", [dict(r) for r in history])

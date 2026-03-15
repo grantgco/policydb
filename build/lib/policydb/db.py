@@ -40,11 +40,60 @@ def _get_applied_versions(conn: sqlite3.Connection) -> set[int]:
         return set()
 
 
+def _backup_db(db_path: Path) -> None:
+    """Copy the database file to a timestamped backup before any migrations run."""
+    import shutil
+    import datetime
+    if not db_path.exists():
+        return
+    ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_path = db_path.parent / f"policydb.sqlite.backup_{ts}"
+    shutil.copy2(db_path, backup_path)
+
+
 def init_db(path: Path | None = None) -> None:
     """Create schema, run pending migrations, create views."""
     ensure_dirs()
+    db_path = path or DB_PATH
     conn = get_connection(path)
+
+    # Recover from a partial migration-024: policies was dropped and renamed to
+    # policies_new but the RENAME never completed. Do this before reading
+    # applied versions so the rest of init_db can proceed normally.
+    _tables = {r[0] for r in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'"
+    ).fetchall()}
+    if "policies" not in _tables and "policies_new" in _tables:
+        conn.executescript("""
+            DROP VIEW IF EXISTS v_policy_status;
+            DROP VIEW IF EXISTS v_client_summary;
+            DROP VIEW IF EXISTS v_schedule;
+            DROP VIEW IF EXISTS v_tower;
+            DROP VIEW IF EXISTS v_renewal_pipeline;
+            DROP VIEW IF EXISTS v_overdue_followups;
+            ALTER TABLE policies_new RENAME TO policies;
+            CREATE TRIGGER IF NOT EXISTS policies_updated_at
+            AFTER UPDATE ON policies
+            BEGIN
+                UPDATE policies SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+            END;
+        """)
+        # Record migration 24 as applied if it isn't yet
+        already = {r[0] for r in conn.execute("SELECT version FROM schema_version").fetchall()}
+        if 24 not in already:
+            conn.execute(
+                "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+                (24, "Remove NOT NULL from policies.effective_date, expiration_date, carrier for opportunity support"),
+            )
+            conn.commit()
+
     applied = _get_applied_versions(conn)
+
+    # Back up the database once before running any pending migrations.
+    # This gives a clean restore point regardless of which migration fails.
+    _KNOWN_MIGRATIONS = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29}
+    if _KNOWN_MIGRATIONS - applied:
+        _backup_db(db_path)
 
     if 1 not in applied:
         sql = (_MIGRATIONS_DIR / "001_initial.sql").read_text()
@@ -169,6 +218,143 @@ def init_db(path: Path | None = None) -> None:
         conn.execute(
             "INSERT INTO schema_version (version, description) VALUES (?, ?)",
             (14, "Add client_scratchpad table"),
+        )
+        conn.commit()
+
+    if 15 not in applied:
+        sql = (_MIGRATIONS_DIR / "015_add_client_contacts.sql").read_text()
+        conn.executescript(sql)
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (15, "Add client_contacts table"),
+        )
+        conn.commit()
+
+    if 16 not in applied:
+        sql = (_MIGRATIONS_DIR / "016_add_policy_milestones.sql").read_text()
+        conn.executescript(sql)
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (16, "Add policy_milestones table"),
+        )
+        conn.commit()
+
+    if 17 not in applied:
+        sql = (_MIGRATIONS_DIR / "017_add_contact_role.sql").read_text()
+        conn.executescript(sql)
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (17, "Add role column to client_contacts"),
+        )
+        conn.commit()
+
+    if 18 not in applied:
+        sql = (_MIGRATIONS_DIR / "018_add_contact_type.sql").read_text()
+        conn.executescript(sql)
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (18, "Add contact_type column to client_contacts"),
+        )
+        conn.commit()
+
+    if 19 not in applied:
+        sql = (_MIGRATIONS_DIR / "019_add_policy_contacts.sql").read_text()
+        conn.executescript(sql)
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (19, "Add policy_contacts table"),
+        )
+        conn.commit()
+
+    if 20 not in applied:
+        sql = (_MIGRATIONS_DIR / "020_add_email_templates.sql").read_text()
+        conn.executescript(sql)
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (20, "Add email_templates table"),
+        )
+        conn.commit()
+
+    if 22 not in applied:
+        sql = (_MIGRATIONS_DIR / "022_add_opportunity_fields.sql").read_text()
+        conn.executescript(sql)
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (22, "Add is_opportunity, opportunity_status, target_effective_date to policies"),
+        )
+        conn.commit()
+
+    if 21 not in applied:
+        sql = (_MIGRATIONS_DIR / "021_add_first_named_insured.sql").read_text()
+        conn.executescript(sql)
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (21, "Add first_named_insured column to policies"),
+        )
+        conn.commit()
+
+    if 23 not in applied:
+        sql = (_MIGRATIONS_DIR / "023_add_client_fields.sql").read_text()
+        conn.executescript(sql)
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (23, "Add website, renewal_month, client_since, preferred_contact_method, referral_source to clients"),
+        )
+        conn.commit()
+
+    if 24 not in applied:
+        # Clean up any leftover from a previous failed attempt
+        conn.executescript("DROP TABLE IF EXISTS policies_new;")
+        sql = (_MIGRATIONS_DIR / "024_nullable_policy_dates.sql").read_text()
+        conn.executescript(sql)
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (24, "Remove NOT NULL from policies.effective_date, expiration_date, carrier for opportunity support"),
+        )
+        conn.commit()
+
+    if 25 not in applied:
+        sql = (_MIGRATIONS_DIR / "025_add_policy_contact_organization.sql").read_text()
+        conn.executescript(sql)
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (25, "Add organization column to policy_contacts"),
+        )
+        conn.commit()
+
+    if 26 not in applied:
+        sql = (_MIGRATIONS_DIR / "026_add_projects_table.sql").read_text()
+        conn.executescript(sql)
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (26, "Add projects table as canonical project/location registry"),
+        )
+        conn.commit()
+
+    if 27 not in applied:
+        sql = (_MIGRATIONS_DIR / "027_add_access_point.sql").read_text()
+        conn.executescript(sql)
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (27, "Add access_point field to policies"),
+        )
+        conn.commit()
+
+    if 28 not in applied:
+        sql = (_MIGRATIONS_DIR / "028_add_internal_assignment.sql").read_text()
+        conn.executescript(sql)
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (28, "Add assignment field to client_contacts for internal team members"),
+        )
+        conn.commit()
+
+    if 29 not in applied:
+        sql = (_MIGRATIONS_DIR / "029_add_reviewed_at.sql").read_text()
+        conn.executescript(sql)
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (29, "Add last_reviewed_at and review_cycle to policies and clients"),
         )
         conn.commit()
 

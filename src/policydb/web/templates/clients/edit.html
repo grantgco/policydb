@@ -86,16 +86,47 @@
         <input type="text" name="referral_source" value="{{ client.referral_source if client and client.referral_source else '' }}" placeholder="e.g. John Smith, Trade show, LinkedIn" class="form-input w-full">
       </div>
 
-      <div class="sm:col-span-2">
-        <label class="field-label">Notes</label>
-        <textarea name="notes" rows="3" class="form-input w-full">{{ client.notes if client else '' }}</textarea>
-      </div>
-
       <div>
         <label class="field-label">Annual Broker Fee <span class="text-gray-400 font-normal">(flat $ — in lieu of or in addition to commission)</span></label>
         <input type="number" name="broker_fee" value="{{ client.broker_fee if client and client.broker_fee else '' }}"
           step="0.01" min="0" placeholder="0.00" class="form-input w-full">
       </div>
+
+      {% if client %}
+      <div class="sm:col-span-2 border-t border-gray-100 pt-3 mt-1">
+        <p class="text-xs font-medium text-gray-500 mb-2 uppercase tracking-wide">Review</p>
+        <div id="review-badge-client-{{ client.id }}" class="flex items-center gap-3 flex-wrap">
+          <div class="flex items-center gap-1.5">
+            <span class="text-xs text-gray-500">Review cycle:</span>
+            <form hx-post="/review/clients/{{ client.id }}/mark"
+                  hx-trigger="change"
+                  hx-target="#review-badge-client-{{ client.id }}"
+                  hx-swap="outerHTML">
+              <input type="hidden" name="mark" value="0">
+              <select name="review_cycle"
+                      class="text-xs border border-gray-200 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-marsh bg-white">
+                {% for code, label in cycle_labels.items() %}
+                <option value="{{ code }}" {% if code == (client.review_cycle or '1w') %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+            </form>
+          </div>
+          <span class="text-xs {% if not client.last_reviewed_at %}text-red-500 font-medium{% else %}text-gray-500{% endif %}">
+            {% if client.last_reviewed_at %}Last reviewed: {{ client.last_reviewed_at }}{% else %}Never reviewed{% endif %}
+          </span>
+          <form hx-post="/review/clients/{{ client.id }}/mark"
+                hx-target="#review-badge-client-{{ client.id }}"
+                hx-swap="outerHTML">
+            <input type="hidden" name="mark" value="1">
+            <input type="hidden" name="review_cycle" value="{{ client.review_cycle or '1w' }}">
+            <button type="submit"
+                    class="text-xs bg-green-50 text-green-700 border border-green-200 hover:bg-green-100 px-2.5 py-1 rounded transition-colors">
+              ✓ Mark Reviewed
+            </button>
+          </form>
+        </div>
+      </div>
+      {% endif %}
 
       <div class="sm:col-span-2">
         <label class="field-label">Business Description <span class="text-gray-400 font-normal">(operations, business model — used in LLM export &amp; submissions)</span></label>

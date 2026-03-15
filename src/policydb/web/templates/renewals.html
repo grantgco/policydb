@@ -1,6 +1,8 @@
 {% extends "base.html" %}
+{% from "_sort_th.html" import th as sort_th %}
 {% block title %}Renewals — PolicyDB{% endblock %}
 {% block content %}
+{%- set sparams = 'window=' ~ window ~ '&urgency=' ~ urgency ~ '&status=' ~ (status | urlencode) -%}
 
 <div class="mb-6">
   <div class="flex items-center justify-between mb-3">
@@ -9,9 +11,9 @@
       <p class="text-sm text-gray-500 mt-1">{{ rows | length }} polic{{ 'y' if rows|length == 1 else 'ies' }} · next {{ window }} days{% if urgency %} · {{ urgency }}{% endif %}{% if status %} · {{ status }}{% endif %}</p>
     </div>
     <div class="flex gap-2 items-center">
-      <a href="/renewals?window=90&urgency={{ urgency }}&status={{ status | urlencode }}" class="btn-filter {{ 'active' if window == 90 else '' }}">90d</a>
-      <a href="/renewals?window=120&urgency={{ urgency }}&status={{ status | urlencode }}" class="btn-filter {{ 'active' if window == 120 else '' }}">120d</a>
-      <a href="/renewals?window=180&urgency={{ urgency }}&status={{ status | urlencode }}" class="btn-filter {{ 'active' if window == 180 else '' }}">180d</a>
+      <a href="/renewals?window=90&urgency={{ urgency }}&status={{ status | urlencode }}&sort={{ sort }}&dir={{ dir }}" class="btn-filter {{ 'active' if window == 90 else '' }}">90d</a>
+      <a href="/renewals?window=120&urgency={{ urgency }}&status={{ status | urlencode }}&sort={{ sort }}&dir={{ dir }}" class="btn-filter {{ 'active' if window == 120 else '' }}">120d</a>
+      <a href="/renewals?window=180&urgency={{ urgency }}&status={{ status | urlencode }}&sort={{ sort }}&dir={{ dir }}" class="btn-filter {{ 'active' if window == 180 else '' }}">180d</a>
       <span class="border-l border-gray-200 h-6 mx-1"></span>
       <a href="/renewals/calendar" class="btn-filter">Calendar</a>
       <span class="border-l border-gray-200 h-6 mx-1"></span>
@@ -22,17 +24,17 @@
   <!-- Urgency filter -->
   <div class="flex gap-1.5 flex-wrap items-center mb-1.5">
     <span class="text-xs text-gray-400 w-14 shrink-0">Urgency:</span>
-    <a href="/renewals?window={{ window }}&status={{ status | urlencode }}" class="btn-filter {{ 'active' if not urgency else '' }}">All</a>
+    <a href="/renewals?window={{ window }}&status={{ status | urlencode }}&sort={{ sort }}&dir={{ dir }}" class="btn-filter {{ 'active' if not urgency else '' }}">All</a>
     {% for u in ['EXPIRED', 'URGENT', 'WARNING', 'UPCOMING'] %}
-    <a href="/renewals?window={{ window }}&urgency={{ u }}&status={{ status | urlencode }}" class="btn-filter {{ 'active' if urgency == u else '' }}">{{ u }}</a>
+    <a href="/renewals?window={{ window }}&urgency={{ u }}&status={{ status | urlencode }}&sort={{ sort }}&dir={{ dir }}" class="btn-filter {{ 'active' if urgency == u else '' }}">{{ u }}</a>
     {% endfor %}
   </div>
   <!-- Status filter -->
   <div class="flex gap-1.5 flex-wrap items-center">
     <span class="text-xs text-gray-400 w-14 shrink-0">Status:</span>
-    <a href="/renewals?window={{ window }}&urgency={{ urgency }}" class="btn-filter {{ 'active' if not status else '' }}">All</a>
+    <a href="/renewals?window={{ window }}&urgency={{ urgency }}&sort={{ sort }}&dir={{ dir }}" class="btn-filter {{ 'active' if not status else '' }}">All</a>
     {% for s in renewal_statuses %}
-    <a href="/renewals?window={{ window }}&urgency={{ urgency }}&status={{ s | urlencode }}" class="btn-filter {{ 'active' if status == s else '' }}">{{ s }}</a>
+    <a href="/renewals?window={{ window }}&urgency={{ urgency }}&status={{ s | urlencode }}&sort={{ sort }}&dir={{ dir }}" class="btn-filter {{ 'active' if status == s else '' }}">{{ s }}</a>
     {% endfor %}
   </div>
 </div>
@@ -40,16 +42,16 @@
 <div class="card overflow-hidden">
   <table class="w-full text-sm">
     <thead>
-      <tr class="border-b border-gray-200 text-left text-xs text-gray-500 uppercase tracking-wide bg-gray-50">
-        <th class="px-4 py-3">Client / Line</th>
-        <th class="px-4 py-3">Carrier</th>
-        <th class="px-4 py-3">Expires</th>
-        <th class="px-4 py-3 text-right">Premium</th>
-        <th class="px-4 py-3">Urgency</th>
-        <th class="px-4 py-3">Status</th>
-        <th class="px-4 py-3">Checklist</th>
-        <th class="px-4 py-3">Colleague</th>
-        <th class="px-4 py-3">Follow-Up</th>
+      <tr class="border-b border-gray-200 text-left bg-gray-50">
+        {{ sort_th('Client / Line', 'client_name',    sort, dir, '/renewals', sparams) }}
+        {{ sort_th('Carrier',       'carrier',         sort, dir, '/renewals', sparams) }}
+        {{ sort_th('Expires',       'expiration_date', sort, dir, '/renewals', sparams) }}
+        {{ sort_th('Premium',       'premium',         sort, dir, '/renewals', sparams, align='right') }}
+        {{ sort_th('Urgency',       'days_to_renewal', sort, dir, '/renewals', sparams) }}
+        <th class="px-4 py-3 text-xs text-gray-500 uppercase tracking-wide">Status</th>
+        <th class="px-4 py-3 text-xs text-gray-500 uppercase tracking-wide">Checklist</th>
+        <th class="px-4 py-3 text-xs text-gray-500 uppercase tracking-wide">Policy Team</th>
+        {{ sort_th('Follow-Up',     'follow_up_date',  sort, dir, '/renewals', sparams) }}
         <th class="px-4 py-3"></th>
       </tr>
     </thead>
@@ -62,5 +64,9 @@
     </tbody>
   </table>
 </div>
+
+{# Opportunities section below the renewal pipeline #}
+{% set today = today if today is defined else '' %}
+{% include "policies/_opportunities_section.html" %}
 
 {% endblock %}

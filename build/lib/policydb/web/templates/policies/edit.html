@@ -12,9 +12,168 @@
   </div>
   <h1 class="text-2xl font-bold text-gray-900">Edit Policy</h1>
   <p class="text-sm text-gray-500 mt-1">{{ policy.policy_type }} · {{ policy.carrier }}</p>
+  {% if policy.first_named_insured %}<p class="text-xs text-gray-400 mt-0.5">First Named Insured: <span class="text-gray-600 font-medium">{{ policy.first_named_insured }}</span></p>{% endif %}
 </div>
 
+{% if contacts or team_contacts %}
+<div class="card p-3 mb-4">
+  <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Contacts</p>
+  <div class="divide-y divide-gray-100">
+    {% for c in contacts %}
+    <div class="flex items-center justify-between py-1.5">
+      <div>
+        <span class="text-sm font-medium text-gray-800">{{ c.name }}</span>
+        {% if c.title %}<span class="text-xs text-gray-400 ml-1">· {{ c.title }}</span>{% endif %}
+        {% if c.role %}<span class="text-xs text-gray-400 ml-1">· {{ c.role }}</span>{% endif %}
+      </div>
+      <div class="flex gap-4 text-xs">
+        {% if c.phone %}<span class="text-gray-500">{{ c.phone }}</span>{% endif %}
+        {% if c.email %}
+        <button type="button" class="ep-trigger text-marsh hover:underline"
+          data-to="{{ c.email }}"
+          data-to-label="{{ c.name }}"
+          data-subject="{{ mailto_subject }}"
+          data-cc="{{ team_cc_json }}">✉ {{ c.email }}</button>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+    {% for c in team_contacts %}
+    <div class="flex items-center justify-between py-1.5 bg-indigo-50/30">
+      <div>
+        <span class="text-sm font-medium text-gray-700">{{ c.name }}</span>
+        {% if c.role %}<span class="text-xs text-indigo-500 ml-1.5">· {{ c.role }}</span>{% endif %}
+        {% if c.title %}<span class="text-xs text-gray-400 ml-1">· {{ c.title }}</span>{% endif %}
+      </div>
+      <div class="flex gap-4 text-xs">
+        {% if c.phone %}<span class="text-gray-500">{{ c.phone }}</span>{% endif %}
+        {% if c.email %}
+        <button type="button" class="ep-trigger text-indigo-500 hover:underline"
+          data-to="{{ c.email }}"
+          data-to-label="{{ c.name }}"
+          data-subject="{{ mailto_subject }}"
+          data-cc="{{ team_cc_json }}">✉ {{ c.email }}</button>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<!-- Compose Email -->
+<details id="compose-panel-policy" class="card mb-4">
+  <summary class="px-4 py-2.5 cursor-pointer text-sm font-medium text-marsh hover:bg-gray-50 rounded-xl select-none list-none flex items-center gap-2">
+    <span>✉</span> Compose Email
+  </summary>
+  <div hx-get="/templates/compose?context=policy&policy_uid={{ policy.policy_uid }}"
+       hx-trigger="toggle from:#compose-panel-policy once"
+       hx-swap="innerHTML">
+    <div class="p-4 text-sm text-gray-400">Loading templates…</div>
+  </div>
+</details>
+
+<!-- Quick Log Activity -->
+<div class="card p-3 mb-4">
+  <div class="flex items-center justify-between mb-0" id="log-toggle-bar">
+    <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Activity Log</p>
+    <button type="button" onclick="document.getElementById('log-form-edit').classList.toggle('hidden'); this.textContent = this.textContent.trim() === '+ Log' ? '− Close' : '+ Log'"
+      class="text-xs text-marsh hover:underline">+ Log</button>
+  </div>
+  <div id="log-form-edit" class="hidden mt-3 border-t border-gray-100 pt-3">
+    <form hx-post="/activities/log"
+          hx-target="#edit-activity-list"
+          hx-swap="afterbegin"
+          hx-on::after-request="this.reset(); document.getElementById('log-form-edit').classList.add('hidden'); document.querySelector('#log-toggle-bar button').textContent = '+ Log'"
+          class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <input type="hidden" name="client_id" value="{{ policy.client_id }}">
+      <input type="hidden" name="policy_id" value="{{ policy.id }}">
+      <div>
+        <label class="block text-xs font-medium text-gray-600 mb-1">Type</label>
+        <select name="activity_type" class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm bg-white focus:outline-none focus:ring-1 focus:ring-marsh" required>
+          {% for t in activity_types %}<option>{{ t }}</option>{% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-gray-600 mb-1">Contact Person</label>
+        <input type="text" name="contact_person" list="contacts-list-edit" autocomplete="off"
+          class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-marsh">
+        <datalist id="contacts-list-edit">
+          {% for c in contacts %}<option value="{{ c.name }}">{% endfor %}
+        </datalist>
+      </div>
+      <div class="sm:col-span-2">
+        <label class="block text-xs font-medium text-gray-600 mb-1">Subject <span class="text-red-400">*</span></label>
+        <input type="text" name="subject" required
+          class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-marsh">
+      </div>
+      <div class="sm:col-span-2">
+        <label class="block text-xs font-medium text-gray-600 mb-1">Details</label>
+        <textarea name="details" rows="2"
+          class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-marsh"></textarea>
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-gray-600 mb-1">Follow-Up Date</label>
+        <input type="date" name="follow_up_date"
+          class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-marsh">
+      </div>
+      <div class="flex items-end">
+        <button type="submit" class="w-full bg-marsh hover:bg-marsh-light text-white text-sm font-medium px-4 py-1.5 rounded transition-colors">Save Activity</button>
+      </div>
+    </form>
+  </div>
+  <ul id="edit-activity-list" class="divide-y divide-gray-50 mt-1">
+    {% for a in activities %}
+    {% include "activities/_activity_row.html" %}
+    {% else %}
+    <li class="py-3 text-xs text-gray-400 text-center">No activity in the last 90 days for this policy.</li>
+    {% endfor %}
+  </ul>
+</div>
+
+{% include "policies/_policy_team.html" %}
+
+{% if policy.is_opportunity %}
+<!-- Opportunity banner -->
+<div class="bg-amber-50 border border-amber-200 rounded-xl px-5 py-4 mb-4 flex items-start justify-between gap-4">
+  <div>
+    <p class="text-sm font-semibold text-amber-800">Opportunity — not yet bound</p>
+    <p class="text-xs text-amber-600 mt-0.5">This record will not appear in the renewal pipeline or schedule of insurance until converted to a policy.</p>
+  </div>
+  <button type="button" onclick="document.getElementById('convert-panel').classList.toggle('hidden')"
+    class="shrink-0 text-xs bg-amber-600 hover:bg-amber-700 text-white font-medium px-3 py-1.5 rounded-lg transition-colors">
+    Convert to Policy →
+  </button>
+</div>
+
+<!-- Convert to Policy panel -->
+<div id="convert-panel" class="hidden card p-5 mb-4 border-amber-200 bg-amber-50/30">
+  <p class="text-sm font-semibold text-gray-800 mb-3">Convert Opportunity to Policy</p>
+  <form method="post" action="/policies/{{ policy.policy_uid }}/convert" class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+    <div>
+      <label class="field-label">Effective Date <span class="text-red-400">*</span></label>
+      <input type="date" name="effective_date" value="{{ policy.target_effective_date or '' }}" required class="form-input w-full">
+    </div>
+    <div>
+      <label class="field-label">Expiration Date <span class="text-red-400">*</span></label>
+      <input type="date" name="expiration_date" required class="form-input w-full">
+    </div>
+    <div>
+      <label class="field-label">Carrier</label>
+      <input type="text" name="carrier" value="{{ policy.carrier or '' }}" class="form-input w-full" list="ac-carrier" autocomplete="off">
+    </div>
+    <div class="flex items-end">
+      <button type="submit" class="w-full bg-marsh hover:bg-marsh-light text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
+        Bind It
+      </button>
+    </div>
+  </form>
+</div>
+{% endif %}
+
 <form method="post" action="/policies/{{ policy.policy_uid }}/edit" class="space-y-6">
+
+<input type="hidden" name="is_opportunity" value="{{ '1' if policy.is_opportunity else '0' }}">
 
   <!-- Core fields -->
   <div class="card-section">
@@ -34,10 +193,26 @@
         </div>
 
         <div>
-          <label class="field-label">Carrier <span class="text-red-400">*</span></label>
-          <input type="text" name="carrier" value="{{ policy.carrier }}" required class="form-input w-full"
+          <label class="field-label">Carrier {% if not policy.is_opportunity %}<span class="text-red-400">*</span>{% endif %}</label>
+          <input type="text" name="carrier" value="{{ policy.carrier or '' }}" {% if not policy.is_opportunity %}required{% endif %} class="form-input w-full"
             list="ac-carrier" autocomplete="off">
         </div>
+
+        {% if policy.is_opportunity %}
+        <div>
+          <label class="field-label">Opportunity Status</label>
+          <select name="opportunity_status" class="form-select w-full">
+            <option value="">— Select —</option>
+            {% for s in opportunity_statuses %}
+            <option value="{{ s }}" {% if s == policy.opportunity_status %}selected{% endif %}>{{ s }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="field-label">Target Effective Date</label>
+          <input type="date" name="target_effective_date" value="{{ policy.target_effective_date or '' }}" class="form-input w-full">
+        </div>
+        {% endif %}
 
         <div>
           <label class="field-label">Policy Number</label>
@@ -45,18 +220,30 @@
         </div>
 
         <div>
+          <label class="field-label">First Named Insured</label>
+          <input type="text" name="first_named_insured" value="{{ policy.first_named_insured or '' }}"
+            placeholder="If different from client name"
+            class="form-input w-full">
+        </div>
+
+        {% if not policy.is_opportunity %}
+        <div>
           <label class="field-label">Effective Date <span class="text-red-400">*</span></label>
-          <input type="date" name="effective_date" value="{{ policy.effective_date }}" required class="form-input w-full">
+          <input type="date" name="effective_date" value="{{ policy.effective_date or '' }}" required class="form-input w-full">
         </div>
 
         <div>
           <label class="field-label">Expiration Date <span class="text-red-400">*</span></label>
-          <input type="date" name="expiration_date" value="{{ policy.expiration_date }}" required class="form-input w-full">
+          <input type="date" name="expiration_date" value="{{ policy.expiration_date or '' }}" required class="form-input w-full">
         </div>
+        {% else %}
+        <input type="hidden" name="effective_date" value="">
+        <input type="hidden" name="expiration_date" value="">
+        {% endif %}
 
         <div>
-          <label class="field-label">Annual Premium <span class="text-red-400">*</span></label>
-          <input type="number" name="premium" value="{{ policy.premium }}" step="0.01" min="0" required class="form-input w-full">
+          <label class="field-label">{% if not policy.is_opportunity %}Annual Premium <span class="text-red-400">*</span>{% else %}Est. Premium{% endif %}</label>
+          <input type="number" name="premium" value="{{ policy.premium or '' }}" step="0.01" min="0" {% if not policy.is_opportunity %}required{% endif %} class="form-input w-full">
         </div>
 
         <div>
@@ -118,29 +305,7 @@
           </select>
         </div>
 
-        <div>
-          <label class="field-label">Placement Colleague</label>
-          <input type="text" name="placement_colleague" value="{{ policy.placement_colleague or '' }}" class="form-input w-full"
-            list="ac-placement_colleague" autocomplete="off">
-        </div>
-
-        <div>
-          <label class="field-label">Colleague Email</label>
-          <input type="email" name="placement_colleague_email" value="{{ policy.placement_colleague_email or '' }}"
-            placeholder="colleague@example.com" class="form-input w-full"
-            list="ac-placement_colleague_email" autocomplete="off">
-        </div>
-
-        <div>
-          <label class="field-label">Underwriter</label>
-          <input type="text" name="underwriter_name" value="{{ policy.underwriter_name or '' }}" class="form-input w-full"
-            list="ac-underwriter_name" autocomplete="off">
-        </div>
-
-        <div>
-          <label class="field-label">Underwriter Contact</label>
-          <input type="text" name="underwriter_contact" value="{{ policy.underwriter_contact or '' }}" class="form-input w-full">
-        </div>
+        <!-- Policy team contacts managed via the Policy Team card above -->
 
         <div>
           <label class="field-label">Follow-Up Date</label>
@@ -189,6 +354,13 @@
           <input type="number" id="participation_of" name="participation_of"
             value="{{ policy.participation_of or '' }}"
             step="0.01" min="0" placeholder="e.g. 25000000 for $12.5M PO $25M"
+            class="form-input w-full">
+        </div>
+
+        <div>
+          <label class="field-label">Access Point</label>
+          <input type="text" name="access_point" value="{{ policy.access_point or '' }}"
+            placeholder="Wholesaler, etc."
             class="form-input w-full">
         </div>
 
@@ -291,6 +463,21 @@
     </div>
   </div>
 
+  <!-- Renewal Checklist -->
+  <div class="card-section">
+    <div class="card-header">
+      <span class="section-title">Renewal Checklist</span>
+      <span class="text-xs text-gray-400 font-normal normal-case tracking-normal">
+        {% set done = checklist | selectattr('completed') | list | length %}
+        {% set total = checklist | length %}
+        {% if total %}{{ done }}/{{ total }} complete{% endif %}
+      </span>
+    </div>
+    <div class="p-4">
+      {% include "policies/_milestones.html" %}
+    </div>
+  </div>
+
   <!-- Actions -->
   <div class="flex items-center justify-between">
     <a href="/clients/{{ policy.client_id }}" class="text-sm text-gray-500 hover:text-gray-700">← Cancel</a>
@@ -334,9 +521,6 @@
 
 <!-- Datalist elements populated from prior DB entries -->
 <datalist id="ac-carrier"></datalist>
-<datalist id="ac-placement_colleague"></datalist>
-<datalist id="ac-placement_colleague_email"></datalist>
-<datalist id="ac-underwriter_name"></datalist>
 <datalist id="ac-exposure_basis"></datalist>
 <datalist id="ac-exposure_unit"></datalist>
 <datalist id="ac-project_name"></datalist>
@@ -350,12 +534,13 @@
 
 <script>
 (function () {
-  const AC_FIELDS = ["carrier", "placement_colleague", "placement_colleague_email",
-                     "underwriter_name", "exposure_basis", "exposure_unit",
-                     "project_name", "exposure_city"];
+  const AC_FIELDS = ["carrier", "exposure_basis", "exposure_unit", "project_name", "exposure_city"];
+  const CLIENT_SCOPED = new Set(["project_name", "exposure_city"]);
+  const CLIENT_ID = {{ policy.client_id }};
 
   function loadList(field) {
-    fetch(`/policies/autocomplete?field=${field}`)
+    const clientParam = CLIENT_SCOPED.has(field) && CLIENT_ID ? `&client_id=${CLIENT_ID}` : '';
+    fetch(`/policies/autocomplete?field=${field}${clientParam}`)
       .then(r => r.json())
       .then(values => {
         const dl = document.getElementById(`ac-${field}`);

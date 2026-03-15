@@ -1,0 +1,37 @@
+<tr id="review-row-{{ p.policy_uid }}" class="border-t-2 border-marsh bg-blue-50">
+  <td colspan="9" class="px-4 py-3">
+    <form hx-post="/review/policies/{{ p.policy_uid }}/row/edit"
+          hx-target="#review-row-{{ p.policy_uid }}"
+          hx-swap="outerHTML"
+          class="flex flex-wrap items-end gap-3">
+      <div>
+        <label class="block text-xs text-gray-500 mb-1">Renewal Status</label>
+        <select name="renewal_status"
+                class="text-sm border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-marsh">
+          {% for s in renewal_statuses %}
+          <option value="{{ s }}" {% if s == p.renewal_status %}selected{% endif %}>{{ s }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="block text-xs text-gray-500 mb-1">Follow-Up Date</label>
+        <input type="date" name="follow_up_date" value="{{ p.follow_up_date or '' }}"
+               class="text-sm border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-marsh">
+      </div>
+      <div class="flex-1 min-w-48">
+        <label class="block text-xs text-gray-500 mb-1">Notes</label>
+        <input type="text" name="notes" value="{{ p.notes or '' }}" placeholder="Notes…"
+               class="w-full text-sm border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-marsh">
+      </div>
+      <div class="flex gap-2">
+        <button type="submit"
+                class="text-xs bg-marsh text-white px-3 py-1.5 rounded hover:bg-marsh-light transition-colors">Save</button>
+        <button type="button"
+                hx-get="/review/policies/{{ p.policy_uid }}/row"
+                hx-target="#review-row-{{ p.policy_uid }}"
+                hx-swap="outerHTML"
+                class="text-xs text-gray-400 hover:text-gray-600 px-2 py-1.5">Cancel</button>
+      </div>
+    </form>
+  </td>
+</tr>

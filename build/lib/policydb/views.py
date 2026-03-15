@@ -21,10 +21,32 @@ SELECT
     p.layer_position,
     p.tower_group,
     p.is_standalone,
-    p.placement_colleague,
-    p.placement_colleague_email,
-    p.underwriter_name,
-    p.underwriter_contact,
+    p.is_opportunity,
+    p.opportunity_status,
+    p.target_effective_date,
+    p.first_named_insured,
+    COALESCE(
+        (SELECT GROUP_CONCAT(pc.name, ', ') FROM policy_contacts pc
+         WHERE pc.policy_id = p.id AND pc.role = 'Placement Colleague'),
+        p.placement_colleague
+    ) AS placement_colleague,
+    COALESCE(
+        (SELECT pc.email FROM policy_contacts pc
+         WHERE pc.policy_id = p.id AND pc.role = 'Placement Colleague' AND pc.email IS NOT NULL
+         LIMIT 1),
+        p.placement_colleague_email
+    ) AS placement_colleague_email,
+    COALESCE(
+        (SELECT GROUP_CONCAT(pc.name, ', ') FROM policy_contacts pc
+         WHERE pc.policy_id = p.id AND pc.role = 'Underwriter'),
+        p.underwriter_name
+    ) AS underwriter_name,
+    COALESCE(
+        (SELECT pc.email FROM policy_contacts pc
+         WHERE pc.policy_id = p.id AND pc.role = 'Underwriter' AND pc.email IS NOT NULL
+         LIMIT 1),
+        p.underwriter_contact
+    ) AS underwriter_contact,
     p.renewal_status,
     p.commission_rate,
     p.prior_premium,
@@ -34,6 +56,7 @@ SELECT
     CASE WHEN p.follow_up_date IS NOT NULL AND p.follow_up_date < date('now') THEN 1 ELSE 0 END AS followup_overdue,
     p.attachment_point,
     p.participation_of,
+    p.access_point,
     p.project_name,
     p.exposure_basis,
     p.exposure_amount,
@@ -42,13 +65,16 @@ SELECT
     p.exposure_city,
     p.exposure_state,
     p.exposure_zip,
-    CAST(julianday(p.expiration_date) - julianday('now') AS INTEGER) AS days_to_renewal,
-    CASE
-        WHEN julianday(p.expiration_date) - julianday('now') <= 0 THEN 'EXPIRED'
-        WHEN julianday(p.expiration_date) - julianday('now') <= 90 THEN 'URGENT'
-        WHEN julianday(p.expiration_date) - julianday('now') <= 120 THEN 'WARNING'
-        WHEN julianday(p.expiration_date) - julianday('now') <= 180 THEN 'UPCOMING'
-        ELSE 'OK'
+    -- Opportunities have no expiration date; NULL days/urgency keeps them out of renewal logic
+    CASE WHEN p.is_opportunity = 1 THEN NULL
+         ELSE CAST(julianday(p.expiration_date) - julianday('now') AS INTEGER)
+    END AS days_to_renewal,
+    CASE WHEN p.is_opportunity = 1 THEN 'OPPORTUNITY'
+         WHEN julianday(p.expiration_date) - julianday('now') <= 0 THEN 'EXPIRED'
+         WHEN julianday(p.expiration_date) - julianday('now') <= 90 THEN 'URGENT'
+         WHEN julianday(p.expiration_date) - julianday('now') <= 120 THEN 'WARNING'
+         WHEN julianday(p.expiration_date) - julianday('now') <= 180 THEN 'UPCOMING'
+         ELSE 'OK'
     END AS urgency,
     CASE WHEN p.commission_rate > 0
         THEN ROUND(p.premium * p.commission_rate, 2)
@@ -57,7 +83,9 @@ SELECT
     CASE WHEN p.prior_premium > 0
         THEN ROUND((p.premium - p.prior_premium) * 1.0 / p.prior_premium, 4)
         ELSE NULL
-    END AS rate_change
+    END AS rate_change,
+    p.last_reviewed_at,
+    p.review_cycle
 FROM policies p
 JOIN clients c ON p.client_id = c.id
 WHERE p.archived = 0
@@ -70,29 +98,38 @@ SELECT
     c.name,
     c.industry_segment,
     c.account_exec,
-    c.primary_contact,
+    COALESCE(
+        (SELECT cc.name FROM client_contacts cc
+         WHERE cc.client_id = c.id AND cc.is_primary = 1 AND cc.contact_type = 'client'
+         LIMIT 1),
+        c.primary_contact
+    ) AS primary_contact,
     c.date_onboarded,
     c.notes,
     c.broker_fee,
-    COUNT(p.id) AS total_policies,
-    COALESCE(SUM(p.premium), 0) AS total_premium,
-    SUM(CASE WHEN p.commission_rate > 0
+    -- Exclude opportunities from bound-policy counts and premium totals
+    COUNT(CASE WHEN p.is_opportunity = 0 OR p.is_opportunity IS NULL THEN p.id END) AS total_policies,
+    COALESCE(SUM(CASE WHEN p.is_opportunity = 0 OR p.is_opportunity IS NULL THEN p.premium ELSE 0 END), 0) AS total_premium,
+    SUM(CASE WHEN (p.is_opportunity = 0 OR p.is_opportunity IS NULL) AND p.commission_rate > 0
         THEN ROUND(p.premium * p.commission_rate, 2) ELSE 0 END) AS total_commission,
     COALESCE(c.broker_fee, 0) AS total_fees,
-    SUM(CASE WHEN p.commission_rate > 0
+    SUM(CASE WHEN (p.is_opportunity = 0 OR p.is_opportunity IS NULL) AND p.commission_rate > 0
         THEN ROUND(p.premium * p.commission_rate, 2) ELSE 0 END)
         + COALESCE(c.broker_fee, 0) AS total_revenue,
-    SUM(CASE WHEN p.is_standalone = 1 THEN 1 ELSE 0 END) AS standalone_count,
-    COUNT(DISTINCT p.policy_type) AS coverage_lines,
-    COUNT(DISTINCT p.carrier) AS carrier_count,
+    SUM(CASE WHEN (p.is_opportunity = 0 OR p.is_opportunity IS NULL) AND p.is_standalone = 1 THEN 1 ELSE 0 END) AS standalone_count,
+    COUNT(DISTINCT CASE WHEN p.is_opportunity = 0 OR p.is_opportunity IS NULL THEN p.policy_type END) AS coverage_lines,
+    COUNT(DISTINCT CASE WHEN p.is_opportunity = 0 OR p.is_opportunity IS NULL THEN p.carrier END) AS carrier_count,
     MIN(CASE
-        WHEN julianday(p.expiration_date) - julianday('now') > 0
+        WHEN (p.is_opportunity = 0 OR p.is_opportunity IS NULL)
+          AND julianday(p.expiration_date) - julianday('now') > 0
         THEN CAST(julianday(p.expiration_date) - julianday('now') AS INTEGER)
     END) AS next_renewal_days,
     SUM(CASE
-        WHEN julianday(p.expiration_date) - julianday('now') BETWEEN 0 AND 180
+        WHEN (p.is_opportunity = 0 OR p.is_opportunity IS NULL)
+          AND julianday(p.expiration_date) - julianday('now') BETWEEN 0 AND 180
         THEN p.premium ELSE 0
     END) AS premium_at_risk,
+    COUNT(CASE WHEN p.is_opportunity = 1 THEN 1 END) AS opportunity_count,
     (SELECT COUNT(*) FROM activity_log a
      WHERE a.client_id = c.id
        AND a.activity_date >= date('now', '-90 days')) AS activity_last_90d
@@ -124,6 +161,7 @@ SELECT
 FROM policies p
 JOIN clients c ON p.client_id = c.id
 WHERE p.archived = 0
+  AND (p.is_opportunity = 0 OR p.is_opportunity IS NULL)
 ORDER BY c.name, p.policy_type, p.layer_position
 """
 
@@ -139,7 +177,11 @@ SELECT
     p.limit_amount,
     p.premium,
     p.expiration_date,
-    p.placement_colleague,
+    COALESCE(
+        (SELECT GROUP_CONCAT(pc.name, ', ') FROM policy_contacts pc
+         WHERE pc.policy_id = p.id AND pc.role = 'Placement Colleague'),
+        p.placement_colleague
+    ) AS placement_colleague,
     p.renewal_status,
     p.attachment_point,
     p.participation_of,
@@ -148,6 +190,7 @@ SELECT
 FROM policies p
 JOIN clients c ON p.client_id = c.id
 WHERE p.archived = 0
+  AND (p.is_opportunity = 0 OR p.is_opportunity IS NULL)
 ORDER BY c.name, p.tower_group, COALESCE(p.attachment_point, 0) ASC
 """
 
@@ -155,6 +198,8 @@ V_RENEWAL_PIPELINE = """
 CREATE VIEW v_renewal_pipeline AS
 SELECT
     c.name AS client_name,
+    p.id,
+    p.client_id,
     p.policy_uid,
     p.policy_type,
     p.carrier,
@@ -169,13 +214,39 @@ SELECT
     END AS urgency,
     p.premium,
     p.renewal_status,
-    p.placement_colleague,
+    COALESCE(
+        (SELECT GROUP_CONCAT(pc.name, ', ') FROM policy_contacts pc
+         WHERE pc.policy_id = p.id),
+        p.placement_colleague
+    ) AS placement_colleague,
     p.follow_up_date,
     CASE WHEN p.follow_up_date IS NOT NULL AND p.follow_up_date < date('now') THEN 1 ELSE 0 END AS followup_overdue,
-    p.description
+    p.project_name,
+    p.is_standalone,
+    p.description,
+    COALESCE(
+        (SELECT pc.email FROM policy_contacts pc
+         WHERE pc.policy_id = p.id AND pc.email IS NOT NULL
+         LIMIT 1),
+        p.placement_colleague_email
+    ) AS placement_colleague_email,
+    COALESCE(
+        (SELECT GROUP_CONCAT(pc.name, ', ') FROM policy_contacts pc
+         WHERE pc.policy_id = p.id AND pc.role = 'Underwriter'),
+        p.underwriter_name
+    ) AS underwriter_name,
+    COALESCE(
+        (SELECT pc.email FROM policy_contacts pc
+         WHERE pc.policy_id = p.id AND pc.role = 'Underwriter' AND pc.email IS NOT NULL
+         LIMIT 1),
+        p.underwriter_contact
+    ) AS underwriter_contact,
+    p.last_reviewed_at,
+    p.review_cycle
 FROM policies p
 JOIN clients c ON p.client_id = c.id
 WHERE p.archived = 0
+  AND (p.is_opportunity = 0 OR p.is_opportunity IS NULL)
   AND julianday(p.expiration_date) - julianday('now') <= 180
 ORDER BY julianday(p.expiration_date) ASC
 """
@@ -200,6 +271,97 @@ WHERE a.follow_up_date < date('now')
 ORDER BY a.follow_up_date ASC
 """
 
+def _cycle_case(col: str) -> str:
+    return f"""
+         CASE COALESCE({col}, '1w')
+              WHEN '1w' THEN 7
+              WHEN '2w' THEN 14
+              WHEN '1m' THEN 30
+              WHEN '1q' THEN 90
+              WHEN '6m' THEN 180
+              WHEN '1y' THEN 365
+              ELSE 7
+         END"""
+
+
+V_REVIEW_QUEUE = f"""
+CREATE VIEW v_review_queue AS
+SELECT
+    p.id,
+    p.policy_uid,
+    p.client_id,
+    c.name AS client_name,
+    p.policy_type,
+    p.carrier,
+    p.effective_date,
+    p.expiration_date,
+    p.premium,
+    p.renewal_status,
+    p.opportunity_status,
+    p.target_effective_date,
+    p.is_opportunity,
+    p.is_standalone,
+    p.follow_up_date,
+    CASE WHEN p.follow_up_date IS NOT NULL AND p.follow_up_date < date('now') THEN 1 ELSE 0 END AS followup_overdue,
+    p.project_name,
+    p.description,
+    p.notes,
+    p.account_exec,
+    p.last_reviewed_at,
+    p.review_cycle,
+    CASE WHEN p.is_opportunity = 1 THEN NULL
+         ELSE CAST(julianday(p.expiration_date) - julianday('now') AS INTEGER)
+    END AS days_to_renewal,
+    CASE WHEN p.is_opportunity = 1 THEN 'OPPORTUNITY'
+         WHEN julianday(p.expiration_date) - julianday('now') <= 0 THEN 'EXPIRED'
+         WHEN julianday(p.expiration_date) - julianday('now') <= 90 THEN 'URGENT'
+         WHEN julianday(p.expiration_date) - julianday('now') <= 120 THEN 'WARNING'
+         WHEN julianday(p.expiration_date) - julianday('now') <= 180 THEN 'UPCOMING'
+         ELSE 'OK'
+    END AS urgency,
+    CASE WHEN p.last_reviewed_at IS NULL THEN 9999
+         ELSE CAST(julianday('now') - julianday(p.last_reviewed_at) AS INTEGER)
+    END AS days_since_review,
+    {_cycle_case('p.review_cycle')} AS review_cycle_days
+FROM policies p
+JOIN clients c ON c.id = p.client_id
+WHERE p.archived = 0
+  AND (
+    p.last_reviewed_at IS NULL
+    OR CAST(julianday('now') - julianday(p.last_reviewed_at) AS INTEGER) >= {_cycle_case('p.review_cycle')}
+  )
+ORDER BY
+    days_to_renewal ASC NULLS LAST,
+    p.last_reviewed_at ASC NULLS FIRST
+"""
+
+V_REVIEW_CLIENTS = f"""
+CREATE VIEW v_review_clients AS
+SELECT
+    c.id,
+    c.name,
+    c.industry_segment,
+    c.account_exec,
+    c.last_reviewed_at,
+    c.review_cycle,
+    CASE WHEN c.last_reviewed_at IS NULL THEN 9999
+         ELSE CAST(julianday('now') - julianday(c.last_reviewed_at) AS INTEGER)
+    END AS days_since_review,
+    {_cycle_case('c.review_cycle')} AS review_cycle_days,
+    cs.total_policies,
+    cs.total_premium,
+    cs.next_renewal_days,
+    cs.opportunity_count
+FROM clients c
+LEFT JOIN v_client_summary cs ON cs.id = c.id
+WHERE c.archived = 0
+  AND (
+    c.last_reviewed_at IS NULL
+    OR CAST(julianday('now') - julianday(c.last_reviewed_at) AS INTEGER) >= {_cycle_case('c.review_cycle')}
+  )
+ORDER BY c.last_reviewed_at ASC NULLS FIRST, c.name
+"""
+
 ALL_VIEWS = {
     "v_policy_status": V_POLICY_STATUS,
     "v_client_summary": V_CLIENT_SUMMARY,
@@ -207,4 +369,6 @@ ALL_VIEWS = {
     "v_tower": V_TOWER,
     "v_renewal_pipeline": V_RENEWAL_PIPELINE,
     "v_overdue_followups": V_OVERDUE_FOLLOWUPS,
+    "v_review_queue": V_REVIEW_QUEUE,
+    "v_review_clients": V_REVIEW_CLIENTS,
 }

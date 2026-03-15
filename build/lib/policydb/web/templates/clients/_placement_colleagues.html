@@ -1,0 +1,45 @@
+{% if placement_colleagues %}
+<div class="card">
+  <div class="px-5 py-3 border-b border-gray-100">
+    <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Placement Touchpoints</h3>
+  </div>
+  {% for org_name, group in placement_colleagues | groupby('organization') %}
+  {% set colleagues = group | list %}
+  {% if org_name %}
+  <div class="px-5 pt-3 pb-1">
+    <span class="text-xs font-semibold text-indigo-600 uppercase tracking-wide">{{ org_name }}</span>
+  </div>
+  {% endif %}
+  <div class="divide-y divide-gray-50 {% if not loop.last %}border-b border-gray-100{% endif %}">
+    {% for c in colleagues %}
+    <div class="px-5 py-3 {% if org_name %}pl-7{% endif %}">
+      <div class="flex items-center gap-3 mb-1.5">
+        <span class="text-sm font-medium text-gray-800">{{ c.name }}</span>
+        {% if c.email %}
+        <span class="text-xs text-gray-400">{{ c.email }}</span>
+        {% endif %}
+        <a href="/contacts?q={{ c.name | urlencode }}"
+           class="text-xs text-gray-400 hover:text-marsh ml-auto shrink-0">Edit in Contacts →</a>
+      </div>
+      <ul class="space-y-1">
+        {% for p in c.policies %}
+        <li class="flex items-center gap-1.5 text-xs text-gray-500">
+          <a href="/policies/{{ p.policy_uid }}/edit" class="font-mono text-gray-400 hover:text-marsh shrink-0">{{ p.policy_uid }}</a>
+          <span class="text-gray-700">{{ p.policy_type }}</span>
+          <span class="text-gray-400">· {{ p.carrier }}</span>
+          {% if p.project_name %}<span class="text-gray-400 italic truncate">· {{ p.project_name }}</span>{% endif %}
+          {% if p.expiration_date %}<span class="text-gray-300 tabular-nums">exp {{ p.expiration_date }}</span>{% endif %}
+          {% if c.email %}
+          <a href="mailto:{{ c.email }}?subject={{ p.mailto_subject | urlencode }}"
+             title="Email {{ c.name }} about this policy"
+             class="ml-auto shrink-0 text-gray-300 hover:text-marsh transition-colors">✉</a>
+          {% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endfor %}
+  </div>
+  {% endfor %}
+</div>
+{% endif %}

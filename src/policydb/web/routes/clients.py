@@ -361,6 +361,7 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
         for r in _ac_rows
     })
 
+    from policydb.queries import REVIEW_CYCLE_LABELS as _REVIEW_CYCLE_LABELS
     return templates.TemplateResponse("clients/detail.html", {
         "request": request,
         "active": "clients",
@@ -384,6 +385,7 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
         "mailto_subject": mailto_subject,
         "all_contacts_json": all_contacts_json,
         "add_contact": add_contact,
+        "cycle_labels": _REVIEW_CYCLE_LABELS,
     })
 
 
@@ -606,11 +608,13 @@ def client_edit_form(request: Request, client_id: int, conn=Depends(get_db)):
     client = get_client_by_id(conn, client_id)
     if not client:
         return HTMLResponse("Client not found", status_code=404)
+    from policydb.queries import REVIEW_CYCLE_LABELS as _REVIEW_CYCLE_LABELS
     return templates.TemplateResponse("clients/edit.html", {
         "request": request,
         "active": "clients",
         "client": dict(client),
         "industry_segments": cfg.get("industry_segments"),
+        "cycle_labels": _REVIEW_CYCLE_LABELS,
     })
 
 

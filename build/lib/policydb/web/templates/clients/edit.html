@@ -37,17 +37,12 @@
       </div>
 
       <div>
-        <label class="field-label">Primary Contact</label>
-        <input type="text" name="primary_contact" value="{{ client.primary_contact if client else '' }}" class="form-input w-full">
-      </div>
-
-      <div>
-        <label class="field-label">Contact Email</label>
+        <label class="field-label">Contact Email <span class="text-gray-400 font-normal">(fallback)</span></label>
         <input type="email" name="contact_email" value="{{ client.contact_email if client else '' }}" class="form-input w-full">
       </div>
 
       <div>
-        <label class="field-label">Contact Phone</label>
+        <label class="field-label">Contact Phone <span class="text-gray-400 font-normal">(fallback)</span></label>
         <input type="text" name="contact_phone" value="{{ client.contact_phone if client else '' }}" class="form-input w-full">
       </div>
 
@@ -56,9 +51,39 @@
         <input type="text" name="address" value="{{ client.address if client else '' }}" class="form-input w-full">
       </div>
 
-      <div class="sm:col-span-2">
-        <label class="field-label">Notes</label>
-        <textarea name="notes" rows="3" class="form-input w-full">{{ client.notes if client else '' }}</textarea>
+      <div>
+        <label class="field-label">Website</label>
+        <input type="url" name="website" value="{{ client.website if client and client.website else '' }}" placeholder="https://example.com" class="form-input w-full">
+      </div>
+
+      <div>
+        <label class="field-label">Client Since</label>
+        <input type="date" name="client_since" value="{{ client.client_since if client and client.client_since else '' }}" class="form-input w-full">
+      </div>
+
+      <div>
+        <label class="field-label">Typical Renewal Month</label>
+        <select name="renewal_month" class="form-select w-full">
+          <option value="">— Not set —</option>
+          {% for m, label in [('1','January'),('2','February'),('3','March'),('4','April'),('5','May'),('6','June'),('7','July'),('8','August'),('9','September'),('10','October'),('11','November'),('12','December')] %}
+          <option value="{{ m }}" {% if client and client.renewal_month and client.renewal_month|string == m %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div>
+        <label class="field-label">Preferred Contact Method</label>
+        <select name="preferred_contact_method" class="form-select w-full">
+          <option value="">— Not set —</option>
+          {% for opt in ['Email', 'Phone', 'Text', 'In Person'] %}
+          <option value="{{ opt }}" {% if client and client.preferred_contact_method == opt %}selected{% endif %}>{{ opt }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div>
+        <label class="field-label">Referral Source</label>
+        <input type="text" name="referral_source" value="{{ client.referral_source if client and client.referral_source else '' }}" placeholder="e.g. John Smith, Trade show, LinkedIn" class="form-input w-full">
       </div>
 
       <div>
@@ -72,6 +97,8 @@
         <textarea name="business_description" rows="4" placeholder="Describe the client's business model, operations, key exposures, and any relevant context for underwriting or submissions."
           class="form-input w-full">{{ client.business_description if client and client.business_description else '' }}</textarea>
       </div>
+
+      <input type="hidden" name="primary_contact" value="{{ client.primary_contact if client else '' }}">
 
     </div>
   </div>

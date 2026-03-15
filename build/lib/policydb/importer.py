@@ -156,6 +156,29 @@ class PolicyImporter:
         "prior": "prior_premium",
         "pol_number": "policy_number",
         "pol_num": "policy_number",
+        "pol_no": "policy_number",
+        "coverage": "policy_type",
+        "coverage_type": "policy_type",
+        "line": "policy_type",
+        "carrier_name": "carrier",
+        "company": "carrier",
+        "insurer": "carrier",
+        "insured_name": "client_name",
+        "named_insured": "client_name",
+        "policy_expiry": "expiration_date",
+        "expiry_date": "expiration_date",
+        "policy_expiration": "expiration_date",
+        "annual_premium": "premium",
+        "written_premium": "premium",
+        "total_premium": "premium",
+        "eff": "effective_date",
+        "first_named_insured": "first_named_insured",
+        "fni": "first_named_insured",
+        "named_insured_1": "first_named_insured",
+        "first_insured": "first_named_insured",
+        "access_point": "access_point",
+        "access": "access_point",
+        "entry_point": "access_point",
     }
 
     def __init__(self, conn: sqlite3.Connection):
@@ -283,8 +306,9 @@ class PolicyImporter:
                     effective_date, expiration_date, premium, limit_amount, deductible,
                     description, coverage_form, layer_position, tower_group, is_standalone,
                     placement_colleague, underwriter_name, underwriter_contact,
-                    renewal_status, commission_rate, prior_premium, account_exec, notes)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    renewal_status, commission_rate, prior_premium, account_exec, notes,
+                    access_point)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     uid,
                     client_id,
@@ -309,6 +333,7 @@ class PolicyImporter:
                     prior_premium,
                     account_exec,
                     row.get("notes") or None,
+                    row.get("access_point") or None,
                 ),
             )
 

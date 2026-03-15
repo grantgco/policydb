@@ -29,8 +29,11 @@
       <div class="flex gap-4 text-xs">
         {% if c.phone %}<span class="text-gray-500">{{ c.phone }}</span>{% endif %}
         {% if c.email %}
-        <a href="mailto:{{ c.email }}?subject={{ mailto_subject | urlencode }}{% if internal_cc %}&cc={{ internal_cc | urlencode }}{% endif %}"
-           class="text-marsh hover:underline">{{ c.email }}</a>
+        <button type="button" class="ep-trigger text-marsh hover:underline"
+          data-to="{{ c.email }}"
+          data-to-label="{{ c.name }}"
+          data-subject="{{ mailto_subject }}"
+          data-cc="{{ team_cc_json }}">✉ {{ c.email }}</button>
         {% endif %}
       </div>
     </div>
@@ -45,16 +48,16 @@
       <div class="flex gap-4 text-xs">
         {% if c.phone %}<span class="text-gray-500">{{ c.phone }}</span>{% endif %}
         {% if c.email %}
-        <a href="mailto:{{ c.email }}?subject={{ mailto_subject | urlencode }}{% if internal_cc %}&cc={{ internal_cc | urlencode }}{% endif %}"
-           class="text-indigo-500 hover:underline">{{ c.email }}</a>
+        <button type="button" class="ep-trigger text-indigo-500 hover:underline"
+          data-to="{{ c.email }}"
+          data-to-label="{{ c.name }}"
+          data-subject="{{ mailto_subject }}"
+          data-cc="{{ team_cc_json }}">✉ {{ c.email }}</button>
         {% endif %}
       </div>
     </div>
     {% endfor %}
   </div>
-  {% if internal_cc %}
-  <p class="text-xs text-gray-400 mt-2">Internal team auto-CC'd on all emails above.</p>
-  {% endif %}
 </div>
 {% endif %}
 
@@ -173,10 +176,10 @@
 <input type="hidden" name="is_opportunity" value="{{ '1' if policy.is_opportunity else '0' }}">
 
   <!-- Core fields -->
-  <div class="card-section">
-    <div class="card-header">
-      <span class="section-title">Core Fields</span>
-    </div>
+  <details open class="card-section">
+    <summary class="card-header cursor-pointer select-none list-none">
+      <span class="section-title flex items-center gap-1"><span class="details-arrow">&#9654;</span> Core Fields</span>
+    </summary>
     <div class="p-6">
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
 
@@ -193,6 +196,13 @@
           <label class="field-label">Carrier {% if not policy.is_opportunity %}<span class="text-red-400">*</span>{% endif %}</label>
           <input type="text" name="carrier" value="{{ policy.carrier or '' }}" {% if not policy.is_opportunity %}required{% endif %} class="form-input w-full"
             list="ac-carrier" autocomplete="off">
+        </div>
+
+        <div>
+          <label class="field-label">Access Point</label>
+          <input type="text" name="access_point" value="{{ policy.access_point or '' }}"
+            placeholder="Wholesaler, MGA, etc."
+            class="form-input w-full">
         </div>
 
         {% if policy.is_opportunity %}
@@ -272,24 +282,24 @@
 
       </div>
     </div>
-  </div>
+  </details>
 
   <!-- Description (client-facing) -->
-  <div class="card-section">
-    <div class="card-header">
-      <span class="section-title">Description <span class="font-normal text-gray-400 normal-case tracking-normal">client-facing · appears on schedule of insurance</span></span>
-    </div>
+  <details class="card-section">
+    <summary class="card-header cursor-pointer select-none list-none">
+      <span class="section-title flex items-center gap-1"><span class="details-arrow">&#9654;</span> Description <span class="font-normal text-gray-400 normal-case tracking-normal">client-facing · appears on schedule of insurance</span></span>
+    </summary>
     <div class="p-6">
       <textarea name="description" rows="3" placeholder="Plain-English summary of what this policy covers and why the client has it."
         class="form-input w-full">{{ policy.description or '' }}</textarea>
     </div>
-  </div>
+  </details>
 
   <!-- Placement & Renewal -->
-  <div class="card-section">
-    <div class="card-header">
-      <span class="section-title">Placement &amp; Renewal</span>
-    </div>
+  <details open class="card-section">
+    <summary class="card-header cursor-pointer select-none list-none">
+      <span class="section-title flex items-center gap-1"><span class="details-arrow">&#9654;</span> Placement &amp; Renewal</span>
+    </summary>
     <div class="p-6">
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
 
@@ -311,13 +321,13 @@
 
       </div>
     </div>
-  </div>
+  </details>
 
   <!-- Structure -->
-  <div class="card-section">
-    <div class="card-header">
-      <span class="section-title">Program Structure</span>
-    </div>
+  <details class="card-section">
+    <summary class="card-header cursor-pointer select-none list-none">
+      <span class="section-title flex items-center gap-1"><span class="details-arrow">&#9654;</span> Program Structure</span>
+    </summary>
     <div class="p-6">
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
 
@@ -356,13 +366,13 @@
 
       </div>
     </div>
-  </div>
+  </details>
 
   <!-- Exposure -->
-  <div class="card-section">
-    <div class="card-header">
-      <span class="section-title">Exposure</span>
-    </div>
+  <details class="card-section">
+    <summary class="card-header cursor-pointer select-none list-none">
+      <span class="section-title flex items-center gap-1"><span class="details-arrow">&#9654;</span> Exposure</span>
+    </summary>
     <div class="p-6 space-y-4">
       <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
 
@@ -424,13 +434,13 @@
         </div>
       </div>
     </div>
-  </div>
+  </details>
 
   <!-- Internal -->
-  <div class="card-section">
-    <div class="card-header">
-      <span class="section-title">Internal <span class="font-normal text-gray-400 normal-case tracking-normal">never client-facing</span></span>
-    </div>
+  <details class="card-section">
+    <summary class="card-header cursor-pointer select-none list-none">
+      <span class="section-title flex items-center gap-1"><span class="details-arrow">&#9654;</span> Internal <span class="font-normal text-gray-400 normal-case tracking-normal">never client-facing</span></span>
+    </summary>
     <div class="p-6">
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
 
@@ -444,6 +454,44 @@
           <input type="number" name="prior_premium" value="{{ policy.prior_premium or '' }}" step="0.01" min="0" class="form-input w-full">
         </div>
 
+        <div class="sm:col-span-2 lg:col-span-3 border-t border-gray-100 pt-3 mt-1">
+          <p class="text-xs font-medium text-gray-500 mb-2 uppercase tracking-wide">Review</p>
+          <div id="review-badge-policy-{{ policy.policy_uid }}" class="flex items-center gap-3 flex-wrap">
+            <div class="flex items-center gap-1.5">
+              <span class="text-xs text-gray-500">Review cycle:</span>
+              <form hx-post="/review/policies/{{ policy.policy_uid }}/mark"
+                    hx-trigger="change"
+                    hx-target="#review-badge-policy-{{ policy.policy_uid }}"
+                    hx-swap="outerHTML">
+                <input type="hidden" name="mark" value="0">
+                <select name="review_cycle"
+                        class="text-xs border border-gray-200 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-marsh bg-white">
+                  {% for code, label in cycle_labels.items() %}
+                  <option value="{{ code }}" {% if code == (policy.review_cycle or '1w') %}selected{% endif %}>{{ label }}</option>
+                  {% endfor %}
+                </select>
+              </form>
+            </div>
+            <span class="text-xs {% if not policy.last_reviewed_at %}text-red-500 font-medium{% else %}text-gray-500{% endif %}">
+              {% if policy.last_reviewed_at %}
+                Last reviewed: {{ policy.last_reviewed_at }}
+              {% else %}
+                Never reviewed
+              {% endif %}
+            </span>
+            <form hx-post="/review/policies/{{ policy.policy_uid }}/mark"
+                  hx-target="#review-badge-policy-{{ policy.policy_uid }}"
+                  hx-swap="outerHTML">
+              <input type="hidden" name="mark" value="1">
+              <input type="hidden" name="review_cycle" value="{{ policy.review_cycle or '1w' }}">
+              <button type="submit"
+                      class="text-xs bg-green-50 text-green-700 border border-green-200 hover:bg-green-100 px-2.5 py-1 rounded transition-colors">
+                ✓ Mark Reviewed
+              </button>
+            </form>
+          </div>
+        </div>
+
         <div class="sm:col-span-2 lg:col-span-3">
           <label class="field-label">Internal Notes</label>
           <textarea name="notes" rows="2" class="form-input w-full">{{ policy.notes or '' }}</textarea>
@@ -451,12 +499,12 @@
 
       </div>
     </div>
-  </div>
+  </details>
 
   <!-- Renewal Checklist -->
-  <div class="card-section">
-    <div class="card-header">
-      <span class="section-title">Renewal Checklist</span>
+  <details open class="card-section">
+    <summary class="card-header cursor-pointer select-none list-none">
+      <span class="section-title flex items-center gap-1"><span class="details-arrow">&#9654;</span> Renewal Checklist</span>
       <span class="text-xs text-gray-400 font-normal normal-case tracking-normal">
         {% set done = checklist | selectattr('completed') | list | length %}
         {% set total = checklist | length %}
@@ -466,7 +514,7 @@
     <div class="p-4">
       {% include "policies/_milestones.html" %}
     </div>
-  </div>
+  </details>
 
   <!-- Actions -->
   <div class="flex items-center justify-between">
@@ -511,9 +559,6 @@
 
 <!-- Datalist elements populated from prior DB entries -->
 <datalist id="ac-carrier"></datalist>
-<datalist id="ac-placement_colleague"></datalist>
-<datalist id="ac-placement_colleague_email"></datalist>
-<datalist id="ac-underwriter_name"></datalist>
 <datalist id="ac-exposure_basis"></datalist>
 <datalist id="ac-exposure_unit"></datalist>
 <datalist id="ac-project_name"></datalist>
@@ -543,32 +588,6 @@
   }
 
   AC_FIELDS.forEach(loadList);
-
-  // Load colleague data and wire auto-fill
-  fetch('/policies/colleague-data')
-    .then(r => r.json())
-    .then(colleagues => {
-      var dlColleague = document.getElementById('ac-placement_colleague');
-      if (dlColleague) dlColleague.innerHTML = Object.keys(colleagues).map(n =>
-        `<option value="${n.replace(/"/g, '&quot;')}"></option>`
-      ).join('');
-      var nameEl = document.querySelector('input[name="placement_colleague"]');
-      var emailEl = document.querySelector('input[name="placement_colleague_email"]');
-      if (nameEl && emailEl) {
-        nameEl.addEventListener('change', function() {
-          var data = colleagues[this.value];
-          if (data && data.email && !emailEl.value) emailEl.value = data.email;
-        });
-      }
-    });
-
-  // Load underwriter names into datalist
-  fetch('/policies/autocomplete?field=underwriter_name')
-    .then(r => r.json())
-    .then(names => {
-      var dl = document.getElementById('ac-underwriter_name');
-      if (dl) dl.innerHTML = names.map(n => `<option value="${n.replace(/"/g, '&quot;')}"></option>`).join('');
-    });
 
   // Live tower notation preview
   (function () {

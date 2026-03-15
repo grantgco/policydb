@@ -1,0 +1,58 @@
+{% set opp_colors = {
+  'Prospecting': 'bg-gray-100 text-gray-600',
+  'Quoting': 'bg-blue-100 text-blue-700',
+  'Submitted': 'bg-purple-100 text-purple-700',
+  'Pending Bind': 'bg-amber-100 text-amber-700'
+} %}
+<tr id="opp-row-{{ o.policy_uid }}" class="hover:bg-amber-50/40">
+  <td class="px-4 py-2.5">
+    <a href="/clients/{{ o.client_id }}" class="font-medium text-marsh hover:underline">{{ o.client_name }}</a>
+  </td>
+  <td class="px-4 py-2.5">
+    <span class="text-gray-800">{{ o.policy_type or '—' }}</span>
+    {% if o.project_name %}<span class="text-xs text-gray-400 ml-1 italic">· {{ o.project_name }}</span>{% endif %}
+  </td>
+  <td class="px-4 py-2.5 text-gray-600">{{ o.carrier or '—' }}</td>
+  <td class="px-4 py-2.5">
+    {% if o.opportunity_status %}
+    <span class="text-xs font-semibold px-2 py-0.5 rounded {{ opp_colors.get(o.opportunity_status, 'bg-gray-100 text-gray-600') }}">
+      {{ o.opportunity_status }}
+    </span>
+    {% else %}<span class="text-xs text-gray-300">—</span>{% endif %}
+  </td>
+  <td class="px-4 py-2.5 text-xs text-gray-600 whitespace-nowrap">{{ o.target_effective_date or '—' }}</td>
+  <td class="px-4 py-2.5 text-right tabular-nums text-xs text-gray-600">
+    {% if o.premium %}{{ o.premium | currency }}{% else %}—{% endif %}
+  </td>
+  <td class="px-4 py-2.5 text-xs text-gray-600">
+    {% if o.placement_colleague %}
+    {{ o.placement_colleague }}
+    {% if o.placement_colleague_email %}
+    <button type="button" class="ep-trigger text-marsh hover:text-marsh-light ml-1"
+      data-to="{{ o.placement_colleague_email }}"
+      data-to-label="{{ o.placement_colleague }}"
+      data-subject="{{ o.mailto_subject }}"
+      data-cc-url="/policies/{{ o.policy_uid }}/team-cc">✉</button>
+    {% endif %}
+    {% else %}—{% endif %}
+  </td>
+  <td class="px-4 py-2.5 text-xs whitespace-nowrap">
+    {% if o.follow_up_date %}
+      {% if o.follow_up_date < today %}
+      <span class="text-red-600 font-medium">{{ o.follow_up_date }}</span>
+      {% else %}
+      <span class="text-amber-700">{{ o.follow_up_date }}</span>
+      {% endif %}
+    {% else %}<span class="text-gray-300">—</span>{% endif %}
+  </td>
+  <td class="px-4 py-2.5">
+    <div class="flex items-center gap-3">
+      <a href="/policies/{{ o.policy_uid }}/edit" class="text-xs text-marsh hover:underline">Edit →</a>
+      <button
+        hx-get="/policies/{{ o.policy_uid }}/opp/log"
+        hx-target="#opp-row-{{ o.policy_uid }}"
+        hx-swap="outerHTML"
+        class="text-xs text-amber-600 hover:underline">Log</button>
+    </div>
+  </td>
+</tr>

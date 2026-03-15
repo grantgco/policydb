@@ -32,12 +32,16 @@
       <div class="flex h-14 items-center justify-between">
         <div class="flex items-center gap-8">
           <a href="/" class="text-white font-semibold text-lg tracking-tight">PolicyDB</a>
-          <div class="flex gap-1">
+          <div class="flex gap-1 items-center">
             <a href="/" class="nav-link {% if active == 'dashboard' %}bg-marsh-light{% endif %}">Dashboard</a>
             <a href="/clients" class="nav-link {% if active == 'clients' %}bg-marsh-light{% endif %}">Clients</a>
             <a href="/renewals" class="nav-link {% if active == 'renewals' %}bg-marsh-light{% endif %}">Renewals</a>
             <a href="/followups" class="nav-link {% if active == 'followups' %}bg-marsh-light{% endif %}">Follow-Ups</a>
+            <span class="border-l border-white/20 h-5 mx-1"></span>
             <a href="/activities" class="nav-link {% if active == 'activities' %}bg-marsh-light{% endif %}">Activity</a>
+            <a href="/contacts" class="nav-link {% if active == 'contacts' %}bg-marsh-light{% endif %}">Contacts</a>
+            <a href="/review" class="nav-link {% if active == 'review' %}bg-marsh-light{% endif %}">Review</a>
+            <span class="border-l border-white/20 h-5 mx-1"></span>
             <a href="/reconcile" class="nav-link {% if active == 'reconcile' %}bg-marsh-light{% endif %}">Reconcile</a>
             <a href="/templates" class="nav-link {% if active == 'templates' %}bg-marsh-light{% endif %}">Templates</a>
             <a href="/settings" class="nav-link {% if active == 'settings' %}bg-marsh-light{% endif %}">Settings</a>
@@ -46,7 +50,7 @@
         <div class="flex items-center gap-3">
           <form action="/search" method="get" class="flex">
             <input name="q" type="search" placeholder="Search…"
-              class="rounded-md border-0 bg-white/10 text-white placeholder-white/60 px-3 py-1.5 text-sm focus:ring-2 focus:ring-white focus:bg-white/20 outline-none w-48"
+              class="rounded-md border-0 bg-white/10 text-white placeholder-white/60 px-3 py-1.5 text-sm focus:ring-2 focus:ring-white focus:bg-white/20 outline-none w-48 focus:w-64 transition-all"
               value="{{ request.query_params.get('q', '') }}">
           </form>
         </div>
@@ -88,7 +92,139 @@
   .pill-btn { @apply text-xs bg-gray-100 hover:bg-marsh hover:text-white text-gray-600 px-2 py-1 rounded cursor-pointer transition-colors border border-gray-200; }
   details[open] > summary .details-arrow { transform: rotate(90deg); }
   details > summary .details-arrow { transition: transform 150ms ease; display: inline-block; }
+  @keyframes row-saved { from { background-color: #ecfdf5; } to { background-color: transparent; } }
+  .row-saved { animation: row-saved 1.5s ease-out; }
 </style>
+
+<!-- Email popover -->
+<div id="email-popover" style="display:none"
+  class="fixed z-50 bg-white rounded-xl shadow-2xl border border-gray-200 p-4 w-80 text-sm">
+</div>
+
+<script>
+(function() {
+  var pop = document.getElementById('email-popover');
+  var _activeCcUrl = null;
+
+  function closePopover() {
+    pop.style.display = 'none';
+    pop.innerHTML = '';
+    _activeCcUrl = null;
+  }
+
+  function buildMailto(to, subject, ccEmails) {
+    var url = 'mailto:' + encodeURIComponent(to) + '?subject=' + encodeURIComponent(subject);
+    if (ccEmails.length) url += '&cc=' + encodeURIComponent(ccEmails.join(','));
+    return url;
+  }
+
+  function renderCcOptions(ccList) {
+    if (!ccList.length) return '<p class="text-gray-400 text-xs italic">No team members with email.</p>';
+    var html = '<p class="text-xs font-medium text-gray-500 mb-1">CC <span class="font-normal text-gray-400">(opt-in)</span></p><div class="space-y-1">';
+    ccList.forEach(function(m) {
+      html += '<label class="flex items-center gap-2 cursor-pointer text-xs">'
+        + '<input type="checkbox" value="' + m.email.replace(/"/g,'&quot;') + '" class="rounded border-gray-300">'
+        + '<span class="text-gray-700">' + m.name.replace(/</g,'&lt;') + '</span>'
+        + '</label>';
+    });
+    return html + '</div>';
+  }
+
+  function getSelectedCc() {
+    var emails = [];
+    pop.querySelectorAll('input[type=checkbox]:checked').forEach(function(cb) { emails.push(cb.value); });
+    return emails;
+  }
+
+  function openPopover(trigger, config) {
+    closePopover();
+
+    // Build content
+    var subject = config.subject || '';
+    var shortSub = subject.length > 55 ? subject.substring(0, 52) + '…' : subject;
+    var html = '<div class="space-y-2">'
+      + '<div class="text-xs"><span class="text-gray-400 font-medium w-8 inline-block">To</span>'
+      + '<span class="text-gray-800">' + (config.toLabel || config.to).replace(/</g,'&lt;') + '</span>'
+      + ' <span class="text-gray-400">&lt;' + config.to + '&gt;</span></div>'
+      + '<div class="text-xs"><span class="text-gray-400 font-medium w-8 inline-block">Sub</span>'
+      + '<span class="text-gray-600 font-mono">' + shortSub.replace(/</g,'&lt;') + '</span></div>'
+      + '<div id="ep-cc" class="border-t border-gray-100 pt-2">';
+
+    if (config.cc && config.cc.length) {
+      html += renderCcOptions(config.cc);
+    } else if (config.ccUrl) {
+      html += '<p class="text-xs text-gray-400 italic">Loading team…</p>';
+    } else {
+      html += '<p class="text-xs text-gray-400 italic">No team CC available.</p>';
+    }
+
+    html += '</div>'
+      + '<div class="flex gap-2 pt-2 border-t border-gray-100">'
+      + '<button id="ep-open" class="flex-1 bg-marsh text-white text-xs font-medium py-1.5 rounded-lg hover:bg-marsh-light transition-colors">Open in Mail →</button>'
+      + '<button id="ep-cancel" class="text-xs text-gray-400 hover:text-gray-600 px-2 py-1.5">Cancel</button>'
+      + '</div></div>';
+
+    pop.innerHTML = html;
+
+    // Position near trigger
+    var rect = trigger.getBoundingClientRect();
+    var top = rect.bottom + window.scrollY + 6;
+    var left = rect.left + window.scrollX;
+    left = Math.min(left, window.innerWidth - 328);
+    left = Math.max(8, left);
+    pop.style.top = top + 'px';
+    pop.style.left = left + 'px';
+    pop.style.display = 'block';
+
+    // Wire buttons
+    pop.querySelector('#ep-cancel').addEventListener('click', closePopover);
+    pop.querySelector('#ep-open').addEventListener('click', function() {
+      window.location.href = buildMailto(config.to, subject, getSelectedCc());
+      closePopover();
+    });
+
+    // Lazy-load CC
+    if (config.ccUrl && (!config.cc || !config.cc.length)) {
+      _activeCcUrl = config.ccUrl;
+      fetch(config.ccUrl)
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          var sec = pop.querySelector('#ep-cc');
+          if (sec) sec.innerHTML = renderCcOptions(data);
+        })
+        .catch(function() {
+          var sec = pop.querySelector('#ep-cc');
+          if (sec) sec.innerHTML = '<p class="text-xs text-red-400">Could not load team.</p>';
+        });
+    }
+  }
+
+  // Event delegation — handles all .ep-trigger buttons including after HTMX swaps
+  document.addEventListener('click', function(e) {
+    var btn = e.target.closest('.ep-trigger');
+    if (btn) {
+      e.preventDefault();
+      var cc = [];
+      try { if (btn.dataset.cc) cc = JSON.parse(btn.dataset.cc); } catch(_) {}
+      openPopover(btn, {
+        to: btn.dataset.to || '',
+        toLabel: btn.dataset.toLabel || '',
+        subject: btn.dataset.subject || '',
+        cc: cc,
+        ccUrl: btn.dataset.ccUrl || ''
+      });
+      return;
+    }
+    if (pop.style.display !== 'none' && !pop.contains(e.target)) {
+      closePopover();
+    }
+  });
+
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') closePopover();
+  });
+})();
+</script>
 
 <script>
 function insertToken(fieldId, token) {
@@ -187,6 +323,99 @@ function insertToken(fieldId, token) {
   document.addEventListener('DOMContentLoaded', initAddressAutocomplete);
   document.addEventListener('htmx:afterSwap', initAddressAutocomplete);
 })();
+</script>
+
+<!-- Milestone checklist popover -->
+<div id="milestone-popover" style="display:none"
+  class="fixed z-50 bg-white rounded-xl shadow-2xl border border-gray-200 p-4 w-72 text-sm">
+</div>
+
+<script>
+(function() {
+  var msPop = document.getElementById('milestone-popover');
+
+  window.closeMilestonePopover = function() {
+    msPop.style.display = 'none';
+    msPop.innerHTML = '';
+  };
+
+  function openMilestonePopover(trigger) {
+    closeMilestonePopover();
+    var uid = trigger.dataset.uid;
+    if (!uid) return;
+
+    msPop.innerHTML = '<p class="text-xs text-gray-400 italic">Loading checklist…</p>';
+
+    // Position near trigger
+    var rect = trigger.getBoundingClientRect();
+    var top = rect.bottom + window.scrollY + 6;
+    var left = rect.left + window.scrollX;
+    left = Math.min(left, window.innerWidth - 300);
+    left = Math.max(8, left);
+    msPop.style.top = top + 'px';
+    msPop.style.left = left + 'px';
+    msPop.style.display = 'block';
+
+    // Load checklist via HTMX
+    htmx.ajax('GET', '/policies/' + uid + '/milestones/popover', {
+      target: '#milestone-popover',
+      swap: 'innerHTML'
+    });
+  }
+
+  // Event delegation for .ms-trigger clicks
+  document.addEventListener('click', function(e) {
+    var btn = e.target.closest('.ms-trigger');
+    if (btn) {
+      e.preventDefault();
+      e.stopPropagation();
+      openMilestonePopover(btn);
+      return;
+    }
+    // Close on outside click (but not if clicking inside popover)
+    if (msPop.style.display !== 'none' && !msPop.contains(e.target)) {
+      closeMilestonePopover();
+    }
+  });
+
+  // Close on Escape
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && msPop.style.display !== 'none') {
+      closeMilestonePopover();
+    }
+  });
+
+  // Listen for milestoneUpdated event to update trigger button text in pipeline rows
+  document.body.addEventListener('milestoneUpdated', function(e) {
+    var detail = e.detail;
+    if (!detail || !detail.uid) return;
+    document.querySelectorAll('.ms-trigger[data-uid="' + detail.uid + '"]').forEach(function(btn) {
+      btn.textContent = detail.done + '/' + detail.total;
+      // Update color class
+      btn.classList.remove('text-green-600', 'text-amber-600', 'text-gray-400');
+      if (detail.done === detail.total && detail.total > 0) {
+        btn.classList.add('text-green-600');
+      } else if (detail.done > 0) {
+        btn.classList.add('text-amber-600');
+      } else {
+        btn.classList.add('text-gray-400');
+      }
+    });
+    // Also update the count inside the popover
+    var countEl = document.getElementById('ms-popover-count');
+    if (countEl) countEl.textContent = detail.done + '/' + detail.total;
+  });
+})();
+</script>
+
+<!-- Keyboard shortcut: / to focus search -->
+<script>
+document.addEventListener('keydown', function(e) {
+  if (e.key === '/' && !['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)) {
+    e.preventDefault();
+    document.querySelector('input[name="q"]').focus();
+  }
+});
 </script>
 </body>
 </html>
