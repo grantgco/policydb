@@ -16,14 +16,14 @@
     data-to-label="{{ all_contacts[0].name if all_contacts else quick_email }}"
     data-subject="{{ quick_subject }}"
     {% if ref_tag %}data-ref="{{ ref_tag }}"{% endif %}
-    {% if policy_uid %}data-cc-url="/policies/{{ policy_uid }}/team-cc"{% elif client_id %}data-cc-url="/clients/{{ client_id }}/team-cc"{% endif %}>&#9993; Compose Email{% if policy_uid %} (CC team){% elif client_id %} (CC team){% endif %}</button>
+    {% if policy_uid %}data-cc-url="/policies/{{ policy_uid }}/team-cc"{% elif client_id %}data-cc-url="/clients/{{ client_id }}/team-cc{% if project_name %}?project={{ project_name | urlencode }}{% endif %}"{% endif %}>&#9993; Compose Email{% if policy_uid %} (CC team){% elif client_id %} (CC team){% endif %}</button>
   {% else %}
   <button type="button" class="ep-trigger text-sm text-white bg-marsh hover:bg-marsh-light px-3 py-1.5 rounded transition-colors"
     data-to="{{ quick_email }}"
     data-to-label="{{ quick_email }}"
     data-subject="{{ quick_subject }}"
     {% if ref_tag %}data-ref="{{ ref_tag }}"{% endif %}
-    {% if policy_uid %}data-cc-url="/policies/{{ policy_uid }}/team-cc"{% endif %}>&#9993; Compose Email</button>
+    {% if policy_uid %}data-cc-url="/policies/{{ policy_uid }}/team-cc"{% elif client_id %}data-cc-url="/clients/{{ client_id }}/team-cc{% if project_name %}?project={{ project_name | urlencode }}{% endif %}"{% endif %}>&#9993; Compose Email</button>
   {% endif %}
   {% if quick_subject %}<span class="text-xs text-gray-400 ml-1">— {{ quick_subject }}</span>{% endif %}
 </div>
