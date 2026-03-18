@@ -583,6 +583,54 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
                      get_saved_notes_for_client_timeline(conn, client_id, limit=5)]
     pulse_recent = sorted(_recent_acts + _recent_notes, key=lambda x: x["_sort_date"], reverse=True)[:5]
 
+    # ── Sidebar enrichment data ────────────────────────────────────────────
+    # Renewal calendar: policy count per expiration month
+    _rm_rows = conn.execute(
+        """SELECT CAST(strftime('%m', expiration_date) AS INTEGER) AS month,
+                  COUNT(*) AS cnt
+           FROM policies
+           WHERE client_id = ? AND archived = 0
+             AND (is_opportunity = 0 OR is_opportunity IS NULL)
+             AND expiration_date IS NOT NULL
+           GROUP BY month ORDER BY month""",
+        (client_id,),
+    ).fetchall()
+    renewal_month_counts = {r["month"]: r["cnt"] for r in _rm_rows}
+
+    # Next follow-up date + days until
+    _nf = conn.execute(
+        """SELECT MIN(follow_up_date) AS dt FROM activity_log
+           WHERE client_id = ? AND follow_up_done = 0
+             AND follow_up_date >= date('now')""",
+        (client_id,),
+    ).fetchone()
+    next_followup_date = _nf["dt"] if _nf else None
+    next_followup_days = None
+    if next_followup_date:
+        try:
+            import dateparser as _dp
+            _nf_dt = _dp.parse(next_followup_date)
+            if _nf_dt:
+                next_followup_days = (_nf_dt.date() - _date.today()).days
+        except Exception:
+            pass
+
+    # Last activity date (full history, not limited to 90-day window)
+    _la = conn.execute(
+        "SELECT MAX(activity_date) AS dt FROM activity_log WHERE client_id = ?",
+        (client_id,),
+    ).fetchone()
+    last_activity_relative = None
+    if _la and _la["dt"]:
+        try:
+            import humanize as _humanize
+            import dateparser as _dp
+            _la_dt = _dp.parse(_la["dt"])
+            if _la_dt:
+                last_activity_relative = _humanize.naturaltime(datetime.now() - _la_dt)
+        except Exception:
+            last_activity_relative = _la["dt"]
+
     from policydb.queries import REVIEW_CYCLE_LABELS as _REVIEW_CYCLE_LABELS
     return templates.TemplateResponse("clients/detail.html", {
         "request": request,
@@ -649,6 +697,10 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
         "pulse_recent": pulse_recent,
         "today": _today,
         "today_iso": _today,
+        "renewal_month_counts": renewal_month_counts,
+        "next_followup_date": next_followup_date,
+        "next_followup_days": next_followup_days,
+        "last_activity_relative": last_activity_relative,
     })
 
 
