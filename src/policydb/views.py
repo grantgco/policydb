@@ -93,8 +93,8 @@ SELECT
     p.last_reviewed_at,
     p.review_cycle,
     p.is_program,
-    p.program_carriers,
-    p.program_carrier_count,
+    (SELECT GROUP_CONCAT(pc.carrier, ', ') FROM program_carriers pc WHERE pc.program_id = p.id ORDER BY pc.sort_order) AS program_carriers,
+    (SELECT COUNT(*) FROM program_carriers pc WHERE pc.program_id = p.id) AS program_carrier_count,
     p.program_id
 FROM policies p
 JOIN clients c ON p.client_id = c.id
@@ -159,7 +159,9 @@ SELECT
     c.name AS client_name,
     COALESCE(p.first_named_insured, c.name) AS "First Named Insured",
     CASE WHEN p.is_program = 1 THEN p.policy_type || ' [PROGRAM]' ELSE p.policy_type END AS "Line of Business",
-    CASE WHEN p.is_program = 1 THEN COALESCE(p.program_carriers, p.carrier) ELSE p.carrier END AS "Carrier",
+    CASE WHEN p.is_program = 1
+         THEN COALESCE((SELECT GROUP_CONCAT(pc.carrier, ', ') FROM program_carriers pc WHERE pc.program_id = p.id ORDER BY pc.sort_order), p.carrier)
+         ELSE p.carrier END AS "Carrier",
     p.policy_number AS "Policy Number",
     p.effective_date AS "Effective",
     p.expiration_date AS "Expiration",
