@@ -38,7 +38,7 @@ ALTER TABLE activity_log ADD COLUMN disposition TEXT;
 ALTER TABLE activity_log ADD COLUMN thread_id INTEGER;
 ```
 
-**Migration file:** `src/policydb/migrations/059_followup_threading.sql`
+**Migration file:** `src/policydb/migrations/059_followup_threading.sql` (numbered after 058_program_carriers_table.sql which ships first)
 
 - `disposition` — stores the outcome label (e.g., "Left VM", "Waiting on Colleague"). Plain text, no FK. The config list drives dropdown options but doesn't constrain stored values.
 - `thread_id` — FK to `activity_log.id` pointing to the first activity in the chain. `NULL` for standalone activities (no thread).
@@ -90,11 +90,18 @@ Managed in the Settings page (`/settings`) alongside other config lists. Each di
 - Reorder up/down buttons
 - Remove button
 
-This requires a small extension to the `_list_card.html` pattern (currently handles flat string lists). The disposition list has objects with `label` + `default_days`, so the settings card needs a second inline field for the number.
+The existing `_list_card.html` and settings routes (`/settings/list/add`, `remove`, `reorder`) operate on flat string lists and cannot handle `{label, default_days}` objects. **New dedicated endpoints** are needed:
+
+- `POST /settings/dispositions/add` — accepts `label` and `default_days`, appends `{label, default_days}` object to the list
+- `POST /settings/dispositions/remove` — removes by label match
+- `POST /settings/dispositions/reorder` — reorder by label
+- `PATCH /settings/dispositions/update` — update `default_days` for an existing label
+
+A new template partial `_disposition_card.html` renders each item with two fields: the label text and a small number input for `default_days`. This is separate from `_list_card.html` to avoid complicating the flat-list pattern.
 
 **Files affected:**
-- `src/policydb/web/routes/settings.py` — add/remove/reorder handlers for object-list config items
-- `src/policydb/web/templates/settings/_list_card.html` — extend to support `{label, default_days}` items
+- `src/policydb/web/routes/settings.py` — NEW disposition-specific endpoints (not extending existing list handlers)
+- `src/policydb/web/templates/settings/_disposition_card.html` — NEW partial for object-list with `{label, default_days}` items
 - `src/policydb/web/templates/settings.html` — add the dispositions card to the settings page
 
 ---
@@ -111,7 +118,7 @@ This requires a small extension to the `_list_card.html` pattern (currently hand
 
 ### Modified completion form
 
-The existing completion and re-diary forms merge into a single unified form. At the top: a disposition dropdown. The form adapts based on selection:
+The existing two separate form `<tr>` rows (`followup-form-row-*` at lines 137-197 and `complete-form-row-*` at lines 198-235) are replaced by a single unified form `<tr>`. Both the "Follow Up" and "Done/Clear" buttons open the same form — the disposition selection determines whether a re-diary happens. The two existing toggle functions (`toggleFollowupForm`, `toggleCompleteForm`) merge into one (`toggleDispositionForm`). At the top of the unified form: a disposition dropdown. The form adapts based on selection:
 
 ```
 ┌─────────────────────────────────────────────────┐
