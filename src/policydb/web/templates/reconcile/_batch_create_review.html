@@ -31,7 +31,8 @@
         <tr class="{{ 'bg-amber-50/50' if not r.can_create else '' }}">
           <td class="px-3 py-2">
             <input type="checkbox" class="batch-check rounded border-gray-300 text-marsh"
-                   data-idx="{{ r.idx }}" {{ 'checked' if r.can_create else '' }}
+                   data-idx="{{ r.idx }}" data-eff="{{ r.ext.effective_date or '' }}"
+                   {{ 'checked' if r.can_create else '' }}
                    {{ 'disabled' if not r.can_create else '' }}>
             <input type="hidden" name="client_{{ r.idx }}" value="{{ r.matched_client.id if r.matched_client else '' }}">
           </td>
@@ -53,7 +54,12 @@
           </td>
           <td class="px-3 py-2 text-gray-600">{{ r.ext.carrier or '—' }}</td>
           <td class="px-3 py-2 text-gray-500 font-mono">{{ r.ext.policy_number or '—' }}</td>
-          <td class="px-3 py-2 text-gray-600">{{ r.ext.effective_date or '—' }}</td>
+          <td class="px-3 py-2 text-gray-600">{{ r.ext.effective_date or '—' }}
+            {% if r.ext.effective_date %}
+            <button type="button" onclick="selectByDate('{{ r.ext.effective_date }}')"
+              class="text-[9px] text-blue-400 hover:text-blue-600 ml-1" title="Select all with this date">▣</button>
+            {% endif %}
+          </td>
           <td class="px-3 py-2 text-gray-600">{{ r.ext.expiration_date or '—' }}</td>
           <td class="px-3 py-2 text-right tabular-nums text-gray-700">
             {% if r.ext.premium %}{{ r.ext.premium | currency }}{% else %}—{% endif %}
@@ -126,6 +132,12 @@ function buildBatchSelection() {
     indices.push(parseInt(cb.dataset.idx));
   });
   document.getElementById('batch-selected-json').value = JSON.stringify(indices);
+}
+function selectByDate(effDate) {
+  document.querySelectorAll('.batch-check:not(:disabled)').forEach(function(cb) {
+    if (cb.dataset.eff === effDate) cb.checked = true;
+  });
+  updateBatchCount();
 }
 function buildProgramSelection() {
   var indices = [];
