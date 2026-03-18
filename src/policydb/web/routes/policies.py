@@ -2086,7 +2086,8 @@ def policy_delete(policy_uid: str, conn=Depends(get_db)):
         return HTMLResponse("Policy not found", status_code=404)
     client_id = policy["client_id"]
     pid = policy["id"]
-    # Clean up related records
+    # Clean up related records (order matters for FK constraints)
+    conn.execute("DELETE FROM mandated_activity_log WHERE policy_uid = ?", (uid,))
     conn.execute("DELETE FROM policy_milestones WHERE policy_uid = ?", (uid,))
     conn.execute("DELETE FROM policy_scratchpad WHERE policy_uid = ?", (uid,))
     conn.execute("DELETE FROM contact_policy_assignments WHERE policy_id = ?", (pid,))
