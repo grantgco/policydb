@@ -448,6 +448,9 @@
         <div class="sm:col-span-2 lg:col-span-1">
           <label class="field-label">Line of Business <span class="text-red-400">*</span></label>
           <select name="policy_type" class="form-select w-full" required>
+            {% if policy.policy_type and policy.policy_type not in policy_types %}
+            <option value="{{ policy.policy_type }}" selected>{{ policy.policy_type }}</option>
+            {% endif %}
             {% for t in policy_types %}
             <option value="{{ t }}" {% if t == policy.policy_type %}selected{% endif %}>{{ t }}</option>
             {% endfor %}
