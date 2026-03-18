@@ -15,6 +15,7 @@ from policydb.reconciler import (
     build_reconcile_xlsx,
     find_candidates,
     parse_uploaded_file,
+    program_reconcile_summary,
     reconcile,
     summarize,
 )
@@ -57,7 +58,8 @@ def _load_db_policies(conn, client_id: int, scope: str) -> list[dict]:
         f"""SELECT p.policy_uid, c.name AS client_name, p.policy_type, p.carrier,
                    p.policy_number, p.effective_date, p.expiration_date,
                    p.premium, p.limit_amount, p.deductible, p.client_id,
-                   p.first_named_insured
+                   p.first_named_insured,
+                   p.is_program, p.program_carriers, p.program_carrier_count
             FROM policies p
             JOIN clients c ON p.client_id = c.id
             WHERE {where}
@@ -195,6 +197,7 @@ async def reconcile_run(
     ctx["summary"] = summarize(results)
     ctx["pairs"] = _find_likely_pairs(missing_rows, extra_rows)
     ctx["download_token"] = download_token
+    ctx["program_summary"] = program_reconcile_summary(results)
     return templates.TemplateResponse("reconcile/index.html", ctx)
 
 
