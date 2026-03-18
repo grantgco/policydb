@@ -336,6 +336,67 @@ def meeting_remove_attendee(
     })
 
 
+@router.post("/meetings/{meeting_id}/actions/add-row", response_class=HTMLResponse)
+def meeting_action_add_row(
+    request: Request,
+    meeting_id: int,
+    conn=Depends(get_db),
+):
+    """Create a blank action item row."""
+    cur = conn.execute(
+        "INSERT INTO meeting_action_items (meeting_id, description) VALUES (?, '')",
+        (meeting_id,),
+    )
+    conn.commit()
+    ai = {"id": cur.lastrowid, "description": "", "assignee": None, "due_date": None, "completed": 0, "activity_id": None}
+    return templates.TemplateResponse("meetings/_action_row.html", {
+        "request": request, "ai": ai, "meeting": {"id": meeting_id},
+        "today": date.today().isoformat(),
+    })
+
+
+@router.patch("/meetings/{meeting_id}/actions/{action_id}")
+async def meeting_patch_action(
+    meeting_id: int,
+    action_id: int,
+    request: Request,
+    conn=Depends(get_db),
+):
+    """PATCH a single field on an action item."""
+    import json as _json
+    body = _json.loads(await request.body())
+    field = body.get("field", "")
+    value = body.get("value", "").strip()
+    allowed = {"description", "assignee", "due_date"}
+    if field not in allowed:
+        return JSONResponse({"ok": False, "error": "Invalid field"}, status_code=400)
+    conn.execute(
+        f"UPDATE meeting_action_items SET {field} = ? WHERE id = ? AND meeting_id = ?",
+        (value or None, action_id, meeting_id),
+    )
+    # If due_date changed and there's a linked follow-up, update it too
+    if field == "due_date":
+        ai = conn.execute("SELECT activity_id FROM meeting_action_items WHERE id = ?", (action_id,)).fetchone()
+        if ai and ai["activity_id"]:
+            conn.execute("UPDATE activity_log SET follow_up_date = ? WHERE id = ?", (value or None, ai["activity_id"]))
+        # Auto-create follow-up if due_date set and no linked activity yet
+        elif value and ai and not ai["activity_id"]:
+            m = conn.execute("SELECT client_id, title FROM client_meetings WHERE id = ?", (meeting_id,)).fetchone()
+            desc_row = conn.execute("SELECT description FROM meeting_action_items WHERE id = ?", (action_id,)).fetchone()
+            if m and desc_row:
+                account_exec = cfg.get("default_account_exec", "Grant")
+                cursor = conn.execute(
+                    """INSERT INTO activity_log
+                       (activity_date, client_id, activity_type, subject, follow_up_date, account_exec)
+                       VALUES (?, ?, 'Meeting Action', ?, ?, ?)""",
+                    (date.today().isoformat(), m["client_id"],
+                     f"{m['title']}: {desc_row['description'] or 'Action item'}", value, account_exec),
+                )
+                conn.execute("UPDATE meeting_action_items SET activity_id = ? WHERE id = ?", (cursor.lastrowid, action_id))
+    conn.commit()
+    return JSONResponse({"ok": True, "formatted": value})
+
+
 @router.post("/meetings/{meeting_id}/actions/add")
 def meeting_add_action(
     request: Request,
@@ -395,6 +456,25 @@ def meeting_toggle_action(
     m = _meeting_dict(conn, meeting_id)
     return templates.TemplateResponse("meetings/_actions.html", {
         "request": request, "meeting": m,
+    })
+
+
+@router.post("/meetings/{meeting_id}/actions/{action_id}/delete")
+def meeting_delete_action(
+    request: Request,
+    meeting_id: int,
+    action_id: int,
+    conn=Depends(get_db),
+):
+    # Clear linked follow-up
+    ai = conn.execute("SELECT activity_id FROM meeting_action_items WHERE id = ?", (action_id,)).fetchone()
+    if ai and ai["activity_id"]:
+        conn.execute("UPDATE activity_log SET follow_up_done = 1 WHERE id = ?", (ai["activity_id"],))
+    conn.execute("DELETE FROM meeting_action_items WHERE id = ? AND meeting_id = ?", (action_id, meeting_id))
+    conn.commit()
+    m = _meeting_dict(conn, meeting_id)
+    return templates.TemplateResponse("meetings/_actions.html", {
+        "request": request, "meeting": m, "today": date.today().isoformat(),
     })
 
 
