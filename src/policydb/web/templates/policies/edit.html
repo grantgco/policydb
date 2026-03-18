@@ -8,12 +8,51 @@
     <span>/</span>
     <a href="/clients/{{ policy.client_id }}" class="hover:text-marsh">{{ policy.client_name }}</a>
     <span>/</span>
-    <span class="text-gray-600">{{ policy.policy_uid }}</span>
+    <button type="button" onclick="copyRefTag(this, '{{ policy.policy_uid }}')"
+      class="text-gray-600 hover:text-marsh cursor-pointer" title="Copy Policy UID">{{ policy.policy_uid }}</button>
   </div>
   <h1 class="text-2xl font-bold text-gray-900">Edit Policy</h1>
-  <p class="text-sm text-gray-500 mt-1">{{ policy.policy_type }} · {{ policy.carrier }}</p>
+  <p class="text-sm text-gray-500 mt-1">{{ policy.policy_type }} · {{ policy.carrier }}
+    {% set _ref = build_ref_tag(cn_number=policy.cn_number|default(''), client_id=policy.client_id, policy_uid=policy.policy_uid, project_id=policy.project_id|default(0)) %}
+    <button type="button" onclick="navigator.clipboard.writeText('{{ _ref }}').then(function(){var b=event.target;b.textContent='Copied!';setTimeout(function(){b.textContent='{{ _ref }}'},1500)})"
+      class="ml-2 text-xs font-mono text-gray-400 hover:text-marsh bg-gray-100 hover:bg-gray-200 px-1.5 py-0.5 rounded cursor-pointer transition-colors" title="Click to copy email ref tag">{{ _ref }}</button>
+  </p>
   {% if policy.first_named_insured %}<p class="text-xs text-gray-400 mt-0.5">First Named Insured: <span class="text-gray-600 font-medium">{{ policy.first_named_insured }}</span></p>{% endif %}
 </div>
+
+{# ── Alert banner: escalation + readiness + warnings ── #}
+{% if escalation_tier or overdue_followups or policy_warnings %}
+{% set tier_colors = {'CRITICAL': 'bg-red-50 border-red-200', 'WARNING': 'bg-amber-50 border-amber-200', 'NUDGE': 'bg-blue-50 border-blue-200'} %}
+{% set tier_text = {'CRITICAL': 'text-red-800', 'WARNING': 'text-amber-800', 'NUDGE': 'text-blue-800'} %}
+{% set tier_badge = {'CRITICAL': 'bg-red-600 text-white', 'WARNING': 'bg-amber-500 text-white', 'NUDGE': 'bg-blue-500 text-white'} %}
+{% set t = escalation_tier or 'NUDGE' %}
+<div class="rounded-xl border px-5 py-3 mb-4 {{ tier_colors.get(t, 'bg-gray-50 border-gray-200') }}">
+  <div class="flex items-center justify-between gap-4">
+    <div class="flex items-center gap-3 flex-wrap flex-1 min-w-0">
+      {% if escalation_tier %}
+      <span class="text-xs font-bold px-2 py-0.5 rounded {{ tier_badge.get(t, 'bg-gray-600 text-white') }}">{{ escalation_tier }}</span>
+      {% if escalation_reason %}<span class="text-sm {{ tier_text.get(t, 'text-gray-700') }}">{{ escalation_reason }}</span>{% endif %}
+      {% endif %}
+      {% for w in policy_warnings %}
+      <span class="text-xs text-amber-700 bg-amber-100 px-2 py-0.5 rounded">{{ w }}</span>
+      {% endfor %}
+      {% if overdue_followups %}
+      <span class="text-xs text-red-700 bg-red-100 px-2 py-0.5 rounded">{{ overdue_followups | length }} overdue follow-up{{ 's' if overdue_followups | length != 1 }}</span>
+      {% endif %}
+    </div>
+    {% if readiness_label %}
+    <div class="shrink-0 text-center">
+      <span class="{{ readiness_label | readiness_class }} text-xs font-semibold px-2.5 py-1 rounded cursor-help whitespace-nowrap" title="{{ readiness_tooltip or '' }}">{{ readiness_score }}/100 {{ readiness_label }}</span>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% elif readiness_label %}
+{# No alerts but still show readiness badge #}
+<div class="flex justify-end mb-2">
+  <span class="{{ readiness_label | readiness_class }} text-xs font-semibold px-2.5 py-1 rounded cursor-help whitespace-nowrap" title="{{ readiness_tooltip or '' }}">Readiness: {{ readiness_score }}/100 {{ readiness_label }}</span>
+</div>
+{% endif %}
 
 {% if contacts or team_contacts %}
 <div class="card p-3 mb-4">
@@ -28,12 +67,14 @@
       </div>
       <div class="flex gap-4 text-xs">
         {% if c.phone %}<span class="text-gray-500">{{ c.phone }}</span>{% endif %}
+        {% if c.mobile %}<span class="text-gray-400">Cell: {{ c.mobile }}</span>{% endif %}
         {% if c.email %}
         <button type="button" class="ep-trigger text-marsh hover:underline"
           data-to="{{ c.email }}"
           data-to-label="{{ c.name }}"
           data-subject="{{ mailto_subject }}"
-          data-cc="{{ team_cc_json }}">✉ {{ c.email }}</button>
+          data-cc="{{ team_cc_json }}"
+          data-ref="{{ build_ref_tag(cn_number=policy.cn_number|default(''), client_id=policy.client_id, policy_uid=policy.policy_uid, project_id=policy.project_id|default(0)) }}">✉ {{ c.email }}</button>
         {% endif %}
       </div>
     </div>
@@ -47,12 +88,14 @@
       </div>
       <div class="flex gap-4 text-xs">
         {% if c.phone %}<span class="text-gray-500">{{ c.phone }}</span>{% endif %}
+        {% if c.mobile %}<span class="text-gray-400">Cell: {{ c.mobile }}</span>{% endif %}
         {% if c.email %}
         <button type="button" class="ep-trigger text-indigo-500 hover:underline"
           data-to="{{ c.email }}"
           data-to-label="{{ c.name }}"
           data-subject="{{ mailto_subject }}"
-          data-cc="{{ team_cc_json }}">✉ {{ c.email }}</button>
+          data-cc="{{ team_cc_json }}"
+          data-ref="{{ build_ref_tag(cn_number=policy.cn_number|default(''), client_id=policy.client_id, policy_uid=policy.policy_uid, project_id=policy.project_id|default(0)) }}">✉ {{ c.email }}</button>
         {% endif %}
       </div>
     </div>
@@ -76,7 +119,16 @@
 <!-- Quick Log Activity -->
 <div class="card p-3 mb-4">
   <div class="flex items-center justify-between mb-0" id="log-toggle-bar">
-    <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Activity Log</p>
+    <div class="flex items-center gap-2">
+      <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Activity Log</p>
+      {% if policy_total_hours %}<span class="text-xs bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded">{{ policy_total_hours | format_hours }} total</span>{% endif %}
+      <div class="seg-control" id="pol-activity-filter-seg">
+        <input type="radio" name="pol-activity-filter" id="paf-all" value="all" checked>
+        <label for="paf-all">All</label>
+        <input type="radio" name="pol-activity-filter" id="paf-open" value="open">
+        <label for="paf-open">Open Follow-ups</label>
+      </div>
+    </div>
     <button type="button" onclick="document.getElementById('log-form-edit').classList.toggle('hidden'); this.textContent = this.textContent.trim() === '+ Log' ? '− Close' : '+ Log'"
       class="text-xs text-marsh hover:underline">+ Log</button>
   </div>
@@ -113,6 +165,11 @@
           class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-marsh"></textarea>
       </div>
       <div>
+        <label class="block text-xs font-medium text-gray-600 mb-1">Duration</label>
+        <input type="number" name="duration_hours" min="0" step="0.1" placeholder="hrs"
+          class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-marsh">
+      </div>
+      <div>
         <label class="block text-xs font-medium text-gray-600 mb-1">Follow-Up Date</label>
         <input type="date" name="follow_up_date"
           class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-marsh">
@@ -122,16 +179,78 @@
       </div>
     </form>
   </div>
+  {% set activity_limit = 10 %}
   <ul id="edit-activity-list" class="divide-y divide-gray-50 mt-1">
-    {% for a in activities %}
+    {% for a in activities[:activity_limit] %}
     {% include "activities/_activity_row.html" %}
     {% else %}
     <li class="py-3 text-xs text-gray-400 text-center">No activity in the last 90 days for this policy.</li>
     {% endfor %}
   </ul>
+  {% if activities | length > activity_limit %}
+  <ul class="divide-y divide-gray-50 hidden" id="edit-activity-list-more">
+    {% for a in activities[activity_limit:] %}
+    {% include "activities/_activity_row.html" %}
+    {% endfor %}
+  </ul>
+  <div class="px-3 py-2 border-t border-gray-100 text-center" id="show-more-edit-activities">
+    <button type="button"
+      onclick="document.getElementById('edit-activity-list-more').classList.remove('hidden'); this.parentElement.remove(); var list=document.getElementById('edit-activity-list'); var more=document.getElementById('edit-activity-list-more'); while(more.firstChild){list.appendChild(more.firstChild);} more.remove();"
+      class="text-xs text-marsh hover:underline font-medium">
+      Show all {{ activities | length }} activities ({{ activities | length - activity_limit }} more)
+    </button>
+  </div>
+  {% endif %}
+
+  <script>
+  (function() {
+    var seg = document.getElementById('pol-activity-filter-seg');
+    if (!seg) return;
+    seg.addEventListener('change', function(e) {
+      var mode = e.target.value;
+      var lists = [document.getElementById('edit-activity-list'), document.getElementById('edit-activity-list-more')];
+      lists.forEach(function(ul) {
+        if (!ul) return;
+        ul.querySelectorAll('.activity-item').forEach(function(li) {
+          if (mode === 'open') {
+            li.style.display = li.dataset.hasFollowup === '1' ? '' : 'none';
+          } else {
+            li.style.display = '';
+          }
+        });
+        ul.querySelectorAll('.activity-item-form').forEach(function(li) {
+          if (mode === 'open') {
+            var parent = document.getElementById('activity-' + li.dataset.parentActivity);
+            li.style.display = (parent && parent.dataset.hasFollowup === '1') ? '' : 'none';
+          } else {
+            li.style.display = '';
+          }
+        });
+      });
+      if (mode === 'open') {
+        var more = document.getElementById('edit-activity-list-more');
+        var btn = document.getElementById('show-more-edit-activities');
+        if (more && more.classList.contains('hidden')) {
+          more.classList.remove('hidden');
+          if (btn) btn.remove();
+          var list = document.getElementById('edit-activity-list');
+          while (more.firstChild) { list.appendChild(more.firstChild); }
+          more.remove();
+        }
+      }
+    });
+  })();
+  </script>
 </div>
 
+<!-- Working Notes (per-policy scratchpad) -->
+<div class="mt-4">
+{% include "policies/_scratchpad.html" %}
+</div>
+
+<div class="mt-4">
 {% include "policies/_policy_team.html" %}
+</div>
 
 {% if policy.is_opportunity %}
 <!-- Opportunity banner -->
@@ -171,9 +290,48 @@
 </div>
 {% endif %}
 
-<form method="post" action="/policies/{{ policy.policy_uid }}/edit" class="space-y-6">
+<form method="post" action="/policies/{{ policy.policy_uid }}/edit" class="space-y-6"
+      data-autosave="/policies/{{ policy.policy_uid }}/edit">
 
 <input type="hidden" name="is_opportunity" value="{{ '1' if policy.is_opportunity else '0' }}">
+
+  <!-- Placement & Renewal (first — primary daily-action fields) -->
+  <details open class="card-section">
+    <summary class="card-header cursor-pointer select-none list-none">
+      <span class="section-title flex items-center gap-1"><span class="details-arrow">&#9654;</span> Placement &amp; Renewal</span>
+    </summary>
+    <div class="p-6">
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+
+        <div{% if renewal_statuses | length <= 10 %} class="sm:col-span-2 lg:col-span-3"{% endif %}>
+          <label class="field-label">Renewal Status</label>
+          {% if renewal_statuses | length <= 10 %}
+          <div class="seg-control">
+            {% for s in renewal_statuses %}
+            <input type="radio" name="renewal_status" id="rs-{{ loop.index }}" value="{{ s }}"
+              {% if s == policy.renewal_status or (not policy.renewal_status and s == 'Not Started') %}checked{% endif %}>
+            <label for="rs-{{ loop.index }}">{{ s }}</label>
+            {% endfor %}
+          </div>
+          {% else %}
+          <select name="renewal_status" class="form-select w-full">
+            {% for s in renewal_statuses %}
+            <option value="{{ s }}" {% if s == policy.renewal_status %}selected{% endif %}>{{ s }}</option>
+            {% endfor %}
+          </select>
+          {% endif %}
+        </div>
+
+        <!-- Policy team contacts managed via the Policy Team card above -->
+
+        <div>
+          <label class="field-label">Follow-Up Date</label>
+          <input type="date" name="follow_up_date" value="{{ policy.follow_up_date or '' }}" class="form-input w-full">
+        </div>
+
+      </div>
+    </div>
+  </details>
 
   <!-- Core fields -->
   <details open class="card-section">
@@ -202,18 +360,29 @@
           <label class="field-label">Access Point</label>
           <input type="text" name="access_point" value="{{ policy.access_point or '' }}"
             placeholder="Wholesaler, MGA, etc."
-            class="form-input w-full">
+            class="form-input w-full"
+            list="ac-access_point" autocomplete="off">
         </div>
 
         {% if policy.is_opportunity %}
-        <div>
+        <div{% if opportunity_statuses | length <= 10 %} class="sm:col-span-2"{% endif %}>
           <label class="field-label">Opportunity Status</label>
+          {% if opportunity_statuses | length <= 10 %}
+          <div class="seg-control">
+            {% for s in opportunity_statuses %}
+            <input type="radio" name="opportunity_status" id="os-{{ loop.index }}" value="{{ s }}"
+              {% if s == policy.opportunity_status %}checked{% endif %}>
+            <label for="os-{{ loop.index }}">{{ s }}</label>
+            {% endfor %}
+          </div>
+          {% else %}
           <select name="opportunity_status" class="form-select w-full">
             <option value="">— Select —</option>
             {% for s in opportunity_statuses %}
             <option value="{{ s }}" {% if s == policy.opportunity_status %}selected{% endif %}>{{ s }}</option>
             {% endfor %}
           </select>
+          {% endif %}
         </div>
         <div>
           <label class="field-label">Target Effective Date</label>
@@ -230,7 +399,8 @@
           <label class="field-label">First Named Insured</label>
           <input type="text" name="first_named_insured" value="{{ policy.first_named_insured or '' }}"
             placeholder="If different from client name"
-            class="form-input w-full">
+            class="form-input w-full"
+            list="ac-first_named_insured" autocomplete="off">
         </div>
 
         {% if not policy.is_opportunity %}
@@ -250,17 +420,26 @@
 
         <div>
           <label class="field-label">{% if not policy.is_opportunity %}Annual Premium <span class="text-red-400">*</span>{% else %}Est. Premium{% endif %}</label>
-          <input type="number" name="premium" value="{{ policy.premium or '' }}" step="0.01" min="0" {% if not policy.is_opportunity %}required{% endif %} class="form-input w-full">
+          <input type="text" class="form-input w-full currency-input" autocomplete="off"
+            value="{% if policy.premium %}{{ '{:,.0f}'.format(policy.premium | float) }}{% endif %}"
+            placeholder="0" {% if not policy.is_opportunity %}required{% endif %}>
+          <input type="hidden" name="premium" value="{{ policy.premium or '' }}">
         </div>
 
         <div>
           <label class="field-label">Limit</label>
-          <input type="number" name="limit_amount" value="{{ policy.limit_amount or '' }}" step="0.01" min="0" class="form-input w-full">
+          <input type="text" class="form-input w-full currency-input" autocomplete="off"
+            value="{% if policy.limit_amount %}{{ '{:,.0f}'.format(policy.limit_amount | float) }}{% endif %}"
+            placeholder="0">
+          <input type="hidden" name="limit_amount" value="{{ policy.limit_amount or '' }}">
         </div>
 
         <div>
           <label class="field-label">Deductible</label>
-          <input type="number" name="deductible" value="{{ policy.deductible or '' }}" step="0.01" min="0" class="form-input w-full">
+          <input type="text" class="form-input w-full currency-input" autocomplete="off"
+            value="{% if policy.deductible %}{{ '{:,.0f}'.format(policy.deductible | float) }}{% endif %}"
+            placeholder="0">
+          <input type="hidden" name="deductible" value="{{ policy.deductible or '' }}">
         </div>
 
         <div>
@@ -295,34 +474,6 @@
     </div>
   </details>
 
-  <!-- Placement & Renewal -->
-  <details open class="card-section">
-    <summary class="card-header cursor-pointer select-none list-none">
-      <span class="section-title flex items-center gap-1"><span class="details-arrow">&#9654;</span> Placement &amp; Renewal</span>
-    </summary>
-    <div class="p-6">
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-
-        <div>
-          <label class="field-label">Renewal Status</label>
-          <select name="renewal_status" class="form-select w-full">
-            {% for s in renewal_statuses %}
-            <option value="{{ s }}" {% if s == policy.renewal_status %}selected{% endif %}>{{ s }}</option>
-            {% endfor %}
-          </select>
-        </div>
-
-        <!-- Policy team contacts managed via the Policy Team card above -->
-
-        <div>
-          <label class="field-label">Follow-Up Date</label>
-          <input type="date" name="follow_up_date" value="{{ policy.follow_up_date or '' }}" class="form-input w-full">
-        </div>
-
-      </div>
-    </div>
-  </details>
-
   <!-- Structure -->
   <details open class="card-section">
     <summary class="card-header cursor-pointer select-none list-none">
@@ -332,39 +483,125 @@
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
 
         <div>
-          <label class="field-label">Layer Position</label>
-          <input type="text" name="layer_position" value="{{ policy.layer_position or 'Primary' }}" placeholder="Primary" class="form-input w-full">
+          <label class="field-label">Layer Type</label>
+          {% set lp = (policy.layer_position or 0) | int %}
+          <select name="layer_position" id="layer-position-select" class="form-select w-full">
+            <option value="0" {% if lp == 0 %}selected{% endif %}>Primary</option>
+            <option value="1" {% if lp == 1 %}selected{% endif %}>1st Excess</option>
+            <option value="2" {% if lp == 2 %}selected{% endif %}>2nd Excess</option>
+            <option value="3" {% if lp == 3 %}selected{% endif %}>3rd Excess</option>
+            <option value="4" {% if lp == 4 %}selected{% endif %}>4th Excess</option>
+            <option value="5" {% if lp == 5 %}selected{% endif %}>5th Excess</option>
+            {% for n in range(6, 16) %}
+            <option value="{{ n }}" {% if lp == n %}selected{% endif %}>{{ n }}th Excess</option>
+            {% endfor %}
+          </select>
         </div>
 
         <div>
           <label class="field-label">Tower Group</label>
-          <input type="text" name="tower_group" value="{{ policy.tower_group or '' }}" placeholder="e.g. GL Tower" class="form-input w-full">
+          <input type="text" name="tower_group" value="{{ policy.tower_group or '' }}" placeholder="e.g. GL Tower" class="form-input w-full"
+            list="ac-tower_group" autocomplete="off">
         </div>
 
-        <div class="flex items-center gap-3 pt-5">
-          <input type="checkbox" name="is_standalone" id="is_standalone" value="1" {% if policy.is_standalone %}checked{% endif %}
-            class="w-4 h-4 rounded border-gray-300 text-marsh focus:ring-marsh">
-          <label for="is_standalone" class="text-sm text-gray-700">Standalone policy</label>
+        <div class="flex items-center pt-5">
+          <label class="toggle-switch">
+            <input type="checkbox" name="is_standalone" value="1" {% if policy.is_standalone %}checked{% endif %}>
+            <span class="toggle-track"></span>
+            <span class="text-sm text-gray-700 ml-2">Standalone</span>
+          </label>
         </div>
 
         <div>
           <label class="field-label">Attachment Point ($)</label>
-          <input type="number" id="attachment_point" name="attachment_point"
-            value="{{ policy.attachment_point or '' }}"
-            step="0.01" min="0" placeholder="Blank = Primary · 0 = X Primary · e.g. 5000000 = X $5M"
-            class="form-input w-full">
+          <input type="text" id="attachment_point" class="form-input w-full currency-input" autocomplete="off"
+            value="{% if policy.attachment_point %}{{ '{:,.0f}'.format(policy.attachment_point | float) }}{% endif %}"
+            placeholder="Leave blank for Primary">
+          <input type="hidden" name="attachment_point" value="{{ policy.attachment_point or '' }}">
           <p id="layer-notation-preview" class="text-xs text-marsh mt-1 font-mono"></p>
+          <p id="attachment-hint" class="text-xs text-gray-400 mt-0.5 hidden"></p>
         </div>
 
         <div>
-          <label class="field-label">Part Of Layer ($)</label>
-          <input type="number" id="participation_of" name="participation_of"
-            value="{{ policy.participation_of or '' }}"
-            step="0.01" min="0" placeholder="e.g. 25000000 for $12.5M PO $25M"
-            class="form-input w-full">
+          <label class="field-label">Part Of Layer ($) <span class="text-gray-400 font-normal">— if shared layer</span></label>
+          <input type="text" id="participation_of" class="form-input w-full currency-input" autocomplete="off"
+            value="{% if policy.participation_of %}{{ '{:,.0f}'.format(policy.participation_of | float) }}{% endif %}"
+            placeholder="Total layer limit if co-participation">
+          <input type="hidden" name="participation_of" value="{{ policy.participation_of or '' }}">
         </div>
 
       </div>
+
+      {# Live layer notation #}
+      <div id="layer-summary-box" class="mt-4 p-3 bg-gray-50 rounded-lg border border-gray-100 hidden">
+        <p class="text-xs text-gray-400 uppercase tracking-wide mb-1">Placement Notation</p>
+        <p id="layer-summary-text" class="text-sm font-mono text-gray-800 font-medium"></p>
+      </div>
+
+      {% if tower_layers and tower_layers | length > 1 %}
+      <div class="mt-5 pt-4 border-t border-gray-100">
+        <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Tower Structure</p>
+        <div class="flex flex-col-reverse gap-px">
+          {% set ns = namespace(running=0.0) %}
+          {% for layer in tower_layers %}
+          {% set lim = (layer.limit_amount or 0) | float %}
+          {% set att = layer.attachment_point %}
+          <div class="flex items-stretch {% if layer.is_current %}bg-blue-50 border border-blue-200{% else %}bg-white border border-gray-100{% endif %} rounded-lg overflow-hidden">
+            {# Layer label #}
+            <div class="w-24 shrink-0 flex flex-col items-center justify-center py-2.5 {% if layer.is_current %}bg-blue-100/60{% else %}bg-gray-50{% endif %}">
+              {% set lpos = (layer.layer_position or 0) | int %}
+              <span class="text-xs font-semibold {% if layer.is_current %}text-blue-700{% else %}text-gray-500{% endif %}">
+                {% if lpos == 0 %}Primary{% elif lpos == 1 %}1st Excess{% elif lpos == 2 %}2nd Excess{% elif lpos == 3 %}3rd Excess{% else %}{{ lpos }}th Excess{% endif %}
+              </span>
+            </div>
+            {# Layer details #}
+            <div class="flex-1 py-2.5 px-4 flex items-center justify-between gap-3 min-w-0">
+              <div class="min-w-0">
+                <p class="text-sm {% if layer.is_current %}font-semibold text-gray-900{% else %}text-gray-700{% endif %}">
+                  {{ layer.policy_type or '' }}
+                  {% if layer.carrier %}<span class="font-normal text-gray-400">— {{ layer.carrier }}</span>{% endif %}
+                </p>
+                <p class="text-xs font-mono text-gray-500 mt-0.5">
+                  {# Industry-standard notation: $5M xs $10M #}
+                  {% if lim >= 1000000 %}${{ "{:,.0f}".format(lim / 1000000) }}M{% else %}${{ "{:,.0f}".format(lim) }}{% endif %}
+                  {% if att is not none and att | float > 0 %}
+                    xs {% if att | float >= 1000000 %}${{ "{:,.0f}".format(att | float / 1000000) }}M{% else %}${{ "{:,.0f}".format(att | float) }}{% endif %}
+                  {% elif lpos == 0 %} Primary
+                  {% else %} xs Primary{% endif %}
+                  {% if layer.participation_of and layer.participation_of | float > 0 %}
+                    PO {% if layer.participation_of | float >= 1000000 %}${{ "{:,.0f}".format(layer.participation_of | float / 1000000) }}M{% else %}${{ "{:,.0f}".format(layer.participation_of | float) }}{% endif %}
+                  {% endif %}
+                </p>
+              </div>
+              <div class="text-right shrink-0">
+                {% if layer.is_current %}
+                <span class="text-xs text-blue-500">this policy</span>
+                {% else %}
+                <a href="/policies/{{ layer.policy_uid }}/edit" class="text-xs text-marsh hover:underline">{{ layer.policy_uid }}</a>
+                {% endif %}
+              </div>
+            </div>
+            {# Ground-up running total #}
+            <div class="w-28 shrink-0 flex flex-col items-end justify-center pr-3 py-2.5 {% if layer.is_current %}bg-blue-100/40{% else %}bg-gray-50/50{% endif %}">
+              <span class="text-xs text-gray-400">Ground-Up</span>
+              <span class="text-sm font-mono tabular-nums font-semibold {% if layer.is_current %}text-blue-700{% else %}text-gray-700{% endif %}">
+                {% if layer.ground_up >= 1000000 %}${{ "{:,.0f}".format(layer.ground_up / 1000000) }}M{% else %}${{ "{:,.0f}".format(layer.ground_up) }}{% endif %}
+              </span>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+        <div class="mt-3 flex justify-end">
+          <div class="bg-marsh/5 border border-marsh/20 rounded-lg px-4 py-2">
+            <span class="text-xs text-gray-500">Total Program Limit:</span>
+            <span class="text-sm font-mono tabular-nums font-bold text-marsh ml-2">
+              {% if tower_layers[-1].ground_up >= 1000000 %}${{ "{:,.0f}".format(tower_layers[-1].ground_up / 1000000) }}M{% else %}${{ "{:,.0f}".format(tower_layers[-1].ground_up) }}{% endif %}
+            </span>
+          </div>
+        </div>
+      </div>
+      {% endif %}
+
     </div>
   </details>
 
@@ -385,8 +622,10 @@
 
         <div>
           <label class="field-label">Exposure Amount</label>
-          <input type="number" name="exposure_amount" value="{{ policy.exposure_amount or '' }}"
-            step="0.01" min="0" class="form-input w-full">
+          <input type="text" class="form-input w-full currency-input" autocomplete="off"
+            value="{% if policy.exposure_amount %}{{ '{:,.0f}'.format(policy.exposure_amount | float) }}{% endif %}"
+            placeholder="0">
+          <input type="hidden" name="exposure_amount" value="{{ policy.exposure_amount or '' }}">
         </div>
 
         <div>
@@ -451,7 +690,10 @@
 
         <div>
           <label class="field-label">Prior Premium</label>
-          <input type="number" name="prior_premium" value="{{ policy.prior_premium or '' }}" step="0.01" min="0" class="form-input w-full">
+          <input type="text" class="form-input w-full currency-input" autocomplete="off"
+            value="{% if policy.prior_premium %}{{ '{:,.0f}'.format(policy.prior_premium | float) }}{% endif %}"
+            placeholder="0">
+          <input type="hidden" name="prior_premium" value="{{ policy.prior_premium or '' }}">
         </div>
 
         <div class="sm:col-span-2 lg:col-span-3 border-t border-gray-100 pt-3 mt-1">
@@ -516,18 +758,29 @@
     </div>
   </details>
 
+  <!-- Information Requests for this Policy -->
+  <details open class="card-section">
+    <summary class="card-header cursor-pointer select-none list-none">
+      <span class="section-title flex items-center gap-1"><span class="details-arrow">&#9654;</span> Information Requests</span>
+    </summary>
+    <div class="p-4"
+         id="policy-requests-{{ policy.policy_uid }}"
+         hx-get="/clients/{{ policy.client_id }}/requests/policy-view?policy_uid={{ policy.policy_uid }}"
+         hx-trigger="load"
+         hx-swap="innerHTML">
+      <div class="text-xs text-gray-400 italic">Loading...</div>
+    </div>
+  </details>
+
   <!-- Actions -->
   <div class="flex items-center justify-between">
     <a href="/clients/{{ policy.client_id }}" class="text-sm text-gray-500 hover:text-gray-700">← Cancel</a>
-    <div class="flex gap-3">
-      <button type="submit" name="action" value="save_continue"
-        class="border border-marsh text-marsh hover:bg-marsh hover:text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
-        Save &amp; Continue Editing
-      </button>
+    <div class="flex items-center gap-3">
       <button type="submit" name="action" value="save"
         class="bg-marsh hover:bg-marsh-light text-white text-sm font-medium px-6 py-2 rounded-lg transition-colors">
-        Save
+        Save &amp; Close
       </button>
+      <span class="text-xs text-gray-400 italic">Changes auto-save</span>
     </div>
   </div>
 
@@ -563,17 +816,15 @@
 <datalist id="ac-exposure_unit"></datalist>
 <datalist id="ac-project_name"></datalist>
 <datalist id="ac-exposure_city"></datalist>
+<datalist id="ac-access_point"></datalist>
+<datalist id="ac-first_named_insured"></datalist>
+<datalist id="ac-tower_group"></datalist>
 
-<style>
-  .form-input { @apply border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-marsh; }
-  .form-select { @apply border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-marsh bg-white; }
-  .field-label { @apply block text-xs font-medium text-gray-600 mb-1; }
-</style>
 
 <script>
 (function () {
-  const AC_FIELDS = ["carrier", "exposure_basis", "exposure_unit", "project_name", "exposure_city"];
-  const CLIENT_SCOPED = new Set(["project_name", "exposure_city"]);
+  const AC_FIELDS = ["carrier", "exposure_basis", "exposure_unit", "project_name", "exposure_city", "access_point", "first_named_insured", "tower_group"];
+  const CLIENT_SCOPED = new Set(["project_name", "exposure_city", "tower_group"]);
   const CLIENT_ID = {{ policy.client_id }};
 
   function loadList(field) {
@@ -589,39 +840,79 @@
 
   AC_FIELDS.forEach(loadList);
 
-  // Live tower notation preview
+  // Live layer notation preview + attachment point hint
   (function () {
-    var limEl  = document.querySelector('input[name="limit_amount"]');
-    var attEl  = document.getElementById('attachment_point');
-    var poEl   = document.getElementById('participation_of');
-    var prev   = document.getElementById('layer-notation-preview');
-    if (!limEl || !attEl || !prev) return;
-    function fmtM(v) {
-      var m = v / 1000000;
-      return '$' + (m % 1 === 0 ? m.toFixed(0) : m) + 'M';
+    var limEl    = document.querySelector('input[name="limit_amount"][type="hidden"]') || document.querySelector('input[name="limit_amount"]');
+    var attEl    = document.getElementById('attachment_point');
+    var poEl     = document.getElementById('participation_of');
+    var layerSel = document.getElementById('layer-position-select');
+    var summBox  = document.getElementById('layer-summary-box');
+    var summText = document.getElementById('layer-summary-text');
+    var hintEl   = document.getElementById('attachment-hint');
+    if (!limEl || !attEl || !summBox || !summText) return;
+
+    // Tower layer data from server (for attachment hint)
+    var towerLayers = {{ tower_layers | tojson }};
+    var currentUid = '{{ policy.policy_uid }}';
+
+    function fmt(v) {
+      if (v >= 1000000) { var m = v / 1000000; return '$' + (m % 1 === 0 ? m.toFixed(0) : m.toFixed(1)) + 'M'; }
+      if (v >= 1000) return '$' + (v / 1000).toFixed(0) + 'K';
+      return '$' + v.toFixed(0);
     }
+
     function update() {
-      var lim = parseFloat(limEl.value);
-      var attRaw = attEl.value.trim();
+      var lim = parseFloat(limEl.value) || 0;
+      var attRaw = attEl.value.replace(/,/g, '').trim();
       var att = attRaw === '' ? null : parseFloat(attRaw);
-      var po  = parseFloat(poEl ? poEl.value : '') || 0;
-      if (!lim) { prev.textContent = ''; return; }
-      var s = fmtM(lim);
-      if (po) s += ' PO ' + fmtM(po);
-      if (att === null) {
-        s += ' Primary';
-      } else if (att === 0) {
-        s += ' X Primary';
+      var po = parseFloat((poEl ? poEl.value.replace(/,/g, '') : '')) || 0;
+      var layerPos = layerSel ? parseInt(layerSel.value) : 0;
+
+      if (!lim) { summBox.classList.add('hidden'); return; }
+
+      // Build placement notation: "$5M xs $10M" or "$5M Primary"
+      var parts = [];
+      parts.push(fmt(lim));
+      if (po) parts.push('PO ' + fmt(po));
+      if (layerPos === 0 && att === null) {
+        parts.push('Primary');
+      } else if (att !== null && att > 0) {
+        parts.push('xs ' + fmt(att));
+      } else if (att === 0 || (layerPos > 0 && att === null)) {
+        parts.push('xs Primary');
       } else {
-        s += ' X ' + fmtM(att);
+        parts.push('Primary');
       }
-      prev.textContent = '→ ' + s;
+
+      summText.textContent = parts.join(' ');
+      summBox.classList.remove('hidden');
+
+      // Suggest attachment based on tower layers below
+      if (hintEl && towerLayers.length > 0 && layerPos > 0) {
+        var sumBelow = 0;
+        for (var i = 0; i < towerLayers.length; i++) {
+          var tl = towerLayers[i];
+          if (tl.policy_uid === currentUid) continue;
+          var tlPos = parseInt(tl.layer_position) || 0;
+          if (tlPos < layerPos) sumBelow += parseFloat(tl.limit_amount) || 0;
+        }
+        if (sumBelow > 0 && (att === null || att === 0)) {
+          hintEl.textContent = 'Suggested attachment: ' + fmt(sumBelow) + ' (sum of layers below)';
+          hintEl.classList.remove('hidden');
+        } else {
+          hintEl.classList.add('hidden');
+        }
+      } else if (hintEl) {
+        hintEl.classList.add('hidden');
+      }
     }
-    [limEl, attEl, poEl].forEach(function (el) {
-      if (el) el.addEventListener('input', update);
-    });
+
+    [limEl, attEl, poEl].forEach(function (el) { if (el) el.addEventListener('input', update); });
+    if (layerSel) layerSel.addEventListener('change', update);
     update();
   })();
+
+
 })();
 </script>
 

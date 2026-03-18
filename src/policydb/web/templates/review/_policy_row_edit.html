@@ -91,6 +91,7 @@
           <div>
             <p class="text-xs text-gray-500 mb-0.5">Access Point</p>
             <input type="text" name="access_point" value="{{ p.access_point or '' }}" placeholder="Wholesaler, etc."
+              list="ac-ap-review-{{ p.policy_uid }}" autocomplete="off"
               class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh">
           </div>
           <div>
@@ -100,8 +101,9 @@
           </div>
           <div>
             <p class="text-xs text-gray-500 mb-0.5">Placement Colleague</p>
-            <input type="text" name="placement_colleague" value="{{ p.placement_colleague or '' }}"
-              class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh">
+            <p class="text-xs text-gray-600 py-1.5">{{ p.placement_colleague or '—' }}
+              <a href="/policies/{{ p.policy_uid }}/edit" class="text-marsh hover:underline ml-1">manage on edit page</a>
+            </p>
           </div>
         </div>
 
@@ -142,6 +144,18 @@
 
         <!-- Policy Row 3: Status + notes -->
         <div class="grid grid-cols-3 gap-3">
+          {% if renewal_statuses | length <= 10 %}
+          <div class="col-span-3">
+            <p class="text-xs text-gray-500 mb-0.5">Renewal Status</p>
+            <div class="seg-control">
+              {% for s in renewal_statuses %}
+              <input type="radio" name="renewal_status" id="rs-rev-{{ p.policy_uid }}-{{ loop.index }}" value="{{ s }}"
+                {% if s == p.renewal_status or (not p.renewal_status and loop.first) %}checked{% endif %}>
+              <label for="rs-rev-{{ p.policy_uid }}-{{ loop.index }}">{{ s }}</label>
+              {% endfor %}
+            </div>
+          </div>
+          {% else %}
           <div>
             <p class="text-xs text-gray-500 mb-0.5">Renewal Status</p>
             <select name="renewal_status"
@@ -151,6 +165,7 @@
               {% endfor %}
             </select>
           </div>
+          {% endif %}
           <div>
             <p class="text-xs text-gray-500 mb-0.5">Description <span class="text-gray-400 font-normal">(client-facing)</span></p>
             <textarea name="description" rows="2"
@@ -184,6 +199,21 @@
       </div>
 
     </form>
+
+    <datalist id="ac-ap-review-{{ p.policy_uid }}"></datalist>
+    <script>
+    (function(){
+      fetch("/policies/autocomplete?field=access_point")
+        .then(function(r){ return r.json(); })
+        .then(function(vals){
+          var dl = document.getElementById("ac-ap-review-{{ p.policy_uid }}");
+          if (!dl) return;
+          dl.innerHTML = vals.map(function(v){
+            return '<option value="' + v.replace(/"/g, '&quot;') + '"></option>';
+          }).join('');
+        });
+    })();
+    </script>
 
   </td>
 </tr>
