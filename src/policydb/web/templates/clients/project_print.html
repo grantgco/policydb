@@ -3,6 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <title>{{ project.name }} — {{ client.name }}</title>
+  <link rel="stylesheet" href="https://uicdn.toast.com/editor/latest/toastui-editor.min.css">
+  <script src="https://uicdn.toast.com/editor/latest/toastui-editor-all.min.js"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #1f2937; line-height: 1.6; padding: 40px; max-width: 800px; margin: 0 auto; }
@@ -89,21 +91,11 @@
 </div>
 
 <script>
-// Render markdown in notes if Toast UI is not available (standalone page)
 var el = document.getElementById('notes-content');
-if (el) {
-  // Simple markdown-to-HTML: headings, bold, bullets, code
-  var text = el.textContent;
-  text = text.replace(/^### (.+)$/gm, '<h3>$1</h3>');
-  text = text.replace(/^## (.+)$/gm, '<h2>$1</h2>');
-  text = text.replace(/^# (.+)$/gm, '<h1>$1</h1>');
-  text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-  text = text.replace(/^\- (.+)$/gm, '<li>$1</li>');
-  text = text.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
-  text = text.replace(/^(\d+)\. (.+)$/gm, '<li>$2</li>');
-  text = text.replace(/`([^`]+)`/g, '<code>$1</code>');
-  text = text.replace(/\n\n/g, '<br><br>');
-  el.innerHTML = text;
+if (el && typeof toastui !== 'undefined') {
+  var md = el.textContent || '';
+  el.textContent = '';
+  toastui.Editor.factory({ el: el, viewer: true, initialValue: md });
 }
 </script>
 
