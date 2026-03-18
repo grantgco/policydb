@@ -1,34 +1,50 @@
-<p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Action Items</p>
-{% if meeting and meeting.action_items %}
-<div class="space-y-1 mb-3">
-  {% for ai in meeting.action_items %}
-  <div class="flex items-center gap-2 py-1 {% if not loop.last %}border-b border-gray-50{% endif %}">
-    <button type="button"
-      hx-post="/meetings/{{ meeting.id }}/actions/{{ ai.id }}/toggle"
-      hx-target="#actions-section" hx-swap="innerHTML"
-      class="shrink-0 w-4 h-4 rounded border {% if ai.completed %}bg-marsh border-marsh text-white{% else %}border-gray-300 hover:border-marsh{% endif %} flex items-center justify-center text-[10px]">
-      {% if ai.completed %}✓{% endif %}
-    </button>
-    <span class="flex-1 text-xs {% if ai.completed %}text-gray-400 line-through{% else %}text-gray-700{% endif %}">{{ ai.description }}</span>
-    {% if ai.assignee %}<span class="text-xs text-gray-400">{{ ai.assignee }}</span>{% endif %}
-    {% if ai.due_date %}<span class="text-xs {% if not ai.completed and ai.due_date < today %}text-red-500 font-medium{% elif not ai.completed %}text-amber-600{% else %}text-gray-400{% endif %}">{{ ai.due_date }}</span>{% endif %}
-  </div>
-  {% endfor %}
+<div class="flex items-center justify-between mb-2">
+  <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Action Items
+    {% if meeting and meeting.action_items %}
+    {% set done = meeting.action_items | selectattr('completed') | list | length %}
+    <span class="text-gray-400 font-normal">— {{ done }}/{{ meeting.action_items | length }} complete</span>
+    {% endif %}
+  </p>
+  <button type="button" class="text-xs text-marsh hover:underline font-medium no-print"
+    onclick="if(window._meetingActionsMatrix)window._meetingActionsMatrix.createNewRow()">+ Add</button>
 </div>
-{% else %}
-<p class="text-xs text-gray-400 italic mb-3">No action items yet</p>
-{% endif %}
-<form hx-post="/meetings/{{ meeting.id }}/actions/add"
-      hx-target="#actions-section" hx-swap="innerHTML"
-      class="flex gap-2 items-end">
-  <div class="flex-1">
-    <input type="text" name="description" required placeholder="Action item..." class="w-full border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-marsh">
-  </div>
-  <div>
-    <input type="text" name="assignee" placeholder="Assignee" class="border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-marsh w-24">
-  </div>
-  <div>
-    <input type="date" name="due_date" class="border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-marsh">
-  </div>
-  <button type="submit" class="text-xs bg-marsh text-white px-3 py-1 rounded hover:bg-marsh-light transition-colors">Add</button>
-</form>
+
+<table class="w-full text-sm">
+  <colgroup>
+    <col style="width:32px"><col style="width:40%"><col style="width:18%"><col style="width:16%">
+    <col style="width:8%"><col style="width:32px">
+  </colgroup>
+  <thead>
+    <tr class="border-b border-gray-200 text-left text-[10px] text-gray-400 uppercase tracking-wide">
+      <th class="px-3 py-2"></th>
+      <th class="px-3 py-2 font-medium">Description</th>
+      <th class="px-3 py-2 font-medium">Assignee</th>
+      <th class="px-3 py-2 font-medium">Due Date</th>
+      <th class="px-3 py-2 font-medium text-center">F/U</th>
+      <th class="px-3 py-2"></th>
+    </tr>
+  </thead>
+  <tbody class="divide-y divide-gray-50" id="actions-tbody">
+    {% if meeting and meeting.action_items %}
+    {% for ai in meeting.action_items %}
+    {% include "meetings/_action_row.html" %}
+    {% endfor %}
+    {% else %}
+    <tr id="action-empty-{{ meeting.id }}"><td colspan="6" class="px-4 py-6 text-center text-gray-400 text-xs">No action items yet. Click "+ Add" to create one.</td></tr>
+    {% endif %}
+  </tbody>
+</table>
+
+<script>
+(function() {
+  var MID = {{ meeting.id | tojson }};
+  window._meetingActionsMatrix = window.initMatrix({
+    tbodyId: 'actions-tbody',
+    idAttr: 'data-row-id',
+    rowClass: 'matrix-row',
+    patchUrl: function(id) { return '/meetings/' + MID + '/actions/' + id; },
+    addRowUrl: '/meetings/' + MID + '/actions/add-row',
+    emptyRowId: 'action-empty-' + MID,
+  });
+})();
+</script>

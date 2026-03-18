@@ -1,0 +1,42 @@
+<tr data-row-id="{{ ai.id }}" class="matrix-row group hover:bg-gray-50/60 align-top">
+  <td class="px-3 py-2 text-center" style="width:32px">
+    <button type="button"
+      hx-post="/meetings/{{ meeting.id }}/actions/{{ ai.id }}/toggle"
+      hx-target="#actions-section" hx-swap="innerHTML"
+      class="shrink-0 w-4 h-4 rounded border {% if ai.completed %}bg-marsh border-marsh text-white{% else %}border-gray-300 hover:border-marsh{% endif %} flex items-center justify-center text-[10px] mx-auto">
+      {% if ai.completed %}✓{% endif %}
+    </button>
+  </td>
+  <td class="px-3 py-2">
+    <div contenteditable="true"
+         class="matrix-cell-editable outline-none text-xs {% if ai.completed %}text-gray-400 line-through{% else %}text-gray-800{% endif %} rounded px-1 -mx-1"
+         data-field="description" data-placeholder="Action item...">{{ ai.description or '' }}</div>
+  </td>
+  <td class="px-3 py-2">
+    <div contenteditable="true"
+         class="matrix-cell-editable outline-none text-xs text-gray-500 rounded px-1 -mx-1"
+         data-field="assignee" data-placeholder="Assignee...">{{ ai.assignee or '' }}</div>
+  </td>
+  <td class="px-3 py-2">
+    <div contenteditable="true"
+         class="matrix-cell-editable outline-none text-xs rounded px-1 -mx-1
+           {% if ai.due_date and not ai.completed and ai.due_date < today %}text-red-500 font-medium
+           {% elif ai.due_date and not ai.completed %}text-amber-600
+           {% else %}text-gray-400{% endif %}"
+         data-field="due_date" data-placeholder="YYYY-MM-DD">{{ ai.due_date or '' }}</div>
+  </td>
+  <td class="px-3 py-2 text-center text-xs text-gray-400">
+    {% if ai.activity_id %}
+    <span class="text-green-500" title="Linked follow-up">✓</span>
+    {% else %}
+    <span class="text-gray-300">—</span>
+    {% endif %}
+  </td>
+  <td class="px-3 py-2 text-center">
+    <button type="button"
+      hx-post="/meetings/{{ meeting.id }}/actions/{{ ai.id }}/delete"
+      hx-target="#actions-section" hx-swap="innerHTML"
+      hx-confirm="Remove this action item?"
+      class="text-xs text-gray-300 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity">✕</button>
+  </td>
+</tr>
