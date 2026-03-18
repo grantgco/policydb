@@ -1,11 +1,24 @@
+{% set _last_group_id = namespace(val=0) %}
 {% for c in clients %}
-<tr class="hover:bg-gray-50 cursor-pointer" onclick="window.location='/clients/{{ c.id }}'">
+{% set _gid = client_group_map.get(c.id, 0) if client_group_map is defined else 0 %}
+{% if _gid and _gid != _last_group_id.val %}
+<tr class="bg-blue-50/50">
+  <td colspan="7" class="px-4 py-1.5">
+    <span class="text-xs font-semibold text-blue-600 uppercase tracking-wide">&#9741; Linked Group{% if group_labels is defined and group_labels.get(_gid) %}: {{ group_labels[_gid] }}{% endif %}</span>
+  </td>
+</tr>
+{% endif %}
+{% set _last_group_id.val = _gid %}
+<tr class="hover:bg-gray-50 cursor-pointer {% if _gid %}border-l-2 border-blue-200{% endif %}" onclick="window.location='/clients/{{ c.id }}'">
   <td class="px-4 py-3">
     <a href="/clients/{{ c.id }}" class="font-medium text-marsh hover:underline">{{ c.name }}</a>
+    {% if c.is_prospect %}<span class="ml-1.5 text-xs font-semibold bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded">Prospect</span>{% endif %}
+    {% if c.cn_number %}<button type="button" onclick="event.stopPropagation(); copyRefTag(this, '{{ build_ref_tag(cn_number=c.cn_number, client_id=c.id) }}')"
+      class="ml-1.5 text-xs font-mono text-gray-300 hover:text-marsh" title="Copy CN ref tag">{{ build_ref_tag(cn_number=c.cn_number, client_id=c.id) }}</button>{% endif %}
     {% if c.primary_contact %}<p class="text-xs text-gray-400">{{ c.primary_contact }}</p>{% endif %}
   </td>
   <td class="px-4 py-3 text-gray-600">{{ c.industry_segment }}</td>
-  <td class="px-4 py-3 text-right text-gray-700">{{ c.total_policies }}</td>
+  <td class="px-4 py-3 text-right text-gray-700 tabular-nums">{{ c.total_policies }}</td>
   <td class="px-4 py-3 text-right tabular-nums text-gray-700">{{ c.total_premium | currency }}</td>
   <td class="px-4 py-3 text-right tabular-nums {% if c.total_revenue %}text-gray-700{% else %}text-gray-300{% endif %}">
     {{ c.total_revenue | currency if c.total_revenue else '—' }}
