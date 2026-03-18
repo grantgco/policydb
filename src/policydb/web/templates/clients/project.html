@@ -112,13 +112,13 @@
   }
 
   function updateWordCount() {
-    var val = mde ? mde.value() : document.getElementById('proj-notes-ta').value;
+    var val = mde ? mde.getMarkdown() : document.getElementById('proj-notes-ta').value;
     var wc = wordCount(val);
     wcEl.textContent = wc > 0 ? wc.toLocaleString() + ' words' : '';
   }
 
   function autoSave() {
-    var content = mde ? mde.value() : document.getElementById('proj-notes-ta').value;
+    var content = mde ? mde.getMarkdown() : document.getElementById('proj-notes-ta').value;
     var fd = new FormData();
     fd.set('content', content);
     fetch(endpoint, { method: 'POST', body: fd, headers: { 'Accept': 'application/json' } })
@@ -129,7 +129,7 @@
   }
 
   if (mde) {
-    mde.codemirror.on('change', function () {
+    mde.on('change', function () {
       updateWordCount();
       clearTimeout(saveTimer);
       saveTimer = setTimeout(autoSave, 800);

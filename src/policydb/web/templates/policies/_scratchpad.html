@@ -1,44 +1,44 @@
-<div id="client-scratchpad-{{ client.id }}" class="card p-4">
+<div id="policy-scratchpad-{{ policy.policy_uid }}" class="card p-4">
   <div class="flex items-center justify-between mb-2">
     <h2 class="font-semibold text-gray-900">Working Notes</h2>
-    <span id="scratch-ts-{{ client.id }}" class="text-xs text-gray-400 italic">
-      {% if client_scratchpad_updated %}saved {{ client_scratchpad_updated[:16] }}{% endif %}
+    <span id="scratch-ts-{{ policy.policy_uid }}" class="text-xs text-gray-400 italic">
+      {% if policy_scratchpad_updated %}saved {{ policy_scratchpad_updated[:16] }}{% endif %}
     </span>
   </div>
   <textarea
-    id="scratch-ta-{{ client.id }}"
+    id="scratch-ta-{{ policy.policy_uid }}"
     name="content"
     rows="4"
-    placeholder="Working notes about this client — type here, then pin with Save Note…"
-    class="w-full text-sm text-gray-800 bg-transparent resize-none focus:outline-none placeholder-gray-300 leading-relaxed">{{ client_scratchpad }}</textarea>
+    placeholder="Working notes for this policy — type here, then pin with Save Note…"
+    class="w-full text-sm text-gray-800 bg-transparent resize-none focus:outline-none placeholder-gray-300 leading-relaxed">{{ policy_scratchpad }}</textarea>
   <div class="flex justify-end mt-1">
-    <button id="scratch-save-{{ client.id }}"
-      hx-post="/clients/{{ client.id }}/notes/save"
-      hx-target="#client-scratchpad-{{ client.id }}"
+    <button id="scratch-save-{{ policy.policy_uid }}"
+      hx-post="/policies/{{ policy.policy_uid }}/notes/save"
+      hx-target="#policy-scratchpad-{{ policy.policy_uid }}"
       hx-swap="outerHTML"
-      {% if not client_scratchpad or not client_scratchpad.strip() %}disabled{% endif %}
+      {% if not policy_scratchpad or not policy_scratchpad.strip() %}disabled{% endif %}
       class="text-xs bg-marsh text-white px-3 py-1 rounded hover:bg-marsh-light disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
       Save Note
     </button>
   </div>
 
-  {% if client_saved_notes %}
-  {% set note_count = client_saved_notes | length %}
+  {% if policy_saved_notes %}
+  {% set note_count = policy_saved_notes | length %}
   <div class="mt-4 pt-3 border-t border-gray-100">
     <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Saved Notes <span class="font-normal text-gray-400">({{ note_count }})</span></p>
     <div class="space-y-2.5 max-h-[32rem] overflow-y-auto">
-      {% for n in client_saved_notes[:2] %}
+      {% for n in policy_saved_notes[:2] %}
       <div class="group relative">
         <p class="text-xs text-gray-400 mb-0.5">{{ n.created_at[:16] }}</p>
-        <div id="cn-{{ n.id }}" class="text-sm text-gray-700 md-render line-clamp-3">{{ n.content }}</div>
+        <div id="pn-{{ n.id }}" class="text-sm text-gray-700 md-render line-clamp-3">{{ n.content }}</div>
         {% if n.content and (n.content.count('\n') > 2 or n.content | length > 200) %}
         <button type="button"
-          onclick="var el=document.getElementById('cn-{{ n.id }}');el.classList.toggle('line-clamp-3');this.textContent=el.classList.contains('line-clamp-3')?'show more':'show less'"
+          onclick="var el=document.getElementById('pn-{{ n.id }}');el.classList.toggle('line-clamp-3');this.textContent=el.classList.contains('line-clamp-3')?'show more':'show less'"
           class="text-xs text-marsh hover:underline mt-0.5">show more</button>
         {% endif %}
         <button
-          hx-delete="/clients/{{ client.id }}/notes/{{ n.id }}"
-          hx-target="#client-scratchpad-{{ client.id }}"
+          hx-delete="/policies/{{ policy.policy_uid }}/notes/{{ n.id }}"
+          hx-target="#policy-scratchpad-{{ policy.policy_uid }}"
           hx-swap="outerHTML"
           hx-confirm="Delete this saved note?"
           class="absolute top-0 right-0 text-xs text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">x</button>
@@ -51,18 +51,18 @@
           {{ note_count - 2 }} older note{{ 's' if note_count - 2 != 1 else '' }}
         </summary>
         <div class="space-y-2.5 mt-2">
-          {% for n in client_saved_notes[2:] %}
+          {% for n in policy_saved_notes[2:] %}
           <div class="group relative">
             <p class="text-xs text-gray-400 mb-0.5">{{ n.created_at[:16] }}</p>
-            <div id="cn-{{ n.id }}" class="text-sm text-gray-700 md-render line-clamp-3">{{ n.content }}</div>
+            <div id="pn-{{ n.id }}" class="text-sm text-gray-700 md-render line-clamp-3">{{ n.content }}</div>
             {% if n.content and (n.content.count('\n') > 2 or n.content | length > 200) %}
             <button type="button"
-              onclick="var el=document.getElementById('cn-{{ n.id }}');el.classList.toggle('line-clamp-3');this.textContent=el.classList.contains('line-clamp-3')?'show more':'show less'"
+              onclick="var el=document.getElementById('pn-{{ n.id }}');el.classList.toggle('line-clamp-3');this.textContent=el.classList.contains('line-clamp-3')?'show more':'show less'"
               class="text-xs text-marsh hover:underline mt-0.5">show more</button>
             {% endif %}
             <button
-              hx-delete="/clients/{{ client.id }}/notes/{{ n.id }}"
-              hx-target="#client-scratchpad-{{ client.id }}"
+              hx-delete="/policies/{{ policy.policy_uid }}/notes/{{ n.id }}"
+              hx-target="#policy-scratchpad-{{ policy.policy_uid }}"
               hx-swap="outerHTML"
               hx-confirm="Delete this saved note?"
               class="absolute top-0 right-0 text-xs text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">x</button>
@@ -78,10 +78,10 @@
 
 <script>
 (function() {
-  var CID = "{{ client.id }}";
-  var ta = document.getElementById('scratch-ta-' + CID);
-  var ts = document.getElementById('scratch-ts-' + CID);
-  var saveBtn = document.getElementById('scratch-save-' + CID);
+  var UID = "{{ policy.policy_uid }}";
+  var ta = document.getElementById('scratch-ta-' + UID);
+  var ts = document.getElementById('scratch-ts-' + UID);
+  var saveBtn = document.getElementById('scratch-save-' + UID);
   if (!ta) return;
 
   function updateSaveBtn() {
@@ -90,7 +90,7 @@
     saveBtn.disabled = !hasContent;
   }
 
-  var mde = window.initMarkdownEditor('scratch-ta-' + CID, {minHeight: '100px'});
+  var mde = window.initMarkdownEditor('scratch-ta-' + UID, {minHeight: '100px'});
 
   var saveTimer = null;
   var saving = false;
@@ -99,7 +99,7 @@
     saving = true;
     var fd = new FormData();
     fd.set('content', ta.value);
-    fetch('/clients/' + CID + '/scratchpad', {
+    fetch('/policies/' + UID + '/scratchpad', {
       method: 'POST', body: fd,
       headers: {'Accept': 'application/json'}
     }).then(function(r) { return r.json(); }).then(function(data) {
