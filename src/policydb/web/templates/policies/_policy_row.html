@@ -1,5 +1,8 @@
 <tr id="row-{{ p.policy_uid }}" class="hover:bg-gray-50 border-t border-gray-100">
-  <td class="px-4 py-3 font-mono text-xs text-gray-400">{{ p.policy_uid }}</td>
+  <td class="px-4 py-3 font-mono text-xs text-gray-400">
+    <button type="button" onclick="event.stopPropagation(); copyRefTag(this, '{{ build_ref_tag(cn_number=p.cn_number|default(''), client_id=p.client_id, policy_uid=p.policy_uid, project_id=p.project_id|default(0)) }}')"
+      class="hover:text-marsh cursor-pointer" title="Copy ref tag">{{ p.policy_uid }}</button>
+  </td>
   <td class="px-4 py-3">
     <span class="font-medium text-gray-800">{{ p.policy_type }}</span>
     {% set notation = p | layer_notation %}
@@ -16,6 +19,9 @@
     <span class="block text-gray-700">{{ p.expiration_date }}</span>
     {% if p.days_to_renewal is not none %}
     <span class="{{ p.urgency | urgency_class }} text-xs px-1.5 py-0.5 rounded font-medium">{{ p.days_to_renewal }}d</span>
+    {% endif %}
+    {% if p.readiness_label is defined and p.readiness_label %}
+    <span class="text-xs px-1.5 py-0.5 rounded block mt-0.5 whitespace-nowrap {{ p.readiness_label | readiness_class }} cursor-help" title="{{ p.readiness_tooltip or '' }}">{{ p.readiness_label }}</span>
     {% endif %}
     {% if p.follow_up_date %}
     <span class="block text-xs {{ 'text-red-500 font-medium' if p.followup_overdue else 'text-gray-400' }} mt-0.5">FU: {{ p.follow_up_date }}</span>
@@ -41,7 +47,7 @@
       hx-target="#row-{{ p.policy_uid }}"
       hx-swap="outerHTML"
       class="text-xs text-marsh hover:underline">Edit</button>
-    <a href="/policies/{{ p.policy_uid }}/edit" class="text-xs text-gray-400 hover:underline">Full Edit</a>
+    <a href="/policies/{{ p.policy_uid }}/edit" target="_blank" class="text-xs text-gray-400 hover:underline">Full Edit</a>
     <button
       hx-get="/policies/{{ p.policy_uid }}/row/log"
       hx-target="#row-{{ p.policy_uid }}"
@@ -51,5 +57,9 @@
           onsubmit="return confirm('Create new term for {{ p.policy_uid }} ({{ p.policy_type }})?')">
       <button type="submit" class="text-xs text-blue-600 hover:underline">Renew</button>
     </form>
+    <a href="/policies/{{ p.policy_uid }}/export" onclick="event.stopPropagation()"
+      class="text-gray-300 hover:text-marsh text-xs no-print" title="Export policy XLSX">&#8615;</a>
+    <button type="button" onclick="copyRefTag(this, '{{ build_ref_tag(cn_number=p.cn_number|default(''), client_id=p.client_id, policy_uid=p.policy_uid, project_id=p.project_id|default(0)) }}')"
+      class="text-gray-300 hover:text-marsh text-xs" title="Copy email ref tag">⧉</button>
   </td>
 </tr>
