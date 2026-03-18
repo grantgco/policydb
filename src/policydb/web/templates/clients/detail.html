@@ -454,7 +454,7 @@
       <table class="w-full text-sm">
         <thead>{{ col_headers }}</thead>
         <tbody>
-          {% for p in group %}{% include "policies/_policy_row.html" %}{% endfor %}
+          {% for p in group %}{% if p.policy_uid not in program_linked_uids %}{% include "policies/_policy_row.html" %}{% endif %}{% endfor %}
         </tbody>
       </table>
     </div>
@@ -465,7 +465,7 @@
       <table class="w-full text-sm">
         <thead>{{ col_headers }}</thead>
         <tbody>
-          {% for p in group %}{% include "policies/_policy_row.html" %}{% endfor %}
+          {% for p in group %}{% if p.policy_uid not in program_linked_uids %}{% include "policies/_policy_row.html" %}{% endif %}{% endfor %}
         </tbody>
       </table>
     </div>

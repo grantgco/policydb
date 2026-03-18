@@ -55,6 +55,25 @@
             {% endif %}
           </td>
         </tr>
+        {# Linked policies nested under program #}
+        {% if p.linked_policies %}
+        {% for lp in p.linked_policies %}
+        <tr class="border-b border-gray-50 bg-blue-50/30">
+          <td class="px-4 py-1.5 pl-8">
+            <span class="text-[9px] text-gray-300">└</span>
+          </td>
+          <td class="px-4 py-1.5">
+            <a href="/policies/{{ lp.policy_uid }}/edit" class="text-xs text-marsh hover:underline" target="_blank">{{ lp.policy_type }}</a>
+          </td>
+          <td class="px-4 py-1.5 text-xs text-gray-500">{{ lp.carrier or '—' }}</td>
+          <td class="px-4 py-1.5 text-xs text-right text-gray-600">{% if lp.limit_amount %}{{ lp.limit_amount | currency }}{% else %}—{% endif %}</td>
+          <td class="px-4 py-1.5 text-xs text-right text-gray-600">{% if lp.premium %}{{ lp.premium | currency }}{% else %}—{% endif %}</td>
+          <td class="px-4 py-1.5"></td>
+          <td class="px-4 py-1.5 text-[10px] text-gray-400">{{ lp.effective_date or '' }}</td>
+          <td class="px-4 py-1.5"></td>
+        </tr>
+        {% endfor %}
+        {% endif %}
         {% endfor %}
       </tbody>
     </table>
