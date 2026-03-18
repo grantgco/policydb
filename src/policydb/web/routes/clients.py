@@ -1468,6 +1468,7 @@ def client_edit_post(
     preferred_contact_method: str = Form(""),
     referral_source: str = Form(""),
     fein: str = Form(""),
+    hourly_rate: str = Form(""),
     conn=Depends(get_db),
 ):
     def _float(v):
@@ -1489,7 +1490,7 @@ def client_edit_post(
            contact_email=?, contact_phone=?, contact_mobile=?, address=?, notes=?,
            broker_fee=?, business_description=?,
            website=?, renewal_month=?, client_since=?, preferred_contact_method=?, referral_source=?,
-           fein=?
+           fein=?, hourly_rate=?
            WHERE id=?""",
         (name, industry_segment, cn_number.strip() or None, 1 if is_prospect else 0,
          primary_contact or None, clean_email(contact_email) or None,
@@ -1498,7 +1499,7 @@ def client_edit_post(
          _float(broker_fee), business_description or None,
          website or None, _int(renewal_month), client_since or None,
          preferred_contact_method or None, referral_source or None,
-         format_fein(fein) or None,
+         format_fein(fein) or None, _float(hourly_rate),
          client_id),
     )
     conn.commit()
