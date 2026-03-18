@@ -31,22 +31,10 @@
       <!-- Program toggle -->
       <div class="sm:col-span-2 flex items-center gap-2">
         <label class="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
-          <input type="checkbox" name="is_program" value="1" class="rounded border-gray-300"
-            onchange="var pg=document.getElementById('pgm-fields-'+this.closest('form').dataset.uid);if(pg)pg.classList.toggle('hidden',!this.checked)">
+          <input type="checkbox" name="is_program" value="1" class="rounded border-gray-300">
           <span class="text-blue-700 font-semibold">Program</span> — aggregate multi-carrier
         </label>
-      </div>
-      <div id="pgm-fields-{{ row_uid }}" class="hidden sm:col-span-2 grid grid-cols-2 gap-3">
-        <div>
-          <label class="text-xs text-gray-500 mb-0.5 block">Participating Carriers</label>
-          <input name="program_carriers" placeholder="AIG, Chubb, Zurich"
-            class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-marsh">
-        </div>
-        <div>
-          <label class="text-xs text-gray-500 mb-0.5 block">Carrier Count</label>
-          <input name="program_carrier_count" type="number" min="1" placeholder="Auto"
-            class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-marsh">
-        </div>
+        <span class="text-xs text-gray-400">Add carrier detail after creating the program.</span>
       </div>
 
       <!-- Policy Type -->
