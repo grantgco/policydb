@@ -1,7 +1,8 @@
-"""Reconciliation routes — compare an uploaded CSV against PolicyDB policies."""
+"""Reconciliation routes — compare an uploaded CSV/XLSX against PolicyDB policies."""
 
 from __future__ import annotations
 
+import io
 from datetime import date
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
@@ -13,13 +14,30 @@ from policydb.reconciler import (
     _find_likely_pairs,
     build_reconcile_xlsx,
     find_candidates,
-    parse_uploaded_csv,
+    parse_uploaded_file,
     reconcile,
     summarize,
 )
 from policydb.web.app import get_db, templates
 
 router = APIRouter(prefix="/reconcile")
+
+# In-memory cache for last reconciliation (single-user local app)
+import time as _time
+import uuid as _uuid
+_RESULT_CACHE: dict[str, tuple[bytes, float]] = {}  # token → (xlsx_bytes, timestamp)
+_MISSING_CACHE: dict[str, tuple[list[dict], float]] = {}  # token → (missing_ext_rows, timestamp)
+_LAST_MISSING_TOKEN: str = ""  # most recent token for batch-create fallback
+
+def _cache_cleanup():
+    """Remove cache entries older than 1 hour."""
+    cutoff = _time.time() - 3600
+    for k in list(_RESULT_CACHE):
+        if _RESULT_CACHE[k][1] < cutoff:
+            del _RESULT_CACHE[k]
+    for k in list(_MISSING_CACHE):
+        if _MISSING_CACHE[k][1] < cutoff:
+            del _MISSING_CACHE[k]
 
 
 def _load_db_policies(conn, client_id: int, scope: str) -> list[dict]:
@@ -38,7 +56,8 @@ def _load_db_policies(conn, client_id: int, scope: str) -> list[dict]:
     rows = conn.execute(
         f"""SELECT p.policy_uid, c.name AS client_name, p.policy_type, p.carrier,
                    p.policy_number, p.effective_date, p.expiration_date,
-                   p.premium, p.limit_amount, p.deductible, p.client_id
+                   p.premium, p.limit_amount, p.deductible, p.client_id,
+                   p.first_named_insured
             FROM policies p
             JOIN clients c ON p.client_id = c.id
             WHERE {where}
@@ -46,6 +65,43 @@ def _load_db_policies(conn, client_id: int, scope: str) -> list[dict]:
         params,
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+@router.post("/preview-columns")
+async def reconcile_preview_columns(file: UploadFile = File(...)):
+    """Return column headers and sample data from an uploaded file for column mapping UI."""
+    from fastapi.responses import JSONResponse
+    content = await file.read()
+    headers = []
+    sample_rows: list[list[str]] = []  # first 3 data rows for preview
+    filename = file.filename or ""
+    if filename.lower().endswith(('.xlsx', '.xls')) or content[:2] == b'PK':
+        try:
+            from openpyxl import load_workbook
+            wb = load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+            ws = wb.active
+            rows_iter = ws.iter_rows(values_only=True)
+            first_row = next(rows_iter, None)
+            if first_row:
+                headers = [str(h).strip() if h is not None else f"col_{i}" for i, h in enumerate(first_row)]
+                for _, data_row in zip(range(3), rows_iter):
+                    sample_rows.append([str(v).strip() if v is not None else "" for v in data_row])
+            wb.close()
+        except Exception:
+            pass
+    else:
+        try:
+            text = content.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            text = content.decode("latin-1")
+        import csv as _csv
+        reader = _csv.reader(io.StringIO(text))
+        first_row = next(reader, None)
+        if first_row:
+            headers = [h.strip() for h in first_row]
+            for _, data_row in zip(range(3), reader):
+                sample_rows.append([v.strip() for v in data_row])
+    return JSONResponse({"headers": headers, "sample_rows": sample_rows})
 
 
 @router.get("", response_class=HTMLResponse)
@@ -108,7 +164,7 @@ async def reconcile_run(
         ctx["errors"] = ["Uploaded file is empty."]
         return templates.TemplateResponse("reconcile/index.html", ctx)
 
-    ext_rows, warnings = parse_uploaded_csv(content, column_mapping=col_map or None)
+    ext_rows, warnings = parse_uploaded_file(content, column_mapping=col_map or None, filename=file.filename or "")
     ctx["warnings"] = warnings
     ctx["column_mapping_json"] = column_mapping_json
 
@@ -122,9 +178,21 @@ async def reconcile_run(
     missing_rows = [r for r in results if r.status == "MISSING"]
     extra_rows = [r for r in results if r.status == "EXTRA"]
 
+    # Cache MISSING rows for batch create (keyed by download token)
+    global _LAST_MISSING_TOKEN
+    _MISSING_CACHE[download_token] = ([r.ext for r in missing_rows if r.ext], _time.time())
+    _LAST_MISSING_TOKEN = download_token
+
+    # Cache XLSX for download-without-reupload
+    _cache_cleanup()
+    xlsx_bytes = build_reconcile_xlsx(results, run_date=date.today().isoformat(), filename=file.filename or "")
+    download_token = str(_uuid.uuid4())
+    _RESULT_CACHE[download_token] = (xlsx_bytes, _time.time())
+
     ctx["results"] = results
     ctx["summary"] = summarize(results)
     ctx["pairs"] = _find_likely_pairs(missing_rows, extra_rows)
+    ctx["download_token"] = download_token
     return templates.TemplateResponse("reconcile/index.html", ctx)
 
 
@@ -231,7 +299,7 @@ def reconcile_confirm_match(
     ).fetchone()
 
     if not db_row_raw:
-        return HTMLResponse(f'<tr id="row-{row_uid}"><td colspan="9" class="px-4 py-3 text-xs text-red-500">Policy {policy_uid} not found.</td></tr>')
+        return HTMLResponse(f'<tr id="row-{row_uid}"><td colspan="10" class="px-4 py-3 text-xs text-red-500">Policy {policy_uid} not found.</td></tr>')
 
     db = dict(db_row_raw)
     ext = {
@@ -246,7 +314,7 @@ def reconcile_confirm_match(
         "deductible": _parse_currency(ext_deductible),
     }
 
-    diff_fields, score = _compare_fields(ext, db)
+    diff_fields, _, score = _compare_fields(ext, db)
     status = "DIFF" if diff_fields else "MATCH"
 
     status_classes = {
@@ -268,12 +336,13 @@ def reconcile_confirm_match(
     return HTMLResponse(
         f'<tr id="row-{row_uid}" data-status="{status}" data-uid="{row_uid}" class="bg-{"green" if status == "MATCH" else "amber"}-50/40">'
         f'<td class="px-3 py-3 text-gray-300 text-xs">✓</td>'
-        f'<td class="px-4 py-3" colspan="2"><span class="text-xs font-semibold px-2 py-0.5 rounded {badge_class}">{status}</span>'
+        f'<td class="px-4 py-3"><span class="text-xs font-semibold px-2 py-0.5 rounded {badge_class}">{status}</span>'
         f' <span class="text-xs text-gray-400 ml-1">manually matched</span></td>'
         f'<td class="px-4 py-3 font-medium text-gray-800 text-sm">{db.get("client_name","")}</td>'
         f'<td class="px-4 py-3 text-xs text-gray-600">{db.get("policy_type","")}</td>'
         f'<td class="px-4 py-3 text-xs text-gray-600">{db.get("carrier","")}</td>'
         f'<td class="px-4 py-3 text-xs font-mono text-gray-500">{db.get("policy_number","") or "—"}</td>'
+        f'<td class="px-4 py-3 text-xs whitespace-nowrap text-gray-600">{db.get("effective_date","") or "—"}</td>'
         f'<td class="px-4 py-3 text-xs whitespace-nowrap text-gray-600">{db.get("expiration_date","")}</td>'
         f'<td class="px-4 py-3 text-right tabular-nums text-gray-700">{premium_fmt}</td>'
         f'<td class="px-4 py-3">{diff_badges} '
@@ -288,7 +357,7 @@ def reconcile_archive(request: Request, policy_uid: str, conn=Depends(get_db)):
     conn.execute("UPDATE policies SET archived=1 WHERE policy_uid=?", (policy_uid.upper(),))
     conn.commit()
     return HTMLResponse(
-        f'<tr class="bg-gray-50"><td colspan="9" class="px-4 py-3 text-xs text-gray-400 italic">'
+        f'<tr class="bg-gray-50"><td colspan="10" class="px-4 py-3 text-xs text-gray-400 italic">'
         f'Policy {policy_uid.upper()} archived.</td></tr>'
     )
 
@@ -379,33 +448,214 @@ def reconcile_create(
         """INSERT INTO policies
            (policy_uid, client_id, policy_type, carrier, policy_number,
             effective_date, expiration_date, premium, limit_amount, deductible,
-            description, project_name, placement_colleague, underwriter_name,
+            description, project_name, underwriter_name,
             commission_rate, account_exec)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (
             uid, client_id, policy_type, carrier, policy_number or None,
             effective_date, expiration_date, premium,
             _f(limit_amount), _f(deductible),
             description or None, project_name or None,
-            placement_colleague or None, underwriter_name or None,
+            underwriter_name or None,
             _f(commission_rate), account_exec,
         ),
     )
     conn.commit()
 
+    # Create structured contact records for placement colleague and underwriter
+    _policy_row = conn.execute("SELECT id FROM policies WHERE policy_uid=?", (uid,)).fetchone()
+    if _policy_row:
+        _pid = _policy_row["id"]
+        _pc_name = (placement_colleague or "").strip()
+        if _pc_name:
+            from policydb.queries import get_or_create_contact, assign_contact_to_policy
+            _pc_cid = get_or_create_contact(conn, _pc_name)
+            assign_contact_to_policy(conn, _pc_cid, _pid, is_placement_colleague=1)
+        _uw_name = (underwriter_name or "").strip()
+        if _uw_name:
+            from policydb.queries import get_or_create_contact, assign_contact_to_policy
+            _uw_cid = get_or_create_contact(conn, _uw_name)
+            assign_contact_to_policy(conn, _uw_cid, _pid, role="Underwriter")
+        conn.commit()
+
     client_name = conn.execute("SELECT name FROM clients WHERE id=?", (client_id,)).fetchone()["name"]
     return HTMLResponse(
         f'<tr id="row-{row_uid}" class="bg-green-50">'
         f'<td class="px-3 py-2 text-xs text-gray-300">✓</td>'
-        f'<td colspan="2" class="px-4 py-2"><span class="text-xs font-semibold text-green-700 px-2 py-0.5 rounded bg-green-100">CREATED</span></td>'
+        f'<td class="px-4 py-2"><span class="text-xs font-semibold text-green-700 px-2 py-0.5 rounded bg-green-100">CREATED</span></td>'
         f'<td class="px-4 py-2 text-sm font-medium text-gray-800">{client_name}</td>'
         f'<td class="px-4 py-2 text-xs text-gray-600">{policy_type}</td>'
         f'<td class="px-4 py-2 text-xs text-gray-600">{carrier}</td>'
         f'<td class="px-4 py-2 text-xs font-mono text-gray-500">{policy_number or "—"}</td>'
+        f'<td class="px-4 py-2 text-xs whitespace-nowrap text-gray-600">{effective_date}</td>'
         f'<td class="px-4 py-2 text-xs whitespace-nowrap text-gray-600">{expiration_date}</td>'
         f'<td class="px-4 py-2 text-right tabular-nums text-gray-700">${premium:,.0f}</td>'
         f'<td class="px-4 py-2"><a href="/policies/{uid}/edit" class="text-xs text-marsh hover:underline">{uid} →</a></td>'
         f'</tr>'
+    )
+
+
+@router.get("/batch-create-review", response_class=HTMLResponse)
+def batch_create_review(
+    request: Request,
+    client_id: int = 0,
+    scope: str = "active",
+    conn=Depends(get_db),
+):
+    """HTMX: show review table of all MISSING rows before batch creation."""
+    # Resolve missing rows from token-keyed cache
+    _cache_cleanup()
+    missing_entry = _MISSING_CACHE.get(_LAST_MISSING_TOKEN)
+    if not missing_entry or not missing_entry[0]:
+        return HTMLResponse('<p class="text-xs text-gray-400 italic">No MISSING rows to create. Re-run reconciliation first.</p>')
+    missing_rows_list = missing_entry[0]
+
+    from policydb import config as cfg
+    from policydb.reconciler import _normalize_coverage
+
+    all_clients = conn.execute(
+        "SELECT id, name FROM clients WHERE archived=0 ORDER BY name"
+    ).fetchall()
+    client_lookup = {c["name"].lower(): dict(c) for c in all_clients}
+
+    rows = []
+    for i, ext in enumerate(missing_rows_list):
+        # Try to auto-match client
+        client_name = ext.get("client_name", "")
+        matched = client_lookup.get(client_name.lower())
+        if not matched:
+            # Fuzzy fallback — check if client_id was filtered
+            if client_id > 0:
+                c = conn.execute("SELECT id, name FROM clients WHERE id=?", (client_id,)).fetchone()
+                if c:
+                    matched = dict(c)
+
+        # Normalize coverage type
+        raw_type = ext.get("policy_type", "")
+        normalized_type = _normalize_coverage(raw_type) if raw_type else ""
+
+        has_dates = bool(ext.get("effective_date") and ext.get("expiration_date"))
+        rows.append({
+            "idx": i,
+            "ext": ext,
+            "matched_client": matched,
+            "normalized_type": normalized_type,
+            "has_dates": has_dates,
+            "can_create": bool(matched and has_dates),
+        })
+
+    can_create_count = sum(1 for r in rows if r["can_create"])
+    return templates.TemplateResponse("reconcile/_batch_create_review.html", {
+        "request": request,
+        "rows": rows,
+        "can_create_count": can_create_count,
+        "total_count": len(rows),
+        "policy_types": cfg.get("policy_types", []),
+        "client_id": client_id,
+    })
+
+
+@router.post("/batch-create", response_class=HTMLResponse)
+async def batch_create(
+    request: Request,
+    conn=Depends(get_db),
+):
+    """HTMX: create multiple policies from MISSING rows in a single transaction."""
+    from policydb.db import next_policy_uid
+    from policydb import config as cfg
+    from policydb.reconciler import _normalize_coverage
+    import json as _json
+
+    form = await request.form()
+    selected_json = form.get("selected_rows", "[]")
+    try:
+        selected_indices = set(_json.loads(selected_json))
+    except Exception:
+        selected_indices = set()
+
+    if not selected_indices:
+        return HTMLResponse('<p class="text-xs text-amber-600">No rows selected.</p>')
+
+    # Resolve missing rows from cache
+    missing_entry = _MISSING_CACHE.get(_LAST_MISSING_TOKEN)
+    missing_rows_list = missing_entry[0] if missing_entry else []
+
+    account_exec = cfg.get("default_account_exec", "Grant")
+    policy_types = set(cfg.get("policy_types", []))
+
+    created = []
+    skipped = []
+
+    for idx in sorted(selected_indices):
+        if idx < 0 or idx >= len(missing_rows_list):
+            continue
+        ext = missing_rows_list[idx]
+
+        # Resolve client
+        client_id_str = form.get(f"client_{idx}", "")
+        if not client_id_str:
+            skipped.append(f"Row {idx+1}: no client matched")
+            continue
+        try:
+            cid = int(client_id_str)
+        except ValueError:
+            skipped.append(f"Row {idx+1}: invalid client")
+            continue
+
+        eff = ext.get("effective_date", "")
+        exp = ext.get("expiration_date", "")
+        if not eff or not exp:
+            skipped.append(f"Row {idx+1}: missing dates")
+            continue
+
+        raw_type = ext.get("policy_type", "")
+        ptype = _normalize_coverage(raw_type) if raw_type else ""
+        if ptype not in policy_types:
+            ptype = raw_type  # keep original if not in configured types
+
+        def _f(v):
+            try: return float(v) if v else 0.0
+            except (ValueError, TypeError): return 0.0
+
+        uid = next_policy_uid(conn)
+        conn.execute(
+            """INSERT INTO policies
+               (policy_uid, client_id, policy_type, carrier, policy_number,
+                effective_date, expiration_date, premium, limit_amount, deductible,
+                account_exec)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                uid, cid, ptype, ext.get("carrier", "") or None,
+                ext.get("policy_number", "") or None,
+                eff, exp, _f(ext.get("premium")),
+                _f(ext.get("limit_amount")), _f(ext.get("deductible")),
+                account_exec,
+            ),
+        )
+        created.append({"uid": uid, "type": ptype, "carrier": ext.get("carrier", "")})
+
+    conn.commit()
+
+    # Build summary
+    created_html = "".join(
+        f'<li class="text-xs text-green-700">'
+        f'<a href="/policies/{c["uid"]}/edit" class="text-marsh hover:underline">{c["uid"]}</a> '
+        f'— {c["type"]}{(" · " + c["carrier"]) if c["carrier"] else ""}'
+        f'</li>'
+        for c in created
+    )
+    skipped_html = "".join(
+        f'<li class="text-xs text-amber-600">{s}</li>' for s in skipped
+    )
+
+    return HTMLResponse(
+        f'<div class="border border-green-200 bg-green-50 rounded-lg p-4 mb-4">'
+        f'<p class="text-sm font-semibold text-green-700 mb-2">{len(created)} policies created</p>'
+        f'<ul class="space-y-1 mb-2">{created_html}</ul>'
+        + (f'<p class="text-xs font-medium text-amber-600 mt-2">Skipped ({len(skipped)}):</p>'
+           f'<ul class="space-y-0.5">{skipped_html}</ul>' if skipped else '')
+        + f'<p class="text-xs text-gray-400 mt-2">Re-run reconciliation to see updated results.</p>'
+        f'</div>'
     )
 
 
@@ -506,7 +756,74 @@ def reconcile_update(
         f'<td class="px-4 py-3 text-xs text-gray-600">{policy_type}</td>'
         f'<td class="px-4 py-3 text-xs text-gray-600">{carrier}</td>'
         f'<td class="px-4 py-3 text-xs font-mono text-gray-500">{policy_number or "—"}</td>'
+        f'<td class="px-4 py-3 text-xs whitespace-nowrap text-gray-600">{effective_date}</td>'
         f'<td class="px-4 py-3 text-xs whitespace-nowrap text-gray-600">{expiration_date}</td>'
+        f'<td class="px-4 py-3 text-right tabular-nums text-gray-700">{premium_fmt}</td>'
+        f'<td class="px-4 py-3"><a href="/policies/{policy_uid.upper()}/edit" class="text-xs text-marsh hover:underline">{policy_uid.upper()} →</a></td>'
+        f'</tr>'
+    )
+
+
+@router.post("/apply-selected/{policy_uid}", response_class=HTMLResponse)
+async def reconcile_apply_selected(
+    request: Request,
+    policy_uid: str,
+    conn=Depends(get_db),
+):
+    """HTMX: apply only user-checked fields from a DIFF row to PolicyDB."""
+    form = await request.form()
+    row_uid = form.get("row_uid", "")
+
+    def _f(v):
+        try: return float(v) if v else None
+        except (ValueError, TypeError): return None
+
+    _FIELD_MAP = {
+        "policy_type": str, "carrier": str, "policy_number": str,
+        "effective_date": str, "expiration_date": str,
+        "premium": _f, "limit_amount": _f, "deductible": _f,
+    }
+
+    updates: dict = {}
+    for field_name, converter in _FIELD_MAP.items():
+        if form.get(f"field_{field_name}"):  # checkbox was checked
+            val = form.get(f"val_{field_name}", "")
+            if val:
+                updates[field_name] = converter(val) if converter != str else val
+
+    if updates:
+        set_clause = ", ".join(f"{k}=?" for k in updates)
+        conn.execute(
+            f"UPDATE policies SET {set_clause} WHERE policy_uid=?",
+            list(updates.values()) + [policy_uid.upper()],
+        )
+        conn.commit()
+
+    client_name = conn.execute(
+        "SELECT c.name FROM policies p JOIN clients c ON p.client_id=c.id WHERE p.policy_uid=?",
+        (policy_uid.upper(),),
+    ).fetchone()["name"]
+
+    # Fetch updated values for display
+    db = conn.execute(
+        "SELECT policy_type, carrier, policy_number, effective_date, expiration_date, premium FROM policies WHERE policy_uid=?",
+        (policy_uid.upper(),),
+    ).fetchone()
+
+    premium_fmt = f"${float(db['premium'] or 0):,.0f}" if db["premium"] else "—"
+    field_list = ", ".join(updates.keys()) if updates else "none"
+
+    return HTMLResponse(
+        f'<tr id="row-{row_uid}" class="bg-green-50">'
+        f'<td class="px-3 py-3 text-gray-300 text-xs">✓</td>'
+        f'<td class="px-4 py-3"><span class="text-xs font-semibold px-2 py-0.5 rounded bg-green-100 text-green-700">UPDATED</span>'
+        f' <span class="text-xs text-gray-400 ml-1">{field_list}</span></td>'
+        f'<td class="px-4 py-3 font-medium text-gray-800 text-sm">{client_name}</td>'
+        f'<td class="px-4 py-3 text-xs text-gray-600">{db["policy_type"] or "—"}</td>'
+        f'<td class="px-4 py-3 text-xs text-gray-600">{db["carrier"] or "—"}</td>'
+        f'<td class="px-4 py-3 text-xs font-mono text-gray-500">{db["policy_number"] or "—"}</td>'
+        f'<td class="px-4 py-3 text-xs whitespace-nowrap text-gray-600">{db["effective_date"] or "—"}</td>'
+        f'<td class="px-4 py-3 text-xs whitespace-nowrap text-gray-600">{db["expiration_date"] or "—"}</td>'
         f'<td class="px-4 py-3 text-right tabular-nums text-gray-700">{premium_fmt}</td>'
         f'<td class="px-4 py-3"><a href="/policies/{policy_uid.upper()}/edit" class="text-xs text-marsh hover:underline">{policy_uid.upper()} →</a></td>'
         f'</tr>'
@@ -557,7 +874,6 @@ def reconcile_apply(
         (policy_uid.upper(),),
     ).fetchone()["name"]
 
-    eff_exp = expiration_date or "—"
     premium_fmt = f"${float(premium):,.0f}" if premium else "—"
     ptype = policy_type or "—"
     carr = carrier or "—"
@@ -570,7 +886,8 @@ def reconcile_apply(
         f'<td class="px-4 py-3 text-xs text-gray-600">{ptype}</td>'
         f'<td class="px-4 py-3 text-xs text-gray-600">{carr}</td>'
         f'<td class="px-4 py-3 text-xs font-mono text-gray-500">{policy_number or "—"}</td>'
-        f'<td class="px-4 py-3 text-xs whitespace-nowrap text-gray-600">{eff_exp}</td>'
+        f'<td class="px-4 py-3 text-xs whitespace-nowrap text-gray-600">{effective_date or "—"}</td>'
+        f'<td class="px-4 py-3 text-xs whitespace-nowrap text-gray-600">{expiration_date or "—"}</td>'
         f'<td class="px-4 py-3 text-right tabular-nums text-gray-700">{premium_fmt}</td>'
         f'<td class="px-4 py-3"><a href="/policies/{policy_uid.upper()}/edit" class="text-xs text-marsh hover:underline">{policy_uid.upper()} →</a></td>'
         f'</tr>'
@@ -625,7 +942,7 @@ def reconcile_confirm_pair(
         "deductible": _parse_currency(ext_deductible),
     }
 
-    diff_fields, score = _compare_fields(ext, db)
+    diff_fields, _, score = _compare_fields(ext, db)
     status = "DIFF" if diff_fields else "MATCH"
 
     badge_class = "bg-green-100 text-green-700" if status == "MATCH" else "bg-amber-100 text-amber-700"
@@ -665,6 +982,71 @@ def reconcile_ignore_pair(
     return HTMLResponse(f'<div id="pair-card-{pair_id}"></div>')
 
 
+@router.patch("/apply-field/{policy_uid}", response_class=HTMLResponse)
+async def reconcile_apply_field(
+    request: Request,
+    policy_uid: str,
+    conn=Depends(get_db),
+):
+    """HTMX: apply a single field update from uploaded value to a DIFF policy."""
+    form = await request.form()
+    field_name = form.get("field_name", "")
+    value = form.get("value", "")
+
+    _ALLOWED_FIELDS = {
+        "policy_type", "carrier", "policy_number",
+        "effective_date", "expiration_date",
+        "premium", "limit_amount", "deductible",
+    }
+
+    if field_name not in _ALLOWED_FIELDS:
+        return HTMLResponse(
+            f'<td colspan="4" class="text-xs text-red-500">Invalid field: {field_name}</td>',
+            status_code=400,
+        )
+
+    def _f(v):
+        try:
+            return float(v) if v else None
+        except (ValueError, TypeError):
+            return None
+
+    _CURRENCY_FIELDS = {"premium", "limit_amount", "deductible"}
+    db_value = _f(value) if field_name in _CURRENCY_FIELDS else value
+
+    conn.execute(
+        f"UPDATE policies SET {field_name}=? WHERE policy_uid=?",
+        (db_value, policy_uid.upper()),
+    )
+    conn.commit()
+
+    return HTMLResponse(
+        f'<tr id="field-{field_name}" class="bg-green-50 transition-colors">'
+        f'<td class="py-1.5 pr-2"><span class="text-green-500 text-xs">✓</span></td>'
+        f'<td class="py-1.5 pr-3 font-medium text-green-600 text-xs">{field_name}</td>'
+        f'<td class="py-1.5 pr-3 text-green-700 text-xs font-semibold">'
+        f'{"${:,.0f}".format(float(value)) if field_name in _CURRENCY_FIELDS and value else value or "—"}'
+        f' <span class="text-green-500 ml-1">applied ✓</span></td>'
+        f'<td class="py-1.5 text-xs text-gray-400 line-through">(updated)</td>'
+        f'</tr>'
+    )
+
+
+@router.get("/download/{token}")
+def reconcile_download_cached(token: str):
+    """Download cached XLSX report without re-uploading the file."""
+    _cache_cleanup()
+    entry = _RESULT_CACHE.get(token)
+    if not entry:
+        return HTMLResponse("Report expired. Please re-run reconciliation.", status_code=404)
+    xlsx_bytes, _ = entry
+    return Response(
+        content=xlsx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="reconcile_{date.today()}.xlsx"'},
+    )
+
+
 @router.post("/download")
 async def reconcile_download(
     file: UploadFile = File(...),
@@ -681,7 +1063,7 @@ async def reconcile_download(
         except Exception:
             pass
     content = await file.read()
-    ext_rows, _ = parse_uploaded_csv(content, column_mapping=col_map or None)
+    ext_rows, _ = parse_uploaded_file(content, column_mapping=col_map or None, filename=file.filename or "")
     db_rows = _load_db_policies(conn, client_id, scope)
     results = reconcile(ext_rows, db_rows)
     xlsx = build_reconcile_xlsx(results, run_date=date.today().isoformat(), filename=file.filename or "")

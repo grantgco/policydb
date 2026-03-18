@@ -179,6 +179,22 @@ class PolicyImporter:
         "access_point": "access_point",
         "access": "access_point",
         "entry_point": "access_point",
+        # Carrier statement column names
+        "annualized_premium": "premium",
+        "billed_premium": "premium",
+        "policy_form": "coverage_form",
+        "form_number": "coverage_form",
+        "account_name": "client_name",
+        "coverage_code": "policy_type",
+        "inception_date": "effective_date",
+        "inception": "effective_date",
+        "term_effective": "effective_date",
+        "term_expiration": "expiration_date",
+        "policy_no": "policy_number",
+        "certificate_number": "policy_number",
+        "company_name": "carrier",
+        "writing_company": "carrier",
+        "issuing_company": "carrier",
     }
 
     def __init__(self, conn: sqlite3.Connection):
@@ -305,10 +321,10 @@ class PolicyImporter:
                    (policy_uid, client_id, policy_type, carrier, policy_number,
                     effective_date, expiration_date, premium, limit_amount, deductible,
                     description, coverage_form, layer_position, tower_group, is_standalone,
-                    placement_colleague, underwriter_name, underwriter_contact,
+                    underwriter_name, underwriter_contact,
                     renewal_status, commission_rate, prior_premium, account_exec, notes,
                     access_point)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     uid,
                     client_id,
@@ -325,7 +341,6 @@ class PolicyImporter:
                     row.get("layer_position") or "Primary",
                     row.get("tower_group") or None,
                     _parse_bool(row.get("is_standalone", "0")),
-                    row.get("placement_colleague") or None,
                     row.get("underwriter_name") or None,
                     row.get("underwriter_contact") or None,
                     _normalize_renewal_status(row.get("renewal_status", "")),
@@ -336,6 +351,22 @@ class PolicyImporter:
                     row.get("access_point") or None,
                 ),
             )
+
+            # Create contact records for placement colleague and underwriter
+            _policy_row = self.conn.execute("SELECT id FROM policies WHERE policy_uid=?", (uid,)).fetchone()
+            if _policy_row:
+                _pid = _policy_row["id"]
+                _pc_name = (row.get("placement_colleague") or "").strip()
+                if _pc_name:
+                    from policydb.queries import get_or_create_contact, assign_contact_to_policy
+                    _pc_cid = get_or_create_contact(self.conn, _pc_name)
+                    assign_contact_to_policy(self.conn, _pc_cid, _pid, is_placement_colleague=1)
+                _uw_name = (row.get("underwriter_name") or "").strip()
+                if _uw_name:
+                    from policydb.queries import get_or_create_contact, assign_contact_to_policy
+                    _uw_email = (row.get("underwriter_contact") or "").strip() or None
+                    _uw_cid = get_or_create_contact(self.conn, _uw_name, email=_uw_email)
+                    assign_contact_to_policy(self.conn, _uw_cid, _pid, role="Underwriter")
 
             if pol_number:
                 seen_policy_numbers[pol_number] = client_id

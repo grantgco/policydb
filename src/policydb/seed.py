@@ -65,15 +65,27 @@ def run_seed(conn: sqlite3.Connection) -> None:
                (policy_uid, client_id, policy_type, carrier, policy_number,
                 effective_date, expiration_date, premium, limit_amount, deductible,
                 description, coverage_form, layer_position, tower_group, is_standalone,
-                placement_colleague, underwriter_name, underwriter_contact,
+                underwriter_name, underwriter_contact,
                 renewal_status, commission_rate, prior_premium, account_exec, notes)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (uid, client_ids[client_name], policy_type, carrier, pol_number,
              eff, exp, premium, limit_amount, deductible, description, coverage_form,
              layer_position, tower_group, is_standalone,
-             colleague, uw_name, uw_contact,
+             uw_name, uw_contact,
              renewal_status, commission_rate, prior_premium, account_exec, notes),
         )
+        # Create structured contact records for placement colleague and underwriter
+        _p_row = conn.execute("SELECT id FROM policies WHERE policy_uid=?", (uid,)).fetchone()
+        if _p_row:
+            _pid = _p_row["id"]
+            if colleague:
+                from policydb.queries import get_or_create_contact, assign_contact_to_policy
+                _pc_cid = get_or_create_contact(conn, colleague)
+                assign_contact_to_policy(conn, _pc_cid, _pid, is_placement_colleague=1)
+            if uw_name:
+                from policydb.queries import get_or_create_contact, assign_contact_to_policy
+                _uw_cid = get_or_create_contact(conn, uw_name, email=uw_contact)
+                assign_contact_to_policy(conn, _uw_cid, _pid, role="Underwriter")
         return uid
 
     # ── MERIDIAN DEVELOPMENT GROUP ──────────────────────────────────────────
