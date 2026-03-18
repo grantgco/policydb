@@ -745,12 +745,14 @@ def find_candidates(ext_row: dict, db_rows: list[dict], limit: int = 8) -> list[
                 elif exp_delta <= 60:
                     combined += 10
 
-        # Effective date within 60 days — additional bonus
+        # Effective date — strong signal for matching (exact date = likely same program)
         db_eff = db.get("effective_date", "")
         if ext_eff and db_eff:
             eff_delta = _date_delta_days(ext_eff, db_eff)
             if eff_delta is not None:
-                if eff_delta <= 14:
+                if eff_delta == 0:
+                    combined += 25  # exact effective date match — strong signal
+                elif eff_delta <= 14:
                     combined += 15
                 elif eff_delta <= 60:
                     combined += 5
