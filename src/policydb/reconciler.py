@@ -337,6 +337,7 @@ class ReconcileRow:
     cosmetic_diffs: list[str] = field(default_factory=list)  # diffs that are only cosmetic (normalized values match)
     fillable_fields: list[str] = field(default_factory=list)  # DB fields that are 0/null but ext has a value (optional auto-fill)
     is_program_match: bool = False  # True if matched to a program record
+    matched_carrier_id: int | None = None  # ID of matched program_carriers row
 
 
 # ─── FILE PARSING ─────────────────────────────────────────────────────────────
@@ -639,6 +640,15 @@ def _fuzzy_match(ext_row: dict, candidates: list[dict]) -> tuple[dict | None, fl
         if client_score < 60:
             continue
 
+        # Programs with structured carrier rows: ext carrier must match one
+        if ext_carrier and db.get("is_program") and db.get("_program_carrier_rows"):
+            carrier_score_main = fuzz.WRatio(ext_carrier, db.get("carrier", ""))
+            if carrier_score_main < 70 and not any(
+                fuzz.WRatio(ext_carrier, _pc.get("carrier", "")) >= 70
+                for _pc in db["_program_carrier_rows"]
+            ):
+                continue
+
         # Type scoring — no hard gate; contributes to base score only
         db_type = _normalize_coverage(db.get("policy_type", ""))
         type_score = fuzz.WRatio(ext_type, db_type) if (ext_type and db_type) else 50
@@ -651,10 +661,19 @@ def _fuzzy_match(ext_row: dict, candidates: list[dict]) -> tuple[dict | None, fl
             carrier_score = fuzz.WRatio(ext_carrier, db.get("carrier", ""))
             if carrier_score >= 70:
                 combined += 10
-            # Program carrier list: if ext carrier appears in program_carriers, boost
-            elif db.get("is_program") and db.get("program_carriers"):
-                if ext_carrier.strip().lower() in db["program_carriers"].lower():
-                    combined += 15  # carrier found in program carrier list
+            elif db.get("is_program") and db.get("_program_carrier_rows"):
+                for _pc in db["_program_carrier_rows"]:
+                    if fuzz.WRatio(ext_carrier, _pc.get("carrier", "")) >= 70:
+                        combined += 10
+                        _pc_pn = _normalize_policy_number(_pc.get("policy_number") or "")
+                        if ext_pn and _pc_pn:
+                            if ext_pn == _pc_pn:
+                                combined += 30
+                            elif fuzz.ratio(ext_pn, _pc_pn) >= 90:
+                                combined += 25
+                            elif fuzz.ratio(ext_pn, _pc_pn) >= 75:
+                                combined += 10
+                        break
 
         # Expiration date — primary date signal (boosted)
         db_exp = db.get("expiration_date", "")
@@ -739,9 +758,20 @@ def find_candidates(ext_row: dict, db_rows: list[dict], limit: int = 8) -> list[
         combined = (client_score + type_score) / 2
         combined += 10 if carrier_score >= 70 else 0
         # Program carrier list boost for suggestions
-        if ext_carrier and not (carrier_score >= 70) and db.get("is_program") and db.get("program_carriers"):
-            if ext_carrier.strip().lower() in db["program_carriers"].lower():
-                combined += 15
+        if ext_carrier and not (carrier_score >= 70) and db.get("is_program") and db.get("_program_carrier_rows"):
+            for _pc in db["_program_carrier_rows"]:
+                if fuzz.WRatio(ext_carrier, _pc.get("carrier", "")) >= 70:
+                    combined += 10
+                    _pc_pn = _normalize_policy_number(_pc.get("policy_number") or "")
+                    _ext_pn_s = _normalize_policy_number(ext_row.get("policy_number") or "")
+                    if _ext_pn_s and _pc_pn:
+                        if _ext_pn_s == _pc_pn:
+                            combined += 30
+                        elif fuzz.ratio(_ext_pn_s, _pc_pn) >= 90:
+                            combined += 25
+                        elif fuzz.ratio(_ext_pn_s, _pc_pn) >= 75:
+                            combined += 10
+                    break
 
         # Expiration date within 60 days — bonus scoring, not a hard filter for suggestions
         db_exp = db.get("expiration_date", "")
@@ -830,8 +860,17 @@ def reconcile(ext_rows: list[dict], db_rows: list[dict]) -> list[ReconcileRow]:
         ext_matched.add(i)
         diff_fields, cosmetic, fillable, score = _compare_fields(ext, db)
         status: MatchStatus = "DIFF" if diff_fields else "MATCH"
+        # Determine matched carrier ID for program matches
+        _matched_cid = None
+        if db_idx in _program_indices and db.get("_program_carrier_rows"):
+            _ext_carrier = ext.get("carrier", "")
+            for _pc in db["_program_carrier_rows"]:
+                if fuzz.WRatio(_ext_carrier, _pc.get("carrier", "")) >= 70:
+                    _matched_cid = _pc.get("id")
+                    break
         row = ReconcileRow(status, ext, db, diff_fields, score, cosmetic_diffs=cosmetic, fillable_fields=fillable,
-                           is_program_match=db_idx in _program_indices)
+                           is_program_match=db_idx in _program_indices,
+                           matched_carrier_id=_matched_cid)
         _attach_metadata(row, "policy_number")
         results.append(row)
 
@@ -850,9 +889,15 @@ def reconcile(ext_rows: list[dict], db_rows: list[dict]) -> list[ReconcileRow]:
         ext_client_norm_15 = _normalize_client_name(ext_client)
         best_db = None
         best_score_15 = 0.0
+        ext_carrier_15 = ext.get("carrier", "")
         for db in candidates_15:
             if fuzz.WRatio(ext_client_norm_15, _normalize_client_name(db.get("client_name", ""))) < 80:
                 continue
+            # Programs with structured carrier rows: ext carrier must match one
+            if db.get("is_program") and db.get("_program_carrier_rows") and ext_carrier_15:
+                if not any(fuzz.WRatio(ext_carrier_15, _pc.get("carrier", "")) >= 70
+                           for _pc in db["_program_carrier_rows"]):
+                    continue
             eff_delta = _date_delta_days(ext_eff, db.get("effective_date", ""))
             exp_delta = _date_delta_days(ext_exp, db.get("expiration_date", ""))
             if eff_delta is None or exp_delta is None:
@@ -874,8 +919,17 @@ def reconcile(ext_rows: list[dict], db_rows: list[dict]) -> list[ReconcileRow]:
             ext_matched.add(i)
             diff_fields, cosmetic, fillable, score = _compare_fields(ext, best_db)
             status = "DIFF" if diff_fields else "MATCH"
+            # Determine matched carrier ID for program matches
+            _matched_cid = None
+            if db_idx in _program_indices and best_db.get("_program_carrier_rows"):
+                _ext_carrier = ext.get("carrier", "")
+                for _pc in best_db["_program_carrier_rows"]:
+                    if fuzz.WRatio(_ext_carrier, _pc.get("carrier", "")) >= 70:
+                        _matched_cid = _pc.get("id")
+                        break
             row = ReconcileRow(status, ext, best_db, diff_fields, score, cosmetic_diffs=cosmetic,
-                               is_program_match=db_idx in _program_indices)
+                               is_program_match=db_idx in _program_indices,
+                               matched_carrier_id=_matched_cid)
             _attach_metadata(row, "date_pair")
             results.append(row)
 
@@ -892,8 +946,17 @@ def reconcile(ext_rows: list[dict], db_rows: list[dict]) -> list[ReconcileRow]:
                 candidates = [c for c in candidates if c is not db]
             diff_fields, cosmetic, fillable, _ = _compare_fields(ext, db)
             status = "DIFF" if diff_fields else "MATCH"
+            # Determine matched carrier ID for program matches
+            _matched_cid = None
+            if db_idx in _program_indices and db.get("_program_carrier_rows") and ext:
+                _ext_carrier = ext.get("carrier", "")
+                for _pc in db["_program_carrier_rows"]:
+                    if fuzz.WRatio(_ext_carrier, _pc.get("carrier", "")) >= 70:
+                        _matched_cid = _pc.get("id")
+                        break
             row = ReconcileRow(status, ext, db, diff_fields, score, cosmetic_diffs=cosmetic,
-                               is_program_match=db_idx in _program_indices)
+                               is_program_match=db_idx in _program_indices,
+                               matched_carrier_id=_matched_cid)
             _attach_metadata(row, "fuzzy")
             results.append(row)
         else:
@@ -919,30 +982,62 @@ def reconcile(ext_rows: list[dict], db_rows: list[dict]) -> list[ReconcileRow]:
     return results
 
 
-def program_reconcile_summary(results: list[ReconcileRow]) -> dict[str, dict]:
+def program_reconcile_summary(results: list[ReconcileRow], carrier_map: dict | None = None) -> dict[str, dict]:
     """Build per-program reconciliation summary from results.
 
-    Returns: {policy_uid: {total_premium, matched_premium, matched_count, carrier_count, fully_reconciled}}
+    Args:
+        results: List of ReconcileRow from reconcile()
+        carrier_map: {program_id: [carrier_row_dicts]} for per-carrier detail
+
+    Returns: {policy_uid: {total_premium, matched_premium, matched_count, carrier_count,
+                           fully_reconciled, carrier_detail, new_carriers}}
     """
+    carrier_map = carrier_map or {}
     summaries: dict[str, dict] = {}
     for r in results:
         if not r.is_program_match or r.db is None:
             continue
         uid = r.db.get("policy_uid", "")
+        pid = r.db.get("id")
         if uid not in summaries:
+            db_carriers = carrier_map.get(pid, [])
             summaries[uid] = {
                 "policy_type": r.db.get("policy_type", ""),
                 "total_premium": float(r.db.get("premium") or 0),
-                "carrier_count": int(r.db.get("program_carrier_count") or 0),
+                "carrier_count": len(db_carriers),
                 "matched_premium": 0.0,
                 "matched_count": 0,
+                "carrier_detail": [],
+                "new_carriers": [],
+                "_matched_carrier_ids": set(),
             }
         ext_prem = float(r.ext.get("premium") or 0) if r.ext else 0
         summaries[uid]["matched_premium"] += ext_prem
         summaries[uid]["matched_count"] += 1
+        if r.matched_carrier_id:
+            summaries[uid]["_matched_carrier_ids"].add(r.matched_carrier_id)
+            db_carrier = next((c for c in carrier_map.get(pid, []) if c["id"] == r.matched_carrier_id), None)
+            db_prem = float(db_carrier["premium"]) if db_carrier else 0
+            status = "MATCH" if abs(ext_prem - db_prem) <= db_prem * 0.01 else "DIFF"
+            summaries[uid]["carrier_detail"].append({
+                "carrier_id": r.matched_carrier_id,
+                "carrier": r.ext.get("carrier", "") if r.ext else "",
+                "db_premium": db_prem,
+                "ext_premium": ext_prem,
+                "status": status,
+            })
+        else:
+            summaries[uid]["new_carriers"].append({
+                "carrier": r.ext.get("carrier", "") if r.ext else "",
+                "policy_number": r.ext.get("policy_number", "") if r.ext else "",
+                "premium": ext_prem,
+                "limit_amount": float(r.ext.get("limit_amount") or 0) if r.ext else 0,
+            })
+
     for uid, s in summaries.items():
         total = s["total_premium"]
         s["fully_reconciled"] = s["matched_premium"] >= total * 0.95 if total > 0 else s["matched_count"] > 0
+        del s["_matched_carrier_ids"]
     return summaries
 
 
