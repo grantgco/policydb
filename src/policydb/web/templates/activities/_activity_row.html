@@ -34,6 +34,12 @@
       hx-target="#activity-{{ a.id }}"
       hx-swap="outerHTML"
       class="text-xs text-gray-400 hover:text-marsh hover:underline">Edit</button>
+    <button
+      hx-post="/activities/{{ a.id }}/delete"
+      hx-target="#activity-{{ a.id }}"
+      hx-swap="outerHTML"
+      hx-confirm="Delete this activity?"
+      class="text-xs text-gray-300 hover:text-red-500">✕</button>
   </div>
 </li>
 {% if a.follow_up_date and not a.follow_up_done %}
