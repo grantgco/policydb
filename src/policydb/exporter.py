@@ -6,7 +6,7 @@ import csv
 import io
 import json
 import sqlite3
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -1197,6 +1197,33 @@ _RFI_COL_WIDTHS = {
 }
 
 
+def _bundle_request_date(bundle: dict) -> str:
+    """Return a human-readable request date from a bundle row.
+
+    Prefers ``sent_at`` over ``created_at``.  Returns empty string when
+    neither is available.
+    """
+    raw = bundle.get("sent_at") or bundle.get("created_at")
+    if not raw:
+        return ""
+    try:
+        dt = datetime.fromisoformat(str(raw))
+        return dt.strftime("%B %d, %Y")
+    except (ValueError, TypeError):
+        # Already a plain date string — return as-is
+        return str(raw)[:10]
+
+
+def _bundle_date_label(bundle: dict) -> str:
+    """Return 'Sent: <date>' or 'Created: <date>' depending on which field is used."""
+    fmt = _bundle_request_date(bundle)
+    if not fmt:
+        return ""
+    if bundle.get("sent_at"):
+        return f"Sent: {fmt}"
+    return f"Created: {fmt}"
+
+
 def export_request_bundle_xlsx(conn, bundle_id: int) -> bytes:
     """Export a request bundle as an XLSX spreadsheet for the client."""
     bundle = conn.execute(
@@ -1235,14 +1262,28 @@ def export_request_bundle_xlsx(conn, bundle_id: int) -> bytes:
 
     wb = Workbook()
     wb.remove(wb.active)
-    client_name = dict(bundle)["client_name"] if bundle else "Client"
-    title = dict(bundle)["title"] if bundle else "Request"
+    bundle_dict = dict(bundle) if bundle else {}
+    client_name = bundle_dict.get("client_name", "Client")
+    title = bundle_dict.get("title", "Request")
     _write_sheet(wb, title[:31], rows, col_widths=_RFI_COL_WIDTHS)  # sheet name max 31 chars
+
+    # Add request date metadata above the data table
+    date_label = _bundle_date_label(bundle_dict)
+    if date_label:
+        ws = wb[title[:31]]
+        ws.insert_rows(1)
+        ws["A1"] = date_label
+        ws["A1"].font = Font(bold=True)
+
     return _wb_to_bytes(wb)
 
 
 def render_request_compose_text(conn, bundle_id: int) -> str:
     """Generate formatted email body listing outstanding and received items."""
+    bundle = conn.execute(
+        "SELECT * FROM client_request_bundles WHERE id = ?",
+        (bundle_id,),
+    ).fetchone()
     items = conn.execute(
         """SELECT cri.*, p.policy_type, p.carrier, p.project_name AS pol_project
            FROM client_request_items cri
@@ -1274,6 +1315,14 @@ def render_request_compose_text(conn, bundle_id: int) -> str:
             outstanding.append(f"  □ {desc}{suffix}")
 
     lines = []
+
+    # Add request date at the top
+    if bundle:
+        date_label = _bundle_date_label(dict(bundle))
+        if date_label:
+            lines.append(date_label)
+            lines.append("")
+
     if outstanding:
         lines.append(f"OUTSTANDING ({len(outstanding)} item{'s' if len(outstanding) != 1 else ''}):")
         lines.extend(outstanding)
@@ -1331,6 +1380,14 @@ def export_client_requests_xlsx(conn, client_id: int) -> bytes:
         sheet_name = (b.get("rfi_uid") or b["title"] or "Request")[:31]
         _write_sheet(wb, sheet_name, rows, col_widths=_RFI_COL_WIDTHS)
 
+        # Add request date metadata above the data table
+        date_label = _bundle_date_label(b)
+        if date_label:
+            ws = wb[sheet_name]
+            ws.insert_rows(1)
+            ws["A1"] = date_label
+            ws["A1"].font = Font(bold=True)
+
     if not any_items and not bundles:
         _write_sheet(wb, "Requests", [{"Item": "No outstanding items"}])
 
@@ -1383,7 +1440,11 @@ def render_client_requests_compose_text(conn, client_id: int) -> str:
         total_outstanding += len(outstanding)
         rfi_label = b.get("rfi_uid") or b["title"] or "Request"
         title_label = b["title"] or "Information Request"
-        all_lines.append(f"\u2500\u2500\u2500 {rfi_label} \u2014 {title_label} \u2500\u2500\u2500")
+        date_suffix = ""
+        date_label = _bundle_date_label(b)
+        if date_label:
+            date_suffix = f" ({date_label})"
+        all_lines.append(f"\u2500\u2500\u2500 {rfi_label} \u2014 {title_label}{date_suffix} \u2500\u2500\u2500")
         if outstanding:
             all_lines.append(f"OUTSTANDING ({len(outstanding)} item{'s' if len(outstanding) != 1 else ''}):")
             all_lines.extend(outstanding)
