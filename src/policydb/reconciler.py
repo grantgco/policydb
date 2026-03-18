@@ -1123,8 +1123,7 @@ def build_reconcile_xlsx(results: list[ReconcileRow], run_date: str = "", filena
             for f in COMPARE_FIELDS:
                 row[f"ext_{f}"] = (r.ext or {}).get(f, "")
                 row[f"db_{f}"] = (r.db or {}).get(f, "")
-            if r.db:
-                row["db_policy_uid"] = r.db.get("policy_uid", "")
+            row["db_policy_uid"] = r.db.get("policy_uid", "") if r.db else ""
             rows.append(row)
         return rows
 
