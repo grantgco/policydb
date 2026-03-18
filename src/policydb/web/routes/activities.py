@@ -121,7 +121,7 @@ def activity_log(
         "request": request,
         "a": a,
     })
-    resp.headers["HX-Trigger"] = "reorderActivities"
+    resp.headers["HX-Trigger"] = '{"reorderActivities": "", "activityLogged": "Activity logged"}'
     return resp
 
 
@@ -177,14 +177,14 @@ def activity_complete(
     # If called from the follow-ups table or briefing, return empty to remove the row
     hx_target = request.headers.get("hx-target", "")
     if hx_target.startswith("followup-") or hx_target.startswith("bq-"):
-        return HTMLResponse("", headers={"HX-Trigger": "refreshFollowups"})
+        return HTMLResponse("", headers={"HX-Trigger": '{"refreshFollowups": "", "activityLogged": "Follow-up completed"}'})
     a = _activity_row_dict(conn, activity_id)
     if not a:
         return HTMLResponse("")
     resp = templates.TemplateResponse("activities/_activity_row.html", {
         "request": request, "a": a,
     })
-    resp.headers["HX-Trigger"] = "reorderActivities"
+    resp.headers["HX-Trigger"] = '{"reorderActivities": "", "activityLogged": "Activity updated"}'
     return resp
 
 
@@ -379,7 +379,7 @@ def activity_followup(
         resp = templates.TemplateResponse("followups/_row.html", {
             "request": request, "r": r, "today": today_str,
         })
-        resp.headers["HX-Trigger"] = "refreshFollowups"
+        resp.headers["HX-Trigger"] = '{"refreshFollowups": "", "activityLogged": "Follow-up re-diaried — new activity created"}'
         return resp
 
     new_activity = _activity_row_dict(conn, cursor.lastrowid)
@@ -388,7 +388,7 @@ def activity_followup(
     resp = templates.TemplateResponse("activities/_activity_row.html", {
         "request": request, "a": new_activity,
     })
-    resp.headers["HX-Trigger"] = "reorderActivities"
+    resp.headers["HX-Trigger"] = '{"reorderActivities": "", "activityLogged": "Follow-up re-diaried — new activity created"}'
     return resp
 
 
