@@ -67,3 +67,46 @@ def test_program_carriers_cascade_delete(tmp_db):
     conn.commit()
     assert conn.execute("SELECT COUNT(*) FROM program_carriers WHERE program_id=?", (policy_id,)).fetchone()[0] == 0
     conn.close()
+
+
+def test_v_policy_status_program_carrier_count(tmp_db):
+    """v_policy_status should derive carrier count from program_carriers table."""
+    conn = get_connection(tmp_db)
+    conn.execute("INSERT INTO clients (name, industry_segment) VALUES ('View Test', 'Test')")
+    cid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    conn.execute(
+        """INSERT INTO policies (policy_uid, client_id, policy_type, carrier, is_program, renewal_status)
+           VALUES ('VT-001', ?, 'Property Program', 'AIG', 1, 'Bound')""",
+        (cid,),
+    )
+    pid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    conn.execute("INSERT INTO program_carriers (program_id, carrier, premium) VALUES (?, 'AIG', 50000)", (pid,))
+    conn.execute("INSERT INTO program_carriers (program_id, carrier, premium) VALUES (?, 'Chubb', 75000)", (pid,))
+    conn.commit()
+    row = conn.execute("SELECT * FROM v_policy_status WHERE policy_uid='VT-001'").fetchone()
+    assert row is not None
+    assert dict(row)["program_carrier_count"] == 2
+    conn.close()
+
+
+def test_v_schedule_program_carriers_from_table(tmp_db):
+    """v_schedule should list carriers from program_carriers table for programs."""
+    conn = get_connection(tmp_db)
+    conn.execute("INSERT INTO clients (name, industry_segment) VALUES ('Sched Test', 'Test')")
+    cid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    conn.execute(
+        """INSERT INTO policies (policy_uid, client_id, policy_type, carrier, is_program,
+                                 effective_date, expiration_date)
+           VALUES ('SC-001', ?, 'Casualty Program', 'Zurich', 1, '2025-01-01', '2026-01-01')""",
+        (cid,),
+    )
+    pid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    conn.execute("INSERT INTO program_carriers (program_id, carrier, sort_order) VALUES (?, 'Zurich', 0)", (pid,))
+    conn.execute("INSERT INTO program_carriers (program_id, carrier, sort_order) VALUES (?, 'Liberty', 1)", (pid,))
+    conn.commit()
+    row = conn.execute("SELECT * FROM v_schedule WHERE \"Policy Number\" IS NULL AND \"Line of Business\" LIKE '%Casualty%'").fetchone()
+    assert row is not None
+    carrier_val = dict(row)["Carrier"]
+    assert "Zurich" in carrier_val
+    assert "Liberty" in carrier_val
+    conn.close()
