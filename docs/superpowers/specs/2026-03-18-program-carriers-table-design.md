@@ -62,7 +62,7 @@ The following columns on `policies` are deprecated (kept in schema, ignored in c
 
 | File | Current Usage | Change |
 |------|--------------|--------|
-| `src/policydb/views.py` | `v_policy_status` selects `program_carriers`, `program_carrier_count`; `v_schedule` uses `program_carriers` for carrier display; `v_client_summary` counts `program_carrier_count` | Replace with JOINs/subqueries against `program_carriers` table |
+| `src/policydb/views.py` | `v_policy_status` selects `program_carriers`, `program_carrier_count`; `v_schedule` uses `COALESCE(program_carriers, carrier)` for display | Replace with JOINs/subqueries against `program_carriers` table. Note: `v_client_summary` does NOT reference these fields — no changes needed there |
 | `src/policydb/reconciler.py` | Substring match on `program_carriers` text (+15 bonus) | Query `program_carriers` table for structured matching |
 | `src/policydb/web/routes/policies.py` | Reads/writes `program_carriers` text and `program_carrier_count` on create/edit | Read/write `program_carriers` table rows instead |
 | `src/policydb/web/routes/reconcile.py` | Batch create writes `program_carriers` text | Insert rows into `program_carriers` table |
@@ -71,7 +71,8 @@ The following columns on `policies` are deprecated (kept in schema, ignored in c
 | `src/policydb/web/templates/policies/new.html` | Textarea for `program_carriers` on new policy form | Same contenteditable matrix pattern |
 | `src/policydb/web/templates/clients/_programs.html` | Displays comma-separated text | Structured carrier rows nested under each program |
 | `src/policydb/web/templates/reconcile/_create_form.html` | Textarea for `program_carriers` in single-create form | Input fields per carrier or simplified entry |
-| `src/policydb/exporter.py` | Reads `program_carriers` for export | Query table, join carrier names with comma for export output |
+| `src/policydb/exporter.py` | Reads `program_carriers` via `v_policy_status` view | If view is updated, exporter may need no direct changes — verify during implementation |
+| `src/policydb/email_templates.py` | Not currently referenced | Per CLAUDE.md rules: consider adding `{{program_carriers}}` and `{{program_carrier_count}}` tokens built from new table data |
 
 ---
 
@@ -186,6 +187,8 @@ row = ReconcileRow(status, ext, db, diff_fields, score,
                    is_program_match=True,
                    matched_carrier_id=matched_pc["id"])  # NEW field
 ```
+
+**Dataclass change:** Add `matched_carrier_id: int | None = None` to the `ReconcileRow` dataclass definition (currently at line ~324 of `reconciler.py`).
 
 This enables the UI to show per-carrier accept/reject buttons.
 
