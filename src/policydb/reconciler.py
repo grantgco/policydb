@@ -327,6 +327,7 @@ class ReconcileRow:
     ext_type_normalized: str = ""   # after _normalize_coverage()
     coverage_alias_applied: bool = False  # True if normalization changed the name
     cosmetic_diffs: list[str] = field(default_factory=list)  # diffs that are only cosmetic (normalized values match)
+    fillable_fields: list[str] = field(default_factory=list)  # DB fields that are 0/null but ext has a value (optional auto-fill)
     is_program_match: bool = False  # True if matched to a program record
 
 
@@ -479,17 +480,19 @@ def _date_delta_days(d1: str | None, d2: str | None) -> int | None:
         return None
 
 
-def _compare_fields(ext: dict, db: dict) -> tuple[list[str], list[str], float]:
+def _compare_fields(ext: dict, db: dict) -> tuple[list[str], list[str], list[str], float]:
     """
     Compare COMPARE_FIELDS between ext and db records.
 
     Returns:
         diff_fields: list of field names that truly differ
         cosmetic_diffs: list of fields where raw strings differ but normalized values match
+        fillable_fields: list of currency/date fields where DB is 0/null but ext has a value
         score: minimum WRatio across text fields (confidence)
     """
     diff_fields: list[str] = []
     cosmetic_diffs: list[str] = []
+    fillable_fields: list[str] = []
     min_text_score = 100.0
 
     for f in COMPARE_FIELDS:
@@ -522,6 +525,9 @@ def _compare_fields(ext: dict, db: dict) -> tuple[list[str], list[str], float]:
                     pct_diff = abs(ev - dv) / max(ev, dv)
                     if pct_diff > 0.01:
                         diff_fields.append(f)
+                elif ev > 0 and dv == 0:
+                    # DB has no value but import does — optional auto-fill
+                    fillable_fields.append(f)
             except (TypeError, ValueError):
                 pass
 
@@ -532,7 +538,7 @@ def _compare_fields(ext: dict, db: dict) -> tuple[list[str], list[str], float]:
             if ext_pn and db_pn and ext_pn != db_pn:
                 diff_fields.append(f)
 
-    return diff_fields, cosmetic_diffs, min_text_score
+    return diff_fields, cosmetic_diffs, fillable_fields, min_text_score
 
 
 def _attach_metadata(row: ReconcileRow, match_method: str) -> None:
@@ -795,9 +801,9 @@ def reconcile(ext_rows: list[dict], db_rows: list[dict]) -> list[ReconcileRow]:
             continue  # already claimed — send to Pass 2
         _claim_db(db, db_idx)
         ext_matched.add(i)
-        diff_fields, cosmetic, score = _compare_fields(ext, db)
+        diff_fields, cosmetic, fillable, score = _compare_fields(ext, db)
         status: MatchStatus = "DIFF" if diff_fields else "MATCH"
-        row = ReconcileRow(status, ext, db, diff_fields, score, cosmetic_diffs=cosmetic,
+        row = ReconcileRow(status, ext, db, diff_fields, score, cosmetic_diffs=cosmetic, fillable_fields=fillable,
                            is_program_match=db_idx in _program_indices)
         _attach_metadata(row, "policy_number")
         results.append(row)
@@ -839,7 +845,7 @@ def reconcile(ext_rows: list[dict], db_rows: list[dict]) -> list[ReconcileRow]:
             if db_idx not in _program_indices:
                 candidates_15 = [c for c in candidates_15 if c is not best_db]
             ext_matched.add(i)
-            diff_fields, cosmetic, score = _compare_fields(ext, best_db)
+            diff_fields, cosmetic, fillable, score = _compare_fields(ext, best_db)
             status = "DIFF" if diff_fields else "MATCH"
             row = ReconcileRow(status, ext, best_db, diff_fields, score, cosmetic_diffs=cosmetic,
                                is_program_match=db_idx in _program_indices)
@@ -857,7 +863,7 @@ def reconcile(ext_rows: list[dict], db_rows: list[dict]) -> list[ReconcileRow]:
             _claim_db(db, db_idx)
             if db_idx not in _program_indices:
                 candidates = [c for c in candidates if c is not db]
-            diff_fields, cosmetic, _ = _compare_fields(ext, db)
+            diff_fields, cosmetic, fillable, _ = _compare_fields(ext, db)
             status = "DIFF" if diff_fields else "MATCH"
             row = ReconcileRow(status, ext, db, diff_fields, score, cosmetic_diffs=cosmetic,
                                is_program_match=db_idx in _program_indices)

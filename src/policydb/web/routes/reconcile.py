@@ -319,7 +319,7 @@ def reconcile_confirm_match(
         "deductible": _parse_currency(ext_deductible),
     }
 
-    diff_fields, _, score = _compare_fields(ext, db)
+    diff_fields, _, fillable, score = _compare_fields(ext, db)
     status = "DIFF" if diff_fields else "MATCH"
 
     status_classes = {
@@ -353,6 +353,38 @@ def reconcile_confirm_match(
         f'<td class="px-4 py-3">{diff_badges} '
         f'<a href="/policies/{db["policy_uid"]}/edit" class="text-xs text-marsh hover:underline ml-1">{db["policy_uid"]} →</a></td>'
         f'</tr>'
+    )
+
+
+@router.post("/fill/{policy_uid}", response_class=HTMLResponse)
+def reconcile_fill(
+    request: Request,
+    policy_uid: str,
+    premium: str = Form(""),
+    limit_amount: str = Form(""),
+    deductible: str = Form(""),
+    row_uid: str = Form(""),
+    conn=Depends(get_db),
+):
+    """HTMX: fill empty currency fields on a matched policy from imported values."""
+    from policydb.importer import _parse_currency
+    updates = []
+    params = []
+    for field, val in [("premium", premium), ("limit_amount", limit_amount), ("deductible", deductible)]:
+        parsed = _parse_currency(val)
+        if parsed and parsed > 0:
+            updates.append(f"{field} = ?")
+            params.append(parsed)
+    if updates and params:
+        params.append(policy_uid.upper())
+        conn.execute(
+            f"UPDATE policies SET {', '.join(updates)} WHERE policy_uid = ?",
+            params,
+        )
+        conn.commit()
+    filled = ", ".join(f.replace("_", " ").title() for f in ["premium", "limit_amount", "deductible"] if Form(""))
+    return HTMLResponse(
+        f'<span class="text-xs text-green-600 font-medium">Updated {policy_uid.upper()}</span>'
     )
 
 
@@ -947,7 +979,7 @@ def reconcile_confirm_pair(
         "deductible": _parse_currency(ext_deductible),
     }
 
-    diff_fields, _, score = _compare_fields(ext, db)
+    diff_fields, _, fillable, score = _compare_fields(ext, db)
     status = "DIFF" if diff_fields else "MATCH"
 
     badge_class = "bg-green-100 text-green-700" if status == "MATCH" else "bg-amber-100 text-amber-700"
