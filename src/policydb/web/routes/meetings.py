@@ -245,6 +245,34 @@ def _get_client_contacts(conn, client_id: int) -> list[dict]:
     ).fetchall()]
 
 
+@router.patch("/meetings/{meeting_id}/attendees/{attendee_id}")
+async def meeting_patch_attendee(
+    meeting_id: int,
+    attendee_id: int,
+    request: Request,
+    conn=Depends(get_db),
+):
+    """PATCH a single field on an attendee (contenteditable cell save)."""
+    import json as _json
+    body = _json.loads(await request.body())
+    field = body.get("field", "")
+    value = body.get("value", "").strip()
+    allowed = {"name", "role"}
+    if field not in allowed:
+        return JSONResponse({"ok": False, "error": "Invalid field"}, status_code=400)
+    conn.execute(
+        f"UPDATE meeting_attendees SET {field} = ? WHERE id = ? AND meeting_id = ?",
+        (value or None, attendee_id, meeting_id),
+    )
+    # If name changed, also update the linked contact record
+    if field == "name" and value:
+        att = conn.execute("SELECT contact_id FROM meeting_attendees WHERE id = ?", (attendee_id,)).fetchone()
+        if att and att["contact_id"]:
+            conn.execute("UPDATE contacts SET name = ? WHERE id = ?", (value, att["contact_id"]))
+    conn.commit()
+    return JSONResponse({"ok": True, "formatted": value})
+
+
 @router.post("/meetings/{meeting_id}/attendees/{attendee_id}/remove")
 def meeting_remove_attendee(
     request: Request,
