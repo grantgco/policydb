@@ -396,14 +396,26 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
         (client_id,),
     ).fetchall()]
 
-    # Corporate programs (is_program=1)
+    # Corporate programs (is_program=1) with linked policies
     programs = [dict(r) for r in conn.execute(
-        """SELECT policy_uid, policy_type, carrier, effective_date, expiration_date,
+        """SELECT id, policy_uid, policy_type, carrier, effective_date, expiration_date,
                   premium, limit_amount, renewal_status, program_carriers, program_carrier_count
            FROM policies WHERE client_id = ? AND archived = 0 AND is_program = 1
            ORDER BY policy_type""",
         (client_id,),
     ).fetchall()]
+    _program_linked_ids = set()
+    for pgm in programs:
+        linked = [dict(r) for r in conn.execute(
+            """SELECT policy_uid, policy_type, carrier, premium, limit_amount,
+                      effective_date, expiration_date
+               FROM policies WHERE program_id = ? AND archived = 0
+               ORDER BY policy_type""",
+            (pgm["id"],),
+        ).fetchall()]
+        pgm["linked_policies"] = linked
+        for lp in linked:
+            _program_linked_ids.add(lp["policy_uid"])
 
     # Load project notes keyed by normalized project name (from projects table)
     notes_rows = conn.execute(
@@ -659,6 +671,7 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
         "project_addresses": project_addresses,
         "archived_policies": archived_policies,
         "programs": programs,
+        "program_linked_uids": _program_linked_ids,
         "client_scratchpad": client_scratchpad,
         "client_scratchpad_updated": client_scratchpad_updated,
         "client_saved_notes": client_saved_notes,

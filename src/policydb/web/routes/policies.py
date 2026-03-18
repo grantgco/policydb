@@ -1251,7 +1251,75 @@ def policy_edit_form(request: Request, policy_uid: str, add_contact: str = "", c
         "all_orgs": sorted({r["organization"] for r in conn.execute("SELECT DISTINCT organization FROM contacts WHERE organization IS NOT NULL AND organization != ''").fetchall()}),
         "tower_layers": _tower_layers,
         "request_categories": cfg.get("request_categories", []),
+        "program_linked_policies": [dict(r) for r in conn.execute(
+            """SELECT policy_uid, policy_type, carrier, premium, effective_date, expiration_date
+               FROM policies WHERE program_id = ? AND archived = 0 ORDER BY policy_type""",
+            (policy_dict["id"],),
+        ).fetchall()] if policy_dict.get("is_program") else [],
+        "linkable_policies": [dict(r) for r in conn.execute(
+            """SELECT policy_uid, policy_type, carrier, premium
+               FROM policies WHERE client_id = ? AND archived = 0
+                 AND (is_program = 0 OR is_program IS NULL)
+                 AND (is_opportunity = 0 OR is_opportunity IS NULL)
+                 AND (program_id IS NULL OR program_id = ?)
+               ORDER BY policy_type""",
+            (policy_dict["client_id"], policy_dict["id"]),
+        ).fetchall()] if policy_dict.get("is_program") else [],
     })
+
+
+@router.post("/{policy_uid}/program-link")
+def program_link_policy(
+    request: Request,
+    policy_uid: str,
+    link_uid: str = Form(""),
+    unlink_uid: str = Form(""),
+    conn=Depends(get_db),
+):
+    """Link or unlink a policy to/from a program."""
+    program = conn.execute(
+        "SELECT id FROM policies WHERE policy_uid = ? AND is_program = 1",
+        (policy_uid.upper(),),
+    ).fetchone()
+    if not program:
+        return JSONResponse({"ok": False, "error": "Program not found"}, status_code=404)
+    if link_uid:
+        conn.execute(
+            "UPDATE policies SET program_id = ? WHERE policy_uid = ? AND (program_id IS NULL OR program_id = ?)",
+            (program["id"], link_uid.upper(), program["id"]),
+        )
+    if unlink_uid:
+        conn.execute(
+            "UPDATE policies SET program_id = NULL WHERE policy_uid = ? AND program_id = ?",
+            (unlink_uid.upper(), program["id"]),
+        )
+    conn.commit()
+    # Return updated linked policies list as HTML partial
+    linked = conn.execute(
+        """SELECT policy_uid, policy_type, carrier, premium, effective_date, expiration_date
+           FROM policies WHERE program_id = ? AND archived = 0 ORDER BY policy_type""",
+        (program["id"],),
+    ).fetchall()
+    rows_html = ""
+    for p in linked:
+        p = dict(p)
+        prem = f"${p['premium']:,.0f}" if p.get('premium') else "—"
+        rows_html += f'''<tr class="border-b border-gray-50">
+          <td class="px-3 py-1.5 text-xs"><a href="/policies/{p['policy_uid']}/edit" class="text-marsh hover:underline" target="_blank">{p['policy_uid']}</a></td>
+          <td class="px-3 py-1.5 text-xs text-gray-700">{p['policy_type']}</td>
+          <td class="px-3 py-1.5 text-xs text-gray-500">{p.get('carrier') or '—'}</td>
+          <td class="px-3 py-1.5 text-xs text-right">{prem}</td>
+          <td class="px-3 py-1.5 text-xs">
+            <button type="button" hx-post="/policies/{policy_uid.upper()}/program-link"
+              hx-vals='{{"unlink_uid": "{p['policy_uid']}"}}'
+              hx-target="#program-linked-list"
+              hx-swap="innerHTML"
+              class="text-red-400 hover:text-red-600 text-xs">Unlink</button>
+          </td>
+        </tr>'''
+    if not rows_html:
+        rows_html = '<tr><td colspan="5" class="px-3 py-3 text-xs text-gray-400 text-center italic">No policies linked yet</td></tr>'
+    return HTMLResponse(rows_html)
 
 
 @router.post("/{policy_uid}/edit")
