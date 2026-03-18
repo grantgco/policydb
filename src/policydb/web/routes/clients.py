@@ -1879,6 +1879,101 @@ def export_project(client_id: int, project: str = "", conn=Depends(get_db)):
     )
 
 
+# ─── Quick CSV exports per section ────────────────────────────────────────────
+
+def _safe_filename(client_name: str, section: str) -> str:
+    from datetime import date as _d
+    safe = client_name.replace(" ", "_").replace("/", "-")[:30]
+    return f"{safe}_{section}_{_d.today().isoformat()}.csv"
+
+
+@router.get("/{client_id}/export/activities.csv")
+def export_activities_csv(client_id: int, conn=Depends(get_db)):
+    from policydb.utils import csv_response
+    client = get_client_by_id(conn, client_id)
+    if not client:
+        return HTMLResponse("Not found", status_code=404)
+    rows = [dict(r) for r in get_activities(conn, client_id=client_id)]
+    cols = ["activity_date", "activity_type", "subject", "details", "contact_person",
+            "duration_hours", "follow_up_date", "follow_up_done", "account_exec"]
+    return csv_response(rows, _safe_filename(client["name"], "activities"), cols)
+
+
+@router.get("/{client_id}/export/contacts.csv")
+def export_contacts_csv(client_id: int, conn=Depends(get_db)):
+    from policydb.utils import csv_response
+    client = get_client_by_id(conn, client_id)
+    if not client:
+        return HTMLResponse("Not found", status_code=404)
+    rows = [dict(r) for r in conn.execute(
+        """SELECT co.name, cca.title, cca.role, cca.assignment, cca.contact_type,
+                  co.email, co.phone, co.mobile, co.organization, cca.notes
+           FROM contact_client_assignments cca
+           JOIN contacts co ON cca.contact_id = co.id
+           WHERE cca.client_id = ?
+           ORDER BY cca.contact_type, co.name""",
+        (client_id,),
+    ).fetchall()]
+    cols = ["name", "title", "role", "assignment", "contact_type", "email", "phone", "mobile", "organization", "notes"]
+    return csv_response(rows, _safe_filename(client["name"], "contacts"), cols)
+
+
+@router.get("/{client_id}/export/policies.csv")
+def export_policies_csv(client_id: int, conn=Depends(get_db)):
+    from policydb.utils import csv_response
+    client = get_client_by_id(conn, client_id)
+    if not client:
+        return HTMLResponse("Not found", status_code=404)
+    rows = [dict(r) for r in conn.execute(
+        """SELECT COALESCE(project_name, 'Corporate / Standalone') AS project_location,
+                  CASE WHEN is_program = 1 THEN policy_type || ' [PROGRAM]' ELSE policy_type END AS policy_type,
+                  carrier, policy_number, effective_date, expiration_date,
+                  premium, limit_amount, deductible, renewal_status, coverage_form,
+                  layer_position, description
+           FROM policies WHERE client_id = ? AND archived = 0
+             AND (is_opportunity = 0 OR is_opportunity IS NULL)
+           ORDER BY project_name, policy_type, layer_position""",
+        (client_id,),
+    ).fetchall()]
+    cols = ["project_location", "policy_type", "carrier", "policy_number",
+            "effective_date", "expiration_date", "premium", "limit_amount",
+            "deductible", "renewal_status", "coverage_form", "layer_position", "description"]
+    return csv_response(rows, _safe_filename(client["name"], "policies"), cols)
+
+
+@router.get("/{client_id}/export/risks.csv")
+def export_risks_csv(client_id: int, conn=Depends(get_db)):
+    from policydb.utils import csv_response
+    client = get_client_by_id(conn, client_id)
+    if not client:
+        return HTMLResponse("Not found", status_code=404)
+    rows = [dict(r) for r in conn.execute(
+        """SELECT category, description, severity, has_coverage, policy_uid,
+                  notes, source, review_date, identified_date
+           FROM client_risks WHERE client_id = ?
+           ORDER BY CASE severity WHEN 'Critical' THEN 0 WHEN 'High' THEN 1
+                    WHEN 'Medium' THEN 2 ELSE 3 END, category""",
+        (client_id,),
+    ).fetchall()]
+    cols = ["category", "description", "severity", "has_coverage", "policy_uid",
+            "notes", "source", "review_date", "identified_date"]
+    return csv_response(rows, _safe_filename(client["name"], "risks"), cols)
+
+
+@router.get("/{client_id}/export/followups.csv")
+def export_followups_csv(client_id: int, conn=Depends(get_db)):
+    from policydb.utils import csv_response
+    from policydb.queries import get_all_followups
+    client = get_client_by_id(conn, client_id)
+    if not client:
+        return HTMLResponse("Not found", status_code=404)
+    overdue, upcoming = get_all_followups(conn, window=365, client_ids=[client_id])
+    all_fu = overdue + upcoming
+    cols = ["source", "subject", "follow_up_date", "days_overdue", "activity_type",
+            "contact_person", "client_name", "policy_uid", "policy_type"]
+    return csv_response(all_fu, _safe_filename(client["name"], "followups"), cols)
+
+
 def _project_note_ctx(conn, client_id: int, project_name: str) -> dict:
     """Shared context builder for project note partials."""
     row = conn.execute(

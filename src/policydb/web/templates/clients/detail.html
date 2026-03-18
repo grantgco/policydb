@@ -166,6 +166,15 @@
         <a href="/briefing/client/{{ client.id }}"
            class="text-xs text-center bg-gray-50 hover:bg-gray-100 text-marsh rounded px-2 py-1.5 transition-colors">View Briefing</a>
       </div>
+      <p class="text-[10px] text-gray-400 uppercase tracking-wide mt-2 mb-1">Quick CSV Exports</p>
+      <div class="grid grid-cols-2 gap-1">
+        <a href="/clients/{{ client.id }}/export/policies.csv" class="text-[10px] text-gray-400 hover:text-marsh">&#8615; Policies</a>
+        <a href="/clients/{{ client.id }}/export/contacts.csv" class="text-[10px] text-gray-400 hover:text-marsh">&#8615; Contacts</a>
+        <a href="/clients/{{ client.id }}/export/activities.csv" class="text-[10px] text-gray-400 hover:text-marsh">&#8615; Activities</a>
+        <a href="/clients/{{ client.id }}/export/risks.csv" class="text-[10px] text-gray-400 hover:text-marsh">&#8615; Risks</a>
+        <a href="/clients/{{ client.id }}/export/followups.csv" class="text-[10px] text-gray-400 hover:text-marsh">&#8615; Follow-Ups</a>
+        <a href="/meetings/export.csv?client_id={{ client.id }}" class="text-[10px] text-gray-400 hover:text-marsh">&#8615; Meetings</a>
+      </div>
     </div>
 
     {# ── 5. Existing Metadata (compact) ── #}
