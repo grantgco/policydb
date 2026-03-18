@@ -437,13 +437,21 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
     # Corporate programs (is_program=1) with linked policies
     programs = [dict(r) for r in conn.execute(
         """SELECT id, policy_uid, policy_type, carrier, effective_date, expiration_date,
-                  premium, limit_amount, renewal_status, program_carriers, program_carrier_count
+                  premium, limit_amount, renewal_status
            FROM policies WHERE client_id = ? AND archived = 0 AND is_program = 1
            ORDER BY policy_type""",
         (client_id,),
     ).fetchall()]
     _program_linked_ids = set()
     for pgm in programs:
+        # Carrier rows from structured table
+        pgm["carrier_rows"] = [dict(r) for r in conn.execute(
+            """SELECT id, carrier, policy_number, premium, limit_amount
+               FROM program_carriers WHERE program_id = ? ORDER BY sort_order""",
+            (pgm["id"],),
+        ).fetchall()]
+        pgm["program_carrier_count"] = len(pgm["carrier_rows"])
+        # Still load linked policies (existing feature)
         linked = [dict(r) for r in conn.execute(
             """SELECT policy_uid, policy_type, carrier, premium, limit_amount,
                       effective_date, expiration_date
@@ -647,9 +655,9 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
     # Renewal calendar: programs count their carrier_count, regular policies count as 1
     _rm_rows = conn.execute(
         """SELECT CAST(strftime('%m', expiration_date) AS INTEGER) AS month,
-                  SUM(CASE WHEN is_program = 1 AND program_carrier_count > 0
-                           THEN program_carrier_count ELSE 1 END) AS cnt
-           FROM policies
+                  SUM(CASE WHEN is_program = 1 AND (SELECT COUNT(*) FROM program_carriers WHERE program_id = p.id) > 0
+                           THEN (SELECT COUNT(*) FROM program_carriers WHERE program_id = p.id) ELSE 1 END) AS cnt
+           FROM policies p
            WHERE client_id = ? AND archived = 0
              AND (is_opportunity = 0 OR is_opportunity IS NULL)
              AND expiration_date IS NOT NULL
