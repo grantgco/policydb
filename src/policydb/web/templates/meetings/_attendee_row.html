@@ -10,10 +10,10 @@
          data-field="role" data-placeholder="Title / Role...">{{ a.role or '' }}</div>
   </td>
   <td class="px-3 py-2.5">
-    <div contenteditable="true"
-         class="matrix-cell-editable outline-none text-xs rounded px-1 -mx-1
-           {% if a.is_internal %}text-blue-600{% else %}text-indigo-600{% endif %}"
-         data-field="is_internal" data-placeholder="Client/Internal">{% if a.is_internal %}Internal{% else %}Client{% endif %}</div>
+    <button type="button" onclick="toggleAttendeeType(this, {{ a.id }}, {{ meeting.id }})"
+      class="text-xs px-2 py-0.5 rounded cursor-pointer transition-colors
+        {% if a.is_internal %}bg-blue-50 text-blue-600{% else %}bg-indigo-50 text-indigo-600{% endif %}"
+      data-internal="{{ '1' if a.is_internal else '0' }}">{% if a.is_internal %}Internal{% else %}Client{% endif %}</button>
   </td>
   <td class="px-3 py-2.5">
     {% if a.contact_id and a.email %}
