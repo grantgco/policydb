@@ -499,6 +499,10 @@ def _compare_fields(ext: dict, db: dict) -> tuple[list[str], list[str], list[str
         ext_val = ext.get(f)
         db_val = db.get(f)
 
+        # Universal fillable check: ext has value, DB is empty/null/0
+        ext_has = bool(str(ext_val or "").strip()) if f not in _CURRENCY_FIELDS else (float(ext_val) > 0 if ext_val else False)
+        db_empty = not str(db_val or "").strip() if f not in _CURRENCY_FIELDS else (float(db_val or 0) == 0)
+
         if f in _TEXT_FIELDS:
             if ext_val and db_val:
                 # Normalize coverage names before comparing
@@ -509,13 +513,18 @@ def _compare_fields(ext: dict, db: dict) -> tuple[list[str], list[str], list[str
                 if score < 85:
                     diff_fields.append(f)
                 elif f == "policy_type" and str(ext_val).strip().lower() != str(db_val).strip().lower():
-                    # Raw strings differ but normalized values match — cosmetic diff
                     cosmetic_diffs.append(f)
+            elif ext_has and db_empty and f not in ("client_name", "policy_type"):
+                # DB missing carrier — fillable (skip client_name/policy_type as those are match keys)
+                fillable_fields.append(f)
 
         elif f in _DATE_FIELDS:
-            delta = _date_delta_days(ext_val or "", db_val or "")
-            if delta is not None and delta > 14:
-                diff_fields.append(f)
+            if ext_has and db_empty:
+                fillable_fields.append(f)
+            else:
+                delta = _date_delta_days(ext_val or "", db_val or "")
+                if delta is not None and delta > 14:
+                    diff_fields.append(f)
 
         elif f in _CURRENCY_FIELDS:
             try:
@@ -526,17 +535,17 @@ def _compare_fields(ext: dict, db: dict) -> tuple[list[str], list[str], list[str
                     if pct_diff > 0.01:
                         diff_fields.append(f)
                 elif ev > 0 and dv == 0:
-                    # DB has no value but import does — optional auto-fill
                     fillable_fields.append(f)
             except (TypeError, ValueError):
                 pass
 
-        # policy_number: only flag if one side has it and the other doesn't
         elif f == "policy_number":
             ext_pn = (ext_val or "").strip().upper()
             db_pn = (db_val or "").strip().upper()
             if ext_pn and db_pn and ext_pn != db_pn:
                 diff_fields.append(f)
+            elif ext_pn and not db_pn:
+                fillable_fields.append(f)
 
     return diff_fields, cosmetic_diffs, fillable_fields, min_text_score
 
