@@ -5,10 +5,11 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Form, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
 from policydb import config as cfg
-from policydb.queries import get_all_policies, get_client_by_id, get_opportunity_by_uid, get_policy_by_uid, renew_policy
+from policydb.queries import get_all_policies, get_client_by_id, get_opportunity_by_uid, get_policy_by_uid, get_policy_total_hours, get_saved_notes, save_note, delete_saved_note, renew_policy, count_changed_fields, check_auto_review_policy, get_or_create_contact, assign_contact_to_policy, remove_contact_from_policy, set_placement_colleague, get_policy_contacts
+from policydb.utils import round_duration
 from policydb.web.app import get_db, templates
 
 router = APIRouter(prefix="/policies")
@@ -32,7 +33,8 @@ US_STATES = [
 # Fields that can serve autocomplete suggestions from prior DB entries
 _AUTOCOMPLETE_FIELDS = {
     "carrier", "exposure_basis", "exposure_unit", "project_name",
-    "exposure_city", "exposure_state",
+    "exposure_city", "exposure_state", "access_point", "first_named_insured",
+    "tower_group",
 }
 
 
@@ -68,7 +70,7 @@ def policy_project_defaults(project_name: str, client_id: int = 0, conn=Depends(
 
 
 # Fields where autocomplete should be scoped to the same client
-_CLIENT_SCOPED_AC_FIELDS = {"project_name", "exposure_city"}
+_CLIENT_SCOPED_AC_FIELDS = {"project_name", "exposure_city", "tower_group"}
 
 
 def _sync_project_id(conn, policy_id: int, client_id: int, project_name: str | None) -> None:
@@ -97,11 +99,13 @@ def _sync_project_id(conn, policy_id: int, client_id: int, project_name: str | N
 
 @router.get("/colleague-data", response_class=JSONResponse)
 def colleague_data(conn=Depends(get_db)):
-    """Return JSON map of {name: {email, phone, role}} from all policy_contacts for autocomplete fill."""
+    """Return JSON map of {name: {email, phone, role}} from all policy contact assignments for autocomplete fill."""
     rows = conn.execute(
-        """SELECT name, email, phone, role FROM policy_contacts
-           WHERE name IS NOT NULL AND name != ''
-           GROUP BY name ORDER BY name"""
+        """SELECT co.name, co.email, co.phone, cpa.role
+           FROM contacts co
+           JOIN contact_policy_assignments cpa ON co.id = cpa.contact_id
+           WHERE co.name IS NOT NULL AND co.name != ''
+           GROUP BY co.name ORDER BY co.name"""
     ).fetchall()
     return JSONResponse({
         r["name"]: {
@@ -223,6 +227,7 @@ def policy_row_edit_post(
             return None
 
     uid = policy_uid.upper()
+    old_row = dict(conn.execute("SELECT * FROM policies WHERE policy_uid=?", (uid,)).fetchone())
     conn.execute(
         """UPDATE policies SET
            policy_type=?, carrier=?, policy_number=?,
@@ -245,6 +250,23 @@ def policy_row_edit_post(
         ),
     )
     conn.commit()
+    _row_edit_fields = [
+        "policy_type", "carrier", "policy_number", "effective_date", "expiration_date",
+        "premium", "limit_amount", "commission_rate", "project_name", "follow_up_date",
+        "attachment_point", "participation_of", "first_named_insured", "access_point",
+        "description", "notes",
+    ]
+    _row_edit_new = {
+        "policy_type": policy_type, "carrier": carrier, "policy_number": policy_number,
+        "effective_date": effective_date, "expiration_date": expiration_date,
+        "premium": premium, "limit_amount": limit_amount, "commission_rate": commission_rate,
+        "project_name": project_name, "follow_up_date": follow_up_date,
+        "attachment_point": attachment_point, "participation_of": participation_of,
+        "first_named_insured": first_named_insured, "access_point": access_point,
+        "description": description, "notes": notes,
+    }
+    changed = count_changed_fields(old_row, _row_edit_new, _row_edit_fields)
+    check_auto_review_policy(conn, uid, changed)
     policy = get_policy_by_uid(conn, uid)
     if not policy:
         return HTMLResponse("", status_code=404)
@@ -284,30 +306,34 @@ def policy_row_log_post(
     subject: str = Form(...),
     details: str = Form(""),
     follow_up_date: str = Form(""),
-    duration_minutes: str = Form(""),
+    duration_hours: str = Form(""),
     conn=Depends(get_db),
 ):
     """HTMX: save activity log entry, restore the policy row."""
     from datetime import date as _date
 
-    def _int(v):
+    def _float(v):
         try:
-            return int(v) if str(v).strip() else None
+            return float(v) if str(v).strip() else None
         except ValueError:
             return None
 
     account_exec = cfg.get("default_account_exec", "Grant")
     conn.execute(
         """INSERT INTO activity_log
-           (activity_date, client_id, policy_id, activity_type, subject, details, follow_up_date, account_exec, duration_minutes)
+           (activity_date, client_id, policy_id, activity_type, subject, details, follow_up_date, account_exec, duration_hours)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             _date.today().isoformat(), client_id, policy_id,
             activity_type, subject, details or None,
-            follow_up_date or None, account_exec, _int(duration_minutes),
+            follow_up_date or None, account_exec, round_duration(duration_hours),
         ),
     )
+    if follow_up_date:
+        from policydb.queries import supersede_followups
+        supersede_followups(conn, policy_id, follow_up_date)
     conn.commit()
+    check_auto_review_policy(conn, policy_uid.upper(), 0)
 
     uid = policy_uid.upper()
     policy = get_policy_by_uid(conn, uid)
@@ -358,25 +384,61 @@ def policy_dash_edit_post(
     premium: float = Form(...),
     renewal_status: str = Form("Not Started"),
     follow_up_date: str = Form(""),
+    effective_date: str = Form(""),
+    policy_number: str = Form(""),
+    limit_amount: str = Form(""),
+    commission_rate: str = Form(""),
+    access_point: str = Form(""),
+    description: str = Form(""),
+    notes: str = Form(""),
     conn=Depends(get_db),
 ):
     """HTMX: save quick edits from dashboard, restore the dashboard row."""
+    def _f(v):
+        try: return float(v) if v else None
+        except (ValueError, TypeError): return None
+
     uid = policy_uid.upper()
+    old_row = dict(conn.execute("SELECT * FROM policies WHERE policy_uid=?", (uid,)).fetchone())
     conn.execute(
         """UPDATE policies SET
            policy_type=?, carrier=?, expiration_date=?,
-           premium=?, renewal_status=?, follow_up_date=?
+           premium=?, renewal_status=?, follow_up_date=?,
+           effective_date=?, policy_number=?, limit_amount=?,
+           commission_rate=?, access_point=?,
+           description=?, notes=?
            WHERE policy_uid=?""",
         (policy_type, carrier, expiration_date, premium,
-         renewal_status, follow_up_date or None, uid),
+         renewal_status, follow_up_date or None,
+         effective_date or None, policy_number or None,
+         _f(limit_amount), _f(commission_rate),
+         access_point or None,
+         description or None, notes or None,
+         uid),
     )
     conn.commit()
+    _dash_edit_fields = [
+        "policy_type", "carrier", "expiration_date", "premium", "renewal_status",
+        "follow_up_date", "effective_date", "policy_number", "limit_amount",
+        "commission_rate", "access_point", "description", "notes",
+    ]
+    _dash_edit_new = {
+        "policy_type": policy_type, "carrier": carrier, "expiration_date": expiration_date,
+        "premium": premium, "renewal_status": renewal_status, "follow_up_date": follow_up_date,
+        "effective_date": effective_date, "policy_number": policy_number,
+        "limit_amount": limit_amount, "commission_rate": commission_rate,
+        "access_point": access_point, "description": description, "notes": notes,
+    }
+    changed = count_changed_fields(old_row, _dash_edit_new, _dash_edit_fields)
+    check_auto_review_policy(conn, uid, changed)
     policy = get_policy_by_uid(conn, uid)
     if not policy:
         return HTMLResponse("", status_code=404)
+    p = dict(policy)
+    rows_progress = _attach_milestone_progress(conn, [p])
     return templates.TemplateResponse("policies/_policy_dash_row.html", {
         "request": request,
-        "p": dict(policy),
+        "p": rows_progress[0],
         "renewal_statuses": _renewal_statuses(),
     })
 
@@ -408,30 +470,34 @@ def policy_dash_log_post(
     subject: str = Form(...),
     details: str = Form(""),
     follow_up_date: str = Form(""),
-    duration_minutes: str = Form(""),
+    duration_hours: str = Form(""),
     conn=Depends(get_db),
 ):
     """HTMX: save activity from dashboard, restore the dashboard pipeline row."""
     from datetime import date as _date
 
-    def _int(v):
+    def _float(v):
         try:
-            return int(v) if str(v).strip() else None
+            return float(v) if str(v).strip() else None
         except ValueError:
             return None
 
     account_exec = cfg.get("default_account_exec", "Grant")
     conn.execute(
         """INSERT INTO activity_log
-           (activity_date, client_id, policy_id, activity_type, subject, details, follow_up_date, account_exec, duration_minutes)
+           (activity_date, client_id, policy_id, activity_type, subject, details, follow_up_date, account_exec, duration_hours)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             _date.today().isoformat(), client_id, policy_id,
             activity_type, subject, details or None,
-            follow_up_date or None, account_exec, _int(duration_minutes),
+            follow_up_date or None, account_exec, round_duration(duration_hours),
         ),
     )
+    if follow_up_date:
+        from policydb.queries import supersede_followups
+        supersede_followups(conn, policy_id, follow_up_date)
     conn.commit()
+    check_auto_review_policy(conn, policy_uid.upper(), 0)
 
     uid = policy_uid.upper()
     policy = get_policy_by_uid(conn, uid)
@@ -497,7 +563,6 @@ def policy_renew_edit_post(
     limit_amount: str = Form(""),
     commission_rate: str = Form(""),
     access_point: str = Form(""),
-    placement_colleague: str = Form(""),
     description: str = Form(""),
     notes: str = Form(""),
     conn=Depends(get_db),
@@ -508,23 +573,38 @@ def policy_renew_edit_post(
         except (ValueError, TypeError): return None
 
     uid = policy_uid.upper()
+    old_row = dict(conn.execute("SELECT * FROM policies WHERE policy_uid=?", (uid,)).fetchone())
     conn.execute(
         """UPDATE policies SET
            policy_type=?, carrier=?, expiration_date=?,
            premium=?, renewal_status=?, follow_up_date=?,
            effective_date=?, policy_number=?, limit_amount=?,
-           commission_rate=?, access_point=?, placement_colleague=?,
+           commission_rate=?, access_point=?,
            description=?, notes=?
            WHERE policy_uid=?""",
         (policy_type, carrier, expiration_date, premium,
          renewal_status, follow_up_date or None,
          effective_date or None, policy_number or None,
          _f(limit_amount), _f(commission_rate),
-         access_point or None, placement_colleague or None,
+         access_point or None,
          description or None, notes or None,
          uid),
     )
     conn.commit()
+    _renew_edit_fields = [
+        "policy_type", "carrier", "expiration_date", "premium", "renewal_status",
+        "follow_up_date", "effective_date", "policy_number", "limit_amount",
+        "commission_rate", "access_point", "description", "notes",
+    ]
+    _renew_edit_new = {
+        "policy_type": policy_type, "carrier": carrier, "expiration_date": expiration_date,
+        "premium": premium, "renewal_status": renewal_status, "follow_up_date": follow_up_date,
+        "effective_date": effective_date, "policy_number": policy_number,
+        "limit_amount": limit_amount, "commission_rate": commission_rate,
+        "access_point": access_point, "description": description, "notes": notes,
+    }
+    changed = count_changed_fields(old_row, _renew_edit_new, _renew_edit_fields)
+    check_auto_review_policy(conn, uid, changed)
     policy = get_policy_by_uid(conn, uid)
     if not policy:
         return HTMLResponse("", status_code=404)
@@ -565,30 +645,34 @@ def policy_renew_log_post(
     subject: str = Form(...),
     details: str = Form(""),
     follow_up_date: str = Form(""),
-    duration_minutes: str = Form(""),
+    duration_hours: str = Form(""),
     conn=Depends(get_db),
 ):
     """HTMX: save activity from renewals page, restore the renewals pipeline row."""
     from datetime import date as _date
 
-    def _int(v):
+    def _float(v):
         try:
-            return int(v) if str(v).strip() else None
+            return float(v) if str(v).strip() else None
         except ValueError:
             return None
 
     account_exec = cfg.get("default_account_exec", "Grant")
     conn.execute(
         """INSERT INTO activity_log
-           (activity_date, client_id, policy_id, activity_type, subject, details, follow_up_date, account_exec, duration_minutes)
+           (activity_date, client_id, policy_id, activity_type, subject, details, follow_up_date, account_exec, duration_hours)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             _date.today().isoformat(), client_id, policy_id,
             activity_type, subject, details or None,
-            follow_up_date or None, account_exec, _int(duration_minutes),
+            follow_up_date or None, account_exec, round_duration(duration_hours),
         ),
     )
+    if follow_up_date:
+        from policydb.queries import supersede_followups
+        supersede_followups(conn, policy_id, follow_up_date)
     conn.commit()
+    check_auto_review_policy(conn, policy_uid.upper(), 0)
 
     uid = policy_uid.upper()
     policy = get_policy_by_uid(conn, uid)
@@ -606,18 +690,45 @@ def policy_renew_log_post(
 
 @router.get("/{policy_uid}/team-cc")
 def policy_team_cc(policy_uid: str, conn=Depends(get_db)):
-    """JSON: return internal team CC options for a policy (for email popover lazy-load)."""
+    """JSON: return team CC options for a policy — internal team + policy contacts."""
     policy = get_policy_by_uid(conn, policy_uid.upper())
     if not policy:
         return JSONResponse([])
-    rows = conn.execute(
-        """SELECT name, email FROM client_contacts
-           WHERE client_id=? AND contact_type='internal'
-             AND email IS NOT NULL AND email != ''
-           ORDER BY name""",
+    emails: list[dict] = []
+    seen: set[str] = set()
+
+    # Internal team members for the client
+    internal = conn.execute(
+        """SELECT co.name, co.email
+           FROM contacts co
+           JOIN contact_client_assignments cca ON co.id = cca.contact_id
+           WHERE cca.client_id=? AND cca.contact_type='internal'
+             AND co.email IS NOT NULL AND TRIM(co.email) != ''
+           ORDER BY co.name""",
         (policy["client_id"],),
     ).fetchall()
-    return JSONResponse([{"name": r["name"], "email": r["email"]} for r in rows])
+    for r in internal:
+        key = r["email"].strip().lower()
+        if key not in seen:
+            seen.add(key)
+            emails.append({"name": r["name"], "email": r["email"]})
+
+    # Policy contacts (placement colleagues, underwriters, etc.)
+    pc_rows = conn.execute(
+        """SELECT co.name, co.email
+           FROM contacts co
+           JOIN contact_policy_assignments cpa ON co.id = cpa.contact_id
+           WHERE cpa.policy_id = ? AND co.email IS NOT NULL AND TRIM(co.email) != ''
+           ORDER BY co.name""",
+        (policy["id"],),
+    ).fetchall()
+    for r in pc_rows:
+        key = r["email"].strip().lower()
+        if key not in seen:
+            seen.add(key)
+            emails.append({"name": r["name"], "email": r["email"]})
+
+    return JSONResponse(emails)
 
 
 def _opp_row_response(request: Request, uid: str, conn):
@@ -674,35 +785,40 @@ def opp_log_post(
     subject: str = Form(...),
     details: str = Form(""),
     follow_up_date: str = Form(""),
-    duration_minutes: str = Form(""),
+    duration_hours: str = Form(""),
     contact_person: str = Form(""),
     conn=Depends(get_db),
 ):
     """HTMX: save activity for an opportunity, restore the opportunity row."""
     from datetime import date as _date
-    def _int(v):
+    def _float(v):
         try:
-            return int(v) if str(v).strip() else None
+            return float(v) if str(v).strip() else None
         except ValueError:
             return None
     account_exec = cfg.get("default_account_exec", "Grant")
     conn.execute(
         """INSERT INTO activity_log
-           (activity_date, client_id, policy_id, activity_type, contact_person, subject, details, follow_up_date, account_exec, duration_minutes)
+           (activity_date, client_id, policy_id, activity_type, contact_person, subject, details, follow_up_date, account_exec, duration_hours)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             _date.today().isoformat(), client_id, policy_id,
             activity_type, contact_person or None, subject, details or None,
-            follow_up_date or None, account_exec, _int(duration_minutes),
+            follow_up_date or None, account_exec, round_duration(duration_hours),
         ),
     )
+    if follow_up_date and policy_id:
+        from policydb.queries import supersede_followups
+        supersede_followups(conn, policy_id, follow_up_date)
     conn.commit()
+    check_auto_review_policy(conn, policy_uid.upper(), 0)
     return _opp_row_response(request, policy_uid.upper(), conn)
 
 
 def _build_checklist(conn, policy_uid: str) -> list[dict]:
     """Return checklist items for a policy, ordered by config milestone list."""
     milestones_cfg = cfg.get("renewal_milestones", [])
+    critical_set = set(cfg.get("critical_milestones", []))
     rows = {r["milestone"]: dict(r) for r in conn.execute(
         "SELECT * FROM policy_milestones WHERE policy_uid=?", (policy_uid,)
     ).fetchall()}
@@ -711,18 +827,29 @@ def _build_checklist(conn, policy_uid: str) -> list[dict]:
             "name": m,
             "completed": rows.get(m, {}).get("completed", 0),
             "completed_at": rows.get(m, {}).get("completed_at", ""),
+            "is_critical": m in critical_set,
         }
         for m in milestones_cfg
     ]
 
 
 def _attach_milestone_progress(conn, rows: list[dict]) -> list[dict]:
-    """Enrich pipeline row dicts with milestone_done / milestone_total counts."""
-    total = len(cfg.get("renewal_milestones", []))
+    """Enrich pipeline row dicts with milestone_done / milestone_total counts.
+
+    Also computes weighted_done / weighted_total for readiness scoring
+    using per-milestone weights from config.
+    """
+    all_milestones = cfg.get("renewal_milestones", [])
+    milestone_weights = cfg.get("readiness_milestone_weights", {})
+    total = len(all_milestones)
+    # Compute weighted totals from config
+    weighted_total = sum(milestone_weights.get(m, 1) for m in all_milestones)
     if not total or not rows:
         for r in rows:
             r["milestone_done"] = 0
             r["milestone_total"] = total
+            r["weighted_done"] = 0
+            r["weighted_total"] = weighted_total
         return rows
     uids = [r["policy_uid"] for r in rows]
     placeholders = ",".join("?" * len(uids))
@@ -732,9 +859,25 @@ def _attach_milestone_progress(conn, rows: list[dict]) -> list[dict]:
         uids,
     ).fetchall()
     done_map = {r["policy_uid"]: (r["done"] or 0) for r in done_rows}
+
+    # Batch-fetch per-milestone completion for weighted scoring
+    completed_milestones_map: dict[str, set] = {}
+    if all_milestones:
+        ms_ph = ",".join("?" * len(all_milestones))
+        ms_rows = conn.execute(
+            f"SELECT policy_uid, milestone FROM policy_milestones "  # noqa: S608
+            f"WHERE policy_uid IN ({placeholders}) AND milestone IN ({ms_ph}) AND completed = 1",
+            uids + all_milestones,
+        ).fetchall()
+        for mr in ms_rows:
+            completed_milestones_map.setdefault(mr["policy_uid"], set()).add(mr["milestone"])
+
     for r in rows:
         r["milestone_done"] = done_map.get(r["policy_uid"], 0)
         r["milestone_total"] = total
+        completed = completed_milestones_map.get(r["policy_uid"], set())
+        r["weighted_done"] = sum(milestone_weights.get(m, 1) for m in completed)
+        r["weighted_total"] = weighted_total
     return rows
 
 
@@ -755,51 +898,83 @@ def _attach_readiness_score(conn, rows: list[dict]) -> list[dict]:
         ).fetchall()
         last_activity_map = {r["policy_id"]: r["last_date"] for r in la_rows}
 
+    # Batch-fetch placement colleague assignments from contact_policy_assignments
+    has_pc: set = set()
+    if ids:
+        pc_rows = conn.execute(
+            f"SELECT DISTINCT cpa.policy_id FROM contact_policy_assignments cpa "  # noqa: S608
+            f"WHERE cpa.is_placement_colleague = 1 AND cpa.policy_id IN ({placeholders})",
+            ids,
+        ).fetchall()
+        has_pc = {r["policy_id"] for r in pc_rows}
+
     today = _date.today()
+    renewal_window = cfg.get("renewal_window_days", 180)
     for p in rows:
+        # Only compute readiness for policies within the renewal window
+        days_to = p.get("days_to_renewal")
+        if days_to is not None and days_to > renewal_window:
+            p["readiness_score"] = None
+            p["readiness_label"] = None
+            p["readiness_tooltip"] = None
+            continue
+
+        weights = cfg.get("readiness_weights", {})
+        w_status = weights.get("status", 40)
+        w_checklist = weights.get("checklist", 25)
+        w_activity = weights.get("activity", 15)
+        w_followup = weights.get("followup", 10)
+        w_placement = weights.get("placement", 10)
+
         parts = []
         score = 0
         status = p.get("renewal_status") or "Not Started"
 
-        # Status (0-40)
-        status_scores = {
-            "Not Started": 0, "In Progress": 20, "Submitted": 30,
-            "Pending Bind": 35, "Bound": 40,
-        }
-        s_pts = status_scores.get(status, 10)
+        # Status — config-driven per-status percentages
+        status_pcts = cfg.get("readiness_status_scores", {})
+        s_pct = status_pcts.get(status, 25)
+        s_pts = int(w_status * s_pct / 100)
         score += s_pts
-        parts.append(f"Status: {s_pts}/40 ({status})")
+        parts.append(f"Status: {s_pts}/{w_status} ({status})")
 
-        # Checklist (0-25)
+        # Checklist — per-milestone weights from config
         done = p.get("milestone_done", 0)
-        total = max(p.get("milestone_total", 1) or 1, 1)
-        c_pts = int(25 * done / total)
+        total = p.get("milestone_total", 0) or 0
+        w_done = p.get("weighted_done", 0)
+        w_total = p.get("weighted_total", 0) or 0
+        if w_total > 0:
+            c_pts = int(w_checklist * w_done / w_total)
+        else:
+            c_pts = 0
         score += c_pts
-        parts.append(f"Checklist: {c_pts}/25 ({done}/{total})")
+        parts.append(f"Checklist: {c_pts}/{w_checklist} ({done}/{total})")
 
-        # Recent activity (0-15)
+        # Recent activity — config-driven tiers
         last_act = last_activity_map.get(p.get("id"))
         a_pts = 0
         a_desc = "none"
         if last_act:
             try:
                 days_since = (today - _date.fromisoformat(last_act)).days
-                a_pts = 15 if days_since <= 7 else 10 if days_since <= 14 else 5 if days_since <= 30 else 0
                 a_desc = f"{days_since}d ago"
+                for tier in cfg.get("readiness_activity_tiers", []):
+                    if days_since <= tier.get("days", 0):
+                        a_pts = int(w_activity * tier.get("pct", 0) / 100)
+                        break
             except (ValueError, TypeError):
                 pass
         score += a_pts
-        parts.append(f"Activity: {a_pts}/15 ({a_desc})")
+        parts.append(f"Activity: {a_pts}/{w_activity} ({a_desc})")
 
-        # Follow-up scheduled (0-10)
-        f_pts = 10 if p.get("follow_up_date") else 0
+        # Follow-up scheduled
+        f_pts = w_followup if p.get("follow_up_date") else 0
         score += f_pts
-        parts.append(f"Follow-up: {f_pts}/10")
+        parts.append(f"Follow-up: {f_pts}/{w_followup}")
 
-        # Placement colleague assigned (0-10)
-        pc_pts = 10 if p.get("placement_colleague") else 0
+        # Placement colleague assigned
+        pc_pts = w_placement if p.get("id") in has_pc or p.get("placement_colleague") else 0
         score += pc_pts
-        parts.append(f"Placement: {pc_pts}/10")
+        parts.append(f"Placement: {pc_pts}/{w_placement}")
 
         total_score = min(score, 100)
         p["readiness_score"] = total_score
@@ -876,6 +1051,21 @@ def milestones_popover(request: Request, policy_uid: str, conn=Depends(get_db)):
     })
 
 
+@router.get("/{policy_uid}/export")
+def export_policy(policy_uid: str, conn=Depends(get_db)):
+    from policydb.exporter import export_single_policy_xlsx
+    uid = policy_uid.upper()
+    policy = get_policy_by_uid(conn, uid)
+    if not policy:
+        return HTMLResponse("Policy not found", status_code=404)
+    content = export_single_policy_xlsx(conn, uid)
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{uid}_detail.xlsx"'},
+    )
+
+
 @router.get("/{policy_uid}/edit", response_class=HTMLResponse)
 def policy_edit_form(request: Request, policy_uid: str, add_contact: str = "", conn=Depends(get_db)):
     uid = policy_uid.upper()
@@ -883,46 +1073,35 @@ def policy_edit_form(request: Request, policy_uid: str, add_contact: str = "", c
     if not policy:
         return HTMLResponse("Policy not found", status_code=404)
     policy_dict = dict(policy)
-    contacts = [dict(r) for r in conn.execute(
-        "SELECT name, title, role, email, phone FROM client_contacts WHERE client_id=? AND contact_type='client' ORDER BY is_primary DESC, name",
-        (policy_dict["client_id"],),
-    ).fetchall()]
-    team_contacts = [dict(r) for r in conn.execute(
-        "SELECT id, name, title, role, email, phone FROM client_contacts WHERE client_id=? AND contact_type='internal' ORDER BY name",
-        (policy_dict["client_id"],),
-    ).fetchall()]
-    policy_contacts = [dict(r) for r in conn.execute(
-        "SELECT * FROM policy_contacts WHERE policy_id=? ORDER BY role, name",
-        (policy_dict["id"],),
-    ).fetchall()]
+    from policydb.queries import get_client_contacts as _get_client_contacts
+    contacts = _get_client_contacts(conn, policy_dict["client_id"], contact_type="client")
+    team_contacts = _get_client_contacts(conn, policy_dict["client_id"], contact_type="internal")
+    policy_contacts = get_policy_contacts(conn, policy_dict["id"])
     # All known contacts for autocomplete (name + email + role for auto-fill)
     all_contact_names = [r[0] for r in conn.execute(
-        """SELECT DISTINCT name FROM (
-               SELECT name FROM policy_contacts
-               UNION
-               SELECT name FROM client_contacts WHERE contact_type='internal'
-           ) ORDER BY name"""
+        """SELECT DISTINCT co.name FROM contacts co
+           WHERE co.name IS NOT NULL AND co.name != ''
+           ORDER BY co.name"""
     ).fetchall()]
     import json as _json
     _ac_rows = conn.execute(
-        """SELECT name,
-                  MAX(email)        AS email,
-                  MAX(role)         AS role,
-                  MAX(phone)        AS phone,
-                  MAX(title)        AS title,
-                  MAX(organization) AS organization
-           FROM (
-               SELECT name, email, role, phone, NULL AS title, organization FROM policy_contacts
-               UNION ALL
-               SELECT name, email, role, phone, title, NULL AS organization FROM client_contacts WHERE contact_type='internal'
-           )
-           WHERE name IS NOT NULL AND name != ''
-           GROUP BY name
-           ORDER BY name"""
+        """SELECT co.name,
+                  co.email,
+                  co.phone,
+                  co.mobile,
+                  co.organization,
+                  MAX(COALESCE(cpa.role, cca.role)) AS role,
+                  MAX(COALESCE(cpa.title, cca.title)) AS title
+           FROM contacts co
+           LEFT JOIN contact_policy_assignments cpa ON co.id = cpa.contact_id
+           LEFT JOIN contact_client_assignments cca ON co.id = cca.contact_id
+           WHERE co.name IS NOT NULL AND co.name != ''
+           GROUP BY co.id
+           ORDER BY co.name"""
     ).fetchall()
-    all_contacts_for_ac_json = _json.dumps({r["name"]: {"email": r["email"] or "", "role": r["role"] or "", "phone": r["phone"] or "", "title": r["title"] or "", "organization": r["organization"] or ""} for r in _ac_rows})
+    all_contacts_for_ac_json = _json.dumps({r["name"]: {"email": r["email"] or "", "role": r["role"] or "", "phone": r["phone"] or "", "mobile": r["mobile"] or "", "title": r["title"] or "", "organization": r["organization"] or ""} for r in _ac_rows})
     activities = [dict(r) for r in conn.execute(
-        """SELECT a.*, c.name AS client_name, p.policy_uid
+        """SELECT a.*, c.name AS client_name, c.cn_number, p.policy_uid, p.project_id
            FROM activity_log a
            JOIN clients c ON a.client_id = c.id
            LEFT JOIN policies p ON a.policy_id = p.id
@@ -937,16 +1116,122 @@ def policy_edit_form(request: Request, policy_uid: str, add_contact: str = "", c
     from policydb.email_templates import policy_context as _policy_ctx, render_tokens as _render_tokens
     _mail_ctx = _policy_ctx(conn, uid)
     mailto_subject = _render_tokens(cfg.get("email_subject_policy", "Re: {{client_name}} — {{policy_type}}"), _mail_ctx)
+    policy_total_hours = get_policy_total_hours(conn, policy_dict["id"])
+    scratch_row = conn.execute(
+        "SELECT content, updated_at FROM policy_scratchpad WHERE policy_uid=?", (uid,)
+    ).fetchone()
+
+    # ── Policy alerts / readiness context ──
+    from policydb.queries import get_escalation_alerts as _get_esc
+    _excluded = cfg.get("renewal_statuses_excluded", [])
+    _all_alerts = _get_esc(conn, excluded_statuses=_excluded)
+    _policy_alert = next((a for a in _all_alerts if a.get("policy_uid") == uid), None)
+
+    _escalation_tier = None
+    _escalation_reason = None
+    if _policy_alert:
+        _escalation_tier = _policy_alert.get("escalation_tier")
+        # Build human-readable reason from tier + data
+        _t = _escalation_tier
+        _days = _policy_alert.get("days_to_renewal")
+        _status = _policy_alert.get("renewal_status", "Not Started")
+        if _t == "CRITICAL":
+            _escalation_reason = f"Expires in {_days}d — status \"{_status}\" with no recent activity"
+        elif _t == "WARNING":
+            _escalation_reason = f"Expires in {_days}d — still \"{_status}\""
+        elif _t == "NUDGE":
+            _escalation_reason = f"Expires in {_days}d — no follow-up scheduled"
+
+    # Readiness score
+    _readiness_score = None
+    _readiness_label = None
+    _readiness_tooltip = None
+    if policy_dict.get("days_to_renewal") is not None:
+        _tmp = [policy_dict]
+        _attach_milestone_progress(conn, _tmp)
+        _attach_readiness_score(conn, _tmp)
+        _readiness_score = policy_dict.get("readiness_score")
+        _readiness_label = policy_dict.get("readiness_label")
+        _readiness_tooltip = policy_dict.get("readiness_tooltip")
+
+    # Overdue follow-ups for this policy
+    _overdue_followups = [dict(r) for r in conn.execute(
+        """SELECT subject, follow_up_date,
+               CAST(julianday('now') - julianday(follow_up_date) AS INTEGER) AS days_overdue
+           FROM activity_log
+           WHERE policy_id=? AND follow_up_done=0 AND follow_up_date < date('now')
+           ORDER BY follow_up_date""",
+        (policy_dict["id"],),
+    ).fetchall()]
+
+    # Missing items warnings
+    _policy_warnings = []
+    if not any(c.get("is_placement_colleague") for c in (policy_contacts or [])):
+        _policy_warnings.append("No placement colleague assigned")
+    checklist = _build_checklist(conn, uid)
+    if checklist and not any(c["completed"] for c in checklist):
+        _policy_warnings.append("Checklist 0% — no items started")
+    if not policy_dict.get("follow_up_date"):
+        _policy_warnings.append("No follow-up date scheduled")
+
+    # Tower structure: sibling policies in same tower group for ground-up calc
+    _tower_layers = []
+    if policy_dict.get("tower_group"):
+        _tg_rows = conn.execute(
+            """SELECT policy_uid, policy_type, carrier, limit_amount, layer_position,
+                      attachment_point, participation_of
+               FROM policies
+               WHERE client_id = ? AND LOWER(TRIM(tower_group)) = LOWER(TRIM(?)) AND archived = 0""",
+            (policy_dict["client_id"], policy_dict["tower_group"]),
+        ).fetchall()
+
+        def _layer_sort_key(r):
+            # Primary sort: attachment_point (NULL/0 = primary first)
+            att = r["attachment_point"]
+            if att is not None:
+                return (float(att), 0)
+            # Fallback: normalise layer_position ("Primary" → 0, numeric strings as-is)
+            lp = r["layer_position"] or "Primary"
+            try:
+                return (-1, int(lp))
+            except (ValueError, TypeError):
+                return (-1, 0)  # "Primary" or unknown → bottom of tower
+
+        _tg_rows = sorted(_tg_rows, key=_layer_sort_key)
+        running = 0.0
+        for tr in _tg_rows:
+            lim = float(tr["limit_amount"] or 0)
+            att = tr["attachment_point"]
+            part = tr["participation_of"]
+            if att is not None and float(att) >= 0:
+                layer_size = float(part) if part else lim
+                ground_up = float(att) + layer_size
+            else:
+                running += lim
+                ground_up = running
+            _tower_layers.append(dict(tr) | {"ground_up": ground_up, "is_current": tr["policy_uid"] == uid})
+
     from policydb.queries import REVIEW_CYCLE_LABELS as _REVIEW_CYCLE_LABELS
     return templates.TemplateResponse("policies/edit.html", {
         "request": request,
         "active": "",
         "policy": policy_dict,
+        "policy_total_hours": policy_total_hours,
+        "escalation_tier": _escalation_tier,
+        "escalation_reason": _escalation_reason,
+        "readiness_score": _readiness_score,
+        "readiness_label": _readiness_label,
+        "readiness_tooltip": _readiness_tooltip,
+        "overdue_followups": _overdue_followups,
+        "policy_warnings": _policy_warnings,
+        "policy_scratchpad": scratch_row["content"] if scratch_row else "",
+        "policy_scratchpad_updated": scratch_row["updated_at"] if scratch_row else "",
+        "policy_saved_notes": get_saved_notes(conn, "policy", uid),
         "policy_types": cfg.get("policy_types"),
         "coverage_forms": cfg.get("coverage_forms"),
         "renewal_statuses": _renewal_statuses(),
         "us_states": US_STATES,
-        "checklist": _build_checklist(conn, uid),
+        "checklist": checklist,
         "contacts": contacts,
         "team_contacts": team_contacts,
         "policy_contacts": policy_contacts,
@@ -959,6 +1244,10 @@ def policy_edit_form(request: Request, policy_uid: str, add_contact: str = "", c
         "opportunity_statuses": cfg.get("opportunity_statuses"),
         "add_contact": add_contact,
         "cycle_labels": _REVIEW_CYCLE_LABELS,
+        "contact_roles": cfg.get("contact_roles", []),
+        "all_orgs": sorted({r["organization"] for r in conn.execute("SELECT DISTINCT organization FROM contacts WHERE organization IS NOT NULL AND organization != ''").fetchall()}),
+        "tower_layers": _tower_layers,
+        "request_categories": cfg.get("request_categories", []),
     })
 
 
@@ -1009,6 +1298,7 @@ def policy_edit_post(
             return None
 
     uid = policy_uid.upper()
+    old_row = dict(conn.execute("SELECT * FROM policies WHERE policy_uid=?", (uid,)).fetchone())
     opp = 1 if is_opportunity == "1" else 0
     conn.execute(
         """UPDATE policies SET
@@ -1043,6 +1333,35 @@ def policy_edit_post(
         ),
     )
     conn.commit()
+    _main_edit_fields = [
+        "policy_type", "carrier", "policy_number", "effective_date", "expiration_date",
+        "premium", "limit_amount", "deductible", "description", "coverage_form",
+        "layer_position", "tower_group", "is_standalone", "is_opportunity",
+        "opportunity_status", "target_effective_date", "renewal_status", "commission_rate",
+        "prior_premium", "notes", "project_name", "exposure_basis", "exposure_amount",
+        "exposure_unit", "exposure_address", "exposure_city", "exposure_state", "exposure_zip",
+        "follow_up_date", "attachment_point", "participation_of", "first_named_insured",
+        "access_point",
+    ]
+    _main_edit_new = {
+        "policy_type": policy_type, "carrier": carrier, "policy_number": policy_number,
+        "effective_date": effective_date, "expiration_date": expiration_date,
+        "premium": premium, "limit_amount": limit_amount, "deductible": deductible,
+        "description": description, "coverage_form": coverage_form,
+        "layer_position": layer_position, "tower_group": tower_group,
+        "is_standalone": is_standalone, "is_opportunity": is_opportunity,
+        "opportunity_status": opportunity_status, "target_effective_date": target_effective_date,
+        "renewal_status": renewal_status, "commission_rate": commission_rate,
+        "prior_premium": prior_premium, "notes": notes, "project_name": project_name,
+        "exposure_basis": exposure_basis, "exposure_amount": exposure_amount,
+        "exposure_unit": exposure_unit, "exposure_address": exposure_address,
+        "exposure_city": exposure_city, "exposure_state": exposure_state,
+        "exposure_zip": exposure_zip, "follow_up_date": follow_up_date,
+        "attachment_point": attachment_point, "participation_of": participation_of,
+        "first_named_insured": first_named_insured, "access_point": access_point,
+    }
+    changed = count_changed_fields(old_row, _main_edit_new, _main_edit_fields)
+    check_auto_review_policy(conn, uid, changed)
 
     policy = get_policy_by_uid(conn, uid)
     _client_id = policy["client_id"] if policy else 0
@@ -1051,6 +1370,8 @@ def policy_edit_post(
         _sync_project_id(conn, _policy_id, _client_id, project_name or None)
         conn.commit()
 
+    if action == "autosave":
+        return JSONResponse({"ok": True})
     if action == "save_continue":
         return RedirectResponse(f"/policies/{uid}/edit", status_code=303)
 
@@ -1100,53 +1421,116 @@ def _policy_team_response(request, conn, policy_uid: str):
     if not policy:
         return HTMLResponse("Policy not found", status_code=404)
     p = dict(policy)
-    policy_contacts = [dict(r) for r in conn.execute(
-        "SELECT * FROM policy_contacts WHERE policy_id=? ORDER BY role, name",
-        (p["id"],),
-    ).fetchall()]
-    team_contacts = [dict(r) for r in conn.execute(
-        "SELECT id, name, title, role, email, phone FROM client_contacts WHERE client_id=? AND contact_type='internal' ORDER BY name",
-        (p["client_id"],),
-    ).fetchall()]
+    from policydb.queries import get_client_contacts as _get_client_contacts
+    policy_contacts_list = get_policy_contacts(conn, p["id"])
+    team_contacts = _get_client_contacts(conn, p["client_id"], contact_type="internal")
     all_contact_names = [r[0] for r in conn.execute(
-        """SELECT DISTINCT name FROM (
-               SELECT name FROM policy_contacts
-               UNION
-               SELECT name FROM client_contacts WHERE contact_type='internal'
-           ) ORDER BY name"""
+        """SELECT DISTINCT co.name FROM contacts co
+           WHERE co.name IS NOT NULL AND co.name != ''
+           ORDER BY co.name"""
     ).fetchall()]
     import json as _json
     _ac_rows2 = conn.execute(
-        """SELECT name,
-                  MAX(email)        AS email,
-                  MAX(role)         AS role,
-                  MAX(phone)        AS phone,
-                  MAX(title)        AS title,
-                  MAX(organization) AS organization
-           FROM (
-               SELECT name, email, role, phone, NULL AS title, organization FROM policy_contacts
-               UNION ALL
-               SELECT name, email, role, phone, title, NULL AS organization FROM client_contacts WHERE contact_type='internal'
-           )
-           WHERE name IS NOT NULL AND name != ''
-           GROUP BY name
-           ORDER BY name"""
+        """SELECT co.name,
+                  co.email,
+                  co.phone,
+                  co.mobile,
+                  co.organization,
+                  MAX(COALESCE(cpa.role, cca.role)) AS role,
+                  MAX(COALESCE(cpa.title, cca.title)) AS title
+           FROM contacts co
+           LEFT JOIN contact_policy_assignments cpa ON co.id = cpa.contact_id
+           LEFT JOIN contact_client_assignments cca ON co.id = cca.contact_id
+           WHERE co.name IS NOT NULL AND co.name != ''
+           GROUP BY co.id
+           ORDER BY co.name"""
     ).fetchall()
-    all_contacts_for_ac_json = _json.dumps({r["name"]: {"email": r["email"] or "", "role": r["role"] or "", "phone": r["phone"] or "", "title": r["title"] or "", "organization": r["organization"] or ""} for r in _ac_rows2})
+    all_contacts_for_ac_json = _json.dumps({r["name"]: {"email": r["email"] or "", "role": r["role"] or "", "phone": r["phone"] or "", "mobile": r["mobile"] or "", "title": r["title"] or "", "organization": r["organization"] or ""} for r in _ac_rows2})
     import json as _json_team
     team_cc_json = _json_team.dumps([{"name": c["name"], "email": c["email"]} for c in team_contacts if c.get("email")])
     from policydb.email_templates import policy_context as _policy_ctx, render_tokens as _render_tokens
     _mail_ctx = _policy_ctx(conn, policy_uid)
     mailto_subject = _render_tokens(cfg.get("email_subject_policy", "Re: {{client_name}} — {{policy_type}}"), _mail_ctx)
+    # Compute which team contacts are already assigned to this policy (by contact_id match)
+    assigned_contact_ids = {c["contact_id"] for c in policy_contacts_list if c.get("contact_id")}
+    already_assigned_ids = {t["id"] for t in team_contacts if t.get("contact_id") in assigned_contact_ids}
     return templates.TemplateResponse("policies/_policy_team.html", {
         "request": request,
         "policy": p,
-        "policy_contacts": policy_contacts,
+        "policy_contacts": policy_contacts_list,
         "team_contacts": team_contacts,
         "all_contact_names": all_contact_names,
         "all_contacts_for_ac_json": all_contacts_for_ac_json,
         "team_cc_json": team_cc_json,
         "mailto_subject": mailto_subject,
+        "already_assigned_ids": already_assigned_ids,
+        "contact_roles": cfg.get("contact_roles", []),
+        "all_orgs": sorted({r["organization"] for r in conn.execute("SELECT DISTINCT organization FROM contacts WHERE organization IS NOT NULL AND organization != ''").fetchall()}),
+    })
+
+
+@router.patch("/{policy_uid}/team/{contact_id}/cell")
+async def policy_team_cell(request: Request, policy_uid: str, contact_id: int, conn=Depends(get_db)):
+    """Save a single cell value for a policy contact (matrix edit)."""
+    from policydb.utils import clean_email, format_phone
+    body = await request.json()
+    field, value = body.get("field", ""), body.get("value", "")
+    allowed = {"name", "organization", "title", "role", "email", "phone", "mobile", "notes"}
+    if field not in allowed:
+        return JSONResponse({"ok": False, "error": "Invalid field"}, status_code=400)
+    formatted = value.strip()
+    if field in ("phone", "mobile"):
+        formatted = format_phone(formatted) if formatted else ""
+    elif field == "email":
+        formatted = clean_email(formatted) or ""
+    uid = policy_uid.upper()
+    policy = get_policy_by_uid(conn, uid)
+    if not policy:
+        return JSONResponse({"ok": False, "error": "Not found"}, status_code=404)
+    # contact_id in URL = assignment_id for backward compat with templates
+    assignment_id = contact_id
+    # Shared fields live on the contacts table; per-assignment fields on the junction table
+    shared_fields = {"name", "email", "phone", "mobile", "organization"}
+    assignment_fields = {"role", "title", "notes"}
+    if field in shared_fields:
+        # Look up the contact_id from the assignment
+        asg = conn.execute(
+            "SELECT contact_id FROM contact_policy_assignments WHERE id=?", (assignment_id,)
+        ).fetchone()
+        if asg:
+            conn.execute(
+                f"UPDATE contacts SET {field}=? WHERE id=?",
+                (formatted or None, asg["contact_id"]),
+            )
+    elif field in assignment_fields:
+        conn.execute(
+            f"UPDATE contact_policy_assignments SET {field}=? WHERE id=?",
+            (formatted or None, assignment_id),
+        )
+    conn.commit()
+    return JSONResponse({"ok": True, "formatted": formatted})
+
+
+@router.post("/{policy_uid}/team/add-row", response_class=HTMLResponse)
+def policy_team_add_row(request: Request, policy_uid: str, conn=Depends(get_db)):
+    """Create blank policy contact row and return matrix row HTML."""
+    uid = policy_uid.upper()
+    policy = get_policy_by_uid(conn, uid)
+    if not policy:
+        return HTMLResponse("Policy not found", status_code=404)
+    cid = get_or_create_contact(conn, "New Contact")
+    asg_id = assign_contact_to_policy(conn, cid, policy["id"])
+    conn.commit()
+    c = {"id": asg_id, "contact_id": cid, "name": "New Contact", "title": None, "role": None,
+         "organization": None, "email": None, "phone": None, "mobile": None,
+         "notes": None, "is_placement_colleague": 0}
+    all_orgs = sorted({r["organization"] for r in conn.execute(
+        "SELECT DISTINCT organization FROM contacts WHERE organization IS NOT NULL AND organization != ''"
+    ).fetchall()})
+    return templates.TemplateResponse("policies/_team_matrix_row.html", {
+        "request": request, "c": c, "policy": dict(policy),
+        "contact_roles": cfg.get("contact_roles", []),
+        "all_orgs": all_orgs,
     })
 
 
@@ -1158,19 +1542,27 @@ def policy_team_add(
     role: str = Form(""),
     email: str = Form(""),
     phone: str = Form(""),
+    mobile: str = Form(""),
     title: str = Form(""),
     organization: str = Form(""),
+    notes: str = Form(""),
     conn=Depends(get_db),
 ):
-    from policydb.utils import format_phone
+    from policydb.utils import clean_email, format_phone
     uid = policy_uid.upper()
     policy = get_policy_by_uid(conn, uid)
     if not policy:
         return HTMLResponse("Policy not found", status_code=404)
-    conn.execute(
-        "INSERT INTO policy_contacts (policy_id, name, title, role, phone, email, organization) VALUES (?,?,?,?,?,?,?)",
-        (policy["id"], name, title or None, role or None,
-         format_phone(phone) if phone else None, email or None, organization or None),
+    cid = get_or_create_contact(
+        conn, name,
+        email=clean_email(email) or None,
+        phone=format_phone(phone) if phone else None,
+        mobile=format_phone(mobile) if mobile else None,
+        organization=organization or None,
+    )
+    assign_contact_to_policy(
+        conn, cid, policy["id"],
+        role=role or None, title=title or None, notes=notes or None,
     )
     conn.commit()
     return _policy_team_response(request, conn, uid)
@@ -1187,10 +1579,8 @@ def policy_team_delete(
     policy = get_policy_by_uid(conn, uid)
     if not policy:
         return HTMLResponse("Policy not found", status_code=404)
-    conn.execute(
-        "DELETE FROM policy_contacts WHERE id=? AND policy_id=?",
-        (contact_id, policy["id"]),
-    )
+    # contact_id in URL = assignment_id for backward compat with templates
+    remove_contact_from_policy(conn, contact_id)
     conn.commit()
     return _policy_team_response(request, conn, uid)
 
@@ -1204,21 +1594,103 @@ def policy_team_edit(
     role: str = Form(""),
     email: str = Form(""),
     phone: str = Form(""),
+    mobile: str = Form(""),
     title: str = Form(""),
     organization: str = Form(""),
+    notes: str = Form(""),
     conn=Depends(get_db),
 ):
-    from policydb.utils import format_phone
+    from policydb.utils import clean_email, format_phone
     uid = policy_uid.upper()
     policy = get_policy_by_uid(conn, uid)
     if not policy:
         return HTMLResponse("Policy not found", status_code=404)
-    conn.execute(
-        "UPDATE policy_contacts SET name=?, title=?, role=?, phone=?, email=?, organization=? WHERE id=? AND policy_id=?",
-        (name, title or None, role or None,
-         format_phone(phone) if phone else None, email or None, organization or None,
-         contact_id, policy["id"]),
-    )
+
+    # contact_id in URL = assignment_id for backward compat with templates
+    assignment_id = contact_id
+    formatted_phone = format_phone(phone) if phone else None
+    formatted_mobile = format_phone(mobile) if mobile else None
+
+    # Look up the contact_id from the assignment
+    asg = conn.execute(
+        "SELECT contact_id FROM contact_policy_assignments WHERE id=?", (assignment_id,)
+    ).fetchone()
+    if asg:
+        # Update shared fields on the contacts table
+        conn.execute(
+            "UPDATE contacts SET name=?, email=?, phone=?, mobile=?, organization=? WHERE id=?",
+            (name, clean_email(email) or None, formatted_phone, formatted_mobile,
+             organization or None, asg["contact_id"]),
+        )
+        # Update per-assignment fields on the junction table
+        conn.execute(
+            "UPDATE contact_policy_assignments SET role=?, title=?, notes=? WHERE id=?",
+            (role or None, title or None, notes or None, assignment_id),
+        )
+
+    conn.commit()
+    return _policy_team_response(request, conn, uid)
+
+
+@router.post("/{policy_uid}/team/{contact_id}/toggle-pc", response_class=HTMLResponse)
+def policy_team_toggle_pc(
+    request: Request,
+    policy_uid: str,
+    contact_id: int,
+    conn=Depends(get_db),
+):
+    """Toggle is_placement_colleague flag on a policy contact assignment."""
+    uid = policy_uid.upper()
+    policy = get_policy_by_uid(conn, uid)
+    if not policy:
+        return HTMLResponse("Policy not found", status_code=404)
+    # contact_id in URL = assignment_id for backward compat with templates
+    set_placement_colleague(conn, contact_id)
+    conn.commit()
+    return _policy_team_response(request, conn, uid)
+
+
+@router.post("/{policy_uid}/team/quick-assign", response_class=HTMLResponse)
+def policy_team_quick_assign(
+    request: Request,
+    policy_uid: str,
+    contact_ids: list[str] = Form([]),
+    conn=Depends(get_db),
+):
+    """Bulk-assign client team members to a policy from checkboxes.
+
+    contact_ids here are client assignment IDs from the team contacts list.
+    """
+    uid = policy_uid.upper()
+    policy = get_policy_by_uid(conn, uid)
+    if not policy:
+        return HTMLResponse("Policy not found", status_code=404)
+    for cid_str in contact_ids:
+        try:
+            asg_id = int(cid_str)
+        except ValueError:
+            continue
+        # Look up the contact_id from the client assignment
+        src = conn.execute(
+            """SELECT cca.contact_id, co.name, cca.title, cca.role, co.email, co.phone, co.mobile
+               FROM contact_client_assignments cca
+               JOIN contacts co ON cca.contact_id = co.id
+               WHERE cca.id=?""",
+            (asg_id,),
+        ).fetchone()
+        if not src:
+            continue
+        # Skip if this contact is already assigned to this policy
+        existing = conn.execute(
+            "SELECT id FROM contact_policy_assignments WHERE policy_id=? AND contact_id=?",
+            (policy["id"], src["contact_id"]),
+        ).fetchone()
+        if existing:
+            continue
+        assign_contact_to_policy(
+            conn, src["contact_id"], policy["id"],
+            role=src["role"], title=src["title"],
+        )
     conn.commit()
     return _policy_team_response(request, conn, uid)
 
@@ -1257,11 +1729,131 @@ def policy_renew(policy_uid: str, conn=Depends(get_db)):
     return RedirectResponse(f"/policies/{new_uid}/edit", status_code=303)
 
 
-@router.post("/{policy_uid}/clear-followup", response_class=HTMLResponse)
-def policy_clear_followup(policy_uid: str, conn=Depends(get_db)):
-    """Clear a policy-level follow-up date (removes it from the unified follow-ups view)."""
+@router.post("/{policy_uid}/followup", response_class=HTMLResponse)
+def policy_followup(
+    request: Request,
+    policy_uid: str,
+    activity_type: str = Form("Call"),
+    notes: str = Form(""),
+    duration_hours: str = Form(""),
+    new_follow_up_date: str = Form(""),
+    conn=Depends(get_db),
+):
+    """Follow-up + re-diary for a policy reminder: log an activity and reschedule."""
+    from datetime import date as _date
+
     uid = policy_uid.upper()
+    policy = get_policy_by_uid(conn, uid)
+    if not policy:
+        return HTMLResponse("", status_code=404)
+
+    p = dict(policy)
+    subject = f"Follow-up: {p.get('policy_type', '')} — {p.get('carrier', '')}"
+    account_exec = cfg.get("default_account_exec", "Grant")
+
+    # Create activity log entry
+    conn.execute(
+        """INSERT INTO activity_log
+           (activity_date, client_id, policy_id, activity_type, subject, details,
+            follow_up_date, account_exec, duration_hours)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            _date.today().isoformat(), p["client_id"], p["id"],
+            activity_type, subject, notes or None,
+            new_follow_up_date or None, account_exec, round_duration(duration_hours),
+        ),
+    )
+
+    # Update the policy's follow_up_date (reschedule or clear)
+    conn.execute(
+        "UPDATE policies SET follow_up_date = ? WHERE policy_uid = ?",
+        (new_follow_up_date or None, uid),
+    )
+    conn.commit()
+
+    # Auto-review check
+    check_auto_review_policy(conn, uid, 0)
+
+    # If no new follow-up date, the row should disappear from follow-ups
+    if not new_follow_up_date:
+        return HTMLResponse("")
+
+    # Return updated followup row
+    row = conn.execute(
+        """SELECT p.id, p.policy_uid, p.policy_type, p.carrier, p.follow_up_date,
+                  p.project_name, p.project_id, p.client_id, p.is_opportunity,
+                  c.name AS client_name, c.cn_number,
+                  'policy' AS source,
+                  CASE WHEN p.is_opportunity = 1 THEN 'Opportunity' ELSE 'Policy Reminder' END AS activity_type,
+                  NULL AS contact_person, NULL AS contact_email, NULL AS internal_cc,
+                  p.policy_type || ' — ' || COALESCE(p.carrier, '') AS subject,
+                  CAST(julianday('now') - julianday(p.follow_up_date) AS INTEGER) AS days_overdue
+           FROM policies p JOIN clients c ON p.client_id = c.id
+           WHERE p.policy_uid = ?""",
+        (uid,),
+    ).fetchone()
+    if not row:
+        return HTMLResponse("")
+    r = dict(row)
+    today = _date.today().isoformat()
+    r["_is_overdue"] = r["follow_up_date"] < today
+    # Attach latest note for display
+    note = conn.execute(
+        """SELECT subject, details, activity_date FROM activity_log
+           WHERE policy_id = ? ORDER BY activity_date DESC, id DESC LIMIT 1""",
+        (p["id"],),
+    ).fetchone()
+    r["note_subject"] = note["subject"] if note else None
+    r["note_details"] = note["details"] if note else None
+    r["note_date"] = note["activity_date"] if note else None
+    return templates.TemplateResponse("followups/_row.html", {
+        "request": request, "r": r, "today": today,
+    })
+
+
+@router.post("/{policy_uid}/clear-followup", response_class=HTMLResponse)
+def policy_clear_followup(
+    policy_uid: str,
+    duration_hours: float = Form(0),
+    note: str = Form(""),
+    abandon: str = Form(""),
+    conn=Depends(get_db),
+):
+    """Clear a policy-level follow-up date. Optionally log time and a note."""
+    from datetime import date as _date
+    uid = policy_uid.upper()
+    note = note.strip()
+    if abandon and note:
+        note = f"[Abandoned] {note}"
+
     conn.execute("UPDATE policies SET follow_up_date=NULL WHERE policy_uid=?", (uid,))
+
+    # If time or note provided, create an activity log entry to record the work
+    if (duration_hours and duration_hours > 0) or note:
+        policy = conn.execute(
+            "SELECT id, client_id, policy_type, carrier FROM policies WHERE policy_uid=?", (uid,)
+        ).fetchone()
+        if policy:
+            subject = f"Cleared follow-up — {policy['policy_type']}"
+            if abandon:
+                subject = f"[Abandoned] {subject}"
+            account_exec = cfg.get("default_account_exec", "")
+            conn.execute(
+                """INSERT INTO activity_log
+                   (activity_date, client_id, policy_id, activity_type, subject, details,
+                    duration_hours, follow_up_done, account_exec)
+                   VALUES (?, ?, ?, 'Task', ?, ?, ?, 1, ?)""",
+                (
+                    _date.today().isoformat(),
+                    policy["client_id"],
+                    policy["id"],
+                    subject,
+                    note or None,
+                    round_duration(duration_hours) if duration_hours and duration_hours > 0 else None,
+                    account_exec,
+                ),
+            )
+
     conn.commit()
     return HTMLResponse("")
 
@@ -1394,7 +1986,95 @@ def policy_archive(policy_uid: str, conn=Depends(get_db)):
     client_id = policy["client_id"]
     conn.execute("UPDATE policies SET archived=1 WHERE policy_uid=?", (uid,))
     conn.commit()
-    return RedirectResponse(f"/policies/{uid}/edit", status_code=303)
+    return RedirectResponse(f"/clients/{client_id}", status_code=303)
+
+
+def _policy_scratchpad_ctx(request, conn, uid: str, content: str | None = None) -> dict:
+    """Build context dict for the policies/_scratchpad.html partial."""
+    policy = get_policy_by_uid(conn, uid)
+    if content is None:
+        row = conn.execute(
+            "SELECT content, updated_at FROM policy_scratchpad WHERE policy_uid=?", (uid,)
+        ).fetchone()
+        content = row["content"] if row else ""
+        updated = row["updated_at"] if row else ""
+    else:
+        updated_row = conn.execute(
+            "SELECT updated_at FROM policy_scratchpad WHERE policy_uid=?", (uid,)
+        ).fetchone()
+        updated = updated_row["updated_at"] if updated_row else ""
+    return {
+        "request": request,
+        "policy": dict(policy) if policy else {},
+        "policy_scratchpad": content,
+        "policy_scratchpad_updated": updated,
+        "policy_saved_notes": get_saved_notes(conn, "policy", uid),
+    }
+
+
+@router.post("/{policy_uid}/scratchpad")
+def policy_scratchpad_save(
+    request: Request, policy_uid: str, content: str = Form(""), conn=Depends(get_db)
+):
+    """Auto-save per-policy working notes. Returns JSON if Accept header requests it."""
+    from datetime import datetime, timezone
+    uid = policy_uid.upper()
+    policy = get_policy_by_uid(conn, uid)
+    if not policy:
+        return HTMLResponse("Policy not found", status_code=404)
+    conn.execute(
+        "INSERT INTO policy_scratchpad (policy_uid, content) VALUES (?, ?) "
+        "ON CONFLICT(policy_uid) DO UPDATE SET content = excluded.content",
+        (uid, content),
+    )
+    conn.commit()
+    if "application/json" in (request.headers.get("accept") or ""):
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
+        return JSONResponse({"ok": True, "saved_at": now})
+    return templates.TemplateResponse(
+        "policies/_scratchpad.html", _policy_scratchpad_ctx(request, conn, uid, content)
+    )
+
+
+@router.post("/{policy_uid}/notes/save", response_class=HTMLResponse)
+def policy_note_save(request: Request, policy_uid: str, conn=Depends(get_db)):
+    """Pin current policy scratchpad content as a saved note, then clear."""
+    uid = policy_uid.upper()
+    row = conn.execute(
+        "SELECT content FROM policy_scratchpad WHERE policy_uid=?", (uid,)
+    ).fetchone()
+    content = (row["content"] if row else "").strip()
+    if content:
+        save_note(conn, "policy", uid, content)
+        # Also log to activity_log for unified account history
+        policy = get_policy_by_uid(conn, uid)
+        if policy:
+            account_exec = cfg.get("default_account_exec", "Grant")
+            subject = content[:120] + ("…" if len(content) > 120 else "")
+            conn.execute(
+                """INSERT INTO activity_log
+                   (activity_date, client_id, policy_id, activity_type, subject, details, account_exec)
+                   VALUES (?, ?, ?, 'Note', ?, ?, ?)""",
+                (datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+                 policy["client_id"], policy["id"], subject, content, account_exec),
+            )
+        conn.execute(
+            "UPDATE policy_scratchpad SET content = '' WHERE policy_uid = ?", (uid,)
+        )
+        conn.commit()
+    return templates.TemplateResponse(
+        "policies/_scratchpad.html", _policy_scratchpad_ctx(request, conn, uid)
+    )
+
+
+@router.delete("/{policy_uid}/notes/{note_id}", response_class=HTMLResponse)
+def policy_note_delete(request: Request, policy_uid: str, note_id: int, conn=Depends(get_db)):
+    """Delete a saved note from a policy."""
+    uid = policy_uid.upper()
+    delete_saved_note(conn, note_id)
+    return templates.TemplateResponse(
+        "policies/_scratchpad.html", _policy_scratchpad_ctx(request, conn, uid)
+    )
 
 
 @router.get("/new", response_class=HTMLResponse)
@@ -1476,13 +2156,13 @@ def policy_new_post(
             effective_date, expiration_date, premium, limit_amount, deductible,
             description, coverage_form, layer_position, tower_group, is_standalone,
             is_opportunity, opportunity_status, target_effective_date,
-            renewal_status, placement_colleague, underwriter_name, underwriter_contact,
+            renewal_status, underwriter_name, underwriter_contact,
             account_exec, project_name,
             exposure_basis, exposure_amount, exposure_unit,
             exposure_address, exposure_city, exposure_state, exposure_zip,
             commission_rate, prior_premium, notes, follow_up_date,
             attachment_point, participation_of, first_named_insured, access_point)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (uid, client_id, policy_type, carrier or None, policy_number or None,
          effective_date or None, expiration_date or None, _float(premium) or 0,
          _float(limit_amount), _float(deductible),
@@ -1490,7 +2170,7 @@ def policy_new_post(
          layer_position or "Primary", tower_group or None,
          1 if is_standalone == "1" else 0,
          opp, opportunity_status or None, target_effective_date or None,
-         renewal_status, placement_colleague or None,
+         renewal_status,
          underwriter_name or None, underwriter_contact or None,
          account_exec, project_name or None,
          exposure_basis or None, _float(exposure_amount), exposure_unit or None,
@@ -1503,7 +2183,19 @@ def policy_new_post(
     )
     conn.commit()
     new_policy = get_policy_by_uid(conn, uid)
-    if new_policy and project_name:
-        _sync_project_id(conn, new_policy["id"], client_id, project_name)
+    if new_policy:
+        _pid = new_policy["id"]
+        # Create structured contact records for placement colleague and underwriter
+        _pc_name = (placement_colleague or "").strip()
+        if _pc_name:
+            _pc_cid = get_or_create_contact(conn, _pc_name)
+            assign_contact_to_policy(conn, _pc_cid, _pid, is_placement_colleague=1)
+        _uw_name = (underwriter_name or "").strip()
+        if _uw_name:
+            _uw_email = (underwriter_contact or "").strip() or None
+            _uw_cid = get_or_create_contact(conn, _uw_name, email=_uw_email)
+            assign_contact_to_policy(conn, _uw_cid, _pid, role="Underwriter")
+        if project_name:
+            _sync_project_id(conn, _pid, client_id, project_name)
         conn.commit()
     return RedirectResponse(f"/policies/{uid}/edit", status_code=303)
