@@ -18,6 +18,9 @@
           <p class="text-xs text-gray-500 mb-0.5">Line of Business <span class="text-red-400">*</span></p>
           <select name="policy_type" required
             class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh bg-white">
+            {% if p.policy_type and p.policy_type not in policy_types %}
+            <option value="{{ p.policy_type }}" selected>{{ p.policy_type }}</option>
+            {% endif %}
             {% for t in policy_types %}
             <option value="{{ t }}" {% if t == p.policy_type %}selected{% endif %}>{{ t }}</option>
             {% endfor %}
