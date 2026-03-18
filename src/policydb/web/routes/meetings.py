@@ -164,6 +164,31 @@ def meeting_detail(
     })
 
 
+@router.patch("/meetings/{meeting_id}")
+async def meeting_patch(
+    meeting_id: int,
+    request: Request,
+    conn=Depends(get_db),
+):
+    """PATCH a single field on the meeting record."""
+    import json as _json
+    body = _json.loads(await request.body())
+    field = body.get("field", "")
+    value = body.get("value", "").strip()
+    allowed = {"title", "meeting_date", "meeting_time", "duration_hours", "location"}
+    if field not in allowed:
+        return JSONResponse({"ok": False, "error": "Invalid field"}, status_code=400)
+    if field == "duration_hours":
+        from policydb.utils import round_duration
+        value = str(round_duration(value) or "")
+    conn.execute(
+        f"UPDATE client_meetings SET {field} = ? WHERE id = ?",
+        (value or None, meeting_id),
+    )
+    conn.commit()
+    return JSONResponse({"ok": True, "formatted": value})
+
+
 @router.post("/meetings/{meeting_id}/notes")
 def meeting_notes_save(
     meeting_id: int,
