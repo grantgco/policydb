@@ -91,7 +91,11 @@ SELECT
         ELSE NULL
     END AS rate_change,
     p.last_reviewed_at,
-    p.review_cycle
+    p.review_cycle,
+    p.is_program,
+    p.program_carriers,
+    p.program_carrier_count,
+    p.program_id
 FROM policies p
 JOIN clients c ON p.client_id = c.id
 WHERE p.archived = 0
@@ -154,8 +158,8 @@ CREATE VIEW v_schedule AS
 SELECT
     c.name AS client_name,
     COALESCE(p.first_named_insured, c.name) AS "First Named Insured",
-    p.policy_type AS "Line of Business",
-    p.carrier AS "Carrier",
+    CASE WHEN p.is_program = 1 THEN p.policy_type || ' [PROGRAM]' ELSE p.policy_type END AS "Line of Business",
+    CASE WHEN p.is_program = 1 THEN COALESCE(p.program_carriers, p.carrier) ELSE p.carrier END AS "Carrier",
     p.policy_number AS "Policy Number",
     p.effective_date AS "Effective",
     p.expiration_date AS "Expiration",
