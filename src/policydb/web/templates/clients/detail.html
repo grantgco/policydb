@@ -135,6 +135,12 @@
         {% else %}
         <span class="text-gray-300">—</span>
         {% endif %}
+        <span class="text-gray-400">Client Follow-Up</span>
+        <span>
+          <input type="date" value="{{ client.follow_up_date or '' }}"
+            class="text-xs border border-gray-200 rounded px-1.5 py-0.5 w-full focus:outline-none focus:ring-1 focus:ring-marsh bg-white"
+            onchange="fetch('/clients/{{ client.id }}/follow-up',{method:'POST',body:new URLSearchParams({follow_up_date:this.value}),headers:{'Content-Type':'application/x-www-form-urlencoded'}}).then(function(){if(typeof showToast==='function')showToast('Saved',true)})">
+        </span>
       </div>
     </div>
 
