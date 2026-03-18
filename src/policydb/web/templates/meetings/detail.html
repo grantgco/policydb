@@ -179,7 +179,7 @@
       <option value="">— Link a policy —</option>
       {% set linked_uids = meeting.linked_policies | map(attribute='policy_uid') | list %}
       {% for p in client_policies if p.policy_uid not in linked_uids %}
-      <option value="{{ p.policy_uid }}">{{ p.policy_uid }} — {{ p.policy_type }} · {{ p.carrier or 'No carrier' }}</option>
+      <option value="{{ p.policy_uid }}">{{ p.policy_type }}{% if p.program_label %} [PGM]{% endif %} · {{ p.carrier or '—' }}{% if p.project_name %} · {{ p.project_name }}{% endif %} ({{ p.policy_uid }})</option>
       {% endfor %}
     </select>
     <button type="button" onclick="var sel=document.getElementById('policy-link-select');if(sel.value){htmx.ajax('POST','/meetings/{{ meeting.id }}/policies/link',{target:'#meeting-policies',swap:'innerHTML',values:{policy_uid:sel.value}});sel.value='';}"
@@ -254,7 +254,8 @@ function logMeetingTime(type) {
     .then(function(r) { return r.json(); })
     .then(function(data) {
       if (data.ok) {
-        document.getElementById('time-log-status').textContent = data.logged;
+        document.getElementById('time-log-status').textContent = '✓ ' + data.logged + ' — activity logged';
+        if (typeof showToast === 'function') showToast('Activity logged: ' + data.logged, true);
         input.value = '';
         setTimeout(function() { document.getElementById('time-log-status').textContent = ''; }, 3000);
       }

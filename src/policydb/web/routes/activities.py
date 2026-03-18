@@ -280,6 +280,25 @@ def activity_row_edit_save(
     return resp
 
 
+@router.post("/activities/{activity_id}/delete", response_class=HTMLResponse)
+def activity_delete(
+    request: Request,
+    activity_id: int,
+    conn=Depends(get_db),
+):
+    """Delete an activity log entry. Also clears any linked meeting action items."""
+    # Unlink from meeting action items
+    conn.execute(
+        "UPDATE meeting_action_items SET activity_id = NULL WHERE activity_id = ?",
+        (activity_id,),
+    )
+    conn.execute("DELETE FROM activity_log WHERE id = ?", (activity_id,))
+    conn.commit()
+    return HTMLResponse(
+        f'<li id="activity-{activity_id}" class="py-2 text-xs text-gray-400 italic">Deleted.</li>'
+    )
+
+
 @router.post("/activities/{activity_id}/followup", response_class=HTMLResponse)
 def activity_followup(
     request: Request,
