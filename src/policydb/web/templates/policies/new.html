@@ -81,13 +81,7 @@
 
         <!-- Program-only fields -->
         <div id="pgm-carriers-field" class="hidden sm:col-span-2">
-          <label class="field-label">Participating Carriers <span class="text-gray-400 font-normal">(comma-separated)</span></label>
-          <textarea name="program_carriers" rows="2" placeholder="AIG, Chubb, Zurich, Markel"
-            class="form-input w-full"></textarea>
-        </div>
-        <div id="pgm-count-field" class="hidden">
-          <label class="field-label">Number of Carriers</label>
-          <input type="number" name="program_carrier_count" placeholder="Auto" class="form-input w-full" min="1">
+          <p class="text-xs text-gray-400 mt-2">Add carrier detail after creating the program.</p>
         </div>
 
         <!-- Opportunity-only fields (hidden by default unless checkbox checked) -->
@@ -408,7 +402,6 @@ function toggleOpportunityMode(isOpp) {
 }
 function toggleProgramMode(isPgm) {
   document.getElementById('pgm-carriers-field').classList.toggle('hidden', !isPgm);
-  document.getElementById('pgm-count-field').classList.toggle('hidden', !isPgm);
   var track = document.querySelector('#is_program + .toggle-track');
   if (track) track.style.background = isPgm ? '#1d4ed8' : '#d1d5db';
   // Update button label
