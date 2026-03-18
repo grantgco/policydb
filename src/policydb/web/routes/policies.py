@@ -2077,6 +2077,29 @@ def policy_archive(policy_uid: str, conn=Depends(get_db)):
     return RedirectResponse(f"/clients/{client_id}", status_code=303)
 
 
+@router.post("/{policy_uid}/delete")
+def policy_delete(policy_uid: str, conn=Depends(get_db)):
+    """Permanently delete a policy and all related records."""
+    uid = policy_uid.upper()
+    policy = get_policy_by_uid(conn, uid)
+    if not policy:
+        return HTMLResponse("Policy not found", status_code=404)
+    client_id = policy["client_id"]
+    pid = policy["id"]
+    # Clean up related records
+    conn.execute("DELETE FROM policy_milestones WHERE policy_uid = ?", (uid,))
+    conn.execute("DELETE FROM policy_scratchpad WHERE policy_uid = ?", (uid,))
+    conn.execute("DELETE FROM contact_policy_assignments WHERE policy_id = ?", (pid,))
+    conn.execute("DELETE FROM meeting_policies WHERE policy_uid = ?", (uid,))
+    conn.execute("UPDATE activity_log SET policy_id = NULL WHERE policy_id = ?", (pid,))
+    conn.execute("UPDATE meeting_action_items SET policy_uid = NULL WHERE policy_uid = ?", (uid,))
+    # Unlink any policies linked to this as a program
+    conn.execute("UPDATE policies SET program_id = NULL WHERE program_id = ?", (pid,))
+    conn.execute("DELETE FROM policies WHERE policy_uid = ?", (uid,))
+    conn.commit()
+    return RedirectResponse(f"/clients/{client_id}", status_code=303)
+
+
 def _policy_scratchpad_ctx(request, conn, uid: str, content: str | None = None) -> dict:
     """Build context dict for the policies/_scratchpad.html partial."""
     policy = get_policy_by_uid(conn, uid)
