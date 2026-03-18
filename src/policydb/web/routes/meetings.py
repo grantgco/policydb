@@ -249,6 +249,30 @@ def _get_client_contacts(conn, client_id: int) -> list[dict]:
     ).fetchall()]
 
 
+@router.post("/meetings/{meeting_id}/attendees/add-row", response_class=HTMLResponse)
+def meeting_attendee_add_row(
+    request: Request,
+    meeting_id: int,
+    conn=Depends(get_db),
+):
+    """Create a blank attendee row + contact record, return matrix row HTML."""
+    from policydb.queries import get_or_create_contact
+    m = conn.execute("SELECT client_id FROM client_meetings WHERE id = ?", (meeting_id,)).fetchone()
+    if not m:
+        return HTMLResponse("")
+    cid = get_or_create_contact(conn, "New Contact")
+    cur = conn.execute(
+        "INSERT INTO meeting_attendees (meeting_id, contact_id, name, is_internal) VALUES (?, ?, 'New Contact', 0)",
+        (meeting_id, cid),
+    )
+    conn.commit()
+    a = {"id": cur.lastrowid, "contact_id": cid, "name": "New Contact",
+         "role": None, "is_internal": 0, "email": None, "phone": None, "mobile": None}
+    return templates.TemplateResponse("meetings/_attendee_row.html", {
+        "request": request, "a": a, "meeting": {"id": meeting_id},
+    })
+
+
 @router.patch("/meetings/{meeting_id}/attendees/{attendee_id}")
 async def meeting_patch_attendee(
     meeting_id: int,
