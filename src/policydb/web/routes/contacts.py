@@ -1,4 +1,4 @@
-"""Contacts management route — global registry of placement team contacts."""
+"""Contacts management route — global registry of contacts (unified schema)."""
 
 from __future__ import annotations
 
@@ -7,36 +7,80 @@ import json as _json
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
+from policydb import config as cfg
+from policydb.queries import (
+    get_contacts_for_client,
+    get_or_create_contact,
+    merge_contacts,
+    search_contacts,
+)
+from policydb.utils import clean_email, format_phone
 from policydb.web.app import get_db, templates
 
 router = APIRouter(prefix="/contacts")
 
+
+# ---------------------------------------------------------------------------
+# Helpers: resolve contact name → contacts.id
+# ---------------------------------------------------------------------------
+
+def _resolve_contact_id(conn, name: str) -> int | None:
+    """Find contact id by name in unified contacts table."""
+    row = conn.execute(
+        "SELECT id FROM contacts WHERE LOWER(TRIM(name)) = LOWER(TRIM(?))", (name,)
+    ).fetchone()
+    return row["id"] if row else None
+
+
+# ---------------------------------------------------------------------------
+# Autocomplete endpoint (already uses new schema via queries.py)
+# ---------------------------------------------------------------------------
+
+@router.get("/suggest")
+def contact_suggest(client_id: int = 0, conn=Depends(get_db)):
+    """Return contacts for a client as JSON for autocomplete."""
+    if not client_id:
+        return JSONResponse([])
+    contacts = get_contacts_for_client(conn, client_id)
+    return JSONResponse(contacts)
+
+
+# ---------------------------------------------------------------------------
+# Placement contacts — contacts table joined via contact_policy_assignments
+# ---------------------------------------------------------------------------
+
 _CONTACT_BASE_SQL = """
-    SELECT pc.name,
-           MAX(pc.email)        AS email,
-           MAX(pc.phone)        AS phone,
-           MAX(pc.organization) AS organization,
-           MAX(pc.role)         AS role,
-           COUNT(DISTINCT pc.policy_id) AS policy_count
-    FROM policy_contacts pc
-    JOIN policies p ON pc.policy_id = p.id
+    SELECT co.id AS contact_id,
+           co.name,
+           co.email,
+           co.phone,
+           co.mobile,
+           co.organization,
+           MAX(cpa.role)  AS role,
+           MAX(cpa.title) AS title,
+           MAX(cpa.notes) AS notes,
+           COUNT(DISTINCT cpa.policy_id) AS policy_count
+    FROM contacts co
+    JOIN contact_policy_assignments cpa ON co.id = cpa.contact_id
+    JOIN policies p ON cpa.policy_id = p.id
     JOIN clients c ON p.client_id = c.id
-    WHERE pc.name IS NOT NULL AND pc.name != ''
+    WHERE co.name IS NOT NULL AND co.name != ''
       AND p.archived = 0
-    GROUP BY LOWER(TRIM(pc.name))
-    ORDER BY LOWER(TRIM(pc.organization)) ASC, LOWER(TRIM(pc.name)) ASC
+    GROUP BY co.id
+    ORDER BY LOWER(TRIM(co.organization)) ASC, LOWER(TRIM(co.name)) ASC
 """
 
 _POLICY_DETAIL_SQL = """
-    SELECT LOWER(TRIM(pc.name)) AS name_key,
+    SELECT co.id AS contact_id,
            p.policy_uid, p.policy_type, p.carrier,
            p.expiration_date, p.target_effective_date,
            p.is_opportunity, p.opportunity_status,
            c.id AS client_id, c.name AS client_name
-    FROM policy_contacts pc
-    JOIN policies p ON pc.policy_id = p.id
+    FROM contacts co
+    JOIN contact_policy_assignments cpa ON co.id = cpa.contact_id
+    JOIN policies p ON cpa.policy_id = p.id
     JOIN clients c ON p.client_id = c.id
-    WHERE pc.name IS NOT NULL AND pc.name != ''
+    WHERE co.name IS NOT NULL AND co.name != ''
       AND p.archived = 0
     ORDER BY c.name ASC, p.policy_type ASC
 """
@@ -45,74 +89,84 @@ _POLICY_DETAIL_SQL = """
 def _attach_policies(contacts: list[dict], conn) -> list[dict]:
     """Fetch structured policy data for all contacts and attach as c['policies']."""
     policy_rows = conn.execute(_POLICY_DETAIL_SQL).fetchall()
-    by_name: dict[str, list] = {}
+    by_id: dict[int, list] = {}
     for r in policy_rows:
-        by_name.setdefault(r["name_key"], []).append(dict(r))
+        by_id.setdefault(r["contact_id"], []).append(dict(r))
     for c in contacts:
-        c["policies"] = by_name.get(c["name"].lower().strip(), [])
+        c["policies"] = by_id.get(c["contact_id"], [])
     return contacts
 
 
 def _get_all_contacts(conn) -> list[dict]:
-    """Return deduplicated contacts with attached policy list."""
+    """Return deduplicated placement contacts with attached policy list."""
     contacts = [dict(r) for r in conn.execute(_CONTACT_BASE_SQL).fetchall()]
     return _attach_policies(contacts, conn)
 
 
-def _contact_policies(conn, name: str) -> list[dict]:
-    """Return structured policy list for a single contact by name."""
+def _contact_policies(conn, contact_id: int) -> list[dict]:
+    """Return structured policy list for a single contact by id."""
     rows = conn.execute(
         """SELECT p.policy_uid, p.policy_type, p.carrier,
                   p.expiration_date, p.target_effective_date,
                   p.is_opportunity, p.opportunity_status,
                   c.id AS client_id, c.name AS client_name
-           FROM policy_contacts pc
-           JOIN policies p ON pc.policy_id = p.id
+           FROM contact_policy_assignments cpa
+           JOIN policies p ON cpa.policy_id = p.id
            JOIN clients c ON p.client_id = c.id
-           WHERE LOWER(TRIM(pc.name)) = LOWER(TRIM(?)) AND p.archived = 0
+           WHERE cpa.contact_id = ? AND p.archived = 0
            ORDER BY c.name ASC, p.policy_type ASC""",
-        (name,),
+        (contact_id,),
     ).fetchall()
     return [dict(r) for r in rows]
 
 
+# ---------------------------------------------------------------------------
+# Internal contacts — contacts table joined via contact_client_assignments
+# ---------------------------------------------------------------------------
+
 _INTERNAL_BASE_SQL = """
-    SELECT LOWER(TRIM(cc.name)) AS name_key,
-           cc.name,
-           MAX(cc.title) AS title,
-           MAX(cc.email) AS email,
-           MAX(cc.phone) AS phone,
-           MAX(cc.role)  AS role,
-           COUNT(DISTINCT cc.client_id) AS client_count
-    FROM client_contacts cc
-    WHERE cc.contact_type = 'internal'
-      AND cc.name IS NOT NULL AND cc.name != ''
-    GROUP BY LOWER(TRIM(cc.name))
-    ORDER BY LOWER(TRIM(cc.name))
+    SELECT co.id AS contact_id,
+           co.name,
+           MAX(cca.title)  AS title,
+           co.email,
+           co.phone,
+           co.mobile,
+           MAX(cca.role)   AS role,
+           MAX(cca.notes)  AS notes,
+           COUNT(DISTINCT cca.client_id) AS client_count
+    FROM contacts co
+    JOIN contact_client_assignments cca ON co.id = cca.contact_id
+    WHERE cca.contact_type = 'internal'
+      AND co.name IS NOT NULL AND co.name != ''
+    GROUP BY co.id
+    ORDER BY LOWER(TRIM(co.name))
 """
 
 _INTERNAL_CLIENT_SQL = """
-    SELECT LOWER(TRIM(cc.name)) AS name_key,
+    SELECT co.id AS contact_id,
            c.id AS client_id, c.name AS client_name,
-           cc.assignment
-    FROM client_contacts cc
-    JOIN clients c ON cc.client_id = c.id
-    WHERE cc.contact_type = 'internal'
-      AND cc.name IS NOT NULL AND cc.name != ''
+           cca.assignment
+    FROM contacts co
+    JOIN contact_client_assignments cca ON co.id = cca.contact_id
+    JOIN clients c ON cca.client_id = c.id
+    WHERE cca.contact_type = 'internal'
+      AND co.name IS NOT NULL AND co.name != ''
     ORDER BY c.name
 """
 
 _INTERNAL_POLICY_SQL = """
-    SELECT LOWER(TRIM(cc.name)) AS name_key,
+    SELECT co.id AS contact_id,
            p.policy_uid, p.policy_type, p.carrier,
            p.expiration_date, p.is_opportunity,
            c.id AS client_id, c.name AS client_name
-    FROM client_contacts cc
-    JOIN policy_contacts pc ON LOWER(TRIM(pc.name)) = LOWER(TRIM(cc.name))
-    JOIN policies p ON pc.policy_id = p.id
+    FROM contacts co
+    JOIN contact_policy_assignments cpa ON co.id = cpa.contact_id
+    JOIN policies p ON cpa.policy_id = p.id
     JOIN clients c ON p.client_id = c.id
-    WHERE cc.contact_type = 'internal'
-      AND cc.name IS NOT NULL AND cc.name != ''
+    WHERE co.id IN (
+        SELECT contact_id FROM contact_client_assignments WHERE contact_type = 'internal'
+    )
+      AND co.name IS NOT NULL AND co.name != ''
       AND p.archived = 0
     ORDER BY c.name, p.policy_type
 """
@@ -121,35 +175,35 @@ _INTERNAL_POLICY_SQL = """
 def _attach_clients(internal: list[dict], conn) -> list[dict]:
     """Attach per-client assignments and policy cross-references to each internal contact."""
     client_rows = conn.execute(_INTERNAL_CLIENT_SQL).fetchall()
-    by_name: dict[str, list] = {}
+    by_id: dict[int, list] = {}
     for r in client_rows:
-        by_name.setdefault(r["name_key"], []).append(dict(r))
+        by_id.setdefault(r["contact_id"], []).append(dict(r))
 
     policy_rows = conn.execute(_INTERNAL_POLICY_SQL).fetchall()
-    by_name_pol: dict[str, list] = {}
+    by_id_pol: dict[int, list] = {}
     for r in policy_rows:
-        by_name_pol.setdefault(r["name_key"], []).append(dict(r))
+        by_id_pol.setdefault(r["contact_id"], []).append(dict(r))
 
     for c in internal:
-        key = c["name"].lower().strip()
-        c["clients"] = by_name.get(key, [])
-        c["also_on_policies"] = by_name_pol.get(key, [])
+        cid = c["contact_id"]
+        c["clients"] = by_id.get(cid, [])
+        c["also_on_policies"] = by_id_pol.get(cid, [])
         c["policy_cross_count"] = len(c["also_on_policies"])
     return internal
 
 
-def _internal_contact_policies(conn, name: str) -> list[dict]:
-    """Return policies where this internal contact also appears as a policy_contact."""
+def _internal_contact_policies(conn, contact_id: int) -> list[dict]:
+    """Return policies where this internal contact also appears as a policy contact."""
     rows = conn.execute(
         """SELECT p.policy_uid, p.policy_type, p.carrier,
                   p.expiration_date, p.is_opportunity,
                   c.id AS client_id, c.name AS client_name
-           FROM policy_contacts pc
-           JOIN policies p ON pc.policy_id = p.id
+           FROM contact_policy_assignments cpa
+           JOIN policies p ON cpa.policy_id = p.id
            JOIN clients c ON p.client_id = c.id
-           WHERE LOWER(TRIM(pc.name)) = LOWER(TRIM(?)) AND p.archived = 0
+           WHERE cpa.contact_id = ? AND p.archived = 0
            ORDER BY c.name, p.policy_type""",
-        (name,),
+        (contact_id,),
     ).fetchall()
     return [dict(r) for r in rows]
 
@@ -159,35 +213,127 @@ def _get_internal_contacts(conn) -> list[dict]:
     return _attach_clients(rows, conn)
 
 
-def _internal_contact_clients(conn, name: str) -> list[dict]:
+def _internal_contact_clients(conn, contact_id: int) -> list[dict]:
     rows = conn.execute(
-        """SELECT c.id AS client_id, c.name AS client_name, cc.assignment
-           FROM client_contacts cc
-           JOIN clients c ON cc.client_id = c.id
-           WHERE LOWER(TRIM(cc.name)) = LOWER(TRIM(?)) AND cc.contact_type = 'internal'
+        """SELECT c.id AS client_id, c.name AS client_name, cca.assignment
+           FROM contact_client_assignments cca
+           JOIN clients c ON cca.client_id = c.id
+           WHERE cca.contact_id = ? AND cca.contact_type = 'internal'
            ORDER BY c.name""",
-        (name,),
+        (contact_id,),
     ).fetchall()
     return [dict(r) for r in rows]
 
 
+# ---------------------------------------------------------------------------
+# Client-type contacts (contact_type='client' in contact_client_assignments)
+# ---------------------------------------------------------------------------
+
+_CLIENT_TYPE_BASE_SQL = """
+    SELECT co.id AS contact_id,
+           co.name,
+           MAX(cca.title)  AS title,
+           co.email,
+           co.phone,
+           co.mobile,
+           MAX(cca.role)   AS role,
+           MAX(cca.notes)  AS notes,
+           co.organization,
+           COUNT(DISTINCT cca.client_id) AS client_count
+    FROM contacts co
+    JOIN contact_client_assignments cca ON co.id = cca.contact_id
+    WHERE cca.contact_type = 'client'
+      AND co.name IS NOT NULL AND co.name != ''
+    GROUP BY co.id
+    ORDER BY LOWER(TRIM(co.name))
+"""
+
+_CLIENT_TYPE_CLIENT_SQL = """
+    SELECT co.id AS contact_id,
+           c.id AS client_id, c.name AS client_name
+    FROM contacts co
+    JOIN contact_client_assignments cca ON co.id = cca.contact_id
+    JOIN clients c ON cca.client_id = c.id
+    WHERE cca.contact_type = 'client'
+      AND co.name IS NOT NULL AND co.name != ''
+    ORDER BY c.name
+"""
+
+
+def _attach_client_type_clients(contacts: list[dict], conn) -> list[dict]:
+    """Attach per-client list to each client-type contact."""
+    client_rows = conn.execute(_CLIENT_TYPE_CLIENT_SQL).fetchall()
+    by_id: dict[int, list] = {}
+    for r in client_rows:
+        by_id.setdefault(r["contact_id"], []).append(dict(r))
+    for c in contacts:
+        c["clients"] = by_id.get(c["contact_id"], [])
+    return contacts
+
+
+def _get_client_type_contacts(conn) -> list[dict]:
+    rows = [dict(r) for r in conn.execute(_CLIENT_TYPE_BASE_SQL).fetchall()]
+    return _attach_client_type_clients(rows, conn)
+
+
+def _client_type_contact_clients(conn, contact_id: int) -> list[dict]:
+    rows = conn.execute(
+        """SELECT c.id AS client_id, c.name AS client_name
+           FROM contact_client_assignments cca
+           JOIN clients c ON cca.client_id = c.id
+           WHERE cca.contact_id = ? AND cca.contact_type = 'client'
+           ORDER BY c.name""",
+        (contact_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Main listing page
+# ---------------------------------------------------------------------------
+
 @router.get("", response_class=HTMLResponse)
-def contacts_list(request: Request, q: str = "", org: str = "", conn=Depends(get_db)):
+def contacts_list(request: Request, q: str = "", org: str = "", role: str = "", client_filter: str = "", conn=Depends(get_db)):
     contacts = _get_all_contacts(conn)
     internal = _get_internal_contacts(conn)
+    client_type = _get_client_type_contacts(conn)
 
     # Collect orgs before filtering
     all_orgs = sorted({c["organization"] for c in contacts if c["organization"]})
 
-    # All clients for the "Assign to client" picker on internal contact rows
-    all_clients_json = _json.dumps([
-        {"id": r["id"], "name": r["name"]}
-        for r in conn.execute(
-            "SELECT id, name FROM clients WHERE archived=0 ORDER BY name"
-        ).fetchall()
-    ])
+    # All clients for pickers and filter dropdown
+    _all_clients = [dict(r) for r in conn.execute(
+        "SELECT id, name FROM clients WHERE archived=0 ORDER BY name"
+    ).fetchall()]
+    all_clients_json = _json.dumps([{"id": c["id"], "name": c["name"]} for c in _all_clients])
 
-    # Filter placement contacts
+    # Cross-store badge sets: build contact_id→stores lookup
+    _placement_ids = {c["contact_id"] for c in contacts}
+    _internal_ids = {c["contact_id"] for c in internal}
+    _client_ids = {c["contact_id"] for c in client_type}
+
+    # Also maintain name-based sets for template backward compat
+    _placement_names = {c["name"].lower().strip() for c in contacts if c.get("name")}
+    _internal_names = {c["name"].lower().strip() for c in internal if c.get("name")}
+    _client_names = {c["name"].lower().strip() for c in client_type if c.get("name")}
+
+    for c in contacts:
+        cid = c["contact_id"]
+        key = (c["name"] or "").lower().strip()
+        c["also_team"] = cid in _internal_ids or key in _internal_names
+        c["also_client"] = cid in _client_ids or key in _client_names
+    for c in internal:
+        cid = c["contact_id"]
+        key = (c["name"] or "").lower().strip()
+        c["also_placement"] = cid in _placement_ids or key in _placement_names
+        c["also_client"] = cid in _client_ids or key in _client_names
+    for c in client_type:
+        cid = c["contact_id"]
+        key = (c["name"] or "").lower().strip()
+        c["also_placement"] = cid in _placement_ids or key in _placement_names
+        c["also_team"] = cid in _internal_ids or key in _internal_names
+
+    # Filter by text search
     if q:
         q_lower = q.lower()
         contacts = [c for c in contacts if q_lower in (c["name"] or "").lower()
@@ -196,30 +342,601 @@ def contacts_list(request: Request, q: str = "", org: str = "", conn=Depends(get
         internal = [c for c in internal if q_lower in (c["name"] or "").lower()
                     or q_lower in (c["email"] or "").lower()
                     or q_lower in (c["role"] or "").lower()]
+        client_type = [c for c in client_type if q_lower in (c["name"] or "").lower()
+                       or q_lower in (c["email"] or "").lower()
+                       or q_lower in (c["role"] or "").lower()]
     if org:
         contacts = [c for c in contacts if (c["organization"] or "").lower() == org.lower()]
+    if role:
+        contacts = [c for c in contacts if (c.get("role") or "").lower() == role.lower()]
+        internal = [c for c in internal if (c.get("role") or "").lower() == role.lower()]
+        client_type = [c for c in client_type if (c.get("role") or "").lower() == role.lower()]
+
+    # Filter by client
+    if client_filter:
+        try:
+            cid = int(client_filter)
+        except ValueError:
+            cid = 0
+        if cid:
+            # Placement: contacts on policies belonging to this client
+            pol_contact_ids = {r["contact_id"] for r in conn.execute(
+                """SELECT DISTINCT cpa.contact_id
+                   FROM contact_policy_assignments cpa
+                   JOIN policies p ON cpa.policy_id = p.id
+                   WHERE p.client_id = ? AND p.archived = 0""",
+                (cid,),
+            ).fetchall()}
+            contacts = [c for c in contacts if c["contact_id"] in pol_contact_ids]
+            # Internal: contacts assigned to this client as internal
+            int_contact_ids = {r["contact_id"] for r in conn.execute(
+                "SELECT DISTINCT contact_id FROM contact_client_assignments WHERE client_id=? AND contact_type='internal'",
+                (cid,),
+            ).fetchall()}
+            internal = [c for c in internal if c["contact_id"] in int_contact_ids]
+            # Client-type: contacts assigned to this client as client
+            cli_contact_ids = {r["contact_id"] for r in conn.execute(
+                "SELECT DISTINCT contact_id FROM contact_client_assignments WHERE client_id=? AND contact_type='client'",
+                (cid,),
+            ).fetchall()}
+            client_type = [c for c in client_type if c["contact_id"] in cli_contact_ids]
+
+    # Build unified "all people" list from contacts table
+    _all_people_rows = conn.execute("""
+        SELECT co.id AS contact_id, co.name, co.email, co.phone, co.mobile, co.organization,
+               COALESCE(
+                   (SELECT cca_t.title FROM contact_client_assignments cca_t WHERE cca_t.contact_id = co.id AND cca_t.title IS NOT NULL LIMIT 1),
+                   (SELECT cpa_t.title FROM contact_policy_assignments cpa_t WHERE cpa_t.contact_id = co.id AND cpa_t.title IS NOT NULL LIMIT 1)
+               ) AS title,
+               COALESCE(
+                   (SELECT cca_n.notes FROM contact_client_assignments cca_n WHERE cca_n.contact_id = co.id AND cca_n.notes IS NOT NULL LIMIT 1),
+                   (SELECT cpa_n.notes FROM contact_policy_assignments cpa_n WHERE cpa_n.contact_id = co.id AND cpa_n.notes IS NOT NULL LIMIT 1)
+               ) AS notes,
+               (SELECT COUNT(DISTINCT cpa2.policy_id) FROM contact_policy_assignments cpa2
+                JOIN policies p2 ON cpa2.policy_id = p2.id WHERE cpa2.contact_id = co.id AND p2.archived = 0) AS policy_count,
+               (SELECT COUNT(DISTINCT cca_i.client_id) FROM contact_client_assignments cca_i
+                WHERE cca_i.contact_id = co.id AND cca_i.contact_type = 'internal') AS internal_client_count,
+               (SELECT COUNT(DISTINCT cca_c.client_id) FROM contact_client_assignments cca_c
+                WHERE cca_c.contact_id = co.id AND cca_c.contact_type = 'client') AS client_count,
+               (SELECT COUNT(*) FROM activity_log al
+                WHERE al.contact_id = co.id AND al.follow_up_done = 0 AND al.follow_up_date IS NOT NULL) AS open_followups
+        FROM contacts co
+        WHERE co.name IS NOT NULL AND co.name != ''
+        ORDER BY co.name
+    """).fetchall()
+    all_people = []
+    for r in _all_people_rows:
+        d = dict(r)
+        d["is_placement"] = d["policy_count"] > 0
+        d["is_internal"] = d["internal_client_count"] > 0
+        d["is_client"] = d["client_count"] > 0
+        d["store_count"] = sum([d["is_placement"], d["is_internal"], d["is_client"]])
+        all_people.append(d)
+
+    # Batch-fetch open follow-up details for all contacts that have them
+    _fu_contact_ids = [c["contact_id"] for c in all_people if c["open_followups"] > 0]
+    _followups_by_contact: dict[int, list] = {}
+    if _fu_contact_ids:
+        _fu_ph = ",".join("?" * len(_fu_contact_ids))
+        _fu_rows = conn.execute(f"""
+            SELECT a.id, a.contact_id, a.subject, a.follow_up_date, a.activity_type,
+                   c.name AS client_name, c.id AS client_id,
+                   p.policy_uid, p.policy_type,
+                   CAST(julianday('now') - julianday(a.follow_up_date) AS INTEGER) AS days_overdue
+            FROM activity_log a
+            JOIN clients c ON a.client_id = c.id
+            LEFT JOIN policies p ON a.policy_id = p.id
+            WHERE a.contact_id IN ({_fu_ph})
+              AND a.follow_up_done = 0 AND a.follow_up_date IS NOT NULL
+            ORDER BY a.follow_up_date ASC
+        """, _fu_contact_ids).fetchall()
+        for fr in _fu_rows:
+            _followups_by_contact.setdefault(fr["contact_id"], []).append(dict(fr))
+    for c in all_people:
+        c["followups"] = _followups_by_contact.get(c["contact_id"], [])
+    # Apply same text filter to unified list
+    if q:
+        q_lower = q.lower()
+        all_people = [c for c in all_people if q_lower in (c["name"] or "").lower()
+                      or q_lower in (c["email"] or "").lower()
+                      or q_lower in (c["organization"] or "").lower()]
+    if org:
+        all_people = [c for c in all_people if (c["organization"] or "").lower() == org.lower()]
+    if role:
+        # Role filter uses placement/internal role fields
+        _role_contact_ids = {r[0] for r in conn.execute(
+            """SELECT DISTINCT contact_id FROM (
+                SELECT cpa.contact_id FROM contact_policy_assignments cpa WHERE LOWER(cpa.role) = LOWER(?)
+                UNION
+                SELECT cca.contact_id FROM contact_client_assignments cca WHERE LOWER(cca.role) = LOWER(?)
+            )""", (role, role)
+        ).fetchall()}
+        all_people = [c for c in all_people if c["contact_id"] in _role_contact_ids]
+    if client_filter:
+        try:
+            _cf_id = int(client_filter)
+        except ValueError:
+            _cf_id = 0
+        if _cf_id:
+            _cf_ids = {r[0] for r in conn.execute(
+                """SELECT DISTINCT contact_id FROM (
+                    SELECT cpa.contact_id FROM contact_policy_assignments cpa
+                    JOIN policies p ON cpa.policy_id = p.id WHERE p.client_id = ? AND p.archived = 0
+                    UNION
+                    SELECT cca.contact_id FROM contact_client_assignments cca WHERE cca.client_id = ?
+                )""", (_cf_id, _cf_id)
+            ).fetchall()}
+            all_people = [c for c in all_people if c["contact_id"] in _cf_ids]
+
+    # Collect all roles for filter
+    all_roles = sorted({r[0] for r in conn.execute(
+        """SELECT DISTINCT role FROM (
+            SELECT role FROM contact_policy_assignments WHERE role IS NOT NULL AND role != ''
+            UNION
+            SELECT role FROM contact_client_assignments WHERE role IS NOT NULL AND role != ''
+        ) ORDER BY role"""
+    ).fetchall()})
 
     return templates.TemplateResponse("contacts/list.html", {
         "request": request,
         "active": "contacts",
         "contacts": contacts,
         "internal_contacts": internal,
+        "client_type_contacts": client_type,
+        "all_people": all_people,
         "q": q,
         "org": org,
+        "role": role,
+        "client_filter": client_filter,
         "all_orgs": all_orgs,
+        "all_roles": all_roles,
+        "all_clients": _all_clients,
         "all_clients_json": all_clients_json,
+        "contact_roles": cfg.get("contact_roles", []),
+    })
+
+
+# ---------------------------------------------------------------------------
+# Matrix cell-save endpoints
+# Templates use name-based URLs: patchBase + '/' + encodeURIComponent(name) + '/cell'
+# We resolve name → contact_id and update the unified contacts table (shared fields)
+# or the junction table (per-assignment fields like role, title).
+# ---------------------------------------------------------------------------
+
+# Shared fields live on the contacts table; assignment fields on the junction table.
+_CONTACTS_TABLE_FIELDS = {"email", "phone", "mobile", "organization"}
+_CLIENT_ASSIGNMENT_FIELDS = {"title", "role", "notes"}
+_POLICY_ASSIGNMENT_FIELDS = {"role", "title", "notes"}
+
+
+@router.patch("/unified/{name}/cell")
+async def unified_contact_cell(request: Request, name: str, conn=Depends(get_db)):
+    """Save a single cell value for a contact across ALL assignment types (unified view)."""
+    body = await request.json()
+    field, value = body.get("field", ""), body.get("value", "")
+    allowed = {"title", "role", "email", "phone", "mobile", "organization", "notes"}
+    if field not in allowed:
+        return JSONResponse({"ok": False, "error": "Invalid field"}, status_code=400)
+    formatted = value.strip()
+    if field in ("phone", "mobile"):
+        formatted = format_phone(formatted) if formatted else ""
+    elif field == "email":
+        formatted = clean_email(formatted) or ""
+
+    contact_id = _resolve_contact_id(conn, name)
+    if not contact_id:
+        return JSONResponse({"ok": False, "error": "Contact not found"}, status_code=404)
+
+    if field in _CONTACTS_TABLE_FIELDS:
+        conn.execute(
+            f"UPDATE contacts SET {field}=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+            (formatted or None, contact_id),
+        )
+    # Update across both junction tables for assignment-level fields
+    if field in _POLICY_ASSIGNMENT_FIELDS:
+        conn.execute(
+            f"UPDATE contact_policy_assignments SET {field}=? WHERE contact_id=?",
+            (formatted or None, contact_id),
+        )
+    if field in _CLIENT_ASSIGNMENT_FIELDS:
+        conn.execute(
+            f"UPDATE contact_client_assignments SET {field}=? WHERE contact_id=?",
+            (formatted or None, contact_id),
+        )
+    conn.commit()
+    return JSONResponse({"ok": True, "formatted": formatted})
+
+
+@router.patch("/client/{name}/cell")
+async def client_type_contact_cell(request: Request, name: str, conn=Depends(get_db)):
+    """Save a single cell value for a client-type contact."""
+    body = await request.json()
+    field, value = body.get("field", ""), body.get("value", "")
+    allowed = {"title", "role", "email", "phone", "mobile", "organization", "notes"}
+    if field not in allowed:
+        return JSONResponse({"ok": False, "error": "Invalid field"}, status_code=400)
+    formatted = value.strip()
+    if field in ("phone", "mobile"):
+        formatted = format_phone(formatted) if formatted else ""
+    elif field == "email":
+        formatted = clean_email(formatted) or ""
+
+    contact_id = _resolve_contact_id(conn, name)
+    if not contact_id:
+        return JSONResponse({"ok": False, "error": "Contact not found"}, status_code=404)
+
+    if field in _CONTACTS_TABLE_FIELDS:
+        conn.execute(
+            f"UPDATE contacts SET {field}=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+            (formatted or None, contact_id),
+        )
+    if field in _CLIENT_ASSIGNMENT_FIELDS:
+        conn.execute(
+            f"UPDATE contact_client_assignments SET {field}=? WHERE contact_id=? AND contact_type='client'",
+            (formatted or None, contact_id),
+        )
+    conn.commit()
+    return JSONResponse({"ok": True, "formatted": formatted})
+
+
+@router.post("/client/{name}/rename")
+async def client_type_contact_rename(request: Request, name: str, conn=Depends(get_db)):
+    """Rename a client-type contact."""
+    body = await request.json()
+    new_name = (body.get("new_name", "") or "").strip()
+    if not new_name:
+        return JSONResponse({"ok": False, "error": "Name cannot be empty"}, status_code=400)
+
+    contact_id = _resolve_contact_id(conn, name)
+    if not contact_id:
+        return JSONResponse({"ok": False, "error": "Contact not found"}, status_code=404)
+
+    conn.execute(
+        "UPDATE contacts SET name=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+        (new_name, contact_id),
+    )
+    conn.commit()
+    return JSONResponse({"ok": True, "new_name": new_name})
+
+
+@router.post("/client/add-row", response_class=HTMLResponse)
+def client_type_contact_add_row(request: Request, conn=Depends(get_db)):
+    """Create a new client-type contact row and return matrix row HTML."""
+    contact_id = get_or_create_contact(conn, "New Contact")
+    first = conn.execute("SELECT id FROM clients WHERE archived=0 ORDER BY name LIMIT 1").fetchone()
+    client_id = first["id"] if first else 1
+    conn.execute(
+        """INSERT OR IGNORE INTO contact_client_assignments (contact_id, client_id, contact_type)
+           VALUES (?, ?, 'client')""",
+        (contact_id, client_id),
+    )
+    conn.commit()
+    all_orgs = sorted({r["organization"] for r in conn.execute(
+        "SELECT DISTINCT organization FROM contacts WHERE organization IS NOT NULL AND organization != ''"
+    ).fetchall()})
+    c = {"name": "New Contact", "contact_id": contact_id, "title": None, "role": None,
+         "notes": None,
+         "email": None, "phone": None, "mobile": None, "organization": None,
+         "client_count": 0, "clients": []}
+    return templates.TemplateResponse("contacts/_client_matrix_row.html", {
+        "request": request, "c": c, "contact_roles": cfg.get("contact_roles", []),
+        "all_orgs": all_orgs,
+    })
+
+
+@router.patch("/internal/{name}/cell")
+async def internal_contact_cell(request: Request, name: str, conn=Depends(get_db)):
+    """Save a single cell value for an internal contact."""
+    body = await request.json()
+    field, value = body.get("field", ""), body.get("value", "")
+    allowed = {"title", "role", "email", "phone", "mobile", "organization", "notes"}
+    if field not in allowed:
+        return JSONResponse({"ok": False, "error": "Invalid field"}, status_code=400)
+    formatted = value.strip()
+    if field in ("phone", "mobile"):
+        formatted = format_phone(formatted) if formatted else ""
+    elif field == "email":
+        formatted = clean_email(formatted) or ""
+
+    contact_id = _resolve_contact_id(conn, name)
+    if not contact_id:
+        return JSONResponse({"ok": False, "error": "Contact not found"}, status_code=404)
+
+    if field in _CONTACTS_TABLE_FIELDS:
+        conn.execute(
+            f"UPDATE contacts SET {field}=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+            (formatted or None, contact_id),
+        )
+    if field in _CLIENT_ASSIGNMENT_FIELDS:
+        conn.execute(
+            f"UPDATE contact_client_assignments SET {field}=? WHERE contact_id=? AND contact_type='internal'",
+            (formatted or None, contact_id),
+        )
+    conn.commit()
+    return JSONResponse({"ok": True, "formatted": formatted})
+
+
+@router.post("/internal/{name}/rename")
+async def internal_contact_rename(request: Request, name: str, conn=Depends(get_db)):
+    """Rename an internal contact."""
+    body = await request.json()
+    new_name = (body.get("new_name", "") or "").strip()
+    if not new_name:
+        return JSONResponse({"ok": False, "error": "Name cannot be empty"}, status_code=400)
+
+    contact_id = _resolve_contact_id(conn, name)
+    if not contact_id:
+        return JSONResponse({"ok": False, "error": "Contact not found"}, status_code=404)
+
+    conn.execute(
+        "UPDATE contacts SET name=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+        (new_name, contact_id),
+    )
+    conn.commit()
+    return JSONResponse({"ok": True, "new_name": new_name})
+
+
+@router.post("/internal/add-row", response_class=HTMLResponse)
+def internal_contact_add_row(request: Request, conn=Depends(get_db)):
+    """Create a new internal contact row and return matrix row HTML."""
+    contact_id = get_or_create_contact(conn, "New Contact")
+    first = conn.execute("SELECT id FROM clients WHERE archived=0 ORDER BY name LIMIT 1").fetchone()
+    client_id = first["id"] if first else 1
+    conn.execute(
+        """INSERT OR IGNORE INTO contact_client_assignments (contact_id, client_id, contact_type)
+           VALUES (?, ?, 'internal')""",
+        (contact_id, client_id),
+    )
+    conn.commit()
+    c = {"name": "New Contact", "contact_id": contact_id, "title": None, "role": None,
+         "notes": None,
+         "email": None, "phone": None, "mobile": None, "client_count": 0,
+         "policy_count": 0, "clients": [], "policies": []}
+    return templates.TemplateResponse("contacts/_internal_matrix_row.html", {
+        "request": request, "c": c, "contact_roles": cfg.get("contact_roles", []),
+    })
+
+
+# ---------------------------------------------------------------------------
+# Client-type contact HTMX endpoints (must be before /{name}/... catch-all)
+# ---------------------------------------------------------------------------
+
+@router.get("/client/{name}/edit", response_class=HTMLResponse)
+def client_type_contact_edit_form(request: Request, name: str, conn=Depends(get_db)):
+    """HTMX: inline edit form for a client-type contact row."""
+    row = conn.execute(
+        """SELECT co.name, MAX(cca.title) AS title, co.email,
+                  co.phone, co.mobile, MAX(cca.role) AS role,
+                  COUNT(DISTINCT cca.client_id) AS client_count
+           FROM contacts co
+           JOIN contact_client_assignments cca ON co.id = cca.contact_id
+           WHERE LOWER(TRIM(co.name)) = LOWER(TRIM(?)) AND cca.contact_type = 'client'
+           GROUP BY co.id""",
+        (name,),
+    ).fetchone()
+    if not row:
+        return HTMLResponse("", status_code=404)
+    return templates.TemplateResponse("contacts/_client_contact_edit_row.html", {
+        "request": request,
+        "c": dict(row),
+    })
+
+
+@router.post("/client/{name}/edit", response_class=HTMLResponse)
+def client_type_contact_edit_save(
+    request: Request,
+    name: str,
+    title: str = Form(""),
+    role: str = Form(""),
+    email: str = Form(""),
+    phone: str = Form(""),
+    mobile: str = Form(""),
+    conn=Depends(get_db),
+):
+    """HTMX: save shared contact info for a client-type contact."""
+    contact_id = _resolve_contact_id(conn, name)
+    if not contact_id:
+        return HTMLResponse("", status_code=404)
+
+    # Update shared fields on contacts table
+    conn.execute(
+        "UPDATE contacts SET email=?, phone=?, mobile=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+        (clean_email(email) or None,
+         format_phone(phone) if phone.strip() else None,
+         format_phone(mobile) if mobile.strip() else None,
+         contact_id),
+    )
+    # Update assignment-specific fields
+    conn.execute(
+        "UPDATE contact_client_assignments SET title=?, role=? WHERE contact_id=? AND contact_type='client'",
+        (title.strip() or None, role.strip() or None, contact_id),
+    )
+    conn.commit()
+
+    row = conn.execute(
+        """SELECT co.name, MAX(cca.title) AS title, co.email,
+                  co.phone, co.mobile, MAX(cca.role) AS role,
+                  COUNT(DISTINCT cca.client_id) AS client_count
+           FROM contacts co
+           JOIN contact_client_assignments cca ON co.id = cca.contact_id
+           JOIN clients c ON cca.client_id = c.id
+           WHERE co.id = ? AND cca.contact_type = 'client'
+           GROUP BY co.id""",
+        (contact_id,),
+    ).fetchone()
+    c = dict(row) if row else {"name": name, "client_count": 0}
+    c["contact_id"] = contact_id
+    c["clients"] = _client_type_contact_clients(conn, contact_id)
+    return templates.TemplateResponse("contacts/_client_contact_row.html", {
+        "request": request,
+        "c": c,
+    })
+
+
+@router.get("/client/{name}/row", response_class=HTMLResponse)
+def client_type_contact_row(request: Request, name: str, conn=Depends(get_db)):
+    """HTMX: restore client-type contact display row (Cancel button)."""
+    row = conn.execute(
+        """SELECT co.id AS contact_id, co.name, MAX(cca.title) AS title, co.email,
+                  co.phone, co.mobile, MAX(cca.role) AS role,
+                  COUNT(DISTINCT cca.client_id) AS client_count
+           FROM contacts co
+           JOIN contact_client_assignments cca ON co.id = cca.contact_id
+           JOIN clients c ON cca.client_id = c.id
+           WHERE LOWER(TRIM(co.name)) = LOWER(TRIM(?)) AND cca.contact_type = 'client'
+           GROUP BY co.id""",
+        (name,),
+    ).fetchone()
+    if not row:
+        return HTMLResponse("", status_code=404)
+    c = dict(row)
+    c["clients"] = _client_type_contact_clients(conn, c["contact_id"])
+    return templates.TemplateResponse("contacts/_client_contact_row.html", {
+        "request": request,
+        "c": c,
+    })
+
+
+@router.post("/client/new", response_class=HTMLResponse)
+def client_type_contact_create(
+    request: Request,
+    name: str = Form(...),
+    title: str = Form(""),
+    role: str = Form(""),
+    email: str = Form(""),
+    phone: str = Form(""),
+    mobile: str = Form(""),
+    client_name: str = Form(""),
+    conn=Depends(get_db),
+):
+    """Create a new client-type contact, optionally assigned to a client."""
+    contact_id = get_or_create_contact(
+        conn, name.strip(),
+        email=clean_email(email) or None,
+        phone=format_phone(phone) if phone.strip() else None,
+        mobile=format_phone(mobile) if mobile.strip() else None,
+    )
+
+    client_id = None
+    if client_name:
+        row = conn.execute(
+            "SELECT id FROM clients WHERE LOWER(TRIM(name))=LOWER(TRIM(?)) AND archived=0",
+            (client_name.strip(),),
+        ).fetchone()
+        if row:
+            client_id = row["id"]
+    if client_id:
+        conn.execute(
+            """INSERT OR IGNORE INTO contact_client_assignments
+               (contact_id, client_id, contact_type, title, role)
+               VALUES (?,?,?,?,?)""",
+            (contact_id, client_id, "client", title.strip() or None, role.strip() or None),
+        )
+    conn.commit()
+    client_type = _get_client_type_contacts(conn)
+    all_clients_json = _json.dumps([
+        {"id": r["id"], "name": r["name"]}
+        for r in conn.execute(
+            "SELECT id, name FROM clients WHERE archived=0 ORDER BY name"
+        ).fetchall()
+    ])
+    return templates.TemplateResponse("contacts/_client_contact_tbody.html", {
+        "request": request,
+        "client_type_contacts": client_type,
+        "all_clients_json": all_clients_json,
+    })
+
+
+# ---------------------------------------------------------------------------
+# Placement contact cell-save, rename, add-row, edit, row endpoints
+# ---------------------------------------------------------------------------
+
+@router.patch("/{name}/cell")
+async def placement_contact_cell(request: Request, name: str, conn=Depends(get_db)):
+    """Save a single cell value for a placement contact."""
+    body = await request.json()
+    field, value = body.get("field", ""), body.get("value", "")
+    allowed = {"organization", "role", "email", "phone", "mobile", "title", "notes"}
+    if field not in allowed:
+        return JSONResponse({"ok": False, "error": "Invalid field"}, status_code=400)
+    formatted = value.strip()
+    if field in ("phone", "mobile"):
+        formatted = format_phone(formatted) if formatted else ""
+    elif field == "email":
+        formatted = clean_email(formatted) or ""
+
+    contact_id = _resolve_contact_id(conn, name)
+    if not contact_id:
+        return JSONResponse({"ok": False, "error": "Contact not found"}, status_code=404)
+
+    if field in _CONTACTS_TABLE_FIELDS:
+        conn.execute(
+            f"UPDATE contacts SET {field}=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+            (formatted or None, contact_id),
+        )
+    if field in _POLICY_ASSIGNMENT_FIELDS:
+        conn.execute(
+            f"UPDATE contact_policy_assignments SET {field}=? WHERE contact_id=?",
+            (formatted or None, contact_id),
+        )
+    conn.commit()
+    return JSONResponse({"ok": True, "formatted": formatted})
+
+
+@router.post("/{name}/rename")
+async def placement_contact_rename(request: Request, name: str, conn=Depends(get_db)):
+    """Rename a placement contact."""
+    body = await request.json()
+    new_name = (body.get("new_name", "") or "").strip()
+    if not new_name:
+        return JSONResponse({"ok": False, "error": "Name cannot be empty"}, status_code=400)
+
+    contact_id = _resolve_contact_id(conn, name)
+    if not contact_id:
+        return JSONResponse({"ok": False, "error": "Contact not found"}, status_code=404)
+
+    conn.execute(
+        "UPDATE contacts SET name=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+        (new_name, contact_id),
+    )
+    conn.commit()
+    return JSONResponse({"ok": True, "new_name": new_name})
+
+
+@router.post("/add-row", response_class=HTMLResponse)
+def placement_contact_add_row(request: Request, conn=Depends(get_db)):
+    """Create a new placement contact row and return matrix row HTML."""
+    contact_id = get_or_create_contact(conn, "New Contact")
+    first = conn.execute("SELECT id FROM policies WHERE archived=0 LIMIT 1").fetchone()
+    policy_id = first["id"] if first else 1
+    conn.execute(
+        """INSERT OR IGNORE INTO contact_policy_assignments (contact_id, policy_id)
+           VALUES (?, ?)""",
+        (contact_id, policy_id),
+    )
+    conn.commit()
+    all_orgs = sorted({r["organization"] for r in conn.execute(
+        "SELECT DISTINCT organization FROM contacts WHERE organization IS NOT NULL AND organization != ''"
+    ).fetchall()})
+    c = {"name": "New Contact", "contact_id": contact_id, "organization": None, "role": None,
+         "title": None, "notes": None,
+         "email": None, "phone": None, "mobile": None, "policy_count": 0, "policies": []}
+    return templates.TemplateResponse("contacts/_placement_matrix_row.html", {
+        "request": request, "c": c, "contact_roles": cfg.get("contact_roles", []),
+        "all_orgs": all_orgs,
     })
 
 
 @router.get("/{name}/edit", response_class=HTMLResponse)
 def contact_edit_form(request: Request, name: str, conn=Depends(get_db)):
-    """HTMX: inline edit form for a contact row."""
+    """HTMX: inline edit form for a placement contact row."""
     row = conn.execute(
-        """SELECT pc.name, MAX(pc.email) AS email, MAX(pc.phone) AS phone,
-                  MAX(pc.organization) AS organization, MAX(pc.role) AS role
-           FROM policy_contacts pc
-           WHERE LOWER(TRIM(pc.name)) = LOWER(TRIM(?))
-           GROUP BY LOWER(TRIM(pc.name))""",
+        """SELECT co.name, co.email, co.phone, co.mobile,
+                  co.organization, MAX(cpa.role) AS role
+           FROM contacts co
+           JOIN contact_policy_assignments cpa ON co.id = cpa.contact_id
+           WHERE LOWER(TRIM(co.name)) = LOWER(TRIM(?))
+           GROUP BY co.id""",
         (name,),
     ).fetchone()
     if not row:
@@ -236,33 +953,48 @@ def contact_edit_save(
     name: str,
     email: str = Form(""),
     phone: str = Form(""),
+    mobile: str = Form(""),
     organization: str = Form(""),
     role: str = Form(""),
     conn=Depends(get_db),
 ):
-    """HTMX: save contact updates across all policy_contacts rows with this name."""
+    """HTMX: save contact updates for a placement contact."""
+    contact_id = _resolve_contact_id(conn, name)
+    if not contact_id:
+        return HTMLResponse("", status_code=404)
+
+    # Update shared fields on contacts table
     conn.execute(
-        """UPDATE policy_contacts
-           SET email = ?, phone = ?, organization = ?, role = ?
-           WHERE LOWER(TRIM(name)) = LOWER(TRIM(?))""",
-        (email.strip() or None, phone.strip() or None,
-         organization.strip() or None, role.strip() or None,
-         name),
+        """UPDATE contacts SET email=?, phone=?, mobile=?, organization=?, updated_at=CURRENT_TIMESTAMP
+           WHERE id=?""",
+        (clean_email(email) or None,
+         format_phone(phone) if phone.strip() else None,
+         format_phone(mobile) if mobile.strip() else None,
+         organization.strip() or None,
+         contact_id),
+    )
+    # Update role on all policy assignments for this contact
+    conn.execute(
+        "UPDATE contact_policy_assignments SET role=? WHERE contact_id=?",
+        (role.strip() or None, contact_id),
     )
     conn.commit()
+
     row = conn.execute(
-        """SELECT pc.name, MAX(pc.email) AS email, MAX(pc.phone) AS phone,
-                  MAX(pc.organization) AS organization, MAX(pc.role) AS role,
-                  COUNT(DISTINCT pc.policy_id) AS policy_count
-           FROM policy_contacts pc
-           JOIN policies p ON pc.policy_id = p.id
+        """SELECT co.name, co.email, co.phone, co.mobile,
+                  co.organization, MAX(cpa.role) AS role,
+                  COUNT(DISTINCT cpa.policy_id) AS policy_count
+           FROM contacts co
+           JOIN contact_policy_assignments cpa ON co.id = cpa.contact_id
+           JOIN policies p ON cpa.policy_id = p.id
            JOIN clients c ON p.client_id = c.id
-           WHERE LOWER(TRIM(pc.name)) = LOWER(TRIM(?)) AND p.archived = 0
-           GROUP BY LOWER(TRIM(pc.name))""",
-        (name,),
+           WHERE co.id = ? AND p.archived = 0
+           GROUP BY co.id""",
+        (contact_id,),
     ).fetchone()
     c = dict(row) if row else {"name": name, "policy_count": 0}
-    c["policies"] = _contact_policies(conn, name)
+    c["contact_id"] = contact_id
+    c["policies"] = _contact_policies(conn, contact_id)
     return templates.TemplateResponse("contacts/_row.html", {
         "request": request,
         "c": c,
@@ -273,12 +1005,13 @@ def contact_edit_save(
 def internal_contact_edit_form(request: Request, name: str, conn=Depends(get_db)):
     """HTMX: inline edit form for an internal team member's shared contact info."""
     row = conn.execute(
-        """SELECT cc.name, MAX(cc.title) AS title, MAX(cc.email) AS email,
-                  MAX(cc.phone) AS phone, MAX(cc.role) AS role,
-                  COUNT(DISTINCT cc.client_id) AS client_count
-           FROM client_contacts cc
-           WHERE LOWER(TRIM(cc.name)) = LOWER(TRIM(?)) AND cc.contact_type = 'internal'
-           GROUP BY LOWER(TRIM(cc.name))""",
+        """SELECT co.name, MAX(cca.title) AS title, co.email,
+                  co.phone, co.mobile, MAX(cca.role) AS role,
+                  COUNT(DISTINCT cca.client_id) AS client_count
+           FROM contacts co
+           JOIN contact_client_assignments cca ON co.id = cca.contact_id
+           WHERE LOWER(TRIM(co.name)) = LOWER(TRIM(?)) AND cca.contact_type = 'internal'
+           GROUP BY co.id""",
         (name,),
     ).fetchone()
     if not row:
@@ -297,30 +1030,44 @@ def internal_contact_edit_save(
     role: str = Form(""),
     email: str = Form(""),
     phone: str = Form(""),
+    mobile: str = Form(""),
     conn=Depends(get_db),
 ):
-    """HTMX: save shared contact info across all client_contacts rows with this name."""
+    """HTMX: save shared contact info for an internal contact."""
+    contact_id = _resolve_contact_id(conn, name)
+    if not contact_id:
+        return HTMLResponse("", status_code=404)
+
+    # Update shared fields on contacts table
     conn.execute(
-        """UPDATE client_contacts SET title=?, role=?, email=?, phone=?
-           WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) AND contact_type='internal'""",
-        (title.strip() or None, role.strip() or None,
-         email.strip() or None, phone.strip() or None,
-         name),
+        "UPDATE contacts SET email=?, phone=?, mobile=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+        (clean_email(email) or None,
+         format_phone(phone) if phone.strip() else None,
+         format_phone(mobile) if mobile.strip() else None,
+         contact_id),
+    )
+    # Update assignment-specific fields
+    conn.execute(
+        "UPDATE contact_client_assignments SET title=?, role=? WHERE contact_id=? AND contact_type='internal'",
+        (title.strip() or None, role.strip() or None, contact_id),
     )
     conn.commit()
+
     row = conn.execute(
-        """SELECT cc.name, MAX(cc.title) AS title, MAX(cc.email) AS email,
-                  MAX(cc.phone) AS phone, MAX(cc.role) AS role,
-                  COUNT(DISTINCT cc.client_id) AS client_count
-           FROM client_contacts cc
-           JOIN clients c ON cc.client_id = c.id
-           WHERE LOWER(TRIM(cc.name)) = LOWER(TRIM(?)) AND cc.contact_type = 'internal'
-           GROUP BY LOWER(TRIM(cc.name))""",
-        (name,),
+        """SELECT co.name, MAX(cca.title) AS title, co.email,
+                  co.phone, co.mobile, MAX(cca.role) AS role,
+                  COUNT(DISTINCT cca.client_id) AS client_count
+           FROM contacts co
+           JOIN contact_client_assignments cca ON co.id = cca.contact_id
+           JOIN clients c ON cca.client_id = c.id
+           WHERE co.id = ? AND cca.contact_type = 'internal'
+           GROUP BY co.id""",
+        (contact_id,),
     ).fetchone()
     c = dict(row) if row else {"name": name, "client_count": 0}
-    c["clients"] = _internal_contact_clients(conn, name)
-    c["also_on_policies"] = _internal_contact_policies(conn, name)
+    c["contact_id"] = contact_id
+    c["clients"] = _internal_contact_clients(conn, contact_id)
+    c["also_on_policies"] = _internal_contact_policies(conn, contact_id)
     c["policy_cross_count"] = len(c["also_on_policies"])
     return templates.TemplateResponse("contacts/_internal_row.html", {
         "request": request,
@@ -332,20 +1079,21 @@ def internal_contact_edit_save(
 def internal_contact_row(request: Request, name: str, conn=Depends(get_db)):
     """HTMX: restore internal contact display row (Cancel button)."""
     row = conn.execute(
-        """SELECT cc.name, MAX(cc.title) AS title, MAX(cc.email) AS email,
-                  MAX(cc.phone) AS phone, MAX(cc.role) AS role,
-                  COUNT(DISTINCT cc.client_id) AS client_count
-           FROM client_contacts cc
-           JOIN clients c ON cc.client_id = c.id
-           WHERE LOWER(TRIM(cc.name)) = LOWER(TRIM(?)) AND cc.contact_type = 'internal'
-           GROUP BY LOWER(TRIM(cc.name))""",
+        """SELECT co.id AS contact_id, co.name, MAX(cca.title) AS title, co.email,
+                  co.phone, co.mobile, MAX(cca.role) AS role,
+                  COUNT(DISTINCT cca.client_id) AS client_count
+           FROM contacts co
+           JOIN contact_client_assignments cca ON co.id = cca.contact_id
+           JOIN clients c ON cca.client_id = c.id
+           WHERE LOWER(TRIM(co.name)) = LOWER(TRIM(?)) AND cca.contact_type = 'internal'
+           GROUP BY co.id""",
         (name,),
     ).fetchone()
     if not row:
         return HTMLResponse("", status_code=404)
     c = dict(row)
-    c["clients"] = _internal_contact_clients(conn, name)
-    c["also_on_policies"] = _internal_contact_policies(conn, name)
+    c["clients"] = _internal_contact_clients(conn, c["contact_id"])
+    c["also_on_policies"] = _internal_contact_policies(conn, c["contact_id"])
     c["policy_cross_count"] = len(c["also_on_policies"])
     return templates.TemplateResponse("contacts/_internal_row.html", {
         "request": request,
@@ -357,21 +1105,486 @@ def internal_contact_row(request: Request, name: str, conn=Depends(get_db)):
 def contact_row(request: Request, name: str, conn=Depends(get_db)):
     """HTMX: restore display row (Cancel button)."""
     row = conn.execute(
-        """SELECT pc.name, MAX(pc.email) AS email, MAX(pc.phone) AS phone,
-                  MAX(pc.organization) AS organization, MAX(pc.role) AS role,
-                  COUNT(DISTINCT pc.policy_id) AS policy_count
-           FROM policy_contacts pc
-           JOIN policies p ON pc.policy_id = p.id
+        """SELECT co.id AS contact_id, co.name, co.email, co.phone, co.mobile,
+                  co.organization, MAX(cpa.role) AS role,
+                  COUNT(DISTINCT cpa.policy_id) AS policy_count
+           FROM contacts co
+           JOIN contact_policy_assignments cpa ON co.id = cpa.contact_id
+           JOIN policies p ON cpa.policy_id = p.id
            JOIN clients c ON p.client_id = c.id
-           WHERE LOWER(TRIM(pc.name)) = LOWER(TRIM(?)) AND p.archived = 0
-           GROUP BY LOWER(TRIM(pc.name))""",
+           WHERE LOWER(TRIM(co.name)) = LOWER(TRIM(?)) AND p.archived = 0
+           GROUP BY co.id""",
         (name,),
     ).fetchone()
     if not row:
         return HTMLResponse("", status_code=404)
     c = dict(row)
-    c["policies"] = _contact_policies(conn, name)
+    c["policies"] = _contact_policies(conn, c["contact_id"])
     return templates.TemplateResponse("contacts/_row.html", {
         "request": request,
         "c": c,
     })
+
+
+# ---------------------------------------------------------------------------
+# Create endpoints
+# ---------------------------------------------------------------------------
+
+@router.post("/new", response_class=HTMLResponse)
+def contact_create(
+    request: Request,
+    name: str = Form(...),
+    organization: str = Form(""),
+    role: str = Form(""),
+    email: str = Form(""),
+    phone: str = Form(""),
+    mobile: str = Form(""),
+    policy_uid: str = Form(""),
+    conn=Depends(get_db),
+):
+    """Create a new placement contact, optionally attached to a policy."""
+    contact_id = get_or_create_contact(
+        conn, name.strip(),
+        email=clean_email(email) or None,
+        phone=format_phone(phone) if phone.strip() else None,
+        mobile=format_phone(mobile) if mobile.strip() else None,
+        organization=organization.strip() or None,
+    )
+
+    policy_id = None
+    if policy_uid:
+        row = conn.execute("SELECT id FROM policies WHERE policy_uid=?", (policy_uid.strip().upper(),)).fetchone()
+        if row:
+            policy_id = row["id"]
+    if policy_id:
+        conn.execute(
+            """INSERT OR IGNORE INTO contact_policy_assignments
+               (contact_id, policy_id, role)
+               VALUES (?,?,?)""",
+            (contact_id, policy_id, role.strip() or None),
+        )
+    conn.commit()
+    # Return the full updated list
+    contacts = _get_all_contacts(conn)
+    return templates.TemplateResponse("contacts/_placement_tbody.html", {
+        "request": request,
+        "contacts": contacts,
+    })
+
+
+@router.post("/internal/new", response_class=HTMLResponse)
+def internal_contact_create(
+    request: Request,
+    name: str = Form(...),
+    title: str = Form(""),
+    role: str = Form(""),
+    email: str = Form(""),
+    phone: str = Form(""),
+    mobile: str = Form(""),
+    client_name: str = Form(""),
+    conn=Depends(get_db),
+):
+    """Create a new internal team member, optionally assigned to a client."""
+    contact_id = get_or_create_contact(
+        conn, name.strip(),
+        email=clean_email(email) or None,
+        phone=format_phone(phone) if phone.strip() else None,
+        mobile=format_phone(mobile) if mobile.strip() else None,
+    )
+
+    client_id = None
+    if client_name:
+        row = conn.execute(
+            "SELECT id FROM clients WHERE LOWER(TRIM(name))=LOWER(TRIM(?)) AND archived=0",
+            (client_name.strip(),),
+        ).fetchone()
+        if row:
+            client_id = row["id"]
+    if client_id:
+        conn.execute(
+            """INSERT OR IGNORE INTO contact_client_assignments
+               (contact_id, client_id, contact_type, title, role)
+               VALUES (?,?,?,?,?)""",
+            (contact_id, client_id, "internal", title.strip() or None, role.strip() or None),
+        )
+    conn.commit()
+    internal = _get_internal_contacts(conn)
+    all_clients_json = _json.dumps([
+        {"id": r["id"], "name": r["name"]}
+        for r in conn.execute(
+            "SELECT id, name FROM clients WHERE archived=0 ORDER BY name"
+        ).fetchall()
+    ])
+    return templates.TemplateResponse("contacts/_internal_tbody.html", {
+        "request": request,
+        "internal_contacts": internal,
+        "all_clients_json": all_clients_json,
+    })
+
+
+# ---------------------------------------------------------------------------
+# Duplicate detection
+# ---------------------------------------------------------------------------
+
+@router.get("/check-duplicate", response_class=HTMLResponse)
+def check_duplicate(request: Request, name: str = "", email: str = "", conn=Depends(get_db)):
+    """HTMX: check if a contact with similar name or same email already exists.
+    Returns a warning banner partial if duplicates found, empty string otherwise."""
+    name = name.strip()
+    email = email.strip().lower()
+    if not name and not email:
+        return HTMLResponse("")
+
+    matches: list[dict] = []
+
+    # Exact email match in unified contacts table
+    if email:
+        email_hits = conn.execute(
+            "SELECT id, name, email FROM contacts WHERE LOWER(TRIM(email)) = ?",
+            (email,),
+        ).fetchall()
+        for r in email_hits:
+            # Determine which stores this contact appears in
+            sources = []
+            if conn.execute(
+                "SELECT 1 FROM contact_policy_assignments WHERE contact_id=? LIMIT 1", (r["id"],)
+            ).fetchone():
+                sources.append("policy")
+            internal_row = conn.execute(
+                "SELECT 1 FROM contact_client_assignments WHERE contact_id=? AND contact_type='internal' LIMIT 1",
+                (r["id"],),
+            ).fetchone()
+            client_row = conn.execute(
+                "SELECT 1 FROM contact_client_assignments WHERE contact_id=? AND contact_type='client' LIMIT 1",
+                (r["id"],),
+            ).fetchone()
+            if internal_row:
+                sources.append("team")
+            if client_row:
+                sources.append("client")
+            source = sources[0] if sources else "contact"
+            matches.append({"name": r["name"], "email": r["email"], "source": source, "match_type": "email"})
+
+    # Fuzzy name match using RapidFuzz
+    if name and len(name) >= 2:
+        from rapidfuzz import fuzz
+        all_names = conn.execute(
+            "SELECT id, name, email FROM contacts WHERE name IS NOT NULL AND name != ''"
+        ).fetchall()
+        seen_names: set[str] = {m["name"].lower().strip() for m in matches}
+        for r in all_names:
+            existing = r["name"]
+            if existing.lower().strip() in seen_names:
+                continue
+            score = fuzz.ratio(name.lower(), existing.lower())
+            if score >= 80:
+                # Determine source
+                sources = []
+                if conn.execute(
+                    "SELECT 1 FROM contact_policy_assignments WHERE contact_id=? LIMIT 1", (r["id"],)
+                ).fetchone():
+                    sources.append("policy")
+                int_row = conn.execute(
+                    "SELECT 1 FROM contact_client_assignments WHERE contact_id=? AND contact_type='internal' LIMIT 1",
+                    (r["id"],),
+                ).fetchone()
+                cli_row = conn.execute(
+                    "SELECT 1 FROM contact_client_assignments WHERE contact_id=? AND contact_type='client' LIMIT 1",
+                    (r["id"],),
+                ).fetchone()
+                if int_row:
+                    sources.append("team")
+                if cli_row:
+                    sources.append("client")
+                source = sources[0] if sources else "contact"
+                matches.append({
+                    "name": existing, "email": r["email"] or "",
+                    "source": source, "match_type": "name",
+                    "score": score,
+                })
+                seen_names.add(existing.lower().strip())
+
+    if not matches:
+        return HTMLResponse("")
+
+    return templates.TemplateResponse("contacts/_duplicate_warning.html", {
+        "request": request,
+        "matches": matches[:5],
+    })
+
+
+# ---------------------------------------------------------------------------
+# Search — unified across all stores via contacts table
+# ---------------------------------------------------------------------------
+
+@router.get("/search", response_class=HTMLResponse)
+def contacts_search(request: Request, q: str = "", context: str = "", target_id: str = "", conn=Depends(get_db)):
+    """Unified contact search across all stores. Returns HTML partial for picker."""
+    if len(q.strip()) < 2:
+        return HTMLResponse('<p class="text-xs text-gray-400 py-2">Type at least 2 characters...</p>')
+
+    rows = search_contacts(conn, q, limit=20)
+
+    # Enrich each result with sources and assignment-level fields (title, role)
+    results = []
+    for r in rows:
+        cid = r["id"]
+        # Determine which stores this contact appears in
+        sources = []
+        if conn.execute(
+            "SELECT 1 FROM contact_policy_assignments WHERE contact_id=? LIMIT 1", (cid,)
+        ).fetchone():
+            sources.append("policy")
+        int_row = conn.execute(
+            "SELECT 1 FROM contact_client_assignments WHERE contact_id=? AND contact_type='internal' LIMIT 1",
+            (cid,),
+        ).fetchone()
+        cli_row = conn.execute(
+            "SELECT 1 FROM contact_client_assignments WHERE contact_id=? AND contact_type='client' LIMIT 1",
+            (cid,),
+        ).fetchone()
+        if int_row:
+            sources.append("team")
+        if cli_row:
+            sources.append("client")
+
+        # Get assignment-level fields (title, role) from best available
+        title = None
+        role = None
+        asg = conn.execute(
+            "SELECT title, role FROM contact_client_assignments WHERE contact_id=? AND (title IS NOT NULL OR role IS NOT NULL) LIMIT 1",
+            (cid,),
+        ).fetchone()
+        if asg:
+            title = asg["title"]
+            role = asg["role"]
+        if not role:
+            pol_asg = conn.execute(
+                "SELECT role FROM contact_policy_assignments WHERE contact_id=? AND role IS NOT NULL LIMIT 1",
+                (cid,),
+            ).fetchone()
+            if pol_asg:
+                role = pol_asg["role"]
+
+        results.append({
+            "name": r["name"],
+            "email": r.get("email"),
+            "phone": r.get("phone"),
+            "mobile": r.get("mobile"),
+            "title": title,
+            "role": role,
+            "organization": r.get("organization"),
+            "sources": ",".join(sources) if sources else "",
+        })
+
+    return templates.TemplateResponse("contacts/_search_results.html", {
+        "request": request,
+        "results": results,
+        "q": q,
+        "context": context,
+        "target_id": target_id,
+    })
+
+
+# ---------------------------------------------------------------------------
+# Unified delete — removes ALL assignments and the contact record itself
+# ---------------------------------------------------------------------------
+
+@router.post("/unified/{name}/delete")
+def unified_contact_delete(request: Request, name: str, conn=Depends(get_db)):
+    """Delete a contact entirely: all policy assignments, all client assignments, and the contact record."""
+    contact_id = _resolve_contact_id(conn, name)
+    if contact_id:
+        # Clear activity_log FK references so the activity rows aren't orphaned
+        conn.execute("UPDATE activity_log SET contact_id = NULL WHERE contact_id = ?", (contact_id,))
+        conn.execute("DELETE FROM contact_policy_assignments WHERE contact_id = ?", (contact_id,))
+        conn.execute("DELETE FROM contact_client_assignments WHERE contact_id = ?", (contact_id,))
+        conn.execute("DELETE FROM contacts WHERE id = ?", (contact_id,))
+        conn.commit()
+    return JSONResponse({"ok": True})
+
+
+# ---------------------------------------------------------------------------
+# Delete endpoints — remove assignments for a contact by name from a store
+# ---------------------------------------------------------------------------
+
+@router.post("/{name}/delete", response_class=HTMLResponse)
+def placement_contact_delete(request: Request, name: str, conn=Depends(get_db)):
+    """Delete all policy assignments for this contact. If no other assignments remain, delete the contact."""
+    contact_id = _resolve_contact_id(conn, name)
+    if contact_id:
+        conn.execute(
+            "DELETE FROM contact_policy_assignments WHERE contact_id = ?",
+            (contact_id,),
+        )
+        # If no assignments remain anywhere, remove the contact record too
+        remaining = conn.execute(
+            """SELECT 1 FROM contact_client_assignments WHERE contact_id = ?
+               UNION ALL
+               SELECT 1 FROM contact_policy_assignments WHERE contact_id = ?""",
+            (contact_id, contact_id),
+        ).fetchone()
+        if not remaining:
+            conn.execute("DELETE FROM contacts WHERE id = ?", (contact_id,))
+    conn.commit()
+    contacts = _get_all_contacts(conn)
+    all_orgs = sorted({c["organization"] for c in contacts if c.get("organization")})
+    return templates.TemplateResponse("contacts/_placement_tbody.html", {
+        "request": request,
+        "contacts": contacts,
+        "contact_roles": cfg.get("contact_roles", []),
+        "all_orgs": all_orgs,
+    })
+
+
+@router.post("/internal/{name}/delete", response_class=HTMLResponse)
+def internal_contact_delete(request: Request, name: str, conn=Depends(get_db)):
+    """Delete all internal client assignments for this contact."""
+    contact_id = _resolve_contact_id(conn, name)
+    if contact_id:
+        conn.execute(
+            "DELETE FROM contact_client_assignments WHERE contact_id = ? AND contact_type='internal'",
+            (contact_id,),
+        )
+        # If no assignments remain anywhere, remove the contact record too
+        remaining = conn.execute(
+            """SELECT 1 FROM contact_client_assignments WHERE contact_id = ?
+               UNION ALL
+               SELECT 1 FROM contact_policy_assignments WHERE contact_id = ?""",
+            (contact_id, contact_id),
+        ).fetchone()
+        if not remaining:
+            conn.execute("DELETE FROM contacts WHERE id = ?", (contact_id,))
+    conn.commit()
+    internal = _get_internal_contacts(conn)
+    all_clients_json = _json.dumps([
+        {"id": r["id"], "name": r["name"]}
+        for r in conn.execute("SELECT id, name FROM clients WHERE archived=0 ORDER BY name").fetchall()
+    ])
+    return templates.TemplateResponse("contacts/_internal_tbody.html", {
+        "request": request,
+        "internal_contacts": internal,
+        "all_clients_json": all_clients_json,
+        "contact_roles": cfg.get("contact_roles", []),
+    })
+
+
+@router.post("/client/{name}/delete", response_class=HTMLResponse)
+def client_type_contact_delete(request: Request, name: str, conn=Depends(get_db)):
+    """Delete all client-type client assignments for this contact."""
+    contact_id = _resolve_contact_id(conn, name)
+    if contact_id:
+        conn.execute(
+            "DELETE FROM contact_client_assignments WHERE contact_id = ? AND contact_type='client'",
+            (contact_id,),
+        )
+        # If no assignments remain anywhere, remove the contact record too
+        remaining = conn.execute(
+            """SELECT 1 FROM contact_client_assignments WHERE contact_id = ?
+               UNION ALL
+               SELECT 1 FROM contact_policy_assignments WHERE contact_id = ?""",
+            (contact_id, contact_id),
+        ).fetchone()
+        if not remaining:
+            conn.execute("DELETE FROM contacts WHERE id = ?", (contact_id,))
+    conn.commit()
+    client_type = _get_client_type_contacts(conn)
+    all_clients_json = _json.dumps([
+        {"id": r["id"], "name": r["name"]}
+        for r in conn.execute("SELECT id, name FROM clients WHERE archived=0 ORDER BY name").fetchall()
+    ])
+    return templates.TemplateResponse("contacts/_client_contact_tbody.html", {
+        "request": request,
+        "client_type_contacts": client_type,
+        "all_clients_json": all_clients_json,
+        "contact_roles": cfg.get("contact_roles", []),
+    })
+
+
+# ---------------------------------------------------------------------------
+# Merge — use unified merge_contacts from queries.py
+# ---------------------------------------------------------------------------
+
+@router.post("/merge", response_class=HTMLResponse)
+async def contact_merge(request: Request, conn=Depends(get_db)):
+    """Merge source_name into target_name via unified contacts."""
+    body = await request.json()
+    source = (body.get("source_name") or "").strip()
+    target = (body.get("target_name") or "").strip()
+    if not source or not target:
+        return JSONResponse({"ok": False, "error": "Both names required"}, status_code=400)
+
+    source_id = _resolve_contact_id(conn, source)
+    target_id = _resolve_contact_id(conn, target)
+
+    if not source_id:
+        return JSONResponse({"ok": False, "error": f"Source contact '{source}' not found"}, status_code=404)
+    if not target_id:
+        return JSONResponse({"ok": False, "error": f"Target contact '{target}' not found"}, status_code=404)
+    if source_id == target_id:
+        return JSONResponse({"ok": True, "target_name": target})
+
+    merge_contacts(conn, source_id, target_id)
+    conn.commit()
+    return JSONResponse({"ok": True, "target_name": target})
+
+
+# ---------------------------------------------------------------------------
+# Add to other store — create assignment in another store for existing contact
+# ---------------------------------------------------------------------------
+
+@router.post("/{name}/add-to-store", response_class=HTMLResponse)
+async def contact_add_to_store(request: Request, name: str, conn=Depends(get_db)):
+    """Copy a contact's shared fields into another store by creating an assignment."""
+    body = await request.json()
+    target_store = body.get("target_store", "")
+
+    contact_id = _resolve_contact_id(conn, name)
+    if not contact_id:
+        return JSONResponse({"ok": False, "error": "Contact not found"}, status_code=404)
+
+    # Get assignment-level fields from existing assignments
+    asg = conn.execute(
+        """SELECT MAX(title) AS title, MAX(role) AS role
+           FROM (
+               SELECT title, role FROM contact_client_assignments WHERE contact_id = ?
+               UNION ALL
+               SELECT NULL AS title, role FROM contact_policy_assignments WHERE contact_id = ?
+           )""",
+        (contact_id, contact_id),
+    ).fetchone()
+    title = asg["title"] if asg else None
+    role = asg["role"] if asg else None
+
+    if target_store == "internal":
+        first_client = conn.execute("SELECT id FROM clients WHERE archived=0 ORDER BY name LIMIT 1").fetchone()
+        cid = first_client["id"] if first_client else 1
+        conn.execute(
+            """INSERT OR IGNORE INTO contact_client_assignments
+               (contact_id, client_id, contact_type, title, role)
+               VALUES (?,?,?,?,?)""",
+            (contact_id, cid, "internal", title, role),
+        )
+    elif target_store == "client":
+        first_client = conn.execute("SELECT id FROM clients WHERE archived=0 ORDER BY name LIMIT 1").fetchone()
+        cid = first_client["id"] if first_client else 1
+        conn.execute(
+            """INSERT OR IGNORE INTO contact_client_assignments
+               (contact_id, client_id, contact_type, title, role)
+               VALUES (?,?,?,?,?)""",
+            (contact_id, cid, "client", title, role),
+        )
+    elif target_store == "policy":
+        first_policy = conn.execute("SELECT id FROM policies WHERE archived=0 LIMIT 1").fetchone()
+        pid = first_policy["id"] if first_policy else 1
+        conn.execute(
+            """INSERT OR IGNORE INTO contact_policy_assignments
+               (contact_id, policy_id, role)
+               VALUES (?,?,?)""",
+            (contact_id, pid, role),
+        )
+    else:
+        return JSONResponse({"ok": False, "error": "Invalid store"}, status_code=400)
+
+    conn.commit()
+    return JSONResponse({"ok": True})
