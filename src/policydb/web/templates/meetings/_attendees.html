@@ -1,5 +1,5 @@
 <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Attendees</p>
-<div class="flex flex-wrap gap-1.5 mb-2">
+<div class="flex flex-wrap gap-1.5 mb-3">
   {% if meeting and meeting.attendees %}
   {% for a in meeting.attendees %}
   <span class="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full
@@ -16,18 +16,77 @@
   <span class="text-xs text-gray-400 italic">No attendees added yet</span>
   {% endif %}
 </div>
-<form hx-post="/meetings/{{ meeting.id }}/attendees/add"
-      hx-target="#attendees-section" hx-swap="innerHTML"
-      class="flex gap-2 items-end">
-  <div class="flex-1">
-    <input type="text" name="name" required placeholder="Name" class="w-full border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-marsh">
+
+{# ── Add from existing contacts ── #}
+{% if contacts is defined and contacts %}
+<div class="mb-2">
+  <p class="text-[10px] text-gray-400 mb-1">Add from contacts:</p>
+  <div class="flex gap-2 items-end">
+    <select id="mtg-contact-picker-{{ meeting.id }}" class="flex-1 border border-gray-300 rounded px-2 py-1 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-marsh">
+      <option value="">— Select contact —</option>
+      {% set existing_names = meeting.attendees | map(attribute='name') | map('lower') | list if meeting and meeting.attendees else [] %}
+      {% for c in contacts %}
+      {% if c.name | lower not in existing_names %}
+      <option value="{{ c.id }}" data-name="{{ c.name }}" data-role="{{ c.role or c.title or '' }}" data-type="{{ c.contact_type }}">{{ c.name }}{% if c.role or c.title %} ({{ c.role or c.title }}){% endif %} — {{ c.contact_type }}</option>
+      {% endif %}
+      {% endfor %}
+    </select>
+    <button type="button" onclick="addExistingAttendee(this)" class="text-xs bg-marsh text-white px-3 py-1 rounded hover:bg-marsh-light transition-colors">+ Add</button>
   </div>
-  <div>
-    <input type="text" name="role" placeholder="Role" class="border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-marsh w-28">
-  </div>
-  <label class="flex items-center gap-1 text-xs text-gray-500">
-    <input type="checkbox" name="is_internal" value="1" class="rounded border-gray-300">
-    Internal
-  </label>
-  <button type="submit" class="text-xs bg-marsh text-white px-3 py-1 rounded hover:bg-marsh-light transition-colors">+ Add</button>
-</form>
+</div>
+<script>
+function addExistingAttendee(btn) {
+  var sel = document.getElementById('mtg-contact-picker-{{ meeting.id }}');
+  if (!sel || !sel.value) return;
+  var opt = sel.options[sel.selectedIndex];
+  var fd = new FormData();
+  fd.set('name', opt.dataset.name);
+  fd.set('role', opt.dataset.role);
+  fd.set('contact_id', sel.value);
+  fd.set('is_internal', opt.dataset.type === 'internal' ? '1' : '0');
+  htmx.ajax('POST', '/meetings/{{ meeting.id }}/attendees/add', {target: '#attendees-section', swap: 'innerHTML', values: Object.fromEntries(fd)});
+}
+</script>
+{% endif %}
+
+{# ── Add new contact ── #}
+<details class="mt-2">
+  <summary class="text-xs text-marsh cursor-pointer hover:underline select-none">+ New contact (not in system)</summary>
+  <form hx-post="/meetings/{{ meeting.id }}/attendees/add"
+        hx-target="#attendees-section" hx-swap="innerHTML"
+        class="mt-2 p-3 bg-gray-50 rounded-lg space-y-2">
+    <input type="hidden" name="create_contact" value="1">
+    <div class="grid grid-cols-2 gap-2">
+      <div>
+        <label class="text-[10px] text-gray-500 block">Name <span class="text-red-400">*</span></label>
+        <input type="text" name="name" required placeholder="Jane Smith" class="w-full border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-marsh">
+      </div>
+      <div>
+        <label class="text-[10px] text-gray-500 block">Title</label>
+        <input type="text" name="title" placeholder="CFO, Risk Manager..." class="w-full border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-marsh">
+      </div>
+      <div>
+        <label class="text-[10px] text-gray-500 block">Email</label>
+        <input type="email" name="email" placeholder="jane@company.com" class="w-full border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-marsh">
+      </div>
+      <div>
+        <label class="text-[10px] text-gray-500 block">Phone</label>
+        <input type="tel" name="phone" placeholder="(555) 123-4567" class="w-full border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-marsh">
+      </div>
+      <div>
+        <label class="text-[10px] text-gray-500 block">Role</label>
+        <input type="text" name="role" placeholder="Broker, Underwriter..." class="w-full border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-marsh">
+      </div>
+      <div class="flex items-end">
+        <label class="flex items-center gap-1 text-xs text-gray-500">
+          <input type="checkbox" name="is_internal" value="1" class="rounded border-gray-300">
+          Internal team
+        </label>
+      </div>
+    </div>
+    <div class="flex gap-2">
+      <button type="submit" class="text-xs bg-marsh text-white px-3 py-1.5 rounded hover:bg-marsh-light transition-colors">Create & Add</button>
+      <span class="text-[10px] text-gray-400 self-center">Creates contact record + assigns to client</span>
+    </div>
+  </form>
+</details>
