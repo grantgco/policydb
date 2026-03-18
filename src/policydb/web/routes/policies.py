@@ -1292,6 +1292,9 @@ def policy_edit_post(
     participation_of: str = Form(""),
     first_named_insured: str = Form(""),
     access_point: str = Form(""),
+    is_program: str = Form("0"),
+    program_carriers: str = Form(""),
+    program_carrier_count: str = Form(""),
     conn=Depends(get_db),
 ):
     def _float(v: str):
@@ -1300,9 +1303,21 @@ def policy_edit_post(
         except ValueError:
             return None
 
+    def _int(v: str):
+        try:
+            return int(v) if v.strip() else None
+        except ValueError:
+            return None
+
     uid = policy_uid.upper()
     old_row = dict(conn.execute("SELECT * FROM policies WHERE policy_uid=?", (uid,)).fetchone())
     opp = 1 if is_opportunity == "1" else 0
+    pgm = 1 if is_program == "1" else 0
+    # Auto-compute carrier count from comma-separated list if not manually set
+    pgm_carriers = program_carriers.strip() or None
+    pgm_count = _int(program_carrier_count)
+    if pgm_carriers and not pgm_count:
+        pgm_count = len([c.strip() for c in pgm_carriers.split(",") if c.strip()])
     conn.execute(
         """UPDATE policies SET
            policy_type=?, carrier=?, policy_number=?,
@@ -1314,7 +1329,8 @@ def policy_edit_post(
            project_name=?, exposure_basis=?, exposure_amount=?, exposure_unit=?,
            exposure_address=?, exposure_city=?, exposure_state=?, exposure_zip=?,
            follow_up_date=?, attachment_point=?, participation_of=?,
-           first_named_insured=?, access_point=?
+           first_named_insured=?, access_point=?,
+           is_program=?, program_carriers=?, program_carrier_count=?
            WHERE policy_uid=?""",
         (
             policy_type, carrier or None, policy_number or None,
@@ -1332,6 +1348,7 @@ def policy_edit_post(
             follow_up_date or None,
             _float(attachment_point), _float(participation_of),
             first_named_insured or None, access_point or None,
+            pgm, pgm_carriers, pgm_count,
             uid,
         ),
     )
@@ -2140,6 +2157,9 @@ def policy_new_post(
     participation_of: str = Form(""),
     first_named_insured: str = Form(""),
     access_point: str = Form(""),
+    is_program: str = Form("0"),
+    program_carriers: str = Form(""),
+    program_carrier_count: str = Form(""),
     conn=Depends(get_db),
 ):
     from policydb.db import next_policy_uid
@@ -2150,9 +2170,20 @@ def policy_new_post(
         except ValueError:
             return None
 
+    def _int(v):
+        try:
+            return int(v) if str(v).strip() else None
+        except ValueError:
+            return None
+
     uid = next_policy_uid(conn)
     account_exec = cfg.get("default_account_exec", "Grant")
     opp = 1 if is_opportunity == "1" else 0
+    pgm = 1 if is_program == "1" else 0
+    pgm_carriers = program_carriers.strip() or None
+    pgm_count = _int(program_carrier_count)
+    if pgm_carriers and not pgm_count:
+        pgm_count = len([c.strip() for c in pgm_carriers.split(",") if c.strip()])
     conn.execute(
         """INSERT INTO policies
            (policy_uid, client_id, policy_type, carrier, policy_number,
@@ -2164,8 +2195,9 @@ def policy_new_post(
             exposure_basis, exposure_amount, exposure_unit,
             exposure_address, exposure_city, exposure_state, exposure_zip,
             commission_rate, prior_premium, notes, follow_up_date,
-            attachment_point, participation_of, first_named_insured, access_point)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            attachment_point, participation_of, first_named_insured, access_point,
+            is_program, program_carriers, program_carrier_count)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (uid, client_id, policy_type, carrier or None, policy_number or None,
          effective_date or None, expiration_date or None, _float(premium) or 0,
          _float(limit_amount), _float(deductible),
@@ -2182,7 +2214,8 @@ def policy_new_post(
          _float(commission_rate), _float(prior_premium), notes or None,
          follow_up_date or None,
          _float(attachment_point), _float(participation_of),
-         first_named_insured or None, access_point or None),
+         first_named_insured or None, access_point or None,
+         pgm, pgm_carriers, pgm_count),
     )
     conn.commit()
     new_policy = get_policy_by_uid(conn, uid)

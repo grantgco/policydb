@@ -139,6 +139,7 @@ SELECT
         THEN p.premium ELSE 0
     END) AS premium_at_risk,
     COUNT(CASE WHEN p.is_opportunity = 1 THEN 1 END) AS opportunity_count,
+    COUNT(CASE WHEN p.is_program = 1 THEN 1 END) AS program_count,
     (SELECT COUNT(*) FROM activity_log a
      WHERE a.client_id = c.id
        AND a.activity_date >= date('now', '-90 days')) AS activity_last_90d
@@ -265,6 +266,7 @@ FROM policies p
 JOIN clients c ON p.client_id = c.id
 WHERE p.archived = 0
   AND (p.is_opportunity = 0 OR p.is_opportunity IS NULL)
+  AND (p.is_program = 0 OR p.is_program IS NULL)
   AND julianday(p.expiration_date) - julianday('now') <= 180
 ORDER BY julianday(p.expiration_date) ASC
 """

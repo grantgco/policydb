@@ -67,6 +67,29 @@
             list="ac-access_point" autocomplete="off">
         </div>
 
+        <!-- Program toggle -->
+        <div class="sm:col-span-2 flex items-center gap-3">
+          <label class="toggle-switch">
+            <input type="checkbox" name="is_program" id="is_program" value="1"
+              onchange="toggleProgramMode(this.checked)">
+            <span class="toggle-track"></span>
+          </label>
+          <label for="is_program" class="text-sm font-medium text-gray-700 cursor-pointer">
+            This is a <span class="text-blue-700 font-semibold">Program</span> — aggregate multi-carrier coverage
+          </label>
+        </div>
+
+        <!-- Program-only fields -->
+        <div id="pgm-carriers-field" class="hidden sm:col-span-2">
+          <label class="field-label">Participating Carriers <span class="text-gray-400 font-normal">(comma-separated)</span></label>
+          <textarea name="program_carriers" rows="2" placeholder="AIG, Chubb, Zurich, Markel"
+            class="form-input w-full"></textarea>
+        </div>
+        <div id="pgm-count-field" class="hidden">
+          <label class="field-label">Number of Carriers</label>
+          <input type="number" name="program_carrier_count" placeholder="Auto" class="form-input w-full" min="1">
+        </div>
+
         <!-- Opportunity-only fields (hidden by default unless checkbox checked) -->
         <div id="opp-status-field" class="hidden sm:col-span-2">
           <label class="field-label">Opportunity Status</label>
@@ -382,6 +405,17 @@ function toggleOpportunityMode(isOpp) {
   // Update toggle track color (amber for opportunity)
   var track = document.querySelector('#is_opportunity + .toggle-track');
   if (track) track.style.background = isOpp ? '#d97706' : '#d1d5db';
+}
+function toggleProgramMode(isPgm) {
+  document.getElementById('pgm-carriers-field').classList.toggle('hidden', !isPgm);
+  document.getElementById('pgm-count-field').classList.toggle('hidden', !isPgm);
+  var track = document.querySelector('#is_program + .toggle-track');
+  if (track) track.style.background = isPgm ? '#1d4ed8' : '#d1d5db';
+  // Update button label
+  var btn = document.getElementById('new-submit-btn');
+  if (btn && !document.getElementById('is_opportunity').checked) {
+    btn.textContent = isPgm ? 'Add Program' : 'Add Policy';
+  }
 }
 // Run on load to reflect default_opportunity
 document.addEventListener('DOMContentLoaded', function() {
