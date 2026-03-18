@@ -92,7 +92,7 @@ def init_db(path: Path | None = None) -> None:
 
     # Back up the database once before running any pending migrations.
     # This gives a clean restore point regardless of which migration fails.
-    _KNOWN_MIGRATIONS = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56}
+    _KNOWN_MIGRATIONS = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58}
     if _KNOWN_MIGRATIONS - applied:
         _backup_db(db_path)
 
@@ -604,6 +604,26 @@ def init_db(path: Path | None = None) -> None:
         )
         conn.commit()
 
+    if 57 not in applied:
+        sql = (_MIGRATIONS_DIR / "057_meeting_uid_and_attendee_type.sql").read_text()
+        conn.executescript(sql)
+        _backfill_meeting_uids(conn)
+        _backfill_attendee_type(conn)
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (57, "Meeting UIDs, attendee type freeform, fix CNCN RFI UIDs"),
+        )
+        conn.commit()
+
+    if 58 not in applied:
+        sql = (_MIGRATIONS_DIR / "058_program_carriers_table.sql").read_text()
+        conn.executescript(sql)
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (58, "Add program_carriers table for structured program carrier rows"),
+        )
+        conn.commit()
+
     # Data hygiene: fix 'None' string corruption in text fields (runs every startup, fast no-op if clean)
     conn.execute("UPDATE clients SET cn_number = NULL WHERE cn_number = 'None'")
 
@@ -836,6 +856,61 @@ def next_rfi_uid(conn: sqlite3.Connection, client_id: int) -> str:
         except (IndexError, ValueError):
             pass
     return f"{prefix}-RFI{max_num + 1:02d}"
+
+
+def next_meeting_uid(conn: sqlite3.Connection, client_id: int) -> str:
+    """Generate next meeting UID for a client: CN{number}-MTG01, CN{number}-MTG02, etc."""
+    client = conn.execute(
+        "SELECT cn_number FROM clients WHERE id=?", (client_id,)
+    ).fetchone()
+    cn = client["cn_number"] if client and client["cn_number"] else None
+    cn_clean = re.sub(r'^[Cc][Nn]', '', cn) if cn else ""
+    prefix = f"CN{cn_clean}" if cn_clean else f"C{client_id}"
+
+    row = conn.execute(
+        "SELECT meeting_uid FROM client_meetings WHERE client_id=? AND meeting_uid IS NOT NULL ORDER BY id DESC LIMIT 1",
+        (client_id,),
+    ).fetchone()
+    max_num = 0
+    if row and row["meeting_uid"]:
+        try:
+            max_num = int(row["meeting_uid"].rsplit("-MTG", 1)[1])
+        except (IndexError, ValueError):
+            pass
+    return f"{prefix}-MTG{max_num + 1:02d}"
+
+
+def _backfill_meeting_uids(conn: sqlite3.Connection) -> None:
+    """Assign meeting_uid to existing meetings that lack one."""
+    meetings = conn.execute(
+        """SELECT m.id, m.client_id, c.cn_number
+           FROM client_meetings m
+           JOIN clients c ON m.client_id = c.id
+           WHERE m.meeting_uid IS NULL
+           ORDER BY m.client_id, m.id"""
+    ).fetchall()
+    client_seq: dict[int, int] = {}
+    for m in meetings:
+        cid = m["client_id"]
+        cn = m["cn_number"]
+        cn_clean = re.sub(r'^[Cc][Nn]', '', cn) if cn else ""
+        prefix = f"CN{cn_clean}" if cn_clean else f"C{cid}"
+        seq = client_seq.get(cid, 0) + 1
+        client_seq[cid] = seq
+        conn.execute(
+            "UPDATE client_meetings SET meeting_uid=? WHERE id=?",
+            (f"{prefix}-MTG{seq:02d}", m["id"]),
+        )
+
+
+def _backfill_attendee_type(conn: sqlite3.Connection) -> None:
+    """Migrate is_internal flag to attendee_type text field."""
+    conn.execute(
+        "UPDATE meeting_attendees SET attendee_type = 'Internal' WHERE is_internal = 1 AND (attendee_type IS NULL OR attendee_type = '')"
+    )
+    conn.execute(
+        "UPDATE meeting_attendees SET attendee_type = 'Client' WHERE is_internal = 0 AND (attendee_type IS NULL OR attendee_type = '')"
+    )
 
 
 def _backfill_rfi_uids(conn: sqlite3.Connection) -> None:
