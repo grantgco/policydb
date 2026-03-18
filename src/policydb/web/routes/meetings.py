@@ -146,15 +146,7 @@ def meeting_detail(
         "SELECT id, name FROM clients WHERE archived = 0 ORDER BY name"
     ).fetchall()
 
-    # Contacts for attendee picker
-    contacts = [dict(r) for r in conn.execute(
-        """SELECT co.id, co.name, cca.role, cca.contact_type
-           FROM contact_client_assignments cca
-           JOIN contacts co ON cca.contact_id = co.id
-           WHERE cca.client_id = ?
-           ORDER BY cca.contact_type, co.name""",
-        (m["client_id"],),
-    ).fetchall()]
+    contacts = _get_client_contacts(conn, m["client_id"])
 
     return templates.TemplateResponse("meetings/detail.html", {
         "request": request,
@@ -194,20 +186,63 @@ def meeting_add_attendee(
     meeting_id: int,
     name: str = Form(...),
     role: str = Form(""),
+    title: str = Form(""),
+    email: str = Form(""),
+    phone: str = Form(""),
     contact_id: int = Form(0),
     is_internal: int = Form(0),
+    create_contact: str = Form(""),
     conn=Depends(get_db),
 ):
+    from policydb.queries import get_or_create_contact, assign_contact_to_client
+    from policydb.utils import format_phone, clean_email
+
+    m_row = conn.execute("SELECT client_id FROM client_meetings WHERE id = ?", (meeting_id,)).fetchone()
+    client_id = m_row["client_id"] if m_row else None
+
+    # If creating/linking a contact record
+    cid = contact_id or None
+    if name.strip() and (create_contact == "1" or not cid):
+        # Get or create in unified contacts table
+        extras = {}
+        if email:
+            extras["email"] = clean_email(email)
+        if phone:
+            extras["phone"] = format_phone(phone)
+        cid = get_or_create_contact(conn, name.strip(), **extras)
+        # Also assign to the client if not already
+        if client_id and cid:
+            contact_type = "internal" if is_internal else "client"
+            try:
+                assign_contact_to_client(conn, cid, client_id,
+                                         contact_type=contact_type,
+                                         title=title or None,
+                                         role=role or None)
+            except Exception:
+                pass  # Already assigned
+
     conn.execute(
         """INSERT INTO meeting_attendees (meeting_id, contact_id, name, role, is_internal)
            VALUES (?, ?, ?, ?, ?)""",
-        (meeting_id, contact_id or None, name.strip(), role or None, is_internal),
+        (meeting_id, cid, name.strip(), role or title or None, is_internal),
     )
     conn.commit()
     m = _meeting_dict(conn, meeting_id)
+    contacts = _get_client_contacts(conn, m["client_id"]) if m else []
     return templates.TemplateResponse("meetings/_attendees.html", {
-        "request": request, "meeting": m,
+        "request": request, "meeting": m, "contacts": contacts,
     })
+
+
+def _get_client_contacts(conn, client_id: int) -> list[dict]:
+    return [dict(r) for r in conn.execute(
+        """SELECT co.id, co.name, co.email, co.phone, cca.role, cca.title, cca.contact_type
+           FROM contact_client_assignments cca
+           JOIN contacts co ON cca.contact_id = co.id
+           WHERE cca.client_id = ?
+           ORDER BY cca.contact_type, co.name""",
+        (client_id,),
+    ).fetchall()]
 
 
 @router.post("/meetings/{meeting_id}/attendees/{attendee_id}/remove")
@@ -220,8 +255,9 @@ def meeting_remove_attendee(
     conn.execute("DELETE FROM meeting_attendees WHERE id = ? AND meeting_id = ?", (attendee_id, meeting_id))
     conn.commit()
     m = _meeting_dict(conn, meeting_id)
+    contacts = _get_client_contacts(conn, m["client_id"]) if m else []
     return templates.TemplateResponse("meetings/_attendees.html", {
-        "request": request, "meeting": m,
+        "request": request, "meeting": m, "contacts": contacts,
     })
 
 
