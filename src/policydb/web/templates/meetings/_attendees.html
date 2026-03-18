@@ -1,21 +1,84 @@
 <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Attendees</p>
-<div class="flex flex-wrap gap-1.5 mb-3">
-  {% if meeting and meeting.attendees %}
-  {% for a in meeting.attendees %}
-  <span class="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full
-    {% if a.is_internal %}bg-blue-50 text-blue-700{% else %}bg-indigo-50 text-indigo-700{% endif %}">
-    {{ a.name }}{% if a.role %} <span class="text-gray-400">({{ a.role }})</span>{% endif %}
-    <button type="button"
-      hx-post="/meetings/{{ meeting.id }}/attendees/{{ a.id }}/remove"
-      hx-target="#attendees-section"
-      hx-swap="innerHTML"
-      class="text-gray-400 hover:text-red-500 ml-0.5">&times;</button>
-  </span>
-  {% endfor %}
-  {% else %}
-  <span class="text-xs text-gray-400 italic">No attendees added yet</span>
-  {% endif %}
-</div>
+
+<table class="w-full text-sm mb-3">
+  <thead>
+    <tr class="border-b border-gray-100 text-left text-xs text-gray-400">
+      <th class="px-3 py-1.5 font-medium" style="width:30%">Name</th>
+      <th class="px-3 py-1.5 font-medium" style="width:25%">Role / Title</th>
+      <th class="px-3 py-1.5 font-medium" style="width:15%">Type</th>
+      <th class="px-3 py-1.5 font-medium" style="width:25%">Contact</th>
+      <th class="px-3 py-1.5 font-medium" style="width:5%"></th>
+    </tr>
+  </thead>
+  <tbody id="attendee-tbody">
+    {% if meeting and meeting.attendees %}
+    {% for a in meeting.attendees %}
+    <tr class="border-b border-gray-50 hover:bg-gray-50 matrix-row" data-row-id="{{ a.id }}">
+      <td class="px-3 py-1.5 matrix-cell-editable text-xs text-gray-800" contenteditable
+          data-field="name" data-placeholder="Name">{{ a.name }}</td>
+      <td class="px-3 py-1.5 matrix-cell-editable text-xs text-gray-600" contenteditable
+          data-field="role" data-placeholder="Role">{{ a.role or '' }}</td>
+      <td class="px-3 py-1.5 text-xs">
+        <span class="{% if a.is_internal %}text-blue-600 bg-blue-50{% else %}text-indigo-600 bg-indigo-50{% endif %} px-1.5 py-0.5 rounded text-[10px]">
+          {% if a.is_internal %}Internal{% else %}Client{% endif %}
+        </span>
+      </td>
+      <td class="px-3 py-1.5 text-xs text-gray-400">
+        {% if a.contact_id %}
+        <span class="text-green-600" title="Linked to contact #{{ a.contact_id }}">&#10003; linked</span>
+        {% else %}
+        <span class="text-gray-300">—</span>
+        {% endif %}
+      </td>
+      <td class="px-3 py-1.5 text-xs">
+        <button type="button"
+          hx-post="/meetings/{{ meeting.id }}/attendees/{{ a.id }}/remove"
+          hx-target="#attendees-section"
+          hx-swap="innerHTML"
+          class="text-gray-300 hover:text-red-500">&times;</button>
+      </td>
+    </tr>
+    {% endfor %}
+    {% else %}
+    <tr id="attendee-empty"><td colspan="5" class="px-3 py-4 text-xs text-gray-400 text-center italic">No attendees added yet</td></tr>
+    {% endif %}
+  </tbody>
+</table>
+
+<script>
+(function() {
+  var tbody = document.getElementById('attendee-tbody');
+  if (!tbody) return;
+  function saveCell(rowId, field, value) {
+    fetch('/meetings/{{ meeting.id }}/attendees/' + rowId, {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({field: field, value: value})
+    }).then(function(r) { return r.json(); }).then(function(data) {
+      if (data.ok && typeof showToast === 'function') showToast('Saved', true);
+    });
+  }
+  tbody.addEventListener('focusin', function(e) {
+    var cell = e.target.closest('.matrix-cell-editable');
+    if (cell) cell.dataset.original = cell.innerText;
+  });
+  tbody.addEventListener('focusout', function(e) {
+    var cell = e.target.closest('.matrix-cell-editable');
+    if (!cell) return;
+    var newVal = cell.innerText.trim();
+    if (newVal === (cell.dataset.original || '').trim()) return;
+    var row = cell.closest('tr');
+    var rowId = row.getAttribute('data-row-id');
+    saveCell(rowId, cell.dataset.field, newVal);
+  });
+  tbody.addEventListener('keydown', function(e) {
+    var cell = e.target.closest('.matrix-cell-editable');
+    if (!cell) return;
+    if (e.key === 'Enter') { e.preventDefault(); cell.blur(); }
+    else if (e.key === 'Escape') { cell.innerText = cell.dataset.original || ''; cell.blur(); }
+  });
+})();
+</script>
 
 {# ── Add from existing contacts ── #}
 {% if contacts is defined and contacts %}
