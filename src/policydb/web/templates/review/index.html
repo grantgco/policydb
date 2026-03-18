@@ -13,12 +13,7 @@
       </div>
       <a href="/renewals" class="text-xs text-marsh hover:underline">Renewals →</a>
     </div>
-    <div id="review-stats-banner"
-         hx-get="/review/stats"
-         hx-trigger="load, htmx:afterSettle from:body delay:200ms"
-         hx-swap="outerHTML">
-      {% include "review/_stats_banner.html" %}
-    </div>
+    {% include "review/_stats_banner.html" %}
   </div>
 
   <!-- Policies Section -->
