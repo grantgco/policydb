@@ -92,7 +92,7 @@ def init_db(path: Path | None = None) -> None:
 
     # Back up the database once before running any pending migrations.
     # This gives a clean restore point regardless of which migration fails.
-    _KNOWN_MIGRATIONS = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55}
+    _KNOWN_MIGRATIONS = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56}
     if _KNOWN_MIGRATIONS - applied:
         _backup_db(db_path)
 
@@ -592,6 +592,15 @@ def init_db(path: Path | None = None) -> None:
         conn.execute(
             "INSERT INTO schema_version (version, description) VALUES (?, ?)",
             (55, "Add meetings tables"),
+        )
+        conn.commit()
+
+    if 56 not in applied:
+        sql = (_MIGRATIONS_DIR / "056_meeting_enhancements.sql").read_text()
+        conn.executescript(sql)
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (56, "Meeting policy links and action item policy_uid"),
         )
         conn.commit()
 

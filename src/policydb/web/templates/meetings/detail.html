@@ -153,6 +153,40 @@
 })();
 </script>
 
+{# ── Linked Policies ── #}
+<div class="card p-4 mb-4">
+  <div class="flex items-center justify-between mb-2">
+    <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Policies Discussed</p>
+  </div>
+  <div id="meeting-policies" class="flex flex-wrap gap-1 mb-2">
+    {% if meeting.linked_policies %}
+    {% for p in meeting.linked_policies %}
+    <span class="inline-flex items-center gap-1 text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded mr-1 mb-1">
+      <a href="/policies/{{ p.policy_uid }}/edit" class="hover:underline" target="_blank">{{ p.policy_type or p.policy_uid }}</a>
+      <span class="text-blue-400">{{ p.carrier or '' }}</span>
+      <button type="button" hx-post="/meetings/{{ meeting.id }}/policies/unlink"
+        hx-vals='{"policy_uid": "{{ p.policy_uid }}"}'
+        hx-target="#meeting-policies" hx-swap="innerHTML"
+        class="text-blue-300 hover:text-red-500 ml-0.5">&times;</button>
+    </span>
+    {% endfor %}
+    {% else %}
+    <span class="text-xs text-gray-400 italic">No policies linked</span>
+    {% endif %}
+  </div>
+  <div class="flex gap-2 items-end">
+    <select id="policy-link-select" class="flex-1 border border-gray-300 rounded px-2 py-1 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-marsh">
+      <option value="">— Link a policy —</option>
+      {% set linked_uids = meeting.linked_policies | map(attribute='policy_uid') | list %}
+      {% for p in client_policies if p.policy_uid not in linked_uids %}
+      <option value="{{ p.policy_uid }}">{{ p.policy_uid }} — {{ p.policy_type }} · {{ p.carrier or 'No carrier' }}</option>
+      {% endfor %}
+    </select>
+    <button type="button" onclick="var sel=document.getElementById('policy-link-select');if(sel.value){htmx.ajax('POST','/meetings/{{ meeting.id }}/policies/link',{target:'#meeting-policies',swap:'innerHTML',values:{policy_uid:sel.value}});sel.value='';}"
+      class="text-xs bg-marsh text-white px-3 py-1 rounded hover:bg-marsh-light transition-colors">Link</button>
+  </div>
+</div>
+
 {# ── Attendees ── #}
 <div class="card p-4 mb-4">
   <div id="attendees-section">
@@ -227,6 +261,20 @@ function logMeetingTime(type) {
     });
 }
 </script>
+
+{# ── Meeting Recap ── #}
+<details class="card mb-4">
+  <summary class="px-4 py-3 cursor-pointer select-none list-none flex items-center gap-2 hover:bg-gray-50 rounded-xl">
+    <span class="details-arrow text-xs text-gray-400">▶</span>
+    <span class="text-sm font-medium text-gray-700">Generate Recap</span>
+    <span class="text-xs text-gray-400">— summary for email/sharing</span>
+  </summary>
+  <div hx-get="/meetings/{{ meeting.id }}/recap"
+       hx-trigger="toggle from:closest details once"
+       hx-swap="innerHTML">
+    <div class="p-4 text-sm text-gray-400">Generating recap...</div>
+  </div>
+</details>
 
 {# ── Meeting Prep (collapsible, HTMX-loaded) ── #}
 <details class="card mb-4">

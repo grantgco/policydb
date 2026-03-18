@@ -7,18 +7,18 @@
   <td class="px-3 py-2.5">
     <div contenteditable="true"
          class="matrix-cell-editable outline-none text-gray-600 text-xs rounded px-1 -mx-1"
-         data-field="role" data-placeholder="Title...">{{ a.role or '' }}</div>
+         data-field="role" data-placeholder="Title / Role...">{{ a.role or '' }}</div>
   </td>
   <td class="px-3 py-2.5">
-    <span class="{% if a.is_internal %}text-blue-600 bg-blue-50{% else %}text-indigo-600 bg-indigo-50{% endif %} text-xs px-2 py-0.5 rounded">
-      {% if a.is_internal %}Internal{% else %}Client{% endif %}
-    </span>
-  </td>
-  <td class="px-3 py-2.5 text-xs text-gray-400">
-    {% if a.is_internal %}Team{% else %}External{% endif %}
+    <div contenteditable="true"
+         class="matrix-cell-editable outline-none text-xs rounded px-1 -mx-1
+           {% if a.is_internal %}text-blue-600{% else %}text-indigo-600{% endif %}"
+         data-field="is_internal" data-placeholder="Client/Internal">{% if a.is_internal %}Internal{% else %}Client{% endif %}</div>
   </td>
   <td class="px-3 py-2.5">
-    {% if a.contact_id %}
+    {% if a.contact_id and a.email %}
+    <a href="mailto:{{ a.email }}" class="text-xs text-marsh hover:underline" onclick="event.stopPropagation()">{{ a.email }}</a>
+    {% elif a.contact_id %}
     <div contenteditable="true"
          class="matrix-cell-editable outline-none text-xs text-marsh rounded px-1 -mx-1"
          data-field="email" data-placeholder="Email...">{{ a.email or '' }}</div>
