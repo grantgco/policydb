@@ -324,6 +324,30 @@
       data-autosave="/policies/{{ policy.policy_uid }}/edit">
 
 <input type="hidden" name="is_opportunity" value="{{ '1' if policy.is_opportunity else '0' }}">
+<input type="hidden" name="is_program" value="{{ '1' if policy.is_program else '0' }}">
+
+  {% if policy.is_program %}
+  <!-- Program-specific fields -->
+  <details open class="card-section">
+    <summary class="card-header cursor-pointer select-none list-none">
+      <span class="section-title flex items-center gap-1"><span class="details-arrow">&#9654;</span> <span class="bg-blue-100 text-blue-700 text-xs font-bold px-1.5 py-0.5 rounded mr-1">PGM</span> Program Details</span>
+    </summary>
+    <div class="p-6">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div class="sm:col-span-2">
+          <label class="field-label">Participating Carriers <span class="text-gray-400 font-normal">(comma-separated)</span></label>
+          <textarea name="program_carriers" rows="2" placeholder="AIG, Chubb, Zurich, Markel"
+            class="form-input w-full">{{ policy.program_carriers or '' }}</textarea>
+        </div>
+        <div>
+          <label class="field-label">Number of Carriers</label>
+          <input type="number" name="program_carrier_count" value="{{ policy.program_carrier_count or '' }}"
+            placeholder="Auto from carriers list" class="form-input w-full" min="1">
+        </div>
+      </div>
+    </div>
+  </details>
+  {% endif %}
 
   <!-- Placement & Renewal (first — primary daily-action fields) -->
   <details open class="card-section">

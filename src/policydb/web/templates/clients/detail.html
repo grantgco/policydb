@@ -407,6 +407,9 @@
   </tr>
   {% endset %}
 
+  {# Corporate Programs (above project groups) #}
+  {% include "clients/_programs.html" %}
+
   {% for project_name, group in policy_groups %}
   {% set note = project_notes.get((project_name or '').lower().strip(), '') if project_notes else '' %}
   {% set addr = project_addresses.get((project_name or '').lower().strip(), {}) if project_addresses else {} %}

@@ -396,6 +396,15 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
         (client_id,),
     ).fetchall()]
 
+    # Corporate programs (is_program=1)
+    programs = [dict(r) for r in conn.execute(
+        """SELECT policy_uid, policy_type, carrier, effective_date, expiration_date,
+                  premium, limit_amount, renewal_status, program_carriers, program_carrier_count
+           FROM policies WHERE client_id = ? AND archived = 0 AND is_program = 1
+           ORDER BY policy_type""",
+        (client_id,),
+    ).fetchall()]
+
     # Load project notes keyed by normalized project name (from projects table)
     notes_rows = conn.execute(
         "SELECT id, LOWER(TRIM(name)) AS key, name, notes FROM projects WHERE client_id = ?",
@@ -649,6 +658,7 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
         "project_ids": project_ids,
         "project_addresses": project_addresses,
         "archived_policies": archived_policies,
+        "programs": programs,
         "client_scratchpad": client_scratchpad,
         "client_scratchpad_updated": client_scratchpad_updated,
         "client_saved_notes": client_saved_notes,
