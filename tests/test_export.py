@@ -1,5 +1,6 @@
 """Tests for export system."""
 
+import io
 import json
 import sqlite3
 
@@ -14,6 +15,8 @@ from policydb.exporter import (
     export_llm_client_md,
     export_llm_client_json,
     export_llm_book_md,
+    export_request_bundle_xlsx,
+    export_client_requests_xlsx,
 )
 
 
@@ -130,3 +133,90 @@ def test_llm_book_md_structure(seeded_db):
     assert "Book of Business" in content
     assert "Acme Corp" in content
     assert "export_type: book_of_business" in content
+
+
+# ─── RFI / Request Bundle Export Tests ────────────────────────────────────────
+
+
+@pytest.fixture
+def seeded_rfi_db(seeded_db):
+    """Extend seeded_db with request bundle and items."""
+    db_path, client_id, conn = seeded_db
+    conn.execute(
+        "INSERT INTO client_request_bundles (id, client_id, title, status) VALUES (1, ?, 'Q1 Renewal Info', 'open')",
+        (client_id,),
+    )
+    conn.execute(
+        """INSERT INTO client_request_items (bundle_id, description, policy_uid, category, received, notes, sort_order)
+           VALUES (1, 'Updated loss runs for GL', 'POL-001', 'Loss Data', 0, 'Need 5-year history', 1)"""
+    )
+    conn.execute(
+        """INSERT INTO client_request_items (bundle_id, description, policy_uid, category, received, received_at, notes, sort_order)
+           VALUES (1, 'Signed application', 'POL-002', 'Applications', 1, '2025-12-15', 'Received via email', 2)"""
+    )
+    conn.commit()
+    yield db_path, client_id, conn
+
+
+def test_request_bundle_xlsx_valid(seeded_rfi_db):
+    """export_request_bundle_xlsx returns valid XLSX bytes."""
+    db_path, client_id, conn = seeded_rfi_db
+    content = export_request_bundle_xlsx(conn, 1)
+    assert isinstance(content, bytes)
+    assert len(content) > 100
+    # Verify it's a valid XLSX (ZIP magic number)
+    assert content[:2] == b"PK"
+
+
+def test_request_bundle_xlsx_word_wrap(seeded_rfi_db):
+    """Data cells in request bundle export have word wrap enabled."""
+    from openpyxl import load_workbook
+    db_path, client_id, conn = seeded_rfi_db
+    content = export_request_bundle_xlsx(conn, 1)
+    wb = load_workbook(io.BytesIO(content))
+    ws = wb.active
+    # Check a data cell (row 2, col 1 = first Item cell)
+    for row_idx in range(2, ws.max_row + 1):
+        for col_idx in range(1, ws.max_column + 1):
+            cell = ws.cell(row=row_idx, column=col_idx)
+            assert cell.alignment.wrap_text, f"Cell ({row_idx},{col_idx}) missing wrap_text"
+
+
+def test_request_bundle_xlsx_column_widths(seeded_rfi_db):
+    """RFI export sheets have explicit column widths for readability."""
+    from openpyxl import load_workbook
+    from openpyxl.utils import get_column_letter
+    db_path, client_id, conn = seeded_rfi_db
+    content = export_request_bundle_xlsx(conn, 1)
+    wb = load_workbook(io.BytesIO(content))
+    ws = wb.active
+    # Item column should be 45
+    assert ws.column_dimensions["A"].width == 45
+    # Notes / Response column (F) should be 45
+    assert ws.column_dimensions["F"].width == 45
+    # Coverage / Location (B) should be 35
+    assert ws.column_dimensions["B"].width == 35
+
+
+def test_client_requests_xlsx_valid(seeded_rfi_db):
+    """export_client_requests_xlsx returns valid XLSX bytes with word wrap."""
+    from openpyxl import load_workbook
+    db_path, client_id, conn = seeded_rfi_db
+    content = export_client_requests_xlsx(conn, client_id)
+    assert isinstance(content, bytes)
+    assert content[:2] == b"PK"
+    wb = load_workbook(io.BytesIO(content))
+    ws = wb.active
+    # Check word wrap on data cells
+    for row_idx in range(2, ws.max_row + 1):
+        for col_idx in range(1, ws.max_column + 1):
+            cell = ws.cell(row=row_idx, column=col_idx)
+            assert cell.alignment.wrap_text, f"Cell ({row_idx},{col_idx}) missing wrap_text"
+
+
+def test_client_requests_xlsx_empty(seeded_db):
+    """export_client_requests_xlsx handles clients with no requests."""
+    db_path, client_id, conn = seeded_db
+    content = export_client_requests_xlsx(conn, client_id)
+    assert isinstance(content, bytes)
+    assert content[:2] == b"PK"
