@@ -5,6 +5,9 @@
 <tr class="bg-blue-50/50">
   <td colspan="7" class="px-4 py-1.5">
     <span class="text-xs font-semibold text-blue-600 uppercase tracking-wide">&#9741; Linked Group{% if group_labels is defined and group_labels.get(_gid) %}: {{ group_labels[_gid] }}{% endif %}</span>
+    {% if group_member_names is defined and group_member_names.get(_gid) %}
+    <span class="text-xs text-gray-400 ml-2">{{ group_member_names[_gid] | join(' · ') }}</span>
+    {% endif %}
   </td>
 </tr>
 {% endif %}
