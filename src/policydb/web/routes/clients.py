@@ -644,9 +644,11 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
 
     # ── Sidebar enrichment data ────────────────────────────────────────────
     # Renewal calendar: policy count per expiration month
+    # Renewal calendar: programs count their carrier_count, regular policies count as 1
     _rm_rows = conn.execute(
         """SELECT CAST(strftime('%m', expiration_date) AS INTEGER) AS month,
-                  COUNT(*) AS cnt
+                  SUM(CASE WHEN is_program = 1 AND program_carrier_count > 0
+                           THEN program_carrier_count ELSE 1 END) AS cnt
            FROM policies
            WHERE client_id = ? AND archived = 0
              AND (is_opportunity = 0 OR is_opportunity IS NULL)
@@ -655,6 +657,8 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
         (client_id,),
     ).fetchall()
     renewal_month_counts = {r["month"]: r["cnt"] for r in _rm_rows}
+    # Compute peak renewal month from data (replaces manual client.renewal_month)
+    computed_renewal_month = max(renewal_month_counts, key=renewal_month_counts.get) if renewal_month_counts else None
 
     # Next follow-up date + days until
     _nf = conn.execute(
@@ -759,6 +763,7 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
         "today": _today,
         "today_iso": _today,
         "renewal_month_counts": renewal_month_counts,
+        "computed_renewal_month": computed_renewal_month,
         "next_followup_date": next_followup_date,
         "next_followup_days": next_followup_days,
         "last_activity_relative": last_activity_relative,

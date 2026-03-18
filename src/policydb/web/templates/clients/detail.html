@@ -126,7 +126,7 @@
         <span class="text-gray-400">Client Since</span>
         <span class="text-gray-800">{% if client.client_since %}{{ client.client_since[:4] }}{% else %}—{% endif %}</span>
         <span class="text-gray-400">Renewal Month</span>
-        <span class="text-gray-800">{% if client.renewal_month %}{{ ['', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'][client.renewal_month | int] }}{% else %}—{% endif %}</span>
+        <span class="text-gray-800">{% if computed_renewal_month %}{{ ['', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'][computed_renewal_month | int] }}{% else %}—{% endif %}</span>
         <span class="text-gray-400">Last Activity</span>
         <span class="text-gray-800">{{ last_activity_relative or '—' }}</span>
         <span class="text-gray-400">Next Follow-Up</span>
