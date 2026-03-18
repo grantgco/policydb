@@ -7,6 +7,7 @@ SELECT
     p.policy_uid,
     p.client_id,
     c.name AS client_name,
+    c.cn_number,
     c.industry_segment,
     p.policy_type,
     p.carrier,
@@ -26,24 +27,28 @@ SELECT
     p.target_effective_date,
     p.first_named_insured,
     COALESCE(
-        (SELECT GROUP_CONCAT(pc.name, ', ') FROM policy_contacts pc
-         WHERE pc.policy_id = p.id AND pc.role = 'Placement Colleague'),
+        (SELECT GROUP_CONCAT(co.name, ', ') FROM contact_policy_assignments cpa
+         JOIN contacts co ON cpa.contact_id = co.id
+         WHERE cpa.policy_id = p.id AND cpa.is_placement_colleague = 1),
         p.placement_colleague
     ) AS placement_colleague,
     COALESCE(
-        (SELECT pc.email FROM policy_contacts pc
-         WHERE pc.policy_id = p.id AND pc.role = 'Placement Colleague' AND pc.email IS NOT NULL
+        (SELECT co.email FROM contact_policy_assignments cpa
+         JOIN contacts co ON cpa.contact_id = co.id
+         WHERE cpa.policy_id = p.id AND cpa.is_placement_colleague = 1 AND co.email IS NOT NULL
          LIMIT 1),
         p.placement_colleague_email
     ) AS placement_colleague_email,
     COALESCE(
-        (SELECT GROUP_CONCAT(pc.name, ', ') FROM policy_contacts pc
-         WHERE pc.policy_id = p.id AND pc.role = 'Underwriter'),
+        (SELECT GROUP_CONCAT(co.name, ', ') FROM contact_policy_assignments cpa
+         JOIN contacts co ON cpa.contact_id = co.id
+         WHERE cpa.policy_id = p.id AND cpa.role = 'Underwriter'),
         p.underwriter_name
     ) AS underwriter_name,
     COALESCE(
-        (SELECT pc.email FROM policy_contacts pc
-         WHERE pc.policy_id = p.id AND pc.role = 'Underwriter' AND pc.email IS NOT NULL
+        (SELECT co.email FROM contact_policy_assignments cpa
+         JOIN contacts co ON cpa.contact_id = co.id
+         WHERE cpa.policy_id = p.id AND cpa.role = 'Underwriter' AND co.email IS NOT NULL
          LIMIT 1),
         p.underwriter_contact
     ) AS underwriter_contact,
@@ -58,6 +63,7 @@ SELECT
     p.participation_of,
     p.access_point,
     p.project_name,
+    p.project_id,
     p.exposure_basis,
     p.exposure_amount,
     p.exposure_unit,
@@ -96,11 +102,14 @@ CREATE VIEW v_client_summary AS
 SELECT
     c.id,
     c.name,
+    c.cn_number,
+    c.is_prospect,
     c.industry_segment,
     c.account_exec,
     COALESCE(
-        (SELECT cc.name FROM client_contacts cc
-         WHERE cc.client_id = c.id AND cc.is_primary = 1 AND cc.contact_type = 'client'
+        (SELECT co.name FROM contact_client_assignments cca
+         JOIN contacts co ON cca.contact_id = co.id
+         WHERE cca.client_id = c.id AND cca.is_primary = 1 AND cca.contact_type = 'client'
          LIMIT 1),
         c.primary_contact
     ) AS primary_contact,
@@ -143,6 +152,7 @@ V_SCHEDULE = """
 CREATE VIEW v_schedule AS
 SELECT
     c.name AS client_name,
+    COALESCE(p.first_named_insured, c.name) AS "First Named Insured",
     p.policy_type AS "Line of Business",
     p.carrier AS "Carrier",
     p.policy_number AS "Policy Number",
@@ -178,8 +188,9 @@ SELECT
     p.premium,
     p.expiration_date,
     COALESCE(
-        (SELECT GROUP_CONCAT(pc.name, ', ') FROM policy_contacts pc
-         WHERE pc.policy_id = p.id AND pc.role = 'Placement Colleague'),
+        (SELECT GROUP_CONCAT(co.name, ', ') FROM contact_policy_assignments cpa
+         JOIN contacts co ON cpa.contact_id = co.id
+         WHERE cpa.policy_id = p.id AND cpa.is_placement_colleague = 1),
         p.placement_colleague
     ) AS placement_colleague,
     p.renewal_status,
@@ -198,6 +209,7 @@ V_RENEWAL_PIPELINE = """
 CREATE VIEW v_renewal_pipeline AS
 SELECT
     c.name AS client_name,
+    c.cn_number,
     p.id,
     p.client_id,
     p.policy_uid,
@@ -215,29 +227,35 @@ SELECT
     p.premium,
     p.renewal_status,
     COALESCE(
-        (SELECT GROUP_CONCAT(pc.name, ', ') FROM policy_contacts pc
-         WHERE pc.policy_id = p.id),
+        (SELECT GROUP_CONCAT(co.name, ', ') FROM contact_policy_assignments cpa
+         JOIN contacts co ON cpa.contact_id = co.id
+         WHERE cpa.policy_id = p.id),
         p.placement_colleague
     ) AS placement_colleague,
     p.follow_up_date,
     CASE WHEN p.follow_up_date IS NOT NULL AND p.follow_up_date < date('now') THEN 1 ELSE 0 END AS followup_overdue,
     p.project_name,
+    p.project_id,
+    p.access_point,
     p.is_standalone,
     p.description,
     COALESCE(
-        (SELECT pc.email FROM policy_contacts pc
-         WHERE pc.policy_id = p.id AND pc.email IS NOT NULL
+        (SELECT co.email FROM contact_policy_assignments cpa
+         JOIN contacts co ON cpa.contact_id = co.id
+         WHERE cpa.policy_id = p.id AND co.email IS NOT NULL
          LIMIT 1),
         p.placement_colleague_email
     ) AS placement_colleague_email,
     COALESCE(
-        (SELECT GROUP_CONCAT(pc.name, ', ') FROM policy_contacts pc
-         WHERE pc.policy_id = p.id AND pc.role = 'Underwriter'),
+        (SELECT GROUP_CONCAT(co.name, ', ') FROM contact_policy_assignments cpa
+         JOIN contacts co ON cpa.contact_id = co.id
+         WHERE cpa.policy_id = p.id AND cpa.role = 'Underwriter'),
         p.underwriter_name
     ) AS underwriter_name,
     COALESCE(
-        (SELECT pc.email FROM policy_contacts pc
-         WHERE pc.policy_id = p.id AND pc.role = 'Underwriter' AND pc.email IS NOT NULL
+        (SELECT co.email FROM contact_policy_assignments cpa
+         JOIN contacts co ON cpa.contact_id = co.id
+         WHERE cpa.policy_id = p.id AND cpa.role = 'Underwriter' AND co.email IS NOT NULL
          LIMIT 1),
         p.underwriter_contact
     ) AS underwriter_contact,
@@ -258,6 +276,7 @@ SELECT
     a.activity_date,
     c.id   AS client_id,
     c.name AS client_name,
+    c.cn_number,
     p.policy_uid,
     a.activity_type,
     a.subject,
@@ -291,6 +310,7 @@ SELECT
     p.policy_uid,
     p.client_id,
     c.name AS client_name,
+    c.cn_number,
     p.policy_type,
     p.carrier,
     p.effective_date,
@@ -304,6 +324,7 @@ SELECT
     p.follow_up_date,
     CASE WHEN p.follow_up_date IS NOT NULL AND p.follow_up_date < date('now') THEN 1 ELSE 0 END AS followup_overdue,
     p.project_name,
+    p.project_id,
     p.description,
     p.notes,
     p.account_exec,
