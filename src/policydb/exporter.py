@@ -57,8 +57,8 @@ def export_schedule_md(conn: sqlite3.Connection, client_id: int, client_name: st
         f"**Prepared:** {TODAY}",
         f"**Prepared by:** {account_exec}, Marsh",
         "",
-        "| Line of Business | Carrier | Policy # | Effective | Expiration | Premium | Limit | Deductible | Form | Layer | Comments |",
-        "|------------------|---------|----------|-----------|------------|---------|-------|------------|------|-------|----------|",
+        "| First Named Insured | Line of Business | Carrier | Policy # | Effective | Expiration | Premium | Limit | Deductible | Form | Layer | Comments |",
+        "|---------------------|------------------|---------|----------|-----------|------------|---------|-------|------------|------|-------|----------|",
     ]
 
     for r in rows:
@@ -66,8 +66,9 @@ def export_schedule_md(conn: sqlite3.Connection, client_id: int, client_name: st
         form = r["Form"] or ""
         layer = r["Layer"] or "Primary"
         comments = (r["Comments"] or "").replace("|", "\\|")
+        named = (r["First Named Insured"] or "").replace("|", "\\|")
         lines.append(
-            f"| {r['Line of Business']} | {r['Carrier']} | {pnum} | {r['Effective']} | {r['Expiration']}"
+            f"| {named} | {r['Line of Business']} | {r['Carrier']} | {pnum} | {r['Effective']} | {r['Expiration']}"
             f" | {fmt_currency(r['Premium'])} | {fmt_limit(r['Limit'])} | {fmt_limit(r['Deductible'])}"
             f" | {form} | {layer} | {comments} |"
         )
@@ -155,7 +156,12 @@ def export_llm_client_md(conn: sqlite3.Connection, client_id: int) -> str:
         (client_id,),
     ).fetchall()
     contacts = conn.execute(
-        "SELECT * FROM client_contacts WHERE client_id = ? ORDER BY is_primary DESC, name",
+        """SELECT co.name, co.email, co.phone, co.mobile, co.organization,
+                  cca.title, cca.role, cca.assignment, cca.contact_type, cca.notes, cca.is_primary, cca.created_at
+           FROM contact_client_assignments cca
+           JOIN contacts co ON cca.contact_id = co.id
+           WHERE cca.client_id = ?
+           ORDER BY cca.is_primary DESC, co.name""",
         (client_id,),
     ).fetchall()
     scratchpad_row = conn.execute(
@@ -164,9 +170,11 @@ def export_llm_client_md(conn: sqlite3.Connection, client_id: int) -> str:
     audit = build_program_audit(conn, client_id)
 
     policy_contacts_rows = conn.execute(
-        """SELECT pc.policy_id, pc.name, pc.email, pc.phone, pc.role, p.policy_uid
-           FROM policy_contacts pc JOIN policies p ON pc.policy_id = p.id
-           WHERE p.client_id = ? ORDER BY pc.name""",
+        """SELECT cpa.policy_id, co.name, co.email, co.phone, cpa.role, p.policy_uid
+           FROM contact_policy_assignments cpa
+           JOIN contacts co ON cpa.contact_id = co.id
+           JOIN policies p ON cpa.policy_id = p.id
+           WHERE p.client_id = ? ORDER BY co.name""",
         (client_id,),
     ).fetchall()
 
@@ -290,11 +298,59 @@ def export_llm_client_md(conn: sqlite3.Connection, client_id: int) -> str:
         lines += ["### Contacts", "", contact_line, ""]
 
     if client_dict.get("notes"):
-        lines += ["### Account Notes (Legacy)", "", client_dict["notes"], ""]
+        lines += ["### Internal Notes", "", client_dict["notes"], ""]
 
     scratchpad_content = (scratchpad_row["content"] if scratchpad_row else "").strip()
     if scratchpad_content:
         lines += ["### Working Notes", "", scratchpad_content, ""]
+
+    # Risk / Exposure Profile
+    risk_rows = conn.execute(
+        """SELECT r.id, r.category, r.description, r.severity, r.has_coverage, r.policy_uid, r.notes,
+                  r.source, r.review_date, r.identified_date
+           FROM client_risks r WHERE r.client_id=?
+           ORDER BY CASE r.severity WHEN 'Critical' THEN 0 WHEN 'High' THEN 1 WHEN 'Medium' THEN 2 ELSE 3 END,
+                    r.category""",
+        (client_id,),
+    ).fetchall()
+    if risk_rows:
+        lines += ["### Risk & Exposure Profile", ""]
+        lines.append("| Category | Severity | Coverage | Description | Source | Notes |")
+        lines.append("|----------|----------|----------|-------------|--------|-------|")
+        for rr in risk_rows:
+            rr = dict(rr)
+            cov = f"Covered ({rr['policy_uid']})" if rr["has_coverage"] and rr["policy_uid"] else "Covered" if rr["has_coverage"] else "**GAP**"
+            lines.append(f"| {rr['category']} | {rr['severity']} | {cov} | {rr['description'] or '—'} | {rr['source'] or '—'} | {rr['notes'] or '—'} |")
+        lines.append("")
+        # Coverage lines per risk
+        for rr in risk_rows:
+            rr = dict(rr)
+            cl_rows = conn.execute(
+                "SELECT coverage_line, adequacy, policy_uid, notes FROM risk_coverage_lines WHERE risk_id=? ORDER BY coverage_line",
+                (rr["id"],),
+            ).fetchall()
+            if cl_rows:
+                lines.append(f"**{rr['category']} — Coverage Lines:**")
+                for cl in cl_rows:
+                    cl = dict(cl)
+                    pol = f" ({cl['policy_uid']})" if cl["policy_uid"] else ""
+                    lines.append(f"- {cl['coverage_line']} — {cl['adequacy']}{pol}{' — ' + cl['notes'] if cl['notes'] else ''}")
+                lines.append("")
+            ctrl_rows = conn.execute(
+                "SELECT control_type, description, status, responsible, target_date FROM risk_controls WHERE risk_id=? ORDER BY created_at",
+                (rr["id"],),
+            ).fetchall()
+            if ctrl_rows:
+                lines.append(f"**{rr['category']} — Controls:**")
+                for ct in ctrl_rows:
+                    ct = dict(ct)
+                    resp = f" ({ct['responsible']})" if ct["responsible"] else ""
+                    tgt = f" by {ct['target_date']}" if ct["target_date"] else ""
+                    lines.append(f"- [{ct['status']}] {ct['description']} — {ct['control_type']}{resp}{tgt}")
+                lines.append("")
+        gaps = [dict(rr)["category"] for rr in risk_rows if not dict(rr).get("has_coverage")]
+        if gaps:
+            lines += [f"**Coverage gaps identified:** {', '.join(gaps)}", ""]
 
     # ─── Program Overview ────────────────────────────────────────────────────
     rev_detail = ""
@@ -560,18 +616,33 @@ def export_llm_client_json(conn: sqlite3.Connection, client_id: int) -> str:
         (client_id,),
     ).fetchall()
     contacts = conn.execute(
-        "SELECT name, title, email, phone, role, assignment, contact_type, notes, is_primary FROM client_contacts WHERE client_id = ? ORDER BY is_primary DESC, name",
+        """SELECT co.name, co.email, co.phone, co.mobile, co.organization,
+                  cca.title, cca.role, cca.assignment, cca.contact_type, cca.notes, cca.is_primary, cca.created_at
+           FROM contact_client_assignments cca
+           JOIN contacts co ON cca.contact_id = co.id
+           WHERE cca.client_id = ?
+           ORDER BY cca.is_primary DESC, co.name""",
         (client_id,),
     ).fetchall()
     policy_contacts = conn.execute(
-        """SELECT pc.policy_id, pc.name, pc.email, pc.phone, pc.role, p.policy_uid
-           FROM policy_contacts pc JOIN policies p ON pc.policy_id = p.id
-           WHERE p.client_id = ? ORDER BY p.policy_uid, pc.name""",
+        """SELECT cpa.policy_id, co.name, co.email, co.phone, cpa.role, p.policy_uid
+           FROM contact_policy_assignments cpa
+           JOIN contacts co ON cpa.contact_id = co.id
+           JOIN policies p ON cpa.policy_id = p.id
+           WHERE p.client_id = ? ORDER BY p.policy_uid, co.name""",
         (client_id,),
     ).fetchall()
     scratchpad = conn.execute(
         "SELECT content, updated_at FROM client_scratchpad WHERE client_id = ?", (client_id,)
     ).fetchone()
+    risks = conn.execute(
+        """SELECT id, category, description, severity, has_coverage, policy_uid, notes,
+                  source, review_date, identified_date
+           FROM client_risks WHERE client_id=?
+           ORDER BY CASE severity WHEN 'Critical' THEN 0 WHEN 'High' THEN 1 WHEN 'Medium' THEN 2 ELSE 3 END,
+                    category""",
+        (client_id,),
+    ).fetchall()
     audit = build_program_audit(conn, client_id)
 
     # Group policy_contacts by policy_uid
@@ -604,8 +675,23 @@ def export_llm_client_json(conn: sqlite3.Connection, client_id: int) -> str:
             }
             for p in policies
         ],
+        "risk_profile": [
+            {
+                **dict(r),
+                "coverage_lines": [dict(cl) for cl in conn.execute(
+                    "SELECT coverage_line, adequacy, policy_uid, notes FROM risk_coverage_lines WHERE risk_id=?",
+                    (r["id"],),
+                ).fetchall()],
+                "controls": [dict(ct) for ct in conn.execute(
+                    "SELECT control_type, description, status, responsible, target_date FROM risk_controls WHERE risk_id=?",
+                    (r["id"],),
+                ).fetchall()],
+            }
+            for r in risks
+        ],
         "coverage_analysis": {
             "gaps": audit["gap_observations"],
+            "coverage_gaps_from_risks": [dict(r)["category"] for r in risks if not dict(r).get("has_coverage")],
             "tower_count": audit["tower_count"],
             "standalone_count": audit["standalone_count"],
             "duplicate_count": audit["duplicate_count"],
@@ -760,10 +846,12 @@ def export_renewals_md(conn: sqlite3.Connection, window_days: int = 180) -> str:
 
     # Build policy_contacts map keyed by policy_uid
     pc_rows = conn.execute(
-        """SELECT p.policy_uid, pc.name, pc.role, pc.email
-           FROM policy_contacts pc JOIN policies p ON pc.policy_id = p.id
+        """SELECT p.policy_uid, co.name, cpa.role, co.email
+           FROM contact_policy_assignments cpa
+           JOIN contacts co ON cpa.contact_id = co.id
+           JOIN policies p ON cpa.policy_id = p.id
            WHERE p.policy_uid IN (SELECT policy_uid FROM v_renewal_pipeline WHERE days_to_renewal <= ?)
-           ORDER BY pc.name""",
+           ORDER BY co.name""",
         (window_days,),
     ).fetchall()
     from collections import defaultdict as _ddr
@@ -935,14 +1023,22 @@ def export_full_xlsx(conn: sqlite3.Connection, client_id: int, client_name: str)
     ).fetchall()
 
     contacts = conn.execute(
-        "SELECT name, title, role, assignment, contact_type, email, phone, notes, is_primary, created_at FROM client_contacts WHERE client_id = ? ORDER BY is_primary DESC, name",
+        """SELECT co.name, cca.title, cca.role, cca.assignment, cca.contact_type,
+                  co.email, co.phone, co.mobile, co.organization,
+                  cca.notes, cca.is_primary, cca.created_at
+           FROM contact_client_assignments cca
+           JOIN contacts co ON cca.contact_id = co.id
+           WHERE cca.client_id = ?
+           ORDER BY cca.is_primary DESC, co.name""",
         (client_id,),
     ).fetchall()
 
     policy_team = conn.execute(
-        """SELECT p.policy_uid, p.policy_type, pc.name, pc.role, pc.email, pc.phone
-           FROM policy_contacts pc JOIN policies p ON pc.policy_id = p.id
-           WHERE p.client_id = ? ORDER BY p.policy_uid, pc.name""",
+        """SELECT p.policy_uid, p.policy_type, co.name, cpa.role, co.email, co.phone
+           FROM contact_policy_assignments cpa
+           JOIN contacts co ON cpa.contact_id = co.id
+           JOIN policies p ON cpa.policy_id = p.id
+           WHERE p.client_id = ? ORDER BY p.policy_uid, co.name""",
         (client_id,),
     ).fetchall()
 
@@ -970,14 +1066,89 @@ def export_full_xlsx(conn: sqlite3.Connection, client_id: int, client_name: str)
         (client_id,),
     ).fetchone()
 
+    # Policy-level scratchpad notes (separate table keyed by policy_uid)
+    policy_scratchpad_rows = conn.execute(
+        """SELECT ps.policy_uid, ps.content AS notes, ps.updated_at
+           FROM policy_scratchpad ps
+           JOIN policies p ON ps.policy_uid = p.policy_uid
+           WHERE p.client_id = ? AND ps.content != ''
+           ORDER BY ps.policy_uid""",
+        (client_id,),
+    ).fetchall()
+
+    # Risks register
+    risks = conn.execute(
+        """SELECT r.category, r.description, r.severity, r.has_coverage,
+                  r.policy_uid, r.notes, r.source, r.review_date, r.identified_date
+           FROM client_risks r WHERE r.client_id = ?
+           ORDER BY CASE r.severity WHEN 'Critical' THEN 0 WHEN 'High' THEN 1
+                    WHEN 'Medium' THEN 2 ELSE 3 END, r.category""",
+        (client_id,),
+    ).fetchall()
+
+    # Saved / pinned notes
+    saved_notes = conn.execute(
+        """SELECT scope, scope_id, content, created_at
+           FROM saved_notes
+           WHERE scope = 'client' AND scope_id = ?
+           ORDER BY created_at DESC""",
+        (str(client_id),),
+    ).fetchall()
+
+    # Billing accounts
+    billing = conn.execute(
+        """SELECT billing_id, entity_name, description, is_master
+           FROM billing_accounts WHERE client_id = ? ORDER BY is_master DESC, billing_id""",
+        (client_id,),
+    ).fetchall()
+
+    # Client profile row (FEIN, broker_fee, key metadata)
+    client_profile = conn.execute(
+        """SELECT name, cn_number, fein, broker_fee, industry_segment,
+                  account_exec, date_onboarded, website
+           FROM clients WHERE id = ?""",
+        (client_id,),
+    ).fetchone()
+
     wb = Workbook()
     wb.remove(wb.active)
     _write_sheet(wb, "Policies (Full)", [dict(r) for r in policies])
     _write_sheet(wb, "Contacts", [dict(r) for r in contacts])
     _write_sheet(wb, "Policy Team", [dict(r) for r in policy_team])
     _write_sheet(wb, "Project Notes", [dict(r) for r in project_notes])
+    if policy_scratchpad_rows:
+        _write_sheet(wb, "Policy Notes", [dict(r) for r in policy_scratchpad_rows])
     _write_sheet(wb, "Activities", [dict(r) for r in activities])
     _write_sheet(wb, "Premium History", [dict(r) for r in history])
+    if risks:
+        _write_sheet(wb, "Risks", [dict(r) for r in risks])
+    if saved_notes:
+        _write_sheet(wb, "Saved Notes", [dict(r) for r in saved_notes])
+    if billing:
+        _write_sheet(wb, "Billing Accounts", [dict(r) for r in billing])
+
+    # Client Profile sheet (key metadata including FEIN and broker_fee)
+    ws_profile = wb.create_sheet("Client Profile")
+    ws_profile.append(["Field", "Value"])
+    ws_profile["A1"].font = Font(bold=True)
+    ws_profile["B1"].font = Font(bold=True)
+    if client_profile:
+        for field, val in dict(client_profile).items():
+            ws_profile.append([field, val])
+    ws_profile.column_dimensions["A"].width = 24
+    ws_profile.column_dimensions["B"].width = 40
+
+    # Internal Notes as a simple text sheet
+    client_row = conn.execute("SELECT notes FROM clients WHERE id = ?", (client_id,)).fetchone()
+    ws_notes = wb.create_sheet("Internal Notes")
+    ws_notes.append(["Internal Notes"])
+    ws_notes["A1"].font = Font(bold=True)
+    if client_row and client_row["notes"]:
+        for line in client_row["notes"].splitlines():
+            ws_notes.append([line])
+    else:
+        ws_notes.append(["(no internal notes)"])
+    ws_notes.column_dimensions["A"].width = 80
 
     # Working Notes as a simple text sheet
     ws = wb.create_sheet("Working Notes")
@@ -1004,6 +1175,672 @@ def export_renewals_xlsx(conn: sqlite3.Connection, window_days: int = 180) -> by
     wb = Workbook()
     wb.remove(wb.active)
     _write_sheet(wb, f"Renewals — Next {window_days}d", [dict(r) for r in rows])
+    return _wb_to_bytes(wb)
+
+
+# ─── REQUEST BUNDLE EXPORT ────────────────────────────────────────────────────
+
+
+def export_request_bundle_xlsx(conn, bundle_id: int) -> bytes:
+    """Export a request bundle as an XLSX spreadsheet for the client."""
+    bundle = conn.execute(
+        "SELECT b.*, c.name AS client_name FROM client_request_bundles b JOIN clients c ON b.client_id = c.id WHERE b.id = ?",
+        (bundle_id,),
+    ).fetchone()
+    items = conn.execute(
+        """SELECT cri.*, p.policy_type, p.carrier, p.project_name AS pol_project
+           FROM client_request_items cri
+           LEFT JOIN policies p ON cri.policy_uid = p.policy_uid
+           WHERE cri.bundle_id = ?
+           ORDER BY cri.received ASC, cri.sort_order ASC, cri.id ASC""",
+        (bundle_id,),
+    ).fetchall()
+
+    rows = []
+    for item in items:
+        i = dict(item)
+        # Build a clear coverage/location reference
+        ref_parts = []
+        if i.get("policy_type"):
+            ref_parts.append(i["policy_type"])
+        if i.get("carrier"):
+            ref_parts.append(i["carrier"])
+        if i.get("pol_project") or i.get("project_name"):
+            proj = i.get("pol_project") or i.get("project_name")
+            ref_parts.append(proj)
+        rows.append({
+            "Item": i["description"],
+            "Coverage / Location": " — ".join(ref_parts) if ref_parts else "",
+            "Category": i.get("category") or "",
+            "Status": "Received" if i["received"] else "Outstanding",
+            "Received Date": (i.get("received_at") or "")[:10] if i["received"] else "",
+            "Notes / Response": i.get("notes") or "",
+        })
+
+    wb = Workbook()
+    wb.remove(wb.active)
+    client_name = dict(bundle)["client_name"] if bundle else "Client"
+    title = dict(bundle)["title"] if bundle else "Request"
+    _write_sheet(wb, title[:31], rows)  # sheet name max 31 chars
+    return _wb_to_bytes(wb)
+
+
+def render_request_compose_text(conn, bundle_id: int) -> str:
+    """Generate formatted email body listing outstanding and received items."""
+    items = conn.execute(
+        """SELECT cri.*, p.policy_type, p.carrier, p.project_name AS pol_project
+           FROM client_request_items cri
+           LEFT JOIN policies p ON cri.policy_uid = p.policy_uid
+           WHERE cri.bundle_id = ?
+           ORDER BY cri.received ASC, cri.sort_order ASC, cri.id ASC""",
+        (bundle_id,),
+    ).fetchall()
+
+    outstanding = []
+    received = []
+    for item in items:
+        i = dict(item)
+        desc = i["description"]
+        context_parts = []
+        if i.get("policy_type"):
+            context_parts.append(i["policy_type"])
+        if i.get("carrier"):
+            context_parts.append(i["carrier"])
+        proj = i.get("pol_project") or i.get("project_name")
+        if proj:
+            context_parts.append(proj)
+        suffix = f" — {', '.join(context_parts)}" if context_parts else ""
+
+        if i["received"]:
+            date_str = f" (received {i['received_at'][:10]})" if i.get("received_at") else ""
+            received.append(f"  ☑ {desc}{suffix}{date_str}")
+        else:
+            outstanding.append(f"  □ {desc}{suffix}")
+
+    lines = []
+    if outstanding:
+        lines.append(f"OUTSTANDING ({len(outstanding)} item{'s' if len(outstanding) != 1 else ''}):")
+        lines.extend(outstanding)
+    if received:
+        if outstanding:
+            lines.append("")
+        lines.append("RECEIVED — thank you:")
+        lines.extend(received)
+
+    return "\n".join(lines)
+
+
+def export_client_requests_xlsx(conn, client_id: int) -> bytes:
+    """Export all non-complete request bundles for a client as a multi-sheet XLSX."""
+    bundles = conn.execute(
+        "SELECT * FROM client_request_bundles WHERE client_id=? AND status != 'complete' ORDER BY updated_at DESC",
+        (client_id,),
+    ).fetchall()
+
+    wb = Workbook()
+    wb.remove(wb.active)
+
+    any_items = False
+    for b in bundles:
+        b = dict(b)
+        items = conn.execute(
+            """SELECT cri.*, p.policy_type, p.carrier, p.project_name AS pol_project
+               FROM client_request_items cri
+               LEFT JOIN policies p ON cri.policy_uid = p.policy_uid
+               WHERE cri.bundle_id = ?
+               ORDER BY cri.received ASC, cri.sort_order ASC, cri.id ASC""",
+            (b["id"],),
+        ).fetchall()
+        rows = []
+        for item in items:
+            i = dict(item)
+            ref_parts = []
+            if i.get("policy_type"):
+                ref_parts.append(i["policy_type"])
+            if i.get("carrier"):
+                ref_parts.append(i["carrier"])
+            if i.get("pol_project") or i.get("project_name"):
+                proj = i.get("pol_project") or i.get("project_name")
+                ref_parts.append(proj)
+            rows.append({
+                "Item": i["description"],
+                "Coverage / Location": " — ".join(ref_parts) if ref_parts else "",
+                "Category": i.get("category") or "",
+                "Status": "Received" if i["received"] else "Outstanding",
+                "Received Date": (i.get("received_at") or "")[:10] if i["received"] else "",
+                "Notes / Response": i.get("notes") or "",
+            })
+        if rows:
+            any_items = True
+        sheet_name = (b.get("rfi_uid") or b["title"] or "Request")[:31]
+        _write_sheet(wb, sheet_name, rows)
+
+    if not any_items and not bundles:
+        _write_sheet(wb, "Requests", [{"Item": "No outstanding items"}])
+
+    return _wb_to_bytes(wb)
+
+
+def render_client_requests_compose_text(conn, client_id: int) -> str:
+    """Generate formatted email body listing all outstanding items across all open bundles."""
+    bundles = conn.execute(
+        "SELECT * FROM client_request_bundles WHERE client_id=? AND status != 'complete' ORDER BY updated_at DESC",
+        (client_id,),
+    ).fetchall()
+
+    bundle_count = len(bundles)
+    all_lines = []
+    total_outstanding = 0
+
+    for b in bundles:
+        b = dict(b)
+        items = conn.execute(
+            """SELECT cri.*, p.policy_type, p.carrier, p.project_name AS pol_project
+               FROM client_request_items cri
+               LEFT JOIN policies p ON cri.policy_uid = p.policy_uid
+               WHERE cri.bundle_id = ?
+               ORDER BY cri.received ASC, cri.sort_order ASC, cri.id ASC""",
+            (b["id"],),
+        ).fetchall()
+
+        outstanding = []
+        received = []
+        for item in items:
+            i = dict(item)
+            desc = i["description"]
+            context_parts = []
+            if i.get("policy_type"):
+                context_parts.append(i["policy_type"])
+            if i.get("carrier"):
+                context_parts.append(i["carrier"])
+            proj = i.get("pol_project") or i.get("project_name")
+            if proj:
+                context_parts.append(proj)
+            suffix = f" — {', '.join(context_parts)}" if context_parts else ""
+
+            if i["received"]:
+                date_str = f" (received {i['received_at'][:10]})" if i.get("received_at") else ""
+                received.append(f"  \u2611 {desc}{suffix}{date_str}")
+            else:
+                outstanding.append(f"  \u25a1 {desc}{suffix}")
+
+        total_outstanding += len(outstanding)
+        rfi_label = b.get("rfi_uid") or b["title"] or "Request"
+        title_label = b["title"] or "Information Request"
+        all_lines.append(f"\u2500\u2500\u2500 {rfi_label} \u2014 {title_label} \u2500\u2500\u2500")
+        if outstanding:
+            all_lines.append(f"OUTSTANDING ({len(outstanding)} item{'s' if len(outstanding) != 1 else ''}):")
+            all_lines.extend(outstanding)
+        if received:
+            if outstanding:
+                all_lines.append("")
+            all_lines.append("RECEIVED \u2014 thank you:")
+            all_lines.extend(received)
+        all_lines.append("")
+
+    header = f"Outstanding items across {bundle_count} open request bundle{'s' if bundle_count != 1 else ''}:"
+    return header + "\n\n" + "\n".join(all_lines).rstrip()
+
+
+# ─── ACCOUNT SUMMARY ─────────────────────────────────────────────────────────
+
+
+def build_account_summary(conn: sqlite3.Connection, client_id: int, days: int = 90, include_linked: bool = False) -> dict:
+    """Build a structured account summary dict for a client."""
+    from policydb.queries import (
+        get_client_by_id, get_client_summary, get_activities,
+        get_time_summary, get_policies_for_client,
+        get_linked_group_for_client, get_all_followups,
+    )
+    from datetime import datetime
+
+    client = get_client_by_id(conn, client_id)
+    if not client:
+        return {}
+    client = dict(client)
+
+    summary = get_client_summary(conn, client_id)
+    summary = dict(summary) if summary else {}
+
+    # Determine which client_ids to include
+    client_ids = [client_id]
+    linked_members = []
+    linked_group = None
+    if include_linked:
+        linked_group = get_linked_group_for_client(conn, client_id)
+        if linked_group:
+            for m in linked_group.get("members", []):
+                if m["client_id"] != client_id:
+                    client_ids.append(m["client_id"])
+                    linked_members.append({
+                        "name": m["name"],
+                        "total_premium": m.get("total_premium") or 0,
+                        "total_policies": m.get("total_policies") or 0,
+                        "next_renewal_days": m.get("next_renewal_days"),
+                    })
+
+    # Renewals (within 180 days)
+    renewals = []
+    for cid in client_ids:
+        rows = conn.execute(
+            """SELECT p.policy_uid, p.policy_type, p.carrier, p.expiration_date,
+                      p.renewal_status, p.project_name,
+                      CAST(julianday(p.expiration_date) - julianday('now') AS INTEGER) AS days_to_renewal
+               FROM policies p
+               WHERE p.client_id = ? AND p.archived = 0
+                 AND (p.is_opportunity = 0 OR p.is_opportunity IS NULL)
+                 AND p.expiration_date IS NOT NULL
+                 AND julianday(p.expiration_date) - julianday('now') <= 180
+               ORDER BY p.expiration_date""",
+            (cid,),
+        ).fetchall()
+        # Attach milestone progress
+        for r in rows:
+            rd = dict(r)
+            ms = conn.execute(
+                "SELECT COUNT(*) AS total, SUM(CASE WHEN completed=1 THEN 1 ELSE 0 END) AS done FROM policy_milestones WHERE policy_uid=?",
+                (rd["policy_uid"],),
+            ).fetchone()
+            rd["milestone_done"] = ms["done"] or 0
+            rd["milestone_total"] = ms["total"] or 0
+            if cid != client_id:
+                c_row = conn.execute("SELECT name FROM clients WHERE id=?", (cid,)).fetchone()
+                rd["client_name"] = c_row["name"] if c_row else ""
+            renewals.append(rd)
+    renewals.sort(key=lambda r: r.get("expiration_date") or "9999")
+
+    # Follow-ups (overdue + upcoming 30d)
+    overdue_all, upcoming_all = get_all_followups(conn, window=30)
+    # Filter to our client_ids
+    overdue_followups = [dict(r) for r in overdue_all if r.get("client_id") in client_ids]
+    upcoming_followups = [dict(r) for r in upcoming_all if r.get("client_id") in client_ids]
+
+    # Recent activity
+    activities = []
+    for cid in client_ids:
+        acts = get_activities(conn, client_id=cid, days=days)
+        for a in acts:
+            ad = dict(a)
+            if cid != client_id:
+                ad["_from_linked"] = True
+            activities.append(ad)
+    activities.sort(key=lambda a: a.get("activity_date", ""), reverse=True)
+    activities = activities[:20]  # cap at 20 most recent
+
+    # Time summary
+    time_data = get_time_summary(conn, client_id=client_id, days=days)
+
+    # Coverage snapshot (all active policies)
+    coverage = []
+    for cid in client_ids:
+        pols = get_policies_for_client(conn, cid)
+        for p in pols:
+            pd = dict(p)
+            if not pd.get("is_opportunity"):
+                coverage.append(pd)
+
+    # High risks
+    high_risks = [dict(r) for r in conn.execute(
+        "SELECT * FROM client_risks WHERE client_id IN ({}) AND severity IN ('High', 'Critical') ORDER BY severity DESC".format(
+            ",".join("?" * len(client_ids))
+        ),
+        client_ids,
+    ).fetchall()]
+
+    # Open request bundles
+    open_requests = [dict(r) for r in conn.execute(
+        """SELECT b.title, b.status,
+                  (SELECT COUNT(*) FROM client_request_items WHERE bundle_id=b.id) AS total,
+                  (SELECT COUNT(*) FROM client_request_items WHERE bundle_id=b.id AND received=0) AS outstanding
+           FROM client_request_bundles b
+           WHERE b.client_id IN ({}) AND b.status != 'complete'
+           ORDER BY b.updated_at DESC""".format(",".join("?" * len(client_ids))),
+        client_ids,
+    ).fetchall()]
+
+    # Renewal calendar — all active non-opp policies grouped by expiration month
+    ph = ",".join("?" * len(client_ids))
+    renewal_cal_rows = conn.execute(
+        f"""SELECT strftime('%Y-%m', expiration_date) AS month_iso,
+                   COUNT(*) AS count,
+                   COALESCE(SUM(premium), 0) AS premium,
+                   GROUP_CONCAT(policy_type, '|') AS types
+            FROM policies
+            WHERE client_id IN ({ph})
+              AND archived = 0
+              AND (is_opportunity = 0 OR is_opportunity IS NULL)
+              AND expiration_date IS NOT NULL
+            GROUP BY month_iso
+            ORDER BY month_iso""",
+        client_ids,
+    ).fetchall()
+    renewal_calendar = []
+    for row in renewal_cal_rows:
+        mi = row["month_iso"]
+        try:
+            from datetime import date as _d
+            year, month = int(mi[:4]), int(mi[5:7])
+            label = _d(year, month, 1).strftime("%b %Y")
+        except (ValueError, TypeError):
+            label = mi or ""
+        type_counts: dict = {}
+        for t in (row["types"] or "").split("|"):
+            t = t.strip()
+            if t:
+                type_counts[t] = type_counts.get(t, 0) + 1
+        renewal_calendar.append({
+            "month_iso": mi,
+            "month_label": label,
+            "count": row["count"],
+            "premium": row["premium"] or 0,
+            "types": type_counts,
+        })
+
+    # Time by coverage line — hours logged per policy_type for this client
+    time_by_policy = [dict(r) for r in conn.execute(
+        f"""SELECT p.policy_type,
+                   COALESCE(SUM(a.duration_hours), 0) AS hours,
+                   COUNT(*) AS count
+            FROM activity_log a
+            JOIN policies p ON a.policy_id = p.id
+            WHERE a.client_id IN ({ph})
+              AND a.duration_hours IS NOT NULL AND a.duration_hours > 0
+              AND a.activity_date >= date('now', ?)
+            GROUP BY p.policy_type
+            ORDER BY hours DESC""",
+        client_ids + [f"-{days - 1} days"],
+    ).fetchall()]
+
+    # Notes snippet
+    notes = (client.get("notes") or "")[:200]
+
+    return {
+        "client": {
+            "name": client.get("name", ""),
+            "cn_number": client.get("cn_number", ""),
+            "industry": client.get("industry_segment", ""),
+            "account_exec": cfg.get("default_account_exec", ""),
+        },
+        "financials": {
+            "total_premium": summary.get("total_premium") or 0,
+            "total_revenue": summary.get("total_revenue") or 0,
+            "total_policies": summary.get("total_policies") or 0,
+            "carrier_count": summary.get("carrier_count") or 0,
+        },
+        "renewals": renewals,
+        "open_items": {
+            "overdue": overdue_followups,
+            "upcoming": upcoming_followups,
+        },
+        "recent_activity": activities,
+        "time_summary": time_data,
+        "coverage": coverage,
+        "high_risks": high_risks,
+        "open_requests": open_requests,
+        "renewal_calendar": renewal_calendar,
+        "time_by_policy": time_by_policy,
+        "notes_snippet": notes,
+        "linked_members": linked_members,
+        "generated_at": datetime.now().strftime("%B %d, %Y %I:%M %p"),
+        "days": days,
+        "include_linked": include_linked,
+    }
+
+
+def render_account_summary_text(s: dict) -> str:
+    """Render account summary dict as plain text for clipboard/email."""
+    if not s:
+        return ""
+
+    c = s["client"]
+    f = s["financials"]
+    lines = [
+        f"ACCOUNT SUMMARY: {c['name']}" + (f" [{c['cn_number']}]" if c['cn_number'] else ""),
+        f"Generated: {s['generated_at']}",
+        "\u2500" * 50,
+    ]
+
+    # Financials
+    parts = []
+    if f["total_premium"]:
+        parts.append(f"${f['total_premium']:,.0f} Premium")
+    if f["total_revenue"]:
+        parts.append(f"${f['total_revenue']:,.0f} Revenue")
+    if f["total_policies"]:
+        parts.append(f"{f['total_policies']} Policies")
+    if f["carrier_count"]:
+        parts.append(f"{f['carrier_count']} Carriers")
+    if parts:
+        lines.append(" | ".join(parts))
+
+    # Linked members
+    if s.get("linked_members"):
+        lines.append("")
+        lines.append(f"LINKED ACCOUNTS ({len(s['linked_members'])})")
+        for m in s["linked_members"]:
+            lines.append(f"  {m['name']} \u2014 ${m['total_premium']:,.0f} premium, {m['total_policies']} policies")
+
+    # Renewals
+    if s["renewals"]:
+        lines.append("")
+        lines.append(f"RENEWAL STATUS (Next 180d) \u2014 {len(s['renewals'])} policies")
+        for r in s["renewals"]:
+            dtr = r.get("days_to_renewal")
+            days_str = f"({dtr}d)" if dtr is not None else ""
+            ms_str = f"[{r.get('milestone_done', 0)}/{r.get('milestone_total', 0)}]" if r.get("milestone_total") else ""
+            client_prefix = f"{r['client_name']} \u2014 " if r.get("client_name") else ""
+            exp = r.get("expiration_date", "")[:10] if r.get("expiration_date") else ""
+            lines.append(f"  {client_prefix}{r.get('policy_type', '')} \u2014 {r.get('carrier', '')} \u2014 Exp {exp} {days_str} \u2014 {r.get('renewal_status', '')} {ms_str}")
+
+    # Open items
+    overdue = s["open_items"].get("overdue", [])
+    upcoming = s["open_items"].get("upcoming", [])
+    if overdue or upcoming:
+        lines.append("")
+        lines.append(f"OPEN ITEMS ({len(overdue) + len(upcoming)})")
+        for o in overdue:
+            lines.append(f"  \u26a0 {o.get('subject', '')} ({o.get('days_overdue', 0)}d overdue)")
+        for u in upcoming:
+            lines.append(f"  \u2192 {u.get('subject', '')} (due {u.get('follow_up_date', '')[:10]})")
+
+    # Open requests
+    if s.get("open_requests"):
+        lines.append("")
+        lines.append("OUTSTANDING REQUESTS")
+        for req in s["open_requests"]:
+            lines.append(f"  {req['title']} ({req['outstanding']} of {req['total']} items pending)")
+
+    # Recent activity
+    if s["recent_activity"]:
+        total_h = s["time_summary"].get("total_hours", 0) if s.get("time_summary") else 0
+        h_str = f" \u2014 {total_h:.1f}h logged" if total_h else ""
+        lines.append("")
+        lines.append(f"RECENT ACTIVITY (Last {s['days']}d){h_str}")
+        for a in s["recent_activity"][:10]:
+            dur = f" ({a['duration_hours']}h)" if a.get("duration_hours") else ""
+            lines.append(f"  {a.get('activity_date', '')[:10]} {a.get('activity_type', '')} \u2014 {a.get('subject', '')}{dur}")
+
+    # High risks
+    if s.get("high_risks"):
+        lines.append("")
+        lines.append("HIGH RISKS")
+        for r in s["high_risks"]:
+            has_cov = "Covered" if r.get("has_coverage") else "No coverage"
+            lines.append(f"  ! {r.get('category', '')} \u2014 {r.get('severity', '')} \u2014 {has_cov}")
+
+    # Notes
+    if s.get("notes_snippet"):
+        lines.append("")
+        lines.append("NOTES")
+        lines.append(f"  {s['notes_snippet']}")
+
+    return "\n".join(lines)
+
+
+# ─── PROJECT GROUP EXPORT ────────────────────────────────────────────────────
+
+def export_project_group_xlsx(
+    conn: sqlite3.Connection,
+    client_id: int,
+    project_name: str,
+    client_name: str,
+) -> bytes:
+    """Export policies for a single project/location as XLSX."""
+    if project_name:
+        policies = conn.execute(
+            """SELECT policy_uid, policy_type, carrier, policy_number,
+                      effective_date, expiration_date, premium, limit_amount, deductible,
+                      description, coverage_form, layer_position,
+                      project_name, renewal_status, commission_rate, commission_amount,
+                      prior_premium, rate_change,
+                      exposure_address, exposure_city, exposure_state, exposure_zip,
+                      notes, urgency, days_to_renewal,
+                      first_named_insured, access_point
+               FROM v_policy_status
+               WHERE client_id = ? AND LOWER(TRIM(COALESCE(project_name,''))) = LOWER(TRIM(?))
+               ORDER BY policy_type, layer_position""",
+            (client_id, project_name),
+        ).fetchall()
+    else:
+        policies = conn.execute(
+            """SELECT policy_uid, policy_type, carrier, policy_number,
+                      effective_date, expiration_date, premium, limit_amount, deductible,
+                      description, coverage_form, layer_position,
+                      project_name, renewal_status, commission_rate, commission_amount,
+                      prior_premium, rate_change,
+                      exposure_address, exposure_city, exposure_state, exposure_zip,
+                      notes, urgency, days_to_renewal,
+                      first_named_insured, access_point
+               FROM v_policy_status
+               WHERE client_id = ? AND COALESCE(project_name, '') = ''
+               ORDER BY policy_type, layer_position""",
+            (client_id,),
+        ).fetchall()
+
+    policy_ids = [
+        conn.execute("SELECT id FROM policies WHERE policy_uid = ?", (r["policy_uid"],)).fetchone()["id"]
+        for r in policies
+    ]
+
+    policy_team = []
+    if policy_ids:
+        ph = ",".join("?" * len(policy_ids))
+        policy_team = conn.execute(
+            f"""SELECT p.policy_uid, p.policy_type, co.name, cpa.role, co.email, co.phone
+                FROM contact_policy_assignments cpa
+                JOIN contacts co ON cpa.contact_id = co.id
+                JOIN policies p ON cpa.policy_id = p.id
+                WHERE p.id IN ({ph}) ORDER BY p.policy_uid, co.name""",
+            policy_ids,
+        ).fetchall()
+
+    wb = Workbook()
+    wb.remove(wb.active)
+    _write_sheet(wb, "Policies", [dict(r) for r in policies])
+
+    # Total row
+    ws = wb["Policies"]
+    ws.append([])
+    total = sum(r["premium"] or 0 for r in policies)
+    ws.append(["Total Premium", fmt_currency(total)])
+    ws.cell(row=ws.max_row, column=1).font = Font(bold=True)
+
+    if policy_team:
+        _write_sheet(wb, "Policy Team", [dict(r) for r in policy_team])
+
+    # Project note
+    if project_name:
+        note_row = conn.execute(
+            "SELECT notes FROM projects WHERE client_id = ? AND LOWER(TRIM(name)) = LOWER(TRIM(?))",
+            (client_id, project_name),
+        ).fetchone()
+        if note_row and note_row["notes"]:
+            ws_n = wb.create_sheet("Project Notes")
+            ws_n.append(["Project Notes"])
+            ws_n["A1"].font = Font(bold=True)
+            for line in (note_row["notes"] or "").split("\n"):
+                ws_n.append([line])
+            ws_n.column_dimensions["A"].width = 80
+
+    return _wb_to_bytes(wb)
+
+
+# ─── SINGLE POLICY EXPORT ───────────────────────────────────────────────────
+
+def export_single_policy_xlsx(conn: sqlite3.Connection, policy_uid: str) -> bytes:
+    """Export a single policy's full details as a multi-sheet XLSX."""
+    row = conn.execute(
+        "SELECT * FROM v_policy_status WHERE policy_uid = ?", (policy_uid,)
+    ).fetchone()
+    if not row:
+        wb = Workbook()
+        wb.active.append(["Policy not found"])
+        return _wb_to_bytes(wb)
+
+    d = dict(row)
+    policy_id = conn.execute(
+        "SELECT id FROM policies WHERE policy_uid = ?", (policy_uid,)
+    ).fetchone()["id"]
+
+    # Sheet 1: Policy Detail — transposed key/value
+    wb = Workbook()
+    wb.remove(wb.active)
+    ws = wb.create_sheet("Policy Detail")
+    ws.append(["Field", "Value"])
+    for cell in ws[1]:
+        cell.font = _HEADER_FONT
+        cell.fill = _HEADER_FILL
+        cell.alignment = Alignment(horizontal="center")
+    for key, val in d.items():
+        if key in ("id", "client_id"):
+            continue
+        ws.append([key, val])
+    ws.column_dimensions["A"].width = 30
+    ws.column_dimensions["B"].width = 50
+
+    # Sheet 2: Policy Team
+    team = conn.execute(
+        """SELECT co.name, cpa.role, co.email, co.phone, co.mobile
+           FROM contact_policy_assignments cpa
+           JOIN contacts co ON cpa.contact_id = co.id
+           WHERE cpa.policy_id = ? ORDER BY co.name""",
+        (policy_id,),
+    ).fetchall()
+    if team:
+        _write_sheet(wb, "Policy Team", [dict(r) for r in team])
+
+    # Sheet 3: Milestones
+    milestones = conn.execute(
+        """SELECT milestone, completed, completed_at, is_critical
+           FROM policy_milestones WHERE policy_uid = ? ORDER BY id""",
+        (policy_uid,),
+    ).fetchall()
+    if milestones:
+        _write_sheet(wb, "Milestones", [dict(r) for r in milestones])
+
+    # Sheet 4: Activity Log
+    activities = conn.execute(
+        """SELECT activity_date, activity_type, contact_person, subject, details,
+                  follow_up_date, follow_up_done, duration_hours
+           FROM activity_log WHERE policy_id = ?
+           ORDER BY activity_date DESC""",
+        (policy_id,),
+    ).fetchall()
+    if activities:
+        _write_sheet(wb, "Activity Log", [dict(r) for r in activities])
+
+    # Sheet 5: Premium History
+    history = conn.execute(
+        """SELECT term_effective, term_expiration, carrier, premium,
+                  limit_amount, deductible, notes
+           FROM premium_history
+           WHERE client_id = ? AND policy_type = ?
+           ORDER BY term_effective DESC""",
+        (d.get("client_id"), d.get("policy_type")),
+    ).fetchall()
+    if history:
+        _write_sheet(wb, "Premium History", [dict(r) for r in history])
+
     return _wb_to_bytes(wb)
 
 
