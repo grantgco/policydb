@@ -92,7 +92,7 @@ def init_db(path: Path | None = None) -> None:
 
     # Back up the database once before running any pending migrations.
     # This gives a clean restore point regardless of which migration fails.
-    _KNOWN_MIGRATIONS = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54}
+    _KNOWN_MIGRATIONS = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55}
     if _KNOWN_MIGRATIONS - applied:
         _backup_db(db_path)
 
@@ -583,6 +583,15 @@ def init_db(path: Path | None = None) -> None:
         conn.execute(
             "INSERT INTO schema_version (version, description) VALUES (?, ?)",
             (54, "Add follow_up_date to clients"),
+        )
+        conn.commit()
+
+    if 55 not in applied:
+        sql = (_MIGRATIONS_DIR / "055_add_meetings.sql").read_text()
+        conn.executescript(sql)
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (55, "Add meetings tables"),
         )
         conn.commit()
 

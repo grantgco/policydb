@@ -108,17 +108,20 @@ def client_list(
     ).fetchall()}
     # Build group membership map: client_id → group_id
     _group_rows = conn.execute(
-        """SELECT gm.client_id, gm.group_id, cg.label
+        """SELECT gm.client_id, gm.group_id, cg.label, c.name AS client_name
            FROM client_group_members gm
            JOIN client_groups cg ON gm.group_id = cg.id
-           ORDER BY gm.group_id"""
+           JOIN clients c ON gm.client_id = c.id
+           ORDER BY gm.group_id, c.name"""
     ).fetchall()
     client_group_map = {}  # client_id → group_id
     group_labels = {}  # group_id → label
+    group_member_names = {}  # group_id → [client_name, ...]
     for gr in _group_rows:
         client_group_map[gr["client_id"]] = gr["group_id"]
         if gr["group_id"] not in group_labels:
             group_labels[gr["group_id"]] = gr["label"]
+        group_member_names.setdefault(gr["group_id"], []).append(gr["client_name"])
 
     # Re-order clients so grouped ones appear together
     grouped_ids_seen = set()
@@ -154,6 +157,7 @@ def client_list(
         "linked_client_ids": linked_client_ids,
         "client_group_map": client_group_map,
         "group_labels": group_labels,
+        "group_member_names": group_member_names,
     })
 
 

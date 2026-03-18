@@ -1,0 +1,33 @@
+<p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Attendees</p>
+<div class="flex flex-wrap gap-1.5 mb-2">
+  {% if meeting and meeting.attendees %}
+  {% for a in meeting.attendees %}
+  <span class="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full
+    {% if a.is_internal %}bg-blue-50 text-blue-700{% else %}bg-indigo-50 text-indigo-700{% endif %}">
+    {{ a.name }}{% if a.role %} <span class="text-gray-400">({{ a.role }})</span>{% endif %}
+    <button type="button"
+      hx-post="/meetings/{{ meeting.id }}/attendees/{{ a.id }}/remove"
+      hx-target="#attendees-section"
+      hx-swap="innerHTML"
+      class="text-gray-400 hover:text-red-500 ml-0.5">&times;</button>
+  </span>
+  {% endfor %}
+  {% else %}
+  <span class="text-xs text-gray-400 italic">No attendees added yet</span>
+  {% endif %}
+</div>
+<form hx-post="/meetings/{{ meeting.id }}/attendees/add"
+      hx-target="#attendees-section" hx-swap="innerHTML"
+      class="flex gap-2 items-end">
+  <div class="flex-1">
+    <input type="text" name="name" required placeholder="Name" class="w-full border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-marsh">
+  </div>
+  <div>
+    <input type="text" name="role" placeholder="Role" class="border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-marsh w-28">
+  </div>
+  <label class="flex items-center gap-1 text-xs text-gray-500">
+    <input type="checkbox" name="is_internal" value="1" class="rounded border-gray-300">
+    Internal
+  </label>
+  <button type="submit" class="text-xs bg-marsh text-white px-3 py-1 rounded hover:bg-marsh-light transition-colors">+ Add</button>
+</form>
