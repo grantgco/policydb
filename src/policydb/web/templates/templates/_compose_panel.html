@@ -1,12 +1,50 @@
-{% if not available %}
-<div class="p-4 text-sm text-gray-400 text-center">
-  No email templates yet. <a href="/templates" class="text-marsh hover:underline">Create one →</a>
+{# ── Quick email (always first when contacts available) ── #}
+{% if quick_email or all_contacts %}
+<div class="px-4 py-3">
+  <label class="text-xs font-medium text-gray-500 block mb-1">Send To</label>
+  {% if all_contacts %}
+  <div class="mb-2">
+    <select id="quick-contact-select" onchange="updateQuickEmail(this)"
+      class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm bg-white focus:outline-none focus:ring-1 focus:ring-marsh">
+      {% for c in all_contacts %}
+      <option value="{{ c.email }}" data-name="{{ c.name }}" {% if c.email == quick_email %}selected{% endif %}>{{ c.name }} ({{ c.email }}) — {{ c.role }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <button type="button" id="quick-email-trigger" class="ep-trigger text-sm text-white bg-marsh hover:bg-marsh-light px-3 py-1.5 rounded transition-colors"
+    data-to="{{ all_contacts[0].email if all_contacts else quick_email }}"
+    data-to-label="{{ all_contacts[0].name if all_contacts else quick_email }}"
+    data-subject="{{ quick_subject }}"
+    {% if ref_tag %}data-ref="{{ ref_tag }}"{% endif %}
+    {% if policy_uid %}data-cc-url="/policies/{{ policy_uid }}/team-cc"{% elif client_id %}data-cc-url="/clients/{{ client_id }}/team-cc"{% endif %}>&#9993; Compose Email{% if policy_uid %} (CC team){% elif client_id %} (CC team){% endif %}</button>
+  {% else %}
+  <button type="button" class="ep-trigger text-sm text-white bg-marsh hover:bg-marsh-light px-3 py-1.5 rounded transition-colors"
+    data-to="{{ quick_email }}"
+    data-to-label="{{ quick_email }}"
+    data-subject="{{ quick_subject }}"
+    {% if ref_tag %}data-ref="{{ ref_tag }}"{% endif %}
+    {% if policy_uid %}data-cc-url="/policies/{{ policy_uid }}/team-cc"{% endif %}>&#9993; Compose Email</button>
+  {% endif %}
+  {% if quick_subject %}<span class="text-xs text-gray-400 ml-1">— {{ quick_subject }}</span>{% endif %}
 </div>
-{% else %}
-<div class="p-4 space-y-3">
+<script>
+function updateQuickEmail(sel) {
+  var opt = sel.options[sel.selectedIndex];
+  var btn = document.getElementById('quick-email-trigger');
+  if (btn && opt) {
+    btn.dataset.to = opt.value;
+    btn.dataset.toLabel = opt.dataset.name || opt.value;
+  }
+}
+</script>
+{% endif %}
+
+{# ── Template picker (secondary — below quick email) ── #}
+{% if available %}
+<div class="px-4 pb-3 {% if quick_email or all_contacts %}border-t border-gray-100 pt-3{% endif %} space-y-3">
   <div class="flex items-end gap-3">
     <div class="flex-1">
-      <label class="text-xs font-medium text-gray-500 block mb-1">Select Template</label>
+      <label class="text-xs font-medium text-gray-500 block mb-1">Or compose from a template</label>
       <select id="compose-tpl-select-{{ context }}-{{ policy_uid or client_id }}"
         class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-marsh"
         onchange="loadComposedTemplate(this)">
@@ -15,7 +53,7 @@
         {% for tpl in available %}
         {% if tpl.context != prev_ctx %}
         {% if prev_ctx %}</optgroup>{% endif %}
-        <optgroup label="{{ {'policy': 'Policy Templates', 'client': 'Client Templates', 'general': 'General'}[tpl.context] or tpl.context }}">
+        <optgroup label="{{ {'policy': 'Policy Templates', 'client': 'Client Templates', 'location': 'Location Templates', 'general': 'General'}[tpl.context] or tpl.context }}">
         {% set prev_ctx = tpl.context %}
         {% endif %}
         <option value="{{ tpl.id }}" {% if selected_template and selected_template.id == tpl.id %}selected{% endif %}>{{ tpl.name }}</option>
@@ -43,20 +81,17 @@ function loadComposedTemplate(select) {
   }
   var url = '/templates/render?template_id=' + tplId +
     '{% if policy_uid %}&policy_uid={{ policy_uid }}{% endif %}' +
-    '{% if client_id %}&client_id={{ client_id }}{% endif %}';
+    '{% if client_id %}&client_id={{ client_id }}{% endif %}' +
+    '{% if project_name %}&project_name={{ project_name | urlencode }}{% endif %}';
   htmx.ajax('GET', url, { target: '#' + areaId, swap: 'innerHTML' });
 }
 </script>
-{% endif %}
-
-{% if quick_email %}
-<div class="px-4 pb-3 {% if available %}border-t border-gray-100 pt-3{% endif %}">
-  <p class="text-xs text-gray-400 mb-1">Quick email without a template:</p>
-  <button type="button" class="ep-trigger text-xs text-marsh hover:underline font-medium"
-    data-to="{{ quick_email }}"
-    data-to-label="{{ quick_email }}"
-    data-subject="{{ quick_subject }}"
-    {% if policy_uid %}data-cc-url="/policies/{{ policy_uid }}/team-cc"{% endif %}>✉ {{ quick_email }}</button>
-  {% if quick_subject %}<span class="text-xs text-gray-400 ml-1">— {{ quick_subject }}</span>{% endif %}
+{% elif not quick_email and not all_contacts %}
+<div class="p-4 text-sm text-gray-400 text-center">
+  No contacts or templates available. <a href="/templates" class="text-marsh hover:underline">Create a template →</a>
+</div>
+{% else %}
+<div class="px-4 pb-3 border-t border-gray-100 pt-2">
+  <a href="/templates" class="text-xs text-gray-400 hover:text-marsh">Create email templates for reusable messages →</a>
 </div>
 {% endif %}

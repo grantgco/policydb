@@ -20,6 +20,18 @@
   {% if policy.first_named_insured %}<p class="text-xs text-gray-400 mt-0.5">First Named Insured: <span class="text-gray-600 font-medium">{{ policy.first_named_insured }}</span></p>{% endif %}
 </div>
 
+<!-- Compose Email -->
+<details id="compose-panel-policy" class="card mb-4">
+  <summary class="px-4 py-2.5 cursor-pointer text-sm font-medium text-marsh hover:bg-gray-50 rounded-xl select-none list-none flex items-center gap-2">
+    <span>✉</span> Compose Email
+  </summary>
+  <div hx-get="/templates/compose?context=policy&policy_uid={{ policy.policy_uid }}"
+       hx-trigger="toggle from:#compose-panel-policy once"
+       hx-swap="innerHTML">
+    <div class="p-4 text-sm text-gray-400">Loading…</div>
+  </div>
+</details>
+
 {# ── Alert banner: escalation + readiness + warnings ── #}
 {% if escalation_tier or overdue_followups or policy_warnings %}
 {% set tier_colors = {'CRITICAL': 'bg-red-50 border-red-200', 'WARNING': 'bg-amber-50 border-amber-200', 'NUDGE': 'bg-blue-50 border-blue-200'} %}
@@ -103,18 +115,6 @@
   </div>
 </div>
 {% endif %}
-
-<!-- Compose Email -->
-<details id="compose-panel-policy" class="card mb-4">
-  <summary class="px-4 py-2.5 cursor-pointer text-sm font-medium text-marsh hover:bg-gray-50 rounded-xl select-none list-none flex items-center gap-2">
-    <span>✉</span> Compose Email
-  </summary>
-  <div hx-get="/templates/compose?context=policy&policy_uid={{ policy.policy_uid }}"
-       hx-trigger="toggle from:#compose-panel-policy once"
-       hx-swap="innerHTML">
-    <div class="p-4 text-sm text-gray-400">Loading templates…</div>
-  </div>
-</details>
 
 <!-- Quick Log Activity -->
 <div class="card p-3 mb-4">
