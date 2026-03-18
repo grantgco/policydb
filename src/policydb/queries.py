@@ -413,7 +413,10 @@ def get_activities(
     if activity_type:
         sql += " AND a.activity_type = ?"
         params.append(activity_type)
-    sql += " ORDER BY a.activity_date DESC, a.id DESC"
+    sql += """ ORDER BY
+        CASE WHEN a.follow_up_date IS NOT NULL AND (a.follow_up_done IS NULL OR a.follow_up_done = 0) THEN 0 ELSE 1 END,
+        CASE WHEN a.follow_up_date IS NOT NULL AND (a.follow_up_done IS NULL OR a.follow_up_done = 0) THEN a.follow_up_date END ASC,
+        a.activity_date DESC, a.id DESC"""
     return conn.execute(sql, params).fetchall()
 
 
@@ -918,7 +921,12 @@ def get_suggested_followups(
 
 
 _OPPORTUNITY_SELECT = """SELECT p.id, p.policy_uid, p.policy_type, p.carrier, p.opportunity_status,
-                  p.target_effective_date, p.premium, p.project_name, p.project_id, p.description,
+                  p.target_effective_date, p.premium, p.commission_rate,
+                  CASE WHEN p.commission_rate > 0
+                      THEN ROUND(p.premium * p.commission_rate, 2)
+                      ELSE NULL
+                  END AS commission_amount,
+                  p.project_name, p.project_id, p.description,
                   p.follow_up_date, p.client_id,
                   c.name AS client_name, c.cn_number,
                   COALESCE(
@@ -950,7 +958,12 @@ def get_open_opportunities(conn: sqlite3.Connection) -> list[dict]:
     """Return all active (non-archived) opportunities, sorted by status priority then target date."""
     rows = conn.execute(
         """SELECT p.id, p.policy_uid, p.policy_type, p.carrier, p.opportunity_status,
-                  p.target_effective_date, p.premium, p.project_name, p.description,
+                  p.target_effective_date, p.premium, p.commission_rate,
+                  CASE WHEN p.commission_rate > 0
+                      THEN ROUND(p.premium * p.commission_rate, 2)
+                      ELSE NULL
+                  END AS commission_amount,
+                  p.project_name, p.description,
                   p.follow_up_date, p.client_id,
                   c.name AS client_name,
                   COALESCE(
