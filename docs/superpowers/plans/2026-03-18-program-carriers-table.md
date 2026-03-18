@@ -19,15 +19,17 @@
 | Create | `src/policydb/migrations/058_program_carriers_table.sql` | Schema: new table + index + data migration |
 | Create | `tests/test_program_carriers.py` | All tests for this feature |
 | Create | `src/policydb/web/templates/policies/_program_carriers_matrix.html` | Contenteditable carrier matrix partial |
-| Create | `src/policydb/web/templates/policies/_program_carrier_row.html` | Single carrier row partial (for HTMX add-row) |
-| Modify | `src/policydb/reconciler.py:323-339,649-657,922-946` | ReconcileRow dataclass + structured matching + enhanced summary |
+| ~~Create~~ | ~~`src/policydb/web/templates/policies/_program_carrier_row.html`~~ | *(Removed — the `program_carrier_add` endpoint returns inline HTML directly; no separate partial needed)* |
+| Modify | `src/policydb/reconciler.py:323-339,649-657,742-744,922-946` | ReconcileRow dataclass + structured matching (both scoring paths) + enhanced summary |
 | Modify | `src/policydb/views.py:95-98,156-162` | v_policy_status + v_schedule: replace text field with subquery/JOIN |
 | Modify | `src/policydb/web/routes/policies.py:1254-1322,1363-1401,2256-2314` | CRUD endpoints for carrier rows, deprecate text field writes |
-| Modify | `src/policydb/web/routes/reconcile.py:55-69,567-652` | Pre-load carrier rows, batch-create inserts rows |
-| Modify | `src/policydb/web/routes/clients.py:437-456` | Load carrier rows from table instead of text field |
+| Modify | `src/policydb/web/routes/reconcile.py:55-69,491-530,567-652` | Pre-load carrier rows, single-create + batch-create inserts rows, apply-field carrier support |
+| Modify | `src/policydb/web/routes/clients.py:437-456,647-651` | Load carrier rows from table, renewal calendar subquery |
 | Modify | `src/policydb/web/templates/policies/edit.html:329-400` | Replace textarea with matrix partial include |
 | Modify | `src/policydb/web/templates/clients/_programs.html` | Nested carrier rows from table data |
 | Modify | `src/policydb/web/templates/reconcile/_batch_create_review.html:100-126` | Program creation preview with carrier detail |
+| Modify | `src/policydb/web/templates/reconcile/_results_table.html` | Per-carrier diff display for program matches |
+| Modify | `src/policydb/web/templates/reconcile/_create_form.html` | Remove deprecated text field inputs |
 | Modify | `src/policydb/email_templates.py` | Add program_carriers and program_carrier_count tokens |
 
 ---
@@ -366,6 +368,35 @@ In `src/policydb/reconciler.py`, replace lines 654-657 (the `elif db.get("is_pro
                         break
 ```
 
+- [ ] **Step 4b: Replace second substring matching occurrence (suggestion scoring path)**
+
+There is a second occurrence of `program_carriers` text-based substring matching in the suggestion scoring path at `src/policydb/reconciler.py` lines 742-744 (inside `_find_likely_pairs` or the suggestion candidate loop). Replace it with structured matching using `_program_carrier_rows`:
+
+```python
+        # Old (lines 742-744):
+        # Program carrier list boost for suggestions
+        if ext_carrier and not (carrier_score >= 70) and db.get("is_program") and db.get("program_carriers"):
+            if ext_carrier.strip().lower() in db["program_carriers"].lower():
+                combined += 15
+
+        # New:
+        # Program carrier rows: structured matching for suggestions
+        if ext_carrier and not (carrier_score >= 70) and db.get("is_program") and db.get("_program_carrier_rows"):
+            for _pc in db["_program_carrier_rows"]:
+                if fuzz.WRatio(ext_carrier, _pc.get("carrier", "")) >= 70:
+                    combined += 10
+                    _pc_pn = _normalize_policy_number(_pc.get("policy_number") or "")
+                    _ext_pn_s = _normalize_policy_number(ext.get("policy_number") or "")
+                    if _ext_pn_s and _pc_pn:
+                        if _ext_pn_s == _pc_pn:
+                            combined += 30
+                        elif fuzz.ratio(_ext_pn_s, _pc_pn) >= 90:
+                            combined += 25
+                        elif fuzz.ratio(_ext_pn_s, _pc_pn) >= 75:
+                            combined += 10
+                    break
+```
+
 - [ ] **Step 5: Track matched carrier ID in result construction**
 
 In the fuzzy match result construction (around lines 893-898), when building `ReconcileRow` for program matches, add `matched_carrier_id`. Find the code that sets `is_program_match=db_idx in _program_indices` and update:
@@ -468,7 +499,8 @@ git commit -m "feat: structured program carrier matching in reconciler"
 
 **Files:**
 - Modify: `src/policydb/web/routes/policies.py`
-- Create: `src/policydb/web/templates/policies/_program_carrier_row.html`
+
+*(Note: No separate `_program_carrier_row.html` partial is needed — the `program_carrier_add` endpoint returns inline HTML directly.)*
 
 - [ ] **Step 1: Add PATCH endpoint for cell save**
 
@@ -1046,11 +1078,45 @@ Replace the full content of `src/policydb/web/templates/clients/_programs.html`:
 {% endif %}
 ```
 
-- [ ] **Step 3: Manual test — navigate to a client detail page with a program**
+- [ ] **Step 3: Update renewal calendar query to use subquery instead of deprecated column**
 
-Verify carrier rows show nested under the program with indentation, and legacy linked policies still appear if any exist.
+In `src/policydb/web/routes/clients.py`, the renewal calendar query at lines 647-651 reads `program_carrier_count` directly from the `policies` table. Replace this with a subquery against the `program_carriers` table:
 
-- [ ] **Step 4: Commit**
+```python
+    # Old (lines 648-657):
+    _rm_rows = conn.execute(
+        """SELECT CAST(strftime('%m', expiration_date) AS INTEGER) AS month,
+                  SUM(CASE WHEN is_program = 1 AND program_carrier_count > 0
+                           THEN program_carrier_count ELSE 1 END) AS cnt
+           FROM policies
+           WHERE client_id = ? AND archived = 0
+             AND (is_opportunity = 0 OR is_opportunity IS NULL)
+             AND expiration_date IS NOT NULL
+           GROUP BY month ORDER BY month""",
+        (client_id,),
+    ).fetchall()
+
+    # New:
+    _rm_rows = conn.execute(
+        """SELECT CAST(strftime('%m', expiration_date) AS INTEGER) AS month,
+                  SUM(CASE WHEN is_program = 1
+                           AND (SELECT COUNT(*) FROM program_carriers WHERE program_id = p.id) > 0
+                           THEN (SELECT COUNT(*) FROM program_carriers WHERE program_id = p.id)
+                           ELSE 1 END) AS cnt
+           FROM policies p
+           WHERE client_id = ? AND archived = 0
+             AND (is_opportunity = 0 OR is_opportunity IS NULL)
+             AND expiration_date IS NOT NULL
+           GROUP BY month ORDER BY month""",
+        (client_id,),
+    ).fetchall()
+```
+
+- [ ] **Step 4: Manual test — navigate to a client detail page with a program**
+
+Verify carrier rows show nested under the program with indentation, and legacy linked policies still appear if any exist. Verify the renewal calendar sidebar shows correct counts for program policies (using carrier count from the table, not the deprecated column).
+
+- [ ] **Step 5: Commit**
 
 ```bash
 git add src/policydb/web/routes/clients.py src/policydb/web/templates/clients/_programs.html
@@ -1067,7 +1133,24 @@ git commit -m "feat: client detail programs card with structured carrier rows"
 
 - [ ] **Step 1: Update `_load_db_policies()` to attach carrier rows**
 
-In `src/policydb/web/routes/reconcile.py`, after the `_load_db_policies()` function returns `db_rows` (around line 69), add a helper to attach carrier rows. Find where `_load_db_policies` is called (in the `reconcile_post` handler) and add after the call:
+**Important:** The `_load_db_policies()` function at lines 57-68 of `src/policydb/web/routes/reconcile.py` does NOT currently include `p.id` in its SELECT list. The carrier row pre-loading code below uses `r["id"]`, so you must first add `p.id` to the SELECT. Update the SELECT clause to:
+
+```python
+    rows = conn.execute(
+        f"""SELECT p.id, p.policy_uid, c.name AS client_name, p.policy_type, p.carrier,
+                   p.policy_number, p.effective_date, p.expiration_date,
+                   p.premium, p.limit_amount, p.deductible, p.client_id,
+                   p.first_named_insured,
+                   p.is_program, p.program_carriers, p.program_carrier_count
+            FROM policies p
+            JOIN clients c ON p.client_id = c.id
+            WHERE {where}
+            ORDER BY c.name, p.expiration_date""",
+        params,
+    ).fetchall()
+```
+
+Then, after the `_load_db_policies()` function returns `db_rows` (around line 69), add a helper to attach carrier rows. Find where `_load_db_policies` is called (in the `reconcile_post` handler) and add after the call:
 
 ```python
     # Attach program carrier rows for structured matching
@@ -1089,10 +1172,42 @@ Store `_carrier_map` so it can be passed to `program_reconcile_summary()` later.
 
 - [ ] **Step 2: Update `batch_create_program` to insert carrier rows**
 
-Replace the `batch_create_program` function body (lines 567-652) — specifically the INSERT and response. After the policy INSERT, add carrier row inserts:
+Replace the `batch_create_program` function body (lines 567-652) — specifically the INSERT and response.
+
+First, replace the policy INSERT SQL (lines 631-641) to remove `program_carriers` and `program_carrier_count` columns:
 
 ```python
-    # After the conn.execute INSERT for the program policy...
+    # Old INSERT (lines 631-641):
+    conn.execute(
+        """INSERT INTO policies
+           (policy_uid, client_id, policy_type, carrier, effective_date, expiration_date,
+            premium, limit_amount, account_exec,
+            is_program, program_carriers, program_carrier_count)
+           VALUES (?,?,?,?,?,?,?,?,?,1,?,?)""",
+        (uid, int(client_id_str), policy_type,
+         carriers[0] if carriers else None,
+         eff_date or None, exp_date or None,
+         total_premium, total_limit if total_limit else None,
+         account_exec, carrier_list, len(carriers)),
+    )
+
+    # New INSERT (no deprecated text columns):
+    conn.execute(
+        """INSERT INTO policies
+           (policy_uid, client_id, policy_type, carrier, effective_date, expiration_date,
+            premium, limit_amount, account_exec, is_program)
+           VALUES (?,?,?,?,?,?,?,?,?,1)""",
+        (uid, int(client_id_str), policy_type,
+         carriers[0] if carriers else None,
+         eff_date or None, exp_date or None,
+         total_premium, total_limit if total_limit else None,
+         account_exec),
+    )
+```
+
+Then, after the policy INSERT, add carrier row inserts:
+
+```python
     policy_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
 
     # Insert carrier rows from selected import data
@@ -1117,8 +1232,6 @@ Replace the `batch_create_program` function body (lines 567-652) — specificall
         )
     conn.commit()
 ```
-
-Also remove `program_carriers` and `program_carrier_count` from the policy INSERT SQL — replace with just `is_program` = 1. The `carrier` column gets the first carrier (lead), `premium` and `limit_amount` get the sums.
 
 - [ ] **Step 3: Update batch create review template with carrier preview**
 
@@ -1166,7 +1279,188 @@ git commit -m "feat: pass carrier map to program reconcile summary"
 
 ---
 
-### Task 9: Email Template Tokens
+### Task 9: Reconcile — Per-Carrier Diff Display & Apply-Field Endpoint
+
+**Files:**
+- Modify: `src/policydb/web/routes/reconcile.py`
+- Modify: `src/policydb/web/templates/reconcile/_results_table.html`
+
+This task implements spec section 4d (per-carrier diff UI in reconcile results) and spec section 2 (`apply-field` endpoint modification for carrier-row-level diffs).
+
+- [ ] **Step 1: Update `apply-field` endpoint to support carrier-row-level updates**
+
+In `src/policydb/web/routes/reconcile.py`, find the `apply-field` endpoint (POST handler that updates a single field on a matched policy). When the policy is a program and the request includes a `carrier_row_id` parameter, update the `program_carriers` table row instead of the parent policy:
+
+```python
+    # In the apply-field handler, add carrier row support:
+    carrier_row_id = form.get("carrier_row_id")
+    if carrier_row_id and policy_row.get("is_program"):
+        # Update the specific carrier row instead of the parent policy
+        field = form.get("field", "")
+        value = form.get("value", "")
+        allowed = {"carrier", "policy_number", "premium", "limit_amount"}
+        if field in allowed:
+            if field in ("premium", "limit_amount"):
+                try:
+                    value = float(str(value).replace("$", "").replace(",", "").strip() or "0")
+                except ValueError:
+                    value = 0
+            conn.execute(
+                f"UPDATE program_carriers SET {field} = ? WHERE id = ? AND program_id = ?",
+                (value, int(carrier_row_id), policy_row["id"]),
+            )
+            # Re-aggregate totals on parent policy
+            totals = conn.execute(
+                "SELECT COALESCE(SUM(premium), 0) AS tp, COALESCE(SUM(limit_amount), 0) AS tl FROM program_carriers WHERE program_id = ?",
+                (policy_row["id"],),
+            ).fetchone()
+            conn.execute(
+                "UPDATE policies SET premium = ?, limit_amount = ? WHERE id = ?",
+                (totals["tp"], totals["tl"], policy_row["id"]),
+            )
+            conn.commit()
+            # Return updated row HTML
+            ...
+```
+
+- [ ] **Step 2: Add endpoint for inserting new carrier rows from reconcile diff**
+
+Add a POST endpoint for adding a new carrier row to a program from the reconcile results (the "+ Add" action for NEW carrier rows in the per-carrier diff display):
+
+```python
+@router.post("/add-program-carrier/{policy_uid}", response_class=HTMLResponse)
+async def reconcile_add_program_carrier(
+    request: Request,
+    policy_uid: str,
+    conn=Depends(get_db),
+):
+    """Add a new carrier row to a program from reconcile diff results."""
+    form = await request.form()
+    carrier = form.get("carrier", "").strip()
+    policy_number = form.get("policy_number", "").strip()
+    premium = float(form.get("premium", 0) or 0)
+    limit_amount = float(form.get("limit_amount", 0) or 0)
+
+    program = conn.execute(
+        "SELECT id FROM policies WHERE policy_uid = ? AND is_program = 1",
+        (policy_uid.upper(),),
+    ).fetchone()
+    if not program:
+        return HTMLResponse('<span class="text-xs text-red-500">Program not found</span>')
+
+    max_order = conn.execute(
+        "SELECT COALESCE(MAX(sort_order), -1) FROM program_carriers WHERE program_id = ?",
+        (program["id"],),
+    ).fetchone()[0]
+
+    conn.execute(
+        """INSERT INTO program_carriers (program_id, carrier, policy_number, premium, limit_amount, sort_order)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (program["id"], carrier, policy_number, premium, limit_amount, max_order + 1),
+    )
+    # Re-aggregate totals
+    totals = conn.execute(
+        "SELECT COALESCE(SUM(premium), 0) AS tp, COALESCE(SUM(limit_amount), 0) AS tl FROM program_carriers WHERE program_id = ?",
+        (program["id"],),
+    ).fetchone()
+    conn.execute(
+        "UPDATE policies SET premium = ?, limit_amount = ? WHERE id = ?",
+        (totals["tp"], totals["tl"], program["id"]),
+    )
+    conn.commit()
+    return HTMLResponse(
+        f'<span class="text-xs font-semibold text-green-700 px-2 py-0.5 rounded bg-green-100">Added</span>'
+    )
+```
+
+- [ ] **Step 3: Update reconcile results template for per-carrier diff display**
+
+In `src/policydb/web/templates/reconcile/_results_table.html`, update the program DIFF/MATCH row expansion to show per-carrier comparison when `program_summary` data is available. For each program match, render a nested table showing:
+
+- **MATCH carriers:** Green check, carrier name, policy #, matching premiums
+- **DIFF carriers:** Strikethrough old premium, bold new premium, Accept/Keep buttons using HTMX POST to the `apply-field` endpoint with `carrier_row_id`
+- **NEW carriers:** Green-tinted row with carrier info from import and "+ Add" button using HTMX POST to `/reconcile/add-program-carrier/{uid}`
+- **MISSING carriers:** (in DB but not in import) Amber-tinted row with "(NOT IN IMPORT)" label
+
+Use the diff display patterns from spec section 5f:
+
+```html
+{# Per-carrier diff section (inside program MATCH/DIFF row expansion) #}
+{% if row.is_program_match and program_summary.get(row.db.policy_uid) %}
+  {% set ps = program_summary[row.db.policy_uid] %}
+  <tr class="border-b border-gray-50 bg-gray-50/30">
+    <td colspan="10" class="px-6 py-2">
+      <table class="w-full text-xs">
+        <thead>
+          <tr class="text-gray-400">
+            <th class="text-left py-1">Carrier</th>
+            <th class="text-left py-1">Policy #</th>
+            <th class="text-right py-1">DB Premium</th>
+            <th class="text-right py-1">Import Premium</th>
+            <th class="text-center py-1">Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for cd in ps.carrier_detail %}
+          <tr class="border-b border-gray-100">
+            <td class="py-1 {% if cd.status == 'DIFF' %}text-amber-600 font-medium{% else %}text-gray-600{% endif %}">
+              {{ cd.carrier }}{% if cd.status == 'DIFF' %} <span class="text-amber-500 text-[10px]">(DIFF)</span>{% endif %}
+            </td>
+            <td class="py-1 font-mono text-gray-500">{{ cd.policy_number or '' }}</td>
+            <td class="py-1 text-right tabular-nums {% if cd.status == 'DIFF' %}text-red-400 line-through{% else %}text-gray-600{% endif %}">${{ '{:,.0f}'.format(cd.db_premium) }}</td>
+            <td class="py-1 text-right tabular-nums {% if cd.status == 'DIFF' %}text-green-600 font-semibold{% else %}text-gray-600{% endif %}">${{ '{:,.0f}'.format(cd.ext_premium) }}</td>
+            <td class="py-1 text-center">
+              {% if cd.status == 'MATCH' %}
+              <span class="text-green-500">&#10003; Match</span>
+              {% elif cd.status == 'DIFF' %}
+              <button class="text-xs bg-blue-600 text-white px-2 py-0.5 rounded hover:bg-blue-700 no-print"
+                      hx-post="/reconcile/apply-field/{{ row.db.policy_uid }}"
+                      hx-vals='{"field": "premium", "value": "{{ cd.ext_premium }}", "carrier_row_id": "{{ cd.carrier_id }}"}'
+                      hx-swap="outerHTML">Accept</button>
+              <button class="text-xs text-gray-500 px-2 py-0.5 hover:text-gray-700 no-print">Keep</button>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+          {% for nc in ps.new_carriers %}
+          <tr class="border-b border-gray-100 bg-green-50/50">
+            <td class="py-1 text-green-600 italic">{{ nc.carrier }} <span class="text-green-500 text-[10px]">(NEW)</span></td>
+            <td class="py-1 font-mono text-gray-500">{{ nc.policy_number or '' }}</td>
+            <td class="py-1 text-right tabular-nums text-gray-300">&mdash;</td>
+            <td class="py-1 text-right tabular-nums text-green-600">${{ '{:,.0f}'.format(nc.premium) }}</td>
+            <td class="py-1 text-center">
+              <button class="text-xs bg-green-700 text-green-100 px-2 py-0.5 rounded no-print"
+                      hx-post="/reconcile/add-program-carrier/{{ row.db.policy_uid }}"
+                      hx-vals='{"carrier": "{{ nc.carrier }}", "policy_number": "{{ nc.policy_number }}", "premium": "{{ nc.premium }}", "limit_amount": "{{ nc.limit_amount }}"}'
+                      hx-swap="outerHTML">+ Add</button>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </td>
+  </tr>
+{% endif %}
+```
+
+- [ ] **Step 4: Manual test — reconcile against existing program with carrier changes**
+
+Run: `policydb serve`
+1. Create or use a program with 2-3 carrier rows
+2. Upload a CSV with updated premiums for some carriers, a new carrier, and a missing carrier
+3. Verify the per-carrier diff table renders correctly
+4. Test Accept/Keep/Add buttons
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/policydb/web/routes/reconcile.py src/policydb/web/templates/reconcile/_results_table.html
+git commit -m "feat: per-carrier diff display and apply-field endpoint for program reconcile"
+```
+
+---
+
+### Task 10: Email Template Tokens
 
 **Files:**
 - Modify: `src/policydb/email_templates.py`
@@ -1209,11 +1503,12 @@ git commit -m "feat: add program carrier tokens to email template system"
 
 ---
 
-### Task 10: Cleanup — Remove Deprecated Text Field References
+### Task 11: Cleanup — Remove Deprecated Text Field References
 
 **Files:**
 - Modify: `src/policydb/web/templates/policies/new.html`
 - Modify: `src/policydb/web/templates/reconcile/_create_form.html`
+- Modify: `src/policydb/web/routes/reconcile.py`
 - Modify: `src/policydb/exporter.py`
 
 - [ ] **Step 1: Update `new.html` — remove textarea for program_carriers**
@@ -1226,25 +1521,51 @@ Add a note in the program section: `<p class="text-xs text-gray-400">Add carrier
 
 In `src/policydb/web/templates/reconcile/_create_form.html`, find and remove the program_carriers textarea and program_carrier_count input. The single-create from reconcile will insert carrier data directly when `is_program=1`.
 
-- [ ] **Step 3: Verify exporter**
+- [ ] **Step 3: Update single-create handler in `reconcile.py` to use `program_carriers` table**
+
+The `reconcile_create` handler at lines 491-530 of `src/policydb/web/routes/reconcile.py` still writes the deprecated `program_carriers` and `program_carrier_count` text columns when creating a policy from a single MISSING reconcile row. Update it to:
+
+1. Remove `program_carriers` and `program_carrier_count` from the INSERT SQL (lines 516-521) and its parameter tuple (lines 522-530)
+2. When `is_program=1`, after the INSERT, insert a single row into the `program_carriers` table with the carrier, policy_number, premium, and limit_amount from the form data:
+
+```python
+    # After the policy INSERT and commit (around line 532-533):
+    if pgm:
+        _policy_row = conn.execute("SELECT id FROM policies WHERE policy_uid=?", (uid,)).fetchone()
+        if _policy_row:
+            _pid = _policy_row["id"]
+            _c = (carrier or "").strip()
+            _pn = (policy_number or "").strip()
+            if _c:
+                conn.execute(
+                    """INSERT INTO program_carriers (program_id, carrier, policy_number, premium, limit_amount, sort_order)
+                       VALUES (?, ?, ?, ?, ?, 0)""",
+                    (_pid, _c, _pn, _f(premium) if premium else 0, _f(limit_amount), 0),
+                )
+                conn.commit()
+```
+
+Also remove the `program_carriers: str = Form("")` and `program_carrier_count: str = Form("")` parameters from the function signature (lines 491-492), and remove the `pgm_carriers`/`pgm_count` computation (lines 502-508).
+
+- [ ] **Step 4: Verify exporter**
 
 Check `src/policydb/exporter.py` — if it reads `program_carriers` directly (not via the view), update it to query the table. If it reads via `v_policy_status` (which was already updated in Task 2), no changes needed.
 
-- [ ] **Step 4: Run all tests**
+- [ ] **Step 5: Run all tests**
 
 Run: `pytest tests/ -v`
 Expected: All tests PASS
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add src/policydb/web/templates/policies/new.html src/policydb/web/templates/reconcile/_create_form.html src/policydb/exporter.py
+git add src/policydb/web/templates/policies/new.html src/policydb/web/templates/reconcile/_create_form.html src/policydb/web/routes/reconcile.py src/policydb/exporter.py
 git commit -m "chore: remove deprecated program_carriers text field references"
 ```
 
 ---
 
-### Task 11: Final Integration Test
+### Task 12: Final Integration Test
 
 **Files:**
 - Test: manual
@@ -1260,6 +1581,9 @@ Run: `policydb serve`
 5. **Delete carrier:** Click ✕, verify row removed and totals update
 6. **Client detail:** Navigate to client with program → verify nested carrier rows display
 7. **Reconcile existing program:** Upload new CSV with updated premiums for the same program → verify per-carrier matching works, DIFF rows show accept/keep
+8. **Per-carrier diff actions:** On reconcile results for a program DIFF, verify per-carrier comparison table renders with MATCH/DIFF/NEW rows; test Accept button updates the carrier row, + Add button inserts a new carrier
+9. **Single-create from reconcile:** Create a single policy with `is_program=1` from a MISSING reconcile row → verify a `program_carriers` table row is inserted (not the deprecated text column)
+10. **Renewal calendar:** Navigate to a client with a program → verify the sidebar renewal calendar counts program carriers correctly (from the table, not the deprecated column)
 
 - [ ] **Step 2: Commit any fixes**
 
