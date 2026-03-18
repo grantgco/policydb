@@ -18,6 +18,8 @@ _DEFAULTS: dict[str, Any] = {
     },
     "export_dir": str(Path.home() / ".policydb" / "exports"),
     "stale_threshold_days": 14,
+    "default_hourly_rate": 150,
+    "renewal_effort_multiplier": 1.5,
     "coverage_gap_rules": [
         {
             "if_present": "General Liability",
@@ -145,6 +147,11 @@ _DEFAULTS: dict[str, Any] = {
         "Binder Requested",
         "Policy Received",
     ],
+    "critical_milestones": [
+        "Submission Sent",
+        "Quote Received",
+        "Client Approved",
+    ],
     "escalation_thresholds": {
         "critical_days": 60,
         "critical_stale_days": 14,
@@ -157,6 +164,46 @@ _DEFAULTS: dict[str, Any] = {
         "on_track": 50,
         "at_risk": 25,
     },
+    "readiness_weights": {
+        "status": 40,
+        "checklist": 25,
+        "activity": 15,
+        "followup": 10,
+        "placement": 10,
+    },
+    "readiness_status_scores": {
+        "Not Started": 0,
+        "In Progress": 50,
+        "Submitted": 75,
+        "Quoted": 80,
+        "Pending Bind": 88,
+        "Bound": 100,
+    },
+    "readiness_milestone_weights": {
+        "Submission Sent": 2,
+        "Loss Runs Received": 1,
+        "Quote Received": 2,
+        "Coverage Comparison Prepared": 1,
+        "Client Approved": 2,
+        "Binder Requested": 1,
+        "Policy Received": 1,
+    },
+    "readiness_activity_tiers": [
+        {"days": 7, "pct": 100},
+        {"days": 14, "pct": 67},
+        {"days": 30, "pct": 33},
+    ],
+    "followup_workload_thresholds": {
+        "warning": 3,
+        "danger": 5,
+    },
+    "linked_account_relationships": [
+        "Related", "Subsidiary", "Sister Company",
+        "Common Ownership", "Joint Venture", "Parent / Holding",
+    ],
+    "auto_review_enabled": True,
+    "auto_review_field_threshold": 2,
+    "auto_review_activity_threshold": 3,
     "review_cycle_default": "1w",
     "auto_followup_days_before_expiry": 120,
     "quick_log_templates": [
@@ -166,9 +213,75 @@ _DEFAULTS: dict[str, Any] = {
         {"label": "Sent submission", "type": "Email", "subject": "Submitted to carrier"},
         {"label": "Internal discussion", "type": "Meeting", "subject": "Internal strategy discussion"},
     ],
+    "risk_categories": [
+        "Property",
+        "General Liability",
+        "Auto / Fleet",
+        "Workers Compensation",
+        "Umbrella / Excess",
+        "Professional Liability / E&O",
+        "Directors & Officers",
+        "Employment Practices",
+        "Cyber / Privacy",
+        "Pollution / Environmental",
+        "Inland Marine / Equipment",
+        "Builders Risk",
+        "Crime / Fidelity",
+        "Management Liability",
+        "Other",
+    ],
+    "risk_severities": [
+        "Low",
+        "Medium",
+        "High",
+        "Critical",
+    ],
+    "risk_sources": [
+        "New Business", "Renewal", "Loss Event",
+        "Stewardship", "Contract Review", "Other",
+    ],
+    "risk_control_types": [
+        "Prevention", "Mitigation", "Transfer", "Retention", "Avoidance",
+    ],
+    "risk_control_statuses": [
+        "Recommended", "In Progress", "Implemented", "Declined",
+    ],
+    "risk_adequacy_levels": [
+        "Adequate", "Inadequate", "Needs Review", "N/A",
+    ],
+    "contact_roles": [
+        "Account Executive", "Account Manager", "Producer", "CSR",
+        "Placement Colleague", "Underwriter", "Broker", "Claims Adjuster",
+    ],
+    "request_categories": [
+        "Exposure Data", "Loss Runs", "Applications",
+        "Financial Statements", "Certificates", "Fleet Schedule",
+        "Payroll Data", "Contracts", "Underwriting Question", "Other",
+    ],
+    "client_facing_milestones": [
+        "Loss Runs Received",
+    ],
     "email_subject_policy": "Re: {{client_name}}{{project_name_sep}} \u2014 {{policy_type}} \u2014 Eff. {{effective_date}}",
     "email_subject_client": "Re: {{client_name}}",
     "email_subject_followup": "Re: {{client_name}}{{project_name_sep}} \u2014 {{policy_type}} \u2014 {{subject}}",
+    "mandated_activities": [
+        {
+            "name": "RSM Meeting",
+            "trigger": "days_before_expiry",
+            "days": 120,
+            "activity_type": "Meeting",
+            "subject": "RSM Meeting — {{policy_type}}",
+        },
+        {
+            "name": "Post-Binding Meeting",
+            "trigger": "days_after_effective",
+            "days": 45,
+            "activity_type": "Meeting",
+            "subject": "Post-Binding Meeting — {{policy_type}}",
+        },
+    ],
+    "email_subject_request": "{{client_name}} \u2014 {{rfi_uid}} {{request_title}}",
+    "email_subject_request_all": "{{client_name}} \u2014 Outstanding Information Requests",
 }
 
 _config: dict[str, Any] | None = None

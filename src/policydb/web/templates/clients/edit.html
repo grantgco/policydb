@@ -12,7 +12,23 @@
   <h1 class="text-2xl font-bold text-gray-900">{% if client %}Edit Client{% else %}Add Client{% endif %}</h1>
 </div>
 
-<form method="post" action="{% if client %}/clients/{{ client.id }}/edit{% else %}/clients/new{% endif %}" class="space-y-6">
+{% if client and client.archived %}
+<div class="bg-red-50 border border-red-200 rounded-lg px-4 py-3 mb-4 flex items-center justify-between">
+  <div>
+    <p class="text-sm font-medium text-red-800">This client is archived</p>
+    <p class="text-xs text-red-600">Archived clients are hidden from all lists and reports. Data is preserved.</p>
+  </div>
+  <form method="post" action="/clients/{{ client.id }}/unarchive">
+    <button type="submit"
+      class="text-sm bg-white border border-red-300 text-red-700 hover:bg-red-50 font-medium px-4 py-1.5 rounded-lg transition-colors">
+      Restore Client
+    </button>
+  </form>
+</div>
+{% endif %}
+
+<form method="post" action="{% if client %}/clients/{{ client.id }}/edit{% else %}/clients/new{% endif %}" class="space-y-6"
+      {% if client %}data-autosave="/clients/{{ client.id }}/edit"{% endif %}>
 
   <div class="card p-6">
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -25,6 +41,20 @@
       <div>
         <label class="field-label">CN Number <span class="text-gray-400 font-normal">(internal)</span></label>
         <input type="text" name="cn_number" value="{{ client.cn_number if client else '' }}" placeholder="e.g. CN-00123" class="form-input w-full">
+      </div>
+
+      <div>
+        <label class="field-label">FEIN <span class="text-gray-400 font-normal">(XX-XXXXXXX)</span></label>
+        <input type="text" name="fein" value="{{ client.fein if client and client.fein else '' }}" placeholder="12-3456789" class="form-input w-full font-mono">
+      </div>
+
+      <div class="flex items-center gap-3 sm:col-span-2 -mt-1">
+        <label class="toggle-switch">
+          <input type="checkbox" name="is_prospect" value="1" {% if client and client.is_prospect %}checked{% endif %}>
+          <span class="toggle-track"></span>
+          <span class="text-sm text-gray-700 ml-2">Prospect</span>
+        </label>
+        <span class="text-xs text-gray-400">Mark this client as a prospect — policies will typically be opportunities</span>
       </div>
 
       <div>
@@ -46,9 +76,15 @@
         <input type="text" name="contact_phone" value="{{ client.contact_phone if client else '' }}" class="form-input w-full">
       </div>
 
+      <div>
+        <label class="field-label">Contact Mobile <span class="text-gray-400 font-normal">(fallback)</span></label>
+        <input type="text" name="contact_mobile" value="{{ client.contact_mobile if client else '' }}" class="form-input w-full">
+      </div>
+
       <div class="sm:col-span-2">
         <label class="field-label">Address</label>
-        <input type="text" name="address" value="{{ client.address if client else '' }}" class="form-input w-full">
+        <input type="text" name="address" value="{{ client.address if client else '' }}" class="form-input w-full"
+          data-1p-ignore data-lpignore="true">
       </div>
 
       <div>
@@ -73,12 +109,13 @@
 
       <div>
         <label class="field-label">Preferred Contact Method</label>
-        <select name="preferred_contact_method" class="form-select w-full">
-          <option value="">— Not set —</option>
-          {% for opt in ['Email', 'Phone', 'Text', 'In Person'] %}
-          <option value="{{ opt }}" {% if client and client.preferred_contact_method == opt %}selected{% endif %}>{{ opt }}</option>
+        <div class="seg-control">
+          {% for opt in ['', 'Email', 'Phone', 'Text', 'In Person'] %}
+          <input type="radio" name="preferred_contact_method" id="pcm-{{ loop.index }}" value="{{ opt }}"
+            {% if (client and client.preferred_contact_method == opt) or (not client and opt == '') or (client and not client.preferred_contact_method and opt == '') %}checked{% endif %}>
+          <label for="pcm-{{ loop.index }}">{{ opt if opt else '—' }}</label>
           {% endfor %}
-        </select>
+        </div>
       </div>
 
       <div>
@@ -88,8 +125,18 @@
 
       <div>
         <label class="field-label">Annual Broker Fee <span class="text-gray-400 font-normal">(flat $ — in lieu of or in addition to commission)</span></label>
-        <input type="number" name="broker_fee" value="{{ client.broker_fee if client and client.broker_fee else '' }}"
-          step="0.01" min="0" placeholder="0.00" class="form-input w-full">
+        <input type="text" class="form-input w-full currency-input" autocomplete="off"
+          value="{% if client and client.broker_fee %}{{ '{:,.0f}'.format(client.broker_fee | float) }}{% endif %}"
+          placeholder="0">
+        <input type="hidden" name="broker_fee" value="{{ client.broker_fee if client and client.broker_fee else '' }}">
+      </div>
+
+      <div>
+        <label class="field-label">Hourly Rate <span class="text-gray-400 font-normal">($/hr — for effort projections in briefing)</span></label>
+        <input type="text" class="form-input w-full currency-input" autocomplete="off"
+          value="{% if client and client.hourly_rate %}{{ '{:,.0f}'.format(client.hourly_rate | float) }}{% endif %}"
+          placeholder="Default: $150">
+        <input type="hidden" name="hourly_rate" value="{{ client.hourly_rate if client and client.hourly_rate else '' }}">
       </div>
 
       {% if client %}
@@ -130,8 +177,15 @@
 
       <div class="sm:col-span-2">
         <label class="field-label">Business Description <span class="text-gray-400 font-normal">(operations, business model — used in LLM export &amp; submissions)</span></label>
-        <textarea name="business_description" rows="4" placeholder="Describe the client's business model, operations, key exposures, and any relevant context for underwriting or submissions."
+        <textarea name="business_description" id="biz-desc-ta" rows="4" placeholder="Describe the client's business model, operations, key exposures, and any relevant context for underwriting or submissions."
           class="form-input w-full">{{ client.business_description if client and client.business_description else '' }}</textarea>
+        <script>if(typeof window.initMarkdownEditor==='function')window.initMarkdownEditor('biz-desc-ta',{minHeight:'120px'});</script>
+      </div>
+
+      <div class="sm:col-span-2">
+        <label class="field-label">Internal Notes <span class="text-gray-400 font-normal">(never client-facing — internal use only)</span></label>
+        <textarea name="notes" rows="3" placeholder="Internal notes, reminders, account context…"
+          class="form-input w-full">{{ client.notes if client and client.notes else '' }}</textarea>
       </div>
 
       <input type="hidden" name="primary_contact" value="{{ client.primary_contact if client else '' }}">
@@ -141,17 +195,28 @@
 
   <div class="flex items-center justify-between">
     <a href="{% if client %}/clients/{{ client.id }}{% else %}/clients{% endif %}" class="text-sm text-gray-500 hover:text-gray-700">← Cancel</a>
-    <button type="submit" class="bg-marsh hover:bg-marsh-light text-white text-sm font-medium px-6 py-2 rounded-lg transition-colors">
-      {% if client %}Save Changes{% else %}Add Client{% endif %}
-    </button>
+    <div class="flex items-center gap-3">
+      <button type="submit" class="bg-marsh hover:bg-marsh-light text-white text-sm font-medium px-6 py-2 rounded-lg transition-colors">
+        {% if client %}Save &amp; Close{% else %}Add Client{% endif %}
+      </button>
+      {% if client %}<span class="text-xs text-gray-400 italic">Changes auto-save</span>{% endif %}
+    </div>
   </div>
 
 </form>
 
-<style>
-  .form-input { @apply border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-marsh; }
-  .form-select { @apply border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-marsh bg-white; }
-  .field-label { @apply block text-xs font-medium text-gray-600 mb-1; }
-</style>
+{% if client and not client.archived %}
+<div class="mt-4 pt-4 border-t border-gray-200 flex items-center justify-between">
+  <p class="text-xs text-gray-400">Lost this client? Archiving hides them from all lists and reports. Their data is preserved and can be restored at any time.</p>
+  <form method="post" action="/clients/{{ client.id }}/archive"
+        onsubmit="return confirm('Archive {{ client.name }}?\n\nThis hides the client from all lists and reports. Their policies, contacts, and activity history are preserved.')">
+    <button type="submit"
+      class="border border-red-300 text-red-500 hover:bg-red-50 text-sm font-medium px-4 py-2 rounded-lg transition-colors">
+      Archive Client
+    </button>
+  </form>
+</div>
+{% endif %}
+
 
 {% endblock %}
