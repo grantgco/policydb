@@ -81,11 +81,48 @@
         <input type="text" name="contact_mobile" value="{{ client.contact_mobile if client else '' }}" class="form-input w-full">
       </div>
 
-      <div class="sm:col-span-2">
+      <div class="sm:col-span-2 relative">
         <label class="field-label">Address</label>
-        <input type="text" name="address" value="{{ client.address if client else '' }}" class="form-input w-full"
-          data-1p-ignore data-lpignore="true">
+        <input type="text" name="address" id="address-input" value="{{ client.address if client else '' }}" class="form-input w-full"
+          data-1p-ignore data-lpignore="true" autocomplete="off" placeholder="Start typing an address...">
+        <div id="address-suggestions" class="absolute left-0 right-0 top-full z-50 bg-white border border-gray-200 rounded-b-lg shadow-lg max-h-48 overflow-y-auto hidden"></div>
       </div>
+      <script>
+      (function() {
+        var input = document.getElementById('address-input');
+        var dropdown = document.getElementById('address-suggestions');
+        if (!input || !dropdown) return;
+        var timer = null;
+        input.addEventListener('input', function() {
+          clearTimeout(timer);
+          var q = input.value.trim();
+          if (q.length < 4) { dropdown.classList.add('hidden'); return; }
+          timer = setTimeout(function() {
+            fetch('https://nominatim.openstreetmap.org/search?format=json&q=' + encodeURIComponent(q) + '&limit=5&addressdetails=1&countrycodes=us,gb,ca')
+              .then(function(r) { return r.json(); })
+              .then(function(data) {
+                if (!data || !data.length) { dropdown.classList.add('hidden'); return; }
+                dropdown.innerHTML = '';
+                data.forEach(function(item) {
+                  var div = document.createElement('div');
+                  div.className = 'px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 cursor-pointer border-b border-gray-50';
+                  div.textContent = item.display_name;
+                  div.addEventListener('mousedown', function(e) {
+                    e.preventDefault();
+                    input.value = item.display_name;
+                    dropdown.classList.add('hidden');
+                  });
+                  dropdown.appendChild(div);
+                });
+                dropdown.classList.remove('hidden');
+              }).catch(function() { dropdown.classList.add('hidden'); });
+          }, 400);
+        });
+        input.addEventListener('blur', function() {
+          setTimeout(function() { dropdown.classList.add('hidden'); }, 200);
+        });
+      })();
+      </script>
 
       <div>
         <label class="field-label">Website</label>
