@@ -1106,7 +1106,10 @@ def policy_edit_form(request: Request, policy_uid: str, add_contact: str = "", c
            JOIN clients c ON a.client_id = c.id
            LEFT JOIN policies p ON a.policy_id = p.id
            WHERE a.policy_id = ? AND a.activity_date >= date('now', '-90 days')
-           ORDER BY a.activity_date DESC, a.id DESC""",
+           ORDER BY
+             CASE WHEN a.follow_up_date IS NOT NULL AND (a.follow_up_done IS NULL OR a.follow_up_done = 0) THEN 0 ELSE 1 END,
+             CASE WHEN a.follow_up_date IS NOT NULL AND (a.follow_up_done IS NULL OR a.follow_up_done = 0) THEN a.follow_up_date END ASC,
+             a.activity_date DESC, a.id DESC""",
         (policy_dict["id"],),
     ).fetchall()]
     # Build CC options for email popover (opt-in, shown as checkboxes)
