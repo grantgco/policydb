@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>{{ project.name }} — {{ client.name }}</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #1f2937; line-height: 1.6; padding: 40px; max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 24px; font-weight: 700; margin-bottom: 2px; }
+    h2 { font-size: 14px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; margin: 24px 0 8px; border-bottom: 1px solid #e5e7eb; padding-bottom: 4px; }
+    .subtitle { font-size: 14px; color: #6b7280; margin-bottom: 4px; }
+    .meta { font-size: 12px; color: #9ca3af; margin-bottom: 24px; }
+    .notes-body { font-size: 14px; line-height: 1.8; white-space: pre-wrap; word-break: break-word; }
+    .notes-body h1, .notes-body h2, .notes-body h3 { margin-top: 16px; margin-bottom: 8px; }
+    .notes-body ul, .notes-body ol { padding-left: 24px; margin: 8px 0; }
+    .notes-body li { margin: 4px 0; }
+    .notes-body strong { font-weight: 600; }
+    .notes-body code { background: #f3f4f6; padding: 1px 4px; border-radius: 3px; font-size: 13px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }
+    th { text-align: left; font-weight: 600; color: #6b7280; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; padding: 6px 8px; border-bottom: 2px solid #e5e7eb; }
+    td { padding: 6px 8px; border-bottom: 1px solid #f3f4f6; }
+    .text-right { text-align: right; }
+    .address { font-size: 13px; color: #374151; margin-top: 8px; }
+    .footer { margin-top: 32px; padding-top: 12px; border-top: 1px solid #e5e7eb; font-size: 11px; color: #9ca3af; }
+    @media print {
+      body { padding: 20px; }
+      .no-print { display: none !important; }
+    }
+    .print-btn { background: #003865; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 13px; margin-bottom: 24px; }
+    .print-btn:hover { background: #0055a5; }
+  </style>
+</head>
+<body>
+
+<button class="print-btn no-print" onclick="window.print()">Print / Save as PDF</button>
+
+<h1>{{ project.name }}</h1>
+<p class="subtitle">{{ client.name }}{% if client.cn_number %} · {{ client.cn_number }}{% endif %}</p>
+<p class="meta">
+  {% if project.exposure_address or project.exposure_city %}
+  {{ [project.exposure_address, project.exposure_city, project.exposure_state, project.exposure_zip] | select | join(', ') }} ·
+  {% endif %}
+  Updated {{ project.updated_at[:10] if project.updated_at else '—' }} · {{ policies | length }} polic{{ 'y' if policies | length == 1 else 'ies' }}
+</p>
+
+{% if project.notes %}
+<h2>Project Notes</h2>
+<div class="notes-body" id="notes-content">{{ project.notes }}</div>
+{% endif %}
+
+{% if policies %}
+<h2>Policies in This Project</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Line of Business</th>
+      <th>Carrier</th>
+      <th class="text-right">Premium</th>
+      <th class="text-right">Limit</th>
+      <th>Effective</th>
+      <th>Expiration</th>
+      <th>Status</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for p in policies %}
+    <tr>
+      <td>{{ p.policy_type }}</td>
+      <td>{{ p.carrier or '—' }}</td>
+      <td class="text-right">{% if p.premium %}${{ '{:,.0f}'.format(p.premium) }}{% else %}—{% endif %}</td>
+      <td class="text-right">{% if p.limit_amount %}${{ '{:,.0f}'.format(p.limit_amount) }}{% else %}—{% endif %}</td>
+      <td>{{ p.effective_date or '—' }}</td>
+      <td>{{ p.expiration_date or '—' }}</td>
+      <td>{{ p.renewal_status or '—' }}</td>
+    </tr>
+    {% endfor %}
+    <tr style="font-weight:600;border-top:2px solid #e5e7eb">
+      <td>Total</td>
+      <td></td>
+      <td class="text-right">${{ '{:,.0f}'.format(policies | sum(attribute='premium')) }}</td>
+      <td colspan="4"></td>
+    </tr>
+  </tbody>
+</table>
+{% endif %}
+
+<div class="footer">
+  {{ client.name }} · {{ project.name }} · Generated from PolicyDB
+</div>
+
+<script>
+// Render markdown in notes if Toast UI is not available (standalone page)
+var el = document.getElementById('notes-content');
+if (el) {
+  // Simple markdown-to-HTML: headings, bold, bullets, code
+  var text = el.textContent;
+  text = text.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+  text = text.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+  text = text.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+  text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  text = text.replace(/^\- (.+)$/gm, '<li>$1</li>');
+  text = text.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
+  text = text.replace(/^(\d+)\. (.+)$/gm, '<li>$2</li>');
+  text = text.replace(/`([^`]+)`/g, '<code>$1</code>');
+  text = text.replace(/\n\n/g, '<br><br>');
+  el.innerHTML = text;
+}
+</script>
+
+</body>
+</html>

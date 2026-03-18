@@ -1986,6 +1986,51 @@ def project_detail(
     )
 
 
+@router.get("/{client_id}/projects/{project_id}/print", response_class=HTMLResponse)
+def project_print(
+    client_id: int,
+    project_id: int,
+    request: Request,
+    conn=Depends(get_db),
+):
+    """Print-optimized view of project notes — use browser Print > Save as PDF."""
+    from fastapi import HTTPException
+    project = conn.execute(
+        "SELECT * FROM projects WHERE id = ? AND client_id = ?",
+        (project_id, client_id),
+    ).fetchone()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    client = conn.execute(
+        "SELECT id, name, cn_number FROM clients WHERE id = ?", (client_id,)
+    ).fetchone()
+    policies = conn.execute(
+        """SELECT policy_uid, policy_type, carrier, premium, limit_amount,
+                  effective_date, expiration_date, renewal_status,
+                  exposure_address, exposure_city, exposure_state, exposure_zip
+           FROM policies WHERE project_id = ? AND archived = 0
+           ORDER BY policy_type""",
+        (project_id,),
+    ).fetchall()
+    project = dict(project)
+    for pol in policies:
+        if pol["exposure_address"] or pol["exposure_city"]:
+            project["exposure_address"] = pol["exposure_address"] or ""
+            project["exposure_city"] = pol["exposure_city"] or ""
+            project["exposure_state"] = pol["exposure_state"] or ""
+            project["exposure_zip"] = pol["exposure_zip"] or ""
+            break
+    return templates.TemplateResponse(
+        "clients/project_print.html",
+        {
+            "request": request,
+            "project": project,
+            "client": dict(client),
+            "policies": [dict(p) for p in policies],
+        },
+    )
+
+
 # ── Project management: rename / merge / delete ──────────────────────────────
 
 
