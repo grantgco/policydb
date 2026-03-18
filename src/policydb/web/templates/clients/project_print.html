@@ -3,42 +3,66 @@
 <head>
   <meta charset="UTF-8">
   <title>{{ project.name }} — {{ client.name }}</title>
-  <link rel="stylesheet" href="https://uicdn.toast.com/editor/latest/toastui-editor.min.css">
-  <script src="https://uicdn.toast.com/editor/latest/toastui-editor-all.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked@15.0.0/marked.min.js"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #1f2937; line-height: 1.6; padding: 40px; max-width: 800px; margin: 0 auto; }
-    h1 { font-size: 24px; font-weight: 700; margin-bottom: 2px; }
-    h2 { font-size: 14px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; margin: 24px 0 8px; border-bottom: 1px solid #e5e7eb; padding-bottom: 4px; }
-    .subtitle { font-size: 14px; color: #6b7280; margin-bottom: 4px; }
-    .meta { font-size: 12px; color: #9ca3af; margin-bottom: 24px; }
-    .notes-body { font-size: 14px; line-height: 1.8; white-space: pre-wrap; word-break: break-word; }
-    .notes-body h1, .notes-body h2, .notes-body h3 { margin-top: 16px; margin-bottom: 8px; }
-    .notes-body ul, .notes-body ol { padding-left: 24px; margin: 8px 0; }
-    .notes-body li { margin: 4px 0; }
-    .notes-body strong { font-weight: 600; }
-    .notes-body code { background: #f3f4f6; padding: 1px 4px; border-radius: 3px; font-size: 13px; }
-    table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }
-    th { text-align: left; font-weight: 600; color: #6b7280; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; padding: 6px 8px; border-bottom: 2px solid #e5e7eb; }
-    td { padding: 6px 8px; border-bottom: 1px solid #f3f4f6; }
-    .text-right { text-align: right; }
-    .address { font-size: 13px; color: #374151; margin-top: 8px; }
-    .footer { margin-top: 32px; padding-top: 12px; border-top: 1px solid #e5e7eb; font-size: 11px; color: #9ca3af; }
-    @media print {
-      body { padding: 20px; }
-      .no-print { display: none !important; }
-    }
-    .print-btn { background: #003865; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 13px; margin-bottom: 24px; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #1f2937; line-height: 1.6; padding: 48px 56px; max-width: 850px; margin: 0 auto; font-size: 14px; }
+    h1 { font-size: 22px; font-weight: 700; color: #111827; margin-bottom: 2px; }
+    .doc-subtitle { font-size: 14px; color: #6b7280; margin-bottom: 2px; }
+    .doc-meta { font-size: 11px; color: #9ca3af; margin-bottom: 28px; padding-bottom: 12px; border-bottom: 1px solid #e5e7eb; }
+    .section-heading { font-size: 12px; font-weight: 700; color: #6b7280; text-transform: uppercase; letter-spacing: 0.06em; margin: 28px 0 10px; }
+
+    /* Rendered markdown content */
+    .md-content h1 { font-size: 20px; font-weight: 700; margin: 20px 0 8px; color: #111827; }
+    .md-content h2 { font-size: 17px; font-weight: 600; margin: 18px 0 6px; color: #1f2937; border-bottom: none; text-transform: none; letter-spacing: normal; }
+    .md-content h3 { font-size: 15px; font-weight: 600; margin: 14px 0 4px; color: #374151; }
+    .md-content p { margin: 6px 0; }
+    .md-content ul, .md-content ol { padding-left: 24px; margin: 6px 0; }
+    .md-content li { margin: 3px 0; }
+    .md-content strong { font-weight: 600; }
+    .md-content em { font-style: italic; }
+    .md-content code { background: #f3f4f6; padding: 1px 5px; border-radius: 3px; font-size: 13px; font-family: "SF Mono", Menlo, monospace; }
+    .md-content pre { background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 6px; padding: 12px 16px; margin: 10px 0; overflow-x: auto; }
+    .md-content pre code { background: none; padding: 0; font-size: 12px; }
+    .md-content blockquote { border-left: 3px solid #d1d5db; padding-left: 14px; margin: 10px 0; color: #6b7280; }
+    .md-content table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 13px; }
+    .md-content th { text-align: left; font-weight: 600; padding: 6px 10px; border-bottom: 2px solid #e5e7eb; font-size: 12px; color: #6b7280; }
+    .md-content td { padding: 5px 10px; border-bottom: 1px solid #f3f4f6; }
+    .md-content hr { border: none; border-top: 1px solid #e5e7eb; margin: 16px 0; }
+    .md-content a { color: #003865; }
+
+    /* Policy table */
+    .policy-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
+    .policy-table th { text-align: left; font-weight: 600; color: #6b7280; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; padding: 6px 8px; border-bottom: 2px solid #d1d5db; }
+    .policy-table td { padding: 5px 8px; border-bottom: 1px solid #f3f4f6; }
+    .policy-table .text-right { text-align: right; }
+    .policy-table .total-row { font-weight: 600; border-top: 2px solid #d1d5db; }
+
+    .footer { margin-top: 36px; padding-top: 10px; border-top: 1px solid #e5e7eb; font-size: 10px; color: #b0b7c0; }
+
+    .print-bar { margin-bottom: 24px; display: flex; gap: 8px; }
+    .print-btn { background: #003865; color: white; border: none; padding: 8px 18px; border-radius: 6px; cursor: pointer; font-size: 13px; }
     .print-btn:hover { background: #0055a5; }
+    .back-link { font-size: 13px; color: #6b7280; text-decoration: none; padding: 8px 0; display: inline-flex; align-items: center; }
+    .back-link:hover { color: #003865; }
+
+    @media print {
+      body { padding: 24px 32px; }
+      .no-print { display: none !important; }
+      .md-content { font-size: 13px; }
+    }
   </style>
 </head>
 <body>
 
-<button class="print-btn no-print" onclick="window.print()">Print / Save as PDF</button>
+<div class="print-bar no-print">
+  <button class="print-btn" onclick="window.print()">Print / Save as PDF</button>
+  <a href="/clients/{{ client.id }}/projects/{{ project.id }}" class="back-link">← Back to project</a>
+</div>
 
 <h1>{{ project.name }}</h1>
-<p class="subtitle">{{ client.name }}{% if client.cn_number %} · {{ client.cn_number }}{% endif %}</p>
-<p class="meta">
+<p class="doc-subtitle">{{ client.name }}{% if client.cn_number %} · {{ client.cn_number }}{% endif %}</p>
+<p class="doc-meta">
   {% if project.exposure_address or project.exposure_city %}
   {{ [project.exposure_address, project.exposure_city, project.exposure_state, project.exposure_zip] | select | join(', ') }} ·
   {% endif %}
@@ -46,13 +70,13 @@
 </p>
 
 {% if project.notes %}
-<h2>Project Notes</h2>
-<div class="notes-body" id="notes-content">{{ project.notes }}</div>
+<p class="section-heading">Project Notes</p>
+<div class="md-content" id="notes-content">{{ project.notes }}</div>
 {% endif %}
 
 {% if policies %}
-<h2>Policies in This Project</h2>
-<table>
+<p class="section-heading">Policies in This Project</p>
+<table class="policy-table">
   <thead>
     <tr>
       <th>Line of Business</th>
@@ -76,7 +100,7 @@
       <td>{{ p.renewal_status or '—' }}</td>
     </tr>
     {% endfor %}
-    <tr style="font-weight:600;border-top:2px solid #e5e7eb">
+    <tr class="total-row">
       <td>Total</td>
       <td></td>
       <td class="text-right">${{ '{:,.0f}'.format(policies | sum(attribute='premium')) }}</td>
@@ -92,10 +116,8 @@
 
 <script>
 var el = document.getElementById('notes-content');
-if (el && typeof toastui !== 'undefined') {
-  var md = el.textContent || '';
-  el.textContent = '';
-  toastui.Editor.factory({ el: el, viewer: true, initialValue: md });
+if (el && typeof marked !== 'undefined') {
+  el.innerHTML = marked.parse(el.textContent || '');
 }
 </script>
 
