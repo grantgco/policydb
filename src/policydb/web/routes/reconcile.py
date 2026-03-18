@@ -357,34 +357,53 @@ def reconcile_confirm_match(
 
 
 @router.post("/fill/{policy_uid}", response_class=HTMLResponse)
-def reconcile_fill(
+async def reconcile_fill(
     request: Request,
     policy_uid: str,
-    premium: str = Form(""),
-    limit_amount: str = Form(""),
-    deductible: str = Form(""),
-    row_uid: str = Form(""),
     conn=Depends(get_db),
 ):
-    """HTMX: fill empty currency fields on a matched policy from imported values."""
+    """HTMX: fill empty fields on a matched policy from imported values."""
     from policydb.importer import _parse_currency
+    form = await request.form()
+
+    _CURRENCY = {"premium", "limit_amount", "deductible"}
+    _TEXT = {"carrier", "policy_number"}
+    _DATE = {"effective_date", "expiration_date"}
+    _ALLOWED = _CURRENCY | _TEXT | _DATE
+
     updates = []
     params = []
-    for field, val in [("premium", premium), ("limit_amount", limit_amount), ("deductible", deductible)]:
-        parsed = _parse_currency(val)
-        if parsed and parsed > 0:
+    filled_names = []
+    for field in _ALLOWED:
+        val = form.get(field, "").strip()
+        if not val:
+            continue
+        if field in _CURRENCY:
+            parsed = _parse_currency(val)
+            if parsed and parsed > 0:
+                updates.append(f"{field} = ?")
+                params.append(parsed)
+                filled_names.append(field.replace("_", " ").title())
+        elif field in _DATE:
             updates.append(f"{field} = ?")
-            params.append(parsed)
-    if updates and params:
+            params.append(val)
+            filled_names.append(field.replace("_", " ").title())
+        elif field in _TEXT:
+            updates.append(f"{field} = ?")
+            params.append(val)
+            filled_names.append(field.replace("_", " ").title())
+
+    if updates:
         params.append(policy_uid.upper())
         conn.execute(
             f"UPDATE policies SET {', '.join(updates)} WHERE policy_uid = ?",
             params,
         )
         conn.commit()
-    filled = ", ".join(f.replace("_", " ").title() for f in ["premium", "limit_amount", "deductible"] if Form(""))
+
+    label = ", ".join(filled_names) if filled_names else "No fields"
     return HTMLResponse(
-        f'<span class="text-xs text-green-600 font-medium">Updated {policy_uid.upper()}</span>'
+        f'<span class="text-xs text-green-600 font-medium">Updated {label}</span>'
     )
 
 
