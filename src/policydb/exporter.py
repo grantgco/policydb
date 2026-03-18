@@ -1023,7 +1023,8 @@ def export_full_xlsx(conn: sqlite3.Connection, client_id: int, client_name: str)
                   exposure_basis, exposure_amount, exposure_unit,
                   exposure_address, exposure_city, exposure_state, exposure_zip,
                   notes, account_exec, urgency, days_to_renewal,
-                  first_named_insured, access_point
+                  first_named_insured, access_point,
+                  is_program, program_carriers, program_carrier_count
            FROM v_policy_status WHERE client_id = ?
            ORDER BY project_name, policy_type, layer_position""",
         (client_id,),
