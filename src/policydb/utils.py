@@ -108,11 +108,15 @@ def clean_email(raw: str) -> str:
     if s.lower().startswith("mailto:"):
         s = s[7:]
     # Extract email from angle brackets: "Name <email>" or "<email>"
-    match = re.search(r'<([^>]+)>', s)
+    match = re.search(r'<([^>]+@[^>]+)>', s)
     if match:
         s = match.group(1)
+    # Try to extract a bare email address from surrounding text like "(e) user@domain.com"
+    email_match = re.search(r'[\w.+-]+@[\w.-]+\.\w+', s)
+    if email_match:
+        return email_match.group(0).lower()
     # Strip surrounding quotes, semicolons, commas, whitespace
-    s = s.strip(' \t\n\r"\';,<>')
+    s = s.strip(' \t\n\r"\';,<>()')
     # Final sanity: only return if it looks like an email
     if "@" in s and "." in s.split("@")[-1]:
         return s.lower()
@@ -137,9 +141,15 @@ def format_phone(raw: str, default_region: str = "US") -> str:
         import phonenumbers
         parsed = phonenumbers.parse(raw.strip(), default_region)
         if phonenumbers.is_valid_number(parsed):
-            return phonenumbers.format_number(
-                parsed, phonenumbers.PhoneNumberFormat.NATIONAL
-            )
+            # Use NATIONAL for domestic (US/CA), INTERNATIONAL for foreign numbers
+            if parsed.country_code in (1,):  # NANP (US, CA, etc.)
+                return phonenumbers.format_number(
+                    parsed, phonenumbers.PhoneNumberFormat.NATIONAL
+                )
+            else:
+                return phonenumbers.format_number(
+                    parsed, phonenumbers.PhoneNumberFormat.INTERNATIONAL
+                )
     except Exception:
         pass
     return raw.strip()
