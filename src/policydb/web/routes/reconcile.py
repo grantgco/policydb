@@ -55,7 +55,7 @@ def _load_db_policies(conn, client_id: int, scope: str) -> list[dict]:
 
     where = " AND ".join(conditions)
     rows = conn.execute(
-        f"""SELECT p.policy_uid, c.name AS client_name, p.policy_type, p.carrier,
+        f"""SELECT p.id, p.policy_uid, c.name AS client_name, p.policy_type, p.carrier,
                    p.policy_number, p.effective_date, p.expiration_date,
                    p.premium, p.limit_amount, p.deductible, p.client_id,
                    p.first_named_insured,
@@ -175,6 +175,21 @@ async def reconcile_run(
         return templates.TemplateResponse("reconcile/index.html", ctx)
 
     db_rows = _load_db_policies(conn, client_id, scope)
+
+    # Attach program carrier rows for structured matching
+    program_ids = [r["id"] for r in db_rows if r.get("is_program")]
+    _carrier_map = {}
+    if program_ids:
+        _pc_rows = conn.execute(
+            f"SELECT * FROM program_carriers WHERE program_id IN ({','.join('?' * len(program_ids))})",
+            program_ids,
+        ).fetchall()
+        for _pcr in _pc_rows:
+            _carrier_map.setdefault(_pcr["program_id"], []).append(dict(_pcr))
+    for r in db_rows:
+        if r.get("is_program"):
+            r["_program_carrier_rows"] = _carrier_map.get(r["id"], [])
+
     results = reconcile(ext_rows, db_rows)
 
     missing_rows = [r for r in results if r.status == "MISSING"]
@@ -197,7 +212,7 @@ async def reconcile_run(
     ctx["summary"] = summarize(results)
     ctx["pairs"] = _find_likely_pairs(missing_rows, extra_rows)
     ctx["download_token"] = download_token
-    ctx["program_summary"] = program_reconcile_summary(results)
+    ctx["program_summary"] = program_reconcile_summary(results, carrier_map=_carrier_map)
     return templates.TemplateResponse("reconcile/index.html", ctx)
 
 
@@ -631,15 +646,37 @@ async def batch_create_program(
     conn.execute(
         """INSERT INTO policies
            (policy_uid, client_id, policy_type, carrier, effective_date, expiration_date,
-            premium, limit_amount, account_exec,
-            is_program, program_carriers, program_carrier_count)
-           VALUES (?,?,?,?,?,?,?,?,?,1,?,?)""",
+            premium, limit_amount, account_exec, is_program)
+           VALUES (?,?,?,?,?,?,?,?,?,1)""",
         (uid, int(client_id_str), policy_type,
          carriers[0] if carriers else None,
          eff_date or None, exp_date or None,
          total_premium, total_limit if total_limit else None,
-         account_exec, carrier_list, len(carriers)),
+         account_exec),
     )
+    policy_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    # Insert carrier rows from selected import data
+    for sort_idx, idx in enumerate(selected_indices):
+        if idx < 0 or idx >= len(missing_rows_list):
+            continue
+        ext = missing_rows_list[idx]
+        c = (ext.get("carrier") or "").strip()
+        pn = (ext.get("policy_number") or "").strip()
+        try:
+            prem = float(ext.get("premium") or 0)
+        except (TypeError, ValueError):
+            prem = 0
+        try:
+            lim = float(ext.get("limit_amount") or 0)
+        except (TypeError, ValueError):
+            lim = 0
+        conn.execute(
+            """INSERT INTO program_carriers (program_id, carrier, policy_number, premium, limit_amount, sort_order)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (policy_id, c, pn, prem, lim, sort_idx),
+        )
+
     conn.commit()
 
     return HTMLResponse(
