@@ -651,6 +651,10 @@ def _fuzzy_match(ext_row: dict, candidates: list[dict]) -> tuple[dict | None, fl
             carrier_score = fuzz.WRatio(ext_carrier, db.get("carrier", ""))
             if carrier_score >= 70:
                 combined += 10
+            # Program carrier list: if ext carrier appears in program_carriers, boost
+            elif db.get("is_program") and db.get("program_carriers"):
+                if ext_carrier.strip().lower() in db["program_carriers"].lower():
+                    combined += 15  # carrier found in program carrier list
 
         # Expiration date — primary date signal (boosted)
         db_exp = db.get("expiration_date", "")
@@ -734,6 +738,10 @@ def find_candidates(ext_row: dict, db_rows: list[dict], limit: int = 8) -> list[
 
         combined = (client_score + type_score) / 2
         combined += 10 if carrier_score >= 70 else 0
+        # Program carrier list boost for suggestions
+        if ext_carrier and not (carrier_score >= 70) and db.get("is_program") and db.get("program_carriers"):
+            if ext_carrier.strip().lower() in db["program_carriers"].lower():
+                combined += 15
 
         # Expiration date within 60 days — bonus scoring, not a hard filter for suggestions
         db_exp = db.get("expiration_date", "")
