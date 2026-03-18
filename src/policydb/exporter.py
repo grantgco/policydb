@@ -923,7 +923,7 @@ _CURRENCY_COLS = {
 }
 
 
-def _write_sheet(wb: Workbook, title: str, rows: list) -> None:
+def _write_sheet(wb: Workbook, title: str, rows: list, *, col_widths: dict[str, int] | None = None) -> None:
     ws = wb.create_sheet(title)
     if not rows:
         ws.append(["No data"])
@@ -934,25 +934,32 @@ def _write_sheet(wb: Workbook, title: str, rows: list) -> None:
     for cell in ws[1]:
         cell.font = _HEADER_FONT
         cell.fill = _HEADER_FILL
-        cell.alignment = Alignment(horizontal="center")
+        cell.alignment = Alignment(horizontal="center", wrap_text=True)
 
     for row in rows:
         ws.append([row[k] for k in headers])
 
-    # Currency formatting
+    # Apply word-wrap and currency formatting to data cells
+    _wrap_align = Alignment(wrap_text=True)
     for col_idx, col_name in enumerate(headers, 1):
-        if col_name in _CURRENCY_COLS:
-            for row_idx in range(2, ws.max_row + 1):
-                ws.cell(row=row_idx, column=col_idx).number_format = _CURRENCY_FMT
+        is_currency = col_name in _CURRENCY_COLS
+        for row_idx in range(2, ws.max_row + 1):
+            cell = ws.cell(row=row_idx, column=col_idx)
+            cell.alignment = _wrap_align
+            if is_currency:
+                cell.number_format = _CURRENCY_FMT
 
-    # Auto-size columns
+    # Column widths — use explicit overrides when provided, otherwise auto-size
     for col_idx, col_name in enumerate(headers, 1):
         col_letter = get_column_letter(col_idx)
-        max_len = max(
-            len(str(col_name)),
-            *(len(str(row[col_name] or "")) for row in rows),
-        )
-        ws.column_dimensions[col_letter].width = min(max_len + 4, 45)
+        if col_widths and col_name in col_widths:
+            ws.column_dimensions[col_letter].width = col_widths[col_name]
+        else:
+            max_len = max(
+                len(str(col_name)),
+                *(len(str(row[col_name] or "")) for row in rows),
+            )
+            ws.column_dimensions[col_letter].width = min(max_len + 4, 45)
 
 
 def _wb_to_bytes(wb: Workbook) -> bytes:
@@ -1180,6 +1187,15 @@ def export_renewals_xlsx(conn: sqlite3.Connection, window_days: int = 180) -> by
 
 # ─── REQUEST BUNDLE EXPORT ────────────────────────────────────────────────────
 
+_RFI_COL_WIDTHS = {
+    "Item": 45,
+    "Coverage / Location": 35,
+    "Category": 18,
+    "Status": 14,
+    "Received Date": 16,
+    "Notes / Response": 45,
+}
+
 
 def export_request_bundle_xlsx(conn, bundle_id: int) -> bytes:
     """Export a request bundle as an XLSX spreadsheet for the client."""
@@ -1221,7 +1237,7 @@ def export_request_bundle_xlsx(conn, bundle_id: int) -> bytes:
     wb.remove(wb.active)
     client_name = dict(bundle)["client_name"] if bundle else "Client"
     title = dict(bundle)["title"] if bundle else "Request"
-    _write_sheet(wb, title[:31], rows)  # sheet name max 31 chars
+    _write_sheet(wb, title[:31], rows, col_widths=_RFI_COL_WIDTHS)  # sheet name max 31 chars
     return _wb_to_bytes(wb)
 
 
@@ -1313,7 +1329,7 @@ def export_client_requests_xlsx(conn, client_id: int) -> bytes:
         if rows:
             any_items = True
         sheet_name = (b.get("rfi_uid") or b["title"] or "Request")[:31]
-        _write_sheet(wb, sheet_name, rows)
+        _write_sheet(wb, sheet_name, rows, col_widths=_RFI_COL_WIDTHS)
 
     if not any_items and not bundles:
         _write_sheet(wb, "Requests", [{"Item": "No outstanding items"}])
