@@ -677,34 +677,49 @@ def meeting_recap(
     m = _meeting_dict(conn, meeting_id)
     if not m:
         return HTMLResponse("")
-    lines = [f"Meeting Recap: {m['title']}", f"Date: {m.get('meeting_date', '')} {m.get('meeting_time', '') or ''}", ""]
+    lines = [f"# Meeting Recap: {m['title']}", "", f"**Date:** {m.get('meeting_date', '')} {m.get('meeting_time', '') or ''}", ""]
     if m.get("attendees"):
-        lines.append("Attendees:")
+        lines.append("## Attendees")
         for a in m["attendees"]:
-            lines.append(f"  - {a['name']}{' (' + a['role'] + ')' if a.get('role') else ''}")
+            lines.append(f"- {a['name']}{' (' + a['role'] + ')' if a.get('role') else ''}")
         lines.append("")
     if m.get("linked_policies"):
-        lines.append("Policies Discussed:")
+        lines.append("## Policies Discussed")
         for p in m["linked_policies"]:
-            lines.append(f"  - {p.get('policy_type', p['policy_uid'])} · {p.get('carrier', '')}")
+            lines.append(f"- {p.get('policy_type', p['policy_uid'])} · {p.get('carrier', '')}")
         lines.append("")
     if m.get("notes"):
-        lines.append("Notes:")
+        lines.append("## Notes")
         lines.append(m["notes"])
         lines.append("")
     if m.get("action_items"):
-        lines.append("Action Items:")
+        lines.append("## Action Items")
         for ai in m["action_items"]:
-            status = "✓" if ai.get("completed") else "○"
+            check = "[x]" if ai.get("completed") else "[ ]"
             assignee = f" ({ai['assignee']})" if ai.get("assignee") else ""
             due = f" — due {ai['due_date']}" if ai.get("due_date") else ""
-            lines.append(f"  {status} {ai['description']}{assignee}{due}")
+            lines.append(f"- {check} {ai['description']}{assignee}{due}")
         lines.append("")
     recap = "\n".join(lines)
+    # Escape for safe HTML embedding
+    import html as _html
+    safe_recap = _html.escape(recap)
     return HTMLResponse(
-        f'<div class="bg-gray-50 rounded-lg p-4 text-xs text-gray-700 whitespace-pre-wrap font-mono" id="recap-text">{recap}</div>'
-        f'<button type="button" onclick="navigator.clipboard.writeText(document.getElementById(\'recap-text\').textContent).then(function(){{var b=event.target;b.textContent=\'Copied!\';setTimeout(function(){{b.textContent=\'Copy recap\'}},1500)}})"'
-        f' class="mt-2 text-xs bg-marsh text-white px-3 py-1.5 rounded hover:bg-marsh-light transition-colors">Copy recap</button>'
+        f'<div class="card p-4">'
+        f'<div id="recap-viewer" class="mb-3"></div>'
+        f'<textarea id="recap-raw" class="hidden">{safe_recap}</textarea>'
+        f'<button type="button" onclick="navigator.clipboard.writeText(document.getElementById(\'recap-raw\').value).then(function(){{var b=event.target;b.textContent=\'Copied!\';setTimeout(function(){{b.textContent=\'Copy markdown\'}},1500)}})"'
+        f' class="text-xs bg-marsh text-white px-3 py-1.5 rounded hover:bg-marsh-light transition-colors mr-2">Copy markdown</button>'
+        f'</div>'
+        f'<script>'
+        f'(function(){{'
+        f'var el=document.getElementById("recap-viewer");'
+        f'var raw=document.getElementById("recap-raw");'
+        f'if(el && raw && typeof toastui!=="undefined"){{'
+        f'toastui.Editor.factory({{el:el,viewer:true,initialValue:raw.value}});'
+        f'}}'
+        f'}})();'
+        f'</script>'
     )
 
 
