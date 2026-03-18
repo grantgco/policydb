@@ -97,15 +97,7 @@
         <input type="date" name="client_since" value="{{ client.client_since if client and client.client_since else '' }}" class="form-input w-full">
       </div>
 
-      <div>
-        <label class="field-label">Typical Renewal Month</label>
-        <select name="renewal_month" class="form-select w-full">
-          <option value="">— Not set —</option>
-          {% for m, label in [('1','January'),('2','February'),('3','March'),('4','April'),('5','May'),('6','June'),('7','July'),('8','August'),('9','September'),('10','October'),('11','November'),('12','December')] %}
-          <option value="{{ m }}" {% if client and client.renewal_month and client.renewal_month|string == m %}selected{% endif %}>{{ label }}</option>
-          {% endfor %}
-        </select>
-      </div>
+      {# Renewal Month is now auto-calculated from policy expiration dates #}
 
       <div>
         <label class="field-label">Preferred Contact Method</label>
