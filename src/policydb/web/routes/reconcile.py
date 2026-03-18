@@ -503,8 +503,6 @@ def reconcile_create(
     underwriter_name: str = Form(""),
     commission_rate: str = Form(""),
     is_program: str = Form("0"),
-    program_carriers: str = Form(""),
-    program_carrier_count: str = Form(""),
     conn=Depends(get_db),
 ):
     """HTMX: create a new policy from a MISSING reconcile row, return confirmation."""
@@ -514,13 +512,6 @@ def reconcile_create(
     uid = next_policy_uid(conn)
     account_exec = cfg.get("default_account_exec", "Grant")
     pgm = 1 if is_program == "1" else 0
-    pgm_carriers = program_carriers.strip() or None
-    pgm_count = None
-    if program_carrier_count.strip():
-        try: pgm_count = int(program_carrier_count)
-        except ValueError: pass
-    if pgm_carriers and not pgm_count:
-        pgm_count = len([c.strip() for c in pgm_carriers.split(",") if c.strip()])
 
     def _f(v):
         try: return float(v) if v else 0.0
@@ -532,8 +523,8 @@ def reconcile_create(
             effective_date, expiration_date, premium, limit_amount, deductible,
             description, project_name, underwriter_name,
             commission_rate, account_exec,
-            is_program, program_carriers, program_carrier_count)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            is_program)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (
             uid, client_id, policy_type, carrier, policy_number or None,
             effective_date, expiration_date, premium,
@@ -541,10 +532,21 @@ def reconcile_create(
             description or None, project_name or None,
             underwriter_name or None,
             _f(commission_rate), account_exec,
-            pgm, pgm_carriers, pgm_count,
+            pgm,
         ),
     )
     conn.commit()
+
+    # If this is a program, insert the carrier as the first program_carriers row
+    if pgm:
+        _pgm_row = conn.execute("SELECT id FROM policies WHERE policy_uid=?", (uid,)).fetchone()
+        if _pgm_row and carrier.strip():
+            conn.execute(
+                """INSERT INTO program_carriers (program_id, carrier, policy_number, premium, limit_amount, sort_order)
+                   VALUES (?, ?, ?, ?, ?, 0)""",
+                (_pgm_row["id"], carrier.strip(), policy_number or None, premium, _f(limit_amount)),
+            )
+            conn.commit()
 
     # Create structured contact records for placement colleague and underwriter
     _policy_row = conn.execute("SELECT id FROM policies WHERE policy_uid=?", (uid,)).fetchone()
@@ -1022,6 +1024,99 @@ async def reconcile_apply_selected(
         f'<td class="px-4 py-3"><a href="/policies/{policy_uid.upper()}/edit" class="text-xs text-marsh hover:underline">{policy_uid.upper()} →</a></td>'
         f'</tr>'
     )
+
+
+@router.post("/apply-carrier-field/{policy_uid}/{carrier_id}")
+async def apply_carrier_field(
+    request: Request,
+    policy_uid: str,
+    carrier_id: int,
+    conn=Depends(get_db),
+):
+    """Apply an imported value to a specific program carrier row."""
+    from fastapi.responses import JSONResponse
+    form = await request.form()
+    field = form.get("field", "")
+    value = form.get("value", "")
+
+    allowed = {"carrier", "policy_number", "premium", "limit_amount"}
+    if field not in allowed:
+        return JSONResponse({"ok": False, "error": "Invalid field"}, status_code=400)
+
+    program = conn.execute(
+        "SELECT id FROM policies WHERE policy_uid = ? AND is_program = 1",
+        (policy_uid.upper(),),
+    ).fetchone()
+    if not program:
+        return JSONResponse({"ok": False, "error": "Program not found"}, status_code=404)
+
+    if field in ("premium", "limit_amount"):
+        try:
+            value = float(str(value).replace("$", "").replace(",", "").strip() or "0")
+        except ValueError:
+            return JSONResponse({"ok": False, "error": "Invalid number"}, status_code=400)
+
+    conn.execute(f"UPDATE program_carriers SET {field} = ? WHERE id = ? AND program_id = ?",
+                 (value, carrier_id, program["id"]))
+
+    # Update parent totals
+    totals = conn.execute(
+        "SELECT COALESCE(SUM(premium), 0) AS tp, COALESCE(SUM(limit_amount), 0) AS tl FROM program_carriers WHERE program_id = ?",
+        (program["id"],),
+    ).fetchone()
+    conn.execute("UPDATE policies SET premium = ?, limit_amount = ? WHERE id = ?",
+                 (totals["tp"], totals["tl"], program["id"]))
+    conn.commit()
+    return JSONResponse({"ok": True})
+
+
+@router.post("/add-program-carrier/{policy_uid}")
+async def add_program_carrier_from_reconcile(
+    request: Request,
+    policy_uid: str,
+    conn=Depends(get_db),
+):
+    """Add a new carrier row to a program from reconcile diff."""
+    from fastapi.responses import JSONResponse
+    form = await request.form()
+    carrier = form.get("carrier", "").strip()
+    policy_number = form.get("policy_number", "").strip()
+    try:
+        premium = float(form.get("premium", "0").replace("$", "").replace(",", ""))
+    except (TypeError, ValueError):
+        premium = 0
+    try:
+        limit_amount = float(form.get("limit_amount", "0").replace("$", "").replace(",", ""))
+    except (TypeError, ValueError):
+        limit_amount = 0
+
+    program = conn.execute(
+        "SELECT id FROM policies WHERE policy_uid = ? AND is_program = 1",
+        (policy_uid.upper(),),
+    ).fetchone()
+    if not program:
+        return JSONResponse({"ok": False, "error": "Program not found"}, status_code=404)
+
+    max_order = conn.execute(
+        "SELECT COALESCE(MAX(sort_order), -1) FROM program_carriers WHERE program_id = ?",
+        (program["id"],),
+    ).fetchone()[0]
+
+    conn.execute(
+        """INSERT INTO program_carriers (program_id, carrier, policy_number, premium, limit_amount, sort_order)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (program["id"], carrier, policy_number or None, premium, limit_amount, max_order + 1),
+    )
+
+    # Update parent totals
+    totals = conn.execute(
+        "SELECT COALESCE(SUM(premium), 0) AS tp, COALESCE(SUM(limit_amount), 0) AS tl FROM program_carriers WHERE program_id = ?",
+        (program["id"],),
+    ).fetchone()
+    conn.execute("UPDATE policies SET premium = ?, limit_amount = ? WHERE id = ?",
+                 (totals["tp"], totals["tl"], program["id"]))
+    conn.commit()
+    return JSONResponse({"ok": True, "carrier": carrier})
 
 
 @router.post("/apply/{policy_uid}", response_class=HTMLResponse)
