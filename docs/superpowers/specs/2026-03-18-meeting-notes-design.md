@@ -19,7 +19,7 @@ Dedicated `client_meetings` table with structured fields. Toast UI markdown edit
 
 ## Data Model
 
-### New migration: `054_add_meetings.sql`
+### New migration: `055_add_meetings.sql`
 
 ```sql
 CREATE TABLE IF NOT EXISTS client_meetings (
@@ -138,13 +138,28 @@ When a meeting is created, also create a single `activity_log` entry:
 
 This keeps the unified activity timeline intact.
 
+### Flexible Time Tracking
+
+The `duration_hours` on the meeting record captures the scheduled meeting length. However, AEs also spend time on prep and debrief. The meeting detail page should allow logging additional time entries:
+
+- **Meeting time** — the scheduled duration (auto-populated from the meeting record)
+- **Prep time** — optional, logged as a separate activity: `activity_type="Meeting Prep"`, `subject="Prep: [meeting title]"`
+- **Debrief/follow-up time** — optional, logged as: `activity_type="Meeting Debrief"`, `subject="Debrief: [meeting title]"`
+
+On the meeting detail page, show a small "Log additional time" section with:
+- Prep hours input + "Log Prep" button
+- Debrief hours input + "Log Debrief" button
+- Total time display: meeting + prep + debrief
+
+Each creates a separate `activity_log` entry linked to the same client, keeping granular time tracking while showing the total effort for the meeting.
+
 ---
 
 ## Files
 
 | Action | File |
 |--------|------|
-| Create | `src/policydb/migrations/054_add_meetings.sql` |
+| Create | `src/policydb/migrations/055_add_meetings.sql` |
 | Create | `src/policydb/web/routes/meetings.py` |
 | Create | `src/policydb/web/templates/meetings/list.html` |
 | Create | `src/policydb/web/templates/meetings/detail.html` |
