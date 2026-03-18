@@ -1,46 +1,84 @@
-<p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Attendees</p>
+<p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Attendees
+  {% if meeting and meeting.attendees %}<span class="text-gray-400 font-normal">— {{ meeting.attendees | length }} participant{{ 's' if meeting.attendees | length != 1 }}</span>{% endif %}
+</p>
 
-<table class="w-full text-sm mb-3">
+<table class="w-full text-sm">
+  <colgroup>
+    <col style="width:18%"><col style="width:12%"><col style="width:14%"><col style="width:14%">
+    <col style="width:18%"><col style="width:12%"><col style="width:12%">
+  </colgroup>
   <thead>
-    <tr class="border-b border-gray-100 text-left text-xs text-gray-400">
-      <th class="px-3 py-1.5 font-medium" style="width:30%">Name</th>
-      <th class="px-3 py-1.5 font-medium" style="width:25%">Role / Title</th>
-      <th class="px-3 py-1.5 font-medium" style="width:15%">Type</th>
-      <th class="px-3 py-1.5 font-medium" style="width:25%">Contact</th>
-      <th class="px-3 py-1.5 font-medium" style="width:5%"></th>
+    <tr class="border-b border-gray-200 text-left text-[10px] text-gray-400 uppercase tracking-wide">
+      <th class="px-3 py-2 font-medium">Name</th>
+      <th class="px-3 py-2 font-medium">Title</th>
+      <th class="px-3 py-2 font-medium">Role</th>
+      <th class="px-3 py-2 font-medium">Type</th>
+      <th class="px-3 py-2 font-medium">Email</th>
+      <th class="px-3 py-2 font-medium">Phone</th>
+      <th class="px-3 py-2 font-medium">Mobile</th>
+      <th class="px-3 py-2"></th>
     </tr>
   </thead>
-  <tbody id="attendee-tbody">
+  <tbody class="divide-y divide-gray-50" id="attendee-tbody">
     {% if meeting and meeting.attendees %}
     {% for a in meeting.attendees %}
-    <tr class="border-b border-gray-50 hover:bg-gray-50 matrix-row" data-row-id="{{ a.id }}">
-      <td class="px-3 py-1.5 matrix-cell-editable text-xs text-gray-800" contenteditable
-          data-field="name" data-placeholder="Name">{{ a.name }}</td>
-      <td class="px-3 py-1.5 matrix-cell-editable text-xs text-gray-600" contenteditable
-          data-field="role" data-placeholder="Role">{{ a.role or '' }}</td>
-      <td class="px-3 py-1.5 text-xs">
-        <span class="{% if a.is_internal %}text-blue-600 bg-blue-50{% else %}text-indigo-600 bg-indigo-50{% endif %} px-1.5 py-0.5 rounded text-[10px]">
+    <tr data-row-id="{{ a.id }}" class="matrix-row group hover:bg-gray-50/60 align-top">
+      <td class="px-3 py-2.5">
+        <div contenteditable="true"
+             class="matrix-cell-editable outline-none font-medium text-gray-800 rounded px-1 -mx-1 text-sm"
+             data-field="name" data-placeholder="Name...">{{ a.name or '' }}</div>
+      </td>
+      <td class="px-3 py-2.5">
+        <div contenteditable="true"
+             class="matrix-cell-editable outline-none text-gray-600 text-xs rounded px-1 -mx-1"
+             data-field="role" data-placeholder="Title...">{{ a.role or '' }}</div>
+      </td>
+      <td class="px-3 py-2.5">
+        <span class="{% if a.is_internal %}text-blue-600 bg-blue-50{% else %}text-indigo-600 bg-indigo-50{% endif %} text-xs px-2 py-0.5 rounded">
           {% if a.is_internal %}Internal{% else %}Client{% endif %}
         </span>
       </td>
-      <td class="px-3 py-1.5 text-xs text-gray-400">
+      <td class="px-3 py-2.5 text-xs text-gray-400">
+        {% if a.is_internal %}Team{% else %}External{% endif %}
+      </td>
+      <td class="px-3 py-2.5">
         {% if a.contact_id %}
-        <span class="text-green-600" title="Linked to contact #{{ a.contact_id }}">&#10003; linked</span>
+        <div contenteditable="true"
+             class="matrix-cell-editable outline-none text-xs text-marsh rounded px-1 -mx-1"
+             data-field="email" data-placeholder="Email...">{{ a.email or '' }}</div>
         {% else %}
-        <span class="text-gray-300">—</span>
+        <span class="text-gray-300 text-xs">—</span>
         {% endif %}
       </td>
-      <td class="px-3 py-1.5 text-xs">
+      <td class="px-3 py-2.5 whitespace-nowrap">
+        {% if a.contact_id %}
+        <div contenteditable="true"
+             class="matrix-cell-editable outline-none text-gray-600 text-xs rounded px-1 -mx-1"
+             data-field="phone" data-placeholder="Phone...">{{ a.phone or '' }}</div>
+        {% else %}
+        <span class="text-gray-300 text-xs">—</span>
+        {% endif %}
+      </td>
+      <td class="px-3 py-2.5 whitespace-nowrap">
+        {% if a.contact_id %}
+        <div contenteditable="true"
+             class="matrix-cell-editable outline-none text-gray-400 text-xs rounded px-1 -mx-1"
+             data-field="mobile" data-placeholder="Cell...">{{ a.mobile or '' }}</div>
+        {% else %}
+        <span class="text-gray-300 text-xs">—</span>
+        {% endif %}
+      </td>
+      <td class="px-3 py-2.5 text-center">
         <button type="button"
           hx-post="/meetings/{{ meeting.id }}/attendees/{{ a.id }}/remove"
-          hx-target="#attendees-section"
-          hx-swap="innerHTML"
-          class="text-gray-300 hover:text-red-500">&times;</button>
+          hx-target="#attendees-section" hx-swap="innerHTML"
+          hx-confirm="Remove {{ a.name }}?"
+          class="text-xs text-gray-300 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity">✕</button>
       </td>
     </tr>
     {% endfor %}
     {% else %}
-    <tr id="attendee-empty"><td colspan="5" class="px-3 py-4 text-xs text-gray-400 text-center italic">No attendees added yet</td></tr>
+    <tr id="attendee-empty"><td colspan="8" class="px-4 py-6 text-center text-gray-400 text-xs">No attendees yet.</td></tr>
     {% endif %}
   </tbody>
 </table>
@@ -49,13 +87,14 @@
 (function() {
   var tbody = document.getElementById('attendee-tbody');
   if (!tbody) return;
-  function saveCell(rowId, field, value) {
+  function saveCell(rowId, field, value, cb) {
     fetch('/meetings/{{ meeting.id }}/attendees/' + rowId, {
       method: 'PATCH',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({field: field, value: value})
     }).then(function(r) { return r.json(); }).then(function(data) {
       if (data.ok && typeof showToast === 'function') showToast('Saved', true);
+      if (cb) cb(data);
     });
   }
   tbody.addEventListener('focusin', function(e) {
@@ -69,87 +108,90 @@
     if (newVal === (cell.dataset.original || '').trim()) return;
     var row = cell.closest('tr');
     var rowId = row.getAttribute('data-row-id');
-    saveCell(rowId, cell.dataset.field, newVal);
+    saveCell(rowId, cell.dataset.field, newVal, function(data) {
+      if (data.ok && data.formatted && data.formatted !== newVal) {
+        cell.innerText = data.formatted;
+        if (typeof flashCell === 'function') flashCell(cell);
+      }
+    });
   });
   tbody.addEventListener('keydown', function(e) {
     var cell = e.target.closest('.matrix-cell-editable');
     if (!cell) return;
     if (e.key === 'Enter') { e.preventDefault(); cell.blur(); }
+    else if (e.key === 'Tab') { e.preventDefault(); cell.blur(); }
     else if (e.key === 'Escape') { cell.innerText = cell.dataset.original || ''; cell.blur(); }
+  });
+  tbody.addEventListener('paste', function(e) {
+    var cell = e.target.closest('.matrix-cell-editable');
+    if (cell) { e.preventDefault(); document.execCommand('insertText', false, (e.clipboardData || window.clipboardData).getData('text/plain')); }
   });
 })();
 </script>
 
 {# ── Add from existing contacts ── #}
 {% if contacts is defined and contacts %}
-<div class="mb-2">
-  <p class="text-[10px] text-gray-400 mb-1">Add from contacts:</p>
-  <div class="flex gap-2 items-end">
-    <select id="mtg-contact-picker-{{ meeting.id }}" class="flex-1 border border-gray-300 rounded px-2 py-1 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-marsh">
-      <option value="">— Select contact —</option>
-      {% set existing_names = meeting.attendees | map(attribute='name') | map('lower') | list if meeting and meeting.attendees else [] %}
-      {% for c in contacts %}
-      {% if c.name | lower not in existing_names %}
-      <option value="{{ c.id }}" data-name="{{ c.name }}" data-role="{{ c.role or c.title or '' }}" data-type="{{ c.contact_type }}">{{ c.name }}{% if c.role or c.title %} ({{ c.role or c.title }}){% endif %} — {{ c.contact_type }}</option>
-      {% endif %}
-      {% endfor %}
-    </select>
-    <button type="button" onclick="addExistingAttendee(this)" class="text-xs bg-marsh text-white px-3 py-1 rounded hover:bg-marsh-light transition-colors">+ Add</button>
-  </div>
+<div class="mt-3 flex gap-2 items-end">
+  <select id="mtg-contact-picker-{{ meeting.id }}" class="flex-1 border border-gray-300 rounded px-2 py-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-marsh">
+    <option value="">Search & assign existing contact</option>
+    {% set existing_names = meeting.attendees | map(attribute='name') | map('lower') | list if meeting and meeting.attendees else [] %}
+    {% for c in contacts %}
+    {% if c.name | lower not in existing_names %}
+    <option value="{{ c.id }}" data-name="{{ c.name }}" data-role="{{ c.role or c.title or '' }}" data-type="{{ c.contact_type }}">{{ c.name }}{% if c.role or c.title %} ({{ c.role or c.title }}){% endif %} — {{ c.contact_type }}</option>
+    {% endif %}
+    {% endfor %}
+  </select>
+  <button type="button" onclick="addExistingAttendee(this)" class="text-xs bg-marsh text-white px-3 py-1.5 rounded hover:bg-marsh-light transition-colors">+ Add</button>
 </div>
 <script>
 function addExistingAttendee(btn) {
   var sel = document.getElementById('mtg-contact-picker-{{ meeting.id }}');
   if (!sel || !sel.value) return;
   var opt = sel.options[sel.selectedIndex];
-  var fd = new FormData();
-  fd.set('name', opt.dataset.name);
-  fd.set('role', opt.dataset.role);
-  fd.set('contact_id', sel.value);
-  fd.set('is_internal', opt.dataset.type === 'internal' ? '1' : '0');
-  htmx.ajax('POST', '/meetings/{{ meeting.id }}/attendees/add', {target: '#attendees-section', swap: 'innerHTML', values: Object.fromEntries(fd)});
+  htmx.ajax('POST', '/meetings/{{ meeting.id }}/attendees/add', {
+    target: '#attendees-section', swap: 'innerHTML',
+    values: {name: opt.dataset.name, role: opt.dataset.role, contact_id: sel.value,
+             is_internal: opt.dataset.type === 'internal' ? '1' : '0'}
+  });
 }
 </script>
 {% endif %}
 
 {# ── Add new contact ── #}
 <details class="mt-2">
-  <summary class="text-xs text-marsh cursor-pointer hover:underline select-none">+ New contact (not in system)</summary>
+  <summary class="text-xs text-marsh cursor-pointer hover:underline select-none">+ Add new contact (not in system)</summary>
   <form hx-post="/meetings/{{ meeting.id }}/attendees/add"
         hx-target="#attendees-section" hx-swap="innerHTML"
         class="mt-2 p-3 bg-gray-50 rounded-lg space-y-2">
     <input type="hidden" name="create_contact" value="1">
-    <div class="grid grid-cols-2 gap-2">
+    <div class="grid grid-cols-3 gap-2">
       <div>
         <label class="text-[10px] text-gray-500 block">Name <span class="text-red-400">*</span></label>
         <input type="text" name="name" required placeholder="Jane Smith" class="w-full border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-marsh">
       </div>
       <div>
         <label class="text-[10px] text-gray-500 block">Title</label>
-        <input type="text" name="title" placeholder="CFO, Risk Manager..." class="w-full border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-marsh">
+        <input type="text" name="title" placeholder="CFO" class="w-full border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-marsh">
+      </div>
+      <div>
+        <label class="text-[10px] text-gray-500 block">Role</label>
+        <input type="text" name="role" placeholder="Underwriter" class="w-full border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-marsh">
       </div>
       <div>
         <label class="text-[10px] text-gray-500 block">Email</label>
-        <input type="email" name="email" placeholder="jane@company.com" class="w-full border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-marsh">
+        <input type="email" name="email" placeholder="jane@co.com" class="w-full border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-marsh">
       </div>
       <div>
         <label class="text-[10px] text-gray-500 block">Phone</label>
         <input type="tel" name="phone" placeholder="(555) 123-4567" class="w-full border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-marsh">
       </div>
-      <div>
-        <label class="text-[10px] text-gray-500 block">Role</label>
-        <input type="text" name="role" placeholder="Broker, Underwriter..." class="w-full border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-marsh">
-      </div>
       <div class="flex items-end">
         <label class="flex items-center gap-1 text-xs text-gray-500">
           <input type="checkbox" name="is_internal" value="1" class="rounded border-gray-300">
-          Internal team
+          Internal
         </label>
       </div>
     </div>
-    <div class="flex gap-2">
-      <button type="submit" class="text-xs bg-marsh text-white px-3 py-1.5 rounded hover:bg-marsh-light transition-colors">Create & Add</button>
-      <span class="text-[10px] text-gray-400 self-center">Creates contact record + assigns to client</span>
-    </div>
+    <button type="submit" class="text-xs bg-marsh text-white px-3 py-1.5 rounded hover:bg-marsh-light transition-colors">Create & Add</button>
   </form>
 </details>

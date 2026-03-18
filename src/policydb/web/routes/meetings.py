@@ -19,7 +19,11 @@ def _meeting_dict(conn, meeting_id: int) -> dict | None:
         return None
     m = dict(row)
     m["attendees"] = [dict(a) for a in conn.execute(
-        "SELECT * FROM meeting_attendees WHERE meeting_id = ? ORDER BY is_internal, name",
+        """SELECT ma.*, co.email, co.phone, co.mobile, co.organization
+           FROM meeting_attendees ma
+           LEFT JOIN contacts co ON ma.contact_id = co.id
+           WHERE ma.meeting_id = ?
+           ORDER BY ma.is_internal, ma.name""",
         (meeting_id,),
     ).fetchall()]
     m["action_items"] = [dict(ai) for ai in conn.execute(
@@ -253,24 +257,43 @@ async def meeting_patch_attendee(
     conn=Depends(get_db),
 ):
     """PATCH a single field on an attendee (contenteditable cell save)."""
+    from policydb.utils import format_phone, clean_email
     import json as _json
     body = _json.loads(await request.body())
     field = body.get("field", "")
     value = body.get("value", "").strip()
-    allowed = {"name", "role"}
-    if field not in allowed:
+
+    # Fields on meeting_attendees table
+    _attendee_fields = {"name", "role"}
+    # Fields on the linked contacts table
+    _contact_fields = {"email", "phone", "mobile"}
+
+    if field not in _attendee_fields and field not in _contact_fields:
         return JSONResponse({"ok": False, "error": "Invalid field"}, status_code=400)
-    conn.execute(
-        f"UPDATE meeting_attendees SET {field} = ? WHERE id = ? AND meeting_id = ?",
-        (value or None, attendee_id, meeting_id),
-    )
-    # If name changed, also update the linked contact record
-    if field == "name" and value:
-        att = conn.execute("SELECT contact_id FROM meeting_attendees WHERE id = ?", (attendee_id,)).fetchone()
-        if att and att["contact_id"]:
+
+    att = conn.execute("SELECT contact_id FROM meeting_attendees WHERE id = ?", (attendee_id,)).fetchone()
+    formatted = value
+
+    if field in _attendee_fields:
+        conn.execute(
+            f"UPDATE meeting_attendees SET {field} = ? WHERE id = ? AND meeting_id = ?",
+            (value or None, attendee_id, meeting_id),
+        )
+        # Propagate name to linked contact
+        if field == "name" and value and att and att["contact_id"]:
             conn.execute("UPDATE contacts SET name = ? WHERE id = ?", (value, att["contact_id"]))
+    elif field in _contact_fields and att and att["contact_id"]:
+        if field == "phone" or field == "mobile":
+            formatted = format_phone(value) or value
+        elif field == "email":
+            formatted = clean_email(value) or value
+        conn.execute(
+            f"UPDATE contacts SET {field} = ? WHERE id = ?",
+            (formatted or None, att["contact_id"]),
+        )
+
     conn.commit()
-    return JSONResponse({"ok": True, "formatted": value})
+    return JSONResponse({"ok": True, "formatted": formatted})
 
 
 @router.post("/meetings/{meeting_id}/attendees/{attendee_id}/remove")
