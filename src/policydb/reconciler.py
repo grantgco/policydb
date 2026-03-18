@@ -271,6 +271,11 @@ _LEGAL_SUFFIX_RE = re.compile(
 )
 
 
+_PLACEHOLDER_POLICY_NUMBERS = {
+    "999", "TBD", "TBA", "PENDING", "NA", "N/A", "NONE", "XXX", "000", "123",
+    "NEW", "RENEWAL", "RENEW", "QUOTE", "QUOTED", "APPLIED",
+}
+
 def _normalize_policy_number(pn: str) -> str:
     """Normalize a policy number for comparison — strip formatting characters."""
     if not pn:
@@ -279,6 +284,9 @@ def _normalize_policy_number(pn: str) -> str:
     normalized = re.sub(r'[\s\-/.]', '', pn.strip().upper())
     # Strip leading zeros
     normalized = normalized.lstrip('0') or '0'
+    # Skip placeholders — these cause false matches across unrelated policies
+    if normalized in _PLACEHOLDER_POLICY_NUMBERS:
+        return ""
     return normalized
 
 

@@ -487,6 +487,9 @@ def reconcile_create(
     placement_colleague: str = Form(""),
     underwriter_name: str = Form(""),
     commission_rate: str = Form(""),
+    is_program: str = Form("0"),
+    program_carriers: str = Form(""),
+    program_carrier_count: str = Form(""),
     conn=Depends(get_db),
 ):
     """HTMX: create a new policy from a MISSING reconcile row, return confirmation."""
@@ -495,6 +498,14 @@ def reconcile_create(
 
     uid = next_policy_uid(conn)
     account_exec = cfg.get("default_account_exec", "Grant")
+    pgm = 1 if is_program == "1" else 0
+    pgm_carriers = program_carriers.strip() or None
+    pgm_count = None
+    if program_carrier_count.strip():
+        try: pgm_count = int(program_carrier_count)
+        except ValueError: pass
+    if pgm_carriers and not pgm_count:
+        pgm_count = len([c.strip() for c in pgm_carriers.split(",") if c.strip()])
 
     def _f(v):
         try: return float(v) if v else 0.0
@@ -505,8 +516,9 @@ def reconcile_create(
            (policy_uid, client_id, policy_type, carrier, policy_number,
             effective_date, expiration_date, premium, limit_amount, deductible,
             description, project_name, underwriter_name,
-            commission_rate, account_exec)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            commission_rate, account_exec,
+            is_program, program_carriers, program_carrier_count)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (
             uid, client_id, policy_type, carrier, policy_number or None,
             effective_date, expiration_date, premium,
@@ -514,6 +526,7 @@ def reconcile_create(
             description or None, project_name or None,
             underwriter_name or None,
             _f(commission_rate), account_exec,
+            pgm, pgm_carriers, pgm_count,
         ),
     )
     conn.commit()
@@ -548,6 +561,94 @@ def reconcile_create(
         f'<td class="px-4 py-2 text-right tabular-nums text-gray-700">${premium:,.0f}</td>'
         f'<td class="px-4 py-2"><a href="/policies/{uid}/edit" class="text-xs text-marsh hover:underline">{uid} →</a></td>'
         f'</tr>'
+    )
+
+
+@router.post("/batch-create-program", response_class=HTMLResponse)
+async def batch_create_program(
+    request: Request,
+    conn=Depends(get_db),
+):
+    """Create a single program record from multiple selected MISSING rows."""
+    from policydb.db import next_policy_uid
+    from policydb import config as _cfg
+    import json as _json
+
+    form = await request.form()
+    selected_json = form.get("selected_rows", "[]")
+    try:
+        selected_indices = sorted(set(_json.loads(selected_json)))
+    except Exception:
+        return HTMLResponse('<p class="text-xs text-red-500">Invalid selection.</p>')
+
+    if not selected_indices:
+        return HTMLResponse('<p class="text-xs text-amber-600">No rows selected.</p>')
+
+    missing_entry = _MISSING_CACHE.get(_LAST_MISSING_TOKEN)
+    missing_rows_list = missing_entry[0] if missing_entry else []
+
+    # Gather data from selected rows
+    carriers = []
+    total_premium = 0.0
+    total_limit = 0.0
+    eff_date = None
+    exp_date = None
+    policy_type = None
+    client_id_str = form.get("program_client_id", "")
+
+    for idx in selected_indices:
+        if idx < 0 or idx >= len(missing_rows_list):
+            continue
+        ext = missing_rows_list[idx]
+        c = (ext.get("carrier") or "").strip()
+        if c and c not in carriers:
+            carriers.append(c)
+        try:
+            total_premium += float(ext.get("premium") or 0)
+        except (TypeError, ValueError):
+            pass
+        try:
+            total_limit += float(ext.get("limit_amount") or 0)
+        except (TypeError, ValueError):
+            pass
+        if not eff_date:
+            eff_date = ext.get("effective_date")
+        if not exp_date:
+            exp_date = ext.get("expiration_date")
+        if not policy_type:
+            policy_type = ext.get("policy_type", "Program")
+
+    if not client_id_str:
+        return HTMLResponse('<p class="text-xs text-red-500">No client selected.</p>')
+
+    # Use form override for policy_type if provided
+    policy_type = form.get("program_policy_type", policy_type) or "Program"
+
+    uid = next_policy_uid(conn)
+    account_exec = _cfg.get("default_account_exec", "Grant")
+    carrier_list = ", ".join(carriers)
+
+    conn.execute(
+        """INSERT INTO policies
+           (policy_uid, client_id, policy_type, carrier, effective_date, expiration_date,
+            premium, limit_amount, account_exec,
+            is_program, program_carriers, program_carrier_count)
+           VALUES (?,?,?,?,?,?,?,?,?,1,?,?)""",
+        (uid, int(client_id_str), policy_type,
+         carriers[0] if carriers else None,
+         eff_date or None, exp_date or None,
+         total_premium, total_limit if total_limit else None,
+         account_exec, carrier_list, len(carriers)),
+    )
+    conn.commit()
+
+    return HTMLResponse(
+        f'<div class="bg-green-50 border border-green-200 rounded-lg p-4">'
+        f'<p class="text-sm font-medium text-green-700">Program created: {uid}</p>'
+        f'<p class="text-xs text-green-600 mt-1">{policy_type} · {len(carriers)} carriers · ${total_premium:,.0f} premium</p>'
+        f'<p class="text-xs text-gray-500 mt-1">Carriers: {carrier_list}</p>'
+        f'<a href="/policies/{uid}/edit" class="text-xs text-marsh hover:underline mt-1 block">Edit program →</a>'
+        f'</div>'
     )
 
 
