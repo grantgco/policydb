@@ -30,6 +30,14 @@ def _meeting_dict(conn, meeting_id: int) -> dict | None:
         "SELECT * FROM meeting_action_items WHERE meeting_id = ? ORDER BY completed, due_date, id",
         (meeting_id,),
     ).fetchall()]
+    m["linked_policies"] = [dict(p) for p in conn.execute(
+        """SELECT mp.policy_uid, p.policy_type, p.carrier
+           FROM meeting_policies mp
+           LEFT JOIN policies p ON mp.policy_uid = p.policy_uid
+           WHERE mp.meeting_id = ?
+           ORDER BY p.policy_type""",
+        (meeting_id,),
+    ).fetchall()]
     m["client_name"] = ""
     client = conn.execute("SELECT name FROM clients WHERE id = ?", (m["client_id"],)).fetchone()
     if client:
@@ -202,6 +210,11 @@ def meeting_detail(
     ).fetchall()
 
     contacts = _get_client_contacts(conn, m["client_id"])
+    client_policies = [dict(r) for r in conn.execute(
+        """SELECT policy_uid, policy_type, carrier FROM policies
+           WHERE client_id = ? AND archived = 0 ORDER BY policy_type""",
+        (m["client_id"],),
+    ).fetchall()]
 
     return templates.TemplateResponse("meetings/detail.html", {
         "request": request,
@@ -211,6 +224,7 @@ def meeting_detail(
         "all_clients": [dict(c) for c in all_clients],
         "selected_client_id": m["client_id"],
         "contacts": contacts,
+        "client_policies": client_policies,
         "today": date.today().isoformat(),
     })
 
@@ -364,7 +378,7 @@ async def meeting_patch_attendee(
     value = body.get("value", "").strip()
 
     # Fields on meeting_attendees table
-    _attendee_fields = {"name", "role"}
+    _attendee_fields = {"name", "role", "is_internal"}
     # Fields on the linked contacts table
     _contact_fields = {"email", "phone", "mobile"}
 
@@ -375,9 +389,13 @@ async def meeting_patch_attendee(
     formatted = value
 
     if field in _attendee_fields:
+        save_val = value or None
+        if field == "is_internal":
+            save_val = 1 if value in ("1", "true", "Internal", "Team") else 0
+            formatted = "Internal" if save_val else "Client"
         conn.execute(
             f"UPDATE meeting_attendees SET {field} = ? WHERE id = ? AND meeting_id = ?",
-            (value or None, attendee_id, meeting_id),
+            (save_val, attendee_id, meeting_id),
         )
         # Propagate name to linked contact
         if field == "name" and value and att and att["contact_id"]:
@@ -580,6 +598,101 @@ def meeting_log_time(
     )
     conn.commit()
     return JSONResponse({"ok": True, "logged": f"{dur}h {label.lower()}"})
+
+
+@router.post("/meetings/{meeting_id}/policies/link")
+def meeting_link_policy(
+    meeting_id: int,
+    policy_uid: str = Form(""),
+    conn=Depends(get_db),
+):
+    if not policy_uid.strip():
+        return JSONResponse({"ok": False})
+    try:
+        conn.execute(
+            "INSERT OR IGNORE INTO meeting_policies (meeting_id, policy_uid) VALUES (?, ?)",
+            (meeting_id, policy_uid.strip().upper()),
+        )
+        conn.commit()
+    except Exception:
+        pass
+    m = _meeting_dict(conn, meeting_id)
+    policies = m.get("linked_policies", [])
+    html = ""
+    for p in policies:
+        html += (f'<span class="inline-flex items-center gap-1 text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded mr-1 mb-1">'
+                 f'<a href="/policies/{p["policy_uid"]}/edit" class="hover:underline" target="_blank">{p.get("policy_type") or p["policy_uid"]}</a>'
+                 f' <span class="text-blue-400">{p.get("carrier") or ""}</span>'
+                 f'<button type="button" hx-post="/meetings/{meeting_id}/policies/unlink" '
+                 f'hx-vals=\'{{\"policy_uid\": \"{p["policy_uid"]}\"}}\' '
+                 f'hx-target="#meeting-policies" hx-swap="innerHTML" '
+                 f'class="text-blue-300 hover:text-red-500 ml-0.5">&times;</button></span>')
+    return HTMLResponse(html or '<span class="text-xs text-gray-400 italic">No policies linked</span>')
+
+
+@router.post("/meetings/{meeting_id}/policies/unlink")
+def meeting_unlink_policy(
+    meeting_id: int,
+    policy_uid: str = Form(""),
+    conn=Depends(get_db),
+):
+    conn.execute(
+        "DELETE FROM meeting_policies WHERE meeting_id = ? AND policy_uid = ?",
+        (meeting_id, policy_uid.strip().upper()),
+    )
+    conn.commit()
+    m = _meeting_dict(conn, meeting_id)
+    policies = m.get("linked_policies", [])
+    html = ""
+    for p in policies:
+        html += (f'<span class="inline-flex items-center gap-1 text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded mr-1 mb-1">'
+                 f'<a href="/policies/{p["policy_uid"]}/edit" class="hover:underline" target="_blank">{p.get("policy_type") or p["policy_uid"]}</a>'
+                 f' <span class="text-blue-400">{p.get("carrier") or ""}</span>'
+                 f'<button type="button" hx-post="/meetings/{meeting_id}/policies/unlink" '
+                 f'hx-vals=\'{{\"policy_uid\": \"{p["policy_uid"]}\"}}\' '
+                 f'hx-target="#meeting-policies" hx-swap="innerHTML" '
+                 f'class="text-blue-300 hover:text-red-500 ml-0.5">&times;</button></span>')
+    return HTMLResponse(html or '<span class="text-xs text-gray-400 italic">No policies linked</span>')
+
+
+@router.get("/meetings/{meeting_id}/recap", response_class=HTMLResponse)
+def meeting_recap(
+    meeting_id: int,
+    conn=Depends(get_db),
+):
+    """Generate a meeting recap text for copy/email."""
+    m = _meeting_dict(conn, meeting_id)
+    if not m:
+        return HTMLResponse("")
+    lines = [f"Meeting Recap: {m['title']}", f"Date: {m.get('meeting_date', '')} {m.get('meeting_time', '') or ''}", ""]
+    if m.get("attendees"):
+        lines.append("Attendees:")
+        for a in m["attendees"]:
+            lines.append(f"  - {a['name']}{' (' + a['role'] + ')' if a.get('role') else ''}")
+        lines.append("")
+    if m.get("linked_policies"):
+        lines.append("Policies Discussed:")
+        for p in m["linked_policies"]:
+            lines.append(f"  - {p.get('policy_type', p['policy_uid'])} · {p.get('carrier', '')}")
+        lines.append("")
+    if m.get("notes"):
+        lines.append("Notes:")
+        lines.append(m["notes"])
+        lines.append("")
+    if m.get("action_items"):
+        lines.append("Action Items:")
+        for ai in m["action_items"]:
+            status = "✓" if ai.get("completed") else "○"
+            assignee = f" ({ai['assignee']})" if ai.get("assignee") else ""
+            due = f" — due {ai['due_date']}" if ai.get("due_date") else ""
+            lines.append(f"  {status} {ai['description']}{assignee}{due}")
+        lines.append("")
+    recap = "\n".join(lines)
+    return HTMLResponse(
+        f'<div class="bg-gray-50 rounded-lg p-4 text-xs text-gray-700 whitespace-pre-wrap font-mono" id="recap-text">{recap}</div>'
+        f'<button type="button" onclick="navigator.clipboard.writeText(document.getElementById(\'recap-text\').textContent).then(function(){{var b=event.target;b.textContent=\'Copied!\';setTimeout(function(){{b.textContent=\'Copy recap\'}},1500)}})"'
+        f' class="mt-2 text-xs bg-marsh text-white px-3 py-1.5 rounded hover:bg-marsh-light transition-colors">Copy recap</button>'
+    )
 
 
 @router.get("/meetings/{meeting_id}/prep", response_class=HTMLResponse)
