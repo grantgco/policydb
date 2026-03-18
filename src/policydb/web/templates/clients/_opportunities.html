@@ -1,9 +1,17 @@
 {% if opportunities %}
+{% set _opp_total_premium = opportunities | selectattr('premium') | map(attribute='premium') | sum %}
+{% set _opp_total_revenue = opportunities | selectattr('commission_amount') | map(attribute='commission_amount') | sum %}
 <div class="card mb-6">
   <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
     <div class="flex items-center gap-2">
       <h2 class="font-semibold text-gray-900">Opportunities</h2>
       <span class="text-xs bg-amber-100 text-amber-700 font-semibold px-2 py-0.5 rounded-full">{{ opportunities | length }}</span>
+      {% if _opp_total_premium %}
+      <span class="text-xs text-gray-400 ml-2">Pipeline: <span class="font-semibold text-gray-600">{{ _opp_total_premium | currency }}</span></span>
+      {% endif %}
+      {% if _opp_total_revenue %}
+      <span class="text-xs text-gray-400 ml-1">Rev: <span class="font-semibold text-emerald-600">{{ _opp_total_revenue | currency }}</span></span>
+      {% endif %}
     </div>
     <a href="/policies/new?client={{ client.id }}&opp=1" class="text-xs text-marsh hover:underline">+ New Opportunity</a>
   </div>
@@ -15,6 +23,7 @@
         <th class="px-4 py-2">Status</th>
         <th class="px-4 py-2">Target Effective</th>
         <th class="px-4 py-2">Est. Premium</th>
+        <th class="px-4 py-2">Est. Revenue</th>
         <th class="px-4 py-2">Placement Team</th>
         <th class="px-4 py-2"></th>
       </tr>
@@ -48,6 +57,13 @@
         </td>
         <td class="px-4 py-2.5 text-right tabular-nums text-gray-600 text-xs">
           {% if o.premium %}{{ o.premium | currency }}{% else %}—{% endif %}
+        </td>
+        <td class="px-4 py-2.5 text-right tabular-nums text-xs">
+          {% if o.commission_amount %}
+          <span class="text-emerald-600 font-medium">{{ o.commission_amount | currency }}</span>
+          {% elif o.premium and not o.commission_rate %}
+          <span class="text-gray-300" title="No commission rate set">—</span>
+          {% else %}—{% endif %}
         </td>
         <td class="px-4 py-2.5 text-xs">
           {% set team = o.get('team', []) %}
