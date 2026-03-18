@@ -124,11 +124,11 @@ def _client_tokens(conn: sqlite3.Connection, client_id: int, row) -> dict:
 def policy_context(conn: sqlite3.Connection, policy_uid: str) -> dict:
     """Build token context dict from a policy + its client."""
     row = conn.execute(
-        """SELECT p.policy_uid, p.policy_type, p.carrier, p.policy_number,
+        """SELECT p.id, p.policy_uid, p.policy_type, p.carrier, p.policy_number,
                   p.effective_date, p.expiration_date, p.premium, p.limit_amount,
                   p.deductible, p.project_name, p.project_id, p.renewal_status, p.account_exec,
                   p.access_point, p.last_reviewed_at, p.review_cycle,
-                  p.first_named_insured,
+                  p.first_named_insured, p.is_program,
                   c.id AS client_id, c.name AS client_name, c.industry_segment AS industry,
                   c.primary_contact, c.contact_email,
                   c.cn_number, c.address, c.business_description, c.notes,
@@ -153,6 +153,18 @@ def policy_context(conn: sqlite3.Connection, policy_uid: str) -> dict:
         (policy_uid.upper(),),
     ).fetchone()
     pc_name = _pc_row["name"] if _pc_row else ""
+    # Program carrier info (from program_carriers table)
+    if row.get("is_program"):
+        carrier_rows = conn.execute(
+            "SELECT carrier FROM program_carriers WHERE program_id = ? ORDER BY sort_order",
+            (row["id"],),
+        ).fetchall()
+        ctx["program_carriers"] = ", ".join(r["carrier"] for r in carrier_rows)
+        ctx["program_carrier_count"] = str(len(carrier_rows))
+    else:
+        ctx["program_carriers"] = ""
+        ctx["program_carrier_count"] = ""
+
     ctx.update({
         "policy_type": row["policy_type"] or "",
         "carrier": row["carrier"] or "",
@@ -353,6 +365,8 @@ CONTEXT_TOKEN_GROUPS: dict[str, list[tuple[str, list[tuple[str, str]]]]] = {
             ("access_point", "Access Point"),
             ("placement_colleague", "Placement Colleague"),
             ("renewal_status", "Renewal Status"),
+            ("program_carriers", "Program Carriers"),
+            ("program_carrier_count", "Program Carrier Count"),
         ]),
         ("Dates", [
             ("effective_date", "Effective Date"),
