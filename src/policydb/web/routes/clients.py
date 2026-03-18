@@ -106,6 +106,38 @@ def client_list(
     linked_client_ids = {r["client_id"] for r in conn.execute(
         "SELECT client_id FROM client_group_members"
     ).fetchall()}
+    # Build group membership map: client_id → group_id
+    _group_rows = conn.execute(
+        """SELECT gm.client_id, gm.group_id, cg.label
+           FROM client_group_members gm
+           JOIN client_groups cg ON gm.group_id = cg.id
+           ORDER BY gm.group_id"""
+    ).fetchall()
+    client_group_map = {}  # client_id → group_id
+    group_labels = {}  # group_id → label
+    for gr in _group_rows:
+        client_group_map[gr["client_id"]] = gr["group_id"]
+        if gr["group_id"] not in group_labels:
+            group_labels[gr["group_id"]] = gr["label"]
+
+    # Re-order clients so grouped ones appear together
+    grouped_ids_seen = set()
+    ordered_clients = []
+    for c in clients:
+        if c["id"] in grouped_ids_seen:
+            continue
+        gid = client_group_map.get(c["id"])
+        if gid:
+            # Find all clients in this group and insert them together
+            group_members = [gc for gc in clients if client_group_map.get(gc["id"]) == gid]
+            for gm in group_members:
+                if gm["id"] not in grouped_ids_seen:
+                    grouped_ids_seen.add(gm["id"])
+                    ordered_clients.append(gm)
+        else:
+            ordered_clients.append(c)
+    clients = ordered_clients
+
     return templates.TemplateResponse("clients/list.html", {
         "request": request,
         "active": "clients",
@@ -120,6 +152,8 @@ def client_list(
         "industry_segments": cfg.get("industry_segments", []),
         "archived_clients": archived_clients,
         "linked_client_ids": linked_client_ids,
+        "client_group_map": client_group_map,
+        "group_labels": group_labels,
     })
 
 
