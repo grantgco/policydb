@@ -241,6 +241,36 @@
     });
   })();
   </script>
+
+  <script>
+  /* Re-sort activity list after snooze so open follow-ups stay ordered by date */
+  function reorderActivityList(listId) {
+    var ul = document.getElementById(listId);
+    if (!ul) return;
+    var items = Array.from(ul.querySelectorAll('.activity-item'));
+    items.sort(function(a, b) {
+      var aFu = a.dataset.followupDate || '';
+      var bFu = b.dataset.followupDate || '';
+      if (aFu && !bFu) return -1;
+      if (!aFu && bFu) return 1;
+      if (aFu && bFu) return aFu < bFu ? -1 : (aFu > bFu ? 1 : 0);
+      var aDate = a.dataset.activityDate || '';
+      var bDate = b.dataset.activityDate || '';
+      if (aDate !== bDate) return bDate < aDate ? -1 : (bDate > aDate ? 1 : 0);
+      return (parseInt(b.dataset.activityId) || 0) - (parseInt(a.dataset.activityId) || 0);
+    });
+    items.forEach(function(li) {
+      ul.appendChild(li);
+      var aid = li.id.replace('activity-', '');
+      ul.querySelectorAll('.activity-item-form[data-parent-activity="' + aid + '"]').forEach(function(f) {
+        ul.appendChild(f);
+      });
+    });
+  }
+  document.body.addEventListener('reorderActivities', function() {
+    reorderActivityList('edit-activity-list');
+  });
+  </script>
 </div>
 
 <!-- Working Notes (per-policy scratchpad) -->
