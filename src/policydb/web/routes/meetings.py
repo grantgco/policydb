@@ -489,6 +489,8 @@ async def meeting_patch_action(
                      f"{m['title']}: {desc_row['description'] or 'Action item'}", value, account_exec),
                 )
                 conn.execute("UPDATE meeting_action_items SET activity_id = ? WHERE id = ?", (cursor.lastrowid, action_id))
+                conn.commit()
+                return JSONResponse({"ok": True, "formatted": value, "activity_logged": "Follow-up created for action item"})
     conn.commit()
     return JSONResponse({"ok": True, "formatted": value})
 
@@ -524,11 +526,15 @@ def meeting_add_action(
             "UPDATE meeting_action_items SET activity_id = ? WHERE id = ?",
             (cursor.lastrowid, action_id),
         )
+    _created_followup = bool(due_date and m_row)
     conn.commit()
     m = _meeting_dict(conn, meeting_id)
-    return templates.TemplateResponse("meetings/_actions.html", {
-        "request": request, "meeting": m,
+    resp = templates.TemplateResponse("meetings/_actions.html", {
+        "request": request, "meeting": m, "today": date.today().isoformat(),
     })
+    if _created_followup:
+        resp.headers["HX-Trigger"] = '{"activityLogged": "Follow-up created for action item"}'
+    return resp
 
 
 @router.post("/meetings/{meeting_id}/actions/{action_id}/toggle")
@@ -550,9 +556,13 @@ def meeting_toggle_action(
             )
     conn.commit()
     m = _meeting_dict(conn, meeting_id)
-    return templates.TemplateResponse("meetings/_actions.html", {
-        "request": request, "meeting": m,
+    resp = templates.TemplateResponse("meetings/_actions.html", {
+        "request": request, "meeting": m, "today": date.today().isoformat(),
     })
+    if ai and ai["activity_id"]:
+        label = "Action completed — follow-up marked done" if new_status else "Action reopened — follow-up restored"
+        resp.headers["HX-Trigger"] = '{"activityLogged": "' + label + '"}'
+    return resp
 
 
 @router.post("/meetings/{meeting_id}/actions/{action_id}/delete")

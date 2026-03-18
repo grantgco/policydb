@@ -1051,6 +1051,12 @@ document.addEventListener('keydown', function(e) {
     }, 2000);
   }
 
+  // Listen for server-sent toast messages via HX-Trigger
+  document.body.addEventListener('activityLogged', function(e) {
+    var msg = (e.detail && e.detail.value) ? e.detail.value : 'Activity logged';
+    showToast('✓ ' + msg, true);
+  });
+
   document.querySelectorAll('form[data-autosave]').forEach(function (form) {
     var timer = null;
     var saving = false;
