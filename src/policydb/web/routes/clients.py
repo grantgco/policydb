@@ -2031,6 +2031,166 @@ def project_print(
     )
 
 
+@router.get("/{client_id}/projects/{project_id}/pdf")
+def project_pdf(
+    client_id: int,
+    project_id: int,
+    conn=Depends(get_db),
+):
+    """Generate a PDF of project notes + policies via fpdf2."""
+    from fastapi import HTTPException
+    from fastapi.responses import Response
+    from fpdf import FPDF
+
+    project = conn.execute(
+        "SELECT * FROM projects WHERE id = ? AND client_id = ?",
+        (project_id, client_id),
+    ).fetchone()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    client = conn.execute(
+        "SELECT id, name, cn_number FROM clients WHERE id = ?", (client_id,)
+    ).fetchone()
+    policies = conn.execute(
+        """SELECT policy_type, carrier, premium, limit_amount,
+                  effective_date, expiration_date, renewal_status
+           FROM policies WHERE project_id = ? AND archived = 0
+           ORDER BY policy_type""",
+        (project_id,),
+    ).fetchall()
+
+    project = dict(project)
+    updated = project["updated_at"][:10] if project.get("updated_at") else ""
+    cn = f" | {client['cn_number']}" if client["cn_number"] else ""
+    pol_count = len(policies)
+
+    pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=20)
+    pdf.add_page()
+
+    # Header
+    pdf.set_font("Helvetica", "B", 18)
+    pdf.cell(0, 8, project["name"], new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("Helvetica", "", 11)
+    pdf.set_text_color(107, 114, 128)
+    pdf.cell(0, 6, f"{client['name']}{cn}", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("Helvetica", "", 9)
+    pdf.set_text_color(156, 163, 175)
+    pdf.cell(0, 5, f"Updated {updated}  |  {pol_count} polic{'y' if pol_count == 1 else 'ies'}", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_draw_color(229, 231, 235)
+    pdf.line(10, pdf.get_y() + 3, 200, pdf.get_y() + 3)
+    pdf.ln(8)
+
+    # Notes section
+    if project.get("notes"):
+        pdf.set_font("Helvetica", "B", 10)
+        pdf.set_text_color(107, 114, 128)
+        pdf.cell(0, 6, "PROJECT NOTES", new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(2)
+        pdf.set_font("Helvetica", "", 11)
+        pdf.set_text_color(31, 41, 55)
+
+        # Parse markdown line by line for clean rendering
+        for line in project["notes"].split("\n"):
+            stripped = line.strip()
+            if not stripped:
+                pdf.ln(3)
+                continue
+            if stripped.startswith("### "):
+                pdf.ln(2)
+                pdf.set_font("Helvetica", "B", 11)
+                pdf.multi_cell(0, 5.5, stripped[4:])
+                pdf.set_font("Helvetica", "", 11)
+            elif stripped.startswith("## "):
+                pdf.ln(3)
+                pdf.set_font("Helvetica", "B", 12)
+                pdf.multi_cell(0, 6, stripped[3:])
+                pdf.set_font("Helvetica", "", 11)
+            elif stripped.startswith("# "):
+                pdf.ln(3)
+                pdf.set_font("Helvetica", "B", 14)
+                pdf.multi_cell(0, 7, stripped[2:])
+                pdf.set_font("Helvetica", "", 11)
+            elif stripped.startswith("- ") or stripped.startswith("* "):
+                pdf.cell(6, 5.5, chr(8226))
+                pdf.multi_cell(0, 5.5, stripped[2:].replace("**", ""))
+            elif stripped.startswith("> "):
+                pdf.set_text_color(107, 114, 128)
+                pdf.cell(4, 5.5, "|")
+                pdf.multi_cell(0, 5.5, stripped[2:].replace("**", ""))
+                pdf.set_text_color(31, 41, 55)
+            else:
+                # Strip bold markers for clean text
+                clean = stripped.replace("**", "")
+                pdf.multi_cell(0, 5.5, clean)
+        pdf.ln(4)
+
+    # Policies table
+    if policies:
+        pdf.set_font("Helvetica", "B", 10)
+        pdf.set_text_color(107, 114, 128)
+        pdf.cell(0, 6, "POLICIES", new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(2)
+
+        # Table header
+        col_w = [42, 32, 26, 26, 22, 22, 20]
+        headers = ["Line of Business", "Carrier", "Premium", "Limit", "Eff.", "Exp.", "Status"]
+        pdf.set_font("Helvetica", "B", 8)
+        pdf.set_text_color(107, 114, 128)
+        for i, h in enumerate(headers):
+            align = "R" if i in (2, 3) else "L"
+            pdf.cell(col_w[i], 5, h, align=align)
+        pdf.ln()
+        pdf.set_draw_color(209, 213, 219)
+        pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+        pdf.ln(1)
+
+        # Table rows
+        pdf.set_font("Helvetica", "", 9)
+        pdf.set_text_color(55, 65, 81)
+        total_premium = 0
+        for p in policies:
+            prem = p["premium"] or 0
+            total_premium += prem
+            prem_fmt = f"${prem:,.0f}" if prem else "—"
+            lim_fmt = f"${p['limit_amount']:,.0f}" if p["limit_amount"] else "—"
+            pdf.cell(col_w[0], 5, (p["policy_type"] or "")[:24])
+            pdf.cell(col_w[1], 5, (p["carrier"] or "—")[:18])
+            pdf.cell(col_w[2], 5, prem_fmt, align="R")
+            pdf.cell(col_w[3], 5, lim_fmt, align="R")
+            pdf.cell(col_w[4], 5, (p["effective_date"] or "—")[:10])
+            pdf.cell(col_w[5], 5, (p["expiration_date"] or "—")[:10])
+            pdf.cell(col_w[6], 5, (p["renewal_status"] or "—")[:10])
+            pdf.ln()
+
+        # Total row
+        pdf.set_draw_color(209, 213, 219)
+        pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+        pdf.ln(1)
+        pdf.set_font("Helvetica", "B", 9)
+        pdf.cell(col_w[0], 5, "Total")
+        pdf.cell(col_w[1], 5, "")
+        pdf.cell(col_w[2], 5, f"${total_premium:,.0f}", align="R")
+        pdf.ln()
+
+    # Footer
+    pdf.ln(10)
+    pdf.set_draw_color(229, 231, 235)
+    pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+    pdf.ln(3)
+    pdf.set_font("Helvetica", "", 8)
+    pdf.set_text_color(176, 183, 192)
+    pdf.cell(0, 4, f"{client['name']}  |  {project['name']}  |  Generated from PolicyDB")
+
+    pdf_bytes = bytes(pdf.output())
+    safe_name = project["name"].replace(" ", "_").replace("/", "-")
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{client["name"]}_{safe_name}_Notes.pdf"'},
+    )
+
+
 # ── Project management: rename / merge / delete ──────────────────────────────
 
 

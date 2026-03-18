@@ -27,8 +27,8 @@
         <span id="proj-save-ts" class="text-xs text-gray-400">
           {% if project.updated_at_fmt %}saved {{ project.updated_at_fmt }}{% endif %}
         </span>
-        <a href="/clients/{{ client.id }}/projects/{{ project.id }}/print" target="_blank"
-           class="text-xs bg-gray-100 hover:bg-gray-200 text-gray-600 px-2.5 py-1 rounded transition-colors no-print">Export PDF ↗</a>
+        <a href="/clients/{{ client.id }}/projects/{{ project.id }}/pdf"
+           class="text-xs bg-gray-100 hover:bg-gray-200 text-gray-600 px-2.5 py-1 rounded transition-colors no-print">Export PDF ↓</a>
       </div>
     </div>
 
