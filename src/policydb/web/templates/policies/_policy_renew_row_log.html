@@ -1,5 +1,5 @@
 <tr id="renew-row-{{ p.policy_uid }}" class="border-t-2 border-amber-400 bg-amber-50">
-  <td colspan="10" class="px-4 py-4">
+  <td colspan="11" class="px-4 py-4">
 
     <form
       hx-post="/policies/{{ p.policy_uid }}/renew/log"
@@ -41,7 +41,7 @@
         </div>
         <div>
           <p class="text-xs text-gray-500 mb-0.5">Duration</p>
-          <input type="number" name="duration_minutes" min="0" step="5" placeholder="min"
+          <input type="number" name="duration_hours" min="0" step="any" placeholder="hrs"
             class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-amber-400">
         </div>
         <div>
