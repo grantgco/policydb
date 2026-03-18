@@ -79,6 +79,57 @@ def meetings_list(
     })
 
 
+@router.get("/meetings/export.csv")
+def meetings_export_csv(
+    client_id: int = 0,
+    conn=Depends(get_db),
+):
+    from policydb.utils import csv_response
+    params: list = []
+    where = "1=1"
+    if client_id:
+        where = "m.client_id = ?"
+        params.append(client_id)
+    rows = [dict(r) for r in conn.execute(
+        f"""SELECT m.meeting_date, m.meeting_time, c.name AS client_name, m.title,
+                   m.duration_hours, m.location,
+                   (SELECT COUNT(*) FROM meeting_attendees WHERE meeting_id = m.id) AS attendees,
+                   (SELECT COUNT(*) FROM meeting_action_items WHERE meeting_id = m.id) AS action_items
+            FROM client_meetings m JOIN clients c ON m.client_id = c.id
+            WHERE {where} ORDER BY m.meeting_date DESC""",
+        params,
+    ).fetchall()]
+    cols = ["meeting_date", "meeting_time", "client_name", "title", "duration_hours",
+            "location", "attendees", "action_items"]
+    from datetime import date as _d
+    fname = f"meetings_{_d.today().isoformat()}.csv"
+    return csv_response(rows, fname, cols)
+
+
+@router.get("/meetings/{meeting_id}/export.csv")
+def meeting_detail_export_csv(
+    meeting_id: int,
+    conn=Depends(get_db),
+):
+    """Export a single meeting's attendees + action items as CSV."""
+    from policydb.utils import csv_response
+    m = _meeting_dict(conn, meeting_id)
+    if not m:
+        from fastapi.responses import Response
+        return Response("Not found", status_code=404)
+    # Combine attendees and action items into one export
+    rows = []
+    for a in m.get("attendees", []):
+        rows.append({"section": "Attendee", "name": a["name"], "role": a.get("role", ""),
+                      "detail": a.get("email", ""), "status": "Internal" if a.get("is_internal") else "Client"})
+    for ai in m.get("action_items", []):
+        rows.append({"section": "Action Item", "name": ai["description"], "role": ai.get("assignee", ""),
+                      "detail": ai.get("due_date", ""), "status": "Done" if ai.get("completed") else "Open"})
+    cols = ["section", "name", "role", "detail", "status"]
+    safe = m["title"].replace(" ", "_")[:30]
+    return csv_response(rows, f"meeting_{safe}.csv", cols)
+
+
 @router.get("/meetings/new", response_class=HTMLResponse)
 def meeting_new(
     request: Request,
