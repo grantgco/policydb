@@ -905,16 +905,25 @@
   </form>
 </div>
 
-<!-- Archive action — for policies entered in error -->
-<div class="mt-4 pt-4 border-t border-gray-200 flex items-center justify-between">
-  <p class="text-xs text-gray-400">Entered in error or no longer needed? Archiving hides this policy from all views. Data is preserved but the policy will not appear anywhere.</p>
-  <form method="post" action="/policies/{{ policy.policy_uid }}/archive"
-        onsubmit="return confirm('Archive {{ policy.policy_uid }} ({{ policy.policy_type }})?\n\nThis hides the policy from all views. Use this for policies entered in error — not for renewals (use Renew Policy for end-of-term).')">
-    <button type="submit"
-      class="border border-red-300 text-red-500 hover:bg-red-50 text-sm font-medium px-4 py-2 rounded-lg transition-colors">
-      Archive Policy
-    </button>
-  </form>
+<!-- Archive / Delete actions -->
+<div class="mt-4 pt-4 border-t border-gray-200 flex items-center justify-between gap-4">
+  <p class="text-xs text-gray-400">Entered in error? <strong>Archive</strong> hides from views (data preserved). <strong>Delete</strong> permanently removes all data.</p>
+  <div class="flex gap-2 shrink-0">
+    <form method="post" action="/policies/{{ policy.policy_uid }}/archive"
+          onsubmit="return confirm('Archive {{ policy.policy_uid }} ({{ policy.policy_type }})?\n\nThis hides the policy from all views. Data is preserved.')">
+      <button type="submit"
+        class="border border-amber-300 text-amber-600 hover:bg-amber-50 text-xs font-medium px-4 py-2 rounded-lg transition-colors">
+        Archive
+      </button>
+    </form>
+    <form method="post" action="/policies/{{ policy.policy_uid }}/delete"
+          onsubmit="return confirm('PERMANENTLY DELETE {{ policy.policy_uid }} ({{ policy.policy_type }})?\n\nThis cannot be undone. All related data (milestones, contacts, notes) will be removed.')">
+      <button type="submit"
+        class="border border-red-300 text-red-500 hover:bg-red-50 text-xs font-medium px-4 py-2 rounded-lg transition-colors">
+        Delete
+      </button>
+    </form>
+  </div>
 </div>
 
 <!-- Datalist elements populated from prior DB entries -->
