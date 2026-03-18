@@ -178,6 +178,9 @@ async def reconcile_run(
     missing_rows = [r for r in results if r.status == "MISSING"]
     extra_rows = [r for r in results if r.status == "EXTRA"]
 
+    # Generate token first — used for both MISSING cache and XLSX cache
+    download_token = str(_uuid.uuid4())
+
     # Cache MISSING rows for batch create (keyed by download token)
     global _LAST_MISSING_TOKEN
     _MISSING_CACHE[download_token] = ([r.ext for r in missing_rows if r.ext], _time.time())
@@ -186,7 +189,6 @@ async def reconcile_run(
     # Cache XLSX for download-without-reupload
     _cache_cleanup()
     xlsx_bytes = build_reconcile_xlsx(results, run_date=date.today().isoformat(), filename=file.filename or "")
-    download_token = str(_uuid.uuid4())
     _RESULT_CACHE[download_token] = (xlsx_bytes, _time.time())
 
     ctx["results"] = results
