@@ -1468,6 +1468,21 @@ def client_edit_form(request: Request, client_id: int, conn=Depends(get_db)):
     })
 
 
+@router.post("/{client_id}/follow-up")
+def client_followup_set(
+    client_id: int,
+    follow_up_date: str = Form(""),
+    conn=Depends(get_db),
+):
+    """Set or clear the client-level follow-up date."""
+    conn.execute(
+        "UPDATE clients SET follow_up_date = ? WHERE id = ?",
+        (follow_up_date.strip() or None, client_id),
+    )
+    conn.commit()
+    return JSONResponse({"ok": True, "follow_up_date": follow_up_date.strip() or None})
+
+
 @router.post("/{client_id}/edit")
 def client_edit_post(
     request: Request,

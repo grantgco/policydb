@@ -593,6 +593,31 @@ def get_all_followups(
             AND a.follow_up_date IS NOT NULL
       )
 
+    UNION ALL
+
+    SELECT 'client' AS source,
+           c.id,
+           'Client Follow-Up: ' || c.name AS subject,
+           c.follow_up_date,
+           'Client Reminder' AS activity_type,
+           NULL AS contact_person,
+           c.name AS client_name, c.id AS client_id, c.cn_number,
+           NULL AS policy_uid, NULL AS policy_type, NULL AS carrier,
+           NULL AS project_name, NULL AS project_id,
+           0 AS is_opportunity,
+           CAST(julianday('now') - julianday(c.follow_up_date) AS INTEGER) AS days_overdue,
+           NULL AS contact_email,
+           (SELECT GROUP_CONCAT(co_i3.email, ',')
+            FROM contact_client_assignments cca_i3
+            JOIN contacts co_i3 ON cca_i3.contact_id = co_i3.id
+            WHERE cca_i3.client_id = c.id AND cca_i3.contact_type = 'internal' AND co_i3.email IS NOT NULL
+           ) AS internal_cc,
+           c.notes AS note_details,
+           NULL AS note_subject,
+           NULL AS note_date
+    FROM clients c
+    WHERE c.follow_up_date IS NOT NULL AND c.archived = 0
+
     ORDER BY follow_up_date ASC
     """
     params: list = []
