@@ -71,6 +71,7 @@ def activity_log(
     contact_id: int = Form(0),
     follow_up_date: str = Form(""),
     duration_hours: str = Form(""),
+    start_correspondence: str = Form(""),
     conn=Depends(get_db),
 ):
     def _float(v):
@@ -97,6 +98,11 @@ def activity_log(
          contact_person or None, _contact_id, subject, details or None,
          follow_up_date or None, account_exec, round_duration(duration_hours)),
     )
+    # Start correspondence thread if requested
+    if start_correspondence == "1":
+        new_id = cursor.lastrowid
+        conn.execute("UPDATE activity_log SET thread_id = ? WHERE id = ?", (new_id, new_id))
+
     if follow_up_date and policy_id:
         from policydb.queries import supersede_followups
         supersede_followups(conn, policy_id, follow_up_date)

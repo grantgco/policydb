@@ -586,6 +586,13 @@ function addFirstProject(clientId) {
         <label class="block text-xs font-medium text-gray-600 mb-1">Details</label>
         <textarea name="details" rows="2" placeholder="Optional notes, context, next steps…" class="form-input w-full text-sm"></textarea>
       </div>
+      <div class="col-span-2 sm:col-span-4">
+        <label class="toggle-switch">
+          <input type="checkbox" name="start_correspondence" value="1">
+          <span class="toggle-track"></span>
+          <span class="text-xs text-gray-600 ml-2">Start Correspondence (COR)</span>
+        </label>
+      </div>
       <div class="col-span-2 sm:col-span-4 flex items-center gap-3">
         <button type="submit" class="bg-marsh hover:bg-marsh-light text-white text-sm font-medium px-5 py-2 rounded-lg transition-colors">Save Activity</button>
         <button type="button" onclick="document.getElementById('log-form').classList.add('hidden')"
