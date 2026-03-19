@@ -5,6 +5,232 @@ from __future__ import annotations
 import re
 
 
+# ─── COVERAGE ALIASES ─────────────────────────────────────────────────────────
+# Placeholder; full dict is populated in Task 2 (moved from reconciler.py).
+# Maps lowercase alias → canonical policy type name.
+_COVERAGE_ALIASES: dict[str, str] = {}
+
+
+# ─── LEGAL SUFFIX MAP ─────────────────────────────────────────────────────────
+# Maps lowercase suffix keyword → canonical formatted suffix (with or without period).
+_LEGAL_SUFFIX_MAP: dict[str, str] = {
+    "inc": "Inc.",
+    "llc": "LLC",
+    "corp": "Corp.",
+    "ltd": "Ltd.",
+    "co": "Co.",
+    "lp": "LP",
+    "llp": "LLP",
+    "pllc": "PLLC",
+    "pc": "PC",
+    "na": "N.A.",
+}
+
+# ─── STATE NAME → ABBREVIATION ────────────────────────────────────────────────
+_STATE_NAME_TO_ABBR: dict[str, str] = {
+    "alabama": "AL",
+    "alaska": "AK",
+    "arizona": "AZ",
+    "arkansas": "AR",
+    "california": "CA",
+    "colorado": "CO",
+    "connecticut": "CT",
+    "delaware": "DE",
+    "florida": "FL",
+    "georgia": "GA",
+    "hawaii": "HI",
+    "idaho": "ID",
+    "illinois": "IL",
+    "indiana": "IN",
+    "iowa": "IA",
+    "kansas": "KS",
+    "kentucky": "KY",
+    "louisiana": "LA",
+    "maine": "ME",
+    "maryland": "MD",
+    "massachusetts": "MA",
+    "michigan": "MI",
+    "minnesota": "MN",
+    "mississippi": "MS",
+    "missouri": "MO",
+    "montana": "MT",
+    "nebraska": "NE",
+    "nevada": "NV",
+    "new hampshire": "NH",
+    "new jersey": "NJ",
+    "new mexico": "NM",
+    "new york": "NY",
+    "north carolina": "NC",
+    "north dakota": "ND",
+    "ohio": "OH",
+    "oklahoma": "OK",
+    "oregon": "OR",
+    "pennsylvania": "PA",
+    "rhode island": "RI",
+    "south carolina": "SC",
+    "south dakota": "SD",
+    "tennessee": "TN",
+    "texas": "TX",
+    "utah": "UT",
+    "vermont": "VT",
+    "virginia": "VA",
+    "washington": "WA",
+    "west virginia": "WV",
+    "wisconsin": "WI",
+    "wyoming": "WY",
+    "district of columbia": "DC",
+}
+
+
+def normalize_coverage_type(raw: str) -> str:
+    """Normalize a policy type / line of business name to a canonical form.
+
+    Looks up the lowercase-stripped value in _COVERAGE_ALIASES. If found,
+    returns the canonical name. If not found, title-cases the stripped value.
+    Returns empty string for blank input.
+
+    Examples:
+        "cgl"              → "General Liability"
+        "CGL"              → "General Liability"
+        "cyber liability"  → "Cyber / Tech E&O"  (after Task 2 aliases loaded)
+        ""                 → ""
+    """
+    if not raw or not raw.strip():
+        return ""
+    key = raw.strip().lower()
+    return _COVERAGE_ALIASES.get(key, raw.strip().title())
+
+
+def normalize_policy_number(raw: str) -> str:
+    """Uppercase and strip a policy number. Preserves all formatting characters.
+
+    Examples:
+        "pol-123"      → "POL-123"
+        "  abc.456  "  → "ABC.456"
+        ""             → ""
+
+    Note: This is distinct from the reconciler's _normalize_policy_number, which
+    strips formatting for fuzzy matching. This function only uppercases + trims.
+    """
+    if not raw or not raw.strip():
+        return ""
+    return raw.strip().upper()
+
+
+def normalize_client_name(raw: str) -> str:
+    """Collapse whitespace, title-case words, and normalize legal suffixes.
+
+    Rules:
+    - Collapse multiple spaces to one; strip leading/trailing whitespace.
+    - Title-case each word UNLESS the word is 2-3 characters and already all-uppercase
+      (preserves acronyms like "US", "ABC", "LLC").
+    - Recognize the last word as a legal suffix (inc, llc, corp, etc.) and
+      replace it with the canonical formatted form from _LEGAL_SUFFIX_MAP.
+
+    Examples:
+        "acme corp"             → "Acme Corp."
+        "ACME HOLDINGS"         → "Acme Holdings"
+        "US  Steel  inc"        → "US Steel Inc."
+        "  delta   services   llc  " → "Delta Services LLC"
+        "ABC Corp"              → "ABC Corp."
+        "US Steel"              → "US Steel"
+        ""                      → ""
+    """
+    if not raw or not raw.strip():
+        return ""
+
+    # Collapse internal whitespace
+    words = raw.strip().split()
+
+    # Check if the last word is a known legal suffix
+    last_lower = words[-1].lower().rstrip(".,")
+    suffix_canonical = _LEGAL_SUFFIX_MAP.get(last_lower)
+
+    # Determine range of words to title-case (all except last if it's a suffix)
+    if suffix_canonical is not None:
+        body_words = words[:-1]
+    else:
+        body_words = words
+        suffix_canonical = None
+
+    def _title_word(w: str) -> str:
+        """Title-case a single word, preserving all-uppercase acronyms of 2-3 chars."""
+        if len(w) <= 3 and w.isupper():
+            return w
+        return w.capitalize()
+
+    titled = [_title_word(w) for w in body_words]
+
+    if suffix_canonical is not None:
+        titled.append(suffix_canonical)
+
+    return " ".join(titled)
+
+
+def format_zip(raw: str) -> str:
+    """Strip non-digits and format as 5-digit or 5+4-digit ZIP code.
+
+    Examples:
+        "78701"      → "78701"
+        "787014567"  → "78701-4567"
+        "787"        → "787"          (partial, returned as-is)
+        "78701-AB"   → "78701"        (non-digits stripped)
+        ""           → ""
+    """
+    if not raw or not raw.strip():
+        return ""
+    digits = re.sub(r'\D', '', raw.strip())
+    if not digits:
+        return ""
+    if len(digits) == 9:
+        return f"{digits[:5]}-{digits[5:]}"
+    if len(digits) == 5:
+        return digits
+    # Partial or non-standard length — return whatever digits we have
+    return digits
+
+
+def format_state(raw: str) -> str:
+    """Normalize a US state to its 2-letter uppercase abbreviation.
+
+    Accepts 2-letter abbreviations (any case) or full state names.
+    Unknown 2-letter codes are returned uppercased. Unknown full names
+    are returned as-is (uppercased). Empty input returns empty string.
+
+    Examples:
+        "TX"     → "TX"
+        "tx"     → "TX"
+        "Texas"  → "TX"
+        "texas"  → "TX"
+        "XX"     → "XX"
+        ""       → ""
+    """
+    if not raw or not raw.strip():
+        return ""
+    stripped = raw.strip()
+    # 2-letter abbreviation
+    if len(stripped) == 2:
+        return stripped.upper()
+    # Full name lookup
+    lookup = stripped.lower()
+    return _STATE_NAME_TO_ABBR.get(lookup, stripped.upper())
+
+
+def format_city(raw: str) -> str:
+    """Title-case a city name and collapse internal whitespace.
+
+    Examples:
+        "austin"         → "Austin"
+        "  san   antonio  " → "San Antonio"
+        "NEW YORK"       → "New York"
+        ""               → ""
+    """
+    if not raw or not raw.strip():
+        return ""
+    words = raw.strip().split()
+    return " ".join(w.capitalize() for w in words)
+
+
 def build_ref_tag(cn_number: str = "", client_id: int = 0,
                   policy_uid: str = "", project_id: int = 0,
                   activity_id: int = 0, thread_id: int = 0) -> str:
