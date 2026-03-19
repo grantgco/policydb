@@ -300,9 +300,13 @@ def activity_delete(
     conn=Depends(get_db),
 ):
     """Delete an activity log entry. Also clears any linked meeting action items."""
-    # Unlink from meeting action items
+    # Unlink from meeting action items and mandated activity log
     conn.execute(
         "UPDATE meeting_action_items SET activity_id = NULL WHERE activity_id = ?",
+        (activity_id,),
+    )
+    conn.execute(
+        "DELETE FROM mandated_activity_log WHERE activity_id = ?",
         (activity_id,),
     )
     conn.execute("DELETE FROM activity_log WHERE id = ?", (activity_id,))
