@@ -108,17 +108,27 @@
   <span class="border-l border-gray-200 h-6 mx-1"></span>
   <input type="number" id="bulk-hours" min="0" step="0.1" placeholder="Hours" class="text-sm border border-gray-300 rounded px-2 py-1 w-20 tabular-nums">
   <input type="text" id="bulk-note" placeholder="Note (required for Abandon)" class="text-sm border border-gray-300 rounded px-2 py-1 w-48">
-  <select id="bulk-disposition" class="text-xs border border-gray-200 rounded px-2 py-1">
-    <option value="">-- Disposition --</option>
+  <input type="hidden" id="bulk-disposition" value="">
+  <span class="flex flex-wrap gap-0.5">
     {% for d in dispositions %}
-    <option value="{{ d.label }}">{{ d.label }}</option>
+    <button type="button" onclick="selectBulkDisp(this,'{{ d.label }}')"
+      class="disp-pill text-[10px] px-1.5 py-0.5 rounded border border-gray-200 text-gray-500 hover:border-marsh hover:text-marsh transition-colors">{{ d.label }}</button>
     {% endfor %}
-  </select>
+  </span>
   <button onclick="bulkComplete()" class="bg-green-500 hover:bg-green-600 text-white text-sm px-3 py-1.5 rounded transition-colors">Complete Selected</button>
   <button onclick="clearChecks()" class="text-sm text-gray-400 hover:text-gray-600 ml-auto">Clear</button>
 </div>
 
 <script>
+function selectBulkDisp(btn, label) {
+  btn.closest('span').querySelectorAll('.disp-pill').forEach(function(p) {
+    p.classList.remove('bg-marsh', 'text-white', 'border-marsh');
+    p.classList.add('border-gray-200', 'text-gray-500');
+  });
+  btn.classList.add('bg-marsh', 'text-white', 'border-marsh');
+  btn.classList.remove('border-gray-200', 'text-gray-500');
+  document.getElementById('bulk-disposition').value = label;
+}
 function applyClientFilter(clientId) {
   var cid = parseInt(clientId) || 0;
   document.getElementById('followup-client-id').value = cid;

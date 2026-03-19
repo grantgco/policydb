@@ -141,6 +141,7 @@ def dashboard(request: Request, conn=Depends(get_db)):
         "pipeline": pipeline_dicts,
         "overdue": overdue,
         "upcoming": upcoming,
+        "dispositions": cfg.get("follow_up_dispositions", []),
         "urgent_count": urgent_count,
         "urgency_breakdown": urgency_breakdown,
         "renewal_statuses": cfg.get("renewal_statuses"),
