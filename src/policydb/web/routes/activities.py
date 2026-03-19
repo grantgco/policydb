@@ -904,6 +904,7 @@ def bulk_complete(
     ids: str = Form(...),
     duration_hours: float = Form(0),
     note: str = Form(""),
+    disposition: str = Form(""),
     conn=Depends(get_db),
 ):
     """Bulk complete/clear selected follow-ups with optional time and note."""
@@ -916,6 +917,11 @@ def bulk_complete(
         source, item_id = item.split("-", 1)
         if source == "activity":
             conn.execute("UPDATE activity_log SET follow_up_done=1 WHERE id=?", (int(item_id),))
+            if disposition:
+                conn.execute(
+                    "UPDATE activity_log SET disposition=? WHERE id=?",
+                    (disposition.strip(), int(item_id)),
+                )
             if dur:
                 conn.execute(
                     "UPDATE activity_log SET duration_hours=COALESCE(duration_hours,0)+? WHERE id=?",
