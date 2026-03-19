@@ -295,6 +295,8 @@ _DEFAULTS: dict[str, Any] = {
     ],
     "email_subject_request": "{{client_name}} \u2014 {{rfi_uid}} {{request_title}}",
     "email_subject_request_all": "{{client_name}} \u2014 Outstanding Information Requests",
+    "project_stages": ["Upcoming", "Quoting", "Bound", "Active", "Complete"],
+    "project_types": ["Location", "Construction", "Development", "Renovation"],
 }
 
 _config: dict[str, Any] | None = None
