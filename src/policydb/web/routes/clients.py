@@ -3658,9 +3658,17 @@ async def project_pipeline_field(
         conn.execute("UPDATE policies SET project_name = ? WHERE project_id = ?", (value.strip(), project_id))
         formatted = value.strip()
     else:
+        clean_value = value.strip() or None
         conn.execute(f"UPDATE projects SET {field} = ? WHERE id = ?",
-                     (value.strip() or None, project_id))
+                     (clean_value, project_id))
         formatted = value.strip()
+        # Sync address fields to linked policies
+        _address_to_exposure = {"address": "exposure_address", "city": "exposure_city",
+                                "state": "exposure_state", "zip": "exposure_zip"}
+        if field in _address_to_exposure:
+            exposure_field = _address_to_exposure[field]
+            conn.execute(f"UPDATE policies SET {exposure_field} = ? WHERE project_id = ? AND archived = 0",
+                         (clean_value, project_id))
 
     conn.commit()
     return JSONResponse({"ok": True, "formatted": formatted})
