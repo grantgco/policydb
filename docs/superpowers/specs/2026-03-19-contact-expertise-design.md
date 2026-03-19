@@ -115,6 +115,30 @@ Industry: [Sports & Ent.] [Construction] [Healthcare] ...
 - Body: `{"value": "Best resource for large middle-market casualty programs in TX"}`
 - Response: `{"ok": true, "formatted": "..."}`
 
+### Quick-tag from context (inline expertise tagging)
+
+When working with a contact in a policy or client context, a small tag button appears next to the contact's name. Clicking it expands an inline pill row for quick expertise tagging without navigating away.
+
+**Where the quick-tag button appears:**
+- Policy edit page — next to placement colleague and underwriter names
+- Client detail page — contact matrix rows
+- Follow-up rows — next to the contact person name (when contact_id is resolved)
+
+**UI pattern:**
+```
+John Smith [⭐]                    ← click to expand
+John Smith [⭐]
+  Lines:    [Casualty] [Property]  ← inline pill row, click to toggle
+  Industry: [Sports & Ent.]       ← same pills as full editor
+```
+
+- `⭐` button toggles the inline pill row
+- Pills save immediately on click via `POST /contacts/{contact_id}/expertise`
+- No modal, no navigation — stays in context
+- If the contact already has expertise tags, they show as small pills next to the name (visible without clicking the tag button)
+
+**Requirement:** The contact must have a resolved `contact_id` (not just a freeform name string). If `contact_id` is NULL, the tag button is hidden.
+
 ### Where expertise displays
 
 When a contact has expertise tags, show them as small colored pills next to their name:
