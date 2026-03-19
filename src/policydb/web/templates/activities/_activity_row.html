@@ -18,8 +18,9 @@
       {{ a.activity_date }}
       {% if a.contact_person %} · {{ a.contact_person }}{% endif %}
       {% if a.follow_up_date %} · <span class="{% if not a.follow_up_done %}text-amber-600{% else %}line-through text-gray-300{% endif %}">Follow-up {{ a.follow_up_date }}</span>{% endif %}
-      · <button type="button" onclick="copyRefTag(this, '{{ build_ref_tag(cn_number=a.cn_number|default(''), client_id=a.client_id, policy_uid=a.policy_uid|default(''), project_id=a.project_id|default(0), activity_id=a.id) }}')"
-          class="font-mono text-gray-300 hover:text-marsh" title="Copy email ref tag">{{ build_ref_tag(cn_number=a.cn_number|default(''), client_id=a.client_id, policy_uid=a.policy_uid|default(''), project_id=a.project_id|default(0), activity_id=a.id) }}</button>
+      {% set _a_ref = build_ref_tag(cn_number=a.cn_number|default(''), client_id=a.client_id, policy_uid=a.policy_uid|default(''), project_id=a.project_id|default(0), activity_id=a.id, thread_id=a.thread_id|default(0)) %}
+      · <button type="button" onclick="copyRefTag(this, '{{ _a_ref }}')"
+          class="font-mono text-gray-300 hover:text-marsh" title="Click to copy ref tag">{{ _a_ref }}</button>
     </p>
   </div>
   <div class="flex items-center gap-2 shrink-0">

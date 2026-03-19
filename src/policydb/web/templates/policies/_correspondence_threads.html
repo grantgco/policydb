@@ -9,8 +9,10 @@
     {% for t in correspondence_threads %}
     <details {% if t.has_pending %}open{% endif %} class="border border-gray-100 rounded overflow-hidden">
       <summary class="px-3 py-2 bg-gray-50 cursor-pointer select-none list-none flex items-center gap-2 text-xs hover:bg-gray-100 transition-colors">
+        {% set _t_ref = build_ref_tag(cn_number=client.cn_number|default(''), client_id=client.id|default(0), policy_uid=policy.policy_uid|default(''), project_id=policy.project_id|default(0), thread_id=t.thread_id) %}
         <span class="details-arrow text-gray-400">&#9654;</span>
-        <span class="text-blue-500 font-mono font-medium">COR-{{ t.thread_id }}</span>
+        <button type="button" onclick="copyRefTag(this, '{{ _t_ref }}')"
+          class="text-[10px] font-mono text-blue-500 bg-blue-50 px-2 py-0.5 rounded hover:bg-blue-100 cursor-pointer transition-colors" title="Click to copy ref tag">{{ _t_ref }}</button>
         <span class="text-gray-700">{{ t.thread_subject }}</span>
         <span class="text-gray-400">&middot; {{ t.attempt_count }} attempt{{ 's' if t.attempt_count != 1 }} &middot; {{ t.total_hours | format_hours }}</span>
         {% if t.has_pending %}
