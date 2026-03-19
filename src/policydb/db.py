@@ -727,6 +727,18 @@ def init_db(path: Path | None = None) -> None:
     # Data hygiene: fix 'None' string corruption in text fields (runs every startup, fast no-op if clean)
     conn.execute("UPDATE clients SET cn_number = NULL WHERE cn_number = 'None'")
 
+    # Backfill project addresses from linked policies (idempotent — only fills empty project addresses)
+    conn.execute("""
+        UPDATE projects SET
+            address = (SELECT p.exposure_address FROM policies p WHERE p.project_id = projects.id AND p.exposure_address IS NOT NULL AND p.exposure_address != '' LIMIT 1),
+            city = (SELECT p.exposure_city FROM policies p WHERE p.project_id = projects.id AND p.exposure_city IS NOT NULL AND p.exposure_city != '' LIMIT 1),
+            state = (SELECT p.exposure_state FROM policies p WHERE p.project_id = projects.id AND p.exposure_state IS NOT NULL AND p.exposure_state != '' LIMIT 1),
+            zip = (SELECT p.exposure_zip FROM policies p WHERE p.project_id = projects.id AND p.exposure_zip IS NOT NULL AND p.exposure_zip != '' LIMIT 1)
+        WHERE (project_type = 'Location' OR project_type IS NULL)
+          AND (address IS NULL OR address = '')
+          AND EXISTS (SELECT 1 FROM policies p WHERE p.project_id = projects.id AND p.exposure_address IS NOT NULL AND p.exposure_address != '')
+    """)
+
     _create_views(conn)
     conn.commit()
 
