@@ -569,6 +569,54 @@ def meeting_toggle_action(
     return resp
 
 
+@router.post("/meetings/{meeting_id}/actions/{action_id}/track")
+def action_toggle_track(
+    meeting_id: int,
+    action_id: int,
+    conn=Depends(get_db),
+):
+    """Toggle follow-up tracking for an action item."""
+    action = conn.execute(
+        "SELECT * FROM meeting_action_items WHERE id = ? AND meeting_id = ?",
+        (action_id, meeting_id),
+    ).fetchone()
+    if not action:
+        return JSONResponse({"ok": False}, status_code=404)
+
+    meeting = conn.execute("SELECT * FROM client_meetings WHERE id = ?", (meeting_id,)).fetchone()
+    if not meeting:
+        return JSONResponse({"ok": False}, status_code=404)
+
+    if action["activity_id"]:
+        # Untrack: mark the linked activity as done and unlink
+        conn.execute("UPDATE activity_log SET follow_up_done = 1 WHERE id = ?", (action["activity_id"],))
+        conn.execute("UPDATE meeting_action_items SET activity_id = NULL WHERE id = ?", (action_id,))
+        conn.commit()
+        return JSONResponse({"ok": True, "tracked": False})
+    else:
+        # Track: create a follow-up activity
+        account_exec = cfg.get("default_account_exec", "Grant")
+        due = action["due_date"] or (date.today() + timedelta(days=7)).isoformat()
+        cursor = conn.execute(
+            """INSERT INTO activity_log
+               (activity_date, client_id, activity_type, subject, contact_person,
+                follow_up_date, account_exec)
+               VALUES (?, ?, 'Meeting Action', ?, ?, ?, ?)""",
+            (
+                date.today().isoformat(),
+                meeting["client_id"],
+                action["description"] or "Meeting action item",
+                action["assignee"] or None,
+                due,
+                account_exec,
+            ),
+        )
+        new_aid = cursor.lastrowid
+        conn.execute("UPDATE meeting_action_items SET activity_id = ? WHERE id = ?", (new_aid, action_id))
+        conn.commit()
+        return JSONResponse({"ok": True, "tracked": True, "activity_id": new_aid})
+
+
 @router.post("/meetings/{meeting_id}/actions/{action_id}/delete")
 def meeting_delete_action(
     request: Request,

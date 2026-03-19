@@ -12,25 +12,27 @@
          class="matrix-cell-editable outline-none text-xs {% if ai.completed %}text-gray-400 line-through{% else %}text-gray-800{% endif %} rounded px-1 -mx-1"
          data-field="description" data-placeholder="Action item...">{{ ai.description or '' }}</div>
   </td>
-  <td class="px-3 py-2">
+  <td class="px-3 py-2 relative">
     <div contenteditable="true"
-         class="matrix-cell-editable outline-none text-xs text-gray-500 rounded px-1 -mx-1"
+         class="matrix-cell-editable action-assignee-cell outline-none text-xs text-gray-500 rounded px-1 -mx-1"
          data-field="assignee" data-placeholder="Assignee...">{{ ai.assignee or '' }}</div>
   </td>
   <td class="px-3 py-2">
-    <div contenteditable="true"
-         class="matrix-cell-editable outline-none text-xs rounded px-1 -mx-1
-           {% if ai.due_date and not ai.completed and ai.due_date < today %}text-red-500 font-medium
-           {% elif ai.due_date and not ai.completed %}text-amber-600
-           {% else %}text-gray-400{% endif %}"
-         data-field="due_date" data-placeholder="YYYY-MM-DD">{{ ai.due_date or '' }}</div>
+    <input type="date"
+      class="action-date-input text-xs border-0 bg-transparent outline-none px-0 py-0 w-full
+        {% if ai.due_date and not ai.completed and ai.due_date < today %}text-red-500 font-medium
+        {% elif ai.due_date and not ai.completed %}text-amber-600
+        {% else %}text-gray-400{% endif %}"
+      data-field="due_date"
+      data-action-id="{{ ai.id }}"
+      value="{{ ai.due_date or '' }}">
   </td>
-  <td class="px-3 py-2 text-center text-xs text-gray-400">
-    {% if ai.activity_id %}
-    <span class="text-green-500" title="Linked follow-up">✓</span>
-    {% else %}
-    <span class="text-gray-300">—</span>
-    {% endif %}
+  <td class="px-3 py-2 text-center">
+    <label class="relative inline-flex items-center cursor-pointer" title="{{ 'Follow-up linked — click to untrack' if ai.activity_id else 'Click to create a follow-up for this action' }}">
+      <input type="checkbox" class="sr-only peer" {% if ai.activity_id %}checked{% endif %}
+             onchange="toggleTrack(this, {{ meeting.id }}, {{ ai.id }})">
+      <div class="w-8 h-4 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:bg-green-500 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:after:translate-x-full"></div>
+    </label>
   </td>
   <td class="px-3 py-2 text-center">
     <button type="button"
