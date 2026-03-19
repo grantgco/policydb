@@ -1614,3 +1614,83 @@ async def contact_add_to_store(request: Request, name: str, conn=Depends(get_db)
 
     conn.commit()
     return JSONResponse({"ok": True})
+
+
+# ---------------------------------------------------------------------------
+# Expertise helpers and CRUD endpoints
+# ---------------------------------------------------------------------------
+
+def _attach_expertise(conn, contacts: list[dict]) -> None:
+    """Attach expertise tags to a list of contact dicts (mutates in place)."""
+    if not contacts:
+        return
+    ids = [c["id"] for c in contacts if c.get("id")]
+    if not ids:
+        return
+    rows = conn.execute(
+        f"SELECT contact_id, category, tag FROM contact_expertise WHERE contact_id IN ({','.join('?' * len(ids))})",
+        ids,
+    ).fetchall()
+    tag_map: dict[int, dict] = {}
+    for r in rows:
+        tag_map.setdefault(r["contact_id"], {"line": [], "industry": []})
+        tag_map[r["contact_id"]][r["category"]].append(r["tag"])
+    for c in contacts:
+        cid = c.get("id")
+        c["expertise_lines"] = tag_map.get(cid, {}).get("line", [])
+        c["expertise_industries"] = tag_map.get(cid, {}).get("industry", [])
+
+
+@router.post("/{contact_id}/expertise")
+async def contact_expertise_toggle(
+    request: Request,
+    contact_id: int,
+    conn=Depends(get_db),
+):
+    """Add or remove an expertise tag for a contact."""
+    body = await request.json()
+    category = body.get("category", "")
+    tag = body.get("tag", "")
+    action = body.get("action", "add")  # "add" or "remove"
+
+    if category not in ("line", "industry") or not tag:
+        return JSONResponse({"ok": False, "error": "Invalid"}, status_code=400)
+
+    contact = conn.execute("SELECT id FROM contacts WHERE id = ?", (contact_id,)).fetchone()
+    if not contact:
+        return JSONResponse({"ok": False, "error": "Not found"}, status_code=404)
+
+    if action == "remove":
+        conn.execute(
+            "DELETE FROM contact_expertise WHERE contact_id = ? AND category = ? AND tag = ?",
+            (contact_id, category, tag),
+        )
+    else:
+        conn.execute(
+            "INSERT OR IGNORE INTO contact_expertise (contact_id, category, tag) VALUES (?, ?, ?)",
+            (contact_id, category, tag),
+        )
+    conn.commit()
+
+    # Return current tags
+    tags = conn.execute(
+        "SELECT category, tag FROM contact_expertise WHERE contact_id = ?", (contact_id,)
+    ).fetchall()
+    return JSONResponse({"ok": True, "tags": [dict(t) for t in tags]})
+
+
+@router.patch("/{contact_id}/expertise-notes")
+async def contact_expertise_notes(
+    request: Request,
+    contact_id: int,
+    conn=Depends(get_db),
+):
+    """Update expertise notes for a contact."""
+    body = await request.json()
+    value = body.get("value", "").strip()
+    conn.execute(
+        "UPDATE contacts SET expertise_notes = ? WHERE id = ?",
+        (value or None, contact_id),
+    )
+    conn.commit()
+    return JSONResponse({"ok": True, "formatted": value})
