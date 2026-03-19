@@ -79,6 +79,28 @@ def _sort_clients(clients, sort="name", dir="asc"):
     return clients
 
 
+def _get_project_pipeline(conn, client_id: int) -> list[dict]:
+    """Load all non-location projects with computed coverage stats."""
+    projects = conn.execute("""
+        SELECT p.*,
+               (SELECT COUNT(*) FROM policies pol
+                WHERE pol.project_id = p.id AND pol.archived = 0) AS total_coverages,
+               (SELECT COUNT(*) FROM policies pol
+                WHERE pol.project_id = p.id AND pol.archived = 0
+                AND (pol.is_opportunity = 0 OR pol.is_opportunity IS NULL)) AS placed_coverages,
+               (SELECT COALESCE(SUM(pol.premium), 0) FROM policies pol
+                WHERE pol.project_id = p.id AND pol.archived = 0) AS total_premium,
+               (SELECT COALESCE(SUM(CASE WHEN pol.commission_rate > 0
+                THEN pol.premium * pol.commission_rate ELSE 0 END), 0)
+                FROM policies pol
+                WHERE pol.project_id = p.id AND pol.archived = 0) AS total_revenue
+        FROM projects p
+        WHERE p.client_id = ? AND p.project_type != 'Location'
+        ORDER BY p.insurance_needed_by, p.start_date, p.name
+    """, (client_id,)).fetchall()
+    return [dict(r) for r in projects]
+
+
 @router.get("", response_class=HTMLResponse)
 def client_list(
     request: Request,
@@ -776,6 +798,9 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
         "next_followup_days": next_followup_days,
         "last_activity_relative": last_activity_relative,
         "dispositions": cfg.get("follow_up_dispositions", []),
+        "pipeline_projects": _get_project_pipeline(conn, client_id),
+        "project_stages": cfg.get("project_stages", []),
+        "project_types": cfg.get("project_types", []),
     })
 
 
@@ -3421,3 +3446,136 @@ def request_bundle_export(client_id: int, bundle_id: int, conn=Depends(get_db)):
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+# ---------------------------------------------------------------------------
+# Project Pipeline endpoints
+# ---------------------------------------------------------------------------
+
+@router.patch("/{client_id}/projects/{project_id}/field")
+async def project_pipeline_field(
+    request: Request,
+    client_id: int,
+    project_id: int,
+    conn=Depends(get_db),
+):
+    """Update a single field on a pipeline project (contenteditable cell save)."""
+    body = await request.json()
+    field = body.get("field", "")
+    value = body.get("value", "")
+
+    allowed = {"project_type", "status", "name", "project_value", "start_date",
+               "target_completion", "insurance_needed_by", "scope_description",
+               "general_contractor", "owner_name", "address", "city", "state", "zip"}
+    if field not in allowed:
+        return JSONResponse({"ok": False, "error": f"Invalid field: {field}"}, status_code=400)
+
+    project = conn.execute(
+        "SELECT * FROM projects WHERE id = ? AND client_id = ?",
+        (project_id, client_id),
+    ).fetchone()
+    if not project:
+        return JSONResponse({"ok": False, "error": "Not found"}, status_code=404)
+
+    formatted = value
+    if field == "project_value":
+        from policydb.utils import parse_currency_with_magnitude
+        num = parse_currency_with_magnitude(value)
+        conn.execute("UPDATE projects SET project_value = ? WHERE id = ?", (num, project_id))
+        formatted = f"${num:,.0f}"
+    elif field in ("start_date", "target_completion", "insurance_needed_by"):
+        conn.execute(f"UPDATE projects SET {field} = ? WHERE id = ?",
+                     (value.strip() or None, project_id))
+        formatted = value.strip()
+    elif field == "name":
+        existing = conn.execute(
+            "SELECT id FROM projects WHERE client_id = ? AND LOWER(TRIM(name)) = LOWER(TRIM(?)) AND id != ?",
+            (client_id, value.strip(), project_id),
+        ).fetchone()
+        if existing:
+            return JSONResponse({"ok": False, "error": "Project name already exists"}, status_code=400)
+        conn.execute("UPDATE projects SET name = ? WHERE id = ?", (value.strip(), project_id))
+        conn.execute("UPDATE policies SET project_name = ? WHERE project_id = ?", (value.strip(), project_id))
+        formatted = value.strip()
+    else:
+        conn.execute(f"UPDATE projects SET {field} = ? WHERE id = ?",
+                     (value.strip() or None, project_id))
+        formatted = value.strip()
+
+    conn.commit()
+    return JSONResponse({"ok": True, "formatted": formatted})
+
+
+@router.post("/{client_id}/projects/pipeline", response_class=HTMLResponse)
+def project_pipeline_add(
+    request: Request,
+    client_id: int,
+    conn=Depends(get_db),
+):
+    """Create a new pipeline project with default values."""
+    base = "New Project"
+    name = base
+    counter = 2
+    while conn.execute(
+        "SELECT id FROM projects WHERE client_id = ? AND LOWER(TRIM(name)) = LOWER(TRIM(?))",
+        (client_id, name),
+    ).fetchone():
+        name = f"{base} {counter}"
+        counter += 1
+
+    conn.execute(
+        """INSERT INTO projects (client_id, name, project_type, status)
+           VALUES (?, ?, 'Construction', 'Upcoming')""",
+        (client_id, name),
+    )
+    project_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    conn.commit()
+
+    project = dict(conn.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone())
+    project["total_coverages"] = 0
+    project["placed_coverages"] = 0
+    project["total_premium"] = 0
+    project["total_revenue"] = 0
+
+    return templates.TemplateResponse("clients/_project_pipeline_row.html", {
+        "request": request,
+        "p": project,
+        "client": {"id": client_id},
+        "project_stages": cfg.get("project_stages", []),
+        "project_types": cfg.get("project_types", []),
+    })
+
+
+@router.get("/{client_id}/projects/{project_id}/coverage", response_class=HTMLResponse)
+def project_coverage_detail(
+    request: Request,
+    client_id: int,
+    project_id: int,
+    conn=Depends(get_db),
+):
+    """Return coverage detail expansion for a pipeline project."""
+    policies = [dict(r) for r in conn.execute("""
+        SELECT policy_uid, policy_type, carrier, premium, renewal_status,
+               is_opportunity, opportunity_status
+        FROM policies
+        WHERE project_id = ? AND archived = 0
+        ORDER BY is_opportunity, policy_type
+    """, (project_id,)).fetchall()]
+
+    return templates.TemplateResponse("clients/_project_coverage_detail.html", {
+        "request": request,
+        "policies": policies,
+    })
+
+
+@router.delete("/{client_id}/projects/{project_id}/pipeline")
+def project_pipeline_delete(
+    client_id: int,
+    project_id: int,
+    conn=Depends(get_db),
+):
+    """Delete a pipeline project, unlinking its policies."""
+    conn.execute("UPDATE policies SET project_id = NULL, project_name = NULL WHERE project_id = ?", (project_id,))
+    conn.execute("DELETE FROM projects WHERE id = ? AND client_id = ?", (project_id, client_id))
+    conn.commit()
+    return JSONResponse({"ok": True})
