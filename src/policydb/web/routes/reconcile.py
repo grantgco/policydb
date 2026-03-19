@@ -719,8 +719,17 @@ def batch_create_review(
         # Try to auto-match client
         client_name = ext.get("client_name", "")
         matched = client_lookup.get(client_name.lower())
+        if not matched and client_name:
+            # Fuzzy fallback — try to find best matching client
+            from rapidfuzz import fuzz as _fuzz
+            best_score = 0
+            for cname, cdict in client_lookup.items():
+                score = _fuzz.WRatio(client_name.lower(), cname)
+                if score >= 80 and score > best_score:
+                    best_score = score
+                    matched = cdict
         if not matched:
-            # Fuzzy fallback — check if client_id was filtered
+            # Final fallback — check if client_id was filtered
             if client_id > 0:
                 c = conn.execute("SELECT id, name FROM clients WHERE id=?", (client_id,)).fetchone()
                 if c:
