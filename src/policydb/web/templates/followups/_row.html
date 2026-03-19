@@ -27,7 +27,7 @@
       {% endif %}
       {% if r.thread_id and r.get('thread_total') %}
       <p class="text-[10px] text-gray-400 mt-0.5">
-        COR-{{ r.thread_id }} &middot; attempt {{ r.get('thread_attempt_num', '?') }} of {{ r.thread_total }}
+        <span class="cursor-pointer hover:text-blue-500" onclick="navigator.clipboard.writeText('COR-{{ r.thread_id }}');if(typeof showToast==='function')showToast('COR-{{ r.thread_id }} copied',true);">COR-{{ r.thread_id }}</span> &middot; attempt {{ r.get('thread_attempt_num', '?') }} of {{ r.thread_total }}
         {% if r.get('prev_disposition') %}&middot; last: {{ r.prev_disposition }}{% if r.get('prev_days_ago') is not none %} {{ r.prev_days_ago }}d ago{% endif %}{% endif %}
       </p>
       {% endif %}
@@ -44,7 +44,7 @@
     <span class="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">{{ r.disposition }}</span>
     {% endif %}
     {% if r.thread_id %}
-    <span class="text-[10px] text-blue-400 font-mono">COR-{{ r.thread_id }}</span>
+    <span class="text-[10px] text-blue-400 font-mono cursor-pointer hover:text-blue-600" onclick="navigator.clipboard.writeText('COR-{{ r.thread_id }}');if(typeof showToast==='function')showToast('COR-{{ r.thread_id }} copied',true);" title="Click to copy">COR-{{ r.thread_id }}</span>
     {% endif %}
     {% endif %}
   </td>
