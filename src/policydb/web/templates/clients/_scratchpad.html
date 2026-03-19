@@ -20,6 +20,12 @@
       class="text-xs bg-marsh text-white px-3 py-1 rounded hover:bg-marsh-light disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
       Save Note
     </button>
+    <button type="button" id="scratch-log-{{ client.id }}"
+      onclick="logScratchAsActivity('{{ client.id }}')"
+      {% if not client_scratchpad or not client_scratchpad.strip() %}disabled{% endif %}
+      class="text-xs text-gray-500 border border-gray-300 px-3 py-1 rounded hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors ml-1">
+      Log as Activity
+    </button>
   </div>
 
   {% if client_saved_notes %}
@@ -82,12 +88,14 @@
   var ta = document.getElementById('scratch-ta-' + CID);
   var ts = document.getElementById('scratch-ts-' + CID);
   var saveBtn = document.getElementById('scratch-save-' + CID);
+  var logBtn = document.getElementById('scratch-log-' + CID);
   if (!ta) return;
 
   function updateSaveBtn() {
     if (!saveBtn) return;
     var hasContent = (ta.value || '').trim().length > 0;
     saveBtn.disabled = !hasContent;
+    if (logBtn) logBtn.disabled = !hasContent;
   }
 
   var mde = window.initMarkdownEditor('scratch-ta-' + CID, {minHeight: '100px'});
@@ -123,4 +131,17 @@
 
   if (typeof renderMarkdown === 'function') renderMarkdown('.md-render');
 })();
+
+window.logScratchAsActivity = function(clientId) {
+  var ta = document.getElementById('scratch-ta-' + clientId);
+  if (!ta || !ta.value.trim()) return;
+  var fd = new FormData();
+  fd.set('client_id', clientId);
+  fd.set('activity_type', 'Note');
+  fd.set('subject', 'Working note');
+  fd.set('details', ta.value.trim());
+  fetch('/activities/log', {method: 'POST', body: fd})
+    .then(function(r) { if (r.ok && typeof showToast === 'function') showToast('Note logged as activity', true); })
+    .catch(function() { if (typeof showToast === 'function') showToast('Failed to log activity', false); });
+};
 </script>
