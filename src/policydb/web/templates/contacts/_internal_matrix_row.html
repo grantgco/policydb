@@ -1,5 +1,9 @@
 {% set row_id = "internal-" ~ (c.name | safe_id) %}
 <tr id="{{ row_id }}" data-contact-name="{{ c.name }}" class="contact-matrix-row group hover:bg-gray-50/60 align-top">
+  {# Checkbox #}
+  <td class="px-2 py-2 w-8">
+    <input type="checkbox" class="contact-check rounded border-gray-300" value="{{ c.contact_id }}" onchange="updateContactBulkBar()">
+  </td>
   {# Name + cross-store badges #}
   <td class="px-3 py-2.5">
     <div class="flex items-center gap-1">
