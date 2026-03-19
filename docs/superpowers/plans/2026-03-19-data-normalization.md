@@ -200,9 +200,10 @@ Find where `policy_type` and `policy_number` are used in the UPDATE SQL paramete
     policy_number = normalize_policy_number(policy_number) if policy_number else ""
 ```
 
-For address fields (if `exposure_city`, `exposure_state`, `exposure_zip` are in the function parameters):
+For address fields (if `exposure_address`, `exposure_city`, `exposure_state`, `exposure_zip` are in the function parameters):
 
 ```python
+    exposure_address = exposure_address.strip() if exposure_address else ""
     exposure_city = format_city(exposure_city) if exposure_city else ""
     exposure_state = format_state(exposure_state) if exposure_state else ""
     exposure_zip = format_zip(exposure_zip) if exposure_zip else ""
@@ -289,16 +290,32 @@ row["policy_number"] = normalize_policy_number(row.get("policy_number", ""))
 row["client_name"] = normalize_client_name(row.get("client_name", "")) if row.get("client_name") else ""
 ```
 
-- [ ] **Step 3: Run tests**
+- [ ] **Step 3: Add import-time duplicate detection**
+
+In `src/policydb/importer.py`, in the import flow where new clients are created (before the INSERT), add duplicate detection:
+
+```python
+from policydb.utils import normalize_client_name
+
+# After normalizing client_name, check for duplicates
+dupes = _find_similar_clients(conn, client_name)
+if dupes:
+    # Flag in import results — don't block, just warn
+    row["_duplicate_warning"] = f"Possible duplicate: {dupes[0]['name']} ({dupes[0]['score']}%)"
+```
+
+Import `_find_similar_clients` from wherever it's defined (clients.py or move to utils.py/queries.py for shared access). The warning is attached to the row dict and displayed in import results.
+
+- [ ] **Step 4: Run tests**
 
 Run: `pytest tests/ -v`
 Expected: All tests PASS
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add src/policydb/web/routes/reconcile.py src/policydb/importer.py
-git commit -m "feat: normalize fields on reconcile create and import"
+git commit -m "feat: normalize fields on reconcile/import, add import duplicate detection"
 ```
 
 ---
@@ -414,11 +431,20 @@ def _find_similar_contacts(conn, name: str, threshold: int = 85, source: str = "
     return sorted(matches, key=lambda x: -x["score"])
 ```
 
-- [ ] **Step 2: Add duplicate check to contact creation paths**
+- [ ] **Step 2: Extend `_duplicate_warning.html` template**
 
-Find where contacts are created (contact matrix add-row, contact create endpoints). Before INSERT, check for duplicates and return the existing `_duplicate_warning.html` partial if matches found.
+In `src/policydb/web/templates/contacts/_duplicate_warning.html`, add display for:
+- Fuzzy match score (e.g., "92% match")
+- Which clients the contact is assigned to (`client_names`)
+- "Use existing" and "Create anyway" action buttons
 
-- [ ] **Step 3: Commit**
+The function from Step 1 provides `score`, `client_names`, `match_type`, and `source` fields.
+
+- [ ] **Step 3: Add duplicate check to contact creation paths**
+
+Find where contacts are created (contact matrix add-row, contact create endpoints). Before INSERT, check for duplicates and return the extended `_duplicate_warning.html` partial if matches found.
+
+- [ ] **Step 4: Commit**
 
 ```bash
 git add src/policydb/web/routes/contacts.py src/policydb/web/routes/clients.py
