@@ -1344,6 +1344,17 @@ def contacts_search(request: Request, q: str = "", context: str = "", target_id:
 # Unified delete — removes ALL assignments and the contact record itself
 # ---------------------------------------------------------------------------
 
+@router.post("/unified/{contact_id}/delete-by-id")
+def unified_contact_delete_by_id(request: Request, contact_id: int, conn=Depends(get_db)):
+    """Delete a contact entirely by numeric ID (used by bulk delete)."""
+    conn.execute("UPDATE activity_log SET contact_id = NULL WHERE contact_id = ?", (contact_id,))
+    conn.execute("DELETE FROM contact_policy_assignments WHERE contact_id = ?", (contact_id,))
+    conn.execute("DELETE FROM contact_client_assignments WHERE contact_id = ?", (contact_id,))
+    conn.execute("DELETE FROM contacts WHERE id = ?", (contact_id,))
+    conn.commit()
+    return JSONResponse({"ok": True})
+
+
 @router.post("/unified/{name}/delete")
 def unified_contact_delete(request: Request, name: str, conn=Depends(get_db)):
     """Delete a contact entirely: all policy assignments, all client assignments, and the contact record."""

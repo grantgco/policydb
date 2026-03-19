@@ -351,13 +351,16 @@
   <div class="card pb-1">
     <table class="w-full text-sm table-fixed" id="contacts-table">
       <colgroup>
-        <col style="width:12%"><col style="width:11%"><col style="width:10%">
+        <col style="width:32px"><col style="width:12%"><col style="width:11%"><col style="width:10%">
         <col style="width:9%"><col style="width:13%"><col style="width:9%">
         <col style="width:9%"><col style="width:9%"><col style="width:12%">
         <col style="width:50px">
       </colgroup>
       <thead>
         <tr class="text-left text-xs text-gray-400 uppercase tracking-wide border-b border-gray-100 bg-gray-50/80">
+          <th class="px-2 py-2.5 w-8">
+            <input type="checkbox" class="rounded border-gray-300" id="placement-check-all" onchange="toggleAllChecks('contacts-tbody', this.checked)">
+          </th>
           <th class="px-3 py-2.5 font-medium">Name</th>
           <th class="px-3 py-2.5 font-medium">Organization</th>
           <th class="px-3 py-2.5 font-medium">Role</th>
@@ -392,12 +395,15 @@
   <div class="card pb-1">
     <table class="w-full text-sm table-fixed" id="internal-contacts-table">
       <colgroup>
-        <col style="width:12%"><col style="width:10%"><col style="width:10%">
+        <col style="width:32px"><col style="width:12%"><col style="width:10%"><col style="width:10%">
         <col style="width:15%"><col style="width:10%"><col style="width:10%">
         <col style="width:10%"><col style="width:14%"><col style="width:50px">
       </colgroup>
       <thead>
         <tr class="text-left text-xs text-gray-400 uppercase tracking-wide border-b border-gray-100 bg-gray-50/80">
+          <th class="px-2 py-2.5 w-8">
+            <input type="checkbox" class="rounded border-gray-300" id="internal-check-all" onchange="toggleAllChecks('internal-tbody', this.checked)">
+          </th>
           <th class="px-3 py-2.5 font-medium">Name</th>
           <th class="px-3 py-2.5 font-medium">Title</th>
           <th class="px-3 py-2.5 font-medium">Role</th>
@@ -431,12 +437,15 @@
   <div class="card pb-1">
     <table class="w-full text-sm table-fixed" id="client-contacts-table">
       <colgroup>
-        <col style="width:11%"><col style="width:10%"><col style="width:9%"><col style="width:9%">
+        <col style="width:32px"><col style="width:11%"><col style="width:10%"><col style="width:9%"><col style="width:9%">
         <col style="width:13%"><col style="width:9%"><col style="width:9%">
         <col style="width:9%"><col style="width:12%"><col style="width:40px">
       </colgroup>
       <thead>
         <tr class="text-left text-xs text-gray-400 uppercase tracking-wide border-b border-gray-100 bg-gray-50/80">
+          <th class="px-2 py-2.5 w-8">
+            <input type="checkbox" class="rounded border-gray-300" id="client-check-all" onchange="toggleAllChecks('client-contact-tbody', this.checked)">
+          </th>
           <th class="px-3 py-2.5 font-medium">Name</th>
           <th class="px-3 py-2.5 font-medium">Org</th>
           <th class="px-3 py-2.5 font-medium">Title</th>
@@ -457,6 +466,27 @@
         {% endfor %}
       </tbody>
     </table>
+  </div>
+</div>
+
+{# ── Bulk Action Bar ── #}
+<div id="contact-bulk-bar" class="hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-lg px-6 py-3 flex items-center gap-3 z-50 no-print">
+  <span class="text-sm font-medium text-gray-700" id="contact-bulk-count">0 selected</span>
+  <button onclick="bulkDeleteContacts()" class="bg-red-500 hover:bg-red-600 text-white text-sm px-3 py-1.5 rounded">Delete Selected</button>
+  <button onclick="showMergeComparison()" id="contact-merge-btn" class="hidden bg-blue-500 hover:bg-blue-600 text-white text-sm px-3 py-1.5 rounded">Merge Selected</button>
+  <button onclick="clearContactChecks()" class="text-sm text-gray-400 hover:text-gray-600 ml-auto">Clear</button>
+</div>
+
+{# ── Merge Comparison Panel ── #}
+<div id="merge-compare-panel" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40" onclick="if(event.target===this)this.classList.add('hidden')">
+  <div class="bg-white rounded-xl shadow-2xl w-full max-w-3xl mx-4 max-h-[90vh] overflow-y-auto" id="merge-compare-content">
+    <div class="p-4 border-b border-gray-100 flex items-center justify-between">
+      <span class="font-semibold text-gray-800">Merge Contacts</span>
+      <button onclick="document.getElementById('merge-compare-panel').classList.add('hidden')" class="text-gray-400 hover:text-gray-600 text-lg leading-none">&times;</button>
+    </div>
+    <div id="merge-compare-body" class="p-4">
+      <p class="text-sm text-gray-400">Select 2 contacts and click Merge Selected.</p>
+    </div>
   </div>
 </div>
 
@@ -808,6 +838,55 @@ document.querySelectorAll('[id^="assign-clients-"], #new-contact-clients, #new-c
     });
   });
 })();
+
+{# ── Bulk Action Bar JS ── #}
+function updateContactBulkBar() {
+  var checked = document.querySelectorAll('.contact-check:checked');
+  var bar = document.getElementById('contact-bulk-bar');
+  var count = document.getElementById('contact-bulk-count');
+  var mergeBtn = document.getElementById('contact-merge-btn');
+  if (checked.length > 0) {
+    bar.classList.remove('hidden');
+    count.textContent = checked.length + ' selected';
+    mergeBtn.classList.toggle('hidden', checked.length !== 2);
+  } else {
+    bar.classList.add('hidden');
+  }
+}
+
+function toggleAllChecks(tbodyId, checked) {
+  document.querySelectorAll('#' + tbodyId + ' .contact-check').forEach(function(cb) {
+    cb.checked = checked;
+  });
+  updateContactBulkBar();
+}
+
+function bulkDeleteContacts() {
+  var ids = Array.from(document.querySelectorAll('.contact-check:checked')).map(function(cb) { return cb.value; });
+  if (!ids.length) return;
+  if (!confirm('Delete ' + ids.length + ' contact(s)? This removes all their assignments.')) return;
+  Promise.all(ids.map(function(id) {
+    return fetch('/contacts/unified/' + id + '/delete-by-id', {method: 'POST'});
+  })).then(function() { window.location.reload(); });
+}
+
+function clearContactChecks() {
+  document.querySelectorAll('.contact-check').forEach(function(cb) { cb.checked = false; });
+  document.querySelectorAll('#placement-check-all, #internal-check-all, #client-check-all').forEach(function(cb) { cb.checked = false; });
+  updateContactBulkBar();
+}
+
+function showMergeComparison() {
+  var ids = Array.from(document.querySelectorAll('.contact-check:checked')).map(function(cb) { return cb.value; });
+  if (ids.length !== 2) return;
+  var panel = document.getElementById('merge-compare-panel');
+  var body = document.getElementById('merge-compare-body');
+  body.innerHTML = '<p class="text-sm text-gray-400">Loading...</p>';
+  panel.classList.remove('hidden');
+  htmx.ajax('GET', '/contacts/merge-compare?id1=' + ids[0] + '&id2=' + ids[1], {
+    target: '#merge-compare-body', swap: 'innerHTML'
+  });
+}
 </script>
 
 {% endblock %}
