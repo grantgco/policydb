@@ -1,0 +1,50 @@
+{% if correspondence_threads %}
+<details {% if correspondence_threads | selectattr('has_pending') | list %}open{% endif %} class="card mb-4">
+  <summary class="px-4 py-2.5 cursor-pointer select-none list-none flex items-center gap-2 text-xs font-semibold text-gray-500 uppercase tracking-wide hover:bg-gray-50 rounded-xl">
+    <span class="details-arrow text-gray-400">&#9654;</span>
+    Correspondence Threads
+    <span class="text-gray-400 font-normal normal-case">&middot; {{ correspondence_threads | length }} thread{{ 's' if correspondence_threads | length != 1 }}</span>
+  </summary>
+  <div class="px-4 pb-4 space-y-3">
+    {% for t in correspondence_threads %}
+    <details {% if t.has_pending %}open{% endif %} class="border border-gray-100 rounded overflow-hidden">
+      <summary class="px-3 py-2 bg-gray-50 cursor-pointer select-none list-none flex items-center gap-2 text-xs hover:bg-gray-100 transition-colors">
+        <span class="details-arrow text-gray-400">&#9654;</span>
+        <span class="text-blue-500 font-mono font-medium">COR-{{ t.thread_id }}</span>
+        <span class="text-gray-700">{{ t.thread_subject }}</span>
+        <span class="text-gray-400">&middot; {{ t.attempt_count }} attempt{{ 's' if t.attempt_count != 1 }} &middot; {{ t.total_hours | format_hours }}</span>
+        {% if t.has_pending %}
+        <span class="bg-amber-100 text-amber-700 text-[10px] px-1.5 py-0.5 rounded ml-auto">Pending</span>
+        {% endif %}
+      </summary>
+      <table class="w-full text-xs">
+        <tbody>
+          {% for a in t.activities %}
+          <tr class="border-t border-gray-50 hover:bg-gray-50 transition-colors">
+            <td class="px-3 py-1.5 text-gray-400 w-20 whitespace-nowrap">{{ a.activity_date }}</td>
+            <td class="px-3 py-1.5 w-32">
+              {% if a.disposition %}
+              <span class="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">{{ a.disposition }}</span>
+              {% else %}
+              <span class="text-gray-300">&mdash;</span>
+              {% endif %}
+            </td>
+            <td class="px-3 py-1.5 text-gray-600 truncate max-w-xs">{{ a.details or '' }}</td>
+            <td class="px-3 py-1.5 text-right text-gray-400 tabular-nums w-16">
+              {% if a.duration_hours %}{{ a.duration_hours | format_hours }}{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr class="border-t border-gray-200">
+            <td colspan="3" class="px-3 py-1.5 text-gray-400 font-medium">Total</td>
+            <td class="px-3 py-1.5 text-right text-gray-500 font-medium tabular-nums">{{ t.total_hours | format_hours }}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </details>
+    {% endfor %}
+  </div>
+</details>
+{% endif %}

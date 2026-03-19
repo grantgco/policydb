@@ -1214,6 +1214,25 @@ def policy_edit_form(request: Request, policy_uid: str, add_contact: str = "", c
                 ground_up = running
             _tower_layers.append(dict(tr) | {"ground_up": ground_up, "is_current": tr["policy_uid"] == uid})
 
+    # Correspondence threads for this policy
+    _correspondence_threads = [dict(r) for r in conn.execute("""
+        SELECT thread_id,
+               MIN(subject) AS thread_subject,
+               COUNT(*) AS attempt_count,
+               COALESCE(SUM(duration_hours), 0) AS total_hours,
+               MAX(CASE WHEN follow_up_done = 0 THEN 1 ELSE 0 END) AS has_pending
+        FROM activity_log
+        WHERE policy_id = ? AND thread_id IS NOT NULL
+        GROUP BY thread_id
+        ORDER BY MAX(activity_date) DESC
+    """, (policy_dict["id"],)).fetchall()] if policy_dict.get("id") else []
+    for _ct in _correspondence_threads:
+        _ct["activities"] = [dict(r) for r in conn.execute("""
+            SELECT activity_date, disposition, details, duration_hours, follow_up_done
+            FROM activity_log WHERE thread_id = ?
+            ORDER BY activity_date DESC, id DESC
+        """, (_ct["thread_id"],)).fetchall()]
+
     from policydb.queries import REVIEW_CYCLE_LABELS as _REVIEW_CYCLE_LABELS
     return templates.TemplateResponse("policies/edit.html", {
         "request": request,
@@ -1249,6 +1268,7 @@ def policy_edit_form(request: Request, policy_uid: str, add_contact: str = "", c
         "cycle_labels": _REVIEW_CYCLE_LABELS,
         "contact_roles": cfg.get("contact_roles", []),
         "all_orgs": sorted({r["organization"] for r in conn.execute("SELECT DISTINCT organization FROM contacts WHERE organization IS NOT NULL AND organization != ''").fetchall()}),
+        "correspondence_threads": _correspondence_threads,
         "tower_layers": _tower_layers,
         "request_categories": cfg.get("request_categories", []),
         "program_linked_policies": [dict(r) for r in conn.execute(
