@@ -147,12 +147,14 @@ def policy_context(conn: sqlite3.Connection, policy_uid: str) -> dict:
     proj = row["project_name"] or ""
     # Placement colleague from contact_policy_assignments (is_placement_colleague flag)
     _pc_row = conn.execute(
-        """SELECT co.name FROM contact_policy_assignments cpa
+        """SELECT co.name, co.email, co.phone FROM contact_policy_assignments cpa
            JOIN contacts co ON cpa.contact_id = co.id
            WHERE cpa.policy_id = (SELECT id FROM policies WHERE policy_uid = ?) AND cpa.is_placement_colleague = 1 LIMIT 1""",
         (policy_uid.upper(),),
     ).fetchone()
     pc_name = _pc_row["name"] if _pc_row else ""
+    pc_email = _pc_row["email"] if _pc_row else ""
+    pc_phone = _pc_row["phone"] if _pc_row else ""
     # Program carrier info (from program_carriers table)
     if row["is_program"]:
         carrier_rows = conn.execute(
@@ -181,6 +183,9 @@ def policy_context(conn: sqlite3.Connection, policy_uid: str) -> dict:
         "renewal_status": row["renewal_status"] or "",
         "access_point": row["access_point"] or "",
         "placement_colleague": pc_name,
+        "placement_colleague_name": pc_name,
+        "placement_colleague_email": pc_email,
+        "placement_colleague_phone": pc_phone,
         "last_reviewed_at": row["last_reviewed_at"] or "",
         "review_cycle": _cycle_label(row["review_cycle"]),
         "today": date.today().strftime("%B %d, %Y"),
@@ -366,6 +371,9 @@ CONTEXT_TOKEN_GROUPS: dict[str, list[tuple[str, list[tuple[str, str]]]]] = {
             ("project_name_sep", "Project (with separator)"),
             ("access_point", "Access Point"),
             ("placement_colleague", "Placement Colleague"),
+            ("placement_colleague_name", "Placement Colleague Name"),
+            ("placement_colleague_email", "Colleague Email"),
+            ("placement_colleague_phone", "Colleague Phone"),
             ("renewal_status", "Renewal Status"),
             ("program_carriers", "Program Carriers"),
             ("program_carrier_count", "Program Carrier Count"),
