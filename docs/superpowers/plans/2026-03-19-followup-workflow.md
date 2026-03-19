@@ -515,13 +515,21 @@ git commit -m "feat: add disposition and thread stats to follow-up queries"
 - Modify: `src/policydb/web/routes/activities.py` (pass dispositions to template context)
 - Modify: `src/policydb/web/routes/dashboard.py` (pass dispositions to followup context)
 
-- [ ] **Step 1: Pass dispositions list to template contexts**
+- [ ] **Step 1: Pass dispositions list to ALL template contexts that render `_row.html`**
 
-In every route that renders follow-up rows (search for `followups/_row.html` usage and `_results.html` includes), add `"dispositions": cfg.get("follow_up_dispositions", [])` to the template context.
+Add `"dispositions": cfg.get("follow_up_dispositions", [])` to the template context in **every** code path that renders `followups/_row.html` or `followups/_results.html`. There are **six** locations:
 
-Key files:
-- `src/policydb/web/routes/activities.py` — the `followups_page` handler and `activity_followup` response
-- `src/policydb/web/routes/dashboard.py` — dashboard renders follow-up rows
+1. `src/policydb/web/routes/activities.py` — `followups_page` handler (full page render)
+2. `src/policydb/web/routes/activities.py` — `_followups_ctx()` helper (around line 489) — this feeds `_results.html` for partial refreshes, bulk complete, and bulk reschedule. **Adding it here covers paths 2a-2c below:**
+   - 2a. `bulk_complete` (line ~917) — renders `_results.html`
+   - 2b. `bulk_reschedule` (line ~762) — renders `_results.html`
+   - 2c. HTMX partial refreshes via `_results.html`
+3. `src/policydb/web/routes/activities.py` — `activity_followup` response (line ~388, when `context == "followup_table"`) — renders single `_row.html`
+4. `src/policydb/web/routes/activities.py` — `activity_snooze` response (line ~437) — renders single `_row.html`
+5. `src/policydb/web/routes/activities.py` — `activity_reschedule` response (line ~465) — renders single `_row.html`
+6. `src/policydb/web/routes/dashboard.py` — dashboard renders follow-up rows
+
+**Critical:** If `dispositions` is missing from context, the unified form's dropdown renders empty — the form works but offers no disposition options.
 
 - [ ] **Step 2: Add COR tag and disposition badge to follow-up row display**
 
@@ -698,6 +706,44 @@ Find the area in `_activity_row.html` where the activity type badge is displayed
 ```bash
 git add src/policydb/web/templates/activities/_activity_row.html
 git commit -m "feat: disposition badge and COR tag on activity rows"
+```
+
+---
+
+### Task 7b: Bulk Complete — Disposition Dropdown
+
+**Files:**
+- Modify: `src/policydb/web/templates/followups/_results.html` or `followups.html` (bulk triage bar)
+- Modify: `src/policydb/web/routes/activities.py` (bulk_complete endpoint)
+
+- [ ] **Step 1: Add disposition dropdown to bulk-complete bar**
+
+Find the bulk triage bar in `src/policydb/web/templates/followups.html` or `_results.html` (around the bulk-complete form). Add a disposition `<select>` dropdown:
+
+```html
+<select name="disposition" class="text-xs border border-gray-200 rounded px-2 py-1">
+  <option value="">— Disposition —</option>
+  {% for d in dispositions %}
+  <option value="{{ d.label }}">{{ d.label }}</option>
+  {% endfor %}
+</select>
+```
+
+- [ ] **Step 2: Accept `disposition` parameter in `bulk_complete` endpoint**
+
+Find the `bulk_complete` handler in `src/policydb/web/routes/activities.py` (around line 867). Add `disposition: str = Form("")` parameter. When marking activities as done, also save the disposition:
+
+```python
+    if disposition:
+        for aid in activity_ids:
+            conn.execute("UPDATE activity_log SET disposition=? WHERE id=?", (disposition.strip(), aid))
+```
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add src/policydb/web/templates/followups/_results.html src/policydb/web/routes/activities.py
+git commit -m "feat: disposition dropdown in bulk-complete flow"
 ```
 
 ---
