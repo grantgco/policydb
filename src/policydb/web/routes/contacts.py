@@ -412,6 +412,24 @@ def contacts_list(request: Request, q: str = "", org: str = "", role: str = "", 
     _attach_expertise(conn, internal)
     _attach_expertise(conn, client_type)
 
+    # Batch follow-up counts for placement, internal, and client-type contact lists
+    _matrix_contact_ids = list({
+        c["contact_id"] for c in contacts + internal + client_type if c.get("contact_id")
+    })
+    _matrix_fu_map: dict[int, int] = {}
+    if _matrix_contact_ids:
+        _mfp = ",".join("?" * len(_matrix_contact_ids))
+        _mfu_rows = conn.execute(
+            f"""SELECT contact_id, COUNT(*) AS cnt FROM activity_log
+                WHERE contact_id IN ({_mfp})
+                  AND follow_up_done = 0 AND follow_up_date IS NOT NULL
+                GROUP BY contact_id""",
+            _matrix_contact_ids,
+        ).fetchall()
+        _matrix_fu_map = {r["contact_id"]: r["cnt"] for r in _mfu_rows}
+    for _c in contacts + internal + client_type:
+        _c["open_followup_count"] = _matrix_fu_map.get(_c.get("contact_id", 0), 0)
+
     # Filter by expertise line
     if line:
         _line_ids = {r[0] for r in conn.execute(
