@@ -96,9 +96,7 @@ window.addLocation = function(clientId) {
           <td class="px-3 py-2 text-right tabular-nums text-gray-500">{% if loc.total_revenue %}{{ loc.total_revenue | currency }}{% else %}$0{% endif %}</td>
           <td class="px-3 py-2 text-center">
             <span class="text-xs cursor-pointer hover:text-marsh"
-              hx-get="/clients/{{ client.id }}/projects/{{ loc.id }}/coverage"
-              hx-target="#loc-cov-{{ loc.id }}"
-              hx-swap="innerHTML"
+              onclick="toggleLocCoverage({{ client.id }}, {{ loc.id }})"
               title="Click to expand coverages">{{ loc.placed_coverages }} of {{ loc.total_coverages }}</span>
           </td>
           <td class="px-3 py-2 no-print">
@@ -141,6 +139,23 @@ window.addLocation = function(clientId) {
       }
     });
   }, true);
+
+  window.toggleLocCoverage = function(clientId, projectId) {
+    var covId = 'loc-cov-detail-' + projectId;
+    var existing = document.getElementById(covId);
+    if (existing) { existing.remove(); return; }
+    fetch('/clients/' + clientId + '/projects/' + projectId + '/coverage')
+      .then(function(r) { return r.text(); })
+      .then(function(html) {
+        var row = document.getElementById('loc-row-' + projectId);
+        if (row) {
+          var tr = document.createElement('tr');
+          tr.id = covId;
+          tr.innerHTML = '<td colspan="9" class="px-4 py-2 bg-gray-50">' + html + '</td>';
+          row.insertAdjacentElement('afterend', tr);
+        }
+      });
+  };
 
   window.addLocation = function(clientId) {
     fetch('/clients/' + clientId + '/projects/location', {method: 'POST'})
