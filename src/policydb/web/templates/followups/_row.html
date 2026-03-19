@@ -141,7 +141,8 @@
         class="text-xs text-gray-300 hover:text-marsh border border-gray-200 hover:border-marsh rounded px-2 py-1.5 transition-colors">
         &#9993;+
       </button>
-      <button type="button" onclick="copyRefTag(this, '{% if r.thread_id %}COR-{{ r.thread_id }} | {% endif %}{{ build_ref_tag(cn_number=r.get('cn_number', ''), client_id=r.client_id, policy_uid=r.policy_uid|default(''), project_id=r.get('project_id', 0), activity_id=r.id) }}')"
+      {% set _ref_tag = build_ref_tag(cn_number=r.get('cn_number', ''), client_id=r.client_id, policy_uid=r.policy_uid|default(''), project_id=r.get('project_id', 0), activity_id=r.id, thread_id=r.get('thread_id', 0)) %}
+      <button type="button" onclick="copyRefTag(this, '{{ _ref_tag }}')"
         class="text-xs text-gray-300 hover:text-marsh border border-gray-200 hover:border-marsh rounded px-2 py-1.5 transition-colors" title="Copy email ref tag">&#10697;</button>
     </div>
   </td>
@@ -256,6 +257,14 @@
           hx-on::before-request="var f=document.getElementById('disposition-form-row-{{ row_id }}');if(f)f.remove();"
           class="space-y-2">
       <input type="hidden" name="context" value="followup_table">
+
+      {# Reference tag — copyable from within the form #}
+      <div class="flex items-center gap-2 mb-1">
+        <span class="text-[10px] font-mono text-blue-500 bg-blue-50 px-2 py-0.5 rounded select-all cursor-pointer" title="Click to select, then copy"
+              onclick="navigator.clipboard.writeText(this.textContent.trim());if(typeof showToast==='function')showToast('Ref tag copied',true);">{{ _ref_tag }}</span>
+        <span class="text-[10px] text-gray-300">|</span>
+        <span class="text-[10px] text-gray-400">A-{{ r.id }}</span>
+      </div>
 
       <div class="flex items-center gap-3 flex-wrap">
         <div>
