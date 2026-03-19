@@ -415,7 +415,7 @@ def activity_followup(
             "request": request, "r": r, "today": today_str,
             "dispositions": cfg.get("follow_up_dispositions", []),
         })
-        resp.headers["HX-Trigger"] = '{"refreshFollowups": "", "activityLogged": "Follow-up re-diaried — new activity created"}'
+        resp.headers["HX-Trigger"] = '{"refreshFollowups": "", "activityLogged": "Follow-up re-diaried - new activity created"}'
         return resp
 
     new_activity = _activity_row_dict(conn, cursor.lastrowid)
@@ -424,7 +424,7 @@ def activity_followup(
     resp = templates.TemplateResponse("activities/_activity_row.html", {
         "request": request, "a": new_activity,
     })
-    resp.headers["HX-Trigger"] = '{"reorderActivities": "", "activityLogged": "Follow-up re-diaried — new activity created"}'
+    resp.headers["HX-Trigger"] = '{"reorderActivities": "", "activityLogged": "Follow-up re-diaried - new activity created"}'
     return resp
 
 
@@ -465,7 +465,7 @@ def activity_snooze(request: Request, activity_id: int, days: int = 7, conn=Depe
         "request": request, "r": r, "today": today,
         "dispositions": cfg.get("follow_up_dispositions", []),
     })
-    resp.headers["HX-Trigger"] = '{"refreshFollowups": "", "activityLogged": "Snoozed +' + str(days) + 'd → ' + r["follow_up_date"] + '"}'
+    resp.headers["HX-Trigger"] = '{"refreshFollowups": "", "activityLogged": "Snoozed +' + str(days) + 'd to ' + r["follow_up_date"] + '"}'
     return resp
 
 
@@ -496,7 +496,7 @@ def activity_reschedule(request: Request, activity_id: int, new_date: str = Form
         "request": request, "r": r, "today": today,
         "dispositions": cfg.get("follow_up_dispositions", []),
     })
-    resp.headers["HX-Trigger"] = '{"refreshFollowups": "", "activityLogged": "Rescheduled → ' + new_date + '"}'
+    resp.headers["HX-Trigger"] = '{"refreshFollowups": "", "activityLogged": "Rescheduled to ' + new_date + '"}'
     return resp
 
 
