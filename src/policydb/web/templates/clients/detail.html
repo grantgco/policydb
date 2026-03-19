@@ -419,9 +419,24 @@
 {% endif %}
 
 <!-- Project Pipeline -->
+<div id="pipeline-section">
 {% if pipeline_projects %}
 {% include 'clients/_project_pipeline.html' %}
+{% else %}
+<div class="mb-4 flex justify-end no-print">
+  <button type="button" onclick="addFirstProject({{ client.id }})"
+          class="text-xs text-gray-400 border border-dashed border-gray-300 px-3 py-1 rounded hover:border-marsh hover:text-marsh transition-colors">
+    + Add Project
+  </button>
+</div>
+<script>
+function addFirstProject(clientId) {
+  fetch('/clients/' + clientId + '/projects/pipeline', {method: 'POST'})
+    .then(function() { window.location.reload(); });
+}
+</script>
 {% endif %}
+</div>
 
 <!-- Opportunities -->
 {% include "clients/_opportunities.html" %}
