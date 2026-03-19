@@ -6,9 +6,247 @@ import re
 
 
 # ─── COVERAGE ALIASES ─────────────────────────────────────────────────────────
-# Placeholder; full dict is populated in Task 2 (moved from reconciler.py).
-# Maps lowercase alias → canonical policy type name.
-_COVERAGE_ALIASES: dict[str, str] = {}
+# Maps common AMS abbreviations and alternate names to canonical PolicyDB values.
+# Applied before fuzzy matching so "CGL" vs "General Liability" score 100, not 40.
+# Moved here from reconciler.py so it can be shared with save-path normalization.
+_COVERAGE_ALIASES: dict[str, str] = {
+    # ── General Liability ────────────────────────────────────────────────────
+    "cgl": "General Liability",
+    "gl": "General Liability",
+    "general liability": "General Liability",
+    "commercial general liability": "General Liability",
+    "premises liability": "General Liability",
+    "general liability (part of package)": "General Liability",
+    "gl (part of package)": "General Liability",
+
+    # ── Property / Builders Risk ─────────────────────────────────────────────
+    # All these map to the combined canonical "Property / Builders Risk"
+    "prop": "Property / Builders Risk",
+    "bop": "Property / Builders Risk",
+    "commercial property": "Property / Builders Risk",
+    "building": "Property / Builders Risk",
+    "property": "Property / Builders Risk",
+    "all risks property": "Property / Builders Risk",
+    "all risk property": "Property / Builders Risk",
+    "difference in conditions": "Property / Builders Risk",
+    "dic": "Property / Builders Risk",
+    "inland marine": "Inland Marine",
+    "special risk": "Property / Builders Risk",
+    "blended program / package": "Property / Builders Risk",
+    "blended program/package": "Property / Builders Risk",
+    "blended program": "Property / Builders Risk",
+    "package policy": "Property / Builders Risk",
+
+    # ── Builders Risk (Standalone) ───────────────────────────────────────────
+    "builders risk": "Builders Risk (Standalone)",
+    "builders all risks": "Builders Risk (Standalone)",
+    "builders all risk": "Builders Risk (Standalone)",
+    "installation floater": "Builders Risk (Standalone)",
+    "builders risk (standalone)": "Builders Risk (Standalone)",
+
+    # ── Equipment Breakdown ───────────────────────────────────────────────────
+    "boiler & machinery": "Equipment Breakdown",
+    "boiler and machinery": "Equipment Breakdown",
+    "equipment breakdown": "Equipment Breakdown",
+
+    # ── Umbrella / Excess ────────────────────────────────────────────────────
+    "umb": "Umbrella / Excess",
+    "excess": "Umbrella / Excess",
+    "umbrella": "Umbrella / Excess",
+    "excess liability": "Umbrella / Excess",
+    "umbrella liability": "Umbrella / Excess",
+    "excess/umbrella": "Umbrella / Excess",
+    "umbrella / excess": "Umbrella / Excess",
+    "umbrella and/or bumbershoot liability": "Umbrella / Excess",
+    "bumbershoot": "Umbrella / Excess",
+    "marine excess liability": "Umbrella / Excess",
+
+    # ── Workers Compensation ─────────────────────────────────────────────────
+    "wc": "Workers Compensation",
+    "workers comp": "Workers Compensation",
+    "workers' comp": "Workers Compensation",
+    "workers' compensation": "Workers Compensation",
+    "work comp": "Workers Compensation",
+    "workers compensation": "Workers Compensation",
+
+    # ── Commercial Auto ──────────────────────────────────────────────────────
+    "ca": "Commercial Auto",
+    "bap": "Commercial Auto",
+    "commercial auto": "Commercial Auto",
+    "business auto": "Commercial Auto",
+    "hired & non-owned auto": "Commercial Auto",
+    "hired and non-owned": "Commercial Auto",
+    "automobile liability/physical damage (part of package)": "Commercial Auto",
+    "automobile liability/physical damage": "Commercial Auto",
+    "automobile/motor liability & physical damage": "Commercial Auto",
+    "automobile/motor liability and physical damage": "Commercial Auto",
+    "automobile/motor non-owned": "Commercial Auto",
+    "auto liability": "Commercial Auto",
+    "commercial automobile": "Commercial Auto",
+
+    # ── Cyber / Tech E&O ─────────────────────────────────────────────────────
+    "cyber": "Cyber / Tech E&O",
+    "cyber liability": "Cyber / Tech E&O",
+    "cyber / tech e&o": "Cyber / Tech E&O",
+    "cyber, tech, media programs": "Cyber / Tech E&O",
+    "cyber tech media": "Cyber / Tech E&O",
+    "technology e&o": "Cyber / Tech E&O",
+    "tech e&o": "Cyber / Tech E&O",
+    "media liability": "Cyber / Tech E&O",
+    "network security": "Cyber / Tech E&O",
+
+    # ── Professional Liability / E&O ─────────────────────────────────────────
+    "e&o": "Professional Liability / E&O",
+    "professional liability": "Professional Liability / E&O",
+    "professional liability / e&o": "Professional Liability / E&O",
+    "pl": "Professional Liability / E&O",
+    "errors & omissions": "Professional Liability / E&O",
+    "errors and omissions": "Professional Liability / E&O",
+    "professional indemnity": "Professional Liability / E&O",
+
+    # ── Directors & Officers ─────────────────────────────────────────────────
+    "d&o": "Directors & Officers",
+    "directors & officers": "Directors & Officers",
+    "directors and officers": "Directors & Officers",
+    "directors & officers liability": "Directors & Officers",
+    "directors and officers liability": "Directors & Officers",
+    "excess side-a dic d&o": "Directors & Officers",
+    "excess side-a d&o": "Directors & Officers",
+    "excess directors & officers liability": "Directors & Officers",
+    "excess directors and officers liability": "Directors & Officers",
+    "excess d&o": "Directors & Officers",
+    "side a d&o": "Directors & Officers",
+    "fiduciary": "Directors & Officers",
+    "fiduciary liability": "Directors & Officers",
+    "erisa": "Directors & Officers",
+
+    # ── EPLI ──────────────────────────────────────────────────────────────────
+    "epli": "Employment Practices Liability",
+    "employment practices": "Employment Practices Liability",
+    "employment practices liability": "Employment Practices Liability",
+    "epl": "Employment Practices Liability",
+
+    # ── Crime / Fidelity ──────────────────────────────────────────────────────
+    "crime": "Crime / Fidelity",
+    "fidelity": "Crime / Fidelity",
+    "crime / fidelity": "Crime / Fidelity",
+    "commercial crime": "Crime / Fidelity",
+    "employee dishonesty": "Crime / Fidelity",
+
+    # ── Environmental ─────────────────────────────────────────────────────────
+    "env": "Environmental",
+    "environmental liability": "Environmental",
+    "pollution liability": "Environmental",
+    "pollution legal liability": "Environmental",
+    "pll": "Environmental",
+    "environmental impairment": "Environmental",
+
+    # ── Marine ────────────────────────────────────────────────────────────────
+    "marine": "Inland Marine",
+    "ocean marine": "Inland Marine",
+    "cargo": "Inland Marine",
+    "multi-peril marine package": "Inland Marine",
+    "marine package": "Inland Marine",
+
+    # ── Railroad Protective ───────────────────────────────────────────────────
+    "railroad protective liability": "Railroad Protective",
+    "railroad protective": "Railroad Protective",
+
+    # ── OCIP / Wrap-Up ────────────────────────────────────────────────────────
+    "ocip": "OCIP",
+    "ccip": "OCIP",
+    "wrap-up": "OCIP",
+    "wrap up": "OCIP",
+    "owner controlled insurance program": "OCIP",
+    "contractor controlled insurance program": "OCIP",
+
+    # ── Additional GL variants ────────────────────────────────────────────────
+    "premises & operations": "General Liability",
+    "premises and operations": "General Liability",
+    "p&o": "General Liability",
+
+    # ── Additional WC variants ────────────────────────────────────────────────
+    "wc/el": "Workers Compensation",
+    "el": "Workers Compensation",
+    "employer's liability": "Workers Compensation",
+    "employers liability": "Workers Compensation",
+    "employer liability": "Workers Compensation",
+
+    # ── Additional Property/Package variants ─────────────────────────────────
+    "cpp": "Property / Builders Risk",
+    "commercial package": "Property / Builders Risk",
+    "commercial package policy": "Property / Builders Risk",
+    "monoline property": "Property / Builders Risk",
+    "businessowners": "Property / Builders Risk",
+    "businessowners policy": "Property / Builders Risk",
+    "business owners policy": "Property / Builders Risk",
+
+    # ── Additional Excess/Umbrella variants ──────────────────────────────────
+    "xs": "Umbrella / Excess",
+    "xs liability": "Umbrella / Excess",
+    "follow form excess": "Umbrella / Excess",
+    "follow form": "Umbrella / Excess",
+    "catastrophe excess": "Umbrella / Excess",
+
+    # ── Personal lines ────────────────────────────────────────────────────────
+    "personal auto": "Personal Auto",
+    "pa": "Personal Auto",
+    "homeowners": "Homeowners",
+    "ho": "Homeowners",
+    "ho-3": "Homeowners",
+    "ho3": "Homeowners",
+
+    # ── Additional aliases for common AMS export variants ──────────────────
+    "bop policy": "Property / Builders Risk",
+    "management liability": "Directors & Officers",
+    "network security & privacy": "Cyber / Tech E&O",
+    "network security and privacy": "Cyber / Tech E&O",
+    "privacy liability": "Cyber / Tech E&O",
+    "hnoa": "Commercial Auto",
+    "hired and non-owned auto": "Commercial Auto",
+    "hired & non-owned": "Commercial Auto",
+    "garage liability": "Commercial Auto",
+    "garagekeepers": "Commercial Auto",
+    "liquor liability": "General Liability",
+    "pollution": "Environmental",
+    "environmental": "Environmental",
+    "surety": "Surety Bond",
+    "surety bond": "Surety Bond",
+    "contract bond": "Surety Bond",
+    "performance bond": "Surety Bond",
+    "product liability": "General Liability",
+    "products liability": "General Liability",
+    "products/completed operations": "General Liability",
+    "commercial general liability (part of package)": "General Liability",
+    "owners & contractors protective": "General Liability",
+    "ocp": "General Liability",
+
+    # ── Carrier statement form numbers ──────────────────────────────────────
+    "cg 00 01": "General Liability",
+    "cg0001": "General Liability",
+    "cp 00 10": "Property / Builders Risk",
+    "cp0010": "Property / Builders Risk",
+    "cp 00 30": "Property / Builders Risk",
+    "cp0030": "Property / Builders Risk",
+    "ca 00 01": "Commercial Auto",
+    "ca0001": "Commercial Auto",
+    "wc 00 00": "Workers Compensation",
+    "wc0000": "Workers Compensation",
+    "im 00 01": "Inland Marine",
+    "im0001": "Inland Marine",
+
+    # ── Carrier abbreviations & combined coverages ──────────────────────────
+    "cal": "Commercial Auto",
+    "prop/cas": "Property / Builders Risk",
+    "gl/property package": "Property / Builders Risk",
+    "gl/prop package": "Property / Builders Risk",
+    "property/casualty": "Property / Builders Risk",
+    "commercial lines package": "Property / Builders Risk",
+    "smp": "Property / Builders Risk",
+    "special multi-peril": "Property / Builders Risk",
+    "special multi peril": "Property / Builders Risk",
+    "mppl": "Professional Liability / E&O",
+}
 
 
 # ─── LEGAL SUFFIX MAP ─────────────────────────────────────────────────────────
