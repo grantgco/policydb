@@ -32,6 +32,32 @@ def _resolve_contact_id(conn, name: str) -> int | None:
     return row["id"] if row else None
 
 
+def _find_similar_contacts(conn, name: str, threshold: int = 85, source: str = "client") -> list[dict]:
+    """Find existing contacts with names similar to the given name using fuzzy matching."""
+    from rapidfuzz import fuzz
+    existing = conn.execute(
+        """SELECT co.id, co.name, co.email, co.phone,
+                  GROUP_CONCAT(DISTINCT c.name) AS client_names
+           FROM contacts co
+           LEFT JOIN contact_client_assignments cca ON cca.contact_id = co.id
+           LEFT JOIN clients c ON cca.client_id = c.id
+           GROUP BY co.id"""
+    ).fetchall()
+    matches = []
+    for r in existing:
+        score = fuzz.WRatio(name.strip(), r["name"])
+        if score >= threshold:
+            matches.append({
+                "id": r["id"], "name": r["name"],
+                "email": r["email"], "phone": r["phone"],
+                "client_names": r["client_names"] or "",
+                "score": round(score),
+                "match_type": "name",
+                "source": source,
+            })
+    return sorted(matches, key=lambda x: -x["score"])
+
+
 # ---------------------------------------------------------------------------
 # Autocomplete endpoint (already uses new schema via queries.py)
 # ---------------------------------------------------------------------------
