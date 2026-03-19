@@ -51,6 +51,22 @@ def _get_all_client_contact_orgs(conn):
     return [r["organization"] for r in rows]
 
 
+def _find_similar_clients(conn, name: str, threshold: int = 85) -> list[dict]:
+    """Find existing clients with names similar to the given name using fuzzy matching."""
+    from rapidfuzz import fuzz
+    normalized = normalize_client_name(name)
+    existing = conn.execute(
+        "SELECT id, name, industry_segment FROM clients WHERE archived = 0"
+    ).fetchall()
+    matches = []
+    for r in existing:
+        score = fuzz.WRatio(normalized, r["name"])
+        if score >= threshold:
+            matches.append({"id": r["id"], "name": r["name"],
+                           "industry": r["industry_segment"], "score": round(score)})
+    return sorted(matches, key=lambda x: -x["score"])
+
+
 _CLIENT_SORT_FIELDS = {
     "name", "industry_segment", "total_policies", "total_premium",
     "total_revenue", "next_renewal_days", "activity_last_90d",
@@ -77,6 +93,21 @@ def _sort_clients(clients, sort="name", dir="asc"):
         reverse=reverse,
     )
     return clients
+
+
+def _get_project_locations(conn, client_id: int) -> list[dict]:
+    """Load all location-type projects with policy counts and address."""
+    rows = conn.execute("""
+        SELECT p.id, p.name, p.address, p.city, p.state, p.zip, p.notes,
+               (SELECT COUNT(*) FROM policies pol
+                WHERE pol.project_id = p.id AND pol.archived = 0) AS policy_count,
+               (SELECT COALESCE(SUM(pol.premium), 0) FROM policies pol
+                WHERE pol.project_id = p.id AND pol.archived = 0) AS total_premium
+        FROM projects p
+        WHERE p.client_id = ? AND (p.project_type = 'Location' OR p.project_type IS NULL)
+        ORDER BY p.name
+    """, (client_id,)).fetchall()
+    return [dict(r) for r in rows]
 
 
 def _get_project_pipeline(conn, client_id: int) -> list[dict]:
@@ -332,6 +363,40 @@ def client_new_post(
 
     account_exec = cfg.get("default_account_exec", "Grant")
     name = normalize_client_name(name) if name else name
+
+    # Duplicate detection: warn if a similar client already exists (unless ?force=1)
+    force = request.query_params.get("force", "")
+    if not force:
+        dupes = _find_similar_clients(conn, name)
+        if dupes:
+            return templates.TemplateResponse("clients/edit.html", {
+                "request": request,
+                "active": "clients",
+                "client": None,
+                "industry_segments": cfg.get("industry_segments"),
+                "duplicate_warning": dupes,
+                # Pre-fill the form so the user doesn't have to retype
+                "prefill": {
+                    "name": name,
+                    "industry_segment": industry_segment,
+                    "cn_number": cn_number,
+                    "is_prospect": is_prospect,
+                    "primary_contact": primary_contact,
+                    "contact_email": contact_email,
+                    "contact_phone": contact_phone,
+                    "contact_mobile": contact_mobile,
+                    "address": address,
+                    "notes": notes,
+                    "broker_fee": broker_fee,
+                    "business_description": business_description,
+                    "website": website,
+                    "renewal_month": renewal_month,
+                    "client_since": client_since,
+                    "preferred_contact_method": preferred_contact_method,
+                    "referral_source": referral_source,
+                },
+            })
+
     cursor = conn.execute(
         """INSERT INTO clients (name, industry_segment, cn_number, is_prospect, primary_contact, contact_email,
            contact_phone, contact_mobile, address, notes, account_exec, broker_fee, business_description,
@@ -875,6 +940,7 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
         "last_activity_relative": last_activity_relative,
         "dispositions": cfg.get("follow_up_dispositions", []),
         "pipeline_projects": _get_project_pipeline(conn, client_id),
+        "location_projects": _get_project_locations(conn, client_id),
         "project_stages": cfg.get("project_stages", []),
         "project_types": cfg.get("project_types", []),
         "timeline_data": _build_timeline_data(_get_project_pipeline(conn, client_id)),
