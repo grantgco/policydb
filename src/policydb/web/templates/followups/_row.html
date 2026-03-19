@@ -254,7 +254,7 @@
     <form hx-post="/activities/{{ r.id }}/followup"
           hx-target="#{{ row_id }}"
           hx-swap="outerHTML"
-          hx-on::before-request="var f=document.getElementById('disposition-form-row-{{ row_id }}');if(f)f.remove();"
+          hx-on::after-request="var f=document.getElementById('disposition-form-row-{{ row_id }}');if(f)f.remove();"
           class="space-y-2">
       <input type="hidden" name="context" value="followup_table">
 
