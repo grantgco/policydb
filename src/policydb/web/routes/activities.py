@@ -120,6 +120,7 @@ def activity_log(
     resp = templates.TemplateResponse("activities/_activity_row.html", {
         "request": request,
         "a": a,
+        "dispositions": cfg.get("follow_up_dispositions", []),
     })
     resp.headers["HX-Trigger"] = '{"reorderActivities": "", "activityLogged": "Activity logged"}'
     return resp
@@ -191,6 +192,7 @@ def activity_complete(
         return HTMLResponse("")
     resp = templates.TemplateResponse("activities/_activity_row.html", {
         "request": request, "a": a,
+        "dispositions": cfg.get("follow_up_dispositions", []),
     })
     resp.headers["HX-Trigger"] = '{"reorderActivities": "", "activityLogged": "Activity updated"}'
     return resp
@@ -217,6 +219,7 @@ def activity_row(request: Request, activity_id: int, conn=Depends(get_db)):
         return HTMLResponse("", status_code=404)
     return templates.TemplateResponse("activities/_activity_row.html", {
         "request": request, "a": a,
+        "dispositions": cfg.get("follow_up_dispositions", []),
     })
 
 
@@ -283,6 +286,7 @@ def activity_row_edit_save(
         return HTMLResponse("", status_code=404)
     resp = templates.TemplateResponse("activities/_activity_row.html", {
         "request": request, "a": a,
+        "dispositions": cfg.get("follow_up_dispositions", []),
     })
     resp.headers["HX-Trigger"] = "reorderActivities"
     return resp
@@ -423,6 +427,7 @@ def activity_followup(
         return HTMLResponse("")
     resp = templates.TemplateResponse("activities/_activity_row.html", {
         "request": request, "a": new_activity,
+        "dispositions": cfg.get("follow_up_dispositions", []),
     })
     resp.headers["HX-Trigger"] = '{"reorderActivities": "", "activityLogged": "Follow-up re-diaried - new activity created"}'
     return resp
@@ -443,6 +448,7 @@ def activity_snooze(request: Request, activity_id: int, days: int = 7, conn=Depe
             return HTMLResponse("")
         resp = templates.TemplateResponse("activities/_activity_row.html", {
             "request": request, "a": a,
+            "dispositions": cfg.get("follow_up_dispositions", []),
         })
         resp.headers["HX-Trigger"] = "reorderActivities"
         return resp
