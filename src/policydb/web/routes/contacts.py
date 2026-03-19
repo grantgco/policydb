@@ -575,6 +575,93 @@ def contacts_list(request: Request, q: str = "", org: str = "", role: str = "", 
 
 
 # ---------------------------------------------------------------------------
+# Contact detail page
+# ---------------------------------------------------------------------------
+
+@router.get("/{contact_id}", response_class=HTMLResponse)
+def contact_detail(request: Request, contact_id: int, conn=Depends(get_db)):
+    """Full contact detail page — dossier + management hub."""
+    contact = conn.execute("SELECT * FROM contacts WHERE id = ?", (contact_id,)).fetchone()
+    if not contact:
+        return HTMLResponse("Contact not found", status_code=404)
+    contact = dict(contact)
+    _attach_expertise(conn, [contact])
+
+    # ── Policy assignments ────────────────────────────────────────────────
+    policy_assignments = [dict(r) for r in conn.execute("""
+        SELECT cpa.*, p.policy_uid, p.policy_type, p.carrier, p.renewal_status,
+               p.is_opportunity, p.opportunity_status,
+               c.name AS client_name, c.id AS client_id
+        FROM contact_policy_assignments cpa
+        JOIN policies p ON cpa.policy_id = p.id
+        JOIN clients c ON p.client_id = c.id
+        WHERE cpa.contact_id = ? AND p.archived = 0
+        ORDER BY c.name, p.policy_type
+    """, (contact_id,)).fetchall()]
+
+    # ── Client assignments ────────────────────────────────────────────────
+    client_assignments = [dict(r) for r in conn.execute("""
+        SELECT cca.*, c.name AS client_name, c.id AS client_id
+        FROM contact_client_assignments cca
+        JOIN clients c ON cca.client_id = c.id
+        WHERE cca.contact_id = ? AND c.archived = 0
+        ORDER BY c.name
+    """, (contact_id,)).fetchall()]
+
+    # ── Group by client ───────────────────────────────────────────────────
+    assignments: dict[int, dict] = {}
+    for pa in policy_assignments:
+        cid = pa["client_id"]
+        if cid not in assignments:
+            assignments[cid] = {"name": pa["client_name"], "id": cid, "policies": [], "team": None, "contact": None}
+        assignments[cid]["policies"].append(pa)
+    for ca in client_assignments:
+        cid = ca["client_id"]
+        if cid not in assignments:
+            assignments[cid] = {"name": ca["client_name"], "id": cid, "policies": [], "team": None, "contact": None}
+        if ca["contact_type"] == "internal":
+            assignments[cid]["team"] = ca
+        else:
+            assignments[cid]["contact"] = ca
+
+    # ── Activities ────────────────────────────────────────────────────────
+    activities = [dict(r) for r in conn.execute("""
+        SELECT a.*, c.name AS client_name, p.policy_uid, p.policy_type
+        FROM activity_log a
+        JOIN clients c ON a.client_id = c.id
+        LEFT JOIN policies p ON a.policy_id = p.id
+        WHERE a.contact_id = ?
+        ORDER BY a.activity_date DESC, a.id DESC
+        LIMIT 50
+    """, (contact_id,)).fetchall()]
+    total_hours = sum(float(a["duration_hours"] or 0) for a in activities)
+
+    # ── Pending follow-ups ────────────────────────────────────────────────
+    followups = [dict(r) for r in conn.execute("""
+        SELECT a.*, c.name AS client_name, p.policy_uid, p.policy_type, p.carrier,
+               CAST(julianday('now') - julianday(a.follow_up_date) AS INTEGER) AS days_overdue
+        FROM activity_log a
+        JOIN clients c ON a.client_id = c.id
+        LEFT JOIN policies p ON a.policy_id = p.id
+        WHERE a.contact_id = ?
+          AND a.follow_up_done = 0 AND a.follow_up_date IS NOT NULL
+        ORDER BY a.follow_up_date
+    """, (contact_id,)).fetchall()]
+
+    return templates.TemplateResponse("contacts/detail.html", {
+        "request": request, "active": "contacts",
+        "contact": contact,
+        "assignments": sorted(assignments.values(), key=lambda a: a["name"]),
+        "activities": activities,
+        "total_hours": total_hours,
+        "followups": followups,
+        "expertise_lines": cfg.get("expertise_lines", []),
+        "expertise_industries": cfg.get("expertise_industries", []),
+        "dispositions": cfg.get("follow_up_dispositions", []),
+    })
+
+
+# ---------------------------------------------------------------------------
 # Matrix cell-save endpoints
 # Templates use name-based URLs: patchBase + '/' + encodeURIComponent(name) + '/cell'
 # We resolve name → contact_id and update the unified contacts table (shared fields)
