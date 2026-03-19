@@ -93,16 +93,16 @@ def normalize_client_name(raw: str) -> str:
         return ""
     # Collapse multiple spaces
     name = re.sub(r'\s+', ' ', raw.strip())
-    # Split into words, title-case each, but preserve short all-caps (2-4 chars)
+    # Split into words, title-case each, but preserve short all-caps acronyms (2-3 chars)
     words = []
     for w in name.split():
         low = w.lower().rstrip('.,')
         if low in _LEGAL_SUFFIX_MAP:
             words.append(_LEGAL_SUFFIX_MAP[low])
-        elif w.isupper() and len(w) <= 4:
-            words.append(w)  # preserve acronyms like "ABC", "US"
+        elif w.isupper() and len(w) <= 3:
+            words.append(w)  # preserve 2-3 char acronyms like "US", "ABC"
         else:
-            words.append(w.title() if w.islower() else w)
+            words.append(w.title())  # title-case everything else, including all-caps words
     return " ".join(words)
 ```
 
@@ -211,9 +211,11 @@ Every save path runs the appropriate normalizer before INSERT/UPDATE. Follows th
 | Field | Normalizer | Save paths |
 |-------|-----------|------------|
 | `name` | `normalize_client_name()` | Client create, client edit |
-| `exposure_city` | `format_city()` | Project header save |
-| `exposure_state` | `format_state()` | Project header save |
-| `exposure_zip` | `format_zip()` | Project header save |
+| `exposure_city` (on `policies` table) | `format_city()` | Project header save (`project_note_save()` in clients.py — bulk-updates policies for a project) |
+| `exposure_state` (on `policies` table) | `format_state()` | Same |
+| `exposure_zip` (on `policies` table) | `format_zip()` | Same |
+
+**Note:** The address fields (`exposure_city/state/zip`) live on the `policies` table, not `clients`. The project header save in `clients.py` updates these via a bulk UPDATE on all policies in a project. The normalization applies at that write path.
 
 ### Reconcile
 
@@ -284,36 +286,45 @@ def find_similar_clients(conn, name: str, threshold: int = 85) -> list[dict]:
 
 **When:** Creating a new contact (manual via contact matrix add-row, or during import)
 
-**Logic:** Same pattern as clients, using `contacts` table:
+**Logic:** Same pattern as clients, using `contacts` table. The function returns dicts compatible with the existing `_duplicate_warning.html` template contract (which expects `match_type` and `source` fields):
 
 ```python
-def find_similar_contacts(conn, name: str, threshold: int = 85) -> list[dict]:
+def find_similar_contacts(conn, name: str, threshold: int = 85,
+                          source: str = "client") -> list[dict]:
     """Find existing contacts with names similar to the given name."""
     existing = conn.execute(
-        "SELECT id, name, email, phone FROM contacts"
+        """SELECT co.id, co.name, co.email, co.phone,
+                  GROUP_CONCAT(DISTINCT c.name) AS client_names
+           FROM contacts co
+           LEFT JOIN contact_client_assignments cca ON cca.contact_id = co.id
+           LEFT JOIN clients c ON cca.client_id = c.id
+           GROUP BY co.id"""
     ).fetchall()
     matches = []
     for r in existing:
         score = fuzz.WRatio(name.strip(), r["name"])
         if score >= threshold:
-            matches.append({"id": r["id"], "name": r["name"],
-                           "email": r["email"], "phone": r["phone"], "score": score})
+            matches.append({
+                "id": r["id"], "name": r["name"],
+                "email": r["email"], "phone": r["phone"],
+                "client_names": r["client_names"] or "",
+                "score": score,
+                "match_type": "name",  # required by _duplicate_warning.html
+                "source": source,      # "client", "policy", or "team"
+            })
     return sorted(matches, key=lambda x: -x["score"])
 ```
 
-**UI:** The template `contacts/_duplicate_warning.html` already exists. Extend it to show:
-- Contact name + score
-- Email and phone (so user can tell if it's the same person)
-- Which clients the existing contact is assigned to
+**UI:** The template `contacts/_duplicate_warning.html` already exists and expects `match_type` and `source` fields. Extend it to also show:
+- Fuzzy match score
+- Which clients the existing contact is assigned to (`client_names`)
 - "Use existing" and "Create anyway" actions
 
 ---
 
 ## 5. Data Hygiene Migration
 
-**Migration file:** `src/policydb/migrations/060_normalize_existing_data.py` (Python migration, not SQL — needs to call the normalization functions)
-
-**Alternative:** Since migrations are SQL files run by `init_db()`, implement as a Python function called from `init_db()` after migration 060's SQL marker is applied. The SQL marker just records the version; the Python function does the work.
+**Migration file:** `src/policydb/migrations/060_normalize_existing_data.sql` — a minimal SQL marker file (e.g., `SELECT 1;`) that records the version number. The actual data normalization runs as a Python function `_run_hygiene_060(conn)` called inline from `init_db()` after the SQL marker is applied. This follows the established precedent of migrations 050 and 057 which use SQL files for schema changes and Python functions for data backfill.
 
 **What it normalizes:**
 
@@ -392,6 +403,18 @@ def _run_hygiene_060(conn):
 
 The reconciler's `_normalize_coverage()` function becomes a thin wrapper around `normalize_coverage_type()` from utils.py. Since the DB now stores normalized coverage types, the reconciler's fuzzy matching on `policy_type` becomes more reliable — both the DB value and the import value will be normalized to the same canonical name before comparison.
 
+**Two intentionally different policy-number functions exist after this change:**
+- `normalize_policy_number()` in utils.py — uppercase + trim. Used at save time. Preserves formatting.
+- `_normalize_policy_number()` in reconciler.py — strips dashes/dots/spaces. Used at match time only. Destructive normalization for comparison.
+
+These serve different purposes and should NOT be consolidated.
+
+**Two intentionally different legal-suffix strategies exist:**
+- `_LEGAL_SUFFIX_MAP` in utils.py — normalizes suffix formatting ("inc" → "Inc."). Preserves the suffix in the name.
+- `_LEGAL_SUFFIX_RE` regex in reconciler.py — strips suffixes entirely for fuzzy matching. Destructive normalization for comparison.
+
+These also serve different purposes and should NOT be consolidated.
+
 **No scoring changes needed.** The existing scoring weights and bonuses remain the same. The normalization just reduces false negatives (where `"cgl"` in DB didn't match `"General Liability"` in import because the DB value was never normalized).
 
 **`_normalize_policy_number()` in reconciler stays as-is** — it strips formatting for match comparison. The DB stores `"POL-123"` (uppercased), the reconciler strips to `"POL123"` for comparison. These are complementary, not conflicting.
@@ -404,8 +427,8 @@ The reconciler's `_normalize_coverage()` function becomes a thin wrapper around 
 |----------|----------|
 | Unknown coverage type (no alias match) | Title-cased and stored. User can add to config list if it should be canonical. |
 | Coverage alias maps to a type not in config list | Alias takes precedence. The canonical name is stored even if not in the dropdown config. User can add it to config. |
-| Client name is all-caps ("ACME HOLDINGS") | Title-cased to "Acme Holdings". Acronyms 2-4 chars preserved ("ABC Corp" stays "ABC Corp"). |
-| Client name has mixed case ("McDonald's") | Preserved — title-casing only applies to all-lower words. |
+| Client name is all-caps ("ACME HOLDINGS") | Title-cased to "Acme Holdings". Only 2-3 char all-caps acronyms preserved ("US Steel" stays "US Steel", but "ACME" becomes "Acme"). |
+| Client name has mixed case ("McDonald's") | Title-cased to "Mcdonald'S" — title() is imperfect on apostrophes. Known limitation; user can edit back. |
 | ZIP code is partial ("787") | Stored as "787" — best-effort, no rejection. |
 | ZIP code has letters ("78701-AB") | Stripped to digits: "78701". |
 | State is full name ("Texas") | Converted to "TX". |
