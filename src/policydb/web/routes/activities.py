@@ -413,6 +413,7 @@ def activity_followup(
         r["note_date"] = r.get("activity_date")
         resp = templates.TemplateResponse("followups/_row.html", {
             "request": request, "r": r, "today": today_str,
+            "dispositions": cfg.get("follow_up_dispositions", []),
         })
         resp.headers["HX-Trigger"] = '{"refreshFollowups": "", "activityLogged": "Follow-up re-diaried — new activity created"}'
         return resp
@@ -460,7 +461,10 @@ def activity_snooze(request: Request, activity_id: int, days: int = 7, conn=Depe
     r = dict(row)
     today = date.today().isoformat()
     r["_is_overdue"] = r["follow_up_date"] < today
-    resp = templates.TemplateResponse("followups/_row.html", {"request": request, "r": r, "today": today})
+    resp = templates.TemplateResponse("followups/_row.html", {
+        "request": request, "r": r, "today": today,
+        "dispositions": cfg.get("follow_up_dispositions", []),
+    })
     resp.headers["HX-Trigger"] = '{"refreshFollowups": "", "activityLogged": "Snoozed +' + str(days) + 'd → ' + r["follow_up_date"] + '"}'
     return resp
 
@@ -488,7 +492,10 @@ def activity_reschedule(request: Request, activity_id: int, new_date: str = Form
     r = dict(row)
     today = date.today().isoformat()
     r["_is_overdue"] = r["follow_up_date"] < today
-    resp = templates.TemplateResponse("followups/_row.html", {"request": request, "r": r, "today": today})
+    resp = templates.TemplateResponse("followups/_row.html", {
+        "request": request, "r": r, "today": today,
+        "dispositions": cfg.get("follow_up_dispositions", []),
+    })
     resp.headers["HX-Trigger"] = '{"refreshFollowups": "", "activityLogged": "Rescheduled → ' + new_date + '"}'
     return resp
 
@@ -568,6 +575,7 @@ def _followups_ctx(conn, window: int, activity_type: str, q: str,
         "today": today_str,
         "activity_types": cfg.get("activity_types", []),
         "renewal_statuses": cfg.get("renewal_statuses", []),
+        "dispositions": cfg.get("follow_up_dispositions", []),
     }
 
 
