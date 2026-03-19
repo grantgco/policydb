@@ -535,7 +535,7 @@ def get_all_followups(
     sql = """
     SELECT 'activity' AS source,
            a.id, a.subject, a.follow_up_date, a.activity_type,
-           a.contact_person,
+           a.contact_person, a.disposition, a.thread_id,
            c.name AS client_name, c.id AS client_id, c.cn_number,
            p.policy_uid, p.policy_type, p.carrier, p.project_name, p.project_id,
            0 AS is_opportunity,
@@ -565,6 +565,7 @@ def get_all_followups(
            (SELECT co_pc.name FROM contact_policy_assignments cpa_pc
             JOIN contacts co_pc ON cpa_pc.contact_id = co_pc.id
             WHERE cpa_pc.policy_id = p.id ORDER BY cpa_pc.id LIMIT 1) AS contact_person,
+           NULL AS disposition, NULL AS thread_id,
            c.name AS client_name, c.id AS client_id, c.cn_number,
            p.policy_uid, p.policy_type, p.carrier, p.project_name, p.project_id,
            p.is_opportunity,
@@ -601,6 +602,7 @@ def get_all_followups(
            c.follow_up_date,
            'Client Reminder' AS activity_type,
            NULL AS contact_person,
+           NULL AS disposition, NULL AS thread_id,
            c.name AS client_name, c.id AS client_id, c.cn_number,
            NULL AS policy_uid, NULL AS policy_type, NULL AS carrier,
            NULL AS project_name, NULL AS project_id,
@@ -630,6 +632,47 @@ def get_all_followups(
     cutoff = (date.today() + timedelta(days=window)).isoformat()
     overdue = [r for r in rows if r["follow_up_date"] < today]
     upcoming = [r for r in rows if today <= r["follow_up_date"] <= cutoff]
+
+    # Compute thread stats for rows with thread_id
+    all_rows = overdue + upcoming
+    thread_ids = {r["thread_id"] for r in all_rows if r.get("thread_id")}
+    if thread_ids:
+        placeholders = ",".join("?" * len(thread_ids))
+        stats = conn.execute(f"""
+            SELECT thread_id, COUNT(*) AS thread_total,
+                   MAX(activity_date) AS latest_date
+            FROM activity_log WHERE thread_id IN ({placeholders})
+            GROUP BY thread_id
+        """, list(thread_ids)).fetchall()
+        stats_map = {s["thread_id"]: dict(s) for s in stats}
+
+        # Get previous disposition per thread (the second-to-last activity)
+        prev_map = {}
+        for tid in thread_ids:
+            prev = conn.execute("""
+                SELECT disposition, activity_date FROM activity_log
+                WHERE thread_id = ? ORDER BY activity_date DESC, id DESC LIMIT 1 OFFSET 1
+            """, (tid,)).fetchone()
+            if prev:
+                prev_map[tid] = dict(prev)
+
+        for r in all_rows:
+            tid = r.get("thread_id")
+            if tid and tid in stats_map:
+                r["thread_total"] = stats_map[tid]["thread_total"]
+                r["thread_attempt_num"] = conn.execute(
+                    "SELECT COUNT(*) FROM activity_log WHERE thread_id = ? AND id <= ?",
+                    (tid, r["id"]),
+                ).fetchone()[0]
+                if tid in prev_map:
+                    r["prev_disposition"] = prev_map[tid].get("disposition")
+                    prev_date = prev_map[tid].get("activity_date")
+                    if prev_date:
+                        try:
+                            r["prev_days_ago"] = (date.today() - date.fromisoformat(prev_date)).days
+                        except (ValueError, TypeError):
+                            r["prev_days_ago"] = None
+
     return overdue, upcoming
 
 
@@ -1580,7 +1623,7 @@ def generate_mandated_activities(conn: sqlite3.Connection) -> int:
         return 0
 
     today = date.today()
-    grace_cutoff = (today - timedelta(days=30)).isoformat()
+    today_iso = today.isoformat()
     created = 0
 
     # Get all active, non-archived, non-opportunity policies with dates
@@ -1628,8 +1671,14 @@ def generate_mandated_activities(conn: sqlite3.Connection) -> int:
             else:
                 continue
 
-            # Skip if target date is too far in the past
-            if target_date.isoformat() < grace_cutoff:
+            # Skip dates already in the past — record in tracking table so we
+            # never revisit, but do NOT create an activity/follow-up the user
+            # would just have to abandon.
+            if target_date.isoformat() < today_iso:
+                conn.execute(
+                    "INSERT OR IGNORE INTO mandated_activity_log (policy_uid, rule_name) VALUES (?, ?)",
+                    (p["policy_uid"], rule_name),
+                )
                 continue
 
             # Render subject template
@@ -1656,7 +1705,7 @@ def generate_mandated_activities(conn: sqlite3.Connection) -> int:
                     follow_up_date, account_exec)
                    VALUES (?, ?, ?, ?, ?, ?, ?)""",
                 (
-                    today.isoformat(),
+                    today_iso,
                     p["client_id"],
                     p["policy_id"],
                     activity_type,
