@@ -9,7 +9,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 
 from policydb import config as cfg
 from policydb.queries import get_all_policies, get_client_by_id, get_opportunity_by_uid, get_policy_by_uid, get_policy_total_hours, get_saved_notes, save_note, delete_saved_note, renew_policy, count_changed_fields, check_auto_review_policy, get_or_create_contact, assign_contact_to_policy, remove_contact_from_policy, set_placement_colleague, get_policy_contacts
-from policydb.utils import round_duration
+from policydb.utils import round_duration, normalize_coverage_type, normalize_policy_number, format_city, format_state, format_zip
 from policydb.web.app import get_db, templates
 
 router = APIRouter(prefix="/policies")
@@ -228,6 +228,8 @@ def policy_row_edit_post(
 
     uid = policy_uid.upper()
     old_row = dict(conn.execute("SELECT * FROM policies WHERE policy_uid=?", (uid,)).fetchone())
+    policy_type = normalize_coverage_type(policy_type)
+    policy_number = normalize_policy_number(policy_number) if policy_number else ""
     conn.execute(
         """UPDATE policies SET
            policy_type=?, carrier=?, policy_number=?,
@@ -400,6 +402,8 @@ def policy_dash_edit_post(
 
     uid = policy_uid.upper()
     old_row = dict(conn.execute("SELECT * FROM policies WHERE policy_uid=?", (uid,)).fetchone())
+    policy_type = normalize_coverage_type(policy_type)
+    policy_number = normalize_policy_number(policy_number) if policy_number else ""
     conn.execute(
         """UPDATE policies SET
            policy_type=?, carrier=?, expiration_date=?,
@@ -574,6 +578,8 @@ def policy_renew_edit_post(
 
     uid = policy_uid.upper()
     old_row = dict(conn.execute("SELECT * FROM policies WHERE policy_uid=?", (uid,)).fetchone())
+    policy_type = normalize_coverage_type(policy_type)
+    policy_number = normalize_policy_number(policy_number) if policy_number else ""
     conn.execute(
         """UPDATE policies SET
            policy_type=?, carrier=?, expiration_date=?,
@@ -1610,6 +1616,12 @@ def policy_edit_post(
     old_row = dict(conn.execute("SELECT * FROM policies WHERE policy_uid=?", (uid,)).fetchone())
     opp = 1 if is_opportunity == "1" else 0
     pgm = 1 if is_program == "1" else 0
+    policy_type = normalize_coverage_type(policy_type)
+    policy_number = normalize_policy_number(policy_number) if policy_number else ""
+    exposure_address = exposure_address.strip() if exposure_address else ""
+    exposure_city = format_city(exposure_city) if exposure_city else ""
+    exposure_state = format_state(exposure_state) if exposure_state else ""
+    exposure_zip = format_zip(exposure_zip) if exposure_zip else ""
     conn.execute(
         """UPDATE policies SET
            policy_type=?, carrier=?, policy_number=?,
@@ -2494,6 +2506,12 @@ def policy_new_post(
     account_exec = cfg.get("default_account_exec", "Grant")
     opp = 1 if is_opportunity == "1" else 0
     pgm = 1 if is_program == "1" else 0
+    policy_type = normalize_coverage_type(policy_type)
+    policy_number = normalize_policy_number(policy_number) if policy_number else ""
+    exposure_address = exposure_address.strip() if exposure_address else ""
+    exposure_city = format_city(exposure_city) if exposure_city else ""
+    exposure_state = format_state(exposure_state) if exposure_state else ""
+    exposure_zip = format_zip(exposure_zip) if exposure_zip else ""
     conn.execute(
         """INSERT INTO policies
            (policy_uid, client_id, policy_type, carrier, policy_number,
