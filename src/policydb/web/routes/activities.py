@@ -132,6 +132,7 @@ def activity_complete(
     duration_hours: float = Form(0),
     note: str = Form(""),
     abandon: str = Form(""),
+    disposition: str = Form(""),
     conn=Depends(get_db),
 ):
     note = note.strip()
@@ -142,6 +143,13 @@ def activity_complete(
     conn.execute(
         "UPDATE activity_log SET follow_up_done=1 WHERE id=?", (activity_id,)
     )
+
+    # Save disposition
+    if disposition:
+        conn.execute(
+            "UPDATE activity_log SET disposition=? WHERE id=?",
+            (disposition.strip(), activity_id),
+        )
 
     # Add time if provided (additive — may already have partial hours)
     if duration_hours and duration_hours > 0:
@@ -284,6 +292,7 @@ def activity_row_edit_save(
 def activity_delete(
     request: Request,
     activity_id: int,
+    context: str = Form(""),
     conn=Depends(get_db),
 ):
     """Delete an activity log entry. Also clears any linked meeting action items."""
@@ -294,9 +303,17 @@ def activity_delete(
     )
     conn.execute("DELETE FROM activity_log WHERE id = ?", (activity_id,))
     conn.commit()
-    return HTMLResponse(
-        f'<li id="activity-{activity_id}" class="py-2 text-xs text-gray-400 italic">Deleted.</li>'
-    )
+    if context == "followup_table":
+        # In the follow-ups table, replace the <tr> and its related form rows
+        resp = HTMLResponse(
+            f'<tr id="followup-activity-{activity_id}"><td colspan="8" class="px-4 py-2 text-xs text-gray-400 italic">Deleted.</td></tr>'
+        )
+    else:
+        resp = HTMLResponse(
+            f'<li id="activity-{activity_id}" class="py-2 text-xs text-gray-400 italic">Deleted.</li>'
+        )
+    resp.headers["HX-Trigger"] = '{"activityLogged": "Activity deleted"}'
+    return resp
 
 
 @router.post("/activities/{activity_id}/followup", response_class=HTMLResponse)
@@ -307,6 +324,7 @@ def activity_followup(
     duration_hours: str = Form(""),
     new_follow_up_date: str = Form(""),
     context: str = Form(""),
+    disposition: str = Form(""),
     conn=Depends(get_db),
 ):
     """Follow-up + re-diary: mark current done, create new activity with hours and next follow-up.
@@ -322,6 +340,23 @@ def activity_followup(
     # Mark original follow-up as done
     conn.execute("UPDATE activity_log SET follow_up_done=1 WHERE id=?", (activity_id,))
 
+    # Save disposition on the original activity
+    if disposition:
+        conn.execute(
+            "UPDATE activity_log SET disposition=? WHERE id=?",
+            (disposition.strip(), activity_id),
+        )
+
+    # Threading: determine thread_id for the new activity
+    _thread_id = original.get("thread_id")
+    if _thread_id is None:
+        # Lazy thread creation: set parent's thread_id to itself
+        _thread_id = original["id"]
+        conn.execute(
+            "UPDATE activity_log SET thread_id=? WHERE id=?",
+            (_thread_id, activity_id),
+        )
+
     # Create new activity continuing the thread
     account_exec = cfg.get("default_account_exec", "Grant")
     dur = round_duration(duration_hours)
@@ -332,14 +367,14 @@ def activity_followup(
     cursor = conn.execute(
         """INSERT INTO activity_log
            (activity_date, client_id, policy_id, activity_type, contact_person,
-            subject, details, follow_up_date, account_exec, duration_hours)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            subject, details, follow_up_date, account_exec, duration_hours, thread_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (date.today().isoformat(), original["client_id"],
          original.get("policy_id") or None,
          original.get("activity_type", "Call"),
          original.get("contact_person") or None,
          subject, notes or None,
-         new_follow_up_date or None, account_exec, dur),
+         new_follow_up_date or None, account_exec, dur, _thread_id),
     )
     if new_follow_up_date and original.get("policy_id"):
         from policydb.queries import supersede_followups
@@ -426,7 +461,7 @@ def activity_snooze(request: Request, activity_id: int, days: int = 7, conn=Depe
     today = date.today().isoformat()
     r["_is_overdue"] = r["follow_up_date"] < today
     resp = templates.TemplateResponse("followups/_row.html", {"request": request, "r": r, "today": today})
-    resp.headers["HX-Trigger"] = "refreshFollowups"
+    resp.headers["HX-Trigger"] = '{"refreshFollowups": "", "activityLogged": "Snoozed +' + str(days) + 'd → ' + r["follow_up_date"] + '"}'
     return resp
 
 
@@ -454,7 +489,7 @@ def activity_reschedule(request: Request, activity_id: int, new_date: str = Form
     today = date.today().isoformat()
     r["_is_overdue"] = r["follow_up_date"] < today
     resp = templates.TemplateResponse("followups/_row.html", {"request": request, "r": r, "today": today})
-    resp.headers["HX-Trigger"] = "refreshFollowups"
+    resp.headers["HX-Trigger"] = '{"refreshFollowups": "", "activityLogged": "Rescheduled → ' + new_date + '"}'
     return resp
 
 
@@ -748,11 +783,13 @@ def bulk_reschedule(
         elif source == "policy":
             conn.execute("UPDATE policies SET follow_up_date=? WHERE policy_uid=?", (new_date, item_id))
     conn.commit()
-    # Return refreshed results partial
+    count = len([i for i in ids.split(",") if i.strip()])
     window = 30
     ctx = _followups_ctx(conn, window, "", "")
     ctx["request"] = request
-    return templates.TemplateResponse("followups/_results.html", ctx)
+    resp = templates.TemplateResponse("followups/_results.html", ctx)
+    resp.headers["HX-Trigger"] = '{"activityLogged": "' + f'{count} follow-up(s) rescheduled to {new_date}' + '"}'
+    return resp
 
 
 @router.post("/renewals/bulk-milestones", response_class=HTMLResponse)
@@ -841,12 +878,16 @@ def bulk_log(
             supersede_followups(conn, policy["id"], fu)
     conn.commit()
     # Auto-review checks for each policy in the bulk set
+    count = 0
     for uid in policy_uids.split(","):
         uid = uid.strip().upper()
         if not uid:
             continue
+        count += 1
         check_auto_review_policy(conn, uid, 0)
-    return HTMLResponse("")
+    resp = HTMLResponse("")
+    resp.headers["HX-Trigger"] = '{"activityLogged": "' + f'Activity logged to {count} policies' + '"}'
+    return resp
 
 
 @router.post("/followups/bulk-complete", response_class=HTMLResponse)
@@ -897,8 +938,10 @@ def bulk_complete(
                          f"Cleared follow-up — {pol['policy_type']}", note or None, dur, account_exec),
                     )
     conn.commit()
-    # Return refreshed results partial
+    count = len([i for i in ids.split(",") if i.strip()])
     window = 30
     ctx = _followups_ctx(conn, window, "", "")
     ctx["request"] = request
-    return templates.TemplateResponse("followups/_results.html", ctx)
+    resp = templates.TemplateResponse("followups/_results.html", ctx)
+    resp.headers["HX-Trigger"] = '{"activityLogged": "' + f'{count} follow-up(s) completed' + '"}'
+    return resp
