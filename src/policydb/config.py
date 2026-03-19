@@ -297,6 +297,16 @@ _DEFAULTS: dict[str, Any] = {
     "email_subject_request_all": "{{client_name}} \u2014 Outstanding Information Requests",
     "project_stages": ["Upcoming", "Quoting", "Bound", "Active", "Complete"],
     "project_types": ["Location", "Construction", "Development", "Renovation"],
+    "expertise_lines": [
+        "Casualty", "Property", "Workers Compensation", "Professional Liability",
+        "D&O", "Cyber", "Construction", "Environmental", "Marine",
+        "Aviation", "Surety", "Executive Risk", "Employee Benefits",
+    ],
+    "expertise_industries": [
+        "Sports & Entertainment", "Construction", "Healthcare", "Real Estate",
+        "Technology", "Manufacturing", "Hospitality", "Energy",
+        "Financial Services", "Public Entity", "Transportation",
+    ],
 }
 
 _config: dict[str, Any] | None = None
