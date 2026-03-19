@@ -96,13 +96,20 @@ def _sort_clients(clients, sort="name", dir="asc"):
 
 
 def _get_project_locations(conn, client_id: int) -> list[dict]:
-    """Load all location-type projects with policy counts and address."""
+    """Load all location-type projects with policy/opportunity counts, premium, and revenue."""
     rows = conn.execute("""
         SELECT p.id, p.name, p.address, p.city, p.state, p.zip, p.notes,
                (SELECT COUNT(*) FROM policies pol
-                WHERE pol.project_id = p.id AND pol.archived = 0) AS policy_count,
+                WHERE pol.project_id = p.id AND pol.archived = 0) AS total_coverages,
+               (SELECT COUNT(*) FROM policies pol
+                WHERE pol.project_id = p.id AND pol.archived = 0
+                AND (pol.is_opportunity = 0 OR pol.is_opportunity IS NULL)) AS placed_coverages,
                (SELECT COALESCE(SUM(pol.premium), 0) FROM policies pol
-                WHERE pol.project_id = p.id AND pol.archived = 0) AS total_premium
+                WHERE pol.project_id = p.id AND pol.archived = 0) AS total_premium,
+               (SELECT COALESCE(SUM(CASE WHEN pol.commission_rate > 0
+                THEN pol.premium * pol.commission_rate ELSE 0 END), 0)
+                FROM policies pol
+                WHERE pol.project_id = p.id AND pol.archived = 0) AS total_revenue
         FROM projects p
         WHERE p.client_id = ? AND (p.project_type = 'Location' OR p.project_type IS NULL)
         ORDER BY p.name
@@ -3692,6 +3699,29 @@ def project_pipeline_add(
         "project_stages": cfg.get("project_stages", []),
         "project_types": cfg.get("project_types", []),
     })
+
+
+@router.post("/{client_id}/projects/location")
+def project_location_add(
+    client_id: int,
+    conn=Depends(get_db),
+):
+    """Create a new location project."""
+    base = "New Location"
+    name = base
+    counter = 2
+    while conn.execute(
+        "SELECT id FROM projects WHERE client_id = ? AND LOWER(TRIM(name)) = LOWER(TRIM(?))",
+        (client_id, name),
+    ).fetchone():
+        name = f"{base} {counter}"
+        counter += 1
+    conn.execute(
+        "INSERT INTO projects (client_id, name, project_type) VALUES (?, ?, 'Location')",
+        (client_id, name),
+    )
+    conn.commit()
+    return JSONResponse({"ok": True, "reload": True})
 
 
 @router.get("/{client_id}/projects/{project_id}/coverage", response_class=HTMLResponse)
