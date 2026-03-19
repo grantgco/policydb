@@ -319,7 +319,7 @@ def _client_type_contact_clients(conn, contact_id: int) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 @router.get("", response_class=HTMLResponse)
-def contacts_list(request: Request, q: str = "", org: str = "", role: str = "", client_filter: str = "", conn=Depends(get_db)):
+def contacts_list(request: Request, q: str = "", org: str = "", role: str = "", client_filter: str = "", line: str = "", industry: str = "", conn=Depends(get_db)):
     contacts = _get_all_contacts(conn)
     internal = _get_internal_contacts(conn)
     client_type = _get_client_type_contacts(conn)
@@ -407,6 +407,29 @@ def contacts_list(request: Request, q: str = "", org: str = "", role: str = "", 
             ).fetchall()}
             client_type = [c for c in client_type if c["contact_id"] in cli_contact_ids]
 
+    # Attach expertise tags to each contact group
+    _attach_expertise(conn, contacts)
+    _attach_expertise(conn, internal)
+    _attach_expertise(conn, client_type)
+
+    # Filter by expertise line
+    if line:
+        _line_ids = {r[0] for r in conn.execute(
+            "SELECT contact_id FROM contact_expertise WHERE category='line' AND tag=?", (line,)
+        ).fetchall()}
+        contacts = [c for c in contacts if c.get("contact_id") in _line_ids]
+        internal = [c for c in internal if c.get("contact_id") in _line_ids]
+        client_type = [c for c in client_type if c.get("contact_id") in _line_ids]
+
+    # Filter by expertise industry
+    if industry:
+        _industry_ids = {r[0] for r in conn.execute(
+            "SELECT contact_id FROM contact_expertise WHERE category='industry' AND tag=?", (industry,)
+        ).fetchall()}
+        contacts = [c for c in contacts if c.get("contact_id") in _industry_ids]
+        internal = [c for c in internal if c.get("contact_id") in _industry_ids]
+        client_type = [c for c in client_type if c.get("contact_id") in _industry_ids]
+
     # Build unified "all people" list from contacts table
     _all_people_rows = conn.execute("""
         SELECT co.id AS contact_id, co.name, co.email, co.phone, co.mobile, co.organization,
@@ -460,6 +483,8 @@ def contacts_list(request: Request, q: str = "", org: str = "", role: str = "", 
             _followups_by_contact.setdefault(fr["contact_id"], []).append(dict(fr))
     for c in all_people:
         c["followups"] = _followups_by_contact.get(c["contact_id"], [])
+    # Attach expertise to all_people
+    _attach_expertise(conn, all_people)
     # Apply same text filter to unified list
     if q:
         q_lower = q.lower()
@@ -493,6 +518,11 @@ def contacts_list(request: Request, q: str = "", org: str = "", role: str = "", 
                 )""", (_cf_id, _cf_id)
             ).fetchall()}
             all_people = [c for c in all_people if c["contact_id"] in _cf_ids]
+    # Filter all_people by expertise
+    if line:
+        all_people = [c for c in all_people if line in c.get("expertise_lines", [])]
+    if industry:
+        all_people = [c for c in all_people if industry in c.get("expertise_industries", [])]
 
     # Collect all roles for filter
     all_roles = sorted({r[0] for r in conn.execute(
@@ -519,6 +549,10 @@ def contacts_list(request: Request, q: str = "", org: str = "", role: str = "", 
         "all_clients": _all_clients,
         "all_clients_json": all_clients_json,
         "contact_roles": cfg.get("contact_roles", []),
+        "expertise_lines": cfg.get("expertise_lines", []),
+        "expertise_industries": cfg.get("expertise_industries", []),
+        "line_filter": line,
+        "industry_filter": industry,
     })
 
 
@@ -793,9 +827,12 @@ def client_type_contact_edit_save(
     c = dict(row) if row else {"name": name, "client_count": 0}
     c["contact_id"] = contact_id
     c["clients"] = _client_type_contact_clients(conn, contact_id)
+    _attach_expertise(conn, [c])
     return templates.TemplateResponse("contacts/_client_contact_row.html", {
         "request": request,
         "c": c,
+        "expertise_lines": cfg.get("expertise_lines", []),
+        "expertise_industries": cfg.get("expertise_industries", []),
     })
 
 
@@ -817,9 +854,12 @@ def client_type_contact_row(request: Request, name: str, conn=Depends(get_db)):
         return HTMLResponse("", status_code=404)
     c = dict(row)
     c["clients"] = _client_type_contact_clients(conn, c["contact_id"])
+    _attach_expertise(conn, [c])
     return templates.TemplateResponse("contacts/_client_contact_row.html", {
         "request": request,
         "c": c,
+        "expertise_lines": cfg.get("expertise_lines", []),
+        "expertise_industries": cfg.get("expertise_industries", []),
     })
 
 
@@ -1021,9 +1061,12 @@ def contact_edit_save(
     c = dict(row) if row else {"name": name, "policy_count": 0}
     c["contact_id"] = contact_id
     c["policies"] = _contact_policies(conn, contact_id)
+    _attach_expertise(conn, [c])
     return templates.TemplateResponse("contacts/_row.html", {
         "request": request,
         "c": c,
+        "expertise_lines": cfg.get("expertise_lines", []),
+        "expertise_industries": cfg.get("expertise_industries", []),
     })
 
 
@@ -1095,9 +1138,12 @@ def internal_contact_edit_save(
     c["clients"] = _internal_contact_clients(conn, contact_id)
     c["also_on_policies"] = _internal_contact_policies(conn, contact_id)
     c["policy_cross_count"] = len(c["also_on_policies"])
+    _attach_expertise(conn, [c])
     return templates.TemplateResponse("contacts/_internal_row.html", {
         "request": request,
         "c": c,
+        "expertise_lines": cfg.get("expertise_lines", []),
+        "expertise_industries": cfg.get("expertise_industries", []),
     })
 
 
@@ -1121,9 +1167,12 @@ def internal_contact_row(request: Request, name: str, conn=Depends(get_db)):
     c["clients"] = _internal_contact_clients(conn, c["contact_id"])
     c["also_on_policies"] = _internal_contact_policies(conn, c["contact_id"])
     c["policy_cross_count"] = len(c["also_on_policies"])
+    _attach_expertise(conn, [c])
     return templates.TemplateResponse("contacts/_internal_row.html", {
         "request": request,
         "c": c,
+        "expertise_lines": cfg.get("expertise_lines", []),
+        "expertise_industries": cfg.get("expertise_industries", []),
     })
 
 
@@ -1146,9 +1195,12 @@ def contact_row(request: Request, name: str, conn=Depends(get_db)):
         return HTMLResponse("", status_code=404)
     c = dict(row)
     c["policies"] = _contact_policies(conn, c["contact_id"])
+    _attach_expertise(conn, [c])
     return templates.TemplateResponse("contacts/_row.html", {
         "request": request,
         "c": c,
+        "expertise_lines": cfg.get("expertise_lines", []),
+        "expertise_industries": cfg.get("expertise_industries", []),
     })
 
 

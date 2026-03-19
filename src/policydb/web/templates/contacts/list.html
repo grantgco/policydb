@@ -161,6 +161,28 @@
   {% endif %}
 </form>
 
+{# ── Expertise Filters ── #}
+{% if expertise_lines or expertise_industries %}
+<div class="flex flex-wrap items-center gap-1 mb-3">
+  <span class="text-[10px] font-semibold text-blue-500 uppercase tracking-wide mr-0.5">Line:</span>
+  <a href="?q={{ q }}&org={{ org }}&role={{ role }}&client_filter={{ client_filter }}&line=&industry={{ industry_filter }}"
+     class="text-[10px] px-2 py-0.5 rounded-full border transition-colors {{ 'bg-marsh text-white border-marsh' if not line_filter else 'border-gray-200 text-gray-500 hover:border-blue-300' }}">All</a>
+  {% for t in expertise_lines %}
+  <a href="?q={{ q }}&org={{ org }}&role={{ role }}&client_filter={{ client_filter }}&line={{ t | urlencode }}&industry={{ industry_filter }}"
+     class="text-[10px] px-2 py-0.5 rounded-full border transition-colors {{ 'bg-blue-500 text-white border-blue-500' if line_filter == t else 'border-gray-200 text-blue-600 hover:border-blue-400 bg-blue-50' }}">{{ t }}</a>
+  {% endfor %}
+</div>
+<div class="flex flex-wrap items-center gap-1 mb-3">
+  <span class="text-[10px] font-semibold text-green-600 uppercase tracking-wide mr-0.5">Industry:</span>
+  <a href="?q={{ q }}&org={{ org }}&role={{ role }}&client_filter={{ client_filter }}&line={{ line_filter }}&industry="
+     class="text-[10px] px-2 py-0.5 rounded-full border transition-colors {{ 'bg-marsh text-white border-marsh' if not industry_filter else 'border-gray-200 text-gray-500 hover:border-green-300' }}">All</a>
+  {% for t in expertise_industries %}
+  <a href="?q={{ q }}&org={{ org }}&role={{ role }}&client_filter={{ client_filter }}&line={{ line_filter }}&industry={{ t | urlencode }}"
+     class="text-[10px] px-2 py-0.5 rounded-full border transition-colors {{ 'bg-green-500 text-white border-green-500' if industry_filter == t else 'border-gray-200 text-green-700 hover:border-green-400 bg-green-50' }}">{{ t }}</a>
+  {% endfor %}
+</div>
+{% endif %}
+
 {# ── Tab Navigation ── #}
 <div class="flex items-center gap-6 border-b border-gray-200 mb-0" id="contact-tabs">
   <button type="button" class="tab-btn active" data-tab="all">
