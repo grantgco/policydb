@@ -39,15 +39,15 @@
       <table class="w-full text-sm">
         <thead>
           <tr class="border-b border-gray-100 text-left text-xs text-gray-500 uppercase tracking-wide bg-gray-50">
-            <th class="px-2 py-2 whitespace-nowrap">Type</th>
-            <th class="px-2 py-2 min-w-[140px]">Project</th>
-            <th class="px-2 py-2 whitespace-nowrap">Status</th>
-            <th class="px-2 py-2 whitespace-nowrap">Ins. By</th>
-            <th class="px-2 py-2 whitespace-nowrap">Start</th>
-            <th class="px-2 py-2 whitespace-nowrap">Complete</th>
-            <th class="px-2 py-2 text-right whitespace-nowrap">Value</th>
-            <th class="px-2 py-2 text-right whitespace-nowrap">Premium</th>
-            <th class="px-2 py-2 text-right whitespace-nowrap">Revenue</th>
+            <th class="px-2 py-2 whitespace-nowrap cursor-pointer hover:text-marsh" onclick="sortTable('pp-tbody', 0, 'text', this)">Type <span class="sort-arrow"></span></th>
+            <th class="px-2 py-2 min-w-[140px] cursor-pointer hover:text-marsh" onclick="sortTable('pp-tbody', 1, 'text', this)">Project <span class="sort-arrow"></span></th>
+            <th class="px-2 py-2 whitespace-nowrap cursor-pointer hover:text-marsh" onclick="sortTable('pp-tbody', 2, 'text', this)">Status <span class="sort-arrow"></span></th>
+            <th class="px-2 py-2 whitespace-nowrap cursor-pointer hover:text-marsh" onclick="sortTable('pp-tbody', 3, 'date', this)">Ins. By <span class="sort-arrow"></span></th>
+            <th class="px-2 py-2 whitespace-nowrap cursor-pointer hover:text-marsh" onclick="sortTable('pp-tbody', 4, 'date', this)">Start <span class="sort-arrow"></span></th>
+            <th class="px-2 py-2 whitespace-nowrap cursor-pointer hover:text-marsh" onclick="sortTable('pp-tbody', 5, 'date', this)">Complete <span class="sort-arrow"></span></th>
+            <th class="px-2 py-2 text-right whitespace-nowrap cursor-pointer hover:text-marsh" onclick="sortTable('pp-tbody', 6, 'currency', this)">Value <span class="sort-arrow"></span></th>
+            <th class="px-2 py-2 text-right whitespace-nowrap cursor-pointer hover:text-marsh" onclick="sortTable('pp-tbody', 7, 'currency', this)">Premium <span class="sort-arrow"></span></th>
+            <th class="px-2 py-2 text-right whitespace-nowrap cursor-pointer hover:text-marsh" onclick="sortTable('pp-tbody', 8, 'currency', this)">Revenue <span class="sort-arrow"></span></th>
             <th class="px-2 py-2 text-center whitespace-nowrap">Coverage</th>
             <th class="px-2 py-2 no-print"></th>
           </tr>
@@ -74,6 +74,50 @@
 </details>
 
 <script>
+// Table sorting — shared between pipeline and locations
+window.sortTable = function(tbodyId, colIdx, type, th) {
+  var tbody = document.getElementById(tbodyId);
+  if (!tbody) return;
+  var rows = Array.from(tbody.querySelectorAll('tr[id]'));
+  // Remove coverage expansion rows from sort (they don't have IDs matching pattern)
+  rows = rows.filter(function(r) { return r.id.startsWith('pp-row-') || r.id.startsWith('loc-row-'); });
+
+  // Toggle sort direction
+  var asc = th.dataset.sortDir !== 'asc';
+  th.dataset.sortDir = asc ? 'asc' : 'desc';
+
+  // Clear other arrows
+  th.closest('tr').querySelectorAll('.sort-arrow').forEach(function(s) { s.textContent = ''; });
+  th.querySelector('.sort-arrow').textContent = asc ? ' ▲' : ' ▼';
+
+  rows.sort(function(a, b) {
+    var cellA = a.cells[colIdx];
+    var cellB = b.cells[colIdx];
+    if (!cellA || !cellB) return 0;
+    var valA = cellA.textContent.trim();
+    var valB = cellB.textContent.trim();
+
+    if (type === 'currency') {
+      valA = parseFloat(valA.replace(/[$,]/g, '')) || 0;
+      valB = parseFloat(valB.replace(/[$,]/g, '')) || 0;
+    } else if (type === 'date') {
+      valA = valA || '9999-99-99';
+      valB = valB || '9999-99-99';
+    }
+    // text and date both use string comparison (dates are ISO format)
+    if (valA < valB) return asc ? -1 : 1;
+    if (valA > valB) return asc ? 1 : -1;
+    return 0;
+  });
+
+  rows.forEach(function(row) {
+    tbody.appendChild(row);
+    // Also move any coverage expansion row that follows
+    var covRow = document.getElementById('pp-cov-' + row.id.replace('pp-row-', ''));
+    if (covRow) tbody.appendChild(covRow);
+  });
+};
+
 (function() {
   function flashCell(el) {
     el.style.transition = 'background-color 0.3s ease';

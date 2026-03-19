@@ -41,13 +41,13 @@ window.addLocation = function(clientId) {
     <table class="w-full text-sm">
       <thead>
         <tr class="border-b border-gray-100 text-left text-xs text-gray-400">
-          <th class="px-3 py-2 font-medium">Location</th>
-          <th class="px-3 py-2 font-medium">Address</th>
-          <th class="px-3 py-2 font-medium">City</th>
-          <th class="px-3 py-2 font-medium w-16">State</th>
+          <th class="px-3 py-2 font-medium cursor-pointer hover:text-marsh" onclick="sortTable('loc-tbody', 0, 'text', this)">Location <span class="sort-arrow"></span></th>
+          <th class="px-3 py-2 font-medium cursor-pointer hover:text-marsh" onclick="sortTable('loc-tbody', 1, 'text', this)">Address <span class="sort-arrow"></span></th>
+          <th class="px-3 py-2 font-medium cursor-pointer hover:text-marsh" onclick="sortTable('loc-tbody', 2, 'text', this)">City <span class="sort-arrow"></span></th>
+          <th class="px-3 py-2 font-medium w-16 cursor-pointer hover:text-marsh" onclick="sortTable('loc-tbody', 3, 'text', this)">State <span class="sort-arrow"></span></th>
           <th class="px-3 py-2 font-medium w-20">ZIP</th>
-          <th class="px-3 py-2 font-medium text-right">Premium</th>
-          <th class="px-3 py-2 font-medium text-right">Revenue</th>
+          <th class="px-3 py-2 font-medium text-right cursor-pointer hover:text-marsh" onclick="sortTable('loc-tbody', 5, 'currency', this)">Premium <span class="sort-arrow"></span></th>
+          <th class="px-3 py-2 font-medium text-right cursor-pointer hover:text-marsh" onclick="sortTable('loc-tbody', 6, 'currency', this)">Revenue <span class="sort-arrow"></span></th>
           <th class="px-3 py-2 font-medium text-center">Coverage</th>
           <th class="px-3 py-2 font-medium w-8 no-print"></th>
         </tr>
