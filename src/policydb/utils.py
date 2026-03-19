@@ -165,6 +165,36 @@ def format_phone(raw: str, default_region: str = "US") -> str:
     return raw.strip()
 
 
+def parse_currency_with_magnitude(raw) -> float:
+    """Parse a currency value with optional magnitude suffix (K, M, B).
+
+    Examples:
+        "$15M" → 15000000.0
+        "$800K" → 800000.0
+        "$1.2B" → 1200000000.0
+        "$15,000,000" → 15000000.0
+    """
+    if not raw:
+        return 0.0
+    s = str(raw).strip().replace("$", "").replace(",", "")
+    if not s:
+        return 0.0
+    multiplier = 1
+    if s[-1].upper() == "K":
+        multiplier = 1_000
+        s = s[:-1]
+    elif s[-1].upper() == "M":
+        multiplier = 1_000_000
+        s = s[:-1]
+    elif s[-1].upper() == "B":
+        multiplier = 1_000_000_000
+        s = s[:-1]
+    try:
+        return float(s) * multiplier
+    except (ValueError, TypeError):
+        return 0.0
+
+
 def csv_response(rows: list[dict], filename: str, columns: list[str] | None = None):
     """Build a CSV download Response from a list of dicts.
 
