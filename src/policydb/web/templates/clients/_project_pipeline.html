@@ -154,6 +154,26 @@
       .catch(function() {});
   };
 
+  window.togglePpCoverage = function(clientId, projectId, btn) {
+    var covId = 'pp-cov-' + projectId;
+    var existing = document.getElementById(covId);
+    if (existing) {
+      existing.remove();
+      return;
+    }
+    fetch('/clients/' + clientId + '/projects/' + projectId + '/coverage')
+      .then(function(r) { return r.text(); })
+      .then(function(html) {
+        var row = document.getElementById('pp-row-' + projectId);
+        if (row) {
+          var tr = document.createElement('tr');
+          tr.id = covId;
+          tr.innerHTML = '<td colspan="12" class="px-4 py-2 bg-gray-50">' + html + '</td>';
+          row.insertAdjacentElement('afterend', tr);
+        }
+      });
+  };
+
   window.ppSaveDate = function(input, field, clientId, projectId) {
     fetch('/clients/' + clientId + '/projects/' + projectId + '/field', {
       method: 'PATCH',

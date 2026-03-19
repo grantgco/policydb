@@ -83,13 +83,11 @@
     {% if p.total_revenue %}{{ p.total_revenue | currency }}{% else %}<span class="text-gray-300">$0</span>{% endif %}
   </td>
 
-  {# Coverage — clickable to expand #}
+  {# Coverage — clickable to toggle #}
   <td class="px-2 py-2 text-center">
     <button type="button"
             class="text-xs tabular-nums {{ 'text-marsh hover:underline' if p.total_coverages else 'text-gray-300' }}"
-            hx-get="/clients/{{ client.id }}/projects/{{ p.id }}/coverage"
-            hx-target="#pp-row-{{ p.id }}"
-            hx-swap="afterend"
+            onclick="togglePpCoverage({{ client.id }}, {{ p.id }}, this)"
             title="View linked policies">
       {{ p.placed_coverages }}/{{ p.total_coverages }}
     </button>
