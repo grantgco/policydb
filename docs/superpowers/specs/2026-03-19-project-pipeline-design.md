@@ -49,7 +49,13 @@ ALTER TABLE projects ADD COLUMN insurance_needed_by DATE;
 ALTER TABLE projects ADD COLUMN scope_description TEXT;
 ALTER TABLE projects ADD COLUMN general_contractor TEXT;
 ALTER TABLE projects ADD COLUMN owner_name TEXT;
+ALTER TABLE projects ADD COLUMN address TEXT;
+ALTER TABLE projects ADD COLUMN city TEXT;
+ALTER TABLE projects ADD COLUMN state TEXT;
+ALTER TABLE projects ADD COLUMN zip TEXT;
 ```
+
+Address fields live on the project itself (not derived from linked policies) so pipeline projects can have an address before any policies are created. Normalized via `format_city()`, `format_state()`, `format_zip()` on save when data normalization ships.
 
 All columns are optional (nullable). Existing projects default to `project_type = 'Location'` and `status = 'Upcoming'`.
 
@@ -77,13 +83,13 @@ New section above the existing policy groupings. Only renders if the client has 
 ### Contenteditable table
 
 ```
-┌──────────┬─────────────┬────────┬───────────┬──────────┬───────────┬──────────┬─────────┬──────────┐
-│ Type     │ Project     │ Status │ Ins. By   │ Start    │ Complete  │ Value    │ Premium │ Coverage │
-├──────────┼─────────────┼────────┼───────────┼──────────┼───────────┼──────────┼─────────┼──────────┤
-│ Constr.  │ Tower West  │Quoting │ 06/01/26  │ 08/01/26 │ 12/01/27  │ $15M     │ $465K   │ 2 of 4   │
-│ Dev.     │ Phase II    │Upcoming│ 09/01/26  │ 01/01/27 │ 06/01/28  │ $42M     │ $0      │ 0 of 3   │
-│ Renov.   │ Lobby Remod │ Active │ —         │ 03/15/26 │ 07/01/26  │ $800K    │ $125K   │ 1 of 1   │
-└──────────┴─────────────┴────────┴───────────┴──────────┴───────────┴──────────┴─────────┴──────────┘
+┌──────────┬─────────────┬────────┬───────────┬──────────┬───────────┬──────────┬─────────┬─────────┬──────────┐
+│ Type     │ Project     │ Status │ Ins. By   │ Start    │ Complete  │ Value    │ Premium │ Revenue │ Coverage │
+├──────────┼─────────────┼────────┼───────────┼──────────┼───────────┼──────────┼─────────┼─────────┼──────────┤
+│ Constr.  │ Tower West  │Quoting │ 06/01/26  │ 08/01/26 │ 12/01/27  │ $15M     │ $465K   │ $46.5K  │ 2 of 4   │
+│ Dev.     │ Phase II    │Upcoming│ 09/01/26  │ 01/01/27 │ 06/01/28  │ $42M     │ $0      │ $0      │ 0 of 3   │
+│ Renov.   │ Lobby Remod │ Active │ —         │ 03/15/26 │ 07/01/26  │ $800K    │ $125K   │ $12.5K  │ 1 of 1   │
+└──────────┴─────────────┴────────┴───────────┴──────────┴───────────┴──────────┴─────────┴─────────┴──────────┘
   + Add Project
 ```
 
@@ -100,7 +106,7 @@ New section above the existing policy groupings. Only renders if the client has 
 | Value | Yes — contenteditable | `projects.project_value` | Contract/project value, formatted as currency |
 | Premium | Read-only | Computed | SUM(premium) from linked policies + opportunities |
 | Revenue | Read-only | Computed | SUM(premium * commission_rate) from linked policies |
-| Coverage | Read-only | Computed | "X of Y" — bound policies / total linked (policies + opportunities) |
+| Coverage | Read-only | Computed | "X of Y" — placed policies (non-opportunity) / total linked (policies + opportunities). "Placed" means any real policy regardless of renewal_status. |
 
 **Interactions:**
 - Click cell to edit, blur saves via PATCH (same as carrier matrix pattern)
@@ -197,6 +203,7 @@ Click the "2 of 4" coverage cell to expand an inline detail showing linked polic
 
 **Columns:**
 - Project Name, Type, Status
+- Address, City, State, ZIP
 - Insurance Needed By, Start Date, Target Completion
 - Project Value, Total Premium, Total Revenue
 - General Contractor, Owner
@@ -212,7 +219,7 @@ Click the "2 of 4" coverage cell to expand an inline detail showing linked polic
 - Renders the same horizontal bar chart as the on-screen timeline
 - Clean, client-ready format — no internal IDs or system data
 - Header: Client name, "Project Pipeline Timeline", generation date
-- Uses fpdf2 (already a dependency) for PDF generation
+- Uses fpdf2 for PDF generation (lazy imported in `clients.py`; verify it's in `pyproject.toml` dependencies or add it)
 - PNG option via server-side HTML-to-image if needed (or just PDF)
 
 ---
@@ -230,7 +237,7 @@ def get_project_pipeline(conn, client_id: int) -> list[dict]:
                 WHERE pol.project_id = p.id AND pol.archived = 0) AS total_coverages,
                (SELECT COUNT(*) FROM policies pol
                 WHERE pol.project_id = p.id AND pol.archived = 0
-                AND (pol.is_opportunity = 0 OR pol.is_opportunity IS NULL)) AS bound_coverages,
+                AND (pol.is_opportunity = 0 OR pol.is_opportunity IS NULL)) AS placed_coverages,
                (SELECT COALESCE(SUM(pol.premium), 0) FROM policies pol
                 WHERE pol.project_id = p.id AND pol.archived = 0) AS total_premium,
                (SELECT COALESCE(SUM(CASE WHEN pol.commission_rate > 0
@@ -269,7 +276,8 @@ Two new config lists managed in Settings UI via existing `_list_card.html`:
 | Project with no linked policies | Coverage shows "0 of 0". Premium/Revenue show $0. |
 | Change project type from Construction → Location | Pipeline fields remain in DB but row disappears from pipeline table. Reappears if changed back. |
 | Delete a pipeline project | Same as existing delete — clears `project_id` on linked policies, moves them to Corporate/Standalone. |
-| Project value entered as "$15M" | Server parses to 15000000, formats back as "$15,000,000", flash on reformat. |
+| Project value entered as "$15M" | Server parses magnitude suffixes: K=×1000, M=×1000000, B=×1000000000. "$15M" → 15000000 → formatted "$15,000,000", flash. Extend `_parse_money()` or write `parse_currency_with_magnitude()` in utils.py. |
+| "+ Add Project" default name | Uses "New Project", "New Project 2", "New Project 3" etc. to avoid `UNIQUE(client_id, name)` constraint violation. Query existing names first. |
 | Multiple projects with overlapping dates | Timeline bar shows overlaps clearly (bars stack vertically). |
 | Export with 0 pipeline projects | Export buttons hidden. |
 | Location projects in table export | Excluded — only non-location projects export. |
