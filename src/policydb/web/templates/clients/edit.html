@@ -27,7 +27,22 @@
 </div>
 {% endif %}
 
-<form method="post" action="{% if client %}/clients/{{ client.id }}/edit{% else %}/clients/new{% endif %}" class="space-y-6"
+{% if duplicate_warning %}
+<div class="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-4">
+  <p class="text-sm font-medium text-amber-800">Similar clients found — please review before creating:</p>
+  <ul class="mt-2 space-y-1">
+    {% for m in duplicate_warning %}
+    <li class="text-sm text-amber-700">
+      <a href="/clients/{{ m.id }}" class="font-medium hover:underline" style="color: #2e6f40;">{{ m.name }}</a>
+      <span class="text-xs text-amber-500">({{ m.score }}% match{% if m.industry %} &middot; {{ m.industry }}{% endif %})</span>
+    </li>
+    {% endfor %}
+  </ul>
+  <p class="mt-2 text-xs text-gray-500">If this is truly a new client, submit again to create it anyway.</p>
+</div>
+{% endif %}
+
+<form method="post" action="{% if client %}/clients/{{ client.id }}/edit{% else %}/clients/new{% if duplicate_warning %}?force=1{% endif %}{% endif %}" class="space-y-6"
       {% if client %}data-autosave="/clients/{{ client.id }}/edit"{% endif %}>
 
   <div class="card p-6">
@@ -35,12 +50,12 @@
 
       <div class="sm:col-span-2">
         <label class="field-label">Client Name <span class="text-red-400">*</span></label>
-        <input type="text" name="name" value="{{ client.name if client else '' }}" required class="form-input w-full">
+        <input type="text" name="name" value="{{ client.name if client else (prefill.name if prefill else '') }}" required class="form-input w-full">
       </div>
 
       <div>
         <label class="field-label">CN Number <span class="text-gray-400 font-normal">(internal)</span></label>
-        <input type="text" name="cn_number" value="{{ client.cn_number if client else '' }}" placeholder="e.g. CN-00123" class="form-input w-full">
+        <input type="text" name="cn_number" value="{{ client.cn_number if client else (prefill.cn_number if prefill else '') }}" placeholder="e.g. CN-00123" class="form-input w-full">
       </div>
 
       <div>
@@ -61,24 +76,24 @@
         <label class="field-label">Industry Segment <span class="text-red-400">*</span></label>
         <select name="industry_segment" class="form-select w-full" required>
           {% for seg in industry_segments %}
-          <option value="{{ seg }}" {% if client and seg == client.industry_segment %}selected{% endif %}>{{ seg }}</option>
+          <option value="{{ seg }}" {% if (client and seg == client.industry_segment) or (prefill and seg == prefill.industry_segment) %}selected{% endif %}>{{ seg }}</option>
           {% endfor %}
         </select>
       </div>
 
       <div>
         <label class="field-label">Contact Email <span class="text-gray-400 font-normal">(fallback)</span></label>
-        <input type="email" name="contact_email" value="{{ client.contact_email if client else '' }}" class="form-input w-full">
+        <input type="email" name="contact_email" value="{{ client.contact_email if client else (prefill.contact_email if prefill else '') }}" class="form-input w-full">
       </div>
 
       <div>
         <label class="field-label">Contact Phone <span class="text-gray-400 font-normal">(fallback)</span></label>
-        <input type="text" name="contact_phone" value="{{ client.contact_phone if client else '' }}" class="form-input w-full">
+        <input type="text" name="contact_phone" value="{{ client.contact_phone if client else (prefill.contact_phone if prefill else '') }}" class="form-input w-full">
       </div>
 
       <div>
         <label class="field-label">Contact Mobile <span class="text-gray-400 font-normal">(fallback)</span></label>
-        <input type="text" name="contact_mobile" value="{{ client.contact_mobile if client else '' }}" class="form-input w-full">
+        <input type="text" name="contact_mobile" value="{{ client.contact_mobile if client else (prefill.contact_mobile if prefill else '') }}" class="form-input w-full">
       </div>
 
       <div class="sm:col-span-2 relative">
