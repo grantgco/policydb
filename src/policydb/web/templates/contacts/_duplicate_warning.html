@@ -1,0 +1,32 @@
+{% if matches %}
+<div class="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-2 text-xs">
+  <p class="font-semibold text-amber-800 mb-1">Possible duplicate{{ 's' if matches | length > 1 }} found:</p>
+  <ul class="space-y-1">
+    {% for m in matches %}
+    <li class="flex items-center gap-2 text-amber-700">
+      <span class="font-medium">{{ m.name }}</span>
+      {% if m.email %}<span class="text-amber-500">{{ m.email }}</span>{% endif %}
+      {% if m.score is defined %}
+      <span class="text-[10px] bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded">{{ m.score }}% match</span>
+      {% endif %}
+      {% if m.match_type == 'email' %}
+      <span class="text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded font-medium">Exact email match</span>
+      {% elif m.match_type != 'email' and m.score is not defined %}
+      <span class="text-[10px] bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded">Similar name</span>
+      {% endif %}
+      {% if m.client_names %}
+      <span class="text-[10px] text-amber-500 italic">{{ m.client_names }}</span>
+      {% endif %}
+      {% if m.source == 'policy' %}
+      <span class="text-[10px] bg-blue-50 text-blue-600 px-1 py-0.5 rounded">Placement</span>
+      {% elif m.source == 'team' %}
+      <span class="text-[10px] bg-green-50 text-green-600 px-1 py-0.5 rounded">Team</span>
+      {% elif m.source == 'client' %}
+      <span class="text-[10px] bg-gray-100 text-gray-600 px-1 py-0.5 rounded">Client</span>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  <p class="text-amber-600 mt-1.5 italic">You can still create this contact — this is just a heads-up.</p>
+</div>
+{% endif %}

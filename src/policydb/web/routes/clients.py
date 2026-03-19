@@ -954,7 +954,7 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
     })
 
 
-def _contacts_response(request, conn, client_id: int):
+def _contacts_response(request, conn, client_id: int, duplicate_warning=None):
     """Shared helper: return the client contacts card partial with fresh data."""
     import json as _json
     contacts = get_client_contacts(conn, client_id, contact_type='client')
@@ -989,6 +989,7 @@ def _contacts_response(request, conn, client_id: int):
         "all_contacts_json": all_contacts_json,
         "contact_roles": cfg.get("contact_roles", []),
         "all_orgs": _get_all_client_contact_orgs(conn),
+        "duplicate_warning": duplicate_warning,
     })
 
 
@@ -1095,6 +1096,9 @@ def contact_add(
     notes: str = Form(""),
     conn=Depends(get_db),
 ):
+    from policydb.web.routes.contacts import _find_similar_contacts
+    # Run duplicate check before creating — warn but don't block
+    dupes = _find_similar_contacts(conn, name.strip(), source="client") if name.strip() else []
     cid = get_or_create_contact(conn, name,
                                 email=clean_email(email) or None,
                                 phone=format_phone(phone) or None,
@@ -1102,7 +1106,8 @@ def contact_add(
     assign_contact_to_client(conn, cid, client_id, contact_type='client',
                              title=title or None, role=role or None, notes=notes or None)
     conn.commit()
-    return _contacts_response(request, conn, client_id)
+    # Pass duplicate warning so user can see it even after creation
+    return _contacts_response(request, conn, client_id, duplicate_warning=dupes or None)
 
 
 @router.post("/{client_id}/contacts/{contact_id}/edit", response_class=HTMLResponse)
