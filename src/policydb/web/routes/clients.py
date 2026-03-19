@@ -775,6 +775,7 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
         "next_followup_date": next_followup_date,
         "next_followup_days": next_followup_days,
         "last_activity_relative": last_activity_relative,
+        "dispositions": cfg.get("follow_up_dispositions", []),
     })
 
 
@@ -1798,7 +1799,7 @@ def client_note_save(request: Request, client_id: int, conn=Depends(get_db)):
         ).fetchone()
         if a_row:
             activity_html = templates.TemplateResponse(
-                "activities/_activity_row.html", {"request": request, "a": dict(a_row)}
+                "activities/_activity_row.html", {"request": request, "a": dict(a_row), "dispositions": cfg.get("follow_up_dispositions", [])}
             ).body.decode()
             # OOB swap: prepend to activity list
             oob_html = f'<li hx-swap-oob="afterbegin:#activity-list">{activity_html}</li>'

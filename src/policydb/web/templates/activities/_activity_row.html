@@ -26,10 +26,10 @@
   <div class="flex items-center gap-2 shrink-0">
     {% if a.follow_up_date and not a.follow_up_done %}
     <button type="button"
-      onclick="var f=document.getElementById('followup-form-{{ a.id }}'); var c=document.getElementById('complete-form-{{ a.id }}'); if(c)c.classList.add('hidden'); f.classList.toggle('hidden')"
+      onclick="var el=document.getElementById('disposition-form-{{ a.id }}');if(el)el.classList.toggle('hidden');var others=['complete-form-','followup-form-'];others.forEach(function(p){var o=document.getElementById(p+'{{ a.id }}');if(o)o.classList.add('hidden');});"
       class="text-xs bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 rounded px-2 py-1 font-medium" title="Log hours, add notes, and re-diary">Follow Up</button>
     <button type="button"
-      onclick="var c=document.getElementById('complete-form-{{ a.id }}'); var f=document.getElementById('followup-form-{{ a.id }}'); if(f)f.classList.add('hidden'); c.classList.toggle('hidden')"
+      onclick="var el=document.getElementById('disposition-form-{{ a.id }}');if(el)el.classList.toggle('hidden');var others=['complete-form-','followup-form-'];others.forEach(function(p){var o=document.getElementById(p+'{{ a.id }}');if(o)o.classList.add('hidden');});"
       class="text-xs bg-green-50 hover:bg-green-100 text-green-700 border border-green-200 rounded px-2 py-1">Done</button>
     <button hx-post="/activities/{{ a.id }}/snooze?days=1" hx-target="#activity-{{ a.id }}" hx-swap="outerHTML"
       class="text-[10px] text-gray-400 hover:text-amber-600 border border-gray-200 hover:border-amber-300 rounded px-1.5 py-1 transition-colors">+1d</button>
@@ -46,85 +46,100 @@
       hx-target="#activity-{{ a.id }}"
       hx-swap="outerHTML"
       hx-confirm="Delete this activity?"
+      hx-on::before-request="var ids=['disposition-form-','complete-form-','followup-form-'];ids.forEach(function(p){var el=document.getElementById(p+'{{ a.id }}');if(el)el.remove();});"
       class="text-xs text-gray-300 hover:text-red-500">✕</button>
   </div>
 </li>
 {% if a.follow_up_date and not a.follow_up_done %}
-{# ── Completion form (hours + note + abandon) ── #}
-<li id="complete-form-{{ a.id }}" class="activity-item-form hidden px-5 py-3 bg-green-50/50 border-l-4 border-green-400 complete-form" data-parent-activity="{{ a.id }}">
-  <form hx-post="/activities/{{ a.id }}/complete"
-        hx-target="#activity-{{ a.id }}"
-        hx-swap="outerHTML"
-        hx-on::after-request="if(event.detail.successful){ var f=document.getElementById('complete-form-{{ a.id }}'); if(f)f.remove(); var ff=document.getElementById('followup-form-{{ a.id }}'); if(ff)ff.remove(); }">
-    <div class="flex items-center gap-2 mb-2">
-      <span class="text-xs font-semibold text-green-700">Complete Follow-Up</span>
-      <span class="text-[10px] text-gray-400">{{ a.subject }}</span>
-    </div>
-    <div class="flex items-end gap-3">
-      <div class="w-20">
-        <label class="text-[10px] uppercase tracking-wide text-gray-500 block mb-0.5">Hours</label>
-        <input type="number" name="duration_hours" min="0" step="any" placeholder="0.5"
-          class="w-full border border-gray-200 rounded px-2 py-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-green-400 tabular-nums">
-      </div>
-      <div class="flex-1">
-        <label class="text-[10px] uppercase tracking-wide text-gray-500 block mb-0.5">Note</label>
-        <input type="text" name="note" placeholder="Brief context (required for Abandon)..."
-          class="w-full border border-gray-200 rounded px-2 py-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-green-400 placeholder-gray-300">
-      </div>
-      <button type="submit"
-        class="bg-green-500 hover:bg-green-600 text-white text-xs font-medium px-4 py-1.5 rounded transition-colors whitespace-nowrap">Mark Done</button>
-      <button type="submit" name="abandon" value="1"
-        onclick="if(!this.form.note.value.trim()){this.form.note.focus();this.form.note.classList.add('ring-2','ring-red-400');return false;}"
-        class="bg-gray-400 hover:bg-gray-500 text-white text-xs font-medium px-3 py-1.5 rounded transition-colors whitespace-nowrap">Abandon</button>
-      <button type="button" onclick="this.closest('.complete-form').classList.add('hidden')"
-        class="text-xs text-gray-400 hover:text-gray-600">Cancel</button>
-    </div>
-  </form>
-</li>
-{# ── Follow-up + Re-diary form ── #}
-<li id="followup-form-{{ a.id }}" class="activity-item-form hidden px-5 py-3 bg-amber-50/50 border-l-4 border-amber-400 followup-form" data-parent-activity="{{ a.id }}">
+{# ── Unified Disposition Form ── #}
+<li id="disposition-form-{{ a.id }}" class="activity-item-form hidden px-5 py-3 bg-amber-50/50 border-l-4 border-amber-400" data-parent-activity="{{ a.id }}">
   <form hx-post="/activities/{{ a.id }}/followup"
         hx-target="closest ul"
         hx-swap="afterbegin"
-        hx-on::after-request="if(event.detail.successful){ this.closest('.followup-form').classList.add('hidden'); var cf=document.getElementById('complete-form-{{ a.id }}'); if(cf)cf.remove(); htmx.ajax('GET', '/activities/{{ a.id }}/row', {target: '#activity-{{ a.id }}', swap: 'outerHTML'}); }"
+        hx-on::after-request="if(event.detail.successful){ this.closest('li').classList.add('hidden'); htmx.ajax('GET', '/activities/{{ a.id }}/row', {target: '#activity-{{ a.id }}', swap: 'outerHTML'}); }"
         class="space-y-2">
+
+    {# Reference tag — copyable from within the form #}
+    {% set _a_ref = build_ref_tag(cn_number=a.cn_number|default(''), client_id=a.client_id, policy_uid=a.policy_uid|default(''), project_id=a.project_id|default(0), activity_id=a.id, thread_id=a.thread_id|default(0)) %}
     <div class="flex items-center gap-2 mb-1">
-      <span class="text-xs font-semibold text-amber-700">Follow Up + Re-Diary</span>
+      <span class="text-[10px] font-mono text-blue-500 bg-blue-50 px-2 py-0.5 rounded select-all cursor-pointer" title="Click to copy"
+            onclick="navigator.clipboard.writeText(this.textContent.trim());if(typeof showToast==='function')showToast('Ref tag copied',true);">{{ _a_ref }}</span>
+      <span class="text-[10px] text-gray-300">|</span>
       <span class="text-[10px] text-gray-400">{{ a.subject }}</span>
     </div>
-    <div>
-      <label class="text-[10px] uppercase tracking-wide text-gray-500 block mb-0.5">Notes</label>
-      <textarea name="notes" rows="2" placeholder="Checked in with client re: outstanding request..."
-        class="w-full border border-gray-200 rounded px-2 py-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-amber-400 placeholder-gray-300"></textarea>
+
+    <div class="flex items-center gap-3 flex-wrap">
+      <div>
+        <label class="text-[10px] text-gray-500 block">Disposition</label>
+        <select name="disposition" class="text-xs border border-gray-200 rounded px-2 py-1 focus:ring-1 focus:ring-marsh"
+                onchange="actDispositionChanged(this, {{ a.id }})">
+          <option value="">-- Select --</option>
+          {% for d in dispositions %}
+          <option value="{{ d.label }}" data-days="{{ d.default_days }}">{{ d.label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="text-[10px] text-gray-500 block">Hours</label>
+        <input type="number" name="duration_hours" step="0.1" min="0" placeholder="0"
+          class="w-16 text-xs border border-gray-200 rounded px-2 py-1 focus:ring-1 focus:ring-marsh">
+      </div>
     </div>
-    <div class="flex items-end gap-3">
-      <div class="w-20">
-        <label class="text-[10px] uppercase tracking-wide text-gray-500 block mb-0.5">Hours</label>
-        <input type="number" name="duration_hours" min="0" step="any" placeholder="0.5"
-          class="w-full border border-gray-200 rounded px-2 py-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-amber-400 tabular-nums">
+
+    <div>
+      <label class="text-[10px] text-gray-500 block">Note</label>
+      <input type="text" name="notes" placeholder="Details..."
+        class="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:ring-1 focus:ring-marsh">
+    </div>
+
+    <div>
+      <label class="text-[10px] text-gray-500 block">Next Follow-Up</label>
+      <div class="flex items-center gap-2">
+        <input type="date" name="new_follow_up_date" id="act-rediary-date-{{ a.id }}"
+          class="text-xs border border-gray-200 rounded px-2 py-1 focus:ring-1 focus:ring-marsh">
+        <button type="button" onclick="setActRediaryDays({{ a.id }}, 1)" class="text-[10px] text-gray-400 hover:text-marsh border border-gray-200 rounded px-1.5 py-0.5">+1d</button>
+        <button type="button" onclick="setActRediaryDays({{ a.id }}, 3)" class="text-[10px] text-gray-400 hover:text-marsh border border-gray-200 rounded px-1.5 py-0.5">+3d</button>
+        <button type="button" onclick="setActRediaryDays({{ a.id }}, 7)" class="text-[10px] text-gray-400 hover:text-marsh border border-gray-200 rounded px-1.5 py-0.5">+7d</button>
+        <button type="button" onclick="setActRediaryDays({{ a.id }}, 14)" class="text-[10px] text-gray-400 hover:text-marsh border border-gray-200 rounded px-1.5 py-0.5">+14d</button>
       </div>
-      <div class="flex-1">
-        <label class="text-[10px] uppercase tracking-wide text-gray-500 block mb-0.5">Next Follow-Up</label>
-        <div class="flex items-center gap-1">
-          <input type="date" name="new_follow_up_date" id="fu-date-{{ a.id }}"
-            class="flex-1 border border-gray-200 rounded px-2 py-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-amber-400">
-          <button type="button" onclick="setFuDate('{{ a.id }}', 1)" class="text-[10px] text-gray-400 hover:text-amber-600 border border-gray-200 hover:border-amber-300 rounded px-1.5 py-1.5 transition-colors">+1d</button>
-          <button type="button" onclick="setFuDate('{{ a.id }}', 3)" class="text-[10px] text-gray-400 hover:text-amber-600 border border-gray-200 hover:border-amber-300 rounded px-1.5 py-1.5 transition-colors">+3d</button>
-          <button type="button" onclick="setFuDate('{{ a.id }}', 7)" class="text-[10px] text-gray-400 hover:text-amber-600 border border-gray-200 hover:border-amber-300 rounded px-1.5 py-1.5 transition-colors">+7d</button>
-        </div>
-      </div>
-      <button type="submit"
-        class="bg-amber-500 hover:bg-amber-600 text-white text-xs font-medium px-4 py-1.5 rounded transition-colors whitespace-nowrap">Log + Re-Diary</button>
-      <button type="button" onclick="this.closest('.followup-form').classList.add('hidden')"
-        class="text-xs text-gray-400 hover:text-gray-600">Cancel</button>
+    </div>
+
+    <div class="flex gap-2 mt-2">
+      <button type="submit" class="text-xs bg-marsh text-white px-3 py-1.5 rounded hover:bg-marsh-light transition-colors">Log + Re-Diary</button>
+      <button type="button" onclick="actMarkDoneOnly(this, {{ a.id }})" class="text-xs text-gray-600 border border-gray-300 px-3 py-1.5 rounded hover:bg-gray-100 transition-colors">Mark Done</button>
+      <button type="button" onclick="this.closest('li').classList.add('hidden')" class="text-xs text-gray-400 hover:text-gray-600 ml-auto">Cancel</button>
     </div>
   </form>
 </li>
+{% endif %}
 <script>
-function setFuDate(aid, days) {
-  var d = new Date(); d.setDate(d.getDate() + days);
-  var el = document.getElementById('fu-date-' + aid);
-  if (el) el.value = d.toISOString().slice(0, 10);
+function actDispositionChanged(sel, actId) {
+  var days = parseInt(sel.selectedOptions[0].dataset.days || '0');
+  var dateInput = document.getElementById('act-rediary-date-' + actId);
+  if (days > 0 && dateInput) {
+    var d = new Date();
+    d.setDate(d.getDate() + days);
+    dateInput.value = d.toISOString().split('T')[0];
+  }
+}
+function setActRediaryDays(actId, days) {
+  var dateInput = document.getElementById('act-rediary-date-' + actId);
+  if (dateInput) {
+    var d = new Date();
+    d.setDate(d.getDate() + days);
+    dateInput.value = d.toISOString().split('T')[0];
+  }
+}
+function actMarkDoneOnly(btn, actId) {
+  var form = btn.closest('form');
+  var disposition = form.querySelector('select[name="disposition"]').value;
+  var hours = form.querySelector('input[name="duration_hours"]').value;
+  var note = form.querySelector('input[name="notes"]').value;
+  htmx.ajax('POST', '/activities/' + actId + '/complete', {
+    target: '#activity-' + actId,
+    swap: 'outerHTML',
+    values: {disposition: disposition, duration_hours: hours || '0', note: note}
+  });
+  btn.closest('li').classList.add('hidden');
 }
 </script>
-{% endif %}
