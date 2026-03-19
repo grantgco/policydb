@@ -23,7 +23,7 @@ def _meeting_dict(conn, meeting_id: int) -> dict | None:
            FROM meeting_attendees ma
            LEFT JOIN contacts co ON ma.contact_id = co.id
            WHERE ma.meeting_id = ?
-           ORDER BY ma.is_internal, ma.name""",
+           ORDER BY ma.attendee_type, ma.name""",
         (meeting_id,),
     ).fetchall()]
     m["action_items"] = [dict(ai) for ai in conn.execute(
@@ -99,7 +99,7 @@ def meetings_export_csv(
         where = "m.client_id = ?"
         params.append(client_id)
     rows = [dict(r) for r in conn.execute(
-        f"""SELECT m.meeting_date, m.meeting_time, c.name AS client_name, m.title,
+        f"""SELECT m.meeting_uid, m.meeting_date, m.meeting_time, c.name AS client_name, m.title,
                    m.duration_hours, m.location,
                    (SELECT COUNT(*) FROM meeting_attendees WHERE meeting_id = m.id) AS attendees,
                    (SELECT COUNT(*) FROM meeting_action_items WHERE meeting_id = m.id) AS action_items
@@ -107,7 +107,7 @@ def meetings_export_csv(
             WHERE {where} ORDER BY m.meeting_date DESC""",
         params,
     ).fetchall()]
-    cols = ["meeting_date", "meeting_time", "client_name", "title", "duration_hours",
+    cols = ["meeting_uid", "meeting_date", "meeting_time", "client_name", "title", "duration_hours",
             "location", "attendees", "action_items"]
     from datetime import date as _d
     fname = f"meetings_{_d.today().isoformat()}.csv"
@@ -171,14 +171,16 @@ def meeting_create(
     conn=Depends(get_db),
 ):
     from policydb.utils import round_duration
+    from policydb.db import next_meeting_uid
 
     dur = round_duration(duration_hours)
+    meeting_uid = next_meeting_uid(conn, client_id)
     cursor = conn.execute(
         """INSERT INTO client_meetings
-           (client_id, title, meeting_date, meeting_time, duration_hours, location, notes)
-           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+           (client_id, title, meeting_date, meeting_time, duration_hours, location, notes, meeting_uid)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
         (client_id, title.strip(), meeting_date or date.today().isoformat(),
-         meeting_time or None, dur, location or None, notes),
+         meeting_time or None, dur, location or None, notes, meeting_uid),
     )
     meeting_id = cursor.lastrowid
 
@@ -192,13 +194,14 @@ def meeting_create(
          f"Meeting logged. {notes[:200] if notes else ''}", dur, account_exec),
     )
     conn.commit()
-    return RedirectResponse(f"/meetings/{meeting_id}", status_code=303)
+    return RedirectResponse(f"/meetings/{meeting_id}?created=1", status_code=303)
 
 
 @router.get("/meetings/{meeting_id}", response_class=HTMLResponse)
 def meeting_detail(
     request: Request,
     meeting_id: int,
+    created: int = 0,
     conn=Depends(get_db),
 ):
     m = _meeting_dict(conn, meeting_id)
@@ -228,6 +231,7 @@ def meeting_detail(
         "contacts": contacts,
         "client_policies": client_policies,
         "today": date.today().isoformat(),
+        "just_created": bool(created),
     })
 
 
@@ -286,7 +290,7 @@ def meeting_add_attendee(
     email: str = Form(""),
     phone: str = Form(""),
     contact_id: int = Form(0),
-    is_internal: int = Form(0),
+    attendee_type: str = Form(""),
     create_contact: str = Form(""),
     conn=Depends(get_db),
 ):
@@ -308,7 +312,7 @@ def meeting_add_attendee(
         cid = get_or_create_contact(conn, name.strip(), **extras)
         # Also assign to the client if not already
         if client_id and cid:
-            contact_type = "internal" if is_internal else "client"
+            contact_type = attendee_type.lower() if attendee_type else "client"
             try:
                 assign_contact_to_client(conn, cid, client_id,
                                          contact_type=contact_type,
@@ -318,9 +322,9 @@ def meeting_add_attendee(
                 pass  # Already assigned
 
     conn.execute(
-        """INSERT INTO meeting_attendees (meeting_id, contact_id, name, role, is_internal)
+        """INSERT INTO meeting_attendees (meeting_id, contact_id, name, role, attendee_type)
            VALUES (?, ?, ?, ?, ?)""",
-        (meeting_id, cid, name.strip(), role or title or None, is_internal),
+        (meeting_id, cid, name.strip(), role or title or None, attendee_type or ""),
     )
     conn.commit()
     m = _meeting_dict(conn, meeting_id)
@@ -354,12 +358,12 @@ def meeting_attendee_add_row(
         return HTMLResponse("")
     cid = get_or_create_contact(conn, "New Contact")
     cur = conn.execute(
-        "INSERT INTO meeting_attendees (meeting_id, contact_id, name, is_internal) VALUES (?, ?, 'New Contact', 0)",
+        "INSERT INTO meeting_attendees (meeting_id, contact_id, name, attendee_type) VALUES (?, ?, 'New Contact', '')",
         (meeting_id, cid),
     )
     conn.commit()
     a = {"id": cur.lastrowid, "contact_id": cid, "name": "New Contact",
-         "role": None, "is_internal": 0, "email": None, "phone": None, "mobile": None}
+         "role": None, "attendee_type": "", "email": None, "phone": None, "mobile": None}
     return templates.TemplateResponse("meetings/_attendee_row.html", {
         "request": request, "a": a, "meeting": {"id": meeting_id},
     })
@@ -380,7 +384,7 @@ async def meeting_patch_attendee(
     value = body.get("value", "").strip()
 
     # Fields on meeting_attendees table
-    _attendee_fields = {"name", "role", "is_internal"}
+    _attendee_fields = {"name", "role", "attendee_type"}
     # Fields on the linked contacts table
     _contact_fields = {"email", "phone", "mobile"}
 
@@ -392,9 +396,9 @@ async def meeting_patch_attendee(
 
     if field in _attendee_fields:
         save_val = value or None
-        if field == "is_internal":
-            save_val = 1 if value in ("1", "true", "Internal", "Team") else 0
-            formatted = "Internal" if save_val else "Client"
+        if field == "attendee_type":
+            save_val = value.strip() or ""
+            formatted = save_val
         conn.execute(
             f"UPDATE meeting_attendees SET {field} = ? WHERE id = ? AND meeting_id = ?",
             (save_val, attendee_id, meeting_id),
@@ -610,7 +614,6 @@ def meeting_log_time(
     )
     conn.commit()
     return JSONResponse({"ok": True, "logged": f"{dur}h {label.lower()}", "activity_logged": True})
-    return JSONResponse({"ok": True, "logged": f"{dur}h {label.lower()}"})
 
 
 @router.post("/meetings/{meeting_id}/policies/link")
@@ -674,14 +677,32 @@ def meeting_recap(
     conn=Depends(get_db),
 ):
     """Generate a meeting recap text for copy/email."""
+    import html as _html
+
     m = _meeting_dict(conn, meeting_id)
     if not m:
         return HTMLResponse("")
-    lines = [f"# Meeting Recap: {m['title']}", "", f"**Date:** {m.get('meeting_date', '')} {m.get('meeting_time', '') or ''}", ""]
+
+    uid_line = f"**Ref:** {m.get('meeting_uid', '')}" if m.get("meeting_uid") else ""
+    lines = [
+        f"# Meeting Recap: {m['title']}",
+        "",
+        f"**Client:** {m.get('client_name', '')}",
+        f"**Date:** {m.get('meeting_date', '')} {m.get('meeting_time', '') or ''}".rstrip(),
+    ]
+    if uid_line:
+        lines.append(uid_line)
+    lines.append("")
+
     if m.get("attendees"):
         lines.append("## Attendees")
         for a in m["attendees"]:
-            lines.append(f"- {a['name']}{' (' + a['role'] + ')' if a.get('role') else ''}")
+            parts = [a["name"]]
+            if a.get("role"):
+                parts.append(f"({a['role']})")
+            if a.get("attendee_type"):
+                parts.append(f"— {a['attendee_type']}")
+            lines.append(f"- {' '.join(parts)}")
         lines.append("")
     if m.get("linked_policies"):
         lines.append("## Policies Discussed")
@@ -700,16 +721,19 @@ def meeting_recap(
             due = f" — due {ai['due_date']}" if ai.get("due_date") else ""
             lines.append(f"- {check} {ai['description']}{assignee}{due}")
         lines.append("")
+
     recap = "\n".join(lines)
-    # Escape for safe HTML embedding
-    import html as _html
     safe_recap = _html.escape(recap)
     return HTMLResponse(
         f'<div class="card p-4">'
         f'<div id="recap-viewer" class="mb-3"></div>'
         f'<textarea id="recap-raw" class="hidden">{safe_recap}</textarea>'
-        f'<button type="button" onclick="navigator.clipboard.writeText(document.getElementById(\'recap-raw\').value).then(function(){{var b=event.target;b.textContent=\'Copied!\';setTimeout(function(){{b.textContent=\'Copy markdown\'}},1500)}})"'
-        f' class="text-xs bg-marsh text-white px-3 py-1.5 rounded hover:bg-marsh-light transition-colors mr-2">Copy markdown</button>'
+        f'<div class="flex gap-2">'
+        f'<button type="button" id="btn-copy-md"'
+        f' class="text-xs bg-marsh text-white px-3 py-1.5 rounded hover:bg-marsh-light transition-colors">Copy markdown</button>'
+        f'<button type="button" id="btn-copy-rich"'
+        f' class="text-xs bg-gray-100 text-gray-700 px-3 py-1.5 rounded hover:bg-gray-200 transition-colors">Copy rich text</button>'
+        f'</div>'
         f'</div>'
         f'<script>'
         f'(function(){{'
@@ -718,6 +742,24 @@ def meeting_recap(
         f'if(el && raw && typeof toastui!=="undefined"){{'
         f'toastui.Editor.factory({{el:el,viewer:true,initialValue:raw.value}});'
         f'}}'
+        # Copy markdown button
+        f'var btnMd=document.getElementById("btn-copy-md");'
+        f'if(btnMd)btnMd.onclick=function(){{'
+        f'navigator.clipboard.writeText(raw.value).then(function(){{'
+        f'btnMd.textContent="Copied!";setTimeout(function(){{btnMd.textContent="Copy markdown"}},1500);'
+        f'}});'
+        f'}};'
+        # Copy rich text (HTML) button
+        f'var btnRich=document.getElementById("btn-copy-rich");'
+        f'if(btnRich)btnRich.onclick=function(){{'
+        f'var html=el.innerHTML;'
+        f'var blob=new Blob([html],{{type:"text/html"}});'
+        f'var textBlob=new Blob([raw.value],{{type:"text/plain"}});'
+        f'var item=new ClipboardItem({{"text/html":blob,"text/plain":textBlob}});'
+        f'navigator.clipboard.write([item]).then(function(){{'
+        f'btnRich.textContent="Copied!";setTimeout(function(){{btnRich.textContent="Copy rich text"}},1500);'
+        f'}});'
+        f'}};'
         f'}})();'
         f'</script>'
     )
@@ -749,9 +791,10 @@ def meeting_prep(
     ).fetchall()]
     return templates.TemplateResponse("meetings/_prep_panel.html", {
         "request": request,
+        "client_id": client_id,
         "pipeline": pipeline,
-        "overdue": overdue,
-        "upcoming": upcoming,
+        "overdue": [dict(f) for f in overdue],
+        "upcoming": [dict(f) for f in upcoming],
         "activities": activities,
         "risks": risks,
         "bundles": bundles,
