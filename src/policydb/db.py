@@ -52,6 +52,60 @@ def _backup_db(db_path: Path) -> None:
     shutil.copy2(db_path, backup_path)
 
 
+def _run_hygiene_062(conn: sqlite3.Connection) -> None:
+    """One-time normalization of existing data: normalize policy types, policy numbers,
+    client names, and address fields to canonical forms."""
+    from policydb.utils import (normalize_coverage_type, normalize_policy_number,
+                                 normalize_client_name, format_zip, format_state, format_city)
+    changed = {"policy_type": 0, "policy_number": 0, "client_name": 0, "zip": 0, "state": 0, "city": 0}
+
+    for r in conn.execute("SELECT id, policy_type FROM policies WHERE policy_type IS NOT NULL").fetchall():
+        n = normalize_coverage_type(r["policy_type"])
+        if n != r["policy_type"]:
+            conn.execute("UPDATE policies SET policy_type = ? WHERE id = ?", (n, r["id"]))
+            changed["policy_type"] += 1
+
+    for r in conn.execute("SELECT id, policy_number FROM policies WHERE policy_number IS NOT NULL AND policy_number != ''").fetchall():
+        n = normalize_policy_number(r["policy_number"])
+        if n != r["policy_number"]:
+            conn.execute("UPDATE policies SET policy_number = ? WHERE id = ?", (n, r["id"]))
+            changed["policy_number"] += 1
+
+    for r in conn.execute("SELECT id, name FROM clients WHERE name IS NOT NULL").fetchall():
+        n = normalize_client_name(r["name"])
+        if n != r["name"]:
+            conn.execute("UPDATE clients SET name = ? WHERE id = ?", (n, r["id"]))
+            changed["client_name"] += 1
+
+    for r in conn.execute(
+        "SELECT id, exposure_zip, exposure_state, exposure_city FROM policies WHERE exposure_zip IS NOT NULL OR exposure_state IS NOT NULL OR exposure_city IS NOT NULL"
+    ).fetchall():
+        updates = {}
+        if r["exposure_zip"]:
+            fmt = format_zip(r["exposure_zip"])
+            if fmt != r["exposure_zip"]:
+                updates["exposure_zip"] = fmt
+                changed["zip"] += 1
+        if r["exposure_state"]:
+            fmt = format_state(r["exposure_state"])
+            if fmt != r["exposure_state"]:
+                updates["exposure_state"] = fmt
+                changed["state"] += 1
+        if r["exposure_city"]:
+            fmt = format_city(r["exposure_city"])
+            if fmt != r["exposure_city"]:
+                updates["exposure_city"] = fmt
+                changed["city"] += 1
+        if updates:
+            set_clause = ", ".join(f"{k} = ?" for k in updates)
+            conn.execute(f"UPDATE policies SET {set_clause} WHERE id = ?", (*updates.values(), r["id"]))  # noqa: S608
+
+    conn.commit()
+    total = sum(changed.values())
+    if total > 0:
+        print(f"[hygiene-062] Normalized {total} fields: {changed}")
+
+
 def init_db(path: Path | None = None) -> None:
     """Create schema, run pending migrations, create views."""
     ensure_dirs()
@@ -92,7 +146,7 @@ def init_db(path: Path | None = None) -> None:
 
     # Back up the database once before running any pending migrations.
     # This gives a clean restore point regardless of which migration fails.
-    _KNOWN_MIGRATIONS = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61}
+    _KNOWN_MIGRATIONS = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62}
     if _KNOWN_MIGRATIONS - applied:
         _backup_db(db_path)
 
@@ -650,6 +704,16 @@ def init_db(path: Path | None = None) -> None:
             (61, "Add project pipeline columns: type, status, value, dates, location, contacts"),
         )
         conn.commit()
+
+    if 62 not in applied:
+        sql = (_MIGRATIONS_DIR / "062_normalize_existing_data.sql").read_text()
+        conn.executescript(sql)
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (62, "One-time data hygiene: normalize policy types, policy numbers, client names, and address fields"),
+        )
+        conn.commit()
+        _run_hygiene_062(conn)
 
     # Data hygiene: fix 'None' string corruption in text fields (runs every startup, fast no-op if clean)
     conn.execute("UPDATE clients SET cn_number = NULL WHERE cn_number = 'None'")
