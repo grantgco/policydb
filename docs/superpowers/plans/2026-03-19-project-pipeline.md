@@ -619,17 +619,44 @@ def project_pipeline_export(
                "Project Value", "Total Premium", "Total Revenue",
                "General Contractor", "Owner", "Coverages", "Scope"]
 
+    # Build export inline (exporter.py doesn't have generic helpers)
+    import io
     if format == "csv":
-        from policydb.exporter import csv_response, _safe_filename
-        return csv_response(projects, _safe_filename(client["name"], "pipeline"), cols, headers)
+        import csv as _csv
+        output = io.StringIO()
+        writer = _csv.writer(output)
+        writer.writerow(headers)
+        for p in projects:
+            writer.writerow([p.get(c, "") or "" for c in cols])
+        from starlette.responses import Response
+        safe_name = re.sub(r'[^\w\s-]', '', client["name"]).strip().replace(' ', '_')
+        return Response(
+            content=output.getvalue(),
+            media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="{safe_name}_pipeline.csv"'},
+        )
 
-    # XLSX
-    from policydb.exporter import xlsx_response, _safe_filename
-    return xlsx_response(projects, _safe_filename(client["name"], "pipeline"), cols, headers,
-                         title=f"{client['name']} — Project Pipeline")
+    # XLSX via openpyxl
+    from openpyxl import Workbook
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Pipeline"
+    ws.append(headers)
+    for p in projects:
+        ws.append([p.get(c, "") or "" for c in cols])
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    from starlette.responses import Response
+    safe_name = re.sub(r'[^\w\s-]', '', client["name"]).strip().replace(' ', '_')
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{safe_name}_pipeline.xlsx"'},
+    )
 ```
 
-Note: Verify `xlsx_response` and `csv_response` exist in exporter.py with the expected signatures. If not, implement inline using openpyxl.
+Note: Uses openpyxl directly (already a dependency) and inline CSV. No dependency on exporter helper functions.
 
 - [ ] **Step 2: Add export buttons to pipeline template**
 
@@ -653,6 +680,10 @@ git commit -m "feat: project pipeline XLSX/CSV export"
 
 **Files:**
 - Modify: `src/policydb/web/routes/clients.py`
+
+- [ ] **Step 0: Verify fpdf2 is in pyproject.toml**
+
+Check `pyproject.toml` for `fpdf2` in dependencies. If missing, add it: `"fpdf2>=2.7"`. Then `pip install -e .` to ensure it's available.
 
 - [ ] **Step 1: Add timeline PDF export endpoint**
 
@@ -682,7 +713,7 @@ def project_timeline_export(
     pdf.set_font("Helvetica", "B", 16)
     pdf.cell(0, 10, f"{client['name']} - Project Pipeline Timeline", ln=True)
     pdf.set_font("Helvetica", "", 9)
-    pdf.cell(0, 5, f"Generated {date.today().strftime('%B %d, %Y')}", ln=True)
+    pdf.cell(0, 5, f"Generated {_date.today().strftime('%B %d, %Y')}", ln=True)
     pdf.ln(5)
 
     # Compute date range
