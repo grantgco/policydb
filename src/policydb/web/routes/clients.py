@@ -3835,6 +3835,71 @@ def project_pipeline_export(
     )
 
 
+@router.get("/{client_id}/projects/locations/export")
+def project_locations_export(
+    client_id: int,
+    format: str = "xlsx",
+    conn=Depends(get_db),
+):
+    """Export locations as CSV or XLSX."""
+    import io, re
+    client = conn.execute("SELECT name FROM clients WHERE id = ?", (client_id,)).fetchone()
+    if not client:
+        return HTMLResponse("Not found", status_code=404)
+
+    locations = _get_project_locations(conn, client_id)
+
+    for loc in locations:
+        pols = conn.execute("""
+            SELECT policy_type, is_opportunity, renewal_status
+            FROM policies WHERE project_id = ? AND archived = 0
+            ORDER BY is_opportunity, policy_type
+        """, (loc["id"],)).fetchall()
+        coverages = []
+        for pol in pols:
+            status = "Opp" if pol["is_opportunity"] else (pol["renewal_status"] or "Placed")
+            coverages.append(f"{pol['policy_type']} ({status})")
+        loc["coverage_list"] = ", ".join(coverages) if coverages else ""
+
+    cols = ["name", "address", "city", "state", "zip",
+            "total_premium", "total_revenue", "coverage_list"]
+    headers = ["Location", "Address", "City", "State", "ZIP",
+               "Total Premium", "Total Revenue", "Coverages"]
+
+    safe_name = re.sub(r'[^\w\s-]', '', client["name"]).strip().replace(' ', '_')
+
+    if format == "csv":
+        import csv as _csv
+        output = io.StringIO()
+        writer = _csv.writer(output)
+        writer.writerow(headers)
+        for loc in locations:
+            writer.writerow([loc.get(c, "") or "" for c in cols])
+        from starlette.responses import Response
+        return Response(
+            content=output.getvalue(),
+            media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="{safe_name}_locations.csv"'},
+        )
+
+    from openpyxl import Workbook
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Locations"
+    ws.append(headers)
+    for loc in locations:
+        ws.append([loc.get(c, "") or "" for c in cols])
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    from starlette.responses import Response
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{safe_name}_locations.xlsx"'},
+    )
+
+
 @router.get("/{client_id}/projects/pipeline/timeline")
 def project_timeline_export(
     client_id: int,
