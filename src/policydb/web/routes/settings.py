@@ -27,6 +27,8 @@ EDITABLE_LISTS: dict[str, str] = {
     "risk_control_statuses": "Risk Control Statuses",
     "risk_adequacy_levels": "Coverage Adequacy Levels",
     "linked_account_relationships": "Account Relationship Types",
+    "project_stages": "Project Stages",
+    "project_types": "Project Types",
 }
 
 
