@@ -313,6 +313,8 @@ def followup_context(row: dict) -> dict:
         "duration_hours": str(row["duration_hours"]) if row.get("duration_hours") else "",
         "today": date.today().strftime("%B %d, %Y"),
         "today_iso": date.today().isoformat(),
+        "disposition": row.get("disposition") or "",
+        "thread_ref": f"COR-{row['thread_id']}" if row.get("thread_id") else "",
         "ref_tag": build_ref_tag(
             cn_number=row.get("cn_number") or "",
             client_id=row.get("client_id") or 0,
@@ -428,6 +430,8 @@ CONTEXT_TOKEN_GROUPS: dict[str, list[tuple[str, list[tuple[str, str]]]]] = {
             ("subject", "Follow-Up Subject"),
             ("contact_person", "Contact Person"),
             ("duration_hours", "Duration (hrs)"),
+            ("disposition", "Disposition"),
+            ("thread_ref", "Thread Reference"),
         ]),
         ("Policy", [
             ("client_name", "Client Name"),
