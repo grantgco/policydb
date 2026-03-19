@@ -10,7 +10,7 @@ from babel.dates import format_datetime as babel_format_datetime
 from datetime import datetime
 
 from policydb import config as cfg
-from policydb.utils import clean_email, format_fein, format_phone
+from policydb.utils import clean_email, format_fein, format_phone, normalize_client_name, format_city, format_state, format_zip
 from policydb.queries import (
     get_activities,
     get_all_clients,
@@ -331,6 +331,7 @@ def client_new_post(
             return None
 
     account_exec = cfg.get("default_account_exec", "Grant")
+    name = normalize_client_name(name) if name else name
     cursor = conn.execute(
         """INSERT INTO clients (name, industry_segment, cn_number, is_prospect, primary_contact, contact_email,
            contact_phone, contact_mobile, address, notes, account_exec, broker_fee, business_description,
@@ -1676,6 +1677,7 @@ def client_edit_post(
 
     old_row = dict(conn.execute("SELECT * FROM clients WHERE id=?", (client_id,)).fetchone())
 
+    name = normalize_client_name(name) if name else name
     conn.execute(
         """UPDATE clients SET name=?, industry_segment=?, cn_number=?, is_prospect=?, primary_contact=?,
            contact_email=?, contact_phone=?, contact_mobile=?, address=?, notes=?,
@@ -2146,6 +2148,10 @@ def project_note_save(
     conn=Depends(get_db),
 ):
     """HTMX: upsert project note and bulk-update location address on all policies in the project."""
+    exposure_address = exposure_address.strip() if exposure_address else ""
+    exposure_city = format_city(exposure_city) if exposure_city else ""
+    exposure_state = format_state(exposure_state) if exposure_state else ""
+    exposure_zip = format_zip(exposure_zip) if exposure_zip else ""
     conn.execute(
         "INSERT INTO projects (client_id, name, notes) VALUES (?, ?, ?) "
         "ON CONFLICT(client_id, name) DO UPDATE SET notes=excluded.notes",
@@ -2161,10 +2167,10 @@ def project_note_save(
              AND LOWER(TRIM(COALESCE(project_name,''))) = LOWER(TRIM(?))
              AND archived = 0""",
         (
-            exposure_address.strip() or None,
-            exposure_city.strip() or None,
-            exposure_state.strip() or None,
-            exposure_zip.strip() or None,
+            exposure_address or None,
+            exposure_city or None,
+            exposure_state or None,
+            exposure_zip or None,
             client_id, project_name,
         ),
     )
