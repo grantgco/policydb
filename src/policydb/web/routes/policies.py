@@ -1073,6 +1073,8 @@ def policy_edit_form(request: Request, policy_uid: str, add_contact: str = "", c
     if not policy:
         return HTMLResponse("Policy not found", status_code=404)
     policy_dict = dict(policy)
+    _client_row = conn.execute("SELECT id, name, cn_number FROM clients WHERE id = ?", (policy_dict["client_id"],)).fetchone()
+    _client_info = dict(_client_row) if _client_row else {"id": policy_dict["client_id"], "name": "", "cn_number": ""}
     from policydb.queries import get_client_contacts as _get_client_contacts
     contacts = _get_client_contacts(conn, policy_dict["client_id"], contact_type="client")
     team_contacts = _get_client_contacts(conn, policy_dict["client_id"], contact_type="internal")
@@ -1238,6 +1240,7 @@ def policy_edit_form(request: Request, policy_uid: str, add_contact: str = "", c
         "request": request,
         "active": "",
         "policy": policy_dict,
+        "client": _client_info,
         "policy_total_hours": policy_total_hours,
         "escalation_tier": _escalation_tier,
         "escalation_reason": _escalation_reason,
