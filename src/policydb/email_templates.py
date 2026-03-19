@@ -154,7 +154,7 @@ def policy_context(conn: sqlite3.Connection, policy_uid: str) -> dict:
     ).fetchone()
     pc_name = _pc_row["name"] if _pc_row else ""
     # Program carrier info (from program_carriers table)
-    if row.get("is_program"):
+    if row["is_program"]:
         carrier_rows = conn.execute(
             "SELECT carrier FROM program_carriers WHERE program_id = ? ORDER BY sort_order",
             (row["id"],),
