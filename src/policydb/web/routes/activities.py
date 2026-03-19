@@ -464,15 +464,12 @@ def activity_snooze(request: Request, activity_id: int, days: int = 7, conn=Depe
     ).fetchone()
     if not row:
         return HTMLResponse("")
-    r = dict(row)
-    today = date.today().isoformat()
-    r["_is_overdue"] = r["follow_up_date"] < today
-    resp = templates.TemplateResponse("followups/_row.html", {
-        "request": request, "r": r, "today": today,
-        "dispositions": cfg.get("follow_up_dispositions", []),
+    new_date = dict(row)["follow_up_date"]
+    # Return empty — the refreshFollowups trigger reloads the full results panel
+    return HTMLResponse("", headers={
+        "HX-Trigger": '{"refreshFollowups": "", "activityLogged": "Snoozed +' + str(days) + 'd to ' + new_date + '"}',
+        "HX-Reswap": "delete",
     })
-    resp.headers["HX-Trigger"] = '{"refreshFollowups": "", "activityLogged": "Snoozed +' + str(days) + 'd to ' + r["follow_up_date"] + '"}'
-    return resp
 
 
 @router.post("/activities/{activity_id}/reschedule", response_class=HTMLResponse)
@@ -483,26 +480,23 @@ def activity_reschedule(request: Request, activity_id: int, new_date: str = Form
         (new_date, activity_id),
     )
     conn.commit()
-    row = conn.execute(
-        """SELECT a.*, c.name AS client_name, c.cn_number, p.policy_uid, p.project_id, p.policy_type, p.carrier, p.project_name,
-                  CAST(julianday('now') - julianday(a.follow_up_date) AS INTEGER) AS days_overdue,
-                  NULL AS contact_email, NULL AS internal_cc
-           FROM activity_log a
-           JOIN clients c ON a.client_id = c.id
-           LEFT JOIN policies p ON a.policy_id = p.id
-           WHERE a.id = ?""",
-        (activity_id,),
-    ).fetchone()
-    if not row:
-        return HTMLResponse("")
-    r = dict(row)
-    today = date.today().isoformat()
-    r["_is_overdue"] = r["follow_up_date"] < today
-    resp = templates.TemplateResponse("followups/_row.html", {
-        "request": request, "r": r, "today": today,
-        "dispositions": cfg.get("follow_up_dispositions", []),
+    # If called from activity list, return activity row
+    hx_target = request.headers.get("hx-target", "")
+    if hx_target.startswith("activity-"):
+        a = _activity_row_dict(conn, activity_id)
+        if not a:
+            return HTMLResponse("")
+        resp = templates.TemplateResponse("activities/_activity_row.html", {
+            "request": request, "a": a,
+            "dispositions": cfg.get("follow_up_dispositions", []),
+        })
+        resp.headers["HX-Trigger"] = '{"reorderActivities": "", "activityLogged": "Rescheduled to ' + new_date + '"}'
+        return resp
+    # For follow-ups page: delete the row and trigger full refresh
+    return HTMLResponse("", headers={
+        "HX-Trigger": '{"refreshFollowups": "", "activityLogged": "Rescheduled to ' + new_date + '"}',
+        "HX-Reswap": "delete",
     })
-    resp.headers["HX-Trigger"] = '{"refreshFollowups": "", "activityLogged": "Rescheduled to ' + new_date + '"}'
     return resp
 
 
