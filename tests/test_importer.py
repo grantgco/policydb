@@ -88,9 +88,9 @@ def tmp_db(tmp_path, monkeypatch):
 @pytest.fixture
 def conn(tmp_db):
     c = get_connection(tmp_db)
-    # Pre-create a client
+    # Pre-create a client (normalized name: 'Corp' suffix → 'Corp.')
     c.execute(
-        "INSERT INTO clients (name, industry_segment, account_exec) VALUES ('Test Corp', 'Technology', 'Grant')"
+        "INSERT INTO clients (name, industry_segment, account_exec) VALUES ('Test Corp.', 'Technology', 'Grant')"
     )
     c.commit()
     yield c
@@ -113,7 +113,7 @@ def test_policy_import_basic(conn, tmp_path):
     importer.import_csv(csv_file, interactive=False)
     assert importer.imported == 1
     assert importer.skipped == 0
-    row = conn.execute("SELECT * FROM policies WHERE client_id = (SELECT id FROM clients WHERE name='Test Corp')").fetchone()
+    row = conn.execute("SELECT * FROM policies WHERE client_id = (SELECT id FROM clients WHERE name='Test Corp.')").fetchone()
     assert row is not None
     assert row["policy_type"] == "General Liability"
     assert row["premium"] == 50000.0
@@ -192,7 +192,7 @@ def test_client_import_basic(conn, tmp_path):
     importer = ClientImporter(conn)
     importer.import_csv(csv_file)
     assert importer.imported == 1
-    row = conn.execute("SELECT * FROM clients WHERE name='New Client Co'").fetchone()
+    row = conn.execute("SELECT * FROM clients WHERE name='New Client Co.'").fetchone()
     assert row is not None
 
 

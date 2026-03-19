@@ -13,6 +13,7 @@ import dateparser
 
 from policydb import config as cfg
 from policydb.db import next_policy_uid
+from policydb.utils import normalize_coverage_type, normalize_policy_number, normalize_client_name
 
 
 # ─── NORMALIZATION HELPERS ───────────────────────────────────────────────────
@@ -89,6 +90,7 @@ class ClientImporter:
                 self.skipped += 1
                 continue
 
+            name = normalize_client_name(name) if name else name
             existing = self.conn.execute(
                 "SELECT id FROM clients WHERE LOWER(name) = LOWER(?)", (name,)
             ).fetchone()
@@ -268,7 +270,8 @@ class PolicyImporter:
                 self.skipped += 1
                 continue
 
-            policy_type = row.get("policy_type", "").strip()
+            client_name = normalize_client_name(client_name) if client_name else client_name
+            policy_type = normalize_coverage_type(row.get("policy_type", "").strip())
             carrier = row.get("carrier", "").strip()
             if not policy_type or not carrier:
                 self.warnings.append(f"Row {i}: missing policy_type or carrier, skipping")
@@ -290,7 +293,7 @@ class PolicyImporter:
                 continue
 
             # Duplicate policy number check
-            pol_number = row.get("policy_number", "").strip() or None
+            pol_number = normalize_policy_number(row.get("policy_number", "").strip()) or None
             if pol_number and interactive:
                 existing = self.conn.execute(
                     "SELECT policy_uid FROM policies WHERE policy_number = ? AND archived = 0",

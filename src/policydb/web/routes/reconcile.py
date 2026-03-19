@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, Response
 
 from policydb.queries import get_client_by_name
+from policydb.utils import normalize_coverage_type, normalize_policy_number
 from policydb.reconciler import (
     _compare_fields,
     _find_likely_pairs,
@@ -512,6 +513,8 @@ def reconcile_create(
     uid = next_policy_uid(conn)
     account_exec = cfg.get("default_account_exec", "Grant")
     pgm = 1 if is_program == "1" else 0
+    policy_type = normalize_coverage_type(policy_type)
+    policy_number = normalize_policy_number(policy_number) if policy_number else ""
 
     def _f(v):
         try: return float(v) if v else 0.0
@@ -639,7 +642,7 @@ async def batch_create_program(
         return HTMLResponse('<p class="text-xs text-red-500">No client selected.</p>')
 
     # Use form override for policy_type if provided
-    policy_type = form.get("program_policy_type", policy_type) or "Program"
+    policy_type = normalize_coverage_type(form.get("program_policy_type", policy_type) or "Program")
 
     uid = next_policy_uid(conn)
     account_exec = _cfg.get("default_account_exec", "Grant")
@@ -823,6 +826,8 @@ async def batch_create(
             except (ValueError, TypeError): return 0.0
 
         uid = next_policy_uid(conn)
+        _raw_pol_num = ext.get("policy_number", "") or ""
+        _pol_num = normalize_policy_number(_raw_pol_num) if _raw_pol_num else None
         conn.execute(
             """INSERT INTO policies
                (policy_uid, client_id, policy_type, carrier, policy_number,
@@ -831,7 +836,7 @@ async def batch_create(
                VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 uid, cid, ptype, ext.get("carrier", "") or None,
-                ext.get("policy_number", "") or None,
+                _pol_num,
                 eff, exp, _f(ext.get("premium")),
                 _f(ext.get("limit_amount")), _f(ext.get("deductible")),
                 account_exec,
