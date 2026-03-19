@@ -3655,3 +3655,166 @@ def project_pipeline_delete(
     conn.execute("DELETE FROM projects WHERE id = ? AND client_id = ?", (project_id, client_id))
     conn.commit()
     return JSONResponse({"ok": True})
+
+
+@router.get("/{client_id}/projects/pipeline/export")
+def project_pipeline_export(
+    client_id: int,
+    format: str = "xlsx",
+    conn=Depends(get_db),
+):
+    """Export project pipeline as CSV or XLSX."""
+    import io, re
+    client = conn.execute("SELECT name FROM clients WHERE id = ?", (client_id,)).fetchone()
+    if not client:
+        return HTMLResponse("Not found", status_code=404)
+
+    projects = _get_project_pipeline(conn, client_id)
+
+    # Attach coverage list per project
+    for p in projects:
+        pols = conn.execute("""
+            SELECT policy_type, is_opportunity, renewal_status
+            FROM policies WHERE project_id = ? AND archived = 0
+            ORDER BY is_opportunity, policy_type
+        """, (p["id"],)).fetchall()
+        coverages = []
+        for pol in pols:
+            status = "Opp" if pol["is_opportunity"] else (pol["renewal_status"] or "Placed")
+            coverages.append(f"{pol['policy_type']} ({status})")
+        p["coverage_list"] = ", ".join(coverages) if coverages else ""
+
+    cols = ["name", "project_type", "status", "address", "city", "state", "zip",
+            "insurance_needed_by", "start_date", "target_completion",
+            "project_value", "total_premium", "total_revenue",
+            "general_contractor", "owner_name", "coverage_list", "scope_description"]
+    headers = ["Project", "Type", "Status", "Address", "City", "State", "ZIP",
+               "Insurance Needed By", "Start Date", "Target Completion",
+               "Project Value", "Total Premium", "Total Revenue",
+               "General Contractor", "Owner", "Coverages", "Scope"]
+
+    safe_name = re.sub(r'[^\w\s-]', '', client["name"]).strip().replace(' ', '_')
+
+    if format == "csv":
+        import csv as _csv
+        output = io.StringIO()
+        writer = _csv.writer(output)
+        writer.writerow(headers)
+        for p in projects:
+            writer.writerow([p.get(c, "") or "" for c in cols])
+        from starlette.responses import Response
+        return Response(
+            content=output.getvalue(),
+            media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="{safe_name}_pipeline.csv"'},
+        )
+
+    # XLSX via openpyxl
+    from openpyxl import Workbook
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Pipeline"
+    ws.append(headers)
+    for p in projects:
+        ws.append([p.get(c, "") or "" for c in cols])
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    from starlette.responses import Response
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{safe_name}_pipeline.xlsx"'},
+    )
+
+
+@router.get("/{client_id}/projects/pipeline/timeline")
+def project_timeline_export(
+    client_id: int,
+    format: str = "pdf",
+    conn=Depends(get_db),
+):
+    """Export project timeline as PDF."""
+    from fpdf import FPDF
+    from datetime import date as _date
+
+    client = conn.execute("SELECT name FROM clients WHERE id = ?", (client_id,)).fetchone()
+    if not client:
+        return HTMLResponse("Not found", status_code=404)
+
+    projects = _get_project_pipeline(conn, client_id)
+    dated = [p for p in projects if p.get("start_date") or p.get("target_completion")]
+
+    if not dated:
+        return HTMLResponse("No projects with dates to render", status_code=400)
+
+    pdf = FPDF()
+    pdf.add_page("L")  # landscape
+    pdf.set_font("Helvetica", "B", 16)
+    pdf.cell(0, 10, f"{client['name']} - Project Pipeline Timeline", ln=True)
+    pdf.set_font("Helvetica", "", 9)
+    pdf.cell(0, 5, f"Generated {_date.today().strftime('%B %d, %Y')}", ln=True)
+    pdf.ln(5)
+
+    # Compute date range
+    all_dates = []
+    for p in dated:
+        if p.get("start_date"): all_dates.append(p["start_date"])
+        if p.get("target_completion"): all_dates.append(p["target_completion"])
+        if p.get("insurance_needed_by"): all_dates.append(p["insurance_needed_by"])
+    min_date = min(all_dates)
+    max_date = max(all_dates)
+
+    d_min = _date.fromisoformat(min_date)
+    d_max = _date.fromisoformat(max_date)
+    total_days = max((d_max - d_min).days, 1)
+
+    chart_x = 60
+    chart_w = 210  # landscape width minus margins
+    bar_h = 8
+    gap = 3
+
+    # Status colors
+    colors = {
+        "Upcoming": (180, 180, 180),
+        "Quoting": (59, 130, 246),
+        "Bound": (34, 197, 94),
+        "Active": (34, 197, 94),
+        "Complete": (156, 163, 175),
+    }
+
+    pdf.set_font("Helvetica", "", 8)
+    for p in dated:
+        s = p.get("start_date") or p.get("target_completion")
+        e = p.get("target_completion") or p.get("start_date")
+        ds = _date.fromisoformat(s)
+        de = _date.fromisoformat(e)
+
+        x_start = chart_x + ((ds - d_min).days / total_days) * chart_w
+        x_width = max(((de - ds).days / total_days) * chart_w, 3)
+
+        # Label
+        pdf.set_xy(5, pdf.get_y())
+        pdf.cell(55, bar_h, p["name"][:25], 0, 0)
+
+        # Bar
+        r, g, b = colors.get(p.get("status", ""), (180, 180, 180))
+        pdf.set_fill_color(r, g, b)
+        pdf.rect(x_start, pdf.get_y(), x_width, bar_h, "F")
+
+        # Insurance needed marker
+        if p.get("insurance_needed_by"):
+            di = _date.fromisoformat(p["insurance_needed_by"])
+            x_ins = chart_x + ((di - d_min).days / total_days) * chart_w
+            pdf.set_draw_color(220, 38, 38)
+            pdf.line(x_ins, pdf.get_y(), x_ins, pdf.get_y() + bar_h)
+
+        pdf.ln(bar_h + gap)
+
+    content = pdf.output()
+    from starlette.responses import Response
+    return Response(
+        content=bytes(content),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{client["name"]}_timeline.pdf"'},
+    )
