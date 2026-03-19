@@ -1470,6 +1470,29 @@ def client_type_contact_delete(request: Request, name: str, conn=Depends(get_db)
 # Merge — use unified merge_contacts from queries.py
 # ---------------------------------------------------------------------------
 
+@router.get("/merge-compare", response_class=HTMLResponse)
+def merge_compare(request: Request, id1: int = 0, id2: int = 0, conn=Depends(get_db)):
+    """HTMX: side-by-side merge comparison panel for two contacts by ID."""
+    if not id1 or not id2:
+        return HTMLResponse("<p class='text-sm text-red-500'>Both contact IDs required.</p>", status_code=400)
+    r1 = conn.execute("SELECT * FROM contacts WHERE id = ?", (id1,)).fetchone()
+    r2 = conn.execute("SELECT * FROM contacts WHERE id = ?", (id2,)).fetchone()
+    if not r1 or not r2:
+        return HTMLResponse("<p class='text-sm text-red-500'>One or both contacts not found.</p>", status_code=404)
+    c1, c2 = dict(r1), dict(r2)
+    for c in [c1, c2]:
+        c["policy_count"] = conn.execute(
+            "SELECT COUNT(*) FROM contact_policy_assignments WHERE contact_id = ?", (c["id"],)
+        ).fetchone()[0]
+        c["client_count"] = conn.execute(
+            "SELECT COUNT(*) FROM contact_client_assignments WHERE contact_id = ?", (c["id"],)
+        ).fetchone()[0]
+        _attach_expertise(conn, [c])
+    return templates.TemplateResponse("contacts/_merge_compare.html", {
+        "request": request, "c1": c1, "c2": c2,
+    })
+
+
 @router.post("/merge", response_class=HTMLResponse)
 async def contact_merge(request: Request, conn=Depends(get_db)):
     """Merge source_name into target_name via unified contacts."""
