@@ -1,0 +1,165 @@
+<style>
+  .pp-cell[contenteditable]:empty::before {
+    content: attr(data-placeholder);
+    color: #d1d5db;
+    pointer-events: none;
+  }
+  .pp-cell[contenteditable]:focus {
+    border-bottom: 2px solid #005C41;
+    background: #f0fdf4;
+  }
+  @media print { .no-print { display: none; } }
+</style>
+
+<details open class="card mb-6 overflow-hidden">
+  <summary class="px-4 py-3 bg-gray-50 border-b border-gray-200 cursor-pointer select-none list-none flex items-center gap-2 hover:bg-gray-100 transition-colors">
+    <span class="text-xs text-gray-400 details-arrow">▶</span>
+    <span class="text-xs font-semibold text-gray-600 uppercase tracking-wide">
+      Project Pipeline &middot; {{ pipeline_projects | length }} project{{ 's' if pipeline_projects | length != 1 else '' }}
+    </span>
+    <div class="ml-auto flex items-center gap-3 no-print">
+      <a href="/clients/{{ client.id }}/projects/pipeline/export?format=xlsx"
+         onclick="event.stopPropagation()"
+         class="text-xs text-marsh hover:underline">Export XLSX</a>
+      <a href="/clients/{{ client.id }}/projects/pipeline/export?format=csv"
+         onclick="event.stopPropagation()"
+         class="text-xs text-gray-400 hover:underline">CSV</a>
+      <a href="/clients/{{ client.id }}/projects/pipeline/timeline?format=pdf"
+         onclick="event.stopPropagation()"
+         class="text-xs text-gray-400 hover:underline">Timeline PDF</a>
+    </div>
+  </summary>
+
+  <div class="p-4">
+    {# Timeline bar — included above table #}
+    {% include 'clients/_project_timeline.html' %}
+
+    {# Pipeline table #}
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="border-b border-gray-100 text-left text-xs text-gray-500 uppercase tracking-wide bg-gray-50">
+            <th class="px-2 py-2 whitespace-nowrap">Type</th>
+            <th class="px-2 py-2 min-w-[140px]">Project</th>
+            <th class="px-2 py-2 whitespace-nowrap">Status</th>
+            <th class="px-2 py-2 whitespace-nowrap">Ins. By</th>
+            <th class="px-2 py-2 whitespace-nowrap">Start</th>
+            <th class="px-2 py-2 whitespace-nowrap">Complete</th>
+            <th class="px-2 py-2 text-right whitespace-nowrap">Value</th>
+            <th class="px-2 py-2 text-right whitespace-nowrap">Premium</th>
+            <th class="px-2 py-2 text-right whitespace-nowrap">Revenue</th>
+            <th class="px-2 py-2 text-center whitespace-nowrap">Coverage</th>
+            <th class="px-2 py-2 no-print"></th>
+          </tr>
+        </thead>
+        <tbody id="pp-tbody">
+          {% for p in pipeline_projects %}
+          {% include 'clients/_project_pipeline_row.html' %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {# Add project footer #}
+    <div class="pt-3 no-print">
+      <button type="button"
+              hx-post="/clients/{{ client.id }}/projects/pipeline"
+              hx-target="#pp-tbody"
+              hx-swap="beforeend"
+              class="text-xs text-marsh hover:underline font-medium">
+        + Add Project
+      </button>
+    </div>
+  </div>
+</details>
+
+<script>
+(function() {
+  function flashCell(el) {
+    el.style.transition = 'background-color 0.3s ease';
+    el.style.backgroundColor = '#d1fae5';
+    setTimeout(function() {
+      el.style.backgroundColor = '';
+      setTimeout(function() { el.style.transition = ''; }, 300);
+    }, 800);
+  }
+
+  function ppSaveCell(cell) {
+    var field = cell.dataset.field;
+    var endpoint = cell.dataset.endpoint;
+    if (!field || !endpoint) return;
+    var raw = cell.textContent.trim();
+    fetch(endpoint, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ field: field, value: raw }),
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.ok) {
+          if (data.formatted !== raw) {
+            cell.textContent = data.formatted;
+            flashCell(cell);
+          }
+        } else if (data.error) {
+          cell.style.color = '#dc2626';
+          setTimeout(function() { cell.style.color = ''; }, 2000);
+        }
+      })
+      .catch(function() {});
+  }
+
+  // Event delegation: blur on pp-cell contenteditable
+  document.addEventListener('blur', function(e) {
+    if (e.target && e.target.classList.contains('pp-cell') && e.target.isContentEditable) {
+      ppSaveCell(e.target);
+    }
+  }, true);
+
+  window.ppSelectPill = function(btn, field, value, clientId, projectId) {
+    // Update visual state
+    var row = btn.closest('tr');
+    if (row) {
+      row.querySelectorAll('button[onclick*="' + field + '"]').forEach(function(b) {
+        b.className = b.className
+          .replace(/bg-marsh\s*/g, '')
+          .replace(/text-white\s*/g, '')
+          .replace(/border-marsh\s*/g, '')
+          .trim();
+        b.classList.add('border-gray-200', 'text-gray-500');
+      });
+      btn.classList.remove('border-gray-200', 'text-gray-500');
+      btn.classList.add('bg-marsh', 'text-white', 'border-marsh');
+    }
+    // Save
+    fetch('/clients/' + clientId + '/projects/' + projectId + '/field', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ field: field, value: value }),
+    }).catch(function() {});
+  };
+
+  window.ppDeleteRow = function(btn, clientId, projectId) {
+    if (!confirm('Delete this project? Linked policies will be unassigned.')) return;
+    var row = document.getElementById('pp-row-' + projectId);
+    fetch('/clients/' + clientId + '/projects/' + projectId + '/pipeline', {
+      method: 'DELETE',
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.ok && row) {
+          row.remove();
+        }
+      })
+      .catch(function() {});
+  };
+
+  window.ppSaveDate = function(input, field, clientId, projectId) {
+    fetch('/clients/' + clientId + '/projects/' + projectId + '/field', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ field: field, value: input.value }),
+    }).catch(function() {});
+  };
+})();
+</script>
