@@ -1241,6 +1241,15 @@ def policy_edit_form(request: Request, policy_uid: str, add_contact: str = "", c
             ORDER BY activity_date DESC, id DESC
         """, (_ct["thread_id"],)).fetchall()]
 
+    # Expertise-based contact suggestions for policy team assignment
+    suggested_contact_ids: set[int] = set()
+    if policy_dict.get("policy_type"):
+        _suggested = conn.execute(
+            "SELECT DISTINCT contact_id FROM contact_expertise WHERE category = 'line' AND tag = ?",
+            (policy_dict["policy_type"],),
+        ).fetchall()
+        suggested_contact_ids = {r["contact_id"] for r in _suggested}
+
     from policydb.queries import REVIEW_CYCLE_LABELS as _REVIEW_CYCLE_LABELS
     return templates.TemplateResponse("policies/edit.html", {
         "request": request,
@@ -1268,6 +1277,7 @@ def policy_edit_form(request: Request, policy_uid: str, add_contact: str = "", c
         "policy_contacts": policy_contacts,
         "all_contact_names": all_contact_names,
         "all_contacts_for_ac_json": all_contacts_for_ac_json,
+        "suggested_contact_ids": suggested_contact_ids,
         "team_cc_json": team_cc_json,
         "mailto_subject": mailto_subject,
         "activities": activities,
