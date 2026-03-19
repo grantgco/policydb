@@ -708,12 +708,12 @@ def init_db(path: Path | None = None) -> None:
     if 62 not in applied:
         sql = (_MIGRATIONS_DIR / "062_normalize_existing_data.sql").read_text()
         conn.executescript(sql)
+        _run_hygiene_062(conn)
         conn.execute(
             "INSERT INTO schema_version (version, description) VALUES (?, ?)",
             (62, "One-time data hygiene: normalize policy types, policy numbers, client names, and address fields"),
         )
         conn.commit()
-        _run_hygiene_062(conn)
 
     # Data hygiene: fix 'None' string corruption in text fields (runs every startup, fast no-op if clean)
     conn.execute("UPDATE clients SET cn_number = NULL WHERE cn_number = 'None'")
