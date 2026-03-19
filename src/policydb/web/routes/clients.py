@@ -101,6 +101,81 @@ def _get_project_pipeline(conn, client_id: int) -> list[dict]:
     return [dict(r) for r in projects]
 
 
+def _build_timeline_data(projects: list[dict]) -> list[dict]:
+    """Build percentage-based timeline bar data for the project pipeline.
+
+    Returns a list of dicts (one per project with a start or completion date),
+    each with: name, left_pct, width_pct, color, ins_marker_pct (or None).
+    Returns empty list when fewer than 2 projects have dates.
+    """
+    from datetime import date as _date_type
+
+    def _parse(ds: str | None) -> _date_type | None:
+        if not ds:
+            return None
+        try:
+            return _date_type.fromisoformat(str(ds))
+        except (ValueError, TypeError):
+            return None
+
+    dated = [
+        p for p in projects
+        if _parse(p.get("start_date")) or _parse(p.get("target_completion"))
+    ]
+    if len(dated) < 2:
+        return []
+
+    all_dates: list[_date_type] = []
+    for p in dated:
+        for field in ("start_date", "target_completion", "insurance_needed_by"):
+            d = _parse(p.get(field))
+            if d:
+                all_dates.append(d)
+
+    d_min = min(all_dates)
+    d_max = max(all_dates)
+    total_days = max((d_max - d_min).days, 1)
+
+    status_colors: dict[str, str] = {
+        "Upcoming": "bg-gray-300",
+        "Quoting": "bg-blue-400",
+        "Bound": "bg-green-400",
+        "Active": "bg-green-400",
+        "Complete": "bg-gray-200",
+    }
+
+    result = []
+    for p in dated:
+        d_start = _parse(p.get("start_date"))
+        d_end = _parse(p.get("target_completion"))
+        # Use whichever end we have
+        if not d_start and not d_end:
+            continue
+        if not d_start:
+            d_start = d_end
+        if not d_end:
+            d_end = d_start
+
+        left_pct = round((d_start - d_min).days / total_days * 100, 2)
+        width_pct = max(round((d_end - d_start).days / total_days * 100, 2), 1.5)
+        color = status_colors.get(p.get("status", ""), "bg-gray-300")
+
+        ins_marker_pct = None
+        d_ins = _parse(p.get("insurance_needed_by"))
+        if d_ins:
+            ins_marker_pct = round((d_ins - d_min).days / total_days * 100, 2)
+
+        result.append({
+            "name": p.get("name", ""),
+            "left_pct": left_pct,
+            "width_pct": width_pct,
+            "color": color,
+            "ins_marker_pct": ins_marker_pct,
+        })
+
+    return result
+
+
 @router.get("", response_class=HTMLResponse)
 def client_list(
     request: Request,
@@ -801,6 +876,7 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
         "pipeline_projects": _get_project_pipeline(conn, client_id),
         "project_stages": cfg.get("project_stages", []),
         "project_types": cfg.get("project_types", []),
+        "timeline_data": _build_timeline_data(_get_project_pipeline(conn, client_id)),
     })
 
 
