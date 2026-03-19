@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
+import re
 from datetime import date
 
 from fastapi import APIRouter, Depends, Form, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
 from policydb import config as cfg
 from policydb.queries import (
     get_all_followups,
+    get_dashboard_hours_this_month,
     get_escalation_alerts,
     get_open_opportunities,
     get_renewal_metrics,
@@ -96,6 +98,15 @@ def dashboard(request: Request, conn=Depends(get_db)):
     stale = _attach_client_ids(conn, [dict(r) for r in get_stale_renewals(conn, excluded_statuses=excluded)])
     suggested_uids = {r["policy_uid"] for r in get_suggested_followups(conn, excluded_statuses=excluded)}
     open_opportunities = get_open_opportunities(conn)
+    _today = date.today()
+    for o in open_opportunities:
+        if o.get("target_effective_date"):
+            try:
+                o["days_to_target"] = (date.fromisoformat(o["target_effective_date"]) - _today).days
+            except ValueError:
+                o["days_to_target"] = None
+        else:
+            o["days_to_target"] = None
     _opp_subj_tpl = cfg.get("email_subject_policy", "Re: {{client_name}} — {{policy_type}}")
     for o in open_opportunities:
         _opp_ctx = {
@@ -108,6 +119,7 @@ def dashboard(request: Request, conn=Depends(get_db)):
         }
         o["mailto_subject"] = _render_tokens(_opp_subj_tpl, _opp_ctx)
 
+    hours_this_month = get_dashboard_hours_this_month(conn)
     note_row = conn.execute("SELECT content, updated_at FROM user_notes WHERE id=1").fetchone()
     scratchpad_content = note_row["content"] if note_row else ""
     scratchpad_updated = note_row["updated_at"] if note_row else ""
@@ -142,12 +154,13 @@ def dashboard(request: Request, conn=Depends(get_db)):
         "readiness_counts": readiness_counts,
         "suggested_uids": suggested_uids,
         "open_opportunities": open_opportunities,
+        "hours_this_month": hours_this_month,
     })
 
 
-@router.post("/dashboard/scratchpad", response_class=HTMLResponse)
+@router.post("/dashboard/scratchpad")
 def save_scratchpad(request: Request, content: str = Form(""), conn=Depends(get_db)):
-    """HTMX: auto-save global dashboard scratchpad."""
+    """Auto-save global dashboard scratchpad. Returns JSON if Accept header requests it."""
     conn.execute(
         "INSERT INTO user_notes (id, content) VALUES (1, ?) "
         "ON CONFLICT(id) DO UPDATE SET content=excluded.content",
@@ -155,6 +168,10 @@ def save_scratchpad(request: Request, content: str = Form(""), conn=Depends(get_
     )
     conn.commit()
     row = conn.execute("SELECT updated_at FROM user_notes WHERE id=1").fetchone()
+    if "application/json" in (request.headers.get("accept") or ""):
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
+        return JSONResponse({"ok": True, "saved_at": now})
     return templates.TemplateResponse("dashboard/_scratchpad.html", {
         "request": request,
         "scratchpad_content": content,
@@ -166,8 +183,22 @@ def save_scratchpad(request: Request, content: str = Form(""), conn=Depends(get_
 def search(request: Request, q: str = "", conn=Depends(get_db)):
     results = {"clients": [], "policies": [], "activities": []}
     if q.strip():
-        raw = full_text_search(conn, q.strip())
-        results = {k: [dict(r) for r in v] for k, v in raw.items()}
+        # Check for COR-{id} correspondence thread search
+        cor_match = re.match(r'^COR-(\d+)$', q.strip(), re.IGNORECASE)
+        if cor_match:
+            thread_id = int(cor_match.group(1))
+            thread_activities = [dict(r) for r in conn.execute("""
+                SELECT a.*, c.name AS client_name, p.policy_uid
+                FROM activity_log a
+                JOIN clients c ON a.client_id = c.id
+                LEFT JOIN policies p ON a.policy_id = p.id
+                WHERE a.thread_id = ?
+                ORDER BY a.activity_date DESC
+            """, (thread_id,)).fetchall()]
+            results["activities"] = thread_activities
+        else:
+            raw = full_text_search(conn, q.strip())
+            results = {k: [dict(r) for r in v] for k, v in raw.items()}
     total = sum(len(v) for v in results.values())
     return templates.TemplateResponse("search.html", {
         "request": request,
