@@ -602,11 +602,16 @@
             list="ac-tower_group" autocomplete="off">
         </div>
 
-        <div class="flex items-center pt-5">
+        <div class="flex items-center gap-6 pt-5">
           <label class="toggle-switch">
             <input type="checkbox" name="is_standalone" value="1" {% if policy.is_standalone %}checked{% endif %}>
             <span class="toggle-track"></span>
             <span class="text-sm text-gray-700 ml-2">Standalone</span>
+          </label>
+          <label class="toggle-switch">
+            <input type="checkbox" name="is_bor" value="1" {% if policy.is_bor %}checked{% endif %}>
+            <span class="toggle-track"></span>
+            <span class="text-sm text-gray-700 ml-2">BOR</span>
           </label>
         </div>
 
