@@ -2,7 +2,7 @@
   {# Type — pill buttons #}
   <td class="px-2 py-2">
     <div class="flex flex-wrap gap-1">
-      {% for pt in project_types %}
+      {% for pt in project_types if pt != 'Location' %}
       <button type="button"
         onclick="ppSelectPill(this, 'project_type', {{ pt | tojson }}, {{ client.id }}, {{ p.id }})"
         class="text-xs px-2 py-0.5 rounded-full border transition-colors
