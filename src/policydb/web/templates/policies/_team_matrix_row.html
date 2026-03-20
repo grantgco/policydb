@@ -9,19 +9,16 @@
     {% if _is_suggested %}
     <span class="text-[9px] text-amber-500 font-semibold leading-none block" title="Expertise match for {{ policy.policy_type }}">&#9733; Suggested</span>
     {% endif %}
-    {% if c.get('contact_id') and (c.get('expertise_lines') or c.get('expertise_industries')) %}
-    <div class="mt-0.5">
-      {% set contact_id = c.contact_id %}
-      {% set line_tags = c.expertise_lines|default([]) %}
-      {% set industry_tags = c.expertise_industries|default([]) %}
-      {% include "contacts/_expertise_pills.html" %}
-    </div>
-    {% elif c.get('contact_id') %}
-    <div class="mt-0.5">
-      {% set contact_id = c.contact_id %}
-      {% set line_tags = [] %}
-      {% set industry_tags = [] %}
-      {% include "contacts/_expertise_pills.html" %}
+    {% if c.get('contact_id') %}
+    <div class="mt-0.5 flex items-center gap-1 flex-wrap">
+      {% for t in c.get('expertise_lines', []) %}
+      <span class="text-[9px] px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-600 border border-blue-100 font-medium leading-tight">{{ t }}</span>
+      {% endfor %}
+      {% for t in c.get('expertise_industries', []) %}
+      <span class="text-[9px] px-1.5 py-0.5 rounded-full bg-green-50 text-green-600 border border-green-100 font-medium leading-tight">{{ t }}</span>
+      {% endfor %}
+      <button type="button" class="text-[10px] text-gray-300 hover:text-blue-500 transition-colors no-print" title="Edit expertise"
+        onclick="var r=document.getElementById('expertise-row-{{ c.id }}');if(r)r.classList.toggle('hidden')">&#9998;</button>
     </div>
     {% endif %}
   </td>
@@ -96,3 +93,29 @@
       class="text-xs text-gray-300 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity">&#10005;</button>
   </td>
 </tr>
+{% if c.get('contact_id') %}
+<tr id="expertise-row-{{ c.id }}" class="hidden bg-gray-50/50">
+  <td colspan="10" class="px-4 py-2">
+    <div class="flex flex-wrap items-center gap-1.5">
+      <span class="text-[9px] text-blue-500 font-semibold uppercase tracking-wide mr-1">Line:</span>
+      {% for t in expertise_lines %}
+      {% set is_active = t in c.get('expertise_lines', []) %}
+      <button type="button"
+        class="text-[9px] px-2 py-0.5 rounded-full border font-medium leading-tight transition-colors expertise-toggle no-print
+               {{ 'bg-blue-500 text-white border-blue-500' if is_active else 'bg-white text-blue-600 border-blue-200 hover:border-blue-400' }}"
+        data-cid="{{ c.contact_id }}" data-category="line" data-tag="{{ t }}" data-active="{{ 'true' if is_active else 'false' }}"
+      >{{ t }}</button>
+      {% endfor %}
+      <span class="text-[9px] text-green-600 font-semibold uppercase tracking-wide ml-2 mr-1">Industry:</span>
+      {% for t in expertise_industries %}
+      {% set is_active = t in c.get('expertise_industries', []) %}
+      <button type="button"
+        class="text-[9px] px-2 py-0.5 rounded-full border font-medium leading-tight transition-colors expertise-toggle no-print
+               {{ 'bg-green-500 text-white border-green-500' if is_active else 'bg-white text-green-600 border-green-200 hover:border-green-400' }}"
+        data-cid="{{ c.contact_id }}" data-category="industry" data-tag="{{ t }}" data-active="{{ 'true' if is_active else 'false' }}"
+      >{{ t }}</button>
+      {% endfor %}
+    </div>
+  </td>
+</tr>
+{% endif %}
