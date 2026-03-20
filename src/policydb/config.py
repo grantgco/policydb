@@ -308,6 +308,8 @@ _DEFAULTS: dict[str, Any] = {
         "Technology", "Manufacturing", "Hospitality", "Energy",
         "Financial Services", "Public Entity", "Transportation",
     ],
+    "daily_followup_target": 5,
+    "pin_renewal_days": 14,
     "backup_retention_count": 30,
     "carrier_aliases": {
         "Travelers": [
