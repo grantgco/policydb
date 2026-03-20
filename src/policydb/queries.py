@@ -1920,3 +1920,134 @@ def build_effort_projection(
         "renewal_months": list(renewal_months.keys()),
         "narrative": narrative,
     }
+
+
+# ─── FOLLOW-UP WORKLOAD BALANCER ─────────────────────────────────────────────
+
+
+def get_week_followups(
+    conn: sqlite3.Connection, week_start: str, pin_days: int = 14
+) -> list[dict]:
+    """Return all follow-ups for a Mon-Fri week (plus Sat/Sun bucketed into Monday).
+
+    Each item includes a `pinned` flag based on renewal urgency.
+    Items from Saturday/Sunday before the week are bucketed into Monday.
+    """
+    from datetime import date, timedelta
+    mon = date.fromisoformat(week_start)
+    # Include prior Sat/Sun so they show on Monday
+    sat_before = (mon - timedelta(days=2)).isoformat()
+    fri = (mon + timedelta(days=4)).isoformat()
+
+    rows = conn.execute("""
+        SELECT 'activity' AS source, a.id, a.subject, a.follow_up_date,
+               a.activity_type, a.client_id, a.policy_id,
+               c.name AS client_name,
+               p.policy_type, p.carrier, p.expiration_date, p.renewal_status,
+               CAST(julianday(p.expiration_date) - julianday('now') AS INTEGER) AS days_to_renewal
+        FROM activity_log a
+        JOIN clients c ON a.client_id = c.id
+        LEFT JOIN policies p ON a.policy_id = p.id
+        WHERE a.follow_up_done = 0 AND a.follow_up_date IS NOT NULL
+          AND a.follow_up_date BETWEEN ? AND ?
+
+        UNION ALL
+
+        SELECT 'policy' AS source, p.id, ('Renewal: ' || p.policy_type) AS subject,
+               p.follow_up_date, 'Policy Reminder' AS activity_type,
+               p.client_id, p.id AS policy_id,
+               c.name AS client_name,
+               p.policy_type, p.carrier, p.expiration_date, p.renewal_status,
+               CAST(julianday(p.expiration_date) - julianday('now') AS INTEGER) AS days_to_renewal
+        FROM policies p
+        JOIN clients c ON p.client_id = c.id
+        WHERE p.follow_up_date IS NOT NULL
+          AND p.follow_up_date BETWEEN ? AND ?
+          AND p.archived = 0
+          AND (p.is_opportunity = 0 OR p.is_opportunity IS NULL)
+          AND NOT EXISTS (
+              SELECT 1 FROM activity_log a2
+              WHERE a2.policy_id = p.id AND a2.follow_up_done = 0
+              AND a2.follow_up_date IS NOT NULL
+          )
+
+        ORDER BY follow_up_date
+    """, (sat_before, fri, sat_before, fri)).fetchall()
+
+    items = []
+    for r in rows:
+        d = dict(r)
+        fu_date = d["follow_up_date"]
+        # Bucket Sat/Sun into Monday
+        try:
+            fu = date.fromisoformat(fu_date)
+            if fu.weekday() >= 5:  # Saturday=5, Sunday=6
+                d["follow_up_date"] = mon.isoformat()
+                d["bucketed_from"] = fu_date
+        except (ValueError, TypeError):
+            pass
+        # Pin logic
+        dtr = d.get("days_to_renewal")
+        status = d.get("renewal_status") or ""
+        d["pinned"] = bool(
+            (dtr is not None and dtr <= pin_days)
+            or status.upper() in ("EXPIRED",)
+        )
+        # Composite ID for reschedule (matches bulk-reschedule pattern)
+        d["composite_id"] = f"{d['source']}-{d['id']}"
+        items.append(d)
+    return items
+
+
+def spread_followups(
+    items: list[dict], daily_target: int, week_days: list[str]
+) -> list[dict]:
+    """Compute proposed redistribution of follow-ups across the week.
+
+    Returns list of {composite_id, old_date, new_date} for items that should move.
+    Only moves non-pinned items from days exceeding daily_target.
+    Fills lightest days first.
+    """
+    from collections import defaultdict
+
+    # Group by date
+    by_date: dict[str, list[dict]] = defaultdict(list)
+    for item in items:
+        by_date[item["follow_up_date"]].append(item)
+
+    # Ensure all week days are in the map
+    for d in week_days:
+        by_date.setdefault(d, [])
+
+    # Identify overloaded days and collect movable items
+    movable_pool: list[dict] = []
+    for d in week_days:
+        day_items = by_date[d]
+        total = len(day_items)
+        if total > daily_target:
+            # Collect non-pinned items from this day (keep pinned in place)
+            pinned_count = sum(1 for i in day_items if i.get("pinned"))
+            movable = [i for i in day_items if not i.get("pinned")]
+            # Only move excess items
+            excess = total - max(daily_target, pinned_count)
+            if excess > 0:
+                movable_pool.extend(movable[:excess])
+
+    # Remove movable items from their current days
+    for item in movable_pool:
+        by_date[item["follow_up_date"]].remove(item)
+
+    # Assign each movable item to the lightest day
+    proposals: list[dict] = []
+    for item in movable_pool:
+        lightest_day = min(week_days, key=lambda d: len(by_date[d]))
+        by_date[lightest_day].append(item)
+        proposals.append({
+            "composite_id": item["composite_id"],
+            "old_date": item["follow_up_date"],
+            "new_date": lightest_day,
+            "subject": item.get("subject", ""),
+            "client_name": item.get("client_name", ""),
+        })
+
+    return proposals

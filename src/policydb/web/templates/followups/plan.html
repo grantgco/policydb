@@ -1,0 +1,186 @@
+{% extends "base.html" %}
+{% block title %}Plan Week — Coverage{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-between mb-4">
+  <div class="flex items-center gap-3">
+    <h1 class="text-lg font-bold text-gray-900">Plan Week</h1>
+    <span class="text-sm text-gray-500">{{ total_items }} follow-ups</span>
+    <span class="text-xs text-gray-400">target: {{ daily_target }}/day</span>
+  </div>
+  <div class="flex items-center gap-3">
+    <a href="/followups/plan?week_start={{ prev_week }}" class="text-xs text-gray-500 hover:text-marsh">&larr; Prev</a>
+    <span class="text-sm font-medium text-gray-700">{{ week_label }}</span>
+    <a href="/followups/plan?week_start={{ next_week }}" class="text-xs text-gray-500 hover:text-marsh">Next &rarr;</a>
+    <a href="/followups/plan?week_start={{ this_monday }}" class="text-xs text-gray-400 hover:text-marsh ml-2">This Week</a>
+    <button id="spread-btn" onclick="runSpread()"
+      class="text-xs bg-amber-100 text-amber-700 px-3 py-1.5 rounded hover:bg-amber-200 transition-colors font-medium ml-3">
+      Spread
+    </button>
+    <a href="/followups" class="text-xs text-gray-400 hover:text-marsh">&larr; Follow-Ups</a>
+  </div>
+</div>
+
+<!-- Spread preview bar (hidden by default) -->
+<div id="spread-preview" class="hidden bg-amber-50 border border-amber-200 rounded-lg px-4 py-2 mb-4 flex items-center justify-between">
+  <span class="text-sm text-amber-700" id="spread-msg"></span>
+  <div class="flex gap-2">
+    <button onclick="applySpread()" class="text-xs bg-amber-600 text-white px-3 py-1.5 rounded hover:bg-amber-700 font-medium">Apply Changes</button>
+    <button onclick="cancelSpread()" class="text-xs text-gray-500 px-3 py-1.5 rounded hover:bg-gray-100">Cancel</button>
+  </div>
+</div>
+
+<div class="grid grid-cols-5 gap-3" id="plan-grid">
+  {% for col in columns %}
+  <div class="card overflow-hidden" data-date="{{ col.date }}"
+    ondragover="event.preventDefault();this.classList.add('ring-2','ring-marsh')"
+    ondragleave="this.classList.remove('ring-2','ring-marsh')"
+    ondrop="handleDrop(event, '{{ col.date }}');this.classList.remove('ring-2','ring-marsh')">
+    {# Column header #}
+    <div class="px-3 py-2 border-b border-gray-100 flex items-center justify-between
+      {% if col.count > daily_target * 2 %}bg-red-50{% elif col.count > daily_target %}bg-amber-50{% else %}bg-green-50/50{% endif %}">
+      <span class="text-xs font-bold {% if col.count > daily_target * 2 %}text-red-700{% elif col.count > daily_target %}text-amber-700{% else %}text-green-700{% endif %}">
+        {{ col.label }}
+      </span>
+      <span class="text-xs font-mono {% if col.count > daily_target %}font-bold{% endif %}
+        {% if col.count > daily_target * 2 %}text-red-600{% elif col.count > daily_target %}text-amber-600{% else %}text-gray-400{% endif %}"
+        id="count-{{ col.date }}">{{ col.count }}</span>
+    </div>
+    {# Items #}
+    <div class="p-2 space-y-1 min-h-[200px]" id="items-{{ col.date }}">
+      {% for item in col.items %}
+      <div class="rounded border px-2 py-1.5 text-xs
+        {% if item.pinned %}border-red-200 bg-red-50/30{% else %}border-gray-200 bg-white hover:border-gray-300{% endif %}"
+        id="card-{{ item.composite_id }}"
+        data-composite-id="{{ item.composite_id }}"
+        {% if not item.pinned %}draggable="true" ondragstart="handleDragStart(event, '{{ item.composite_id }}')"{% endif %}>
+        <div class="flex items-start gap-1.5">
+          {% if item.pinned %}
+          <span class="text-red-400 text-[10px] mt-0.5" title="Pinned — urgent/expiring">&#128274;</span>
+          {% else %}
+          <span class="text-gray-300 cursor-grab text-[10px] mt-0.5" title="Drag to move">&#9776;</span>
+          {% endif %}
+          <div class="flex-1 min-w-0">
+            <p class="font-medium text-gray-800 truncate">{{ item.subject }}</p>
+            <p class="text-gray-400 truncate">{{ item.client_name }}{% if item.policy_type %} · {{ item.policy_type }}{% endif %}</p>
+            {% if item.pinned and item.days_to_renewal is not none %}
+            <p class="text-red-500 text-[10px]">{{ item.days_to_renewal }}d to renewal</p>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<script>
+var _dragId = null;
+var _spreadProposals = null;
+
+function handleDragStart(e, compositeId) {
+  _dragId = compositeId;
+  e.dataTransfer.effectAllowed = 'move';
+  e.target.style.opacity = '0.5';
+  e.target.addEventListener('dragend', function() { this.style.opacity = '1'; }, {once: true});
+}
+
+function handleDrop(e, newDate) {
+  e.preventDefault();
+  if (!_dragId) return;
+  var card = document.getElementById('card-' + _dragId);
+  if (!card) return;
+  // Move the card visually
+  var targetItems = document.getElementById('items-' + newDate);
+  targetItems.appendChild(card);
+  // Update counts
+  updateCounts();
+  // Save to server
+  fetch('/followups/plan/move', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({composite_id: _dragId, new_date: newDate})
+  }).then(function(r) { return r.json(); }).then(function(data) {
+    if (data.ok && typeof showToast === 'function') showToast('Moved', true);
+  });
+  _dragId = null;
+}
+
+function updateCounts() {
+  document.querySelectorAll('[id^="items-"]').forEach(function(container) {
+    var date = container.id.replace('items-', '');
+    var count = container.children.length;
+    var countEl = document.getElementById('count-' + date);
+    if (countEl) countEl.textContent = count;
+    // Update header color
+    var header = container.previousElementSibling;
+    var target = {{ daily_target }};
+    header.className = header.className
+      .replace(/bg-\w+-50\/?(?:\d+)?/g, '')
+      .trim();
+    if (count > target * 2) header.classList.add('bg-red-50');
+    else if (count > target) header.classList.add('bg-amber-50');
+    else header.classList.add('bg-green-50/50');
+  });
+}
+
+function runSpread() {
+  fetch('/followups/plan/spread', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    body: 'week_start={{ week_start }}'
+  }).then(function(r) {
+    if (r.headers.get('HX-Trigger')) {
+      // Already balanced
+      if (typeof showToast === 'function') showToast('Week is already balanced', true);
+      return null;
+    }
+    return r.json();
+  }).then(function(data) {
+    if (!data) return;
+    _spreadProposals = data.proposals;
+    // Highlight proposed moves
+    data.proposals.forEach(function(p) {
+      var card = document.getElementById('card-' + p.composite_id);
+      if (card) {
+        card.style.borderColor = '#f59e0b';
+        card.style.borderWidth = '2px';
+        // Move visually
+        var targetItems = document.getElementById('items-' + p.new_date);
+        if (targetItems) targetItems.appendChild(card);
+      }
+    });
+    updateCounts();
+    document.getElementById('spread-msg').textContent = data.count + ' item(s) would be moved';
+    document.getElementById('spread-preview').classList.remove('hidden');
+  });
+}
+
+function applySpread() {
+  if (!_spreadProposals) return;
+  fetch('/followups/plan/apply-spread', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({moves: _spreadProposals})
+  }).then(function(r) { return r.json(); }).then(function(data) {
+    if (data.ok) {
+      document.getElementById('spread-preview').classList.add('hidden');
+      _spreadProposals = null;
+      // Remove highlights
+      document.querySelectorAll('[style*="border-color"]').forEach(function(el) {
+        el.style.borderColor = ''; el.style.borderWidth = '';
+      });
+      if (typeof showToast === 'function') showToast(data.count + ' follow-ups rescheduled', true);
+    }
+  });
+}
+
+function cancelSpread() {
+  document.getElementById('spread-preview').classList.add('hidden');
+  _spreadProposals = null;
+  // Reload to reset positions
+  location.reload();
+}
+</script>
+{% endblock %}

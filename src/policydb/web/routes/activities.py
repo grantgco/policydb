@@ -544,6 +544,131 @@ def followup_date_count(date: str = "", conn=Depends(get_db)):
     return JSONResponse({"count": count})
 
 
+# ── Plan Week routes ─────────────────────────────────────────────────────────
+
+
+@router.get("/followups/plan", response_class=HTMLResponse)
+def followups_plan(request: Request, week_start: str = "", conn=Depends(get_db)):
+    """Plan Week view — visualize and rebalance follow-up workload."""
+    from datetime import date, timedelta
+    from policydb.queries import get_week_followups
+    from collections import defaultdict
+
+    # Default to current week's Monday
+    today = date.today()
+    if week_start:
+        try:
+            mon = date.fromisoformat(week_start)
+        except ValueError:
+            mon = today - timedelta(days=today.weekday())
+    else:
+        mon = today - timedelta(days=today.weekday())
+
+    week_days = [(mon + timedelta(days=i)).isoformat() for i in range(5)]
+    pin_days = cfg.get("pin_renewal_days", 14)
+    target = cfg.get("daily_followup_target", 5)
+
+    items = get_week_followups(conn, mon.isoformat(), pin_days)
+
+    # Group by date
+    by_date = defaultdict(list)
+    for item in items:
+        by_date[item["follow_up_date"]].append(item)
+
+    columns = []
+    for d in week_days:
+        day_items = by_date.get(d, [])
+        day_date = date.fromisoformat(d)
+        columns.append({
+            "date": d,
+            "label": day_date.strftime("%a %b %d"),
+            "items": day_items,
+            "count": len(day_items),
+            "pinned_count": sum(1 for i in day_items if i.get("pinned")),
+        })
+
+    prev_week = (mon - timedelta(days=7)).isoformat()
+    next_week = (mon + timedelta(days=7)).isoformat()
+    this_monday = (today - timedelta(days=today.weekday())).isoformat()
+
+    return templates.TemplateResponse("followups/plan.html", {
+        "request": request,
+        "active": "followups",
+        "columns": columns,
+        "week_start": mon.isoformat(),
+        "week_label": f"{mon.strftime('%b %d')} – {(mon + timedelta(days=4)).strftime('%b %d, %Y')}",
+        "prev_week": prev_week,
+        "next_week": next_week,
+        "this_monday": this_monday,
+        "daily_target": target,
+        "total_items": len(items),
+    })
+
+
+@router.post("/followups/plan/spread", response_class=HTMLResponse)
+def followups_spread(request: Request, week_start: str = Form(...), conn=Depends(get_db)):
+    """Compute and return proposed spread for the week."""
+    from datetime import date, timedelta
+    from policydb.queries import get_week_followups, spread_followups
+
+    mon = date.fromisoformat(week_start)
+    week_days = [(mon + timedelta(days=i)).isoformat() for i in range(5)]
+    pin_days = cfg.get("pin_renewal_days", 14)
+    target = cfg.get("daily_followup_target", 5)
+
+    items = get_week_followups(conn, week_start, pin_days)
+    proposals = spread_followups(items, target, week_days)
+
+    if not proposals:
+        return HTMLResponse("", headers={
+            "HX-Trigger": '{"activityLogged": "Week is already balanced"}'
+        })
+
+    # Return proposals as JSON for the JS to preview
+    return JSONResponse({
+        "proposals": proposals,
+        "count": len(proposals),
+    })
+
+
+@router.post("/followups/plan/apply-spread")
+async def followups_apply_spread(request: Request, conn=Depends(get_db)):
+    """Apply proposed spread — batch reschedule follow-ups."""
+    body = await request.json()
+    moves = body.get("moves", [])
+    count = 0
+    for move in moves:
+        cid = move.get("composite_id", "")
+        new_date = move.get("new_date", "")
+        if not cid or not new_date:
+            continue
+        source, item_id = cid.split("-", 1)
+        if source == "activity":
+            conn.execute("UPDATE activity_log SET follow_up_date=? WHERE id=?", (new_date, int(item_id)))
+        elif source == "policy":
+            conn.execute("UPDATE policies SET follow_up_date=? WHERE id=?", (new_date, int(item_id)))
+        count += 1
+    conn.commit()
+    return JSONResponse({"ok": True, "count": count})
+
+
+@router.post("/followups/plan/move")
+async def followups_plan_move(request: Request, conn=Depends(get_db)):
+    """Drag-and-drop reschedule a single follow-up."""
+    body = await request.json()
+    cid = body.get("composite_id", "")
+    new_date = body.get("new_date", "")
+    if not cid or not new_date:
+        return JSONResponse({"ok": False})
+    source, item_id = cid.split("-", 1)
+    if source == "activity":
+        conn.execute("UPDATE activity_log SET follow_up_date=? WHERE id=?", (new_date, int(item_id)))
+    elif source == "policy":
+        conn.execute("UPDATE policies SET follow_up_date=? WHERE id=?", (new_date, int(item_id)))
+    conn.commit()
+    return JSONResponse({"ok": True})
+
+
 def _add_mailto_subjects(rows: list, subject_tpl: str) -> list:
     """Convert rows to dicts and add rendered mailto_subject to each."""
     result = []

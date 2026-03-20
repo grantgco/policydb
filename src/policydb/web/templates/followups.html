@@ -15,6 +15,9 @@
     </p>
   </div>
   <div class="flex gap-2 items-center">
+    <a href="/followups/plan" class="text-xs bg-amber-100 text-amber-700 px-3 py-1 rounded hover:bg-amber-200 transition-colors font-medium">
+      Plan Week
+    </a>
     {% set _fp = '&client_id=' ~ client_id ~ '&group_id=' ~ group_id %}
     <button
       hx-get="/followups/results?window=1&activity_type={{ activity_type | urlencode }}&q={{ q | urlencode }}{{ _fp }}"
