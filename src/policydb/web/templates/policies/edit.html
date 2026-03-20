@@ -355,7 +355,7 @@
             {% if program_linked_policies %}
             {% for lp in program_linked_policies %}
             <tr class="border-b border-gray-50">
-              <td class="px-3 py-1.5 text-xs"><a href="/policies/{{ lp.policy_uid }}/edit" class="text-marsh hover:underline" target="_blank">{{ lp.policy_uid }}</a></td>
+              <td class="px-3 py-1.5 text-xs"><a href="/policies/{{ lp.policy_uid }}/edit" class="text-marsh hover:underline">{{ lp.policy_uid }}</a></td>
               <td class="px-3 py-1.5 text-xs text-gray-700">{{ lp.policy_type }}</td>
               <td class="px-3 py-1.5 text-xs text-gray-500">{{ lp.carrier or '—' }}</td>
               <td class="px-3 py-1.5 text-xs text-right">{% if lp.premium %}{{ lp.premium | currency }}{% else %}—{% endif %}</td>

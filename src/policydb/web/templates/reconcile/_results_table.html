@@ -221,7 +221,7 @@
               class="text-xs border border-gray-300 text-gray-500 hover:bg-gray-100 px-3 py-1.5 rounded transition-colors">
               Edit Inline
             </button>
-            <a href="/policies/{{ r.db.policy_uid }}/edit" target="_blank"
+            <a href="/policies/{{ r.db.policy_uid }}/edit"
                class="text-xs text-gray-400 hover:text-marsh hover:underline px-1 py-1.5">
               Open {{ r.db.policy_uid }} &#8594;
             </a>
@@ -283,7 +283,7 @@
           </div>
           {% if r.db and r.db.get('policy_uid') %}
           <div class="flex gap-2">
-            <a href="/policies/{{ r.db.policy_uid }}/edit" target="_blank"
+            <a href="/policies/{{ r.db.policy_uid }}/edit"
                onclick="event.stopPropagation()"
                class="text-xs border border-marsh text-marsh px-3 py-1 rounded hover:bg-marsh hover:text-white transition-colors">
               Edit Policy &#8594;

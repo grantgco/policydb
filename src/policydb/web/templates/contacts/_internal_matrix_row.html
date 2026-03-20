@@ -90,7 +90,7 @@
       <ul class="mt-2 space-y-1 pl-1 border-l-2 border-gray-100">
         {% for cl in clients %}
         <li>
-          <a href="/clients/{{ cl.client_id }}" target="_blank"
+          <a href="/clients/{{ cl.client_id }}"
              class="text-gray-600 hover:text-marsh transition-colors">{{ cl.client_name }}</a>
           {% if cl.assignment %}<span class="text-amber-600 ml-1">({{ cl.assignment }})</span>{% endif %}
         </li>
