@@ -7,9 +7,7 @@
     {% if p.project_name %}<p class="text-gray-400 text-xs italic truncate max-w-[140px]" title="{{ p.project_name }}">{{ p.project_name }}</p>{% endif %}
   </td>
   <td class="px-3 py-3 whitespace-nowrap">
-    <input type="date" value="{{ p.expiration_date }}"
-      onchange="policySaveDate(this, '{{ p.policy_uid }}', 'expiration_date')"
-      class="text-xs text-gray-900 tabular-nums bg-transparent border-none p-0 focus:outline-none focus:ring-0 cursor-pointer">
+    <span class="text-xs text-gray-900 tabular-nums">{{ p.expiration_date or '' }}</span>
     <span class="{{ p.urgency | urgency_class }} text-xs font-medium px-1.5 py-0.5 rounded tabular-nums">{{ p.days_to_renewal }}d</span>
     {% if p.readiness_label is defined %}
     <span class="text-xs px-1.5 py-0.5 rounded block mt-0.5 whitespace-nowrap {{ p.readiness_label | readiness_class }} cursor-help" title="{{ p.readiness_tooltip or '' }}">{{ p.readiness_label }}</span>
