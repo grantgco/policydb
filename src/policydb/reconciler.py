@@ -47,10 +47,12 @@ def _normalize_policy_number(pn: str) -> str:
 
 
 def _normalize_client_name(name: str) -> str:
-    """Strip common legal entity suffixes before fuzzy scoring."""
+    """Strip common legal entity suffixes and normalize case before fuzzy scoring."""
     if not name:
         return name
-    return re.sub(r'\s+', ' ', _LEGAL_SUFFIX_RE.sub('', name.strip())).strip()
+    cleaned = re.sub(r'\s+', ' ', _LEGAL_SUFFIX_RE.sub('', name.strip())).strip()
+    # Title-case to normalize "AVALONBAY COMMUNITIES" vs "Avalonbay Communities"
+    return cleaned.title()
 
 
 # ─── TYPES ────────────────────────────────────────────────────────────────────
@@ -347,7 +349,7 @@ def _same_year(d1: str | None, d2: str | None) -> bool:
     return d1[:4] == d2[:4]
 
 
-def _fuzzy_match(ext_row: dict, candidates: list[dict], date_priority: bool = False) -> tuple[dict | None, float]:
+def _fuzzy_match(ext_row: dict, candidates: list[dict], date_priority: bool = False, single_client: bool = False) -> tuple[dict | None, float]:
     """
     Find the best fuzzy match for ext_row among candidates.
 
@@ -384,23 +386,27 @@ def _fuzzy_match(ext_row: dict, candidates: list[dict], date_priority: bool = Fa
     best_score = 0.0
 
     for db in candidates:
-        # Hard filter: client name must be recognizably the same
-        # Also check FNI as a bonus — can improve but never reduces score
-        db_client_norm = _normalize_client_name(db.get("client_name", ""))
-        db_fni_norm = _normalize_client_name(db.get("first_named_insured", "")) if db.get("first_named_insured") else ""
+        # When reconciling a single client, skip client name comparison entirely
+        if single_client:
+            client_score = 100.0
+        else:
+            # Hard filter: client name must be recognizably the same
+            # Also check FNI as a bonus — can improve but never reduces score
+            db_client_norm = _normalize_client_name(db.get("client_name", ""))
+            db_fni_norm = _normalize_client_name(db.get("first_named_insured", "")) if db.get("first_named_insured") else ""
 
-        client_score = fuzz.WRatio(ext_client_norm, db_client_norm)
+            client_score = fuzz.WRatio(ext_client_norm, db_client_norm)
 
-        # FNI cross-matching: ext client vs db FNI, ext FNI vs db client
-        if db_fni_norm:
-            client_score = max(client_score, fuzz.WRatio(ext_client_norm, db_fni_norm))
-        if ext_fni_norm:
-            client_score = max(client_score, fuzz.WRatio(ext_fni_norm, db_client_norm))
+            # FNI cross-matching: ext client vs db FNI, ext FNI vs db client
             if db_fni_norm:
-                client_score = max(client_score, fuzz.WRatio(ext_fni_norm, db_fni_norm))
+                client_score = max(client_score, fuzz.WRatio(ext_client_norm, db_fni_norm))
+            if ext_fni_norm:
+                client_score = max(client_score, fuzz.WRatio(ext_fni_norm, db_client_norm))
+                if db_fni_norm:
+                    client_score = max(client_score, fuzz.WRatio(ext_fni_norm, db_fni_norm))
 
-        if client_score < 60:
-            continue
+            if client_score < 60:
+                continue
 
         # Programs with structured carrier rows: carrier match is a bonus, not a gate.
         # A program might have a carrier row with a slightly different name (data quality).
@@ -496,7 +502,7 @@ def _fuzzy_match(ext_row: dict, candidates: list[dict], date_priority: bool = Fa
     return best_candidate, best_score
 
 
-def find_candidates(ext_row: dict, db_rows: list[dict], limit: int = 8) -> list[tuple[dict, float]]:
+def find_candidates(ext_row: dict, db_rows: list[dict], limit: int = 8, single_client: bool = False) -> list[tuple[dict, float]]:
     """
     Return top candidate DB rows for a given ext_row, for manual match selection.
     Uses a wider tolerance than the automatic matcher to surface more options.
@@ -514,20 +520,23 @@ def find_candidates(ext_row: dict, db_rows: list[dict], limit: int = 8) -> list[
     scored: list[tuple[dict, float]] = []
 
     for db in db_rows:
-        db_client_norm = _normalize_client_name(db.get("client_name", ""))
-        db_fni_norm = _normalize_client_name(db.get("first_named_insured", "")) if db.get("first_named_insured") else ""
+        if single_client:
+            client_score = 100.0
+        else:
+            db_client_norm = _normalize_client_name(db.get("client_name", ""))
+            db_fni_norm = _normalize_client_name(db.get("first_named_insured", "")) if db.get("first_named_insured") else ""
 
-        client_score = fuzz.WRatio(ext_client, db.get("client_name", "")) if ext_client else 0
-        # FNI cross-matching bonus
-        if db_fni_norm and ext_client_norm:
-            client_score = max(client_score, fuzz.WRatio(ext_client_norm, db_fni_norm))
-        if ext_fni_norm:
-            client_score = max(client_score, fuzz.WRatio(ext_fni_norm, db_client_norm))
-            if db_fni_norm:
-                client_score = max(client_score, fuzz.WRatio(ext_fni_norm, db_fni_norm))
+            client_score = fuzz.WRatio(ext_client, db.get("client_name", "")) if ext_client else 0
+            # FNI cross-matching bonus
+            if db_fni_norm and ext_client_norm:
+                client_score = max(client_score, fuzz.WRatio(ext_client_norm, db_fni_norm))
+            if ext_fni_norm:
+                client_score = max(client_score, fuzz.WRatio(ext_fni_norm, db_client_norm))
+                if db_fni_norm:
+                    client_score = max(client_score, fuzz.WRatio(ext_fni_norm, db_fni_norm))
 
-        if client_score < 50:
-            continue
+            if client_score < 50:
+                continue
 
         type_score = fuzz.WRatio(ext_type, _normalize_coverage(db.get("policy_type", ""))) if ext_type else 50
         carrier_score = fuzz.WRatio(ext_carrier, db.get("carrier", "")) if ext_carrier else 0
@@ -589,7 +598,7 @@ def find_candidates(ext_row: dict, db_rows: list[dict], limit: int = 8) -> list[
 
 # ─── MAIN RECONCILE ───────────────────────────────────────────────────────────
 
-def reconcile(ext_rows: list[dict], db_rows: list[dict], date_priority: bool = False) -> list[ReconcileRow]:
+def reconcile(ext_rows: list[dict], db_rows: list[dict], date_priority: bool = False, single_client: bool = False) -> list[ReconcileRow]:
     """
     Match ext_rows against db_rows.
 
@@ -688,13 +697,8 @@ def reconcile(ext_rows: list[dict], db_rows: list[dict], date_priority: bool = F
         best_score_15 = 0.0
         ext_carrier_15 = ext.get("carrier", "")
         for db in candidates_15:
-            if fuzz.WRatio(ext_client_norm_15, _normalize_client_name(db.get("client_name", ""))) < 80:
+            if not single_client and fuzz.WRatio(ext_client_norm_15, _normalize_client_name(db.get("client_name", ""))) < 80:
                 continue
-            # Programs with structured carrier rows: ext carrier must match one
-            if db.get("is_program") and db.get("_program_carrier_rows") and ext_carrier_15:
-                if not any(fuzz.WRatio(ext_carrier_15, _pc.get("carrier", "")) >= 70
-                           for _pc in db["_program_carrier_rows"]):
-                    continue
             eff_delta = _date_delta_days(ext_eff, db.get("effective_date", ""))
             exp_delta = _date_delta_days(ext_exp, db.get("expiration_date", ""))
             if eff_delta is None or exp_delta is None:
@@ -737,7 +741,7 @@ def reconcile(ext_rows: list[dict], db_rows: list[dict], date_priority: bool = F
     for i, ext in enumerate(ext_rows):
         if i in ext_matched:
             continue
-        db, score = _fuzzy_match(ext, candidates, date_priority=date_priority)
+        db, score = _fuzzy_match(ext, candidates, date_priority=date_priority, single_client=single_client)
         if db is not None:
             db_idx = db_rows.index(db)
             _claim_db(db, db_idx)
