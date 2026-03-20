@@ -7,7 +7,7 @@
       onchange="updateBulkBar()">
   </td>
   <td class="px-4 py-3">
-    <a href="/clients/{{ r.client_id }}" target="_blank" class="font-medium text-marsh hover:underline">{{ r.client_name }}</a>
+    <a href="/clients/{{ r.client_id }}" class="font-medium text-marsh hover:underline">{{ r.client_name }}</a>
     {% if r.project_name %}<span class="text-xs text-gray-400 ml-1">· {{ r.project_name }}</span>{% endif %}
   </td>
   <td class="px-4 py-3 text-gray-800 text-sm">
@@ -63,7 +63,7 @@
   </td>
   <td class="px-4 py-3 font-mono text-xs">
     {% if r.policy_uid %}
-    <a href="/policies/{{ r.policy_uid }}/edit" target="_blank" class="text-marsh hover:underline">{{ r.policy_uid }}</a>
+    <a href="/policies/{{ r.policy_uid }}/edit" class="text-marsh hover:underline">{{ r.policy_uid }}</a>
     {% if r.get('policy_type') and r.source == 'activity' %}
     <span class="text-gray-400 font-sans ml-1">· {{ r.policy_type }}{% if r.carrier %} · {{ r.carrier }}{% endif %}</span>
     {% endif %}

@@ -68,7 +68,7 @@
         </div>
         <div class="flex-1 min-w-0">
           <div class="flex items-center gap-2 flex-wrap">
-            {% if item.policy_uid %}<a href="/policies/{{ item.policy_uid }}/edit" target="_blank" class="text-xs font-mono text-marsh hover:underline">{{ item.policy_uid }}</a>{% endif %}
+            {% if item.policy_uid %}<a href="/policies/{{ item.policy_uid }}/edit" class="text-xs font-mono text-marsh hover:underline">{{ item.policy_uid }}</a>{% endif %}
             {% if item.subject %}<span class="text-sm text-gray-700">{{ item.subject }}</span>{% endif %}
             {% if item.policy_type %}<span class="text-xs text-gray-400">{{ item.policy_type }}</span>{% endif %}
             {% if item.carrier %}<span class="text-xs text-gray-400">· {{ item.carrier }}</span>{% endif %}

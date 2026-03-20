@@ -48,7 +48,7 @@
       <ul class="mt-2 space-y-1 pl-1 border-l-2 border-gray-100">
         {% for cl in clients %}
         <li class="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
-          <a href="/clients/{{ cl.client_id }}" target="_blank"
+          <a href="/clients/{{ cl.client_id }}"
              class="text-gray-600 hover:text-marsh transition-colors">{{ cl.client_name }}</a>
           {% if cl.assignment %}
           <span class="text-gray-300">·</span>
@@ -63,8 +63,8 @@
       <ul class="space-y-1 pl-1 border-l-2 border-indigo-100">
         {% for pol in also_on_policies %}
         <li class="flex flex-wrap items-center gap-x-1.5 gap-y-0 text-xs">
-          <a href="/policies/{{ pol.policy_uid }}/edit" target="_blank" class="font-mono text-gray-400 hover:text-marsh shrink-0">{{ pol.policy_uid }}</a>
-          <a href="/clients/{{ pol.client_id }}" target="_blank" class="text-gray-600 hover:text-marsh">{{ pol.client_name }}</a>
+          <a href="/policies/{{ pol.policy_uid }}/edit" class="font-mono text-gray-400 hover:text-marsh shrink-0">{{ pol.policy_uid }}</a>
+          <a href="/clients/{{ pol.client_id }}" class="text-gray-600 hover:text-marsh">{{ pol.client_name }}</a>
           <span class="text-gray-400">· {{ pol.policy_type }}</span>
           {% if pol.expiration_date %}<span class="text-gray-300 tabular-nums">exp {{ pol.expiration_date }}</span>{% endif %}
         </li>

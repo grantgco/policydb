@@ -21,8 +21,8 @@
     <ul class="mt-1 space-y-0.5">
       {% for r in critical %}
       <li class="text-xs text-red-700">
-        <a href="/clients/{{ r.client_id }}" target="_blank" class="font-medium hover:underline">{{ r.client_name }}</a>
-        — <a href="/policies/{{ r.policy_uid }}/edit" target="_blank" class="hover:underline">{{ r.policy_type }}</a>{% if r.project_name %} <span class="text-red-400 italic">· {{ r.project_name }}</span>{% endif %} · expires {{ r.expiration_date }} ({{ r.days_to_renewal }}d) — placement team must be engaged
+        <a href="/clients/{{ r.client_id }}" class="font-medium hover:underline">{{ r.client_name }}</a>
+        — <a href="/policies/{{ r.policy_uid }}/edit" class="hover:underline">{{ r.policy_type }}</a>{% if r.project_name %} <span class="text-red-400 italic">· {{ r.project_name }}</span>{% endif %} · expires {{ r.expiration_date }} ({{ r.days_to_renewal }}d) — placement team must be engaged
       </li>
       {% endfor %}
     </ul>
@@ -38,8 +38,8 @@
     <ul class="mt-1 space-y-0.5">
       {% for r in warning %}
       <li class="text-xs text-amber-700">
-        <a href="/clients/{{ r.client_id }}" target="_blank" class="font-medium hover:underline">{{ r.client_name }}</a>
-        — <a href="/policies/{{ r.policy_uid }}/edit" target="_blank" class="hover:underline">{{ r.policy_type }}</a>{% if r.project_name %} <span class="text-amber-500 italic">· {{ r.project_name }}</span>{% endif %} · expires {{ r.expiration_date }} ({{ r.days_to_renewal }}d)
+        <a href="/clients/{{ r.client_id }}" class="font-medium hover:underline">{{ r.client_name }}</a>
+        — <a href="/policies/{{ r.policy_uid }}/edit" class="hover:underline">{{ r.policy_type }}</a>{% if r.project_name %} <span class="text-amber-500 italic">· {{ r.project_name }}</span>{% endif %} · expires {{ r.expiration_date }} ({{ r.days_to_renewal }}d)
       </li>
       {% endfor %}
     </ul>
@@ -55,8 +55,8 @@
     <ul class="mt-1 space-y-0.5">
       {% for r in nudge %}
       <li class="text-xs text-blue-700">
-        <a href="/clients/{{ r.client_id }}" target="_blank" class="font-medium hover:underline">{{ r.client_name }}</a>
-        — <a href="/policies/{{ r.policy_uid }}/edit" target="_blank" class="hover:underline">{{ r.policy_type }}</a>{% if r.project_name %} <span class="text-blue-400 italic">· {{ r.project_name }}</span>{% endif %} · expires {{ r.expiration_date }} ({{ r.days_to_renewal }}d) — no follow-up scheduled
+        <a href="/clients/{{ r.client_id }}" class="font-medium hover:underline">{{ r.client_name }}</a>
+        — <a href="/policies/{{ r.policy_uid }}/edit" class="hover:underline">{{ r.policy_type }}</a>{% if r.project_name %} <span class="text-blue-400 italic">· {{ r.project_name }}</span>{% endif %} · expires {{ r.expiration_date }} ({{ r.days_to_renewal }}d) — no follow-up scheduled
       </li>
       {% endfor %}
     </ul>
@@ -72,8 +72,8 @@
     <ul class="mt-1 space-y-0.5">
       {% for r in stale %}
       <li class="text-xs text-amber-700">
-        <a href="/clients/{{ r.client_id }}" target="_blank" class="font-medium hover:underline">{{ r.client_name }}</a>
-        — <a href="/policies/{{ r.policy_uid }}/edit" target="_blank" class="hover:underline">{{ r.policy_type }}</a>{% if r.project_name %} <span class="text-amber-500 italic">· {{ r.project_name }}</span>{% endif %} · expires {{ r.expiration_date }} ({{ r.days_to_renewal }}d)
+        <a href="/clients/{{ r.client_id }}" class="font-medium hover:underline">{{ r.client_name }}</a>
+        — <a href="/policies/{{ r.policy_uid }}/edit" class="hover:underline">{{ r.policy_type }}</a>{% if r.project_name %} <span class="text-amber-500 italic">· {{ r.project_name }}</span>{% endif %} · expires {{ r.expiration_date }} ({{ r.days_to_renewal }}d)
       </li>
       {% endfor %}
     </ul>
@@ -214,8 +214,8 @@
         <li class="px-4 py-2.5 flex items-start justify-between gap-2" id="followup-{{ o.source }}-{{ o.id }}">
           <div class="min-w-0">
             <div class="flex items-baseline gap-1.5 flex-wrap">
-              <a href="/clients/{{ o.client_id }}" target="_blank" class="text-sm font-medium text-marsh hover:underline">{{ o.client_name }}</a>
-              {% if o.policy_uid %}<a href="/policies/{{ o.policy_uid }}/edit" target="_blank" class="text-xs font-mono text-gray-400 hover:text-marsh">{{ o.policy_uid }}</a>{% endif %}
+              <a href="/clients/{{ o.client_id }}" class="text-sm font-medium text-marsh hover:underline">{{ o.client_name }}</a>
+              {% if o.policy_uid %}<a href="/policies/{{ o.policy_uid }}/edit" class="text-xs font-mono text-gray-400 hover:text-marsh">{{ o.policy_uid }}</a>{% endif %}
             </div>
             <p class="text-xs text-gray-700 truncate">{{ o.subject }}</p>
             <p class="text-xs text-gray-400 mt-0.5">
@@ -278,8 +278,8 @@
         <li class="px-4 py-2.5 flex items-start justify-between gap-2" id="followup-{{ u.source }}-{{ u.id }}">
           <div class="min-w-0">
             <div class="flex items-baseline gap-1.5 flex-wrap">
-              <a href="/clients/{{ u.client_id }}" target="_blank" class="text-sm font-medium text-marsh hover:underline">{{ u.client_name }}</a>
-              {% if u.policy_uid %}<a href="/policies/{{ u.policy_uid }}/edit" target="_blank" class="text-xs font-mono text-gray-400 hover:text-marsh">{{ u.policy_uid }}</a>{% endif %}
+              <a href="/clients/{{ u.client_id }}" class="text-sm font-medium text-marsh hover:underline">{{ u.client_name }}</a>
+              {% if u.policy_uid %}<a href="/policies/{{ u.policy_uid }}/edit" class="text-xs font-mono text-gray-400 hover:text-marsh">{{ u.policy_uid }}</a>{% endif %}
             </div>
             <p class="text-xs text-gray-700 truncate">{{ u.subject }}</p>
             <p class="text-xs text-gray-400 mt-0.5">
@@ -348,7 +348,7 @@
       <ul class="divide-y divide-gray-50">
         {% for n in recent_client_notes %}
         <li class="px-4 py-2.5">
-          <a href="/clients/{{ n.client_id }}" target="_blank" class="text-sm font-medium text-marsh hover:underline block">{{ n.client_name }}</a>
+          <a href="/clients/{{ n.client_id }}" class="text-sm font-medium text-marsh hover:underline block">{{ n.client_name }}</a>
           <p class="text-xs text-gray-600 mt-0.5">{{ n.content[:120] }}{% if n.content | length > 120 %}…{% endif %}</p>
           <p class="text-xs text-gray-400 mt-0.5">{{ n.updated_at[:16] }}</p>
         </li>

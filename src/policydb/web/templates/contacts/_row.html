@@ -43,10 +43,10 @@
           {% if p.is_opportunity %}
           <span class="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-medium">Opp</span>
           {% endif %}
-          <a href="/policies/{{ p.policy_uid }}/edit" target="_blank"
+          <a href="/policies/{{ p.policy_uid }}/edit"
              class="font-mono text-gray-400 hover:text-marsh transition-colors">{{ p.policy_uid }}</a>
           <span class="text-gray-300">·</span>
-          <a href="/clients/{{ p.client_id }}" target="_blank"
+          <a href="/clients/{{ p.client_id }}"
              class="text-gray-600 hover:text-marsh transition-colors">{{ p.client_name }}</a>
           <span class="text-gray-300">·</span>
           <span class="text-gray-700">{{ p.policy_type }}</span>

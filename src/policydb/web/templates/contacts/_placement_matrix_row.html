@@ -95,10 +95,10 @@
       <ul class="mt-2 space-y-1.5 pl-1 border-l-2 border-gray-100">
         {% for p in policies %}
         <li class="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
-          <a href="/policies/{{ p.policy_uid }}/edit" target="_blank"
+          <a href="/policies/{{ p.policy_uid }}/edit"
              class="font-mono text-gray-400 hover:text-marsh transition-colors">{{ p.policy_uid }}</a>
           <span class="text-gray-300">&middot;</span>
-          <a href="/clients/{{ p.client_id }}" target="_blank"
+          <a href="/clients/{{ p.client_id }}"
              class="text-gray-600 hover:text-marsh transition-colors">{{ p.client_name }}</a>
           <span class="text-gray-300">&middot;</span>
           <span class="text-gray-700">{{ p.policy_type }}</span>

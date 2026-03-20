@@ -167,7 +167,7 @@
     {% if meeting.linked_policies %}
     {% for p in meeting.linked_policies %}
     <span class="inline-flex items-center gap-1 text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded mr-1 mb-1">
-      <a href="/policies/{{ p.policy_uid }}/edit" class="hover:underline" target="_blank">{{ p.policy_type or p.policy_uid }}</a>
+      <a href="/policies/{{ p.policy_uid }}/edit" class="hover:underline">{{ p.policy_type or p.policy_uid }}</a>
       <span class="text-blue-400">{{ p.carrier or '' }}</span>
       <button type="button" hx-post="/meetings/{{ meeting.id }}/policies/unlink"
         hx-vals='{"policy_uid": "{{ p.policy_uid }}"}'
