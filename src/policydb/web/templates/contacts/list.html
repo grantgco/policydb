@@ -237,9 +237,12 @@
         {% for c in all_people %}
         <tr class="person-row group align-top" data-contact-id="{{ c.contact_id }}" data-contact-name="{{ c.name }}">
           <td class="px-3 py-2.5">
-            <div contenteditable="true"
-                 class="ucell outline-none font-medium text-gray-800 text-sm rounded px-1 -mx-1"
-                 data-field="name" data-placeholder="Name...">{{ c.name or '' }}</div>
+            <div class="flex items-center gap-1">
+              <div contenteditable="true"
+                   class="ucell outline-none font-medium text-gray-800 text-sm rounded px-1 -mx-1 flex-1"
+                   data-field="name" data-placeholder="Name...">{{ c.name or '' }}</div>
+              <a href="/contacts/{{ c.contact_id }}" class="text-gray-300 hover:text-marsh text-xs flex-shrink-0 no-print" title="Open contact detail" onclick="event.stopPropagation()">&#8594;</a>
+            </div>
           </td>
           <td class="px-3 py-2.5">
             <div contenteditable="true"
