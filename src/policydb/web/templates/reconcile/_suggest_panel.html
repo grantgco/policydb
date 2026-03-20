@@ -55,6 +55,53 @@
   <p class="text-xs text-blue-700 italic mb-2">No close matches found in Coverage for this record.</p>
   {% endif %}
 
+  {% if all_client_policies %}
+  <details class="mt-2">
+    <summary class="text-xs text-blue-600 cursor-pointer hover:underline">Show all {{ all_client_policies | length }} policies for this client</summary>
+    <div class="space-y-1.5 mt-2">
+      {% for db, score in all_client_policies %}
+      <div class="bg-white border border-gray-200 rounded p-2.5 flex items-center gap-3">
+        <div class="flex-1 min-w-0">
+          <p class="text-sm font-medium text-gray-800 truncate">{{ db.policy_type }}{% if db.carrier %} — {{ db.carrier }}{% endif %}</p>
+          <p class="text-xs text-gray-500">
+            {% if db.policy_number %}<span class="font-mono">{{ db.policy_number }}</span> · {% endif %}
+            {{ db.effective_date or '—' }} → {{ db.expiration_date or '—' }}
+            {% if db.premium %}<span class="ml-2 tabular-nums">{{ db.premium | currency }}</span>{% endif %}
+          </p>
+        </div>
+        <div class="shrink-0 flex gap-1.5">
+          <form hx-post="/reconcile/confirm-match"
+                hx-target="#row-{{ row_uid }}"
+                hx-swap="outerHTML"
+                hx-on::after-request="if(event.detail.successful){ var d=document.getElementById('detail-{{ row_uid }}'); if(d) d.style.display='none'; }"
+                onclick="event.stopPropagation()">
+            <input type="hidden" name="row_uid" value="{{ row_uid }}">
+            <input type="hidden" name="policy_uid" value="{{ db.policy_uid }}">
+            <input type="hidden" name="ext_client_name" value="{{ ext.client_name }}">
+            <input type="hidden" name="ext_policy_type" value="{{ ext.policy_type }}">
+            <input type="hidden" name="ext_carrier" value="{{ ext.carrier }}">
+            <input type="hidden" name="ext_policy_number" value="{{ ext.policy_number }}">
+            <input type="hidden" name="ext_effective_date" value="{{ ext.effective_date }}">
+            <input type="hidden" name="ext_expiration_date" value="{{ ext.expiration_date }}">
+            <input type="hidden" name="ext_premium" value="{{ ext.premium }}">
+            <input type="hidden" name="ext_limit_amount" value="{{ ext.limit_amount }}">
+            <input type="hidden" name="ext_deductible" value="{{ ext.deductible }}">
+            <button type="submit"
+              class="text-xs bg-marsh text-white px-2.5 py-1 rounded hover:bg-marsh-light transition-colors">
+              Match
+            </button>
+          </form>
+          <a href="/policies/{{ db.policy_uid }}/edit"
+            class="text-xs border border-gray-300 text-gray-600 px-2 py-1 rounded hover:border-marsh hover:text-marsh transition-colors">
+            View
+          </a>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </details>
+  {% endif %}
+
   <div class="mt-2 pt-2 border-t border-blue-200 flex items-center gap-3">
     <p class="text-xs text-blue-600">Not what you're looking for?</p>
     <button
