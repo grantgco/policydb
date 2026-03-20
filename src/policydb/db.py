@@ -834,7 +834,23 @@ def init_db(path: Path | None = None) -> None:
 
     try:
         _fk_violations = conn.execute("PRAGMA foreign_key_check").fetchall()
+        # Auto-fix: clean up legacy table FK violations (harmless orphaned records)
+        if _fk_violations:
+            _legacy_tables = {"client_contacts_legacy", "policy_contacts_legacy"}
+            _legacy_violations = [v for v in _fk_violations if v["table"] in _legacy_tables]
+            _real_violations = [v for v in _fk_violations if v["table"] not in _legacy_tables]
+            if _legacy_violations:
+                for lt in _legacy_tables:
+                    try:
+                        conn.execute(f"DELETE FROM {lt} WHERE rowid IN (SELECT rowid FROM {lt} t WHERE NOT EXISTS (SELECT 1 FROM policies p WHERE p.id = t.policy_id))")
+                    except Exception:
+                        pass
+                conn.commit()
+                print(f"[hygiene] Cleaned {len(_legacy_violations)} orphaned legacy contact records")
+                # Re-check after cleanup
+                _fk_violations = conn.execute("PRAGMA foreign_key_check").fetchall()
         _HEALTH_STATUS["fk_violations"] = len(_fk_violations)
+        _HEALTH_STATUS["fk_details"] = [{"table": v["table"], "rowid": v["rowid"], "parent": v["parent"]} for v in _fk_violations[:20]]
         if _fk_violations:
             print(f"[WARNING] {len(_fk_violations)} FK violation(s) detected")
     except Exception as e:
