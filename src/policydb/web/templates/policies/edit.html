@@ -102,12 +102,7 @@
         {% if c.phone %}<span class="text-gray-500">{{ c.phone }}</span>{% endif %}
         {% if c.mobile %}<span class="text-gray-400">Cell: {{ c.mobile }}</span>{% endif %}
         {% if c.email %}
-        <button type="button" class="ep-trigger text-indigo-500 hover:underline"
-          data-to="{{ c.email }}"
-          data-to-label="{{ c.name }}"
-          data-subject="{{ mailto_subject }}"
-          data-cc="{{ team_cc_json }}"
-          data-ref="{{ build_ref_tag(cn_number=policy.cn_number|default(''), client_id=policy.client_id, policy_uid=policy.policy_uid, project_id=policy.project_id|default(0)) }}">✉ {{ c.email }}</button>
+        <a href="mailto:{{ c.email }}?subject={{ mailto_subject | urlencode }}" class="text-indigo-500 hover:underline" title="Email {{ c.name }}">✉ {{ c.email }}</a>
         {% endif %}
       </div>
     </div>
