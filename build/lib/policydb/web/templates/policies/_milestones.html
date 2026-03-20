@@ -6,7 +6,8 @@
       hx-post="/policies/{{ policy.policy_uid }}/milestones/{{ item.name | urlencode }}"
       hx-target="#milestones-{{ policy.policy_uid }}" hx-swap="outerHTML"
       class="rounded border-gray-300 text-marsh focus:ring-marsh">
-    <span class="text-sm {% if item.completed %}line-through text-gray-400{% else %}text-gray-700{% endif %}">{{ item.name }}</span>
+    {% if item.is_critical %}<span class="text-red-400 text-xs" title="Critical milestone">*</span>{% endif %}
+    <span class="text-sm {% if item.completed %}line-through text-gray-400{% else %}text-gray-700{% endif %}{% if item.is_critical and not item.completed %} font-medium{% endif %}">{{ item.name }}</span>
     {% if item.completed and item.completed_at %}
     <span class="text-xs text-gray-400 ml-auto">{{ item.completed_at[:10] }}</span>
     {% endif %}

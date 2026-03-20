@@ -1,0 +1,168 @@
+<h2>Meeting Notes — UI Mockup</h2>
+<p class="subtitle">Two key screens: the /meetings hub list and the meeting detail/edit page.</p>
+
+<div class="cards">
+
+  <div class="card" data-choice="hub" onclick="toggleSelect(this)">
+    <div class="card-body">
+      <h3>/meetings Hub Page</h3>
+      <div style="margin-top:12px;border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;font-size:11px;background:white;max-width:600px">
+        <!-- Nav bar hint -->
+        <div style="background:#003865;padding:6px 14px;display:flex;gap:12px;align-items:center">
+          <span style="color:white;font-weight:600;font-size:12px">PolicyDB</span>
+          <span style="color:rgba(255,255,255,0.5);font-size:10px">Dashboard</span>
+          <span style="color:rgba(255,255,255,0.5);font-size:10px">Briefing</span>
+          <span style="color:rgba(255,255,255,0.5);font-size:10px">Clients</span>
+          <span style="color:white;font-size:10px;background:rgba(255,255,255,0.15);padding:2px 8px;border-radius:4px">Meetings</span>
+        </div>
+        <!-- Header -->
+        <div style="padding:12px 14px;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;justify-content:space-between">
+          <div>
+            <span style="font-size:16px;font-weight:700;color:#1f2937">Meetings</span>
+            <span style="color:#9ca3af;font-size:10px;margin-left:8px">Last 30 days + upcoming</span>
+          </div>
+          <div style="background:#003865;color:white;padding:5px 12px;border-radius:6px;font-size:10px;cursor:pointer">+ New Meeting</div>
+        </div>
+        <!-- Filters -->
+        <div style="padding:8px 14px;background:#f8fafc;border-bottom:1px solid #e5e7eb;display:flex;gap:8px;align-items:center">
+          <select style="font-size:10px;border:1px solid #d1d5db;border-radius:4px;padding:3px 6px;background:white">
+            <option>All Clients</option>
+          </select>
+          <input type="date" style="font-size:10px;border:1px solid #d1d5db;border-radius:4px;padding:3px 6px" value="2026-02-18">
+          <span style="font-size:10px;color:#9ca3af">to</span>
+          <input type="date" style="font-size:10px;border:1px solid #d1d5db;border-radius:4px;padding:3px 6px" value="2026-03-25">
+        </div>
+        <!-- Table -->
+        <table style="width:100%;border-collapse:collapse;font-size:10px">
+          <tr style="border-bottom:1px solid #e5e7eb;color:#9ca3af">
+            <th style="padding:6px 10px;text-align:left;font-weight:500">Date</th>
+            <th style="padding:6px 10px;text-align:left;font-weight:500">Client</th>
+            <th style="padding:6px 10px;text-align:left;font-weight:500">Title</th>
+            <th style="padding:6px 10px;text-align:center;font-weight:500">Attendees</th>
+            <th style="padding:6px 10px;text-align:center;font-weight:500">Actions</th>
+            <th style="padding:6px 10px;text-align:right;font-weight:500">Duration</th>
+          </tr>
+          <tr style="border-bottom:1px solid #f3f4f6">
+            <td style="padding:8px 10px;color:#1f2937;font-weight:500">Mar 25</td>
+            <td style="padding:8px 10px"><span style="color:#003865">Acme Corp</span></td>
+            <td style="padding:8px 10px;color:#374151">Q2 Renewal Strategy</td>
+            <td style="padding:8px 10px;text-align:center"><span style="background:#e5e7eb;border-radius:10px;padding:1px 6px;font-size:9px">4</span></td>
+            <td style="padding:8px 10px;text-align:center"><span style="color:#15803d;font-size:9px">2/3</span></td>
+            <td style="padding:8px 10px;text-align:right;color:#6b7280">1.5h</td>
+          </tr>
+          <tr style="border-bottom:1px solid #f3f4f6">
+            <td style="padding:8px 10px;color:#1f2937;font-weight:500">Mar 18</td>
+            <td style="padding:8px 10px"><span style="color:#003865">Skyline Partners</span></td>
+            <td style="padding:8px 10px;color:#374151">Coverage Review — Main St</td>
+            <td style="padding:8px 10px;text-align:center"><span style="background:#e5e7eb;border-radius:10px;padding:1px 6px;font-size:9px">2</span></td>
+            <td style="padding:8px 10px;text-align:center"><span style="color:#d97706;font-size:9px">0/1</span></td>
+            <td style="padding:8px 10px;text-align:right;color:#6b7280">0.5h</td>
+          </tr>
+          <tr style="border-bottom:1px solid #f3f4f6">
+            <td style="padding:8px 10px;color:#1f2937;font-weight:500">Mar 15</td>
+            <td style="padding:8px 10px"><span style="color:#003865">Apex Data Centers</span></td>
+            <td style="padding:8px 10px;color:#374151">Program Structure Discussion</td>
+            <td style="padding:8px 10px;text-align:center"><span style="background:#e5e7eb;border-radius:10px;padding:1px 6px;font-size:9px">6</span></td>
+            <td style="padding:8px 10px;text-align:center"><span style="color:#15803d;font-size:9px">5/5 ✓</span></td>
+            <td style="padding:8px 10px;text-align:right;color:#6b7280">2.0h</td>
+          </tr>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" data-choice="detail" onclick="toggleSelect(this)">
+    <div class="card-body">
+      <h3>/meetings/{id} Detail Page</h3>
+      <div style="margin-top:12px;border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;font-size:11px;background:white;max-width:600px">
+        <!-- Breadcrumb -->
+        <div style="padding:8px 14px;background:#f8fafc;border-bottom:1px solid #e5e7eb;color:#9ca3af;font-size:10px">
+          <span style="color:#003865">Meetings</span> / <span style="color:#003865">Acme Corp</span> / <strong style="color:#374151">Q2 Renewal Strategy</strong>
+        </div>
+        <!-- Header -->
+        <div style="padding:12px 14px;border-bottom:1px solid #e5e7eb">
+          <div style="display:flex;justify-content:space-between;align-items:baseline">
+            <h2 style="font-size:16px;font-weight:700;color:#1f2937;margin:0">Q2 Renewal Strategy</h2>
+            <span style="font-size:10px;color:#9ca3af">Mar 25, 2026 · 2:00 PM · 1.5h</span>
+          </div>
+          <p style="font-size:11px;color:#6b7280;margin:2px 0 0">Acme Corp · Conference Room B</p>
+        </div>
+
+        <!-- Attendees -->
+        <div style="padding:10px 14px;border-bottom:1px solid #f3f4f6">
+          <p style="font-size:9px;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:0.05em;margin:0 0 6px">Attendees</p>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <span style="background:#e0e7ff;color:#3730a3;font-size:9px;padding:2px 8px;border-radius:10px">John Smith (Client)</span>
+            <span style="background:#e0e7ff;color:#3730a3;font-size:9px;padding:2px 8px;border-radius:10px">Jane Doe (CFO)</span>
+            <span style="background:#dbeafe;color:#1d4ed8;font-size:9px;padding:2px 8px;border-radius:10px">Grant (Internal)</span>
+            <span style="background:#f3f4f6;color:#6b7280;font-size:9px;padding:2px 8px;border-radius:10px">Bob Broker</span>
+            <span style="font-size:9px;color:#003865;cursor:pointer">+ Add</span>
+          </div>
+        </div>
+
+        <!-- Notes (Toast UI editor area) -->
+        <div style="padding:10px 14px;border-bottom:1px solid #f3f4f6">
+          <p style="font-size:9px;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:0.05em;margin:0 0 6px">Meeting Notes</p>
+          <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:6px;padding:10px;min-height:80px;font-size:10px;color:#374151;line-height:1.6">
+            <strong>Agenda:</strong><br>
+            1. Review current program structure<br>
+            2. Discuss April GL/Property renewals<br>
+            3. D&O program — carrier market update<br><br>
+            <strong>Notes:</strong><br>
+            Client wants to explore higher D&O limits given recent M&A activity...
+            <p style="color:#9ca3af;font-style:italic;margin-top:6px;font-size:9px">Toast UI markdown editor · auto-saves</p>
+          </div>
+        </div>
+
+        <!-- Action Items -->
+        <div style="padding:10px 14px;border-bottom:1px solid #f3f4f6">
+          <p style="font-size:9px;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:0.05em;margin:0 0 6px">Action Items</p>
+          <div style="space-y:4px">
+            <div style="display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid #f9fafb">
+              <input type="checkbox" checked style="accent-color:#003865">
+              <span style="font-size:10px;color:#9ca3af;text-decoration:line-through">Request updated D&O loss runs</span>
+              <span style="margin-left:auto;font-size:9px;color:#9ca3af">Grant · Mar 20</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid #f9fafb">
+              <input type="checkbox" checked style="accent-color:#003865">
+              <span style="font-size:10px;color:#9ca3af;text-decoration:line-through">Send GL renewal submission to 3 markets</span>
+              <span style="margin-left:auto;font-size:9px;color:#9ca3af">Grant · Mar 22</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;padding:4px 0">
+              <input type="checkbox" style="accent-color:#003865">
+              <span style="font-size:10px;color:#374151">Follow up with CFO on D&O limit increase approval</span>
+              <span style="margin-left:auto;font-size:9px;color:#d97706">Grant · Mar 28</span>
+            </div>
+          </div>
+          <div style="margin-top:6px;display:flex;gap:4px">
+            <input type="text" placeholder="New action item..." style="flex:1;font-size:10px;border:1px solid #d1d5db;border-radius:4px;padding:3px 6px">
+            <input type="date" style="font-size:10px;border:1px solid #d1d5db;border-radius:4px;padding:3px 6px">
+            <div style="background:#003865;color:white;padding:3px 8px;border-radius:4px;font-size:9px;cursor:pointer">Add</div>
+          </div>
+        </div>
+
+        <!-- Meeting Prep (collapsed) -->
+        <div style="padding:10px 14px">
+          <div style="display:flex;align-items:center;gap:4px;cursor:pointer">
+            <span style="font-size:9px;color:#9ca3af">▶</span>
+            <span style="font-size:10px;font-weight:600;color:#6b7280">Meeting Prep</span>
+            <span style="font-size:9px;color:#9ca3af">— renewals, follow-ups, risks, RFIs</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="section" style="margin-top:20px">
+  <h3>Spec notes</h3>
+  <ul style="font-size:13px;color:#374151;line-height:2;margin:0;padding-left:20px">
+    <li><strong>Migration:</strong> 055 (054 used for client follow-up date)</li>
+    <li><strong>Nav:</strong> "Meetings" link added to base.html nav bar</li>
+    <li><strong>Activity log:</strong> Each meeting auto-creates an activity_log entry for the unified timeline</li>
+    <li><strong>Action items → follow-ups:</strong> Bi-directional sync with activity_log.follow_up_done</li>
+    <li><strong>Client detail:</strong> New "Meetings" section showing last 5 meetings</li>
+    <li><strong>Notes:</strong> Toast UI markdown editor with auto-save (same pattern as project notes)</li>
+  </ul>
+</div>

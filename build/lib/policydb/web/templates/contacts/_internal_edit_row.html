@@ -1,4 +1,4 @@
-{% set row_id = "internal-" ~ (c.name | replace(' ', '-') | lower) %}
+{% set row_id = "internal-" ~ (c.name | safe_id) %}
 <tr id="{{ row_id }}" class="bg-amber-50/30">
   <td class="px-4 py-2 font-medium text-gray-800 text-sm">
     {{ c.name }}
@@ -16,8 +16,11 @@
   </td>
   <td class="px-4 py-2">
     <input type="text" form="internal-edit-{{ row_id }}" name="phone" value="{{ c.phone or '' }}"
-           placeholder="Phone"
+           placeholder="Main phone"
            class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh">
+    <input type="text" form="internal-edit-{{ row_id }}" name="mobile" value="{{ c.mobile or '' }}"
+           placeholder="Cell"
+           class="border border-gray-300 rounded px-2 py-1 text-xs w-full mt-1 focus:outline-none focus:ring-1 focus:ring-marsh">
   </td>
   <td class="px-4 py-2 text-xs text-gray-400 italic">
     <input type="text" form="internal-edit-{{ row_id }}" name="title" value="{{ c.title or '' }}"

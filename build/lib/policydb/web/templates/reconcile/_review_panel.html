@@ -1,0 +1,237 @@
+{% set matched_rows = results | selectattr('status', 'equalto', 'MATCH') | list %}
+{% set diff_rows = results | selectattr('status', 'equalto', 'DIFF') | list %}
+{% set missing_rows = results | selectattr('status', 'equalto', 'MISSING') | list %}
+{% set extra_rows = results | selectattr('status', 'equalto', 'EXTRA') | list %}
+
+<div class="mb-5 space-y-3" id="review-panel">
+
+  <!-- Section B: Differences (amber) — always open -->
+  {% if diff_rows %}
+  <details open class="border-l-4 border-amber-400 bg-white rounded-lg shadow-sm overflow-hidden">
+    <summary class="px-4 py-3 cursor-pointer select-none flex items-center gap-2 bg-stone-50 hover:bg-stone-100 transition-colors">
+      <span class="text-sm font-semibold text-amber-700">Differences</span>
+      <span class="text-xs font-bold bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">{{ diff_rows | length }}</span>
+      <span class="text-xs text-gray-400 ml-2">Matched policies with field discrepancies — review each below</span>
+      <span class="text-xs text-gray-400 ml-auto" id="diff-progress">0 of {{ diff_rows | length }} reviewed</span>
+    </summary>
+    <div class="overflow-x-auto">
+      <table class="w-full text-xs">
+        <thead>
+          <tr class="text-left text-gray-400 uppercase tracking-wide border-b border-gray-100">
+            <th class="px-3 py-2">Client</th>
+            <th class="px-3 py-2">Coverage</th>
+            <th class="px-3 py-2">Carrier</th>
+            <th class="px-3 py-2">Eff</th>
+            <th class="px-3 py-2">Exp</th>
+            <th class="px-3 py-2 text-right tabular-nums">Premium</th>
+            <th class="px-3 py-2">Key Diff</th>
+            <th class="px-3 py-2 text-right">Action</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-50">
+          {% for r in results %}
+          {% if r.status == 'DIFF' %}
+          {% set uid = loop.index %}
+          {% set side = r.db if r.db else r.ext %}
+          <tr class="hover:bg-amber-50/30">
+            <td class="px-3 py-2 font-medium text-gray-800">{{ (side or {}).get('client_name', '—') }}</td>
+            <td class="px-3 py-2 text-gray-600">{{ (side or {}).get('policy_type', '—') }}</td>
+            <td class="px-3 py-2 text-gray-600">{{ (side or {}).get('carrier', '—') }}</td>
+            <td class="px-3 py-2 text-gray-500 whitespace-nowrap">{{ (side or {}).get('effective_date', '—') or '—' }}</td>
+            <td class="px-3 py-2 text-gray-500 whitespace-nowrap">{{ (side or {}).get('expiration_date', '—') or '—' }}</td>
+            <td class="px-3 py-2 text-right tabular-nums text-gray-700">{{ (side or {}).get('premium', '') | currency if (side or {}).get('premium') else '—' }}</td>
+            <td class="px-3 py-2">
+              {% if r.diff_fields %}
+              {% set first_diff = r.diff_fields[0] %}
+              <span class="text-amber-600">{{ first_diff }}:</span>
+              <span class="text-amber-700 font-medium">{{ (r.ext or {}).get(first_diff, '—') }}</span>
+              <span class="text-gray-400">vs</span>
+              <span class="text-gray-500">{{ (r.db or {}).get(first_diff, '—') }}</span>
+              {% if r.diff_fields | length > 1 %}
+              <span class="text-gray-400 ml-1">+{{ r.diff_fields | length - 1 }} more</span>
+              {% endif %}
+              {% endif %}
+            </td>
+            <td class="px-3 py-2 text-right">
+              <button type="button" onclick="scrollToRow({{ loop.index }})"
+                class="text-xs text-marsh hover:underline font-medium">Review</button>
+            </td>
+          </tr>
+          {% endif %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </details>
+  {% endif %}
+
+  <!-- Section C: Missing from PolicyDB (red) — always open -->
+  {% if missing_rows %}
+  <details open class="border-l-4 border-red-400 bg-white rounded-lg shadow-sm overflow-hidden">
+    <summary class="px-4 py-3 cursor-pointer select-none flex items-center gap-2 bg-stone-50 hover:bg-stone-100 transition-colors">
+      <span class="text-sm font-semibold text-red-700">Missing from PolicyDB</span>
+      <span class="text-xs font-bold bg-red-100 text-red-700 px-2 py-0.5 rounded-full">{{ missing_rows | length }}</span>
+      <span class="text-xs text-gray-400 ml-2">In uploaded file but not found in PolicyDB</span>
+    </summary>
+    <div class="overflow-x-auto">
+      <table class="w-full text-xs">
+        <thead>
+          <tr class="text-left text-gray-400 uppercase tracking-wide border-b border-gray-100">
+            <th class="px-3 py-2">Client</th>
+            <th class="px-3 py-2">Coverage</th>
+            <th class="px-3 py-2">Carrier</th>
+            <th class="px-3 py-2">Eff</th>
+            <th class="px-3 py-2">Exp</th>
+            <th class="px-3 py-2 text-right tabular-nums">Premium</th>
+            <th class="px-3 py-2 text-right">Action</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-50">
+          {% for r in results %}
+          {% if r.status == 'MISSING' %}
+          {% set uid = loop.index %}
+          {% set e = r.ext or {} %}
+          <tr class="hover:bg-red-50/30">
+            <td class="px-3 py-2 font-medium text-gray-800">{{ e.get('client_name', '—') }}</td>
+            <td class="px-3 py-2 text-gray-600">
+              {% if r.coverage_alias_applied %}
+              {{ r.ext_type_normalized }}
+              <span class="text-gray-400 text-[10px] block">(file: "{{ r.ext_type_raw }}")</span>
+              {% else %}
+              {{ e.get('policy_type', '—') }}
+              {% endif %}
+            </td>
+            <td class="px-3 py-2 text-gray-600">{{ e.get('carrier', '—') }}</td>
+            <td class="px-3 py-2 text-gray-500 whitespace-nowrap">{{ e.get('effective_date', '—') or '—' }}</td>
+            <td class="px-3 py-2 text-gray-500 whitespace-nowrap">{{ e.get('expiration_date', '—') or '—' }}</td>
+            <td class="px-3 py-2 text-right tabular-nums text-gray-700">{{ e.get('premium', '') | currency if e.get('premium') else '—' }}</td>
+            <td class="px-3 py-2 text-right">
+              <button type="button" onclick="scrollToRow({{ loop.index }})"
+                class="text-xs text-marsh hover:underline font-medium">Add</button>
+              <button type="button" onclick="scrollToRow({{ loop.index }})"
+                class="text-xs text-blue-600 hover:underline ml-2">Find</button>
+            </td>
+          </tr>
+          {% endif %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </details>
+  {% endif %}
+
+  <!-- Section D: Extra in PolicyDB (blue) — collapsed by default -->
+  {% if extra_rows %}
+  <details class="border-l-4 border-blue-400 bg-white rounded-lg shadow-sm overflow-hidden">
+    <summary class="px-4 py-3 cursor-pointer select-none flex items-center gap-2 bg-stone-50 hover:bg-stone-100 transition-colors">
+      <span class="text-sm font-semibold text-blue-700">Extra in PolicyDB</span>
+      <span class="text-xs font-bold bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">{{ extra_rows | length }}</span>
+      <span class="text-xs text-gray-400 ml-2">In PolicyDB but not in uploaded file</span>
+    </summary>
+    <div class="overflow-x-auto">
+      <table class="w-full text-xs">
+        <thead>
+          <tr class="text-left text-gray-400 uppercase tracking-wide border-b border-gray-100">
+            <th class="px-3 py-2">Client</th>
+            <th class="px-3 py-2">Coverage</th>
+            <th class="px-3 py-2">Carrier</th>
+            <th class="px-3 py-2">Eff</th>
+            <th class="px-3 py-2">Exp</th>
+            <th class="px-3 py-2 text-right tabular-nums">Premium</th>
+            <th class="px-3 py-2">UID</th>
+            <th class="px-3 py-2 text-right">Action</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-50">
+          {% for r in results %}
+          {% if r.status == 'EXTRA' %}
+          {% set uid = loop.index %}
+          {% set d = r.db or {} %}
+          <tr class="hover:bg-blue-50/30">
+            <td class="px-3 py-2 font-medium text-gray-800">
+              <a href="/clients/{{ d.get('client_id', '') }}" class="text-marsh hover:underline">{{ d.get('client_name', '—') }}</a>
+            </td>
+            <td class="px-3 py-2 text-gray-600">{{ d.get('policy_type', '—') }}</td>
+            <td class="px-3 py-2 text-gray-600">{{ d.get('carrier', '—') }}</td>
+            <td class="px-3 py-2 text-gray-500 whitespace-nowrap">{{ d.get('effective_date', '—') or '—' }}</td>
+            <td class="px-3 py-2 text-gray-500 whitespace-nowrap">{{ d.get('expiration_date', '—') or '—' }}</td>
+            <td class="px-3 py-2 text-right tabular-nums text-gray-700">{{ d.get('premium', '') | currency if d.get('premium') else '—' }}</td>
+            <td class="px-3 py-2">
+              <a href="/policies/{{ d.get('policy_uid', '') }}/edit" class="text-xs text-marsh hover:underline font-mono">{{ d.get('policy_uid', '') }}</a>
+            </td>
+            <td class="px-3 py-2 text-right">
+              <button type="button" onclick="scrollToRow({{ loop.index }})"
+                class="text-xs text-blue-600 hover:underline font-medium">Review</button>
+            </td>
+          </tr>
+          {% endif %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </details>
+  {% endif %}
+
+  <!-- Section A: Matched (green) — collapsed if >= 20 -->
+  {% if matched_rows %}
+  <details {% if matched_rows | length < 20 %}open{% endif %}
+    class="border-l-4 border-green-400 bg-white rounded-lg shadow-sm overflow-hidden">
+    <summary class="px-4 py-3 cursor-pointer select-none flex items-center gap-2 bg-stone-50 hover:bg-stone-100 transition-colors">
+      <span class="text-sm font-semibold text-green-700">Matched</span>
+      <span class="text-xs font-bold bg-green-100 text-green-700 px-2 py-0.5 rounded-full">{{ matched_rows | length }}</span>
+      <span class="text-xs text-gray-400 ml-2">Aligned within tolerances — no action needed</span>
+    </summary>
+    <div class="overflow-x-auto">
+      <table class="w-full text-xs">
+        <thead>
+          <tr class="text-left text-gray-400 uppercase tracking-wide border-b border-gray-100">
+            <th class="px-3 py-2">Client</th>
+            <th class="px-3 py-2">Coverage</th>
+            <th class="px-3 py-2">Carrier</th>
+            <th class="px-3 py-2">Eff</th>
+            <th class="px-3 py-2">Exp</th>
+            <th class="px-3 py-2 text-right tabular-nums">Premium</th>
+            <th class="px-3 py-2">UID</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-50">
+          {% for r in results %}
+          {% if r.status == 'MATCH' %}
+          {% set d = r.db or {} %}
+          <tr class="hover:bg-green-50/30">
+            <td class="px-3 py-2 font-medium text-gray-800">{{ d.get('client_name', '—') }}</td>
+            <td class="px-3 py-2 text-gray-600">{{ d.get('policy_type', '—') }}</td>
+            <td class="px-3 py-2 text-gray-600">{{ d.get('carrier', '—') }}</td>
+            <td class="px-3 py-2 text-gray-500 whitespace-nowrap">{{ d.get('effective_date', '—') or '—' }}</td>
+            <td class="px-3 py-2 text-gray-500 whitespace-nowrap">{{ d.get('expiration_date', '—') or '—' }}</td>
+            <td class="px-3 py-2 text-right tabular-nums text-gray-700">{{ d.get('premium', '') | currency if d.get('premium') else '—' }}</td>
+            <td class="px-3 py-2">
+              <a href="/policies/{{ d.get('policy_uid', '') }}/edit" class="text-marsh hover:underline font-mono">{{ d.get('policy_uid', '') }}</a>
+            </td>
+          </tr>
+          {% endif %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </details>
+  {% endif %}
+
+</div>
+
+<script>
+function scrollToRow(uid) {
+  var row = document.getElementById('row-' + uid);
+  var detail = document.getElementById('detail-' + uid);
+  if (row) {
+    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if (detail && detail.style.display === 'none') {
+      detail.style.display = '';
+    }
+    // Brief highlight
+    row.style.transition = 'background-color 0.3s ease';
+    row.style.backgroundColor = '#fef3c7';
+    setTimeout(function() { row.style.backgroundColor = ''; }, 1200);
+  }
+}
+</script>

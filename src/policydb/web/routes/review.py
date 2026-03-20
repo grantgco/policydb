@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse
 
 from policydb import config as cfg
+from policydb.utils import round_duration
 from policydb.queries import (
     REVIEW_CYCLE_DAYS,
     REVIEW_CYCLE_LABELS,
@@ -15,6 +16,8 @@ from policydb.queries import (
     get_review_stats,
     mark_reviewed,
     set_review_cycle,
+    count_changed_fields,
+    check_auto_review_policy,
 )
 from policydb.web.app import get_db, templates
 
@@ -99,13 +102,15 @@ def policy_mark_reviewed(
     from policydb.web.routes.policies import _attach_milestone_progress
     rows = _attach_milestone_progress(conn, [r])
     r = rows[0]
-    return templates.TemplateResponse("review/_policy_row.html", {
+    resp = templates.TemplateResponse("review/_policy_row.html", {
         "request": request,
         "p": r,
         "renewal_statuses": cfg.get("renewal_statuses", []),
         "cycle_labels": REVIEW_CYCLE_LABELS,
         "reviewed": True,
     })
+    resp.headers["HX-Trigger"] = "refreshReviewStats"
+    return resp
 
 
 @router.post("/policies/{uid}/cycle", response_class=HTMLResponse)
@@ -213,7 +218,6 @@ def policy_row_edit_save(
     carrier: str = Form(""),
     access_point: str = Form(""),
     policy_number: str = Form(""),
-    placement_colleague: str = Form(""),
     effective_date: str = Form(""),
     expiration_date: str = Form(""),
     premium: str = Form(""),
@@ -233,13 +237,14 @@ def policy_row_edit_save(
         except ValueError:
             return None
 
+    old_row = dict(conn.execute("SELECT * FROM policies WHERE policy_uid=?", (uid,)).fetchone())
+
     conn.execute(
         """UPDATE policies SET
                policy_type            = COALESCE(NULLIF(?, ''), policy_type),
                carrier                = NULLIF(?, ''),
                access_point           = NULLIF(?, ''),
                policy_number          = NULLIF(?, ''),
-               placement_colleague    = NULLIF(?, ''),
                effective_date         = NULLIF(?, ''),
                expiration_date        = COALESCE(NULLIF(?, ''), expiration_date),
                premium                = COALESCE(?, premium),
@@ -254,7 +259,7 @@ def policy_row_edit_save(
            WHERE policy_uid = ?""",
         (
             policy_type or None, carrier or None, access_point or None,
-            policy_number or None, placement_colleague or None,
+            policy_number or None,
             effective_date or None, expiration_date or None,
             _f(premium), _f(limit_amount), _f(commission_rate),
             follow_up_date or None, renewal_status or None,
@@ -264,6 +269,25 @@ def policy_row_edit_save(
         ),
     )
     conn.commit()
+
+    _auto_review_fields = [
+        "policy_type", "carrier", "access_point", "policy_number",
+        "effective_date", "expiration_date", "premium", "limit_amount",
+        "commission_rate", "follow_up_date", "renewal_status", "description",
+        "notes", "opportunity_status", "target_effective_date",
+    ]
+    new_values = {
+        "policy_type": policy_type, "carrier": carrier, "access_point": access_point,
+        "policy_number": policy_number, "effective_date": effective_date,
+        "expiration_date": expiration_date, "premium": premium,
+        "limit_amount": limit_amount, "commission_rate": commission_rate,
+        "follow_up_date": follow_up_date, "renewal_status": renewal_status,
+        "description": description, "notes": notes,
+        "opportunity_status": opportunity_status, "target_effective_date": target_effective_date,
+    }
+    changed = count_changed_fields(old_row, new_values, _auto_review_fields)
+    auto_reviewed = check_auto_review_policy(conn, uid, changed)
+
     row = conn.execute(
         """SELECT p.*, c.name AS client_name, c.id AS client_id,
                   CASE WHEN p.is_opportunity = 1 THEN NULL
@@ -289,13 +313,16 @@ def policy_row_edit_save(
     from policydb.web.routes.policies import _attach_milestone_progress
     rows = _attach_milestone_progress(conn, [r])
     r = rows[0]
-    return templates.TemplateResponse("review/_policy_row.html", {
+    resp = templates.TemplateResponse("review/_policy_row.html", {
         "request": request,
         "p": r,
         "renewal_statuses": cfg.get("renewal_statuses", []),
         "cycle_labels": REVIEW_CYCLE_LABELS,
-        "reviewed": False,
+        "reviewed": auto_reviewed,
     })
+    if auto_reviewed:
+        resp.headers["HX-Trigger"] = "refreshReviewStats"
+    return resp
 
 
 @router.get("/policies/{uid}/row/log", response_class=HTMLResponse)
@@ -329,24 +356,30 @@ def policy_row_log_save(
     subject: str = Form(...),
     details: str = Form(""),
     follow_up_date: str = Form(""),
-    duration_minutes: str = Form(""),
+    duration_hours: str = Form(""),
     conn=Depends(get_db),
 ):
-    def _int(v):
+    def _float(v):
         try:
-            return int(v) if str(v).strip() else None
+            return float(v) if str(v).strip() else None
         except ValueError:
             return None
 
     account_exec = cfg.get("default_account_exec", "Grant")
     conn.execute(
         """INSERT INTO activity_log
-           (activity_date, client_id, policy_id, activity_type, subject, details, follow_up_date, account_exec, duration_minutes)
+           (activity_date, client_id, policy_id, activity_type, subject, details, follow_up_date, account_exec, duration_hours)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (date.today().isoformat(), client_id, policy_id or None, activity_type,
-         subject, details or None, follow_up_date or None, account_exec, _int(duration_minutes)),
+         subject, details or None, follow_up_date or None, account_exec, round_duration(duration_hours)),
     )
+    if follow_up_date and policy_id:
+        from policydb.queries import supersede_followups
+        supersede_followups(conn, policy_id, follow_up_date)
     conn.commit()
+
+    auto_reviewed = check_auto_review_policy(conn, uid, 0)
+
     row = conn.execute(
         """SELECT p.*, c.name AS client_name, c.id AS client_id,
                   CASE WHEN p.is_opportunity = 1 THEN NULL
@@ -372,13 +405,16 @@ def policy_row_log_save(
     from policydb.web.routes.policies import _attach_milestone_progress
     rows = _attach_milestone_progress(conn, [r])
     r = rows[0]
-    return templates.TemplateResponse("review/_policy_row.html", {
+    resp = templates.TemplateResponse("review/_policy_row.html", {
         "request": request,
         "p": r,
         "renewal_statuses": cfg.get("renewal_statuses", []),
         "cycle_labels": REVIEW_CYCLE_LABELS,
-        "reviewed": False,
+        "reviewed": auto_reviewed,
     })
+    if auto_reviewed:
+        resp.headers["HX-Trigger"] = "refreshReviewStats"
+    return resp
 
 
 # ── Client review actions ──────────────────────────────────────────────────────
@@ -403,12 +439,14 @@ def client_mark_reviewed(
     ).fetchone()
     if not row:
         return HTMLResponse("")
-    return templates.TemplateResponse("review/_client_row.html", {
+    resp = templates.TemplateResponse("review/_client_row.html", {
         "request": request,
         "c": dict(row),
         "cycle_labels": REVIEW_CYCLE_LABELS,
         "reviewed": True,
     })
+    resp.headers["HX-Trigger"] = "refreshReviewStats"
+    return resp
 
 
 @router.post("/policies/{uid}/mark", response_class=HTMLResponse)

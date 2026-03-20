@@ -1,0 +1,69 @@
+{% if not inline %}
+<li id="activity-{{ a.id }}" class="px-5 py-3 bg-blue-50 border-l-4 border-marsh">
+{% endif %}
+  <form
+    hx-post="/activities/{{ a.id }}/row/edit{% if inline %}?inline=1{% endif %}"
+    {% if not inline %}hx-target="#activity-{{ a.id }}" hx-swap="outerHTML"{% endif %}
+    class="space-y-2">
+
+    <div class="flex items-center gap-2 mb-1">
+      <span class="text-xs font-medium text-marsh">Edit Activity</span>
+      <span class="text-xs text-gray-400">{{ a.activity_date }}{% if a.client_name %} · {{ a.client_name }}{% endif %}{% if a.policy_uid %} · {{ a.policy_uid }}{% endif %}</span>
+    </div>
+
+    <div class="grid grid-cols-6 gap-2">
+      <div>
+        <p class="text-xs text-gray-500 mb-0.5">Type</p>
+        <select name="activity_type" required
+          class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh bg-white">
+          {% for t in activity_types %}
+          <option value="{{ t }}" {% if t == a.activity_type %}selected{% endif %}>{{ t }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-span-2">
+        <p class="text-xs text-gray-500 mb-0.5">Subject <span class="text-red-400">*</span></p>
+        <input type="text" name="subject" value="{{ a.subject or '' }}" required
+          class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh">
+      </div>
+      <div>
+        <p class="text-xs text-gray-500 mb-0.5">Duration (hrs)</p>
+        <input type="number" name="duration_hours" value="{{ a.duration_hours or '' }}" step="any" min="0"
+          class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh">
+      </div>
+      <div>
+        <p class="text-xs text-gray-500 mb-0.5">Follow-Up</p>
+        <input type="date" name="follow_up_date" value="{{ a.follow_up_date or '' }}"
+          class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh">
+      </div>
+      <div>
+        <p class="text-xs text-gray-500 mb-0.5">Contact</p>
+        <input type="text" name="contact_person" value="{{ a.contact_person or '' }}" data-client-id="{{ a.client_id }}"
+          class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh">
+      </div>
+    </div>
+
+    <div>
+      <p class="text-xs text-gray-500 mb-0.5">Details</p>
+      <input type="text" name="details" value="{{ a.details or '' }}"
+        class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh">
+    </div>
+
+    <div class="flex items-center gap-3">
+      <button type="submit"
+        class="bg-marsh hover:bg-marsh-light text-white text-xs font-medium px-3 py-1.5 rounded transition-colors">Save</button>
+      {% if inline %}
+      <button type="button" onclick="this.closest('tr').classList.add('hidden')"
+        class="text-xs text-gray-500 hover:text-gray-700 hover:underline">Cancel</button>
+      {% else %}
+      <button type="button"
+        hx-get="/activities/{{ a.id }}/row"
+        hx-target="#activity-{{ a.id }}"
+        hx-swap="outerHTML"
+        class="text-xs text-gray-500 hover:text-gray-700 hover:underline">Cancel</button>
+      {% endif %}
+    </div>
+  </form>
+{% if not inline %}
+</li>
+{% endif %}

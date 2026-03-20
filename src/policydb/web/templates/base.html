@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{% block title %}PolicyDB{% endblock %}</title>
+  <title>{% block title %}Coverage{% endblock %}</title>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/htmx.org@1.9.12"></script>
   <link rel="stylesheet" href="https://uicdn.toast.com/editor/latest/toastui-editor.min.css">
@@ -398,7 +399,12 @@
     <div class="mx-auto max-w-[1600px] px-4 sm:px-6 lg:px-8">
       <div class="flex h-14 items-center justify-between">
         <div class="flex items-center gap-8">
-          <a href="/" class="text-white font-semibold text-lg tracking-tight">PolicyDB</a>
+          <a href="/" class="flex items-center" aria-label="Coverage — Home">
+            <svg xmlns="http://www.w3.org/2000/svg" width="200" height="40" viewBox="0 0 260 52">
+              <text x="0" y="32" font-family="'IBM Plex Mono', monospace" font-weight="500" font-size="22" letter-spacing="7" fill="#f0ece4">COVERAGE</text>
+              <rect x="0" y="40" width="250" height="2" fill="#c8a96e"/>
+            </svg>
+          </a>
           <span class="text-white/40 text-xs font-mono ml-1">v{{ app_version }}</span>
           <div class="flex gap-1 items-center">
             <a href="/" class="nav-link {% if active == 'dashboard' %}bg-marsh-light{% endif %}">Dashboard</a>

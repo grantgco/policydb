@@ -2,7 +2,7 @@
 {% from "_sort_th.html" import th as sort_th %}
 {% block title %}Clients — PolicyDB{% endblock %}
 {% block content %}
-{%- set sparams = 'segment=' ~ (segment | urlencode) ~ '&urgent=' ~ urgent ~ '&inactive=' ~ inactive ~ '&q=' ~ (q | urlencode) -%}
+{%- set sparams = 'segment=' ~ (segment | urlencode) ~ '&urgent=' ~ urgent ~ '&inactive=' ~ inactive ~ '&prospect=' ~ prospect ~ '&q=' ~ (q | urlencode) -%}
 
 <div class="flex items-center justify-between mb-4">
   <h1 class="text-2xl font-bold text-gray-900">Clients</h1>
@@ -18,16 +18,18 @@
       hx-target="#client-table-body"
       hx-include="#filter-bar [name]"
       class="w-full sm:w-72 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-marsh">
-    <a href="/clients?segment={{ segment | urlencode }}&inactive={{ inactive }}&urgent={{ '' if urgent else '1' }}&q={{ q | urlencode }}&sort={{ sort }}&dir={{ dir }}"
+    <a href="/clients?segment={{ segment | urlencode }}&inactive={{ inactive }}&urgent={{ '' if urgent else '1' }}&prospect={{ prospect }}&q={{ q | urlencode }}&sort={{ sort }}&dir={{ dir }}"
        class="btn-filter {{ 'active' if urgent else '' }}">Urgent Renewals</a>
-    <a href="/clients?segment={{ segment | urlencode }}&urgent={{ urgent }}&inactive={{ '' if inactive else '1' }}&q={{ q | urlencode }}&sort={{ sort }}&dir={{ dir }}"
+    <a href="/clients?segment={{ segment | urlencode }}&urgent={{ urgent }}&inactive={{ '' if inactive else '1' }}&prospect={{ prospect }}&q={{ q | urlencode }}&sort={{ sort }}&dir={{ dir }}"
        class="btn-filter {{ 'active' if inactive else '' }}">No Recent Activity</a>
+    <a href="/clients?segment={{ segment | urlencode }}&urgent={{ urgent }}&inactive={{ inactive }}&prospect={{ '' if prospect else '1' }}&q={{ q | urlencode }}&sort={{ sort }}&dir={{ dir }}"
+       class="btn-filter {{ 'active' if prospect else '' }}">Prospects</a>
   </div>
   <div class="flex gap-1.5 flex-wrap">
-    <a href="/clients?urgent={{ urgent }}&inactive={{ inactive }}&q={{ q | urlencode }}&sort={{ sort }}&dir={{ dir }}"
+    <a href="/clients?urgent={{ urgent }}&inactive={{ inactive }}&prospect={{ prospect }}&q={{ q | urlencode }}&sort={{ sort }}&dir={{ dir }}"
        class="btn-filter {{ 'active' if not segment else '' }}">All Segments</a>
     {% for seg in industry_segments %}
-    <a href="/clients?segment={{ seg | urlencode }}&urgent={{ urgent }}&inactive={{ inactive }}&q={{ q | urlencode }}&sort={{ sort }}&dir={{ dir }}"
+    <a href="/clients?segment={{ seg | urlencode }}&urgent={{ urgent }}&inactive={{ inactive }}&prospect={{ prospect }}&q={{ q | urlencode }}&sort={{ sort }}&dir={{ dir }}"
        class="btn-filter {{ 'active' if segment == seg else '' }}">{{ seg }}</a>
     {% endfor %}
   </div>
@@ -35,14 +37,15 @@
   <input type="hidden" name="segment" value="{{ segment }}">
   <input type="hidden" name="urgent" value="{{ urgent }}">
   <input type="hidden" name="inactive" value="{{ inactive }}">
+  <input type="hidden" name="prospect" value="{{ prospect }}">
   <input type="hidden" name="sort" value="{{ sort }}">
   <input type="hidden" name="dir" value="{{ dir }}">
 </div>
 
 <div class="card overflow-hidden">
   <table class="w-full text-sm">
-    <thead>
-      <tr class="border-b border-gray-200 text-left bg-gray-50">
+    <thead class="sticky top-0 z-10 bg-gray-50 shadow-[0_1px_0_0_theme(colors.gray.200)]">
+      <tr class="text-left bg-gray-50">
         {{ sort_th('Client',         'name',               sort, dir, '/clients', sparams) }}
         {{ sort_th('Segment',        'industry_segment',   sort, dir, '/clients', sparams) }}
         {{ sort_th('Policies',       'total_policies',     sort, dir, '/clients', sparams, align='right') }}
@@ -57,5 +60,39 @@
     </tbody>
   </table>
 </div>
+
+{% if archived_clients %}
+<details class="mt-6">
+  <summary class="text-xs text-gray-400 hover:text-gray-600 cursor-pointer select-none list-none">
+    <span class="details-arrow">▶</span> Archived Clients ({{ archived_clients | length }})
+  </summary>
+  <div class="card overflow-hidden mt-2">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="border-b border-gray-100 text-left text-xs text-gray-500 uppercase tracking-wide bg-gray-50">
+          <th class="px-4 py-3">Client</th>
+          <th class="px-4 py-3">Industry</th>
+          <th class="px-4 py-3">Policies</th>
+          <th class="px-4 py-3"></th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-100">
+        {% for c in archived_clients %}
+        <tr class="hover:bg-gray-50 text-gray-400">
+          <td class="px-4 py-3"><a href="/clients/{{ c.id }}" class="hover:text-marsh">{{ c.name }}</a></td>
+          <td class="px-4 py-3 text-xs">{{ c.industry_segment }}</td>
+          <td class="px-4 py-3 text-xs">{{ c.policy_count or 0 }}</td>
+          <td class="px-4 py-3 text-right">
+            <form method="post" action="/clients/{{ c.id }}/unarchive" class="inline">
+              <button type="submit" class="text-xs text-marsh hover:underline">Restore</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</details>
+{% endif %}
 
 {% endblock %}

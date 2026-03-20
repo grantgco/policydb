@@ -1,0 +1,484 @@
+{% set severity_colors = {
+  'Critical': 'bg-red-100 text-red-700 border-red-200',
+  'High': 'bg-amber-100 text-amber-700 border-amber-200',
+  'Medium': 'bg-blue-100 text-blue-700 border-blue-200',
+  'Low': 'bg-gray-100 text-gray-600 border-gray-200',
+} %}
+{% set adequacy_colors = {
+  'Adequate': 'bg-green-100 text-green-700',
+  'Inadequate': 'bg-red-100 text-red-700',
+  'Needs Review': 'bg-amber-100 text-amber-700',
+  'N/A': 'bg-gray-100 text-gray-500',
+} %}
+{% set gap_count = risks | selectattr('has_coverage', 'equalto', 0) | list | length %}
+{% set covered_count = risks | selectattr('has_coverage') | list | length %}
+{% set total_controls = namespace(n=0) %}{% for r in risks %}{% set total_controls.n = total_controls.n + (r.controls | length) %}{% endfor %}
+
+<div id="risks-card" class="card">
+  <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <h2 class="font-semibold text-gray-900">Risk & Exposure Profile</h2>
+      {% if risks %}
+      <span class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">{{ covered_count }} covered</span>
+      {% if gap_count %}
+      <span class="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-medium">{{ gap_count }} gap{{ 's' if gap_count != 1 }}</span>
+      {% endif %}
+      {% set ctrl_total = namespace(n=0) %}
+      {% for r in risks %}{% set ctrl_total.n = ctrl_total.n + (r.controls | length) %}{% endfor %}
+      {% if ctrl_total.n %}
+      <span class="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full font-medium">{{ ctrl_total.n }} control{{ 's' if ctrl_total.n != 1 }}</span>
+      {% endif %}
+      {% endif %}
+    </div>
+    <button type="button" class="text-xs text-marsh hover:underline font-medium risk-add-btn"
+      data-client-id="{{ client.id }}">+ Add Risk</button>
+  </div>
+
+  {# ── Visual Summary Widgets ── #}
+  {% if risks and risk_summary %}
+  <div class="px-5 py-4 border-b border-gray-100">
+    <div class="flex items-center gap-6 flex-wrap">
+      {# Coverage Score #}
+      {% set s = risk_summary.score %}
+      {% set score_color = 'text-green-600' if s >= 75 else ('text-amber-500' if s >= 50 else 'text-red-600') %}
+      {% set ring_color = '#16a34a' if s >= 75 else ('#f59e0b' if s >= 50 else '#dc2626') %}
+      <div class="flex items-center gap-3">
+        <div class="relative w-14 h-14">
+          <svg viewBox="0 0 36 36" class="w-14 h-14 -rotate-90">
+            <circle cx="18" cy="18" r="15.9" fill="none" stroke="#e5e7eb" stroke-width="3"/>
+            <circle cx="18" cy="18" r="15.9" fill="none" stroke="{{ ring_color }}" stroke-width="3"
+              stroke-dasharray="{{ s }}, 100" stroke-linecap="round"/>
+          </svg>
+          <span class="absolute inset-0 flex items-center justify-center text-sm font-bold {{ score_color }} tabular-nums">{{ s }}</span>
+        </div>
+        <div>
+          <p class="text-xs font-semibold text-gray-700">Coverage Score</p>
+          <p class="text-xs text-gray-400">{{ risk_summary.total }} risk{{ 's' if risk_summary.total != 1 }} identified</p>
+        </div>
+      </div>
+
+      {# Coverage Gap Bar #}
+      {% if risk_summary.total > 0 %}
+      <div class="flex-1 min-w-[140px] max-w-[260px]">
+        <div class="flex h-3 rounded-full overflow-hidden bg-gray-100">
+          {% set cov_pct = (risk_summary.covered / risk_summary.total * 100) | round(0) | int %}
+          {% if risk_summary.covered %}<div class="bg-green-500 transition-all" style="width:{{ cov_pct }}%"></div>{% endif %}
+          {% if risk_summary.gap %}<div class="bg-red-400 transition-all" style="width:{{ 100 - cov_pct }}%"></div>{% endif %}
+        </div>
+        <p class="text-xs text-gray-400 mt-1">{{ risk_summary.covered }} covered · {{ risk_summary.gap }} gap{{ 's' if risk_summary.gap != 1 }}</p>
+      </div>
+      {% endif %}
+
+      {# Controls Progress #}
+      {% if risk_summary.total_controls > 0 %}
+      <div>
+        <p class="text-sm font-bold text-gray-700 tabular-nums">{{ risk_summary.implemented_controls }}/{{ risk_summary.total_controls }}</p>
+        <p class="text-xs text-gray-400">controls implemented</p>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Risk Matrix -->
+  <style>
+    [contenteditable]:empty:before {
+      content: attr(data-placeholder);
+      color: #cbd5e1;
+      pointer-events: none;
+    }
+    .risk-cell-editable:focus {
+      border-bottom: 2px solid var(--color-marsh, #00857c);
+      margin-bottom: -2px;
+    }
+    .risk-cell-combo.cell-active {
+      border-bottom: 2px solid var(--color-marsh, #00857c);
+      margin-bottom: -2px;
+    }
+    .risk-combo-dropdown {
+      position: absolute; left: 0; right: 0; top: 100%;
+      z-index: 50; max-height: 180px; overflow-y: auto;
+      background: white; border: 1px solid #e5e7eb; border-top: none;
+      border-radius: 0 0 6px 6px; box-shadow: 0 4px 12px rgba(0,0,0,.1);
+    }
+    .risk-combo-dropdown .combo-item {
+      padding: 5px 10px; cursor: pointer; font-size: 13px; color: #374151;
+    }
+    .risk-combo-dropdown .combo-item:hover,
+    .risk-combo-dropdown .combo-item.active {
+      background: #f0fdfa; color: #00857c;
+    }
+    .risk-combo-dropdown .combo-item mark {
+      background: none; font-weight: 700; color: inherit;
+    }
+    .risk-combo-input {
+      width: 100%; border: 1px solid #d1d5db; border-radius: 4px;
+      padding: 3px 8px; font-size: 13px; outline: none;
+    }
+    .risk-combo-input:focus { border-color: #00857c; box-shadow: 0 0 0 1px #00857c; }
+  </style>
+
+  <div class="pb-1">
+    <table class="w-full text-sm table-fixed" id="risk-matrix-{{ client.id }}">
+      <colgroup>
+        <col style="width:40px">
+        <col style="width:120px">
+        <col>
+        <col style="width:100px">
+        <col style="width:100px">
+        <col style="width:180px">
+        <col style="width:50px">
+      </colgroup>
+      <thead>
+        <tr class="text-left text-xs text-gray-400 uppercase tracking-wide border-b border-gray-100 bg-gray-50">
+          <th class="px-3 py-2"></th>
+          <th class="px-3 py-2">Category</th>
+          <th class="px-3 py-2">Description</th>
+          <th class="px-3 py-2">Severity</th>
+          <th class="px-3 py-2">Source</th>
+          <th class="px-3 py-2">Notes</th>
+          <th class="px-3 py-2"></th>
+        </tr>
+      </thead>
+      <tbody id="risk-matrix-body-{{ client.id }}" class="divide-y divide-gray-50">
+        {% if risks %}
+        {% for r in risks %}
+        {% include "clients/_risk_matrix_row.html" %}
+        {% endfor %}
+        {% else %}
+        <tr id="risk-empty-row">
+          <td colspan="7" class="px-5 py-8 text-center text-gray-400 text-sm">
+            No risks or exposures identified yet. Click "+ Add Risk" to start.
+          </td>
+        </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+(function() {
+  var clientId = {{ client.id }};
+  var table = document.getElementById('risk-matrix-' + clientId);
+  if (!table) return;
+  var tbody = document.getElementById('risk-matrix-body-' + clientId);
+
+  // ── Severity badge helper ──
+  var sevColors = {
+    'Critical': 'bg-red-100 text-red-700',
+    'High': 'bg-amber-100 text-amber-700',
+    'Medium': 'bg-blue-100 text-blue-700',
+    'Low': 'bg-gray-100 text-gray-600'
+  };
+
+  function rebuildSeverityBadge(display, value) {
+    var cls = sevColors[value] || 'bg-gray-100 text-gray-600';
+    display.innerHTML = '<span class="sev-badge text-xs font-semibold px-2 py-0.5 rounded ' + cls + '">' + escapeHtml(value) + '</span>';
+  }
+
+  function escapeHtml(s) {
+    var d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
+  // ── Cell save ──
+  function saveCell(riskId, field, value, cb) {
+    fetch('/clients/' + clientId + '/risks/' + riskId + '/cell', {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({field: field, value: value})
+    }).then(function(r) { return r.json(); }).then(function(data) {
+      if (data.ok && typeof showToast === 'function') showToast('Saved', true);
+      if (cb) cb(data);
+    }).catch(function() {
+      if (typeof showToast === 'function') showToast('Save failed', false);
+    });
+  }
+
+  // ── Create new row ──
+  function createNewRow() {
+    fetch('/clients/' + clientId + '/risks/add-row', {
+      method: 'POST',
+      headers: {'X-Requested-With': 'XMLHttpRequest'}
+    }).then(function(r) { return r.text(); }).then(function(html) {
+      var empty = document.getElementById('risk-empty-row');
+      if (empty) empty.remove();
+      var tmp = document.createElement('template');
+      tmp.innerHTML = html.trim();
+      var newRows = tmp.content.children;
+      var firstEditable = null;
+      while (newRows.length > 0) {
+        var row = newRows[0];
+        tbody.appendChild(row);
+        if (!firstEditable) {
+          firstEditable = row.querySelector('.risk-cell-combo, .risk-cell-editable');
+        }
+      }
+      if (typeof htmx !== 'undefined') htmx.process(tbody);
+      if (firstEditable) focusCell(firstEditable);
+    });
+  }
+
+  // ── Cursor placement ──
+  function placeCursorAtEnd(el) {
+    var range = document.createRange();
+    var sel = window.getSelection();
+    range.selectNodeContents(el);
+    range.collapse(false);
+    sel.removeAllRanges();
+    sel.addRange(range);
+  }
+
+  // ── Tabbable cells ──
+  function getTabbableCells(row) {
+    return Array.from(row.querySelectorAll('.risk-cell-combo, .risk-cell-editable'));
+  }
+  function getDataRows() {
+    return Array.from(tbody.querySelectorAll('tr.risk-matrix-row'));
+  }
+
+  // ── Navigate to next/prev cell ──
+  function navigateCell(currentCell, forward) {
+    var row = currentCell.closest('tr.risk-matrix-row');
+    if (!row) return;
+    var cells = getTabbableCells(row);
+    var idx = cells.indexOf(currentCell);
+    if (idx < 0) {
+      var td = currentCell.closest('td');
+      idx = cells.indexOf(td);
+    }
+    var nextIdx = forward ? idx + 1 : idx - 1;
+    if (nextIdx >= 0 && nextIdx < cells.length) {
+      focusCell(cells[nextIdx]);
+    } else {
+      var rows = getDataRows();
+      var rowIdx = rows.indexOf(row);
+      var nextRowIdx = forward ? rowIdx + 1 : rowIdx - 1;
+      if (nextRowIdx >= 0 && nextRowIdx < rows.length) {
+        var nextRowCells = getTabbableCells(rows[nextRowIdx]);
+        if (nextRowCells.length > 0) {
+          focusCell(forward ? nextRowCells[0] : nextRowCells[nextRowCells.length - 1]);
+        }
+      } else if (forward) {
+        createNewRow();
+      }
+    }
+  }
+
+  function focusCell(cell) {
+    if (cell.classList.contains('risk-cell-editable')) {
+      cell.focus();
+      placeCursorAtEnd(cell);
+    } else if (cell.classList.contains('risk-cell-combo')) {
+      openCombobox(cell);
+    }
+  }
+
+  // ── Combobox / autocomplete ──
+  function openCombobox(td) {
+    if (td.querySelector('.risk-combo-input')) return;
+    var field = td.dataset.field;
+    var allOptions = [];
+    try { allOptions = JSON.parse(td.dataset.options); } catch(e) {}
+    var display = td.querySelector('.cell-display');
+    var currentValue = display ? display.textContent.trim() : '';
+    if (field === 'source' && currentValue === '\u2014') currentValue = '';
+
+    // Create input
+    var input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'risk-combo-input';
+    input.value = currentValue;
+    input.setAttribute('autocomplete', 'off');
+
+    // Create dropdown list
+    var list = document.createElement('div');
+    list.className = 'risk-combo-dropdown';
+
+    var activeIdx = -1;
+
+    function highlightMatch(text, query) {
+      if (!query) return escapeHtml(text);
+      var lower = text.toLowerCase();
+      var qLower = query.toLowerCase();
+      var i = lower.indexOf(qLower);
+      if (i < 0) return escapeHtml(text);
+      return escapeHtml(text.substring(0, i))
+        + '<mark>' + escapeHtml(text.substring(i, i + query.length)) + '</mark>'
+        + escapeHtml(text.substring(i + query.length));
+    }
+
+    function renderList(query) {
+      list.innerHTML = '';
+      activeIdx = -1;
+      var q = (query || '').trim().toLowerCase();
+      var filtered = allOptions.filter(function(opt) {
+        return !q || opt.toLowerCase().indexOf(q) >= 0;
+      });
+      filtered.forEach(function(opt, i) {
+        var item = document.createElement('div');
+        item.className = 'combo-item';
+        item.innerHTML = highlightMatch(opt, query);
+        item.dataset.value = opt;
+        item.addEventListener('mousedown', function(e) {
+          e.preventDefault();
+          selectValue(opt);
+        });
+        list.appendChild(item);
+      });
+    }
+
+    function setActive(idx) {
+      var items = list.querySelectorAll('.combo-item');
+      items.forEach(function(it) { it.classList.remove('active'); });
+      if (idx >= 0 && idx < items.length) {
+        activeIdx = idx;
+        items[idx].classList.add('active');
+        items[idx].scrollIntoView({block: 'nearest'});
+      } else {
+        activeIdx = -1;
+      }
+    }
+
+    function selectValue(val) {
+      closeCombobox(val, true);
+    }
+
+    td.classList.add('cell-active');
+    if (display) display.style.display = 'none';
+    td.appendChild(input);
+    td.appendChild(list);
+    renderList('');
+    input.focus();
+    input.select();
+
+    input.addEventListener('input', function() {
+      renderList(input.value);
+    });
+
+    input.addEventListener('keydown', function(e) {
+      var items = list.querySelectorAll('.combo-item');
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setActive(Math.min(activeIdx + 1, items.length - 1));
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setActive(Math.max(activeIdx - 1, 0));
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (activeIdx >= 0 && items[activeIdx]) {
+          selectValue(items[activeIdx].dataset.value);
+        } else {
+          selectValue(input.value);
+        }
+      } else if (e.key === 'Tab') {
+        e.preventDefault();
+        var val = (activeIdx >= 0 && items[activeIdx]) ? items[activeIdx].dataset.value : input.value;
+        closeCombobox(val, true);
+        navigateCell(td, !e.shiftKey);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        closeCombobox(currentValue, false);
+      }
+    });
+
+    var closed = false;
+    input.addEventListener('blur', function() {
+      if (!closed) {
+        closed = true;
+        closeCombobox(input.value, true);
+      }
+    });
+
+    function closeCombobox(val, save) {
+      closed = true;
+      td.classList.remove('cell-active');
+      input.remove();
+      list.remove();
+      if (display) {
+        display.style.display = '';
+        var trimmed = (val || '').trim();
+        if (save && trimmed !== currentValue) {
+          var riskId = td.closest('tr').dataset.riskId;
+          if (field === 'severity') {
+            rebuildSeverityBadge(display, trimmed);
+          } else if (field === 'source') {
+            display.textContent = trimmed || '\u2014';
+          } else {
+            display.textContent = trimmed;
+          }
+          saveCell(riskId, field, trimmed);
+        }
+      }
+    }
+  }
+
+  // ── Delegated events on tbody ──
+
+  // Focus into contenteditable
+  tbody.addEventListener('focusin', function(e) {
+    var cell = e.target.closest('.risk-cell-editable');
+    if (cell) {
+      cell.dataset.original = cell.textContent;
+    }
+  });
+
+  // Blur from contenteditable — save
+  tbody.addEventListener('focusout', function(e) {
+    var cell = e.target.closest('.risk-cell-editable');
+    if (cell) {
+      var newVal = cell.textContent.trim();
+      var origVal = (cell.dataset.original || '').trim();
+      if (newVal !== origVal) {
+        var riskId = cell.closest('tr').dataset.riskId;
+        saveCell(riskId, cell.dataset.field, newVal);
+      }
+    }
+  });
+
+  // Click on combobox cell
+  tbody.addEventListener('click', function(e) {
+    var td = e.target.closest('.risk-cell-combo');
+    if (td && tbody.contains(td)) {
+      openCombobox(td);
+    }
+  });
+
+  // Keydown handling for tab, enter, escape in contenteditable
+  tbody.addEventListener('keydown', function(e) {
+    var cell = e.target.closest('.risk-cell-editable');
+    if (!cell) return;
+
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      cell.blur();
+      navigateCell(cell, !e.shiftKey);
+    } else if (e.key === 'Enter' && cell.dataset.field !== 'notes') {
+      e.preventDefault();
+      cell.blur();
+      navigateCell(cell, true);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      cell.textContent = cell.dataset.original || '';
+      cell.blur();
+    }
+  });
+
+  // Paste — plain text only
+  tbody.addEventListener('paste', function(e) {
+    var cell = e.target.closest('.risk-cell-editable');
+    if (cell) {
+      e.preventDefault();
+      var text = (e.clipboardData || window.clipboardData).getData('text/plain');
+      document.execCommand('insertText', false, text);
+    }
+  });
+
+  // + Add Risk button
+  table.closest('#risks-card').querySelector('.risk-add-btn').addEventListener('click', function() {
+    createNewRow();
+  });
+})();
+</script>

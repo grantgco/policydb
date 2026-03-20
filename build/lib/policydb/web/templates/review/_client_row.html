@@ -1,7 +1,7 @@
 <tr id="review-client-{{ c.id }}"
     class="hover:bg-gray-50 border-t border-gray-100 {% if reviewed %}opacity-60 bg-green-50{% endif %}">
   <td class="px-4 py-3">
-    <a href="/clients/{{ c.id }}" class="font-medium text-marsh hover:underline">{{ c.name }}</a>
+    <a href="/clients/{{ c.id }}" target="_blank" class="font-medium text-marsh hover:underline">{{ c.name }}</a>
     <p class="text-xs text-gray-500">{{ c.industry_segment }}</p>
   </td>
   <td class="px-4 py-3 text-xs text-gray-600 tabular-nums">
@@ -49,7 +49,7 @@
       {% else %}
       <span class="text-xs text-green-600 font-medium">✓ Done</span>
       {% endif %}
-      <a href="/clients/{{ c.id }}" class="text-xs text-gray-400 hover:underline">Open →</a>
+      <a href="/clients/{{ c.id }}" target="_blank" class="text-xs text-gray-400 hover:underline">Open →</a>
     </div>
   </td>
 </tr>

@@ -4,7 +4,7 @@
 
 <div class="mb-4">
   <h1 class="text-2xl font-bold text-gray-900">Data Reconciliation</h1>
-  <p class="text-sm text-gray-500 mt-1">Upload a CSV export from AMS360, Applied Epic, HawkSoft, or any AMS to compare against PolicyDB.</p>
+  <p class="text-sm text-gray-500 mt-1">Upload a CSV or Excel export from AMS360, Applied Epic, HawkSoft, or any AMS to compare against PolicyDB.</p>
 </div>
 
 <!-- Upload form -->
@@ -15,12 +15,12 @@
       <!-- File -->
       <div class="md:col-span-1">
         <label class="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">CSV File</label>
-        <input type="file" name="file" id="reconcile-file-input" accept=".csv,.txt" required
+        <input type="file" name="file" id="reconcile-file-input" accept=".csv,.txt,.xlsx,.xls" required
           class="block w-full text-sm text-gray-700 border border-gray-300 rounded-lg px-3 py-2
                  file:mr-3 file:py-1 file:px-3 file:rounded file:border-0
                  file:text-xs file:font-medium file:bg-marsh file:text-white hover:file:bg-marsh-light
                  focus:outline-none focus:ring-2 focus:ring-marsh">
-        <p class="text-xs text-gray-400 mt-1">Any CSV — map your columns below after selecting.</p>
+        <p class="text-xs text-gray-400 mt-1">CSV or Excel — map your columns below after selecting.</p>
       </div>
 
       <!-- Client filter -->
@@ -121,20 +121,44 @@
   </button>
 </div>
 
+<!-- Batch actions -->
+{% if summary.missing > 0 or summary.diff > 0 %}
+<div class="flex flex-wrap gap-3 mb-4" id="batch-actions">
+  {% if summary.missing > 0 %}
+  <button
+    hx-get="/reconcile/batch-create-review?client_id={{ selected_client_id }}&scope={{ selected_scope }}"
+    hx-target="#batch-review-area"
+    hx-swap="innerHTML"
+    class="text-xs border border-marsh text-marsh bg-white hover:bg-marsh hover:text-white px-3 py-1.5 rounded-lg transition-colors font-medium">
+    Create All {{ summary.missing }} Missing Policies…
+  </button>
+  {% endif %}
+</div>
+<div id="batch-review-area"></div>
+{% endif %}
+
 {% if pairs %}
 {% include "reconcile/_pair_section.html" %}
 {% endif %}
+
+{% include "reconcile/_review_panel.html" %}
 
 {% include "reconcile/_results_table.html" %}
 
 <!-- Download -->
 <div class="mt-4">
+  {% if download_token %}
+  <a href="/reconcile/download/{{ download_token }}"
+     class="inline-block border border-green-600 hover:bg-green-600 text-green-700 hover:text-white text-sm font-medium px-4 py-1.5 rounded-lg transition-colors">
+    Download XLSX Report ↓
+  </a>
+  {% else %}
   <p class="text-xs text-gray-400 mb-2">To download the full XLSX report, re-select your file and click Download.</p>
   <form action="/reconcile/download" method="post" enctype="multipart/form-data" class="flex items-center gap-3">
     <input type="hidden" name="client_id" value="{{ selected_client_id }}">
     <input type="hidden" name="scope" value="{{ selected_scope }}">
     <input type="hidden" name="column_mapping_json" value="{{ column_mapping_json | default('') }}">
-    <input type="file" name="file" accept=".csv,.txt" required
+    <input type="file" name="file" accept=".csv,.txt,.xlsx,.xls" required
       class="text-sm text-gray-700 border border-gray-300 rounded px-2 py-1
              file:mr-2 file:py-0.5 file:px-2 file:rounded file:border-0
              file:text-xs file:font-medium file:bg-gray-100 file:text-gray-700">
@@ -143,6 +167,7 @@
       Download XLSX ↓
     </button>
   </form>
+  {% endif %}
 </div>
 
 {% endif %}
@@ -157,6 +182,7 @@
   const POLICYDB_FIELDS = [
     { value: "ignore",                  label: "— Ignore —" },
     { value: "client_name",             label: "Client / Insured" },
+    { value: "first_named_insured",     label: "First Named Insured / FNI" },
     { value: "policy_type",             label: "Policy Type / Coverage" },
     { value: "carrier",                 label: "Carrier" },
     { value: "policy_number",           label: "Policy Number" },
@@ -188,21 +214,31 @@
   const ALIASES = {
     "insured": "client_name", "client": "client_name",
     "insured_name": "client_name", "named_insured": "client_name",
+    "account_name": "client_name",
+    "fni": "first_named_insured", "named_insured_1": "first_named_insured",
+    "first_insured": "first_named_insured", "first_named_insured": "first_named_insured",
     "coverage": "policy_type", "coverage_type": "policy_type",
     "lob": "policy_type", "line_of_business": "policy_type",
     "type": "policy_type", "line": "policy_type",
+    "coverage_code": "policy_type",
     "carrier_name": "carrier", "company": "carrier", "insurer": "carrier",
+    "company_name": "carrier", "writing_company": "carrier", "issuing_company": "carrier",
     "policy_expiry": "expiration_date", "expiry": "expiration_date",
     "expiry_date": "expiration_date", "expiration": "expiration_date",
-    "policy_expiration": "expiration_date",
+    "policy_expiration": "expiration_date", "term_expiration": "expiration_date",
     "effective": "effective_date", "eff": "effective_date", "eff_date": "effective_date",
+    "inception_date": "effective_date", "inception": "effective_date",
+    "term_effective": "effective_date",
     "policy_number": "policy_number", "pol_no": "policy_number",
     "pol_num": "policy_number", "pol_number": "policy_number",
+    "policy_no": "policy_number", "certificate_number": "policy_number",
     "premium": "premium", "annual_premium": "premium",
     "written_premium": "premium", "total_premium": "premium",
+    "annualized_premium": "premium", "billed_premium": "premium",
     "limit": "limit_amount", "limits": "limit_amount",
     "ded": "deductible", "deductible": "deductible",
     "notes": "description", "coverage_form": "coverage_form",
+    "policy_form": "coverage_form", "form_number": "coverage_form",
     "layer": "layer_position", "tower": "tower_group",
     "project": "project_name", "location": "project_name",
     "colleague": "placement_colleague", "underwriter": "underwriter_name",
@@ -216,11 +252,14 @@
     return ALIASES[key] || key;  // return key itself in case it's already a canonical field name
   }
 
-  function buildMappingUI(headers) {
+  var _sampleData = [];  // stored from preview-columns response
+
+  function buildMappingUI(headers, sampleRows) {
     const container = document.getElementById('col-map-rows');
     container.innerHTML = '';
+    _sampleData = sampleRows || [];
     const validValues = new Set(POLICYDB_FIELDS.map(f => f.value));
-    headers.forEach(header => {
+    headers.forEach(function(header, colIdx) {
       const detected = autoDetect(header);
       const suggested = validValues.has(detected) ? detected : 'ignore';
       const row = document.createElement('div');
@@ -228,8 +267,19 @@
       const opts = POLICYDB_FIELDS.map(f =>
         `<option value="${f.value}"${f.value === suggested ? ' selected' : ''}>${f.label}</option>`
       ).join('');
+      // Build sample preview from first 3 rows
+      var samplePreview = '';
+      if (_sampleData.length > 0) {
+        var samples = _sampleData.map(function(r) { return (r[colIdx] || '').substring(0, 30); }).filter(function(v) { return v; });
+        if (samples.length > 0) {
+          samplePreview = '<span class="text-[10px] text-gray-400 block mt-0.5 truncate" title="' + samples.join(' | ') + '">' + samples.join(' <span class="text-gray-300">|</span> ') + '</span>';
+        }
+      }
       row.innerHTML = `
-        <span class="text-sm text-gray-700 w-52 shrink-0 truncate font-mono bg-gray-100 rounded px-2 py-0.5" title="${header}">${header}</span>
+        <div class="w-52 shrink-0">
+          <span class="text-sm text-gray-700 truncate font-mono bg-gray-100 rounded px-2 py-0.5 block" title="${header}">${header}</span>
+          ${samplePreview}
+        </div>
         <span class="text-gray-400">→</span>
         <select data-col="${header.replace(/"/g, '&quot;')}" class="col-map-select border border-gray-300 rounded px-2 py-1 text-sm bg-white flex-1 focus:outline-none focus:ring-1 focus:ring-marsh">${opts}</select>`;
       container.appendChild(row);
@@ -240,15 +290,31 @@
   document.getElementById('reconcile-file-input').addEventListener('change', function () {
     const file = this.files[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = function (e) {
-      const firstLine = e.target.result.split(/\r?\n/).find(l => l.trim());
-      if (!firstLine) return;
-      // Split on comma, respecting quoted fields
-      const headers = firstLine.split(',').map(h => h.trim().replace(/^"|"$/g, ''));
-      buildMappingUI(headers);
-    };
-    reader.readAsText(file);
+    const isExcel = /\.(xlsx?|xls)$/i.test(file.name);
+    if (isExcel) {
+      // XLSX: send to server to extract headers + sample data
+      const formData = new FormData();
+      formData.append('file', file);
+      fetch('/reconcile/preview-columns', { method: 'POST', body: formData })
+        .then(r => r.json())
+        .then(data => {
+          if (data.headers && data.headers.length) buildMappingUI(data.headers, data.sample_rows || []);
+        });
+    } else {
+      // CSV: parse headers + sample data client-side
+      const reader = new FileReader();
+      reader.onload = function (e) {
+        const lines = e.target.result.split(/\r?\n/).filter(l => l.trim());
+        if (!lines.length) return;
+        const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+        var sampleRows = [];
+        for (var i = 1; i < Math.min(4, lines.length); i++) {
+          sampleRows.push(lines[i].split(',').map(function(v) { return v.trim().replace(/^"|"$/g, ''); }));
+        }
+        buildMappingUI(headers, sampleRows);
+      };
+      reader.readAsText(file);
+    }
   });
 
   document.querySelector('form[action="/reconcile"]').addEventListener('submit', function () {

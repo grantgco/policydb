@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Email Templates — PolicyDB{% endblock %}
+{% block title %}Email Templates — Coverage{% endblock %}
 {% block content %}
 
 <div class="flex items-center justify-between mb-6">
@@ -20,7 +20,7 @@
 </div>
 
 <!-- Template list grouped by context -->
-{% set contexts = [('policy', 'Policy Templates'), ('client', 'Client Templates'), ('general', 'General Templates')] %}
+{% set contexts = [('policy', 'Policy Templates'), ('client', 'Client Templates'), ('location', 'Location Templates'), ('general', 'General Templates')] %}
 {% for ctx_key, ctx_label in contexts %}
 {% set ctx_templates = all_templates | selectattr('context', 'equalto', ctx_key) | list %}
 {% if ctx_templates %}
@@ -41,14 +41,6 @@
 </div>
 {% endif %}
 
-<style>
-  .btn-primary {
-    @apply bg-marsh text-white rounded-lg font-medium hover:bg-marsh-light transition-colors;
-  }
-  .pill-btn {
-    @apply text-xs bg-gray-100 hover:bg-marsh hover:text-white text-gray-600 px-2 py-1 rounded cursor-pointer transition-colors border border-gray-200;
-  }
-</style>
 
 
 {% endblock %}

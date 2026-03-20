@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+import re
 from datetime import date
 
 from fastapi import APIRouter, Depends, Form, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
 from policydb import config as cfg
 from policydb.queries import (
     get_all_followups,
+    get_dashboard_hours_this_month,
+    get_escalation_alerts,
     get_open_opportunities,
     get_renewal_metrics,
     get_renewal_pipeline,
@@ -18,7 +21,6 @@ from policydb.queries import (
     get_suggested_followups,
     full_text_search,
 )
-from policydb.web.routes.policies import _attach_milestone_progress
 from policydb.web.app import get_db, templates
 
 router = APIRouter()
@@ -40,11 +42,12 @@ def _attach_client_ids(conn, rows: list[dict]) -> list[dict]:
 @router.get("/dashboard/pipeline", response_class=HTMLResponse)
 def dashboard_pipeline(request: Request, window: int = 90, status: str = "", conn=Depends(get_db)):
     """HTMX partial: pipeline table for dashboard window/status filter."""
+    from policydb.web.routes.policies import _attach_milestone_progress, _attach_readiness_score
     excluded = cfg.get("renewal_statuses_excluded", [])
     rows = get_renewal_pipeline(conn, window_days=window, renewal_status=status or None, excluded_statuses=excluded)
-    pipeline = _attach_milestone_progress(
+    pipeline = _attach_readiness_score(conn, _attach_milestone_progress(
         conn, _attach_client_ids(conn, [dict(p) for p in rows])
-    )
+    ))
     suggested_uids = {r["policy_uid"] for r in get_suggested_followups(conn, excluded_statuses=excluded)}
     return templates.TemplateResponse("policies/_pipeline_table.html", {
         "request": request,
@@ -58,6 +61,7 @@ def dashboard_pipeline(request: Request, window: int = 90, status: str = "", con
 
 @router.get("/", response_class=HTMLResponse)
 def dashboard(request: Request, conn=Depends(get_db)):
+    from policydb.web.routes.policies import _attach_milestone_progress, _attach_readiness_score
     excluded = cfg.get("renewal_statuses_excluded", [])
     metrics = get_renewal_metrics(conn)
     pipeline = get_renewal_pipeline(conn, window_days=90, excluded_statuses=excluded)
@@ -71,13 +75,38 @@ def dashboard(request: Request, conn=Depends(get_db)):
     urgent_count = metrics.get("URGENT", {}).get("count", 0) + metrics.get("EXPIRED", {}).get("count", 0)
     urgency_breakdown = [(u, metrics.get(u, {"count": 0, "premium": 0})) for u in URGENCY_ORDER]
 
-    pipeline_dicts = _attach_milestone_progress(
+    pipeline_dicts = _attach_readiness_score(conn, _attach_milestone_progress(
         conn, _attach_client_ids(conn, [dict(p) for p in pipeline])
-    )
+    ))
+
+    # Readiness counts for summary card
+    readiness_counts = {"critical": 0, "at_risk": 0, "on_track": 0, "ready": 0}
+    for p in pipeline_dicts:
+        label = p.get("readiness_label", "")
+        if label == "CRITICAL":
+            readiness_counts["critical"] += 1
+        elif label == "AT RISK":
+            readiness_counts["at_risk"] += 1
+        elif label == "ON TRACK":
+            readiness_counts["on_track"] += 1
+        elif label == "READY":
+            readiness_counts["ready"] += 1
+
+    # Escalation alerts (replaces stale)
+    escalation_alerts = _attach_client_ids(conn, get_escalation_alerts(conn, excluded_statuses=excluded))
 
     stale = _attach_client_ids(conn, [dict(r) for r in get_stale_renewals(conn, excluded_statuses=excluded)])
     suggested_uids = {r["policy_uid"] for r in get_suggested_followups(conn, excluded_statuses=excluded)}
     open_opportunities = get_open_opportunities(conn)
+    _today = date.today()
+    for o in open_opportunities:
+        if o.get("target_effective_date"):
+            try:
+                o["days_to_target"] = (date.fromisoformat(o["target_effective_date"]) - _today).days
+            except ValueError:
+                o["days_to_target"] = None
+        else:
+            o["days_to_target"] = None
     _opp_subj_tpl = cfg.get("email_subject_policy", "Re: {{client_name}} — {{policy_type}}")
     for o in open_opportunities:
         _opp_ctx = {
@@ -90,6 +119,7 @@ def dashboard(request: Request, conn=Depends(get_db)):
         }
         o["mailto_subject"] = _render_tokens(_opp_subj_tpl, _opp_ctx)
 
+    hours_this_month = get_dashboard_hours_this_month(conn)
     note_row = conn.execute("SELECT content, updated_at FROM user_notes WHERE id=1").fetchone()
     scratchpad_content = note_row["content"] if note_row else ""
     scratchpad_updated = note_row["updated_at"] if note_row else ""
@@ -111,6 +141,7 @@ def dashboard(request: Request, conn=Depends(get_db)):
         "pipeline": pipeline_dicts,
         "overdue": overdue,
         "upcoming": upcoming,
+        "dispositions": cfg.get("follow_up_dispositions", []),
         "urgent_count": urgent_count,
         "urgency_breakdown": urgency_breakdown,
         "renewal_statuses": cfg.get("renewal_statuses"),
@@ -120,14 +151,17 @@ def dashboard(request: Request, conn=Depends(get_db)):
         "scratchpad_updated": scratchpad_updated,
         "recent_client_notes": recent_client_notes,
         "stale": stale,
+        "escalation_alerts": escalation_alerts,
+        "readiness_counts": readiness_counts,
         "suggested_uids": suggested_uids,
         "open_opportunities": open_opportunities,
+        "hours_this_month": hours_this_month,
     })
 
 
-@router.post("/dashboard/scratchpad", response_class=HTMLResponse)
+@router.post("/dashboard/scratchpad")
 def save_scratchpad(request: Request, content: str = Form(""), conn=Depends(get_db)):
-    """HTMX: auto-save global dashboard scratchpad."""
+    """Auto-save global dashboard scratchpad. Returns JSON if Accept header requests it."""
     conn.execute(
         "INSERT INTO user_notes (id, content) VALUES (1, ?) "
         "ON CONFLICT(id) DO UPDATE SET content=excluded.content",
@@ -135,6 +169,10 @@ def save_scratchpad(request: Request, content: str = Form(""), conn=Depends(get_
     )
     conn.commit()
     row = conn.execute("SELECT updated_at FROM user_notes WHERE id=1").fetchone()
+    if "application/json" in (request.headers.get("accept") or ""):
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
+        return JSONResponse({"ok": True, "saved_at": now})
     return templates.TemplateResponse("dashboard/_scratchpad.html", {
         "request": request,
         "scratchpad_content": content,
@@ -146,8 +184,22 @@ def save_scratchpad(request: Request, content: str = Form(""), conn=Depends(get_
 def search(request: Request, q: str = "", conn=Depends(get_db)):
     results = {"clients": [], "policies": [], "activities": []}
     if q.strip():
-        raw = full_text_search(conn, q.strip())
-        results = {k: [dict(r) for r in v] for k, v in raw.items()}
+        # Check for COR-{id} correspondence thread search
+        cor_match = re.match(r'^COR-(\d+)$', q.strip(), re.IGNORECASE)
+        if cor_match:
+            thread_id = int(cor_match.group(1))
+            thread_activities = [dict(r) for r in conn.execute("""
+                SELECT a.*, c.name AS client_name, p.policy_uid
+                FROM activity_log a
+                JOIN clients c ON a.client_id = c.id
+                LEFT JOIN policies p ON a.policy_id = p.id
+                WHERE a.thread_id = ?
+                ORDER BY a.activity_date DESC
+            """, (thread_id,)).fetchall()]
+            results["activities"] = thread_activities
+        else:
+            raw = full_text_search(conn, q.strip())
+            results = {k: [dict(r) for r in v] for k, v in raw.items()}
     total = sum(len(v) for v in results.values())
     return templates.TemplateResponse("search.html", {
         "request": request,

@@ -1,0 +1,121 @@
+<h2>Time & Effort Projection — What should this look like?</h2>
+<p class="subtitle">This would live on the client briefing page. Pick the approach that best answers: "How much time will this account need, and when?"</p>
+
+<div class="cards">
+
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-body">
+      <h3>Option A — Monthly Forecast Chart (Recommended)</h3>
+      <p>Bar chart showing past months (actuals) + next 3-6 months (projected), with renewal windows highlighted. Auto-generated narrative paragraph below for resource requests.</p>
+
+      <div style="margin-top:14px;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;font-size:11px;background:white">
+        <div style="padding:10px 14px;background:#f8fafc;border-bottom:1px solid #e5e7eb">
+          <span style="font-weight:700;color:#1f2937">Effort Forecast — Acme Corp</span>
+          <span style="color:#9ca3af;margin-left:8px">Based on 4 months of history</span>
+        </div>
+        <div style="padding:14px">
+          <!-- Chart mockup -->
+          <div style="display:flex;align-items:flex-end;gap:6px;height:100px;margin-bottom:8px">
+            <div style="flex:1;text-align:center">
+              <div style="background:#003865;height:15px;border-radius:3px 3px 0 0;margin:0 4px"></div>
+              <span style="font-size:9px;color:#9ca3af">Dec</span>
+            </div>
+            <div style="flex:1;text-align:center">
+              <div style="background:#003865;height:5px;border-radius:3px 3px 0 0;margin:0 4px"></div>
+              <span style="font-size:9px;color:#9ca3af">Jan</span>
+            </div>
+            <div style="flex:1;text-align:center">
+              <div style="background:#003865;height:50px;border-radius:3px 3px 0 0;margin:0 4px"></div>
+              <span style="font-size:9px;color:#9ca3af">Feb</span>
+            </div>
+            <div style="flex:1;text-align:center">
+              <div style="background:#003865;height:100px;border-radius:3px 3px 0 0;margin:0 4px"></div>
+              <span style="font-size:9px;color:#9ca3af">Mar</span>
+            </div>
+            <div style="flex:1;text-align:center;border-left:2px dashed #d1d5db">
+              <div style="background:#fbbf24;height:80px;border-radius:3px 3px 0 0;margin:0 4px;opacity:0.7"></div>
+              <span style="font-size:9px;color:#d97706;font-weight:600">Apr ★</span>
+            </div>
+            <div style="flex:1;text-align:center">
+              <div style="background:#93c5fd;height:30px;border-radius:3px 3px 0 0;margin:0 4px;opacity:0.7"></div>
+              <span style="font-size:9px;color:#9ca3af">May</span>
+            </div>
+            <div style="flex:1;text-align:center">
+              <div style="background:#93c5fd;height:25px;border-radius:3px 3px 0 0;margin:0 4px;opacity:0.7"></div>
+              <span style="font-size:9px;color:#9ca3af">Jun</span>
+            </div>
+          </div>
+          <div style="display:flex;gap:12px;font-size:9px;color:#6b7280;margin-bottom:10px">
+            <span><span style="display:inline-block;width:10px;height:10px;background:#003865;border-radius:2px;vertical-align:middle;margin-right:3px"></span> Actual</span>
+            <span><span style="display:inline-block;width:10px;height:10px;background:#fbbf24;border-radius:2px;vertical-align:middle;margin-right:3px;opacity:0.7"></span> Projected (renewal month)</span>
+            <span><span style="display:inline-block;width:10px;height:10px;background:#93c5fd;border-radius:2px;vertical-align:middle;margin-right:3px;opacity:0.7"></span> Projected (baseline)</span>
+          </div>
+          <!-- Narrative -->
+          <div style="background:#f0f4f8;border-radius:6px;padding:10px 12px;font-size:10px;color:#374151;line-height:1.6">
+            <strong>Projection Summary:</strong> Based on 4 months of history, Acme Corp requires approximately <strong>8.3 hours/month</strong> on average. With 3 policies renewing in April, effort is projected to spike to <strong>~12-15 hours</strong> that month. Estimated annual effort: <strong>~110 hours</strong> ($16,500 at $150/hr blended rate). Current revenue: $142K (7.7x cost-to-serve ratio).
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-body">
+      <h3>Option B — Tabular Breakdown + Narrative</h3>
+      <p>Monthly table showing hours by policy type, with projected months in a lighter shade. Summary stats (avg hours/month, cost-to-serve ratio, projected annual) and a copy-paste narrative block.</p>
+
+      <div style="margin-top:14px;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;font-size:11px;background:white">
+        <div style="padding:10px 14px;background:#f8fafc;border-bottom:1px solid #e5e7eb">
+          <span style="font-weight:700;color:#1f2937">Effort Analysis — Acme Corp</span>
+        </div>
+        <div style="padding:10px 14px">
+          <table style="width:100%;border-collapse:collapse;font-size:10px">
+            <tr style="border-bottom:1px solid #e5e7eb">
+              <th style="text-align:left;padding:4px 6px;color:#6b7280">Month</th>
+              <th style="text-align:right;padding:4px 6px;color:#6b7280">GL</th>
+              <th style="text-align:right;padding:4px 6px;color:#6b7280">Property</th>
+              <th style="text-align:right;padding:4px 6px;color:#6b7280">WC</th>
+              <th style="text-align:right;padding:4px 6px;color:#6b7280;font-weight:700">Total</th>
+            </tr>
+            <tr><td style="padding:3px 6px">Dec '25</td><td style="text-align:right;padding:3px 6px">0.5h</td><td style="text-align:right;padding:3px 6px">0.5h</td><td style="text-align:right;padding:3px 6px">—</td><td style="text-align:right;padding:3px 6px;font-weight:600">1.0h</td></tr>
+            <tr><td style="padding:3px 6px">Jan '26</td><td style="text-align:right;padding:3px 6px">—</td><td style="text-align:right;padding:3px 6px">0.25h</td><td style="text-align:right;padding:3px 6px">—</td><td style="text-align:right;padding:3px 6px;font-weight:600">0.25h</td></tr>
+            <tr><td style="padding:3px 6px">Feb '26</td><td style="text-align:right;padding:3px 6px">1.0h</td><td style="text-align:right;padding:3px 6px">1.5h</td><td style="text-align:right;padding:3px 6px">0.75h</td><td style="text-align:right;padding:3px 6px;font-weight:600">3.25h</td></tr>
+            <tr style="border-bottom:1px solid #e5e7eb"><td style="padding:3px 6px">Mar '26</td><td style="text-align:right;padding:3px 6px">3.0h</td><td style="text-align:right;padding:3px 6px">3.5h</td><td style="text-align:right;padding:3px 6px">1.8h</td><td style="text-align:right;padding:3px 6px;font-weight:600">8.3h</td></tr>
+            <tr style="color:#2563eb"><td style="padding:3px 6px;font-style:italic">Apr '26 ★</td><td style="text-align:right;padding:3px 6px">4.0h</td><td style="text-align:right;padding:3px 6px">6.0h</td><td style="text-align:right;padding:3px 6px">2.0h</td><td style="text-align:right;padding:3px 6px;font-weight:600">~12h</td></tr>
+            <tr style="color:#93a3b8"><td style="padding:3px 6px;font-style:italic">May '26</td><td style="text-align:right;padding:3px 6px">2.0h</td><td style="text-align:right;padding:3px 6px">1.5h</td><td style="text-align:right;padding:3px 6px">0.5h</td><td style="text-align:right;padding:3px 6px;font-weight:600">~4h</td></tr>
+          </table>
+          <!-- Summary stats -->
+          <div style="display:flex;gap:16px;margin-top:10px;padding-top:8px;border-top:1px solid #e5e7eb">
+            <div><span style="color:#9ca3af;font-size:9px">Avg/Month</span><br><strong>3.2h</strong></div>
+            <div><span style="color:#9ca3af;font-size:9px">Est. Annual</span><br><strong>~42h</strong></div>
+            <div><span style="color:#9ca3af;font-size:9px">Est. Cost</span><br><strong>$6,300</strong></div>
+            <div><span style="color:#9ca3af;font-size:9px">Revenue Ratio</span><br><strong>22.5x</strong></div>
+          </div>
+          <!-- Narrative block -->
+          <div style="background:#f0f4f8;border-radius:6px;padding:10px 12px;font-size:10px;color:#374151;line-height:1.6;margin-top:10px">
+            <strong>Resource Justification:</strong> Acme Corp consumes ~3.2 hours/month, trending upward with 3 renewals in April. Projected annual effort is ~42 hours. At a $150/hr blended rate, cost-to-serve is $6,300 against $142K revenue (22.5x ratio). Recommend maintaining current staffing level.
+            <div style="margin-top:6px"><button style="font-size:9px;background:#003865;color:white;border:none;border-radius:4px;padding:3px 8px;cursor:pointer">Copy narrative</button></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-body">
+      <h3>Option C — Both: Chart + Table + Narrative</h3>
+      <p>Full analysis section combining the chart for visual impact, the table for detail, and the narrative for copy-paste into resource requests. Most comprehensive but takes more vertical space.</p>
+    </div>
+  </div>
+
+</div>
+
+<div class="section" style="margin-top:20px">
+  <h3>Projection model</h3>
+  <ul style="font-size:13px;color:#374151;line-height:2;margin:0;padding-left:20px">
+    <li><strong>Baseline:</strong> Weighted average of last 3-6 months (recent months weighted more heavily)</li>
+    <li><strong>Renewal spike:</strong> 1.5-2x multiplier for months with renewals, based on historical pattern during prior renewal months</li>
+    <li><strong>Cost-to-serve ratio:</strong> (annual revenue) / (annual effort cost at configurable hourly rate)</li>
+    <li><strong>Narrative:</strong> Auto-generated text summarizing the projection, suitable for copy-paste into internal resource requests</li>
+  </ul>
+</div>

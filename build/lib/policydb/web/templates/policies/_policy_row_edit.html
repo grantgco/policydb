@@ -13,6 +13,9 @@
           <p class="text-xs text-gray-500 mb-0.5">Line of Business <span class="text-red-400">*</span></p>
           <select name="policy_type" required
             class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh bg-white">
+            {% if p.policy_type and p.policy_type not in policy_types %}
+            <option value="{{ p.policy_type }}" selected>{{ p.policy_type }}</option>
+            {% endif %}
             {% for t in policy_types %}
             <option value="{{ t }}" {% if t == p.policy_type %}selected{% endif %}>{{ t }}</option>
             {% endfor %}
@@ -33,6 +36,7 @@
           <p class="text-xs text-gray-500 mb-0.5">First Named Insured</p>
           <input type="text" name="first_named_insured" value="{{ p.first_named_insured or '' }}"
             placeholder="If different from client"
+            list="ac-fni-row-{{ p.policy_uid }}" autocomplete="off"
             class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh">
         </div>
         <div>
@@ -58,13 +62,17 @@
         </div>
         <div>
           <p class="text-xs text-gray-500 mb-0.5">Premium <span class="text-red-400">*</span></p>
-          <input type="number" name="premium" value="{{ p.premium }}" step="0.01" min="0" required
-            class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh">
+          <input type="text" class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh currency-input" autocomplete="off"
+            value="{% if p.premium %}{{ '{:,.0f}'.format(p.premium | float) }}{% endif %}"
+            placeholder="0" required>
+          <input type="hidden" name="premium" value="{{ p.premium or '' }}">
         </div>
         <div>
           <p class="text-xs text-gray-500 mb-0.5">Limit</p>
-          <input type="number" name="limit_amount" value="{{ p.limit_amount or '' }}" step="0.01" min="0"
-            class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh">
+          <input type="text" class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh currency-input" autocomplete="off"
+            value="{% if p.limit_amount %}{{ '{:,.0f}'.format(p.limit_amount | float) }}{% endif %}"
+            placeholder="0">
+          <input type="hidden" name="limit_amount" value="{{ p.limit_amount or '' }}">
         </div>
         <div>
           <p class="text-xs text-gray-500 mb-0.5">Commission Rate</p>
@@ -85,6 +93,7 @@
           <p class="text-xs text-gray-500 mb-0.5">Access Point</p>
           <input type="text" name="access_point" value="{{ p.access_point or '' }}"
             placeholder="Wholesaler, etc."
+            list="ac-ap-row-{{ p.policy_uid }}" autocomplete="off"
             class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh">
         </div>
       </div>
@@ -127,6 +136,8 @@
 
     <datalist id="ac-carrier-row-{{ p.policy_uid }}"></datalist>
     <datalist id="ac-project-row-{{ p.policy_uid }}"></datalist>
+    <datalist id="ac-fni-row-{{ p.policy_uid }}"></datalist>
+    <datalist id="ac-ap-row-{{ p.policy_uid }}"></datalist>
 
     <script>
     (function(){
@@ -134,7 +145,9 @@
       var clientId = "{{ p.client_id }}";
       var clientScoped = new Set(["project_name", "exposure_city"]);
       [["carrier", "ac-carrier-row-" + uid],
-       ["project_name", "ac-project-row-" + uid]].forEach(function(pair){
+       ["project_name", "ac-project-row-" + uid],
+       ["first_named_insured", "ac-fni-row-" + uid],
+       ["access_point", "ac-ap-row-" + uid]].forEach(function(pair){
         var clientParam = clientScoped.has(pair[0]) && clientId ? '&client_id=' + clientId : '';
         fetch("/policies/autocomplete?field=" + pair[0] + clientParam)
           .then(function(r){ return r.json(); })
