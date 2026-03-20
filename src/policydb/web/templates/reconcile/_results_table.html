@@ -225,6 +225,10 @@
                class="text-xs text-gray-400 hover:text-marsh hover:underline px-1 py-1.5">
               Open {{ r.db.policy_uid }} &#8594;
             </a>
+            <button onclick="dismissReconcileRow('{{ uid }}')"
+              class="text-xs border border-gray-200 text-gray-400 hover:text-gray-600 hover:border-gray-300 px-3 py-1.5 rounded transition-colors ml-auto">
+              Dismiss
+            </button>
           </div>
           <div id="diff-edit-area-{{ uid }}"></div>
           {% endif %}
@@ -270,6 +274,10 @@
               class="text-xs border border-blue-400 text-blue-700 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded transition-colors">
               Find Match in Coverage
             </button>
+            <button onclick="dismissReconcileRow('{{ uid }}')"
+              class="text-xs border border-gray-200 text-gray-400 hover:text-gray-600 hover:border-gray-300 px-3 py-1.5 rounded transition-colors">
+              Dismiss
+            </button>
           </div>
 
           {% elif r.status == 'EXTRA' %}
@@ -297,6 +305,10 @@
               onclick="event.stopPropagation()"
               class="text-xs border border-red-300 text-red-600 px-3 py-1 rounded hover:bg-red-50 transition-colors">
               Archive
+            </button>
+            <button onclick="dismissReconcileRow('{{ uid }}')"
+              class="text-xs border border-gray-200 text-gray-400 hover:text-gray-600 hover:border-gray-300 px-3 py-1 rounded transition-colors">
+              Dismiss
             </button>
           </div>
           <p class="mt-2 text-xs text-gray-400">This policy is in Coverage but not your AMS export. Verify it should exist, or archive it if it was entered in error.</p>
@@ -344,5 +356,22 @@ function keepAllFields(uid) {
   if (actions) {
     actions.innerHTML = '<span class="text-xs text-green-600 font-medium">\u2713 All fields kept as-is</span>';
   }
+}
+
+function dismissReconcileRow(uid) {
+  var row = document.getElementById('row-' + uid);
+  var detail = document.getElementById('detail-' + uid);
+  if (row) {
+    row.style.transition = 'opacity 0.3s ease';
+    row.style.opacity = '0.3';
+    row.style.pointerEvents = 'none';
+    // Replace status badge with DISMISSED
+    var badge = row.querySelector('td:nth-child(2) span');
+    if (badge) {
+      badge.className = 'text-xs font-semibold text-gray-400 px-2 py-0.5 rounded bg-gray-100';
+      badge.textContent = 'DISMISSED';
+    }
+  }
+  if (detail) { detail.style.display = 'none'; }
 }
 </script>
