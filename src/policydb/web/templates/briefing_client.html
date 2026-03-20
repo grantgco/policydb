@@ -91,7 +91,7 @@
             {% if item.last_activity_date %}<span>· Last: {{ item.last_activity_type or 'Activity' }} {{ item.last_activity_days_ago }}d ago</span>{% endif %}
           </div>
         </div>
-        <div class="flex items-center gap-1 shrink-0 flex-wrap">
+        <div class="flex items-center gap-1 shrink-0 flex-wrap no-print">
           {% if item._source == 'overdue' and item.get('source') == 'activity' %}
           <button type="button" onclick="toggleBqComplete('{{ bq_row_id }}')"
             class="text-xs bg-green-50 hover:bg-green-100 text-green-700 border border-green-200 rounded px-2 py-1.5 transition-colors">Done</button>
