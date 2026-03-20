@@ -36,6 +36,16 @@
     <button hx-post="/activities/{{ a.id }}/snooze?days=7" hx-target="#activity-{{ a.id }}" hx-swap="outerHTML"
       class="text-[10px] text-gray-400 hover:text-amber-600 border border-gray-200 hover:border-amber-300 rounded px-1.5 py-1 transition-colors">+7d</button>
     {% endif %}
+    {% if a.get('pc_email') %}
+    <button type="button"
+      class="ep-trigger text-xs text-gray-300 hover:text-indigo-500 border border-gray-200 hover:border-indigo-300 rounded px-2 py-1 transition-colors"
+      data-to="{{ a.pc_email }}"
+      data-to-label="{{ a.pc_name or '' }}"
+      data-subject="Re: {{ a.client_name }} — {{ a.subject }}"
+      {% if a.policy_uid %}data-cc-url="/policies/{{ a.policy_uid }}/team-cc"{% endif %}
+      data-ref="{{ _a_ref }}"
+      title="Forward to {{ a.pc_name or 'placement colleague' }}">→ {{ a.pc_name or 'Colleague' }}</button>
+    {% endif %}
     <button
       hx-get="/activities/{{ a.id }}/row/edit"
       hx-target="#activity-{{ a.id }}"

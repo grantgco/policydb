@@ -453,6 +453,8 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
         for o in opportunities:
             o["team"] = _opp_contacts_map.get(o["id"], [])
     activities = [dict(a) for a in get_activities(conn, client_id=client_id, days=90)]
+    from policydb.web.routes.activities import _attach_pc_emails
+    _attach_pc_emails(conn, activities)
     activity_types = cfg.get("activity_types")
 
     # Group policies by project_name; blank → "Corporate / Standalone" (sorted last).
@@ -1979,8 +1981,11 @@ def client_note_save(request: Request, client_id: int, conn=Depends(get_db)):
             (new_activity_id,),
         ).fetchone()
         if a_row:
+            _a_dict = dict(a_row)
+            from policydb.web.routes.activities import _attach_pc_emails
+            _attach_pc_emails(conn, [_a_dict])
             activity_html = templates.TemplateResponse(
-                "activities/_activity_row.html", {"request": request, "a": dict(a_row), "dispositions": cfg.get("follow_up_dispositions", [])}
+                "activities/_activity_row.html", {"request": request, "a": _a_dict, "dispositions": cfg.get("follow_up_dispositions", [])}
             ).body.decode()
             # OOB swap: prepend to activity list
             oob_html = f'<li hx-swap-oob="afterbegin:#activity-list">{activity_html}</li>'
