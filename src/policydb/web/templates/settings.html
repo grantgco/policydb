@@ -14,198 +14,221 @@
 {% include 'settings/_schema_ref.html' %}
 
 <!-- Email Subject Templates -->
-<div class="card p-5 mb-6">
-  <h2 class="font-semibold text-gray-900 mb-1 text-sm">Email Subject Lines</h2>
-  <p class="text-xs text-gray-400 mb-4">Configure the subject line used on contact mailto: links throughout the app. Use <code class="bg-gray-100 px-1 rounded">&#123;&#123;token&#125;&#125;</code> placeholders. Changes apply immediately.</p>
+<details class="card mb-6 overflow-hidden">
+  <summary class="px-5 py-3 cursor-pointer select-none list-none flex items-center gap-2 hover:bg-gray-50 transition-colors">
+    <span class="text-xs text-gray-400 details-arrow">▶</span>
+    <h2 class="font-semibold text-gray-900 text-sm">Email Subject Lines</h2>
+    <span class="text-xs text-gray-400 ml-1">— configure mailto: subject line templates</span>
+  </summary>
+  <div class="px-5 pb-5">
+    <p class="text-xs text-gray-400 mb-4 pt-3">Configure the subject line used on contact mailto: links throughout the app. Use <code class="bg-gray-100 px-1 rounded">&#123;&#123;token&#125;&#125;</code> placeholders. Changes apply immediately.</p>
 
-  {% set subject_fields = [
-    ('email_subject_policy', 'Policy emails', 'Subject when emailing from a policy screen', email_subject_policy),
-    ('email_subject_client', 'Client emails', 'Subject when emailing from a client screen', email_subject_client),
-    ('email_subject_followup', 'Follow-up emails', 'Subject when emailing from the follow-up list', email_subject_followup),
-    ('email_subject_request', 'Request bundle emails', 'Subject when composing from an RFI bundle', email_subject_request),
-    ('email_subject_request_all', 'Request all emails', 'Subject when composing all outstanding requests', email_subject_request_all),
-  ] %}
+    {% set subject_fields = [
+      ('email_subject_policy', 'Policy emails', 'Subject when emailing from a policy screen', email_subject_policy),
+      ('email_subject_client', 'Client emails', 'Subject when emailing from a client screen', email_subject_client),
+      ('email_subject_followup', 'Follow-up emails', 'Subject when emailing from the follow-up list', email_subject_followup),
+      ('email_subject_request', 'Request bundle emails', 'Subject when composing from an RFI bundle', email_subject_request),
+      ('email_subject_request_all', 'Request all emails', 'Subject when composing all outstanding requests', email_subject_request_all),
+    ] %}
 
-  <div class="space-y-4">
-    {% for field_key, field_label, field_hint, field_value in subject_fields %}
-    <div>
-      <label class="text-xs font-medium text-gray-600 block mb-0.5">{{ field_label }}</label>
-      <p class="text-xs text-gray-400 mb-1">{{ field_hint }}</p>
-      <div class="flex gap-2 items-start">
-        <input type="text" id="es-{{ field_key }}" value="{{ field_value or '' }}"
-          class="flex-1 border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-marsh"
-          placeholder="Re: &#123;&#123;client_name&#125;&#125; — &#123;&#123;policy_type&#125;&#125;">
-        <button type="button"
-          onclick="saveEmailSubject('{{ field_key }}', 'es-{{ field_key }}', 'es-status-{{ field_key }}')"
-          class="text-xs bg-marsh text-white px-3 py-1.5 rounded-lg hover:bg-marsh-light shrink-0">Save</button>
-        <span id="es-status-{{ field_key }}" class="text-xs text-green-600 hidden self-center">Saved</span>
+    <div class="space-y-4">
+      {% for field_key, field_label, field_hint, field_value in subject_fields %}
+      <div>
+        <label class="text-xs font-medium text-gray-600 block mb-0.5">{{ field_label }}</label>
+        <p class="text-xs text-gray-400 mb-1">{{ field_hint }}</p>
+        <div class="flex gap-2 items-start">
+          <input type="text" id="es-{{ field_key }}" value="{{ field_value or '' }}"
+            class="flex-1 border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-marsh"
+            placeholder="Re: &#123;&#123;client_name&#125;&#125; — &#123;&#123;policy_type&#125;&#125;">
+          <button type="button"
+            onclick="saveEmailSubject('{{ field_key }}', 'es-{{ field_key }}', 'es-status-{{ field_key }}')"
+            class="text-xs bg-marsh text-white px-3 py-1.5 rounded-lg hover:bg-marsh-light shrink-0">Save</button>
+          <span id="es-status-{{ field_key }}" class="text-xs text-green-600 hidden self-center">Saved</span>
+        </div>
+        <div class="flex flex-wrap gap-1 mt-1.5">
+          {% if 'policy' in field_key or 'followup' in field_key %}
+          {% set pills = [('client_name','Client Name'),('project_name_sep','Project (sep)'),('policy_type','Policy Type'),('carrier','Carrier'),('policy_uid','Policy ID'),('effective_date','Eff. Date'),('expiration_date','Exp. Date'),('subject','Subject'),('today','Today')] %}
+          {% else %}
+          {% set pills = [('client_name','Client Name'),('primary_contact','Primary Contact'),('account_exec','Acct Exec'),('today','Today')] %}
+          {% endif %}
+          {% for tok, lbl in pills %}
+          <button type="button" onclick="insertSubjectToken('es-{{ field_key }}', '{{ tok }}')"
+            class="text-xs bg-gray-100 hover:bg-marsh hover:text-white text-gray-600 px-2 py-0.5 rounded cursor-pointer transition-colors border border-gray-200">{{ lbl }}</button>
+          {% endfor %}
+        </div>
       </div>
-      <div class="flex flex-wrap gap-1 mt-1.5">
-        {% if 'policy' in field_key or 'followup' in field_key %}
-        {% set pills = [('client_name','Client Name'),('project_name_sep','Project (sep)'),('policy_type','Policy Type'),('carrier','Carrier'),('policy_uid','Policy ID'),('effective_date','Eff. Date'),('expiration_date','Exp. Date'),('subject','Subject'),('today','Today')] %}
-        {% else %}
-        {% set pills = [('client_name','Client Name'),('primary_contact','Primary Contact'),('account_exec','Acct Exec'),('today','Today')] %}
-        {% endif %}
-        {% for tok, lbl in pills %}
-        <button type="button" onclick="insertSubjectToken('es-{{ field_key }}', '{{ tok }}')"
-          class="text-xs bg-gray-100 hover:bg-marsh hover:text-white text-gray-600 px-2 py-0.5 rounded cursor-pointer transition-colors border border-gray-200">{{ lbl }}</button>
-        {% endfor %}
-      </div>
+      {% endfor %}
     </div>
-    {% endfor %}
   </div>
-</div>
+</details>
 
 <!-- Mandated Activities -->
-<div class="card p-5 mb-6">
-  <h2 class="font-semibold text-gray-900 mb-1 text-sm">Mandated Activities</h2>
-  <p class="text-xs text-gray-400 mb-4">Activities that are automatically created as follow-ups and milestones on every active policy. New rules take effect on the next server restart.</p>
+<details class="card mb-6 overflow-hidden">
+  <summary class="px-5 py-3 cursor-pointer select-none list-none flex items-center gap-2 hover:bg-gray-50 transition-colors">
+    <span class="text-xs text-gray-400 details-arrow">▶</span>
+    <h2 class="font-semibold text-gray-900 text-sm">Mandated Activities</h2>
+    <span class="text-xs text-gray-400 ml-1">— auto-created follow-ups on every active policy</span>
+  </summary>
+  <div class="px-5 pb-5">
+    <p class="text-xs text-gray-400 mb-4 pt-3">Activities that are automatically created as follow-ups and milestones on every active policy. New rules take effect on the next server restart.</p>
 
-  <div id="mandated-activities-list" class="mb-4">
-    {% for r in mandated_activities %}
-    {% set trigger_label = {"days_before_expiry": "before expiry", "days_after_effective": "after effective", "days_after_binding": "after binding"}.get(r.trigger, r.trigger) %}
-    <div class="flex items-center justify-between py-2 border-b border-gray-50">
-      <div class="text-sm text-gray-800">
-        <span class="font-medium">{{ r.name }}</span>
-        &mdash; <span class="text-gray-500">{{ r.days }}d {{ trigger_label }}</span>
-        &middot; <span class="text-gray-400">{{ r.activity_type or 'Meeting' }}</span>
+    <div id="mandated-activities-list" class="mb-4">
+      {% for r in mandated_activities %}
+      {% set trigger_label = {"days_before_expiry": "before expiry", "days_after_effective": "after effective", "days_after_binding": "after binding"}.get(r.trigger, r.trigger) %}
+      <div class="flex items-center justify-between py-2 border-b border-gray-50">
+        <div class="text-sm text-gray-800">
+          <span class="font-medium">{{ r.name }}</span>
+          &mdash; <span class="text-gray-500">{{ r.days }}d {{ trigger_label }}</span>
+          &middot; <span class="text-gray-400">{{ r.activity_type or 'Meeting' }}</span>
+        </div>
+        <form hx-post="/settings/mandated-activities/remove" hx-target="#mandated-activities-list" hx-swap="innerHTML">
+          <input type="hidden" name="name" value="{{ r.name }}">
+          <button type="submit" class="text-xs text-red-400 hover:text-red-600">&times;</button>
+        </form>
       </div>
-      <form hx-post="/settings/mandated-activities/remove" hx-target="#mandated-activities-list" hx-swap="innerHTML">
-        <input type="hidden" name="name" value="{{ r.name }}">
-        <button type="submit" class="text-xs text-red-400 hover:text-red-600">&times;</button>
-      </form>
+      {% else %}
+      <p class="text-xs text-gray-400 py-2">No mandated activities configured.</p>
+      {% endfor %}
     </div>
-    {% else %}
-    <p class="text-xs text-gray-400 py-2">No mandated activities configured.</p>
-    {% endfor %}
-  </div>
 
-  <form hx-post="/settings/mandated-activities/add" hx-target="#mandated-activities-list" hx-swap="innerHTML"
-        class="flex items-end gap-2 flex-wrap">
-    <div>
-      <label class="text-[10px] text-gray-500 block">Name</label>
-      <input type="text" name="name" required placeholder="RSM Meeting"
-        class="border border-gray-200 rounded px-2 py-1 text-xs w-36 focus:outline-none focus:ring-1 focus:ring-marsh">
-    </div>
-    <div>
-      <label class="text-[10px] text-gray-500 block">Trigger</label>
-      <select name="trigger" class="border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-marsh">
-        <option value="days_before_expiry">Days before expiry</option>
-        <option value="days_after_effective">Days after effective</option>
-      </select>
-    </div>
-    <div>
-      <label class="text-[10px] text-gray-500 block">Days</label>
-      <input type="number" name="days" required value="120" min="1" max="365"
-        class="border border-gray-200 rounded px-2 py-1 text-xs w-16 focus:outline-none focus:ring-1 focus:ring-marsh">
-    </div>
-    <div>
-      <label class="text-[10px] text-gray-500 block">Activity Type</label>
-      <select name="activity_type" class="border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-marsh">
-        {% for at in lists.get('activity_types', []) or ['Call','Email','Meeting','Other'] %}
-        <option value="{{ at }}" {{ 'selected' if at == 'Meeting' else '' }}>{{ at }}</option>
-        {% endfor %}
-      </select>
-    </div>
-    <div>
-      <label class="text-[10px] text-gray-500 block">Subject</label>
-      <input type="text" name="subject" placeholder="Auto: Name — {%raw%}{{policy_type}}{%endraw%}"
-        class="border border-gray-200 rounded px-2 py-1 text-xs w-48 focus:outline-none focus:ring-1 focus:ring-marsh">
-    </div>
-    <button type="submit" class="text-xs text-marsh hover:underline font-medium py-1">+ Add</button>
-  </form>
-</div>
+    <form hx-post="/settings/mandated-activities/add" hx-target="#mandated-activities-list" hx-swap="innerHTML"
+          class="flex items-end gap-2 flex-wrap">
+      <div>
+        <label class="text-[10px] text-gray-500 block">Name</label>
+        <input type="text" name="name" required placeholder="RSM Meeting"
+          class="border border-gray-200 rounded px-2 py-1 text-xs w-36 focus:outline-none focus:ring-1 focus:ring-marsh">
+      </div>
+      <div>
+        <label class="text-[10px] text-gray-500 block">Trigger</label>
+        <select name="trigger" class="border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-marsh">
+          <option value="days_before_expiry">Days before expiry</option>
+          <option value="days_after_effective">Days after effective</option>
+        </select>
+      </div>
+      <div>
+        <label class="text-[10px] text-gray-500 block">Days</label>
+        <input type="number" name="days" required value="120" min="1" max="365"
+          class="border border-gray-200 rounded px-2 py-1 text-xs w-16 focus:outline-none focus:ring-1 focus:ring-marsh">
+      </div>
+      <div>
+        <label class="text-[10px] text-gray-500 block">Activity Type</label>
+        <select name="activity_type" class="border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-marsh">
+          {% for at in lists.get('activity_types', []) or ['Call','Email','Meeting','Other'] %}
+          <option value="{{ at }}" {{ 'selected' if at == 'Meeting' else '' }}>{{ at }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="text-[10px] text-gray-500 block">Subject</label>
+        <input type="text" name="subject" placeholder="Auto: Name — {%raw%}{{policy_type}}{%endraw%}"
+          class="border border-gray-200 rounded px-2 py-1 text-xs w-48 focus:outline-none focus:ring-1 focus:ring-marsh">
+      </div>
+      <button type="submit" class="text-xs text-marsh hover:underline font-medium py-1">+ Add</button>
+    </form>
+  </div>
+</details>
 
 <!-- Alert & Readiness Thresholds -->
-<div class="card p-5 mb-6">
-  <h2 class="font-semibold text-gray-900 mb-1 text-sm">Alert & Readiness Thresholds</h2>
-  <p class="text-xs text-gray-400 mb-4">Tune when escalation banners appear on the dashboard and how readiness scores are labeled. Changes apply on next page load.</p>
+<details class="card mb-6 overflow-hidden">
+  <summary class="px-5 py-3 cursor-pointer select-none list-none flex items-center gap-2 hover:bg-gray-50 transition-colors">
+    <span class="text-xs text-gray-400 details-arrow">▶</span>
+    <h2 class="font-semibold text-gray-900 text-sm">Alert &amp; Readiness Thresholds</h2>
+    <span class="text-xs text-gray-400 ml-1">— escalation banners and readiness score labels</span>
+  </summary>
+  <div class="px-5 pb-5">
+    <p class="text-xs text-gray-400 mb-4 pt-3">Tune when escalation banners appear on the dashboard and how readiness scores are labeled. Changes apply on next page load.</p>
 
-  <form hx-post="/settings/thresholds" hx-target="#thresh-status" hx-swap="outerHTML" class="space-y-4">
-    <div>
-      <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Escalation Alert Triggers</p>
-      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-        <div>
-          <label class="block text-xs text-gray-600 mb-0.5">Critical: days to renewal</label>
-          <input type="number" name="critical_days" value="{{ escalation_thresholds.get('critical_days', 60) }}" min="1"
-            class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-marsh">
-        </div>
-        <div>
-          <label class="block text-xs text-gray-600 mb-0.5">Critical: stale activity (days)</label>
-          <input type="number" name="critical_stale_days" value="{{ escalation_thresholds.get('critical_stale_days', 14) }}" min="1"
-            class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-marsh">
-        </div>
-        <div>
-          <label class="block text-xs text-gray-600 mb-0.5">Warning: days to renewal</label>
-          <input type="number" name="warning_days" value="{{ escalation_thresholds.get('warning_days', 90) }}" min="1"
-            class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-marsh">
-        </div>
-        <div>
-          <label class="block text-xs text-gray-600 mb-0.5">Nudge: days to renewal</label>
-          <input type="number" name="nudge_days" value="{{ escalation_thresholds.get('nudge_days', 120) }}" min="1"
-            class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-marsh">
-        </div>
-        <div>
-          <label class="block text-xs text-gray-600 mb-0.5">Nudge: stale activity (days)</label>
-          <input type="number" name="nudge_stale_days" value="{{ escalation_thresholds.get('nudge_stale_days', 30) }}" min="1"
-            class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-marsh">
+    <form hx-post="/settings/thresholds" hx-target="#thresh-status" hx-swap="outerHTML" class="space-y-4">
+      <div>
+        <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Escalation Alert Triggers</p>
+        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+          <div>
+            <label class="block text-xs text-gray-600 mb-0.5">Critical: days to renewal</label>
+            <input type="number" name="critical_days" value="{{ escalation_thresholds.get('critical_days', 60) }}" min="1"
+              class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-marsh">
+          </div>
+          <div>
+            <label class="block text-xs text-gray-600 mb-0.5">Critical: stale activity (days)</label>
+            <input type="number" name="critical_stale_days" value="{{ escalation_thresholds.get('critical_stale_days', 14) }}" min="1"
+              class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-marsh">
+          </div>
+          <div>
+            <label class="block text-xs text-gray-600 mb-0.5">Warning: days to renewal</label>
+            <input type="number" name="warning_days" value="{{ escalation_thresholds.get('warning_days', 90) }}" min="1"
+              class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-marsh">
+          </div>
+          <div>
+            <label class="block text-xs text-gray-600 mb-0.5">Nudge: days to renewal</label>
+            <input type="number" name="nudge_days" value="{{ escalation_thresholds.get('nudge_days', 120) }}" min="1"
+              class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-marsh">
+          </div>
+          <div>
+            <label class="block text-xs text-gray-600 mb-0.5">Nudge: stale activity (days)</label>
+            <input type="number" name="nudge_stale_days" value="{{ escalation_thresholds.get('nudge_stale_days', 30) }}" min="1"
+              class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-marsh">
+          </div>
         </div>
       </div>
-    </div>
 
-    <div>
-      <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Readiness Score Labels</p>
-      <p class="text-xs text-gray-400 mb-2">Score thresholds (0–100) for readiness badges on pipeline rows.</p>
-      <div class="grid grid-cols-3 gap-3 max-w-md">
-        <div>
-          <label class="block text-xs text-gray-600 mb-0.5">Ready &ge;</label>
-          <input type="number" name="readiness_ready" value="{{ readiness_thresholds.get('ready', 75) }}" min="0" max="100"
-            class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-marsh">
+      <div>
+        <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Readiness Score Labels</p>
+        <p class="text-xs text-gray-400 mb-2">Score thresholds (0–100) for readiness badges on pipeline rows.</p>
+        <div class="grid grid-cols-3 gap-3 max-w-md">
+          <div>
+            <label class="block text-xs text-gray-600 mb-0.5">Ready &ge;</label>
+            <input type="number" name="readiness_ready" value="{{ readiness_thresholds.get('ready', 75) }}" min="0" max="100"
+              class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-marsh">
+          </div>
+          <div>
+            <label class="block text-xs text-gray-600 mb-0.5">On Track &ge;</label>
+            <input type="number" name="readiness_on_track" value="{{ readiness_thresholds.get('on_track', 50) }}" min="0" max="100"
+              class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-marsh">
+          </div>
+          <div>
+            <label class="block text-xs text-gray-600 mb-0.5">At Risk &ge;</label>
+            <input type="number" name="readiness_at_risk" value="{{ readiness_thresholds.get('at_risk', 25) }}" min="0" max="100"
+              class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-marsh">
+          </div>
         </div>
-        <div>
-          <label class="block text-xs text-gray-600 mb-0.5">On Track &ge;</label>
-          <input type="number" name="readiness_on_track" value="{{ readiness_thresholds.get('on_track', 50) }}" min="0" max="100"
-            class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-marsh">
-        </div>
-        <div>
-          <label class="block text-xs text-gray-600 mb-0.5">At Risk &ge;</label>
-          <input type="number" name="readiness_at_risk" value="{{ readiness_thresholds.get('at_risk', 25) }}" min="0" max="100"
-            class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-marsh">
-        </div>
+        <p class="text-xs text-gray-400 mt-1">Below the lowest threshold = Critical.</p>
       </div>
-      <p class="text-xs text-gray-400 mt-1">Below the lowest threshold = Critical.</p>
-    </div>
 
-    <div>
-      <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Follow-Up Workload Hints</p>
-      <p class="text-xs text-gray-400 mb-2">When scheduling a follow-up, a hint shows how many others are already on that day. Set the thresholds for when the count turns yellow (warning) and red (danger). Below the warning threshold the hint appears green.</p>
-      <div class="grid grid-cols-2 gap-3 max-w-xs">
-        <div>
-          <label class="block text-xs text-gray-600 mb-0.5">Warning &ge;</label>
-          <input type="number" name="followup_workload_warning" value="{{ fu_workload.get('warning', 3) }}" min="1"
-            class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-marsh">
+      <div>
+        <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Follow-Up Workload Hints</p>
+        <p class="text-xs text-gray-400 mb-2">When scheduling a follow-up, a hint shows how many others are already on that day. Set the thresholds for when the count turns yellow (warning) and red (danger). Below the warning threshold the hint appears green.</p>
+        <div class="grid grid-cols-2 gap-3 max-w-xs">
+          <div>
+            <label class="block text-xs text-gray-600 mb-0.5">Warning &ge;</label>
+            <input type="number" name="followup_workload_warning" value="{{ fu_workload.get('warning', 3) }}" min="1"
+              class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-marsh">
+          </div>
+          <div>
+            <label class="block text-xs text-gray-600 mb-0.5">Danger &ge;</label>
+            <input type="number" name="followup_workload_danger" value="{{ fu_workload.get('danger', 5) }}" min="1"
+              class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-marsh">
+          </div>
         </div>
-        <div>
-          <label class="block text-xs text-gray-600 mb-0.5">Danger &ge;</label>
-          <input type="number" name="followup_workload_danger" value="{{ fu_workload.get('danger', 5) }}" min="1"
-            class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-marsh">
-        </div>
+        <p class="text-xs text-gray-400 mt-1">Example: Warning = 3 means 3+ follow-ups turns yellow; Danger = 5 means 5+ turns red.</p>
       </div>
-      <p class="text-xs text-gray-400 mt-1">Example: Warning = 3 means 3+ follow-ups turns yellow; Danger = 5 means 5+ turns red.</p>
-    </div>
 
-    <div class="flex items-center gap-3">
-      <button type="submit"
-        class="bg-marsh hover:bg-marsh-light text-white text-sm font-medium px-4 py-1.5 rounded-lg transition-colors">Save Thresholds</button>
-      <span id="thresh-status"></span>
-    </div>
-  </form>
-</div>
+      <div class="flex items-center gap-3">
+        <button type="submit"
+          class="bg-marsh hover:bg-marsh-light text-white text-sm font-medium px-4 py-1.5 rounded-lg transition-colors">Save Thresholds</button>
+        <span id="thresh-status"></span>
+      </div>
+    </form>
+  </div>
+</details>
 
 <!-- Readiness Score Weights -->
-<div class="card p-5 mb-6">
-  <h2 class="font-semibold text-gray-900 mb-1 text-sm">Readiness Score Weights</h2>
-  <p class="text-xs text-gray-400 mb-4">Control how each component contributes to the readiness score (0–100). Changes apply on next page load.</p>
+<details class="card mb-6 overflow-hidden">
+  <summary class="px-5 py-3 cursor-pointer select-none list-none flex items-center gap-2 hover:bg-gray-50 transition-colors">
+    <span class="text-xs text-gray-400 details-arrow">▶</span>
+    <h2 class="font-semibold text-gray-900 text-sm">Readiness Score Weights</h2>
+    <span class="text-xs text-gray-400 ml-1">— component weights, status mapping, milestone and activity tiers</span>
+  </summary>
+  <div class="px-5 pb-5">
+    <p class="text-xs text-gray-400 mb-4 pt-3">Control how each component contributes to the readiness score (0–100). Changes apply on next page load.</p>
 
   <form hx-post="/settings/readiness-weights" hx-target="#rw-status" hx-swap="outerHTML" class="space-y-5">
 
@@ -319,45 +342,52 @@
       <span id="rw-status"></span>
     </div>
   </form>
-</div>
+  </div>
+</details>
 
 <!-- Auto-Review Thresholds -->
-<div class="card p-5 mb-6">
-  <h2 class="font-semibold text-gray-900 mb-1 text-sm">Auto-Review</h2>
-  <p class="text-xs text-gray-400 mb-4">When substantive work is done on a policy or client — multiple fields edited or several activities logged — automatically mark it as reviewed. This reduces the need to manually click "Mark Reviewed" after doing real work.</p>
+<details class="card mb-6 overflow-hidden">
+  <summary class="px-5 py-3 cursor-pointer select-none list-none flex items-center gap-2 hover:bg-gray-50 transition-colors">
+    <span class="text-xs text-gray-400 details-arrow">▶</span>
+    <h2 class="font-semibold text-gray-900 text-sm">Auto-Review</h2>
+    <span class="text-xs text-gray-400 ml-1">— automatically mark policies reviewed after substantive work</span>
+  </summary>
+  <div class="px-5 pb-5">
+    <p class="text-xs text-gray-400 mb-4 pt-3">When substantive work is done on a policy or client — multiple fields edited or several activities logged — automatically mark it as reviewed. This reduces the need to manually click "Mark Reviewed" after doing real work.</p>
 
-  <form hx-post="/settings/auto-review" hx-target="#ar-status" hx-swap="outerHTML" class="space-y-4">
-    <div class="flex items-center gap-3">
-      <label class="relative inline-flex items-center cursor-pointer">
-        <input type="checkbox" name="auto_review_enabled" value="1" {% if auto_review_enabled %}checked{% endif %}
-          class="sr-only peer">
-        <div class="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-marsh rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-marsh"></div>
-      </label>
-      <span class="text-sm text-gray-700">Enable auto-review</span>
-    </div>
-
-    <div class="grid grid-cols-2 gap-4 max-w-md">
-      <div>
-        <label class="block text-xs text-gray-600 mb-0.5">Field change threshold</label>
-        <p class="text-xs text-gray-400 mb-1">Fields changed in one save to trigger review</p>
-        <input type="number" name="auto_review_field_threshold" value="{{ auto_review_field_threshold }}" min="2" max="10"
-          class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-marsh">
+    <form hx-post="/settings/auto-review" hx-target="#ar-status" hx-swap="outerHTML" class="space-y-4">
+      <div class="flex items-center gap-3">
+        <label class="relative inline-flex items-center cursor-pointer">
+          <input type="checkbox" name="auto_review_enabled" value="1" {% if auto_review_enabled %}checked{% endif %}
+            class="sr-only peer">
+          <div class="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-marsh rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-marsh"></div>
+        </label>
+        <span class="text-sm text-gray-700">Enable auto-review</span>
       </div>
-      <div>
-        <label class="block text-xs text-gray-600 mb-0.5">Activity count threshold</label>
-        <p class="text-xs text-gray-400 mb-1">Activities since last review to trigger</p>
-        <input type="number" name="auto_review_activity_threshold" value="{{ auto_review_activity_threshold }}" min="1" max="10"
-          class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-marsh">
-      </div>
-    </div>
 
-    <div class="flex items-center gap-3">
-      <button type="submit"
-        class="bg-marsh hover:bg-marsh-light text-white text-sm font-medium px-4 py-1.5 rounded-lg transition-colors">Save</button>
-      <span id="ar-status"></span>
-    </div>
-  </form>
-</div>
+      <div class="grid grid-cols-2 gap-4 max-w-md">
+        <div>
+          <label class="block text-xs text-gray-600 mb-0.5">Field change threshold</label>
+          <p class="text-xs text-gray-400 mb-1">Fields changed in one save to trigger review</p>
+          <input type="number" name="auto_review_field_threshold" value="{{ auto_review_field_threshold }}" min="2" max="10"
+            class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-marsh">
+        </div>
+        <div>
+          <label class="block text-xs text-gray-600 mb-0.5">Activity count threshold</label>
+          <p class="text-xs text-gray-400 mb-1">Activities since last review to trigger</p>
+          <input type="number" name="auto_review_activity_threshold" value="{{ auto_review_activity_threshold }}" min="1" max="10"
+            class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-marsh">
+        </div>
+      </div>
+
+      <div class="flex items-center gap-3">
+        <button type="submit"
+          class="bg-marsh hover:bg-marsh-light text-white text-sm font-medium px-4 py-1.5 rounded-lg transition-colors">Save</button>
+        <span id="ar-status"></span>
+      </div>
+    </form>
+  </div>
+</details>
 
 {% include 'settings/_disposition_card.html' %}
 

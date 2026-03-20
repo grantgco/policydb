@@ -1,9 +1,12 @@
 {# Disposition config card — object list with {label, default_days} #}
-<div class="card mb-4 overflow-hidden">
-  <div class="px-4 py-2.5 bg-gray-50 border-b border-gray-100">
-    <h3 class="text-xs font-bold text-gray-600 uppercase tracking-wide">Follow-Up Dispositions</h3>
-    <p class="text-[10px] text-gray-400 mt-0.5">Outcome labels for completed follow-ups. Default days auto-fills the next follow-up date on re-diary.</p>
-  </div>
+<details class="card mb-4 overflow-hidden">
+  <summary class="px-4 py-2.5 cursor-pointer select-none list-none flex items-center gap-2 hover:bg-gray-50 transition-colors bg-gray-50 border-b border-gray-100">
+    <span class="text-xs text-gray-400 details-arrow">▶</span>
+    <div>
+      <h3 class="text-xs font-bold text-gray-600 uppercase tracking-wide">Follow-Up Dispositions</h3>
+      <p class="text-[10px] text-gray-400 mt-0.5">Outcome labels for completed follow-ups. Default days auto-fills the next follow-up date on re-diary.</p>
+    </div>
+  </summary>
   <ul class="divide-y divide-gray-100">
     {% for d in dispositions %}
     <li class="px-4 py-2 flex items-center gap-2 text-sm hover:bg-gray-50 transition-colors">
@@ -43,4 +46,4 @@
       <button type="submit" class="text-xs bg-marsh text-white px-3 py-1 rounded hover:bg-marsh-light transition-colors">Add</button>
     </form>
   </div>
-</div>
+</details>
