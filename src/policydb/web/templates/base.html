@@ -40,6 +40,9 @@
     .matrix-email-input { border: 1px solid #d1d5db; border-radius: 4px; padding: 2px 6px; font-size: 12px; outline: none; width: 100%; }
     .matrix-email-input:focus { border-color: #003865; box-shadow: 0 0 0 1px #003865; }
     [contenteditable]:empty:before { content: attr(data-placeholder); color: #cbd5e1; pointer-events: none; }
+    /* Policy cell contenteditable */
+    .policy-cell[contenteditable]:empty::before { content: attr(data-placeholder); color: #d1d5db; font-style: italic; }
+    .policy-cell[contenteditable]:focus { outline: none; border-bottom: 2px solid #3b82f6; background: rgba(59, 130, 246, 0.03); }
     /* Toggle switch */
     .toggle-switch { position: relative; display: inline-flex; align-items: center; cursor: pointer; }
     .toggle-switch input { position: absolute; opacity: 0; width: 0; height: 0; }
@@ -1123,6 +1126,68 @@ function initCurrencyInputs(scope) {
 }
 document.addEventListener('DOMContentLoaded', function() { initCurrencyInputs(); });
 document.addEventListener('htmx:afterSwap', function(e) { initCurrencyInputs(e.detail.elt); });
+</script>
+
+<script>
+/* ── Policy cell contenteditable controller ── */
+document.addEventListener('blur', function(e) {
+  if (!e.target.matches('.policy-cell[contenteditable]')) return;
+  var raw = e.target.textContent.trim();
+  var uid = e.target.dataset.uid;
+  var field = e.target.dataset.field;
+  fetch('/policies/' + uid + '/cell', {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({field: field, value: raw})
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.ok && data.formatted !== raw) {
+      e.target.textContent = data.formatted;
+      e.target.style.transition = 'background-color 0.3s ease';
+      e.target.style.backgroundColor = '#d1fae5';
+      setTimeout(function() {
+        e.target.style.backgroundColor = '';
+        setTimeout(function() { e.target.style.transition = ''; }, 300);
+      }, 800);
+    }
+  });
+}, true);
+
+function policySaveDate(input, uid, field) {
+  fetch('/policies/' + uid + '/cell', {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({field: field, value: input.value})
+  });
+}
+
+function policyStatusPill(btn, uid, status) {
+  var td = btn.closest('td');
+  td.querySelectorAll('.status-pill').forEach(function(p) {
+    p.className = p.className.replace(/ring-2|ring-offset-1|ring-\S+|bg-\S+|text-\S+|border-\S+/g, '').trim();
+    p.classList.add('status-pill', 'text-[10px]', 'px-2', 'py-0.5', 'rounded-full', 'border', 'transition-colors', 'no-print', 'border-gray-200', 'text-gray-500');
+  });
+  btn.classList.add('ring-2', 'ring-offset-1');
+  fetch('/policies/' + uid + '/status', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    body: 'status=' + encodeURIComponent(status)
+  }).then(function() {
+    // Find the containing row and refresh it via HTMX
+    var row = btn.closest('tr');
+    if (row && typeof htmx !== 'undefined') {
+      var rowId = row.id;
+      if (rowId.startsWith('dash-row-')) {
+        htmx.ajax('GET', '/policies/' + uid + '/dash/row', {target: '#' + rowId, swap: 'outerHTML'});
+      } else if (rowId.startsWith('renew-row-')) {
+        htmx.ajax('GET', '/policies/' + uid + '/renew/row', {target: '#' + rowId, swap: 'outerHTML'});
+      } else if (rowId.startsWith('row-')) {
+        htmx.ajax('GET', '/policies/' + uid + '/row', {target: '#' + rowId, swap: 'outerHTML'});
+      }
+    }
+  });
+}
 </script>
 </body>
 </html>
