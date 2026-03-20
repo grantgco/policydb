@@ -15,7 +15,14 @@
       <div class="py-3">
         <div class="flex items-start justify-between gap-3">
           <div class="flex-1 min-w-0">
-            <p class="text-sm font-semibold text-gray-800">{{ canonical }}</p>
+            <form method="post" action="/settings/carrier-aliases/rename-group" class="inline">
+              <input type="hidden" name="old_name" value="{{ canonical }}">
+              <input type="text" name="new_name" value="{{ canonical }}"
+                class="text-sm font-semibold border-0 border-b border-transparent focus:border-marsh focus:outline-none bg-transparent w-auto min-w-0"
+                style="width: {{ [canonical | length * 8, 120] | max }}px"
+                onchange="this.closest('form').submit()"
+                title="Click to rename this carrier group">
+            </form>
             <div class="flex flex-wrap gap-1 mt-1.5">
               {% for alias in aliases %}
               <span class="inline-flex items-center gap-1 bg-gray-100 text-gray-700 text-xs px-2 py-0.5 rounded-full">
