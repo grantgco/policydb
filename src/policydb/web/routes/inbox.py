@@ -63,6 +63,31 @@ def inbox_page(request: Request, show_processed: str = "", conn=Depends(get_db))
     all_clients = [dict(r) for r in conn.execute(
         "SELECT id, name FROM clients WHERE archived=0 ORDER BY name"
     ).fetchall()]
+    # Aggregate non-empty scratchpads from all sources
+    scratchpads = []
+    # Dashboard scratchpad
+    dash_note = conn.execute("SELECT content, updated_at FROM user_notes WHERE id=1").fetchone()
+    if dash_note and (dash_note["content"] or "").strip():
+        scratchpads.append({"source": "dashboard", "label": "Dashboard", "link": "/",
+                            "content": dash_note["content"], "updated_at": dash_note["updated_at"]})
+    # Client scratchpads
+    for cs in conn.execute("""
+        SELECT cs.client_id, cs.content, cs.updated_at, c.name AS client_name
+        FROM client_scratchpad cs JOIN clients c ON cs.client_id = c.id
+        WHERE cs.content IS NOT NULL AND cs.content != ''
+    """).fetchall():
+        scratchpads.append({"source": "client", "label": cs["client_name"], "link": f"/clients/{cs['client_id']}",
+                            "content": cs["content"], "updated_at": cs["updated_at"]})
+    # Policy scratchpads
+    for ps in conn.execute("""
+        SELECT ps.policy_uid, ps.content, ps.updated_at, p.policy_type, c.name AS client_name
+        FROM policy_scratchpad ps JOIN policies p ON ps.policy_uid = p.policy_uid
+        JOIN clients c ON p.client_id = c.id
+        WHERE ps.content IS NOT NULL AND ps.content != ''
+    """).fetchall():
+        scratchpads.append({"source": "policy", "label": f"{ps['client_name']} — {ps['policy_type']}",
+                            "link": f"/policies/{ps['policy_uid']}/edit",
+                            "content": ps["content"], "updated_at": ps["updated_at"]})
     return templates.TemplateResponse("inbox.html", {
         "request": request, "active": "inbox",
         "pending": pending,
@@ -72,6 +97,7 @@ def inbox_page(request: Request, show_processed: str = "", conn=Depends(get_db))
         "activity_types": cfg.get("activity_types", []),
         "dispositions": cfg.get("follow_up_dispositions", []),
         "cor_auto_triggers": cfg.get("cor_auto_triggers", []),
+        "scratchpads": scratchpads,
     })
 
 
@@ -161,6 +187,56 @@ def inbox_schedule(
     uid = conn.execute("SELECT inbox_uid FROM inbox WHERE id=?", (inbox_id,)).fetchone()
     return HTMLResponse("", headers={
         "HX-Trigger": '{"activityLogged": "' + (uid["inbox_uid"] if uid else '') + ' scheduled"}'
+    })
+
+
+@router.post("/inbox/scratchpad/clear")
+def scratchpad_clear(source: str = Form(...), source_id: str = Form(...), conn=Depends(get_db)):
+    """Clear a scratchpad's content."""
+    if source == "dashboard":
+        conn.execute("UPDATE user_notes SET content='', updated_at=CURRENT_TIMESTAMP WHERE id=1")
+    elif source == "client":
+        # source_id is like /clients/5
+        cid = source_id.split("/")[-1]
+        conn.execute("UPDATE client_scratchpad SET content='', updated_at=CURRENT_TIMESTAMP WHERE client_id=?", (int(cid),))
+    elif source == "policy":
+        # source_id is like /policies/POL-2025-0441/edit
+        uid = source_id.split("/")[2]
+        conn.execute("UPDATE policy_scratchpad SET content='', updated_at=CURRENT_TIMESTAMP WHERE policy_uid=?", (uid,))
+    conn.commit()
+    return HTMLResponse("", headers={
+        "HX-Trigger": '{"activityLogged": "Scratchpad cleared"}'
+    })
+
+
+@router.post("/inbox/scratchpad/process", response_class=HTMLResponse)
+def scratchpad_process(
+    source: str = Form(...), source_id: str = Form(...),
+    client_id: int = Form(...), subject: str = Form(""),
+    details: str = Form(""), conn=Depends(get_db),
+):
+    """Process a scratchpad into an activity and clear it."""
+    account_exec = cfg.get("default_account_exec", "Grant")
+    conn.execute(
+        """INSERT INTO activity_log
+           (activity_date, client_id, activity_type, subject, details, account_exec)
+           VALUES (?, ?, 'Note', ?, ?, ?)""",
+        (date.today().isoformat(), client_id, subject or "Scratchpad note",
+         details or None, account_exec),
+    )
+    conn.commit()
+    # Clear the scratchpad
+    if source == "dashboard":
+        conn.execute("UPDATE user_notes SET content='', updated_at=CURRENT_TIMESTAMP WHERE id=1")
+    elif source == "client":
+        cid = source_id.split("/")[-1]
+        conn.execute("UPDATE client_scratchpad SET content='', updated_at=CURRENT_TIMESTAMP WHERE client_id=?", (int(cid),))
+    elif source == "policy":
+        uid = source_id.split("/")[2]
+        conn.execute("UPDATE policy_scratchpad SET content='', updated_at=CURRENT_TIMESTAMP WHERE policy_uid=?", (uid,))
+    conn.commit()
+    return HTMLResponse("", headers={
+        "HX-Trigger": '{"activityLogged": "Scratchpad processed - activity created"}'
     })
 
 
