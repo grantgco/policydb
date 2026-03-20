@@ -1494,7 +1494,14 @@ def policy_edit_post(
         except ValueError:
             return None
 
+    from policydb.utils import parse_currency_with_magnitude as _parse_money
+
     uid = policy_uid.upper()
+    # Parse currency shorthand (e.g., "$5M" → 5000000) for money fields
+    premium = str(_parse_money(premium) or 0) if premium else premium
+    limit_amount = str(_parse_money(limit_amount) or '') if limit_amount else limit_amount
+    deductible = str(_parse_money(deductible) or '') if deductible else deductible
+
     old_row = dict(conn.execute("SELECT * FROM policies WHERE policy_uid=?", (uid,)).fetchone())
     opp = 1 if is_opportunity == "1" else 0
     pgm = 1 if is_program == "1" else 0
@@ -2428,6 +2435,7 @@ def policy_new_post(
         except ValueError:
             return None
 
+    from policydb.utils import parse_currency_with_magnitude as _parse_money
     uid = next_policy_uid(conn)
     account_exec = cfg.get("default_account_exec", "Grant")
     opp = 1 if is_opportunity == "1" else 0
@@ -2435,6 +2443,10 @@ def policy_new_post(
     policy_type = normalize_coverage_type(policy_type)
     carrier = normalize_carrier(carrier) if carrier else ""
     policy_number = normalize_policy_number(policy_number) if policy_number else ""
+    # Parse currency shorthand (e.g., "$5M" → 5000000)
+    premium = str(_parse_money(premium) or 0) if premium else premium
+    limit_amount = str(_parse_money(limit_amount) or '') if limit_amount else limit_amount
+    deductible = str(_parse_money(deductible) or '') if deductible else deductible
     exposure_address = exposure_address.strip() if exposure_address else ""
     exposure_city = format_city(exposure_city) if exposure_city else ""
     exposure_state = format_state(exposure_state) if exposure_state else ""
