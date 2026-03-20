@@ -408,19 +408,52 @@
           <span class="text-white/40 text-xs font-mono ml-1">v{{ app_version }}</span>
           <div class="flex gap-1 items-center">
             <a href="/" class="nav-link {% if active == 'dashboard' %}bg-marsh-light{% endif %}">Dashboard</a>
-            <a href="/briefing" class="nav-link {% if active == 'briefing' %}bg-marsh-light{% endif %}">Briefing</a>
-            <a href="/clients" class="nav-link {% if active == 'clients' %}bg-marsh-light{% endif %}">Clients</a>
-            <a href="/renewals" class="nav-link {% if active == 'renewals' %}bg-marsh-light{% endif %}">Renewals</a>
-            <a href="/followups" class="nav-link {% if active == 'followups' %}bg-marsh-light{% endif %}">Follow-Ups</a>
-            <span class="border-l border-white/20 h-5 mx-1"></span>
-            <a href="/activities" class="nav-link {% if active == 'activities' %}bg-marsh-light{% endif %}">Activity</a>
-            <a href="/contacts" class="nav-link {% if active == 'contacts' %}bg-marsh-light{% endif %}">Contacts</a>
-            <a href="/review" class="nav-link {% if active == 'review' %}bg-marsh-light{% endif %}">Review</a>
-            <a href="/meetings" class="nav-link {% if active == 'meetings' %}bg-marsh-light{% endif %}">Meetings</a>
-            <span class="border-l border-white/20 h-5 mx-1"></span>
-            <a href="/reconcile" class="nav-link {% if active == 'reconcile' %}bg-marsh-light{% endif %}">Reconcile</a>
-            <a href="/templates" class="nav-link {% if active == 'templates' %}bg-marsh-light{% endif %}">Templates</a>
-            <a href="/settings" class="nav-link {% if active == 'settings' %}bg-marsh-light{% endif %}">Settings</a>
+
+            <!-- Book dropdown -->
+            <div class="relative" onmouseenter="openNavDrop(this)" onmouseleave="closeNavDrop(this)">
+              <button class="nav-link flex items-center gap-1 {% if active in ['clients','renewals','contacts'] %}bg-marsh-light border-b-2 border-[#c8a96e]{% endif %}">
+                Book
+                <svg class="w-3 h-3 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+              </button>
+              <div class="nav-drop-panel hidden absolute left-0 top-full mt-0.5 w-40 bg-white rounded-md shadow-lg border border-gray-200 py-1 z-50">
+                <a href="/clients" class="block px-4 py-1.5 text-sm text-gray-700 hover:bg-gray-100 {% if active == 'clients' %}font-semibold text-marsh{% endif %}">Clients</a>
+                <a href="/renewals" class="block px-4 py-1.5 text-sm text-gray-700 hover:bg-gray-100 {% if active == 'renewals' %}font-semibold text-marsh{% endif %}">Renewals</a>
+                <a href="/contacts" class="block px-4 py-1.5 text-sm text-gray-700 hover:bg-gray-100 {% if active == 'contacts' %}font-semibold text-marsh{% endif %}">Contacts</a>
+              </div>
+            </div>
+
+            <!-- Activity dropdown -->
+            <div class="relative" onmouseenter="openNavDrop(this)" onmouseleave="closeNavDrop(this)">
+              <button class="nav-link flex items-center gap-1 {% if active in ['followups','activities','meetings','review'] %}bg-marsh-light border-b-2 border-[#c8a96e]{% endif %}">
+                Activity
+                <svg class="w-3 h-3 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+              </button>
+              <div class="nav-drop-panel hidden absolute left-0 top-full mt-0.5 w-40 bg-white rounded-md shadow-lg border border-gray-200 py-1 z-50">
+                <a href="/followups" class="block px-4 py-1.5 text-sm text-gray-700 hover:bg-gray-100 {% if active == 'followups' %}font-semibold text-marsh{% endif %}">Follow-Ups</a>
+                <a href="/activities" class="block px-4 py-1.5 text-sm text-gray-700 hover:bg-gray-100 {% if active == 'activities' %}font-semibold text-marsh{% endif %}">Activity Log</a>
+                <a href="/meetings" class="block px-4 py-1.5 text-sm text-gray-700 hover:bg-gray-100 {% if active == 'meetings' %}font-semibold text-marsh{% endif %}">Meetings</a>
+                <a href="/review" class="block px-4 py-1.5 text-sm text-gray-700 hover:bg-gray-100 {% if active == 'review' %}font-semibold text-marsh{% endif %}">Review</a>
+              </div>
+            </div>
+
+            <!-- Tools dropdown -->
+            <div class="relative" onmouseenter="openNavDrop(this)" onmouseleave="closeNavDrop(this)">
+              <button class="nav-link flex items-center gap-1 {% if active in ['briefing','reconcile','templates','settings'] %}bg-marsh-light border-b-2 border-[#c8a96e]{% endif %}">
+                Tools
+                <svg class="w-3 h-3 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+              </button>
+              <div class="nav-drop-panel hidden absolute left-0 top-full mt-0.5 w-40 bg-white rounded-md shadow-lg border border-gray-200 py-1 z-50">
+                <a href="/briefing" class="block px-4 py-1.5 text-sm text-gray-700 hover:bg-gray-100 {% if active == 'briefing' %}font-semibold text-marsh{% endif %}">Briefing</a>
+                <a href="/reconcile" class="block px-4 py-1.5 text-sm text-gray-700 hover:bg-gray-100 {% if active == 'reconcile' %}font-semibold text-marsh{% endif %}">Reconcile</a>
+                <a href="/templates" class="block px-4 py-1.5 text-sm text-gray-700 hover:bg-gray-100 {% if active == 'templates' %}font-semibold text-marsh{% endif %}">Templates</a>
+                <a href="/settings" class="block px-4 py-1.5 text-sm text-gray-700 hover:bg-gray-100 {% if active == 'settings' %}font-semibold text-marsh{% endif %}">Settings</a>
+              </div>
+            </div>
+
+            {% set _inbox_count = inbox_pending_count() %}
+            <a href="/inbox" class="nav-link {% if active == 'inbox' %}bg-marsh-light{% endif %}">
+              Inbox{% if _inbox_count %}<span class="bg-white/20 text-white text-[10px] px-1.5 py-0.5 rounded-full ml-1">{{ _inbox_count }}</span>{% endif %}
+            </a>
           </div>
         </div>
         <div class="flex items-center gap-3">
@@ -434,8 +467,40 @@
     </div>
   </nav>
 
+  {# Capture sub-bar #}
+  <div class="bg-marsh/80 border-b border-marsh-light no-print">
+    <div class="mx-auto max-w-[1600px] px-4 sm:px-6 lg:px-8 flex items-center gap-3 py-1">
+      <span class="text-white/35 text-[11px] flex-shrink-0">Capture:</span>
+      <form hx-post="/inbox/capture" hx-swap="none"
+            hx-on::after-request="if(event.detail.successful){this.reset();var h=event.detail.xhr.getResponseHeader('HX-Trigger');if(h){var m=h.match(/INB-\\d+/);if(m)navigator.clipboard.writeText(m[0])}}"
+            class="flex-1 max-w-xl">
+        <input id="capture-input" type="text" name="content" placeholder="Type a note, press Enter..." required
+          class="w-full bg-white/10 text-white placeholder-white/30 text-xs rounded px-3 py-1
+                 border border-white/15 focus:border-white/40 focus:outline-none transition-all">
+      </form>
+    </div>
+  </div>
+
+  <script>
+  var _navDropTimer = null;
+  function openNavDrop(el) {
+    clearTimeout(_navDropTimer);
+    document.querySelectorAll('.nav-drop-panel').forEach(function(p) {
+      if (!el.contains(p)) p.classList.add('hidden');
+    });
+    var panel = el.querySelector('.nav-drop-panel');
+    if (panel) panel.classList.remove('hidden');
+  }
+  function closeNavDrop(el) {
+    var panel = el.querySelector('.nav-drop-panel');
+    if (panel) {
+      _navDropTimer = setTimeout(function() { panel.classList.add('hidden'); }, 150);
+    }
+  }
+  </script>
+
   <!-- Global HTMX loading indicator -->
-  <div id="htmx-progress" class="h-0.5 bg-marsh fixed top-14 left-0 z-50 transition-all duration-300" style="width:0; opacity:0"></div>
+  <div id="htmx-progress" class="h-0.5 bg-marsh fixed top-[84px] left-0 z-50 transition-all duration-300" style="width:0; opacity:0"></div>
 
   <!-- Flash messages -->
   {% if flash %}
@@ -856,6 +921,16 @@ document.addEventListener('keydown', function(e) {
   if (e.key === '/' && !['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)) {
     e.preventDefault();
     document.querySelector('input[name="q"]').focus();
+  }
+});
+</script>
+
+<!-- Keyboard shortcut: . to focus capture input -->
+<script>
+document.addEventListener('keydown', function(e) {
+  if (e.key === '.' && !e.target.closest('input,textarea,select,[contenteditable]')) {
+    e.preventDefault();
+    document.getElementById('capture-input').focus();
   }
 });
 </script>

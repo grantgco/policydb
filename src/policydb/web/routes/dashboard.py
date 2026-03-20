@@ -186,6 +186,8 @@ def search(request: Request, q: str = "", conn=Depends(get_db)):
     if q.strip():
         # Check for COR-{id} correspondence thread search
         cor_match = re.match(r'^COR-(\d+)$', q.strip(), re.IGNORECASE)
+        # Check for INB-{id} inbox item search
+        inb_match = re.match(r'^INB-(\d+)$', q.strip(), re.IGNORECASE)
         if cor_match:
             thread_id = int(cor_match.group(1))
             thread_activities = [dict(r) for r in conn.execute("""
@@ -197,6 +199,31 @@ def search(request: Request, q: str = "", conn=Depends(get_db)):
                 ORDER BY a.activity_date DESC
             """, (thread_id,)).fetchall()]
             results["activities"] = thread_activities
+        elif inb_match:
+            inbox_id = int(inb_match.group(1))
+            item = conn.execute("""
+                SELECT i.*, c.name AS client_name, a.subject AS activity_subject, a.id AS act_id
+                FROM inbox i LEFT JOIN clients c ON i.client_id = c.id
+                LEFT JOIN activity_log a ON i.activity_id = a.id
+                WHERE i.id = ?
+            """, (inbox_id,)).fetchone()
+            if item:
+                item = dict(item)
+                # If processed with an activity, show the linked activity
+                if item.get("act_id"):
+                    linked = conn.execute("""
+                        SELECT a.*, c.name AS client_name, p.policy_uid
+                        FROM activity_log a
+                        JOIN clients c ON a.client_id = c.id
+                        LEFT JOIN policies p ON a.policy_id = p.id
+                        WHERE a.id = ?
+                    """, (item["act_id"],)).fetchall()
+                    results["activities"] = [dict(r) for r in linked]
+                # If has a client, show the client
+                if item.get("client_id"):
+                    client = conn.execute("SELECT * FROM clients WHERE id = ?", (item["client_id"],)).fetchone()
+                    if client:
+                        results["clients"] = [dict(client)]
         else:
             raw = full_text_search(conn, q.strip())
             results = {k: [dict(r) for r in v] for k, v in raw.items()}
