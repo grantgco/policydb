@@ -361,6 +361,8 @@
 
 {% include 'settings/_disposition_card.html' %}
 
+{% include 'settings/_carrier_aliases.html' %}
+
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
   {% for key, label in list_labels.items() %}
   {% set items = lists[key] %}

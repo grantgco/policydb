@@ -109,6 +109,7 @@ def settings_page(request: Request, conn=Depends(get_db)):
         "auto_review_activity_threshold": cfg.get("auto_review_activity_threshold", 3),
         "mandated_activities": cfg.get("mandated_activities", []),
         "dispositions": cfg.get("follow_up_dispositions", []),
+        "carrier_aliases": cfg.get("carrier_aliases", {}),
         # DB health
         "db_health": _HEALTH_STATUS,
         "db_size": db_size,
@@ -483,6 +484,65 @@ def _render_mandated_activities(request: Request) -> HTMLResponse:
     if not html_parts:
         html_parts.append('<p class="text-xs text-gray-400 py-2">No mandated activities configured.</p>')
     return HTMLResponse("".join(html_parts))
+
+
+# ── Carrier Aliases ───────────────────────────────────────────────────────────
+
+@router.post("/carrier-aliases/add-group")
+def carrier_alias_add_group(request: Request, canonical: str = Form(...)):
+    aliases = cfg.get("carrier_aliases", {})
+    if canonical and canonical not in aliases:
+        aliases[canonical] = []
+        full = dict(cfg.load_config())
+        full["carrier_aliases"] = aliases
+        cfg.save_config(full)
+        cfg.reload_config()
+        from policydb.utils import rebuild_carrier_aliases
+        rebuild_carrier_aliases()
+    return RedirectResponse("/settings", status_code=303)
+
+
+@router.post("/carrier-aliases/add-alias")
+def carrier_alias_add(request: Request, canonical: str = Form(...), alias: str = Form(...)):
+    aliases = cfg.get("carrier_aliases", {})
+    alias = alias.strip()
+    if canonical in aliases and alias and alias not in aliases[canonical]:
+        aliases[canonical].append(alias)
+        full = dict(cfg.load_config())
+        full["carrier_aliases"] = aliases
+        cfg.save_config(full)
+        cfg.reload_config()
+        from policydb.utils import rebuild_carrier_aliases
+        rebuild_carrier_aliases()
+    return RedirectResponse("/settings", status_code=303)
+
+
+@router.post("/carrier-aliases/remove-alias")
+def carrier_alias_remove(request: Request, canonical: str = Form(...), alias: str = Form(...)):
+    aliases = cfg.get("carrier_aliases", {})
+    if canonical in aliases and alias in aliases[canonical]:
+        aliases[canonical].remove(alias)
+        full = dict(cfg.load_config())
+        full["carrier_aliases"] = aliases
+        cfg.save_config(full)
+        cfg.reload_config()
+        from policydb.utils import rebuild_carrier_aliases
+        rebuild_carrier_aliases()
+    return RedirectResponse("/settings", status_code=303)
+
+
+@router.post("/carrier-aliases/remove-group")
+def carrier_alias_remove_group(request: Request, canonical: str = Form(...)):
+    aliases = cfg.get("carrier_aliases", {})
+    if canonical in aliases:
+        del aliases[canonical]
+        full = dict(cfg.load_config())
+        full["carrier_aliases"] = aliases
+        cfg.save_config(full)
+        cfg.reload_config()
+        from policydb.utils import rebuild_carrier_aliases
+        rebuild_carrier_aliases()
+    return RedirectResponse("/settings", status_code=303)
 
 
 # ── DB Health Actions ─────────────────────────────────────────────────────────
