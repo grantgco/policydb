@@ -586,6 +586,12 @@ def reconcile(ext_rows: list[dict], db_rows: list[dict]) -> list[ReconcileRow]:
         pn = _normalize_policy_number(db.get("policy_number") or "")
         if pn and pn not in db_by_polnum:
             db_by_polnum[pn] = db
+        # Also index program carrier row policy numbers → parent program
+        if db.get("is_program") and db.get("_program_carrier_rows"):
+            for pc in db["_program_carrier_rows"]:
+                pc_pn = _normalize_policy_number(pc.get("policy_number") or "")
+                if pc_pn and pc_pn not in db_by_polnum:
+                    db_by_polnum[pc_pn] = db  # maps to the parent program
 
     db_unmatched: set[int] = set(range(len(db_rows)))
     ext_matched: set[int] = set()
@@ -620,10 +626,18 @@ def reconcile(ext_rows: list[dict], db_rows: list[dict]) -> list[ReconcileRow]:
         _matched_cid = None
         if db_idx in _program_indices and db.get("_program_carrier_rows"):
             _ext_carrier = ext.get("carrier", "")
+            # First try matching by policy number (strongest signal)
             for _pc in db["_program_carrier_rows"]:
-                if fuzz.WRatio(_ext_carrier, _pc.get("carrier", "")) >= 70:
+                _pc_pn = _normalize_policy_number(_pc.get("policy_number") or "")
+                if ext_pn and _pc_pn and ext_pn == _pc_pn:
                     _matched_cid = _pc.get("id")
                     break
+            # Fall back to carrier name fuzzy match
+            if not _matched_cid and _ext_carrier:
+                for _pc in db["_program_carrier_rows"]:
+                    if fuzz.WRatio(_ext_carrier, _pc.get("carrier", "")) >= 70:
+                        _matched_cid = _pc.get("id")
+                        break
         row = ReconcileRow(status, ext, db, diff_fields, score, cosmetic_diffs=cosmetic, fillable_fields=fillable,
                            is_program_match=db_idx in _program_indices,
                            matched_carrier_id=_matched_cid)
