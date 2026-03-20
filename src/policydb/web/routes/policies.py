@@ -957,6 +957,21 @@ def policy_edit_form(request: Request, policy_uid: str, add_contact: str = "", c
     contacts = _get_client_contacts(conn, policy_dict["client_id"], contact_type="client")
     team_contacts = _get_client_contacts(conn, policy_dict["client_id"], contact_type="internal")
     policy_contacts = get_policy_contacts(conn, policy_dict["id"])
+    # Attach expertise tags to policy team contacts
+    _pc_contact_ids = [c["contact_id"] for c in policy_contacts if c.get("contact_id")]
+    if _pc_contact_ids:
+        _exp_rows = conn.execute(
+            f"SELECT contact_id, category, tag FROM contact_expertise WHERE contact_id IN ({','.join('?' * len(_pc_contact_ids))})",
+            _pc_contact_ids,
+        ).fetchall()
+        _exp_map: dict = {}
+        for _er in _exp_rows:
+            _exp_map.setdefault(_er["contact_id"], {"line": [], "industry": []})
+            _exp_map[_er["contact_id"]][_er["category"]].append(_er["tag"])
+        for _pc in policy_contacts:
+            _cid = _pc.get("contact_id")
+            _pc["expertise_lines"] = _exp_map.get(_cid, {}).get("line", [])
+            _pc["expertise_industries"] = _exp_map.get(_cid, {}).get("industry", [])
     # All known contacts for autocomplete (name + email + role for auto-fill)
     all_contact_names = [r[0] for r in conn.execute(
         """SELECT DISTINCT co.name FROM contacts co
@@ -1160,6 +1175,8 @@ def policy_edit_form(request: Request, policy_uid: str, add_contact: str = "", c
         "add_contact": add_contact,
         "cycle_labels": _REVIEW_CYCLE_LABELS,
         "contact_roles": cfg.get("contact_roles", []),
+        "expertise_lines": cfg.get("expertise_lines", []),
+        "expertise_industries": cfg.get("expertise_industries", []),
         "all_orgs": sorted({r["organization"] for r in conn.execute("SELECT DISTINCT organization FROM contacts WHERE organization IS NOT NULL AND organization != ''").fetchall()}),
         "correspondence_threads": _correspondence_threads,
         "tower_layers": _tower_layers,
@@ -1639,6 +1656,21 @@ def _policy_team_response(request, conn, policy_uid: str):
     p = dict(policy)
     from policydb.queries import get_client_contacts as _get_client_contacts
     policy_contacts_list = get_policy_contacts(conn, p["id"])
+    # Attach expertise tags to policy team contacts
+    _pc_ids = [c["contact_id"] for c in policy_contacts_list if c.get("contact_id")]
+    if _pc_ids:
+        _exp_rows2 = conn.execute(
+            f"SELECT contact_id, category, tag FROM contact_expertise WHERE contact_id IN ({','.join('?' * len(_pc_ids))})",
+            _pc_ids,
+        ).fetchall()
+        _exp_map2: dict = {}
+        for _er2 in _exp_rows2:
+            _exp_map2.setdefault(_er2["contact_id"], {"line": [], "industry": []})
+            _exp_map2[_er2["contact_id"]][_er2["category"]].append(_er2["tag"])
+        for _pc2 in policy_contacts_list:
+            _cid2 = _pc2.get("contact_id")
+            _pc2["expertise_lines"] = _exp_map2.get(_cid2, {}).get("line", [])
+            _pc2["expertise_industries"] = _exp_map2.get(_cid2, {}).get("industry", [])
     team_contacts = _get_client_contacts(conn, p["client_id"], contact_type="internal")
     all_contact_names = [r[0] for r in conn.execute(
         """SELECT DISTINCT co.name FROM contacts co
@@ -1681,6 +1713,8 @@ def _policy_team_response(request, conn, policy_uid: str):
         "mailto_subject": mailto_subject,
         "already_assigned_ids": already_assigned_ids,
         "contact_roles": cfg.get("contact_roles", []),
+        "expertise_lines": cfg.get("expertise_lines", []),
+        "expertise_industries": cfg.get("expertise_industries", []),
         "all_orgs": sorted({r["organization"] for r in conn.execute("SELECT DISTINCT organization FROM contacts WHERE organization IS NOT NULL AND organization != ''").fetchall()}),
     })
 
