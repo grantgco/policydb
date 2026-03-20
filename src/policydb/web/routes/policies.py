@@ -2147,7 +2147,7 @@ def policy_snooze_followup(
     today = _date.today().isoformat()
     r["_is_overdue"] = r["follow_up_date"] < today
     resp = templates.TemplateResponse("followups/_row.html", {"request": request, "r": r, "today": today})
-    resp.headers["HX-Trigger"] = '{"refreshFollowups": "", "activityLogged": "Snoozed +' + str(days) + 'd → ' + r["follow_up_date"] + '"}'
+    resp.headers["HX-Trigger"] = '{"refreshFollowups": "", "activityLogged": "Snoozed +' + str(days) + 'd to ' + r["follow_up_date"] + '"}'
     return resp
 
 
@@ -2182,7 +2182,7 @@ def policy_reschedule_followup(
     today = _date.today().isoformat()
     r["_is_overdue"] = r["follow_up_date"] < today
     resp = templates.TemplateResponse("followups/_row.html", {"request": request, "r": r, "today": today})
-    resp.headers["HX-Trigger"] = '{"refreshFollowups": "", "activityLogged": "Rescheduled → ' + new_date + '"}'
+    resp.headers["HX-Trigger"] = '{"refreshFollowups": "", "activityLogged": "Rescheduled to ' + new_date + '"}'
     return resp
 
 
