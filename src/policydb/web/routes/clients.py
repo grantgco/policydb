@@ -666,6 +666,7 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
     contacts = get_client_contacts(conn, client_id, contact_type='client')
 
     team_contacts = get_client_contacts(conn, client_id, contact_type='internal')
+    external_contacts = get_client_contacts(conn, client_id, contact_type='external')
 
     from policydb.email_templates import client_context as _client_ctx, render_tokens as _render_tokens
     _mail_ctx = _client_ctx(conn, client_id)
@@ -899,6 +900,7 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
         "client_saved_notes": client_saved_notes,
         "contacts": contacts,
         "team_contacts": team_contacts,
+        "external_contacts": external_contacts,
         "billing_accounts": [dict(r) for r in conn.execute(
             "SELECT * FROM billing_accounts WHERE client_id=? ORDER BY is_master DESC, billing_id",
             (client_id,),
@@ -1290,6 +1292,74 @@ def team_contact_delete(
     remove_contact_from_client(conn, contact_id)
     conn.commit()
     return _internal_contacts_response(request, conn, client_id)
+
+
+# ── External Stakeholder Contacts ─────────────────────────────────────────────
+
+def _external_contacts_response(request, conn, client_id: int):
+    """Return rendered _external_contacts.html partial."""
+    external_contacts = get_client_contacts(conn, client_id, contact_type='external')
+    client = conn.execute("SELECT * FROM clients WHERE id=?", (client_id,)).fetchone()
+    from policydb.email_templates import client_context as _client_ctx, render_tokens as _render_tokens
+    _mail_ctx = _client_ctx(conn, client_id)
+    mailto_subject = _render_tokens(cfg.get("email_subject_client", "Re: {{client_name}}"), _mail_ctx)
+    return templates.TemplateResponse("clients/_external_contacts.html", {
+        "request": request,
+        "client": dict(client) if client else {},
+        "external_contacts": external_contacts,
+        "mailto_subject": mailto_subject,
+        "contact_roles": cfg.get("contact_roles", []),
+        "all_orgs": sorted({r["organization"] for r in conn.execute("SELECT DISTINCT organization FROM contacts WHERE organization IS NOT NULL AND organization != ''").fetchall()}),
+    })
+
+
+@router.post("/{client_id}/external/add-row", response_class=HTMLResponse)
+def external_contact_add_row(request: Request, client_id: int, conn=Depends(get_db)):
+    """Create blank external stakeholder contact."""
+    cid = get_or_create_contact(conn, 'New Contact')
+    conn.execute(
+        "INSERT INTO contact_client_assignments (contact_id, client_id, contact_type) VALUES (?, ?, 'external')",
+        (cid, client_id),
+    )
+    conn.commit()
+    return _external_contacts_response(request, conn, client_id)
+
+
+@router.patch("/{client_id}/external/{contact_id}/cell")
+async def external_contact_cell(request: Request, client_id: int, contact_id: int, conn=Depends(get_db)):
+    """Save a single cell value for an external stakeholder contact."""
+    body = await request.json()
+    field, value = body.get("field", ""), body.get("value", "")
+    allowed = {"name", "organization", "role", "notes", "email", "phone", "mobile"}
+    if field not in allowed:
+        return JSONResponse({"ok": False, "error": "Invalid field"}, status_code=400)
+    formatted = value.strip()
+    if field in ("phone", "mobile"):
+        formatted = format_phone(formatted) if formatted else ""
+    elif field == "email":
+        formatted = clean_email(formatted) or ""
+    if field in ("name", "email", "phone", "mobile", "organization"):
+        row = conn.execute("SELECT contact_id FROM contact_client_assignments WHERE id=?", (contact_id,)).fetchone()
+        if row:
+            conn.execute(
+                f"UPDATE contacts SET {field}=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                (formatted or None, row["contact_id"]),
+            )
+    else:
+        conn.execute(
+            f"UPDATE contact_client_assignments SET {field}=? WHERE id=? AND client_id=?",
+            (formatted or None, contact_id, client_id),
+        )
+    conn.commit()
+    return JSONResponse({"ok": True, "formatted": formatted})
+
+
+@router.post("/{client_id}/external/{contact_id}/delete", response_class=HTMLResponse)
+def external_contact_delete(request: Request, client_id: int, contact_id: int, conn=Depends(get_db)):
+    """Remove external stakeholder contact."""
+    remove_contact_from_client(conn, contact_id)
+    conn.commit()
+    return _external_contacts_response(request, conn, client_id)
 
 
 # ── Risk / Exposure Tracking ──────────────────────────────────────────────────
