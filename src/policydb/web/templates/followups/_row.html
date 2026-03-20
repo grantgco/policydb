@@ -89,15 +89,15 @@
         class="text-xs bg-green-50 hover:bg-green-100 text-green-700 border border-green-200 rounded px-2 py-1">
         Clear
       </button>
-      <button hx-post="/policies/{{ r.policy_uid }}/snooze-followup?days=1" hx-target="#{{ row_id }}" hx-swap="outerHTML"
+      <button hx-post="/policies/{{ r.policy_uid }}/snooze-followup?days=1" hx-target="#{{ row_id }}" hx-swap="delete"
         class="text-xs text-gray-400 hover:text-amber-600 border border-gray-200 hover:border-amber-300 rounded px-2 py-1.5 transition-colors">+1d</button>
-      <button hx-post="/policies/{{ r.policy_uid }}/snooze-followup?days=3" hx-target="#{{ row_id }}" hx-swap="outerHTML"
+      <button hx-post="/policies/{{ r.policy_uid }}/snooze-followup?days=3" hx-target="#{{ row_id }}" hx-swap="delete"
         class="text-xs text-gray-400 hover:text-amber-600 border border-gray-200 hover:border-amber-300 rounded px-2 py-1.5 transition-colors">+3d</button>
-      <button hx-post="/policies/{{ r.policy_uid }}/snooze-followup?days=7" hx-target="#{{ row_id }}" hx-swap="outerHTML"
+      <button hx-post="/policies/{{ r.policy_uid }}/snooze-followup?days=7" hx-target="#{{ row_id }}" hx-swap="delete"
         class="text-xs text-gray-400 hover:text-amber-600 border border-gray-200 hover:border-amber-300 rounded px-2 py-1.5 transition-colors">+7d</button>
       <button type="button" onclick="this.nextElementSibling.classList.toggle('hidden')"
         class="text-xs text-gray-400 hover:text-amber-600 border border-gray-200 hover:border-amber-300 rounded px-2 py-1.5 transition-colors">Pick</button>
-      <form class="hidden" hx-post="/policies/{{ r.policy_uid }}/reschedule-followup" hx-target="#{{ row_id }}" hx-swap="outerHTML">
+      <form class="hidden" hx-post="/policies/{{ r.policy_uid }}/reschedule-followup" hx-target="#{{ row_id }}" hx-swap="delete">
         <div class="flex gap-1 items-center">
           <input type="date" name="new_date" required class="text-xs border border-gray-300 rounded px-1 py-0.5">
           <button type="submit" class="text-xs text-marsh hover:underline">Go</button>
@@ -112,15 +112,15 @@
         class="text-xs bg-green-50 hover:bg-green-100 text-green-700 border border-green-200 rounded px-2 py-1">
         Done
       </button>
-      <button hx-post="/activities/{{ r.id }}/snooze?days=1" hx-target="#{{ row_id }}" hx-swap="outerHTML"
+      <button hx-post="/activities/{{ r.id }}/snooze?days=1" hx-target="#{{ row_id }}" hx-swap="delete"
         class="text-xs text-gray-400 hover:text-amber-600 border border-gray-200 hover:border-amber-300 rounded px-2 py-1.5 transition-colors">+1d</button>
-      <button hx-post="/activities/{{ r.id }}/snooze?days=3" hx-target="#{{ row_id }}" hx-swap="outerHTML"
+      <button hx-post="/activities/{{ r.id }}/snooze?days=3" hx-target="#{{ row_id }}" hx-swap="delete"
         class="text-xs text-gray-400 hover:text-amber-600 border border-gray-200 hover:border-amber-300 rounded px-2 py-1.5 transition-colors">+3d</button>
-      <button hx-post="/activities/{{ r.id }}/snooze?days=7" hx-target="#{{ row_id }}" hx-swap="outerHTML"
+      <button hx-post="/activities/{{ r.id }}/snooze?days=7" hx-target="#{{ row_id }}" hx-swap="delete"
         class="text-xs text-gray-400 hover:text-amber-600 border border-gray-200 hover:border-amber-300 rounded px-2 py-1.5 transition-colors">+7d</button>
       <button type="button" onclick="this.nextElementSibling.classList.toggle('hidden')"
         class="text-xs text-gray-400 hover:text-amber-600 border border-gray-200 hover:border-amber-300 rounded px-2 py-1.5 transition-colors">Pick</button>
-      <form class="hidden" hx-post="/activities/{{ r.id }}/reschedule" hx-target="#{{ row_id }}" hx-swap="outerHTML">
+      <form class="hidden" hx-post="/activities/{{ r.id }}/reschedule" hx-target="#{{ row_id }}" hx-swap="delete">
         <div class="flex gap-1 items-center">
           <input type="date" name="new_date" required class="text-xs border border-gray-300 rounded px-1 py-0.5">
           <button type="submit" class="text-xs text-marsh hover:underline">Go</button>

@@ -503,10 +503,9 @@ def activity_snooze(request: Request, activity_id: int, days: int = 7, conn=Depe
     if not row:
         return HTMLResponse("")
     new_date = dict(row)["follow_up_date"]
-    # Return empty — the refreshFollowups trigger reloads the full results panel
+    # Row deleted by hx-swap="delete" on button. Trigger refresh + toast.
     return HTMLResponse("", headers={
         "HX-Trigger": '{"refreshFollowups": "", "activityLogged": "Snoozed +' + str(days) + 'd to ' + new_date + '"}',
-        "HX-Reswap": "delete",
     })
 
 
@@ -530,12 +529,10 @@ def activity_reschedule(request: Request, activity_id: int, new_date: str = Form
         })
         resp.headers["HX-Trigger"] = '{"reorderActivities": "", "activityLogged": "Rescheduled to ' + new_date + '"}'
         return resp
-    # For follow-ups page: delete the row and trigger full refresh
+    # Row deleted by hx-swap="delete" on button. Trigger refresh + toast.
     return HTMLResponse("", headers={
         "HX-Trigger": '{"refreshFollowups": "", "activityLogged": "Rescheduled to ' + new_date + '"}',
-        "HX-Reswap": "delete",
     })
-    return resp
 
 
 @router.get("/followups/date-count")
