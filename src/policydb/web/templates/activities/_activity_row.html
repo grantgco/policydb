@@ -23,7 +23,7 @@
       {% if a.follow_up_date %} · <span class="{% if not a.follow_up_done %}text-amber-600{% else %}line-through text-gray-300{% endif %}">Follow-up {{ a.follow_up_date }}</span>{% endif %}
     </p>
   </div>
-  <div class="flex items-center gap-2 shrink-0">
+  <div class="flex items-center gap-2 shrink-0 no-print">
     {% if a.follow_up_date and not a.follow_up_done %}
     <button type="button"
       onclick="var el=document.getElementById('disposition-form-{{ a.id }}');if(el)el.classList.toggle('hidden');var others=['complete-form-','followup-form-'];others.forEach(function(p){var o=document.getElementById(p+'{{ a.id }}');if(o)o.classList.add('hidden');});"

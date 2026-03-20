@@ -2,7 +2,7 @@
 {% set row_id = "followup-" ~ r.source ~ "-" ~ r.id %}
 {% set mailto_subject = r.get('mailto_subject') or ('Re: ' ~ r.client_name ~ ' — ' ~ r.subject) %}
 <tr class="hover:bg-{{ 'red' if is_overdue else 'amber' }}-50/40" id="{{ row_id }}">
-  <td class="px-3 py-3 w-8">
+  <td class="px-3 py-3 w-8 no-print">
     <input type="checkbox" class="followup-check rounded border-gray-300" value="{{ r.source }}-{{ r.id }}"
       onchange="updateBulkBar()">
   </td>
@@ -77,7 +77,7 @@
     <span class="text-amber-700">{{ r.follow_up_date }}</span>
     {% endif %}
   </td>
-  <td class="px-4 py-3">
+  <td class="px-4 py-3 no-print">
     <div class="flex gap-1 items-center flex-wrap">
       {% if r.source == 'policy' %}
       <button type="button" onclick="toggleFollowupForm('{{ row_id }}')"
