@@ -531,6 +531,22 @@ def carrier_alias_remove(request: Request, canonical: str = Form(...), alias: st
     return RedirectResponse("/settings", status_code=303)
 
 
+@router.post("/carrier-aliases/rename-group")
+def carrier_alias_rename_group(request: Request, old_name: str = Form(...), new_name: str = Form(...)):
+    """Rename a carrier group's canonical name."""
+    new_name = new_name.strip()
+    aliases = cfg.get("carrier_aliases", {})
+    if old_name in aliases and new_name and new_name not in aliases:
+        aliases[new_name] = aliases.pop(old_name)
+        full = dict(cfg.load_config())
+        full["carrier_aliases"] = aliases
+        cfg.save_config(full)
+        cfg.reload_config()
+        from policydb.utils import rebuild_carrier_aliases
+        rebuild_carrier_aliases()
+    return RedirectResponse("/settings#carrier-aliases-card", status_code=303)
+
+
 @router.post("/carrier-aliases/remove-group")
 def carrier_alias_remove_group(request: Request, canonical: str = Form(...)):
     aliases = cfg.get("carrier_aliases", {})
