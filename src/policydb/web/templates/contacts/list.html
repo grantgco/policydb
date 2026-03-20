@@ -101,11 +101,19 @@
       </div>
       <div>
         <label class="text-xs font-medium text-gray-500 block mb-1">Organization</label>
-        <input type="text" name="organization" class="border border-gray-300 rounded px-2 py-1.5 text-sm w-full focus:outline-none focus:ring-1 focus:ring-marsh">
+        <input type="text" name="organization" list="new-contact-orgs" autocomplete="off"
+          class="border border-gray-300 rounded px-2 py-1.5 text-sm w-full focus:outline-none focus:ring-1 focus:ring-marsh">
+        <datalist id="new-contact-orgs">
+          {% for o in all_orgs %}<option value="{{ o }}">{% endfor %}
+        </datalist>
       </div>
       <div>
         <label class="text-xs font-medium text-gray-500 block mb-1">Role</label>
-        <input type="text" name="role" class="border border-gray-300 rounded px-2 py-1.5 text-sm w-full focus:outline-none focus:ring-1 focus:ring-marsh">
+        <input type="text" name="role" list="new-contact-roles" autocomplete="off"
+          class="border border-gray-300 rounded px-2 py-1.5 text-sm w-full focus:outline-none focus:ring-1 focus:ring-marsh">
+        <datalist id="new-contact-roles">
+          {% for r in all_roles %}<option value="{{ r }}">{% endfor %}
+        </datalist>
       </div>
       <div>
         <label class="text-xs font-medium text-gray-500 block mb-1">Email</label>
