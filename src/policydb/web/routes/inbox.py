@@ -13,12 +13,24 @@ from policydb.web.app import get_db, templates
 router = APIRouter()
 
 
+@router.get("/inbox/contacts/search")
+def inbox_contact_search(q: str = "", conn=Depends(get_db)):
+    """Search contacts for @ autocomplete."""
+    if len(q) < 2:
+        return JSONResponse([])
+    rows = conn.execute("""
+        SELECT id, name, organization FROM contacts
+        WHERE name LIKE ? ORDER BY name LIMIT 15
+    """, (f"%{q}%",)).fetchall()
+    return JSONResponse([{"id": r["id"], "name": r["name"], "org": r["organization"] or ""} for r in rows])
+
+
 @router.post("/inbox/capture")
-def inbox_capture(content: str = Form(...), client_id: int = Form(0), conn=Depends(get_db)):
+def inbox_capture(content: str = Form(...), client_id: int = Form(0), contact_id: int = Form(0), conn=Depends(get_db)):
     """Quick capture - create inbox item, return INB-{id} in toast."""
     conn.execute(
-        "INSERT INTO inbox (content, client_id, inbox_uid) VALUES (?, ?, '')",
-        (content.strip(), client_id or None),
+        "INSERT INTO inbox (content, client_id, contact_id, inbox_uid) VALUES (?, ?, ?, '')",
+        (content.strip(), client_id or None, contact_id or None),
     )
     row_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
     uid = f"INB-{row_id}"
@@ -33,8 +45,9 @@ def inbox_capture(content: str = Form(...), client_id: int = Form(0), conn=Depen
 def inbox_page(request: Request, show_processed: str = "", conn=Depends(get_db)):
     """Inbox page - pending items for processing."""
     pending = [dict(r) for r in conn.execute("""
-        SELECT i.*, c.name AS client_name
+        SELECT i.*, c.name AS client_name, ct.name AS contact_name
         FROM inbox i LEFT JOIN clients c ON i.client_id = c.id
+        LEFT JOIN contacts ct ON i.contact_id = ct.id
         WHERE i.status = 'pending'
         ORDER BY i.created_at DESC
     """).fetchall()]
@@ -58,6 +71,7 @@ def inbox_page(request: Request, show_processed: str = "", conn=Depends(get_db))
         "all_clients": all_clients,
         "activity_types": cfg.get("activity_types", []),
         "dispositions": cfg.get("follow_up_dispositions", []),
+        "cor_auto_triggers": cfg.get("cor_auto_triggers", []),
     })
 
 

@@ -228,10 +228,16 @@ def search(request: Request, q: str = "", conn=Depends(get_db)):
             raw = full_text_search(conn, q.strip())
             results = {k: [dict(r) for r in v] for k, v in raw.items()}
     total = sum(len(v) for v in results.values())
+    # Detect UID pattern for ref tree banner
+    uid_pattern = bool(re.match(
+        r'^(CN?\d{5,}|POL-|COR-\d+|INB-\d+|A-\d+|CN?\d+-RFI\d+)',
+        q.strip(), re.IGNORECASE
+    )) if q.strip() else False
     return templates.TemplateResponse("search.html", {
         "request": request,
         "active": "",
         "q": q,
         "results": results,
         "total": total,
+        "uid_detected": uid_pattern,
     })

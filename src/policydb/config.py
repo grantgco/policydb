@@ -95,6 +95,7 @@ _DEFAULTS: dict[str, Any] = {
         "Renewal Check-In",
         "Other",
     ],
+    "cor_auto_triggers": ["Email", "Left VM", "Sent Email", "Awaiting Response"],
     "follow_up_dispositions": [
         {"label": "Left VM", "default_days": 3},
         {"label": "No Answer", "default_days": 1},

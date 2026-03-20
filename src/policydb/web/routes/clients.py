@@ -948,6 +948,7 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
         "next_followup_days": next_followup_days,
         "last_activity_relative": last_activity_relative,
         "dispositions": cfg.get("follow_up_dispositions", []),
+        "cor_auto_triggers": cfg.get("cor_auto_triggers", []),
         "pipeline_projects": _get_project_pipeline(conn, client_id),
         "location_projects": _get_project_locations(conn, client_id),
         "project_stages": cfg.get("project_stages", []),

@@ -23,8 +23,9 @@
   <form hx-post="/inbox/capture" hx-swap="none"
         hx-on::after-request="if(event.detail.successful){this.reset();location.reload()}"
         class="flex-1">
-    <input type="text" name="content" placeholder="Type to add an inbox item..." required
+    <input id="inbox-add-input" type="text" name="content" placeholder="Type to add an inbox item... (@ to tag contact)" required
       class="w-full text-sm border border-gray-200 rounded px-3 py-1.5 focus:border-marsh focus:outline-none">
+    <input type="hidden" name="contact_id" id="inbox-add-contact-id" value="0">
   </form>
 </div>
 
@@ -51,6 +52,9 @@
           <span class="text-xs text-marsh font-medium">{{ item.client_name }}</span>
           {% else %}
           <span class="text-xs text-gray-400">(no client)</span>
+          {% endif %}
+          {% if item.contact_name %}
+          <span class="text-xs text-gray-500">&middot; {{ item.contact_name }}</span>
           {% endif %}
           <span class="text-xs text-gray-300">&middot;</span>
           <span class="text-xs text-gray-400">{{ item.created_at }}</span>
@@ -256,6 +260,19 @@ document.addEventListener('DOMContentLoaded', function() {
       loadPolicies(inboxId, sel.value);
     }
   });
+});
+
+// COR auto-trigger for inbox process forms
+var corTriggers = {{ cor_auto_triggers | tojson }};
+document.addEventListener('change', function(e) {
+  if (e.target.name === 'activity_type') {
+    var form = e.target.closest('form');
+    if (!form) return;
+    var corBox = form.querySelector('[name="start_correspondence"]');
+    if (corBox && corTriggers.includes(e.target.value)) {
+      corBox.checked = true;
+    }
+  }
 });
 </script>
 {% endblock %}
