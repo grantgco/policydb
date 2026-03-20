@@ -122,7 +122,7 @@ def _followup_workload_thresholds():
     return _cfg.get("followup_workload_thresholds", {"warning": 3, "danger": 5})
 templates.env.globals["followup_workload_thresholds"] = _followup_workload_thresholds
 
-from policydb.web.routes.policies import get_status_color as _get_status_color
+from policydb.utils import get_status_color as _get_status_color
 templates.env.globals["get_status_color"] = _get_status_color
 
 
