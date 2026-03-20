@@ -817,20 +817,28 @@ def init_db(path: Path | None = None) -> None:
     from policydb.queries import generate_mandated_activities
     generate_mandated_activities(conn)
 
-    # WAL checkpoint
-    conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    # Health checks — wrapped in try/except so they don't block server start
+    try:
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    except Exception as e:
+        print(f"[WARNING] WAL checkpoint failed (DB may be locked by another process): {e}")
 
-    # Integrity check
-    _integrity = conn.execute("PRAGMA integrity_check").fetchone()[0]
-    _HEALTH_STATUS["integrity"] = _integrity
-    if _integrity != "ok":
-        print(f"[WARNING] DB integrity: {_integrity}")
+    try:
+        _integrity = conn.execute("PRAGMA integrity_check").fetchone()[0]
+        _HEALTH_STATUS["integrity"] = _integrity
+        if _integrity != "ok":
+            print(f"[WARNING] DB integrity: {_integrity}")
+    except Exception as e:
+        _HEALTH_STATUS["integrity"] = f"error: {e}"
+        print(f"[WARNING] Integrity check failed: {e}")
 
-    # FK check
-    _fk_violations = conn.execute("PRAGMA foreign_key_check").fetchall()
-    _HEALTH_STATUS["fk_violations"] = len(_fk_violations)
-    if _fk_violations:
-        print(f"[WARNING] {len(_fk_violations)} FK violation(s) detected")
+    try:
+        _fk_violations = conn.execute("PRAGMA foreign_key_check").fetchall()
+        _HEALTH_STATUS["fk_violations"] = len(_fk_violations)
+        if _fk_violations:
+            print(f"[WARNING] {len(_fk_violations)} FK violation(s) detected")
+    except Exception as e:
+        print(f"[WARNING] FK check failed: {e}")
 
     # DB size
     _HEALTH_STATUS["db_size"] = os.path.getsize(db_path) if os.path.exists(db_path) else 0
