@@ -1313,6 +1313,28 @@ def _external_contacts_response(request, conn, client_id: int):
     })
 
 
+@router.post("/{client_id}/external/assign", response_class=HTMLResponse)
+def external_contact_assign(
+    request: Request, client_id: int,
+    name: str = Form(...), email: str = Form(""), phone: str = Form(""),
+    mobile: str = Form(""), role: str = Form(""), title: str = Form(""),
+    organization: str = Form(""),
+    conn=Depends(get_db),
+):
+    """Assign an existing contact as an external stakeholder."""
+    cid = get_or_create_contact(conn, name,
+                                email=clean_email(email) or None,
+                                phone=format_phone(phone) or None,
+                                mobile=format_phone(mobile) or None)
+    if organization:
+        conn.execute("UPDATE contacts SET organization=? WHERE id=? AND (organization IS NULL OR organization='')",
+                     (organization, cid))
+    assign_contact_to_client(conn, cid, client_id, contact_type='external',
+                             title=title or None, role=role or None)
+    conn.commit()
+    return _external_contacts_response(request, conn, client_id)
+
+
 @router.post("/{client_id}/external/add-row", response_class=HTMLResponse)
 def external_contact_add_row(request: Request, client_id: int, conn=Depends(get_db)):
     """Create blank external stakeholder contact."""
