@@ -48,7 +48,7 @@
     </div>
     {# Items #}
     <div class="p-2 space-y-1 min-h-[200px]" id="items-{{ col.date }}">
-      {% for item in col.items %}
+      {% for item in col.day_items %}
       <div class="rounded border px-2 py-1.5 text-xs
         {% if item.pinned %}border-red-200 bg-red-50/30{% else %}border-gray-200 bg-white hover:border-gray-300{% endif %}"
         id="card-{{ item.composite_id }}"

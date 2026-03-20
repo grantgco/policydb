@@ -582,7 +582,7 @@ def followups_plan(request: Request, week_start: str = "", conn=Depends(get_db))
         columns.append({
             "date": d,
             "label": day_date.strftime("%a %b %d"),
-            "items": day_items,
+            "day_items": day_items,
             "count": len(day_items),
             "pinned_count": sum(1 for i in day_items if i.get("pinned")),
         })

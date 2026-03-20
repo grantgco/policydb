@@ -1971,7 +1971,7 @@ def get_week_followups(
               AND a2.follow_up_date IS NOT NULL
           )
 
-        ORDER BY follow_up_date
+        ORDER BY 4
     """, (sat_before, fri, sat_before, fri)).fetchall()
 
     items = []
