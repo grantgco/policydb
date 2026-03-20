@@ -51,7 +51,7 @@
     <button type="button" class="ms-trigger text-xs {% if p.milestone_done == p.milestone_total %}text-green-600{% elif p.milestone_done > 0 %}text-amber-600{% else %}text-gray-400{% endif %} tabular-nums hover:underline cursor-pointer" data-uid="{{ p.policy_uid }}">{{ p.milestone_done }}/{{ p.milestone_total }}</button>
     {% else %}<span class="text-gray-300 text-xs">&mdash;</span>{% endif %}
   </td>
-  <td class="px-4 py-3 text-xs text-gray-500">{{ p.placement_colleague or '&mdash;' }}
+  <td class="px-4 py-3 text-xs text-gray-500">{{ p.placement_colleague or '—' }}
     {% if p.underwriter_name %}<span class="block text-gray-400">{{ p.underwriter_name }}</span>{% endif %}
   </td>
   <td class="px-4 py-3 text-xs whitespace-nowrap">

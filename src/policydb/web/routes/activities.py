@@ -340,7 +340,7 @@ def activity_delete(
         (activity_id,),
     )
     conn.execute(
-        "DELETE FROM mandated_activity_log WHERE activity_id = ?",
+        "UPDATE mandated_activity_log SET activity_id = NULL WHERE activity_id = ?",
         (activity_id,),
     )
     conn.execute("DELETE FROM activity_log WHERE id = ?", (activity_id,))

@@ -125,6 +125,17 @@ templates.env.globals["followup_workload_thresholds"] = _followup_workload_thres
 from policydb.utils import get_status_color as _get_status_color
 templates.env.globals["get_status_color"] = _get_status_color
 
+def _inbox_pending_count():
+    """Jinja2 global — returns pending inbox count (opens own connection)."""
+    try:
+        conn = get_connection()
+        count = conn.execute("SELECT COUNT(*) FROM inbox WHERE status='pending'").fetchone()[0]
+        conn.close()
+        return count
+    except Exception:
+        return 0
+templates.env.globals["inbox_pending_count"] = _inbox_pending_count
+
 
 # ── DB dependency ─────────────────────────────────────────────────────────────
 
@@ -137,7 +148,7 @@ def get_db() -> Generator[sqlite3.Connection, None, None]:
 
 
 # ── Register routers ──────────────────────────────────────────────────────────
-from policydb.web.routes import dashboard, clients, policies, activities, settings, reconcile, templates as tpl_routes, contacts, review, briefing, meetings  # noqa: E402
+from policydb.web.routes import dashboard, clients, policies, activities, settings, reconcile, templates as tpl_routes, contacts, review, briefing, meetings, inbox  # noqa: E402
 
 app.include_router(dashboard.router)
 app.include_router(clients.router)
@@ -150,3 +161,4 @@ app.include_router(contacts.router)
 app.include_router(review.router)
 app.include_router(briefing.router)
 app.include_router(meetings.router)
+app.include_router(inbox.router)

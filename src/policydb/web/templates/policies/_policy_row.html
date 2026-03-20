@@ -38,7 +38,7 @@
       {% if p.commission_rate %}<span class="text-gray-400"> ({{ "%.0f"|format(p.commission_rate * 100) }}%)</span>{% endif %}
     {% else %}&mdash;{% endif %}
   </td>
-  <td class="px-4 py-3 text-right tabular-nums text-gray-500 text-xs">{{ p.limit_amount | currency_short if p.limit_amount else '&mdash;' }}</td>
+  <td class="px-4 py-3 text-right tabular-nums text-gray-500 text-xs">{{ p.limit_amount | currency_short if p.limit_amount else '—' }}</td>
   <td class="px-4 py-3" id="status-{{ p.policy_uid }}">
     <div class="flex flex-wrap gap-1">
       {% for s in renewal_statuses %}
