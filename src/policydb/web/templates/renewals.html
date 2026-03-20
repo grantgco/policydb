@@ -42,15 +42,16 @@
 <div class="card overflow-hidden">
   <table class="w-full text-sm">
     <thead>
-      <tr class="border-b border-gray-200 text-left bg-gray-50">
+      <tr class="border-b border-gray-100 text-left text-xs text-gray-400 uppercase tracking-wide bg-gray-50">
+        <th class="px-3 py-3 w-8"><input type="checkbox" class="rounded border-gray-300" onchange="toggleAllRenewalChecks(this)"></th>
         {{ sort_th('Client / Line', 'client_name',    sort, dir, '/renewals', sparams) }}
         {{ sort_th('Carrier',       'carrier',         sort, dir, '/renewals', sparams) }}
         {{ sort_th('Expires',       'expiration_date', sort, dir, '/renewals', sparams) }}
         {{ sort_th('Premium',       'premium',         sort, dir, '/renewals', sparams, align='right') }}
         {{ sort_th('Urgency',       'days_to_renewal', sort, dir, '/renewals', sparams) }}
-        <th class="px-4 py-3 text-xs text-gray-500 uppercase tracking-wide">Status</th>
-        <th class="px-4 py-3 text-xs text-gray-500 uppercase tracking-wide">Checklist</th>
-        <th class="px-4 py-3 text-xs text-gray-500 uppercase tracking-wide">Policy Team</th>
+        <th class="px-4 py-3 text-xs text-gray-400 uppercase tracking-wide">Status</th>
+        <th class="px-4 py-3 text-xs text-gray-400 uppercase tracking-wide">Checklist</th>
+        <th class="px-4 py-3 text-xs text-gray-400 uppercase tracking-wide">Policy Team</th>
         {{ sort_th('Follow-Up',     'follow_up_date',  sort, dir, '/renewals', sparams) }}
         <th class="px-4 py-3"></th>
       </tr>
@@ -59,7 +60,7 @@
       {% for p in rows %}
         {% include "policies/_policy_renew_row.html" %}
       {% else %}
-      <tr><td colspan="10" class="px-4 py-10 text-center text-gray-400">No renewals in this window.</td></tr>
+      <tr><td colspan="11" class="px-4 py-10 text-center text-gray-400">No renewals in this window.</td></tr>
       {% endfor %}
     </tbody>
   </table>
@@ -68,5 +69,145 @@
 {# Opportunities section below the renewal pipeline #}
 {% set today = today if today is defined else '' %}
 {% include "policies/_opportunities_section.html" %}
+
+<!-- Bulk action bar -->
+<div id="renewal-bulk-bar" class="hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-lg z-50">
+  <!-- Bulk log form (hidden until toggled) -->
+  <div id="bulk-log-panel" class="hidden border-b border-gray-100 px-6 py-3 bg-amber-50/50">
+    <p class="text-xs font-medium text-gray-600 mb-2">Log activity to <span id="bulk-log-count" class="font-semibold">0</span> selected policies</p>
+    <div class="grid grid-cols-6 gap-2">
+      <div>
+        <select id="bulk-log-type" class="border border-gray-300 rounded px-2 py-1.5 text-xs w-full bg-white focus:outline-none focus:ring-1 focus:ring-marsh">
+          {% for t in activity_types %}<option>{{ t }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-span-2">
+        <input id="bulk-log-subject" type="text" placeholder="Subject *" required
+          class="border border-gray-300 rounded px-2 py-1.5 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh">
+      </div>
+      <div>
+        <input id="bulk-log-contact" type="text" placeholder="Contact person"
+          class="border border-gray-300 rounded px-2 py-1.5 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh">
+      </div>
+      <div>
+        <input id="bulk-log-followup" type="date" title="Follow-up date"
+          class="border border-gray-300 rounded px-2 py-1.5 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh">
+      </div>
+      <div>
+        <input id="bulk-log-duration" type="number" step="0.1" min="0" placeholder="Hours"
+          class="border border-gray-300 rounded px-2 py-1.5 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh">
+      </div>
+    </div>
+    <div class="flex items-center gap-2 mt-2">
+      <input id="bulk-log-details" type="text" placeholder="Details (optional)"
+        class="border border-gray-300 rounded px-2 py-1.5 text-xs flex-1 focus:outline-none focus:ring-1 focus:ring-marsh">
+      <button onclick="bulkLog()" class="bg-amber-600 hover:bg-amber-700 text-white text-xs font-medium px-4 py-1.5 rounded transition-colors">Log to Selected</button>
+      <button onclick="toggleBulkLogPanel()" class="text-xs text-gray-500 hover:text-gray-700">Cancel</button>
+    </div>
+  </div>
+  <!-- Main bar -->
+  <div class="px-6 py-3 flex items-center gap-3">
+    <span id="renewal-bulk-count" class="text-sm font-medium text-gray-700">0 selected</span>
+    <span class="border-l border-gray-200 h-6 mx-1"></span>
+    <select id="bulk-milestone" class="text-sm border border-gray-300 rounded px-2 py-1.5">
+      <option value="">Select milestone…</option>
+      {% for m in renewal_milestones %}
+      <option value="{{ m }}">{{ m }}</option>
+      {% endfor %}
+    </select>
+    <button onclick="bulkMilestone('complete')" class="bg-green-500 hover:bg-green-600 text-white text-sm px-3 py-1.5 rounded transition-colors">Mark Complete</button>
+    <button onclick="bulkMilestone('incomplete')" class="bg-gray-400 hover:bg-gray-500 text-white text-sm px-3 py-1.5 rounded transition-colors">Mark Incomplete</button>
+    <span class="border-l border-gray-200 h-6 mx-1"></span>
+    <button onclick="toggleBulkLogPanel()" class="bg-amber-500 hover:bg-amber-600 text-white text-sm px-3 py-1.5 rounded transition-colors">Log Activity</button>
+    <button onclick="clearRenewalChecks()" class="text-sm text-gray-400 hover:text-gray-600 ml-auto">Clear</button>
+  </div>
+</div>
+
+<script>
+function getCheckedRenewalUids() {
+  return Array.from(document.querySelectorAll('.renewal-check:checked')).map(function(cb) { return cb.value; });
+}
+
+function updateRenewalBulkBar() {
+  var uids = getCheckedRenewalUids();
+  var bar = document.getElementById('renewal-bulk-bar');
+  var count = document.getElementById('renewal-bulk-count');
+  if (uids.length > 0) {
+    bar.classList.remove('hidden');
+    count.textContent = uids.length + ' selected';
+  } else {
+    bar.classList.add('hidden');
+    document.getElementById('bulk-log-panel').classList.add('hidden');
+  }
+}
+
+function toggleAllRenewalChecks(master) {
+  var table = master.closest('table');
+  table.querySelectorAll('.renewal-check').forEach(function(cb) { cb.checked = master.checked; });
+  updateRenewalBulkBar();
+}
+
+function clearRenewalChecks() {
+  document.querySelectorAll('.renewal-check').forEach(function(cb) { cb.checked = false; });
+  updateRenewalBulkBar();
+}
+
+function toggleBulkLogPanel() {
+  var panel = document.getElementById('bulk-log-panel');
+  panel.classList.toggle('hidden');
+  if (!panel.classList.contains('hidden')) {
+    document.getElementById('bulk-log-count').textContent = getCheckedRenewalUids().length;
+    document.getElementById('bulk-log-subject').focus();
+  }
+}
+
+function bulkMilestone(action) {
+  var uids = getCheckedRenewalUids();
+  var milestone = document.getElementById('bulk-milestone').value;
+  if (!uids.length || !milestone) { alert('Select policies and pick a milestone.'); return; }
+  htmx.ajax('POST', '/renewals/bulk-milestones', {
+    target: 'body',
+    swap: 'none',
+    values: { policy_uids: uids.join(','), milestone: milestone, action: action }
+  }).then(function() {
+    uids.forEach(function(uid) {
+      htmx.ajax('GET', '/policies/' + uid + '/renew/row', { target: '#renew-row-' + uid, swap: 'outerHTML' });
+    });
+    clearRenewalChecks();
+  });
+}
+
+function bulkLog() {
+  var uids = getCheckedRenewalUids();
+  var subject = document.getElementById('bulk-log-subject').value.trim();
+  if (!uids.length) { alert('Select at least one policy.'); return; }
+  if (!subject) { alert('Subject is required.'); return; }
+  htmx.ajax('POST', '/renewals/bulk/log', {
+    target: 'body',
+    swap: 'none',
+    values: {
+      policy_uids: uids.join(','),
+      activity_type: document.getElementById('bulk-log-type').value,
+      subject: subject,
+      contact_person: document.getElementById('bulk-log-contact').value,
+      details: document.getElementById('bulk-log-details').value,
+      follow_up_date: document.getElementById('bulk-log-followup').value,
+      duration_hours: document.getElementById('bulk-log-duration').value
+    }
+  }).then(function() {
+    uids.forEach(function(uid) {
+      htmx.ajax('GET', '/policies/' + uid + '/renew/row', { target: '#renew-row-' + uid, swap: 'outerHTML' });
+    });
+    // Reset form
+    document.getElementById('bulk-log-subject').value = '';
+    document.getElementById('bulk-log-contact').value = '';
+    document.getElementById('bulk-log-details').value = '';
+    document.getElementById('bulk-log-followup').value = '';
+    document.getElementById('bulk-log-duration').value = '';
+    document.getElementById('bulk-log-panel').classList.add('hidden');
+    clearRenewalChecks();
+  });
+}
+</script>
 
 {% endblock %}

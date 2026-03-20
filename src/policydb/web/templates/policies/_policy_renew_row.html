@@ -4,23 +4,29 @@
       onchange="updateRenewalBulkBar()">
   </td>
   <td class="px-4 py-3">
-    <a href="/clients/{{ p.client_id }}" target="_blank" class="font-medium text-marsh hover:underline">{{ p.client_name }}</a>
-    {% if p.project_name %}<span class="text-xs text-gray-400 ml-1">· {{ p.project_name }}</span>{% endif %}
+    <a href="/clients/{{ p.client_id }}" class="font-medium text-marsh hover:underline">{{ p.client_name }}</a>
+    {% if p.project_name %}<span class="text-xs text-gray-400 ml-1">&middot; {{ p.project_name }}</span>{% endif %}
     <div class="flex items-center gap-1.5">
-      <p class="text-xs text-gray-500">{{ p.policy_type }}</p>
+      <p class="text-xs">
+        <span contenteditable="true" class="policy-cell text-gray-500" data-field="policy_type" data-uid="{{ p.policy_uid }}" data-placeholder="Line of business">{{ p.policy_type }}</span>
+      </p>
       <button type="button" onclick="copyRefTag(this, '{{ build_ref_tag(cn_number=p.cn_number|default(''), client_id=p.client_id, policy_uid=p.policy_uid, project_id=p.project_id|default(0)) }}')"
         class="text-xs font-mono text-gray-300 hover:text-marsh" title="Copy ref tag">{{ p.policy_uid }}</button>
     </div>
   </td>
   <td class="px-4 py-3 text-gray-600 text-xs">
-    {{ p.carrier }}
+    <span contenteditable="true" class="policy-cell" data-field="carrier" data-uid="{{ p.policy_uid }}" data-placeholder="Carrier">{{ p.carrier }}</span>
     {% if p.access_point %}<p class="text-gray-400 mt-0.5">via {{ p.access_point }}</p>{% endif %}
   </td>
   <td class="px-4 py-3 whitespace-nowrap">
-    <span class="block">{{ p.expiration_date }}</span>
+    <input type="date" value="{{ p.expiration_date }}"
+      onchange="policySaveDate(this, '{{ p.policy_uid }}', 'expiration_date')"
+      class="text-sm text-gray-900 tabular-nums bg-transparent border-none p-0 focus:outline-none focus:ring-0 cursor-pointer">
     <span class="text-xs text-gray-400">{{ p.days_to_renewal }}d</span>
   </td>
-  <td class="px-4 py-3 text-right tabular-nums text-gray-700">{{ p.premium | currency }}</td>
+  <td class="px-4 py-3 text-right tabular-nums text-gray-700">
+    <span contenteditable="true" class="policy-cell" data-field="premium" data-uid="{{ p.policy_uid }}" data-placeholder="$0">{{ p.premium | currency }}</span>
+  </td>
   <td class="px-4 py-3">
     <span class="{{ p.urgency | urgency_class }} text-xs font-semibold px-2 py-0.5 rounded">{{ p.urgency }}</span>
     {% if p.readiness_label is defined %}
@@ -28,27 +34,32 @@
     {% endif %}
   </td>
   <td class="px-4 py-3" id="status-{{ p.policy_uid }}">
-    {% include "policies/_status_badge.html" %}
+    <div class="flex flex-wrap gap-1">
+      {% for s in renewal_statuses %}
+      {% set sc = get_status_color(s, renewal_statuses) %}
+      <button type="button" onclick="policyStatusPill(this, '{{ p.policy_uid }}', '{{ s }}')"
+        class="status-pill text-[10px] px-2 py-0.5 rounded-full border transition-colors no-print
+               {% if p.renewal_status == s %}bg-{{ sc[0] }} text-{{ sc[1] }} border-{{ sc[2] }} ring-2 ring-offset-1 ring-{{ sc[2] }}
+               {% else %}border-gray-200 text-gray-500 hover:border-{{ sc[2] }}{% endif %}">
+        {{ s }}
+      </button>
+      {% endfor %}
+    </div>
   </td>
   <td class="px-4 py-3">
     {% if p.milestone_total %}
     <button type="button" class="ms-trigger text-xs {% if p.milestone_done == p.milestone_total %}text-green-600{% elif p.milestone_done > 0 %}text-amber-600{% else %}text-gray-400{% endif %} tabular-nums hover:underline cursor-pointer" data-uid="{{ p.policy_uid }}">{{ p.milestone_done }}/{{ p.milestone_total }}</button>
-    {% else %}<span class="text-gray-300 text-xs">—</span>{% endif %}
+    {% else %}<span class="text-gray-300 text-xs">&mdash;</span>{% endif %}
   </td>
-  <td class="px-4 py-3 text-xs text-gray-500">{{ p.placement_colleague or '—' }}
+  <td class="px-4 py-3 text-xs text-gray-500">{{ p.placement_colleague or '&mdash;' }}
     {% if p.underwriter_name %}<span class="block text-gray-400">{{ p.underwriter_name }}</span>{% endif %}
   </td>
   <td class="px-4 py-3 text-xs whitespace-nowrap">
     {% if p.follow_up_date %}
     <span class="{{ 'text-red-500 font-medium' if p.followup_overdue else 'text-gray-500' }}">{{ p.follow_up_date }}</span>
-    {% else %}—{% endif %}
+    {% else %}&mdash;{% endif %}
   </td>
   <td class="px-4 py-3 flex items-center gap-3">
-    <button
-      hx-get="/policies/{{ p.policy_uid }}/renew/edit"
-      hx-target="#renew-row-{{ p.policy_uid }}"
-      hx-swap="outerHTML"
-      class="text-xs text-marsh hover:underline">Edit</button>
     <button
       hx-get="/policies/{{ p.policy_uid }}/renew/log"
       hx-target="#renew-row-{{ p.policy_uid }}"
@@ -60,12 +71,12 @@
       data-to-label="{{ p.placement_colleague or p.placement_colleague_email }}"
       data-subject="{{ mailto_subject }}"
       data-cc-url="/policies/{{ p.policy_uid }}/team-cc"
-      data-ref="{{ build_ref_tag(cn_number=p.cn_number|default(''), client_id=p.client_id, policy_uid=p.policy_uid, project_id=p.project_id|default(0)) }}">✉</button>
+      data-ref="{{ build_ref_tag(cn_number=p.cn_number|default(''), client_id=p.client_id, policy_uid=p.policy_uid, project_id=p.project_id|default(0)) }}">&#9993;</button>
     {% endif %}
-    <a href="/policies/{{ p.policy_uid }}/edit" target="_blank" class="text-xs text-gray-400 hover:underline">Full →</a>
+    <a href="/policies/{{ p.policy_uid }}/edit" class="text-xs text-gray-400 hover:underline">Full &rarr;</a>
     <a href="/policies/{{ p.policy_uid }}/export" onclick="event.stopPropagation()"
       class="text-gray-300 hover:text-marsh text-xs no-print" title="Export policy XLSX">&#8615;</a>
     <button type="button" onclick="copyRefTag(this, '{{ build_ref_tag(cn_number=p.cn_number|default(''), client_id=p.client_id, policy_uid=p.policy_uid, project_id=p.project_id|default(0)) }}')"
-      class="text-gray-300 hover:text-marsh text-xs" title="Copy email ref tag">⧉</button>
+      class="text-gray-300 hover:text-marsh text-xs" title="Copy email ref tag">&#10697;</button>
   </td>
 </tr>
