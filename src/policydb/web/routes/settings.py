@@ -74,6 +74,16 @@ def settings_page(request: Request, conn=Depends(get_db)):
     except Exception:
         max_migration = None
 
+    try:
+        db_tables = [
+            r[0]
+            for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+            ).fetchall()
+        ]
+    except Exception:
+        db_tables = []
+
     return templates.TemplateResponse("settings.html", {
         "request": request,
         "active": "settings",
@@ -107,6 +117,8 @@ def settings_page(request: Request, conn=Depends(get_db)):
         "backups": backups,
         "max_migration": max_migration,
         "backup_dir": backup_dir,
+        "sql_examples": _SQL_EXAMPLES,
+        "db_tables": db_tables,
     })
 
 
@@ -606,3 +618,111 @@ def db_purge(conn=Depends(get_db)):
         })
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+
+# ── SQL Console ───────────────────────────────────────────────────────────────
+
+_SQL_EXAMPLES = [
+    {"label": "Policies expiring in 30 days", "sql": "SELECT policy_uid, c.name, policy_type, carrier, expiration_date FROM policies p JOIN clients c ON p.client_id = c.id WHERE p.archived = 0 AND p.expiration_date BETWEEN date('now') AND date('now', '+30 days') ORDER BY expiration_date"},
+    {"label": "Clients with no activity in 90 days", "sql": "SELECT c.name, MAX(a.activity_date) AS last_activity FROM clients c LEFT JOIN activity_log a ON a.client_id = c.id WHERE c.archived = 0 GROUP BY c.id HAVING last_activity < date('now', '-90 days') OR last_activity IS NULL"},
+    {"label": "Duplicate contacts by email", "sql": "SELECT email, GROUP_CONCAT(name, ', ') AS names, COUNT(*) AS cnt FROM contacts WHERE email IS NOT NULL AND email != '' GROUP BY LOWER(email) HAVING cnt > 1"},
+    {"label": "Orphaned records (FK violations)", "sql": "PRAGMA foreign_key_check"},
+    {"label": "Premium by carrier", "sql": "SELECT carrier, COUNT(*) AS policies, SUM(premium) AS total_premium FROM policies WHERE archived = 0 AND carrier IS NOT NULL GROUP BY carrier ORDER BY total_premium DESC"},
+    {"label": "Activity hours by client (30 days)", "sql": "SELECT c.name, COALESCE(SUM(a.duration_hours), 0) AS hours, COUNT(*) AS activities FROM activity_log a JOIN clients c ON a.client_id = c.id WHERE a.activity_date >= date('now', '-30 days') GROUP BY c.id ORDER BY hours DESC"},
+    {"label": "All archived records", "sql": "SELECT 'Policy' AS type, policy_uid AS id, policy_type AS name FROM policies WHERE archived = 1 UNION ALL SELECT 'Client', CAST(id AS TEXT), name FROM clients WHERE archived = 1"},
+    {"label": "Coverage types in use", "sql": "SELECT policy_type, COUNT(*) AS cnt FROM policies WHERE archived = 0 GROUP BY policy_type ORDER BY cnt DESC"},
+    {"label": "Thread summary", "sql": "SELECT thread_id, COUNT(*) AS attempts, MIN(subject) AS subject, GROUP_CONCAT(disposition, ' -> ') AS dispositions FROM activity_log WHERE thread_id IS NOT NULL GROUP BY thread_id ORDER BY MAX(activity_date) DESC LIMIT 20"},
+]
+
+
+@router.post("/db/query")
+async def db_query(request: Request, conn=Depends(get_db)):
+    """Execute a SQL query and return results as JSON."""
+    import time
+    body = await request.json()
+    sql = body.get("sql", "").strip()
+    write_mode = body.get("write_mode", False)
+
+    if not sql:
+        return JSONResponse({"ok": False, "error": "No query provided"})
+
+    if not write_mode:
+        first_word = sql.split()[0].upper() if sql.split() else ""
+        if first_word not in ("SELECT", "PRAGMA", "EXPLAIN", "WITH"):
+            return JSONResponse({"ok": False, "error": "Read-only mode. Enable write mode for INSERT/UPDATE/DELETE."})
+
+    try:
+        start = time.time()
+        cursor = conn.execute(sql)
+        if cursor.description:
+            columns = [d[0] for d in cursor.description]
+            rows = [list(r) for r in cursor.fetchmany(1000)]
+        else:
+            columns = []
+            rows = []
+            conn.commit()
+        duration = round((time.time() - start) * 1000, 1)
+        return JSONResponse({"ok": True, "columns": columns, "rows": rows, "row_count": len(rows), "duration_ms": duration})
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
+
+@router.get("/db/query/export")
+def db_query_export(sql: str = "", conn=Depends(get_db)):
+    """Execute a read-only query and return results as a CSV download."""
+    import csv
+    import io
+    from starlette.responses import Response
+
+    if not sql.strip():
+        return HTMLResponse("No query provided", status_code=400)
+
+    first_word = sql.strip().split()[0].upper()
+    if first_word not in ("SELECT", "PRAGMA", "EXPLAIN", "WITH"):
+        return HTMLResponse("Read-only queries only for export", status_code=400)
+
+    try:
+        cursor = conn.execute(sql)
+        columns = [d[0] for d in cursor.description] if cursor.description else []
+        rows = cursor.fetchall()
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(columns)
+        for r in rows:
+            writer.writerow(list(r))
+        return Response(
+            content=output.getvalue(),
+            media_type="text/csv",
+            headers={"Content-Disposition": 'attachment; filename="query_results.csv"'},
+        )
+    except Exception as e:
+        return HTMLResponse(f"Query error: {e}", status_code=400)
+
+
+# ── Schema Reference ──────────────────────────────────────────────────────────
+
+
+@router.get("/db/schema")
+def db_schema(table: str = "", conn=Depends(get_db)):
+    """Return table list or column/index info for a specific table."""
+    if not table:
+        tables = [
+            r[0]
+            for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+            ).fetchall()
+        ]
+        return JSONResponse({"tables": tables})
+    try:
+        columns = [
+            {"name": r[1], "type": r[2], "nullable": not r[3], "default": r[4], "pk": bool(r[5])}
+            for r in conn.execute(f"PRAGMA table_info({table})").fetchall()  # noqa: S608
+        ]
+        indexes = [
+            {"name": r[1], "unique": bool(r[2])}
+            for r in conn.execute(f"PRAGMA index_list({table})").fetchall()  # noqa: S608
+        ]
+        row_count = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]  # noqa: S608
+        return JSONResponse({"table": table, "columns": columns, "indexes": indexes, "row_count": row_count})
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
