@@ -347,7 +347,7 @@ def _same_year(d1: str | None, d2: str | None) -> bool:
     return d1[:4] == d2[:4]
 
 
-def _fuzzy_match(ext_row: dict, candidates: list[dict]) -> tuple[dict | None, float]:
+def _fuzzy_match(ext_row: dict, candidates: list[dict], date_priority: bool = False) -> tuple[dict | None, float]:
     """
     Find the best fuzzy match for ext_row among candidates.
 
@@ -358,8 +358,14 @@ def _fuzzy_match(ext_row: dict, candidates: list[dict]) -> tuple[dict | None, fl
       - expiration date: +25 if ≤14d, +15 if ≤45d, +5 if same year, −10 if >60d
       - effective date: +15 if ≤14d, +10 if ≤45d
       - carrier: +10 if WRatio >= 70
-      - policy number (normalized): +30 exact, +25 fuzzy ≥90, +10 fuzzy ≥75
+      - policy number (normalized): +50 exact, +40 fuzzy ≥90, +20 fuzzy ≥75
       - Accept if combined score >= 65
+
+    When date_priority=True:
+      - Base: client × 0.50 only (type ignored)
+      - Effective date: +35 if ≤14d, +25 if ≤45d
+      - Expiration date: +30 if ≤14d, +20 if ≤45d
+      - Acceptance threshold lowered to 55
     """
     if not ext_row.get("client_name"):
         return None, 0.0
@@ -409,8 +415,11 @@ def _fuzzy_match(ext_row: dict, candidates: list[dict]) -> tuple[dict | None, fl
         db_type = _normalize_coverage(db.get("policy_type", ""))
         type_score = fuzz.WRatio(ext_type, db_type) if (ext_type and db_type) else 50
 
-        # Base score: client-weighted (type is secondary — user reconciles manually)
-        combined = client_score * 0.60 + type_score * 0.20
+        # Base score
+        if date_priority:
+            combined = client_score * 0.50  # type ignored in date-priority mode
+        else:
+            combined = client_score * 0.60 + type_score * 0.20
 
         # Carrier bonus
         if ext_carrier:
@@ -431,27 +440,43 @@ def _fuzzy_match(ext_row: dict, candidates: list[dict]) -> tuple[dict | None, fl
                                 combined += 20
                         break
 
-        # Expiration date — primary date signal (boosted)
+        # Expiration date
         db_exp = db.get("expiration_date", "")
         exp_delta = _date_delta_days(ext_exp, db_exp) if (ext_exp and db_exp) else None
         if exp_delta is not None:
-            if exp_delta <= 14:
-                combined += 25
-            elif exp_delta <= 45:
-                combined += 15
-            elif _same_year(ext_exp, db_exp):
-                combined += 5    # same year, different month — some confidence
+            if date_priority:
+                if exp_delta <= 14:
+                    combined += 30
+                elif exp_delta <= 45:
+                    combined += 20
+                elif _same_year(ext_exp, db_exp):
+                    combined += 10
+                else:
+                    combined -= 5
             else:
-                combined -= 10   # clearly different period
+                if exp_delta <= 14:
+                    combined += 25
+                elif exp_delta <= 45:
+                    combined += 15
+                elif _same_year(ext_exp, db_exp):
+                    combined += 5
+                else:
+                    combined -= 10
 
-        # Effective date — strong secondary signal (boosted)
+        # Effective date
         db_eff = db.get("effective_date", "")
         eff_delta = _date_delta_days(ext_eff, db_eff) if (ext_eff and db_eff) else None
         if eff_delta is not None:
-            if eff_delta <= 14:
-                combined += 15
-            elif eff_delta <= 45:
-                combined += 10
+            if date_priority:
+                if eff_delta <= 14:
+                    combined += 35
+                elif eff_delta <= 45:
+                    combined += 25
+            else:
+                if eff_delta <= 14:
+                    combined += 15
+                elif eff_delta <= 45:
+                    combined += 10
 
         # Policy number — strongest match signal after client name
         db_pn = _normalize_policy_number(db.get("policy_number") or "")
@@ -469,7 +494,8 @@ def _fuzzy_match(ext_row: dict, candidates: list[dict]) -> tuple[dict | None, fl
             best_score = combined
             best_candidate = db
 
-    if best_score < 65:
+    threshold = 55 if date_priority else 65
+    if best_score < threshold:
         return None, 0.0
 
     return best_candidate, best_score
@@ -568,12 +594,15 @@ def find_candidates(ext_row: dict, db_rows: list[dict], limit: int = 8) -> list[
 
 # ─── MAIN RECONCILE ───────────────────────────────────────────────────────────
 
-def reconcile(ext_rows: list[dict], db_rows: list[dict]) -> list[ReconcileRow]:
+def reconcile(ext_rows: list[dict], db_rows: list[dict], date_priority: bool = False) -> list[ReconcileRow]:
     """
     Match ext_rows against db_rows.
 
     Pass 1: Exact policy number match
     Pass 2: Fuzzy match on client_name + policy_type + expiration_date
+
+    When date_priority=True, Pass 2 uses date-focused scoring (effective/expiration
+    dates weighted much higher, coverage type ignored, lower acceptance threshold).
     Pass 3: Remaining DB rows → EXTRA
 
     Returns rows sorted: DIFF, MISSING, EXTRA, MATCH.
@@ -713,7 +742,7 @@ def reconcile(ext_rows: list[dict], db_rows: list[dict]) -> list[ReconcileRow]:
     for i, ext in enumerate(ext_rows):
         if i in ext_matched:
             continue
-        db, score = _fuzzy_match(ext, candidates)
+        db, score = _fuzzy_match(ext, candidates, date_priority=date_priority)
         if db is not None:
             db_idx = db_rows.index(db)
             _claim_db(db, db_idx)
