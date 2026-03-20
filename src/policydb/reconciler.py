@@ -402,14 +402,9 @@ def _fuzzy_match(ext_row: dict, candidates: list[dict], date_priority: bool = Fa
         if client_score < 60:
             continue
 
-        # Programs with structured carrier rows: ext carrier must match one
-        if ext_carrier and db.get("is_program") and db.get("_program_carrier_rows"):
-            carrier_score_main = fuzz.WRatio(ext_carrier, db.get("carrier", ""))
-            if carrier_score_main < 70 and not any(
-                fuzz.WRatio(ext_carrier, _pc.get("carrier", "")) >= 70
-                for _pc in db["_program_carrier_rows"]
-            ):
-                continue
+        # Programs with structured carrier rows: carrier match is a bonus, not a gate.
+        # A program might have a carrier row with a slightly different name (data quality).
+        # Don't skip — let the scoring handle it.
 
         # Type scoring — no hard gate; contributes to base score only
         db_type = _normalize_coverage(db.get("policy_type", ""))

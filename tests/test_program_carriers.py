@@ -144,7 +144,8 @@ def test_reconciler_program_carrier_match_with_policy_number():
 
 
 def test_reconciler_program_carrier_no_match():
-    """Carrier not in program_carrier_rows should not get program bonus."""
+    """Carrier not in program_carrier_rows should still match the program
+    (carrier is a scoring factor, not a hard gate) but without carrier bonus."""
     db_rows = [{
         "id": 1, "policy_uid": "PGM-002", "client_name": "Beta Inc",
         "policy_type": "Casualty Program", "carrier": "Zurich",
@@ -164,5 +165,6 @@ def test_reconciler_program_carrier_no_match():
         "first_named_insured": "",
     }]
     results = reconcile(ext_rows, db_rows)
-    missing = [r for r in results if r.status == "MISSING"]
-    assert len(missing) >= 1
+    # Should match the program (on client + dates) but show as DIFF (carrier/premium differ)
+    matched = [r for r in results if r.status in ("MATCH", "DIFF")]
+    assert len(matched) >= 1
