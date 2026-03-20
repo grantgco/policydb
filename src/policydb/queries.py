@@ -756,15 +756,15 @@ def get_contact_by_id(conn: sqlite3.Connection, contact_id: int) -> Optional[sql
 
 
 def search_contacts(conn: sqlite3.Connection, q: str, limit: int = 20) -> list[dict]:
-    """Search contacts by name or email (LIKE match)."""
+    """Search contacts by name, email, or organization (LIKE match)."""
     pattern = f"%{q.strip()}%"
     rows = conn.execute(
         """SELECT id, name, email, phone, mobile, organization
            FROM contacts
-           WHERE name LIKE ? OR email LIKE ?
+           WHERE name LIKE ? OR email LIKE ? OR organization LIKE ?
            ORDER BY name
            LIMIT ?""",
-        (pattern, pattern, limit),
+        (pattern, pattern, pattern, limit),
     ).fetchall()
     return [dict(r) for r in rows]
 
