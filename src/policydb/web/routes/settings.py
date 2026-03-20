@@ -678,7 +678,30 @@ def db_purge(conn=Depends(get_db)):
 
         wb.save(str(export_path))
 
-        # Delete archived records in a transaction
+        # Delete archived records — clean up FK dependencies first
+        # Get IDs for targeted cleanup
+        archived_policy_ids = [r["id"] for r in archived_policies]
+        archived_client_ids = [r["id"] for r in archived_clients]
+        archived_policy_uids = [r["policy_uid"] for r in archived_policies]
+
+        # Clean up child records referencing archived policies (NO ACTION FKs)
+        if archived_policy_ids:
+            ph = ",".join("?" * len(archived_policy_ids))
+            conn.execute(f"UPDATE activity_log SET policy_id = NULL WHERE policy_id IN ({ph})", archived_policy_ids)
+            conn.execute(f"UPDATE policies SET program_id = NULL WHERE program_id IN ({ph})", archived_policy_ids)
+
+        # Clean up child records referencing archived clients (NO ACTION FKs)
+        if archived_client_ids:
+            ch = ",".join("?" * len(archived_client_ids))
+            conn.execute(f"DELETE FROM activity_log WHERE client_id IN ({ch})", archived_client_ids)
+            conn.execute(f"DELETE FROM premium_history WHERE client_id IN ({ch})", archived_client_ids)
+            conn.execute(f"DELETE FROM project_notes WHERE client_id IN ({ch})", archived_client_ids)
+            conn.execute(f"DELETE FROM client_risks WHERE client_id IN ({ch})", archived_client_ids)
+            conn.execute(f"DELETE FROM client_request_items WHERE bundle_id IN (SELECT id FROM client_request_bundles WHERE client_id IN ({ch}))", archived_client_ids)
+            conn.execute(f"DELETE FROM client_request_bundles WHERE client_id IN ({ch})", archived_client_ids)
+            conn.execute(f"UPDATE inbox SET client_id = NULL WHERE client_id IN ({ch})", archived_client_ids)
+
+        # Now delete the archived records (CASCADE FKs handle the rest)
         conn.execute("DELETE FROM policies WHERE archived=1")
         conn.execute("DELETE FROM clients WHERE archived=1")
         conn.commit()
