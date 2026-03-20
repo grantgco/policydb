@@ -214,7 +214,35 @@ def _activity_row_dict(conn, activity_id: int) -> dict | None:
            WHERE a.id = ?""",
         (activity_id,),
     ).fetchone()
-    return dict(row) if row else None
+    if not row:
+        return None
+    a = dict(row)
+    _attach_pc_emails(conn, [a])
+    return a
+
+
+def _attach_pc_emails(conn, activities: list[dict]) -> None:
+    """Batch-attach pc_name/pc_email to activity dicts that have a policy_uid."""
+    policy_uids = {a.get("policy_uid") for a in activities if a.get("policy_uid")}
+    if not policy_uids:
+        return
+    placeholders = ",".join("?" * len(policy_uids))
+    pc_rows = conn.execute(
+        f"""SELECT p.policy_uid, co.name AS pc_name, co.email AS pc_email
+            FROM contact_policy_assignments cpa
+            JOIN contacts co ON cpa.contact_id = co.id
+            JOIN policies p ON cpa.policy_id = p.id
+            WHERE p.policy_uid IN ({placeholders})
+              AND cpa.is_placement_colleague = 1
+              AND co.email IS NOT NULL AND TRIM(co.email) != ''""",
+        list(policy_uids),
+    ).fetchall()
+    pc_map = {r["policy_uid"]: {"pc_name": r["pc_name"], "pc_email": r["pc_email"]} for r in pc_rows}
+    for a in activities:
+        pc = pc_map.get(a.get("policy_uid"))
+        if pc:
+            a["pc_name"] = pc["pc_name"]
+            a["pc_email"] = pc["pc_email"]
 
 
 @router.get("/activities/{activity_id}/row", response_class=HTMLResponse)
@@ -633,6 +661,7 @@ def activity_list(
         client_id=client_id or None,
         activity_type=activity_type or None,
     )]
+    _attach_pc_emails(conn, rows)
     time_summary = get_time_summary(
         conn, days=days,
         client_id=client_id or None,
