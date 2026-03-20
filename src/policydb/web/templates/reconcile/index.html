@@ -55,6 +55,13 @@
 
     </div>
 
+    <div class="mt-2">
+      <label class="flex items-center gap-2 cursor-pointer">
+        <input type="checkbox" name="date_priority" value="1" class="text-marsh focus:ring-marsh rounded">
+        <span class="text-sm text-gray-700">Date-priority matching <span class="text-gray-400 text-xs">(match by effective/expiration dates, ignore coverage type differences)</span></span>
+      </label>
+    </div>
+
     <!-- Column mapping (shown after file is selected) -->
     <input type="hidden" name="column_mapping_json" id="col-map-json">
     <div id="col-map-ui" class="hidden border-t border-gray-100 pt-4">

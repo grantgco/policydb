@@ -135,6 +135,7 @@ async def reconcile_run(
     client_id: int = Form(0),
     scope: str = Form("active"),
     column_mapping_json: str = Form(""),
+    date_priority: str = Form(""),
     conn=Depends(get_db),
 ):
     all_clients = conn.execute(
@@ -191,7 +192,7 @@ async def reconcile_run(
         if r.get("is_program"):
             r["_program_carrier_rows"] = _carrier_map.get(r["id"], [])
 
-    results = reconcile(ext_rows, db_rows)
+    results = reconcile(ext_rows, db_rows, date_priority=bool(date_priority))
 
     missing_rows = [r for r in results if r.status == "MISSING"]
     extra_rows = [r for r in results if r.status == "EXTRA"]
