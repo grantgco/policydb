@@ -1,6 +1,7 @@
 {% set is_overdue = r.get('_is_overdue', r.follow_up_date < today) %}
 {% set row_id = "followup-" ~ r.source ~ "-" ~ r.id %}
 {% set mailto_subject = r.get('mailto_subject') or ('Re: ' ~ r.client_name ~ ' — ' ~ r.subject) %}
+{% set _ref_tag = build_ref_tag(cn_number=r.get('cn_number', ''), client_id=r.client_id, policy_uid=r.policy_uid|default(''), project_id=r.get('project_id', 0), activity_id=r.id, thread_id=r.get('thread_id', 0)) %}
 <tr class="hover:bg-{{ 'red' if is_overdue else 'amber' }}-50/40" id="{{ row_id }}">
   <td class="px-3 py-3 w-8 no-print">
     <input type="checkbox" class="followup-check rounded border-gray-300" value="{{ r.source }}-{{ r.id }}"
@@ -27,7 +28,7 @@
       {% endif %}
       {% if r.thread_id and r.get('thread_total') %}
       <p class="text-[10px] text-gray-400 mt-0.5">
-        <span class="cursor-pointer hover:text-blue-500" onclick="navigator.clipboard.writeText('COR-{{ r.thread_id }}');if(typeof showToast==='function')showToast('COR-{{ r.thread_id }} copied',true);">COR-{{ r.thread_id }}</span> &middot; attempt {{ r.get('thread_attempt_num', '?') }} of {{ r.thread_total }}
+        <button type="button" onclick="copyRefTag(this, '{{ _ref_tag }}')" class="font-mono text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded hover:bg-blue-100 cursor-pointer transition-colors" title="Click to copy ref tag">{{ _ref_tag }}</button> &middot; attempt {{ r.get('thread_attempt_num', '?') }} of {{ r.thread_total }}
         {% if r.get('prev_disposition') %}&middot; last: {{ r.prev_disposition }}{% if r.get('prev_days_ago') is not none %} {{ r.prev_days_ago }}d ago{% endif %}{% endif %}
       </p>
       {% endif %}
@@ -44,7 +45,7 @@
     <span class="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">{{ r.disposition }}</span>
     {% endif %}
     {% if r.thread_id %}
-    <span class="text-[10px] text-blue-400 font-mono cursor-pointer hover:text-blue-600" onclick="navigator.clipboard.writeText('COR-{{ r.thread_id }}');if(typeof showToast==='function')showToast('COR-{{ r.thread_id }} copied',true);" title="Click to copy">COR-{{ r.thread_id }}</span>
+    <button type="button" onclick="copyRefTag(this, '{{ _ref_tag }}')" class="text-[10px] font-mono text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded hover:bg-blue-100 cursor-pointer transition-colors" title="Click to copy ref tag">{{ _ref_tag }}</button>
     {% endif %}
     {% endif %}
   </td>
@@ -151,7 +152,6 @@
         data-ref="{{ _ref_tag }}"
         title="Forward to {{ r.pc_name or 'placement colleague' }}">&#8594; {{ r.pc_name or 'Colleague' }}</button>
       {% endif %}
-      {% set _ref_tag = build_ref_tag(cn_number=r.get('cn_number', ''), client_id=r.client_id, policy_uid=r.policy_uid|default(''), project_id=r.get('project_id', 0), activity_id=r.id, thread_id=r.get('thread_id', 0)) %}
       <button type="button" onclick="copyRefTag(this, '{{ _ref_tag }}')"
         class="text-xs text-gray-300 hover:text-marsh border border-gray-200 hover:border-marsh rounded px-2 py-1.5 transition-colors" title="Copy email ref tag">&#10697;</button>
     </div>

@@ -413,10 +413,7 @@ def get_activities(
     if activity_type:
         sql += " AND a.activity_type = ?"
         params.append(activity_type)
-    sql += """ ORDER BY
-        CASE WHEN a.follow_up_date IS NOT NULL AND (a.follow_up_done IS NULL OR a.follow_up_done = 0) THEN 0 ELSE 1 END,
-        CASE WHEN a.follow_up_date IS NOT NULL AND (a.follow_up_done IS NULL OR a.follow_up_done = 0) THEN a.follow_up_date END ASC,
-        a.activity_date DESC, a.id DESC"""
+    sql += " ORDER BY a.activity_date DESC, a.id DESC"
     return conn.execute(sql, params).fetchall()
 
 
