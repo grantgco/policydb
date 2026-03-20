@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, Response
 
 from policydb.queries import get_client_by_name
-from policydb.utils import normalize_coverage_type, normalize_policy_number
+from policydb.utils import normalize_carrier, normalize_coverage_type, normalize_policy_number
 from policydb.reconciler import (
     _compare_fields,
     _find_likely_pairs,
@@ -514,6 +514,7 @@ def reconcile_create(
     account_exec = cfg.get("default_account_exec", "Grant")
     pgm = 1 if is_program == "1" else 0
     policy_type = normalize_coverage_type(policy_type)
+    carrier = normalize_carrier(carrier) if carrier else ""
     policy_number = normalize_policy_number(policy_number) if policy_number else ""
 
     def _f(v):
@@ -620,7 +621,7 @@ async def batch_create_program(
         if idx < 0 or idx >= len(missing_rows_list):
             continue
         ext = missing_rows_list[idx]
-        c = (ext.get("carrier") or "").strip()
+        c = normalize_carrier((ext.get("carrier") or "").strip())
         if c and c not in carriers:
             carriers.append(c)
         try:
@@ -666,7 +667,7 @@ async def batch_create_program(
         if idx < 0 or idx >= len(missing_rows_list):
             continue
         ext = missing_rows_list[idx]
-        c = (ext.get("carrier") or "").strip()
+        c = normalize_carrier((ext.get("carrier") or "").strip())
         pn = (ext.get("policy_number") or "").strip()
         try:
             prem = float(ext.get("premium") or 0)
@@ -828,6 +829,7 @@ async def batch_create(
         uid = next_policy_uid(conn)
         _raw_pol_num = ext.get("policy_number", "") or ""
         _pol_num = normalize_policy_number(_raw_pol_num) if _raw_pol_num else None
+        _carrier = normalize_carrier(ext.get("carrier", "") or "")
         conn.execute(
             """INSERT INTO policies
                (policy_uid, client_id, policy_type, carrier, policy_number,
@@ -835,14 +837,14 @@ async def batch_create(
                 account_exec)
                VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
             (
-                uid, cid, ptype, ext.get("carrier", "") or None,
+                uid, cid, ptype, _carrier or None,
                 _pol_num,
                 eff, exp, _f(ext.get("premium")),
                 _f(ext.get("limit_amount")), _f(ext.get("deductible")),
                 account_exec,
             ),
         )
-        created.append({"uid": uid, "type": ptype, "carrier": ext.get("carrier", "")})
+        created.append({"uid": uid, "type": ptype, "carrier": _carrier})
 
     conn.commit()
 

@@ -13,7 +13,7 @@ import dateparser
 
 from policydb import config as cfg
 from policydb.db import next_policy_uid
-from policydb.utils import normalize_coverage_type, normalize_policy_number, normalize_client_name
+from policydb.utils import normalize_carrier, normalize_coverage_type, normalize_policy_number, normalize_client_name
 
 
 # ─── NORMALIZATION HELPERS ───────────────────────────────────────────────────
@@ -272,7 +272,7 @@ class PolicyImporter:
 
             client_name = normalize_client_name(client_name) if client_name else client_name
             policy_type = normalize_coverage_type(row.get("policy_type", "").strip())
-            carrier = row.get("carrier", "").strip()
+            carrier = normalize_carrier(row.get("carrier", "").strip())
             if not policy_type or not carrier:
                 self.warnings.append(f"Row {i}: missing policy_type or carrier, skipping")
                 self.skipped += 1
