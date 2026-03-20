@@ -139,52 +139,51 @@
           hx-target="#edit-activity-list"
           hx-swap="afterbegin"
           hx-on::after-request="this.reset(); document.getElementById('log-form-edit').classList.add('hidden'); document.querySelector('#log-toggle-bar button').textContent = '+ Log'"
-          class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          class="border-l-4 border-marsh bg-green-50/30 pl-3 pr-2 py-2 rounded-r">
       <input type="hidden" name="client_id" value="{{ policy.client_id }}">
       <input type="hidden" name="policy_id" value="{{ policy.id }}">
-      <div>
-        <label class="block text-xs font-medium text-gray-600 mb-1">Type</label>
-        <select name="activity_type" class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm bg-white focus:outline-none focus:ring-1 focus:ring-marsh" required>
-          {% for t in activity_types %}<option>{{ t }}</option>{% endfor %}
-        </select>
+      <div class="flex items-end gap-3 flex-wrap">
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">Type</label>
+          <select name="activity_type" class="border border-gray-300 rounded px-2 py-1 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-marsh" required>
+            {% for t in activity_types %}<option>{{ t }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="flex-1 min-w-32">
+          <label class="block text-xs font-medium text-gray-600 mb-1">Subject <span class="text-red-400">*</span></label>
+          <input type="text" name="subject" required
+            class="w-full border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-marsh">
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">Contact</label>
+          <input type="text" name="contact_person" list="contacts-list-edit" autocomplete="off"
+            class="border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-marsh w-32">
+          <datalist id="contacts-list-edit">
+            {% for c in contacts %}<option value="{{ c.name }}">{% endfor %}
+          </datalist>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">Duration</label>
+          <input type="number" name="duration_hours" min="0" step="any" placeholder="hrs"
+            class="border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-marsh w-20">
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">Follow-Up</label>
+          <input type="date" name="follow_up_date"
+            class="border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-marsh">
+        </div>
+        <div>
+          <label class="toggle-switch">
+            <input type="checkbox" name="start_correspondence" value="1">
+            <span class="toggle-track"></span>
+            <span class="text-xs text-gray-600 ml-1">COR</span>
+          </label>
+        </div>
+        <button type="submit" class="bg-marsh hover:bg-marsh-light text-white text-xs font-medium px-3 py-1 rounded transition-colors">Log</button>
       </div>
-      <div>
-        <label class="block text-xs font-medium text-gray-600 mb-1">Contact Person</label>
-        <input type="text" name="contact_person" list="contacts-list-edit" autocomplete="off"
-          class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-marsh">
-        <datalist id="contacts-list-edit">
-          {% for c in contacts %}<option value="{{ c.name }}">{% endfor %}
-        </datalist>
-      </div>
-      <div class="sm:col-span-2">
-        <label class="block text-xs font-medium text-gray-600 mb-1">Subject <span class="text-red-400">*</span></label>
-        <input type="text" name="subject" required
-          class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-marsh">
-      </div>
-      <div class="sm:col-span-2">
-        <label class="block text-xs font-medium text-gray-600 mb-1">Details</label>
-        <textarea name="details" rows="2"
-          class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-marsh"></textarea>
-      </div>
-      <div>
-        <label class="block text-xs font-medium text-gray-600 mb-1">Duration</label>
-        <input type="number" name="duration_hours" min="0" step="any" placeholder="hrs"
-          class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-marsh">
-      </div>
-      <div>
-        <label class="block text-xs font-medium text-gray-600 mb-1">Follow-Up Date</label>
-        <input type="date" name="follow_up_date"
-          class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-marsh">
-      </div>
-      <div class="flex items-center gap-4 pt-4">
-        <label class="toggle-switch">
-          <input type="checkbox" name="start_correspondence" value="1">
-          <span class="toggle-track"></span>
-          <span class="text-xs text-gray-600 ml-2">Start Correspondence (COR)</span>
-        </label>
-      </div>
-      <div class="flex items-end">
-        <button type="submit" class="w-full bg-marsh hover:bg-marsh-light text-white text-sm font-medium px-4 py-1.5 rounded transition-colors">Save Activity</button>
+      <div class="mt-2">
+        <textarea name="details" rows="1" placeholder="Optional notes…"
+          class="w-full border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-marsh"></textarea>
       </div>
     </form>
   </div>
