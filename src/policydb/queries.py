@@ -1698,6 +1698,13 @@ def generate_mandated_activities(conn: sqlite3.Connection) -> int:
                 )
                 continue
 
+            # Skip dates too far in the future — don't schedule a meeting
+            # 10 months out for a just-renewed policy. Will be created on a
+            # future startup once the date is within the window.
+            max_horizon = cfg.get("mandated_activity_horizon_days", 180)
+            if (target_date - today).days > max_horizon:
+                continue
+
             # Render subject template
             subject = subject_tpl.replace("{{policy_type}}", p.get("policy_type") or "")
             subject = subject.replace("{{client_name}}", p.get("client_name") or "")

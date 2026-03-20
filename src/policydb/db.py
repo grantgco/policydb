@@ -856,6 +856,28 @@ def init_db(path: Path | None = None) -> None:
     from policydb.queries import generate_mandated_activities
     generate_mandated_activities(conn)
 
+    # Clean up premature mandated activities (beyond horizon window)
+    try:
+        from policydb import config as _ma_cfg
+        from datetime import date as _ma_date, timedelta as _ma_td
+        _horizon_days = _ma_cfg.get("mandated_activity_horizon_days", 180)
+        _horizon_date = (_ma_date.today() + _ma_td(days=_horizon_days)).isoformat()
+        _far_activities = conn.execute("""
+            SELECT a.id, p.policy_uid FROM activity_log a
+            JOIN policies p ON a.policy_id = p.id
+            JOIN mandated_activity_log mal ON mal.activity_id = a.id
+            WHERE a.follow_up_date > ? AND a.follow_up_done = 0
+        """, (_horizon_date,)).fetchall()
+        if _far_activities:
+            for _fa in _far_activities:
+                conn.execute("DELETE FROM mandated_activity_log WHERE activity_id = ?", (_fa["id"],))
+                conn.execute("DELETE FROM policy_milestones WHERE policy_uid = ? AND milestone IN (SELECT rule_name FROM mandated_activity_log WHERE policy_uid = ? AND activity_id IS NULL)", (_fa["policy_uid"], _fa["policy_uid"]))
+                conn.execute("DELETE FROM activity_log WHERE id = ?", (_fa["id"],))
+            conn.commit()
+            print(f"[hygiene] Removed {len(_far_activities)} mandated activities beyond {_horizon_days}d horizon")
+    except Exception as e:
+        print(f"[WARNING] Mandated activity cleanup failed: {e}")
+
     # Health checks — wrapped in try/except so they don't block server start
     try:
         conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")

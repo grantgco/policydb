@@ -278,6 +278,7 @@ _DEFAULTS: dict[str, Any] = {
     "email_subject_policy": "Re: {{client_name}}{{project_name_sep}} \u2014 {{policy_type}} \u2014 Eff. {{effective_date}}",
     "email_subject_client": "Re: {{client_name}}",
     "email_subject_followup": "Re: {{client_name}}{{project_name_sep}} \u2014 {{policy_type}} \u2014 {{subject}}",
+    "mandated_activity_horizon_days": 180,
     "mandated_activities": [
         {
             "name": "RSM Meeting",
