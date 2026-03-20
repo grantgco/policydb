@@ -589,6 +589,7 @@ def get_all_followups(
           WHERE a.policy_id = p.id
             AND a.follow_up_done = 0
             AND a.follow_up_date IS NOT NULL
+            AND a.follow_up_date <= p.follow_up_date
       )
 
     UNION ALL
@@ -1969,6 +1970,7 @@ def get_week_followups(
               SELECT 1 FROM activity_log a2
               WHERE a2.policy_id = p.id AND a2.follow_up_done = 0
               AND a2.follow_up_date IS NOT NULL
+              AND a2.follow_up_date <= p.follow_up_date
           )
 
         ORDER BY 4
