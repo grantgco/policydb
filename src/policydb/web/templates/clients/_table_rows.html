@@ -12,7 +12,7 @@
 </tr>
 {% endif %}
 {% set _last_group_id.val = _gid %}
-<tr class="hover:bg-gray-50 cursor-pointer {% if _gid %}border-l-2 border-blue-200{% endif %}" onclick="window.location='/clients/{{ c.id }}'">
+<tr class="hover:bg-gray-50 cursor-pointer {% if _gid %}border-l-[3px] border-blue-400 bg-blue-50/20{% endif %}" onclick="window.location='/clients/{{ c.id }}'">
   <td class="px-4 py-3">
     <a href="/clients/{{ c.id }}" class="font-medium text-marsh hover:underline">{{ c.name }}</a>
     {% if c.is_prospect %}<span class="ml-1.5 text-xs font-semibold bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded">Prospect</span>{% endif %}
