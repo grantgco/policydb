@@ -154,7 +154,7 @@
           <input type="text" name="contact_person" list="contacts-list-edit" autocomplete="off"
             class="border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-marsh w-32">
           <datalist id="contacts-list-edit">
-            {% for c in contacts %}<option value="{{ c.name }}">{% endfor %}
+            {% for name in all_contact_names %}<option value="{{ name }}">{% endfor %}
           </datalist>
         </div>
         <div>
