@@ -1,6 +1,19 @@
+<style>
+.policy-cell[contenteditable]:empty::before {
+  content: attr(data-placeholder);
+  color: #d1d5db;
+  font-style: italic;
+}
+.policy-cell[contenteditable]:focus {
+  outline: none;
+  border-bottom: 2px solid #3b82f6;
+  background: rgba(59, 130, 246, 0.03);
+}
+</style>
+
 <table class="w-full text-sm">
   <thead>
-    <tr class="border-b border-gray-100 text-left text-xs text-gray-500 uppercase tracking-wide">
+    <tr class="border-b border-gray-100 text-left text-xs text-gray-400 uppercase tracking-wide bg-gray-50">
       <th class="px-3 py-2">Client / Line</th>
       <th class="px-3 py-2">Expires</th>
       <th class="px-3 py-2 text-right">Premium</th>
@@ -20,3 +33,59 @@
     {% endfor %}
   </tbody>
 </table>
+
+<script>
+// Policy cell blur-save
+document.addEventListener('blur', function(e) {
+  if (!e.target.matches('.policy-cell[contenteditable]')) return;
+  var raw = e.target.textContent.trim();
+  var uid = e.target.dataset.uid;
+  var field = e.target.dataset.field;
+  fetch('/policies/' + uid + '/cell', {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({field: field, value: raw})
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.ok && data.formatted !== raw) {
+      e.target.textContent = data.formatted;
+      e.target.style.transition = 'background-color 0.3s ease';
+      e.target.style.backgroundColor = '#d1fae5';
+      setTimeout(function() {
+        e.target.style.backgroundColor = '';
+        setTimeout(function() { e.target.style.transition = ''; }, 300);
+      }, 800);
+    }
+  });
+}, true);
+
+// Policy date save
+function policySaveDate(input, uid, field) {
+  fetch('/policies/' + uid + '/cell', {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({field: field, value: input.value})
+  });
+}
+
+// Policy status pill
+function policyStatusPill(btn, uid, status) {
+  var td = btn.closest('td');
+  td.querySelectorAll('.status-pill').forEach(function(p) {
+    p.className = p.className.replace(/ring-2|ring-offset-1|ring-\S+|bg-\S+|text-\S+|border-\S+/g, '').trim();
+    p.classList.add('status-pill', 'text-[10px]', 'px-2', 'py-0.5', 'rounded-full', 'border', 'transition-colors', 'no-print', 'border-gray-200', 'text-gray-500');
+  });
+  btn.classList.add('ring-2', 'ring-offset-1');
+  fetch('/policies/' + uid + '/status', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    body: 'status=' + encodeURIComponent(status)
+  }).then(function() {
+    // Refresh the row to get proper server-rendered colors
+    if (typeof htmx !== 'undefined') {
+      htmx.ajax('GET', '/policies/' + uid + '/dash/row', {target: '#dash-row-' + uid, swap: 'outerHTML'});
+    }
+  });
+}
+</script>
