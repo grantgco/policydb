@@ -48,6 +48,47 @@ _CONFIG_SEEDS: dict[str, str] = {
     "exposure_unit": "exposure_unit_options",
 }
 
+# ── Status color system ───────────────────────────────────────────────────────
+
+_STATUS_COLORS: dict[str, tuple[str, str, str]] = {
+    "Not Started": ("gray-100", "gray-600", "gray-300"),
+    "In Progress": ("blue-100", "blue-700", "blue-300"),
+    "Quoted": ("purple-100", "purple-700", "purple-300"),
+    "Pending Bind": ("amber-100", "amber-700", "amber-300"),
+    "Bound": ("green-100", "green-700", "green-300"),
+}
+
+_COLOR_PALETTE: list[tuple[str, str, str]] = [
+    ("pink-100", "pink-700", "pink-300"),
+    ("sky-100", "sky-700", "sky-300"),
+    ("yellow-100", "yellow-700", "yellow-300"),
+    ("rose-100", "rose-700", "rose-300"),
+    ("teal-100", "teal-700", "teal-300"),
+    ("indigo-100", "indigo-700", "indigo-300"),
+    ("orange-100", "orange-700", "orange-300"),
+    ("lime-100", "lime-700", "lime-300"),
+]
+
+
+def get_status_color(status: str, all_statuses: list | None = None) -> tuple[str, str, str]:
+    """Return (bg, text, border) Tailwind color classes for a renewal status.
+
+    Built-in statuses get fixed semantic colors. Custom statuses (not in the
+    fixed map) are auto-assigned a color from _COLOR_PALETTE based on their
+    position in the list of custom statuses, cycling through the palette if
+    there are more than 8.
+    """
+    if status in _STATUS_COLORS:
+        return _STATUS_COLORS[status]
+    if all_statuses:
+        custom = [s for s in all_statuses if s not in _STATUS_COLORS]
+        try:
+            idx = custom.index(status)
+            return _COLOR_PALETTE[idx % len(_COLOR_PALETTE)]
+        except ValueError:
+            pass
+    return ("gray-100", "gray-600", "gray-300")
+
 
 @router.get("/project-defaults", response_class=JSONResponse)
 def policy_project_defaults(project_name: str, client_id: int = 0, conn=Depends(get_db)):
@@ -819,6 +860,106 @@ def opp_log_post(
     conn.commit()
     check_auto_review_policy(conn, policy_uid.upper(), 0)
     return _opp_row_response(request, policy_uid.upper(), conn)
+
+
+# ---------------------------------------------------------------------------
+# Opportunity inline edit (client detail page)
+# ---------------------------------------------------------------------------
+
+def _opp_client_row_response(request: Request, uid: str, conn):
+    """Build the opportunity client-detail display row template response."""
+    from policydb.email_templates import render_tokens as _render_tokens
+    o = get_opportunity_by_uid(conn, uid)
+    if not o:
+        return HTMLResponse("", status_code=404)
+    _subj_tpl = cfg.get("email_subject_policy", "Re: {{client_name}} — {{policy_type}}")
+    _ctx = {
+        "client_name": o.get("client_name") or "",
+        "policy_type": o.get("policy_type") or "",
+        "carrier": o.get("carrier") or "",
+        "policy_uid": o.get("policy_uid") or "",
+        "project_name": (o.get("project_name") or "").strip(),
+        "project_name_sep": f" \u2014 {o['project_name']}" if o.get("project_name") else "",
+    }
+    o["mailto_subject"] = _render_tokens(_subj_tpl, _ctx)
+    # Attach team contacts
+    pc_rows = conn.execute(
+        "SELECT cpa.policy_id, co.name, co.email, co.phone, cpa.role, co.organization "
+        "FROM contact_policy_assignments cpa "
+        "JOIN contacts co ON cpa.contact_id = co.id "
+        "WHERE cpa.policy_id = ?",
+        (o["id"],),
+    ).fetchall()
+    o["team"] = [dict(r) for r in pc_rows]
+    return templates.TemplateResponse("policies/_opp_client_row.html", {
+        "request": request,
+        "o": o,
+    })
+
+
+@router.get("/{policy_uid}/opp/client-row", response_class=HTMLResponse)
+def opp_client_row(request: Request, policy_uid: str, conn=Depends(get_db)):
+    """HTMX partial: restore opportunity client-detail display row (Cancel from edit form)."""
+    return _opp_client_row_response(request, policy_uid.upper(), conn)
+
+
+@router.get("/{policy_uid}/opp/edit", response_class=HTMLResponse)
+def opp_row_edit_form(request: Request, policy_uid: str, conn=Depends(get_db)):
+    """HTMX partial: inline edit form for an opportunity row on the client detail page."""
+    o = get_opportunity_by_uid(conn, policy_uid.upper())
+    if not o:
+        return HTMLResponse("", status_code=404)
+    return templates.TemplateResponse("policies/_opp_row_edit.html", {
+        "request": request,
+        "o": dict(o),
+        "policy_types": cfg.get("policy_types", []),
+        "opportunity_statuses": cfg.get("opportunity_statuses", []),
+    })
+
+
+@router.post("/{policy_uid}/opp/edit", response_class=HTMLResponse)
+def opp_row_edit_post(
+    request: Request,
+    policy_uid: str,
+    policy_type: str = Form(""),
+    carrier: str = Form(""),
+    opportunity_status: str = Form(""),
+    target_effective_date: str = Form(""),
+    premium: str = Form(""),
+    commission_rate: str = Form(""),
+    description: str = Form(""),
+    conn=Depends(get_db),
+):
+    """HTMX: save inline opportunity edits, return updated client-detail display row."""
+    uid = policy_uid.upper()
+
+    def _float(v: str):
+        try:
+            return float(v) if str(v).strip() else None
+        except ValueError:
+            return None
+
+    policy_type_clean = normalize_coverage_type(policy_type) if policy_type.strip() else None
+    conn.execute(
+        """UPDATE policies SET
+               policy_type=?, carrier=?, opportunity_status=?,
+               target_effective_date=?, premium=?, commission_rate=?,
+               description=?
+           WHERE policy_uid=?""",
+        (
+            policy_type_clean,
+            carrier.strip() or None,
+            opportunity_status.strip() or None,
+            target_effective_date.strip() or None,
+            _float(premium) or 0,
+            _float(commission_rate),
+            description.strip() or None,
+            uid,
+        ),
+    )
+    conn.commit()
+    check_auto_review_policy(conn, uid, 0)
+    return _opp_client_row_response(request, uid, conn)
 
 
 def _build_checklist(conn, policy_uid: str) -> list[dict]:
@@ -1802,6 +1943,46 @@ def _policy_team_response(request, conn, policy_uid: str):
         "contact_roles": cfg.get("contact_roles", []),
         "all_orgs": sorted({r["organization"] for r in conn.execute("SELECT DISTINCT organization FROM contacts WHERE organization IS NOT NULL AND organization != ''").fetchall()}),
     })
+
+
+@router.patch("/{policy_uid}/cell")
+async def policy_cell_save(request: Request, policy_uid: str, conn=Depends(get_db)):
+    """Save a single field on a policy (contenteditable cell save)."""
+    body = await request.json()
+    field = body.get("field", "")
+    value = body.get("value", "")
+
+    allowed = {
+        "policy_type", "carrier", "policy_number", "premium",
+        "effective_date", "expiration_date", "limit_amount", "deductible",
+        "description", "notes",
+    }
+    if field not in allowed:
+        return JSONResponse({"ok": False, "error": f"Invalid field: {field}"}, status_code=400)
+
+    uid = policy_uid.upper()
+    policy = conn.execute("SELECT id FROM policies WHERE policy_uid = ?", (uid,)).fetchone()
+    if not policy:
+        return JSONResponse({"ok": False, "error": "Not found"}, status_code=404)
+
+    formatted = value
+    if field in ("premium", "limit_amount", "deductible"):
+        from policydb.utils import parse_currency_with_magnitude
+        num = parse_currency_with_magnitude(value)
+        conn.execute(f"UPDATE policies SET {field} = ? WHERE policy_uid = ?", (num, uid))  # noqa: S608
+        formatted = f"${num:,.0f}"
+    elif field == "policy_type":
+        formatted = normalize_coverage_type(value)
+        conn.execute("UPDATE policies SET policy_type = ? WHERE policy_uid = ?", (formatted, uid))
+    elif field == "policy_number":
+        formatted = normalize_policy_number(value)
+        conn.execute("UPDATE policies SET policy_number = ? WHERE policy_uid = ?", (formatted, uid))
+    else:
+        conn.execute(f"UPDATE policies SET {field} = ? WHERE policy_uid = ?", (value.strip() or None, uid))  # noqa: S608
+        formatted = value.strip()
+
+    conn.commit()
+    return JSONResponse({"ok": True, "formatted": formatted})
 
 
 @router.patch("/{policy_uid}/team/{contact_id}/cell")
