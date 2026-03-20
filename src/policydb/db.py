@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import sqlite3
 from pathlib import Path
@@ -13,6 +14,16 @@ EXPORTS_DIR = DB_DIR / "exports"
 CONFIG_PATH = DB_DIR / "config.yaml"
 
 _MIGRATIONS_DIR = Path(__file__).parent / "migrations"
+
+_HEALTH_STATUS: dict = {
+    "integrity": "ok",
+    "fk_violations": 0,
+    "last_backup": None,
+    "last_backup_verified": False,
+    "backup_count": 0,
+    "db_size": 0,
+    "wal_size": 0,
+}
 
 
 def get_db_path() -> Path:
@@ -50,6 +61,66 @@ def _backup_db(db_path: Path) -> None:
     ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     backup_path = db_path.parent / f"policydb.sqlite.backup_{ts}"
     shutil.copy2(db_path, backup_path)
+
+
+def _auto_backup(db_path: Path, max_backups: int = 30, force: bool = False) -> None:
+    """Create a verified backup in ~/.policydb/backups/, pruning old ones."""
+    import shutil
+    import datetime
+
+    if not db_path.exists():
+        return
+
+    backup_dir = db_path.parent / "backups"
+    backup_dir.mkdir(exist_ok=True)
+
+    # Find existing backups sorted newest-first
+    existing = sorted(
+        backup_dir.glob("policydb_*.sqlite"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+
+    # Skip if a backup exists within the last hour (unless forced)
+    if not force and existing:
+        newest_mtime = existing[0].stat().st_mtime
+        age_seconds = datetime.datetime.now().timestamp() - newest_mtime
+        if age_seconds < 3600:
+            _HEALTH_STATUS["backup_count"] = len(existing)
+            _HEALTH_STATUS["last_backup"] = str(existing[0])
+            return
+
+    ts = datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    backup_path = backup_dir / f"policydb_{ts}.sqlite"
+    shutil.copy2(db_path, backup_path)
+
+    # Verify backup integrity
+    verified = False
+    try:
+        bconn = sqlite3.connect(str(backup_path))
+        result = bconn.execute("PRAGMA integrity_check").fetchone()
+        verified = result is not None and result[0] == "ok"
+        bconn.close()
+    except Exception:
+        verified = False
+
+    _HEALTH_STATUS["last_backup"] = str(backup_path)
+    _HEALTH_STATUS["last_backup_verified"] = verified
+
+    # Refresh the list after adding the new backup
+    existing = sorted(
+        backup_dir.glob("policydb_*.sqlite"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    _HEALTH_STATUS["backup_count"] = len(existing)
+
+    # Prune backups beyond max_backups
+    for old_backup in existing[max_backups:]:
+        try:
+            old_backup.unlink()
+        except Exception:
+            pass
 
 
 def _run_hygiene_062(conn: sqlite3.Connection) -> None:
@@ -746,7 +817,31 @@ def init_db(path: Path | None = None) -> None:
     from policydb.queries import generate_mandated_activities
     generate_mandated_activities(conn)
 
+    # WAL checkpoint
+    conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+
+    # Integrity check
+    _integrity = conn.execute("PRAGMA integrity_check").fetchone()[0]
+    _HEALTH_STATUS["integrity"] = _integrity
+    if _integrity != "ok":
+        print(f"[WARNING] DB integrity: {_integrity}")
+
+    # FK check
+    _fk_violations = conn.execute("PRAGMA foreign_key_check").fetchall()
+    _HEALTH_STATUS["fk_violations"] = len(_fk_violations)
+    if _fk_violations:
+        print(f"[WARNING] {len(_fk_violations)} FK violation(s) detected")
+
+    # DB size
+    _HEALTH_STATUS["db_size"] = os.path.getsize(db_path) if os.path.exists(db_path) else 0
+    _wal = str(db_path) + "-wal"
+    _HEALTH_STATUS["wal_size"] = os.path.getsize(_wal) if os.path.exists(_wal) else 0
+
     conn.close()
+
+    # Auto-backup (runs after connection is closed so the file is fully flushed)
+    from policydb import config as _cfg
+    _auto_backup(db_path, max_backups=_cfg.get("backup_retention_count", 30))
 
 
 def _migrate_unified_contacts(conn: sqlite3.Connection) -> None:

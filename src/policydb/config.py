@@ -307,6 +307,7 @@ _DEFAULTS: dict[str, Any] = {
         "Technology", "Manufacturing", "Hospitality", "Energy",
         "Financial Services", "Public Entity", "Transportation",
     ],
+    "backup_retention_count": 30,
 }
 
 _config: dict[str, Any] | None = None
