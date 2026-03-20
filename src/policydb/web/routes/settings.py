@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Form, Request
+import os
+
+from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 import policydb.config as cfg
 from policydb.config import reorder_list_item
-from policydb.web.app import templates
+from policydb.db import DB_PATH, _HEALTH_STATUS
+from policydb.web.app import get_db, templates
 
 router = APIRouter(prefix="/settings")
 
@@ -35,8 +38,42 @@ EDITABLE_LISTS: dict[str, str] = {
 
 
 @router.get("", response_class=HTMLResponse)
-def settings_page(request: Request):
+def settings_page(request: Request, conn=Depends(get_db)):
     lists = {key: cfg.get(key, []) for key in EDITABLE_LISTS}
+
+    # DB health data
+    db_size = os.path.getsize(DB_PATH) if os.path.exists(DB_PATH) else 0
+    wal_path = str(DB_PATH) + "-wal"
+    wal_size = os.path.getsize(wal_path) if os.path.exists(wal_path) else 0
+    backup_dir = DB_PATH.parent / "backups"
+    backups = (
+        sorted(backup_dir.glob("policydb_*.sqlite"), key=lambda p: p.stat().st_mtime, reverse=True)
+        if backup_dir.exists()
+        else []
+    )
+    db_counts: dict = {}
+    for tbl in ["clients", "policies", "activity_log", "contacts"]:
+        try:
+            db_counts[tbl] = conn.execute(f"SELECT COUNT(*) FROM {tbl}").fetchone()[0]  # noqa: S608
+        except Exception:
+            db_counts[tbl] = 0
+    try:
+        db_counts["clients_archived"] = conn.execute(
+            "SELECT COUNT(*) FROM clients WHERE archived=1"
+        ).fetchone()[0]
+    except Exception:
+        db_counts["clients_archived"] = 0
+    try:
+        db_counts["policies_archived"] = conn.execute(
+            "SELECT COUNT(*) FROM policies WHERE archived=1"
+        ).fetchone()[0]
+    except Exception:
+        db_counts["policies_archived"] = 0
+    try:
+        max_migration = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
+    except Exception:
+        max_migration = None
+
     return templates.TemplateResponse("settings.html", {
         "request": request,
         "active": "settings",
@@ -62,6 +99,14 @@ def settings_page(request: Request):
         "auto_review_activity_threshold": cfg.get("auto_review_activity_threshold", 3),
         "mandated_activities": cfg.get("mandated_activities", []),
         "dispositions": cfg.get("follow_up_dispositions", []),
+        # DB health
+        "db_health": _HEALTH_STATUS,
+        "db_size": db_size,
+        "wal_size": wal_size,
+        "db_counts": db_counts,
+        "backups": backups,
+        "max_migration": max_migration,
+        "backup_dir": backup_dir,
     })
 
 
@@ -426,3 +471,138 @@ def _render_mandated_activities(request: Request) -> HTMLResponse:
     if not html_parts:
         html_parts.append('<p class="text-xs text-gray-400 py-2">No mandated activities configured.</p>')
     return HTMLResponse("".join(html_parts))
+
+
+# ── DB Health Actions ─────────────────────────────────────────────────────────
+
+@router.post("/db/backup")
+def db_backup_now():
+    """Force a backup immediately (skip recency check)."""
+    from policydb.db import _auto_backup
+    try:
+        _auto_backup(DB_PATH, max_backups=cfg.get("backup_retention_count", 30), force=True)
+        backup_path = _HEALTH_STATUS.get("last_backup", "")
+        verified = _HEALTH_STATUS.get("last_backup_verified", False)
+        count = _HEALTH_STATUS.get("backup_count", 0)
+        return JSONResponse({
+            "ok": True,
+            "message": f"Backup created ({count} total). {'Verified.' if verified else 'Verification failed.'}",
+            "backup": backup_path,
+            "verified": verified,
+            "count": count,
+        })
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+
+@router.post("/db/vacuum")
+def db_vacuum(conn=Depends(get_db)):
+    """Run VACUUM to reclaim space."""
+    try:
+        before = os.path.getsize(DB_PATH) if os.path.exists(DB_PATH) else 0
+        conn.execute("VACUUM")
+        after = os.path.getsize(DB_PATH) if os.path.exists(DB_PATH) else 0
+        saved = before - after
+        return JSONResponse({
+            "ok": True,
+            "before_bytes": before,
+            "after_bytes": after,
+            "saved_bytes": saved,
+            "message": f"VACUUM complete. Saved {saved // 1024} KB.",
+        })
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+
+@router.get("/db/download")
+def db_download(conn=Depends(get_db)):
+    """Checkpoint WAL and serve the database file as a download."""
+    import datetime
+    from starlette.responses import FileResponse
+    try:
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    except Exception:
+        pass
+    if not DB_PATH.exists():
+        return JSONResponse({"ok": False, "error": "Database file not found"}, status_code=404)
+    ts = datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    filename = f"policydb_{ts}.sqlite"
+    return FileResponse(
+        str(DB_PATH),
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/db/purge-preview")
+def db_purge_preview(conn=Depends(get_db)):
+    """Return counts of archived records that would be purged."""
+    try:
+        n_clients = conn.execute("SELECT COUNT(*) FROM clients WHERE archived=1").fetchone()[0]
+        n_policies = conn.execute("SELECT COUNT(*) FROM policies WHERE archived=1").fetchone()[0]
+        return JSONResponse({"ok": True, "clients": n_clients, "policies": n_policies})
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+
+@router.post("/db/purge")
+def db_purge(conn=Depends(get_db)):
+    """Export archived records to XLSX then permanently delete them and VACUUM."""
+    import datetime
+    try:
+        import openpyxl
+    except ImportError:
+        return JSONResponse({"ok": False, "error": "openpyxl is required for purge export."}, status_code=500)
+
+    try:
+        archived_clients = conn.execute("SELECT * FROM clients WHERE archived=1").fetchall()
+        archived_policies = conn.execute("SELECT * FROM policies WHERE archived=1").fetchall()
+
+        n_clients = len(archived_clients)
+        n_policies = len(archived_policies)
+
+        if n_clients == 0 and n_policies == 0:
+            return JSONResponse({"ok": True, "message": "No archived records to purge.", "clients": 0, "policies": 0})
+
+        # Build export XLSX
+        exports_dir = DB_PATH.parent / "exports"
+        exports_dir.mkdir(exist_ok=True)
+        ts = datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")
+        export_path = exports_dir / f"purged_archive_{ts}.xlsx"
+
+        wb = openpyxl.Workbook()
+
+        if archived_clients:
+            ws_c = wb.active
+            ws_c.title = "Clients"
+            client_cols = list(archived_clients[0].keys())
+            ws_c.append(client_cols)
+            for row in archived_clients:
+                ws_c.append([row[c] for c in client_cols])
+
+        if archived_policies:
+            ws_p = wb.create_sheet("Policies")
+            policy_cols = list(archived_policies[0].keys())
+            ws_p.append(policy_cols)
+            for row in archived_policies:
+                ws_p.append([row[c] for c in policy_cols])
+
+        wb.save(str(export_path))
+
+        # Delete archived records in a transaction
+        conn.execute("DELETE FROM policies WHERE archived=1")
+        conn.execute("DELETE FROM clients WHERE archived=1")
+        conn.commit()
+
+        # VACUUM
+        conn.execute("VACUUM")
+
+        return JSONResponse({
+            "ok": True,
+            "message": f"Purged {n_clients} clients and {n_policies} policies. Export saved to {export_path.name}.",
+            "clients": n_clients,
+            "policies": n_policies,
+            "export": str(export_path),
+        })
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
