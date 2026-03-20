@@ -116,39 +116,7 @@
 <div class="card">
   <ul class="divide-y divide-gray-100">
     {% for a in activities %}
-    <li id="activity-{{ a.id }}" class="px-5 py-3 flex items-start gap-4">
-      <div class="shrink-0 text-xs text-gray-400 w-24 pt-0.5">{{ a.activity_date }}</div>
-      <div class="flex-1 min-w-0">
-        <div class="flex items-center gap-2 flex-wrap">
-          <span class="text-xs font-medium bg-gray-100 text-gray-600 px-2 py-0.5 rounded">{{ a.activity_type }}</span>
-          <a href="/clients/{{ a.client_id }}" class="text-xs text-marsh hover:underline">{{ a.client_name }}</a>
-          {% if a.policy_uid %}<a href="/policies/{{ a.policy_uid }}/edit" class="text-xs font-mono text-marsh hover:underline">{{ a.policy_uid }}</a>{% endif %}
-          <span class="text-sm font-medium text-gray-800">{{ a.subject }}</span>
-          {% if a.duration_hours %}<span class="text-xs bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded">{{ a.duration_hours | format_hours }}</span>{% endif %}
-        </div>
-        {% if a.details %}<p class="text-xs text-gray-500 mt-1 line-clamp-2">{{ a.details }}</p>{% endif %}
-        <p class="text-xs text-gray-400 mt-1">
-          {% if a.contact_person %}{{ a.contact_person }} · {% endif %}
-          {% if a.follow_up_date %}
-          <span class="{{ 'text-amber-600' if not a.follow_up_done else 'line-through text-gray-300' }}">Follow-up {{ a.follow_up_date }}{% if a.follow_up_done %} ✓{% endif %}</span> ·
-          {% endif %}
-          {% if a.duration_hours %}<span class="text-blue-500">{{ a.duration_hours | format_hours }}</span> · {% endif %}
-          <button type="button" onclick="copyRefTag(this, '{{ build_ref_tag(cn_number=a.cn_number|default(''), client_id=a.client_id, policy_uid=a.policy_uid|default(''), project_id=a.project_id|default(0), activity_id=a.id) }}')"
-            class="font-mono text-gray-300 hover:text-marsh" title="Copy ref tag">{{ build_ref_tag(cn_number=a.cn_number|default(''), client_id=a.client_id, policy_uid=a.policy_uid|default(''), project_id=a.project_id|default(0), activity_id=a.id) }}</button>
-        </p>
-      </div>
-      <button
-        hx-get="/activities/{{ a.id }}/row/edit"
-        hx-target="#activity-{{ a.id }}"
-        hx-swap="outerHTML"
-        class="shrink-0 text-xs text-gray-400 hover:text-marsh hover:underline pt-0.5">Edit</button>
-      <button
-        hx-post="/activities/{{ a.id }}/delete"
-        hx-target="#activity-{{ a.id }}"
-        hx-swap="outerHTML"
-        hx-confirm="Delete this activity?"
-        class="text-xs text-gray-300 hover:text-red-500 ml-1">&#10005;</button>
-    </li>
+    {% include "activities/_activity_row.html" %}
     {% else %}
     <li class="px-5 py-10 text-center text-gray-400">No activity in this period.</li>
     {% endfor %}
