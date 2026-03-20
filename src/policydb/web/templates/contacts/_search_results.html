@@ -68,6 +68,20 @@
         <button type="submit"
           class="text-xs bg-marsh text-white px-3 py-1 rounded hover:bg-marsh-light">Assign</button>
       </form>
+      {% elif context == 'external' %}
+      <form hx-post="/clients/{{ target_id }}/external/assign"
+            hx-target="#external-contacts-card" hx-swap="outerHTML"
+            class="flex items-center gap-2 shrink-0">
+        <input type="hidden" name="name" value="{{ r.name }}">
+        <input type="hidden" name="email" value="{{ r.email or '' }}">
+        <input type="hidden" name="phone" value="{{ r.phone or '' }}">
+        <input type="hidden" name="mobile" value="{{ r.mobile or '' }}">
+        <input type="hidden" name="role" value="{{ r.role or '' }}">
+        <input type="hidden" name="title" value="{{ r.title or '' }}">
+        <input type="hidden" name="organization" value="{{ r.organization or '' }}">
+        <button type="submit"
+          class="text-xs bg-marsh text-white px-3 py-1 rounded hover:bg-marsh-light">Assign</button>
+      </form>
       {% elif context == 'meeting_attendee' %}
       <form hx-post="/meetings/{{ target_id }}/attendees/add"
             hx-target="#attendees-section" hx-swap="innerHTML"
