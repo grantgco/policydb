@@ -1,0 +1,71 @@
+<tr data-row-id="{{ c.id }}" class="matrix-row group hover:bg-gray-50/60 align-top">
+  {# Name #}
+  <td class="px-3 py-2.5">
+    <div contenteditable="true"
+         class="matrix-cell-editable outline-none font-medium text-gray-800 rounded px-1 -mx-1 text-sm"
+         data-field="name"
+         data-placeholder="Name...">{{ c.name or '' }}</div>
+  </td>
+  {# Title #}
+  <td class="px-3 py-2.5">
+    <div contenteditable="true"
+         class="matrix-cell-editable outline-none text-gray-600 text-xs rounded px-1 -mx-1"
+         data-field="title"
+         data-placeholder="Title...">{{ c.title or '' }}</div>
+  </td>
+  {# Role (combobox) #}
+  <td class="matrix-cell-combo px-3 py-2.5 cursor-pointer relative"
+      data-field="role"
+      data-options='{{ contact_roles | tojson }}'>
+    <span class="cell-display">
+      {% if c.role %}
+      <span class="text-xs text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded">{{ c.role }}</span>
+      {% else %}<span class="text-gray-300 text-xs">&mdash;</span>{% endif %}
+    </span>
+  </td>
+  {# Email (click-to-input) #}
+  <td class="matrix-cell-email px-3 py-2.5 cursor-pointer overflow-hidden" data-field="email">
+    <span class="cell-display text-xs">
+      {% if c.email %}
+      <a href="mailto:{{ c.email }}{% if mailto_subject %}?subject={{ mailto_subject | urlencode }}{% endif %}" class="text-marsh hover:underline truncate block max-w-full" title="{{ c.email }}" onclick="event.stopPropagation()">{{ c.email }}</a>
+      {% else %}<span class="text-gray-300">&mdash;</span>{% endif %}
+    </span>
+  </td>
+  {# Phone #}
+  <td class="px-3 py-2.5 whitespace-nowrap">
+    <div contenteditable="true"
+         class="matrix-cell-editable outline-none text-gray-600 text-xs rounded px-1 -mx-1"
+         data-field="phone"
+         data-placeholder="Phone...">{{ c.phone or '' }}</div>
+  </td>
+  {# Mobile #}
+  <td class="px-3 py-2.5 whitespace-nowrap">
+    <div contenteditable="true"
+         class="matrix-cell-editable outline-none text-gray-400 text-xs rounded px-1 -mx-1"
+         data-field="mobile"
+         data-placeholder="Cell...">{{ c.mobile or '' }}</div>
+  </td>
+  {# Notes #}
+  <td class="px-3 py-2.5">
+    <div contenteditable="true"
+         class="matrix-cell-editable outline-none text-gray-400 text-xs rounded px-1 -mx-1"
+         data-field="notes"
+         data-placeholder="Notes...">{{ c.notes or '' }}</div>
+  </td>
+  {# Star (is_primary toggle) #}
+  <td class="px-3 py-2.5 text-center">
+    <button
+      hx-post="/clients/{{ client.id }}/contacts/{{ c.id }}/set-primary"
+      hx-target="#contacts-card" hx-swap="outerHTML"
+      title="{{ 'Remove primary' if c.is_primary else 'Set as primary' }}"
+      class="text-sm {{ 'text-marsh' if c.is_primary else 'text-gray-300 hover:text-marsh' }}">★</button>
+  </td>
+  {# Delete #}
+  <td class="px-3 py-2.5 text-center">
+    <button
+      hx-post="/clients/{{ client.id }}/contacts/{{ c.id }}/delete"
+      hx-target="#contacts-card" hx-swap="outerHTML"
+      hx-confirm="Remove {{ c.name }}?"
+      class="text-xs text-gray-300 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity">✕</button>
+  </td>
+</tr>

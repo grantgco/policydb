@@ -1,167 +1,55 @@
-<div id="team-contacts-card" class="card p-4">
-  <h2 class="font-semibold text-gray-900 mb-3 text-sm">Internal Team
-    <span class="normal-case font-normal text-gray-400 text-xs">— account team members</span>
-  </h2>
+<div id="team-contacts-card" class="card p-4" data-mailto-subject="{{ mailto_subject | default('') }}">
+  <div class="flex items-center justify-between mb-3">
+    <h2 class="font-semibold text-gray-900 text-sm">Internal Team
+      <span class="normal-case font-normal text-gray-400 text-xs">&mdash; account team members</span>
+    </h2>
+    <button type="button" class="text-xs text-marsh hover:underline font-medium no-print"
+      onclick="if(window._teamContactsMatrix)window._teamContactsMatrix.createNewRow()">+ Add</button>
+  </div>
 
-  {% if team_contacts %}
-  <ul class="divide-y divide-gray-100 mb-3">
-    {% for c in team_contacts %}
-    <li class="py-2">
-      <div class="flex items-start justify-between gap-2">
-        <div>
-          <p class="text-sm font-medium text-gray-900">{{ c.name }}{% if c.title %} <span class="text-gray-400 font-normal text-xs">· {{ c.title }}</span>{% endif %}</p>
-          {% if c.assignment %}<p class="text-xs text-amber-700 font-medium">{{ c.assignment }}</p>{% endif %}
-          {% if c.role %}<p class="text-xs text-indigo-600 font-medium">{{ c.role }}</p>{% endif %}
-          {% if c.email %}<p class="text-xs text-gray-500">
-            <button type="button" class="ep-trigger hover:text-marsh"
-              data-to="{{ c.email }}"
-              data-to-label="{{ c.name }}"
-              data-subject="{{ mailto_subject }}"
-              data-cc="{{ team_cc_json }}">✉ {{ c.email }}</button>
-          </p>{% endif %}
-          {% if c.phone %}<p class="text-xs text-gray-500">{{ c.phone }}</p>{% endif %}
-        </div>
-        <div class="flex gap-2 shrink-0 mt-0.5">
-          <button onclick="document.getElementById('edit-team-{{ c.id }}').classList.toggle('hidden')"
-            class="text-xs text-gray-300 hover:text-marsh">✎</button>
-          <button
-            hx-post="/clients/{{ client.id }}/team/{{ c.id }}/delete"
-            hx-target="#team-contacts-card" hx-swap="outerHTML"
-            hx-confirm="Remove {{ c.name }} from internal team?"
-            class="text-xs text-gray-300 hover:text-red-400">✕</button>
-        </div>
-      </div>
-      <div id="edit-team-{{ c.id }}" class="hidden mt-2">
-        <form hx-post="/clients/{{ client.id }}/team/{{ c.id }}/edit"
-              hx-target="#team-contacts-card" hx-swap="outerHTML"
-              class="grid grid-cols-2 gap-2">
-          <input name="name" value="{{ c.name }}" required placeholder="Name *"
-            list="team-all-names-{{ client.id }}"
-            class="col-span-2 border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-marsh">
-          <input name="title" value="{{ c.title or '' }}" placeholder="Title (shared)"
-            class="border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-marsh">
-          <input name="role" value="{{ c.role or '' }}" placeholder="Role (shared)"
-            class="border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-marsh">
-          <input name="assignment" value="{{ c.assignment or '' }}" placeholder="Assignment for this client"
-            class="col-span-2 border border-amber-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-amber-400 bg-amber-50/30">
-          <input name="phone" value="{{ c.phone or '' }}" placeholder="Phone"
-            class="border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-marsh">
-          <input name="email" value="{{ c.email or '' }}" placeholder="Email" type="email"
-            class="border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-marsh">
-          <button type="submit" class="bg-marsh text-white text-xs font-medium py-1.5 rounded hover:bg-marsh-light transition-colors">Save</button>
-          <button type="button" onclick="document.getElementById('edit-team-{{ c.id }}').classList.add('hidden')"
-            class="text-xs text-gray-500 hover:text-gray-700 border border-gray-200 rounded py-1.5">Cancel</button>
-          <p class="text-xs text-gray-400 italic col-span-2 mt-0.5">Assignment is specific to this client. To update shared info across all clients, use the <a href="/contacts" class="text-marsh hover:underline">Contacts directory</a>.</p>
-        </form>
-      </div>
-    </li>
-    {% endfor %}
-  </ul>
-  {% endif %}
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm table-fixed">
+      <colgroup>
+        <col style="width:14%"><col style="width:11%"><col style="width:11%"><col style="width:13%">
+        <col style="width:17%"><col style="width:13%"><col style="width:13%"><col style="width:28px">
+      </colgroup>
+      <thead>
+        <tr class="text-left text-xs text-gray-400 uppercase tracking-wide border-b border-gray-100 bg-gray-50">
+          <th class="px-3 py-2">Name</th>
+          <th class="px-3 py-2">Title</th>
+          <th class="px-3 py-2">Role</th>
+          <th class="px-3 py-2">Assignment</th>
+          <th class="px-3 py-2">Email</th>
+          <th class="px-3 py-2">Phone</th>
+          <th class="px-3 py-2">Mobile</th>
+          <th class="px-3 py-2"></th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-50" id="team-contacts-tbody-{{ client.id }}">
+        {% for c in team_contacts %}
+        {% include "clients/_team_matrix_row.html" %}
+        {% else %}
+        <tr id="team-empty-{{ client.id }}"><td colspan="8" class="px-4 py-6 text-center text-gray-400 text-xs">No team members yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 
-  <details class="{% if team_contacts %}border-t border-gray-100 pt-2{% endif %}" id="team-add-details-{{ client.id }}">
-    <summary class="text-xs text-marsh hover:underline cursor-pointer select-none list-none">+ Add Team Member</summary>
-    <form id="team-add-form-{{ client.id }}"
-          hx-post="/clients/{{ client.id }}/team/add"
-          hx-target="#team-contacts-card" hx-swap="outerHTML"
-          class="grid grid-cols-2 gap-2 mt-2">
-      <div class="col-span-2">
-        <input type="text" name="name" id="team-name-{{ client.id }}" required placeholder="Name *" autocomplete="off"
-          list="team-all-names-{{ client.id }}"
-          class="w-full border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-marsh">
-        <datalist id="team-all-names-{{ client.id }}"></datalist>
-      </div>
-      <input type="text" name="title" id="team-title-{{ client.id }}" placeholder="Title (e.g. Account Manager)"
-        class="border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-marsh">
-      <input type="text" name="role" id="team-role-{{ client.id }}" placeholder="Role (e.g. CSR, Producer)"
-        class="border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-marsh">
-      <input type="text" name="assignment" id="team-assignment-{{ client.id }}"
-        placeholder="Assignment for this client (e.g. Lead AE)"
-        class="col-span-2 border border-amber-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-amber-400 bg-amber-50/30">
-      <input type="text" name="phone" id="team-phone-{{ client.id }}" placeholder="Phone"
-        class="border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-marsh">
-      <input type="email" name="email" id="team-email-{{ client.id }}" placeholder="Email"
-        class="border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-marsh">
-      <button type="submit" class="col-span-2 bg-marsh text-white text-xs font-medium py-1.5 rounded hover:bg-marsh-light transition-colors">Add Team Member</button>
-      <p class="text-xs text-gray-400 italic col-span-2 mt-0.5">Assignment is specific to this client. Shared info (title, role, email, phone) is stored in the <a href="/contacts" class="text-marsh hover:underline">Contacts directory</a> and auto-fills when you type a known name.</p>
-    </form>
-  </details>
+  {% set picker_context = 'internal_team' %}
+  {% set picker_target_id = client.id %}
+  {% include "contacts/_picker.html" %}
 </div>
 
 <script>
 (function() {
   var CID = "{{ client.id }}";
-  var TEAM = {{ all_internal_contacts_json }};
-
-  // Build the shared datalist from TEAM keys
-  var dl = document.getElementById("team-all-names-" + CID);
-  if (dl) {
-    dl.innerHTML = Object.keys(TEAM).map(function(n) {
-      return '<option value="' + n.replace(/"/g, '&quot;') + '"></option>';
-    }).join('');
-  }
-
-  function wireAutocomplete(nameInput, fields) {
-    function tryFill() {
-      var data = TEAM[nameInput.value];
-      if (!data) return;
-      ['title', 'role', 'phone', 'email'].forEach(function(field) {
-        var el = fields[field];
-        if (el && data[field] && !el.value) el.value = data[field];
-      });
-    }
-    nameInput.addEventListener('input', tryFill);
-    nameInput.addEventListener('change', tryFill);
-  }
-
-  // Wire the add form
-  var addName = document.getElementById("team-name-" + CID);
-  if (addName) {
-    wireAutocomplete(addName, {
-      title: document.getElementById("team-title-" + CID),
-      role:  document.getElementById("team-role-"  + CID),
-      phone: document.getElementById("team-phone-" + CID),
-      email: document.getElementById("team-email-" + CID),
-    });
-  }
-
-  // Auto-open add panel and pre-fill name if ?add_contact param is present
-  {% if add_contact %}
-  (function() {
-    var details = document.getElementById('team-add-details-' + CID);
-    if (details) {
-      details.open = true;
-      details.scrollIntoView({behavior: 'smooth', block: 'center'});
-    }
-    var nameInput = document.getElementById('team-name-' + CID);
-    if (nameInput) {
-      nameInput.value = {{ add_contact | tojson }};
-      nameInput.dispatchEvent(new Event('input'));
-      nameInput.dispatchEvent(new Event('change'));
-    }
-  })();
-  {% endif %}
-
-  // Wire all inline edit forms (overwrite on name change)
-  document.querySelectorAll('#team-contacts-card [id^="edit-team-"] form input[name="name"]').forEach(function(nameEl) {
-    nameEl.addEventListener('input', function() {
-      var data = TEAM[this.value];
-      if (!data) return;
-      var form = this.closest('form');
-      ['title', 'role', 'phone', 'email'].forEach(function(field) {
-        var el = form.querySelector('input[name="' + field + '"]');
-        if (el && data[field]) el.value = data[field];
-      });
-    });
-    nameEl.addEventListener('change', function() {
-      var data = TEAM[this.value];
-      if (!data) return;
-      var form = this.closest('form');
-      ['title', 'role', 'phone', 'email'].forEach(function(field) {
-        var el = form.querySelector('input[name="' + field + '"]');
-        if (el && data[field]) el.value = data[field];
-      });
-    });
+  window._teamContactsMatrix = window.initMatrix({
+    tbodyId: 'team-contacts-tbody-' + CID,
+    idAttr: 'data-row-id',
+    rowClass: 'matrix-row',
+    patchUrl: function(id) { return '/clients/' + CID + '/team/' + id + '/cell'; },
+    addRowUrl: '/clients/' + CID + '/team/add-row',
+    emptyRowId: 'team-empty-' + CID,
   });
 })();
 </script>

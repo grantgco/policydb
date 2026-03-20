@@ -1,0 +1,306 @@
+<h2>Program Carriers — UI Mockups</h2>
+<p class="subtitle">Contenteditable matrix on policy edit page + updated client detail card</p>
+
+<h3>1. Policy Edit Page — Program Carriers Matrix</h3>
+<p>Replaces the current textarea. Cells are static text by default, editable on click. Save on blur via PATCH. Tab advances. "+ Add Row" appends a blank row.</p>
+
+<div class="mockup">
+  <div class="mockup-header">Policy Edit — Program Carriers Section</div>
+  <div class="mockup-body" style="background:#111827; padding:1.5rem;">
+
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
+      <h4 style="margin:0; color:#e2e8f0; font-size:0.95rem;">Participating Carriers</h4>
+      <span style="color:#94a3b8; font-size:0.8rem;">4 carriers &middot; $1,245,000 total premium</span>
+    </div>
+
+    <table style="width:100%; border-collapse:collapse; font-size:0.85rem;">
+      <thead>
+        <tr style="border-bottom:1px solid #334155;">
+          <th style="text-align:left; padding:0.5rem 0.75rem; color:#94a3b8; font-weight:500; width:5%"></th>
+          <th style="text-align:left; padding:0.5rem 0.75rem; color:#94a3b8; font-weight:500; width:30%">Carrier</th>
+          <th style="text-align:left; padding:0.5rem 0.75rem; color:#94a3b8; font-weight:500; width:25%">Policy #</th>
+          <th style="text-align:right; padding:0.5rem 0.75rem; color:#94a3b8; font-weight:500; width:20%">Premium</th>
+          <th style="text-align:right; padding:0.5rem 0.75rem; color:#94a3b8; font-weight:500; width:20%">Limit</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr style="border-bottom:1px solid #1e293b;">
+          <td style="padding:0.4rem 0.75rem; color:#475569; cursor:grab;">&#x2807;</td>
+          <td style="padding:0.4rem 0.75rem; color:#e2e8f0;">AIG</td>
+          <td style="padding:0.4rem 0.75rem; color:#e2e8f0;">POL-2025-4481</td>
+          <td style="padding:0.4rem 0.75rem; color:#e2e8f0; text-align:right;">$350,000</td>
+          <td style="padding:0.4rem 0.75rem; color:#e2e8f0; text-align:right;">$5,000,000</td>
+        </tr>
+        <tr style="border-bottom:1px solid #1e293b;">
+          <td style="padding:0.4rem 0.75rem; color:#475569; cursor:grab;">&#x2807;</td>
+          <td style="padding:0.4rem 0.75rem; color:#e2e8f0;">Chubb</td>
+          <td style="padding:0.4rem 0.75rem; color:#e2e8f0;">CHB-88912</td>
+          <td style="padding:0.4rem 0.75rem; color:#e2e8f0; text-align:right;">$425,000</td>
+          <td style="padding:0.4rem 0.75rem; color:#e2e8f0; text-align:right;">$10,000,000</td>
+        </tr>
+        <tr style="border-bottom:1px solid #1e293b;">
+          <td style="padding:0.4rem 0.75rem; color:#475569; cursor:grab;">&#x2807;</td>
+          <td style="padding:0.4rem 0.75rem; color:#e2e8f0;">Zurich</td>
+          <td style="padding:0.4rem 0.75rem; color:#e2e8f0;">ZNA-003312</td>
+          <td style="padding:0.4rem 0.75rem; color:#e2e8f0; text-align:right;">$275,000</td>
+          <td style="padding:0.4rem 0.75rem; color:#e2e8f0; text-align:right;">$5,000,000</td>
+        </tr>
+        <tr style="border-bottom:1px solid #1e293b; background:#0f172a;">
+          <td style="padding:0.4rem 0.75rem; color:#475569; cursor:grab;">&#x2807;</td>
+          <td style="padding:0.4rem 0.75rem; color:#e2e8f0; border-bottom:2px solid #3b82f6;">
+            <span style="opacity:0.85;">Liberty Mutual</span>
+            <span style="display:inline-block; width:1px; height:1rem; background:#3b82f6; margin-left:2px; animation:blink 1s infinite;"></span>
+          </td>
+          <td style="padding:0.4rem 0.75rem; color:#64748b; font-style:italic;">policy #</td>
+          <td style="padding:0.4rem 0.75rem; color:#e2e8f0; text-align:right;">$195,000</td>
+          <td style="padding:0.4rem 0.75rem; color:#e2e8f0; text-align:right;">$2,000,000</td>
+        </tr>
+      </tbody>
+      <tfoot>
+        <tr>
+          <td colspan="3" style="padding:0.5rem 0.75rem;">
+            <button style="background:none; border:1px dashed #334155; color:#64748b; padding:0.3rem 0.75rem; border-radius:4px; cursor:pointer; font-size:0.8rem;">+ Add Carrier</button>
+          </td>
+          <td style="padding:0.5rem 0.75rem; text-align:right; color:#94a3b8; font-weight:600; font-size:0.85rem; border-top:1px solid #334155;">$1,245,000</td>
+          <td style="padding:0.5rem 0.75rem; text-align:right; color:#94a3b8; font-weight:600; font-size:0.85rem; border-top:1px solid #334155;">$22,000,000</td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+</div>
+
+<p style="margin:1rem 0 0.5rem; color:#94a3b8; font-size:0.85rem;"><strong>Interactions:</strong> Click cell to edit (blue bottom-border highlight) &middot; Tab to next cell &middot; Tab on last cell of last row adds new row &middot; Blur saves via PATCH &middot; Drag handle ⠿ for reorder &middot; Delete row via right-click or row action</p>
+
+<hr style="border-color:#1e293b; margin:2rem 0;">
+
+<h3>2. Client Detail — Programs Card (Updated)</h3>
+<p>Current card shows comma-separated text. New version shows structured carrier rows nested under each program.</p>
+
+<div class="split">
+  <div class="mockup">
+    <div class="mockup-header">Current — Text Based</div>
+    <div class="mockup-body" style="background:#111827; padding:1rem;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
+        <span style="color:#e2e8f0; font-weight:600; font-size:0.9rem;">Corporate Property</span>
+        <span style="background:#1e40af; color:#93c5fd; padding:0.15rem 0.5rem; border-radius:9999px; font-size:0.75rem;">4 carriers</span>
+      </div>
+      <div style="color:#94a3b8; font-size:0.8rem; margin-bottom:0.25rem;">AIG, Chubb, Zurich, Liberty Mutual</div>
+      <div style="color:#94a3b8; font-size:0.8rem;">Total Premium: $1,245,000 &middot; Total Limit: $22,000,000</div>
+      <div style="color:#64748b; font-size:0.75rem; margin-top:0.25rem;">04/01/2025 – 04/01/2026</div>
+    </div>
+  </div>
+  <div class="mockup">
+    <div class="mockup-header">New — Structured Carrier Rows</div>
+    <div class="mockup-body" style="background:#111827; padding:1rem;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
+        <span style="color:#e2e8f0; font-weight:600; font-size:0.9rem;">Corporate Property</span>
+        <span style="background:#1e40af; color:#93c5fd; padding:0.15rem 0.5rem; border-radius:9999px; font-size:0.75rem;">4 carriers</span>
+      </div>
+      <div style="color:#64748b; font-size:0.75rem; margin-bottom:0.5rem;">04/01/2025 – 04/01/2026</div>
+      <table style="width:100%; border-collapse:collapse; font-size:0.78rem;">
+        <tr style="border-bottom:1px solid #1e293b;">
+          <td style="padding:0.3rem 0.5rem; color:#cbd5e1;">AIG</td>
+          <td style="padding:0.3rem 0.5rem; color:#64748b;">POL-2025-4481</td>
+          <td style="padding:0.3rem 0.5rem; color:#cbd5e1; text-align:right;">$350K</td>
+          <td style="padding:0.3rem 0.5rem; color:#64748b; text-align:right;">$5M</td>
+        </tr>
+        <tr style="border-bottom:1px solid #1e293b;">
+          <td style="padding:0.3rem 0.5rem; color:#cbd5e1;">Chubb</td>
+          <td style="padding:0.3rem 0.5rem; color:#64748b;">CHB-88912</td>
+          <td style="padding:0.3rem 0.5rem; color:#cbd5e1; text-align:right;">$425K</td>
+          <td style="padding:0.3rem 0.5rem; color:#64748b; text-align:right;">$10M</td>
+        </tr>
+        <tr style="border-bottom:1px solid #1e293b;">
+          <td style="padding:0.3rem 0.5rem; color:#cbd5e1;">Zurich</td>
+          <td style="padding:0.3rem 0.5rem; color:#64748b;">ZNA-003312</td>
+          <td style="padding:0.3rem 0.5rem; color:#cbd5e1; text-align:right;">$275K</td>
+          <td style="padding:0.3rem 0.5rem; color:#64748b; text-align:right;">$5M</td>
+        </tr>
+        <tr>
+          <td style="padding:0.3rem 0.5rem; color:#cbd5e1;">Liberty Mutual</td>
+          <td style="padding:0.3rem 0.5rem; color:#64748b;">LM-91204</td>
+          <td style="padding:0.3rem 0.5rem; color:#cbd5e1; text-align:right;">$195K</td>
+          <td style="padding:0.3rem 0.5rem; color:#64748b; text-align:right;">$2M</td>
+        </tr>
+        <tr style="border-top:1px solid #334155;">
+          <td colspan="2" style="padding:0.3rem 0.5rem; color:#94a3b8; font-weight:600;">Total</td>
+          <td style="padding:0.3rem 0.5rem; color:#94a3b8; font-weight:600; text-align:right;">$1.25M</td>
+          <td style="padding:0.3rem 0.5rem; color:#94a3b8; font-weight:600; text-align:right;">$22M</td>
+        </tr>
+      </table>
+    </div>
+  </div>
+</div>
+
+<hr style="border-color:#1e293b; margin:2rem 0;">
+
+<h3>3. Reconcile Batch Create — Program Flow</h3>
+<p>When selecting MISSING rows to batch-create as a program, the UI previews what will become the program_carriers rows.</p>
+
+<div class="mockup">
+  <div class="mockup-header">Reconcile — Batch Create Program Preview</div>
+  <div class="mockup-body" style="background:#111827; padding:1.5rem;">
+
+    <div style="background:#1e293b; border-radius:8px; padding:1rem; margin-bottom:1rem;">
+      <div style="display:flex; gap:1rem; align-items:center; margin-bottom:0.75rem;">
+        <div>
+          <label style="color:#94a3b8; font-size:0.75rem; display:block; margin-bottom:0.2rem;">Program Name</label>
+          <span style="color:#e2e8f0; font-size:0.9rem; padding:0.3rem 0.5rem; border-bottom:1px solid #475569; display:inline-block; min-width:200px;">Corporate Property</span>
+        </div>
+        <div>
+          <label style="color:#94a3b8; font-size:0.75rem; display:block; margin-bottom:0.2rem;">Client</label>
+          <span style="color:#e2e8f0; font-size:0.9rem; padding:0.3rem 0.5rem; border-bottom:1px solid #475569; display:inline-block; min-width:200px;">Acme Holdings Inc.</span>
+        </div>
+        <div>
+          <label style="color:#94a3b8; font-size:0.75rem; display:block; margin-bottom:0.2rem;">Term</label>
+          <span style="color:#e2e8f0; font-size:0.9rem;">04/01/2025 – 04/01/2026</span>
+        </div>
+      </div>
+    </div>
+
+    <div style="margin-bottom:0.5rem; color:#94a3b8; font-size:0.8rem; font-weight:500;">Selected rows will become program carrier entries:</div>
+
+    <table style="width:100%; border-collapse:collapse; font-size:0.85rem;">
+      <thead>
+        <tr style="border-bottom:1px solid #334155;">
+          <th style="text-align:left; padding:0.5rem; color:#94a3b8; font-weight:500; width:5%;">
+            <input type="checkbox" checked style="accent-color:#3b82f6;" />
+          </th>
+          <th style="text-align:left; padding:0.5rem; color:#94a3b8; font-weight:500;">Carrier</th>
+          <th style="text-align:left; padding:0.5rem; color:#94a3b8; font-weight:500;">Policy #</th>
+          <th style="text-align:right; padding:0.5rem; color:#94a3b8; font-weight:500;">Premium</th>
+          <th style="text-align:right; padding:0.5rem; color:#94a3b8; font-weight:500;">Limit</th>
+          <th style="text-align:left; padding:0.5rem; color:#94a3b8; font-weight:500;">Source Row</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr style="border-bottom:1px solid #1e293b;">
+          <td style="padding:0.4rem 0.5rem;"><input type="checkbox" checked style="accent-color:#3b82f6;" /></td>
+          <td style="padding:0.4rem 0.5rem; color:#e2e8f0;">AIG</td>
+          <td style="padding:0.4rem 0.5rem; color:#e2e8f0;">POL-2025-4481</td>
+          <td style="padding:0.4rem 0.5rem; color:#e2e8f0; text-align:right;">$350,000</td>
+          <td style="padding:0.4rem 0.5rem; color:#e2e8f0; text-align:right;">$5,000,000</td>
+          <td style="padding:0.4rem 0.5rem; color:#64748b;">Row 14</td>
+        </tr>
+        <tr style="border-bottom:1px solid #1e293b;">
+          <td style="padding:0.4rem 0.5rem;"><input type="checkbox" checked style="accent-color:#3b82f6;" /></td>
+          <td style="padding:0.4rem 0.5rem; color:#e2e8f0;">Chubb</td>
+          <td style="padding:0.4rem 0.5rem; color:#e2e8f0;">CHB-88912</td>
+          <td style="padding:0.4rem 0.5rem; color:#e2e8f0; text-align:right;">$425,000</td>
+          <td style="padding:0.4rem 0.5rem; color:#e2e8f0; text-align:right;">$10,000,000</td>
+          <td style="padding:0.4rem 0.5rem; color:#64748b;">Row 15</td>
+        </tr>
+        <tr style="border-bottom:1px solid #1e293b;">
+          <td style="padding:0.4rem 0.5rem;"><input type="checkbox" checked style="accent-color:#3b82f6;" /></td>
+          <td style="padding:0.4rem 0.5rem; color:#e2e8f0;">Zurich</td>
+          <td style="padding:0.4rem 0.5rem; color:#e2e8f0;">ZNA-003312</td>
+          <td style="padding:0.4rem 0.5rem; color:#e2e8f0; text-align:right;">$275,000</td>
+          <td style="padding:0.4rem 0.5rem; color:#e2e8f0; text-align:right;">$5,000,000</td>
+          <td style="padding:0.4rem 0.5rem; color:#64748b;">Row 16</td>
+        </tr>
+        <tr style="border-bottom:1px solid #1e293b;">
+          <td style="padding:0.4rem 0.5rem;"><input type="checkbox" checked style="accent-color:#3b82f6;" /></td>
+          <td style="padding:0.4rem 0.5rem; color:#e2e8f0;">Liberty Mutual</td>
+          <td style="padding:0.4rem 0.5rem; color:#e2e8f0;">LM-91204</td>
+          <td style="padding:0.4rem 0.5rem; color:#e2e8f0; text-align:right;">$195,000</td>
+          <td style="padding:0.4rem 0.5rem; color:#e2e8f0; text-align:right;">$2,000,000</td>
+          <td style="padding:0.4rem 0.5rem; color:#64748b;">Row 17</td>
+        </tr>
+      </tbody>
+      <tfoot>
+        <tr style="border-top:1px solid #334155;">
+          <td colspan="3" style="padding:0.5rem; color:#94a3b8; font-weight:600;">4 carriers selected</td>
+          <td style="padding:0.5rem; color:#94a3b8; font-weight:600; text-align:right;">$1,245,000</td>
+          <td style="padding:0.5rem; color:#94a3b8; font-weight:600; text-align:right;">$22,000,000</td>
+          <td></td>
+        </tr>
+      </tfoot>
+    </table>
+
+    <div style="display:flex; justify-content:flex-end; gap:0.75rem; margin-top:1rem;">
+      <button style="background:none; border:1px solid #475569; color:#94a3b8; padding:0.5rem 1rem; border-radius:6px; cursor:pointer;">Cancel</button>
+      <button style="background:#2563eb; border:none; color:white; padding:0.5rem 1.25rem; border-radius:6px; cursor:pointer; font-weight:500;">Create Program</button>
+    </div>
+  </div>
+</div>
+
+<hr style="border-color:#1e293b; margin:2rem 0;">
+
+<h3>4. Reconcile Results — Program Carrier-Level Diffs</h3>
+<p>When reconciling next year's statement, matched program rows show per-carrier diffs instead of just an aggregate comparison.</p>
+
+<div class="mockup">
+  <div class="mockup-header">Reconcile Results — Program DIFF Detail</div>
+  <div class="mockup-body" style="background:#111827; padding:1.5rem;">
+
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
+      <div>
+        <span style="color:#e2e8f0; font-weight:600;">Corporate Property</span>
+        <span style="background:#92400e; color:#fbbf24; padding:0.1rem 0.4rem; border-radius:4px; font-size:0.7rem; margin-left:0.5rem;">PROGRAM</span>
+      </div>
+      <span style="color:#94a3b8; font-size:0.8rem;">Acme Holdings Inc.</span>
+    </div>
+
+    <table style="width:100%; border-collapse:collapse; font-size:0.82rem;">
+      <thead>
+        <tr style="border-bottom:1px solid #334155;">
+          <th style="text-align:left; padding:0.4rem 0.5rem; color:#94a3b8; font-weight:500;">Carrier</th>
+          <th style="text-align:left; padding:0.4rem 0.5rem; color:#94a3b8; font-weight:500;">Policy #</th>
+          <th style="text-align:right; padding:0.4rem 0.5rem; color:#94a3b8; font-weight:500;">DB Premium</th>
+          <th style="text-align:right; padding:0.4rem 0.5rem; color:#94a3b8; font-weight:500;">Import Premium</th>
+          <th style="text-align:center; padding:0.4rem 0.5rem; color:#94a3b8; font-weight:500;">Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr style="border-bottom:1px solid #1e293b;">
+          <td style="padding:0.4rem 0.5rem; color:#e2e8f0;">AIG</td>
+          <td style="padding:0.4rem 0.5rem; color:#e2e8f0;">POL-2025-4481</td>
+          <td style="padding:0.4rem 0.5rem; color:#e2e8f0; text-align:right;">$350,000</td>
+          <td style="padding:0.4rem 0.5rem; color:#e2e8f0; text-align:right;">$350,000</td>
+          <td style="padding:0.4rem 0.5rem; text-align:center; color:#22c55e;">&#10003; Match</td>
+        </tr>
+        <tr style="border-bottom:1px solid #1e293b; background:#1c1917;">
+          <td style="padding:0.4rem 0.5rem; color:#fbbf24;">Chubb</td>
+          <td style="padding:0.4rem 0.5rem; color:#e2e8f0;">CHB-88912</td>
+          <td style="padding:0.4rem 0.5rem; color:#ef4444; text-align:right; text-decoration:line-through;">$425,000</td>
+          <td style="padding:0.4rem 0.5rem; color:#22c55e; text-align:right; font-weight:600;">$460,000</td>
+          <td style="padding:0.4rem 0.5rem; text-align:center;">
+            <span style="background:#1e40af; color:#93c5fd; padding:0.15rem 0.5rem; border-radius:4px; font-size:0.75rem; cursor:pointer;">Accept</span>
+            <span style="color:#64748b; padding:0.15rem 0.4rem; font-size:0.75rem; cursor:pointer;">Keep</span>
+          </td>
+        </tr>
+        <tr style="border-bottom:1px solid #1e293b;">
+          <td style="padding:0.4rem 0.5rem; color:#e2e8f0;">Zurich</td>
+          <td style="padding:0.4rem 0.5rem; color:#e2e8f0;">ZNA-003312</td>
+          <td style="padding:0.4rem 0.5rem; color:#e2e8f0; text-align:right;">$275,000</td>
+          <td style="padding:0.4rem 0.5rem; color:#e2e8f0; text-align:right;">$275,000</td>
+          <td style="padding:0.4rem 0.5rem; text-align:center; color:#22c55e;">&#10003; Match</td>
+        </tr>
+        <tr style="border-bottom:1px solid #1e293b;">
+          <td style="padding:0.4rem 0.5rem; color:#e2e8f0;">Liberty Mutual</td>
+          <td style="padding:0.4rem 0.5rem; color:#e2e8f0;">LM-91204</td>
+          <td style="padding:0.4rem 0.5rem; color:#e2e8f0; text-align:right;">$195,000</td>
+          <td style="padding:0.4rem 0.5rem; color:#e2e8f0; text-align:right;">$195,000</td>
+          <td style="padding:0.4rem 0.5rem; text-align:center; color:#22c55e;">&#10003; Match</td>
+        </tr>
+        <tr style="border-bottom:1px solid #1e293b; background:#052e16;">
+          <td style="padding:0.4rem 0.5rem; color:#4ade80; font-style:italic;">Hartford <span style="color:#22c55e; font-size:0.7rem;">(NEW)</span></td>
+          <td style="padding:0.4rem 0.5rem; color:#4ade80;">HFD-20260401</td>
+          <td style="padding:0.4rem 0.5rem; color:#64748b; text-align:right;">—</td>
+          <td style="padding:0.4rem 0.5rem; color:#4ade80; text-align:right;">$180,000</td>
+          <td style="padding:0.4rem 0.5rem; text-align:center;">
+            <span style="background:#166534; color:#4ade80; padding:0.15rem 0.5rem; border-radius:4px; font-size:0.75rem; cursor:pointer;">+ Add</span>
+          </td>
+        </tr>
+      </tbody>
+      <tfoot>
+        <tr style="border-top:1px solid #334155;">
+          <td colspan="2" style="padding:0.5rem; color:#94a3b8; font-weight:600;">Program Total</td>
+          <td style="padding:0.5rem; color:#94a3b8; font-weight:600; text-align:right;">$1,245,000</td>
+          <td style="padding:0.5rem; color:#94a3b8; font-weight:600; text-align:right;">$1,460,000</td>
+          <td></td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+</div>

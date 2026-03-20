@@ -10,8 +10,21 @@
       <input type="hidden" name="client_id" value="{{ p.client_id }}">
       <input type="hidden" name="policy_id" value="{{ p.id }}">
 
-      <!-- Row 1: Type, Subject, Follow-Up -->
-      <div class="grid grid-cols-4 gap-3">
+      <!-- Quick-log pills -->
+      {% if quick_templates %}
+      <div class="flex flex-wrap gap-1">
+        {% for qt in quick_templates %}
+        <button type="button"
+          onclick="this.closest('form').querySelector('[name=activity_type]').value='{{ qt.type }}'; this.closest('form').querySelector('[name=subject]').value='{{ qt.subject }}'"
+          class="text-xs bg-gray-100 text-gray-600 hover:bg-marsh hover:text-white px-2 py-0.5 rounded transition-colors">
+          {{ qt.label }}
+        </button>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      <!-- Row 1: Type, Subject, Duration, Follow-Up -->
+      <div class="grid grid-cols-6 gap-3">
         <div>
           <p class="text-xs text-gray-500 mb-0.5">Type</p>
           <select name="activity_type" required
@@ -23,7 +36,12 @@
         </div>
         <div class="col-span-2">
           <p class="text-xs text-gray-500 mb-0.5">Subject <span class="text-red-400">*</span></p>
-          <input type="text" name="subject" required autofocus
+          <input type="text" name="subject" required autofocus value="{{ default_subject or '' }}"
+            class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-amber-400">
+        </div>
+        <div>
+          <p class="text-xs text-gray-500 mb-0.5">Duration</p>
+          <input type="number" name="duration_hours" min="0" step="any" placeholder="hrs"
             class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-amber-400">
         </div>
         <div>
@@ -31,14 +49,21 @@
           <input type="date" name="follow_up_date"
             class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-amber-400">
         </div>
+        <div>
+          <p class="text-xs text-gray-500 mb-0.5">Contact</p>
+          <input type="text" name="contact_person" placeholder="Name"
+            class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-amber-400">
+        </div>
       </div>
 
-      <!-- Row 2: Details -->
-      <div>
-        <p class="text-xs text-gray-500 mb-0.5">Details <span class="text-gray-400">(optional)</span></p>
-        <textarea name="details" rows="2"
-          class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-amber-400"></textarea>
-      </div>
+      <!-- Row 2: Details (collapsed by default) -->
+      <details class="group">
+        <summary class="text-xs text-gray-400 cursor-pointer hover:text-gray-600">Details +</summary>
+        <div class="mt-1">
+          <textarea name="details" rows="2"
+            class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-amber-400"></textarea>
+        </div>
+      </details>
 
       <!-- Row 3: Actions -->
       <div class="flex items-center gap-3">

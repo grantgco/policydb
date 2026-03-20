@@ -5,6 +5,13 @@
   'EXTRA':   'bg-blue-100 text-blue-700',
 } %}
 
+{% set method_labels = {
+  'policy_number': 'pol#',
+  'date_pair': 'dates',
+  'fuzzy': 'fuzzy',
+  'manual': 'manual',
+} %}
+
 <div class="card overflow-hidden">
   <table class="w-full text-sm" id="reconcile-table">
     <thead>
@@ -15,6 +22,7 @@
         <th class="px-4 py-3">Policy Type</th>
         <th class="px-4 py-3">Carrier</th>
         <th class="px-4 py-3">Policy #</th>
+        <th class="px-4 py-3 whitespace-nowrap">Effective</th>
         <th class="px-4 py-3 whitespace-nowrap">Expiration</th>
         <th class="px-4 py-3 text-right">Premium</th>
         <th class="px-4 py-3">Differences</th>
@@ -29,10 +37,16 @@
           class="hover:bg-gray-50 cursor-pointer {% if r.status == 'DIFF' %}bg-amber-50/30{% elif r.status == 'MISSING' %}bg-red-50/30{% elif r.status == 'EXTRA' %}bg-blue-50/20{% endif %}"
           onclick="toggleDetail({{ uid }})">
 
-        <td class="px-3 py-3 text-gray-300 text-xs select-none">▶</td>
+        <td class="px-3 py-3 text-gray-300 text-xs select-none">&#9654;</td>
 
         <td class="px-4 py-3">
           <span class="text-xs font-semibold px-2 py-0.5 rounded {{ status_classes[r.status] }}">{{ r.status }}</span>
+          {% if r.match_score and r.match_score < 100 and r.status in ('MATCH', 'DIFF') %}
+          <span class="text-xs text-gray-400 ml-1">{{ r.match_score|round|int }}%</span>
+          {% endif %}
+          {% if r.match_method and r.status in ('MATCH', 'DIFF') %}
+          <span class="text-[10px] text-gray-400 ml-0.5 font-mono" title="Match method: {{ r.match_method }}">{{ method_labels.get(r.match_method, r.match_method) }}</span>
+          {% endif %}
         </td>
 
         <td class="px-4 py-3 font-medium text-gray-800 text-sm">
@@ -43,8 +57,16 @@
           {% endif %}
         </td>
 
-        <td class="px-4 py-3 text-gray-600 text-xs {% if 'policy_type' in r.diff_fields %}font-semibold text-amber-700{% endif %}">
+        <td class="px-4 py-3 text-gray-600 text-xs {% if 'policy_type' in r.diff_fields %}font-semibold text-amber-700{% elif 'policy_type' in r.cosmetic_diffs %}text-green-600{% endif %}">
+          {% if r.coverage_alias_applied and r.status != 'EXTRA' %}
+          {{ r.ext_type_normalized }}
+          <span class="block text-[10px] text-gray-400">(file: "{{ r.ext_type_raw }}")</span>
+          {% else %}
           {{ (side or {}).get('policy_type', '—') }}
+          {% endif %}
+          {% if 'policy_type' in r.cosmetic_diffs %}
+          <span class="text-[10px] text-green-500 block">&#10003; same after normalization</span>
+          {% endif %}
         </td>
 
         <td class="px-4 py-3 text-gray-600 text-xs {% if 'carrier' in r.diff_fields %}font-semibold text-amber-700{% endif %}">
@@ -55,8 +77,18 @@
           {{ (side or {}).get('policy_number', '—') or '—' }}
         </td>
 
+        <td class="px-4 py-3 text-xs whitespace-nowrap {% if 'effective_date' in r.diff_fields %}text-amber-700 font-semibold{% else %}text-gray-600{% endif %}">
+          {{ (side or {}).get('effective_date', '—') or '—' }}
+          {% if r.eff_delta_days is not none and r.status in ('MATCH', 'DIFF') %}
+          <span class="text-[10px] {% if r.eff_delta_days > 14 %}text-amber-500{% else %}text-gray-400{% endif %}">({{ r.eff_delta_days }}d)</span>
+          {% endif %}
+        </td>
+
         <td class="px-4 py-3 text-xs whitespace-nowrap {% if 'expiration_date' in r.diff_fields %}text-amber-700 font-semibold{% else %}text-gray-600{% endif %}">
           {{ (side or {}).get('expiration_date', '—') or '—' }}
+          {% if r.exp_delta_days is not none and r.status in ('MATCH', 'DIFF') %}
+          <span class="text-[10px] {% if r.exp_delta_days > 14 %}text-amber-500{% else %}text-gray-400{% endif %}">({{ r.exp_delta_days }}d)</span>
+          {% endif %}
         </td>
 
         <td class="px-4 py-3 text-right tabular-nums text-gray-700 {% if 'premium' in r.diff_fields %}text-amber-700 font-semibold{% endif %}">
@@ -67,23 +99,44 @@
           {% for f in r.diff_fields %}
           <span class="inline-block text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded mr-1 mb-0.5">{{ f }}</span>
           {% endfor %}
-          {% if not r.diff_fields and r.status not in ('MISSING', 'EXTRA') %}
-          <span class="text-xs text-green-500">✓</span>
+          {% for f in r.cosmetic_diffs %}
+          <span class="inline-block text-xs bg-green-100 text-green-600 px-1.5 py-0.5 rounded mr-1 mb-0.5" title="Same after normalization">{{ f }} &#10003;</span>
+          {% endfor %}
+          {% for f in r.fillable_fields %}
+          <span class="inline-block text-xs bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded mr-1 mb-0.5" title="DB is empty, import has value — click to fill">{{ f }} ↑</span>
+          {% endfor %}
+          {% if r.fillable_fields and r.db %}
+          <form class="inline" hx-post="/reconcile/fill/{{ r.db.policy_uid }}"
+                hx-target="closest td" hx-swap="innerHTML">
+            {% for f in r.fillable_fields %}
+            <input type="hidden" name="{{ f }}" value="{{ (r.ext or {}).get(f, '') }}">
+            {% endfor %}
+            <input type="hidden" name="row_uid" value="{{ uid }}">
+            <button type="submit" class="text-xs text-blue-600 hover:underline ml-1">Fill empty fields</button>
+          </form>
+          {% endif %}
+          {% if not r.diff_fields and not r.cosmetic_diffs and not r.fillable_fields and r.status not in ('MISSING', 'EXTRA') %}
+          <span class="text-xs text-green-500">&#10003;</span>
           {% endif %}
         </td>
       </tr>
 
       <!-- Detail row (hidden by default) -->
       <tr id="detail-{{ uid }}" style="display:none" class="bg-gray-50 border-b border-gray-200">
-        <td colspan="9" class="px-6 py-4">
+        <td colspan="10" class="px-6 py-4">
           {% if r.status == 'DIFF' %}
-          <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Field Comparison</p>
-          <table class="text-xs w-full max-w-2xl">
+          {% set e = r.ext or {} %}
+          <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Field Comparison — click Accept or Keep for each field</p>
+
+          <!-- Per-field accept/keep buttons -->
+          <table class="text-xs w-full max-w-3xl" id="diff-table-{{ uid }}">
             <thead>
               <tr class="text-gray-400">
-                <th class="text-left pb-1 w-40">Field</th>
+                <th class="text-left pb-1 w-32">Field</th>
                 <th class="text-left pb-1">Uploaded File</th>
-                <th class="text-left pb-1">PolicyDB</th>
+                <th class="text-left pb-1 w-20"></th>
+                <th class="text-left pb-1">PolicyDB (current)</th>
+                <th class="text-left pb-1 w-20"></th>
               </tr>
             </thead>
             <tbody class="divide-y divide-gray-100">
@@ -92,83 +145,130 @@
               {% set ext_val = (r.ext or {}).get(f, '') %}
               {% set db_val = (r.db or {}).get(f, '') %}
               {% set is_diff = f in r.diff_fields %}
-              <tr class="{{ 'bg-amber-50' if is_diff else '' }}">
-                <td class="py-1 pr-3 font-medium {{ 'text-amber-700' if is_diff else 'text-gray-500' }}">{{ f }}</td>
-                <td class="py-1 pr-3 {{ 'text-amber-700 font-semibold' if is_diff else 'text-gray-700' }}">
-                  {% if ext_val is number %}{{ ext_val | currency }}{% else %}{{ ext_val or '—' }}{% endif %}
+              {% set is_cosmetic = f in r.cosmetic_diffs %}
+              <tr id="field-{{ uid }}-{{ f }}" class="{% if is_diff %}bg-amber-50{% elif is_cosmetic %}bg-green-50/50{% endif %}">
+                <td class="py-1.5 pr-3 font-medium {% if is_diff %}text-amber-700{% elif is_cosmetic %}text-green-600{% else %}text-gray-500{% endif %}">
+                  {{ f }}
+                  {% if is_cosmetic %}<span class="text-[10px] text-green-500 block">normalized match</span>{% endif %}
                 </td>
-                <td class="py-1 {{ 'text-amber-700 font-semibold' if is_diff else 'text-gray-700' }}">
+                <td class="py-1.5 pr-2 {% if is_diff %}text-amber-700 font-semibold{% else %}text-gray-700{% endif %}">
+                  {% if ext_val is number %}{{ ext_val | currency }}{% else %}{{ ext_val or '—' }}{% endif %}
+                  {% if f in ('effective_date', 'expiration_date') and is_diff %}
+                    {% if f == 'effective_date' and r.eff_delta_days is not none %}
+                    <span class="text-[10px] {% if r.eff_delta_days > 14 %}text-amber-500{% else %}text-gray-400{% endif %}">({{ r.eff_delta_days }}d delta)</span>
+                    {% elif f == 'expiration_date' and r.exp_delta_days is not none %}
+                    <span class="text-[10px] {% if r.exp_delta_days > 14 %}text-amber-500{% else %}text-gray-400{% endif %}">({{ r.exp_delta_days }}d delta)</span>
+                    {% endif %}
+                  {% endif %}
+                </td>
+                <td class="py-1.5 pr-2" onclick="event.stopPropagation()">
+                  {% if is_diff and f != 'client_name' and r.db and r.db.get('policy_uid') %}
+                  <button type="button"
+                    hx-patch="/reconcile/apply-field/{{ r.db.policy_uid }}"
+                    hx-vals='{"field_name": "{{ f }}", "value": "{{ ext_val }}"}'
+                    hx-target="#field-{{ uid }}-{{ f }}"
+                    hx-swap="outerHTML"
+                    class="text-[10px] bg-amber-100 hover:bg-amber-200 text-amber-700 px-2 py-0.5 rounded transition-colors whitespace-nowrap">
+                    Accept &#8592;
+                  </button>
+                  {% endif %}
+                </td>
+                <td class="py-1.5 pr-2 {% if is_diff %}text-gray-500{% else %}text-gray-700{% endif %}">
                   {% if db_val is number %}{{ db_val | currency }}{% else %}{{ db_val or '—' }}{% endif %}
+                </td>
+                <td class="py-1.5" onclick="event.stopPropagation()">
+                  {% if is_diff and f != 'client_name' %}
+                  <button type="button"
+                    onclick="keepField(this, '{{ uid }}', '{{ f }}')"
+                    class="text-[10px] bg-gray-100 hover:bg-gray-200 text-gray-600 px-2 py-0.5 rounded transition-colors whitespace-nowrap">
+                    Keep &#8594;
+                  </button>
+                  {% endif %}
                 </td>
               </tr>
               {% endfor %}
             </tbody>
           </table>
+
           {% if r.db and r.db.get('policy_uid') %}
-          {% set e = r.ext or {} %}
           <div class="flex gap-2 mt-3" id="diff-actions-{{ uid }}" onclick="event.stopPropagation()">
-            <button
-              hx-get="/reconcile/edit-form/{{ r.db.policy_uid }}?row_uid={{ uid }}&ext_carrier={{ e.get('carrier','') | urlencode }}&ext_policy_number={{ e.get('policy_number','') | urlencode }}&ext_effective_date={{ e.get('effective_date','') | urlencode }}&ext_expiration_date={{ e.get('expiration_date','') | urlencode }}&ext_premium={{ e.get('premium','') }}&ext_limit_amount={{ e.get('limit_amount','') }}&ext_deductible={{ e.get('deductible','') }}&ext_policy_type={{ e.get('policy_type','') | urlencode }}"
-              hx-target="#diff-edit-area-{{ uid }}"
-              hx-swap="innerHTML"
-              class="text-xs border border-amber-400 text-amber-700 bg-amber-50 hover:bg-amber-100 px-3 py-1 rounded transition-colors">
-              Edit Inline
-            </button>
-            <form hx-post="/reconcile/apply/{{ r.db.policy_uid }}"
+            <form hx-post="/reconcile/apply-selected/{{ r.db.policy_uid }}"
                   hx-target="#row-{{ uid }}"
                   hx-swap="outerHTML"
                   hx-on::after-request="if(event.detail.successful){ var d=document.getElementById('detail-{{ uid }}'); if(d) d.style.display='none'; }"
-                  onclick="event.stopPropagation()">
+                  class="inline">
               <input type="hidden" name="row_uid" value="{{ uid }}">
-              <input type="hidden" name="carrier" value="{{ e.get('carrier','') }}">
-              <input type="hidden" name="policy_number" value="{{ e.get('policy_number','') }}">
-              <input type="hidden" name="effective_date" value="{{ e.get('effective_date','') }}">
-              <input type="hidden" name="expiration_date" value="{{ e.get('expiration_date','') }}">
-              <input type="hidden" name="premium" value="{{ e.get('premium','') }}">
-              <input type="hidden" name="limit_amount" value="{{ e.get('limit_amount','') }}">
-              <input type="hidden" name="deductible" value="{{ e.get('deductible','') }}">
-              <input type="hidden" name="policy_type" value="{{ e.get('policy_type','') }}">
+              {% for f in r.diff_fields %}
+              {% if f != 'client_name' %}
+              <input type="hidden" name="field_{{ f }}" value="1">
+              <input type="hidden" name="val_{{ f }}" value="{{ (r.ext or {}).get(f, '') }}">
+              {% endif %}
+              {% endfor %}
               <button type="submit"
-                class="text-xs border border-green-400 text-green-700 bg-green-50 hover:bg-green-100 px-3 py-1 rounded transition-colors"
-                hx-confirm="Apply all upload values to {{ r.db.policy_uid }}?">
-                Apply Upload Values
+                class="text-xs border border-amber-400 text-amber-700 bg-amber-50 hover:bg-amber-100 px-3 py-1.5 rounded transition-colors font-medium">
+                Accept All Upload Values
               </button>
             </form>
+            <button type="button"
+              onclick="keepAllFields('{{ uid }}')"
+              class="text-xs border border-gray-300 text-gray-600 bg-gray-50 hover:bg-gray-100 px-3 py-1.5 rounded transition-colors">
+              Keep All DB Values
+            </button>
+            <button type="button"
+              hx-get="/reconcile/edit-form/{{ r.db.policy_uid }}?row_uid={{ uid }}&ext_carrier={{ e.get('carrier','') | urlencode }}&ext_policy_number={{ e.get('policy_number','') | urlencode }}&ext_effective_date={{ e.get('effective_date','') | urlencode }}&ext_expiration_date={{ e.get('expiration_date','') | urlencode }}&ext_premium={{ e.get('premium','') }}&ext_limit_amount={{ e.get('limit_amount','') }}&ext_deductible={{ e.get('deductible','') }}&ext_policy_type={{ e.get('policy_type','') | urlencode }}"
+              hx-target="#diff-edit-area-{{ uid }}"
+              hx-swap="innerHTML"
+              class="text-xs border border-gray-300 text-gray-500 hover:bg-gray-100 px-3 py-1.5 rounded transition-colors">
+              Edit Inline
+            </button>
             <a href="/policies/{{ r.db.policy_uid }}/edit" target="_blank"
-               onclick="event.stopPropagation()"
-               class="text-xs text-gray-400 hover:text-marsh hover:underline px-1 py-1">
-              Open {{ r.db.policy_uid }} →
+               class="text-xs text-gray-400 hover:text-marsh hover:underline px-1 py-1.5">
+              Open {{ r.db.policy_uid }} &#8594;
             </a>
           </div>
-          <div id="diff-edit-area-{{ uid }}" onclick="event.stopPropagation()"></div>
+          <div id="diff-edit-area-{{ uid }}"></div>
           {% endif %}
 
           {% elif r.status == 'MISSING' %}
-          <p class="text-xs font-semibold text-red-600 mb-1">In uploaded file — not found in PolicyDB</p>
-          <div class="grid grid-cols-3 gap-x-6 gap-y-1 text-xs max-w-xl mb-3">
-            {% for f in ['client_name','policy_type','carrier','policy_number','effective_date','expiration_date','premium','limit_amount','deductible'] %}
-            {% if (r.ext or {}).get(f) %}
-            <div><span class="text-gray-400">{{ f }}:</span> <span class="text-gray-700">{{ (r.ext or {}).get(f) }}</span></div>
-            {% endif %}
-            {% endfor %}
-          </div>
-          <div class="flex gap-2" id="actions-{{ uid }}">
-            {% set e = r.ext or {} %}
-            <button
-              hx-get="/reconcile/suggest?row_uid={{ uid }}&client_name={{ e.get('client_name','') | urlencode }}&policy_type={{ e.get('policy_type','') | urlencode }}&carrier={{ e.get('carrier','') | urlencode }}&effective_date={{ e.get('effective_date','') | urlencode }}&expiration_date={{ e.get('expiration_date','') | urlencode }}&policy_number={{ e.get('policy_number','') | urlencode }}&premium={{ e.get('premium','') }}&limit_amount={{ e.get('limit_amount','') }}&deductible={{ e.get('deductible','') }}"
-              hx-target="#actions-{{ uid }}"
-              hx-swap="afterend"
-              onclick="event.stopPropagation()"
-              class="text-xs border border-blue-400 text-blue-700 bg-blue-50 hover:bg-blue-100 px-3 py-1 rounded transition-colors">
-              Find Match in PolicyDB
-            </button>
+          {% set e = r.ext or {} %}
+          <p class="text-xs font-semibold text-red-600 mb-2">In uploaded file — not found in PolicyDB</p>
+          <!-- Compact review of what will be created -->
+          <table class="text-xs max-w-2xl mb-3">
+            <tbody class="divide-y divide-gray-100">
+              {% for f, label in [('client_name','Client'),('policy_type','Policy Type'),('carrier','Carrier'),('policy_number','Policy #'),('effective_date','Effective'),('expiration_date','Expiration'),('premium','Premium'),('limit_amount','Limit'),('deductible','Deductible')] %}
+              {% if e.get(f) %}
+              <tr>
+                <td class="py-1 pr-4 text-gray-400 w-28">{{ label }}</td>
+                <td class="py-1 text-gray-800 font-medium">
+                  {% if f == 'policy_type' and r.coverage_alias_applied %}
+                  {{ r.ext_type_normalized }} <span class="text-gray-400 text-[10px]">(file: "{{ r.ext_type_raw }}")</span>
+                  {% elif f in ('premium','limit_amount','deductible') and e.get(f) is number %}{{ e.get(f) | currency }}{% else %}{{ e.get(f) }}{% endif %}
+                </td>
+                {% if f == 'client_name' %}
+                <td class="py-1 pl-3 text-xs">
+                  {% if e.get('_matched_client') %}<span class="text-green-600">&#10003; matched</span>
+                  {% else %}<span class="text-amber-500">needs matching</span>{% endif %}
+                </td>
+                {% endif %}
+              </tr>
+              {% endif %}
+              {% endfor %}
+            </tbody>
+          </table>
+          <div class="flex flex-wrap gap-2" id="actions-{{ uid }}" onclick="event.stopPropagation()">
             <button
               hx-get="/reconcile/create-form?row_uid={{ uid }}&client_name={{ e.get('client_name','') | urlencode }}&policy_type={{ e.get('policy_type','') | urlencode }}&carrier={{ e.get('carrier','') | urlencode }}&effective_date={{ e.get('effective_date','') | urlencode }}&expiration_date={{ e.get('expiration_date','') | urlencode }}&premium={{ e.get('premium','') }}&limit_amount={{ e.get('limit_amount','') }}&deductible={{ e.get('deductible','') }}&policy_number={{ e.get('policy_number','') | urlencode }}&description={{ e.get('description','') | urlencode }}&project_name={{ e.get('project_name','') | urlencode }}&placement_colleague={{ e.get('placement_colleague','') | urlencode }}&underwriter_name={{ e.get('underwriter_name','') | urlencode }}&commission_rate={{ e.get('commission_rate','') }}"
               hx-target="#actions-{{ uid }}"
               hx-swap="afterend"
-              onclick="event.stopPropagation()"
-              class="text-xs border border-marsh text-marsh bg-white hover:bg-marsh hover:text-white px-3 py-1 rounded transition-colors">
+              class="text-xs border border-marsh text-white bg-marsh hover:bg-marsh-light px-3 py-1.5 rounded transition-colors font-medium">
               Add to PolicyDB
+            </button>
+            <button
+              hx-get="/reconcile/suggest?row_uid={{ uid }}&client_name={{ e.get('client_name','') | urlencode }}&policy_type={{ e.get('policy_type','') | urlencode }}&carrier={{ e.get('carrier','') | urlencode }}&effective_date={{ e.get('effective_date','') | urlencode }}&expiration_date={{ e.get('expiration_date','') | urlencode }}&policy_number={{ e.get('policy_number','') | urlencode }}&premium={{ e.get('premium','') }}&limit_amount={{ e.get('limit_amount','') }}&deductible={{ e.get('deductible','') }}"
+              hx-target="#actions-{{ uid }}"
+              hx-swap="afterend"
+              class="text-xs border border-blue-400 text-blue-700 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded transition-colors">
+              Find Match in PolicyDB
             </button>
           </div>
 
@@ -186,7 +286,7 @@
             <a href="/policies/{{ r.db.policy_uid }}/edit" target="_blank"
                onclick="event.stopPropagation()"
                class="text-xs border border-marsh text-marsh px-3 py-1 rounded hover:bg-marsh hover:text-white transition-colors">
-              Edit Policy →
+              Edit Policy &#8594;
             </a>
             <button
               hx-post="/reconcile/archive/{{ r.db.policy_uid }}"
@@ -212,8 +312,37 @@
       </tr>
 
       {% else %}
-      <tr><td colspan="9" class="px-4 py-10 text-center text-gray-400">No results.</td></tr>
+      <tr><td colspan="10" class="px-4 py-10 text-center text-gray-400">No results.</td></tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
+
+<script>
+function keepField(btn, uid, fieldName) {
+  var row = document.getElementById('field-' + uid + '-' + fieldName);
+  if (row) {
+    row.style.transition = 'background-color 0.3s ease';
+    row.style.backgroundColor = '#f0fdf4';
+    row.querySelectorAll('button').forEach(function(b) { b.remove(); });
+    var marker = document.createElement('span');
+    marker.className = 'text-[10px] text-green-500';
+    marker.textContent = 'kept \u2713';
+    row.cells[row.cells.length - 1].appendChild(marker);
+  }
+}
+
+function keepAllFields(uid) {
+  var table = document.getElementById('diff-table-' + uid);
+  if (!table) return;
+  table.querySelectorAll('tr[id^="field-"]').forEach(function(row) {
+    row.style.transition = 'background-color 0.3s ease';
+    row.style.backgroundColor = '#f0fdf4';
+    row.querySelectorAll('button').forEach(function(b) { b.remove(); });
+  });
+  var actions = document.getElementById('diff-actions-' + uid);
+  if (actions) {
+    actions.innerHTML = '<span class="text-xs text-green-600 font-medium">\u2713 All fields kept as-is</span>';
+  }
+}
+</script>

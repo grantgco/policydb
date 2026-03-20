@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Meetings — PolicyDB{% endblock %}
+{% block title %}Meetings — Coverage{% endblock %}
 {% block content %}
 <div class="flex items-center justify-between mb-4">
   <h1 class="text-2xl font-bold text-gray-900">Meetings</h1>
@@ -34,7 +34,7 @@
       <tr class="hover:bg-gray-50 cursor-pointer" onclick="window.location='/meetings/{{ m.id }}'">
         <td class="px-4 py-3 font-medium text-gray-900 whitespace-nowrap">{{ m.meeting_date }}{% if m.meeting_time %} <span class="text-gray-400 font-normal">{{ m.meeting_time }}</span>{% endif %}</td>
         <td class="px-4 py-3"><a href="/clients/{{ m.client_id }}" class="text-marsh hover:underline" onclick="event.stopPropagation()">{{ m.client_name }}</a></td>
-        <td class="px-4 py-3 text-gray-700">{{ m.title }}</td>
+        <td class="px-4 py-3 text-gray-700">{{ m.title }}{% if m.meeting_uid %} <span class="text-[10px] font-mono text-gray-400">{{ m.meeting_uid }}</span>{% endif %}</td>
         <td class="px-4 py-3 text-center">
           {% if m.attendee_count %}<span class="bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full text-xs">{{ m.attendee_count }}</span>{% else %}—{% endif %}
         </td>

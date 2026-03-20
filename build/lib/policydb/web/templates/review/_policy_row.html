@@ -2,7 +2,7 @@
 <tr id="review-row-{{ p.policy_uid }}"
     class="hover:bg-gray-50 border-t border-gray-100 {% if reviewed %}opacity-60 bg-green-50{% endif %}">
   <td class="px-4 py-3">
-    <a href="/clients/{{ p.client_id }}" class="font-medium text-marsh hover:underline">{{ p.client_name }}</a>
+    <a href="/clients/{{ p.client_id }}" target="_blank" class="font-medium text-marsh hover:underline">{{ p.client_name }}</a>
     <p class="text-xs text-gray-500">{{ p.policy_type }}</p>
     {% if p.project_name %}<p class="text-xs text-gray-400">{{ p.project_name }}</p>{% endif %}
   </td>
@@ -59,10 +59,7 @@
   </td>
   <td class="px-4 py-3 text-xs">
     {% if p.milestone_total %}
-    <a href="/policies/{{ p.policy_uid }}/edit"
-       class="tabular-nums hover:underline {% if p.milestone_done == p.milestone_total %}text-green-600{% elif p.milestone_done > 0 %}text-amber-600{% else %}text-gray-400{% endif %}">
-      {{ p.milestone_done }}/{{ p.milestone_total }}
-    </a>
+    <button type="button" class="ms-trigger tabular-nums hover:underline cursor-pointer {% if p.milestone_done == p.milestone_total %}text-green-600{% elif p.milestone_done > 0 %}text-amber-600{% else %}text-gray-400{% endif %}" data-uid="{{ p.policy_uid }}">{{ p.milestone_done }}/{{ p.milestone_total }}</button>
     {% else %}<span class="text-gray-300">—</span>{% endif %}
   </td>
   <td class="px-4 py-3 text-xs whitespace-nowrap">
@@ -93,7 +90,9 @@
         hx-target="#review-row-{{ p.policy_uid }}"
         hx-swap="outerHTML"
         class="text-xs text-amber-600 hover:underline">Log</button>
-      <a href="/policies/{{ p.policy_uid }}/edit" class="text-xs text-gray-400 hover:underline">Full →</a>
+      <a href="/policies/{{ p.policy_uid }}/edit" target="_blank" class="text-xs text-gray-400 hover:underline">Full →</a>
+      <button type="button" onclick="copyRefTag(this, '{{ p.policy_uid }}')"
+        class="text-xs font-mono text-gray-300 hover:text-marsh" title="Copy Policy UID">{{ p.policy_uid }}</button>
     </div>
   </td>
 </tr>

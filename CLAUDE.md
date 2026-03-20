@@ -161,6 +161,100 @@ Key config lists managed in Settings UI (`/settings`):
 
 ---
 
+## UI Implementation Standards
+
+### Input Pattern Hierarchy
+
+When implementing any data entry field, form element, or interactive control — whether adding a new feature or modifying an existing one — prefer modern contextual inputs over default browser form elements. Select the pattern that best matches the data type and interaction context:
+
+| Field Type | Preferred Pattern | Avoid |
+|---|---|---|
+| Names, notes, freeform text in a table | `contenteditable` cell | `<input>` inside `<td>` |
+| Single-field edits in a detail view | Click-to-edit (display → input on click) | Always-visible input |
+| Carrier, industry, line of business | Combobox with filtered dropdown | `<select>` dropdown |
+| Multiple values (coverages, markets, tags) | Pill/tag input (Enter to add, × to remove) | Multi-select `<select>` or checkboxes |
+| Boolean flags (active, bound, auto-renew) | CSS toggle switch | `<input type="checkbox">` |
+| 2–5 mutually exclusive options (status, view) | Segmented control (pill button group) | `<select>` or radio buttons |
+| Dates (eff, exp, renewal) | `<input type="date">` styled to match UI | Plain text input |
+| Limits, retentions, round-number values | Stepper with +/− buttons | Plain `<input type="number">` |
+| Row ordering / prioritization | Drag-to-reorder with ⠿ handle (HTML5 draggable or SortableJS) | Manual order fields |
+| Cross-record navigation | Command palette (⌘K, search + filter) | Sidebar lists only |
+
+### Contenteditable Tables
+
+When building or modifying any tabular data view (policy schedules, client lists, activity logs):
+
+- Cells should appear as static text by default; editable on click
+- Focused cell gets a bottom border highlight in brand color — no full input box border
+- `Tab` advances to next cell; `Tab` on last cell appends a blank row
+- Empty cells show placeholder text via `data-placeholder` and `::before` CSS
+- Save on `blur` via `fetch` PUT/PATCH to the relevant API endpoint
+- New rows POST to the API and store the returned `id` as `data-id` on the `<tr>`
+- An `+ Add row` button below the table appends a blank row and focuses the first cell
+- The add-row button carries a `no-print` class and is hidden in `@media print`
+
+### General UI Principles
+
+- **No always-visible input boxes** in table rows or detail views unless the field is a primary action (e.g. a search bar or a command palette)
+- **No `<select>` elements** for fields where the user might type — use a combobox instead
+- **No raw checkboxes** for boolean status fields visible in the main UI — use a toggle switch
+- **Keyboard navigable** — every interactive element must be reachable and operable by keyboard; document any custom shortcuts in a visible tooltip or help section
+- **Save behavior**: table cells and click-to-edit fields save on `blur` or `Enter`; destructive changes (delete, status change) confirm via an inline prompt, not a browser `alert()`
+- **Error states**: invalid input shows a red border and an inline message below the field — never a browser `alert()` or `console.error()` only
+- **Print safety**: any UI control (buttons, toggles, add-row links, tooltips) that should not appear in printed output carries the class `no-print`, and the stylesheet includes `@media print { .no-print { display: none; } }`
+
+### Server-Side Parsing & Visual Feedback
+
+When a cell value is saved via PATCH, the server may clean or reformat the input (phone formatting, email normalization). The response must return the formatted value so the UI can update the cell and signal the change to the user.
+
+**PATCH response format:**
+```json
+{"ok": true, "formatted": "(512) 555-1234"}
+```
+
+**Frontend pattern:**
+1. On blur, send the raw cell text to the PATCH endpoint
+2. On success, compare `data.formatted` to the raw value that was sent
+3. If they differ, update the cell text **and** flash the cell green (800ms fade) to indicate the server cleaned/formatted the input
+4. If they match, update silently (no flash needed)
+
+**`flashCell` helper** (used in all matrix controllers):
+```javascript
+function flashCell(el) {
+  el.style.transition = 'background-color 0.3s ease';
+  el.style.backgroundColor = '#d1fae5';
+  setTimeout(function() {
+    el.style.backgroundColor = '';
+    setTimeout(function() { el.style.transition = ''; }, 300);
+  }, 800);
+}
+```
+
+**Fields that trigger server-side formatting:**
+
+| Field | Function | Example |
+|-------|----------|---------|
+| Phone, Mobile | `format_phone()` from `src/policydb/utils.py` | `5125551234` → `(512) 555-1234` |
+| Email | `clean_email()` from `src/policydb/utils.py` | `Jane <jane@co.com>` → `jane@co.com` |
+
+**Rules for new PATCH cell-save endpoints:**
+- Always run `format_phone()` on phone/mobile fields before saving
+- Always run `clean_email()` on email fields before saving
+- Always return `{"ok": true, "formatted": "..."}` with the post-processing value
+- The JS callback must update `cell.textContent` (or rebuild the display HTML for email links) with the `formatted` value and call `flashCell()` when it differs from the raw input
+
+### Jinja2 `tojson` in HTML Attributes
+
+Never use `{{ list | tojson | e }}` inside double-quoted HTML attributes. With autoescape enabled, `tojson` returns `Markup` (safe), so `| e` is a no-op — raw JSON double quotes break the attribute delimiter.
+
+**Correct:** Use single-quote attribute delimiters with `| tojson` alone:
+```html
+data-options='{{ items | tojson }}'
+```
+`tojson` auto-escapes `'` as `\u0027`, so single-quote delimiters are safe even for values containing apostrophes.
+
+---
+
 ## Development Notes
 
 - Always pass `renewal_statuses` to any template that renders `_status_badge.html`

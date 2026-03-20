@@ -1,0 +1,53 @@
+<tr data-row-id="{{ a.id }}" class="matrix-row group hover:bg-gray-50/60 align-top">
+  <td class="px-3 py-2.5">
+    <div contenteditable="true"
+         class="matrix-cell-editable outline-none font-medium text-gray-800 rounded px-1 -mx-1 text-sm"
+         data-field="name" data-placeholder="Name...">{{ a.name or '' }}</div>
+  </td>
+  <td class="px-3 py-2.5">
+    <div contenteditable="true"
+         class="matrix-cell-editable outline-none text-gray-600 text-xs rounded px-1 -mx-1"
+         data-field="role" data-placeholder="Title / Role...">{{ a.role or '' }}</div>
+  </td>
+  <td class="px-3 py-2.5">
+    <div contenteditable="true"
+         class="matrix-cell-editable outline-none text-gray-600 text-xs rounded px-1 -mx-1"
+         data-field="attendee_type" data-placeholder="Client / Internal...">{{ a.attendee_type or '' }}</div>
+  </td>
+  <td class="px-3 py-2.5">
+    {% if a.contact_id and a.email %}
+    <a href="mailto:{{ a.email }}" class="text-xs text-marsh hover:underline" onclick="event.stopPropagation()">{{ a.email }}</a>
+    {% elif a.contact_id %}
+    <div contenteditable="true"
+         class="matrix-cell-editable outline-none text-xs text-marsh rounded px-1 -mx-1"
+         data-field="email" data-placeholder="Email...">{{ a.email or '' }}</div>
+    {% else %}
+    <span class="text-gray-300 text-xs">—</span>
+    {% endif %}
+  </td>
+  <td class="px-3 py-2.5 whitespace-nowrap">
+    {% if a.contact_id %}
+    <div contenteditable="true"
+         class="matrix-cell-editable outline-none text-gray-600 text-xs rounded px-1 -mx-1"
+         data-field="phone" data-placeholder="Phone...">{{ a.phone or '' }}</div>
+    {% else %}
+    <span class="text-gray-300 text-xs">—</span>
+    {% endif %}
+  </td>
+  <td class="px-3 py-2.5 whitespace-nowrap">
+    {% if a.contact_id %}
+    <div contenteditable="true"
+         class="matrix-cell-editable outline-none text-gray-400 text-xs rounded px-1 -mx-1"
+         data-field="mobile" data-placeholder="Cell...">{{ a.mobile or '' }}</div>
+    {% else %}
+    <span class="text-gray-300 text-xs">—</span>
+    {% endif %}
+  </td>
+  <td class="px-3 py-2.5 text-center">
+    <button type="button"
+      hx-post="/meetings/{{ meeting.id }}/attendees/{{ a.id }}/remove"
+      hx-target="#attendees-section" hx-swap="innerHTML"
+      hx-confirm="Remove {{ a.name }}?"
+      class="text-xs text-gray-300 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity">✕</button>
+  </td>
+</tr>

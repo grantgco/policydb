@@ -1,0 +1,21 @@
+<div class="proj-hdr-wrap px-4 py-2 bg-blue-50 border-b border-marsh">
+  <form hx-post="/clients/{{ client.id }}/project/rename"
+        hx-target="closest .proj-hdr-wrap"
+        hx-swap="outerHTML"
+        class="flex items-center gap-2">
+    <input type="hidden" name="project_name" value="{{ project_name }}">
+    <label class="text-xs text-gray-600 shrink-0">Rename to:</label>
+    <input type="text" name="new_name" value="{{ project_name }}" required autofocus
+      class="border border-gray-300 rounded px-2 py-1 text-xs flex-1 focus:outline-none focus:ring-1 focus:ring-marsh">
+    <button type="submit"
+      class="bg-marsh hover:bg-marsh-light text-white text-xs font-medium px-3 py-1.5 rounded">Rename</button>
+    <button type="button"
+      hx-get="/clients/{{ client.id }}/project-note?project={{ project_name | urlencode }}"
+      hx-target="closest .proj-hdr-wrap"
+      hx-swap="outerHTML"
+      class="text-xs text-gray-500 hover:underline">Cancel</button>
+    {% if error %}
+    <span class="text-xs text-red-500 font-medium">{{ error }}</span>
+    {% endif %}
+  </form>
+</div>

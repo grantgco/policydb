@@ -28,7 +28,7 @@
     {% include "meetings/_attendee_row.html" %}
     {% endfor %}
     {% else %}
-    <tr id="attendee-empty-{{ meeting.id }}"><td colspan="8" class="px-4 py-6 text-center text-gray-400 text-xs">No attendees yet.</td></tr>
+    <tr id="attendee-empty-{{ meeting.id }}"><td colspan="7" class="px-4 py-6 text-center text-gray-400 text-xs">No attendees yet.</td></tr>
     {% endif %}
   </tbody>
 </table>
@@ -44,24 +44,6 @@
     addRowUrl: '/meetings/' + MID + '/attendees/add-row',
     emptyRowId: 'attendee-empty-' + MID,
   });
-  window.toggleAttendeeType = function(btn, attendeeId, meetingId) {
-    var isInternal = btn.dataset.internal === '1';
-    var newVal = isInternal ? 'Client' : 'Internal';
-    fetch('/meetings/' + meetingId + '/attendees/' + attendeeId, {
-      method: 'PATCH',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({field: 'is_internal', value: newVal})
-    }).then(function(r) { return r.json(); }).then(function(data) {
-      if (data.ok) {
-        var nowInternal = data.formatted === 'Internal';
-        btn.dataset.internal = nowInternal ? '1' : '0';
-        btn.textContent = data.formatted;
-        btn.className = 'text-xs px-2 py-0.5 rounded cursor-pointer transition-colors ' +
-          (nowInternal ? 'bg-blue-50 text-blue-600' : 'bg-indigo-50 text-indigo-600');
-        if (typeof showToast === 'function') showToast('Saved', true);
-      }
-    });
-  };
 })();
 </script>
 
