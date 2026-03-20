@@ -526,7 +526,7 @@ def find_candidates(ext_row: dict, db_rows: list[dict], limit: int = 8, single_c
             db_client_norm = _normalize_client_name(db.get("client_name", ""))
             db_fni_norm = _normalize_client_name(db.get("first_named_insured", "")) if db.get("first_named_insured") else ""
 
-            client_score = fuzz.WRatio(ext_client, db.get("client_name", "")) if ext_client else 0
+            client_score = fuzz.WRatio(ext_client_norm, db_client_norm) if ext_client_norm else 0
             # FNI cross-matching bonus
             if db_fni_norm and ext_client_norm:
                 client_score = max(client_score, fuzz.WRatio(ext_client_norm, db_fni_norm))
