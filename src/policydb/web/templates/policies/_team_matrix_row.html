@@ -9,6 +9,21 @@
     {% if _is_suggested %}
     <span class="text-[9px] text-amber-500 font-semibold leading-none block" title="Expertise match for {{ policy.policy_type }}">&#9733; Suggested</span>
     {% endif %}
+    {% if c.get('contact_id') and (c.get('expertise_lines') or c.get('expertise_industries')) %}
+    <div class="mt-0.5">
+      {% set contact_id = c.contact_id %}
+      {% set line_tags = c.expertise_lines|default([]) %}
+      {% set industry_tags = c.expertise_industries|default([]) %}
+      {% include "contacts/_expertise_pills.html" %}
+    </div>
+    {% elif c.get('contact_id') %}
+    <div class="mt-0.5">
+      {% set contact_id = c.contact_id %}
+      {% set line_tags = [] %}
+      {% set industry_tags = [] %}
+      {% include "contacts/_expertise_pills.html" %}
+    </div>
+    {% endif %}
   </td>
   {# Organization (combobox) #}
   <td class="matrix-cell-combo px-3 py-2.5 cursor-pointer relative"
