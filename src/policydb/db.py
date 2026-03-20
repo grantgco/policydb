@@ -810,6 +810,27 @@ def init_db(path: Path | None = None) -> None:
           AND EXISTS (SELECT 1 FROM policies p WHERE p.project_id = projects.id AND p.exposure_address IS NOT NULL AND p.exposure_address != '')
     """)
 
+    # Normalize carrier names (idempotent)
+    try:
+        from policydb.utils import normalize_carrier, rebuild_carrier_aliases
+        rebuild_carrier_aliases()
+        _carrier_changed = 0
+        for r in conn.execute("SELECT id, carrier FROM policies WHERE carrier IS NOT NULL AND carrier != ''").fetchall():
+            n = normalize_carrier(r["carrier"])
+            if n != r["carrier"]:
+                conn.execute("UPDATE policies SET carrier = ? WHERE id = ?", (n, r["id"]))
+                _carrier_changed += 1
+        for r in conn.execute("SELECT id, carrier FROM program_carriers WHERE carrier IS NOT NULL AND carrier != ''").fetchall():
+            n = normalize_carrier(r["carrier"])
+            if n != r["carrier"]:
+                conn.execute("UPDATE program_carriers SET carrier = ? WHERE id = ?", (n, r["id"]))
+                _carrier_changed += 1
+        if _carrier_changed:
+            conn.commit()
+            print(f"[hygiene] Normalized {_carrier_changed} carrier names")
+    except Exception as e:
+        print(f"[WARNING] Carrier normalization failed: {e}")
+
     _create_views(conn)
     conn.commit()
 
