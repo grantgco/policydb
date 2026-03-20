@@ -1110,12 +1110,30 @@ function initCurrencyInputs(scope) {
   root.querySelectorAll('.currency-input').forEach(function(el) {
     var hid = el.nextElementSibling;
     if (!hid || hid.type !== 'hidden') return;
+    el.addEventListener('blur', function() {
+      var v = el.value.trim().replace(/[$,]/g, '');
+      if (!v) { el.value = ''; hid.value = ''; hid.dispatchEvent(new Event('input', {bubbles:true})); return; }
+      // Parse magnitude suffixes: K, M, B
+      var mult = 1;
+      var last = v.slice(-1).toUpperCase();
+      if (last === 'K') { mult = 1000; v = v.slice(0, -1); }
+      else if (last === 'M') { mult = 1000000; v = v.slice(0, -1); }
+      else if (last === 'B') { mult = 1000000000; v = v.slice(0, -1); }
+      var num = parseFloat(v.replace(/[^0-9.]/g, ''));
+      if (isNaN(num)) { return; }
+      var n = Math.round(num * mult);
+      el.value = n.toLocaleString('en-US');
+      hid.value = n;
+      hid.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    // Also format on typing (digits only, no magnitude parsing mid-type)
     el.addEventListener('input', function() {
-      var raw = el.value.replace(/[^0-9]/g, '');
-      if (raw === '') {
-        el.value = '';
-        hid.value = '';
-      } else {
+      var raw = el.value.replace(/[^0-9kKmMbB.]/g, '');
+      // Don't reformat if user is typing a magnitude suffix
+      if (/[kKmMbB]$/.test(raw)) return;
+      raw = raw.replace(/[^0-9]/g, '');
+      if (raw === '') { el.value = ''; hid.value = ''; }
+      else {
         var n = parseInt(raw, 10);
         el.value = n.toLocaleString('en-US');
         hid.value = n;
