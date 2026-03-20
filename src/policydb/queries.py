@@ -673,6 +673,25 @@ def get_all_followups(
                         except (ValueError, TypeError):
                             r["prev_days_ago"] = None
 
+    # Attach placement colleague email for "Forward to Colleague" button
+    policy_uids = {r.get("policy_uid") for r in all_rows if r.get("policy_uid") and r.get("source") == "activity"}
+    if policy_uids:
+        _pc_rows = conn.execute(f"""
+            SELECT p.policy_uid, co.name AS pc_name, co.email AS pc_email
+            FROM contact_policy_assignments cpa
+            JOIN contacts co ON cpa.contact_id = co.id
+            JOIN policies p ON cpa.policy_id = p.id
+            WHERE p.policy_uid IN ({','.join('?' * len(policy_uids))})
+              AND cpa.is_placement_colleague = 1
+              AND co.email IS NOT NULL AND TRIM(co.email) != ''
+        """, list(policy_uids)).fetchall()
+        _pc_map = {r["policy_uid"]: {"pc_name": r["pc_name"], "pc_email": r["pc_email"]} for r in _pc_rows}
+        for r in all_rows:
+            pc = _pc_map.get(r.get("policy_uid"))
+            if pc:
+                r["pc_name"] = pc["pc_name"]
+                r["pc_email"] = pc["pc_email"]
+
     return overdue, upcoming
 
 

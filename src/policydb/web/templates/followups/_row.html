@@ -141,6 +141,16 @@
         class="text-xs text-gray-300 hover:text-marsh border border-gray-200 hover:border-marsh rounded px-2 py-1.5 transition-colors">
         &#9993;+
       </button>
+      {% if r.get('pc_email') %}
+      <button type="button"
+        class="ep-trigger text-xs text-gray-300 hover:text-indigo-500 border border-gray-200 hover:border-indigo-300 rounded px-2 py-1.5 transition-colors"
+        data-to="{{ r.pc_email }}"
+        data-to-label="{{ r.pc_name or '' }}"
+        data-subject="{{ r.get('mailto_subject', '') or ('Re: ' ~ r.client_name ~ ' — ' ~ r.subject) }}"
+        {% if r.policy_uid %}data-cc-url="/policies/{{ r.policy_uid }}/team-cc"{% endif %}
+        data-ref="{{ _ref_tag }}"
+        title="Forward to {{ r.pc_name or 'placement colleague' }}">&#8594; {{ r.pc_name or 'Colleague' }}</button>
+      {% endif %}
       {% set _ref_tag = build_ref_tag(cn_number=r.get('cn_number', ''), client_id=r.client_id, policy_uid=r.policy_uid|default(''), project_id=r.get('project_id', 0), activity_id=r.id, thread_id=r.get('thread_id', 0)) %}
       <button type="button" onclick="copyRefTag(this, '{{ _ref_tag }}')"
         class="text-xs text-gray-300 hover:text-marsh border border-gray-200 hover:border-marsh rounded px-2 py-1.5 transition-colors" title="Copy email ref tag">&#10697;</button>
