@@ -5,6 +5,42 @@ from __future__ import annotations
 import re
 
 
+# ─── STATUS COLORS ───────────────────────────────────────────────────────────
+
+_STATUS_COLORS: dict[str, tuple[str, str, str]] = {
+    "Not Started": ("gray-100", "gray-600", "gray-300"),
+    "In Progress": ("blue-100", "blue-700", "blue-300"),
+    "Quoted": ("purple-100", "purple-700", "purple-300"),
+    "Pending Bind": ("amber-100", "amber-700", "amber-300"),
+    "Bound": ("green-100", "green-700", "green-300"),
+}
+
+_COLOR_PALETTE: list[tuple[str, str, str]] = [
+    ("pink-100", "pink-700", "pink-300"),
+    ("sky-100", "sky-700", "sky-300"),
+    ("yellow-100", "yellow-700", "yellow-300"),
+    ("rose-100", "rose-700", "rose-300"),
+    ("teal-100", "teal-700", "teal-300"),
+    ("indigo-100", "indigo-700", "indigo-300"),
+    ("orange-100", "orange-700", "orange-300"),
+    ("lime-100", "lime-700", "lime-300"),
+]
+
+
+def get_status_color(status: str, all_statuses: list | None = None) -> tuple[str, str, str]:
+    """Return (bg, text, border) Tailwind color classes for a renewal status."""
+    if status in _STATUS_COLORS:
+        return _STATUS_COLORS[status]
+    if all_statuses:
+        custom = [s for s in all_statuses if s not in _STATUS_COLORS]
+        try:
+            idx = custom.index(status)
+            return _COLOR_PALETTE[idx % len(_COLOR_PALETTE)]
+        except ValueError:
+            pass
+    return ("gray-100", "gray-600", "gray-300")
+
+
 # ─── CARRIER ALIASES ──────────────────────────────────────────────────────────
 # Flat lookup dict built from config carrier_aliases on module load.
 # Maps lowercased alias/variation → canonical carrier name.
