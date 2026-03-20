@@ -9,7 +9,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 
 from policydb import config as cfg
 from policydb.queries import get_all_policies, get_client_by_id, get_opportunity_by_uid, get_policy_by_uid, get_policy_total_hours, get_saved_notes, save_note, delete_saved_note, renew_policy, count_changed_fields, check_auto_review_policy, get_or_create_contact, assign_contact_to_policy, remove_contact_from_policy, set_placement_colleague, get_policy_contacts
-from policydb.utils import round_duration, normalize_coverage_type, normalize_policy_number, format_city, format_state, format_zip
+from policydb.utils import round_duration, normalize_carrier, normalize_coverage_type, normalize_policy_number, format_city, format_state, format_zip
 from policydb.web.app import get_db, templates
 
 router = APIRouter(prefix="/policies")
@@ -1499,6 +1499,7 @@ def policy_edit_post(
     opp = 1 if is_opportunity == "1" else 0
     pgm = 1 if is_program == "1" else 0
     policy_type = normalize_coverage_type(policy_type)
+    carrier = normalize_carrier(carrier) if carrier else ""
     policy_number = normalize_policy_number(policy_number) if policy_number else ""
     exposure_address = exposure_address.strip() if exposure_address else ""
     exposure_city = format_city(exposure_city) if exposure_city else ""
@@ -1705,6 +1706,9 @@ async def policy_cell_save(request: Request, policy_uid: str, conn=Depends(get_d
     elif field == "policy_type":
         formatted = normalize_coverage_type(value)
         conn.execute("UPDATE policies SET policy_type = ? WHERE policy_uid = ?", (formatted, uid))
+    elif field == "carrier":
+        formatted = normalize_carrier(value)
+        conn.execute("UPDATE policies SET carrier = ? WHERE policy_uid = ?", (formatted or None, uid))
     elif field == "policy_number":
         formatted = normalize_policy_number(value)
         conn.execute("UPDATE policies SET policy_number = ? WHERE policy_uid = ?", (formatted, uid))
@@ -2429,6 +2433,7 @@ def policy_new_post(
     opp = 1 if is_opportunity == "1" else 0
     pgm = 1 if is_program == "1" else 0
     policy_type = normalize_coverage_type(policy_type)
+    carrier = normalize_carrier(carrier) if carrier else ""
     policy_number = normalize_policy_number(policy_number) if policy_number else ""
     exposure_address = exposure_address.strip() if exposure_address else ""
     exposure_city = format_city(exposure_city) if exposure_city else ""
