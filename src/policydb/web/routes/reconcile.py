@@ -250,10 +250,19 @@ def reconcile_suggest(
     }
     db_rows = _load_db_policies(conn, client_id, scope)
     candidates = find_candidates(ext_row, db_rows, limit=8, single_client=bool(client_id))
+    # Fallback: if no scored matches and we have a client filter, show ALL client policies
+    all_client_policies = []
+    if not candidates and client_id:
+        all_client_policies = [(db, 0.0) for db in db_rows]
+        # Sort by effective date proximity to the ext row's date
+        if effective_date:
+            from policydb.reconciler import _date_delta_days
+            all_client_policies.sort(key=lambda x: _date_delta_days(effective_date, x[0].get("effective_date", "")) or 9999)
     return templates.TemplateResponse("reconcile/_suggest_panel.html", {
         "request": request,
         "ext": ext_row,
         "candidates": candidates,
+        "all_client_policies": all_client_policies,
         "row_uid": row_uid,
         "scope": scope,
         "client_id": client_id,
