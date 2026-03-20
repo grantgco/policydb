@@ -5,6 +5,55 @@ from __future__ import annotations
 import re
 
 
+# ─── CARRIER ALIASES ──────────────────────────────────────────────────────────
+# Flat lookup dict built from config carrier_aliases on module load.
+# Maps lowercased alias/variation → canonical carrier name.
+_CARRIER_ALIASES: dict[str, str] = {}
+
+
+def rebuild_carrier_aliases() -> None:
+    """Rebuild _CARRIER_ALIASES from config. Call after config changes."""
+    global _CARRIER_ALIASES
+    from policydb import config as cfg
+    aliases = cfg.get("carrier_aliases", {})
+    result: dict[str, str] = {}
+    for canonical, variations in aliases.items():
+        result[canonical.lower()] = canonical
+        for v in variations:
+            result[v.strip().lower()] = canonical
+    _CARRIER_ALIASES = result
+
+
+def normalize_carrier(raw: str) -> str:
+    """Normalize a carrier name to its canonical parent company name.
+
+    Uses _CARRIER_ALIASES built from config. Preserves original casing
+    for unknown carriers (unlike coverage types which title-case).
+    Returns empty string for blank input.
+
+    Examples:
+        "Travelers Insurance"  → "Travelers"
+        "ACE American"         → "Chubb"
+        "Some Obscure Carrier" → "Some Obscure Carrier"
+        ""                     → ""
+    """
+    if not raw or not raw.strip():
+        return ""
+    cleaned = raw.strip()
+    key = cleaned.lower()
+    if key in _CARRIER_ALIASES:
+        return _CARRIER_ALIASES[key]
+    return cleaned
+
+
+# Build on module load — wrapped in try/except since config may not be
+# available during unit tests that import utils directly.
+try:
+    rebuild_carrier_aliases()
+except Exception:
+    pass
+
+
 # ─── COVERAGE ALIASES ─────────────────────────────────────────────────────────
 # Maps common AMS abbreviations and alternate names to canonical PolicyDB values.
 # Applied before fuzzy matching so "CGL" vs "General Liability" score 100, not 40.

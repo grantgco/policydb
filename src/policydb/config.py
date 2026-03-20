@@ -308,6 +308,74 @@ _DEFAULTS: dict[str, Any] = {
         "Financial Services", "Public Entity", "Transportation",
     ],
     "backup_retention_count": 30,
+    "carrier_aliases": {
+        "Travelers": [
+            "Travelers Insurance", "The Travelers Companies", "Travelers Indemnity",
+            "Travelers Indemnity Co", "Travelers Casualty", "St Paul Fire",
+            "St. Paul Fire & Marine", "Travelers Casualty & Surety",
+        ],
+        "Chubb": [
+            "Chubb Limited", "ACE American", "ACE American Insurance",
+            "Federal Insurance", "Federal Insurance Company", "Chubb Insurance",
+        ],
+        "AIG": [
+            "American International Group", "AIG Insurance", "National Union Fire",
+            "Lexington Insurance", "AIG Property Casualty",
+        ],
+        "Hartford": [
+            "The Hartford", "Hartford Fire", "Hartford Financial",
+            "Hartford Fire Insurance", "Hartford Casualty",
+        ],
+        "Liberty Mutual": [
+            "Liberty Mutual Insurance", "Liberty Mutual Fire", "Liberty Mutual Group",
+        ],
+        "Zurich": [
+            "Zurich Insurance", "Zurich American", "Zurich North America",
+            "Zurich American Insurance",
+        ],
+        "CNA": ["CNA Insurance", "CNA Financial", "Continental Casualty"],
+        "Markel": ["Markel Corporation", "Markel Insurance", "Markel Specialty"],
+        "Berkshire Hathaway": [
+            "Berkshire Hathaway Insurance", "BHSI",
+            "Berkshire Hathaway Specialty Insurance",
+        ],
+        "Nationwide": [
+            "Nationwide Insurance", "Nationwide Mutual",
+            "Allied Insurance", "Nationwide Mutual Insurance",
+        ],
+        "Progressive": [
+            "Progressive Insurance", "Progressive Casualty", "Progressive Commercial",
+        ],
+        "Employers": [
+            "Employers Insurance", "Employers Holdings",
+            "Employers Compensation Insurance",
+        ],
+        "FM Global": ["Factory Mutual", "FM Insurance", "Factory Mutual Insurance"],
+        "Everest": ["Everest Re", "Everest Insurance", "Everest National Insurance"],
+        "RLI": ["RLI Insurance", "RLI Corp"],
+        "Coalition": ["Coalition Insurance", "Coalition Inc"],
+        "Berkley": [
+            "W.R. Berkley", "WR Berkley", "Berkley Insurance",
+            "Berkley One", "W. R. Berkley Corporation",
+        ],
+        "Tokio Marine": ["Tokio Marine HCC", "HCC Insurance", "Tokio Marine America"],
+        "Hanover": ["The Hanover", "Hanover Insurance", "Hanover Insurance Group"],
+        "Arch": ["Arch Insurance", "Arch Capital", "Arch Insurance Group"],
+        "Great American": [
+            "Great American Insurance", "Great American Insurance Company",
+        ],
+        "Sompo": ["Sompo International", "Endurance Specialty"],
+        "Argo": ["Argo Group", "Argo Insurance"],
+        "Aspen": ["Aspen Insurance", "Aspen Specialty"],
+        "Axis": ["AXIS Insurance", "AXIS Capital"],
+        "Cincinnati Financial": [
+            "Cincinnati Insurance", "The Cincinnati Insurance Company",
+        ],
+        "Erie": ["Erie Insurance", "Erie Indemnity"],
+        "Intact": ["Intact Insurance", "OneBeacon"],
+        "QBE": ["QBE Insurance", "QBE North America"],
+        "Starr": ["Starr Insurance", "Starr Companies", "Starr Indemnity"],
+    },
 }
 
 _config: dict[str, Any] | None = None
