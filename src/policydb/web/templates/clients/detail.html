@@ -798,5 +798,19 @@ function addFirstProject(clientId) {
 </details>
 {% endif %}
 
+<script>
+// COR auto-trigger for client detail quick log
+var corTriggers = {{ cor_auto_triggers | tojson }};
+document.addEventListener('change', function(e) {
+  if (e.target.name === 'activity_type') {
+    var form = e.target.closest('form');
+    if (!form) return;
+    var corBox = form.querySelector('[name="start_correspondence"]');
+    if (corBox && corTriggers.includes(e.target.value)) {
+      corBox.checked = true;
+    }
+  }
+});
+</script>
 
 {% endblock %}

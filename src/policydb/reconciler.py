@@ -424,11 +424,11 @@ def _fuzzy_match(ext_row: dict, candidates: list[dict]) -> tuple[dict | None, fl
                         _pc_pn = _normalize_policy_number(_pc.get("policy_number") or "")
                         if ext_pn and _pc_pn:
                             if ext_pn == _pc_pn:
-                                combined += 30
+                                combined += 50
                             elif fuzz.ratio(ext_pn, _pc_pn) >= 90:
-                                combined += 25
+                                combined += 40
                             elif fuzz.ratio(ext_pn, _pc_pn) >= 75:
-                                combined += 10
+                                combined += 20
                         break
 
         # Expiration date — primary date signal (boosted)
@@ -453,17 +453,17 @@ def _fuzzy_match(ext_row: dict, candidates: list[dict]) -> tuple[dict | None, fl
             elif eff_delta <= 45:
                 combined += 10
 
-        # Policy number — normalized comparison for formatting flexibility
+        # Policy number — strongest match signal after client name
         db_pn = _normalize_policy_number(db.get("policy_number") or "")
         if ext_pn and db_pn:
             if ext_pn == db_pn:
-                combined += 30   # exact match after normalization
+                combined += 50   # exact match — near-certain identification
             else:
                 pn_score = fuzz.ratio(ext_pn, db_pn)
                 if pn_score >= 90:
-                    combined += 25
+                    combined += 40
                 elif pn_score >= 75:
-                    combined += 10
+                    combined += 20
 
         if combined > best_score:
             best_score = combined
@@ -620,10 +620,9 @@ def reconcile(ext_rows: list[dict], db_rows: list[dict]) -> list[ReconcileRow]:
             continue  # already claimed — send to Pass 2
         _claim_db(db, db_idx)
         ext_matched.add(i)
-        diff_fields, cosmetic, fillable, score = _compare_fields(ext, db)
-        status: MatchStatus = "DIFF" if diff_fields else "MATCH"
         # Determine matched carrier ID for program matches
         _matched_cid = None
+        _compare_target = db  # default: compare against the DB policy/program record
         if db_idx in _program_indices and db.get("_program_carrier_rows"):
             _ext_carrier = ext.get("carrier", "")
             # First try matching by policy number (strongest signal)
@@ -631,13 +630,17 @@ def reconcile(ext_rows: list[dict], db_rows: list[dict]) -> list[ReconcileRow]:
                 _pc_pn = _normalize_policy_number(_pc.get("policy_number") or "")
                 if ext_pn and _pc_pn and ext_pn == _pc_pn:
                     _matched_cid = _pc.get("id")
+                    _compare_target = _pc  # compare against the carrier row, not the program
                     break
             # Fall back to carrier name fuzzy match
             if not _matched_cid and _ext_carrier:
                 for _pc in db["_program_carrier_rows"]:
                     if fuzz.WRatio(_ext_carrier, _pc.get("carrier", "")) >= 70:
                         _matched_cid = _pc.get("id")
+                        _compare_target = _pc
                         break
+        diff_fields, cosmetic, fillable, score = _compare_fields(ext, _compare_target)
+        status: MatchStatus = "DIFF" if diff_fields else "MATCH"
         row = ReconcileRow(status, ext, db, diff_fields, score, cosmetic_diffs=cosmetic, fillable_fields=fillable,
                            is_program_match=db_idx in _program_indices,
                            matched_carrier_id=_matched_cid)
@@ -687,16 +690,18 @@ def reconcile(ext_rows: list[dict], db_rows: list[dict]) -> list[ReconcileRow]:
             if db_idx not in _program_indices:
                 candidates_15 = [c for c in candidates_15 if c is not best_db]
             ext_matched.add(i)
-            diff_fields, cosmetic, fillable, score = _compare_fields(ext, best_db)
-            status = "DIFF" if diff_fields else "MATCH"
             # Determine matched carrier ID for program matches
             _matched_cid = None
+            _compare_target_15 = best_db
             if db_idx in _program_indices and best_db.get("_program_carrier_rows"):
                 _ext_carrier = ext.get("carrier", "")
                 for _pc in best_db["_program_carrier_rows"]:
                     if fuzz.WRatio(_ext_carrier, _pc.get("carrier", "")) >= 70:
                         _matched_cid = _pc.get("id")
+                        _compare_target_15 = _pc
                         break
+            diff_fields, cosmetic, fillable, score = _compare_fields(ext, _compare_target_15)
+            status = "DIFF" if diff_fields else "MATCH"
             row = ReconcileRow(status, ext, best_db, diff_fields, score, cosmetic_diffs=cosmetic,
                                is_program_match=db_idx in _program_indices,
                                matched_carrier_id=_matched_cid)
@@ -714,16 +719,18 @@ def reconcile(ext_rows: list[dict], db_rows: list[dict]) -> list[ReconcileRow]:
             _claim_db(db, db_idx)
             if db_idx not in _program_indices:
                 candidates = [c for c in candidates if c is not db]
-            diff_fields, cosmetic, fillable, _ = _compare_fields(ext, db)
-            status = "DIFF" if diff_fields else "MATCH"
             # Determine matched carrier ID for program matches
             _matched_cid = None
+            _compare_target_2 = db
             if db_idx in _program_indices and db.get("_program_carrier_rows") and ext:
                 _ext_carrier = ext.get("carrier", "")
                 for _pc in db["_program_carrier_rows"]:
                     if fuzz.WRatio(_ext_carrier, _pc.get("carrier", "")) >= 70:
                         _matched_cid = _pc.get("id")
+                        _compare_target_2 = _pc
                         break
+            diff_fields, cosmetic, fillable, _ = _compare_fields(ext, _compare_target_2)
+            status = "DIFF" if diff_fields else "MATCH"
             row = ReconcileRow(status, ext, db, diff_fields, score, cosmetic_diffs=cosmetic,
                                is_program_match=db_idx in _program_indices,
                                matched_carrier_id=_matched_cid)

@@ -1155,6 +1155,7 @@ def policy_edit_form(request: Request, policy_uid: str, add_contact: str = "", c
         "activities": activities,
         "activity_types": cfg.get("activity_types", ["Call", "Email", "Meeting", "Note", "Other"]),
         "dispositions": cfg.get("follow_up_dispositions", []),
+        "cor_auto_triggers": cfg.get("cor_auto_triggers", []),
         "opportunity_statuses": cfg.get("opportunity_statuses"),
         "add_contact": add_contact,
         "cycle_labels": _REVIEW_CYCLE_LABELS,

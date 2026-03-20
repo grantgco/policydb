@@ -438,7 +438,7 @@
 
             <!-- Tools dropdown -->
             <div class="relative" onmouseenter="openNavDrop(this)" onmouseleave="closeNavDrop(this)">
-              <button class="nav-link flex items-center gap-1 {% if active in ['briefing','reconcile','templates','settings'] %}bg-marsh-light border-b-2 border-[#c8a96e]{% endif %}">
+              <button class="nav-link flex items-center gap-1 {% if active in ['briefing','reconcile','templates','settings','ref-lookup'] %}bg-marsh-light border-b-2 border-[#c8a96e]{% endif %}">
                 Tools
                 <svg class="w-3 h-3 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
               </button>
@@ -447,6 +447,7 @@
                 <a href="/reconcile" class="block px-4 py-1.5 text-sm text-gray-700 hover:bg-gray-100 {% if active == 'reconcile' %}font-semibold text-marsh{% endif %}">Reconcile</a>
                 <a href="/templates" class="block px-4 py-1.5 text-sm text-gray-700 hover:bg-gray-100 {% if active == 'templates' %}font-semibold text-marsh{% endif %}">Templates</a>
                 <a href="/settings" class="block px-4 py-1.5 text-sm text-gray-700 hover:bg-gray-100 {% if active == 'settings' %}font-semibold text-marsh{% endif %}">Settings</a>
+                <a href="/ref-lookup" class="block px-4 py-1.5 text-sm text-gray-700 hover:bg-gray-100 {% if active == 'ref-lookup' %}font-semibold text-marsh{% endif %}">Ref Lookup</a>
               </div>
             </div>
 
@@ -474,9 +475,10 @@
       <form hx-post="/inbox/capture" hx-swap="none"
             hx-on::after-request="if(event.detail.successful){this.reset();var h=event.detail.xhr.getResponseHeader('HX-Trigger');if(h){var m=h.match(/INB-\\d+/);if(m)navigator.clipboard.writeText(m[0])}}"
             class="flex-1 max-w-xl">
-        <input id="capture-input" type="text" name="content" placeholder="Type a note, press Enter..." required
+        <input id="capture-input" type="text" name="content" placeholder="Type a note, press Enter... (@ to tag contact)" required
           class="w-full bg-white/10 text-white placeholder-white/30 text-xs rounded px-3 py-1
                  border border-white/15 focus:border-white/40 focus:outline-none transition-all">
+        <input type="hidden" name="contact_id" id="capture-contact-id" value="0">
       </form>
     </div>
   </div>
@@ -1260,6 +1262,74 @@ function policySaveDate(input, uid, field) {
     body: JSON.stringify({field: field, value: input.value})
   });
 }
+
+/* ── @ autocomplete for inbox capture ── */
+(function() {
+  function initAtComplete(input, hiddenId) {
+    var dropdown = null;
+    var atStart = -1;
+
+    function closeDropdown() {
+      if (dropdown) { dropdown.remove(); dropdown = null; }
+      atStart = -1;
+    }
+
+    input.addEventListener('input', function() {
+      var val = input.value;
+      var cursor = input.selectionStart || val.length;
+      var lastAt = val.lastIndexOf('@', cursor - 1);
+      if (lastAt < 0) { closeDropdown(); return; }
+      var query = val.substring(lastAt + 1, cursor);
+      if (query.length < 2) { atStart = lastAt; return; }
+      atStart = lastAt;
+
+      fetch('/inbox/contacts/search?q=' + encodeURIComponent(query))
+        .then(function(r) { return r.json(); })
+        .then(function(results) {
+          closeDropdown();
+          if (!results.length) return;
+          atStart = lastAt;
+          dropdown = document.createElement('div');
+          dropdown.className = 'fixed z-50 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto';
+          dropdown.style.minWidth = '220px';
+          results.forEach(function(c) {
+            var item = document.createElement('div');
+            item.className = 'px-3 py-1.5 text-sm cursor-pointer hover:bg-gray-50 text-gray-700';
+            item.textContent = c.name + (c.org ? ' (' + c.org + ')' : '');
+            item.addEventListener('mousedown', function(e) {
+              e.preventDefault();
+              var before = input.value.substring(0, atStart);
+              var after = input.value.substring(cursor);
+              input.value = before + c.name + ' ' + after;
+              document.getElementById(hiddenId).value = c.id;
+              closeDropdown();
+              input.focus();
+            });
+            dropdown.appendChild(item);
+          });
+          var rect = input.getBoundingClientRect();
+          dropdown.style.top = (rect.bottom + 2) + 'px';
+          dropdown.style.left = rect.left + 'px';
+          document.body.appendChild(dropdown);
+        });
+    });
+
+    input.addEventListener('blur', function() { setTimeout(closeDropdown, 200); });
+    input.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape') closeDropdown();
+    });
+    var form = input.closest('form');
+    if (form) form.addEventListener('reset', function() {
+      document.getElementById(hiddenId).value = '0';
+    });
+  }
+
+  var captureInput = document.getElementById('capture-input');
+  if (captureInput) initAtComplete(captureInput, 'capture-contact-id');
+
+  var inboxAdd = document.getElementById('inbox-add-input');
+  if (inboxAdd) initAtComplete(inboxAdd, 'inbox-add-contact-id');
+})();
 
 function policyStatusPill(btn, uid, status) {
   var td = btn.closest('td');

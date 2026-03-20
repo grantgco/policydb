@@ -148,7 +148,7 @@ def get_db() -> Generator[sqlite3.Connection, None, None]:
 
 
 # ── Register routers ──────────────────────────────────────────────────────────
-from policydb.web.routes import dashboard, clients, policies, activities, settings, reconcile, templates as tpl_routes, contacts, review, briefing, meetings, inbox  # noqa: E402
+from policydb.web.routes import dashboard, clients, policies, activities, settings, reconcile, templates as tpl_routes, contacts, review, briefing, meetings, inbox, ref_lookup  # noqa: E402
 
 app.include_router(dashboard.router)
 app.include_router(clients.router)
@@ -162,3 +162,4 @@ app.include_router(review.router)
 app.include_router(briefing.router)
 app.include_router(meetings.router)
 app.include_router(inbox.router)
+app.include_router(ref_lookup.router)
