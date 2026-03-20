@@ -192,7 +192,7 @@ async def reconcile_run(
         if r.get("is_program"):
             r["_program_carrier_rows"] = _carrier_map.get(r["id"], [])
 
-    results = reconcile(ext_rows, db_rows, date_priority=bool(date_priority))
+    results = reconcile(ext_rows, db_rows, date_priority=bool(date_priority), single_client=bool(client_id))
 
     missing_rows = [r for r in results if r.status == "MISSING"]
     extra_rows = [r for r in results if r.status == "EXTRA"]
@@ -249,7 +249,7 @@ def reconcile_suggest(
         "deductible": _parse_currency(deductible),
     }
     db_rows = _load_db_policies(conn, client_id, scope)
-    candidates = find_candidates(ext_row, db_rows, limit=8)
+    candidates = find_candidates(ext_row, db_rows, limit=8, single_client=bool(client_id))
     return templates.TemplateResponse("reconcile/_suggest_panel.html", {
         "request": request,
         "ext": ext_row,
