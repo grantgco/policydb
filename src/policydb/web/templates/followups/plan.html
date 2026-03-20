@@ -36,15 +36,15 @@
     ondragover="event.preventDefault();this.classList.add('ring-2','ring-marsh')"
     ondragleave="this.classList.remove('ring-2','ring-marsh')"
     ondrop="handleDrop(event, '{{ col.date }}');this.classList.remove('ring-2','ring-marsh')">
-    {# Column header #}
+    {# Column header — color based on weighted load #}
     <div class="px-3 py-2 border-b border-gray-100 flex items-center justify-between
-      {% if col.count > daily_target * 2 %}bg-red-50{% elif col.count > daily_target %}bg-amber-50{% else %}bg-green-50/50{% endif %}">
-      <span class="text-xs font-bold {% if col.count > daily_target * 2 %}text-red-700{% elif col.count > daily_target %}text-amber-700{% else %}text-green-700{% endif %}">
+      {% if col.weighted_load > daily_target * 2 %}bg-red-50{% elif col.weighted_load > daily_target %}bg-amber-50{% else %}bg-green-50/50{% endif %}">
+      <span class="text-xs font-bold {% if col.weighted_load > daily_target * 2 %}text-red-700{% elif col.weighted_load > daily_target %}text-amber-700{% else %}text-green-700{% endif %}">
         {{ col.label }}
       </span>
-      <span class="text-xs font-mono {% if col.count > daily_target %}font-bold{% endif %}
-        {% if col.count > daily_target * 2 %}text-red-600{% elif col.count > daily_target %}text-amber-600{% else %}text-gray-400{% endif %}"
-        id="count-{{ col.date }}">{{ col.count }}</span>
+      <span class="text-xs font-mono {% if col.weighted_load > daily_target %}font-bold{% endif %}
+        {% if col.weighted_load > daily_target * 2 %}text-red-600{% elif col.weighted_load > daily_target %}text-amber-600{% else %}text-gray-400{% endif %}"
+        id="count-{{ col.date }}" title="Weighted: {{ '%.1f' | format(col.weighted_load) }}">{{ col.count }}</span>
     </div>
     {# Items #}
     <div class="p-2 space-y-1 min-h-[200px]" id="items-{{ col.date }}">

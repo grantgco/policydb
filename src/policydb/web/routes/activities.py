@@ -575,15 +575,18 @@ def followups_plan(request: Request, week_start: str = "", conn=Depends(get_db))
     for item in items:
         by_date[item["follow_up_date"]].append(item)
 
+    from policydb.queries import _weighted_load
     columns = []
     for d in week_days:
         day_items = by_date.get(d, [])
         day_date = date.fromisoformat(d)
+        load = _weighted_load(day_items)
         columns.append({
             "date": d,
             "label": day_date.strftime("%a %b %d"),
             "day_items": day_items,
             "count": len(day_items),
+            "weighted_load": load,
             "pinned_count": sum(1 for i in day_items if i.get("pinned")),
         })
 
