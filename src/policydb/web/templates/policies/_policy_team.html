@@ -45,7 +45,7 @@
           hx-target="#policy-team-card" hx-swap="outerHTML"
           class="mt-2 p-3 bg-amber-50/50 rounded-lg border border-amber-100">
       {% for t in team_contacts %}
-      {% set is_suggested = t.contact_id in (suggested_contact_ids or set()) %}
+      {% set is_suggested = suggested_contact_ids is defined and t.contact_id in (suggested_contact_ids or []) %}
       <label class="flex items-center gap-2 py-1 text-sm {% if t.id in already_assigned_ids %}opacity-50{% endif %}">
         <input type="checkbox" name="contact_ids" value="{{ t.id }}"
           {% if t.id in already_assigned_ids %}checked disabled{% endif %}>
