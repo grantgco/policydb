@@ -1999,14 +1999,32 @@ def get_week_followups(
     return items
 
 
+def _weighted_load(day_items: list[dict]) -> float:
+    """Calculate weighted load for a day's follow-ups.
+
+    First item per client = 1.0 (full context switch).
+    Each additional item for the same client = 0.25 (incremental work).
+    """
+    from collections import Counter
+    client_counts = Counter(i.get("client_id") for i in day_items)
+    load = 0.0
+    for count in client_counts.values():
+        load += 1.0 + (count - 1) * 0.25
+    return load
+
+
 def spread_followups(
     items: list[dict], daily_target: int, week_days: list[str]
 ) -> list[dict]:
     """Compute proposed redistribution of follow-ups across the week.
 
     Returns list of {composite_id, old_date, new_date} for items that should move.
-    Only moves non-pinned items from days exceeding daily_target.
-    Fills lightest days first.
+    Only moves non-pinned items from days exceeding daily_target (weighted load).
+    Fills lightest days first using weighted client-aware load.
+
+    Weighting: first item per client = 1.0, additional same-client items = 0.25.
+    This means 5 follow-ups for one client ≈ 2.0 weighted load, while 5 follow-ups
+    across 5 clients = 5.0 weighted load.
     """
     from collections import defaultdict
 
@@ -2023,24 +2041,26 @@ def spread_followups(
     movable_pool: list[dict] = []
     for d in week_days:
         day_items = by_date[d]
-        total = len(day_items)
-        if total > daily_target:
+        load = _weighted_load(day_items)
+        if load > daily_target:
             # Collect non-pinned items from this day (keep pinned in place)
-            pinned_count = sum(1 for i in day_items if i.get("pinned"))
             movable = [i for i in day_items if not i.get("pinned")]
-            # Only move excess items
-            excess = total - max(daily_target, pinned_count)
-            if excess > 0:
-                movable_pool.extend(movable[:excess])
+            # Move items until weighted load is at or below target
+            # Prefer moving items that are the only one for their client (higher weight savings)
+            from collections import Counter
+            client_counts = Counter(i.get("client_id") for i in day_items)
+            # Sort movable: items from clients with fewer items first (moving them saves more weight)
+            movable.sort(key=lambda i: client_counts.get(i.get("client_id"), 0))
+            for item in movable:
+                if _weighted_load(by_date[d]) <= daily_target:
+                    break
+                by_date[d].remove(item)
+                movable_pool.append(item)
 
-    # Remove movable items from their current days
-    for item in movable_pool:
-        by_date[item["follow_up_date"]].remove(item)
-
-    # Assign each movable item to the lightest day
+    # Assign each movable item to the lightest day (by weighted load)
     proposals: list[dict] = []
     for item in movable_pool:
-        lightest_day = min(week_days, key=lambda d: len(by_date[d]))
+        lightest_day = min(week_days, key=lambda d: _weighted_load(by_date[d]))
         by_date[lightest_day].append(item)
         proposals.append({
             "composite_id": item["composite_id"],
