@@ -277,6 +277,13 @@ _DEFAULTS: dict[str, Any] = {
     "sprinkler_options": [
         "Yes", "No", "Partial", "Unknown",
     ],
+    "roof_types": [
+        "Built-Up", "Modified Bitumen", "TPO/PVC Membrane", "EPDM",
+        "Metal", "Tile", "Shingle", "Slate", "Other",
+    ],
+    "protection_classes": [
+        "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "8B", "9E",
+    ],
     "endorsement_types": [
         "Additional Insured",
         "Waiver of Subrogation",

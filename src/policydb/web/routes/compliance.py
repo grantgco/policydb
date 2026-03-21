@@ -426,6 +426,154 @@ def requirements_delete(
     return templates.TemplateResponse("compliance/index.html", ctx)
 
 
+# ── Review Mode (rapid entry) ─────────────────────────────────────────────────
+
+@router.get("/client/{client_id}/review-mode", response_class=HTMLResponse)
+def review_mode_panel(
+    client_id: int,
+    request: Request,
+    conn=Depends(get_db),
+    source_id: str = "",
+):
+    """Return review mode panel partial with source-scoped requirements table."""
+    sources = [dict(r) for r in conn.execute(
+        "SELECT * FROM requirement_sources WHERE client_id=? ORDER BY name",
+        (client_id,),
+    ).fetchall()]
+
+    # Default to first source if none selected
+    sid = None
+    if source_id.strip():
+        try:
+            sid = int(source_id)
+        except ValueError:
+            pass
+    if sid is None and sources:
+        sid = sources[0]["id"]
+
+    # Get requirements for selected source
+    requirements = []
+    if sid:
+        requirements = [dict(r) for r in conn.execute(
+            """SELECT * FROM coverage_requirements
+               WHERE client_id=? AND source_id=?
+               ORDER BY id""",
+            (client_id, sid),
+        ).fetchall()]
+        # Parse endorsements JSON for each row
+        import json as _json
+        for req in requirements:
+            try:
+                req["_endorsements_list"] = _json.loads(req.get("required_endorsements") or "[]")
+            except (ValueError, TypeError):
+                req["_endorsements_list"] = []
+
+    # Get templates for "Apply Template" dropdown
+    tmpl_list = [dict(r) for r in conn.execute(
+        "SELECT id, name, description FROM requirement_templates ORDER BY name"
+    ).fetchall()]
+
+    return templates.TemplateResponse("compliance/_review_mode.html", {
+        "request": request,
+        "client_id": client_id,
+        "sources": sources,
+        "selected_source_id": sid,
+        "requirements": requirements,
+        "templates": tmpl_list,
+        "policy_types": cfg.get("policy_types", []),
+        "deductible_types": cfg.get("deductible_types", []),
+        "endorsement_types": cfg.get("endorsement_types", []),
+    })
+
+
+@router.post("/client/{client_id}/review-mode/add-row", response_class=HTMLResponse)
+def review_mode_add_row(
+    client_id: int,
+    request: Request,
+    conn=Depends(get_db),
+    source_id: str = Form(...),
+):
+    """Create a blank requirement row for review mode rapid entry."""
+    def _int_or_none(v):
+        try:
+            return int(v) if str(v).strip() else None
+        except (ValueError, TypeError):
+            return None
+
+    sid = _int_or_none(source_id)
+    cur = conn.execute(
+        """INSERT INTO coverage_requirements
+           (client_id, source_id, coverage_line, compliance_status, required_endorsements)
+           VALUES (?, ?, '', 'Needs Review', '[]')""",
+        (client_id, sid),
+    )
+    conn.commit()
+    req_id = cur.lastrowid
+    req = dict(conn.execute(
+        "SELECT * FROM coverage_requirements WHERE id=?", (req_id,)
+    ).fetchone())
+    req["_endorsements_list"] = []
+
+    return templates.TemplateResponse("compliance/_review_mode_row.html", {
+        "request": request,
+        "req": req,
+        "client_id": client_id,
+        "policy_types": cfg.get("policy_types", []),
+        "deductible_types": cfg.get("deductible_types", []),
+        "endorsement_types": cfg.get("endorsement_types", []),
+    })
+
+
+@router.patch("/client/{client_id}/review-mode/{req_id}/cell")
+async def review_mode_cell(
+    client_id: int,
+    req_id: int,
+    request: Request,
+    conn=Depends(get_db),
+):
+    """JSON-returning cell save for review mode contenteditable table."""
+    from fastapi.responses import JSONResponse
+    import json as _json
+
+    body = await request.json()
+    field = body.get("field", "")
+    value = body.get("value", "")
+
+    if field not in _CELL_ALLOWED_FIELDS:
+        return JSONResponse({"ok": False, "error": f"Field '{field}' not allowed"}, status_code=400)
+
+    formatted = value
+    save_value = value or None
+
+    # Currency parsing for money fields
+    if field in ("required_limit", "max_deductible") and value:
+        parsed = parse_currency_with_magnitude(value)
+        if parsed:
+            save_value = parsed
+            formatted = f"{parsed:,.0f}" if parsed == int(parsed) else f"{parsed:,.2f}"
+        else:
+            save_value = None
+            formatted = ""
+
+    # JSON array for endorsements
+    if field == "required_endorsements":
+        try:
+            arr = _json.loads(value) if isinstance(value, str) else value
+            save_value = _json.dumps(arr)
+            formatted = save_value
+        except (ValueError, TypeError):
+            save_value = "[]"
+            formatted = "[]"
+
+    conn.execute(
+        f"UPDATE coverage_requirements SET {field}=? WHERE id=? AND client_id=?",
+        (save_value, req_id, client_id),
+    )
+    conn.commit()
+
+    return JSONResponse({"ok": True, "formatted": formatted})
+
+
 # ── Location detail ───────────────────────────────────────────────────────────
 
 @router.get("/client/{client_id}/location/{project_id}", response_class=HTMLResponse)
@@ -446,3 +594,28 @@ def location_detail(
     ctx["project"] = location_data["project"] if location_data else {}
 
     return templates.TemplateResponse("compliance/_location_detail.html", ctx)
+
+
+# ── Risk → Requirement Spawning ──────────────────────────────────────────────
+
+@router.post("/client/{client_id}/risks/{risk_id}/spawn-requirements")
+def spawn_from_risk(
+    client_id: int,
+    risk_id: int,
+    request: Request,
+    conn=Depends(get_db),
+    source_id: str = Form(""),
+):
+    """Create compliance requirements from a risk's coverage lines."""
+    from policydb.compliance import spawn_requirements_from_risk
+    from fastapi.responses import RedirectResponse
+
+    sid = None
+    if source_id.strip():
+        try:
+            sid = int(source_id)
+        except ValueError:
+            pass
+
+    created = spawn_requirements_from_risk(conn, client_id, risk_id, sid)
+    return RedirectResponse(f"/compliance/client/{client_id}", status_code=303)

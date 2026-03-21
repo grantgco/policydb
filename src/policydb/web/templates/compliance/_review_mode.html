@@ -1,0 +1,169 @@
+{# Review Mode — rapid contract entry panel (loaded via HTMX into details section) #}
+<div class="px-5 pb-4 border-t border-gray-100">
+
+  {# Source selector + controls #}
+  <div class="flex items-end gap-3 mt-3 mb-3">
+    <div>
+      <label class="block text-xs text-gray-500 uppercase tracking-wider mb-1">Source / Contract</label>
+      <select id="review-mode-source" class="border rounded px-2 py-1.5 text-sm min-w-[220px]"
+              hx-get="/compliance/client/{{ client_id }}/review-mode"
+              hx-target="#review-mode-container"
+              hx-swap="innerHTML"
+              hx-include="this"
+              name="source_id">
+        {% for src in sources %}
+        <option value="{{ src.id }}" {{ 'selected' if src.id == selected_source_id else '' }}>{{ src.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    {% if templates %}
+    <div>
+      <label class="block text-xs text-gray-500 uppercase tracking-wider mb-1">Apply Template</label>
+      <select class="border rounded px-2 py-1.5 text-sm text-gray-600"
+              onchange="if(this.value){htmx.ajax('POST','/compliance/client/{{ client_id }}/templates/'+this.value+'/apply',{target:'body',values:{source_id:document.getElementById('review-mode-source').value}});this.value=''}">
+        <option value="">Choose template...</option>
+        {% for t in templates %}
+        <option value="{{ t.id }}">{{ t.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    {% endif %}
+    <div class="ml-auto">
+      <button type="button" class="border border-gray-300 hover:border-marsh text-gray-600 hover:text-marsh text-xs px-3 py-1.5 rounded transition-colors"
+              onclick="var name=prompt('Template name:');if(name){htmx.ajax('POST','/compliance/client/{{ client_id }}/templates/save',{target:'body',values:{template_name:name,source_id:document.getElementById('review-mode-source').value}})}">
+        Save as Template
+      </button>
+    </div>
+  </div>
+
+  {% if not sources %}
+  <p class="text-sm text-gray-400 py-4">Add a requirement source first (expand "Requirement Sources" above).</p>
+  {% elif selected_source_id %}
+
+  {# Rapid entry table #}
+  <table class="w-full text-sm" id="review-mode-table">
+    <thead>
+      <tr class="text-left text-[10px] text-gray-400 uppercase tracking-wider">
+        <th class="py-1 px-2 w-48">Coverage Line</th>
+        <th class="py-1 px-2 w-28">Limit</th>
+        <th class="py-1 px-2 w-28">Max Ded</th>
+        <th class="py-1 px-2 w-32">Ded Type</th>
+        <th class="py-1 px-2">Endorsements</th>
+        <th class="py-1 px-2 w-40">Notes</th>
+        <th class="py-1 px-2 w-8 no-print"></th>
+      </tr>
+    </thead>
+    <tbody id="review-mode-tbody">
+      {% for req in requirements %}
+        {% include "compliance/_review_mode_row.html" %}
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {# Add row button #}
+  <div class="mt-2 no-print">
+    <button type="button" class="text-xs text-gray-400 hover:text-marsh"
+            hx-post="/compliance/client/{{ client_id }}/review-mode/add-row"
+            hx-vals='{"source_id": "{{ selected_source_id }}"}'
+            hx-target="#review-mode-tbody"
+            hx-swap="beforeend">+ Add row</button>
+  </div>
+
+  {% endif %}
+</div>
+
+{# Contenteditable placeholder CSS #}
+<style>
+  #review-mode-table [contenteditable][data-placeholder]:empty::before {
+    content: attr(data-placeholder);
+    color: #94a3b8;
+    font-style: italic;
+    pointer-events: none;
+  }
+  #review-mode-table [contenteditable]:focus {
+    outline: none;
+    border-bottom: 2px solid #3b82f6;
+    background: rgba(59, 130, 246, 0.03);
+  }
+</style>
+
+{# Initialize matrix for contenteditable + combobox cells #}
+<script>
+(function() {
+  var clientId = {{ client_id }};
+  if (typeof window.initMatrix === 'function') {
+    window.initMatrix({
+      tbodyId: 'review-mode-tbody',
+      idAttr: 'data-req-id',
+      rowClass: 'matrix-row',
+      patchUrl: function(id) { return '/compliance/client/' + clientId + '/review-mode/' + id + '/cell'; },
+      addRowUrl: '/compliance/client/' + clientId + '/review-mode/add-row?source_id={{ selected_source_id }}'
+    });
+  }
+
+  /* Endorsement popover handler */
+  var tbody = document.getElementById('review-mode-tbody');
+  if (!tbody) return;
+
+  tbody.addEventListener('click', function(e) {
+    var cell = e.target.closest('.matrix-cell-endorsements');
+    if (!cell) return;
+    /* If popover already open, ignore */
+    if (cell.querySelector('.endorse-popover')) return;
+
+    var reqId = cell.dataset.reqId;
+    var options = JSON.parse(cell.dataset.options || '[]');
+    var current = JSON.parse(cell.dataset.value || '[]');
+
+    var pop = document.createElement('div');
+    pop.className = 'endorse-popover absolute z-50 bg-white border border-gray-200 rounded-lg shadow-lg p-2 mt-1';
+    pop.style.minWidth = '200px';
+
+    options.forEach(function(opt) {
+      var active = current.indexOf(opt) >= 0;
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'block w-full text-left text-xs px-2 py-1 rounded mb-0.5 transition-colors ' +
+        (active ? 'bg-green-100 text-green-700 font-medium' : 'text-gray-500 hover:bg-gray-50');
+      btn.textContent = (active ? '✓ ' : '  ') + opt;
+      btn.onclick = function() {
+        var idx = current.indexOf(opt);
+        if (idx >= 0) { current.splice(idx, 1); }
+        else { current.push(opt); }
+        cell.dataset.value = JSON.stringify(current);
+        /* Update display */
+        btn.className = 'block w-full text-left text-xs px-2 py-1 rounded mb-0.5 transition-colors ' +
+          (current.indexOf(opt) >= 0 ? 'bg-green-100 text-green-700 font-medium' : 'text-gray-500 hover:bg-gray-50');
+        btn.textContent = (current.indexOf(opt) >= 0 ? '\u2713 ' : '  ') + opt;
+        /* Save via PATCH */
+        fetch('/compliance/client/' + clientId + '/review-mode/' + reqId + '/cell', {
+          method: 'PATCH',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({field: 'required_endorsements', value: current})
+        });
+      };
+      pop.appendChild(btn);
+    });
+
+    cell.style.position = 'relative';
+    cell.appendChild(pop);
+
+    /* Close on outside click */
+    setTimeout(function() {
+      document.addEventListener('click', function closer(ev) {
+        if (!pop.contains(ev.target) && ev.target !== cell) {
+          /* Update pills display */
+          var pills = '';
+          current.forEach(function(e) {
+            pills += '<span class="text-[10px] bg-green-100 text-green-700 px-1 py-0.5 rounded">' + e + '</span> ';
+          });
+          if (!current.length) pills = '<span class="text-[10px] text-gray-300 italic">click to add</span>';
+          cell.innerHTML = pills;
+          cell.dataset.value = JSON.stringify(current);
+          document.removeEventListener('click', closer);
+        }
+      });
+    }, 10);
+  });
+})();
+</script>

@@ -1,0 +1,39 @@
+{# Single row for review mode rapid entry table #}
+<tr class="matrix-row border-b border-gray-50" data-req-id="{{ req.id }}">
+  <td class="matrix-cell-combo py-2 px-2" data-field="coverage_line"
+      data-options='{{ policy_types | tojson }}'>
+    <span class="cell-display text-sm">{{ req.coverage_line or '' }}</span>
+  </td>
+  <td class="matrix-cell-editable py-2 px-2 text-sm" contenteditable="true"
+      data-field="required_limit" data-placeholder="e.g. 1m">{{ '%g' % req.required_limit if req.required_limit else '' }}</td>
+  <td class="matrix-cell-editable py-2 px-2 text-sm" contenteditable="true"
+      data-field="max_deductible" data-placeholder="e.g. 5k">{{ '%g' % req.max_deductible if req.max_deductible else '' }}</td>
+  <td class="matrix-cell-combo py-2 px-2" data-field="deductible_type"
+      data-options='{{ deductible_types | tojson }}'>
+    <span class="cell-display text-sm text-gray-600">{{ req.deductible_type or '' }}</span>
+  </td>
+  <td class="py-2 px-2">
+    {# Endorsement pills — click to toggle popover #}
+    <div class="matrix-cell-endorsements flex flex-wrap gap-0.5 cursor-pointer min-h-[24px]"
+         data-field="required_endorsements"
+         data-req-id="{{ req.id }}"
+         data-options='{{ endorsement_types | tojson }}'
+         data-value='{{ req.required_endorsements or "[]" }}'>
+      {% for e in (req._endorsements_list or []) %}
+      <span class="text-[10px] bg-green-100 text-green-700 px-1 py-0.5 rounded">{{ e }}</span>
+      {% endfor %}
+      {% if not (req._endorsements_list or []) %}
+      <span class="text-[10px] text-gray-300 italic">click to add</span>
+      {% endif %}
+    </div>
+  </td>
+  <td class="matrix-cell-editable py-2 px-2 text-sm text-gray-600" contenteditable="true"
+      data-field="notes" data-placeholder="notes...">{{ req.notes or '' }}</td>
+  <td class="py-2 px-1 no-print">
+    <button type="button" class="text-red-300 hover:text-red-500 text-xs"
+            hx-post="/compliance/client/{{ client_id }}/requirements/{{ req.id }}/delete"
+            hx-target="closest tr"
+            hx-swap="outerHTML"
+            hx-confirm="Delete this row?">✕</button>
+  </td>
+</tr>
