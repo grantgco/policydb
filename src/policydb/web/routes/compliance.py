@@ -294,7 +294,7 @@ def requirements_add(
             _int_or_none(project_id),
             _int_or_none(source_id),
             _int_or_none(risk_id),
-            coverage_line.strip() or None,
+            coverage_line.strip() or "",
             _money_or_none(required_limit),
             _money_or_none(max_deductible),
             deductible_type.strip() or None,
