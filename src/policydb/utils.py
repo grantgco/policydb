@@ -94,6 +94,30 @@ except Exception:
 # Maps common AMS abbreviations and alternate names to canonical PolicyDB values.
 # Applied before fuzzy matching so "CGL" vs "General Liability" score 100, not 40.
 # Moved here from reconciler.py so it can be shared with save-path normalization.
+
+_BASE_COVERAGE_ALIASES: dict[str, str] = {}  # populated on first rebuild_coverage_aliases() call
+
+
+def rebuild_coverage_aliases() -> None:
+    """Merge config coverage_aliases with hardcoded _COVERAGE_ALIASES.
+
+    Mirrors rebuild_carrier_aliases(). The first call snapshots the hardcoded
+    aliases so repeated calls always start from the original base, then layer
+    config overrides on top.
+    """
+    global _COVERAGE_ALIASES, _BASE_COVERAGE_ALIASES
+    if not _BASE_COVERAGE_ALIASES:
+        _BASE_COVERAGE_ALIASES = dict(_COVERAGE_ALIASES)
+    from policydb import config as cfg
+    config_aliases = cfg.get("coverage_aliases", {})
+    merged = dict(_BASE_COVERAGE_ALIASES)
+    for canonical, variations in config_aliases.items():
+        merged[canonical.lower()] = canonical
+        for v in variations:
+            merged[v.strip().lower()] = canonical
+    _COVERAGE_ALIASES = merged
+
+
 _COVERAGE_ALIASES: dict[str, str] = {
     # ── General Liability ────────────────────────────────────────────────────
     "cgl": "General Liability",
@@ -332,6 +356,12 @@ _COVERAGE_ALIASES: dict[str, str] = {
     "special multi peril": "Property / Builders Risk",
     "mppl": "Professional Liability / E&O",
 }
+
+# Build coverage aliases on module load (after dict is defined).
+try:
+    rebuild_coverage_aliases()
+except Exception:
+    pass
 
 
 # ─── LEGAL SUFFIX MAP ─────────────────────────────────────────────────────────
