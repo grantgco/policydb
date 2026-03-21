@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% block title %}Data Prep Reference — Coverage{% endblock %}
+{% block content %}
+
+<style>
+  @media print {
+    nav, .no-print, footer { display: none !important; }
+    body { font-size: 11pt; }
+    .card { box-shadow: none !important; border: 1px solid #e5e7eb !important; break-inside: avoid; }
+    h1 { font-size: 18pt; }
+    h2 { font-size: 14pt; }
+    table { font-size: 9pt; }
+  }
+</style>
+
+<div class="mb-4 flex items-center justify-between">
+  <div>
+    <h1 class="text-2xl font-bold text-gray-900">Data Prep Reference Guide</h1>
+    <p class="text-sm text-gray-500 mt-1">Canonical coverage types, column headers, and formatting accepted by the reconciler.</p>
+  </div>
+  <div class="flex items-center gap-3 no-print">
+    <a href="/reconcile" class="text-sm text-marsh hover:underline">&larr; Back to Reconcile</a>
+    <button onclick="window.print()" class="bg-marsh hover:bg-marsh-light text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
+      Print
+    </button>
+  </div>
+</div>
+
+<!-- A. Coverage Types -->
+<div class="card p-5 mb-5">
+  <h2 class="text-lg font-semibold text-gray-900 mb-3">Coverage Types</h2>
+  <p class="text-xs text-gray-500 mb-3">
+    The reconciler normalizes policy type names to canonical forms. Any alias below will be recognized automatically.
+  </p>
+  <table class="w-full text-sm border-collapse">
+    <thead>
+      <tr class="border-b border-gray-200">
+        <th class="text-left py-2 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-1/4">Canonical Name</th>
+        <th class="text-left py-2 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Accepted Aliases</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for canonical, aliases in coverage_types %}
+      <tr class="border-b border-gray-100 {% if loop.index is odd %}bg-gray-50{% endif %}">
+        <td class="py-2 px-3 font-medium text-gray-900 align-top whitespace-nowrap">{{ canonical }}</td>
+        <td class="py-2 px-3 text-gray-600">
+          {% if aliases %}
+            {% for a in aliases %}<span class="inline-block bg-gray-100 rounded px-1.5 py-0.5 text-xs text-gray-600 mr-1 mb-1">{{ a }}</span>{% endfor %}
+          {% else %}
+            <span class="text-gray-400 text-xs italic">exact match only</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- B. Carrier Aliases -->
+{% if carrier_aliases %}
+<div class="card p-5 mb-5">
+  <h2 class="text-lg font-semibold text-gray-900 mb-3">Carrier Aliases</h2>
+  <p class="text-xs text-gray-500 mb-3">
+    These carrier name variations are recognized and mapped to a canonical name. Managed in Settings.
+  </p>
+  <table class="w-full text-sm border-collapse">
+    <thead>
+      <tr class="border-b border-gray-200">
+        <th class="text-left py-2 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-1/4">Canonical Carrier</th>
+        <th class="text-left py-2 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Known Variations</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for canonical, variations in carrier_aliases %}
+      <tr class="border-b border-gray-100 {% if loop.index is odd %}bg-gray-50{% endif %}">
+        <td class="py-2 px-3 font-medium text-gray-900 align-top whitespace-nowrap">{{ canonical }}</td>
+        <td class="py-2 px-3 text-gray-600">
+          {% if variations is string %}
+            <span class="inline-block bg-gray-100 rounded px-1.5 py-0.5 text-xs text-gray-600 mr-1 mb-1">{{ variations }}</span>
+          {% else %}
+            {% for v in variations %}<span class="inline-block bg-gray-100 rounded px-1.5 py-0.5 text-xs text-gray-600 mr-1 mb-1">{{ v }}</span>{% endfor %}
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<!-- C. Column Headers -->
+<div class="card p-5 mb-5">
+  <h2 class="text-lg font-semibold text-gray-900 mb-3">Column Headers</h2>
+  <p class="text-xs text-gray-500 mb-3">
+    The importer recognizes these column header variations and maps them to canonical field names. You can also use the column mapping UI during upload.
+  </p>
+  <table class="w-full text-sm border-collapse">
+    <thead>
+      <tr class="border-b border-gray-200">
+        <th class="text-left py-2 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-1/4">Canonical Field</th>
+        <th class="text-left py-2 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Accepted Headers</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for canonical, headers in column_groups %}
+      <tr class="border-b border-gray-100 {% if loop.index is odd %}bg-gray-50{% endif %}">
+        <td class="py-2 px-3 font-medium text-gray-900 align-top whitespace-nowrap font-mono text-xs">{{ canonical }}</td>
+        <td class="py-2 px-3 text-gray-600">
+          {% for h in headers %}<span class="inline-block bg-gray-100 rounded px-1.5 py-0.5 text-xs text-gray-600 mr-1 mb-1 font-mono">{{ h }}</span>{% endfor %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- D. Program Flagging -->
+<div class="card p-5 mb-5">
+  <h2 class="text-lg font-semibold text-gray-900 mb-3">Program Flagging</h2>
+  <p class="text-sm text-gray-700 mb-2">
+    To group policies into a program (e.g., a shared tower or master policy), add a column with any of these headers:
+  </p>
+  <div class="flex flex-wrap gap-2 mb-3">
+    <span class="inline-block bg-blue-50 border border-blue-200 rounded px-2 py-1 text-xs font-mono text-blue-800">program</span>
+    <span class="inline-block bg-blue-50 border border-blue-200 rounded px-2 py-1 text-xs font-mono text-blue-800">program_id</span>
+    <span class="inline-block bg-blue-50 border border-blue-200 rounded px-2 py-1 text-xs font-mono text-blue-800">master_policy</span>
+    <span class="inline-block bg-blue-50 border border-blue-200 rounded px-2 py-1 text-xs font-mono text-blue-800">program_group</span>
+  </div>
+  <p class="text-sm text-gray-600">
+    All rows sharing the same value in this column will be grouped together as a single program. Leave blank for standalone policies.
+  </p>
+</div>
+
+<!-- E. Date Formats -->
+<div class="card p-5 mb-5">
+  <h2 class="text-lg font-semibold text-gray-900 mb-3">Accepted Date Formats</h2>
+  <p class="text-xs text-gray-500 mb-3">
+    Dates are parsed with <code class="bg-gray-100 rounded px-1 py-0.5 text-xs">dateparser</code>, which handles most common formats. Examples:
+  </p>
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
+    {% for fmt in ["04/01/2025", "2025-04-01", "April 1, 2025", "01-Apr-2025", "4/1/25", "2025/04/01", "1 April 2025", "Apr 1 2025"] %}
+    <div class="bg-gray-50 border border-gray-200 rounded px-3 py-2 text-sm text-gray-700 font-mono text-center">{{ fmt }}</div>
+    {% endfor %}
+  </div>
+  <p class="text-xs text-gray-400 mt-2">
+    If a date cannot be parsed, the reconciler will flag a warning and skip the row.
+  </p>
+</div>
+
+<!-- F. Download Templates -->
+<div class="card p-5 mb-5 no-print">
+  <h2 class="text-lg font-semibold text-gray-900 mb-3">CSV Templates</h2>
+  <p class="text-xs text-gray-500 mb-3">Download a pre-formatted CSV with the correct headers and one example row.</p>
+  <div class="flex gap-3">
+    <a href="/reconcile/template-csv/standard" download
+       class="inline-flex items-center gap-2 bg-white border border-gray-300 rounded-lg px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors">
+      <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+      Standard Template
+    </a>
+    <a href="/reconcile/template-csv/full" download
+       class="inline-flex items-center gap-2 bg-white border border-gray-300 rounded-lg px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors">
+      <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+      Full Template
+    </a>
+  </div>
+  <p class="text-xs text-gray-400 mt-2">Standard: 7 columns (client, type, carrier, number, dates, premium). Full: 14 columns with limits, deductible, program, layer, and contacts.</p>
+</div>
+
+{% endblock %}

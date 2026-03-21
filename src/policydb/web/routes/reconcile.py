@@ -171,6 +171,74 @@ def reconcile_index(request: Request, conn=Depends(get_db)):
     })
 
 
+@router.get("/reference-guide", response_class=HTMLResponse)
+def reconcile_reference_guide(request: Request):
+    """Printable data prep reference — coverage types, aliases, column headers."""
+    from policydb.utils import _COVERAGE_ALIASES
+    from policydb.importer import PolicyImporter
+    import policydb.config as cfg
+
+    # Group coverage aliases by canonical name
+    coverage_groups: dict[str, list[str]] = {}
+    for alias, canonical in _COVERAGE_ALIASES.items():
+        if canonical not in coverage_groups:
+            coverage_groups[canonical] = []
+        if alias != canonical.lower():
+            coverage_groups[canonical].append(alias)
+    # Sort canonicals alphabetically
+    coverage_types = sorted(coverage_groups.items())
+
+    # Carrier aliases from config
+    carrier_aliases = cfg.get("carrier_aliases", {})
+
+    # Column header aliases from importer
+    column_aliases: dict[str, list[str]] = {}
+    for alias, canonical in PolicyImporter.ALIASES.items():
+        if canonical not in column_aliases:
+            column_aliases[canonical] = []
+        column_aliases[canonical].append(alias)
+    column_groups = sorted(column_aliases.items())
+
+    return templates.TemplateResponse("reconcile/_reference_guide.html", {
+        "request": request,
+        "active": "reconcile",
+        "coverage_types": coverage_types,
+        "carrier_aliases": sorted(carrier_aliases.items()) if isinstance(carrier_aliases, dict) else [],
+        "column_groups": column_groups,
+    })
+
+
+@router.get("/template-csv/{template_type}")
+def reconcile_template_csv(template_type: str):
+    """Download a CSV template for reconcile import."""
+    import csv as _csv
+
+    if template_type == "standard":
+        headers = ["client_name", "policy_type", "carrier", "policy_number",
+                    "effective_date", "expiration_date", "premium"]
+        example = ["Acme Construction", "General Liability", "Hartford",
+                    "GL-2025-001", "04/01/2025", "04/01/2026", "12500"]
+    else:  # full
+        headers = ["client_name", "policy_type", "carrier", "policy_number",
+                    "effective_date", "expiration_date", "premium", "limit_amount",
+                    "deductible", "program", "layer_position", "first_named_insured",
+                    "placement_colleague", "underwriter_name"]
+        example = ["Acme Construction", "General Liability", "Hartford",
+                    "GL-2025-001", "04/01/2025", "04/01/2026", "12500", "1000000",
+                    "5000", "", "Primary", "", "", ""]
+
+    output = io.StringIO()
+    writer = _csv.writer(output)
+    writer.writerow(headers)
+    writer.writerow(example)
+
+    return Response(
+        content=output.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=policydb-{template_type}-template.csv"},
+    )
+
+
 @router.post("", response_class=HTMLResponse)
 async def reconcile_run(
     request: Request,
