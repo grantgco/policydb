@@ -1,3 +1,187 @@
-<div id="location-detail">
-  <p>Location detail placeholder — {{ project.name }}</p>
+{# Location drill-down detail — loaded via HTMX into #location-detail #}
+{# Context: location_data, project, client_id, sources, all_policies, compliance_statuses, endorsement_types, policy_types, deductible_types #}
+
+{% if location_data %}
+{% set loc = location_data %}
+{% set gov = loc.governing %}
+{% set reqs = loc.requirements %}
+
+<div class="bg-white rounded-lg shadow-sm border border-gray-200 mb-6">
+  <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+    <div>
+      <h2 class="font-semibold text-sm text-gray-700">{{ project.name }} &mdash; Requirements Detail</h2>
+      <p class="text-xs text-gray-500">
+        {% if project.address %}{{ project.address }} &bull; {% endif %}
+        {{ gov | length }} coverage requirement{{ 's' if gov | length != 1 else '' }}
+        {% set source_ids = reqs | map(attribute='source_id') | select('defined') | list | unique | list %}
+        {% if source_ids %} from {{ source_ids | length }} source{{ 's' if source_ids | length != 1 else '' }}{% endif %}
+      </p>
+    </div>
+    <button class="text-xs text-gray-400 hover:text-gray-600 no-print"
+            onclick="document.getElementById('location-detail').innerHTML = ''">Close &times;</button>
+  </div>
+
+  {# Group requirements by source #}
+  {% set ns = namespace(sources_seen=[], source_groups={}) %}
+  {% for req in reqs %}
+    {% set src_id = req.source_id or 0 %}
+    {% set src_key = src_id | string %}
+    {% if src_key not in ns.sources_seen %}
+      {% set ns.sources_seen = ns.sources_seen + [src_key] %}
+    {% endif %}
+  {% endfor %}
+
+  <div class="px-5 py-4 space-y-4">
+    {# Iterate through unique sources in the requirements #}
+    {% set seen_sources = [] %}
+    {% for req in reqs %}
+      {% set src_id = req.source_id or 0 %}
+      {% if src_id not in seen_sources %}
+        {# Mark this source as seen #}
+        {% if seen_sources.append(src_id) %}{% endif %}
+
+        {# Determine if inherited (project_id is null) or local #}
+        {% set is_inherited = req.project_id is none or req.project_id is not defined %}
+        {% set border_color = 'border-blue-300' if is_inherited else 'border-purple-300' %}
+
+        <div class="{{ border_color }} border-l-4 pl-4">
+          <div class="flex items-center gap-2 mb-2">
+            <span class="font-medium text-sm">{{ req.source_name or 'Unlinked' }}</span>
+            {% if is_inherited %}
+            <span class="text-xs bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded">&darr; Inherited</span>
+            {% else %}
+            <span class="text-xs bg-purple-50 text-purple-600 px-1.5 py-0.5 rounded">Local</span>
+            {% endif %}
+            {% if req.counterparty or req.clause_ref %}
+            <span class="text-xs text-gray-400">
+              {% if req.counterparty %}{{ req.counterparty }}{% endif %}
+              {% if req.counterparty and req.clause_ref %} &bull; {% endif %}
+              {% if req.clause_ref %}{{ req.clause_ref }}{% endif %}
+            </span>
+            {% endif %}
+          </div>
+
+          <table class="w-full text-sm">
+            {# Show all requirements from this source #}
+            {% for r in reqs %}
+              {% if (r.source_id or 0) == src_id %}
+              <tr class="border-b border-gray-50">
+                <td class="py-2 w-48">{{ r.coverage_line }}</td>
+                <td class="py-2 w-32">
+                  {% if r.required_limit is not none %}
+                    {{ r.required_limit | currency }}
+                  {% else %}
+                    <span class="text-gray-300">&mdash;</span>
+                  {% endif %}
+                </td>
+                <td class="py-2">
+                  {# Required endorsements as pills #}
+                  {% set r_endorsements = r.required_endorsements %}
+                  {% if r_endorsements is string %}
+                    {% set r_endorsements = [] %}
+                  {% endif %}
+                  {% if r_endorsements is iterable and r_endorsements %}
+                    <span class="inline-flex gap-1 text-xs">
+                      {% for e in r_endorsements %}
+                      <span class="bg-green-100 text-green-700 px-1.5 py-0.5 rounded">{{ e }}</span>
+                      {% endfor %}
+                    </span>
+                  {% endif %}
+                </td>
+                <td class="py-2 text-right">
+                  {# Check if this requirement is overridden by a more stringent one from another source #}
+                  {% set line = r.coverage_line %}
+                  {% if line in gov %}
+                    {% set governing_req = gov[line] %}
+                    {% set is_governing = (governing_req.source_name == r.source_name and governing_req.required_limit == r.required_limit) %}
+
+                    {% if is_governing %}
+                      {# This is the governing requirement — show linked policy status #}
+                      {% set pol_uid = governing_req.linked_policy_uid %}
+                      {% set pol_ns = namespace(policy=none) %}
+                      {% if pol_uid %}
+                        {% for p in all_policies %}
+                          {% if p.policy_uid == pol_uid %}{% set pol_ns.policy = p %}{% endif %}
+                        {% endfor %}
+                      {% elif governing_req.suggested_policy is defined and governing_req.suggested_policy %}
+                        {% set pol_ns.policy = governing_req.suggested_policy %}
+                      {% endif %}
+
+                      {% set status = (governing_req.compliance_status or 'Needs Review') | lower %}
+
+                      {% if status == 'gap' %}
+                        <span class="inline-flex items-center gap-1 text-xs bg-red-50 text-red-700 px-2 py-0.5 rounded">
+                          <span class="w-1.5 h-1.5 rounded-full bg-red-500"></span> GAP &mdash; No policy
+                        </span>
+                      {% elif pol_ns.policy %}
+                        <div>
+                          <span class="inline-flex items-center gap-1 text-xs bg-green-50 text-green-700 px-2 py-0.5 rounded">
+                            <span class="w-1.5 h-1.5 rounded-full bg-green-500"></span>
+                            {{ pol_ns.policy.policy_number or pol_ns.policy.policy_uid[:8] }}
+                            {% if pol_ns.policy.limit_amount %} ({{ pol_ns.policy.limit_amount | currency }}){% endif %}
+                            &mdash; Governs
+                          </span>
+                        </div>
+                        {% if governing_req.max_deductible is not none %}
+                        <div class="text-[10px] text-gray-400 mt-0.5">
+                          Max Ded: {{ governing_req.max_deductible | currency }}
+                          {% if governing_req.deductible_type %}({{ governing_req.deductible_type }}){% endif %}
+                        </div>
+                        {% endif %}
+                      {% elif status in ('waived', 'n/a') %}
+                        <span class="inline-flex items-center gap-1 text-xs bg-gray-50 text-gray-500 px-2 py-0.5 rounded">
+                          <span class="w-1.5 h-1.5 rounded-full bg-gray-400"></span> {{ governing_req.compliance_status }}
+                        </span>
+                      {% else %}
+                        <span class="inline-flex items-center gap-1 text-xs bg-gray-50 text-gray-600 px-2 py-0.5 rounded">
+                          <span class="w-1.5 h-1.5 rounded-full bg-gray-400"></span> {{ governing_req.compliance_status or 'Needs Review' }}
+                        </span>
+                      {% endif %}
+                    {% else %}
+                      {# This requirement is overridden by a more stringent one #}
+                      <span class="text-xs text-gray-400 line-through">
+                        Overridden by {{ governing_req.governing_source }}
+                        {% if governing_req.required_limit is not none %} ({{ governing_req.required_limit | currency }}){% endif %}
+                      </span>
+                    {% endif %}
+                  {% endif %}
+                </td>
+              </tr>
+              {% endif %}
+            {% endfor %}
+
+            {# Inline add row #}
+            <tr class="text-gray-400 hover:text-gray-600 cursor-pointer no-print">
+              <td class="py-1.5 text-xs" colspan="4">
+                <span class="hover:text-marsh">+ Add requirement to this source...</span>
+              </td>
+            </tr>
+          </table>
+        </div>
+      {% endif %}
+    {% endfor %}
+  </div>
+
+  {# Policies covering this location #}
+  {% if loc.policies %}
+  <div class="px-5 py-3 bg-gray-50 border-t border-gray-100">
+    <span class="text-xs uppercase tracking-wider text-gray-400">Policies covering this location</span>
+    <div class="flex flex-wrap gap-2 mt-2">
+      {% for pol in loc.policies %}
+      <span class="text-xs bg-white border border-gray-200 px-2 py-1 rounded">
+        {{ pol.policy_number or pol.policy_uid[:8] }}
+        &mdash; {{ pol.policy_type or 'Unknown' }}
+        {% if pol.limit_amount %} ({{ pol.limit_amount | currency }}){% endif %}
+        {% if not pol.project_id %}<span class="text-gray-400">Corporate</span>{% endif %}
+      </span>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
 </div>
+
+{% else %}
+<div class="bg-white rounded-lg shadow-sm border border-gray-200 mb-6 px-5 py-8 text-center text-gray-400 text-sm">
+  Location not found.
+</div>
+{% endif %}
