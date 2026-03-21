@@ -1,0 +1,121 @@
+{% if open_opportunities %}
+{% set _opp_total_premium = open_opportunities | selectattr('premium') | map(attribute='premium') | sum %}
+{% set _opp_total_revenue = open_opportunities | selectattr('commission_amount') | map(attribute='commission_amount') | sum %}
+<div class="card mb-6">
+  <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+    <div class="flex items-center gap-2">
+      <h3 class="font-semibold text-gray-900">Open Opportunities</h3>
+      <span class="text-xs bg-amber-100 text-amber-700 font-semibold px-2 py-0.5 rounded-full">{{ open_opportunities | length }}</span>
+    </div>
+    <div class="flex items-center gap-4 text-xs">
+      {% if _opp_total_premium %}
+      <span class="text-gray-500">Pipeline: <span class="font-semibold text-gray-700">{{ _opp_total_premium | currency }}</span></span>
+      {% endif %}
+      {% if _opp_total_revenue %}
+      <span class="text-gray-500">Est. Revenue: <span class="font-semibold text-emerald-600">{{ _opp_total_revenue | currency }}</span></span>
+      {% endif %}
+    </div>
+  </div>
+  <table class="w-full text-sm">
+    <thead>
+      <tr class="text-left text-xs text-gray-400 uppercase tracking-wide border-b border-gray-100 bg-gray-50">
+        <th class="px-4 py-2">Client</th>
+        <th class="px-4 py-2">Line of Business</th>
+        <th class="px-4 py-2">Carrier (Target)</th>
+        <th class="px-4 py-2">Status</th>
+        <th class="px-4 py-2">Target Eff.</th>
+        <th class="px-4 py-2">Est. Premium</th>
+        <th class="px-4 py-2">Est. Revenue</th>
+        <th class="px-4 py-2">Colleague</th>
+        <th class="px-4 py-2">Follow-Up</th>
+        <th class="px-4 py-2"></th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-gray-50">
+      {% set opp_colors = {
+        'Prospecting': 'bg-gray-100 text-gray-600',
+        'Quoting': 'bg-blue-100 text-blue-700',
+        'Submitted': 'bg-purple-100 text-purple-700',
+        'Pending Bind': 'bg-amber-100 text-amber-700'
+      } %}
+      {% for o in open_opportunities %}
+      <tr id="opp-row-{{ o.policy_uid }}" class="hover:bg-amber-50/40">
+        <td class="px-4 py-2.5">
+          <a href="/clients/{{ o.client_id }}" class="font-medium text-marsh hover:underline">{{ o.client_name }}</a>
+        </td>
+        <td class="px-4 py-2.5">
+          <span class="text-gray-800">{{ o.policy_type or '—' }}</span>
+          {% if o.project_name %}<span class="text-xs text-gray-400 ml-1 italic">· {{ o.project_name }}</span>{% endif %}
+        </td>
+        <td class="px-4 py-2.5 text-gray-600">{{ o.carrier or '—' }}</td>
+        <td class="px-4 py-2.5">
+          {% if o.opportunity_status %}
+          <span class="text-xs font-semibold px-2 py-0.5 rounded {{ opp_colors.get(o.opportunity_status, 'bg-gray-100 text-gray-600') }}">
+            {{ o.opportunity_status }}
+          </span>
+          {% else %}<span class="text-xs text-gray-300">—</span>{% endif %}
+        </td>
+        <td class="px-4 py-2.5 text-xs text-gray-600 whitespace-nowrap">
+          {{ o.target_effective_date or '—' }}
+          {% if o.days_to_target is defined and o.days_to_target is not none %}
+            {% if o.days_to_target < 0 %}
+            <span class="ml-1 text-xs font-medium px-1.5 py-0.5 rounded bg-red-100 text-red-700">{{ o.days_to_target }}d</span>
+            {% elif o.days_to_target <= 14 %}
+            <span class="ml-1 text-xs font-medium px-1.5 py-0.5 rounded bg-red-100 text-red-700">{{ o.days_to_target }}d</span>
+            {% elif o.days_to_target <= 30 %}
+            <span class="ml-1 text-xs font-medium px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">{{ o.days_to_target }}d</span>
+            {% elif o.days_to_target <= 90 %}
+            <span class="ml-1 text-xs font-medium px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">{{ o.days_to_target }}d</span>
+            {% else %}
+            <span class="ml-1 text-xs font-medium px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">{{ o.days_to_target }}d</span>
+            {% endif %}
+          {% endif %}
+        </td>
+        <td class="px-4 py-2.5 text-right tabular-nums text-xs text-gray-600">
+          {% if o.premium %}{{ o.premium | currency }}{% else %}—{% endif %}
+        </td>
+        <td class="px-4 py-2.5 text-right tabular-nums text-xs">
+          {% if o.commission_amount %}
+          <span class="text-emerald-600 font-medium">{{ o.commission_amount | currency }}</span>
+          {% elif o.premium and not o.commission_rate %}
+          <span class="text-gray-300" title="No commission rate set">—</span>
+          {% else %}—{% endif %}
+        </td>
+        <td class="px-4 py-2.5 text-xs text-gray-600">
+          {% if o.placement_colleague %}
+          {{ o.placement_colleague }}
+          {% if o.placement_colleague_email %}
+          <button type="button" class="ep-trigger text-marsh hover:text-marsh-light ml-1"
+            data-to="{{ o.placement_colleague_email }}"
+            data-to-label="{{ o.placement_colleague }}"
+            data-subject="{{ o.mailto_subject }}"
+            data-cc-url="/policies/{{ o.policy_uid }}/team-cc"
+            data-ref="{{ build_ref_tag(cn_number=o.cn_number|default(''), client_id=o.client_id, policy_uid=o.policy_uid, project_id=o.project_id|default(0)) }}">✉</button>
+          {% endif %}
+          {% else %}—{% endif %}
+        </td>
+        <td class="px-4 py-2.5 text-xs whitespace-nowrap">
+          {% if o.follow_up_date %}
+            {% if o.follow_up_date < today %}
+            <span class="text-red-600 font-medium">{{ o.follow_up_date }}</span>
+            {% else %}
+            <span class="text-amber-700">{{ o.follow_up_date }}</span>
+            {% endif %}
+          {% else %}<span class="text-gray-300">—</span>{% endif %}
+        </td>
+        <td class="px-4 py-2.5">
+          <div class="flex items-center gap-3">
+            <a href="/policies/{{ o.policy_uid }}/edit" class="text-xs text-marsh hover:underline">Edit →</a>
+            <button
+              hx-get="/policies/{{ o.policy_uid }}/opp/log"
+              hx-target="#opp-row-{{ o.policy_uid }}"
+              hx-swap="outerHTML"
+              class="text-xs text-amber-600 hover:underline">Log</button>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}

@@ -1,6 +1,16 @@
-{% set row_id = "contact-" ~ (c.name | replace(' ', '-') | lower) %}
+{% set row_id = "contact-" ~ (c.name | safe_id) %}
 <tr class="hover:bg-gray-50/60 align-top" id="{{ row_id }}">
-  <td class="px-4 py-3 font-medium text-gray-800">{{ c.name }}</td>
+  <td class="px-4 py-3 font-medium text-gray-800">
+    {{ c.name }}
+    {% if c.get('expertise_lines') or c.get('expertise_industries') or expertise_lines or expertise_industries %}
+    <div class="mt-0.5">
+      {% set contact_id = c.get('id') or c.get('contact_id') %}
+      {% set line_tags = c.get('expertise_lines', []) %}
+      {% set industry_tags = c.get('expertise_industries', []) %}
+      {% include "contacts/_expertise_pills.html" %}
+    </div>
+    {% endif %}
+  </td>
   <td class="px-4 py-3 text-gray-600 text-xs">{{ c.organization or '—' }}</td>
   <td class="px-4 py-3">
     {% if c.role %}
@@ -12,7 +22,11 @@
     <a href="mailto:{{ c.email }}" class="text-marsh hover:underline">{{ c.email }}</a>
     {% else %}<span class="text-gray-300">—</span>{% endif %}
   </td>
-  <td class="px-4 py-3 text-xs text-gray-600">{{ c.phone or '—' }}</td>
+  <td class="px-4 py-3 text-xs">
+    {% if c.phone %}<span class="text-gray-600">{{ c.phone }}</span>{% endif %}
+    {% if c.mobile %}<span class="text-gray-400 {% if c.phone %}ml-1{% endif %}">{% if c.phone %}· {% endif %}Cell: {{ c.mobile }}</span>{% endif %}
+    {% if not c.phone and not c.mobile %}<span class="text-gray-300">—</span>{% endif %}
+  </td>
   <td class="px-4 py-3 text-xs">
     {% set policies = c.get('policies', []) %}
     {% if policies %}

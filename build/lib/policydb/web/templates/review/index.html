@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block title %}Weekly Review — PolicyDB{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+
+  <!-- Header + Stats -->
+  <div class="card p-5">
+    <div class="flex items-start justify-between mb-4">
+      <div>
+        <h1 class="text-xl font-bold text-gray-900">Weekly Review</h1>
+        <p class="text-sm text-gray-500 mt-0.5">Cycle through your book and ensure everything is current.</p>
+      </div>
+      <a href="/renewals" class="text-xs text-marsh hover:underline">Renewals →</a>
+    </div>
+    {% include "review/_stats_banner.html" %}
+  </div>
+
+  <!-- Policies Section -->
+  {% if policies %}
+  <div class="card-section">
+    <div class="card-header">
+      <span class="section-title flex items-center gap-2">
+        <span class="w-2 h-2 rounded-full bg-orange-400 inline-block"></span>
+        Policies
+      </span>
+      <span class="text-xs text-gray-400">{{ policies | length }} needing review</span>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead class="bg-gray-50 border-b border-gray-200">
+          <tr>
+            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Client / Type</th>
+            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Carrier</th>
+            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Expiration</th>
+            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Status</th>
+            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Review Cycle</th>
+            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Last Reviewed</th>
+            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Checklist</th>
+            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Follow-Up</th>
+            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in policies %}
+            {% include "review/_policy_row.html" %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Opportunities Section -->
+  {% if opportunities %}
+  <div class="card-section">
+    <div class="card-header">
+      <span class="section-title flex items-center gap-2">
+        <span class="w-2 h-2 rounded-full bg-blue-400 inline-block"></span>
+        Opportunities
+      </span>
+      <span class="text-xs text-gray-400">{{ opportunities | length }} needing review</span>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead class="bg-gray-50 border-b border-gray-200">
+          <tr>
+            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Client / Type</th>
+            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Stage</th>
+            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Target Date</th>
+            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Status</th>
+            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Review Cycle</th>
+            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Last Reviewed</th>
+            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Checklist</th>
+            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Follow-Up</th>
+            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in opportunities %}
+            {% include "review/_policy_row.html" %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Clients Section -->
+  {% if clients %}
+  <div class="card-section">
+    <div class="card-header">
+      <span class="section-title flex items-center gap-2">
+        <span class="w-2 h-2 rounded-full bg-purple-400 inline-block"></span>
+        Clients
+      </span>
+      <span class="text-xs text-gray-400">{{ clients | length }} needing review</span>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead class="bg-gray-50 border-b border-gray-200">
+          <tr>
+            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Client</th>
+            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Book</th>
+            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Next Renewal</th>
+            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Review Cycle</th>
+            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Last Reviewed</th>
+            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for c in clients %}
+            {% include "review/_client_row.html" %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- All clear -->
+  {% if not policies and not opportunities and not clients %}
+  <div class="card p-12 text-center">
+    <div class="text-4xl mb-3">✅</div>
+    <h2 class="text-lg font-semibold text-gray-800">All caught up!</h2>
+    <p class="text-sm text-gray-500 mt-1">No records are due for review right now. Check back later.</p>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}

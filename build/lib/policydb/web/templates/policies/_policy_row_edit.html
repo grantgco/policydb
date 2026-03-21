@@ -8,11 +8,14 @@
       class="space-y-3">
 
       <!-- Row 1: Identifiers -->
-      <div class="grid grid-cols-4 gap-3">
+      <div class="grid grid-cols-5 gap-3">
         <div>
           <p class="text-xs text-gray-500 mb-0.5">Line of Business <span class="text-red-400">*</span></p>
           <select name="policy_type" required
             class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh bg-white">
+            {% if p.policy_type and p.policy_type not in policy_types %}
+            <option value="{{ p.policy_type }}" selected>{{ p.policy_type }}</option>
+            {% endif %}
             {% for t in policy_types %}
             <option value="{{ t }}" {% if t == p.policy_type %}selected{% endif %}>{{ t }}</option>
             {% endfor %}
@@ -30,26 +33,17 @@
             class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh">
         </div>
         <div>
+          <p class="text-xs text-gray-500 mb-0.5">First Named Insured</p>
+          <input type="text" name="first_named_insured" value="{{ p.first_named_insured or '' }}"
+            placeholder="If different from client"
+            list="ac-fni-row-{{ p.policy_uid }}" autocomplete="off"
+            class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh">
+        </div>
+        <div>
           <p class="text-xs text-gray-500 mb-0.5">Project / Location</p>
           <input type="text" name="project_name" value="{{ p.project_name or '' }}"
             list="ac-project-row-{{ p.policy_uid }}" autocomplete="off"
             placeholder="e.g. Main Street Condos"
-            class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh">
-        </div>
-      </div>
-
-      <!-- Row 1b: Placement -->
-      <div class="grid grid-cols-4 gap-3">
-        <div>
-          <p class="text-xs text-gray-500 mb-0.5">Placement Colleague</p>
-          <input type="text" name="placement_colleague" value="{{ p.placement_colleague or '' }}"
-            list="ac-placement_colleague-row-{{ p.policy_uid }}" autocomplete="off"
-            class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh">
-        </div>
-        <div>
-          <p class="text-xs text-gray-500 mb-0.5">Colleague Email</p>
-          <input type="email" name="placement_colleague_email" value="{{ p.placement_colleague_email or '' }}"
-            placeholder="colleague@example.com"
             class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh">
         </div>
       </div>
@@ -68,13 +62,17 @@
         </div>
         <div>
           <p class="text-xs text-gray-500 mb-0.5">Premium <span class="text-red-400">*</span></p>
-          <input type="number" name="premium" value="{{ p.premium }}" step="0.01" min="0" required
-            class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh">
+          <input type="text" class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh currency-input" autocomplete="off"
+            value="{% if p.premium %}{{ '{:,.0f}'.format(p.premium | float) }}{% endif %}"
+            placeholder="0" required>
+          <input type="hidden" name="premium" value="{{ p.premium or '' }}">
         </div>
         <div>
           <p class="text-xs text-gray-500 mb-0.5">Limit</p>
-          <input type="number" name="limit_amount" value="{{ p.limit_amount or '' }}" step="0.01" min="0"
-            class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh">
+          <input type="text" class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh currency-input" autocomplete="off"
+            value="{% if p.limit_amount %}{{ '{:,.0f}'.format(p.limit_amount | float) }}{% endif %}"
+            placeholder="0">
+          <input type="hidden" name="limit_amount" value="{{ p.limit_amount or '' }}">
         </div>
         <div>
           <p class="text-xs text-gray-500 mb-0.5">Commission Rate</p>
@@ -85,6 +83,17 @@
         <div>
           <p class="text-xs text-gray-500 mb-0.5">Follow-Up</p>
           <input type="date" name="follow_up_date" value="{{ p.follow_up_date or '' }}"
+            class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh">
+        </div>
+      </div>
+
+      <!-- Row 2b: Access Point -->
+      <div class="grid grid-cols-3 gap-3">
+        <div>
+          <p class="text-xs text-gray-500 mb-0.5">Access Point</p>
+          <input type="text" name="access_point" value="{{ p.access_point or '' }}"
+            placeholder="Wholesaler, etc."
+            list="ac-ap-row-{{ p.policy_uid }}" autocomplete="off"
             class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh">
         </div>
       </div>
@@ -127,15 +136,20 @@
 
     <datalist id="ac-carrier-row-{{ p.policy_uid }}"></datalist>
     <datalist id="ac-project-row-{{ p.policy_uid }}"></datalist>
-    <datalist id="ac-placement_colleague-row-{{ p.policy_uid }}"></datalist>
+    <datalist id="ac-fni-row-{{ p.policy_uid }}"></datalist>
+    <datalist id="ac-ap-row-{{ p.policy_uid }}"></datalist>
 
     <script>
     (function(){
       var uid = "{{ p.policy_uid }}";
+      var clientId = "{{ p.client_id }}";
+      var clientScoped = new Set(["project_name", "exposure_city"]);
       [["carrier", "ac-carrier-row-" + uid],
        ["project_name", "ac-project-row-" + uid],
-       ["placement_colleague", "ac-placement_colleague-row-" + uid]].forEach(function(pair){
-        fetch("/policies/autocomplete?field=" + pair[0])
+       ["first_named_insured", "ac-fni-row-" + uid],
+       ["access_point", "ac-ap-row-" + uid]].forEach(function(pair){
+        var clientParam = clientScoped.has(pair[0]) && clientId ? '&client_id=' + clientId : '';
+        fetch("/policies/autocomplete?field=" + pair[0] + clientParam)
           .then(function(r){ return r.json(); })
           .then(function(vals){
             var dl = document.getElementById(pair[1]);

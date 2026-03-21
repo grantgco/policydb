@@ -1,0 +1,227 @@
+<div id="account-summary-content">
+  {% if not s %}
+  <p class="text-sm text-gray-400 py-4">No data available.</p>
+  {% else %}
+
+  {# Header with copy + linked toggle #}
+  <div class="flex items-center justify-between mb-4">
+    <div>
+      <p class="text-lg font-bold text-gray-900">{{ s.client.name }}</p>
+      <p class="text-xs text-gray-400">Generated {{ s.generated_at }}{% if s.client.cn_number %} · {{ s.client.cn_number }}{% endif %}</p>
+    </div>
+    <div class="flex items-center gap-2 no-print">
+      {% if has_linked_group %}
+      <button hx-get="/clients/{{ client_id }}/summary?include_linked={{ 0 if include_linked else 1 }}&days={{ days }}"
+              hx-target="#account-summary-content" hx-swap="outerHTML"
+              class="text-xs border rounded px-2 py-1 transition-colors {% if include_linked %}bg-marsh text-white border-marsh{% else %}text-gray-500 border-gray-200 hover:border-marsh hover:text-marsh{% endif %}">
+        {% if include_linked %}Linked: ON{% else %}Include Linked{% endif %}
+      </button>
+      {% endif %}
+      <button type="button" onclick="copySummaryText({{ client_id }}, {{ 1 if include_linked else 0 }}, {{ days }})"
+        class="text-xs text-marsh hover:underline font-medium">Copy to Clipboard</button>
+    </div>
+  </div>
+
+  {# Financials bar #}
+  {% set f = s.financials %}
+  <div class="flex items-center gap-4 text-sm mb-5 pb-4 border-b border-gray-100">
+    {% if f.total_premium %}<div><span class="font-bold text-gray-900">${{ "{:,.0f}".format(f.total_premium) }}</span> <span class="text-xs text-gray-400">Premium</span></div>{% endif %}
+    {% if f.total_revenue %}<div><span class="font-bold text-gray-900">${{ "{:,.0f}".format(f.total_revenue) }}</span> <span class="text-xs text-gray-400">Revenue</span></div>{% endif %}
+    {% if f.total_policies %}<div><span class="font-bold text-gray-900">{{ f.total_policies }}</span> <span class="text-xs text-gray-400">Policies</span></div>{% endif %}
+    {% if f.carrier_count %}<div><span class="font-bold text-gray-900">{{ f.carrier_count }}</span> <span class="text-xs text-gray-400">Carriers</span></div>{% endif %}
+  </div>
+
+  {# Linked members #}
+  {% if s.linked_members %}
+  <div class="mb-4">
+    <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Linked Accounts ({{ s.linked_members | length }})</p>
+    <div class="flex flex-wrap gap-2">
+      {% for m in s.linked_members %}
+      <span class="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded">{{ m.name }} · ${{ "{:,.0f}".format(m.total_premium) }} · {{ m.total_policies }} pol</span>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+    {# Left column: Renewals + Open Items #}
+    <div class="space-y-4">
+
+      {# Renewals #}
+      {% if s.renewals %}
+      <div>
+        <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Renewal Status <span class="font-normal text-gray-400">({{ s.renewals | length }})</span></p>
+        <div class="space-y-1.5">
+          {% for r in s.renewals %}
+          <div class="flex items-center gap-2 text-xs py-1">
+            {% set dtr = r.days_to_renewal %}
+            <span class="w-10 shrink-0 font-mono text-right tabular-nums {% if dtr is not none and dtr <= 30 %}text-red-600 font-semibold{% elif dtr is not none and dtr <= 60 %}text-amber-600{% else %}text-gray-400{% endif %}">{{ dtr }}d</span>
+            <span class="text-gray-800 font-medium truncate">{{ r.policy_type }}</span>
+            <span class="text-gray-400 truncate">{{ r.carrier }}</span>
+            <span class="ml-auto shrink-0">
+              {% if r.renewal_status == 'Bound' %}<span class="text-green-600">{{ r.renewal_status }}</span>
+              {% elif r.renewal_status == 'Not Started' %}<span class="text-red-500">{{ r.renewal_status }}</span>
+              {% else %}<span class="text-amber-600">{{ r.renewal_status }}</span>{% endif %}
+            </span>
+            {% if r.milestone_total %}
+            <span class="text-gray-400 tabular-nums shrink-0">[{{ r.milestone_done }}/{{ r.milestone_total }}]</span>
+            {% endif %}
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
+      {# Open Items #}
+      {% set overdue = s.open_items.overdue %}
+      {% set upcoming = s.open_items.upcoming %}
+      {% if overdue or upcoming %}
+      <div>
+        <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Open Items <span class="font-normal text-gray-400">({{ overdue | length + upcoming | length }})</span></p>
+        {% for o in overdue %}
+        <p class="text-xs py-0.5"><span class="text-red-500 font-medium">{{ o.days_overdue }}d overdue</span> — {{ o.subject }}</p>
+        {% endfor %}
+        {% for u in upcoming %}
+        <p class="text-xs py-0.5 text-gray-600">Due {{ u.follow_up_date[:10] if u.follow_up_date else '' }} — {{ u.subject }}</p>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      {# Requests #}
+      {% if s.open_requests %}
+      <div>
+        <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Outstanding Requests</p>
+        {% for req in s.open_requests %}
+        <p class="text-xs py-0.5 text-gray-600">{{ req.title }} — <span class="font-medium text-amber-600">{{ req.outstanding }} of {{ req.total }} pending</span></p>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      {# Renewal Calendar #}
+      {% if s.renewal_calendar %}
+      <div>
+        <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Renewal Calendar</p>
+        {% set max_count = s.renewal_calendar | map(attribute='count') | max %}
+        <div class="space-y-1">
+          {% for m in s.renewal_calendar %}
+          <div class="flex items-center gap-2">
+            <span class="text-[10px] text-gray-400 w-14 shrink-0 tabular-nums">{{ m.month_label }}</span>
+            <div class="flex-1 bg-gray-100 rounded-full h-2.5 overflow-hidden">
+              <div class="h-2.5 rounded-full {% if m.count >= 4 %}bg-red-400{% elif m.count >= 2 %}bg-amber-400{% else %}bg-blue-300{% endif %} transition-all"
+                   style="width: {{ (m.count / max_count * 100) | round(0) | int }}%"></div>
+            </div>
+            <span class="text-[10px] font-medium text-gray-600 tabular-nums w-4 text-right shrink-0">{{ m.count }}</span>
+            <span class="text-[10px] text-gray-400 truncate max-w-[100px]" title="{{ m.types.keys() | join(', ') }}">{{ m.types.keys() | join(', ') }}</span>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+    </div>
+
+    {# Right column: Activity + Risks #}
+    <div class="space-y-4">
+
+      {# Time Tracking #}
+      {% set total_h = s.time_summary.total_hours if s.time_summary else 0 %}
+      {% if total_h or s.time_summary %}
+      <div>
+        <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Time Tracking <span class="font-normal text-gray-400">({{ s.days }}d)</span></p>
+        <p class="text-2xl font-bold text-gray-900 mb-2">{{ "%.1f"|format(total_h) }}<span class="text-sm font-normal text-gray-400 ml-1">hrs</span></p>
+        {# By activity type #}
+        {% if s.time_summary and s.time_summary.by_type %}
+        <div class="space-y-1 mb-3">
+          {% set type_max = s.time_summary.by_type | map(attribute='hours') | max %}
+          {% for row in s.time_summary.by_type %}
+          <div class="flex items-center gap-2">
+            <span class="text-[10px] text-gray-500 w-20 shrink-0 truncate">{{ row.activity_type }}</span>
+            <div class="flex-1 bg-gray-100 rounded-full h-1.5">
+              <div class="bg-marsh rounded-full h-1.5" style="width: {{ (row.hours / type_max * 100) | round(0) | int if type_max else 0 }}%"></div>
+            </div>
+            <span class="text-[10px] tabular-nums text-gray-600 w-8 text-right shrink-0">{{ "%.1f"|format(row.hours) }}h</span>
+            <span class="text-[10px] text-gray-400 w-6 text-right shrink-0">×{{ row.count }}</span>
+          </div>
+          {% endfor %}
+        </div>
+        {% endif %}
+        {# By coverage line #}
+        {% if s.time_by_policy %}
+        <p class="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1">By Coverage</p>
+        <div class="space-y-1">
+          {% set pol_max = s.time_by_policy | map(attribute='hours') | max %}
+          {% for row in s.time_by_policy %}
+          <div class="flex items-center gap-2">
+            <span class="text-[10px] text-gray-500 w-20 shrink-0 truncate">{{ row.policy_type }}</span>
+            <div class="flex-1 bg-gray-100 rounded-full h-1.5">
+              <div class="bg-blue-300 rounded-full h-1.5" style="width: {{ (row.hours / pol_max * 100) | round(0) | int if pol_max else 0 }}%"></div>
+            </div>
+            <span class="text-[10px] tabular-nums text-gray-600 w-8 text-right shrink-0">{{ "%.1f"|format(row.hours) }}h</span>
+          </div>
+          {% endfor %}
+        </div>
+        {% endif %}
+      </div>
+      {% endif %}
+
+      {# Recent Activity #}
+      {% if s.recent_activity %}
+      <div>
+        <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Recent Activity</p>
+        <div class="space-y-0.5">
+          {% for a in s.recent_activity[:8] %}
+          <div class="flex items-center gap-2 text-xs py-0.5">
+            <span class="text-gray-400 shrink-0 w-16">{{ a.activity_date[:10] if a.activity_date else '' }}</span>
+            <span class="text-gray-500 shrink-0 w-12">{{ a.activity_type }}</span>
+            <span class="text-gray-700 truncate">{{ a.subject }}</span>
+            {% if a.duration_hours %}<span class="text-blue-500 shrink-0">{{ a.duration_hours }}h</span>{% endif %}
+          </div>
+          {% endfor %}
+          {% if s.recent_activity | length > 8 %}
+          <p class="text-xs text-gray-400 italic mt-1">+ {{ s.recent_activity | length - 8 }} more</p>
+          {% endif %}
+        </div>
+      </div>
+      {% endif %}
+
+      {# High Risks #}
+      {% if s.high_risks %}
+      <div>
+        <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">High Risks</p>
+        {% for r in s.high_risks %}
+        <p class="text-xs py-0.5">
+          <span class="{% if r.severity == 'Critical' %}text-red-600{% else %}text-amber-600{% endif %} font-medium">{{ r.severity }}</span>
+          — {{ r.category }}
+          {% if not r.has_coverage %}<span class="text-red-500 text-[10px]">(no coverage)</span>{% endif %}
+        </p>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      {# Notes snippet #}
+      {% if s.notes_snippet %}
+      <div>
+        <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Notes</p>
+        <p class="text-xs text-gray-500 line-clamp-3">{{ s.notes_snippet }}</p>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  {% endif %}
+</div>
+
+<script>
+function copySummaryText(clientId, includeLinked, days) {
+  fetch('/clients/' + clientId + '/summary/text?include_linked=' + includeLinked + '&days=' + days)
+    .then(function(r) { return r.text(); })
+    .then(function(text) {
+      navigator.clipboard.writeText(text).then(function() {
+        // Brief flash confirmation
+        var btn = event.target;
+        var orig = btn.textContent;
+        btn.textContent = 'Copied!';
+        setTimeout(function() { btn.textContent = orig; }, 2000);
+      });
+    });
+}
+</script>

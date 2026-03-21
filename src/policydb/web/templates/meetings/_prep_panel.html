@@ -1,0 +1,85 @@
+<div class="p-4 space-y-4 text-xs">
+  {% if pipeline %}
+  <div>
+    <p class="font-semibold text-gray-500 uppercase tracking-wide mb-1">Upcoming Renewals (180d)</p>
+    <ul class="space-y-0.5">
+      {% for p in pipeline[:5] %}
+      <li class="flex justify-between">
+        <a href="/policies/{{ p.policy_uid }}/edit"
+           class="text-gray-700 hover:text-marsh hover:underline">{{ p.policy_type }} · {{ p.carrier }}</a>
+        <span class="{% if p.days_to_renewal <= 90 %}text-red-600 font-medium{% else %}text-gray-500{% endif %}">{{ p.days_to_renewal }}d</span>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  {% if overdue or upcoming %}
+  <div>
+    <p class="font-semibold text-gray-500 uppercase tracking-wide mb-1">Open Follow-Ups</p>
+    {% if overdue %}
+    <p class="text-red-600 font-medium mb-0.5">{{ overdue | length }} overdue</p>
+    {% for f in overdue[:3] %}
+    <p class="text-gray-600 ml-2">
+      · <a href="/followups" class="hover:text-marsh hover:underline">{{ f.subject }}</a>
+      {% if f.policy_uid %}
+      <a href="/policies/{{ f.policy_uid }}/edit" class="text-gray-400 hover:text-marsh ml-1" title="Open policy">[{{ f.policy_type or f.policy_uid }}]</a>
+      {% endif %}
+      <span class="text-red-500">({{ f.days_overdue }}d late)</span>
+    </p>
+    {% endfor %}
+    {% endif %}
+    {% if upcoming %}
+    <p class="text-amber-600 mb-0.5 {% if overdue %}mt-1{% endif %}">{{ upcoming | length }} upcoming</p>
+    {% for f in upcoming[:3] %}
+    <p class="text-gray-600 ml-2">
+      · <a href="/followups" class="hover:text-marsh hover:underline">{{ f.subject }}</a>
+      {% if f.policy_uid %}
+      <a href="/policies/{{ f.policy_uid }}/edit" class="text-gray-400 hover:text-marsh ml-1" title="Open policy">[{{ f.policy_type or f.policy_uid }}]</a>
+      {% endif %}
+      <span class="text-gray-400">({{ f.follow_up_date }})</span>
+    </p>
+    {% endfor %}
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% if activities %}
+  <div>
+    <p class="font-semibold text-gray-500 uppercase tracking-wide mb-1">Recent Activity (30d)</p>
+    {% for a in activities %}
+    <p class="text-gray-600">
+      {{ a.activity_date }} · {{ a.activity_type }} ·
+      <a href="/clients/{{ a.client_id }}#activities" class="hover:text-marsh hover:underline">{{ a.subject }}</a>
+    </p>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if risks %}
+  <div>
+    <p class="font-semibold text-gray-500 uppercase tracking-wide mb-1">High/Critical Risks</p>
+    {% for r in risks %}
+    <p class="{% if r.severity == 'Critical' %}text-red-600{% else %}text-amber-600{% endif %}">
+      <a href="/clients/{{ client_id }}#risks" class="hover:underline">{{ r.severity }}: {{ r.category }}{% if r.description %} — {{ r.description }}{% endif %}</a>
+    </p>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if bundles %}
+  <div>
+    <p class="font-semibold text-gray-500 uppercase tracking-wide mb-1">Open RFIs</p>
+    {% for b in bundles %}
+    <p class="text-gray-600">
+      <a href="/clients/{{ client_id }}#requests" class="hover:text-marsh hover:underline">{{ b.rfi_uid or b.title }}</a>
+      · {{ b.status }}
+    </p>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if not pipeline and not overdue and not upcoming and not activities and not risks and not bundles %}
+  <p class="text-gray-400 italic">No prep data available for this client.</p>
+  {% endif %}
+</div>

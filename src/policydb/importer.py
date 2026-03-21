@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import csv
-import re
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -13,19 +12,13 @@ import dateparser
 
 from policydb import config as cfg
 from policydb.db import next_policy_uid
+from policydb.utils import normalize_carrier, normalize_coverage_type, normalize_policy_number, normalize_client_name, parse_currency
+
+# Backward-compat alias: other modules import _parse_currency from here
+_parse_currency = parse_currency
 
 
 # ─── NORMALIZATION HELPERS ───────────────────────────────────────────────────
-
-def _parse_currency(value: str) -> float:
-    """Strip currency symbols, commas; return float."""
-    if not value or not str(value).strip():
-        return 0.0
-    cleaned = re.sub(r"[^\d.\-]", "", str(value).replace(",", ""))
-    try:
-        return float(cleaned)
-    except ValueError:
-        return 0.0
 
 
 def _parse_date(value: str) -> str | None:
@@ -89,6 +82,7 @@ class ClientImporter:
                 self.skipped += 1
                 continue
 
+            name = normalize_client_name(name) if name else name
             existing = self.conn.execute(
                 "SELECT id FROM clients WHERE LOWER(name) = LOWER(?)", (name,)
             ).fetchone()
@@ -176,6 +170,25 @@ class PolicyImporter:
         "fni": "first_named_insured",
         "named_insured_1": "first_named_insured",
         "first_insured": "first_named_insured",
+        "access_point": "access_point",
+        "access": "access_point",
+        "entry_point": "access_point",
+        # Carrier statement column names
+        "annualized_premium": "premium",
+        "billed_premium": "premium",
+        "policy_form": "coverage_form",
+        "form_number": "coverage_form",
+        "account_name": "client_name",
+        "coverage_code": "policy_type",
+        "inception_date": "effective_date",
+        "inception": "effective_date",
+        "term_effective": "effective_date",
+        "term_expiration": "expiration_date",
+        "policy_no": "policy_number",
+        "certificate_number": "policy_number",
+        "company_name": "carrier",
+        "writing_company": "carrier",
+        "issuing_company": "carrier",
     }
 
     def __init__(self, conn: sqlite3.Connection):
@@ -249,8 +262,9 @@ class PolicyImporter:
                 self.skipped += 1
                 continue
 
-            policy_type = row.get("policy_type", "").strip()
-            carrier = row.get("carrier", "").strip()
+            client_name = normalize_client_name(client_name) if client_name else client_name
+            policy_type = normalize_coverage_type(row.get("policy_type", "").strip())
+            carrier = normalize_carrier(row.get("carrier", "").strip())
             if not policy_type or not carrier:
                 self.warnings.append(f"Row {i}: missing policy_type or carrier, skipping")
                 self.skipped += 1
@@ -271,7 +285,7 @@ class PolicyImporter:
                 continue
 
             # Duplicate policy number check
-            pol_number = row.get("policy_number", "").strip() or None
+            pol_number = normalize_policy_number(row.get("policy_number", "").strip()) or None
             if pol_number and interactive:
                 existing = self.conn.execute(
                     "SELECT policy_uid FROM policies WHERE policy_number = ? AND archived = 0",
@@ -302,8 +316,9 @@ class PolicyImporter:
                    (policy_uid, client_id, policy_type, carrier, policy_number,
                     effective_date, expiration_date, premium, limit_amount, deductible,
                     description, coverage_form, layer_position, tower_group, is_standalone,
-                    placement_colleague, underwriter_name, underwriter_contact,
-                    renewal_status, commission_rate, prior_premium, account_exec, notes)
+                    underwriter_name, underwriter_contact,
+                    renewal_status, commission_rate, prior_premium, account_exec, notes,
+                    access_point)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     uid,
@@ -321,7 +336,6 @@ class PolicyImporter:
                     row.get("layer_position") or "Primary",
                     row.get("tower_group") or None,
                     _parse_bool(row.get("is_standalone", "0")),
-                    row.get("placement_colleague") or None,
                     row.get("underwriter_name") or None,
                     row.get("underwriter_contact") or None,
                     _normalize_renewal_status(row.get("renewal_status", "")),
@@ -329,8 +343,25 @@ class PolicyImporter:
                     prior_premium,
                     account_exec,
                     row.get("notes") or None,
+                    row.get("access_point") or None,
                 ),
             )
+
+            # Create contact records for placement colleague and underwriter
+            _policy_row = self.conn.execute("SELECT id FROM policies WHERE policy_uid=?", (uid,)).fetchone()
+            if _policy_row:
+                _pid = _policy_row["id"]
+                _pc_name = (row.get("placement_colleague") or "").strip()
+                if _pc_name:
+                    from policydb.queries import get_or_create_contact, assign_contact_to_policy
+                    _pc_cid = get_or_create_contact(self.conn, _pc_name)
+                    assign_contact_to_policy(self.conn, _pc_cid, _pid, is_placement_colleague=1)
+                _uw_name = (row.get("underwriter_name") or "").strip()
+                if _uw_name:
+                    from policydb.queries import get_or_create_contact, assign_contact_to_policy
+                    _uw_email = (row.get("underwriter_contact") or "").strip() or None
+                    _uw_cid = get_or_create_contact(self.conn, _uw_name, email=_uw_email)
+                    assign_contact_to_policy(self.conn, _uw_cid, _pid, role="Underwriter")
 
             if pol_number:
                 seen_policy_numbers[pol_number] = client_id

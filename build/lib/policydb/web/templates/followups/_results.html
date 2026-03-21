@@ -1,0 +1,179 @@
+{% set today = today if today is defined else '' %}
+{% set col_headers %}
+<tr class="border-b border-gray-100 text-left text-xs text-gray-500 uppercase tracking-wide bg-gray-50">
+  <th class="px-3 py-3 w-8"><input type="checkbox" class="rounded border-gray-300" onchange="toggleAllChecks(this)"></th>
+  <th class="px-4 py-3">Client</th>
+  <th class="px-4 py-3">Subject</th>
+  <th class="px-4 py-3">Type</th>
+  <th class="px-4 py-3">Contact</th>
+  <th class="px-4 py-3">Policy</th>
+  <th class="px-4 py-3">Due</th>
+  <th class="px-4 py-3"></th>
+</tr>
+{% endset %}
+
+{% if overdue %}
+<div class="card overflow-hidden mb-5">
+  <div class="px-5 py-3 bg-red-50 border-b border-red-100 flex items-center gap-2">
+    <h2 class="font-semibold text-red-700">Overdue</h2>
+    <span class="bg-red-100 text-red-700 text-xs font-bold px-2 py-0.5 rounded-full">{{ overdue | length }}</span>
+  </div>
+  <table class="w-full text-sm">
+    <thead>{{ col_headers }}</thead>
+    <tbody class="divide-y divide-gray-50">
+      {% for r in overdue %}
+      {% set r = r | dict_merge({'_is_overdue': true}) %}
+      {% include "followups/_row.html" %}
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% if today_items or tomorrow_items or later_items %}
+<div class="card overflow-hidden mb-5">
+  <div class="px-5 py-3 bg-amber-50 border-b border-amber-100 flex items-center gap-2">
+    <h2 class="font-semibold text-amber-700">Upcoming · {% if window == 1 %}today{% elif window == 7 %}this week{% else %}next {{ window }} days{% endif %}</h2>
+    <span class="bg-amber-100 text-amber-700 text-xs font-bold px-2 py-0.5 rounded-full">{{ (today_items | length) + (tomorrow_items | length) + (later_items | length) }}</span>
+  </div>
+
+  {% if today_items %}
+  <div class="px-5 py-2 bg-amber-50/50 border-b border-amber-100">
+    <span class="text-xs font-semibold text-amber-800 uppercase tracking-wide">Today</span>
+    <span class="text-xs text-amber-600 ml-1">{{ today_items | length }}</span>
+  </div>
+  <table class="w-full text-sm">
+    <thead>{{ col_headers }}</thead>
+    <tbody class="divide-y divide-gray-50">
+      {% for r in today_items %}
+      {% set r = r | dict_merge({'_is_overdue': false}) %}
+      {% include "followups/_row.html" %}
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  {% if tomorrow_items %}
+  <div class="px-5 py-2 bg-gray-50 border-b border-gray-200 {% if today_items %}border-t{% endif %}">
+    <span class="text-xs font-semibold text-gray-700 uppercase tracking-wide">Tomorrow</span>
+    <span class="text-xs text-gray-500 ml-1">{{ tomorrow_items | length }}</span>
+  </div>
+  <table class="w-full text-sm">
+    <thead>{{ col_headers }}</thead>
+    <tbody class="divide-y divide-gray-50">
+      {% for r in tomorrow_items %}
+      {% set r = r | dict_merge({'_is_overdue': false}) %}
+      {% include "followups/_row.html" %}
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  {% if later_items %}
+  <div class="px-5 py-2 bg-gray-50 border-b border-gray-200 {% if today_items or tomorrow_items %}border-t{% endif %}">
+    <span class="text-xs font-semibold text-gray-600 uppercase tracking-wide">Later</span>
+    <span class="text-xs text-gray-400 ml-1">{{ later_items | length }}</span>
+  </div>
+  <table class="w-full text-sm">
+    <thead>{{ col_headers }}</thead>
+    <tbody class="divide-y divide-gray-50">
+      {% for r in later_items %}
+      {% set r = r | dict_merge({'_is_overdue': false}) %}
+      {% include "followups/_row.html" %}
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</div>
+
+{% elif upcoming %}
+<!-- Fallback: flat upcoming list if triage groups not available -->
+<div class="card overflow-hidden mb-5">
+  <div class="px-5 py-3 bg-amber-50 border-b border-amber-100 flex items-center gap-2">
+    <h2 class="font-semibold text-amber-700">Upcoming · {% if window == 1 %}today{% elif window == 7 %}this week{% else %}next {{ window }} days{% endif %}</h2>
+    <span class="bg-amber-100 text-amber-700 text-xs font-bold px-2 py-0.5 rounded-full">{{ upcoming | length }}</span>
+  </div>
+  <table class="w-full text-sm">
+    <thead>{{ col_headers }}</thead>
+    <tbody class="divide-y divide-gray-50">
+      {% for r in upcoming %}
+      {% set r = r | dict_merge({'_is_overdue': false}) %}
+      {% include "followups/_row.html" %}
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% if suggested %}
+<div class="card overflow-hidden mb-5">
+  <div class="px-5 py-3 bg-gray-50 border-b border-gray-200 flex items-center gap-2">
+    <h2 class="font-semibold text-gray-700">Needs Follow-Up</h2>
+    <span class="bg-gray-200 text-gray-600 text-xs font-bold px-2 py-0.5 rounded-full">{{ suggested | length }}</span>
+    <span class="text-xs text-gray-400 ml-1">— approaching renewals with no follow-up scheduled</span>
+  </div>
+  <table class="w-full text-sm">
+    <thead>
+      <tr class="border-b border-gray-100 text-left text-xs text-gray-500 uppercase tracking-wide bg-gray-50">
+        <th class="px-4 py-3">Client</th>
+        <th class="px-4 py-3">Coverage</th>
+        <th class="px-4 py-3">Expires</th>
+        <th class="px-4 py-3">Status</th>
+        <th class="px-4 py-3">Last Activity</th>
+        <th class="px-4 py-3"></th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-gray-50">
+      {% for s in suggested %}
+      <tr class="hover:bg-gray-50" id="suggested-{{ s.policy_uid }}">
+        <td class="px-4 py-3">
+          <a href="/clients/{{ s.client_id }}" target="_blank" class="font-medium text-marsh hover:underline">{{ s.client_name }}</a>
+          {% if s.project_name %}<span class="text-xs text-gray-400 ml-1">· {{ s.project_name }}</span>{% endif %}
+        </td>
+        <td class="px-4 py-3 text-sm text-gray-700">
+          {{ s.policy_type }}
+          <span class="text-xs text-gray-400">· {{ s.carrier }}</span>
+        </td>
+        <td class="px-4 py-3 text-xs whitespace-nowrap">
+          <span class="{{ 'text-red-600 font-medium' if s.days_to_renewal <= 30 else 'text-amber-700' if s.days_to_renewal <= 60 else 'text-gray-700' }}">
+            {{ s.expiration_date }}
+          </span>
+          <span class="{{ 'bg-red-100 text-red-700' if s.days_to_renewal <= 30 else 'bg-amber-100 text-amber-700' if s.days_to_renewal <= 60 else 'bg-gray-100 text-gray-600' }} text-xs px-1.5 py-0.5 rounded ml-1">
+            {{ s.days_to_renewal }}d
+          </span>
+        </td>
+        <td class="px-4 py-3">
+          <span class="text-xs {{ 'bg-red-100 text-red-700' if s.renewal_status == 'Not Started' else 'bg-amber-100 text-amber-700' }} px-2 py-0.5 rounded">
+            {{ s.renewal_status }}
+          </span>
+        </td>
+        <td class="px-4 py-3 text-xs text-gray-400">
+          {{ s.last_activity_date or 'Never' }}
+        </td>
+        <td class="px-4 py-3" id="suggested-actions-{{ s.policy_uid }}">
+          <div class="flex gap-1.5 items-center">
+            <button
+              hx-get="/policies/{{ s.policy_uid }}/followup-form"
+              hx-target="#suggested-actions-{{ s.policy_uid }}"
+              hx-swap="innerHTML"
+              class="text-xs border border-marsh text-marsh bg-white hover:bg-marsh hover:text-white px-2 py-1 rounded transition-colors">
+              Schedule Follow-Up
+            </button>
+            <a href="/policies/{{ s.policy_uid }}/edit" target="_blank"
+               class="text-xs text-gray-400 hover:text-marsh hover:underline">
+              Edit →
+            </a>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% if not overdue and not upcoming and not today_items and not tomorrow_items and not later_items and not suggested %}
+<div class="card p-12 text-center">
+  <p class="text-gray-400 text-sm">No pending follow-ups {% if window == 1 %}today{% elif window == 7 %}this week{% else %}in the next {{ window }} days{% endif %}.</p>
+</div>
+{% endif %}

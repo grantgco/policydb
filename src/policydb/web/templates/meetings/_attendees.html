@@ -1,0 +1,52 @@
+<div class="flex items-center justify-between mb-2">
+  <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Attendees
+    {% if meeting and meeting.attendees %}<span class="text-gray-400 font-normal">— {{ meeting.attendees | length }} participant{{ 's' if meeting.attendees | length != 1 }}</span>{% endif %}
+  </p>
+  <button type="button" class="text-xs text-marsh hover:underline font-medium no-print"
+    onclick="if(window._meetingAttendeesMatrix)window._meetingAttendeesMatrix.createNewRow()">+ Add</button>
+</div>
+
+<table class="w-full text-sm">
+  <colgroup>
+    <col style="width:18%"><col style="width:15%"><col style="width:10%">
+    <col style="width:20%"><col style="width:14%"><col style="width:14%"><col style="width:28px">
+  </colgroup>
+  <thead>
+    <tr class="border-b border-gray-200 text-left text-[10px] text-gray-400 uppercase tracking-wide">
+      <th class="px-3 py-2 font-medium">Name</th>
+      <th class="px-3 py-2 font-medium">Role / Title</th>
+      <th class="px-3 py-2 font-medium">Type</th>
+      <th class="px-3 py-2 font-medium">Email</th>
+      <th class="px-3 py-2 font-medium">Phone</th>
+      <th class="px-3 py-2 font-medium">Mobile</th>
+      <th class="px-3 py-2"></th>
+    </tr>
+  </thead>
+  <tbody class="divide-y divide-gray-50" id="attendee-tbody">
+    {% if meeting and meeting.attendees %}
+    {% for a in meeting.attendees %}
+    {% include "meetings/_attendee_row.html" %}
+    {% endfor %}
+    {% else %}
+    <tr id="attendee-empty-{{ meeting.id }}"><td colspan="7" class="px-4 py-6 text-center text-gray-400 text-xs">No attendees yet.</td></tr>
+    {% endif %}
+  </tbody>
+</table>
+
+<script>
+(function() {
+  var MID = {{ meeting.id | tojson }};
+  window._meetingAttendeesMatrix = window.initMatrix({
+    tbodyId: 'attendee-tbody',
+    idAttr: 'data-row-id',
+    rowClass: 'matrix-row',
+    patchUrl: function(id) { return '/meetings/' + MID + '/attendees/' + id; },
+    addRowUrl: '/meetings/' + MID + '/attendees/add-row',
+    emptyRowId: 'attendee-empty-' + MID,
+  });
+})();
+</script>
+
+{% set picker_context = 'meeting_attendee' %}
+{% set picker_target_id = meeting.id %}
+{% include "contacts/_picker.html" %}

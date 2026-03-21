@@ -1,0 +1,225 @@
+<tr id="review-row-{{ p.policy_uid }}" class="border-t-2 border-marsh bg-blue-50">
+  <td colspan="9" class="px-4 py-4">
+
+    <form hx-post="/review/policies/{{ p.policy_uid }}/row/edit"
+          hx-target="#review-row-{{ p.policy_uid }}"
+          hx-swap="outerHTML"
+          class="space-y-3">
+
+      <div class="flex items-center gap-2 mb-1">
+        <span class="text-xs font-medium text-marsh">Quick Edit</span>
+        <span class="text-xs text-gray-400 font-mono">{{ p.policy_uid }} · {{ p.client_name }}</span>
+      </div>
+
+      {% if p.is_opportunity %}
+
+        <!-- Opportunity Row 1: Type, Carrier, Target Effective, Follow-Up -->
+        <div class="grid grid-cols-4 gap-3">
+          <div>
+            <p class="text-xs text-gray-500 mb-0.5">Line of Business <span class="text-red-400">*</span></p>
+            <select name="policy_type" required
+              class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh bg-white">
+              {% if p.policy_type and p.policy_type not in policy_types %}
+              <option value="{{ p.policy_type }}" selected>{{ p.policy_type }}</option>
+              {% endif %}
+              {% for t in policy_types %}
+              <option value="{{ t }}" {% if t == p.policy_type %}selected{% endif %}>{{ t }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <p class="text-xs text-gray-500 mb-0.5">Carrier (prospective)</p>
+            <input type="text" name="carrier" value="{{ p.carrier or '' }}"
+              class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh">
+          </div>
+          <div>
+            <p class="text-xs text-gray-500 mb-0.5">Target Effective Date</p>
+            <input type="date" name="target_effective_date" value="{{ p.target_effective_date or '' }}"
+              class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh">
+          </div>
+          <div>
+            <p class="text-xs text-gray-500 mb-0.5">Follow-Up</p>
+            <input type="date" name="follow_up_date" value="{{ p.follow_up_date or '' }}"
+              class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh">
+          </div>
+        </div>
+
+        <!-- Opportunity Row 2: Status, Premium, Description, Notes -->
+        <div class="grid grid-cols-4 gap-3">
+          <div>
+            <p class="text-xs text-gray-500 mb-0.5">Opportunity Status</p>
+            <select name="opportunity_status"
+              class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh bg-white">
+              <option value="">— Not set —</option>
+              {% for s in opportunity_statuses %}
+              <option value="{{ s }}" {% if s == p.opportunity_status %}selected{% endif %}>{{ s }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <p class="text-xs text-gray-500 mb-0.5">Expected Premium</p>
+            <input type="number" name="premium" value="{{ p.premium or '' }}" step="0.01" min="0"
+              class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh">
+          </div>
+          <div>
+            <p class="text-xs text-gray-500 mb-0.5">Description</p>
+            <textarea name="description" rows="2"
+              class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh">{{ p.description or '' }}</textarea>
+          </div>
+          <div>
+            <p class="text-xs text-gray-500 mb-0.5">Internal Notes</p>
+            <textarea name="notes" rows="2"
+              class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh">{{ p.notes or '' }}</textarea>
+          </div>
+        </div>
+
+      {% else %}
+
+        <!-- Policy Row 1: Identifiers -->
+        <div class="grid grid-cols-5 gap-3">
+          <div>
+            <p class="text-xs text-gray-500 mb-0.5">Line of Business <span class="text-red-400">*</span></p>
+            <select name="policy_type" required
+              class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh bg-white">
+              {% if p.policy_type and p.policy_type not in policy_types %}
+              <option value="{{ p.policy_type }}" selected>{{ p.policy_type }}</option>
+              {% endif %}
+              {% for t in policy_types %}
+              <option value="{{ t }}" {% if t == p.policy_type %}selected{% endif %}>{{ t }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <p class="text-xs text-gray-500 mb-0.5">Carrier <span class="text-red-400">*</span></p>
+            <input type="text" name="carrier" value="{{ p.carrier or '' }}" required
+              class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh">
+          </div>
+          <div>
+            <p class="text-xs text-gray-500 mb-0.5">Access Point</p>
+            <input type="text" name="access_point" value="{{ p.access_point or '' }}" placeholder="Wholesaler, etc."
+              list="ac-ap-review-{{ p.policy_uid }}" autocomplete="off"
+              class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh">
+          </div>
+          <div>
+            <p class="text-xs text-gray-500 mb-0.5">Policy Number</p>
+            <input type="text" name="policy_number" value="{{ p.policy_number or '' }}"
+              class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh">
+          </div>
+          <div>
+            <p class="text-xs text-gray-500 mb-0.5">Placement Colleague</p>
+            <p class="text-xs text-gray-600 py-1.5">{{ p.placement_colleague or '—' }}
+              <a href="/policies/{{ p.policy_uid }}/edit" class="text-marsh hover:underline ml-1">manage on edit page</a>
+            </p>
+          </div>
+        </div>
+
+        <!-- Policy Row 2: Dates + financials -->
+        <div class="grid grid-cols-6 gap-3">
+          <div>
+            <p class="text-xs text-gray-500 mb-0.5">Effective</p>
+            <input type="date" name="effective_date" value="{{ p.effective_date or '' }}"
+              class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh">
+          </div>
+          <div>
+            <p class="text-xs text-gray-500 mb-0.5">Expiration <span class="text-red-400">*</span></p>
+            <input type="date" name="expiration_date" value="{{ p.expiration_date or '' }}" required
+              class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh">
+          </div>
+          <div>
+            <p class="text-xs text-gray-500 mb-0.5">Premium <span class="text-red-400">*</span></p>
+            <input type="number" name="premium" value="{{ p.premium }}" step="0.01" min="0" required
+              class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh">
+          </div>
+          <div>
+            <p class="text-xs text-gray-500 mb-0.5">Limit</p>
+            <input type="number" name="limit_amount" value="{{ p.limit_amount or '' }}" step="0.01" min="0"
+              class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh">
+          </div>
+          <div>
+            <p class="text-xs text-gray-500 mb-0.5">Commission Rate</p>
+            <input type="number" name="commission_rate" value="{{ p.commission_rate or '' }}" step="0.001" min="0" max="1"
+              placeholder="0.12 = 12%"
+              class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh">
+          </div>
+          <div>
+            <p class="text-xs text-gray-500 mb-0.5">Follow-Up</p>
+            <input type="date" name="follow_up_date" value="{{ p.follow_up_date or '' }}"
+              class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh">
+          </div>
+        </div>
+
+        <!-- Policy Row 3: Status + notes -->
+        <div class="grid grid-cols-3 gap-3">
+          {% if renewal_statuses | length <= 10 %}
+          <div class="col-span-3">
+            <p class="text-xs text-gray-500 mb-0.5">Renewal Status</p>
+            <div class="seg-control">
+              {% for s in renewal_statuses %}
+              <input type="radio" name="renewal_status" id="rs-rev-{{ p.policy_uid }}-{{ loop.index }}" value="{{ s }}"
+                {% if s == p.renewal_status or (not p.renewal_status and loop.first) %}checked{% endif %}>
+              <label for="rs-rev-{{ p.policy_uid }}-{{ loop.index }}">{{ s }}</label>
+              {% endfor %}
+            </div>
+          </div>
+          {% else %}
+          <div>
+            <p class="text-xs text-gray-500 mb-0.5">Renewal Status</p>
+            <select name="renewal_status"
+              class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh bg-white">
+              {% for s in renewal_statuses %}
+              <option value="{{ s }}" {% if s == p.renewal_status %}selected{% endif %}>{{ s }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          {% endif %}
+          <div>
+            <p class="text-xs text-gray-500 mb-0.5">Description <span class="text-gray-400 font-normal">(client-facing)</span></p>
+            <textarea name="description" rows="2"
+              class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh">{{ p.description or '' }}</textarea>
+          </div>
+          <div>
+            <p class="text-xs text-gray-500 mb-0.5">Internal Notes</p>
+            <textarea name="notes" rows="2"
+              class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh">{{ p.notes or '' }}</textarea>
+          </div>
+        </div>
+
+      {% endif %}
+
+      <div class="flex items-center gap-3">
+        <button type="submit"
+          class="bg-marsh hover:bg-marsh-light text-white text-xs font-medium px-4 py-1.5 rounded-lg transition-colors">
+          Save
+        </button>
+        <button type="button"
+          hx-get="/review/policies/{{ p.policy_uid }}/row"
+          hx-target="#review-row-{{ p.policy_uid }}"
+          hx-swap="outerHTML"
+          class="text-xs text-gray-500 hover:text-gray-700 hover:underline">
+          Cancel
+        </button>
+        <a href="/policies/{{ p.policy_uid }}/edit"
+           class="text-xs text-gray-400 hover:underline ml-auto">
+          Full Edit →
+        </a>
+      </div>
+
+    </form>
+
+    <datalist id="ac-ap-review-{{ p.policy_uid }}"></datalist>
+    <script>
+    (function(){
+      fetch("/policies/autocomplete?field=access_point")
+        .then(function(r){ return r.json(); })
+        .then(function(vals){
+          var dl = document.getElementById("ac-ap-review-{{ p.policy_uid }}");
+          if (!dl) return;
+          dl.innerHTML = vals.map(function(v){
+            return '<option value="' + v.replace(/"/g, '&quot;') + '"></option>';
+          }).join('');
+        });
+    })();
+    </script>
+
+  </td>
+</tr>

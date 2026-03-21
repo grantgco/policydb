@@ -1,0 +1,103 @@
+<tr id="pp-row-{{ p.id }}" class="pp-row hover:bg-gray-50/60 align-middle border-b border-gray-100">
+  {# Type — pill buttons #}
+  <td class="px-2 py-2">
+    <div class="flex flex-wrap gap-1">
+      {% for pt in project_types if pt != 'Location' %}
+      <button type="button" data-pp-field="project_type"
+        onclick="ppSelectPill(this, 'project_type', {{ pt | tojson }}, {{ client.id }}, {{ p.id }})"
+        class="text-xs px-2 py-0.5 rounded-full border transition-colors
+               {% if p.project_type == pt %}bg-marsh text-white border-marsh{% else %}border-gray-200 text-gray-500 hover:border-marsh hover:text-marsh{% endif %}">
+        {{ pt }}
+      </button>
+      {% endfor %}
+    </div>
+  </td>
+
+  {# Project name — contenteditable, links to detail #}
+  <td class="px-2 py-2 min-w-[140px]">
+    <div class="flex items-center gap-1.5">
+      <span contenteditable="true"
+           class="pp-cell outline-none font-medium text-gray-800"
+           data-field="name"
+           data-endpoint="/clients/{{ client.id }}/projects/{{ p.id }}/field"
+           data-placeholder="Project name...">{{ p.name or '' }}</span>
+      <a href="/clients/{{ client.id }}/projects/{{ p.id }}"
+         class="text-gray-300 hover:text-marsh text-xs shrink-0" title="Open project detail">&#8599;</a>
+    </div>
+  </td>
+
+  {# Status — pill buttons #}
+  <td class="px-2 py-2">
+    <div class="flex flex-wrap gap-1">
+      {% for stage in project_stages %}
+      <button type="button" data-pp-field="status"
+        onclick="ppSelectPill(this, 'status', {{ stage | tojson }}, {{ client.id }}, {{ p.id }})"
+        class="text-xs px-2 py-0.5 rounded-full border transition-colors
+               {% if p.status == stage %}bg-marsh text-white border-marsh{% else %}border-gray-200 text-gray-500 hover:border-marsh hover:text-marsh{% endif %}">
+        {{ stage }}
+      </button>
+      {% endfor %}
+    </div>
+  </td>
+
+  {# Insurance Needed By #}
+  <td class="px-2 py-2 whitespace-nowrap">
+    <input type="date"
+           value="{{ p.insurance_needed_by or '' }}"
+           class="text-xs border-0 border-b border-gray-200 focus:border-marsh focus:outline-none bg-transparent w-32 py-0.5"
+           onchange="ppSaveDate(this, 'insurance_needed_by', {{ client.id }}, {{ p.id }})">
+  </td>
+
+  {# Start Date #}
+  <td class="px-2 py-2 whitespace-nowrap">
+    <input type="date"
+           value="{{ p.start_date or '' }}"
+           class="text-xs border-0 border-b border-gray-200 focus:border-marsh focus:outline-none bg-transparent w-32 py-0.5"
+           onchange="ppSaveDate(this, 'start_date', {{ client.id }}, {{ p.id }})">
+  </td>
+
+  {# Target Completion #}
+  <td class="px-2 py-2 whitespace-nowrap">
+    <input type="date"
+           value="{{ p.target_completion or '' }}"
+           class="text-xs border-0 border-b border-gray-200 focus:border-marsh focus:outline-none bg-transparent w-32 py-0.5"
+           onchange="ppSaveDate(this, 'target_completion', {{ client.id }}, {{ p.id }})">
+  </td>
+
+  {# Project Value — contenteditable, formatted as currency #}
+  <td class="px-2 py-2 text-right tabular-nums">
+    <div contenteditable="true"
+         class="pp-cell outline-none text-xs text-gray-700 rounded px-1 -mx-1 text-right"
+         data-field="project_value"
+         data-endpoint="/clients/{{ client.id }}/projects/{{ p.id }}/field"
+         data-placeholder="$0">{% if p.project_value %}${{ "{:,.0f}".format(p.project_value) }}{% endif %}</div>
+  </td>
+
+  {# Total Premium — read-only #}
+  <td class="px-2 py-2 text-right tabular-nums text-xs text-gray-500">
+    {% if p.total_premium %}{{ p.total_premium | currency }}{% else %}<span class="text-gray-300">$0</span>{% endif %}
+  </td>
+
+  {# Total Revenue — read-only #}
+  <td class="px-2 py-2 text-right tabular-nums text-xs text-gray-500">
+    {% if p.total_revenue %}{{ p.total_revenue | currency }}{% else %}<span class="text-gray-300">$0</span>{% endif %}
+  </td>
+
+  {# Coverage — clickable to toggle #}
+  <td class="px-2 py-2 text-center">
+    <button type="button"
+            class="text-xs tabular-nums {{ 'text-marsh hover:underline' if p.total_coverages else 'text-gray-300' }}"
+            onclick="togglePpCoverage({{ client.id }}, {{ p.id }}, this)"
+            title="View linked policies">
+      {{ p.placed_coverages }}/{{ p.total_coverages }}
+    </button>
+  </td>
+
+  {# Delete #}
+  <td class="px-2 py-2 text-center">
+    <button type="button"
+            onclick="ppDeleteRow(this, {{ client.id }}, {{ p.id }})"
+            class="text-xs text-gray-300 hover:text-red-400 transition-colors"
+            title="Delete project">&#x2715;</button>
+  </td>
+</tr>

@@ -1,0 +1,477 @@
+{% extends "base.html" %}
+{% block title %}Weekly Briefing — Coverage{% endblock %}
+{% block content %}
+
+<div class="flex items-center justify-between mb-6">
+  <h1 class="text-2xl font-bold text-gray-900">Weekly Briefing</h1>
+  <div class="flex items-center gap-3">
+    {# Client search combobox #}
+    <div class="relative" id="briefing-client-combo">
+      <input type="search" id="briefing-client-search" placeholder="Focus on client..."
+        hx-get="/briefing/clients/search" hx-trigger="input changed delay:300ms, focus" hx-target="#briefing-client-results"
+        hx-include="this" name="q" autocomplete="off"
+        class="w-48 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-marsh focus:w-64 transition-all placeholder-gray-400">
+      <div id="briefing-client-results"></div>
+    </div>
+    <div class="flex gap-1.5 flex-wrap">
+      {% for d, label in [(1, 'Today'), (7, '7d'), (14, '14d'), (30, '30d'), (60, '60d'), (90, '90d'), (180, '6mo'), (365, '1yr')] %}
+      <a href="/briefing?days={{ d }}" class="btn-filter {{ 'active' if days == d else '' }}">{{ label }}</a>
+      {% endfor %}
+    </div>
+    <button onclick="window.print()" class="text-xs text-marsh hover:underline font-medium no-print">Print / Save PDF</button>
+  </div>
+</div>
+
+<!-- Section 1: Action Queue -->
+<details open class="card mb-6">
+  <summary class="px-5 py-3 border-b border-gray-100 cursor-pointer select-none list-none flex items-center justify-between">
+    <div class="flex items-center gap-2">
+      <span class="details-arrow">&#9654;</span>
+      <h3 class="font-semibold text-gray-900">Action Queue</h3>
+      {% if action_queue %}<span class="text-xs bg-red-100 text-red-700 font-semibold px-2 py-0.5 rounded-full">{{ action_queue | length }}</span>{% endif %}
+    </div>
+  </summary>
+  <div class="divide-y divide-gray-50">
+    {% for item in action_queue[:25] %}
+    {% set bq_row_id = "bq-" ~ loop.index %}
+    <div class="px-5 py-3 hover:bg-gray-50" id="{{ bq_row_id }}">
+      <div class="flex items-start gap-3">
+        {# Priority indicator #}
+        <div class="pt-1.5 shrink-0">
+          {% if item._source == 'escalation' and item.get('escalation_tier') == 'CRITICAL' %}
+          <span class="w-2 h-2 rounded-full bg-red-500 block"></span>
+          {% elif item._source == 'overdue' %}
+          <span class="w-2 h-2 rounded-full bg-red-400 block"></span>
+          {% elif item._source == 'escalation' %}
+          <span class="w-2 h-2 rounded-full bg-amber-500 block"></span>
+          {% elif item._source == 'upcoming' %}
+          <span class="w-2 h-2 rounded-full bg-blue-400 block"></span>
+          {% else %}
+          <span class="w-2 h-2 rounded-full bg-gray-300 block"></span>
+          {% endif %}
+        </div>
+
+        {# Content #}
+        <div class="flex-1 min-w-0">
+          {# Line 1: Client, UID, type, carrier #}
+          <div class="flex items-center gap-2 flex-wrap">
+            {% if item.client_name %}<a href="/briefing/client/{{ item.client_id }}" class="text-sm font-medium text-marsh hover:underline">{{ item.client_name }}</a>{% endif %}
+            {% if item.policy_uid %}<a href="/policies/{{ item.policy_uid }}/edit" class="text-xs font-mono text-marsh hover:underline">{{ item.policy_uid }}</a>{% endif %}
+            {% if item.subject %}<span class="text-sm text-gray-700">{{ item.subject }}</span>{% endif %}
+            {% if item.policy_type %}<span class="text-xs text-gray-400">{{ item.policy_type }}</span>{% endif %}
+            {% if item.carrier %}<span class="text-xs text-gray-400">· {{ item.carrier }}</span>{% endif %}
+            {% if item.project_name %}<span class="text-xs text-gray-400 italic">{{ item.project_name }}</span>{% endif %}
+            {% if item.exposure_city or item.exposure_state %}<span class="text-xs text-gray-300">({{ [item.exposure_city, item.exposure_state] | select | join(', ') }})</span>{% endif %}
+          </div>
+
+          {# Line 2: Source reason + context details #}
+          <div class="flex items-center gap-3 flex-wrap text-xs text-gray-400 mt-0.5">
+            {% if item._source == 'escalation' %}
+            <span class="font-medium {% if item.get('escalation_tier') == 'CRITICAL' %}text-red-600{% elif item.get('escalation_tier') == 'WARNING' %}text-amber-600{% else %}text-blue-500{% endif %}">{{ item.get('escalation_tier', 'ALERT') }}</span>
+            {% if item.get('reason') %}<span>{{ item.reason }}</span>{% endif %}
+            {% elif item._source == 'overdue' %}
+            <span class="text-red-600 font-medium">{{ item.days_overdue }}d overdue</span>
+            {% elif item._source == 'upcoming' %}
+            <span>Due {{ item.follow_up_date }}</span>
+            {% elif item._source == 'suggested' %}
+            <span>Suggested follow-up</span>
+            {% endif %}
+
+            {% if item.days_to_renewal is defined and item.days_to_renewal is not none %}
+            <span class="text-gray-400">· Expires {{ item.expiration_date }} <span class="tabular-nums">({{ item.days_to_renewal }}d)</span></span>
+            {% endif %}
+            {% if item.renewal_status %}<span class="text-gray-400">· {{ item.renewal_status }}</span>{% endif %}
+
+            {% if item.readiness_label is defined and item.readiness_label %}
+            <span class="{{ item.readiness_label | readiness_class }} text-xs px-1.5 py-0.5 rounded whitespace-nowrap cursor-help" title="{{ item.readiness_tooltip or '' }}">{{ item.readiness_score }}/100 {{ item.readiness_label }}</span>
+            {% endif %}
+
+            {% if item.last_activity_date %}
+            <span class="text-gray-400">· Last: {{ item.last_activity_type or 'Activity' }} {{ item.last_activity_days_ago }}d ago</span>
+            {% endif %}
+          </div>
+        </div>
+
+        {# Actions #}
+        <div class="flex items-center gap-1 shrink-0 flex-wrap">
+          {# Done/Clear #}
+          {% if item._source == 'overdue' and item.get('source') == 'activity' %}
+          <button type="button" onclick="toggleBqComplete('{{ bq_row_id }}')"
+                  class="text-xs bg-green-50 hover:bg-green-100 text-green-700 border border-green-200 rounded px-2 py-1.5 transition-colors">Done</button>
+          {% elif item._source == 'overdue' and item.get('source') == 'policy' and item.policy_uid %}
+          <button type="button" onclick="toggleBqComplete('{{ bq_row_id }}')"
+                  class="text-xs bg-green-50 hover:bg-green-100 text-green-700 border border-green-200 rounded px-2 py-1.5 transition-colors">Clear</button>
+          {% endif %}
+
+          {# Snooze buttons #}
+          {% if item._source in ['overdue', 'upcoming'] %}
+            {% if item.get('source') == 'policy' and item.policy_uid %}
+            <button hx-post="/policies/{{ item.policy_uid }}/snooze-followup?days=1" hx-target="#{{ bq_row_id }}" hx-swap="outerHTML"
+              class="text-xs text-gray-400 hover:text-amber-600 border border-gray-200 hover:border-amber-300 rounded px-2 py-1.5 transition-colors">+1d</button>
+            <button hx-post="/policies/{{ item.policy_uid }}/snooze-followup?days=3" hx-target="#{{ bq_row_id }}" hx-swap="outerHTML"
+              class="text-xs text-gray-400 hover:text-amber-600 border border-gray-200 hover:border-amber-300 rounded px-2 py-1.5 transition-colors">+3d</button>
+            <button hx-post="/policies/{{ item.policy_uid }}/snooze-followup?days=7" hx-target="#{{ bq_row_id }}" hx-swap="outerHTML"
+              class="text-xs text-gray-400 hover:text-amber-600 border border-gray-200 hover:border-amber-300 rounded px-2 py-1.5 transition-colors">+7d</button>
+            {% elif item.get('source') == 'activity' %}
+            <button hx-post="/activities/{{ item.id }}/snooze?days=1" hx-target="#{{ bq_row_id }}" hx-swap="outerHTML"
+              class="text-xs text-gray-400 hover:text-amber-600 border border-gray-200 hover:border-amber-300 rounded px-2 py-1.5 transition-colors">+1d</button>
+            <button hx-post="/activities/{{ item.id }}/snooze?days=3" hx-target="#{{ bq_row_id }}" hx-swap="outerHTML"
+              class="text-xs text-gray-400 hover:text-amber-600 border border-gray-200 hover:border-amber-300 rounded px-2 py-1.5 transition-colors">+3d</button>
+            <button hx-post="/activities/{{ item.id }}/snooze?days=7" hx-target="#{{ bq_row_id }}" hx-swap="outerHTML"
+              class="text-xs text-gray-400 hover:text-amber-600 border border-gray-200 hover:border-amber-300 rounded px-2 py-1.5 transition-colors">+7d</button>
+            {% endif %}
+          {% endif %}
+
+          {# Email #}
+          {% if item.contact_email %}
+          <button type="button" class="ep-trigger text-xs text-gray-400 hover:text-marsh border border-gray-200 hover:border-marsh rounded px-2 py-1.5 transition-colors"
+            data-to="{{ item.contact_email }}"
+            data-to-label="{{ item.contact_person or '' }}"
+            data-subject="Re: {{ item.client_name or '' }} — {{ item.policy_type or item.subject or '' }}"
+            {% if item.policy_uid %}data-cc-url="/policies/{{ item.policy_uid }}/team-cc"{% endif %}>&#9993;</button>
+          {% endif %}
+
+          {# Copy ref tag #}
+          {% if item.policy_uid %}
+          <button type="button" onclick="copyRefTag(this, '{{ item.policy_uid }}')"
+            class="text-xs text-gray-300 hover:text-marsh border border-gray-200 hover:border-marsh rounded px-2 py-1.5 transition-colors" title="Copy ref tag">&#10697;</button>
+          {% endif %}
+        </div>
+      </div>
+      {# Inline completion form (hidden, toggled by Done/Clear) #}
+      {% if item._source == 'overdue' %}
+      <div id="bq-complete-{{ bq_row_id }}" class="hidden mt-2 ml-5 pl-3 border-l-2 border-green-300">
+        <form class="flex items-end gap-2"
+          {% if item.get('source') == 'policy' and item.policy_uid %}
+          hx-post="/policies/{{ item.policy_uid }}/clear-followup"
+          {% else %}
+          hx-post="/activities/{{ item.id }}/complete"
+          {% endif %}
+          hx-target="#{{ bq_row_id }}" hx-swap="outerHTML">
+          <div class="w-16">
+            <label class="text-[10px] text-gray-500 block">Hours</label>
+            <input type="number" name="duration_hours" min="0" step="any" placeholder="0.5"
+              class="w-full border border-gray-200 rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-green-400 tabular-nums">
+          </div>
+          <div class="flex-1 max-w-xs">
+            <label class="text-[10px] text-gray-500 block">Note</label>
+            <input type="text" name="note" placeholder="Brief context..."
+              class="w-full border border-gray-200 rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-green-400 placeholder-gray-300">
+          </div>
+          <button type="submit" class="text-xs bg-green-500 hover:bg-green-600 text-white px-3 py-1 rounded">Done</button>
+          <button type="submit" name="abandon" value="1"
+            onclick="if(!this.form.note.value.trim()){this.form.note.focus();this.form.note.classList.add('ring-2','ring-red-400');return false;}"
+            class="text-xs bg-gray-400 hover:bg-gray-500 text-white px-2 py-1 rounded">Abandon</button>
+          <button type="button" onclick="this.closest('[id^=bq-complete]').classList.add('hidden')"
+            class="text-xs text-gray-400 hover:text-gray-600">Cancel</button>
+        </form>
+      </div>
+      {% endif %}
+    </div>
+    {% else %}
+    <div class="px-5 py-8 text-center text-gray-400 text-sm">All clear — no items need attention.</div>
+    {% endfor %}
+  </div>
+</details>
+
+<script>
+function toggleBqComplete(rowId) {
+  var panel = document.getElementById('bq-complete-' + rowId);
+  if (panel) panel.classList.toggle('hidden');
+}
+// Dismiss client combobox dropdown on click outside
+document.addEventListener('click', function(e) {
+  var combo = document.getElementById('briefing-client-combo');
+  var results = document.getElementById('briefing-client-results');
+  if (combo && results && !combo.contains(e.target)) {
+    results.innerHTML = '';
+  }
+});
+</script>
+
+<!-- Section 2: Open RFIs -->
+{% set rfi_attention = rfi_alerts | selectattr('_rfi_tier', 'in', ['overdue', 'no_deadline']) | list %}
+<details {% if rfi_attention %}open{% endif %} class="card mb-6">
+  <summary class="px-5 py-3 border-b border-gray-100 cursor-pointer select-none list-none flex items-center justify-between">
+    <div class="flex items-center gap-2">
+      <span class="details-arrow">&#9654;</span>
+      <h3 class="font-semibold text-gray-900">Open Information Requests</h3>
+      {% if rfi_attention %}
+      <span class="text-xs bg-amber-100 text-amber-700 font-semibold px-2 py-0.5 rounded-full">{{ rfi_attention | length }} need attention</span>
+      {% endif %}
+    </div>
+  </summary>
+  {% if rfi_alerts %}
+  <div class="divide-y divide-gray-50">
+    {% for r in rfi_alerts %}
+    <div class="px-5 py-3 hover:bg-gray-50 flex items-center gap-3">
+      {# Priority dot #}
+      <div class="shrink-0 pt-0.5">
+        {% if r._rfi_tier == 'overdue' %}<span class="w-2 h-2 rounded-full bg-red-500 block"></span>
+        {% elif r._rfi_tier == 'no_deadline' %}<span class="w-2 h-2 rounded-full bg-amber-500 block"></span>
+        {% elif r._rfi_tier == 'awaiting' %}<span class="w-2 h-2 rounded-full bg-blue-400 block"></span>
+        {% else %}<span class="w-2 h-2 rounded-full bg-gray-300 block"></span>
+        {% endif %}
+      </div>
+
+      {# Content #}
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center gap-2 flex-wrap">
+          <a href="/briefing/client/{{ r.client_id }}" class="text-sm font-medium text-marsh hover:underline">{{ r.client_name }}</a>
+          {% if r.rfi_uid %}
+          <button type="button" onclick="copyRefTag(this, '{{ r.rfi_uid }}')"
+            class="text-xs font-mono font-semibold text-marsh hover:text-marsh-light shrink-0"
+            title="Click to copy">{{ r.rfi_uid }}</button>
+          {% endif %}
+          <span class="text-sm text-gray-600">{{ r.title }}</span>
+          {% if r.status == 'open' %}<span class="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-medium">Open</span>
+          {% elif r.status == 'sent' %}<span class="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-medium">Sent</span>
+          {% elif r.status == 'partial' %}<span class="text-[10px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded font-medium">Partial</span>
+          {% endif %}
+        </div>
+        <div class="flex items-center gap-3 flex-wrap text-xs text-gray-400 mt-0.5">
+          {% if r._rfi_tier == 'overdue' %}
+          <span class="text-red-600 font-medium">⚠ Overdue — was due {{ r.send_by_date }}</span>
+          {% elif r._rfi_tier == 'no_deadline' %}
+          <span class="text-amber-600 font-medium">⚠ No send-by date set</span>
+          {% elif r._rfi_tier == 'awaiting' %}
+          <span class="text-blue-500">Sent {{ r.sent_at[:10] if r.sent_at else '' }} — awaiting response</span>
+          {% endif %}
+          <span class="tabular-nums">{{ (r.item_total or 0) - (r.outstanding or 0) }}/{{ r.item_total or 0 }} items received</span>
+        </div>
+      </div>
+
+      {# Link to client #}
+      <a href="/clients/{{ r.client_id }}" class="text-xs text-marsh hover:underline shrink-0">View &rarr;</a>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="px-5 py-8 text-center text-gray-400 text-sm">No open information requests.</div>
+  {% endif %}
+</details>
+
+<!-- Section 3: This Week's Work -->
+<details class="card mb-6">
+  <summary class="px-5 py-3 border-b border-gray-100 cursor-pointer select-none list-none flex items-center gap-2">
+    <span class="details-arrow">&#9654;</span>
+    <h3 class="font-semibold text-gray-900">This {{ 'Week' if days == 7 else 'Period' }}'s Work</h3>
+  </summary>
+  <div class="p-5">
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
+      <div class="text-center">
+        <p class="text-2xl font-bold text-gray-900">{% if time_summary and time_summary.total_hours %}{{ time_summary.total_hours | format_hours }}{% else %}0h{% endif %}</p>
+        <p class="text-xs text-gray-400">Hours Logged</p>
+      </div>
+      <div class="text-center">
+        <p class="text-2xl font-bold text-gray-900">{{ activities | length }}</p>
+        <p class="text-xs text-gray-400">Activities</p>
+      </div>
+      <div class="text-center">
+        <p class="text-2xl font-bold text-gray-900">{{ clients_touched }}</p>
+        <p class="text-xs text-gray-400">Clients Touched <span class="text-gray-300">/ {{ total_clients }}</span></p>
+      </div>
+      <div class="text-center">
+        <p class="text-2xl font-bold text-gray-900">{{ policies_touched }}</p>
+        <p class="text-xs text-gray-400">Policies Touched</p>
+      </div>
+    </div>
+
+    {% if time_summary and time_summary.by_type | length > 0 %}
+    <div class="flex flex-wrap gap-2 mb-4">
+      {% for row in time_summary.by_type %}
+      <span class="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">{{ row.activity_type }} <span class="font-medium">{{ row.count }}</span></span>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if time_summary and time_summary.by_client | length > 0 %}
+    <div class="space-y-1.5">
+      {% for row in time_summary.by_client[:7] %}
+      <div class="flex items-center gap-2 text-xs">
+        <a href="/clients/{{ row.client_id }}" class="text-marsh hover:underline truncate w-32">{{ row.client_name }}</a>
+        <div class="flex-1 bg-gray-200 rounded-full h-1.5">
+          <div class="bg-marsh rounded-full h-1.5" style="width: {{ (row.hours / time_summary.total_hours * 100) | round(1) }}%"></div>
+        </div>
+        <span class="text-gray-600 tabular-nums w-12 text-right">{{ row.hours | format_hours }}</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+</details>
+
+<!-- Section 4: Pipeline Snapshot -->
+<details class="card mb-6">
+  <summary class="px-5 py-3 border-b border-gray-100 cursor-pointer select-none list-none flex items-center gap-2">
+    <span class="details-arrow">&#9654;</span>
+    <h3 class="font-semibold text-gray-900">Pipeline Snapshot</h3>
+  </summary>
+  <div class="p-5">
+    {# Urgency breakdown #}
+    <div class="flex flex-wrap gap-3 mb-4">
+      {% set urgency_items = [
+        ('EXPIRED', metrics.expired_count, metrics.expired_premium, 'bg-gray-800 text-white'),
+        ('URGENT', metrics.urgent_count, metrics.urgent_premium, 'bg-red-600 text-white'),
+        ('WARNING', metrics.warning_count, metrics.warning_premium, 'bg-amber-500 text-white'),
+        ('UPCOMING', metrics.upcoming_count, metrics.upcoming_premium, 'bg-blue-500 text-white'),
+        ('OK', metrics.ok_count, metrics.ok_premium, 'bg-green-500 text-white'),
+      ] %}
+      {% for label, count, premium, cls in urgency_items %}
+      {% if count %}
+      <div class="flex items-center gap-1.5">
+        <span class="text-xs font-semibold px-2 py-0.5 rounded {{ cls }}">{{ label }}</span>
+        <span class="text-sm font-medium text-gray-800">{{ count }}</span>
+        <span class="text-xs text-gray-400">({{ premium | currency }})</span>
+      </div>
+      {% endif %}
+      {% endfor %}
+    </div>
+
+    {% if stale_count > 0 %}
+    <p class="text-xs text-amber-600 mb-3">{{ stale_count }} stale renewal{{ 's' if stale_count != 1 else '' }} — "Not Started" with no recent activity.</p>
+    {% endif %}
+
+    {# Top urgent policies #}
+    {% if top_urgent %}
+    <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Most Urgent</p>
+    <table class="w-full text-sm">
+      <tbody class="divide-y divide-gray-50">
+        {% for p in top_urgent %}
+        <tr class="hover:bg-gray-50">
+          <td class="py-2 pr-3">
+            <a href="/briefing/client/{{ p.client_id }}" class="font-medium text-marsh hover:underline text-xs">{{ p.client_name }}</a>
+          </td>
+          <td class="py-2 pr-3 text-xs">
+            <span class="text-gray-600">{{ p.policy_type }}</span>
+            {% if p.project_name %}<span class="text-gray-400 ml-1 italic">{{ p.project_name }}</span>{% endif %}
+            {% if p.exposure_city or p.exposure_state %}
+            <span class="text-gray-300 ml-1">({{ [p.exposure_city, p.exposure_state] | select | join(', ') }})</span>
+            {% endif %}
+          </td>
+          <td class="py-2 pr-3 text-xs text-gray-500">{{ p.carrier }}</td>
+          <td class="py-2 pr-3 text-xs">
+            <span class="text-gray-600">{{ p.expiration_date }}</span>
+            <span class="{{ p.urgency | urgency_class }} text-xs font-medium px-1.5 py-0.5 rounded ml-1">{{ p.days_to_renewal }}d</span>
+          </td>
+          <td class="py-2 pr-3 text-xs text-gray-500">{{ p.renewal_status or '' }}</td>
+          <td class="py-2 pr-3 text-xs text-gray-400">{{ p.placement_colleague or '' }}</td>
+          <td class="py-2 text-right">
+            <a href="/policies/{{ p.policy_uid }}/edit" class="text-xs text-marsh hover:underline">Edit</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+
+    <div class="mt-3 pt-2 border-t border-gray-100">
+      <a href="/renewals" class="text-xs text-marsh hover:underline">Full Pipeline</a>
+      <span class="text-gray-300 mx-2">|</span>
+      <a href="/review" class="text-xs text-marsh hover:underline">Review Board</a>
+      <span class="text-gray-300 mx-2">|</span>
+      <a href="/followups" class="text-xs text-marsh hover:underline">All Follow-Ups</a>
+    </div>
+  </div>
+</details>
+
+<!-- Section 5: Notes & Scratchpad -->
+<details class="card mb-6">
+  <summary class="px-5 py-3 border-b border-gray-100 cursor-pointer select-none list-none flex items-center gap-2">
+    <span class="details-arrow">&#9654;</span>
+    <h3 class="font-semibold text-gray-900">Notes</h3>
+  </summary>
+  <div class="p-5">
+    {# Global scratchpad #}
+    <div class="mb-5">
+      <div class="flex items-center justify-between mb-1">
+        <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Scratchpad</p>
+        <span id="briefing-scratch-ts" class="text-xs text-gray-400 italic">
+          {% if scratchpad_updated %}saved {{ scratchpad_updated[:16] }}{% endif %}
+        </span>
+      </div>
+      <textarea
+        id="briefing-scratch-ta"
+        name="content"
+        rows="3"
+        placeholder="Daily notes, action items, reminders…"
+        class="w-full text-sm text-gray-800 bg-transparent resize-none focus:outline-none placeholder-gray-300 leading-relaxed">{{ scratchpad_content }}</textarea>
+    </div>
+
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
+      {# Recent saved notes (pinned from scratchpads) #}
+      {% if recent_saved_notes %}
+      <div>
+        <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Recent Saved Notes</p>
+        <div class="space-y-2">
+          {% for n in recent_saved_notes %}
+          <div class="text-xs">
+            <a href="/clients/{{ n.client_id }}" class="text-marsh hover:underline font-medium">{{ n.client_name }}</a>
+            {% if n.scope == 'policy' %}<span class="text-gray-400 font-mono ml-1">{{ n.scope_id }}</span>{% endif %}
+            <span class="text-gray-400 ml-1">{{ n.created_at[:10] }}</span>
+            <div class="text-gray-500 line-clamp-2 mt-0.5 md-render">{{ n.content[:150] }}</div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
+      {# Recent internal notes #}
+      {% if recent_internal_notes %}
+      <div>
+        <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Client Internal Notes</p>
+        <div class="space-y-2">
+          {% for n in recent_internal_notes %}
+          <div class="text-xs">
+            <a href="/clients/{{ n.id }}" class="text-marsh hover:underline font-medium">{{ n.name }}</a>
+            <span class="text-gray-400 ml-1">{{ n.updated_at[:10] if n.updated_at else '' }}</span>
+            <div class="text-gray-500 line-clamp-2 mt-0.5 md-render">{{ n.notes[:150] }}</div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</details>
+
+<script>
+(function() {
+  var ta = document.getElementById('briefing-scratch-ta');
+  var ts = document.getElementById('briefing-scratch-ts');
+  if (!ta) return;
+
+  var mde = window.initMarkdownEditor('briefing-scratch-ta', {minHeight: '80px'});
+
+  var saveTimer = null;
+  var saving = false;
+  function autoSave() {
+    if (saving) return;
+    saving = true;
+    var fd = new FormData();
+    fd.set('content', ta.value);
+    fetch('/dashboard/scratchpad', {
+      method: 'POST', body: fd,
+      headers: {'Accept': 'application/json'}
+    }).then(function(r) { return r.json(); }).then(function(data) {
+      if (data.ok && ts) ts.textContent = 'saved ' + data.saved_at;
+    }).catch(function() {}).finally(function() { saving = false; });
+  }
+
+  if (mde) {
+    mde.on('change', function() {
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(autoSave, 800);
+    });
+  } else {
+    ta.addEventListener('input', function() {
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(autoSave, 800);
+    });
+  }
+
+  if (typeof renderMarkdown === 'function') renderMarkdown('.md-render');
+})();
+</script>
+
+{% endblock %}

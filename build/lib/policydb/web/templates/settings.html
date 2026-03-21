@@ -7,11 +7,503 @@
   <p class="text-sm text-gray-500 mt-1">Manage dropdown options used across PolicyDB. Changes save immediately to <code class="text-xs bg-gray-100 px-1 py-0.5 rounded">~/.policydb/config.yaml</code>.</p>
 </div>
 
+{% include 'settings/_db_health.html' %}
+
+{% include 'settings/_sql_console.html' %}
+
+{% include 'settings/_schema_ref.html' %}
+
+<!-- Email Subject Templates -->
+<div class="card p-5 mb-6">
+  <h2 class="font-semibold text-gray-900 mb-1 text-sm">Email Subject Lines</h2>
+  <p class="text-xs text-gray-400 mb-4">Configure the subject line used on contact mailto: links throughout the app. Use <code class="bg-gray-100 px-1 rounded">&#123;&#123;token&#125;&#125;</code> placeholders. Changes apply immediately.</p>
+
+  {% set subject_fields = [
+    ('email_subject_policy', 'Policy emails', 'Subject when emailing from a policy screen', email_subject_policy),
+    ('email_subject_client', 'Client emails', 'Subject when emailing from a client screen', email_subject_client),
+    ('email_subject_followup', 'Follow-up emails', 'Subject when emailing from the follow-up list', email_subject_followup),
+    ('email_subject_request', 'Request bundle emails', 'Subject when composing from an RFI bundle', email_subject_request),
+    ('email_subject_request_all', 'Request all emails', 'Subject when composing all outstanding requests', email_subject_request_all),
+  ] %}
+
+  <div class="space-y-4">
+    {% for field_key, field_label, field_hint, field_value in subject_fields %}
+    <div>
+      <label class="text-xs font-medium text-gray-600 block mb-0.5">{{ field_label }}</label>
+      <p class="text-xs text-gray-400 mb-1">{{ field_hint }}</p>
+      <div class="flex gap-2 items-start">
+        <input type="text" id="es-{{ field_key }}" value="{{ field_value or '' }}"
+          class="flex-1 border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-marsh"
+          placeholder="Re: &#123;&#123;client_name&#125;&#125; — &#123;&#123;policy_type&#125;&#125;">
+        <button type="button"
+          onclick="saveEmailSubject('{{ field_key }}', 'es-{{ field_key }}', 'es-status-{{ field_key }}')"
+          class="text-xs bg-marsh text-white px-3 py-1.5 rounded-lg hover:bg-marsh-light shrink-0">Save</button>
+        <span id="es-status-{{ field_key }}" class="text-xs text-green-600 hidden self-center">Saved</span>
+      </div>
+      <div class="flex flex-wrap gap-1 mt-1.5">
+        {% if 'policy' in field_key or 'followup' in field_key %}
+        {% set pills = [('client_name','Client Name'),('project_name_sep','Project (sep)'),('policy_type','Policy Type'),('carrier','Carrier'),('policy_uid','Policy ID'),('effective_date','Eff. Date'),('expiration_date','Exp. Date'),('subject','Subject'),('today','Today')] %}
+        {% else %}
+        {% set pills = [('client_name','Client Name'),('primary_contact','Primary Contact'),('account_exec','Acct Exec'),('today','Today')] %}
+        {% endif %}
+        {% for tok, lbl in pills %}
+        <button type="button" onclick="insertSubjectToken('es-{{ field_key }}', '{{ tok }}')"
+          class="text-xs bg-gray-100 hover:bg-marsh hover:text-white text-gray-600 px-2 py-0.5 rounded cursor-pointer transition-colors border border-gray-200">{{ lbl }}</button>
+        {% endfor %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<!-- Mandated Activities -->
+<div class="card p-5 mb-6">
+  <h2 class="font-semibold text-gray-900 mb-1 text-sm">Mandated Activities</h2>
+  <p class="text-xs text-gray-400 mb-4">Activities that are automatically created as follow-ups and milestones on every active policy. New rules take effect on the next server restart.</p>
+
+  <div id="mandated-activities-list" class="mb-4">
+    {% for r in mandated_activities %}
+    {% set trigger_label = {"days_before_expiry": "before expiry", "days_after_effective": "after effective", "days_after_binding": "after binding"}.get(r.trigger, r.trigger) %}
+    <div class="flex items-center justify-between py-2 border-b border-gray-50">
+      <div class="text-sm text-gray-800">
+        <span class="font-medium">{{ r.name }}</span>
+        &mdash; <span class="text-gray-500">{{ r.days }}d {{ trigger_label }}</span>
+        &middot; <span class="text-gray-400">{{ r.activity_type or 'Meeting' }}</span>
+      </div>
+      <form hx-post="/settings/mandated-activities/remove" hx-target="#mandated-activities-list" hx-swap="innerHTML">
+        <input type="hidden" name="name" value="{{ r.name }}">
+        <button type="submit" class="text-xs text-red-400 hover:text-red-600">&times;</button>
+      </form>
+    </div>
+    {% else %}
+    <p class="text-xs text-gray-400 py-2">No mandated activities configured.</p>
+    {% endfor %}
+  </div>
+
+  <form hx-post="/settings/mandated-activities/add" hx-target="#mandated-activities-list" hx-swap="innerHTML"
+        class="flex items-end gap-2 flex-wrap">
+    <div>
+      <label class="text-[10px] text-gray-500 block">Name</label>
+      <input type="text" name="name" required placeholder="RSM Meeting"
+        class="border border-gray-200 rounded px-2 py-1 text-xs w-36 focus:outline-none focus:ring-1 focus:ring-marsh">
+    </div>
+    <div>
+      <label class="text-[10px] text-gray-500 block">Trigger</label>
+      <select name="trigger" class="border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-marsh">
+        <option value="days_before_expiry">Days before expiry</option>
+        <option value="days_after_effective">Days after effective</option>
+      </select>
+    </div>
+    <div>
+      <label class="text-[10px] text-gray-500 block">Days</label>
+      <input type="number" name="days" required value="120" min="1" max="365"
+        class="border border-gray-200 rounded px-2 py-1 text-xs w-16 focus:outline-none focus:ring-1 focus:ring-marsh">
+    </div>
+    <div>
+      <label class="text-[10px] text-gray-500 block">Activity Type</label>
+      <select name="activity_type" class="border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-marsh">
+        {% for at in lists.get('activity_types', []) or ['Call','Email','Meeting','Other'] %}
+        <option value="{{ at }}" {{ 'selected' if at == 'Meeting' else '' }}>{{ at }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="text-[10px] text-gray-500 block">Subject</label>
+      <input type="text" name="subject" placeholder="Auto: Name — {%raw%}{{policy_type}}{%endraw%}"
+        class="border border-gray-200 rounded px-2 py-1 text-xs w-48 focus:outline-none focus:ring-1 focus:ring-marsh">
+    </div>
+    <button type="submit" class="text-xs text-marsh hover:underline font-medium py-1">+ Add</button>
+  </form>
+</div>
+
+<!-- Alert & Readiness Thresholds -->
+<div class="card p-5 mb-6">
+  <h2 class="font-semibold text-gray-900 mb-1 text-sm">Alert & Readiness Thresholds</h2>
+  <p class="text-xs text-gray-400 mb-4">Tune when escalation banners appear on the dashboard and how readiness scores are labeled. Changes apply on next page load.</p>
+
+  <form hx-post="/settings/thresholds" hx-target="#thresh-status" hx-swap="outerHTML" class="space-y-4">
+    <div>
+      <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Escalation Alert Triggers</p>
+      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+        <div>
+          <label class="block text-xs text-gray-600 mb-0.5">Critical: days to renewal</label>
+          <input type="number" name="critical_days" value="{{ escalation_thresholds.get('critical_days', 60) }}" min="1"
+            class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-marsh">
+        </div>
+        <div>
+          <label class="block text-xs text-gray-600 mb-0.5">Critical: stale activity (days)</label>
+          <input type="number" name="critical_stale_days" value="{{ escalation_thresholds.get('critical_stale_days', 14) }}" min="1"
+            class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-marsh">
+        </div>
+        <div>
+          <label class="block text-xs text-gray-600 mb-0.5">Warning: days to renewal</label>
+          <input type="number" name="warning_days" value="{{ escalation_thresholds.get('warning_days', 90) }}" min="1"
+            class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-marsh">
+        </div>
+        <div>
+          <label class="block text-xs text-gray-600 mb-0.5">Nudge: days to renewal</label>
+          <input type="number" name="nudge_days" value="{{ escalation_thresholds.get('nudge_days', 120) }}" min="1"
+            class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-marsh">
+        </div>
+        <div>
+          <label class="block text-xs text-gray-600 mb-0.5">Nudge: stale activity (days)</label>
+          <input type="number" name="nudge_stale_days" value="{{ escalation_thresholds.get('nudge_stale_days', 30) }}" min="1"
+            class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-marsh">
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Readiness Score Labels</p>
+      <p class="text-xs text-gray-400 mb-2">Score thresholds (0–100) for readiness badges on pipeline rows.</p>
+      <div class="grid grid-cols-3 gap-3 max-w-md">
+        <div>
+          <label class="block text-xs text-gray-600 mb-0.5">Ready &ge;</label>
+          <input type="number" name="readiness_ready" value="{{ readiness_thresholds.get('ready', 75) }}" min="0" max="100"
+            class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-marsh">
+        </div>
+        <div>
+          <label class="block text-xs text-gray-600 mb-0.5">On Track &ge;</label>
+          <input type="number" name="readiness_on_track" value="{{ readiness_thresholds.get('on_track', 50) }}" min="0" max="100"
+            class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-marsh">
+        </div>
+        <div>
+          <label class="block text-xs text-gray-600 mb-0.5">At Risk &ge;</label>
+          <input type="number" name="readiness_at_risk" value="{{ readiness_thresholds.get('at_risk', 25) }}" min="0" max="100"
+            class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-marsh">
+        </div>
+      </div>
+      <p class="text-xs text-gray-400 mt-1">Below the lowest threshold = Critical.</p>
+    </div>
+
+    <div>
+      <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Follow-Up Workload Hints</p>
+      <p class="text-xs text-gray-400 mb-2">When scheduling a follow-up, a hint shows how many others are already on that day. Set the thresholds for when the count turns yellow (warning) and red (danger). Below the warning threshold the hint appears green.</p>
+      <div class="grid grid-cols-2 gap-3 max-w-xs">
+        <div>
+          <label class="block text-xs text-gray-600 mb-0.5">Warning &ge;</label>
+          <input type="number" name="followup_workload_warning" value="{{ fu_workload.get('warning', 3) }}" min="1"
+            class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-marsh">
+        </div>
+        <div>
+          <label class="block text-xs text-gray-600 mb-0.5">Danger &ge;</label>
+          <input type="number" name="followup_workload_danger" value="{{ fu_workload.get('danger', 5) }}" min="1"
+            class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-marsh">
+        </div>
+      </div>
+      <p class="text-xs text-gray-400 mt-1">Example: Warning = 3 means 3+ follow-ups turns yellow; Danger = 5 means 5+ turns red.</p>
+    </div>
+
+    <div class="flex items-center gap-3">
+      <button type="submit"
+        class="bg-marsh hover:bg-marsh-light text-white text-sm font-medium px-4 py-1.5 rounded-lg transition-colors">Save Thresholds</button>
+      <span id="thresh-status"></span>
+    </div>
+  </form>
+</div>
+
+<!-- Readiness Score Weights -->
+<div class="card p-5 mb-6">
+  <h2 class="font-semibold text-gray-900 mb-1 text-sm">Readiness Score Weights</h2>
+  <p class="text-xs text-gray-400 mb-4">Control how each component contributes to the readiness score (0–100). Changes apply on next page load.</p>
+
+  <form hx-post="/settings/readiness-weights" hx-target="#rw-status" hx-swap="outerHTML" class="space-y-5">
+
+    <!-- Component Weights -->
+    <div>
+      <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Component Weights</p>
+      <div class="grid grid-cols-5 gap-3 max-w-2xl">
+        <div>
+          <label class="block text-xs text-gray-600 mb-0.5">Status</label>
+          <input type="number" name="w_status" value="{{ readiness_weights.get('status', 40) }}" min="0" max="100"
+            onchange="updateAllPreviews()" id="rw-w-status"
+            class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-marsh">
+        </div>
+        <div>
+          <label class="block text-xs text-gray-600 mb-0.5">Checklist</label>
+          <input type="number" name="w_checklist" value="{{ readiness_weights.get('checklist', 25) }}" min="0" max="100"
+            onchange="updateAllPreviews()" id="rw-w-checklist"
+            class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-marsh">
+        </div>
+        <div>
+          <label class="block text-xs text-gray-600 mb-0.5">Activity</label>
+          <input type="number" name="w_activity" value="{{ readiness_weights.get('activity', 15) }}" min="0" max="100"
+            onchange="updateAllPreviews()" id="rw-w-activity"
+            class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-marsh">
+        </div>
+        <div>
+          <label class="block text-xs text-gray-600 mb-0.5">Follow-Up</label>
+          <input type="number" name="w_followup" value="{{ readiness_weights.get('followup', 10) }}" min="0" max="100"
+            onchange="updateAllPreviews()" id="rw-w-followup"
+            class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-marsh">
+        </div>
+        <div>
+          <label class="block text-xs text-gray-600 mb-0.5">Placement</label>
+          <input type="number" name="w_placement" value="{{ readiness_weights.get('placement', 10) }}" min="0" max="100"
+            onchange="updateAllPreviews()" id="rw-w-placement"
+            class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-marsh">
+        </div>
+      </div>
+      <p class="text-xs mt-1.5" id="rw-sum-row">
+        Total: <span id="rw-sum" class="font-medium"></span>/100
+        <span id="rw-sum-msg" class="ml-2"></span>
+      </p>
+    </div>
+
+    <!-- Status Score Mapping -->
+    <div>
+      <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Status Score Mapping <span class="font-normal text-gray-400">— % of status component</span></p>
+      <table class="text-xs">
+        <tbody>
+          {% for s in renewal_statuses %}
+          <tr>
+            <td class="py-1 pr-3 text-gray-600 whitespace-nowrap">{{ s }}</td>
+            <td class="py-1 pr-1">
+              <input type="number" name="ss_{{ loop.index0 }}" value="{{ readiness_status_scores.get(s, 25) }}" min="0" max="100"
+                onchange="updateStatusPreviews()" class="ss-input border border-gray-300 rounded px-2 py-1 text-xs w-16 focus:outline-none focus:ring-1 focus:ring-marsh text-right">
+              <input type="hidden" name="ss_name_{{ loop.index0 }}" value="{{ s }}">
+            </td>
+            <td class="py-1 pr-2 text-gray-400">%</td>
+            <td class="py-1 ss-pts text-blue-500 tabular-nums"></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <p id="ss-warn" class="text-xs mt-1.5 hidden text-amber-600"></p>
+    </div>
+
+    <!-- Milestone Weights -->
+    <div>
+      <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Milestone Weights <span class="font-normal text-gray-400">— higher = more impact on checklist score</span></p>
+      <table class="text-xs">
+        <tbody>
+          {% for m in renewal_milestones %}
+          <tr>
+            <td class="py-1 pr-3 text-gray-600 whitespace-nowrap">{{ m }}</td>
+            <td class="py-1 pr-2">
+              <input type="number" name="mw_{{ loop.index0 }}" value="{{ readiness_milestone_weights.get(m, 1) }}" min="1" max="10"
+                onchange="updateMilestonePreviews()" class="mw-input border border-gray-300 rounded px-2 py-1 text-xs w-14 focus:outline-none focus:ring-1 focus:ring-marsh text-right">
+              <input type="hidden" name="mw_name_{{ loop.index0 }}" value="{{ m }}">
+            </td>
+            <td class="py-1 mw-pct text-blue-500 tabular-nums"></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Activity Tiers -->
+    <div>
+      <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Activity Recency Tiers <span class="font-normal text-gray-400">— % of activity component if last activity within N days</span></p>
+      <div class="space-y-1.5 max-w-sm">
+        {% for tier in readiness_activity_tiers %}
+        <div class="flex items-center gap-2">
+          <span class="text-xs text-gray-500">Within</span>
+          <input type="number" name="at_days_{{ loop.index0 }}" value="{{ tier.days }}" min="1"
+            onchange="updateTierPreviews()" class="at-days border border-gray-300 rounded px-2 py-1 text-xs w-16 focus:outline-none focus:ring-1 focus:ring-marsh text-right">
+          <span class="text-xs text-gray-500">days →</span>
+          <input type="number" name="at_pct_{{ loop.index0 }}" value="{{ tier.pct }}" min="0" max="100"
+            onchange="updateTierPreviews()" class="at-pct border border-gray-300 rounded px-2 py-1 text-xs w-16 focus:outline-none focus:ring-1 focus:ring-marsh text-right">
+          <span class="text-xs text-gray-400">%</span>
+          <span class="at-pts text-xs text-blue-500 tabular-nums w-12"></span>
+        </div>
+        {% endfor %}
+      </div>
+      <p id="at-warn" class="text-xs mt-1.5 hidden text-red-600"></p>
+      <p class="text-xs text-gray-400 mt-1">Beyond all tiers = 0%. Days should increase and percentages should decrease top to bottom.</p>
+    </div>
+
+    <div class="flex items-center gap-3">
+      <button type="submit"
+        class="bg-marsh hover:bg-marsh-light text-white text-sm font-medium px-4 py-1.5 rounded-lg transition-colors">Save Weights</button>
+      <span id="rw-status"></span>
+    </div>
+  </form>
+</div>
+
+<!-- Auto-Review Thresholds -->
+<div class="card p-5 mb-6">
+  <h2 class="font-semibold text-gray-900 mb-1 text-sm">Auto-Review</h2>
+  <p class="text-xs text-gray-400 mb-4">When substantive work is done on a policy or client — multiple fields edited or several activities logged — automatically mark it as reviewed. This reduces the need to manually click "Mark Reviewed" after doing real work.</p>
+
+  <form hx-post="/settings/auto-review" hx-target="#ar-status" hx-swap="outerHTML" class="space-y-4">
+    <div class="flex items-center gap-3">
+      <label class="relative inline-flex items-center cursor-pointer">
+        <input type="checkbox" name="auto_review_enabled" value="1" {% if auto_review_enabled %}checked{% endif %}
+          class="sr-only peer">
+        <div class="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-marsh rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-marsh"></div>
+      </label>
+      <span class="text-sm text-gray-700">Enable auto-review</span>
+    </div>
+
+    <div class="grid grid-cols-2 gap-4 max-w-md">
+      <div>
+        <label class="block text-xs text-gray-600 mb-0.5">Field change threshold</label>
+        <p class="text-xs text-gray-400 mb-1">Fields changed in one save to trigger review</p>
+        <input type="number" name="auto_review_field_threshold" value="{{ auto_review_field_threshold }}" min="2" max="10"
+          class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-marsh">
+      </div>
+      <div>
+        <label class="block text-xs text-gray-600 mb-0.5">Activity count threshold</label>
+        <p class="text-xs text-gray-400 mb-1">Activities since last review to trigger</p>
+        <input type="number" name="auto_review_activity_threshold" value="{{ auto_review_activity_threshold }}" min="1" max="10"
+          class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-marsh">
+      </div>
+    </div>
+
+    <div class="flex items-center gap-3">
+      <button type="submit"
+        class="bg-marsh hover:bg-marsh-light text-white text-sm font-medium px-4 py-1.5 rounded-lg transition-colors">Save</button>
+      <span id="ar-status"></span>
+    </div>
+  </form>
+</div>
+
+{% include 'settings/_disposition_card.html' %}
+
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
   {% for key, label in list_labels.items() %}
   {% set items = lists[key] %}
+  {% set excluded_items = excluded_statuses if key == 'renewal_statuses' else [] %}
   {% include "settings/_list_card.html" %}
   {% endfor %}
 </div>
+
+<script>
+function updateWeightSum() {
+  var ids = ['rw-w-status', 'rw-w-checklist', 'rw-w-activity', 'rw-w-followup', 'rw-w-placement'];
+  var sum = 0;
+  ids.forEach(function(id) { sum += parseInt(document.getElementById(id).value) || 0; });
+  var el = document.getElementById('rw-sum');
+  var msg = document.getElementById('rw-sum-msg');
+  var row = document.getElementById('rw-sum-row');
+  el.textContent = sum;
+  var diff = sum - 100;
+  if (diff === 0) {
+    el.className = 'font-medium text-green-600';
+    msg.textContent = '';
+    row.className = 'text-xs mt-1.5 text-gray-400';
+  } else {
+    el.className = 'font-medium text-red-600';
+    row.className = 'text-xs mt-1.5 text-red-600';
+    if (diff > 0) {
+      msg.textContent = '— ' + diff + ' point' + (diff !== 1 ? 's' : '') + ' over. Remove ' + diff + ' from one or more components.';
+    } else {
+      msg.textContent = '— ' + Math.abs(diff) + ' point' + (Math.abs(diff) !== 1 ? 's' : '') + ' short. Assign ' + Math.abs(diff) + ' more across components.';
+    }
+  }
+}
+function updateStatusPreviews() {
+  var statusWeight = parseInt(document.getElementById('rw-w-status').value) || 0;
+  var inputs = document.querySelectorAll('.ss-input');
+  var ptsCells = document.querySelectorAll('.ss-pts');
+  var maxPct = 0;
+  var overList = [];
+  inputs.forEach(function(inp, i) {
+    var pct = parseInt(inp.value) || 0;
+    var actual = Math.round(statusWeight * pct / 100);
+    ptsCells[i].textContent = '= ' + actual + 'pt' + (actual !== 1 ? 's' : '');
+    if (pct > maxPct) maxPct = pct;
+    if (pct > 100) {
+      var row = inp.closest('tr');
+      overList.push(row ? row.querySelector('td').textContent.trim() : ('Status ' + (i + 1)));
+      inp.classList.add('border-red-400', 'bg-red-50');
+    } else {
+      inp.classList.remove('border-red-400', 'bg-red-50');
+    }
+  });
+  var warn = document.getElementById('ss-warn');
+  var msgs = [];
+  if (overList.length > 0) {
+    msgs.push(overList.join(', ') + ' exceed' + (overList.length === 1 ? 's' : '') + ' 100%. Values above 100% award more points than the status component allows.');
+  }
+  if (inputs.length > 0 && maxPct < 100 && overList.length === 0) {
+    msgs.push('No status reaches 100% — a fully progressed policy can never earn full status points (' + statusWeight + '). Consider setting your final status to 100%.');
+  }
+  if (msgs.length > 0) {
+    warn.textContent = msgs.join(' ');
+    warn.className = 'text-xs mt-1.5 ' + (overList.length > 0 ? 'text-red-600' : 'text-amber-600');
+    warn.classList.remove('hidden');
+  } else {
+    warn.classList.add('hidden');
+  }
+}
+
+function updateMilestonePreviews() {
+  var inputs = document.querySelectorAll('.mw-input');
+  var pcts = document.querySelectorAll('.mw-pct');
+  var totalWeight = 0;
+  inputs.forEach(function(inp) { totalWeight += parseInt(inp.value) || 1; });
+  inputs.forEach(function(inp, i) {
+    var w = parseInt(inp.value) || 1;
+    var pct = Math.round(w / totalWeight * 100);
+    pcts[i].textContent = pct + '% share';
+  });
+}
+
+function updateTierPreviews() {
+  var actWeight = parseInt(document.getElementById('rw-w-activity').value) || 0;
+  var dayInputs = document.querySelectorAll('.at-days');
+  var pctInputs = document.querySelectorAll('.at-pct');
+  var pts = document.querySelectorAll('.at-pts');
+  var warn = document.getElementById('at-warn');
+  var problems = [];
+  var prevDays = 0;
+  var prevPct = 101;
+  dayInputs.forEach(function(dInp, i) {
+    var days = parseInt(dInp.value) || 0;
+    var pct = parseInt(pctInputs[i].value) || 0;
+    var actual = Math.round(actWeight * pct / 100);
+    pts[i].textContent = '= ' + actual + 'pt' + (actual !== 1 ? 's' : '');
+    if (pct > 100) {
+      problems.push('Tier ' + (i + 1) + ' exceeds 100% — this awards more points than the activity component allows.');
+      pctInputs[i].classList.add('border-red-400', 'bg-red-50');
+    } else {
+      pctInputs[i].classList.remove('border-red-400', 'bg-red-50');
+    }
+    if (days <= prevDays && i > 0) problems.push('Tier ' + (i + 1) + ' days (' + days + ') should be greater than tier ' + i + ' (' + prevDays + ').');
+    if (pct >= prevPct && i > 0) problems.push('Tier ' + (i + 1) + ' % (' + pct + ') should be less than tier ' + i + ' (' + prevPct + ').');
+    prevDays = days;
+    prevPct = pct;
+  });
+  if (problems.length > 0) {
+    warn.textContent = problems.join(' ');
+    warn.classList.remove('hidden');
+  } else {
+    warn.classList.add('hidden');
+  }
+}
+
+function updateAllPreviews() {
+  updateWeightSum();
+  updateStatusPreviews();
+  updateMilestonePreviews();
+  updateTierPreviews();
+}
+document.addEventListener('DOMContentLoaded', updateAllPreviews);
+
+function insertSubjectToken(fieldId, token) {
+  var el = document.getElementById(fieldId);
+  if (!el) return;
+  var start = el.selectionStart ?? el.value.length;
+  var end = el.selectionEnd ?? el.value.length;
+  var insert = '{' + '{' + token + '}' + '}';
+  el.value = el.value.slice(0, start) + insert + el.value.slice(end);
+  el.selectionStart = el.selectionEnd = start + insert.length;
+  el.focus();
+}
+
+function saveEmailSubject(key, fieldId, statusId) {
+  var el = document.getElementById(fieldId);
+  var statusEl = document.getElementById(statusId);
+  if (!el) return;
+  var body = new URLSearchParams({ key: key, value: el.value });
+  fetch('/settings/email-subject', { method: 'POST', body: body })
+    .then(function() {
+      statusEl.classList.remove('hidden');
+      setTimeout(function() { statusEl.classList.add('hidden'); }, 2000);
+    });
+}
+</script>
 
 {% endblock %}

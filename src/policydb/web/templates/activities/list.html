@@ -1,10 +1,12 @@
 {% extends "base.html" %}
-{% block title %}Activity Log — PolicyDB{% endblock %}
+{% block title %}Activity Log — Coverage{% endblock %}
 {% block content %}
 
 <div class="flex items-center justify-between mb-4">
   <h1 class="text-2xl font-bold text-gray-900">Activity Log</h1>
   <div class="flex gap-2">
+    <a href="/activities?days=1&activity_type={{ activity_type | urlencode }}&client_id={{ client_id }}" class="btn-filter {{ 'active' if days == 1 else '' }}">Today</a>
+    <a href="/activities?days=7&activity_type={{ activity_type | urlencode }}&client_id={{ client_id }}" class="btn-filter {{ 'active' if days == 7 else '' }}">7d</a>
     <a href="/activities?days=30&activity_type={{ activity_type | urlencode }}&client_id={{ client_id }}" class="btn-filter {{ 'active' if days == 30 else '' }}">30d</a>
     <a href="/activities?days=90&activity_type={{ activity_type | urlencode }}&client_id={{ client_id }}" class="btn-filter {{ 'active' if days == 90 else '' }}">90d</a>
     <a href="/activities?days=365&activity_type={{ activity_type | urlencode }}&client_id={{ client_id }}" class="btn-filter {{ 'active' if days == 365 else '' }}">1yr</a>
@@ -38,6 +40,59 @@
   {% endfor %}
 </div>
 
+{% if time_summary and time_summary.total_hours > 0 %}
+<div class="card p-4 mb-5">
+  <div class="flex items-baseline gap-3 mb-3">
+    <span class="text-lg font-bold text-gray-900">{{ time_summary.total_hours | format_hours }}</span>
+    <span class="text-xs text-gray-400">logged · {% if days == 1 %}today{% elif days == 7 %}last 7 days{% elif days == 30 %}last 30 days{% elif days == 365 %}last year{% else %}{{ days }}d{% endif %}{% if activity_type %} · {{ activity_type }}{% endif %}</span>
+    <a href="/activities?days={{ days }}&client_id={{ client_id }}&activity_type={{ activity_type | urlencode }}" class="ml-auto text-xs text-marsh hover:underline">Reset filters</a>
+  </div>
+  <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
+
+    <!-- By Client (bandwidth) -->
+    {% if time_summary.by_client | length > 0 %}
+    <div>
+      <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">By Client</p>
+      <div class="space-y-2">
+        {% for row in time_summary.by_client %}
+        <div>
+          <div class="flex items-center justify-between text-xs mb-0.5">
+            <a href="/clients/{{ row.client_id }}" class="text-marsh hover:underline truncate max-w-[65%]">{{ row.client_name }}</a>
+            <span class="text-gray-600 font-medium tabular-nums">{{ row.hours | format_hours }}</span>
+          </div>
+          <div class="bg-gray-200 rounded-full h-1.5">
+            <div class="bg-marsh rounded-full h-1.5" style="width: {{ (row.hours / time_summary.total_hours * 100) | round(1) }}%"></div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- By Activity Type -->
+    {% if time_summary.by_type | length > 0 %}
+    <div>
+      <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">By Activity Type</p>
+      <div class="space-y-2">
+        {% for row in time_summary.by_type %}
+        <div>
+          <div class="flex items-center justify-between text-xs mb-0.5">
+            <a href="/activities?days={{ days }}&activity_type={{ row.activity_type | urlencode }}&client_id={{ client_id }}" class="text-gray-700 hover:text-marsh hover:underline truncate max-w-[65%]">{{ row.activity_type }}</a>
+            <span class="text-gray-600 font-medium tabular-nums">{{ row.hours | format_hours }} <span class="text-gray-400 font-normal">· {{ row.count }}</span></span>
+          </div>
+          <div class="bg-gray-200 rounded-full h-1.5">
+            <div class="bg-blue-400 rounded-full h-1.5" style="width: {{ (row.hours / time_summary.total_hours * 100) | round(1) }}%"></div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+  </div>
+</div>
+{% endif %}
+
 {% if overdue %}
 <div class="bg-red-50 border border-red-200 rounded-xl p-4 mb-6">
   <h2 class="text-sm font-semibold text-red-700 mb-2">Overdue Follow-Ups ({{ overdue | length }})</h2>
@@ -61,22 +116,7 @@
 <div class="card">
   <ul class="divide-y divide-gray-100">
     {% for a in activities %}
-    <li class="px-5 py-3 flex items-start gap-4">
-      <div class="shrink-0 text-xs text-gray-400 w-24 pt-0.5">{{ a.activity_date }}</div>
-      <div class="flex-1 min-w-0">
-        <div class="flex items-center gap-2 flex-wrap">
-          <span class="text-xs font-medium bg-gray-100 text-gray-600 px-2 py-0.5 rounded">{{ a.activity_type }}</span>
-          <a href="/clients/{{ a.client_id }}" class="text-xs text-marsh hover:underline">{{ a.client_name }}</a>
-          <span class="text-sm font-medium text-gray-800">{{ a.subject }}</span>
-        </div>
-        {% if a.details %}<p class="text-xs text-gray-500 mt-1 line-clamp-2">{{ a.details }}</p>{% endif %}
-        {% if a.follow_up_date %}
-        <p class="text-xs mt-1 {{ 'text-amber-600' if not a.follow_up_done else 'text-gray-300 line-through' }}">
-          Follow-up: {{ a.follow_up_date }}{% if a.follow_up_done %} ✓{% endif %}
-        </p>
-        {% endif %}
-      </div>
-    </li>
+    {% include "activities/_activity_row.html" %}
     {% else %}
     <li class="px-5 py-10 text-center text-gray-400">No activity in this period.</li>
     {% endfor %}

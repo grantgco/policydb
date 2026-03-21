@@ -12,83 +12,255 @@
   <h1 class="text-2xl font-bold text-gray-900">{% if client %}Edit Client{% else %}Add Client{% endif %}</h1>
 </div>
 
-<form method="post" action="{% if client %}/clients/{{ client.id }}/edit{% else %}/clients/new{% endif %}" class="space-y-6">
+{% if client and client.archived %}
+<div class="bg-red-50 border border-red-200 rounded-lg px-4 py-3 mb-4 flex items-center justify-between">
+  <div>
+    <p class="text-sm font-medium text-red-800">This client is archived</p>
+    <p class="text-xs text-red-600">Archived clients are hidden from all lists and reports. Data is preserved.</p>
+  </div>
+  <form method="post" action="/clients/{{ client.id }}/unarchive">
+    <button type="submit"
+      class="text-sm bg-white border border-red-300 text-red-700 hover:bg-red-50 font-medium px-4 py-1.5 rounded-lg transition-colors">
+      Restore Client
+    </button>
+  </form>
+</div>
+{% endif %}
+
+{% if duplicate_warning %}
+<div class="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-4">
+  <p class="text-sm font-medium text-amber-800">Similar clients found — please review before creating:</p>
+  <ul class="mt-2 space-y-1">
+    {% for m in duplicate_warning %}
+    <li class="text-sm text-amber-700">
+      <a href="/clients/{{ m.id }}" class="font-medium hover:underline" style="color: #2e6f40;">{{ m.name }}</a>
+      <span class="text-xs text-amber-500">({{ m.score }}% match{% if m.industry %} &middot; {{ m.industry }}{% endif %})</span>
+    </li>
+    {% endfor %}
+  </ul>
+  <p class="mt-2 text-xs text-gray-500">If this is truly a new client, submit again to create it anyway.</p>
+</div>
+{% endif %}
+
+<form method="post" action="{% if client %}/clients/{{ client.id }}/edit{% else %}/clients/new{% if duplicate_warning %}?force=1{% endif %}{% endif %}" class="space-y-6"
+      {% if client %}data-autosave="/clients/{{ client.id }}/edit"{% endif %}>
 
   <div class="card p-6">
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
 
       <div class="sm:col-span-2">
         <label class="field-label">Client Name <span class="text-red-400">*</span></label>
-        <input type="text" name="name" value="{{ client.name if client else '' }}" required class="form-input w-full">
+        <input type="text" name="name" value="{{ client.name if client else (prefill.name if prefill else '') }}" required class="form-input w-full">
       </div>
 
       <div>
         <label class="field-label">CN Number <span class="text-gray-400 font-normal">(internal)</span></label>
-        <input type="text" name="cn_number" value="{{ client.cn_number if client else '' }}" placeholder="e.g. CN-00123" class="form-input w-full">
+        <input type="text" name="cn_number" value="{{ client.cn_number if client else (prefill.cn_number if prefill else '') }}" placeholder="e.g. CN-00123" class="form-input w-full">
+      </div>
+
+      <div>
+        <label class="field-label">FEIN <span class="text-gray-400 font-normal">(XX-XXXXXXX)</span></label>
+        <input type="text" name="fein" value="{{ client.fein if client and client.fein else '' }}" placeholder="12-3456789" class="form-input w-full font-mono">
+      </div>
+
+      <div class="flex items-center gap-3 sm:col-span-2 -mt-1">
+        <label class="toggle-switch">
+          <input type="checkbox" name="is_prospect" value="1" {% if client and client.is_prospect %}checked{% endif %}>
+          <span class="toggle-track"></span>
+          <span class="text-sm text-gray-700 ml-2">Prospect</span>
+        </label>
+        <span class="text-xs text-gray-400">Mark this client as a prospect — policies will typically be opportunities</span>
       </div>
 
       <div>
         <label class="field-label">Industry Segment <span class="text-red-400">*</span></label>
         <select name="industry_segment" class="form-select w-full" required>
           {% for seg in industry_segments %}
-          <option value="{{ seg }}" {% if client and seg == client.industry_segment %}selected{% endif %}>{{ seg }}</option>
+          <option value="{{ seg }}" {% if (client and seg == client.industry_segment) or (prefill and seg == prefill.industry_segment) %}selected{% endif %}>{{ seg }}</option>
           {% endfor %}
         </select>
       </div>
 
       <div>
-        <label class="field-label">Primary Contact</label>
-        <input type="text" name="primary_contact" value="{{ client.primary_contact if client else '' }}" class="form-input w-full">
+        <label class="field-label">Contact Email <span class="text-gray-400 font-normal">(fallback)</span></label>
+        <input type="email" name="contact_email" value="{{ client.contact_email if client else (prefill.contact_email if prefill else '') }}" class="form-input w-full">
       </div>
 
       <div>
-        <label class="field-label">Contact Email</label>
-        <input type="email" name="contact_email" value="{{ client.contact_email if client else '' }}" class="form-input w-full">
+        <label class="field-label">Contact Phone <span class="text-gray-400 font-normal">(fallback)</span></label>
+        <input type="text" name="contact_phone" value="{{ client.contact_phone if client else (prefill.contact_phone if prefill else '') }}" class="form-input w-full">
       </div>
 
       <div>
-        <label class="field-label">Contact Phone</label>
-        <input type="text" name="contact_phone" value="{{ client.contact_phone if client else '' }}" class="form-input w-full">
+        <label class="field-label">Contact Mobile <span class="text-gray-400 font-normal">(fallback)</span></label>
+        <input type="text" name="contact_mobile" value="{{ client.contact_mobile if client else (prefill.contact_mobile if prefill else '') }}" class="form-input w-full">
       </div>
 
-      <div class="sm:col-span-2">
+      <div class="sm:col-span-2 relative">
         <label class="field-label">Address</label>
-        <input type="text" name="address" value="{{ client.address if client else '' }}" class="form-input w-full">
+        <input type="text" name="address" id="address-input" value="{{ client.address if client else '' }}" class="form-input w-full"
+          data-1p-ignore data-lpignore="true" autocomplete="off" placeholder="Start typing an address...">
+        <div id="address-suggestions" class="absolute left-0 right-0 top-full z-50 bg-white border border-gray-200 rounded-b-lg shadow-lg max-h-48 overflow-y-auto hidden"></div>
+      </div>
+      <script>
+      (function() {
+        var input = document.getElementById('address-input');
+        var dropdown = document.getElementById('address-suggestions');
+        if (!input || !dropdown) return;
+        var timer = null;
+        input.addEventListener('input', function() {
+          clearTimeout(timer);
+          var q = input.value.trim();
+          if (q.length < 4) { dropdown.classList.add('hidden'); return; }
+          timer = setTimeout(function() {
+            fetch('https://nominatim.openstreetmap.org/search?format=json&q=' + encodeURIComponent(q) + '&limit=5&addressdetails=1&countrycodes=us,gb,ca')
+              .then(function(r) { return r.json(); })
+              .then(function(data) {
+                if (!data || !data.length) { dropdown.classList.add('hidden'); return; }
+                dropdown.innerHTML = '';
+                data.forEach(function(item) {
+                  var div = document.createElement('div');
+                  div.className = 'px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 cursor-pointer border-b border-gray-50';
+                  div.textContent = item.display_name;
+                  div.addEventListener('mousedown', function(e) {
+                    e.preventDefault();
+                    input.value = item.display_name;
+                    dropdown.classList.add('hidden');
+                  });
+                  dropdown.appendChild(div);
+                });
+                dropdown.classList.remove('hidden');
+              }).catch(function() { dropdown.classList.add('hidden'); });
+          }, 400);
+        });
+        input.addEventListener('blur', function() {
+          setTimeout(function() { dropdown.classList.add('hidden'); }, 200);
+        });
+      })();
+      </script>
+
+      <div>
+        <label class="field-label">Website</label>
+        <input type="url" name="website" value="{{ client.website if client and client.website else '' }}" placeholder="https://example.com" class="form-input w-full">
       </div>
 
-      <div class="sm:col-span-2">
-        <label class="field-label">Notes</label>
-        <textarea name="notes" rows="3" class="form-input w-full">{{ client.notes if client else '' }}</textarea>
+      <div>
+        <label class="field-label">Client Since</label>
+        <input type="date" name="client_since" value="{{ client.client_since if client and client.client_since else '' }}" class="form-input w-full">
+      </div>
+
+      {# Renewal Month is now auto-calculated from policy expiration dates #}
+
+      <div>
+        <label class="field-label">Preferred Contact Method</label>
+        <div class="seg-control">
+          {% for opt in ['', 'Email', 'Phone', 'Text', 'In Person'] %}
+          <input type="radio" name="preferred_contact_method" id="pcm-{{ loop.index }}" value="{{ opt }}"
+            {% if (client and client.preferred_contact_method == opt) or (not client and opt == '') or (client and not client.preferred_contact_method and opt == '') %}checked{% endif %}>
+          <label for="pcm-{{ loop.index }}">{{ opt if opt else '—' }}</label>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div>
+        <label class="field-label">Referral Source</label>
+        <input type="text" name="referral_source" value="{{ client.referral_source if client and client.referral_source else '' }}" placeholder="e.g. John Smith, Trade show, LinkedIn" class="form-input w-full">
       </div>
 
       <div>
         <label class="field-label">Annual Broker Fee <span class="text-gray-400 font-normal">(flat $ — in lieu of or in addition to commission)</span></label>
-        <input type="number" name="broker_fee" value="{{ client.broker_fee if client and client.broker_fee else '' }}"
-          step="0.01" min="0" placeholder="0.00" class="form-input w-full">
+        <input type="text" class="form-input w-full currency-input" autocomplete="off"
+          value="{% if client and client.broker_fee %}{{ '{:,.0f}'.format(client.broker_fee | float) }}{% endif %}"
+          placeholder="0">
+        <input type="hidden" name="broker_fee" value="{{ client.broker_fee if client and client.broker_fee else '' }}">
       </div>
+
+      <div>
+        <label class="field-label">Hourly Rate <span class="text-gray-400 font-normal">($/hr — for effort projections in briefing)</span></label>
+        <input type="text" class="form-input w-full currency-input" autocomplete="off"
+          value="{% if client and client.hourly_rate %}{{ '{:,.0f}'.format(client.hourly_rate | float) }}{% endif %}"
+          placeholder="Default: $150">
+        <input type="hidden" name="hourly_rate" value="{{ client.hourly_rate if client and client.hourly_rate else '' }}">
+      </div>
+
+      {% if client %}
+      <div class="sm:col-span-2 border-t border-gray-100 pt-3 mt-1">
+        <p class="text-xs font-medium text-gray-500 mb-2 uppercase tracking-wide">Review</p>
+        <div id="review-badge-client-{{ client.id }}" class="flex items-center gap-3 flex-wrap">
+          <div class="flex items-center gap-1.5">
+            <span class="text-xs text-gray-500">Review cycle:</span>
+            <form hx-post="/review/clients/{{ client.id }}/mark"
+                  hx-trigger="change"
+                  hx-target="#review-badge-client-{{ client.id }}"
+                  hx-swap="outerHTML">
+              <input type="hidden" name="mark" value="0">
+              <select name="review_cycle"
+                      class="text-xs border border-gray-200 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-marsh bg-white">
+                {% for code, label in cycle_labels.items() %}
+                <option value="{{ code }}" {% if code == (client.review_cycle or '1w') %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+            </form>
+          </div>
+          <span class="text-xs {% if not client.last_reviewed_at %}text-red-500 font-medium{% else %}text-gray-500{% endif %}">
+            {% if client.last_reviewed_at %}Last reviewed: {{ client.last_reviewed_at }}{% else %}Never reviewed{% endif %}
+          </span>
+          <form hx-post="/review/clients/{{ client.id }}/mark"
+                hx-target="#review-badge-client-{{ client.id }}"
+                hx-swap="outerHTML">
+            <input type="hidden" name="mark" value="1">
+            <input type="hidden" name="review_cycle" value="{{ client.review_cycle or '1w' }}">
+            <button type="submit"
+                    class="text-xs bg-green-50 text-green-700 border border-green-200 hover:bg-green-100 px-2.5 py-1 rounded transition-colors">
+              ✓ Mark Reviewed
+            </button>
+          </form>
+        </div>
+      </div>
+      {% endif %}
 
       <div class="sm:col-span-2">
         <label class="field-label">Business Description <span class="text-gray-400 font-normal">(operations, business model — used in LLM export &amp; submissions)</span></label>
-        <textarea name="business_description" rows="4" placeholder="Describe the client's business model, operations, key exposures, and any relevant context for underwriting or submissions."
+        <textarea name="business_description" id="biz-desc-ta" rows="4" placeholder="Describe the client's business model, operations, key exposures, and any relevant context for underwriting or submissions."
           class="form-input w-full">{{ client.business_description if client and client.business_description else '' }}</textarea>
+        <script>if(typeof window.initMarkdownEditor==='function')window.initMarkdownEditor('biz-desc-ta',{minHeight:'120px'});</script>
       </div>
+
+      <div class="sm:col-span-2">
+        <label class="field-label">Internal Notes <span class="text-gray-400 font-normal">(never client-facing — internal use only)</span></label>
+        <textarea name="notes" rows="3" placeholder="Internal notes, reminders, account context…"
+          class="form-input w-full">{{ client.notes if client and client.notes else '' }}</textarea>
+      </div>
+
+      <input type="hidden" name="primary_contact" value="{{ client.primary_contact if client else '' }}">
 
     </div>
   </div>
 
   <div class="flex items-center justify-between">
     <a href="{% if client %}/clients/{{ client.id }}{% else %}/clients{% endif %}" class="text-sm text-gray-500 hover:text-gray-700">← Cancel</a>
-    <button type="submit" class="bg-marsh hover:bg-marsh-light text-white text-sm font-medium px-6 py-2 rounded-lg transition-colors">
-      {% if client %}Save Changes{% else %}Add Client{% endif %}
-    </button>
+    <div class="flex items-center gap-3">
+      <button type="submit" class="bg-marsh hover:bg-marsh-light text-white text-sm font-medium px-6 py-2 rounded-lg transition-colors">
+        {% if client %}Save &amp; Close{% else %}Add Client{% endif %}
+      </button>
+      {% if client %}<span class="text-xs text-gray-400 italic">Changes auto-save</span>{% endif %}
+    </div>
   </div>
 
 </form>
 
-<style>
-  .form-input { @apply border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-marsh; }
-  .form-select { @apply border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-marsh bg-white; }
-  .field-label { @apply block text-xs font-medium text-gray-600 mb-1; }
-</style>
+{% if client and not client.archived %}
+<div class="mt-4 pt-4 border-t border-gray-200 flex items-center justify-between">
+  <p class="text-xs text-gray-400">Lost this client? Archiving hides them from all lists and reports. Their data is preserved and can be restored at any time.</p>
+  <form method="post" action="/clients/{{ client.id }}/archive"
+        onsubmit="return confirm('Archive {{ client.name }}?\n\nThis hides the client from all lists and reports. Their policies, contacts, and activity history are preserved.')">
+    <button type="submit"
+      class="border border-red-300 text-red-500 hover:bg-red-50 text-sm font-medium px-4 py-2 rounded-lg transition-colors">
+      Archive Client
+    </button>
+  </form>
+</div>
+{% endif %}
+
 
 {% endblock %}

@@ -1,0 +1,55 @@
+<tr id="review-client-{{ c.id }}"
+    class="hover:bg-gray-50 border-t border-gray-100 {% if reviewed %}opacity-60 bg-green-50{% endif %}">
+  <td class="px-4 py-3">
+    <a href="/clients/{{ c.id }}" target="_blank" class="font-medium text-marsh hover:underline">{{ c.name }}</a>
+    <p class="text-xs text-gray-500">{{ c.industry_segment }}</p>
+  </td>
+  <td class="px-4 py-3 text-xs text-gray-600 tabular-nums">
+    <span class="block">{{ c.total_policies or 0 }} policies</span>
+    <span class="text-gray-400">{{ c.total_premium | currency }}</span>
+  </td>
+  <td class="px-4 py-3 text-xs text-gray-500">
+    {% if c.next_renewal_days is not none %}
+      {{ c.next_renewal_days }}d
+    {% else %}—{% endif %}
+  </td>
+  <td class="px-4 py-3 text-xs">
+    {# Review cycle selector — auto-saves on change #}
+    <select
+      hx-post="/review/clients/{{ c.id }}/cycle"
+      hx-target="#review-client-{{ c.id }}"
+      hx-swap="outerHTML"
+      hx-include="this"
+      name="review_cycle"
+      class="text-xs border border-gray-200 rounded px-1.5 py-1 text-gray-600 bg-white focus:outline-none focus:ring-1 focus:ring-marsh cursor-pointer">
+      {% for code, label in cycle_labels.items() %}
+      <option value="{{ code }}" {% if (c.review_cycle or '1w') == code %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </td>
+  <td class="px-4 py-3 text-xs whitespace-nowrap">
+    {% if reviewed %}
+      <span class="text-green-600 font-medium">✓ Just reviewed</span>
+    {% elif c.last_reviewed_at %}
+      <span class="text-gray-500">{{ c.days_since_review }}d ago</span>
+    {% else %}
+      <span class="text-red-500 font-medium">Never</span>
+    {% endif %}
+  </td>
+  <td class="px-4 py-3">
+    <div class="flex items-center gap-2">
+      {% if not reviewed %}
+      <button
+        hx-post="/review/clients/{{ c.id }}/reviewed"
+        hx-target="#review-client-{{ c.id }}"
+        hx-swap="outerHTML"
+        class="text-xs bg-marsh text-white px-2 py-1 rounded hover:bg-marsh-light transition-colors whitespace-nowrap">
+        ✓ Reviewed
+      </button>
+      {% else %}
+      <span class="text-xs text-green-600 font-medium">✓ Done</span>
+      {% endif %}
+      <a href="/clients/{{ c.id }}" target="_blank" class="text-xs text-gray-400 hover:underline">Open →</a>
+    </div>
+  </td>
+</tr>

@@ -39,6 +39,19 @@
         </button>
       </form>
       {% endif %}
+      {% if key == 'renewal_milestones' %}
+      {% set is_client_facing = item in (client_facing_items or []) %}
+      <form hx-post="/settings/milestone/toggle-client-facing"
+            hx-target="#list-renewal_milestones"
+            hx-swap="outerHTML">
+        <input type="hidden" name="item" value="{{ item }}">
+        <button type="submit" title="{{ 'Remove from client request seeding' if is_client_facing else 'Include when seeding client requests' }}"
+          class="text-xs px-2 py-0.5 rounded mr-2 transition-colors
+                 {{ 'bg-blue-100 text-blue-700 hover:bg-blue-200' if is_client_facing else 'bg-gray-100 text-gray-500 hover:bg-gray-200' }}">
+          {{ '✓ Client Request' if is_client_facing else 'Client Request' }}
+        </button>
+      </form>
+      {% endif %}
       <form hx-post="/settings/list/remove"
             hx-target="#list-{{ key }}"
             hx-swap="outerHTML">

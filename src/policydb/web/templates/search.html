@@ -1,11 +1,17 @@
 {% extends "base.html" %}
-{% block title %}Search: {{ q }} — PolicyDB{% endblock %}
+{% block title %}Search: {{ q }} — Coverage{% endblock %}
 {% block content %}
 
 <div class="mb-6">
   <h1 class="text-2xl font-bold text-gray-900">Search results for <span class="text-marsh">"{{ q }}"</span></h1>
   <p class="text-sm text-gray-400 mt-1">{{ total }} result{{ 's' if total != 1 }}</p>
 </div>
+
+{% if uid_detected %}
+<div class="bg-blue-50 border border-blue-200 rounded-lg px-4 py-2 mb-4 text-sm text-blue-700">
+  This looks like a reference tag — <a href="/ref-lookup?q={{ q }}" class="font-medium underline">View full ref tree</a>
+</div>
+{% endif %}
 
 {% if results.clients %}
 <div class="bg-white rounded-xl border border-gray-200 mb-4">

@@ -1,0 +1,228 @@
+<h2>Design System — Policy Row Patterns</h2>
+<p class="subtitle">Before → After comparison for dashboard, renewals, and client detail policy rows</p>
+
+<h3>Before: Row-Edit Swap Pattern (current)</h3>
+<div class="mockup">
+  <div class="mockup-header">Dashboard Pipeline — Current Edit Flow</div>
+  <div class="mockup-body" style="background:#fff; padding:0;">
+    <!-- Display row -->
+    <table style="width:100%; border-collapse:collapse; font-size:13px;">
+      <thead>
+        <tr style="border-bottom:2px solid #e5e7eb; text-align:left; font-size:11px; color:#9ca3af; text-transform:uppercase; letter-spacing:0.05em; background:#f9fafb;">
+          <th style="padding:8px 12px;">Line</th>
+          <th style="padding:8px 12px;">Carrier</th>
+          <th style="padding:8px 12px;">Policy #</th>
+          <th style="padding:8px 12px; text-align:right;">Premium</th>
+          <th style="padding:8px 12px;">Expiration</th>
+          <th style="padding:8px 12px;">Status</th>
+          <th style="padding:8px 12px;"></th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr style="border-bottom:1px solid #f3f4f6;">
+          <td style="padding:10px 12px; font-weight:500; color:#1f2937;">General Liability</td>
+          <td style="padding:10px 12px; color:#4b5563;">Zurich</td>
+          <td style="padding:10px 12px; color:#6b7280; font-family:monospace;">GL-2025-0441</td>
+          <td style="padding:10px 12px; text-align:right; color:#1f2937; font-variant-numeric:tabular-nums;">$45,000</td>
+          <td style="padding:10px 12px; color:#4b5563;">04/01/2026</td>
+          <td style="padding:10px 12px;">
+            <select style="font-size:11px; border:1px solid #d1d5db; border-radius:4px; padding:2px 6px; color:#047857; background:#ecfdf5;">
+              <option selected>Bound</option>
+            </select>
+          </td>
+          <td style="padding:10px 12px;">
+            <button style="font-size:11px; color:#005C41; border:1px solid #d1d5db; border-radius:4px; padding:4px 8px; cursor:pointer;">Edit</button>
+          </td>
+        </tr>
+        <!-- Edit form row (replaces display row when Edit clicked) -->
+        <tr style="background:#f0fdf4; border-left:4px solid #005C41;">
+          <td colspan="7" style="padding:12px;">
+            <div style="display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:8px; font-size:12px;">
+              <div>
+                <label style="display:block; font-size:10px; color:#6b7280; margin-bottom:2px;">Line of Business</label>
+                <input type="text" value="General Liability" style="width:100%; border:1px solid #d1d5db; border-radius:4px; padding:4px 6px; font-size:12px;">
+              </div>
+              <div>
+                <label style="display:block; font-size:10px; color:#6b7280; margin-bottom:2px;">Carrier</label>
+                <input type="text" value="Zurich" style="width:100%; border:1px solid #d1d5db; border-radius:4px; padding:4px 6px; font-size:12px;">
+              </div>
+              <div>
+                <label style="display:block; font-size:10px; color:#6b7280; margin-bottom:2px;">Premium</label>
+                <input type="text" value="45000" style="width:100%; border:1px solid #d1d5db; border-radius:4px; padding:4px 6px; font-size:12px;">
+              </div>
+              <div>
+                <label style="display:block; font-size:10px; color:#6b7280; margin-bottom:2px;">Status</label>
+                <select style="width:100%; border:1px solid #d1d5db; border-radius:4px; padding:4px 6px; font-size:12px;">
+                  <option>Not Started</option><option>In Progress</option><option selected>Bound</option>
+                </select>
+              </div>
+            </div>
+            <div style="margin-top:8px; display:flex; gap:8px;">
+              <button style="background:#005C41; color:white; font-size:11px; padding:4px 12px; border-radius:4px; border:none; cursor:pointer;">Save</button>
+              <button style="font-size:11px; color:#6b7280; cursor:pointer; border:none; background:none;">Cancel</button>
+            </div>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+    <p style="padding:12px; font-size:11px; color:#9ca3af; text-align:center; border-top:1px solid #f3f4f6;">
+      ❌ Click Edit → form replaces row → fill inputs → click Save → returns display row. 3 clicks minimum.
+    </p>
+  </div>
+</div>
+
+<hr style="border-color:#1e293b; margin:2rem 0;">
+
+<h3>After: Contenteditable Matrix Pattern (proposed)</h3>
+<div class="mockup">
+  <div class="mockup-header">Dashboard Pipeline — New Contenteditable Pattern</div>
+  <div class="mockup-body" style="background:#fff; padding:0;">
+    <style>
+      .ce-cell { outline:none; cursor:text; border-bottom:2px solid transparent; transition: border-color 0.15s; }
+      .ce-cell:focus { border-bottom-color:#3b82f6; background:rgba(59,130,246,0.03); }
+      .ce-cell:empty::before { content:attr(data-ph); color:#d1d5db; font-style:italic; }
+      .status-pill { font-size:10px; padding:2px 8px; border-radius:9999px; border:1px solid; cursor:pointer; transition:all 0.15s; }
+      .status-pill.active { color:white; }
+    </style>
+    <table style="width:100%; border-collapse:collapse; font-size:13px;">
+      <thead>
+        <tr style="border-bottom:1px solid #e5e7eb; text-align:left; font-size:11px; color:#9ca3af; text-transform:uppercase; letter-spacing:0.05em; background:#f9fafb;">
+          <th style="padding:8px 12px; cursor:pointer;" title="Click to sort">Line ▲</th>
+          <th style="padding:8px 12px; cursor:pointer;">Carrier</th>
+          <th style="padding:8px 12px; cursor:pointer;">Policy #</th>
+          <th style="padding:8px 12px; text-align:right; cursor:pointer;">Premium</th>
+          <th style="padding:8px 12px; cursor:pointer;">Expiration</th>
+          <th style="padding:8px 12px;">Status</th>
+          <th style="padding:8px 12px; width:40px;"></th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr style="border-bottom:1px solid #f3f4f6;" onmouseover="this.style.background='#f9fafb'" onmouseout="this.style.background=''">
+          <td style="padding:10px 12px;">
+            <span class="ce-cell" contenteditable="true" style="font-weight:500; color:#1f2937;" data-ph="coverage type">General Liability</span>
+          </td>
+          <td style="padding:10px 12px;">
+            <span class="ce-cell" contenteditable="true" style="color:#4b5563;" data-ph="carrier">Zurich</span>
+          </td>
+          <td style="padding:10px 12px;">
+            <span class="ce-cell" contenteditable="true" style="color:#6b7280; font-family:monospace;" data-ph="policy #">GL-2025-0441</span>
+          </td>
+          <td style="padding:10px 12px; text-align:right;">
+            <span class="ce-cell" contenteditable="true" style="color:#1f2937; font-variant-numeric:tabular-nums;" data-ph="$0">$45,000</span>
+          </td>
+          <td style="padding:10px 12px;">
+            <input type="date" value="2026-04-01" style="font-size:12px; border:none; border-bottom:1px solid #e5e7eb; background:transparent; color:#4b5563; outline:none; padding:2px 0;">
+          </td>
+          <td style="padding:10px 12px;">
+            <div style="display:flex; gap:3px; flex-wrap:wrap;">
+              <span class="status-pill" style="border-color:#d1d5db; color:#6b7280;">Not Started</span>
+              <span class="status-pill" style="border-color:#93c5fd; color:#2563eb;">In Progress</span>
+              <span class="status-pill active" style="border-color:#22c55e; background:#22c55e;">Bound</span>
+            </div>
+          </td>
+          <td style="padding:10px 12px;">
+            <span style="font-size:11px; color:#d1d5db; cursor:pointer;" title="Quick log">📝</span>
+          </td>
+        </tr>
+        <!-- Second row showing focused cell -->
+        <tr style="border-bottom:1px solid #f3f4f6;" onmouseover="this.style.background='#f9fafb'" onmouseout="this.style.background=''">
+          <td style="padding:10px 12px;">
+            <span class="ce-cell" contenteditable="true" style="font-weight:500; color:#1f2937;">Commercial Property</span>
+          </td>
+          <td style="padding:10px 12px;">
+            <span class="ce-cell" contenteditable="true" style="color:#4b5563; border-bottom:2px solid #3b82f6; background:rgba(59,130,246,0.03);">Chu<span style="animation:blink 1s infinite;">|</span></span>
+          </td>
+          <td style="padding:10px 12px;">
+            <span class="ce-cell" contenteditable="true" style="color:#6b7280; font-family:monospace;">PROP-88123</span>
+          </td>
+          <td style="padding:10px 12px; text-align:right;">
+            <span class="ce-cell" contenteditable="true" style="color:#1f2937; font-variant-numeric:tabular-nums;">$72,500</span>
+          </td>
+          <td style="padding:10px 12px;">
+            <input type="date" value="2026-04-01" style="font-size:12px; border:none; border-bottom:1px solid #e5e7eb; background:transparent; color:#4b5563; outline:none; padding:2px 0;">
+          </td>
+          <td style="padding:10px 12px;">
+            <div style="display:flex; gap:3px; flex-wrap:wrap;">
+              <span class="status-pill" style="border-color:#d1d5db; color:#6b7280;">Not Started</span>
+              <span class="status-pill active" style="border-color:#3b82f6; background:#3b82f6;">In Progress</span>
+              <span class="status-pill" style="border-color:#d1d5db; color:#6b7280;">Bound</span>
+            </div>
+          </td>
+          <td style="padding:10px 12px;">
+            <span style="font-size:11px; color:#d1d5db; cursor:pointer;">📝</span>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+    <p style="padding:12px; font-size:11px; color:#22c55e; text-align:center; border-top:1px solid #f3f4f6;">
+      ✅ Click any cell to edit. Blur saves. Status pills = one click. No Edit/Save cycle. Tab navigates.
+    </p>
+  </div>
+</div>
+
+<hr style="border-color:#1e293b; margin:2rem 0;">
+
+<h3>Status Pill Colors — Including Custom Statuses</h3>
+<p class="subtitle">When users add custom statuses in Settings, they get auto-assigned colors from a rotating palette</p>
+
+<div class="mockup">
+  <div class="mockup-header">Status Pill Color System</div>
+  <div class="mockup-body" style="background:#fff; padding:20px;">
+    <p style="font-size:12px; color:#6b7280; margin-bottom:12px;">Built-in statuses (fixed colors):</p>
+    <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:16px;">
+      <span style="font-size:11px; padding:3px 10px; border-radius:9999px; background:#f3f4f6; color:#4b5563; border:1px solid #d1d5db;">Not Started</span>
+      <span style="font-size:11px; padding:3px 10px; border-radius:9999px; background:#dbeafe; color:#1d4ed8; border:1px solid #93c5fd;">In Progress</span>
+      <span style="font-size:11px; padding:3px 10px; border-radius:9999px; background:#f3e8ff; color:#7c3aed; border:1px solid #c4b5fd;">Quoted</span>
+      <span style="font-size:11px; padding:3px 10px; border-radius:9999px; background:#fef3c7; color:#b45309; border:1px solid #fcd34d;">Pending Bind</span>
+      <span style="font-size:11px; padding:3px 10px; border-radius:9999px; background:#dcfce7; color:#15803d; border:1px solid #86efac;">Bound</span>
+    </div>
+
+    <p style="font-size:12px; color:#6b7280; margin-bottom:12px;">Custom statuses added by user (auto-colored from palette):</p>
+    <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:16px;">
+      <span style="font-size:11px; padding:3px 10px; border-radius:9999px; background:#fce7f3; color:#be185d; border:1px solid #f9a8d4;">Declined</span>
+      <span style="font-size:11px; padding:3px 10px; border-radius:9999px; background:#e0f2fe; color:#0369a1; border:1px solid #7dd3fc;">Under Review</span>
+      <span style="font-size:11px; padding:3px 10px; border-radius:9999px; background:#fef9c3; color:#a16207; border:1px solid #fde047;">Awaiting Docs</span>
+      <span style="font-size:11px; padding:3px 10px; border-radius:9999px; background:#ffe4e6; color:#be123c; border:1px solid #fda4af;">Not Renewing</span>
+      <span style="font-size:11px; padding:3px 10px; border-radius:9999px; background:#ccfbf1; color:#0f766e; border:1px solid #5eead4;">Referred</span>
+    </div>
+
+    <p style="font-size:11px; color:#9ca3af; margin-top:12px;">
+      <strong>Color assignment logic:</strong> Built-in statuses have fixed color mappings. Custom statuses rotate through a palette of 8 Tailwind color families (pink, sky, yellow, rose, teal, indigo, orange, lime) based on their index in the config list. No manual color picking needed.
+    </p>
+  </div>
+</div>
+
+<hr style="border-color:#1e293b; margin:2rem 0;">
+
+<h3>Contenteditable Cell Behavior</h3>
+<div class="mockup">
+  <div class="mockup-header">Cell Interactions</div>
+  <div class="mockup-body" style="background:#fff; padding:20px; font-size:13px;">
+    <table style="width:100%; border-collapse:collapse;">
+      <tr style="border-bottom:1px solid #f3f4f6;">
+        <td style="padding:8px 0; width:160px; color:#6b7280;">Click cell</td>
+        <td style="padding:8px 0;">Blue bottom-border appears. Cell becomes editable. Cursor placed.</td>
+      </tr>
+      <tr style="border-bottom:1px solid #f3f4f6;">
+        <td style="padding:8px 0; color:#6b7280;">Type + blur</td>
+        <td style="padding:8px 0;">PATCH saves. If server reformats (e.g., "$45000" → "$45,000"), cell flashes <span style="background:#d1fae5; padding:1px 4px; border-radius:2px;">green</span> briefly.</td>
+      </tr>
+      <tr style="border-bottom:1px solid #f3f4f6;">
+        <td style="padding:8px 0; color:#6b7280;">Tab</td>
+        <td style="padding:8px 0;">Moves to next editable cell in the row. Shift+Tab goes back.</td>
+      </tr>
+      <tr style="border-bottom:1px solid #f3f4f6;">
+        <td style="padding:8px 0; color:#6b7280;">Empty cell</td>
+        <td style="padding:8px 0;">Shows <span style="color:#d1d5db; font-style:italic;">placeholder text</span> via CSS ::before.</td>
+      </tr>
+      <tr style="border-bottom:1px solid #f3f4f6;">
+        <td style="padding:8px 0; color:#6b7280;">Status pill click</td>
+        <td style="padding:8px 0;">One click saves. Selected pill fills with color. No dropdown, no form.</td>
+      </tr>
+      <tr>
+        <td style="padding:8px 0; color:#6b7280;">Date field</td>
+        <td style="padding:8px 0;">Native <code>&lt;input type="date"&gt;</code> styled as borderless inline. Change event saves.</td>
+      </tr>
+    </table>
+  </div>
+</div>

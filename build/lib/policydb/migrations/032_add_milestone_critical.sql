@@ -1,0 +1,1 @@
+ALTER TABLE policy_milestones ADD COLUMN is_critical INTEGER NOT NULL DEFAULT 0;

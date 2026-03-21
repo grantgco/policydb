@@ -1,0 +1,40 @@
+{% set control_status_style = {
+  'Implemented': 'text-green-600',
+  'In Progress': 'text-amber-600',
+  'Recommended': 'text-gray-400',
+  'Declined': 'text-gray-300',
+} %}
+{% set control_status_icon = {
+  'Implemented': '&#10003;',
+  'In Progress': '&#9679;',
+  'Recommended': '&#9675;',
+  'Declined': '&#9675;',
+} %}
+<div class="flex items-center gap-2 group" onclick="event.stopPropagation()">
+  <span class="{{ control_status_style.get(c.status, 'text-gray-400') }}">{{ control_status_icon.get(c.status, '&#9675;') | safe }}</span>
+  <span class="{{ 'line-through text-gray-300' if c.status == 'Declined' else 'text-gray-700' }}">{{ c.description }}</span>
+  <span class="text-gray-400">— {{ c.control_type }}</span>
+  <!-- Inline status edit -->
+  <form hx-post="/clients/{{ client.id }}/risks/{{ r.id }}/controls/{{ c.id }}/edit"
+        hx-target="#risks-card" hx-swap="outerHTML"
+        class="inline-flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+    <input type="hidden" name="control_type" value="{{ c.control_type }}">
+    <input type="hidden" name="description" value="{{ c.description }}">
+    <select name="status" class="text-xs border border-gray-300 rounded px-1 py-0.5 bg-white focus:outline-none focus:ring-1 focus:ring-marsh"
+            onchange="this.form.requestSubmit()">
+      {% for st in risk_control_statuses %}
+      <option {% if c.status == st %}selected{% endif %}>{{ st }}</option>
+      {% endfor %}
+    </select>
+  </form>
+  {% if c.responsible %}
+  <span class="text-gray-400 text-xs">{{ c.responsible }}</span>
+  {% endif %}
+  {% if c.target_date %}
+  <span class="text-gray-400 text-xs">by {{ c.target_date }}</span>
+  {% endif %}
+  <button hx-post="/clients/{{ client.id }}/risks/{{ r.id }}/controls/{{ c.id }}/delete"
+          hx-target="#risks-card" hx-swap="outerHTML"
+          hx-confirm="Remove this control?"
+          class="text-red-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">&times;</button>
+</div>

@@ -1,0 +1,126 @@
+{# _pair_row.html — one paired row on the reconcile pairing board #}
+{# Context: row (ReconcileRow), idx (int), token (str) #}
+{% set e = row.ext or {} %}
+{% set d = row.db or {} %}
+
+{% if row.confirmed %}
+{# ── Confirmed: minimized single-line row ─────────────────────────────── #}
+<div id="pair-{{ idx }}" data-status="{{ row.confidence }}" data-confirmed="true"
+  class="pair-row flex items-center rounded border border-gray-200 bg-gray-50 mb-1 px-3 py-1.5 text-xs text-gray-500">
+  <span class="text-green-500 mr-2">&#10003;</span>
+  <span class="font-medium text-gray-700">{{ e.get('policy_type', '') }}</span>
+  <span class="mx-1.5 text-gray-300">&middot;</span>
+  <span>{{ e.get('carrier', '') }}</span>
+  {% if e.get('policy_number') %}
+  <span class="mx-1.5 text-gray-300">&middot;</span>
+  <span class="font-mono">{{ e.get('policy_number') }}</span>
+  {% endif %}
+  <span class="mx-1.5 text-gray-300">&middot;</span>
+  <span>{{ e.get('effective_date', '') }} &rarr; {{ e.get('expiration_date', '') }}</span>
+  {% if e.get('premium') %}
+  <span class="mx-1.5 text-gray-300">&middot;</span>
+  <span class="tabular-nums text-gray-700">{{ e.get('premium') | currency }}</span>
+  {% endif %}
+  {% if d.get('policy_uid') %}
+  <a href="/policies/{{ d.get('policy_uid') }}/edit"
+    class="text-blue-500 hover:underline ml-auto" onclick="event.stopPropagation()">{{ d.get('policy_uid') }}</a>
+  {% endif %}
+</div>
+
+{% else %}
+{# ── Unconfirmed: full paired row ──────────────────────────────────────── #}
+<div id="pair-{{ idx }}" data-status="{{ row.confidence }}" data-confirmed="false"
+  data-has-diffs="{% if row.diff_fields %}true{% else %}false{% endif %}"
+  class="pair-row flex items-stretch rounded-lg border mb-2 transition-colors
+    {% if row.confidence == 'high' %}bg-green-50 border-l-4 border-l-green-400 border-green-200
+    {% else %}bg-amber-50 border-l-4 border-l-amber-400 border-amber-200{% endif %}">
+
+  {# ── Left: Upload data ─────────────────────────────────────────────────── #}
+  <div class="flex-1 px-4 py-3 min-w-0">
+    <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Upload</p>
+    <p class="text-sm font-medium text-gray-800 truncate">{{ e.get('policy_type', '') or '—' }}</p>
+    <p class="text-xs text-gray-600 truncate">{{ e.get('carrier', '') or '—' }}</p>
+    {% if e.get('policy_number') %}
+    <p class="text-xs text-gray-500 font-mono mt-0.5">{{ e.get('policy_number') }}</p>
+    {% endif %}
+    <p class="text-xs text-gray-500 mt-0.5 whitespace-nowrap">
+      {{ e.get('effective_date', '') or '—' }} &rarr; {{ e.get('expiration_date', '') or '—' }}
+    </p>
+    {% if e.get('premium') %}
+    <p class="text-xs text-gray-700 tabular-nums mt-0.5">{{ e.get('premium') | currency }}</p>
+    {% endif %}
+  </div>
+
+  {# ── Center: Score badge ────────────────────────────────────────────────── #}
+  <div class="w-24 flex flex-col items-center justify-center border-x
+    {% if row.confidence == 'high' %}border-green-200{% else %}border-amber-200{% endif %}">
+    <button type="button" onclick="toggleBreakdown({{ idx }})"
+      class="text-lg font-bold tabular-nums cursor-pointer hover:scale-110 transition-transform
+        {% if row.confidence == 'high' %}text-green-700{% else %}text-amber-700{% endif %}"
+      title="Click for score breakdown">
+      {{ row.match_score|round|int }}
+    </button>
+    <span class="text-[10px] text-gray-400 mt-0.5">{{ row.match_method or 'scored' }}</span>
+  </div>
+
+  {# ── Right: DB data ─────────────────────────────────────────────────────── #}
+  <div class="flex-1 px-4 py-3 min-w-0">
+    <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Coverage</p>
+    <p class="text-sm font-medium text-gray-800 truncate
+      {% if 'policy_type' in row.diff_fields %}diff-tag bg-amber-100 px-1 rounded{% endif %}">
+      {{ d.get('policy_type', '') or '—' }}
+    </p>
+    <p class="text-xs text-gray-600 truncate
+      {% if 'carrier' in row.diff_fields %}diff-tag bg-amber-100 px-1 rounded{% endif %}">
+      {{ d.get('carrier', '') or '—' }}
+    </p>
+    {% if d.get('policy_number') %}
+    <p class="text-xs text-gray-500 font-mono mt-0.5
+      {% if 'policy_number' in row.diff_fields %}diff-tag bg-amber-100 px-1 rounded{% endif %}">
+      {{ d.get('policy_number') }}
+    </p>
+    {% endif %}
+    <p class="text-xs text-gray-500 mt-0.5 whitespace-nowrap
+      {% if 'effective_date' in row.diff_fields or 'expiration_date' in row.diff_fields %}diff-tag bg-amber-100 px-1 rounded{% endif %}">
+      {{ d.get('effective_date', '') or '—' }} &rarr; {{ d.get('expiration_date', '') or '—' }}
+    </p>
+    {% if d.get('premium') %}
+    <p class="text-xs text-gray-700 tabular-nums mt-0.5
+      {% if 'premium' in row.diff_fields %}diff-tag bg-amber-100 px-1 rounded{% endif %}">
+      {{ d.get('premium') | currency }}
+    </p>
+    {% endif %}
+    {% if d.get('policy_uid') %}
+    <a href="/policies/{{ d.get('policy_uid') }}/edit"
+      class="text-[10px] text-blue-500 hover:underline mt-1 inline-block"
+      onclick="event.stopPropagation()">{{ d.get('policy_uid') }}</a>
+    {% endif %}
+  </div>
+
+  {# ── Actions ────────────────────────────────────────────────────────────── #}
+  <div class="w-20 flex flex-col items-center justify-center gap-1.5 px-2 no-print">
+    <button type="button"
+      hx-post="/reconcile/confirm/{{ idx }}"
+      hx-target="#pair-{{ idx }}"
+      hx-swap="outerHTML"
+      hx-include="[name=token]"
+      class="text-xs bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded transition-colors w-full text-center"
+      title="Confirm this match">&#10003;</button>
+    <button type="button"
+      hx-post="/reconcile/break/{{ idx }}"
+      hx-target="#pair-{{ idx }}"
+      hx-swap="outerHTML"
+      hx-include="[name=token]"
+      class="text-xs border border-red-300 text-red-600 hover:bg-red-50 px-3 py-1 rounded transition-colors w-full text-center"
+      title="Break this pair">&#10005;</button>
+  </div>
+</div>
+{% endif %}
+
+{# ── Hidden score breakdown ───────────────────────────────────────────────── #}
+<div id="breakdown-{{ idx }}" style="display:none"
+  class="mb-2 ml-4 mr-4 px-4 py-2.5 rounded border border-gray-200 bg-white">
+  {% include "reconcile/_score_breakdown.html" %}
+</div>
+
+{# toggleBreakdown is hoisted to _pairing_board.html #}

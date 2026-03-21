@@ -1,0 +1,49 @@
+{# Disposition config card — object list with {label, default_days} #}
+<details class="card mb-4 overflow-hidden">
+  <summary class="px-4 py-2.5 cursor-pointer select-none list-none flex items-center gap-2 hover:bg-gray-50 transition-colors bg-gray-50 border-b border-gray-100">
+    <span class="text-xs text-gray-400 details-arrow">▶</span>
+    <div>
+      <h3 class="text-xs font-bold text-gray-600 uppercase tracking-wide">Follow-Up Dispositions</h3>
+      <p class="text-[10px] text-gray-400 mt-0.5">Outcome labels for completed follow-ups. Default days auto-fills the next follow-up date on re-diary.</p>
+    </div>
+  </summary>
+  <ul class="divide-y divide-gray-100">
+    {% for d in dispositions %}
+    <li class="px-4 py-2 flex items-center gap-2 text-sm hover:bg-gray-50 transition-colors">
+      <div class="flex gap-1 shrink-0">
+        <form method="post" action="/settings/dispositions/reorder" class="inline">
+          <input type="hidden" name="label" value="{{ d.label }}">
+          <input type="hidden" name="direction" value="up">
+          <button type="submit" class="text-gray-300 hover:text-gray-500 text-xs"{% if loop.first %} disabled{% endif %}>&#9650;</button>
+        </form>
+        <form method="post" action="/settings/dispositions/reorder" class="inline">
+          <input type="hidden" name="label" value="{{ d.label }}">
+          <input type="hidden" name="direction" value="down">
+          <button type="submit" class="text-gray-300 hover:text-gray-500 text-xs"{% if loop.last %} disabled{% endif %}>&#9660;</button>
+        </form>
+      </div>
+      <span class="flex-1 text-gray-700">{{ d.label }}</span>
+      <div class="flex items-center gap-1 shrink-0">
+        <label class="text-[10px] text-gray-400">days:</label>
+        <input type="number" min="0" max="90" value="{{ d.default_days }}"
+          class="w-12 text-xs text-center border border-gray-200 rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-marsh"
+          onchange="fetch('/settings/dispositions/update',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({label:'{{ d.label }}',default_days:parseInt(this.value)||0})})">
+      </div>
+      <form method="post" action="/settings/dispositions/remove" class="inline shrink-0">
+        <input type="hidden" name="label" value="{{ d.label }}">
+        <button type="submit" class="text-red-300 hover:text-red-500 text-xs ml-2">&#10005;</button>
+      </form>
+    </li>
+    {% endfor %}
+  </ul>
+  <div class="px-4 py-2.5 bg-gray-50 border-t border-gray-100">
+    <form method="post" action="/settings/dispositions/add" class="flex items-center gap-2">
+      <input type="text" name="label" placeholder="New disposition..." required
+        class="flex-1 border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-marsh">
+      <input type="number" name="default_days" value="0" min="0" max="90"
+        class="w-14 border border-gray-200 rounded px-2 py-1 text-xs text-center focus:outline-none focus:ring-1 focus:ring-marsh"
+        placeholder="days">
+      <button type="submit" class="text-xs bg-marsh text-white px-3 py-1 rounded hover:bg-marsh-light transition-colors">Add</button>
+    </form>
+  </div>
+</details>
