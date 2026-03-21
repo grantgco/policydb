@@ -12,6 +12,7 @@ from policydb.compliance import (
     get_risk_review_prompts,
     get_location_requirements,
     get_client_compliance_data,
+    spawn_requirements_from_risk,
 )
 
 
@@ -400,6 +401,7 @@ def _make_db() -> sqlite3.Connection:
             id        INTEGER PRIMARY KEY,
             client_id INTEGER,
             category  TEXT,
+            description TEXT,
             severity  TEXT DEFAULT 'Medium'
         );
     """)
@@ -603,4 +605,86 @@ def test_empty_client_returns_empty_data():
     assert data["overall_summary"]["total"] == 0
     assert data["overall_summary"]["compliance_pct"] == 0
 
+    conn.close()
+
+
+# ── Phase 2-3 Tests ──────────────────────────────────────────────────────────
+
+
+def test_spawn_requirements_from_risk():
+    """spawn_requirements_from_risk creates requirements for each coverage line."""
+    conn = _make_db()
+
+    conn.execute("INSERT INTO clients (id, name) VALUES (1, 'Test Client')")
+    conn.execute("INSERT INTO projects (id, client_id, name) VALUES (1, 1, 'Loc A')")
+    conn.execute("CREATE TABLE IF NOT EXISTS risk_coverage_lines (id INTEGER PRIMARY KEY, risk_id INTEGER, coverage_line TEXT, policy_uid TEXT, adequacy TEXT, notes TEXT)")
+    conn.execute("INSERT INTO client_risks (id, client_id, category, description) VALUES (1, 1, 'Liability', 'Slip and fall exposure')")
+    conn.execute("INSERT INTO risk_coverage_lines (risk_id, coverage_line, adequacy) VALUES (1, 'General Liability', 'Needs Review')")
+    conn.execute("INSERT INTO risk_coverage_lines (risk_id, coverage_line, adequacy) VALUES (1, 'Umbrella / Excess', 'Needs Review')")
+    conn.commit()
+
+    created = spawn_requirements_from_risk(conn, 1, 1)
+    assert len(created) == 2
+
+    reqs = conn.execute("SELECT * FROM coverage_requirements WHERE client_id=1 AND risk_id=1").fetchall()
+    assert len(reqs) == 2
+    lines = {r["coverage_line"] for r in reqs}
+    assert "General Liability" in lines
+    assert "Umbrella / Excess" in lines
+    assert reqs[0]["compliance_status"] == "Needs Review"
+    assert "Slip and fall" in (reqs[0]["notes"] or "")
+
+    # Spawn again — should skip duplicates
+    created_again = spawn_requirements_from_risk(conn, 1, 1)
+    assert len(created_again) == 0
+    conn.close()
+
+
+def test_spawn_requirements_empty_risk():
+    """spawn_requirements_from_risk with no coverage lines returns empty."""
+    conn = _make_db()
+    conn.execute("INSERT INTO clients (id, name) VALUES (1, 'Test Client')")
+    conn.execute("CREATE TABLE IF NOT EXISTS risk_coverage_lines (id INTEGER PRIMARY KEY, risk_id INTEGER, coverage_line TEXT, policy_uid TEXT, adequacy TEXT, notes TEXT)")
+    conn.execute("INSERT INTO client_risks (id, client_id, category, description) VALUES (1, 1, 'Test', 'No lines')")
+    conn.commit()
+
+    created = spawn_requirements_from_risk(conn, 1, 1)
+    assert created == []
+    conn.close()
+
+
+def test_source_scoping_filters_by_source_project_id():
+    """Requirements from a source scoped to Location B don't appear in Location A."""
+    conn = _make_db()
+    conn.execute("INSERT INTO clients (id, name) VALUES (1, 'Condo Client')")
+    conn.execute("INSERT INTO projects (id, client_id, name) VALUES (1, 1, 'Location A')")
+    conn.execute("INSERT INTO projects (id, client_id, name) VALUES (2, 1, 'Location B')")
+    conn.execute("INSERT INTO requirement_sources (id, client_id, project_id, name) VALUES (1, 1, 2, 'Lender Covenant for Loc B')")
+    conn.execute("INSERT INTO coverage_requirements (client_id, source_id, project_id, coverage_line, required_limit, required_endorsements) VALUES (1, 1, NULL, 'General Liability', 2000000, '[]')")
+    conn.commit()
+
+    reqs_a = get_location_requirements(conn, 1, 1)
+    assert len(reqs_a) == 0, f"Location A should have 0 reqs but got {len(reqs_a)}"
+
+    reqs_b = get_location_requirements(conn, 1, 2)
+    assert len(reqs_b) == 1, f"Location B should have 1 req but got {len(reqs_b)}"
+    assert reqs_b[0]["coverage_line"] == "General Liability"
+    conn.close()
+
+
+def test_client_wide_source_inherited_everywhere():
+    """Requirements from a client-wide source appear in all locations."""
+    conn = _make_db()
+    conn.execute("INSERT INTO clients (id, name) VALUES (1, 'Multi-Loc Client')")
+    conn.execute("INSERT INTO projects (id, client_id, name) VALUES (1, 1, 'Loc A')")
+    conn.execute("INSERT INTO projects (id, client_id, name) VALUES (2, 1, 'Loc B')")
+    conn.execute("INSERT INTO requirement_sources (id, client_id, project_id, name) VALUES (1, 1, NULL, 'Master Agreement')")
+    conn.execute("INSERT INTO coverage_requirements (client_id, source_id, project_id, coverage_line, required_limit, required_endorsements) VALUES (1, 1, NULL, 'Property', 10000000, '[]')")
+    conn.commit()
+
+    reqs_a = get_location_requirements(conn, 1, 1)
+    reqs_b = get_location_requirements(conn, 1, 2)
+    assert len(reqs_a) == 1
+    assert len(reqs_b) == 1
+    assert reqs_a[0]["coverage_line"] == "Property"
     conn.close()
