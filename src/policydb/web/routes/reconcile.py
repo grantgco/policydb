@@ -9,7 +9,10 @@ from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, Response
 
 from policydb.queries import get_client_by_name
-from policydb.utils import normalize_carrier, normalize_coverage_type, normalize_policy_number
+from policydb.utils import (
+    normalize_carrier, normalize_coverage_type, normalize_policy_number,
+    _COVERAGE_ALIASES, rebuild_coverage_aliases, rebuild_carrier_aliases,
+)
 from policydb.reconciler import (
     ReconcileRow,
     _build_reconcile_row,
@@ -35,6 +38,10 @@ _LAST_MISSING_TOKEN: str = ""  # most recent token for batch-create fallback
 # Board state cache: token → (results list, extras list, db_rows, timestamp)
 _BOARD_CACHE: dict[str, tuple[list, list, list, float]] = {}
 
+# Pre-match validation cache: token → (parsed_rows, warnings, upload_params, timestamp)
+# upload_params stores client_id, scope, date_priority, filename so the match can run later
+_PARSED_CACHE: dict[str, tuple[list[dict], list[str], dict, float]] = {}
+
 def _cache_cleanup():
     """Remove cache entries older than 1 hour."""
     cutoff = _time.time() - 3600
@@ -47,6 +54,9 @@ def _cache_cleanup():
     for k in list(_BOARD_CACHE):
         if _BOARD_CACHE[k][3] < cutoff:
             del _BOARD_CACHE[k]
+    for k in list(_PARSED_CACHE):
+        if _PARSED_CACHE[k][3] < cutoff:
+            del _PARSED_CACHE[k]
 
 
 def _render_counters(summary: dict) -> str:
@@ -209,6 +219,152 @@ async def reconcile_run(
         ctx["errors"] = ["No usable rows found in the uploaded file. Ensure it has client_name (or insured) and policy columns."]
         return templates.TemplateResponse("reconcile/index.html", ctx)
 
+    # Cache parsed rows for validation panel and subsequent match
+    _cache_cleanup()
+    token = str(_uuid.uuid4())
+    upload_params = {
+        "client_id": client_id,
+        "scope": scope,
+        "date_priority": date_priority,
+        "filename": file.filename or "",
+        "column_mapping_json": column_mapping_json,
+    }
+    _PARSED_CACHE[token] = (ext_rows, warnings, upload_params, _time.time())
+
+    # Build validation data and show validation panel
+    return _build_validation_response(request, token, ext_rows, warnings, conn, ctx)
+
+
+def _build_validation_response(request, token, parsed_rows, warnings, conn, ctx):
+    """Build and return the validation panel response within the index page."""
+    from rapidfuzz import fuzz
+    from collections import defaultdict
+
+    # Validate coverage types
+    coverage_results = []
+    for raw_type in sorted(set(r.get("policy_type", "") for r in parsed_rows if r.get("policy_type"))):
+        normalized = normalize_coverage_type(raw_type)
+        is_alias = raw_type.strip().lower() in _COVERAGE_ALIASES
+        coverage_results.append({
+            "raw": raw_type, "normalized": normalized,
+            "recognized": is_alias or raw_type.strip().lower() == normalized.lower(),
+            "count": sum(1 for r in parsed_rows if r.get("policy_type") == raw_type),
+        })
+
+    # Validate carriers
+    carrier_results = []
+    for raw_carrier in sorted(set(r.get("carrier", "") for r in parsed_rows if r.get("carrier"))):
+        normalized = normalize_carrier(raw_carrier)
+        recognized = normalized != raw_carrier.strip()
+        carrier_results.append({
+            "raw": raw_carrier, "normalized": normalized,
+            "recognized": recognized or raw_carrier.strip().lower() == normalized.lower(),
+            "count": sum(1 for r in parsed_rows if r.get("carrier") == raw_carrier),
+        })
+
+    # Validate dates
+    dates_parsed = sum(1 for r in parsed_rows if r.get("effective_date") or r.get("expiration_date"))
+    dates_total = len(parsed_rows)
+    all_dates = [r.get("effective_date") or r.get("expiration_date")
+                 for r in parsed_rows
+                 if r.get("effective_date") or r.get("expiration_date")]
+    date_range = (min(all_dates), max(all_dates)) if all_dates else ("", "")
+
+    # Client names — fuzzy match to DB
+    client_matches = []
+    unique_clients = sorted(set(r.get("client_name", "") for r in parsed_rows if r.get("client_name")))
+    db_clients = conn.execute("SELECT id, name FROM clients WHERE archived=0 ORDER BY name").fetchall()
+    for name in unique_clients:
+        best_match = max(db_clients, key=lambda c: fuzz.WRatio(name, c["name"]), default=None) if db_clients else None
+        score = fuzz.WRatio(name, best_match["name"]) if best_match else 0
+        client_matches.append({
+            "raw": name, "db_name": best_match["name"] if best_match else "",
+            "db_id": best_match["id"] if best_match else 0, "score": round(score),
+            "count": sum(1 for r in parsed_rows if r.get("client_name") == name),
+        })
+
+    # Policy numbers
+    polnums_present = sum(1 for r in parsed_rows if r.get("policy_number", "").strip())
+
+    # Program auto-detection: group by client + type + dates with different carriers
+    programs = []
+    groups = defaultdict(set)
+    for r in parsed_rows:
+        key = (r.get("client_name", ""), r.get("policy_type", ""),
+               r.get("effective_date", ""), r.get("expiration_date", ""))
+        if r.get("carrier"):
+            groups[key].add(r.get("carrier"))
+    for key, carriers in groups.items():
+        if len(carriers) >= 2:
+            programs.append({
+                "client": key[0], "type": key[1],
+                "dates": f"{key[2]} - {key[3]}",
+                "carriers": sorted(carriers),
+            })
+
+    # Check for location columns
+    has_location = any(
+        r.get("location") or r.get("address") or r.get("project_name") or r.get("project")
+        for r in parsed_rows
+    )
+
+    # Get known policy types and carriers for the "map to" dropdowns
+    from policydb import config as cfg
+    known_policy_types = cfg.get("policy_types", [])
+    known_carriers = cfg.get("carriers", [])
+
+    ctx["validation_panel"] = True
+    ctx["token"] = token
+    ctx["row_count"] = len(parsed_rows)
+    ctx["coverage_results"] = coverage_results
+    ctx["carrier_results"] = carrier_results
+    ctx["dates_parsed"] = dates_parsed
+    ctx["dates_total"] = dates_total
+    ctx["date_range"] = date_range
+    ctx["client_matches"] = client_matches
+    ctx["polnums_present"] = polnums_present
+    ctx["programs"] = programs
+    ctx["has_location"] = has_location
+    ctx["known_policy_types"] = known_policy_types
+    ctx["known_carriers"] = known_carriers
+
+    return templates.TemplateResponse("reconcile/index.html", ctx)
+
+
+@router.post("/run-match", response_class=HTMLResponse)
+def reconcile_run_match(
+    request: Request,
+    token: str = Form(""),
+    conn=Depends(get_db),
+):
+    """Run the actual reconcile match using cached parsed rows from the validation step."""
+    cache = _PARSED_CACHE.get(token)
+    if not cache:
+        return HTMLResponse("<div class='p-4 text-red-600'>Session expired — please re-upload.</div>")
+
+    ext_rows, warnings, upload_params, _ = cache
+    client_id = upload_params.get("client_id", 0)
+    scope = upload_params.get("scope", "active")
+    date_priority = upload_params.get("date_priority", "")
+    filename = upload_params.get("filename", "")
+
+    all_clients = conn.execute(
+        "SELECT id, name FROM clients WHERE archived=0 ORDER BY name"
+    ).fetchall()
+    ctx = {
+        "request": request,
+        "active": "reconcile",
+        "all_clients": [dict(c) for c in all_clients],
+        "selected_client_id": client_id,
+        "selected_scope": scope,
+        "filename": filename,
+        "run_date": date.today().isoformat(),
+        "results": None,
+        "summary": None,
+        "warnings": warnings,
+        "errors": [],
+    }
+
     db_rows = _load_db_policies(conn, client_id, scope)
 
     # Attach program carrier rows for structured matching
@@ -233,7 +389,7 @@ async def reconcile_run(
     # Separate into board results (non-EXTRA) and extras for the pairing board cache
     board_results = [r for r in all_results if r.status != "EXTRA"]
 
-    # Generate token first — used for both MISSING cache and XLSX cache
+    # Generate download token
     download_token = str(_uuid.uuid4())
 
     # Cache MISSING rows for batch create (keyed by download token)
@@ -242,12 +398,14 @@ async def reconcile_run(
     _LAST_MISSING_TOKEN = download_token
 
     # Cache XLSX for download-without-reupload
-    _cache_cleanup()
-    xlsx_bytes = build_reconcile_xlsx(all_results, run_date=date.today().isoformat(), filename=file.filename or "")
+    xlsx_bytes = build_reconcile_xlsx(all_results, run_date=date.today().isoformat(), filename=filename)
     _RESULT_CACHE[download_token] = (xlsx_bytes, _time.time())
 
     # Cache board state for interactive pairing operations
     _BOARD_CACHE[download_token] = (board_results, extra_rows, db_rows, _time.time())
+
+    # Clean up parsed cache — no longer needed
+    _PARSED_CACHE.pop(token, None)
 
     # Pass all results to index.html (it filters extras via selectattr in template)
     ctx["results"] = all_results
@@ -258,6 +416,49 @@ async def reconcile_run(
     ctx["today"] = date.today().isoformat()
     ctx["program_summary"] = program_reconcile_summary(all_results, carrier_map=_carrier_map)
     return templates.TemplateResponse("reconcile/index.html", ctx)
+
+
+# ── Auto-Learn Alias Endpoints ─────────────────────────────────────────────
+
+
+@router.post("/learn-coverage-alias", response_class=HTMLResponse)
+def learn_coverage_alias(raw: str = Form(...), canonical: str = Form(...)):
+    """Save a new coverage type alias to config."""
+    from policydb import config as cfg
+    aliases = cfg.get("coverage_aliases", {})
+    if canonical not in aliases:
+        aliases[canonical] = []
+    if raw.strip().lower() not in [a.lower() for a in aliases[canonical]]:
+        aliases[canonical].append(raw.strip())
+    full = dict(cfg.load_config())
+    full["coverage_aliases"] = aliases
+    cfg.save_config(full)
+    cfg.reload_config()
+    rebuild_coverage_aliases()
+    return HTMLResponse(
+        f'<span class="text-[10px] px-1.5 py-0.5 rounded bg-green-100 text-green-700">'
+        f'{raw} &rarr; {canonical} (saved)</span>'
+    )
+
+
+@router.post("/learn-carrier-alias", response_class=HTMLResponse)
+def learn_carrier_alias(raw: str = Form(...), canonical: str = Form(...)):
+    """Save a new carrier alias to config."""
+    from policydb import config as cfg
+    aliases = cfg.get("carrier_aliases", {})
+    if canonical not in aliases:
+        aliases[canonical] = []
+    if raw.strip().lower() not in [a.lower() for a in aliases[canonical]]:
+        aliases[canonical].append(raw.strip())
+    full = dict(cfg.load_config())
+    full["carrier_aliases"] = aliases
+    cfg.save_config(full)
+    cfg.reload_config()
+    rebuild_carrier_aliases()
+    return HTMLResponse(
+        f'<span class="text-[10px] px-1.5 py-0.5 rounded bg-green-100 text-green-700">'
+        f'{raw} &rarr; {canonical} (saved)</span>'
+    )
 
 
 # ── Pairing Board Endpoints ─────────────────────────────────────────────────

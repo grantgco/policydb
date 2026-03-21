@@ -91,14 +91,19 @@
 </div>
 {% endif %}
 
-<!-- Warnings -->
-{% if warnings %}
+<!-- Warnings (only shown on results page, not on validation panel which has its own) -->
+{% if warnings and not validation_panel %}
 <div class="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 mb-4">
   <p class="text-xs font-semibold text-amber-800 mb-1">Parse warnings ({{ warnings | length }})</p>
   {% for w in warnings %}
   <p class="text-xs text-amber-700">{{ w }}</p>
   {% endfor %}
 </div>
+{% endif %}
+
+<!-- Validation Panel — shown after upload, before match -->
+{% if validation_panel %}
+  {% include "reconcile/_validation_panel.html" %}
 {% endif %}
 
 <!-- Results — Pairing Board -->
