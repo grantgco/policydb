@@ -39,28 +39,55 @@
     {% else %}bg-red-100 text-red-700{% endif %}">name {{ row.score_name|int }}/5</span>
 </div>
 
-{# Diff detail text #}
+{# Diff detail text with accept buttons #}
+{% set policy_uid = (row.db or {}).get('policy_uid', '') %}
 {% if row.diff_fields or row.fillable_fields or row.cosmetic_diffs %}
-<div class="mt-1.5 space-y-0.5">
-  {% for f in row.diff_fields %}
-  <p class="text-[10px] text-amber-700">
-    <span class="font-semibold">{{ f }}:</span>
-    {{ (row.ext or {}).get(f, '') or '(empty)' }}
-    <span class="text-gray-400">vs</span>
-    {{ (row.db or {}).get(f, '') or '(empty)' }}
-  </p>
-  {% endfor %}
-  {% for f in row.cosmetic_diffs %}
-  <p class="text-[10px] text-green-600">
-    <span class="font-semibold">{{ f }}:</span> same after normalization
-  </p>
-  {% endfor %}
-  {% for f in row.fillable_fields %}
-  <p class="text-[10px] text-blue-600">
-    <span class="font-semibold">{{ f }}:</span>
-    {{ (row.ext or {}).get(f, '') }}
-    <span class="text-gray-400">(DB empty)</span>
-  </p>
-  {% endfor %}
+<div class="mt-2">
+  {% if (row.diff_fields or row.fillable_fields) and policy_uid %}
+  <div class="flex items-center gap-2 mb-1.5">
+    <span class="text-[10px] font-semibold text-gray-500">DIFFERENCES:</span>
+    <span class="text-[10px] text-gray-400">Click "Accept" to update Coverage with the upload value</span>
+  </div>
+  {% endif %}
+  <div class="space-y-1">
+    {% for f in row.diff_fields %}
+    <div class="flex items-center gap-2 text-[10px]" id="diff-{{ policy_uid }}-{{ f }}">
+      <span class="font-semibold text-amber-700 w-24 flex-shrink-0">{{ f }}</span>
+      <span class="text-gray-800 bg-amber-50 px-1.5 py-0.5 rounded">{{ (row.ext or {}).get(f, '') or '(empty)' }}</span>
+      <span class="text-gray-400">&larr; upload &nbsp;|&nbsp; coverage &rarr;</span>
+      <span class="text-gray-600">{{ (row.db or {}).get(f, '') or '(empty)' }}</span>
+      {% if policy_uid %}
+      <button type="button"
+        hx-patch="/reconcile/apply-field/{{ policy_uid }}"
+        hx-vals='{"field_name": "{{ f }}", "value": "{{ (row.ext or {}).get(f, '') }}"}'
+        hx-target="#diff-{{ policy_uid }}-{{ f }}"
+        hx-swap="outerHTML"
+        class="text-[10px] bg-green-600 text-white px-2 py-0.5 rounded hover:bg-green-700 flex-shrink-0 no-print">Accept &larr;</button>
+      {% endif %}
+    </div>
+    {% endfor %}
+    {% for f in row.fillable_fields %}
+    <div class="flex items-center gap-2 text-[10px]" id="diff-{{ policy_uid }}-{{ f }}">
+      <span class="font-semibold text-blue-700 w-24 flex-shrink-0">{{ f }}</span>
+      <span class="text-gray-800 bg-blue-50 px-1.5 py-0.5 rounded">{{ (row.ext or {}).get(f, '') }}</span>
+      <span class="text-gray-400">&larr; upload &nbsp;|&nbsp; coverage &rarr;</span>
+      <span class="text-gray-400 italic">(empty)</span>
+      {% if policy_uid %}
+      <button type="button"
+        hx-patch="/reconcile/apply-field/{{ policy_uid }}"
+        hx-vals='{"field_name": "{{ f }}", "value": "{{ (row.ext or {}).get(f, '') }}"}'
+        hx-target="#diff-{{ policy_uid }}-{{ f }}"
+        hx-swap="outerHTML"
+        class="text-[10px] bg-blue-600 text-white px-2 py-0.5 rounded hover:bg-blue-700 flex-shrink-0 no-print">Fill &larr;</button>
+      {% endif %}
+    </div>
+    {% endfor %}
+    {% for f in row.cosmetic_diffs %}
+    <div class="flex items-center gap-2 text-[10px]">
+      <span class="font-semibold text-green-600 w-24 flex-shrink-0">{{ f }}</span>
+      <span class="text-green-600">same after normalization</span>
+    </div>
+    {% endfor %}
+  </div>
 </div>
 {% endif %}

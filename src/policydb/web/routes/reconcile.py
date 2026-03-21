@@ -1249,15 +1249,13 @@ async def reconcile_apply_field(
     )
     conn.commit()
 
+    display_value = "${:,.0f}".format(float(value)) if field_name in _CURRENCY_FIELDS and value else value or "—"
     return HTMLResponse(
-        f'<tr id="field-{field_name}" class="bg-green-50 transition-colors">'
-        f'<td class="py-1.5 pr-2"><span class="text-green-500 text-xs">✓</span></td>'
-        f'<td class="py-1.5 pr-3 font-medium text-green-600 text-xs">{field_name}</td>'
-        f'<td class="py-1.5 pr-3 text-green-700 text-xs font-semibold">'
-        f'{"${:,.0f}".format(float(value)) if field_name in _CURRENCY_FIELDS and value else value or "—"}'
-        f' <span class="text-green-500 ml-1">applied ✓</span></td>'
-        f'<td class="py-1.5 text-xs text-gray-400 line-through">(updated)</td>'
-        f'</tr>'
+        f'<div class="flex items-center gap-2 text-[10px]">'
+        f'<span class="font-semibold text-green-600 w-24 flex-shrink-0">{field_name}</span>'
+        f'<span class="text-green-700 font-semibold">{display_value}</span>'
+        f'<span class="text-green-500">applied &#10003;</span>'
+        f'</div>'
     )
 
 
