@@ -36,7 +36,7 @@
         </thead>
         <tbody>
           {% for src in sources %}
-          <tr class="border-b border-gray-50">
+          <tr id="source-row-{{ src.id }}" class="border-b border-gray-50">
             <td class="py-2 font-medium">{{ src.name }}</td>
             <td class="text-gray-600">{{ src.counterparty or '' }}</td>
             <td>
@@ -62,7 +62,11 @@
             </td>
             <td class="text-gray-500">{{ src.clause_ref or '' }}</td>
             <td class="text-gray-500">{{ src.notes or '' }}</td>
-            <td class="no-print">
+            <td class="no-print text-right whitespace-nowrap">
+              <button class="text-marsh hover:text-green-800 text-xs mr-2"
+                      hx-get="/compliance/client/{{ client_id }}/sources/{{ src.id }}/row/edit"
+                      hx-target="#source-row-{{ src.id }}"
+                      hx-swap="outerHTML">Edit</button>
               <button class="text-red-400 hover:text-red-600 text-xs"
                       hx-post="/compliance/client/{{ client_id }}/sources/{{ src.id }}/delete"
                       hx-target="body"

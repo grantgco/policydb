@@ -13,6 +13,7 @@ from policydb.compliance import (
     get_risk_review_prompts,
 )
 from policydb.queries import get_client_by_id
+from policydb.utils import parse_currency_with_magnitude
 from policydb.web.app import get_db, templates
 
 router = APIRouter(prefix="/compliance", tags=["compliance"])
@@ -118,6 +119,86 @@ def sources_edit(
     return templates.TemplateResponse("compliance/index.html", ctx)
 
 
+@router.get("/client/{client_id}/sources/{source_id}/row/edit", response_class=HTMLResponse)
+def sources_row_edit(
+    client_id: int,
+    source_id: int,
+    request: Request,
+    conn=Depends(get_db),
+):
+    """Return inline edit form for a source row."""
+    source = conn.execute(
+        "SELECT * FROM requirement_sources WHERE id=? AND client_id=?",
+        (source_id, client_id),
+    ).fetchone()
+    return templates.TemplateResponse(
+        "compliance/_source_row_edit.html",
+        {"request": request, "src": dict(source), "client_id": client_id},
+    )
+
+
+@router.get("/client/{client_id}/sources/{source_id}/row", response_class=HTMLResponse)
+def sources_row_display(
+    client_id: int,
+    source_id: int,
+    request: Request,
+    conn=Depends(get_db),
+):
+    """Return display row for a source (cancel edit)."""
+    ctx = _compliance_context(conn, client_id, request)
+    source = conn.execute(
+        "SELECT * FROM requirement_sources WHERE id=? AND client_id=?",
+        (source_id, client_id),
+    ).fetchone()
+    return templates.TemplateResponse(
+        "compliance/_source_row.html",
+        {"request": request, "src": dict(source), "client_id": client_id, "locations": ctx["locations"]},
+    )
+
+
+@router.get("/client/{client_id}/requirements/{req_id}/row/edit", response_class=HTMLResponse)
+def requirements_row_edit(
+    client_id: int,
+    req_id: int,
+    request: Request,
+    conn=Depends(get_db),
+):
+    """Return inline edit form for a requirement row."""
+    req = conn.execute(
+        "SELECT * FROM coverage_requirements WHERE id=? AND client_id=?",
+        (req_id, client_id),
+    ).fetchone()
+    import json as _json
+    req_dict = dict(req)
+    # Parse endorsements JSON for template
+    try:
+        req_dict["_endorsements_list"] = _json.loads(req_dict.get("required_endorsements") or "[]")
+    except (ValueError, TypeError):
+        req_dict["_endorsements_list"] = []
+
+    sources = [dict(r) for r in conn.execute(
+        "SELECT id, name FROM requirement_sources WHERE client_id=?", (client_id,)
+    ).fetchall()]
+    projects = [dict(r) for r in conn.execute(
+        "SELECT id, name FROM projects WHERE client_id=?", (client_id,)
+    ).fetchall()]
+
+    return templates.TemplateResponse(
+        "compliance/_requirement_row_edit.html",
+        {
+            "request": request,
+            "req": req_dict,
+            "client_id": client_id,
+            "sources": sources,
+            "projects": projects,
+            "compliance_statuses": cfg.get("compliance_statuses", []),
+            "deductible_types": cfg.get("deductible_types", []),
+            "policy_types": cfg.get("policy_types", []),
+            "endorsement_types": cfg.get("endorsement_types", []),
+        },
+    )
+
+
 @router.post("/client/{client_id}/sources/{source_id}/delete", response_class=HTMLResponse)
 def sources_delete(
     client_id: int,
@@ -159,11 +240,12 @@ def requirements_add(
         except (ValueError, AttributeError):
             return None
 
-    def _float_or_none(v: str):
-        try:
-            return float(v) if v.strip() else None
-        except (ValueError, AttributeError):
+    def _money_or_none(v: str):
+        """Parse currency shorthand (e.g., '1m' → 1000000, '500k' → 500000)."""
+        if not v or not v.strip():
             return None
+        parsed = parse_currency_with_magnitude(v)
+        return parsed if parsed else None
 
     # Parse endorsements: accepts JSON array string or comma-separated
     import json as _json
@@ -185,8 +267,8 @@ def requirements_add(
             _int_or_none(source_id),
             _int_or_none(risk_id),
             coverage_line.strip(),
-            _float_or_none(required_limit),
-            _float_or_none(max_deductible),
+            _money_or_none(required_limit),
+            _money_or_none(max_deductible),
             deductible_type.strip() or None,
             compliance_status.strip() or "Needs Review",
             linked_policy_uid.strip() or None,
@@ -248,11 +330,12 @@ def requirements_edit(
         except (ValueError, AttributeError):
             return None
 
-    def _float_or_none(v: str):
-        try:
-            return float(v) if v.strip() else None
-        except (ValueError, AttributeError):
+    def _money_or_none(v: str):
+        """Parse currency shorthand (e.g., '1m' → 1000000, '500k' → 500000)."""
+        if not v or not v.strip():
             return None
+        parsed = parse_currency_with_magnitude(v)
+        return parsed if parsed else None
 
     import json as _json
     try:
@@ -272,8 +355,8 @@ def requirements_edit(
             _int_or_none(project_id),
             _int_or_none(source_id),
             _int_or_none(risk_id),
-            _float_or_none(required_limit),
-            _float_or_none(max_deductible),
+            _money_or_none(required_limit),
+            _money_or_none(max_deductible),
             deductible_type.strip() or None,
             compliance_status.strip() or "Needs Review",
             linked_policy_uid.strip() or None,

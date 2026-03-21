@@ -17,6 +17,21 @@ PolicyDB is a local FastAPI + SQLite insurance book-of-business management tool.
 | CLI | Click (`policydb` / `pdb` entry points) |
 | Parsing | **Humanize, Dateparser, RapidFuzz, Babel** — use these; do not write custom parsing code |
 | Phone formatting | `phonenumbers` library via `format_phone()` in `src/policydb/utils.py` |
+| Currency parsing | `parse_currency_with_magnitude()` in `src/policydb/utils.py` — supports shorthand like `1m`, `1.5M`, `500k`, `$2,000,000` |
+
+### Currency Shorthand Parsing
+
+**Every money/currency input field** (limits, deductibles, premiums, retentions, etc.) MUST use `parse_currency_with_magnitude()` from `src/policydb/utils.py` when saving. This function supports shorthand notation:
+
+| Input | Parsed Value |
+|-------|-------------|
+| `1m` or `1M` | 1,000,000 |
+| `1.5m` | 1,500,000 |
+| `500k` | 500,000 |
+| `$2,000,000` | 2,000,000 |
+| `25000` | 25,000 |
+
+**Never use raw `float()` for currency fields.** Always import and use `parse_currency_with_magnitude` to ensure consistent shorthand support across the entire platform.
 
 ---
 

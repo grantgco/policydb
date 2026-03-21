@@ -1,0 +1,24 @@
+{# Display row for a single source — swapped in after edit/cancel #}
+<tr id="source-row-{{ src.id }}" class="border-b border-gray-50">
+  <td class="py-2 font-medium">{{ src.name }}</td>
+  <td class="text-gray-600">{{ src.counterparty or '' }}</td>
+  <td>
+    {% if src.project_id %}
+      <span class="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">Location-specific</span>
+    {% else %}
+      <span class="text-xs bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">All Locations</span>
+    {% endif %}
+  </td>
+  <td class="text-gray-500">{{ src.clause_ref or '' }}</td>
+  <td class="text-gray-500">{{ src.notes or '' }}</td>
+  <td class="no-print text-right">
+    <button class="text-marsh hover:text-green-800 text-xs mr-2"
+            hx-get="/compliance/client/{{ client_id }}/sources/{{ src.id }}/row/edit"
+            hx-target="#source-row-{{ src.id }}"
+            hx-swap="outerHTML">Edit</button>
+    <button class="text-red-400 hover:text-red-600 text-xs"
+            hx-post="/compliance/client/{{ client_id }}/sources/{{ src.id }}/delete"
+            hx-target="body"
+            hx-confirm="Delete this source and its requirements?">Delete</button>
+  </td>
+</tr>

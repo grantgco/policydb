@@ -65,7 +65,7 @@
             {# Show all requirements from this source #}
             {% for r in reqs %}
               {% if (r.source_id or 0) == src_id %}
-              <tr class="border-b border-gray-50">
+              <tr id="req-row-{{ r.id }}" class="border-b border-gray-50 group">
                 <td class="py-2 w-48">{{ r.coverage_line }}</td>
                 <td class="py-2 w-32">
                   {% if r.required_limit is not none %}
@@ -145,6 +145,18 @@
                       </span>
                     {% endif %}
                   {% endif %}
+                </td>
+                <td class="py-2 w-20 text-right no-print">
+                  <span class="opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button class="text-marsh hover:text-green-800 text-xs mr-1"
+                            hx-get="/compliance/client/{{ client_id }}/requirements/{{ r.id }}/row/edit"
+                            hx-target="#req-row-{{ r.id }}"
+                            hx-swap="outerHTML">Edit</button>
+                    <button class="text-red-400 hover:text-red-600 text-xs"
+                            hx-post="/compliance/client/{{ client_id }}/requirements/{{ r.id }}/delete"
+                            hx-target="body"
+                            hx-confirm="Delete this requirement?">✕</button>
+                  </span>
                 </td>
               </tr>
               {% endif %}
