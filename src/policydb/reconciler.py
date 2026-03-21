@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import io
 import re
+from collections import namedtuple
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Literal
@@ -12,7 +13,14 @@ from typing import Literal
 from rapidfuzz import fuzz, process
 
 from policydb.importer import PolicyImporter, _parse_currency, _parse_date
-from policydb.utils import _COVERAGE_ALIASES, normalize_coverage_type
+from policydb.utils import (
+    _COVERAGE_ALIASES,
+    normalize_carrier,
+    normalize_client_name_for_matching,
+    normalize_coverage_type,
+    normalize_policy_number_for_matching,
+    parse_currency,
+)
 
 
 def _normalize_coverage(value: str) -> str:
@@ -80,22 +88,37 @@ _STATUS_SORT = {"DIFF": 0, "MISSING": 1, "EXTRA": 2, "MATCH": 3}
 
 @dataclass
 class ReconcileRow:
-    status: MatchStatus
-    ext: dict | None        # uploaded record; None for EXTRA
-    db: dict | None         # PolicyDB record; None for MISSING
+    """One row in reconciliation results."""
+    ext: dict | None = None         # uploaded record; None for EXTRA
+    db: dict | None = None          # PolicyDB record; None for UNMATCHED/MISSING
+    status: str = "PAIRED"          # "PAIRED" | "UNMATCHED" | "EXTRA" | legacy: "MATCH" | "DIFF" | "MISSING"
+    match_score: float = 0.0       # 0-100 total
+    confidence: str = "none"       # "high" | "medium" | "low" | "none"
+    match_method: str = ""         # "policy_number" | "scored" | "manual" | legacy: "date_pair" | "fuzzy" | ""
+    confirmed: bool = False        # user stamped
+
+    # Per-field score breakdown
+    score_policy_number: float = 0.0
+    score_dates: float = 0.0
+    score_type: float = 0.0
+    score_carrier: float = 0.0
+    score_name: float = 0.0
+
+    # Diff tracking
     diff_fields: list[str] = field(default_factory=list)
-    match_score: float = 100.0
-    # Matching metadata
-    match_method: str = ""          # "policy_number", "date_pair", "fuzzy", "manual", ""
+    cosmetic_diffs: list[str] = field(default_factory=list)
+    fillable_fields: list[str] = field(default_factory=list)
+
+    # Metadata
     eff_delta_days: int | None = None
     exp_delta_days: int | None = None
-    ext_type_raw: str = ""          # original coverage name from upload
-    ext_type_normalized: str = ""   # after _normalize_coverage()
-    coverage_alias_applied: bool = False  # True if normalization changed the name
-    cosmetic_diffs: list[str] = field(default_factory=list)  # diffs that are only cosmetic (normalized values match)
-    fillable_fields: list[str] = field(default_factory=list)  # DB fields that are 0/null but ext has a value (optional auto-fill)
-    is_program_match: bool = False  # True if matched to a program record
-    matched_carrier_id: int | None = None  # ID of matched program_carriers row
+    ext_type_raw: str = ""
+    ext_type_normalized: str = ""
+    coverage_alias_applied: bool = False
+
+    # Program support
+    is_program_match: bool = False
+    matched_carrier_id: int | None = None
 
 
 # ─── FILE PARSING ─────────────────────────────────────────────────────────────
@@ -347,6 +370,217 @@ def _same_year(d1: str | None, d2: str | None) -> bool:
     if not d1 or not d2 or len(d1) < 4 or len(d2) < 4:
         return False
     return d1[:4] == d2[:4]
+
+
+# ─── ADDITIVE SCORING (new — replaces _fuzzy_match in Task 4) ────────────────
+
+ScoreBreakdown = namedtuple(
+    "ScoreBreakdown",
+    [
+        "score_policy_number",
+        "score_dates",
+        "score_type",
+        "score_carrier",
+        "score_name",
+        "total",
+        "confidence",
+        "diff_fields",
+        "cosmetic_diffs",
+        "fillable_fields",
+        "eff_delta_days",
+        "exp_delta_days",
+        "ext_type_raw",
+        "ext_type_normalized",
+        "coverage_alias_applied",
+    ],
+)
+
+
+def _score_pair(
+    ext: dict,
+    db: dict,
+    single_client: bool = False,
+) -> ScoreBreakdown:
+    """Additive per-field scoring for an (ext, db) pair.
+
+    No hard gates — every signal contributes points independently.
+
+    Signals and max points:
+        Policy Number  40   Exact normalized=40, fuzzy>=90=32, >=75=20, missing=0
+        Dates          30   Split 15+15 (eff+exp). Exact=15, <=14d=12, <=45d=8, same year=4, >1yr=0
+        Policy Type    15   Normalized match=15, fuzzy>=85=12, >=70=8, <70=0
+        Carrier        10   Normalized match=10, fuzzy>=80=7, >=60=4, <60=0
+        Client Name     5   Normalized match=5, fuzzy>=80=4, >=60=2, <60=0
+
+    Confidence tiers: high>=75, medium>=45, low<45.
+    """
+
+    # ── Policy Number (max 40) ────────────────────────────────────────────────
+    ext_pn_raw = str(ext.get("policy_number") or "").strip()
+    db_pn_raw = str(db.get("policy_number") or "").strip()
+    ext_pn = normalize_policy_number_for_matching(ext_pn_raw)
+    db_pn = normalize_policy_number_for_matching(db_pn_raw)
+
+    score_policy_number = 0.0
+    if ext_pn and db_pn:
+        if ext_pn == db_pn:
+            score_policy_number = 40.0
+        else:
+            pn_ratio = fuzz.ratio(ext_pn, db_pn)
+            if pn_ratio >= 90:
+                score_policy_number = 32.0
+            elif pn_ratio >= 75:
+                score_policy_number = 20.0
+    # Missing on either side = 0 (no penalty, no reward)
+
+    # ── Dates (max 30 = 15 eff + 15 exp) ─────────────────────────────────────
+    ext_eff = str(ext.get("effective_date") or "").strip()
+    db_eff = str(db.get("effective_date") or "").strip()
+    ext_exp = str(ext.get("expiration_date") or "").strip()
+    db_exp = str(db.get("expiration_date") or "").strip()
+
+    eff_delta = _date_delta_days(ext_eff, db_eff)
+    exp_delta = _date_delta_days(ext_exp, db_exp)
+
+    def _date_score(delta: int | None, d1: str, d2: str) -> float:
+        """Score a single date pair (max 15)."""
+        if delta is None:
+            return 0.0
+        if delta == 0:
+            return 15.0
+        if delta <= 14:
+            return 12.0
+        if delta <= 45:
+            return 8.0
+        if _same_year(d1, d2):
+            return 4.0
+        return 0.0
+
+    score_eff = _date_score(eff_delta, ext_eff, db_eff)
+    score_exp = _date_score(exp_delta, ext_exp, db_exp)
+    score_dates = score_eff + score_exp
+
+    # ── Policy Type (max 15) ─────────────────────────────────────────────────
+    ext_type_raw = str(ext.get("policy_type") or "").strip()
+    db_type_raw = str(db.get("policy_type") or "").strip()
+    ext_type_norm = normalize_coverage_type(ext_type_raw)
+    db_type_norm = normalize_coverage_type(db_type_raw)
+    coverage_alias_applied = (
+        bool(ext_type_raw)
+        and ext_type_raw.strip().lower() != ext_type_norm.lower()
+    )
+
+    score_type = 0.0
+    if ext_type_norm and db_type_norm:
+        if ext_type_norm.lower() == db_type_norm.lower():
+            score_type = 15.0
+        else:
+            type_ratio = fuzz.WRatio(ext_type_norm, db_type_norm)
+            if type_ratio >= 85:
+                score_type = 12.0
+            elif type_ratio >= 70:
+                score_type = 8.0
+
+    # ── Carrier (max 10) ──────────────────────────────────────────────────────
+    ext_carrier_raw = str(ext.get("carrier") or "").strip()
+    db_carrier_raw = str(db.get("carrier") or "").strip()
+    ext_carrier_norm = normalize_carrier(ext_carrier_raw)
+    db_carrier_norm = normalize_carrier(db_carrier_raw)
+
+    score_carrier = 0.0
+    if ext_carrier_norm and db_carrier_norm:
+        if ext_carrier_norm.lower() == db_carrier_norm.lower():
+            score_carrier = 10.0
+        else:
+            carrier_ratio = fuzz.WRatio(ext_carrier_norm, db_carrier_norm)
+            if carrier_ratio >= 80:
+                score_carrier = 7.0
+            elif carrier_ratio >= 60:
+                score_carrier = 4.0
+
+    # ── Client Name / FNI (max 5) ────────────────────────────────────────────
+    if single_client:
+        score_name = 5.0
+    else:
+        ext_client = normalize_client_name_for_matching(ext.get("client_name"))
+        db_client = normalize_client_name_for_matching(db.get("client_name"))
+        ext_fni = normalize_client_name_for_matching(ext.get("first_named_insured"))
+        db_fni = normalize_client_name_for_matching(db.get("first_named_insured"))
+
+        # Cross-match: ext client vs db client, ext client vs db FNI,
+        #              ext FNI vs db client, ext FNI vs db FNI — take best
+        best_name_ratio = 0.0
+        pairs_to_check = []
+        if ext_client and db_client:
+            pairs_to_check.append((ext_client, db_client))
+        if ext_client and db_fni:
+            pairs_to_check.append((ext_client, db_fni))
+        if ext_fni and db_client:
+            pairs_to_check.append((ext_fni, db_client))
+        if ext_fni and db_fni:
+            pairs_to_check.append((ext_fni, db_fni))
+
+        for a, b in pairs_to_check:
+            ratio = fuzz.WRatio(a, b)
+            if ratio > best_name_ratio:
+                best_name_ratio = ratio
+
+        if best_name_ratio >= 95:
+            score_name = 5.0
+        elif best_name_ratio >= 80:
+            score_name = 4.0
+        elif best_name_ratio >= 60:
+            score_name = 2.0
+        else:
+            score_name = 0.0
+
+    # ── Total and confidence ──────────────────────────────────────────────────
+    total = score_policy_number + score_dates + score_type + score_carrier + score_name
+
+    if total >= 75:
+        confidence = "high"
+    elif total >= 45:
+        confidence = "medium"
+    else:
+        confidence = "low"
+
+    # ── Diff / cosmetic / fillable tracking (currency fields) ─────────────────
+    diff_fields: list[str] = []
+    cosmetic_diffs: list[str] = []
+    fillable_fields: list[str] = []
+
+    # Currency fields: premium, limit_amount, deductible
+    for cf in ("premium", "limit_amount", "deductible"):
+        ext_val = parse_currency(ext.get(cf, 0))
+        db_val = parse_currency(db.get(cf, 0))
+        if ext_val > 0 and db_val > 0:
+            pct_diff = abs(ext_val - db_val) / max(ext_val, db_val)
+            if pct_diff > 0.01:
+                diff_fields.append(cf)
+        elif ext_val > 0 and db_val == 0:
+            fillable_fields.append(cf)
+
+    # Policy number fillable: ext has one, db doesn't
+    if ext_pn_raw and not db_pn_raw:
+        fillable_fields.append("policy_number")
+
+    return ScoreBreakdown(
+        score_policy_number=score_policy_number,
+        score_dates=score_dates,
+        score_type=score_type,
+        score_carrier=score_carrier,
+        score_name=score_name,
+        total=total,
+        confidence=confidence,
+        diff_fields=diff_fields,
+        cosmetic_diffs=cosmetic_diffs,
+        fillable_fields=fillable_fields,
+        eff_delta_days=eff_delta,
+        exp_delta_days=exp_delta,
+        ext_type_raw=ext_type_raw,
+        ext_type_normalized=ext_type_norm,
+        coverage_alias_applied=coverage_alias_applied,
+    )
 
 
 def _fuzzy_match(ext_row: dict, candidates: list[dict], date_priority: bool = False, single_client: bool = False) -> tuple[dict | None, float]:
@@ -674,7 +908,8 @@ def reconcile(ext_rows: list[dict], db_rows: list[dict], date_priority: bool = F
                         break
         diff_fields, cosmetic, fillable, score = _compare_fields(ext, _compare_target)
         status: MatchStatus = "DIFF" if diff_fields else "MATCH"
-        row = ReconcileRow(status, ext, db, diff_fields, score, cosmetic_diffs=cosmetic, fillable_fields=fillable,
+        row = ReconcileRow(ext=ext, db=db, status=status, match_score=score,
+                           diff_fields=diff_fields, cosmetic_diffs=cosmetic, fillable_fields=fillable,
                            is_program_match=db_idx in _program_indices,
                            matched_carrier_id=_matched_cid)
         _attach_metadata(row, "policy_number")
@@ -730,7 +965,8 @@ def reconcile(ext_rows: list[dict], db_rows: list[dict], date_priority: bool = F
                         break
             diff_fields, cosmetic, fillable, score = _compare_fields(ext, _compare_target_15)
             status = "DIFF" if diff_fields else "MATCH"
-            row = ReconcileRow(status, ext, best_db, diff_fields, score, cosmetic_diffs=cosmetic,
+            row = ReconcileRow(ext=ext, db=best_db, status=status, match_score=score,
+                               diff_fields=diff_fields, cosmetic_diffs=cosmetic,
                                is_program_match=db_idx in _program_indices,
                                matched_carrier_id=_matched_cid)
             _attach_metadata(row, "date_pair")
@@ -759,13 +995,14 @@ def reconcile(ext_rows: list[dict], db_rows: list[dict], date_priority: bool = F
                         break
             diff_fields, cosmetic, fillable, _ = _compare_fields(ext, _compare_target_2)
             status = "DIFF" if diff_fields else "MATCH"
-            row = ReconcileRow(status, ext, db, diff_fields, score, cosmetic_diffs=cosmetic,
+            row = ReconcileRow(ext=ext, db=db, status=status, match_score=score,
+                               diff_fields=diff_fields, cosmetic_diffs=cosmetic,
                                is_program_match=db_idx in _program_indices,
                                matched_carrier_id=_matched_cid)
             _attach_metadata(row, "fuzzy")
             results.append(row)
         else:
-            missing_row = ReconcileRow("MISSING", ext, None, [], 0.0)
+            missing_row = ReconcileRow(ext=ext, db=None, status="MISSING", match_score=0.0)
             _attach_metadata(missing_row, "")
             results.append(missing_row)
 
@@ -774,7 +1011,7 @@ def reconcile(ext_rows: list[dict], db_rows: list[dict], date_priority: bool = F
     for i in sorted(db_unmatched):
         if i in _program_matched_indices:
             continue  # program got matches, not truly "extra"
-        results.append(ReconcileRow("EXTRA", None, db_rows[i], [], 0.0))
+        results.append(ReconcileRow(ext=None, db=db_rows[i], status="EXTRA", match_score=0.0))
 
     # Sort: DIFF, MISSING, EXTRA, MATCH; within group by client_name + expiration_date
     def _sort_key(r: ReconcileRow):
