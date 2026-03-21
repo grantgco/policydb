@@ -541,21 +541,33 @@ def reconcile_search_coverage(
     idx: int = 0,
     token: str = "",
     client_name: str = "",
+    client_id: int = 0,
     conn=Depends(get_db),
 ):
-    """Search DB policies for manual pairing. Returns HTML dropdown with Pair buttons."""
+    """Search DB policies for manual pairing. Filtered to client if client_id specified."""
     if not q or len(q) < 2:
         return HTMLResponse('<p class="text-xs text-gray-400 p-2">Type at least 2 characters...</p>')
 
-    rows = conn.execute("""
-        SELECT p.id, p.policy_uid, c.name AS client_name, p.policy_type, p.carrier,
-               p.policy_number, p.effective_date, p.expiration_date, p.premium
-        FROM policies p JOIN clients c ON p.client_id = c.id
-        WHERE p.archived = 0
-          AND (p.policy_type LIKE ? OR p.carrier LIKE ? OR p.policy_number LIKE ?
-               OR c.name LIKE ?)
-        ORDER BY c.name, p.policy_type LIMIT 10
-    """, (f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%")).fetchall()
+    like = f"%{q}%"
+    if client_id:
+        rows = conn.execute("""
+            SELECT p.id, p.policy_uid, c.name AS client_name, p.policy_type, p.carrier,
+                   p.policy_number, p.effective_date, p.expiration_date, p.premium
+            FROM policies p JOIN clients c ON p.client_id = c.id
+            WHERE p.archived = 0 AND p.client_id = ?
+              AND (p.policy_type LIKE ? OR p.carrier LIKE ? OR p.policy_number LIKE ?)
+            ORDER BY p.policy_type, p.carrier LIMIT 15
+        """, (client_id, like, like, like)).fetchall()
+    else:
+        rows = conn.execute("""
+            SELECT p.id, p.policy_uid, c.name AS client_name, p.policy_type, p.carrier,
+                   p.policy_number, p.effective_date, p.expiration_date, p.premium
+            FROM policies p JOIN clients c ON p.client_id = c.id
+            WHERE p.archived = 0
+              AND (p.policy_type LIKE ? OR p.carrier LIKE ? OR p.policy_number LIKE ?
+                   OR c.name LIKE ?)
+            ORDER BY c.name, p.policy_type LIMIT 15
+        """, (like, like, like, like)).fetchall()
 
     if not rows:
         return HTMLResponse('<p class="text-xs text-gray-500 p-2">No policies found matching that search.</p>')

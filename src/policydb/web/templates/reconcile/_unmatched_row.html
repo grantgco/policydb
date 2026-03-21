@@ -37,14 +37,15 @@
     ondrop="handleDrop(event, {{ idx }})">
     <div class="border-2 border-dashed border-gray-300 rounded-lg w-full h-full flex flex-col items-center justify-center py-3 px-2 text-center">
       <div class="w-full">
-        <input type="text" placeholder="Search coverage..."
+        {% set cid = selected_client_id|default(0, true) %}
+        <input type="text" placeholder="Search by type, carrier, or policy#{% if cid %} (client filtered){% else %} (all clients){% endif %}..."
           hx-get="/reconcile/search-coverage"
           hx-trigger="keyup changed delay:300ms"
           hx-target="#search-results-{{ idx }}"
           hx-swap="innerHTML"
           hx-include="this"
           name="q"
-          hx-vals='{"idx": "{{ idx }}", "token": "{{ token }}", "client_name": "{{ e.get('client_name','') }}"}'
+          hx-vals='{"idx": "{{ idx }}", "token": "{{ token }}", "client_id": "{{ cid }}", "client_name": "{{ e.get('client_name','') }}"}'
           class="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:border-blue-400 focus:outline-none"
           onclick="event.stopPropagation()">
         <div id="search-results-{{ idx }}" class="mt-1 text-left"></div>
