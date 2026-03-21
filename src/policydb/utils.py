@@ -490,6 +490,62 @@ def normalize_client_name(raw: str) -> str:
     return " ".join(titled)
 
 
+_MATCHING_SUFFIX_RE = re.compile(
+    r'\s*(,?\s*)?(LLC|LLP|LP|PLLC|Inc\.?|Corp\.?|Corporation|Co\.?|'
+    r'Ltd\.?|Limited|Company|Enterprises?)\b[.,]?$',
+    re.IGNORECASE,
+)
+
+
+def normalize_client_name_for_matching(raw: str | None) -> str:
+    """Strip legal suffixes entirely, collapse whitespace, title case.
+
+    For fuzzy matching comparison only — never write result to DB.
+    "Acme Corp." → "Acme", "AVALONBAY COMMUNITIES INC" → "Avalonbay Communities"
+    """
+    if not raw or not str(raw).strip():
+        return ""
+    name = _MATCHING_SUFFIX_RE.sub("", str(raw).strip()).strip()
+    name = " ".join(name.split())  # collapse whitespace
+    words = name.split()
+    return " ".join(w if (len(w) <= 3 and w.isupper()) else w.capitalize() for w in words)
+
+
+_PLACEHOLDER_POLICY_NUMBERS = {
+    "999", "TBD", "TBA", "PENDING", "NA", "N/A", "NONE", "XXX", "000", "123",
+    "NEW", "RENEWAL", "RENEW", "QUOTE", "QUOTED", "APPLIED",
+}
+
+
+def normalize_policy_number_for_matching(raw: str | None) -> str:
+    """Strip formatting and placeholders for fuzzy matching comparison only.
+
+    Never write result to DB — use normalize_policy_number() for that.
+    "POL-GL-2025-441" → "POLGL2025441"
+    """
+    if not raw or not str(raw).strip():
+        return ""
+    cleaned = re.sub(r'[\s\-/.]', '', str(raw).strip()).upper()
+    cleaned = cleaned.lstrip('0') or ''
+    if cleaned in _PLACEHOLDER_POLICY_NUMBERS:
+        return ""
+    return cleaned
+
+
+def parse_currency(value) -> float:
+    """Strip currency symbols, commas; return float. Returns 0.0 on error.
+
+    Promoted from importer._parse_currency — shared by reconciler and importer.
+    """
+    if not value or not str(value).strip():
+        return 0.0
+    cleaned = re.sub(r"[^\d.\-]", "", str(value).replace(",", ""))
+    try:
+        return float(cleaned)
+    except ValueError:
+        return 0.0
+
+
 def format_zip(raw: str) -> str:
     """Strip non-digits and format as 5-digit or 5+4-digit ZIP code.
 
