@@ -8,6 +8,7 @@ from datetime import date
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, Response
 
+from policydb import config as cfg
 from policydb.queries import get_client_by_name
 from policydb.utils import (
     normalize_carrier, normalize_coverage_type, normalize_policy_number,
