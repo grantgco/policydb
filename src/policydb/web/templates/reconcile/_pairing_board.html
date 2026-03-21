@@ -3,8 +3,9 @@
             token (str), summary (dict from summarize()), today (str YYYY-MM-DD),
             all_clients (list), activity_types (list) #}
 
-{# ── Hidden token field ─────────────────────────────────────────────────────── #}
+{# ── Hidden token + client_id fields ───────────────────────────────────────── #}
 <input type="hidden" name="token" value="{{ token }}">
+<input type="hidden" name="client_id" value="{{ selected_client_id or 0 }}">
 
 {# ── Status counters (OOB-swappable) ────────────────────────────────────────── #}
 <div id="board-counters" class="flex flex-wrap items-center gap-3 mb-4">
