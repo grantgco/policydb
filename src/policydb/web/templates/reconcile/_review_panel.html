@@ -1,6 +1,7 @@
-{% set matched_rows = results | selectattr('status', 'equalto', 'MATCH') | list %}
-{% set diff_rows = results | selectattr('status', 'equalto', 'DIFF') | list %}
-{% set missing_rows = results | selectattr('status', 'equalto', 'MISSING') | list %}
+{# Collect rows by group — handle both new (PAIRED/UNMATCHED) and legacy (MATCH/DIFF/MISSING) statuses #}
+{% set matched_rows = (results | selectattr('status', 'equalto', 'MATCH') | list) + (results | selectattr('status', 'equalto', 'PAIRED') | rejectattr('diff_fields') | list) %}
+{% set diff_rows = (results | selectattr('status', 'equalto', 'DIFF') | list) + (results | selectattr('status', 'equalto', 'PAIRED') | selectattr('diff_fields') | list) %}
+{% set missing_rows = (results | selectattr('status', 'equalto', 'MISSING') | list) + (results | selectattr('status', 'equalto', 'UNMATCHED') | list) %}
 {% set extra_rows = results | selectattr('status', 'equalto', 'EXTRA') | list %}
 
 <div class="mb-5 space-y-3" id="review-panel">
@@ -30,7 +31,7 @@
         </thead>
         <tbody class="divide-y divide-gray-50">
           {% for r in results %}
-          {% if r.status == 'DIFF' %}
+          {% if r.status == 'DIFF' or (r.status == 'PAIRED' and r.diff_fields) %}
           {% set uid = loop.index %}
           {% set side = r.db if r.db else r.ext %}
           <tr class="hover:bg-amber-50/30">
@@ -88,7 +89,7 @@
         </thead>
         <tbody class="divide-y divide-gray-50">
           {% for r in results %}
-          {% if r.status == 'MISSING' %}
+          {% if r.status in ('MISSING', 'UNMATCHED') %}
           {% set uid = loop.index %}
           {% set e = r.ext or {} %}
           <tr class="hover:bg-red-50/30">
@@ -196,7 +197,7 @@
         </thead>
         <tbody class="divide-y divide-gray-50">
           {% for r in results %}
-          {% if r.status == 'MATCH' %}
+          {% if r.status == 'MATCH' or (r.status == 'PAIRED' and not r.diff_fields) %}
           {% set d = r.db or {} %}
           <tr class="hover:bg-green-50/30">
             <td class="px-3 py-2 font-medium text-gray-800">{{ d.get('client_name', '—') }}</td>

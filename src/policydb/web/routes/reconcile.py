@@ -11,8 +11,8 @@ from fastapi.responses import HTMLResponse, Response
 from policydb.queries import get_client_by_name
 from policydb.utils import normalize_carrier, normalize_coverage_type, normalize_policy_number
 from policydb.reconciler import (
-    _compare_fields,
     _find_likely_pairs,
+    _score_pair,
     build_reconcile_xlsx,
     find_candidates,
     parse_uploaded_file,
@@ -194,7 +194,7 @@ async def reconcile_run(
 
     results = reconcile(ext_rows, db_rows, date_priority=bool(date_priority), single_client=bool(client_id))
 
-    missing_rows = [r for r in results if r.status == "MISSING"]
+    missing_rows = [r for r in results if r.status in ("MISSING", "UNMATCHED")]
     extra_rows = [r for r in results if r.status == "EXTRA"]
 
     # Generate token first — used for both MISSING cache and XLSX cache
@@ -345,7 +345,8 @@ def reconcile_confirm_match(
         "deductible": _parse_currency(ext_deductible),
     }
 
-    diff_fields, _, fillable, score = _compare_fields(ext, db)
+    breakdown = _score_pair(ext, db)
+    diff_fields = list(breakdown.diff_fields)
     status = "DIFF" if diff_fields else "MATCH"
 
     status_classes = {
@@ -1257,7 +1258,8 @@ def reconcile_confirm_pair(
         "deductible": _parse_currency(ext_deductible),
     }
 
-    diff_fields, _, fillable, score = _compare_fields(ext, db)
+    breakdown = _score_pair(ext, db)
+    diff_fields = list(breakdown.diff_fields)
     status = "DIFF" if diff_fields else "MATCH"
 
     badge_class = "bg-green-100 text-green-700" if status == "MATCH" else "bg-amber-100 text-amber-700"
