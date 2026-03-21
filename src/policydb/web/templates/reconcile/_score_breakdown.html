@@ -41,6 +41,15 @@
 
 {# Diff detail text with accept buttons #}
 {% set policy_uid = (row.db or {}).get('policy_uid', '') %}
+
+{# Helpful message when no real diffs but score is amber due to missing fields #}
+{% if not row.diff_fields and not row.fillable_fields and row.confidence != 'high' %}
+<div class="mt-2 flex items-center gap-2 text-[10px] text-green-700 bg-green-50 rounded px-2 py-1.5">
+  <span class="text-green-500">&#10003;</span>
+  <span>No field differences — score is lower because some identifiers (e.g. policy number) are missing. Safe to confirm.</span>
+</div>
+{% endif %}
+
 {% if row.diff_fields or row.fillable_fields or row.cosmetic_diffs %}
 <div class="mt-2">
   {% if (row.diff_fields or row.fillable_fields) and policy_uid %}
@@ -85,7 +94,10 @@
     {% for f in row.cosmetic_diffs %}
     <div class="flex items-center gap-2 text-[10px]">
       <span class="font-semibold text-green-600 w-24 flex-shrink-0">{{ f }}</span>
-      <span class="text-green-600">same after normalization</span>
+      <span class="text-gray-600">"{{ (row.ext or {}).get(f, '') }}"</span>
+      <span class="text-green-500">&rarr;</span>
+      <span class="text-gray-600">"{{ (row.db or {}).get(f, '') }}"</span>
+      <span class="bg-green-100 text-green-700 px-1.5 py-0.5 rounded">&#10003; same after normalization</span>
     </div>
     {% endfor %}
   </div>
