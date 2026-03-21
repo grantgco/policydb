@@ -1,0 +1,175 @@
+{# _pairing_board.html — full reconcile pairing board #}
+{# Context: results (list[ReconcileRow]), extras (list[ReconcileRow] with status EXTRA),
+            token (str), summary (dict from summarize()), today (str YYYY-MM-DD),
+            all_clients (list), activity_types (list) #}
+
+{# ── Hidden token field ─────────────────────────────────────────────────────── #}
+<input type="hidden" name="token" value="{{ token }}">
+
+{# ── Status counters (OOB-swappable) ────────────────────────────────────────── #}
+<div id="board-counters" class="flex flex-wrap items-center gap-3 mb-4">
+  <span class="flex items-center gap-1.5 text-sm text-gray-600">
+    <span class="w-2.5 h-2.5 rounded-full bg-green-500 inline-block"></span>
+    Paired <span class="font-bold">{{ summary.paired_clean }}</span>
+  </span>
+  <span class="flex items-center gap-1.5 text-sm text-gray-600">
+    <span class="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block"></span>
+    Review <span class="font-bold">{{ summary.paired_diffs }}</span>
+  </span>
+  <span class="flex items-center gap-1.5 text-sm text-gray-600">
+    <span class="w-2.5 h-2.5 rounded-full bg-red-500 inline-block"></span>
+    Unmatched <span class="font-bold">{{ summary.unmatched }}</span>
+  </span>
+  <span class="flex items-center gap-1.5 text-sm text-gray-600">
+    <span class="w-2.5 h-2.5 rounded-full bg-purple-500 inline-block"></span>
+    Extra <span class="font-bold">{{ summary.extra }}</span>
+  </span>
+
+  <span class="text-gray-300 mx-1">|</span>
+  <span class="text-xs text-gray-400">{{ summary.total }} total rows</span>
+</div>
+
+{# ── Toolbar ────────────────────────────────────────────────────────────────── #}
+<div class="flex flex-wrap items-center gap-3 mb-4 no-print">
+  {# Confirm All #}
+  {% if summary.review > 0 %}
+  <button type="button"
+    hx-post="/reconcile/confirm-all"
+    hx-include="[name=token]"
+    hx-target="#pairing-board"
+    hx-swap="innerHTML"
+    class="text-xs bg-green-600 hover:bg-green-700 text-white font-medium px-4 py-2 rounded-lg transition-colors">
+    Confirm All Paired ({{ summary.review }})
+  </button>
+  {% endif %}
+
+  {# Export XLSX #}
+  {% if token %}
+  <a href="/reconcile/download/{{ token }}"
+    class="text-xs border border-green-600 text-green-700 hover:bg-green-600 hover:text-white font-medium px-4 py-2 rounded-lg transition-colors">
+    Export XLSX
+  </a>
+  {% endif %}
+
+  {# Spacer #}
+  <div class="flex-1"></div>
+
+  {# Filter tabs #}
+  <div class="flex items-center gap-1 bg-gray-100 rounded-lg p-0.5">
+    <button type="button" onclick="filterBoardRows('all')"
+      class="filter-tab text-xs px-3 py-1.5 rounded-md transition-colors font-semibold border-b-2 border-green-600 text-green-700 bg-white">All</button>
+    <button type="button" onclick="filterBoardRows('review')"
+      class="filter-tab text-xs px-3 py-1.5 rounded-md transition-colors text-gray-600 hover:bg-white">Needs Review</button>
+    <button type="button" onclick="filterBoardRows('confirmed')"
+      class="filter-tab text-xs px-3 py-1.5 rounded-md transition-colors text-gray-600 hover:bg-white">Confirmed</button>
+    <button type="button" onclick="filterBoardRows('diffs')"
+      class="filter-tab text-xs px-3 py-1.5 rounded-md transition-colors text-gray-600 hover:bg-white">Diffs Only</button>
+  </div>
+</div>
+
+{# ── Column headers ─────────────────────────────────────────────────────────── #}
+<div class="hidden md:flex items-center text-xs font-semibold text-gray-400 uppercase tracking-wide px-4 py-2 mb-1">
+  <div class="flex-1">Upload Row</div>
+  <div class="w-24 text-center">Score</div>
+  <div class="flex-1">Coverage Match</div>
+  <div class="w-20 text-center no-print">Action</div>
+</div>
+
+{# ── Result rows ────────────────────────────────────────────────────────────── #}
+<div id="board-rows">
+  {% for r in results %}
+    {% if r.status in ('PAIRED', 'MATCH', 'DIFF') %}
+      {% with row=r, idx=loop.index0 %}
+        {% include "reconcile/_pair_row.html" %}
+      {% endwith %}
+    {% elif r.status in ('UNMATCHED', 'MISSING') %}
+      {% with row=r, idx=loop.index0 %}
+        {% include "reconcile/_unmatched_row.html" %}
+      {% endwith %}
+    {% endif %}
+  {% else %}
+    <div class="text-center text-gray-400 py-10">No results.</div>
+  {% endfor %}
+</div>
+
+{# ── Extras pool ────────────────────────────────────────────────────────────── #}
+{% if extras %}
+<div id="extras-pool" class="mt-6">
+  <div class="flex items-center gap-3 mb-3">
+    <h3 class="text-sm font-semibold text-purple-700">In Coverage, Not in Upload ({{ extras | length }})</h3>
+    <span class="text-xs text-gray-400">Drag a row above to pair it with an unmatched upload row</span>
+  </div>
+  {% for r in extras %}
+    {% with row=r %}
+      {% include "reconcile/_extra_row.html" %}
+    {% endwith %}
+  {% endfor %}
+</div>
+{% endif %}
+
+{# ── Board-level JS ─────────────────────────────────────────────────────────── #}
+<script>
+/* toggleBreakdown — hoisted so each _pair_row.html does not duplicate it */
+function toggleBreakdown(idx) {
+  var el = document.getElementById('breakdown-' + idx);
+  if (el) el.style.display = el.style.display === 'none' ? '' : 'none';
+}
+
+/* handleDrop — hoisted from _unmatched_row.html */
+function handleDrop(event, idx) {
+  event.preventDefault();
+  var dropZone = document.getElementById('drop-' + idx);
+  if (dropZone) {
+    dropZone.classList.remove('bg-purple-100', 'border-purple-400');
+    dropZone.classList.add('border-dashed');
+  }
+  var policyUid = event.dataTransfer.getData('text/plain');
+  if (policyUid) {
+    fetch('/reconcile/manual-pair', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'idx=' + encodeURIComponent(idx) + '&policy_uid=' + encodeURIComponent(policyUid) + '&token=' + encodeURIComponent(document.querySelector('[name=token]').value)
+    }).then(function(r) { return r.text(); })
+      .then(function(html) {
+        var el = document.getElementById('pair-' + idx);
+        if (el) { el.outerHTML = html; }
+        var extraEl = document.getElementById('extra-' + policyUid);
+        if (extraEl) { extraEl.remove(); }
+      });
+  }
+}
+
+/* filterBoardRows — client-side filter using data-status / data-confirmed / diff_fields */
+function filterBoardRows(status) {
+  document.querySelectorAll('.pair-row').forEach(function(row) {
+    if (status === 'all') {
+      row.style.display = '';
+      /* Also show any breakdown divs that might follow */
+      var nextSib = row.nextElementSibling;
+      if (nextSib && nextSib.id && nextSib.id.startsWith('breakdown-')) nextSib.style.display = 'none';
+      return;
+    }
+    var rowStatus = row.dataset.status || '';
+    var isConfirmed = row.classList.contains('opacity-75');
+    var hasDiffs = !!row.querySelector('.bg-amber-100');
+
+    if (status === 'review') {
+      row.style.display = (rowStatus === 'medium' || rowStatus === 'unmatched') ? '' : 'none';
+    } else if (status === 'confirmed') {
+      row.style.display = isConfirmed ? '' : 'none';
+    } else if (status === 'diffs') {
+      row.style.display = hasDiffs ? '' : 'none';
+    }
+  });
+
+  /* Update active tab styling */
+  document.querySelectorAll('.filter-tab').forEach(function(t) {
+    t.classList.remove('font-semibold', 'border-b-2', 'border-green-600', 'text-green-700', 'bg-white');
+    t.classList.add('text-gray-600');
+  });
+  if (event && event.target) {
+    event.target.classList.add('font-semibold', 'border-b-2', 'border-green-600', 'text-green-700', 'bg-white');
+    event.target.classList.remove('text-gray-600');
+  }
+}
+</script>

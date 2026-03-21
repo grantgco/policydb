@@ -64,29 +64,4 @@
   </div>
 </div>
 
-<script>
-function handleDrop(event, idx) {
-  event.preventDefault();
-  var dropZone = document.getElementById('drop-' + idx);
-  if (dropZone) {
-    dropZone.classList.remove('bg-purple-100', 'border-purple-400');
-    dropZone.classList.add('border-dashed');
-  }
-  var policyUid = event.dataTransfer.getData('text/plain');
-  if (policyUid) {
-    // POST to manual-pair endpoint with the unmatched idx and the extra policy_uid
-    fetch('/reconcile/manual-pair', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: 'idx=' + encodeURIComponent(idx) + '&policy_uid=' + encodeURIComponent(policyUid) + '&token=' + encodeURIComponent(document.querySelector('[name=token]').value)
-    }).then(function(r) { return r.text(); })
-      .then(function(html) {
-        var el = document.getElementById('pair-' + idx);
-        if (el) { el.outerHTML = html; }
-        // Remove the dragged extra row
-        var extraEl = document.getElementById('extra-' + policyUid);
-        if (extraEl) { extraEl.remove(); }
-      });
-  }
-}
-</script>
+{# handleDrop is hoisted to _pairing_board.html #}
