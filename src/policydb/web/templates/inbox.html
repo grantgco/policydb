@@ -233,18 +233,21 @@
         </button>
       </div>
     </div>
-    {# Inline process form #}
+    {# Inline process form — full activity log features #}
     <div class="hidden border-t border-gray-100 bg-gray-50 px-4 py-3 scratchpad-process-form">
       <form hx-post="/inbox/scratchpad/process" hx-swap="delete" hx-target="closest .card" class="space-y-3">
         <input type="hidden" name="source" value="{{ sp.source }}">
         <input type="hidden" name="source_id" value="{{ sp.link }}">
+        {% if sp.policy_id is defined and sp.policy_id %}
+        <input type="hidden" name="policy_id" value="{{ sp.policy_id }}">
+        {% endif %}
         <div class="grid grid-cols-2 gap-3">
           <div>
             <label class="text-xs font-medium text-gray-500 block mb-1">Client</label>
             <select name="client_id" required class="w-full text-sm border border-gray-200 rounded px-2 py-1.5 focus:border-marsh focus:outline-none">
               <option value="">Select client...</option>
               {% for c in all_clients %}
-              <option value="{{ c.id }}">{{ c.name }}</option>
+              <option value="{{ c.id }}" {% if sp.client_id is defined and sp.client_id == c.id %}selected{% endif %}>{{ c.name }}</option>
               {% endfor %}
             </select>
           </div>
@@ -254,13 +257,39 @@
               class="w-full text-sm border border-gray-200 rounded px-2 py-1.5 focus:border-marsh focus:outline-none">
           </div>
         </div>
+        <div class="grid grid-cols-3 gap-3">
+          <div>
+            <label class="text-xs font-medium text-gray-500 block mb-1">Type</label>
+            <select name="activity_type" class="w-full text-sm border border-gray-200 rounded px-2 py-1.5 focus:border-marsh focus:outline-none">
+              {% for t in activity_types %}
+              <option value="{{ t }}" {% if t == 'Note' %}selected{% endif %}>{{ t }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label class="text-xs font-medium text-gray-500 block mb-1">Follow-up</label>
+            <input type="date" name="follow_up_date"
+              class="w-full text-sm border border-gray-200 rounded px-2 py-1.5 focus:border-marsh focus:outline-none">
+          </div>
+          <div>
+            <label class="text-xs font-medium text-gray-500 block mb-1">Duration</label>
+            <input type="text" name="duration_hours" placeholder="e.g. 0.5"
+              class="w-full text-sm border border-gray-200 rounded px-2 py-1.5 focus:border-marsh focus:outline-none">
+          </div>
+        </div>
         <div>
           <label class="text-xs font-medium text-gray-500 block mb-1">Details</label>
           <textarea name="details" rows="2" class="w-full text-sm border border-gray-200 rounded px-2 py-1.5 focus:border-marsh focus:outline-none">{{ sp.content }}</textarea>
         </div>
-        <div class="flex gap-2">
-          <button type="submit" class="text-xs bg-marsh text-white px-4 py-1.5 rounded hover:bg-marsh-light transition-colors font-medium">Log Activity &amp; Clear</button>
-          <button type="button" onclick="toggleScratchpadProcess(this)" class="text-xs text-gray-500 px-3 py-1.5 rounded hover:bg-gray-100">Cancel</button>
+        <div class="flex items-center gap-4">
+          <div class="flex gap-2">
+            <button type="submit" class="text-xs bg-marsh text-white px-4 py-1.5 rounded hover:bg-marsh-light transition-colors font-medium">Log Activity &amp; Clear</button>
+            <button type="button" onclick="toggleScratchpadProcess(this)" class="text-xs text-gray-500 px-3 py-1.5 rounded hover:bg-gray-100">Cancel</button>
+          </div>
+          <label class="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer">
+            <input type="checkbox" name="start_correspondence" value="1" class="rounded border-gray-300 text-marsh focus:ring-marsh">
+            Start correspondence
+          </label>
         </div>
       </form>
     </div>
