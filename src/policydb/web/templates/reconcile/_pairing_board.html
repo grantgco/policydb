@@ -125,17 +125,18 @@ function handleDrop(event, idx) {
   }
   var policyUid = event.dataTransfer.getData('text/plain');
   if (policyUid) {
-    fetch('/reconcile/manual-pair', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: 'idx=' + encodeURIComponent(idx) + '&policy_uid=' + encodeURIComponent(policyUid) + '&token=' + encodeURIComponent(document.querySelector('[name=token]').value)
-    }).then(function(r) { return r.text(); })
-      .then(function(html) {
-        var el = document.getElementById('pair-' + idx);
-        if (el) { el.outerHTML = html; }
-        var extraEl = document.getElementById('extra-' + policyUid);
-        if (extraEl) { extraEl.remove(); }
-      });
+    htmx.ajax('POST', '/reconcile/manual-pair', {
+      target: '#pair-' + idx,
+      swap: 'outerHTML',
+      values: {
+        idx: idx,
+        policy_uid: policyUid,
+        token: document.querySelector('[name=token]').value
+      }
+    }).then(function() {
+      var extraEl = document.getElementById('extra-' + policyUid);
+      if (extraEl) { extraEl.remove(); }
+    });
   }
 }
 
