@@ -23,6 +23,7 @@ _CELL_ALLOWED_FIELDS = {
     "required_limit",
     "max_deductible",
     "deductible_type",
+    "required_endorsements",
     "compliance_status",
     "linked_policy_uid",
     "notes",
@@ -56,8 +57,7 @@ def _compliance_context(conn: sqlite3.Connection, client_id: int, request: Reque
         "compliance_statuses": cfg.get("compliance_statuses", []),
         "deductible_types": cfg.get("deductible_types", []),
         "policy_types": cfg.get("policy_types", []),
-        "endorsement_flags": cfg.get("endorsement_flags", []),
-        "endorsement_flag_labels": cfg.get("endorsement_flag_labels", {}),
+        "endorsement_types": cfg.get("endorsement_types", []),
         "risk_review_prompt_categories": cfg.get("risk_review_prompt_categories", []),
     }
 
@@ -151,17 +151,7 @@ def requirements_add(
     compliance_status: str = Form("Needs Review"),
     linked_policy_uid: str = Form(""),
     notes: str = Form(""),
-    # Endorsement flags
-    ai_required: str = Form(""),
-    wos_required: str = Form(""),
-    primary_noncontrib: str = Form(""),
-    per_project_aggregate: str = Form(""),
-    noc_required: str = Form(""),
-    completed_ops_required: str = Form(""),
-    professional_liability_required: str = Form(""),
-    pollution_required: str = Form(""),
-    cyber_required: str = Form(""),
-    builders_risk_required: str = Form(""),
+    required_endorsements: str = Form("[]"),
 ):
     def _int_or_none(v: str):
         try:
@@ -175,19 +165,20 @@ def requirements_add(
         except (ValueError, AttributeError):
             return None
 
-    def _flag(v: str) -> int:
-        return 1 if v and v not in ("0", "false", "off", "") else 0
+    # Parse endorsements: accepts JSON array string or comma-separated
+    import json as _json
+    try:
+        endorsements = _json.dumps(_json.loads(required_endorsements))
+    except (ValueError, TypeError):
+        endorsements = _json.dumps([e.strip() for e in required_endorsements.split(",") if e.strip()])
 
     conn.execute(
         """INSERT INTO coverage_requirements (
                client_id, project_id, source_id, risk_id, coverage_line,
                required_limit, max_deductible, deductible_type,
                compliance_status, linked_policy_uid, notes,
-               ai_required, wos_required, primary_noncontrib,
-               per_project_aggregate, noc_required, completed_ops_required,
-               professional_liability_required, pollution_required,
-               cyber_required, builders_risk_required
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               required_endorsements
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             client_id,
             _int_or_none(project_id),
@@ -200,16 +191,7 @@ def requirements_add(
             compliance_status.strip() or "Needs Review",
             linked_policy_uid.strip() or None,
             notes.strip() or None,
-            _flag(ai_required),
-            _flag(wos_required),
-            _flag(primary_noncontrib),
-            _flag(per_project_aggregate),
-            _flag(noc_required),
-            _flag(completed_ops_required),
-            _flag(professional_liability_required),
-            _flag(pollution_required),
-            _flag(cyber_required),
-            _flag(builders_risk_required),
+            endorsements,
         ),
     )
     conn.commit()
@@ -258,16 +240,7 @@ def requirements_edit(
     compliance_status: str = Form("Needs Review"),
     linked_policy_uid: str = Form(""),
     notes: str = Form(""),
-    ai_required: str = Form(""),
-    wos_required: str = Form(""),
-    primary_noncontrib: str = Form(""),
-    per_project_aggregate: str = Form(""),
-    noc_required: str = Form(""),
-    completed_ops_required: str = Form(""),
-    professional_liability_required: str = Form(""),
-    pollution_required: str = Form(""),
-    cyber_required: str = Form(""),
-    builders_risk_required: str = Form(""),
+    required_endorsements: str = Form("[]"),
 ):
     def _int_or_none(v: str):
         try:
@@ -281,18 +254,18 @@ def requirements_edit(
         except (ValueError, AttributeError):
             return None
 
-    def _flag(v: str) -> int:
-        return 1 if v and v not in ("0", "false", "off", "") else 0
+    import json as _json
+    try:
+        endorsements = _json.dumps(_json.loads(required_endorsements))
+    except (ValueError, TypeError):
+        endorsements = _json.dumps([e.strip() for e in required_endorsements.split(",") if e.strip()])
 
     conn.execute(
         """UPDATE coverage_requirements
            SET coverage_line=?, project_id=?, source_id=?, risk_id=?,
                required_limit=?, max_deductible=?, deductible_type=?,
                compliance_status=?, linked_policy_uid=?, notes=?,
-               ai_required=?, wos_required=?, primary_noncontrib=?,
-               per_project_aggregate=?, noc_required=?, completed_ops_required=?,
-               professional_liability_required=?, pollution_required=?,
-               cyber_required=?, builders_risk_required=?
+               required_endorsements=?
            WHERE id=? AND client_id=?""",
         (
             coverage_line.strip(),
@@ -305,16 +278,7 @@ def requirements_edit(
             compliance_status.strip() or "Needs Review",
             linked_policy_uid.strip() or None,
             notes.strip() or None,
-            _flag(ai_required),
-            _flag(wos_required),
-            _flag(primary_noncontrib),
-            _flag(per_project_aggregate),
-            _flag(noc_required),
-            _flag(completed_ops_required),
-            _flag(professional_liability_required),
-            _flag(pollution_required),
-            _flag(cyber_required),
-            _flag(builders_risk_required),
+            endorsements,
             req_id,
             client_id,
         ),

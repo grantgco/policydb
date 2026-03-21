@@ -2,15 +2,22 @@
 
 from __future__ import annotations
 
+import json
+
 from policydb.utils import normalize_coverage_type
 
-# Boolean endorsement flag columns
-_ENDORSEMENT_FLAGS = [
-    "ai_required", "wos_required", "primary_noncontrib",
-    "per_project_aggregate", "noc_required", "completed_ops_required",
-    "professional_liability_required", "pollution_required",
-    "cyber_required", "builders_risk_required",
-]
+
+def _parse_endorsements(val) -> list[str]:
+    """Parse required_endorsements from DB (JSON string) or dict (already parsed)."""
+    if isinstance(val, list):
+        return val
+    if isinstance(val, str):
+        try:
+            parsed = json.loads(val)
+            return parsed if isinstance(parsed, list) else []
+        except (json.JSONDecodeError, TypeError):
+            return []
+    return []
 
 
 def resolve_governing_requirements(
@@ -21,7 +28,7 @@ def resolve_governing_requirements(
     When multiple sources require the same coverage line:
     - Highest required_limit wins
     - Lowest max_deductible wins (more stringent)
-    - Endorsement flags OR across all sources (if ANY requires it, it's required)
+    - Endorsement lists unioned across all sources (if ANY source requires it, it's required)
     - governing_source tracks which source drove the most stringent limit
 
     Args:
@@ -52,6 +59,7 @@ def resolve_governing_requirements(
 
         # Resolve to most stringent
         gov = dict(reqs[0])
+        gov["required_endorsements"] = _parse_endorsements(gov.get("required_endorsements"))
         gov_limit_source = gov.get("source_name", "")
 
         for req in reqs[1:]:
@@ -72,15 +80,16 @@ def resolve_governing_requirements(
             if ded_improved:
                 gov["max_deductible"] = req_ded
                 gov["deductible_type"] = req.get("deductible_type")
-                # Update governing source when deductible is more stringent
-                # but limit did not already change (limit didn't identify a new winner)
                 if not limit_improved:
                     gov_limit_source = req_source
 
-            # OR across endorsement flags
-            for flag in _ENDORSEMENT_FLAGS:
-                if req.get(flag):
-                    gov[flag] = 1
+            # Union endorsements across all sources
+            req_endorsements = _parse_endorsements(req.get("required_endorsements"))
+            existing = set(gov["required_endorsements"])
+            for e in req_endorsements:
+                if e not in existing:
+                    gov["required_endorsements"].append(e)
+                    existing.add(e)
 
         gov["governing_source"] = gov_limit_source
         gov["source_requirements"] = reqs

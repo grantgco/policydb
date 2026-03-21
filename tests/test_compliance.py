@@ -12,10 +12,7 @@ from policydb.compliance import (
 
 def _req(coverage_line="General Liability", required_limit=1_000_000,
          max_deductible=None, deductible_type=None,
-         ai_required=0, wos_required=0, primary_noncontrib=0,
-         per_project_aggregate=0, noc_required=0, completed_ops_required=0,
-         professional_liability_required=0, pollution_required=0,
-         cyber_required=0, builders_risk_required=0,
+         required_endorsements=None,
          source_id=None, source_name="Contract A",
          project_id=None, client_id=1, id=1, risk_id=None,
          compliance_status="Needs Review", linked_policy_uid=None,
@@ -25,15 +22,7 @@ def _req(coverage_line="General Liability", required_limit=1_000_000,
         "risk_id": risk_id, "source_id": source_id, "source_name": source_name,
         "coverage_line": coverage_line, "required_limit": required_limit,
         "max_deductible": max_deductible, "deductible_type": deductible_type,
-        "ai_required": ai_required, "wos_required": wos_required,
-        "primary_noncontrib": primary_noncontrib,
-        "per_project_aggregate": per_project_aggregate,
-        "noc_required": noc_required,
-        "completed_ops_required": completed_ops_required,
-        "professional_liability_required": professional_liability_required,
-        "pollution_required": pollution_required,
-        "cyber_required": cyber_required,
-        "builders_risk_required": builders_risk_required,
+        "required_endorsements": required_endorsements or [],
         "compliance_status": compliance_status,
         "linked_policy_uid": linked_policy_uid, "notes": notes,
     }
@@ -84,17 +73,20 @@ def test_most_stringent_deductible_wins():
     assert gov["Property"]["governing_source"] == "Lender B"
 
 
-def test_endorsement_flags_or_across_sources():
-    """If ANY source requires an endorsement, it's required."""
+def test_endorsements_unioned_across_sources():
+    """Endorsements from all sources are unioned together."""
     reqs = [
-        _req(id=1, coverage_line="GL", ai_required=1, wos_required=0,
+        _req(id=1, coverage_line="GL",
+             required_endorsements=["Additional Insured"],
              source_name="A"),
-        _req(id=2, coverage_line="GL", ai_required=0, wos_required=1,
+        _req(id=2, coverage_line="GL",
+             required_endorsements=["Waiver of Subrogation"],
              source_name="B"),
     ]
     gov = resolve_governing_requirements(reqs)
-    assert gov["GL"]["ai_required"] == 1
-    assert gov["GL"]["wos_required"] == 1
+    endorsements = gov["GL"]["required_endorsements"]
+    assert "Additional Insured" in endorsements
+    assert "Waiver of Subrogation" in endorsements
 
 
 def test_multiple_coverage_lines_resolved_independently():
@@ -142,17 +134,26 @@ def test_deductible_none_means_no_restriction():
     assert gov["Property"]["max_deductible"] == 5_000
 
 
-def test_all_endorsement_flags_propagate():
-    """All endorsement flags OR correctly across sources."""
+def test_endorsements_deduplicated_across_sources():
+    """Duplicate endorsements across sources are deduplicated."""
     reqs = [
-        _req(id=1, coverage_line="GL", noc_required=1, source_name="A"),
-        _req(id=2, coverage_line="GL", completed_ops_required=1, source_name="B"),
-        _req(id=3, coverage_line="GL", per_project_aggregate=1, source_name="C"),
+        _req(id=1, coverage_line="GL",
+             required_endorsements=["Additional Insured", "Notice of Cancellation"],
+             source_name="A"),
+        _req(id=2, coverage_line="GL",
+             required_endorsements=["Additional Insured", "Completed Operations"],
+             source_name="B"),
+        _req(id=3, coverage_line="GL",
+             required_endorsements=["Per-Project Aggregate"],
+             source_name="C"),
     ]
     gov = resolve_governing_requirements(reqs)
-    assert gov["GL"]["noc_required"] == 1
-    assert gov["GL"]["completed_ops_required"] == 1
-    assert gov["GL"]["per_project_aggregate"] == 1
+    endorsements = gov["GL"]["required_endorsements"]
+    assert len(endorsements) == 4
+    assert "Additional Insured" in endorsements
+    assert "Notice of Cancellation" in endorsements
+    assert "Completed Operations" in endorsements
+    assert "Per-Project Aggregate" in endorsements
 
 
 # ── Policy matching ─────────────────────────────────────────────────────────
