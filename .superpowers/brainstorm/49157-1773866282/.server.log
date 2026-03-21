@@ -1,0 +1,15 @@
+{"type":"server-started","port":54345,"host":"127.0.0.1","url_host":"localhost","url":"http://localhost:54345","screen_dir":"/Users/grantgreeson/Documents/Projects/policydb/.superpowers/brainstorm/49157-1773866282"}
+{"type":"screen-added","file":"/Users/grantgreeson/Documents/Projects/policydb/.superpowers/brainstorm/49157-1773866282/approaches.html"}
+{"type":"screen-updated","file":"/Users/grantgreeson/Documents/Projects/policydb/.superpowers/brainstorm/49157-1773866282/approaches.html"}
+{"type":"screen-updated","file":"/Users/grantgreeson/Documents/Projects/policydb/.superpowers/brainstorm/49157-1773866282/approaches.html"}
+{"type":"screen-updated","file":"/Users/grantgreeson/Documents/Projects/policydb/.superpowers/brainstorm/49157-1773866282/approaches.html"}
+{"source":"user-event","type":"click","text":"B\n    \n      Standalone Table + Deprecate Text Field\n      Same as A, but also:\n      Deprecation: Stop writing to program_carriers text field. Keep the column but ignore it. All reads come from the new table. program_carrier_count becomes a COUNT() on the table.\n      Views updated: v_policy_status, v_schedule join to program_carriers table for carrier display instead of reading the text field\n      Reconciler: Drops the +15 text substring bonus entirely. Uses only structured table lookups with graduated bonuses (+30 exact policy number, +10 carrier name match)\n      \n        Pros\n          Single source of truth from day one\n          No redundant data to keep in sync\n          Views and queries are cleaner\n          program_carrier_count is always accurate (computed, not stored)\n        \n        Cons\n          More migration work — must update views, reconciler, all read paths\n          Slightly larger blast radius","choice":"b","id":null,"timestamp":1773866602660}
+{"type":"screen-added","file":"/Users/grantgreeson/Documents/Projects/policydb/.superpowers/brainstorm/49157-1773866282/ui-mockups.html"}
+{"type":"screen-updated","file":"/Users/grantgreeson/Documents/Projects/policydb/.superpowers/brainstorm/49157-1773866282/ui-mockups.html"}
+{"type":"screen-updated","file":"/Users/grantgreeson/Documents/Projects/policydb/.superpowers/brainstorm/49157-1773866282/ui-mockups.html"}
+{"type":"screen-updated","file":"/Users/grantgreeson/Documents/Projects/policydb/.superpowers/brainstorm/49157-1773866282/ui-mockups.html"}
+{"type":"screen-updated","file":"/Users/grantgreeson/Documents/Projects/policydb/.superpowers/brainstorm/49157-1773866282/ui-mockups.html"}
+{"type":"screen-added","file":"/Users/grantgreeson/Documents/Projects/policydb/.superpowers/brainstorm/49157-1773866282/waiting.html"}
+{"type":"screen-updated","file":"/Users/grantgreeson/Documents/Projects/policydb/.superpowers/brainstorm/49157-1773866282/waiting.html"}
+{"type":"screen-updated","file":"/Users/grantgreeson/Documents/Projects/policydb/.superpowers/brainstorm/49157-1773866282/waiting.html"}
+{"type":"server-stopped","reason":"idle timeout"}

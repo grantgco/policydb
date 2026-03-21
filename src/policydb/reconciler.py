@@ -4,180 +4,23 @@ from __future__ import annotations
 
 import csv
 import io
+from collections import namedtuple
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Literal
-
-from rapidfuzz import fuzz, process
+from rapidfuzz import fuzz
 
 from policydb.importer import PolicyImporter, _parse_currency, _parse_date
+from policydb.utils import (
+    _COVERAGE_ALIASES,
+    normalize_carrier,
+    normalize_client_name_for_matching,
+    normalize_coverage_type,
+    normalize_policy_number_for_matching,
+    parse_currency,
+)
 
-# ─── COVERAGE NAME NORMALIZATION ──────────────────────────────────────────────
-# Maps common AMS abbreviations and alternate names to canonical PolicyDB values.
-# Applied before fuzzy matching so "CGL" vs "General Liability" score 100, not 40.
-_COVERAGE_ALIASES: dict[str, str] = {
-    # ── General Liability ────────────────────────────────────────────────────
-    "cgl": "General Liability",
-    "gl": "General Liability",
-    "general liability": "General Liability",
-    "commercial general liability": "General Liability",
-    "premises liability": "General Liability",
-    "general liability (part of package)": "General Liability",
-    "gl (part of package)": "General Liability",
-
-    # ── Property / Builders Risk ─────────────────────────────────────────────
-    # All these map to the combined canonical "Property / Builders Risk"
-    "prop": "Property / Builders Risk",
-    "bop": "Property / Builders Risk",
-    "commercial property": "Property / Builders Risk",
-    "building": "Property / Builders Risk",
-    "property": "Property / Builders Risk",
-    "all risks property": "Property / Builders Risk",
-    "all risk property": "Property / Builders Risk",
-    "difference in conditions": "Property / Builders Risk",
-    "dic": "Property / Builders Risk",
-    "inland marine": "Inland Marine",
-    "special risk": "Property / Builders Risk",
-    "blended program / package": "Property / Builders Risk",
-    "blended program/package": "Property / Builders Risk",
-    "blended program": "Property / Builders Risk",
-    "package policy": "Property / Builders Risk",
-
-    # ── Builders Risk (Standalone) ───────────────────────────────────────────
-    "builders risk": "Builders Risk (Standalone)",
-    "builders all risks": "Builders Risk (Standalone)",
-    "builders all risk": "Builders Risk (Standalone)",
-    "installation floater": "Builders Risk (Standalone)",
-    "builders risk (standalone)": "Builders Risk (Standalone)",
-
-    # ── Equipment Breakdown ───────────────────────────────────────────────────
-    "boiler & machinery": "Equipment Breakdown",
-    "boiler and machinery": "Equipment Breakdown",
-    "equipment breakdown": "Equipment Breakdown",
-
-    # ── Umbrella / Excess ────────────────────────────────────────────────────
-    "umb": "Umbrella / Excess",
-    "excess": "Umbrella / Excess",
-    "umbrella": "Umbrella / Excess",
-    "excess liability": "Umbrella / Excess",
-    "umbrella liability": "Umbrella / Excess",
-    "excess/umbrella": "Umbrella / Excess",
-    "umbrella / excess": "Umbrella / Excess",
-    "umbrella and/or bumbershoot liability": "Umbrella / Excess",
-    "bumbershoot": "Umbrella / Excess",
-    "marine excess liability": "Umbrella / Excess",
-
-    # ── Workers Compensation ─────────────────────────────────────────────────
-    "wc": "Workers Compensation",
-    "workers comp": "Workers Compensation",
-    "workers' comp": "Workers Compensation",
-    "workers' compensation": "Workers Compensation",
-    "work comp": "Workers Compensation",
-    "workers compensation": "Workers Compensation",
-
-    # ── Commercial Auto ──────────────────────────────────────────────────────
-    "ca": "Commercial Auto",
-    "bap": "Commercial Auto",
-    "commercial auto": "Commercial Auto",
-    "business auto": "Commercial Auto",
-    "hired & non-owned auto": "Commercial Auto",
-    "hired and non-owned": "Commercial Auto",
-    "automobile liability/physical damage (part of package)": "Commercial Auto",
-    "automobile liability/physical damage": "Commercial Auto",
-    "automobile/motor liability & physical damage": "Commercial Auto",
-    "automobile/motor liability and physical damage": "Commercial Auto",
-    "automobile/motor non-owned": "Commercial Auto",
-    "auto liability": "Commercial Auto",
-    "commercial automobile": "Commercial Auto",
-
-    # ── Cyber / Tech E&O ─────────────────────────────────────────────────────
-    "cyber": "Cyber / Tech E&O",
-    "cyber liability": "Cyber / Tech E&O",
-    "cyber / tech e&o": "Cyber / Tech E&O",
-    "cyber, tech, media programs": "Cyber / Tech E&O",
-    "cyber tech media": "Cyber / Tech E&O",
-    "technology e&o": "Cyber / Tech E&O",
-    "tech e&o": "Cyber / Tech E&O",
-    "media liability": "Cyber / Tech E&O",
-    "network security": "Cyber / Tech E&O",
-
-    # ── Professional Liability / E&O ─────────────────────────────────────────
-    "e&o": "Professional Liability / E&O",
-    "professional liability": "Professional Liability / E&O",
-    "professional liability / e&o": "Professional Liability / E&O",
-    "pl": "Professional Liability / E&O",
-    "errors & omissions": "Professional Liability / E&O",
-    "errors and omissions": "Professional Liability / E&O",
-    "professional indemnity": "Professional Liability / E&O",
-
-    # ── Directors & Officers ─────────────────────────────────────────────────
-    "d&o": "Directors & Officers",
-    "directors & officers": "Directors & Officers",
-    "directors and officers": "Directors & Officers",
-    "directors & officers liability": "Directors & Officers",
-    "directors and officers liability": "Directors & Officers",
-    "excess side-a dic d&o": "Directors & Officers",
-    "excess side-a d&o": "Directors & Officers",
-    "excess directors & officers liability": "Directors & Officers",
-    "excess directors and officers liability": "Directors & Officers",
-    "excess d&o": "Directors & Officers",
-    "side a d&o": "Directors & Officers",
-    "fiduciary": "Directors & Officers",
-    "fiduciary liability": "Directors & Officers",
-    "erisa": "Directors & Officers",
-
-    # ── EPLI ──────────────────────────────────────────────────────────────────
-    "epli": "Employment Practices Liability",
-    "employment practices": "Employment Practices Liability",
-    "employment practices liability": "Employment Practices Liability",
-    "epl": "Employment Practices Liability",
-
-    # ── Crime / Fidelity ──────────────────────────────────────────────────────
-    "crime": "Crime / Fidelity",
-    "fidelity": "Crime / Fidelity",
-    "crime / fidelity": "Crime / Fidelity",
-    "commercial crime": "Crime / Fidelity",
-    "employee dishonesty": "Crime / Fidelity",
-
-    # ── Environmental ─────────────────────────────────────────────────────────
-    "env": "Environmental",
-    "environmental liability": "Environmental",
-    "pollution liability": "Environmental",
-    "pollution legal liability": "Environmental",
-    "pll": "Environmental",
-    "environmental impairment": "Environmental",
-
-    # ── Marine ────────────────────────────────────────────────────────────────
-    "marine": "Inland Marine",
-    "ocean marine": "Inland Marine",
-    "cargo": "Inland Marine",
-    "multi-peril marine package": "Inland Marine",
-    "marine package": "Inland Marine",
-
-    # ── Railroad Protective ───────────────────────────────────────────────────
-    "railroad protective liability": "Railroad Protective",
-    "railroad protective": "Railroad Protective",
-
-    # ── OCIP / Wrap-Up ────────────────────────────────────────────────────────
-    "ocip": "OCIP",
-    "ccip": "OCIP",
-    "wrap-up": "OCIP",
-    "wrap up": "OCIP",
-    "owner controlled insurance program": "OCIP",
-    "contractor controlled insurance program": "OCIP",
-}
-
-
-def _normalize_coverage(value: str) -> str:
-    """Normalize a policy type / line of business name to a canonical form."""
-    if not value:
-        return value
-    key = value.strip().lower()
-    return _COVERAGE_ALIASES.get(key, value.strip())
 
 # ─── TYPES ────────────────────────────────────────────────────────────────────
-
-MatchStatus = Literal["MATCH", "DIFF", "MISSING", "EXTRA"]
 
 COMPARE_FIELDS = [
     "client_name",
@@ -191,23 +34,45 @@ COMPARE_FIELDS = [
     "deductible",
 ]
 
-_CURRENCY_FIELDS = {"premium", "limit_amount", "deductible"}
-_DATE_FIELDS = {"effective_date", "expiration_date"}
-_TEXT_FIELDS = {"client_name", "policy_type", "carrier"}
-
-_STATUS_SORT = {"DIFF": 0, "MISSING": 1, "EXTRA": 2, "MATCH": 3}
+_STATUS_SORT = {"DIFF": 0, "PAIRED": 0, "MISSING": 1, "UNMATCHED": 1, "EXTRA": 2, "MATCH": 3}
 
 
 @dataclass
 class ReconcileRow:
-    status: MatchStatus
-    ext: dict | None        # uploaded record; None for EXTRA
-    db: dict | None         # PolicyDB record; None for MISSING
+    """One row in reconciliation results."""
+    ext: dict | None = None         # uploaded record; None for EXTRA
+    db: dict | None = None          # PolicyDB record; None for UNMATCHED/MISSING
+    status: str = "PAIRED"          # "PAIRED" | "UNMATCHED" | "EXTRA" | legacy: "MATCH" | "DIFF" | "MISSING"
+    match_score: float = 0.0       # 0-100 total
+    confidence: str = "none"       # "high" | "medium" | "low" | "none"
+    match_method: str = ""         # "policy_number" | "scored" | "manual" | legacy: "date_pair" | "fuzzy" | ""
+    confirmed: bool = False        # user stamped
+
+    # Per-field score breakdown
+    score_policy_number: float = 0.0
+    score_dates: float = 0.0
+    score_type: float = 0.0
+    score_carrier: float = 0.0
+    score_name: float = 0.0
+
+    # Diff tracking
     diff_fields: list[str] = field(default_factory=list)
-    match_score: float = 100.0
+    cosmetic_diffs: list[str] = field(default_factory=list)
+    fillable_fields: list[str] = field(default_factory=list)
+
+    # Metadata
+    eff_delta_days: int | None = None
+    exp_delta_days: int | None = None
+    ext_type_raw: str = ""
+    ext_type_normalized: str = ""
+    coverage_alias_applied: bool = False
+
+    # Program support
+    is_program_match: bool = False
+    matched_carrier_id: int | None = None
 
 
-# ─── CSV PARSING ──────────────────────────────────────────────────────────────
+# ─── FILE PARSING ─────────────────────────────────────────────────────────────
 
 def _normalize_headers(raw_headers: list[str]) -> dict[str, str]:
     """Map raw CSV column names to canonical PolicyDB field names via PolicyImporter.ALIASES."""
@@ -222,59 +87,33 @@ def _normalize_headers(raw_headers: list[str]) -> dict[str, str]:
     return mapping
 
 
-def parse_uploaded_csv(
-    content: bytes,
-    column_mapping: dict | None = None,
-) -> tuple[list[dict], list[str]]:
-    """
-    Parse uploaded CSV bytes into normalized dicts.
-
-    Args:
-        content: Raw CSV file bytes.
-        column_mapping: Optional explicit mapping of original column names to
-            canonical PolicyDB field names (e.g. {"Policy Expiry": "expiration_date"}).
-            When provided, bypasses ALIASES auto-detection entirely.
-
-    Returns:
-        rows: list of dicts with canonical field names and parsed values
-        warnings: human-readable parse warnings
-    """
-    warnings: list[str] = []
-
-    # Try UTF-8-sig (handles BOM from AMS360/Excel), fall back to latin-1
-    try:
-        text = content.decode("utf-8-sig")
-    except UnicodeDecodeError:
-        text = content.decode("latin-1")
-        warnings.append("File encoding detected as Latin-1 (not UTF-8). Special characters may be affected.")
-
-    reader = csv.DictReader(io.StringIO(text))
-    raw_rows = list(reader)
-
+def _process_raw_rows(
+    raw_rows: list[dict],
+    column_mapping: dict | None,
+    warnings: list[str],
+) -> list[dict]:
+    """Normalize, map, and parse a list of raw row dicts (from CSV or XLSX)."""
     if not raw_rows:
         warnings.append("No data rows found in uploaded file.")
-        return [], warnings
+        return []
 
     if column_mapping:
-        # User-defined mapping — use directly, unmapped columns kept as-is
         raw_headers = list(raw_rows[0].keys())
         header_map = {h: column_mapping.get(h, h) for h in raw_headers}
     else:
         header_map = _normalize_headers(list(raw_rows[0].keys()))
-    rows: list[dict] = []
 
+    rows: list[dict] = []
     for i, raw in enumerate(raw_rows, start=2):  # row 1 = header
         row: dict = {}
         for raw_key, value in raw.items():
             canonical = header_map.get(raw_key, raw_key)
-            row[canonical] = (value or "").strip()
+            row[canonical] = (str(value).strip() if value is not None else "")
 
-        # Skip rows with no identifiable data
         if not row.get("client_name") and not row.get("policy_number"):
             warnings.append(f"Row {i}: skipped — no client name or policy number found.")
             continue
 
-        # Parse typed fields
         for field_name in ("effective_date", "expiration_date"):
             if row.get(field_name):
                 parsed = _parse_date(row[field_name])
@@ -291,8 +130,81 @@ def parse_uploaded_csv(
                 row[field_name] = 0.0
 
         rows.append(row)
+    return rows
 
+
+def _parse_csv_content(content: bytes, column_mapping: dict | None) -> tuple[list[dict], list[str]]:
+    """Parse CSV bytes into normalized dicts."""
+    warnings: list[str] = []
+    try:
+        text = content.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        text = content.decode("latin-1")
+        warnings.append("File encoding detected as Latin-1 (not UTF-8). Special characters may be affected.")
+
+    reader = csv.DictReader(io.StringIO(text))
+    raw_rows = list(reader)
+    rows = _process_raw_rows(raw_rows, column_mapping, warnings)
     return rows, warnings
+
+
+def _parse_xlsx_content(content: bytes, column_mapping: dict | None) -> tuple[list[dict], list[str]]:
+    """Parse XLSX bytes into normalized dicts using openpyxl."""
+    from openpyxl import load_workbook
+
+    warnings: list[str] = []
+    try:
+        wb = load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+    except Exception as e:
+        return [], [f"Could not read Excel file: {e}"]
+
+    ws = wb.active
+    rows_iter = ws.iter_rows(values_only=True)
+
+    # First row = headers
+    try:
+        header_row = next(rows_iter)
+    except StopIteration:
+        return [], ["Excel file has no data."]
+
+    headers = [str(h).strip() if h is not None else f"col_{i}" for i, h in enumerate(header_row)]
+
+    raw_rows: list[dict] = []
+    for row_vals in rows_iter:
+        if all(v is None for v in row_vals):
+            continue  # skip blank rows
+        raw = {}
+        for h, v in zip(headers, row_vals):
+            if v is None:
+                raw[h] = ""
+            elif isinstance(v, datetime):
+                raw[h] = v.strftime("%Y-%m-%d")
+            else:
+                raw[h] = str(v).strip()
+        raw_rows.append(raw)
+
+    wb.close()
+    rows = _process_raw_rows(raw_rows, column_mapping, warnings)
+    return rows, warnings
+
+
+def parse_uploaded_file(
+    content: bytes,
+    column_mapping: dict | None = None,
+    filename: str = "",
+) -> tuple[list[dict], list[str]]:
+    """
+    Parse uploaded CSV or XLSX bytes into normalized dicts.
+
+    Auto-detects format by filename extension or content magic bytes.
+    """
+    if filename.lower().endswith(('.xlsx', '.xls')) or content[:2] == b'PK':
+        return _parse_xlsx_content(content, column_mapping)
+    return _parse_csv_content(content, column_mapping)
+
+
+# Backward compatibility alias
+parse_uploaded_csv = parse_uploaded_file
 
 
 # ─── FIELD COMPARISON ─────────────────────────────────────────────────────────
@@ -309,57 +221,6 @@ def _date_delta_days(d1: str | None, d2: str | None) -> int | None:
         return None
 
 
-def _compare_fields(ext: dict, db: dict) -> tuple[list[str], float]:
-    """
-    Compare COMPARE_FIELDS between ext and db records.
-
-    Returns:
-        diff_fields: list of field names that differ
-        score: minimum WRatio across text fields (confidence)
-    """
-    diff_fields: list[str] = []
-    min_text_score = 100.0
-
-    for f in COMPARE_FIELDS:
-        ext_val = ext.get(f)
-        db_val = db.get(f)
-
-        if f in _TEXT_FIELDS:
-            if ext_val and db_val:
-                # Normalize coverage names before comparing
-                ev = _normalize_coverage(str(ext_val)) if f == "policy_type" else str(ext_val)
-                dv = _normalize_coverage(str(db_val)) if f == "policy_type" else str(db_val)
-                score = fuzz.WRatio(ev, dv)
-                min_text_score = min(min_text_score, score)
-                if score < 85:
-                    diff_fields.append(f)
-
-        elif f in _DATE_FIELDS:
-            delta = _date_delta_days(ext_val or "", db_val or "")
-            if delta is not None and delta > 14:
-                diff_fields.append(f)
-
-        elif f in _CURRENCY_FIELDS:
-            try:
-                ev = float(ext_val) if ext_val else 0.0
-                dv = float(db_val) if db_val else 0.0
-                if ev > 0 and dv > 0:
-                    pct_diff = abs(ev - dv) / max(ev, dv)
-                    if pct_diff > 0.01:
-                        diff_fields.append(f)
-            except (TypeError, ValueError):
-                pass
-
-        # policy_number: only flag if one side has it and the other doesn't
-        elif f == "policy_number":
-            ext_pn = (ext_val or "").strip().upper()
-            db_pn = (db_val or "").strip().upper()
-            if ext_pn and db_pn and ext_pn != db_pn:
-                diff_fields.append(f)
-
-    return diff_fields, min_text_score
-
-
 # ─── MATCHING ─────────────────────────────────────────────────────────────────
 
 def _same_year(d1: str | None, d2: str | None) -> bool:
@@ -369,147 +230,254 @@ def _same_year(d1: str | None, d2: str | None) -> bool:
     return d1[:4] == d2[:4]
 
 
-def _fuzzy_match(ext_row: dict, candidates: list[dict]) -> tuple[dict | None, float]:
+# ─── ADDITIVE SCORING (new — replaces _fuzzy_match in Task 4) ────────────────
+
+ScoreBreakdown = namedtuple(
+    "ScoreBreakdown",
+    [
+        "score_policy_number",
+        "score_dates",
+        "score_type",
+        "score_carrier",
+        "score_name",
+        "total",
+        "confidence",
+        "diff_fields",
+        "cosmetic_diffs",
+        "fillable_fields",
+        "eff_delta_days",
+        "exp_delta_days",
+        "ext_type_raw",
+        "ext_type_normalized",
+        "coverage_alias_applied",
+    ],
+)
+
+
+def _score_pair(
+    ext: dict,
+    db: dict,
+    single_client: bool = False,
+) -> ScoreBreakdown:
+    """Additive per-field scoring for an (ext, db) pair.
+
+    No hard gates — every signal contributes points independently.
+
+    Signals and max points:
+        Policy Number  40   Exact normalized=40, fuzzy>=90=32, >=75=20, missing=0
+        Dates          30   Split 15+15 (eff+exp). Exact=15, <=14d=12, <=45d=8, same year=4, >1yr=0
+        Policy Type    15   Normalized match=15, fuzzy>=85=12, >=70=8, <70=0
+        Carrier        10   Normalized match=10, fuzzy>=80=7, >=60=4, <60=0
+        Client Name     5   Normalized match=5, fuzzy>=80=4, >=60=2, <60=0
+
+    Confidence tiers: high>=75, medium>=45, low<45.
     """
-    Find the best fuzzy match for ext_row among candidates.
 
-    Scoring pipeline:
-      - client_name WRatio must be >= 70 (hard filter)
-      - policy_type WRatio must be >= 60 (soft — combined score handles borderline cases)
-      - expiration date: +20 if ≤14d, +10 if ≤45d, +5 if same year, −10 if >60d
-      - effective date: +10 if ≤14d, +5 if ≤45d
-      - carrier: +10 if WRatio >= 70
-      - policy number similarity: +15 if fuzzy match >= 90
-      - Accept if combined score >= 65
-    """
-    if not ext_row.get("client_name"):
-        return None, 0.0
+    # Diff tracking lists — populated by each scoring section below
+    diff_fields: list[str] = []
+    cosmetic_diffs: list[str] = []
+    fillable_fields: list[str] = []
 
-    ext_client = ext_row.get("client_name", "")
-    ext_type = _normalize_coverage(ext_row.get("policy_type", ""))
-    ext_exp = ext_row.get("expiration_date", "")
-    ext_eff = ext_row.get("effective_date", "")
-    ext_carrier = ext_row.get("carrier", "")
-    ext_pn = (ext_row.get("policy_number") or "").strip().upper()
+    # ── Policy Number (max 40) ────────────────────────────────────────────────
+    ext_pn_raw = str(ext.get("policy_number") or "").strip()
+    db_pn_raw = str(db.get("policy_number") or "").strip()
+    ext_pn = normalize_policy_number_for_matching(ext_pn_raw)
+    db_pn = normalize_policy_number_for_matching(db_pn_raw)
 
-    best_candidate = None
-    best_score = 0.0
+    score_policy_number = 0.0
+    if ext_pn and db_pn:
+        if ext_pn == db_pn:
+            score_policy_number = 40.0
+        else:
+            pn_ratio = fuzz.ratio(ext_pn, db_pn)
+            if pn_ratio >= 90:
+                score_policy_number = 32.0
+            elif pn_ratio >= 75:
+                score_policy_number = 20.0
+    # Missing on either side = 0 (no penalty, no reward)
 
-    for db in candidates:
-        # Hard filter: client name must be recognizably the same
-        client_score = fuzz.WRatio(ext_client, db.get("client_name", ""))
-        if client_score < 70:
-            continue
+    # ── Dates (max 30 = 15 eff + 15 exp) ─────────────────────────────────────
+    ext_eff = str(ext.get("effective_date") or "").strip()
+    db_eff = str(db.get("effective_date") or "").strip()
+    ext_exp = str(ext.get("expiration_date") or "").strip()
+    db_exp = str(db.get("expiration_date") or "").strip()
 
-        # Soft filter: policy type — lower threshold; combined scoring handles borderline cases
-        db_type = _normalize_coverage(db.get("policy_type", ""))
-        type_score = fuzz.WRatio(ext_type, db_type) if (ext_type and db_type) else 50
-        if type_score < 60:
-            continue
+    eff_delta = _date_delta_days(ext_eff, db_eff)
+    exp_delta = _date_delta_days(ext_exp, db_exp)
 
-        # Base score: weighted average of client + type (type counts slightly less since
-        # aliases may not cover every AMS360 variant)
-        combined = client_score * 0.55 + type_score * 0.45
+    def _date_score(delta: int | None, d1: str, d2: str) -> float:
+        """Score a single date pair (max 15)."""
+        if delta is None:
+            return 0.0
+        if delta == 0:
+            return 15.0
+        if delta <= 14:
+            return 12.0
+        if delta <= 45:
+            return 8.0
+        if _same_year(d1, d2):
+            return 4.0
+        return 0.0
 
-        # Carrier bonus
-        if ext_carrier:
-            carrier_score = fuzz.WRatio(ext_carrier, db.get("carrier", ""))
-            if carrier_score >= 70:
-                combined += 10
+    score_eff = _date_score(eff_delta, ext_eff, db_eff)
+    score_exp = _date_score(exp_delta, ext_exp, db_exp)
+    score_dates = score_eff + score_exp
 
-        # Expiration date — graduated bonus/penalty
-        db_exp = db.get("expiration_date", "")
-        exp_delta = _date_delta_days(ext_exp, db_exp) if (ext_exp and db_exp) else None
-        if exp_delta is not None:
-            if exp_delta <= 14:
-                combined += 20
-            elif exp_delta <= 45:
-                combined += 10
-            elif _same_year(ext_exp, db_exp):
-                combined += 5    # same year, different month — some confidence
+    # ── Policy Type (max 15) ─────────────────────────────────────────────────
+    ext_type_raw = str(ext.get("policy_type") or "").strip()
+    db_type_raw = str(db.get("policy_type") or "").strip()
+    ext_type_norm = normalize_coverage_type(ext_type_raw)
+    db_type_norm = normalize_coverage_type(db_type_raw)
+    coverage_alias_applied = (
+        bool(ext_type_raw)
+        and ext_type_raw.strip().lower() != ext_type_norm.lower()
+    )
+
+    score_type = 0.0
+    if ext_type_norm and db_type_norm:
+        if ext_type_norm.lower() == db_type_norm.lower():
+            score_type = 15.0
+            # Raw values differ but normalized match = cosmetic
+            if ext_type_raw.lower() != db_type_raw.lower():
+                cosmetic_diffs.append("policy_type")
+        else:
+            type_ratio = fuzz.WRatio(ext_type_norm, db_type_norm)
+            if type_ratio >= 85:
+                score_type = 12.0
+                cosmetic_diffs.append("policy_type")
+            elif type_ratio >= 70:
+                score_type = 8.0
+                diff_fields.append("policy_type")
             else:
-                combined -= 10   # clearly different period; penalize but allow strong name+type to rescue
+                diff_fields.append("policy_type")
 
-        # Effective date — smaller bonus
-        db_eff = db.get("effective_date", "")
-        eff_delta = _date_delta_days(ext_eff, db_eff) if (ext_eff and db_eff) else None
-        if eff_delta is not None:
-            if eff_delta <= 14:
-                combined += 10
-            elif eff_delta <= 45:
-                combined += 5
+    # ── Carrier (max 10) ──────────────────────────────────────────────────────
+    ext_carrier_raw = str(ext.get("carrier") or "").strip()
+    db_carrier_raw = str(db.get("carrier") or "").strip()
+    ext_carrier_norm = normalize_carrier(ext_carrier_raw)
+    db_carrier_norm = normalize_carrier(db_carrier_raw)
 
-        # Policy number similarity bonus (catches near-exact numbers with formatting differences)
-        db_pn = (db.get("policy_number") or "").strip().upper()
-        if ext_pn and db_pn:
-            pn_score = fuzz.ratio(ext_pn, db_pn)
-            if pn_score >= 90:
-                combined += 15
-            elif pn_score >= 75:
-                combined += 5
+    score_carrier = 0.0
+    if ext_carrier_norm and db_carrier_norm:
+        if ext_carrier_norm.lower() == db_carrier_norm.lower():
+            score_carrier = 10.0
+            if ext_carrier_raw.lower() != db_carrier_raw.lower():
+                cosmetic_diffs.append("carrier")
+        else:
+            carrier_ratio = fuzz.WRatio(ext_carrier_norm, db_carrier_norm)
+            if carrier_ratio >= 80:
+                score_carrier = 7.0
+                cosmetic_diffs.append("carrier")
+            elif carrier_ratio >= 60:
+                score_carrier = 4.0
+                diff_fields.append("carrier")
+            else:
+                diff_fields.append("carrier")
 
-        if combined > best_score:
-            best_score = combined
-            best_candidate = db
+    # ── Client Name / FNI (max 5) ────────────────────────────────────────────
+    if single_client:
+        score_name = 5.0
+    else:
+        ext_client = normalize_client_name_for_matching(ext.get("client_name"))
+        db_client = normalize_client_name_for_matching(db.get("client_name"))
+        ext_fni = normalize_client_name_for_matching(ext.get("first_named_insured"))
+        db_fni = normalize_client_name_for_matching(db.get("first_named_insured"))
 
-    if best_score < 65:
-        return None, 0.0
+        # Cross-match: ext client vs db client, ext client vs db FNI,
+        #              ext FNI vs db client, ext FNI vs db FNI — take best
+        best_name_ratio = 0.0
+        pairs_to_check = []
+        if ext_client and db_client:
+            pairs_to_check.append((ext_client, db_client))
+        if ext_client and db_fni:
+            pairs_to_check.append((ext_client, db_fni))
+        if ext_fni and db_client:
+            pairs_to_check.append((ext_fni, db_client))
+        if ext_fni and db_fni:
+            pairs_to_check.append((ext_fni, db_fni))
 
-    return best_candidate, best_score
+        for a, b in pairs_to_check:
+            ratio = fuzz.WRatio(a, b)
+            if ratio > best_name_ratio:
+                best_name_ratio = ratio
+
+        if best_name_ratio >= 95:
+            score_name = 5.0
+        elif best_name_ratio >= 80:
+            score_name = 4.0
+        elif best_name_ratio >= 60:
+            score_name = 2.0
+        else:
+            score_name = 0.0
+
+    # ── Total and confidence ──────────────────────────────────────────────────
+    total = score_policy_number + score_dates + score_type + score_carrier + score_name
+
+    if total >= 75:
+        confidence = "high"
+    elif total >= 45:
+        confidence = "medium"
+    else:
+        confidence = "low"
+
+    # Currency fields: premium, limit_amount, deductible
+    for cf in ("premium", "limit_amount", "deductible"):
+        ext_val = parse_currency(ext.get(cf, 0))
+        db_val = parse_currency(db.get(cf, 0))
+        if ext_val > 0 and db_val > 0:
+            pct_diff = abs(ext_val - db_val) / max(ext_val, db_val)
+            if pct_diff > 0.01:
+                diff_fields.append(cf)
+        elif ext_val > 0 and db_val == 0:
+            fillable_fields.append(cf)
+
+    # Policy number fillable: ext has one, db doesn't
+    if ext_pn_raw and not db_pn_raw:
+        fillable_fields.append("policy_number")
+
+    return ScoreBreakdown(
+        score_policy_number=score_policy_number,
+        score_dates=score_dates,
+        score_type=score_type,
+        score_carrier=score_carrier,
+        score_name=score_name,
+        total=total,
+        confidence=confidence,
+        diff_fields=diff_fields,
+        cosmetic_diffs=cosmetic_diffs,
+        fillable_fields=fillable_fields,
+        eff_delta_days=eff_delta,
+        exp_delta_days=exp_delta,
+        ext_type_raw=ext_type_raw,
+        ext_type_normalized=ext_type_norm,
+        coverage_alias_applied=coverage_alias_applied,
+    )
 
 
-def find_candidates(ext_row: dict, db_rows: list[dict], limit: int = 8) -> list[tuple[dict, float]]:
+def find_candidates(ext_row: dict, db_rows: list[dict], limit: int = 8, single_client: bool = False) -> list[tuple[dict, float]]:
     """
     Return top candidate DB rows for a given ext_row, for manual match selection.
-    Uses a wider tolerance than the automatic matcher to surface more options.
+    Uses _score_pair() for consistent scoring. Returns top ``limit`` by score, no
+    threshold — the UI shows all candidates and lets the user pick.
     Returns list of (db_row, score) sorted by score descending.
     """
-    ext_client = ext_row.get("client_name", "")
-    ext_type = _normalize_coverage(ext_row.get("policy_type", ""))
-    ext_exp = ext_row.get("expiration_date", "")
-    ext_eff = ext_row.get("effective_date", "")
-    ext_carrier = ext_row.get("carrier", "")
-
     scored: list[tuple[dict, float]] = []
 
     for db in db_rows:
-        client_score = fuzz.WRatio(ext_client, db.get("client_name", "")) if ext_client else 0
-        if client_score < 50:
-            continue
+        breakdown = _score_pair(ext_row, db, single_client=single_client)
 
-        type_score = fuzz.WRatio(ext_type, _normalize_coverage(db.get("policy_type", ""))) if ext_type else 50
-        carrier_score = fuzz.WRatio(ext_carrier, db.get("carrier", "")) if ext_carrier else 0
+        # Also try scoring against program carrier rows for better program matching
+        best_total = breakdown.total
+        if db.get("is_program") and db.get("_program_carrier_rows"):
+            for pc in db["_program_carrier_rows"]:
+                # Build a pseudo-db dict with carrier-level fields overlaid on program
+                pc_db = {**db, "carrier": pc.get("carrier", ""), "policy_number": pc.get("policy_number", ""),
+                         "premium": pc.get("premium", 0), "limit_amount": pc.get("limit_amount", 0)}
+                pc_breakdown = _score_pair(ext_row, pc_db, single_client=single_client)
+                if pc_breakdown.total > best_total:
+                    best_total = pc_breakdown.total
 
-        combined = (client_score + type_score) / 2
-        combined += 10 if carrier_score >= 70 else 0
-
-        # Expiration date within 60 days — bonus scoring, not a hard filter for suggestions
-        db_exp = db.get("expiration_date", "")
-        if ext_exp and db_exp:
-            exp_delta = _date_delta_days(ext_exp, db_exp)
-            if exp_delta is not None:
-                if exp_delta <= 14:
-                    combined += 20
-                elif exp_delta <= 60:
-                    combined += 10
-
-        # Effective date within 60 days — additional bonus
-        db_eff = db.get("effective_date", "")
-        if ext_eff and db_eff:
-            eff_delta = _date_delta_days(ext_eff, db_eff)
-            if eff_delta is not None:
-                if eff_delta <= 14:
-                    combined += 15
-                elif eff_delta <= 60:
-                    combined += 5
-
-        # Exact policy number match is a very strong signal
-        ext_pn = (ext_row.get("policy_number") or "").strip().upper()
-        db_pn = (db.get("policy_number") or "").strip().upper()
-        if ext_pn and db_pn and ext_pn == db_pn:
-            combined += 30
-
-        scored.append((db, round(combined, 1)))
+        scored.append((db, round(best_total, 1)))
 
     scored.sort(key=lambda x: x[1], reverse=True)
     return scored[:limit]
@@ -517,31 +485,107 @@ def find_candidates(ext_row: dict, db_rows: list[dict], limit: int = 8) -> list[
 
 # ─── MAIN RECONCILE ───────────────────────────────────────────────────────────
 
-def reconcile(ext_rows: list[dict], db_rows: list[dict]) -> list[ReconcileRow]:
+def _build_reconcile_row(ext: dict, db: dict, breakdown: ScoreBreakdown,
+                         match_method: str, is_program_match: bool = False,
+                         matched_carrier_id: int | None = None) -> ReconcileRow:
+    """Create a PAIRED ReconcileRow from a ScoreBreakdown."""
+    return ReconcileRow(
+        ext=ext, db=db, status="PAIRED",
+        match_score=breakdown.total,
+        confidence=breakdown.confidence,
+        match_method=match_method,
+        score_policy_number=breakdown.score_policy_number,
+        score_dates=breakdown.score_dates,
+        score_type=breakdown.score_type,
+        score_carrier=breakdown.score_carrier,
+        score_name=breakdown.score_name,
+        diff_fields=list(breakdown.diff_fields),
+        cosmetic_diffs=list(breakdown.cosmetic_diffs),
+        fillable_fields=list(breakdown.fillable_fields),
+        eff_delta_days=breakdown.eff_delta_days,
+        exp_delta_days=breakdown.exp_delta_days,
+        ext_type_raw=breakdown.ext_type_raw,
+        ext_type_normalized=breakdown.ext_type_normalized,
+        coverage_alias_applied=breakdown.coverage_alias_applied,
+        is_program_match=is_program_match,
+        matched_carrier_id=matched_carrier_id,
+    )
+
+
+def _resolve_program_carrier(ext: dict, db: dict, ext_pn_norm: str) -> tuple[int | None, dict]:
+    """Find the matching program carrier row for an ext row.
+
+    Returns (matched_carrier_id, score_target_db) where score_target_db is the
+    carrier row dict to score against (or the program itself if no carrier matched).
     """
-    Match ext_rows against db_rows.
+    if not db.get("is_program") or not db.get("_program_carrier_rows"):
+        return None, db
 
-    Pass 1: Exact policy number match
-    Pass 2: Fuzzy match on client_name + policy_type + expiration_date
-    Pass 3: Remaining DB rows → EXTRA
+    ext_carrier = ext.get("carrier", "")
 
-    Returns rows sorted: DIFF, MISSING, EXTRA, MATCH.
+    # First try matching by policy number (strongest signal)
+    if ext_pn_norm:
+        for pc in db["_program_carrier_rows"]:
+            pc_pn = normalize_policy_number_for_matching(pc.get("policy_number") or "")
+            if pc_pn and ext_pn_norm == pc_pn:
+                return pc.get("id"), pc
+
+    # Fall back to carrier name fuzzy match
+    if ext_carrier:
+        for pc in db["_program_carrier_rows"]:
+            if fuzz.WRatio(ext_carrier, pc.get("carrier", "")) >= 70:
+                return pc.get("id"), pc
+
+    return None, db
+
+
+def reconcile(ext_rows: list[dict], db_rows: list[dict], date_priority: bool = False, single_client: bool = False) -> list[ReconcileRow]:
+    """
+    Match ext_rows against db_rows using a 3-pass algorithm.
+
+    Pass 1: Exact policy number match (normalized). Includes program carrier
+            row policy numbers. Uses _score_pair() for full scoring.
+    Pass 2: Scored match for remaining unmatched ext rows. Best match per ext
+            row with score >= 45. Programs stay in candidate pool.
+    Pass 3: Remaining ext rows → UNMATCHED, remaining DB rows → EXTRA.
+            Programs with at least one match are NOT marked EXTRA.
+
+    Sort order: Unconfirmed PAIRED sorted by amber (45-74) ascending first,
+    then green (75+) ascending, then UNMATCHED, then confirmed, then EXTRA.
     """
     results: list[ReconcileRow] = []
 
-    # Build DB indexes
+    # Build DB indexes — use normalized policy numbers for flexible matching
+    # Maps normalized policy number → (db_row, is_from_program_carrier)
     db_by_polnum: dict[str, dict] = {}
     for db in db_rows:
-        pn = (db.get("policy_number") or "").strip().upper()
+        pn = normalize_policy_number_for_matching(db.get("policy_number") or "")
         if pn and pn not in db_by_polnum:
             db_by_polnum[pn] = db
+        # Also index program carrier row policy numbers → parent program
+        if db.get("is_program") and db.get("_program_carrier_rows"):
+            for pc in db["_program_carrier_rows"]:
+                pc_pn = normalize_policy_number_for_matching(pc.get("policy_number") or "")
+                if pc_pn and pc_pn not in db_by_polnum:
+                    db_by_polnum[pc_pn] = db  # maps to the parent program
 
     db_unmatched: set[int] = set(range(len(db_rows)))
     ext_matched: set[int] = set()
 
-    # Pass 1: Exact policy number match
+    # Track which db rows are programs (allow multiple matches)
+    _program_indices: set[int] = set()
+    for idx, db in enumerate(db_rows):
+        if db.get("is_program"):
+            _program_indices.add(idx)
+
+    def _claim_db(db_idx: int) -> None:
+        """Remove db row from candidates unless it's a program (programs accept multiple matches)."""
+        if db_idx not in _program_indices:
+            db_unmatched.discard(db_idx)
+
+    # ── Pass 1: Exact policy number match ──────────────────────────────────────
     for i, ext in enumerate(ext_rows):
-        ext_pn = (ext.get("policy_number") or "").strip().upper()
+        ext_pn = normalize_policy_number_for_matching(ext.get("policy_number") or "")
         if not ext_pn:
             continue
         db = db_by_polnum.get(ext_pn)
@@ -550,87 +594,258 @@ def reconcile(ext_rows: list[dict], db_rows: list[dict]) -> list[ReconcileRow]:
         db_idx = db_rows.index(db)
         if db_idx not in db_unmatched:
             continue  # already claimed — send to Pass 2
-        db_unmatched.discard(db_idx)
+        _claim_db(db_idx)
         ext_matched.add(i)
-        diff_fields, score = _compare_fields(ext, db)
-        status: MatchStatus = "DIFF" if diff_fields else "MATCH"
-        results.append(ReconcileRow(status, ext, db, diff_fields, score))
 
-    # Pass 1.5: Date-pair match — both effective + expiration within 14 days AND client WRatio >= 80
-    # Catches cases where policy numbers are missing but dates are reliable identifiers.
-    remaining_ext = [i for i in range(len(ext_rows)) if i not in ext_matched]
-    candidates_15 = [db_rows[i] for i in sorted(db_unmatched)]
-    for i in list(remaining_ext):
-        ext = ext_rows[i]
-        ext_eff = ext.get("effective_date", "")
-        ext_exp = ext.get("expiration_date", "")
-        ext_client = ext.get("client_name", "")
-        if not (ext_eff and ext_exp and ext_client):
-            continue
-        best_db = None
-        best_score_15 = 0.0
-        for db in candidates_15:
-            if fuzz.WRatio(ext_client, db.get("client_name", "")) < 80:
-                continue
-            eff_delta = _date_delta_days(ext_eff, db.get("effective_date", ""))
-            exp_delta = _date_delta_days(ext_exp, db.get("expiration_date", ""))
-            if eff_delta is None or exp_delta is None:
-                continue
-            if eff_delta <= 30 and exp_delta <= 30:
-                type_score = fuzz.WRatio(
-                    _normalize_coverage(ext.get("policy_type", "")),
-                    _normalize_coverage(db.get("policy_type", ""))
-                )
-                if type_score >= 70 and type_score > best_score_15:
-                    best_score_15 = type_score
-                    best_db = db
-        if best_db is not None:
-            db_idx = db_rows.index(best_db)
-            db_unmatched.discard(db_idx)
-            candidates_15 = [c for c in candidates_15 if c is not best_db]
-            ext_matched.add(i)
-            diff_fields, score = _compare_fields(ext, best_db)
-            status = "DIFF" if diff_fields else "MATCH"
-            results.append(ReconcileRow(status, ext, best_db, diff_fields, score))
+        is_program = db_idx in _program_indices
+        matched_cid, score_target = _resolve_program_carrier(ext, db, ext_pn)
 
-    # Pass 2: Fuzzy match for unmatched ext rows
-    candidates = [db_rows[i] for i in sorted(db_unmatched)]
+        # Score against the best target (carrier row for programs, or the policy itself)
+        # Build a merged dict for scoring: program-level dates/client with carrier-level fields
+        if matched_cid and score_target is not db:
+            score_db = {**db, "carrier": score_target.get("carrier", ""),
+                        "policy_number": score_target.get("policy_number", ""),
+                        "premium": score_target.get("premium", 0),
+                        "limit_amount": score_target.get("limit_amount", 0)}
+        else:
+            score_db = db
+
+        breakdown = _score_pair(ext, score_db, single_client=single_client)
+        row = _build_reconcile_row(ext, db, breakdown, "policy_number",
+                                   is_program_match=is_program,
+                                   matched_carrier_id=matched_cid)
+        results.append(row)
+
+    # ── Pass 2: Scored match for remaining unmatched ext rows ─────────────────
     for i, ext in enumerate(ext_rows):
         if i in ext_matched:
             continue
-        db, score = _fuzzy_match(ext, candidates)
-        if db is not None:
-            db_idx = db_rows.index(db)
-            db_unmatched.discard(db_idx)
-            candidates = [c for c in candidates if c is not db]
-            diff_fields, _ = _compare_fields(ext, db)
-            status = "DIFF" if diff_fields else "MATCH"
-            results.append(ReconcileRow(status, ext, db, diff_fields, score))
-        else:
-            results.append(ReconcileRow("MISSING", ext, None, [], 0.0))
 
-    # Pass 3: Remaining DB rows → EXTRA
-    for i in sorted(db_unmatched):
-        results.append(ReconcileRow("EXTRA", None, db_rows[i], [], 0.0))
+        best_db = None
+        best_db_idx = -1
+        best_breakdown = None
+        best_score = 0.0
+        best_matched_cid = None
+        best_is_program = False
 
-    # Sort: DIFF, MISSING, EXTRA, MATCH; within group by client_name + expiration_date
+        for db_idx in list(db_unmatched):
+            db = db_rows[db_idx]
+            is_program = db_idx in _program_indices
+
+            # Score against the policy itself
+            breakdown = _score_pair(ext, db, single_client=single_client)
+            score = breakdown.total
+
+            # For programs, also try scoring against each carrier row and take the best
+            pc_matched_cid = None
+            if is_program and db.get("_program_carrier_rows"):
+                ext_carrier = ext.get("carrier", "")
+                ext_pn = normalize_policy_number_for_matching(ext.get("policy_number") or "")
+                for pc in db["_program_carrier_rows"]:
+                    pc_db = {**db, "carrier": pc.get("carrier", ""),
+                             "policy_number": pc.get("policy_number", ""),
+                             "premium": pc.get("premium", 0),
+                             "limit_amount": pc.get("limit_amount", 0)}
+                    pc_breakdown = _score_pair(ext, pc_db, single_client=single_client)
+                    if pc_breakdown.total > score:
+                        score = pc_breakdown.total
+                        breakdown = pc_breakdown
+                        pc_matched_cid = pc.get("id")
+
+            if score > best_score:
+                best_score = score
+                best_db = db
+                best_db_idx = db_idx
+                best_breakdown = breakdown
+                best_matched_cid = pc_matched_cid
+                best_is_program = is_program
+
+        if best_db is not None and best_score >= 45:
+            _claim_db(best_db_idx)
+            ext_matched.add(i)
+            row = _build_reconcile_row(ext, best_db, best_breakdown, "scored",
+                                       is_program_match=best_is_program,
+                                       matched_carrier_id=best_matched_cid)
+            results.append(row)
+
+    # ── Pass 3: Unmatched / Extra ─────────────────────────────────────────────
+    # Remaining ext rows → UNMATCHED
+    for i, ext in enumerate(ext_rows):
+        if i in ext_matched:
+            continue
+        # Build metadata even for unmatched rows
+        raw_type = ext.get("policy_type", "")
+        norm_type = normalize_coverage_type(raw_type) if raw_type else ""
+        row = ReconcileRow(
+            ext=ext, db=None, status="UNMATCHED", match_score=0.0,
+            ext_type_raw=raw_type, ext_type_normalized=norm_type,
+            coverage_alias_applied=(bool(raw_type) and raw_type.strip().lower() != norm_type.lower()),
+        )
+        results.append(row)
+
+    # Remaining DB rows → EXTRA (programs with at least one match are excluded)
+    _program_matched_indices = {db_rows.index(r.db) for r in results if r.is_program_match and r.db is not None}
+    for idx in sorted(db_unmatched):
+        if idx in _program_matched_indices:
+            continue  # program got matches, not truly "extra"
+        results.append(ReconcileRow(ext=None, db=db_rows[idx], status="EXTRA", match_score=0.0))
+
+    # Sort: unconfirmed PAIRED amber (45-74) ascending, then green (75+) ascending,
+    # then UNMATCHED, then confirmed PAIRED, then EXTRA
     def _sort_key(r: ReconcileRow):
         side = r.db if r.db else r.ext
         client = (side or {}).get("client_name", "") or ""
         exp = (side or {}).get("expiration_date", "") or ""
-        return (_STATUS_SORT[r.status], client.lower(), exp)
+
+        if r.status == "PAIRED" and not r.confirmed:
+            if r.match_score < 75:
+                # Amber — sort first, ascending by score
+                return (0, r.match_score, client.lower(), exp)
+            else:
+                # Green — sort second, ascending by score
+                return (1, r.match_score, client.lower(), exp)
+        elif r.status == "UNMATCHED":
+            return (2, 0.0, client.lower(), exp)
+        elif r.status == "PAIRED" and r.confirmed:
+            return (3, r.match_score, client.lower(), exp)
+        else:  # EXTRA
+            return (4, 0.0, client.lower(), exp)
 
     results.sort(key=_sort_key)
     return results
 
 
+def program_reconcile_summary(results: list[ReconcileRow], carrier_map: dict | None = None) -> dict[str, dict]:
+    """Build per-program reconciliation summary from results.
+
+    Args:
+        results: List of ReconcileRow from reconcile()
+        carrier_map: {program_id: [carrier_row_dicts]} for per-carrier detail
+
+    Returns: {policy_uid: {total_premium, matched_premium, matched_count, carrier_count,
+                           fully_reconciled, carrier_detail, new_carriers}}
+    """
+    carrier_map = carrier_map or {}
+    summaries: dict[str, dict] = {}
+    for r in results:
+        if not r.is_program_match or r.db is None:
+            continue
+        uid = r.db.get("policy_uid", "")
+        pid = r.db.get("id")
+        if uid not in summaries:
+            db_carriers = carrier_map.get(pid, [])
+            summaries[uid] = {
+                "policy_type": r.db.get("policy_type", ""),
+                "total_premium": float(r.db.get("premium") or 0),
+                "carrier_count": len(db_carriers),
+                "matched_premium": 0.0,
+                "matched_count": 0,
+                "carrier_detail": [],
+                "new_carriers": [],
+                "_matched_carrier_ids": set(),
+            }
+        ext_prem = float(r.ext.get("premium") or 0) if r.ext else 0
+        summaries[uid]["matched_premium"] += ext_prem
+        summaries[uid]["matched_count"] += 1
+        if r.matched_carrier_id:
+            summaries[uid]["_matched_carrier_ids"].add(r.matched_carrier_id)
+            db_carrier = next((c for c in carrier_map.get(pid, []) if c["id"] == r.matched_carrier_id), None)
+            db_prem = float(db_carrier["premium"]) if db_carrier else 0
+            status = "MATCH" if abs(ext_prem - db_prem) <= db_prem * 0.01 else "DIFF"
+            summaries[uid]["carrier_detail"].append({
+                "carrier_id": r.matched_carrier_id,
+                "carrier": r.ext.get("carrier", "") if r.ext else "",
+                "db_premium": db_prem,
+                "ext_premium": ext_prem,
+                "status": status,
+            })
+        else:
+            summaries[uid]["new_carriers"].append({
+                "carrier": r.ext.get("carrier", "") if r.ext else "",
+                "policy_number": r.ext.get("policy_number", "") if r.ext else "",
+                "premium": ext_prem,
+                "limit_amount": float(r.ext.get("limit_amount") or 0) if r.ext else 0,
+            })
+
+    for uid, s in summaries.items():
+        total = s["total_premium"]
+        s["fully_reconciled"] = s["matched_premium"] >= total * 0.95 if total > 0 else s["matched_count"] > 0
+        del s["_matched_carrier_ids"]
+    return summaries
+
+
+# ─── CROSS-PAIR SCORING ───────────────────────────────────────────────────────
+
+def _find_likely_pairs(
+    unmatched_rows: list[ReconcileRow],
+    extra_rows: list[ReconcileRow],
+    threshold: float = 30.0,
+) -> list[dict]:
+    """Cross-match UNMATCHED ext rows against EXTRA db rows using _score_pair().
+
+    Returns [{"id": int, "score": float, "missing": ReconcileRow, "extra": ReconcileRow}, ...]
+    sorted by score descending, deduplicated (one pair per UNMATCHED, one per EXTRA).
+
+    Note: The dict keys use "missing" and "extra" for backward compatibility with
+    templates that reference these keys.
+    """
+    if not unmatched_rows or not extra_rows:
+        return []
+
+    # Score all combinations
+    scored: list[tuple[float, int, int]] = []
+    for mi, mr in enumerate(unmatched_rows):
+        if not mr.ext:
+            continue
+        for ei, er in enumerate(extra_rows):
+            if not er.db:
+                continue
+            breakdown = _score_pair(mr.ext, er.db)
+            if breakdown.total >= threshold:
+                scored.append((breakdown.total, mi, ei))
+
+    # Sort by score descending, deduplicate greedily
+    scored.sort(key=lambda x: x[0], reverse=True)
+    used_unmatched: set[int] = set()
+    used_extra: set[int] = set()
+    pairs: list[dict] = []
+
+    for score, mi, ei in scored:
+        if mi in used_unmatched or ei in used_extra:
+            continue
+        used_unmatched.add(mi)
+        used_extra.add(ei)
+        pairs.append({
+            "id": len(pairs),
+            "score": round(score, 1),
+            "missing": unmatched_rows[mi],
+            "extra": extra_rows[ei],
+        })
+
+    return pairs
+
+
 # ─── SUMMARY ──────────────────────────────────────────────────────────────────
 
 def summarize(results: list[ReconcileRow]) -> dict:
-    counts = {"total": len(results), "match": 0, "diff": 0, "missing": 0, "extra": 0}
-    for r in results:
-        counts[r.status.lower()] += 1
-    return counts
+    paired = [r for r in results if r.status == "PAIRED"]
+    paired_with_diffs = [r for r in paired if r.diff_fields]
+    confirmed = [r for r in paired if r.confirmed]
+    review = [r for r in paired if not r.confirmed]
+    return {
+        "total": len(results),
+        "paired": len(paired),
+        "paired_clean": len(paired) - len(paired_with_diffs),
+        "paired_diffs": len(paired_with_diffs),
+        "confirmed": len(confirmed),
+        "review": len(review),
+        "unmatched": sum(1 for r in results if r.status == "UNMATCHED"),
+        "extra": sum(1 for r in results if r.status == "EXTRA"),
+        # Legacy compat
+        "match": sum(1 for r in results if r.status in ("MATCH", "PAIRED") and not r.diff_fields),
+        "diff": sum(1 for r in results if r.status in ("DIFF",) or (r.status == "PAIRED" and r.diff_fields)),
+        "missing": sum(1 for r in results if r.status in ("MISSING", "UNMATCHED")),
+    }
 
 
 # ─── XLSX EXPORT ──────────────────────────────────────────────────────────────
@@ -669,12 +884,13 @@ def build_reconcile_xlsx(results: list[ReconcileRow], run_date: str = "", filena
     ws_sum.column_dimensions["B"].width = 10
     ws_sum.column_dimensions["C"].width = 45
 
-    # Sheets 2-5: build row dicts
+    # Sheets 2-5: build row dicts (handle both PAIRED/UNMATCHED and legacy MATCH/DIFF/MISSING)
     def _diff_rows():
-        return [_diff_dict(r) for r in results if r.status == "DIFF"]
+        return [_diff_dict(r) for r in results
+                if r.status == "DIFF" or (r.status == "PAIRED" and r.diff_fields)]
 
     def _missing_rows():
-        return [r.ext for r in results if r.status == "MISSING"]
+        return [r.ext for r in results if r.status in ("MISSING", "UNMATCHED")]
 
     def _extra_rows():
         cols = ["policy_uid", "client_name", "policy_type", "carrier", "policy_number",
@@ -690,8 +906,7 @@ def build_reconcile_xlsx(results: list[ReconcileRow], run_date: str = "", filena
             for f in COMPARE_FIELDS:
                 row[f"ext_{f}"] = (r.ext or {}).get(f, "")
                 row[f"db_{f}"] = (r.db or {}).get(f, "")
-            if r.db:
-                row["db_policy_uid"] = r.db.get("policy_uid", "")
+            row["db_policy_uid"] = r.db.get("policy_uid", "") if r.db else ""
             rows.append(row)
         return rows
 

@@ -1,0 +1,169 @@
+{# Program Carriers — Contenteditable Matrix #}
+{% set carrier_rows = program_carrier_rows or [] %}
+{% set total_premium = carrier_rows | sum(attribute='premium') %}
+{% set total_limit = carrier_rows | sum(attribute='limit_amount') %}
+
+<div class="mt-1">
+  <div class="flex items-center justify-between mb-2">
+    <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Participating Carriers</p>
+    <span class="text-xs text-gray-400" id="pc-summary">{{ carrier_rows | length }} carrier{{ 's' if carrier_rows | length != 1 }} &middot; {{ total_premium | currency }}</span>
+  </div>
+
+  <style>
+    td[contenteditable][data-placeholder]:empty::before {
+      content: attr(data-placeholder);
+      color: #94a3b8;
+      font-style: italic;
+      pointer-events: none;
+    }
+    td[contenteditable]:focus {
+      outline: none;
+      border-bottom: 2px solid #3b82f6;
+      background: rgba(59, 130, 246, 0.03);
+    }
+  </style>
+
+  <table class="w-full text-sm" id="pc-matrix">
+    <thead>
+      <tr class="border-b border-gray-100 text-left text-xs text-gray-400">
+        <th class="px-2 py-1.5 font-medium w-8 no-print"></th>
+        <th class="px-3 py-1.5 font-medium">Carrier</th>
+        <th class="px-3 py-1.5 font-medium">Policy #</th>
+        <th class="px-3 py-1.5 font-medium text-right">Premium</th>
+        <th class="px-3 py-1.5 font-medium text-right">Limit</th>
+        <th class="px-2 py-1.5 font-medium w-8 no-print"></th>
+      </tr>
+    </thead>
+    <tbody id="pc-tbody">
+      {% for cr in carrier_rows %}
+      <tr data-id="{{ cr.id }}" class="border-b border-gray-50 hover:bg-gray-50 transition-colors">
+        <td class="px-2 py-2 text-gray-400 cursor-grab no-print" draggable="true"
+            ondragstart="pcDragStart(event)" ondragover="pcDragOver(event)" ondrop="pcDrop(event)">&#x2807;</td>
+        <td class="px-3 py-2 text-sm text-gray-800" contenteditable="true"
+            data-field="carrier" data-id="{{ cr.id }}" data-placeholder="carrier"
+            data-endpoint="/policies/{{ policy.policy_uid }}/program-carrier/{{ cr.id }}">{{ cr.carrier or '' }}</td>
+        <td class="px-3 py-2 text-sm text-gray-800" contenteditable="true"
+            data-field="policy_number" data-id="{{ cr.id }}" data-placeholder="policy #"
+            data-endpoint="/policies/{{ policy.policy_uid }}/program-carrier/{{ cr.id }}">{{ cr.policy_number or '' }}</td>
+        <td class="px-3 py-2 text-sm text-gray-800 text-right tabular-nums" contenteditable="true"
+            data-field="premium" data-id="{{ cr.id }}" data-placeholder="$0"
+            data-endpoint="/policies/{{ policy.policy_uid }}/program-carrier/{{ cr.id }}">{% if cr.premium %}${{ '{:,.0f}'.format(cr.premium) }}{% endif %}</td>
+        <td class="px-3 py-2 text-sm text-gray-800 text-right tabular-nums" contenteditable="true"
+            data-field="limit_amount" data-id="{{ cr.id }}" data-placeholder="$0"
+            data-endpoint="/policies/{{ policy.policy_uid }}/program-carrier/{{ cr.id }}">{% if cr.limit_amount %}${{ '{:,.0f}'.format(cr.limit_amount) }}{% endif %}</td>
+        <td class="px-2 py-2 no-print">
+          <button type="button" onclick="pcDeleteRow(this, '{{ policy.policy_uid }}', {{ cr.id }})"
+                  class="text-red-300 hover:text-red-500 text-xs">&#10005;</button>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+    <tfoot>
+      <tr class="border-t border-gray-200">
+        <td colspan="3" class="px-3 py-2">
+          <button type="button" class="no-print text-xs text-gray-400 border border-dashed border-gray-300 px-3 py-1 rounded hover:border-gray-400 hover:text-gray-600 transition-colors"
+                  hx-post="/policies/{{ policy.policy_uid }}/program-carrier"
+                  hx-target="#pc-tbody"
+                  hx-swap="beforeend">
+            + Add Carrier
+          </button>
+        </td>
+        <td class="px-3 py-2 text-right text-xs font-semibold text-gray-500 tabular-nums" id="pc-total-premium">
+          {% if total_premium %}${{ '{:,.0f}'.format(total_premium) }}{% endif %}
+        </td>
+        <td class="px-3 py-2 text-right text-xs font-semibold text-gray-500 tabular-nums" id="pc-total-limit">
+          {% if total_limit %}${{ '{:,.0f}'.format(total_limit) }}{% endif %}
+        </td>
+        <td></td>
+      </tr>
+    </tfoot>
+  </table>
+</div>
+
+<script>
+(function() {
+  function flashCell(el) {
+    el.style.transition = 'background-color 0.3s ease';
+    el.style.backgroundColor = '#d1fae5';
+    setTimeout(function() {
+      el.style.backgroundColor = '';
+      setTimeout(function() { el.style.transition = ''; }, 300);
+    }, 800);
+  }
+
+  function saveCell(cell) {
+    var raw = cell.textContent.trim();
+    var endpoint = cell.dataset.endpoint;
+    var field = cell.dataset.field;
+    fetch(endpoint, {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({field: field, value: raw})
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.ok) {
+        if (data.formatted !== raw) {
+          cell.textContent = data.formatted;
+          flashCell(cell);
+        }
+        if (data.totals) {
+          var s = document.getElementById('pc-summary');
+          if (s) s.textContent = data.totals.count + ' carrier' + (data.totals.count !== 1 ? 's' : '') + ' \u00b7 ' + data.totals.premium;
+          var tp = document.getElementById('pc-total-premium');
+          if (tp) tp.textContent = data.totals.premium;
+          var tl = document.getElementById('pc-total-limit');
+          if (tl) tl.textContent = data.totals.limit;
+        }
+      }
+    });
+  }
+
+  document.getElementById('pc-matrix').addEventListener('blur', function(e) {
+    if (e.target.matches('td[contenteditable]')) saveCell(e.target);
+  }, true);
+
+  document.getElementById('pc-matrix').addEventListener('keydown', function(e) {
+    if (e.key === 'Tab' && e.target.matches('td[contenteditable]')) {
+      e.preventDefault();
+      var cells = Array.from(this.querySelectorAll('td[contenteditable]'));
+      var idx = cells.indexOf(e.target);
+      if (idx < cells.length - 1) {
+        e.target.blur();
+        cells[idx + 1].focus();
+      } else {
+        e.target.blur();
+        var addBtn = this.querySelector('tfoot button[hx-post]');
+        if (addBtn) htmx.trigger(addBtn, 'click');
+      }
+    }
+  });
+
+  var pcDragRow = null;
+  window.pcDragStart = function(e) { pcDragRow = e.target.closest('tr'); };
+  window.pcDragOver = function(e) { e.preventDefault(); };
+  window.pcDrop = function(e) {
+    e.preventDefault();
+    var target = e.target.closest('tr');
+    if (target && pcDragRow !== target) {
+      var tbody = target.closest('tbody');
+      tbody.insertBefore(pcDragRow, target);
+      var order = Array.from(tbody.querySelectorAll('tr[data-id]')).map(function(tr) {
+        return parseInt(tr.dataset.id);
+      });
+      fetch('/policies/{{ policy.policy_uid }}/program-carrier/reorder', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({order: order})
+      });
+    }
+  };
+
+  window.pcDeleteRow = function(btn, uid, carrierId) {
+    var row = btn.closest('tr');
+    fetch('/policies/' + uid + '/program-carrier/' + carrierId, {method: 'DELETE'})
+    .then(function(r) { return r.json(); })
+    .then(function(data) { if (data.ok) row.remove(); });
+  };
+})();
+</script>

@@ -1,0 +1,251 @@
+<!-- Pre-match validation panel — shown after upload, before running reconcile match -->
+<div class="card p-5 mb-5">
+  <div class="flex items-center justify-between mb-4">
+    <div>
+      <h2 class="text-lg font-bold text-gray-900">Data Validation</h2>
+      <p class="text-xs text-gray-500 mt-0.5">{{ row_count }} rows parsed. Review the data below before running the match.</p>
+    </div>
+    <div class="flex items-center gap-3">
+      <a href="/reconcile" class="text-xs text-gray-500 hover:text-gray-700 underline">Back to Upload</a>
+      <form action="/reconcile/run-match" method="post">
+        <input type="hidden" name="token" value="{{ token }}">
+        <button type="submit"
+          class="bg-marsh hover:bg-marsh-light text-white font-medium text-sm px-5 py-2 rounded-lg transition-colors">
+          Run Match &rarr;
+        </button>
+      </form>
+    </div>
+  </div>
+
+  {% if warnings %}
+  <div class="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 mb-4">
+    <p class="text-xs font-semibold text-amber-800 mb-1">Parse warnings ({{ warnings|length }})</p>
+    {% for w in warnings %}
+    <p class="text-xs text-amber-700">{{ w }}</p>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+    <!-- Coverage Types -->
+    <div class="border border-gray-100 rounded-lg p-4">
+      <h3 class="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Coverage Types</h3>
+      {% if coverage_results %}
+      <div class="flex flex-wrap gap-1.5">
+        {% for ct in coverage_results %}
+        <div id="cov-pill-{{ loop.index }}" class="inline-flex items-center gap-1">
+          {% if ct.recognized %}
+          <span class="text-[10px] px-1.5 py-0.5 rounded bg-green-100 text-green-700">
+            {{ ct.raw }}{% if ct.raw != ct.normalized %} &rarr; {{ ct.normalized }}{% endif %}
+            <span class="text-green-500 ml-0.5">({{ ct.count }})</span>
+          </span>
+          {% else %}
+          <span class="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">
+            {{ ct.raw }} <span class="text-amber-500">({{ ct.count }})</span>
+          </span>
+          <span class="inline-flex items-center gap-1">
+            <select id="cov-map-{{ loop.index }}" class="text-[10px] border border-gray-200 rounded px-1 py-0.5 bg-white">
+              <option value="">Map to...</option>
+              {% for pt in known_policy_types %}
+              <option value="{{ pt }}">{{ pt }}</option>
+              {% endfor %}
+            </select>
+            <button type="button" data-raw="{{ ct.raw }}" data-idx="{{ loop.index }}"
+              onclick="learnCoverageAlias(this.dataset.idx, this.dataset.raw)"
+              class="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 hover:bg-marsh hover:text-white transition-colors">
+              Remember
+            </button>
+          </span>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <p class="text-xs text-gray-400 italic">No coverage type data found.</p>
+      {% endif %}
+    </div>
+
+    <!-- Carriers -->
+    <div class="border border-gray-100 rounded-lg p-4">
+      <h3 class="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Carriers</h3>
+      {% if carrier_results %}
+      <div class="flex flex-wrap gap-1.5">
+        {% for cr in carrier_results %}
+        <div id="car-pill-{{ loop.index }}" class="inline-flex items-center gap-1">
+          {% if cr.recognized %}
+          <span class="text-[10px] px-1.5 py-0.5 rounded bg-green-100 text-green-700">
+            {{ cr.raw }}{% if cr.raw != cr.normalized %} &rarr; {{ cr.normalized }}{% endif %}
+            <span class="text-green-500 ml-0.5">({{ cr.count }})</span>
+          </span>
+          {% else %}
+          <span class="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">
+            {{ cr.raw }} <span class="text-amber-500">({{ cr.count }})</span>
+          </span>
+          <span class="inline-flex items-center gap-1">
+            <select id="car-map-{{ loop.index }}" class="text-[10px] border border-gray-200 rounded px-1 py-0.5 bg-white">
+              <option value="">Map to...</option>
+              {% for c in known_carriers %}
+              <option value="{{ c }}">{{ c }}</option>
+              {% endfor %}
+            </select>
+            <button type="button" data-raw="{{ cr.raw }}" data-idx="{{ loop.index }}"
+              onclick="learnCarrierAlias(this.dataset.idx, this.dataset.raw)"
+              class="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 hover:bg-marsh hover:text-white transition-colors">
+              Remember
+            </button>
+          </span>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <p class="text-xs text-gray-400 italic">No carrier data found.</p>
+      {% endif %}
+    </div>
+
+    <!-- Dates -->
+    <div class="border border-gray-100 rounded-lg p-4">
+      <h3 class="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Dates</h3>
+      <div class="text-sm text-gray-700">
+        <span class="font-medium">{{ dates_parsed }}</span>
+        <span class="text-gray-400">/ {{ dates_total }}</span>
+        <span class="text-xs text-gray-500 ml-1">rows with date data</span>
+      </div>
+      {% if date_range[0] %}
+      <p class="text-xs text-gray-500 mt-1">
+        Range: <span class="font-mono text-gray-600">{{ date_range[0] }}</span>
+        &mdash;
+        <span class="font-mono text-gray-600">{{ date_range[1] }}</span>
+      </p>
+      {% endif %}
+      {% if dates_parsed < dates_total %}
+      <p class="text-xs text-amber-600 mt-1">
+        {{ dates_total - dates_parsed }} rows missing date data
+      </p>
+      {% endif %}
+    </div>
+
+    <!-- Policy Numbers -->
+    <div class="border border-gray-100 rounded-lg p-4">
+      <h3 class="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Policy Numbers</h3>
+      <div class="text-sm text-gray-700">
+        <span class="font-medium">{{ polnums_present }}</span>
+        <span class="text-gray-400">/ {{ row_count }}</span>
+        <span class="text-xs text-gray-500 ml-1">rows with policy numbers</span>
+      </div>
+      {% if polnums_present < row_count %}
+      <p class="text-xs text-amber-600 mt-1">
+        {{ row_count - polnums_present }} rows missing policy numbers — matching will rely on client name, dates, and coverage type.
+      </p>
+      {% endif %}
+    </div>
+
+    <!-- Client Names -->
+    <div class="border border-gray-100 rounded-lg p-4 lg:col-span-2">
+      <h3 class="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Client Names ({{ client_matches|length }})</h3>
+      {% if client_matches %}
+      <div class="space-y-1">
+        {% for cm in client_matches %}
+        <div class="flex items-center gap-2 text-xs">
+          <span class="font-mono text-gray-700 min-w-[180px] truncate" title="{{ cm.raw }}">{{ cm.raw }}</span>
+          <span class="text-gray-400">&rarr;</span>
+          {% if cm.score >= 85 %}
+          <span class="text-green-700 font-medium">{{ cm.db_name }}</span>
+          <span class="text-[10px] px-1 py-0.5 rounded bg-green-100 text-green-600">{{ cm.score }}%</span>
+          {% elif cm.score >= 65 %}
+          <span class="text-amber-700 font-medium">{{ cm.db_name }}</span>
+          <span class="text-[10px] px-1 py-0.5 rounded bg-amber-100 text-amber-600">{{ cm.score }}%</span>
+          {% else %}
+          <span class="text-red-600 font-medium">{{ cm.db_name or 'No match' }}</span>
+          <span class="text-[10px] px-1 py-0.5 rounded bg-red-100 text-red-600">{{ cm.score }}%</span>
+          {% endif %}
+          <span class="text-gray-400">({{ cm.count }} rows)</span>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <p class="text-xs text-gray-400 italic">No client name data found.</p>
+      {% endif %}
+    </div>
+
+    <!-- Programs -->
+    {% if programs %}
+    <div class="border border-blue-100 rounded-lg p-4 lg:col-span-2 bg-blue-50">
+      <h3 class="text-xs font-semibold text-blue-700 uppercase tracking-wide mb-2">Program Detection</h3>
+      <div class="space-y-2">
+        {% for pgm in programs %}
+        <div class="text-xs text-blue-800">
+          <span class="font-medium">{{ pgm.type }}</span>
+          <span class="text-blue-500 mx-1">&middot;</span>
+          <span>{{ pgm.client }}</span>
+          <span class="text-blue-500 mx-1">&middot;</span>
+          <span class="font-mono text-blue-600">{{ pgm.dates }}</span>
+          <span class="text-blue-500 mx-1">&mdash;</span>
+          <span class="text-blue-600">{{ pgm.carriers|length }} carriers:
+            {% for c in pgm.carriers %}{{ c }}{% if not loop.last %}, {% endif %}{% endfor %}
+          </span>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Location data -->
+    {% if has_location %}
+    <div class="border border-gray-100 rounded-lg p-4 lg:col-span-2">
+      <div class="flex items-center gap-2">
+        <span class="w-2 h-2 rounded-full bg-blue-500"></span>
+        <span class="text-xs text-gray-700">Location / project data detected — will be available for assignment after matching.</span>
+      </div>
+    </div>
+    {% endif %}
+
+  </div>
+
+  <!-- Bottom actions -->
+  <div class="flex items-center justify-between mt-4 pt-4 border-t border-gray-100">
+    <a href="/reconcile" class="text-xs text-gray-500 hover:text-gray-700 underline">&larr; Back to Upload</a>
+    <form action="/reconcile/run-match" method="post">
+      <input type="hidden" name="token" value="{{ token }}">
+      <button type="submit"
+        class="bg-marsh hover:bg-marsh-light text-white font-medium text-sm px-6 py-2.5 rounded-lg transition-colors">
+        Run Match &rarr;
+      </button>
+    </form>
+  </div>
+</div>
+
+<script>
+function learnCoverageAlias(idx, raw) {
+  var sel = document.getElementById('cov-map-' + idx);
+  if (!sel) return;
+  var canonical = sel.value;
+  if (!canonical) { alert('Select a coverage type to map to.'); return; }
+  var form = new FormData();
+  form.append('raw', raw);
+  form.append('canonical', canonical);
+  fetch('/reconcile/learn-coverage-alias', { method: 'POST', body: form })
+    .then(function(r) { return r.text(); })
+    .then(function(html) {
+      var pill = document.getElementById('cov-pill-' + idx);
+      if (pill) pill.innerHTML = html;
+    });
+}
+
+function learnCarrierAlias(idx, raw) {
+  var sel = document.getElementById('car-map-' + idx);
+  if (!sel) return;
+  var canonical = sel.value;
+  if (!canonical) { alert('Select a carrier to map to.'); return; }
+  var form = new FormData();
+  form.append('raw', raw);
+  form.append('canonical', canonical);
+  fetch('/reconcile/learn-carrier-alias', { method: 'POST', body: form })
+    .then(function(r) { return r.text(); })
+    .then(function(html) {
+      var pill = document.getElementById('car-pill-' + idx);
+      if (pill) pill.innerHTML = html;
+    });
+}
+</script>

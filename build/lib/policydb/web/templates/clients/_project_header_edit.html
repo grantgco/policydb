@@ -22,14 +22,18 @@
       <div class="grid grid-cols-2 gap-2">
         <div>
           <p class="text-xs text-gray-500 mb-0.5">State</p>
-          <input type="text" name="exposure_state" value="{{ exposure_state or '' }}"
-            maxlength="2" placeholder="TX"
-            class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh uppercase">
+          <select name="exposure_state"
+            class="border border-gray-300 rounded px-1 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh bg-white">
+            <option value="">—</option>
+            {% for abbr, name in us_states %}
+            <option value="{{ abbr }}" {% if exposure_state == abbr %}selected{% endif %}>{{ abbr }}</option>
+            {% endfor %}
+          </select>
         </div>
         <div>
           <p class="text-xs text-gray-500 mb-0.5">ZIP</p>
           <input type="text" name="exposure_zip" value="{{ exposure_zip or '' }}"
-            placeholder="78701"
+            placeholder="78701" maxlength="10"
             class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh">
         </div>
       </div>

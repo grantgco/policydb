@@ -117,20 +117,34 @@ def db_seed():
 
 
 @db_group.command("backup")
-@click.option("--path", "dest", default=None, help="Destination file path.")
-def db_backup(dest):
-    """Copy database file to backup location."""
-    import shutil
-    from datetime import date
+@click.option("--dest-dir", default=None, hidden=True, help="DEPRECATED — ignored. Backups always go to ~/.policydb/backups/.")
+@click.option("--keep", default=30, show_default=True, help="Number of backups to retain before pruning oldest.")
+def db_backup(dest_dir, keep):
+    """Back up the database to a timestamped file and prune old backups.
+
+    Creates ~/.policydb/backups/policydb_YYYY-MM-DD_HHMMSS.sqlite.
+    Run daily via launchd or cron; oldest copies beyond --keep are deleted.
+    """
+    if dest_dir is not None:
+        click.echo("Warning: --dest-dir is deprecated and ignored. Backups are always written to ~/.policydb/backups/")
+
     src = get_db_path()
     if not src.exists():
         raise click.ClickException("No database found.")
-    if dest is None:
-        dest = src.parent / f"policydb_backup_{date.today().isoformat()}.sqlite"
+
+    from policydb.db import _auto_backup, _HEALTH_STATUS
+    _auto_backup(src, max_backups=keep)
+
+    backup_path = _HEALTH_STATUS.get("last_backup", "")
+    verified = _HEALTH_STATUS.get("last_backup_verified", False)
+    count = _HEALTH_STATUS.get("backup_count", 0)
+
+    if backup_path:
+        click.echo(f"Backup saved: {backup_path}")
+        click.echo(f"Integrity: {'Verified' if verified else 'UNVERIFIED'}")
+        click.echo(f"Total backups: {count} (keeping {keep})")
     else:
-        dest = Path(dest)
-    shutil.copy2(src, dest)
-    click.echo(f"Backup saved: {dest}")
+        click.echo("Warning: Backup may have failed — check ~/.policydb/backups/")
 
 
 @db_group.command("stats")
@@ -429,20 +443,33 @@ def policy_add(client_name):
            (policy_uid, client_id, policy_type, carrier, policy_number,
             effective_date, expiration_date, premium, limit_amount, deductible,
             description, coverage_form, layer_position, tower_group, is_standalone,
-            placement_colleague, underwriter_name, renewal_status, commission_rate,
+            underwriter_name, renewal_status, commission_rate,
             exposure_basis, exposure_amount, exposure_unit, account_exec, notes)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             uid, client["id"], pol_type, carrier, policy_number or None,
             eff, exp, premium, limit_amount or None, deductible or None,
             description or None, coverage_form or None, layer_position or "Primary",
             tower_group or None, 1 if is_standalone else 0,
-            colleague or None, uw_name or None, status, commission_rate or None,
+            uw_name or None, status, commission_rate or None,
             exposure_basis or None, exposure_amount or None, exposure_unit or None,
             account_exec, notes or None,
         ),
     )
     conn.commit()
+    # Create structured contact records for placement colleague and underwriter
+    _p_row = conn.execute("SELECT id FROM policies WHERE policy_uid=?", (uid,)).fetchone()
+    if _p_row:
+        _pid = _p_row["id"]
+        if colleague:
+            from policydb.queries import get_or_create_contact, assign_contact_to_policy
+            _pc_cid = get_or_create_contact(conn, colleague.strip())
+            assign_contact_to_policy(conn, _pc_cid, _pid, is_placement_colleague=1)
+        if uw_name:
+            from policydb.queries import get_or_create_contact, assign_contact_to_policy
+            _uw_cid = get_or_create_contact(conn, uw_name.strip())
+            assign_contact_to_policy(conn, _uw_cid, _pid, role="Underwriter")
+        conn.commit()
     conn.close()
     click.echo(f"Policy added: {uid} ({pol_type} / {carrier})")
 
@@ -544,6 +571,8 @@ def policy_edit(policy_uid):
             else:
                 updates[col] = val or None
 
+    # Handle placement_colleague through the contact system
+    pc_update = updates.pop("placement_colleague", None)
     if updates:
         set_clause = ", ".join(f"{k} = ?" for k in updates)
         conn.execute(
@@ -551,7 +580,15 @@ def policy_edit(policy_uid):
             (*updates.values(), policy_uid.upper()),
         )
         conn.commit()
-        click.echo(f"Updated {len(updates)} field(s).")
+    if pc_update:
+        from policydb.queries import get_or_create_contact, assign_contact_to_policy
+        _p_row = conn.execute("SELECT id FROM policies WHERE policy_uid=?", (policy_uid.upper(),)).fetchone()
+        if _p_row:
+            _pc_cid = get_or_create_contact(conn, pc_update.strip())
+            assign_contact_to_policy(conn, _pc_cid, _p_row["id"], is_placement_colleague=1)
+            conn.commit()
+    if updates or pc_update:
+        click.echo(f"Updated {len(updates) + (1 if pc_update else 0)} field(s).")
     else:
         click.echo("No changes.")
     conn.close()
@@ -1244,7 +1281,8 @@ def serve(port, host, reload, open_browser):
     # current even when the user hasn't manually run `policydb db init`.
     init_db()
 
-    console.print(f"[bold green]PolicyDB[/bold green] → [link]http://{host}:{port}[/link]")
+    from policydb import __version__
+    console.print(f"[bold green]PolicyDB v{__version__}[/bold green] → [link]http://{host}:{port}[/link]")
     console.print(f"  Database: {db_path}")
     console.print("  Press Ctrl-C to stop.\n")
 

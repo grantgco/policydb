@@ -1,21 +1,22 @@
-<div class="overflow-x-auto">
-  <table class="w-full text-sm">
-    <thead>
-      <tr class="border-b border-gray-100 text-left text-xs text-gray-500 uppercase tracking-wide">
-        <th class="px-4 py-3">Client / Line</th>
-        <th class="px-4 py-3">Expires</th>
-        <th class="px-4 py-3 text-right">Premium</th>
-        <th class="px-4 py-3">Status</th>
-        <th class="px-4 py-3">Contacts</th>
-        <th class="px-4 py-3"></th>
-      </tr>
-    </thead>
-    <tbody class="divide-y divide-gray-50">
-      {% for p in pipeline %}
-      {% include "policies/_policy_dash_row.html" %}
-      {% else %}
-      <tr><td colspan="6" class="px-4 py-8 text-center text-gray-400">No renewals in this window.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
+<table class="w-full text-sm">
+  <thead>
+    <tr class="border-b border-gray-100 text-left text-xs text-gray-500 uppercase tracking-wide">
+      <th class="px-3 py-2">Client / Line</th>
+      <th class="px-3 py-2">Expires</th>
+      <th class="px-3 py-2 text-right">Premium</th>
+      <th class="px-3 py-2">Status</th>
+      <th class="px-3 py-2">Check</th>
+      <th class="px-3 py-2"></th>
+    </tr>
+  </thead>
+  <tbody class="divide-y divide-gray-50">
+    {% for p in pipeline %}
+    {% include "policies/_policy_dash_row.html" %}
+    {% else %}
+    <tr><td colspan="6" class="px-3 py-8 text-center">
+      <p class="text-gray-400">No renewals in this window.</p>
+      <p class="text-xs text-gray-300 mt-1">Try expanding to a wider window above.</p>
+    </td></tr>
+    {% endfor %}
+  </tbody>
+</table>

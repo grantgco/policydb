@@ -1,0 +1,60 @@
+{% set row_id = "client-contact-" ~ (c.name | safe_id) %}
+<tr class="hover:bg-gray-50/60 align-top" id="{{ row_id }}">
+  <td class="px-4 py-3 font-medium text-gray-800">
+    {{ c.name }}
+    {% if c.title %}<span class="text-xs text-gray-400 font-normal ml-1">· {{ c.title }}</span>{% endif %}
+    {% if c.get('expertise_lines') or c.get('expertise_industries') or expertise_lines or expertise_industries %}
+    <div class="mt-0.5">
+      {% set contact_id = c.get('id') or c.get('contact_id') %}
+      {% set line_tags = c.get('expertise_lines', []) %}
+      {% set industry_tags = c.get('expertise_industries', []) %}
+      {% include "contacts/_expertise_pills.html" %}
+    </div>
+    {% endif %}
+  </td>
+  <td class="px-4 py-3">
+    {% if c.role %}
+    <span class="text-xs text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded">{{ c.role }}</span>
+    {% else %}<span class="text-gray-300 text-xs">—</span>{% endif %}
+  </td>
+  <td class="px-4 py-3 text-xs">
+    {% if c.email %}
+    <a href="mailto:{{ c.email }}" class="text-marsh hover:underline">{{ c.email }}</a>
+    {% else %}<span class="text-gray-300">—</span>{% endif %}
+  </td>
+  <td class="px-4 py-3 text-xs">
+    {% if c.phone %}<span class="text-gray-600">{{ c.phone }}</span>{% endif %}
+    {% if c.mobile %}<span class="text-gray-400 {% if c.phone %}ml-1{% endif %}">{% if c.phone %}· {% endif %}Cell: {{ c.mobile }}</span>{% endif %}
+    {% if not c.phone and not c.mobile %}<span class="text-gray-300">—</span>{% endif %}
+  </td>
+  <td class="px-4 py-3 text-xs">
+    {% set clients = c.get('clients', []) %}
+    {% if clients %}
+    <details class="group">
+      <summary class="cursor-pointer list-none text-gray-500 hover:text-marsh select-none">
+        <span class="font-medium text-gray-700">{{ c.client_count }}</span>
+        <span class="text-gray-400"> client{{ 's' if c.client_count != 1 else '' }}</span>
+        <span class="text-gray-300 group-open:hidden"> ▸</span>
+        <span class="text-gray-300 hidden group-open:inline"> ▾</span>
+      </summary>
+      <ul class="mt-2 space-y-1 pl-1 border-l-2 border-gray-100">
+        {% for cl in clients %}
+        <li>
+          <a href="/clients/{{ cl.client_id }}" target="_blank"
+             class="text-gray-600 hover:text-marsh transition-colors">{{ cl.client_name }}</a>
+        </li>
+        {% endfor %}
+      </ul>
+    </details>
+    {% else %}
+    <span class="text-gray-300">—</span>
+    {% endif %}
+  </td>
+  <td class="px-4 py-3">
+    <button
+      hx-get="/contacts/client/{{ c.name | path_quote }}/edit"
+      hx-target="#{{ row_id }}"
+      hx-swap="outerHTML"
+      class="text-xs text-marsh hover:underline text-left">Edit</button>
+  </td>
+</tr>

@@ -1,0 +1,42 @@
+{# _location_policy_row.html — draggable policy row for the location board #}
+{# Context: policy (dict), assigned (bool), client_id (int) #}
+
+<div id="loc-policy-{{ policy.policy_uid }}"
+  class="flex items-center rounded-lg border mb-1.5 transition-colors cursor-grab active:cursor-grabbing
+    {% if assigned %}bg-white border-gray-200 hover:border-gray-300{% else %}bg-red-50/40 border-red-200 hover:border-red-300{% endif %}"
+  draggable="true"
+  ondragstart="event.dataTransfer.setData('text/plain', '{{ policy.policy_uid }}'); event.dataTransfer.effectAllowed = 'move'; this.style.opacity = '0.4'"
+  ondragend="this.style.opacity = '1'"
+  data-policy-uid="{{ policy.policy_uid }}">
+
+  {# ── Grip handle ── #}
+  <div class="w-7 flex items-center justify-center text-gray-300 text-sm select-none shrink-0" title="Drag to assign">&#10495;</div>
+
+  {# ── Policy data ── #}
+  <div class="flex-1 px-2 py-2 min-w-0 flex flex-wrap items-center gap-x-3 gap-y-0.5">
+    <span class="text-sm font-medium text-gray-800 truncate">{{ policy.policy_type or '—' }}</span>
+    <span class="text-xs text-gray-500 truncate">{{ policy.carrier or '—' }}</span>
+    {% if policy.policy_number %}
+    <span class="text-xs text-gray-400 font-mono">{{ policy.policy_number }}</span>
+    {% endif %}
+    <span class="text-xs text-gray-400 whitespace-nowrap">
+      {{ policy.effective_date or '—' }} &rarr; {{ policy.expiration_date or '—' }}
+    </span>
+    {% if policy.premium %}
+    <span class="text-xs text-gray-600 tabular-nums font-medium">{{ policy.premium | currency }}</span>
+    {% endif %}
+  </div>
+
+  {# ── Actions ── #}
+  <div class="flex items-center gap-2 px-2 shrink-0 no-print">
+    <a href="/policies/{{ policy.policy_uid }}/edit"
+      class="text-[10px] text-blue-500 hover:underline font-mono"
+      onclick="event.stopPropagation()">{{ policy.policy_uid }}</a>
+    {% if assigned %}
+    <button type="button"
+      class="text-xs border border-red-200 text-red-500 hover:bg-red-50 px-2 py-0.5 rounded transition-colors"
+      onclick="event.stopPropagation(); unassignPolicy('{{ policy.policy_uid }}', {{ client_id }})"
+      title="Remove from location">Unassign</button>
+    {% endif %}
+  </div>
+</div>

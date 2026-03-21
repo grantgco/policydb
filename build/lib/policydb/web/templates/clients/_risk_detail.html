@@ -1,0 +1,137 @@
+{% set adequacy_colors = {
+  'Adequate': 'bg-green-100 text-green-700 border-green-200',
+  'Inadequate': 'bg-red-100 text-red-700 border-red-200',
+  'Needs Review': 'bg-amber-100 text-amber-700 border-amber-200',
+  'N/A': 'bg-gray-100 text-gray-500 border-gray-200',
+} %}
+{% set control_status_style = {
+  'Implemented': 'text-green-600',
+  'In Progress': 'text-amber-600',
+  'Recommended': 'text-gray-400',
+  'Declined': 'text-gray-300 line-through',
+} %}
+{% set control_status_icon = {
+  'Implemented': '&#10003;',
+  'In Progress': '&#9679;',
+  'Recommended': '&#9675;',
+  'Declined': '&#9675;',
+} %}
+
+<div class="space-y-4 text-xs" onclick="event.stopPropagation()">
+  <!-- Description & metadata -->
+  <div class="flex flex-wrap gap-x-6 gap-y-1 text-gray-600">
+    {% if r.description %}
+    <div><span class="text-gray-400">Description:</span> {{ r.description }}</div>
+    {% endif %}
+    {% if r.source %}
+    <div><span class="text-gray-400">Source:</span> {{ r.source }}</div>
+    {% endif %}
+    {% if r.identified_date %}
+    <div><span class="text-gray-400">Identified:</span> {{ r.identified_date }}</div>
+    {% endif %}
+    {% if r.review_date %}
+    <div><span class="text-gray-400">Review:</span> {{ r.review_date }}</div>
+    {% endif %}
+  </div>
+  {% if r.notes %}
+  <div class="text-gray-500 italic">{{ r.notes }}</div>
+  {% endif %}
+
+  <!-- Coverage Lines -->
+  <div>
+    <div class="flex items-center gap-2 mb-2">
+      <span class="font-semibold text-gray-700 text-xs uppercase tracking-wide">Coverage Lines</span>
+    </div>
+    <div class="flex flex-wrap gap-2 items-center mb-2">
+      {% for cl in r.coverage_lines %}
+      <div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-medium {{ adequacy_colors.get(cl.adequacy, 'bg-gray-100 text-gray-500 border-gray-200') }}">
+        <span>{{ cl.coverage_line }}</span>
+        <span class="opacity-70">— {{ cl.adequacy }}</span>
+        {% if cl.policy_uid %}
+        <a href="/policies/{{ cl.policy_uid }}/edit" target="_blank" class="font-mono opacity-70 hover:opacity-100 hover:underline ml-0.5"
+           onclick="event.stopPropagation()">{{ cl.policy_uid }}</a>
+        {% endif %}
+        <!-- Inline adequacy edit -->
+        <form hx-post="/clients/{{ client.id }}/risks/{{ r.id }}/lines/{{ cl.id }}/edit"
+              hx-target="#risks-card" hx-swap="outerHTML"
+              class="inline-flex items-center gap-1 ml-1" onclick="event.stopPropagation()">
+          <select name="adequacy" class="text-xs border border-gray-300 rounded px-1 py-0.5 bg-white focus:outline-none focus:ring-1 focus:ring-marsh"
+                  onchange="this.form.requestSubmit()">
+            {% for lvl in risk_adequacy_levels %}
+            <option {% if cl.adequacy == lvl %}selected{% endif %}>{{ lvl }}</option>
+            {% endfor %}
+          </select>
+          <select name="policy_uid" class="text-xs border border-gray-300 rounded px-1 py-0.5 bg-white focus:outline-none focus:ring-1 focus:ring-marsh max-w-[120px]"
+                  onchange="this.form.requestSubmit()">
+            <option value="">—</option>
+            {% for p in policy_uid_options %}
+            <option value="{{ p.uid }}" {% if cl.policy_uid == p.uid %}selected{% endif %}>{{ p.label }}</option>
+            {% endfor %}
+          </select>
+        </form>
+        <button hx-post="/clients/{{ client.id }}/risks/{{ r.id }}/lines/{{ cl.id }}/delete"
+                hx-target="#risks-card" hx-swap="outerHTML"
+                hx-confirm="Remove this coverage line?"
+                onclick="event.stopPropagation()"
+                class="text-red-300 hover:text-red-500 ml-0.5">&times;</button>
+      </div>
+      {% endfor %}
+      <!-- Add coverage line inline form -->
+      <form hx-post="/clients/{{ client.id }}/risks/{{ r.id }}/lines/add"
+            hx-target="#risks-card" hx-swap="outerHTML"
+            class="inline-flex items-center gap-1.5"
+            onclick="event.stopPropagation()">
+        <select name="coverage_line" required
+          class="text-xs border border-gray-300 rounded px-1.5 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-marsh">
+          <option value="">+ Add Line</option>
+          {% for pt in policy_types %}
+          <option>{{ pt }}</option>
+          {% endfor %}
+        </select>
+        <select name="adequacy"
+          class="text-xs border border-gray-300 rounded px-1 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-marsh">
+          {% for lvl in risk_adequacy_levels %}
+          <option>{{ lvl }}</option>
+          {% endfor %}
+        </select>
+        <button type="submit" class="text-xs text-marsh hover:underline font-medium">Add</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div>
+    <div class="flex items-center gap-2 mb-2">
+      <span class="font-semibold text-gray-700 text-xs uppercase tracking-wide">Controls</span>
+    </div>
+    {% if r.controls %}
+    <div class="space-y-1.5 mb-2">
+      {% for c in r.controls %}
+      {% include "clients/_risk_control_row.html" %}
+      {% endfor %}
+    </div>
+    {% endif %}
+    <!-- Add control inline form -->
+    <form hx-post="/clients/{{ client.id }}/risks/{{ r.id }}/controls/add"
+          hx-target="#risks-card" hx-swap="outerHTML"
+          class="flex flex-wrap items-center gap-2"
+          hx-on::after-request="if(event.detail.successful){this.reset()}"
+          onclick="event.stopPropagation()">
+      <select name="control_type" required
+        class="text-xs border border-gray-300 rounded px-1.5 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-marsh">
+        {% for ct in risk_control_types %}
+        <option>{{ ct }}</option>
+        {% endfor %}
+      </select>
+      <input type="text" name="description" required placeholder="Describe control…"
+        class="text-xs border border-gray-300 rounded px-2 py-1 flex-1 min-w-[180px] focus:outline-none focus:ring-1 focus:ring-marsh">
+      <select name="status"
+        class="text-xs border border-gray-300 rounded px-1 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-marsh">
+        {% for st in risk_control_statuses %}
+        <option>{{ st }}</option>
+        {% endfor %}
+      </select>
+      <button type="submit" class="text-xs text-marsh hover:underline font-medium">+ Add</button>
+    </form>
+  </div>
+</div>

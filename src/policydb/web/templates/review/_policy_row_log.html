@@ -1,0 +1,82 @@
+<tr id="review-row-{{ p.policy_uid }}" class="border-t-2 border-amber-400 bg-amber-50">
+  <td colspan="9" class="px-4 py-4">
+
+    <form hx-post="/review/policies/{{ p.policy_uid }}/row/log"
+          hx-target="#review-row-{{ p.policy_uid }}"
+          hx-swap="outerHTML"
+          class="space-y-3">
+
+      <input type="hidden" name="client_id" value="{{ p.client_id }}">
+      <input type="hidden" name="policy_id" value="{{ p.id }}">
+
+      <!-- Quick-log pills -->
+      {% if quick_templates %}
+      <div class="flex flex-wrap gap-1">
+        {% for qt in quick_templates %}
+        <button type="button"
+          onclick="this.closest('form').querySelector('[name=activity_type]').value='{{ qt.type }}'; this.closest('form').querySelector('[name=subject]').value='{{ qt.subject }}'"
+          class="text-xs bg-gray-100 text-gray-600 hover:bg-marsh hover:text-white px-2 py-0.5 rounded transition-colors">
+          {{ qt.label }}
+        </button>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      <!-- Row 1: Type, Subject, Duration, Follow-Up -->
+      <div class="grid grid-cols-6 gap-3">
+        <div>
+          <label class="block text-xs text-gray-500 mb-0.5">Type</label>
+          <select name="activity_type"
+            class="text-xs border border-gray-200 rounded px-2 py-1 w-full focus:outline-none focus:ring-1 focus:ring-marsh bg-white">
+            {% for t in activity_types %}
+            <option value="{{ t }}">{{ t }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-span-2">
+          <label class="block text-xs text-gray-500 mb-0.5">Subject <span class="text-red-400">*</span></label>
+          <input type="text" name="subject" required placeholder="Activity subject…" value="{{ default_subject or '' }}"
+            class="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-marsh">
+        </div>
+        <div>
+          <label class="block text-xs text-gray-500 mb-0.5">Duration</label>
+          <input type="number" name="duration_hours" min="0" step="any" placeholder="hrs"
+            class="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-marsh">
+        </div>
+        <div>
+          <label class="block text-xs text-gray-500 mb-0.5">Follow-Up</label>
+          <input type="date" name="follow_up_date"
+            class="text-xs border border-gray-200 rounded px-2 py-1 w-full focus:outline-none focus:ring-1 focus:ring-marsh">
+        </div>
+        <div>
+          <label class="block text-xs text-gray-500 mb-0.5">Contact</label>
+          <input type="text" name="contact_person" placeholder="Name"
+            class="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-marsh">
+        </div>
+      </div>
+
+      <!-- Row 2: Details (collapsed by default) -->
+      <details class="group">
+        <summary class="text-xs text-gray-400 cursor-pointer hover:text-gray-600">Details +</summary>
+        <div class="mt-1">
+          <input type="text" name="details" placeholder="Optional details…"
+            class="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-marsh">
+        </div>
+      </details>
+
+      <!-- Row 3: Actions -->
+      <div class="flex items-center gap-3">
+        <button type="submit"
+          class="text-xs bg-amber-500 text-white px-3 py-1.5 rounded hover:bg-amber-600 transition-colors">Log</button>
+        <button type="button"
+          hx-get="/review/policies/{{ p.policy_uid }}/row"
+          hx-target="#review-row-{{ p.policy_uid }}"
+          hx-swap="outerHTML"
+          class="text-xs text-gray-400 hover:text-gray-600 px-2 py-1.5">Cancel</button>
+        <span class="text-xs text-gray-400 ml-auto font-mono">{{ p.policy_uid }} · {{ p.policy_type }}</span>
+      </div>
+
+    </form>
+
+  </td>
+</tr>

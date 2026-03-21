@@ -1,35 +1,43 @@
 <tr id="dash-row-{{ p.policy_uid }}" class="hover:bg-gray-50">
-  <td class="px-4 py-3">
-    <a href="/clients/{{ p.client_id }}" class="font-medium text-marsh hover:underline">{{ p.client_name }}</a>
+  <td class="px-3 py-3">
+    <a href="/clients/{{ p.client_id }}" target="_blank" class="font-medium text-marsh hover:underline text-sm">{{ p.client_name }}</a>
     <p class="text-gray-500 text-xs">{{ p.policy_type }}</p>
+    {% if p.project_name %}<p class="text-gray-400 text-xs italic truncate max-w-[140px]" title="{{ p.project_name }}">{{ p.project_name }}</p>{% endif %}
   </td>
-  <td class="px-4 py-3">
-    <span class="block text-gray-900">{{ p.expiration_date }}</span>
-    <span class="{{ p.urgency | urgency_class }} text-xs font-medium px-1.5 py-0.5 rounded">{{ p.days_to_renewal }}d · {{ p.urgency }}</span>
+  <td class="px-3 py-3 whitespace-nowrap">
+    <span class="block text-gray-900 text-xs tabular-nums">{{ p.expiration_date }}</span>
+    <span class="{{ p.urgency | urgency_class }} text-xs font-medium px-1.5 py-0.5 rounded tabular-nums">{{ p.days_to_renewal }}d</span>
+    {% if p.readiness_label is defined %}
+    <span class="text-xs px-1.5 py-0.5 rounded block mt-0.5 whitespace-nowrap {{ p.readiness_label | readiness_class }} cursor-help" title="{{ p.readiness_tooltip or '' }}">{{ p.readiness_label }}</span>
+    {% endif %}
   </td>
-  <td class="px-4 py-3 text-right tabular-nums text-gray-700">{{ p.premium | currency }}</td>
-  <td class="px-4 py-3" id="status-{{ p.policy_uid }}">
+  <td class="px-3 py-3 text-right tabular-nums text-gray-700 text-xs">{{ p.premium | currency }}</td>
+  <td class="px-3 py-3" id="status-{{ p.policy_uid }}">
     {% include "policies/_status_badge.html" %}
-  </td>
-  <td class="px-4 py-3 text-xs space-y-1">
-    {% if p.placement_colleague %}
-    <p class="text-gray-700 font-medium">{{ p.placement_colleague }}
-      {% if p.placement_colleague_email %}<a href="mailto:{{ p.placement_colleague_email }}" class="text-marsh hover:underline ml-1">✉</a>{% endif %}
-    </p>
+    {% if suggested_uids is defined and p.policy_uid in suggested_uids %}
+    <span class="text-amber-500 text-xs ml-1" title="No follow-up scheduled — renewal approaching">⚑</span>
     {% endif %}
-    {% if p.underwriter_name %}
-    <p class="text-gray-500">{{ p.underwriter_name }}
-      {% if p.underwriter_contact %}<span class="text-gray-400"> · {{ p.underwriter_contact }}</span>{% endif %}
-    </p>
-    {% endif %}
-    {% if not p.placement_colleague and not p.underwriter_name %}<span class="text-gray-300">—</span>{% endif %}
   </td>
-  <td class="px-4 py-3 flex items-center gap-3">
+  <td class="px-3 py-3">
+    {% if p.milestone_total %}
+    <button type="button" class="ms-trigger text-xs {% if p.milestone_done == p.milestone_total %}text-green-600{% elif p.milestone_done > 0 %}text-amber-600{% else %}text-gray-400{% endif %} tabular-nums hover:underline cursor-pointer" data-uid="{{ p.policy_uid }}">{{ p.milestone_done }}/{{ p.milestone_total }}</button>
+    {% else %}<span class="text-gray-300 text-xs">—</span>{% endif %}
+  </td>
+  <td class="px-3 py-3 flex items-center gap-2">
+    <button
+      hx-get="/policies/{{ p.policy_uid }}/dash/edit"
+      hx-target="#dash-row-{{ p.policy_uid }}"
+      hx-swap="outerHTML"
+      class="text-xs text-marsh hover:underline">Edit</button>
     <button
       hx-get="/policies/{{ p.policy_uid }}/dash/log"
       hx-target="#dash-row-{{ p.policy_uid }}"
       hx-swap="outerHTML"
       class="text-xs text-amber-600 hover:underline">Log</button>
-    <a href="/policies/{{ p.policy_uid }}/edit" class="text-xs text-gray-400 hover:underline">Edit →</a>
+    <a href="/policies/{{ p.policy_uid }}/edit" target="_blank" class="text-xs text-gray-400 hover:underline">→</a>
+    <a href="/policies/{{ p.policy_uid }}/export" onclick="event.stopPropagation()"
+      class="text-gray-300 hover:text-marsh text-xs no-print" title="Export policy XLSX">&#8615;</a>
+    <button type="button" onclick="copyRefTag(this, '{{ build_ref_tag(cn_number=p.cn_number|default(''), client_id=p.client_id, policy_uid=p.policy_uid, project_id=p.project_id|default(0)) }}')"
+      class="text-gray-300 hover:text-marsh text-xs" title="Copy email ref tag">⧉</button>
   </td>
 </tr>

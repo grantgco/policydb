@@ -1,0 +1,315 @@
+{% extends "base.html" %}
+{% block title %}{% if is_new %}New Meeting{% else %}{{ meeting.title }}{% endif %} — Coverage{% endblock %}
+{% block content %}
+
+{# ── Breadcrumb ── #}
+<div class="flex items-center gap-2 text-sm text-gray-400 mb-1">
+  <a href="/meetings" class="hover:text-marsh">Meetings</a>
+  {% if not is_new and meeting %}
+  <span>/</span>
+  <a href="/clients/{{ meeting.client_id }}" class="hover:text-marsh">{{ meeting.client_name }}</a>
+  <span>/</span>
+  <span class="text-gray-600 font-medium">{{ meeting.title }}</span>
+  {% else %}
+  <span>/</span>
+  <span class="text-gray-600 font-medium">New Meeting</span>
+  {% endif %}
+</div>
+
+{% if is_new %}
+{# ── New Meeting Form ── #}
+<h1 class="text-2xl font-bold text-gray-900 mb-4">New Meeting</h1>
+<form method="post" action="/meetings/new" class="card p-6 space-y-4">
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+    <div class="sm:col-span-2 lg:col-span-1">
+      <label class="field-label">Client <span class="text-red-400">*</span></label>
+      <select name="client_id" required class="form-select w-full">
+        <option value="">— Select client —</option>
+        {% for c in all_clients %}
+        <option value="{{ c.id }}" {% if c.id == selected_client_id %}selected{% endif %}>{{ c.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="sm:col-span-2">
+      <label class="field-label">Title <span class="text-red-400">*</span></label>
+      <input type="text" name="title" required placeholder="Q2 Renewal Strategy" class="form-input w-full">
+    </div>
+    <div>
+      <label class="field-label">Date</label>
+      <input type="date" name="meeting_date" value="{{ today }}" class="form-input w-full">
+    </div>
+    <div>
+      <label class="field-label">Time</label>
+      <input type="text" name="meeting_time" placeholder="2:00 PM" class="form-input w-full">
+    </div>
+    <div>
+      <label class="field-label">Duration (hrs)</label>
+      <input type="number" name="duration_hours" step="any" min="0" placeholder="1.0" class="form-input w-full">
+    </div>
+    <div class="sm:col-span-2">
+      <label class="field-label">Location</label>
+      <input type="text" name="location" placeholder="Conference Room B / Zoom / Client office" class="form-input w-full">
+    </div>
+  </div>
+  <div>
+    <label class="field-label">Notes</label>
+    <textarea name="notes" id="new-meeting-notes" rows="6" placeholder="Agenda, discussion points..."
+      class="form-input w-full"></textarea>
+    <script>if(typeof window.initMarkdownEditor==='function')window.initMarkdownEditor('new-meeting-notes',{minHeight:'160px'});</script>
+  </div>
+  <button type="submit" class="bg-marsh text-white px-6 py-2 rounded-lg hover:bg-marsh-light transition-colors text-sm font-medium">Create Meeting</button>
+</form>
+
+{% else %}
+{# ── Meeting Detail ── #}
+<div class="flex items-baseline justify-between gap-4 mb-2">
+  <div>
+    <h1 class="text-2xl font-bold text-gray-900">{{ meeting.title }}</h1>
+    <p class="text-sm text-gray-400 mt-0.5">
+      {{ meeting.client_name }}
+      {% if meeting.meeting_uid %}
+      <span class="ml-2 text-xs font-mono bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded" title="Meeting reference ID">{{ meeting.meeting_uid }}</span>
+      {% endif %}
+    </p>
+  </div>
+  <div class="text-right shrink-0">
+    <span id="meeting-save-ts" class="text-xs text-gray-400"></span>
+  </div>
+</div>
+
+{# ── Meeting Details (editable matrix) ── #}
+<div class="card p-4 mb-4">
+  <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Meeting Details</p>
+  <table class="w-full text-sm" id="meeting-details-table">
+    <colgroup>
+      <col style="width:30%"><col style="width:20%"><col style="width:15%"><col style="width:12%"><col style="width:23%">
+    </colgroup>
+    <thead>
+      <tr class="border-b border-gray-200 text-left text-[10px] text-gray-400 uppercase tracking-wide">
+        <th class="px-3 py-2 font-medium">Title</th>
+        <th class="px-3 py-2 font-medium">Date</th>
+        <th class="px-3 py-2 font-medium">Time</th>
+        <th class="px-3 py-2 font-medium">Duration</th>
+        <th class="px-3 py-2 font-medium">Location</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr class="align-top" data-row-id="{{ meeting.id }}">
+        <td class="px-3 py-2.5">
+          <div contenteditable="true"
+               class="mtg-detail-cell outline-none font-medium text-gray-800 text-sm rounded px-1 -mx-1"
+               data-field="title">{{ meeting.title }}</div>
+        </td>
+        <td class="px-3 py-2.5">
+          <div contenteditable="true"
+               class="mtg-detail-cell outline-none text-gray-700 text-xs rounded px-1 -mx-1"
+               data-field="meeting_date" data-placeholder="YYYY-MM-DD">{{ meeting.meeting_date or '' }}</div>
+        </td>
+        <td class="px-3 py-2.5">
+          <div contenteditable="true"
+               class="mtg-detail-cell outline-none text-gray-600 text-xs rounded px-1 -mx-1"
+               data-field="meeting_time" data-placeholder="2:00 PM">{{ meeting.meeting_time or '' }}</div>
+        </td>
+        <td class="px-3 py-2.5">
+          <div contenteditable="true"
+               class="mtg-detail-cell outline-none text-gray-600 text-xs rounded px-1 -mx-1"
+               data-field="duration_hours" data-placeholder="hrs">{{ meeting.duration_hours or '' }}</div>
+        </td>
+        <td class="px-3 py-2.5">
+          <div contenteditable="true"
+               class="mtg-detail-cell outline-none text-gray-600 text-xs rounded px-1 -mx-1"
+               data-field="location" data-placeholder="Location...">{{ meeting.location or '' }}</div>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<script>
+(function() {
+  var MID = {{ meeting.id | tojson }};
+  var table = document.getElementById('meeting-details-table');
+  if (!table) return;
+  table.addEventListener('focusin', function(e) {
+    var cell = e.target.closest('.mtg-detail-cell');
+    if (cell) cell.dataset.original = cell.innerText;
+  });
+  table.addEventListener('focusout', function(e) {
+    var cell = e.target.closest('.mtg-detail-cell');
+    if (!cell) return;
+    var newVal = cell.innerText.trim();
+    if (newVal === (cell.dataset.original || '').trim()) return;
+    fetch('/meetings/' + MID, {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({field: cell.dataset.field, value: newVal})
+    }).then(function(r) { return r.json(); }).then(function(data) {
+      if (data.ok) {
+        if (data.formatted && data.formatted !== newVal) cell.innerText = data.formatted;
+        if (typeof showToast === 'function') showToast('Saved', true);
+      }
+    });
+  });
+  table.addEventListener('keydown', function(e) {
+    var cell = e.target.closest('.mtg-detail-cell');
+    if (!cell) return;
+    if (e.key === 'Enter') { e.preventDefault(); cell.blur(); }
+    else if (e.key === 'Escape') { cell.innerText = cell.dataset.original || ''; cell.blur(); }
+  });
+})();
+</script>
+
+{# ── Linked Policies ── #}
+<div class="card p-4 mb-4">
+  <div class="flex items-center justify-between mb-2">
+    <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Policies Discussed</p>
+  </div>
+  <div id="meeting-policies" class="flex flex-wrap gap-1 mb-2">
+    {% if meeting.linked_policies %}
+    {% for p in meeting.linked_policies %}
+    <span class="inline-flex items-center gap-1 text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded mr-1 mb-1">
+      <a href="/policies/{{ p.policy_uid }}/edit" class="hover:underline">{{ p.policy_type or p.policy_uid }}</a>
+      <span class="text-blue-400">{{ p.carrier or '' }}</span>
+      <button type="button" hx-post="/meetings/{{ meeting.id }}/policies/unlink"
+        hx-vals='{"policy_uid": "{{ p.policy_uid }}"}'
+        hx-target="#meeting-policies" hx-swap="innerHTML"
+        class="text-blue-300 hover:text-red-500 ml-0.5">&times;</button>
+    </span>
+    {% endfor %}
+    {% else %}
+    <span class="text-xs text-gray-400 italic">No policies linked</span>
+    {% endif %}
+  </div>
+  <div class="flex gap-2 items-end">
+    <select id="policy-link-select" class="flex-1 border border-gray-300 rounded px-2 py-1 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-marsh">
+      <option value="">— Link a policy —</option>
+      {% set linked_uids = meeting.linked_policies | map(attribute='policy_uid') | list %}
+      {% for p in client_policies if p.policy_uid not in linked_uids %}
+      <option value="{{ p.policy_uid }}">{{ p.policy_type }}{% if p.program_label %} [PGM]{% endif %} · {{ p.carrier or '—' }}{% if p.project_name %} · {{ p.project_name }}{% endif %} ({{ p.policy_uid }})</option>
+      {% endfor %}
+    </select>
+    <button type="button" onclick="var sel=document.getElementById('policy-link-select');if(sel.value){htmx.ajax('POST','/meetings/{{ meeting.id }}/policies/link',{target:'#meeting-policies',swap:'innerHTML',values:{policy_uid:sel.value}});sel.value='';}"
+      class="text-xs bg-marsh text-white px-3 py-1 rounded hover:bg-marsh-light transition-colors">Link</button>
+  </div>
+</div>
+
+{# ── Attendees ── #}
+<div class="card p-4 mb-4">
+  <div id="attendees-section">
+    {% include "meetings/_attendees.html" %}
+  </div>
+</div>
+
+{# ── Notes ── #}
+<div class="card p-4 mb-4">
+  <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Meeting Notes</p>
+  <textarea id="meeting-notes-ta" rows="10"
+    class="w-full text-sm text-gray-800 bg-transparent resize-none focus:outline-none">{{ meeting.notes or '' }}</textarea>
+</div>
+<script>
+(function() {
+  var mde = window.initMarkdownEditor('meeting-notes-ta', {minHeight: '250px'});
+  var tsEl = document.getElementById('meeting-save-ts');
+  var saveTimer = null;
+  function autoSave() {
+    var content = mde ? mde.getMarkdown() : document.getElementById('meeting-notes-ta').value;
+    var fd = new FormData();
+    fd.set('content', content);
+    fetch('/meetings/{{ meeting.id }}/notes', {method: 'POST', body: fd, headers: {'Accept': 'application/json'}})
+      .then(function(r) { return r.json(); })
+      .then(function(data) { if (data.ok && tsEl) tsEl.textContent = 'saved ' + data.saved_at; });
+  }
+  if (mde) {
+    mde.on('change', function() { clearTimeout(saveTimer); saveTimer = setTimeout(autoSave, 800); });
+  }
+})();
+</script>
+
+{# ── Action Items ── #}
+<div class="card p-4 mb-4">
+  <div id="actions-section">
+    {% include "meetings/_actions.html" %}
+  </div>
+</div>
+
+{# ── Time Tracking ── #}
+<div class="card p-4 mb-4">
+  <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Additional Time</p>
+  <div class="flex gap-3 items-end">
+    <div>
+      <label class="text-xs text-gray-500 block mb-0.5">Prep hours</label>
+      <input type="number" id="prep-hours" step="any" min="0" placeholder="0.5" class="border border-gray-300 rounded px-2 py-1 text-xs w-20 focus:outline-none focus:ring-1 focus:ring-marsh">
+    </div>
+    <button type="button" onclick="logMeetingTime('prep')" class="text-xs bg-gray-100 hover:bg-gray-200 text-marsh px-3 py-1.5 rounded transition-colors">Log Prep</button>
+    <div class="border-l border-gray-200 pl-3">
+      <label class="text-xs text-gray-500 block mb-0.5">Debrief hours</label>
+      <input type="number" id="debrief-hours" step="any" min="0" placeholder="0.5" class="border border-gray-300 rounded px-2 py-1 text-xs w-20 focus:outline-none focus:ring-1 focus:ring-marsh">
+    </div>
+    <button type="button" onclick="logMeetingTime('debrief')" class="text-xs bg-gray-100 hover:bg-gray-200 text-marsh px-3 py-1.5 rounded transition-colors">Log Debrief</button>
+    <span id="time-log-status" class="text-xs text-green-600 ml-2"></span>
+  </div>
+</div>
+<script>
+function logMeetingTime(type) {
+  var input = document.getElementById(type + '-hours');
+  if (!input || !input.value) return;
+  var fd = new FormData();
+  fd.set('time_type', type);
+  fd.set('hours', input.value);
+  fetch('/meetings/{{ meeting.id }}/log-time', {method: 'POST', body: fd})
+    .then(function(r) {
+      if (!r.ok) { throw new Error('Server error: ' + r.status); }
+      return r.json();
+    })
+    .then(function(data) {
+      if (data.ok) {
+        document.getElementById('time-log-status').textContent = '✓ ' + data.logged + ' — activity logged';
+        if (typeof showToast === 'function') showToast('Activity logged: ' + data.logged, true);
+        input.value = '';
+        setTimeout(function() { document.getElementById('time-log-status').textContent = ''; }, 3000);
+      } else {
+        document.getElementById('time-log-status').textContent = 'Error: ' + (data.error || 'unknown');
+      }
+    })
+    .catch(function(err) {
+      document.getElementById('time-log-status').textContent = 'Error: ' + err.message;
+      if (typeof showToast === 'function') showToast('Failed to log time: ' + err.message, false);
+    });
+}
+</script>
+
+{# ── Meeting Recap ── #}
+<details class="card mb-4">
+  <summary class="px-4 py-3 cursor-pointer select-none list-none flex items-center gap-2 hover:bg-gray-50 rounded-xl">
+    <span class="details-arrow text-xs text-gray-400">▶</span>
+    <span class="text-sm font-medium text-gray-700">Generate Recap</span>
+    <span class="text-xs text-gray-400">— summary for email/sharing</span>
+  </summary>
+  <div hx-get="/meetings/{{ meeting.id }}/recap"
+       hx-trigger="toggle from:closest details once"
+       hx-swap="innerHTML">
+    <div class="p-4 text-sm text-gray-400">Generating recap...</div>
+  </div>
+</details>
+
+{# ── Meeting Prep (collapsible, HTMX-loaded) ── #}
+<details class="card mb-4">
+  <summary class="px-4 py-3 cursor-pointer select-none list-none flex items-center gap-2 hover:bg-gray-50 rounded-xl">
+    <span class="details-arrow text-xs text-gray-400">▶</span>
+    <span class="text-sm font-medium text-gray-700">Meeting Prep</span>
+    <span class="text-xs text-gray-400">— renewals, follow-ups, risks, RFIs</span>
+  </summary>
+  <div hx-get="/meetings/{{ meeting.id }}/prep"
+       hx-trigger="toggle from:closest details once"
+       hx-swap="innerHTML">
+    <div class="p-4 text-sm text-gray-400">Loading prep data...</div>
+  </div>
+</details>
+
+{% if just_created %}
+<script>
+if (typeof showToast === 'function') showToast('Meeting created — activity logged to timeline', true);
+</script>
+{% endif %}
+
+{% endif %}
+{% endblock %}

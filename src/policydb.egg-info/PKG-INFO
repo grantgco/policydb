@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: policydb
-Version: 1.0.0
+Version: 5.9.0
 Summary: Insurance Book of Business Management CLI
 Requires-Python: >=3.11
 Requires-Dist: click>=8.1
@@ -16,5 +16,6 @@ Requires-Dist: uvicorn>=0.29
 Requires-Dist: jinja2>=3.1
 Requires-Dist: python-multipart>=0.0.9
 Requires-Dist: openpyxl>=3.1
+Requires-Dist: phonenumbers>=8.13
 Provides-Extra: datasette
 Requires-Dist: datasette>=0.64; extra == "datasette"

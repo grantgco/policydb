@@ -1,0 +1,82 @@
+<div id="policy-team-card" class="card p-4" data-mailto-subject="{{ mailto_subject | default('') }}">
+  <div class="flex items-center justify-between mb-3">
+    <h2 class="font-semibold text-gray-900 text-sm">Policy Team
+      <span class="normal-case font-normal text-gray-400 text-xs">&mdash; placement colleagues &amp; underwriters</span>
+    </h2>
+    <button type="button" class="text-xs text-marsh hover:underline font-medium no-print"
+      onclick="if(window._policyTeamMatrix)window._policyTeamMatrix.createNewRow()">+ Add</button>
+  </div>
+
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm table-fixed">
+      <colgroup>
+        <col style="width:13%"><col style="width:11%"><col style="width:10%"><col style="width:10%">
+        <col style="width:15%"><col style="width:11%"><col style="width:11%"><col style="width:8%">
+        <col style="width:28px"><col style="width:28px">
+      </colgroup>
+      <thead>
+        <tr class="text-left text-xs text-gray-400 uppercase tracking-wide border-b border-gray-100 bg-gray-50">
+          <th class="px-3 py-2">Name</th>
+          <th class="px-3 py-2">Org</th>
+          <th class="px-3 py-2">Title</th>
+          <th class="px-3 py-2">Role</th>
+          <th class="px-3 py-2">Email</th>
+          <th class="px-3 py-2">Phone</th>
+          <th class="px-3 py-2">Mobile</th>
+          <th class="px-3 py-2">Notes</th>
+          <th class="px-3 py-2"></th>
+          <th class="px-3 py-2"></th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-50" id="policy-team-tbody">
+        {% for c in policy_contacts %}
+        {% include "policies/_team_matrix_row.html" %}
+        {% else %}
+        <tr id="policy-team-empty"><td colspan="10" class="px-4 py-6 text-center text-gray-400 text-xs">No policy contacts yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if team_contacts %}
+  <details class="border-t border-gray-100 pt-2 mt-3 mb-2">
+    <summary class="text-xs text-amber-600 hover:underline cursor-pointer select-none list-none">Quick assign from client team</summary>
+    <form hx-post="/policies/{{ policy.policy_uid }}/team/quick-assign"
+          hx-target="#policy-team-card" hx-swap="outerHTML"
+          class="mt-2 p-3 bg-amber-50/50 rounded-lg border border-amber-100">
+      {% for t in team_contacts %}
+      {% set is_suggested = t.contact_id in (suggested_contact_ids or set()) %}
+      <label class="flex items-center gap-2 py-1 text-sm {% if t.id in already_assigned_ids %}opacity-50{% endif %}">
+        <input type="checkbox" name="contact_ids" value="{{ t.id }}"
+          {% if t.id in already_assigned_ids %}checked disabled{% endif %}>
+        <span>{{ t.name }}</span>
+        {% if is_suggested %}<span class="text-[10px] text-amber-500 font-semibold" title="Expertise match for {{ policy.policy_type }}">&#9733; Suggested</span>{% endif %}
+        {% if t.role %}<span class="text-xs text-indigo-500">{{ t.role }}</span>{% endif %}
+        {% if t.email %}<span class="text-xs text-gray-400">{{ t.email }}</span>{% endif %}
+        {% if t.id in already_assigned_ids %}<span class="text-xs text-green-600">assigned</span>{% endif %}
+      </label>
+      {% endfor %}
+      <button type="submit" class="mt-2 bg-marsh text-white text-xs font-medium px-4 py-1.5 rounded hover:bg-marsh-light">Assign Selected</button>
+    </form>
+  </details>
+  {% endif %}
+
+  {% set picker_context = 'policy_team' %}
+  {% set picker_target_id = policy.policy_uid %}
+  {% include "contacts/_picker.html" %}
+</div>
+
+<script>
+(function() {
+  var UID = "{{ policy.policy_uid }}";
+
+  window._policyTeamMatrix = window.initMatrix({
+    tbodyId: 'policy-team-tbody',
+    idAttr: 'data-row-id',
+    rowClass: 'matrix-row',
+    patchUrl: function(id) { return '/policies/' + UID + '/team/' + id + '/cell'; },
+    addRowUrl: '/policies/' + UID + '/team/add-row',
+    emptyRowId: 'policy-team-empty',
+  });
+})();
+</script>

@@ -1,0 +1,6 @@
+{"type":"server-started","port":50505,"host":"127.0.0.1","url_host":"localhost","url":"http://localhost:50505","screen_dir":"/Users/grantgreeson/Documents/Projects/policydb/.superpowers/brainstorm/42138-1773857230"}
+{"type":"screen-added","file":"/Users/grantgreeson/Documents/Projects/policydb/.superpowers/brainstorm/42138-1773857230/meetings-mockup.html"}
+{"type":"screen-updated","file":"/Users/grantgreeson/Documents/Projects/policydb/.superpowers/brainstorm/42138-1773857230/meetings-mockup.html"}
+{"type":"screen-updated","file":"/Users/grantgreeson/Documents/Projects/policydb/.superpowers/brainstorm/42138-1773857230/meetings-mockup.html"}
+{"type":"screen-updated","file":"/Users/grantgreeson/Documents/Projects/policydb/.superpowers/brainstorm/42138-1773857230/meetings-mockup.html"}
+{"type":"server-stopped","reason":"idle timeout"}

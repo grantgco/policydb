@@ -103,7 +103,7 @@ def _interactive_policy_entry(conn: sqlite3.Connection, client_id: int) -> int:
                 conn.execute(
                     """UPDATE policies SET
                        limit_amount = ?, description = ?, layer_position = ?,
-                       tower_group = ?, policy_number = ?, placement_colleague = ?
+                       tower_group = ?, policy_number = ?
                        WHERE policy_uid = ?""",
                     (
                         limit or None,
@@ -111,10 +111,16 @@ def _interactive_policy_entry(conn: sqlite3.Connection, client_id: int) -> int:
                         layer or "Primary",
                         tower or None,
                         pol_number or None,
-                        colleague or None,
                         uid,
                     ),
                 )
+                # Create structured contact record for placement colleague
+                if colleague:
+                    from policydb.queries import get_or_create_contact, assign_contact_to_policy
+                    _p_row = conn.execute("SELECT id FROM policies WHERE policy_uid=?", (uid,)).fetchone()
+                    if _p_row:
+                        _pc_cid = get_or_create_contact(conn, colleague.strip())
+                        assign_contact_to_policy(conn, _pc_cid, _p_row["id"], is_placement_colleague=1)
                 conn.commit()
 
             if not click.confirm("\n  Add another policy?", default=True):
@@ -190,9 +196,16 @@ def _renewal_setup(conn: sqlite3.Connection, client_id: int) -> None:
             show_default=False,
         )
         conn.execute(
-            "UPDATE policies SET renewal_status = ?, placement_colleague = ? WHERE policy_uid = ?",
-            (status, colleague or None, r["policy_uid"]),
+            "UPDATE policies SET renewal_status = ? WHERE policy_uid = ?",
+            (status, r["policy_uid"]),
         )
+        # Create structured contact record for placement colleague
+        if colleague:
+            from policydb.queries import get_or_create_contact, assign_contact_to_policy
+            _p_row = conn.execute("SELECT id FROM policies WHERE policy_uid=?", (r["policy_uid"],)).fetchone()
+            if _p_row:
+                _pc_cid = get_or_create_contact(conn, colleague.strip())
+                assign_contact_to_policy(conn, _pc_cid, _p_row["id"], is_placement_colleague=1)
     conn.commit()
 
 

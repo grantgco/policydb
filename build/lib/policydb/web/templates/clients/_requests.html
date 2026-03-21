@@ -1,0 +1,108 @@
+<div id="requests-card-{{ client.id }}" class="card p-4">
+  <div class="flex items-center justify-between mb-3">
+    <h2 class="font-semibold text-gray-900 text-sm">Information Requests
+      <span class="normal-case font-normal text-gray-400 text-xs">&mdash; track documents &amp; questions sent to client</span>
+    </h2>
+    <form hx-post="/clients/{{ client.id }}/requests" hx-target="#requests-card-{{ client.id }}" hx-swap="outerHTML"
+          class="flex gap-1.5 items-center no-print">
+      <input type="text" name="title" value="Information Request" placeholder="Bundle title..."
+        class="border border-gray-200 rounded px-2 py-1 text-xs w-40 focus:outline-none focus:ring-1 focus:ring-marsh">
+      <label class="text-[10px] text-gray-400 shrink-0">Send by:</label>
+      <input type="date" name="send_by_date" required
+        class="border border-gray-200 rounded px-1.5 py-1 text-[10px] focus:outline-none focus:ring-1 focus:ring-marsh w-28">
+      <button type="submit" class="text-xs text-marsh hover:underline font-medium shrink-0">+ New Bundle</button>
+    </form>
+  </div>
+
+  {% set open_bundles = bundles | selectattr('status', 'ne', 'complete') | list %}
+  {% if open_bundles %}
+  <div class="flex items-center gap-2 mb-3 no-print">
+    <button type="button" onclick="toggleUnifiedRequestCompose({{ client.id }})"
+       class="text-xs text-marsh hover:text-marsh-light border border-marsh/30 hover:border-marsh rounded px-2 py-1 transition-colors">Compose All</button>
+    <a href="/clients/{{ client.id }}/requests/export-all"
+       class="text-xs text-green-600 hover:text-green-700 border border-green-200 hover:border-green-300 rounded px-2 py-1 transition-colors">Export All</a>
+    <span class="text-[10px] text-gray-400">{{ open_bundles | length }} open bundle{{ 's' if open_bundles | length != 1 else '' }}</span>
+  </div>
+  <div id="unified-request-compose-{{ client.id }}" class="hidden mb-3 border border-gray-200 rounded-lg bg-white">
+    <div class="text-xs text-gray-400 p-3">Loading compose panel...</div>
+  </div>
+  {% endif %}
+
+  {% if bundles %}
+  <div class="space-y-2">
+    {% for b in bundles %}
+    {% set pct = (b.item_done / b.item_total * 100) | round(0) | int if b.item_total > 0 else 0 %}
+    <details class="border border-gray-100 rounded-lg overflow-hidden group"
+             {% if b.status == 'open' or b.status == 'sent' %}open{% endif %}>
+      <summary class="flex items-center gap-3 px-4 py-2.5 bg-gray-50/50 cursor-pointer select-none list-none hover:bg-gray-50">
+        <span class="details-arrow text-gray-400 text-xs">&#9654;</span>
+        {% if b.rfi_uid %}
+        <button type="button" onclick="event.stopPropagation(); copyRefTag(this, '{{ b.rfi_uid }}')"
+          class="text-xs font-mono font-semibold text-marsh hover:text-marsh-light shrink-0 no-print"
+          title="Click to copy">{{ b.rfi_uid }}</button>
+        {% endif %}
+        <span class="text-sm font-medium text-gray-800 flex-1 min-w-0 truncate">{{ b.title }}</span>
+        {% if b.status == 'open' %}
+        <span class="text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded font-medium">Open</span>
+        {% if not b.send_by_date %}
+        <span class="text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded font-medium cursor-help whitespace-nowrap" title="Open this bundle to set a send-by date">⚠ No deadline</span>
+        {% elif b.send_by_date < today_iso %}
+        <span class="text-[10px] bg-red-100 text-red-600 px-2 py-0.5 rounded font-medium whitespace-nowrap" title="Not yet sent — was due {{ b.send_by_date }}">⚠ Overdue</span>
+        {% else %}
+        <span class="text-[10px] text-gray-400 whitespace-nowrap">due {{ b.send_by_date }}</span>
+        {% endif %}
+        {% elif b.status == 'sent' %}
+        <span class="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-medium">Sent</span>
+        {% if b.item_done < b.item_total %}
+        <span class="text-[10px] text-amber-500" title="Outstanding items — check follow-ups">awaiting response</span>
+        {% endif %}
+        {% elif b.status == 'partial' %}
+        <span class="text-[10px] bg-purple-100 text-purple-700 px-2 py-0.5 rounded font-medium">Partial</span>
+        {% elif b.status == 'complete' %}
+        <span class="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded font-medium">Complete</span>
+        {% endif %}
+        <span class="text-xs text-gray-400 tabular-nums shrink-0">{{ b.item_done }}/{{ b.item_total }}</span>
+        {% if b.item_total > 0 %}
+        <div class="w-16 bg-gray-200 rounded-full h-1.5 shrink-0">
+          <div class="bg-green-500 rounded-full h-1.5 transition-all" style="width: {{ pct }}%"></div>
+        </div>
+        {% endif %}
+      </summary>
+      {% if b.status == 'open' or b.status == 'sent' %}
+      <div hx-get="/clients/{{ client.id }}/requests/{{ b.id }}"
+           hx-trigger="load"
+           hx-swap="innerHTML">
+        <div class="px-4 py-3 text-xs text-gray-400">Loading...</div>
+      </div>
+      {% else %}
+      <div hx-get="/clients/{{ client.id }}/requests/{{ b.id }}"
+           hx-trigger="toggle from:closest details once"
+           hx-swap="innerHTML">
+        <div class="px-4 py-3 text-xs text-gray-400">Loading...</div>
+      </div>
+      {% endif %}
+    </details>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="text-xs text-gray-400 text-center py-4">No request bundles yet. Create one to start tracking documents and questions.</p>
+  {% endif %}
+</div>
+
+<script>
+function toggleUnifiedRequestCompose(clientId) {
+  var panel = document.getElementById('unified-request-compose-' + clientId);
+  if (!panel) return;
+  if (panel.classList.contains('hidden')) {
+    panel.classList.remove('hidden');
+    if (panel.querySelector('.text-gray-400')) {
+      htmx.ajax('GET', '/clients/' + clientId + '/requests/compose-all', {
+        target: '#unified-request-compose-' + clientId,
+        swap: 'innerHTML'
+      });
+    }
+  } else {
+    panel.classList.add('hidden');
+  }
+}
+</script>

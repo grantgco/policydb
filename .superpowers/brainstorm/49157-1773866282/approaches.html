@@ -1,0 +1,77 @@
+<h2>Program Carrier Tracking — Architecture Approaches</h2>
+<p class="subtitle">How should the new program_carriers table integrate with the existing system?</p>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Standalone Table + Reconciler Enhancement</h3>
+      <p><strong>New table:</strong> <code>program_carriers</code> with columns: id, program_id (FK→policies.id), carrier, policy_number, premium, limit_amount, sort_order</p>
+      <p><strong>Reconciler change:</strong> When matching imported rows against programs, query program_carriers for exact carrier + policy number matches (+30 bonus) instead of substring matching program_carriers text (+15)</p>
+      <p><strong>Batch create:</strong> POST /reconcile/batch-create-program creates program record + inserts one program_carriers row per selected import row</p>
+      <p><strong>UI:</strong> Contenteditable matrix on policy edit page replaces the textarea. Client detail _programs.html shows nested carrier rows.</p>
+      <p><strong>Migration path:</strong> Migration parses existing comma-separated program_carriers text into rows in the new table</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul>
+          <li>Clean separation — program_carriers is its own table</li>
+          <li>Reconciler gets structured data for precise matching</li>
+          <li>Backward compatible — existing programs migrated automatically</li>
+          <li>Simple schema, easy to query</li>
+        </ul></div>
+        <div class="cons"><h4>Cons</h4><ul>
+          <li>Keeps the text field program_carriers on policies table (redundant until removed)</li>
+          <li>Two sources of truth during transition</li>
+        </ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Standalone Table + Deprecate Text Field</h3>
+      <p><strong>Same as A</strong>, but also:</p>
+      <p><strong>Deprecation:</strong> Stop writing to program_carriers text field. Keep the column but ignore it. All reads come from the new table. program_carrier_count becomes a COUNT() on the table.</p>
+      <p><strong>Views updated:</strong> v_policy_status, v_schedule join to program_carriers table for carrier display instead of reading the text field</p>
+      <p><strong>Reconciler:</strong> Drops the +15 text substring bonus entirely. Uses only structured table lookups with graduated bonuses (+30 exact policy number, +10 carrier name match)</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul>
+          <li>Single source of truth from day one</li>
+          <li>No redundant data to keep in sync</li>
+          <li>Views and queries are cleaner</li>
+          <li>program_carrier_count is always accurate (computed, not stored)</li>
+        </ul></div>
+        <div class="cons"><h4>Cons</h4><ul>
+          <li>More migration work — must update views, reconciler, all read paths</li>
+          <li>Slightly larger blast radius</li>
+        </ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>JSON Column Instead of Table</h3>
+      <p><strong>No new table.</strong> Replace program_carriers text with a JSON array: <code>[{"carrier":"AIG","policy_number":"POL-123","premium":50000,"limit":1000000}, ...]</code></p>
+      <p><strong>Reconciler:</strong> Parses JSON, matches against carrier + policy_number fields</p>
+      <p><strong>UI:</strong> Same contenteditable matrix, but backed by JSON read/write instead of table CRUD</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul>
+          <li>No new table or migration complexity</li>
+          <li>Atomic — program and its carriers saved together</li>
+        </ul></div>
+        <div class="cons"><h4>Cons</h4><ul>
+          <li>Can't JOIN or query carrier rows independently</li>
+          <li>SQLite JSON functions are clunky for matching</li>
+          <li>Harder to do per-carrier diffs in reconcile</li>
+          <li>Breaks the pattern of relational data throughout the app</li>
+        </ul></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<p style="margin-top:1.5rem; padding:1rem; background:#1a1a2e; border-left:3px solid #4fc3f7; border-radius:4px;">
+  <strong>Recommendation: B</strong> — The text field was always a stopgap. A proper table with full deprecation of the text field gives you one source of truth, clean queries, and a reconciler that can do real structured matching. The extra migration work is modest since you're already touching these code paths.
+</p>

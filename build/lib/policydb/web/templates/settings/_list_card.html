@@ -5,8 +5,53 @@
   </div>
   <ul class="divide-y divide-gray-100">
     {% for item in items %}
-    <li class="flex items-center justify-between px-5 py-2.5">
-      <span class="text-sm text-gray-800">{{ item }}</span>
+    {% set is_excluded = item in (excluded_items or []) %}
+    <li class="flex items-center justify-between px-5 py-2 {{ 'bg-gray-50/60' if is_excluded else '' }}">
+      <div class="flex items-center gap-1 shrink-0 mr-2">
+        <form hx-post="/settings/list/reorder" hx-target="#list-{{ key }}" hx-swap="outerHTML">
+          <input type="hidden" name="key" value="{{ key }}">
+          <input type="hidden" name="item" value="{{ item }}">
+          <input type="hidden" name="direction" value="up">
+          <button type="submit" {% if loop.first %}disabled{% endif %}
+            class="text-gray-300 hover:text-gray-600 disabled:opacity-20 disabled:cursor-default leading-none px-0.5">↑</button>
+        </form>
+        <form hx-post="/settings/list/reorder" hx-target="#list-{{ key }}" hx-swap="outerHTML">
+          <input type="hidden" name="key" value="{{ key }}">
+          <input type="hidden" name="item" value="{{ item }}">
+          <input type="hidden" name="direction" value="down">
+          <button type="submit" {% if loop.last %}disabled{% endif %}
+            class="text-gray-300 hover:text-gray-600 disabled:opacity-20 disabled:cursor-default leading-none px-0.5">↓</button>
+        </form>
+      </div>
+      <span class="text-sm flex-1 {{ 'text-gray-400 italic' if is_excluded else 'text-gray-800' }}">
+        {{ item }}
+        {% if is_excluded %}<span class="text-xs ml-1 text-amber-600">· silenced</span>{% endif %}
+      </span>
+      {% if key == 'renewal_statuses' %}
+      <form hx-post="/settings/renewal-status/toggle-exclude"
+            hx-target="#list-renewal_statuses"
+            hx-swap="outerHTML">
+        <input type="hidden" name="item" value="{{ item }}">
+        <button type="submit"
+          class="text-xs px-2 py-0.5 rounded mr-2 transition-colors
+                 {{ 'bg-amber-100 text-amber-700 hover:bg-amber-200' if is_excluded else 'bg-gray-100 text-gray-500 hover:bg-gray-200' }}">
+          {{ 'Enable' if is_excluded else 'Silence' }}
+        </button>
+      </form>
+      {% endif %}
+      {% if key == 'renewal_milestones' %}
+      {% set is_client_facing = item in (client_facing_items or []) %}
+      <form hx-post="/settings/milestone/toggle-client-facing"
+            hx-target="#list-renewal_milestones"
+            hx-swap="outerHTML">
+        <input type="hidden" name="item" value="{{ item }}">
+        <button type="submit" title="{{ 'Remove from client request seeding' if is_client_facing else 'Include when seeding client requests' }}"
+          class="text-xs px-2 py-0.5 rounded mr-2 transition-colors
+                 {{ 'bg-blue-100 text-blue-700 hover:bg-blue-200' if is_client_facing else 'bg-gray-100 text-gray-500 hover:bg-gray-200' }}">
+          {{ '✓ Client Request' if is_client_facing else 'Client Request' }}
+        </button>
+      </form>
+      {% endif %}
       <form hx-post="/settings/list/remove"
             hx-target="#list-{{ key }}"
             hx-swap="outerHTML">

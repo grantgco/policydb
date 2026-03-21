@@ -1,0 +1,103 @@
+{% set row_id = "internal-" ~ (c.name | safe_id) %}
+<tr class="hover:bg-gray-50/60 align-top" id="{{ row_id }}">
+  <td class="px-4 py-3 font-medium text-gray-800">
+    {{ c.name }}
+    {% if c.title %}<span class="text-xs text-gray-400 font-normal ml-1">· {{ c.title }}</span>{% endif %}
+    {% if c.get('expertise_lines') or c.get('expertise_industries') or expertise_lines or expertise_industries %}
+    <div class="mt-0.5">
+      {% set contact_id = c.get('id') or c.get('contact_id') %}
+      {% set line_tags = c.get('expertise_lines', []) %}
+      {% set industry_tags = c.get('expertise_industries', []) %}
+      {% include "contacts/_expertise_pills.html" %}
+    </div>
+    {% endif %}
+  </td>
+  <td class="px-4 py-3">
+    {% if c.role %}
+    <span class="text-xs text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded">{{ c.role }}</span>
+    {% else %}<span class="text-gray-300 text-xs">—</span>{% endif %}
+  </td>
+  <td class="px-4 py-3 text-xs">
+    {% if c.email %}
+    <a href="mailto:{{ c.email }}" class="text-marsh hover:underline">{{ c.email }}</a>
+    {% else %}<span class="text-gray-300">—</span>{% endif %}
+  </td>
+  <td class="px-4 py-3 text-xs">
+    {% if c.phone %}<span class="text-gray-600">{{ c.phone }}</span>{% endif %}
+    {% if c.mobile %}<span class="text-gray-400 {% if c.phone %}ml-1{% endif %}">{% if c.phone %}· {% endif %}Cell: {{ c.mobile }}</span>{% endif %}
+    {% if not c.phone and not c.mobile %}<span class="text-gray-300">—</span>{% endif %}
+  </td>
+  <td class="px-4 py-3 text-xs">
+    {% set clients = c.get('clients', []) %}
+    {% set also_on_policies = c.get('also_on_policies', []) %}
+    {% set policy_cross_count = c.get('policy_cross_count', 0) %}
+    {% if clients or also_on_policies %}
+    <details class="group">
+      <summary class="cursor-pointer list-none text-gray-500 hover:text-marsh select-none">
+        <span class="font-medium text-gray-700">{{ c.client_count }}</span>
+        <span class="text-gray-400"> client{{ 's' if c.client_count != 1 else '' }}</span>
+        {% if policy_cross_count %}
+        <span class="text-gray-300"> · </span>
+        <span class="font-medium text-gray-700">{{ policy_cross_count }}</span>
+        <span class="text-gray-400"> polic{{ 'ies' if policy_cross_count != 1 else 'y' }}</span>
+        {% endif %}
+        <span class="text-gray-300 group-open:hidden"> ▸</span>
+        <span class="text-gray-300 hidden group-open:inline"> ▾</span>
+      </summary>
+      {% if clients %}
+      <ul class="mt-2 space-y-1 pl-1 border-l-2 border-gray-100">
+        {% for cl in clients %}
+        <li class="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+          <a href="/clients/{{ cl.client_id }}" target="_blank"
+             class="text-gray-600 hover:text-marsh transition-colors">{{ cl.client_name }}</a>
+          {% if cl.assignment %}
+          <span class="text-gray-300">·</span>
+          <span class="text-xs text-amber-700 font-medium">{{ cl.assignment }}</span>
+          {% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+      {% if also_on_policies %}
+      <p class="text-xs text-gray-400 mt-2 mb-1">Also on these policies:</p>
+      <ul class="space-y-1 pl-1 border-l-2 border-indigo-100">
+        {% for pol in also_on_policies %}
+        <li class="flex flex-wrap items-center gap-x-1.5 gap-y-0 text-xs">
+          <a href="/policies/{{ pol.policy_uid }}/edit" target="_blank" class="font-mono text-gray-400 hover:text-marsh shrink-0">{{ pol.policy_uid }}</a>
+          <a href="/clients/{{ pol.client_id }}" target="_blank" class="text-gray-600 hover:text-marsh">{{ pol.client_name }}</a>
+          <span class="text-gray-400">· {{ pol.policy_type }}</span>
+          {% if pol.expiration_date %}<span class="text-gray-300 tabular-nums">exp {{ pol.expiration_date }}</span>{% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+    </details>
+    {% else %}
+    <span class="text-gray-300">—</span>
+    {% endif %}
+  </td>
+  <td class="px-4 py-3">
+    <div class="flex flex-col gap-1.5">
+      <button
+        hx-get="/contacts/internal/{{ c.name | path_quote }}/edit"
+        hx-target="#{{ row_id }}"
+        hx-swap="outerHTML"
+        class="text-xs text-marsh hover:underline text-left">Edit</button>
+      <details class="group/assign">
+        <summary class="text-xs text-gray-400 hover:text-marsh cursor-pointer select-none list-none">Assign to client</summary>
+        <div class="flex gap-1 mt-1" data-contact="{{ c.name }}">
+          <input type="text" placeholder="Client name…" list="assign-clients-{{ row_id }}"
+            autocomplete="off"
+            class="border border-gray-200 rounded px-2 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-marsh w-36"
+            onkeydown="if(event.key==='Enter'){var clients=window.ALL_CLIENTS_FOR_ASSIGN||[];var q=this.value.toLowerCase();var match=clients.find(function(c){return c.name.toLowerCase()===q});if(match)window.location='/clients/'+match.id+'?add_contact='+encodeURIComponent(this.closest('[data-contact]').dataset.contact);}">
+          <datalist id="assign-clients-{{ row_id }}">
+            <option value="__placeholder__">Loading…</option>
+          </datalist>
+          <button type="button"
+            onclick="var inp=this.previousElementSibling.previousElementSibling;var clients=window.ALL_CLIENTS_FOR_ASSIGN||[];var q=inp.value.toLowerCase();var match=clients.find(function(c){return c.name.toLowerCase()===q});if(match)window.location='/clients/'+match.id+'?add_contact='+encodeURIComponent(this.closest('[data-contact]').dataset.contact);else alert('Type the exact client name from the list.');"
+            class="text-xs bg-marsh text-white px-2 py-0.5 rounded hover:bg-marsh-light transition-colors shrink-0">Go →</button>
+        </div>
+      </details>
+    </div>
+  </td>
+</tr>

@@ -1,0 +1,230 @@
+<style>
+  .pp-cell[contenteditable]:empty::before {
+    content: attr(data-placeholder);
+    color: #d1d5db;
+    pointer-events: none;
+  }
+  .pp-cell[contenteditable]:focus {
+    border-bottom: 2px solid #005C41;
+    background: #f0fdf4;
+  }
+  @media print { .no-print { display: none; } }
+</style>
+
+<details open class="card mb-6 overflow-hidden">
+  <summary class="px-4 py-3 bg-gray-50 border-b border-gray-200 cursor-pointer select-none list-none flex items-center gap-2 hover:bg-gray-100 transition-colors">
+    <span class="text-xs text-gray-400 details-arrow">▶</span>
+    <span class="text-xs font-semibold text-gray-600 uppercase tracking-wide">
+      Project Pipeline &middot; {{ pipeline_projects | length }} project{{ 's' if pipeline_projects | length != 1 else '' }}
+    </span>
+    <div class="ml-auto flex items-center gap-3 no-print">
+      <a href="/clients/{{ client.id }}/projects/pipeline/export?format=xlsx"
+         onclick="event.stopPropagation()"
+         class="text-xs text-marsh hover:underline">Export XLSX</a>
+      <a href="/clients/{{ client.id }}/projects/pipeline/export?format=csv"
+         onclick="event.stopPropagation()"
+         class="text-xs text-gray-400 hover:underline">CSV</a>
+      <a href="/clients/{{ client.id }}/projects/pipeline/timeline?format=pdf"
+         onclick="event.stopPropagation()"
+         class="text-xs text-gray-400 hover:underline">Timeline PDF</a>
+    </div>
+  </summary>
+
+  <div class="p-4">
+    {# Timeline bar — included above table #}
+    {% include 'clients/_project_timeline.html' %}
+
+    {# Pipeline table #}
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="border-b border-gray-100 text-left text-xs text-gray-500 uppercase tracking-wide bg-gray-50">
+            <th class="px-2 py-2 whitespace-nowrap cursor-pointer hover:text-marsh" onclick="sortTable('pp-tbody', 0, 'text', this)">Type <span class="sort-arrow"></span></th>
+            <th class="px-2 py-2 min-w-[140px] cursor-pointer hover:text-marsh" onclick="sortTable('pp-tbody', 1, 'text', this)">Project <span class="sort-arrow"></span></th>
+            <th class="px-2 py-2 whitespace-nowrap cursor-pointer hover:text-marsh" onclick="sortTable('pp-tbody', 2, 'text', this)">Status <span class="sort-arrow"></span></th>
+            <th class="px-2 py-2 whitespace-nowrap cursor-pointer hover:text-marsh" onclick="sortTable('pp-tbody', 3, 'date', this)">Ins. By <span class="sort-arrow"></span></th>
+            <th class="px-2 py-2 whitespace-nowrap cursor-pointer hover:text-marsh" onclick="sortTable('pp-tbody', 4, 'date', this)">Start <span class="sort-arrow"></span></th>
+            <th class="px-2 py-2 whitespace-nowrap cursor-pointer hover:text-marsh" onclick="sortTable('pp-tbody', 5, 'date', this)">Complete <span class="sort-arrow"></span></th>
+            <th class="px-2 py-2 text-right whitespace-nowrap cursor-pointer hover:text-marsh" onclick="sortTable('pp-tbody', 6, 'currency', this)">Value <span class="sort-arrow"></span></th>
+            <th class="px-2 py-2 text-right whitespace-nowrap cursor-pointer hover:text-marsh" onclick="sortTable('pp-tbody', 7, 'currency', this)">Premium <span class="sort-arrow"></span></th>
+            <th class="px-2 py-2 text-right whitespace-nowrap cursor-pointer hover:text-marsh" onclick="sortTable('pp-tbody', 8, 'currency', this)">Revenue <span class="sort-arrow"></span></th>
+            <th class="px-2 py-2 text-center whitespace-nowrap">Coverage</th>
+            <th class="px-2 py-2 no-print"></th>
+          </tr>
+        </thead>
+        <tbody id="pp-tbody">
+          {% for p in pipeline_projects %}
+          {% include 'clients/_project_pipeline_row.html' %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {# Add project footer #}
+    <div class="pt-3 no-print">
+      <button type="button"
+              hx-post="/clients/{{ client.id }}/projects/pipeline"
+              hx-target="#pp-tbody"
+              hx-swap="beforeend"
+              class="text-xs text-marsh hover:underline font-medium">
+        + Add Project
+      </button>
+    </div>
+  </div>
+</details>
+
+<script>
+// Table sorting — shared between pipeline and locations
+window.sortTable = function(tbodyId, colIdx, type, th) {
+  var tbody = document.getElementById(tbodyId);
+  if (!tbody) return;
+  var rows = Array.from(tbody.querySelectorAll('tr[id]'));
+  // Remove coverage expansion rows from sort (they don't have IDs matching pattern)
+  rows = rows.filter(function(r) { return r.id.startsWith('pp-row-') || r.id.startsWith('loc-row-'); });
+
+  // Toggle sort direction
+  var asc = th.dataset.sortDir !== 'asc';
+  th.dataset.sortDir = asc ? 'asc' : 'desc';
+
+  // Clear other arrows
+  th.closest('tr').querySelectorAll('.sort-arrow').forEach(function(s) { s.textContent = ''; });
+  th.querySelector('.sort-arrow').textContent = asc ? ' ▲' : ' ▼';
+
+  rows.sort(function(a, b) {
+    var cellA = a.cells[colIdx];
+    var cellB = b.cells[colIdx];
+    if (!cellA || !cellB) return 0;
+    var valA = cellA.textContent.trim();
+    var valB = cellB.textContent.trim();
+
+    if (type === 'currency') {
+      valA = parseFloat(valA.replace(/[$,]/g, '')) || 0;
+      valB = parseFloat(valB.replace(/[$,]/g, '')) || 0;
+    } else if (type === 'date') {
+      valA = valA || '9999-99-99';
+      valB = valB || '9999-99-99';
+    }
+    // text and date both use string comparison (dates are ISO format)
+    if (valA < valB) return asc ? -1 : 1;
+    if (valA > valB) return asc ? 1 : -1;
+    return 0;
+  });
+
+  rows.forEach(function(row) {
+    tbody.appendChild(row);
+    // Also move any coverage expansion row that follows
+    var covRow = document.getElementById('pp-cov-' + row.id.replace('pp-row-', ''));
+    if (covRow) tbody.appendChild(covRow);
+  });
+};
+
+(function() {
+  function flashCell(el) {
+    el.style.transition = 'background-color 0.3s ease';
+    el.style.backgroundColor = '#d1fae5';
+    setTimeout(function() {
+      el.style.backgroundColor = '';
+      setTimeout(function() { el.style.transition = ''; }, 300);
+    }, 800);
+  }
+
+  function ppSaveCell(cell) {
+    var field = cell.dataset.field;
+    var endpoint = cell.dataset.endpoint;
+    if (!field || !endpoint) return;
+    var raw = cell.textContent.trim();
+    fetch(endpoint, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ field: field, value: raw }),
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.ok) {
+          if (data.formatted !== raw) {
+            cell.textContent = data.formatted;
+            flashCell(cell);
+          }
+        } else if (data.error) {
+          cell.style.color = '#dc2626';
+          setTimeout(function() { cell.style.color = ''; }, 2000);
+        }
+      })
+      .catch(function() {});
+  }
+
+  // Event delegation: blur on pp-cell contenteditable
+  document.addEventListener('blur', function(e) {
+    if (e.target && e.target.classList.contains('pp-cell') && e.target.isContentEditable) {
+      ppSaveCell(e.target);
+    }
+  }, true);
+
+  window.ppSelectPill = function(btn, field, value, clientId, projectId) {
+    // Update visual state — find sibling pills by data-pp-field
+    var container = btn.closest('td');
+    if (container) {
+      container.querySelectorAll('button[data-pp-field="' + field + '"]').forEach(function(b) {
+        b.classList.remove('bg-marsh', 'text-white', 'border-marsh');
+        b.classList.add('border-gray-200', 'text-gray-500');
+      });
+    }
+    btn.classList.remove('border-gray-200', 'text-gray-500');
+    btn.classList.add('bg-marsh', 'text-white', 'border-marsh');
+    // Save
+    fetch('/clients/' + clientId + '/projects/' + projectId + '/field', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ field: field, value: value }),
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.ok && typeof showToast === 'function') showToast('Saved', true);
+    })
+    .catch(function() {});
+  };
+
+  window.ppDeleteRow = function(btn, clientId, projectId) {
+    if (!confirm('Delete this project? Linked policies will be unassigned.')) return;
+    var row = document.getElementById('pp-row-' + projectId);
+    fetch('/clients/' + clientId + '/projects/' + projectId + '/pipeline', {
+      method: 'DELETE',
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.ok && row) {
+          row.remove();
+        }
+      })
+      .catch(function() {});
+  };
+
+  window.togglePpCoverage = function(clientId, projectId, btn) {
+    var covId = 'pp-cov-' + projectId;
+    var existing = document.getElementById(covId);
+    if (existing) {
+      existing.remove();
+      return;
+    }
+    fetch('/clients/' + clientId + '/projects/' + projectId + '/coverage')
+      .then(function(r) { return r.text(); })
+      .then(function(html) {
+        var row = document.getElementById('pp-row-' + projectId);
+        if (row) {
+          var tr = document.createElement('tr');
+          tr.id = covId;
+          tr.innerHTML = '<td colspan="12" class="px-4 py-2 bg-gray-50">' + html + '</td>';
+          row.insertAdjacentElement('afterend', tr);
+        }
+      });
+  };
+
+  window.ppSaveDate = function(input, field, clientId, projectId) {
+    fetch('/clients/' + clientId + '/projects/' + projectId + '/field', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ field: field, value: input.value }),
+    }).catch(function() {});
+  };
+})();
+</script>

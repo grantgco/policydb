@@ -1,0 +1,89 @@
+{% if results %}
+<div class="divide-y divide-gray-100">
+  {% for r in results %}
+  <div class="py-2">
+    <div class="flex items-center gap-3">
+      <div class="flex-1 min-w-0">
+        <p class="text-sm font-medium text-gray-800 truncate">{{ r.name }}</p>
+        <div class="flex items-center gap-2 text-xs text-gray-500">
+          {% if r.email %}<span>{{ r.email }}</span>{% endif %}
+          {% if r.role %}<span class="text-indigo-500">{{ r.role }}</span>{% endif %}
+          {% if r.organization %}<span class="text-gray-400">{{ r.organization }}</span>{% endif %}
+        </div>
+        <div class="flex gap-1 mt-0.5">
+          {% for s in (r.sources or '').split(',') %}
+          {% if s.strip() == 'policy' %}
+          <span class="text-[10px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded">Policy</span>
+          {% elif s.strip() == 'team' %}
+          <span class="text-[10px] bg-green-50 text-green-600 px-1.5 py-0.5 rounded">Team</span>
+          {% elif s.strip() == 'client' %}
+          <span class="text-[10px] bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded">Client</span>
+          {% endif %}
+          {% endfor %}
+        </div>
+      </div>
+      {% if context == 'policy_team' %}
+      <form hx-post="/policies/{{ target_id }}/team/add"
+            hx-target="#policy-team-card" hx-swap="outerHTML"
+            class="flex items-center gap-2 shrink-0">
+        <input type="hidden" name="name" value="{{ r.name }}">
+        <input type="hidden" name="email" value="{{ r.email or '' }}">
+        <input type="hidden" name="phone" value="{{ r.phone or '' }}">
+        <input type="hidden" name="mobile" value="{{ r.mobile or '' }}">
+        <input type="hidden" name="role" value="{{ r.role or '' }}">
+        <input type="hidden" name="title" value="{{ r.title or '' }}">
+        <input type="hidden" name="organization" value="{{ r.organization or '' }}">
+        <input type="text" name="notes" placeholder="Note for this policy..."
+          class="border border-gray-200 rounded px-2 py-1 text-xs w-40 focus:outline-none focus:ring-1 focus:ring-marsh">
+        <button type="submit"
+          class="text-xs bg-marsh text-white px-3 py-1 rounded hover:bg-marsh-light">Assign</button>
+      </form>
+      {% elif context == 'internal_team' %}
+      <form hx-post="/clients/{{ target_id }}/team/add"
+            hx-target="#team-contacts-card" hx-swap="outerHTML"
+            class="flex items-center gap-2 shrink-0">
+        <input type="hidden" name="name" value="{{ r.name }}">
+        <input type="hidden" name="email" value="{{ r.email or '' }}">
+        <input type="hidden" name="phone" value="{{ r.phone or '' }}">
+        <input type="hidden" name="mobile" value="{{ r.mobile or '' }}">
+        <input type="hidden" name="role" value="{{ r.role or '' }}">
+        <input type="hidden" name="title" value="{{ r.title or '' }}">
+        <input type="text" name="assignment" placeholder="Role for this client..."
+          class="border border-amber-200 rounded px-2 py-1 text-xs w-40 focus:outline-none focus:ring-1 focus:ring-amber-400 bg-amber-50/30">
+        <button type="submit"
+          class="text-xs bg-marsh text-white px-3 py-1 rounded hover:bg-marsh-light">Assign</button>
+      </form>
+      {% elif context == 'client_contact' %}
+      <form hx-post="/clients/{{ target_id }}/contacts/add"
+            hx-target="#contacts-card" hx-swap="outerHTML"
+            class="flex items-center gap-2 shrink-0">
+        <input type="hidden" name="name" value="{{ r.name }}">
+        <input type="hidden" name="email" value="{{ r.email or '' }}">
+        <input type="hidden" name="phone" value="{{ r.phone or '' }}">
+        <input type="hidden" name="mobile" value="{{ r.mobile or '' }}">
+        <input type="hidden" name="role" value="{{ r.role or '' }}">
+        <input type="hidden" name="title" value="{{ r.title or '' }}">
+        <input type="text" name="notes" placeholder="Note for this client..."
+          class="border border-gray-200 rounded px-2 py-1 text-xs w-40 focus:outline-none focus:ring-1 focus:ring-marsh">
+        <button type="submit"
+          class="text-xs bg-marsh text-white px-3 py-1 rounded hover:bg-marsh-light">Assign</button>
+      </form>
+      {% elif context == 'meeting_attendee' %}
+      <form hx-post="/meetings/{{ target_id }}/attendees/add"
+            hx-target="#attendees-section" hx-swap="innerHTML"
+            class="flex items-center gap-2 shrink-0">
+        <input type="hidden" name="name" value="{{ r.name }}">
+        <input type="hidden" name="contact_id" value="{{ r.id }}">
+        <input type="hidden" name="role" value="{{ r.role or r.title or '' }}">
+        <input type="hidden" name="is_internal" value="{% if 'team' in (r.sources or '') %}1{% else %}0{% endif %}">
+        <button type="submit"
+          class="text-xs bg-marsh text-white px-3 py-1 rounded hover:bg-marsh-light">Add</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<p class="text-xs text-gray-400 py-2">No contacts found for "{{ q }}"</p>
+{% endif %}

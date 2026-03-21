@@ -1,0 +1,48 @@
+<tr data-row-id="{{ b.id }}" class="matrix-row group hover:bg-gray-50/60 align-top">
+  {# Billing ID #}
+  <td class="px-3 py-2.5">
+    <div contenteditable="true"
+         class="matrix-cell-editable outline-none font-mono text-gray-800 text-sm rounded px-1 -mx-1"
+         data-field="billing_id"
+         data-placeholder="Billing ID...">{{ b.billing_id or '' }}</div>
+  </td>
+  {# Entity Name #}
+  <td class="px-3 py-2.5">
+    <div contenteditable="true"
+         class="matrix-cell-editable outline-none text-gray-800 text-xs rounded px-1 -mx-1"
+         data-field="entity_name"
+         data-placeholder="Entity / Subsidiary...">{{ b.entity_name or '' }}</div>
+  </td>
+  {# FEIN #}
+  <td class="px-3 py-2.5 whitespace-nowrap">
+    <div contenteditable="true"
+         class="matrix-cell-editable outline-none font-mono text-gray-600 text-xs rounded px-1 -mx-1"
+         data-field="fein"
+         data-placeholder="XX-XXXXXXX">{{ b.fein or '' }}</div>
+  </td>
+  {# Description #}
+  <td class="px-3 py-2.5">
+    <div contenteditable="true"
+         class="matrix-cell-editable outline-none text-gray-400 text-xs rounded px-1 -mx-1"
+         data-field="description"
+         data-placeholder="Notes...">{{ b.description or '' }}</div>
+  </td>
+  {# Type (Master/ABA) #}
+  <td class="px-3 py-2.5 text-center">
+    <button
+      hx-post="/clients/{{ client.id }}/billing/{{ b.id }}/toggle-master"
+      hx-target="#billing-card" hx-swap="outerHTML"
+      title="{{ 'Remove master designation' if b.is_master else 'Set as master billing account' }}"
+      class="text-xs font-medium px-2 py-0.5 rounded {{ 'bg-marsh text-white' if b.is_master else 'text-gray-400 hover:text-marsh border border-gray-200' }}">
+      {{ 'Master' if b.is_master else 'ABA' }}
+    </button>
+  </td>
+  {# Delete #}
+  <td class="px-3 py-2.5 text-center">
+    <button
+      hx-post="/clients/{{ client.id }}/billing/{{ b.id }}/delete"
+      hx-target="#billing-card" hx-swap="outerHTML"
+      hx-confirm="Delete this billing account?"
+      class="text-xs text-gray-300 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity">✕</button>
+  </td>
+</tr>

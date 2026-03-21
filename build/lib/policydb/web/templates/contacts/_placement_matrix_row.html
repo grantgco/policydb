@@ -1,0 +1,123 @@
+{% set row_id = "contact-" ~ (c.name | safe_id) %}
+<tr id="{{ row_id }}" data-contact-name="{{ c.name }}" class="contact-matrix-row group hover:bg-gray-50/60 align-top">
+  {# Checkbox #}
+  <td class="px-2 py-2 w-8">
+    <input type="checkbox" class="contact-check rounded border-gray-300" value="{{ c.contact_id }}" onchange="updateContactBulkBar()">
+  </td>
+  {# Name + cross-store badges #}
+  <td class="px-3 py-2.5">
+    <div class="flex items-center gap-1">
+      <div contenteditable="true"
+           class="contact-cell-editable contact-cell-name outline-none font-medium text-gray-800 rounded px-1 -mx-1"
+           data-field="name"
+           data-placeholder="Name...">{{ c.name or '' }}</div>
+      {% if c.open_followup_count %}
+      <span class="text-[9px] bg-red-100 text-red-600 px-1 py-0.5 rounded-full" title="{{ c.open_followup_count }} pending follow-up(s)">{{ c.open_followup_count }}</span>
+      {% endif %}
+      {% if c.contact_id %}
+      <a href="/contacts/{{ c.contact_id }}" class="text-gray-300 hover:text-marsh text-xs" title="View contact detail">&#8599;</a>
+      {% endif %}
+    </div>
+    <div class="flex gap-1 mt-0.5">
+      {% if c.get('also_team') %}<span class="text-[10px] bg-emerald-50 text-emerald-600 px-1 rounded">Team</span>{% endif %}
+      {% if c.get('also_client') %}<span class="text-[10px] bg-purple-50 text-purple-600 px-1 rounded">Client</span>{% endif %}
+    </div>
+    {% if c.expertise_lines or c.expertise_industries %}
+    <div class="flex flex-wrap gap-0.5 mt-0.5">
+      {% for t in c.expertise_lines %}<span class="text-[8px] px-1 py-0 rounded bg-blue-50 text-blue-500">{{ t }}</span>{% endfor %}
+      {% for t in c.expertise_industries %}<span class="text-[8px] px-1 py-0 rounded bg-green-50 text-green-500">{{ t }}</span>{% endfor %}
+    </div>
+    {% endif %}
+  </td>
+  {# Organization (combobox) #}
+  <td class="contact-cell-combo px-3 py-2.5 cursor-pointer relative"
+      data-field="organization"
+      data-options='{{ all_orgs | tojson }}'>
+    <span class="cell-display text-gray-600 text-xs">{{ c.organization or '\u2014' }}</span>
+  </td>
+  {# Role (combobox) #}
+  <td class="contact-cell-combo px-3 py-2.5 cursor-pointer relative"
+      data-field="role"
+      data-options='{{ contact_roles | tojson }}'>
+    <span class="cell-display">
+      {% if c.role %}
+      <span class="text-xs text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded">{{ c.role }}</span>
+      {% else %}<span class="text-gray-300 text-xs">&mdash;</span>{% endif %}
+    </span>
+  </td>
+  {# Title #}
+  <td class="px-3 py-2.5">
+    <div contenteditable="true"
+         class="contact-cell-editable outline-none text-gray-600 text-xs rounded px-1 -mx-1"
+         data-field="title"
+         data-placeholder="Title...">{{ c.title or '' }}</div>
+  </td>
+  {# Email (click-to-input) #}
+  <td class="contact-cell-email px-3 py-2.5 cursor-pointer" data-field="email">
+    <span class="cell-display text-xs">
+      {% if c.email %}
+      <a href="mailto:{{ c.email }}" class="text-marsh hover:underline" onclick="event.stopPropagation()">{{ c.email }}</a>
+      {% else %}<span class="text-gray-300">&mdash;</span>{% endif %}
+    </span>
+  </td>
+  {# Phone #}
+  <td class="px-3 py-2.5 whitespace-nowrap">
+    <div contenteditable="true"
+         class="contact-cell-editable outline-none text-gray-600 text-xs rounded px-1 -mx-1"
+         data-field="phone"
+         data-placeholder="Phone...">{{ c.phone or '' }}</div>
+  </td>
+  {# Mobile #}
+  <td class="px-3 py-2.5 whitespace-nowrap">
+    <div contenteditable="true"
+         class="contact-cell-editable outline-none text-gray-400 text-xs rounded px-1 -mx-1"
+         data-field="mobile"
+         data-placeholder="Cell...">{{ c.mobile or '' }}</div>
+  </td>
+  {# Notes #}
+  <td class="px-3 py-2.5">
+    <div contenteditable="true"
+         class="contact-cell-editable outline-none text-gray-500 text-xs rounded px-1 -mx-1"
+         data-field="notes"
+         data-placeholder="Notes...">{{ c.notes or '' }}</div>
+  </td>
+  {# Policies (expandable) #}
+  <td class="px-3 py-2.5 text-xs">
+    {% set policies = c.get('policies', []) %}
+    {% if policies %}
+    <details class="group/pol">
+      <summary class="cursor-pointer list-none text-gray-500 hover:text-marsh select-none">
+        <span class="font-medium text-gray-700">{{ c.policy_count }}</span>
+        <span class="text-gray-400"> polic{{ 'ies' if c.policy_count != 1 else 'y' }}</span>
+        <span class="text-gray-300 group-open/pol:hidden"> &#9656;</span>
+        <span class="text-gray-300 hidden group-open/pol:inline"> &#9662;</span>
+      </summary>
+      <ul class="mt-2 space-y-1.5 pl-1 border-l-2 border-gray-100">
+        {% for p in policies %}
+        <li class="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+          <a href="/policies/{{ p.policy_uid }}/edit" target="_blank"
+             class="font-mono text-gray-400 hover:text-marsh transition-colors">{{ p.policy_uid }}</a>
+          <span class="text-gray-300">&middot;</span>
+          <a href="/clients/{{ p.client_id }}" target="_blank"
+             class="text-gray-600 hover:text-marsh transition-colors">{{ p.client_name }}</a>
+          <span class="text-gray-300">&middot;</span>
+          <span class="text-gray-700">{{ p.policy_type }}</span>
+          {% if p.carrier %}<span class="text-gray-400">&middot; {{ p.carrier }}</span>{% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+    </details>
+    {% else %}
+    <span class="text-gray-300">&mdash;</span>
+    {% endif %}
+  </td>
+  {# Actions #}
+  <td class="px-3 py-2.5 text-right">
+    <div class="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-2 justify-end">
+      <button type="button"
+        data-delete-name="{{ c.name }}" data-delete-count="{{ c.policy_count }}"
+        onclick="var n=this.dataset.deleteName,cnt=this.dataset.deleteCount;if(!confirm('Delete '+n+' from all '+cnt+' polic'+(cnt==='1'?'y':'ies')+'?'))return;fetch('/contacts/'+encodeURIComponent(n)+'/delete',{method:'POST'}).then(function(){location.reload()})"
+        class="text-xs text-gray-300 hover:text-red-500">&times;</button>
+    </div>
+  </td>
+</tr>
