@@ -1050,8 +1050,8 @@ def reconcile_create(
     )
     # OOB: replace the original unmatched row with the created confirmation
     oob_replace = f'<div id="pair-{row_uid}" hx-swap-oob="outerHTML">{created_html}</div>'
-    # The primary response replaces the create-form-wrapper; OOB replaces the unmatched row
-    return HTMLResponse(created_html + oob_replace + counter_html)
+    # Primary response is empty (removes the form wrapper); OOB replaces the unmatched row
+    return HTMLResponse('<div style="display:none"></div>' + oob_replace + counter_html)
 
 
 @router.post("/apply-carrier-field/{policy_uid}/{carrier_id}")
