@@ -566,10 +566,10 @@ def carrier_alias_remove_group(request: Request, canonical: str = Form(...)):
 
 @router.post("/db/backup")
 def db_backup_now():
-    """Force a backup immediately (skip recency check)."""
+    """Create a backup immediately."""
     from policydb.db import _auto_backup
     try:
-        _auto_backup(DB_PATH, max_backups=cfg.get("backup_retention_count", 30), force=True)
+        _auto_backup(DB_PATH, max_backups=cfg.get("backup_retention_count", 30))
         backup_path = _HEALTH_STATUS.get("last_backup", "")
         verified = _HEALTH_STATUS.get("last_backup_verified", False)
         count = _HEALTH_STATUS.get("backup_count", 0)

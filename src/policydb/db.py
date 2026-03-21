@@ -55,19 +55,85 @@ def _get_applied_versions(conn: sqlite3.Connection) -> set[int]:
         return set()
 
 
-def _backup_db(db_path: Path) -> None:
-    """Copy the database file to a timestamped backup before any migrations run."""
+def _backup_db(conn: sqlite3.Connection, db_path: Path) -> None:
+    """Create a verified pre-migration backup in ~/.policydb/backups/migrations/.
+
+    Checkpoints WAL on the existing connection, copies the database,
+    verifies integrity, and prunes old migration backups.
+    Never raises — backup failure must not block migrations or startup.
+    """
     import shutil
     import datetime
+
     if not db_path.exists():
         return
-    ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    backup_path = db_path.parent / f"policydb.sqlite.backup_{ts}"
-    shutil.copy2(db_path, backup_path)
+
+    try:
+        # Checkpoint WAL on the already-open connection before copying
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    except Exception as e:
+        import sys
+        print(f"[WARNING] Pre-migration WAL checkpoint failed: {e}", file=sys.stderr)
+
+    migration_dir = db_path.parent / "backups" / "migrations"
+    try:
+        migration_dir.mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        import sys
+        print(f"[WARNING] Cannot create migration backup dir: {e}", file=sys.stderr)
+        return
+
+    ts = datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    backup_path = migration_dir / f"policydb_{ts}_pre_migration.sqlite"
+
+    try:
+        shutil.copy2(db_path, backup_path)
+    except Exception as e:
+        import sys
+        print(f"[WARNING] Migration backup copy failed: {e}", file=sys.stderr)
+        # Clean up partial file
+        try:
+            backup_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+        return
+
+    # Verify integrity
+    verified = False
+    try:
+        bconn = sqlite3.connect(str(backup_path))
+        result = bconn.execute("PRAGMA integrity_check").fetchone()
+        verified = result is not None and result[0] == "ok"
+        bconn.close()
+    except Exception:
+        verified = False
+
+    _HEALTH_STATUS["migration_last_backup"] = str(backup_path)
+    _HEALTH_STATUS["migration_last_backup_verified"] = verified
+
+    # Prune old migration backups
+    from policydb import config as _cfg
+    max_migration_backups = _cfg.get("migration_backup_retention_count", 10)
+    existing = sorted(
+        migration_dir.glob("policydb_*_pre_migration.sqlite"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    _HEALTH_STATUS["migration_backup_count"] = len(existing)
+    for old_backup in existing[max_migration_backups:]:
+        try:
+            old_backup.unlink()
+        except Exception:
+            pass
 
 
-def _auto_backup(db_path: Path, max_backups: int = 30, force: bool = False) -> None:
-    """Create a verified backup in ~/.policydb/backups/, pruning old ones."""
+def _auto_backup(db_path: Path, max_backups: int = 30) -> None:
+    """Create a verified backup in ~/.policydb/backups/, pruning old ones.
+
+    Runs on every server start — no throttle. When called from the web UI
+    (server is running, concurrent writers possible), checkpoints WAL first.
+    Never raises — backup failure must not block server startup.
+    """
     import shutil
     import datetime
 
@@ -75,27 +141,36 @@ def _auto_backup(db_path: Path, max_backups: int = 30, force: bool = False) -> N
         return
 
     backup_dir = db_path.parent / "backups"
-    backup_dir.mkdir(exist_ok=True)
+    try:
+        backup_dir.mkdir(exist_ok=True)
+    except Exception as e:
+        import sys
+        print(f"[WARNING] Cannot create backup dir: {e}", file=sys.stderr)
+        return
 
-    # Find existing backups sorted newest-first
-    existing = sorted(
-        backup_dir.glob("policydb_*.sqlite"),
-        key=lambda p: p.stat().st_mtime,
-        reverse=True,
-    )
-
-    # Skip if a backup exists within the last hour (unless forced)
-    if not force and existing:
-        newest_mtime = existing[0].stat().st_mtime
-        age_seconds = datetime.datetime.now().timestamp() - newest_mtime
-        if age_seconds < 3600:
-            _HEALTH_STATUS["backup_count"] = len(existing)
-            _HEALTH_STATUS["last_backup"] = str(existing[0])
-            return
+    # Checkpoint WAL before copying to ensure consistency.
+    # At startup this is redundant (closing the last connection triggers a passive checkpoint) but harmless.
+    try:
+        ckpt_conn = sqlite3.connect(str(db_path))
+        ckpt_conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        ckpt_conn.close()
+    except Exception as e:
+        import sys
+        print(f"[WARNING] Backup WAL checkpoint failed: {e}", file=sys.stderr)
 
     ts = datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")
     backup_path = backup_dir / f"policydb_{ts}.sqlite"
-    shutil.copy2(db_path, backup_path)
+
+    try:
+        shutil.copy2(db_path, backup_path)
+    except Exception as e:
+        import sys
+        print(f"[WARNING] Backup copy failed: {e}", file=sys.stderr)
+        try:
+            backup_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+        return
 
     # Verify backup integrity
     verified = False
@@ -222,7 +297,7 @@ def init_db(path: Path | None = None) -> None:
     # This gives a clean restore point regardless of which migration fails.
     _KNOWN_MIGRATIONS = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65}
     if _KNOWN_MIGRATIONS - applied:
-        _backup_db(db_path)
+        _backup_db(conn, db_path)
 
     if 1 not in applied:
         sql = (_MIGRATIONS_DIR / "001_initial.sql").read_text()
