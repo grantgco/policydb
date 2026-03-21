@@ -2,8 +2,282 @@
 {% block title %}Compliance Review — {{ client.name }}{% endblock %}
 {% block content %}
 <div class="mx-auto max-w-[1600px] px-4 sm:px-6 lg:px-8 py-6">
-  <h1 class="text-xl font-semibold">Compliance Review: {{ client.name }}</h1>
-  <p class="text-gray-500">{{ locations | length }} locations, {{ overall_summary.total }} requirements</p>
-  <p class="text-sm text-gray-400">Templates pending UI review — placeholder only</p>
+
+  {# ── Breadcrumb ──────────────────────────────────────────────────────── #}
+  <nav class="text-sm text-gray-500 mb-4">
+    <a href="/clients" class="hover:text-marsh">Clients</a>
+    <span class="mx-1">/</span>
+    <a href="/clients/{{ client_id }}" class="hover:text-marsh">{{ client.name }}</a>
+    <span class="mx-1">/</span>
+    <span class="text-gray-700 font-medium">Compliance Review</span>
+  </nav>
+
+  {# ── Summary Banner ──────────────────────────────────────────────────── #}
+  {% include "compliance/_summary_banner.html" %}
+
+  {# ── Requirement Sources (collapsible) ───────────────────────────────── #}
+  <details class="bg-white rounded-lg shadow-sm border border-gray-200 mb-6">
+    <summary class="px-5 py-3 cursor-pointer font-semibold text-sm text-gray-700 hover:bg-gray-50 flex items-center justify-between">
+      <span>Requirement Sources ({{ sources | length }})</span>
+      <span class="text-xs text-gray-400">Click to expand</span>
+    </summary>
+    <div class="px-5 pb-4 border-t border-gray-100">
+      {% if sources %}
+      <table class="w-full text-sm mt-2">
+        <thead>
+          <tr class="text-left text-gray-400 text-xs uppercase tracking-wider">
+            <th class="py-2">Contract/Source</th>
+            <th class="py-2">Counterparty</th>
+            <th class="py-2">Scope</th>
+            <th class="py-2">Clause Ref</th>
+            <th class="py-2">Notes</th>
+            <th class="py-2 no-print"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for src in sources %}
+          <tr class="border-b border-gray-50">
+            <td class="py-2 font-medium">{{ src.name }}</td>
+            <td class="text-gray-600">{{ src.counterparty or '' }}</td>
+            <td>
+              {# Determine scope: check if any requirement uses this source with a project_id #}
+              {% set src_ns = namespace(has_location=false, loc_names=[]) %}
+              {% for loc in locations %}
+                {% for req in loc.requirements %}
+                  {% if req.source_id == src.id and req.project_id is not none %}
+                    {% if loc.project.name not in src_ns.loc_names %}
+                      {% set src_ns.has_location = true %}
+                      {% set src_ns.loc_names = src_ns.loc_names + [loc.project.name] %}
+                    {% endif %}
+                  {% endif %}
+                {% endfor %}
+              {% endfor %}
+              {% if src_ns.has_location %}
+                {% for loc_name in src_ns.loc_names %}
+                <span class="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">{{ loc_name }}</span>
+                {% endfor %}
+              {% else %}
+                <span class="text-xs bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">All Locations</span>
+              {% endif %}
+            </td>
+            <td class="text-gray-500">{{ src.clause_ref or '' }}</td>
+            <td class="text-gray-500">{{ src.notes or '' }}</td>
+            <td class="no-print">
+              <button class="text-red-400 hover:text-red-600 text-xs"
+                      hx-post="/compliance/client/{{ client_id }}/sources/{{ src.id }}/delete"
+                      hx-target="body"
+                      hx-confirm="Delete this source and its requirements?">Delete</button>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p class="text-sm text-gray-400 mt-3">No requirement sources defined yet.</p>
+      {% endif %}
+
+      {# Add source form #}
+      <form class="mt-3 flex flex-wrap gap-2 items-end border-t border-gray-100 pt-3 no-print"
+            hx-post="/compliance/client/{{ client_id }}/sources/add"
+            hx-target="body">
+        <div>
+          <label class="block text-xs text-gray-500">Contract Name</label>
+          <input name="name" required class="border rounded px-2 py-1 text-sm w-48" placeholder="e.g., Management Agreement">
+        </div>
+        <div>
+          <label class="block text-xs text-gray-500">Counterparty</label>
+          <input name="counterparty" class="border rounded px-2 py-1 text-sm w-36" placeholder="e.g., First National Bank">
+        </div>
+        <div>
+          <label class="block text-xs text-gray-500">Clause Ref</label>
+          <input name="clause_ref" class="border rounded px-2 py-1 text-sm w-24" placeholder="e.g., &sect;8.2">
+        </div>
+        <div>
+          <label class="block text-xs text-gray-500">Notes</label>
+          <input name="notes" class="border rounded px-2 py-1 text-sm w-48">
+        </div>
+        <button type="submit" class="bg-marsh text-white px-3 py-1 rounded text-sm hover:opacity-90">Add Source</button>
+      </form>
+    </div>
+  </details>
+
+  {# ── Compliance Matrix ───────────────────────────────────────────────── #}
+  {% include "compliance/_matrix.html" %}
+
+  {# ── Guided Risk Review Prompts (collapsible) ────────────────────────── #}
+  {% if risk_prompts %}
+  <details class="bg-white rounded-lg shadow-sm border border-gray-200 mb-6">
+    <summary class="px-5 py-3 cursor-pointer font-semibold text-sm text-gray-700 hover:bg-gray-50 flex items-center justify-between">
+      <span>Guided Risk Review <span class="text-xs font-normal text-gray-400 ml-2">{{ risk_prompts | length }} prompt{{ 's' if risk_prompts | length != 1 else '' }}</span></span>
+      <span class="text-xs text-gray-400">Click to expand</span>
+    </summary>
+    <div class="px-5 pb-4 border-t border-gray-100 space-y-2 mt-2">
+      {% for prompt in risk_prompts %}
+        {% set p_priority = prompt.priority | lower %}
+        {% if p_priority == 'high' %}
+          {% set border = 'border-red-400' %}
+          {% set bg = 'bg-red-50/30' %}
+          {% set label_color = 'text-red-600' %}
+        {% elif p_priority == 'medium' %}
+          {% set border = 'border-amber-400' %}
+          {% set bg = '' %}
+          {% set label_color = 'text-amber-600' %}
+        {% else %}
+          {% set border = 'border-gray-300' %}
+          {% set bg = '' %}
+          {% set label_color = 'text-gray-500' %}
+        {% endif %}
+
+        <div class="flex items-start gap-3 py-2 border-l-4 {{ border }} pl-4 {{ bg }} rounded-r">
+          <input type="checkbox" class="mt-1 rounded">
+          <div class="flex-1">
+            <div class="flex items-center gap-2">
+              <span class="text-xs font-semibold {{ label_color }} uppercase tracking-wider">{{ prompt.priority }}</span>
+              {% if prompt.category %}
+              <span class="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">{{ prompt.category }}</span>
+              {% endif %}
+            </div>
+            <p class="text-sm text-gray-700 mt-0.5">{{ prompt.prompt }}</p>
+            {% if prompt.relevance %}
+            <p class="text-xs text-gray-400 mt-0.5">{{ prompt.relevance }}</p>
+            {% endif %}
+            {% if prompt.coverage_lines %}
+            <div class="flex gap-1 mt-1">
+              {% for line in prompt.coverage_lines %}
+              <span class="text-[10px] bg-gray-100 text-gray-500 px-1 py-0.5 rounded">{{ line }}</span>
+              {% endfor %}
+            </div>
+            {% endif %}
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  </details>
+  {% endif %}
+
+  {# ── Quick Add Requirement (collapsible) ─────────────────────────────── #}
+  <details class="bg-white rounded-lg shadow-sm border border-gray-200 mb-6 no-print">
+    <summary class="px-5 py-3 cursor-pointer font-semibold text-sm text-gray-700 hover:bg-gray-50 flex items-center justify-between">
+      <span>Add Requirement</span>
+      <span class="text-xs text-gray-400">Click to expand</span>
+    </summary>
+    <div class="px-5 pb-4 border-t border-gray-100">
+      <form class="mt-3 space-y-3"
+            hx-post="/compliance/client/{{ client_id }}/requirements/add"
+            hx-target="body">
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div>
+            <label class="block text-xs text-gray-500 mb-1">Coverage Line</label>
+            <select name="coverage_line" required class="border rounded px-2 py-1.5 text-sm w-full">
+              <option value="">Select coverage...</option>
+              {% for pt in policy_types %}
+              <option value="{{ pt }}">{{ pt }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs text-gray-500 mb-1">Required Limit</label>
+            <input name="required_limit" class="border rounded px-2 py-1.5 text-sm w-full" placeholder="e.g., 1000000">
+          </div>
+          <div>
+            <label class="block text-xs text-gray-500 mb-1">Max Deductible</label>
+            <input name="max_deductible" class="border rounded px-2 py-1.5 text-sm w-full" placeholder="e.g., 5000">
+          </div>
+          <div>
+            <label class="block text-xs text-gray-500 mb-1">Deductible Type</label>
+            <select name="deductible_type" class="border rounded px-2 py-1.5 text-sm w-full">
+              <option value="">&mdash;</option>
+              {% for dt in deductible_types %}
+              <option value="{{ dt }}">{{ dt }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div>
+            <label class="block text-xs text-gray-500 mb-1">Source</label>
+            <select name="source_id" class="border rounded px-2 py-1.5 text-sm w-full">
+              <option value="">No source</option>
+              {% for src in sources %}
+              <option value="{{ src.id }}">{{ src.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs text-gray-500 mb-1">Location</label>
+            <select name="project_id" class="border rounded px-2 py-1.5 text-sm w-full">
+              <option value="">All Locations (Client-wide)</option>
+              {% for loc in locations %}
+              <option value="{{ loc.project.id }}">{{ loc.project.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs text-gray-500 mb-1">Status</label>
+            <select name="compliance_status" class="border rounded px-2 py-1.5 text-sm w-full">
+              {% for cs in compliance_statuses %}
+              <option value="{{ cs }}" {{ 'selected' if cs == 'Needs Review' else '' }}>{{ cs }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs text-gray-500 mb-1">Link to Policy</label>
+            <select name="linked_policy_uid" class="border rounded px-2 py-1.5 text-sm w-full">
+              <option value="">None</option>
+              {% for pol in all_policies %}
+              <option value="{{ pol.policy_uid }}">{{ pol.policy_number or pol.policy_uid[:8] }} &mdash; {{ pol.policy_type or '' }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+
+        {# Endorsements as checkboxes #}
+        {% if endorsement_types %}
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">Required Endorsements</label>
+          <div class="flex flex-wrap gap-2" id="endorsement-checks">
+            {% for et in endorsement_types %}
+            <label class="inline-flex items-center gap-1 text-xs border border-gray-300 text-gray-500 px-1.5 py-0.5 rounded cursor-pointer hover:bg-green-100 hover:text-green-700 hover:border-green-300 transition endorsement-pill">
+              <input type="checkbox" class="hidden" value="{{ et }}" onchange="updateEndorsements()">
+              {{ et }}
+            </label>
+            {% endfor %}
+          </div>
+          <input type="hidden" name="required_endorsements" id="endorsements-json" value="[]">
+        </div>
+        {% endif %}
+
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">Notes</label>
+          <input name="notes" class="border rounded px-2 py-1.5 text-sm w-full" placeholder="Optional notes...">
+        </div>
+
+        <div class="flex justify-end">
+          <button type="submit" class="bg-marsh text-white px-4 py-1.5 rounded text-sm hover:opacity-90">Add Requirement</button>
+        </div>
+      </form>
+    </div>
+  </details>
+
 </div>
+
+<script>
+/* Endorsement pill toggle + hidden JSON field */
+function updateEndorsements() {
+  var checks = document.querySelectorAll('#endorsement-checks input[type=checkbox]');
+  var selected = [];
+  checks.forEach(function(cb) {
+    var pill = cb.closest('.endorsement-pill');
+    if (cb.checked) {
+      selected.push(cb.value);
+      pill.classList.add('bg-green-100', 'text-green-700', 'border-green-300');
+      pill.classList.remove('text-gray-500', 'border-gray-300');
+    } else {
+      pill.classList.remove('bg-green-100', 'text-green-700', 'border-green-300');
+      pill.classList.add('text-gray-500', 'border-gray-300');
+    }
+  });
+  document.getElementById('endorsements-json').value = JSON.stringify(selected);
+}
+</script>
 {% endblock %}
