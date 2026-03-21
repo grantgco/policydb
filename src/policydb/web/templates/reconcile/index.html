@@ -101,88 +101,17 @@
 </div>
 {% endif %}
 
-<!-- Results -->
+<!-- Results — Pairing Board -->
 {% if results is not none %}
 
-<!-- Summary badges -->
-<div class="flex flex-wrap gap-3 mb-4">
-  <button data-filter-btn data-filter="all" onclick="filterRows('all')"
-    class="filter-badge px-4 py-2 rounded-lg border-2 border-gray-300 bg-white text-sm font-semibold text-gray-600 hover:border-gray-400 active-filter">
-    All <span class="ml-1 font-bold">{{ summary.total }}</span>
-  </button>
-  <button data-filter-btn data-filter="DIFF" onclick="filterRows('DIFF')"
-    class="filter-badge px-4 py-2 rounded-lg border-2 border-amber-300 bg-amber-50 text-sm font-semibold text-amber-700 hover:border-amber-500">
-    Differences <span class="ml-1 font-bold">{{ summary.diff }}</span>
-  </button>
-  <button data-filter-btn data-filter="MISSING" onclick="filterRows('MISSING')"
-    class="filter-badge px-4 py-2 rounded-lg border-2 border-red-300 bg-red-50 text-sm font-semibold text-red-700 hover:border-red-500">
-    Missing from Coverage <span class="ml-1 font-bold">{{ summary.missing }}</span>
-  </button>
-  <button data-filter-btn data-filter="EXTRA" onclick="filterRows('EXTRA')"
-    class="filter-badge px-4 py-2 rounded-lg border-2 border-blue-300 bg-blue-50 text-sm font-semibold text-blue-700 hover:border-blue-500">
-    Extra in Coverage <span class="ml-1 font-bold">{{ summary.extra }}</span>
-  </button>
-  <button data-filter-btn data-filter="MATCH" onclick="filterRows('MATCH')"
-    class="filter-badge px-4 py-2 rounded-lg border-2 border-green-300 bg-green-50 text-sm font-semibold text-green-700 hover:border-green-500">
-    Matched <span class="ml-1 font-bold">{{ summary.match }}</span>
-  </button>
-</div>
-
-<!-- Batch actions -->
-{% if summary.missing > 0 or summary.diff > 0 %}
-<div class="flex flex-wrap gap-3 mb-4" id="batch-actions">
-  {% if summary.missing > 0 %}
-  <button
-    hx-get="/reconcile/batch-create-review?client_id={{ selected_client_id }}&scope={{ selected_scope }}"
-    hx-target="#batch-review-area"
-    hx-swap="innerHTML"
-    class="text-xs border border-marsh text-marsh bg-white hover:bg-marsh hover:text-white px-3 py-1.5 rounded-lg transition-colors font-medium">
-    Create All {{ summary.missing }} Missing Policies…
-  </button>
-  {% endif %}
-</div>
-<div id="batch-review-area"></div>
-{% endif %}
-
-{% if pairs %}
-{% include "reconcile/_pair_section.html" %}
-{% endif %}
-
-{% include "reconcile/_review_panel.html" %}
-
-{% include "reconcile/_results_table.html" %}
-
-<!-- Download -->
-<div class="mt-4">
-  {% if download_token %}
-  <a href="/reconcile/download/{{ download_token }}"
-     class="inline-block border border-green-600 hover:bg-green-600 text-green-700 hover:text-white text-sm font-medium px-4 py-1.5 rounded-lg transition-colors">
-    Download XLSX Report ↓
-  </a>
-  {% else %}
-  <p class="text-xs text-gray-400 mb-2">To download the full XLSX report, re-select your file and click Download.</p>
-  <form action="/reconcile/download" method="post" enctype="multipart/form-data" class="flex items-center gap-3">
-    <input type="hidden" name="client_id" value="{{ selected_client_id }}">
-    <input type="hidden" name="scope" value="{{ selected_scope }}">
-    <input type="hidden" name="column_mapping_json" value="{{ column_mapping_json | default('') }}">
-    <input type="file" name="file" accept=".csv,.txt,.xlsx,.xls" required
-      class="text-sm text-gray-700 border border-gray-300 rounded px-2 py-1
-             file:mr-2 file:py-0.5 file:px-2 file:rounded file:border-0
-             file:text-xs file:font-medium file:bg-gray-100 file:text-gray-700">
-    <button type="submit"
-      class="border border-green-600 hover:bg-green-600 text-green-700 hover:text-white text-sm font-medium px-4 py-1.5 rounded-lg transition-colors">
-      Download XLSX ↓
-    </button>
-  </form>
-  {% endif %}
+{% set extras = results | selectattr('status', 'equalto', 'EXTRA') | list %}
+<div id="pairing-board">
+  {% with token=download_token, today=today %}
+    {% include "reconcile/_pairing_board.html" %}
+  {% endwith %}
 </div>
 
 {% endif %}
-
-<style>
-  .filter-badge { transition: border-color 0.15s, box-shadow 0.15s; }
-  .filter-badge.active-filter { box-shadow: 0 0 0 2px currentColor; }
-</style>
 
 <script>
   // ── Column Mapping ──────────────────────────────────────────────────────────
@@ -333,56 +262,7 @@
   });
 
   // ── Filter / toggle ─────────────────────────────────────────────────────────
-  // Map filter button values to the set of data-status values they should show
-  var _filterStatusMap = {
-    'DIFF': ['DIFF', 'PAIRED'],  // PAIRED rows with diff_fields show in DIFF filter
-    'MISSING': ['MISSING', 'UNMATCHED'],
-    'MATCH': ['MATCH', 'PAIRED'],  // PAIRED rows without diff_fields show in MATCH filter
-    'EXTRA': ['EXTRA'],
-  };
-
-  function filterRows(status) {
-    var allowed = _filterStatusMap[status] || [];
-    var rows = document.querySelectorAll('tr[data-status]');
-    rows.forEach(function(row) {
-      var detail = document.getElementById('detail-' + row.dataset.uid);
-      if (status === 'all') {
-        row.style.display = '';
-      } else if (allowed.indexOf(row.dataset.status) !== -1) {
-        // For DIFF filter, only show PAIRED rows that have diff badges
-        // For MATCH filter, only show PAIRED rows without diff badges
-        if (row.dataset.status === 'PAIRED') {
-          var hasDiffs = row.querySelector('.bg-amber-100.text-amber-700');
-          if (status === 'DIFF' && hasDiffs) {
-            row.style.display = '';
-          } else if (status === 'MATCH' && !hasDiffs) {
-            row.style.display = '';
-          } else {
-            row.style.display = 'none';
-            if (detail) detail.style.display = 'none';
-            return;
-          }
-        } else {
-          row.style.display = '';
-        }
-      } else {
-        row.style.display = 'none';
-        if (detail) detail.style.display = 'none';
-      }
-    });
-    // Update active badge styling
-    document.querySelectorAll('[data-filter-btn]').forEach(function(btn) {
-      btn.classList.toggle('active-filter', btn.dataset.filter === status);
-    });
-  }
-
-  // Toggle detail row
-  function toggleDetail(uid) {
-    const detail = document.getElementById('detail-' + uid);
-    if (detail) {
-      detail.style.display = detail.style.display === 'none' ? '' : 'none';
-    }
-  }
+  // (Board-level filter JS is in _pairing_board.html)
 </script>
 
 {% endblock %}

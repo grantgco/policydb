@@ -104,9 +104,4 @@
   {% include "reconcile/_score_breakdown.html" %}
 </div>
 
-<script>
-function toggleBreakdown(idx) {
-  var el = document.getElementById('breakdown-' + idx);
-  if (el) el.style.display = el.style.display === 'none' ? '' : 'none';
-}
-</script>
+{# toggleBreakdown is hoisted to _pairing_board.html #}
