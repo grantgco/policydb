@@ -1,0 +1,66 @@
+{# _score_breakdown.html — inline score pills + diff details #}
+{# Context: row (ReconcileRow) #}
+<div class="flex flex-wrap gap-1.5 items-center">
+  <span class="text-[10px] font-semibold text-amber-700 mr-1">SCORE:</span>
+
+  {# Policy Number pill (max 40) #}
+  {% set pn_pct = (row.score_policy_number / 40 * 100) if row.score_policy_number else 0 %}
+  <span class="text-[10px] px-1.5 py-0.5 rounded
+    {% if pn_pct >= 80 %}bg-green-100 text-green-700
+    {% elif pn_pct >= 40 %}bg-amber-100 text-amber-700
+    {% else %}bg-red-100 text-red-700{% endif %}">pol# {{ row.score_policy_number|int }}/40</span>
+
+  {# Dates pill (max 30) #}
+  {% set dt_pct = (row.score_dates / 30 * 100) if row.score_dates else 0 %}
+  <span class="text-[10px] px-1.5 py-0.5 rounded
+    {% if dt_pct >= 80 %}bg-green-100 text-green-700
+    {% elif dt_pct >= 40 %}bg-amber-100 text-amber-700
+    {% else %}bg-red-100 text-red-700{% endif %}">dates {{ row.score_dates|int }}/30</span>
+
+  {# Type pill (max 15) #}
+  {% set tp_pct = (row.score_type / 15 * 100) if row.score_type else 0 %}
+  <span class="text-[10px] px-1.5 py-0.5 rounded
+    {% if tp_pct >= 80 %}bg-green-100 text-green-700
+    {% elif tp_pct >= 40 %}bg-amber-100 text-amber-700
+    {% else %}bg-red-100 text-red-700{% endif %}">type {{ row.score_type|int }}/15</span>
+
+  {# Carrier pill (max 10) #}
+  {% set cr_pct = (row.score_carrier / 10 * 100) if row.score_carrier else 0 %}
+  <span class="text-[10px] px-1.5 py-0.5 rounded
+    {% if cr_pct >= 80 %}bg-green-100 text-green-700
+    {% elif cr_pct >= 40 %}bg-amber-100 text-amber-700
+    {% else %}bg-red-100 text-red-700{% endif %}">carrier {{ row.score_carrier|int }}/10</span>
+
+  {# Name pill (max 5) #}
+  {% set nm_pct = (row.score_name / 5 * 100) if row.score_name else 0 %}
+  <span class="text-[10px] px-1.5 py-0.5 rounded
+    {% if nm_pct >= 80 %}bg-green-100 text-green-700
+    {% elif nm_pct >= 40 %}bg-amber-100 text-amber-700
+    {% else %}bg-red-100 text-red-700{% endif %}">name {{ row.score_name|int }}/5</span>
+</div>
+
+{# Diff detail text #}
+{% if row.diff_fields or row.fillable_fields or row.cosmetic_diffs %}
+<div class="mt-1.5 space-y-0.5">
+  {% for f in row.diff_fields %}
+  <p class="text-[10px] text-amber-700">
+    <span class="font-semibold">{{ f }}:</span>
+    {{ (row.ext or {}).get(f, '') or '(empty)' }}
+    <span class="text-gray-400">vs</span>
+    {{ (row.db or {}).get(f, '') or '(empty)' }}
+  </p>
+  {% endfor %}
+  {% for f in row.cosmetic_diffs %}
+  <p class="text-[10px] text-green-600">
+    <span class="font-semibold">{{ f }}:</span> same after normalization
+  </p>
+  {% endfor %}
+  {% for f in row.fillable_fields %}
+  <p class="text-[10px] text-blue-600">
+    <span class="font-semibold">{{ f }}:</span>
+    {{ (row.ext or {}).get(f, '') }}
+    <span class="text-gray-400">(DB empty)</span>
+  </p>
+  {% endfor %}
+</div>
+{% endif %}

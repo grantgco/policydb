@@ -1,0 +1,54 @@
+{# _extra_row.html — one extra DB policy row on the reconcile pairing board #}
+{# Context: row (ReconcileRow), token (str) #}
+{% set d = row.db or {} %}
+
+<div id="extra-{{ d.get('policy_uid', '') }}"
+  class="pair-row flex items-center rounded-lg border border-purple-200 bg-purple-50/30 mb-2 cursor-grab active:cursor-grabbing"
+  draggable="true"
+  ondragstart="event.dataTransfer.setData('text/plain', '{{ d.get('policy_uid', '') }}'); event.dataTransfer.effectAllowed = 'move'; this.style.opacity = '0.5'"
+  ondragend="this.style.opacity = '1'">
+
+  {# ── Grip handle ────────────────────────────────────────────────────────── #}
+  <div class="w-8 flex items-center justify-center text-gray-400 text-sm select-none shrink-0" title="Drag to pair with an unmatched row">&#10495;</div>
+
+  {# ── Policy data ────────────────────────────────────────────────────────── #}
+  <div class="flex-1 px-3 py-2.5 min-w-0 flex flex-wrap items-center gap-x-4 gap-y-0.5">
+    <p class="text-sm font-medium text-gray-800 truncate">{{ d.get('policy_type', '') or '—' }}</p>
+    <p class="text-xs text-gray-600 truncate">{{ d.get('carrier', '') or '—' }}</p>
+    {% if d.get('policy_number') %}
+    <p class="text-xs text-gray-500 font-mono">{{ d.get('policy_number') }}</p>
+    {% endif %}
+    <p class="text-xs text-gray-500 whitespace-nowrap">
+      {{ d.get('effective_date', '') or '—' }} &rarr; {{ d.get('expiration_date', '') or '—' }}
+    </p>
+    {% if d.get('premium') %}
+    <p class="text-xs text-gray-700 tabular-nums">{{ d.get('premium') | currency }}</p>
+    {% endif %}
+    {% if d.get('client_name') %}
+    <p class="text-[10px] text-gray-400 truncate">{{ d.get('client_name') }}</p>
+    {% endif %}
+
+    {# EXPIRED badge #}
+    {% if d.get('expiration_date') and d.get('expiration_date') < today %}
+    <span class="text-[10px] font-semibold bg-red-100 text-red-600 px-1.5 py-0.5 rounded">EXPIRED</span>
+    {% endif %}
+  </div>
+
+  {# ── Link + actions ─────────────────────────────────────────────────────── #}
+  <div class="flex items-center gap-2 px-3 shrink-0 no-print">
+    {% if d.get('policy_uid') %}
+    <a href="/policies/{{ d.get('policy_uid') }}/edit"
+      class="text-xs text-blue-500 hover:underline"
+      onclick="event.stopPropagation()">{{ d.get('policy_uid') }}</a>
+    {% endif %}
+    <button type="button"
+      hx-post="/reconcile/archive/{{ d.get('policy_uid', '') }}"
+      hx-target="#extra-{{ d.get('policy_uid', '') }}"
+      hx-swap="outerHTML"
+      hx-include="[name=token]"
+      hx-confirm="Archive {{ d.get('policy_type','') }} ({{ d.get('carrier','') }}) for {{ d.get('client_name','') }}? This can be undone from the policy edit page."
+      onclick="event.stopPropagation()"
+      class="text-xs border border-red-300 text-red-600 hover:bg-red-50 px-2.5 py-1 rounded transition-colors"
+      title="Archive this policy">Archive</button>
+  </div>
+</div>
