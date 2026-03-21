@@ -619,6 +619,211 @@ def location_detail(
     return templates.TemplateResponse("compliance/_location_detail.html", ctx)
 
 
+# ── COPE Data ─────────────────────────────────────────────────────────────────
+
+@router.get("/client/{client_id}/location/{project_id}/cope", response_class=HTMLResponse)
+def cope_panel(
+    client_id: int,
+    project_id: int,
+    request: Request,
+    conn=Depends(get_db),
+):
+    """Return COPE data panel for a location."""
+    cope = conn.execute(
+        "SELECT * FROM cope_data WHERE project_id=?", (project_id,)
+    ).fetchone()
+    cope_dict = dict(cope) if cope else {}
+
+    project = conn.execute(
+        "SELECT id, name FROM projects WHERE id=? AND client_id=?",
+        (project_id, client_id),
+    ).fetchone()
+
+    return templates.TemplateResponse("compliance/_cope_panel.html", {
+        "request": request,
+        "cope": cope_dict,
+        "project": dict(project) if project else {"id": project_id, "name": ""},
+        "client_id": client_id,
+        "construction_types": cfg.get("construction_types", []),
+        "sprinkler_options": cfg.get("sprinkler_options", []),
+        "roof_types": cfg.get("roof_types", []),
+        "protection_classes": cfg.get("protection_classes", []),
+    })
+
+
+@router.patch("/client/{client_id}/location/{project_id}/cope")
+async def cope_cell(
+    client_id: int,
+    project_id: int,
+    request: Request,
+    conn=Depends(get_db),
+):
+    """JSON-returning cell save for COPE data with upsert."""
+    from fastapi.responses import JSONResponse
+
+    body = await request.json()
+    field = body.get("field", "")
+    value = body.get("value", "")
+
+    allowed = {
+        "construction_type", "year_built", "stories", "sq_footage",
+        "sprinklered", "roof_type", "occupancy_description",
+        "protection_class", "total_insurable_value", "notes",
+    }
+    if field not in allowed:
+        return JSONResponse({"ok": False, "error": f"Field '{field}' not allowed"}, status_code=400)
+
+    formatted = value
+    save_value = value or None
+
+    # Currency parsing for money fields
+    if field in ("total_insurable_value", "sq_footage") and value:
+        parsed = parse_currency_with_magnitude(value)
+        if parsed:
+            save_value = parsed
+            formatted = f"{parsed:,.0f}" if parsed == int(parsed) else f"{parsed:,.2f}"
+
+    # Integer fields
+    if field in ("year_built", "stories") and value:
+        try:
+            save_value = int(value)
+            formatted = str(save_value)
+        except ValueError:
+            pass
+
+    # Upsert: INSERT OR REPLACE
+    existing = conn.execute("SELECT project_id FROM cope_data WHERE project_id=?", (project_id,)).fetchone()
+    if existing:
+        conn.execute(f"UPDATE cope_data SET {field}=? WHERE project_id=?", (save_value, project_id))
+    else:
+        conn.execute(f"INSERT INTO cope_data (project_id, {field}) VALUES (?, ?)", (project_id, save_value))
+    conn.commit()
+
+    return JSONResponse({"ok": True, "formatted": formatted})
+
+
+# ── Requirement Templates ─────────────────────────────────────────────────────
+
+@router.post("/client/{client_id}/templates/save", response_class=HTMLResponse)
+def template_save(
+    client_id: int,
+    request: Request,
+    conn=Depends(get_db),
+    template_name: str = Form(...),
+    source_id: str = Form(""),
+):
+    """Save requirements from a source as a reusable template."""
+    from fastapi.responses import RedirectResponse
+
+    def _int_or_none(v):
+        try:
+            return int(v) if str(v).strip() else None
+        except (ValueError, TypeError):
+            return None
+
+    sid = _int_or_none(source_id)
+    if not sid:
+        return RedirectResponse(f"/compliance/client/{client_id}", status_code=303)
+
+    # Create template
+    cur = conn.execute(
+        "INSERT INTO requirement_templates (name, description) VALUES (?, ?)",
+        (template_name.strip(), f"Saved from client {client_id}"),
+    )
+    tmpl_id = cur.lastrowid
+
+    # Copy requirements from source as template items
+    reqs = conn.execute(
+        "SELECT coverage_line, required_limit, max_deductible, deductible_type, required_endorsements, notes "
+        "FROM coverage_requirements WHERE client_id=? AND source_id=?",
+        (client_id, sid),
+    ).fetchall()
+
+    for r in reqs:
+        conn.execute(
+            """INSERT INTO requirement_template_items
+               (template_id, coverage_line, required_limit, max_deductible,
+                deductible_type, required_endorsements, notes)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (tmpl_id, r["coverage_line"], r["required_limit"], r["max_deductible"],
+             r["deductible_type"], r["required_endorsements"], r["notes"]),
+        )
+    conn.commit()
+
+    return RedirectResponse(f"/compliance/client/{client_id}", status_code=303)
+
+
+@router.post("/client/{client_id}/templates/{tmpl_id}/apply", response_class=HTMLResponse)
+def template_apply(
+    client_id: int,
+    tmpl_id: int,
+    request: Request,
+    conn=Depends(get_db),
+    source_id: str = Form(""),
+    project_id: str = Form(""),
+):
+    """Apply a template's items as requirements for a client/source."""
+    from fastapi.responses import RedirectResponse
+
+    def _int_or_none(v):
+        try:
+            return int(v) if str(v).strip() else None
+        except (ValueError, TypeError):
+            return None
+
+    sid = _int_or_none(source_id)
+    pid = _int_or_none(project_id)
+
+    # Get template items
+    items = conn.execute(
+        "SELECT * FROM requirement_template_items WHERE template_id=?",
+        (tmpl_id,),
+    ).fetchall()
+
+    # Get existing requirements for dedup
+    existing_lines = {
+        r["coverage_line"]
+        for r in conn.execute(
+            "SELECT coverage_line FROM coverage_requirements WHERE client_id=? AND source_id=? AND (project_id=? OR (project_id IS NULL AND ? IS NULL))",
+            (client_id, sid, pid, pid),
+        ).fetchall()
+    }
+
+    for item in items:
+        if item["coverage_line"] in existing_lines:
+            continue
+        conn.execute(
+            """INSERT INTO coverage_requirements
+               (client_id, source_id, project_id, coverage_line, required_limit,
+                max_deductible, deductible_type, required_endorsements, notes,
+                compliance_status)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Needs Review')""",
+            (client_id, sid, pid, item["coverage_line"], item["required_limit"],
+             item["max_deductible"], item["deductible_type"],
+             item["required_endorsements"], item["notes"]),
+        )
+    conn.commit()
+
+    return RedirectResponse(f"/compliance/client/{client_id}", status_code=303)
+
+
+@router.post("/compliance/templates/{tmpl_id}/delete")
+def template_delete(
+    tmpl_id: int,
+    request: Request,
+    conn=Depends(get_db),
+):
+    """Delete a template and its items."""
+    from fastapi.responses import RedirectResponse
+
+    conn.execute("DELETE FROM requirement_template_items WHERE template_id=?", (tmpl_id,))
+    conn.execute("DELETE FROM requirement_templates WHERE id=?", (tmpl_id,))
+    conn.commit()
+
+    referer = request.headers.get("referer", "/settings")
+    return RedirectResponse(referer, status_code=303)
+
+
 # ── Risk → Requirement Spawning ──────────────────────────────────────────────
 
 @router.post("/client/{client_id}/risks/{risk_id}/spawn-requirements")

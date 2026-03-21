@@ -1,0 +1,184 @@
+{# COPE Data panel — loaded via HTMX into location detail #}
+{# Context: cope, project, client_id, construction_types, sprinkler_options, roof_types, protection_classes #}
+
+<div class="border-t border-gray-100 px-0 py-3">
+  <div class="flex items-center gap-2 mb-3">
+    <span class="text-xs uppercase tracking-wider text-gray-400 font-medium">COPE Data</span>
+    <span class="text-[10px] text-gray-300">Construction &bull; Occupancy &bull; Protection &bull; Exposure</span>
+  </div>
+
+  <div class="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-2" id="cope-grid-{{ project.id }}">
+    {# Construction Type — combobox #}
+    <div>
+      <label class="block text-[10px] text-gray-400 uppercase">Construction</label>
+      <select class="cope-field w-full text-sm border-0 border-b border-gray-200 focus:border-marsh focus:outline-none bg-transparent py-1 px-0"
+              data-field="construction_type"
+              onchange="saveCope(this)">
+        <option value="">—</option>
+        {% for ct in construction_types %}
+        <option value="{{ ct }}" {{ 'selected' if cope.get('construction_type') == ct else '' }}>{{ ct }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    {# Year Built #}
+    <div>
+      <label class="block text-[10px] text-gray-400 uppercase">Year Built</label>
+      <span contenteditable="true" class="cope-cell block text-sm py-1 border-b border-transparent focus:border-marsh outline-none"
+            data-field="year_built" data-placeholder="e.g. 2005">{{ cope.get('year_built') or '' }}</span>
+    </div>
+
+    {# Stories #}
+    <div>
+      <label class="block text-[10px] text-gray-400 uppercase">Stories</label>
+      <span contenteditable="true" class="cope-cell block text-sm py-1 border-b border-transparent focus:border-marsh outline-none"
+            data-field="stories" data-placeholder="e.g. 12">{{ cope.get('stories') or '' }}</span>
+    </div>
+
+    {# Sq Footage #}
+    <div>
+      <label class="block text-[10px] text-gray-400 uppercase">Sq Footage</label>
+      <span contenteditable="true" class="cope-cell block text-sm py-1 border-b border-transparent focus:border-marsh outline-none"
+            data-field="sq_footage" data-placeholder="e.g. 145000">{{ '{:,.0f}'.format(cope.get('sq_footage')) if cope.get('sq_footage') else '' }}</span>
+    </div>
+
+    {# Sprinklered — pill buttons #}
+    <div>
+      <label class="block text-[10px] text-gray-400 uppercase mb-1">Sprinklered</label>
+      <div class="flex gap-1">
+        {% for opt in sprinkler_options %}
+        <button type="button"
+                class="cope-pill text-xs px-2 py-0.5 rounded-full border transition-colors
+                       {{ 'bg-marsh text-white border-marsh' if cope.get('sprinklered') == opt else 'border-gray-200 text-gray-500 hover:border-marsh hover:text-marsh' }}"
+                data-field="sprinklered" data-value="{{ opt }}"
+                onclick="savecopePill(this)">{{ opt }}</button>
+        {% endfor %}
+      </div>
+    </div>
+
+    {# Roof Type — combobox #}
+    <div>
+      <label class="block text-[10px] text-gray-400 uppercase">Roof Type</label>
+      <select class="cope-field w-full text-sm border-0 border-b border-gray-200 focus:border-marsh focus:outline-none bg-transparent py-1 px-0"
+              data-field="roof_type"
+              onchange="saveCope(this)">
+        <option value="">—</option>
+        {% for rt in roof_types %}
+        <option value="{{ rt }}" {{ 'selected' if cope.get('roof_type') == rt else '' }}>{{ rt }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    {# Protection Class #}
+    <div>
+      <label class="block text-[10px] text-gray-400 uppercase">Protection Class</label>
+      <select class="cope-field w-full text-sm border-0 border-b border-gray-200 focus:border-marsh focus:outline-none bg-transparent py-1 px-0"
+              data-field="protection_class"
+              onchange="saveCope(this)">
+        <option value="">—</option>
+        {% for pc in protection_classes %}
+        <option value="{{ pc }}" {{ 'selected' if cope.get('protection_class') == pc else '' }}>{{ pc }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    {# TIV #}
+    <div>
+      <label class="block text-[10px] text-gray-400 uppercase">TIV</label>
+      <span contenteditable="true" class="cope-cell block text-sm py-1 border-b border-transparent focus:border-marsh outline-none"
+            data-field="total_insurable_value" data-placeholder="e.g. 45m">{{ '{:,.0f}'.format(cope.get('total_insurable_value')) if cope.get('total_insurable_value') else '' }}</span>
+    </div>
+  </div>
+
+  {# Full-width fields #}
+  <div class="mt-2 space-y-2">
+    <div>
+      <label class="block text-[10px] text-gray-400 uppercase">Occupancy</label>
+      <span contenteditable="true" class="cope-cell block text-sm py-1 border-b border-transparent focus:border-marsh outline-none w-full"
+            data-field="occupancy_description" data-placeholder="e.g. Residential Condo — 120 units, ground floor retail">{{ cope.get('occupancy_description') or '' }}</span>
+    </div>
+    <div>
+      <label class="block text-[10px] text-gray-400 uppercase">Notes</label>
+      <span contenteditable="true" class="cope-cell block text-sm py-1 border-b border-transparent focus:border-marsh outline-none w-full"
+            data-field="notes" data-placeholder="Additional COPE notes...">{{ cope.get('notes') or '' }}</span>
+    </div>
+  </div>
+</div>
+
+<style>
+  .cope-cell[data-placeholder]:empty::before {
+    content: attr(data-placeholder);
+    color: #94a3b8;
+    font-style: italic;
+    pointer-events: none;
+  }
+</style>
+
+<script>
+(function() {
+  var clientId = {{ client_id }};
+  var projectId = {{ project.id }};
+  var endpoint = '/compliance/client/' + clientId + '/location/' + projectId + '/cope';
+
+  /* Save contenteditable on blur */
+  document.querySelectorAll('#cope-grid-' + projectId + ' .cope-cell, .cope-cell[data-field]').forEach(function(cell) {
+    cell.addEventListener('blur', function() {
+      var field = cell.dataset.field;
+      var val = cell.textContent.trim();
+      fetch(endpoint, {
+        method: 'PATCH',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({field: field, value: val})
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.ok && data.formatted && data.formatted !== val) {
+          cell.textContent = data.formatted;
+          if (typeof flashCell === 'function') flashCell(cell);
+        }
+      });
+    });
+    /* Paste plain text only */
+    cell.addEventListener('paste', function(e) {
+      e.preventDefault();
+      var text = (e.clipboardData || window.clipboardData).getData('text/plain');
+      document.execCommand('insertText', false, text);
+    });
+  });
+
+  /* Save select/combobox on change */
+  window.saveCope = function(el) {
+    var field = el.dataset.field;
+    var val = el.value;
+    fetch(endpoint, {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({field: field, value: val})
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.ok && typeof showToast === 'function') showToast('Saved', true);
+    });
+  };
+
+  /* Save pill button */
+  window.savecopePill = function(btn) {
+    var field = btn.dataset.field;
+    var val = btn.dataset.value;
+    /* Update pill styling */
+    btn.parentElement.querySelectorAll('.cope-pill').forEach(function(p) {
+      p.className = p.className.replace(/bg-marsh text-white border-marsh/g, 'border-gray-200 text-gray-500 hover:border-marsh hover:text-marsh');
+    });
+    btn.className = btn.className.replace(/border-gray-200 text-gray-500 hover:border-marsh hover:text-marsh/g, 'bg-marsh text-white border-marsh');
+    fetch(endpoint, {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({field: field, value: val})
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.ok && typeof showToast === 'function') showToast('Saved', true);
+    });
+  };
+})();
+</script>

@@ -434,18 +434,20 @@
 <script>
 function addFirstProject(clientId) {
   var scrollY = window.scrollY;
+  var key = 'scrollRestore_' + window.location.pathname;
   fetch('/clients/' + clientId + '/projects/pipeline', {method: 'POST'})
     .then(function(r) { return r.text(); })
     .then(function() {
-      sessionStorage.setItem('scrollRestore', scrollY);
+      sessionStorage.setItem(key, scrollY);
       window.location.reload();
     });
 }
-/* Restore scroll after reload */
+/* Restore scroll after reload (only if triggered by addFirstProject on this page) */
 (function() {
-  var saved = sessionStorage.getItem('scrollRestore');
+  var key = 'scrollRestore_' + window.location.pathname;
+  var saved = sessionStorage.getItem(key);
   if (saved) {
-    sessionStorage.removeItem('scrollRestore');
+    sessionStorage.removeItem(key);
     window.scrollTo(0, parseInt(saved, 10));
   }
 })();
