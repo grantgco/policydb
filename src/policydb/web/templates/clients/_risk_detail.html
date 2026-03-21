@@ -97,6 +97,17 @@
         <button type="submit" class="text-xs text-marsh hover:underline font-medium">Add</button>
       </form>
     </div>
+    {% if r.coverage_lines %}
+    <div class="mt-1" onclick="event.stopPropagation()">
+      <button type="button" class="text-xs text-marsh hover:underline font-medium"
+              hx-post="/compliance/client/{{ client.id }}/risks/{{ r.id }}/spawn-requirements"
+              hx-target="body"
+              hx-confirm="Create compliance requirements from this risk's {{ r.coverage_lines | length }} coverage line(s)?"
+              hx-vals='{"source_id": ""}'>
+        &rarr; Create Compliance Requirements
+      </button>
+    </div>
+    {% endif %}
   </div>
 
   <!-- Controls -->
