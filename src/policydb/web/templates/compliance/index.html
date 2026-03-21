@@ -161,10 +161,14 @@
             <p class="text-xs text-gray-400 mt-0.5">{{ prompt.relevance }}</p>
             {% endif %}
             {% if prompt.coverage_lines %}
-            <div class="flex gap-1 mt-1">
+            <div class="flex items-center gap-1 mt-1">
               {% for line in prompt.coverage_lines %}
               <span class="text-[10px] bg-gray-100 text-gray-500 px-1 py-0.5 rounded">{{ line }}</span>
               {% endfor %}
+              <button type="button" class="text-[10px] text-marsh hover:underline ml-2"
+                      onclick="var d=document.querySelector('details:has(#add-req-form)');if(d){d.open=true;setTimeout(function(){var sel=document.querySelector('#add-req-coverage');if(sel){sel.value='{{ prompt.coverage_lines[0] }}';sel.scrollIntoView({behavior:'smooth',block:'center'})}},200)}">
+                + Add Requirement
+              </button>
             </div>
             {% endif %}
           </div>
@@ -175,7 +179,7 @@
   {% endif %}
 
   {# ── Quick Add Requirement (collapsible) ─────────────────────────────── #}
-  <details class="bg-white rounded-lg shadow-sm border border-gray-200 mb-6 no-print">
+  <details id="add-req-form" class="bg-white rounded-lg shadow-sm border border-gray-200 mb-6 no-print">
     <summary class="px-5 py-3 cursor-pointer font-semibold text-sm text-gray-700 hover:bg-gray-50 flex items-center justify-between">
       <span>Add Requirement</span>
       <span class="text-xs text-gray-400">Click to expand</span>
@@ -187,7 +191,7 @@
         <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
           <div>
             <label class="block text-xs text-gray-500 mb-1">Coverage Line</label>
-            <select name="coverage_line" required class="border rounded px-2 py-1.5 text-sm w-full">
+            <select name="coverage_line" id="add-req-coverage" required class="border rounded px-2 py-1.5 text-sm w-full">
               <option value="">Select coverage...</option>
               {% for pt in policy_types %}
               <option value="{{ pt }}">{{ pt }}</option>
