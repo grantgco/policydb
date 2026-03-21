@@ -147,11 +147,60 @@ Key config lists managed in Settings UI (`/settings`):
 
 ## Reconciler
 
-`src/policydb/reconciler.py` — fuzzy-matches imported statement rows to existing policies.
+`src/policydb/reconciler.py` — matches imported statement/renewal list rows to existing policies using additive scoring.
 
-- `_COVERAGE_ALIASES` — maps import policy type names to canonical types
-- `_fuzzy_match()` — graduated scoring (client name × 0.55 + type × 0.45), date bonuses/penalties, policy number bonus, 65-point acceptance threshold
+### Scoring Algorithm (`_score_pair()`)
+
+Additive scoring with **no hard gates** — every signal contributes independently:
+
+| Signal | Max Points | Details |
+|--------|-----------|---------|
+| Policy Number | 40 | Exact normalized = 40, fuzzy >= 90 = 32, >= 75 = 20, missing = 0 (neutral) |
+| Dates (eff + exp) | 30 | Split 15+15. Exact = 15, <= 14d = 12, <= 45d = 8, same year = 4 |
+| Policy Type | 15 | Normalized match = 15, fuzzy >= 85 = 12, >= 70 = 8 |
+| Carrier | 10 | Normalized match = 10, fuzzy >= 80 = 7, >= 60 = 4 |
+| Client Name | 5 | Normalized match = 5, fuzzy >= 80 = 4, >= 60 = 2 |
+
+**Confidence tiers:** high >= 75, medium >= 45, low < 45
+
+**Important rules:**
+- **No hard gates** — no single field can block a match
 - **Railroad Protective Liability** is a distinct policy type — do NOT alias it to General Liability
+- `_score_pair()` must track diffs at **both** levels: `diff_fields` (real differences) AND `cosmetic_diffs` (same after normalization) — both need UI update controls
+- FNI cross-matching: checks all combinations of ext client/FNI vs db client/FNI, takes best score
+- Single-client mode: auto-max name score to 5
+
+### Normalization (Two Categories)
+
+**Display/save functions** (write to DB):
+- `normalize_client_name()` — preserves legal suffixes, title case
+- `normalize_policy_number()` — uppercase + trim, preserves formatting
+- `normalize_coverage_type()` — alias map → canonical name
+- `normalize_carrier()` — config-driven alias → canonical carrier
+
+**Matching functions** (comparison only, never write to DB):
+- `normalize_client_name_for_matching()` — strips legal suffixes entirely
+- `normalize_policy_number_for_matching()` — strips all formatting + filters placeholders
+
+### Coverage Aliases
+
+- `_COVERAGE_ALIASES` in `utils.py` — hardcoded base aliases (~237 entries)
+- `coverage_aliases` in config.yaml — user-learned aliases (merged via `rebuild_coverage_aliases()`)
+- `carrier_aliases` in config.yaml — carrier name mappings (merged via `rebuild_carrier_aliases()`)
+
+### Reconcile UI (Pairing Board)
+
+The reconcile page uses the **Pairing Board pattern** (see below). Flow:
+1. Upload CSV/XLSX → column mapping
+2. **Validation panel** — pre-match data quality check with auto-learn aliases
+3. **Pairing board** — side-by-side with drag-to-match, score breakdowns, field-level diff accept/fill
+4. Confirm pairs → export XLSX
+
+Key endpoints: `/reconcile`, `/reconcile/run-match`, `/reconcile/confirm/{idx}`, `/reconcile/break/{idx}`, `/reconcile/manual-pair`, `/reconcile/search-coverage`, `/reconcile/apply-field/{uid}`
+
+### Location Assignment Board
+
+`/clients/{id}/locations` — same pairing board pattern for assigning policies to physical locations. Drag policies to location groups, smart suggestions from shared `exposure_address`.
 
 ---
 
