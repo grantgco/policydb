@@ -143,7 +143,8 @@ function handleDrop(event, idx) {
 function filterBoardRows(status) {
   var extrasPool = document.getElementById('extras-pool');
 
-  document.querySelectorAll('.pair-row').forEach(function(row) {
+  /* Only filter rows inside #board-rows, not extras pool */
+  document.querySelectorAll('#board-rows > .pair-row').forEach(function(row) {
     if (status === 'all') {
       row.style.display = '';
       return;
