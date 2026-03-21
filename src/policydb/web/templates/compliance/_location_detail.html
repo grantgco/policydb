@@ -162,10 +162,13 @@
               {% endif %}
             {% endfor %}
 
-            {# Inline add row #}
+            {# Inline add row — creates a blank requirement for this source + location #}
             <tr class="text-gray-400 hover:text-gray-600 cursor-pointer no-print">
-              <td class="py-1.5 text-xs" colspan="4">
-                <span class="hover:text-marsh">+ Add requirement to this source...</span>
+              <td class="py-1.5 text-xs" colspan="5">
+                <button type="button" class="hover:text-marsh text-left"
+                        hx-post="/compliance/client/{{ client_id }}/requirements/add"
+                        hx-vals='{"coverage_line": "", "source_id": "{{ src_id }}", "project_id": "{{ project.id if not is_inherited else '' }}", "compliance_status": "Needs Review", "required_endorsements": "[]", "required_limit": "", "max_deductible": "", "deductible_type": "", "notes": "", "risk_id": "", "linked_policy_uid": ""}'
+                        hx-target="body">+ Add requirement to this source...</button>
               </td>
             </tr>
           </table>

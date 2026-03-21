@@ -1,34 +1,32 @@
 {# Inline edit form for a source row — replaces #source-row-{id} #}
 <tr id="source-row-{{ src.id }}" class="border-b border-gray-50 bg-amber-50/30">
-  <form hx-post="/compliance/client/{{ client_id }}/sources/{{ src.id }}/edit"
-        hx-target="body"
-        class="contents">
-    <td class="py-2">
-      <input name="name" value="{{ src.name }}" required
-             class="border border-gray-300 rounded px-2 py-1 text-sm w-full focus:border-marsh focus:ring-1 focus:ring-marsh">
-    </td>
-    <td class="py-2">
-      <input name="counterparty" value="{{ src.counterparty or '' }}"
-             class="border border-gray-300 rounded px-2 py-1 text-sm w-full focus:border-marsh focus:ring-1 focus:ring-marsh">
-    </td>
-    <td class="py-2">
-      {# Scope is not directly editable here — it's determined by requirements #}
-      <span class="text-xs text-gray-400">Set via requirements</span>
-    </td>
-    <td class="py-2">
-      <input name="clause_ref" value="{{ src.clause_ref or '' }}"
-             class="border border-gray-300 rounded px-2 py-1 text-sm w-full focus:border-marsh focus:ring-1 focus:ring-marsh">
-    </td>
-    <td class="py-2">
-      <input name="notes" value="{{ src.notes or '' }}"
-             class="border border-gray-300 rounded px-2 py-1 text-sm w-full focus:border-marsh focus:ring-1 focus:ring-marsh">
-    </td>
-    <td class="py-2 no-print text-right whitespace-nowrap">
-      <button type="submit" class="bg-marsh text-white px-2 py-1 rounded text-xs hover:opacity-90">Save</button>
-      <button type="button" class="text-gray-400 hover:text-gray-600 text-xs ml-1"
-              hx-get="/compliance/client/{{ client_id }}/sources/{{ src.id }}/row"
-              hx-target="#source-row-{{ src.id }}"
-              hx-swap="outerHTML">Cancel</button>
-    </td>
-  </form>
+  <td class="py-2">
+    <input name="name" value="{{ src.name }}" required id="src-edit-name-{{ src.id }}"
+           class="border border-gray-300 rounded px-2 py-1 text-sm w-full focus:border-marsh focus:ring-1 focus:ring-marsh">
+  </td>
+  <td class="py-2">
+    <input name="counterparty" value="{{ src.counterparty or '' }}" id="src-edit-cp-{{ src.id }}"
+           class="border border-gray-300 rounded px-2 py-1 text-sm w-full focus:border-marsh focus:ring-1 focus:ring-marsh">
+  </td>
+  <td class="py-2">
+    <span class="text-xs text-gray-400">Set via requirements</span>
+  </td>
+  <td class="py-2">
+    <input name="clause_ref" value="{{ src.clause_ref or '' }}" id="src-edit-cr-{{ src.id }}"
+           class="border border-gray-300 rounded px-2 py-1 text-sm w-full focus:border-marsh focus:ring-1 focus:ring-marsh">
+  </td>
+  <td class="py-2">
+    <input name="notes" value="{{ src.notes or '' }}" id="src-edit-notes-{{ src.id }}"
+           class="border border-gray-300 rounded px-2 py-1 text-sm w-full focus:border-marsh focus:ring-1 focus:ring-marsh">
+  </td>
+  <td class="py-2 no-print text-right whitespace-nowrap">
+    <button type="button" class="bg-marsh text-white px-2 py-1 rounded text-xs hover:opacity-90"
+            hx-post="/compliance/client/{{ client_id }}/sources/{{ src.id }}/edit"
+            hx-include="#source-row-{{ src.id }} input"
+            hx-target="body">Save</button>
+    <button type="button" class="text-gray-400 hover:text-gray-600 text-xs ml-1"
+            hx-get="/compliance/client/{{ client_id }}/sources/{{ src.id }}/row"
+            hx-target="#source-row-{{ src.id }}"
+            hx-swap="outerHTML">Cancel</button>
+  </td>
 </tr>

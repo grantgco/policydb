@@ -1,9 +1,8 @@
 {# Inline edit form for a requirement row — loaded via HTMX #}
 <tr id="req-row-{{ req.id }}" class="bg-amber-50/30 border-b border-gray-100">
-  <form hx-post="/compliance/client/{{ client_id }}/requirements/{{ req.id }}/edit"
-        hx-target="body"
-        class="contents">
-    <td class="py-2 px-2" colspan="4">
+    <td class="py-2 px-2" colspan="5">
+      <form hx-post="/compliance/client/{{ client_id }}/requirements/{{ req.id }}/edit"
+            hx-target="body">
       <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
         <div>
           <label class="block text-[10px] text-gray-500 uppercase">Coverage Line</label>
@@ -90,6 +89,6 @@
                 hx-target="body"
                 hx-confirm="Delete this requirement?">Delete</button>
       </div>
+      </form>
     </td>
-  </form>
 </tr>
