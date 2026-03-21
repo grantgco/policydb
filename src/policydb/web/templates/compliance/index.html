@@ -123,60 +123,8 @@
   {# ── Compliance Matrix ───────────────────────────────────────────────── #}
   {% include "compliance/_matrix.html" %}
 
-  {# ── Guided Risk Review Prompts (collapsible) ────────────────────────── #}
-  {% if risk_prompts %}
-  <details class="bg-white rounded-lg shadow-sm border border-gray-200 mb-6">
-    <summary class="px-5 py-3 cursor-pointer font-semibold text-sm text-gray-700 hover:bg-gray-50 flex items-center justify-between">
-      <span>Guided Risk Review <span class="text-xs font-normal text-gray-400 ml-2">{{ risk_prompts | length }} prompt{{ 's' if risk_prompts | length != 1 else '' }}</span></span>
-      <span class="text-xs text-gray-400">Click to expand</span>
-    </summary>
-    <div class="px-5 pb-4 border-t border-gray-100 space-y-2 mt-2">
-      {% for prompt in risk_prompts %}
-        {% set p_priority = prompt.priority | lower %}
-        {% if p_priority == 'high' %}
-          {% set border = 'border-red-400' %}
-          {% set bg = 'bg-red-50/30' %}
-          {% set label_color = 'text-red-600' %}
-        {% elif p_priority == 'medium' %}
-          {% set border = 'border-amber-400' %}
-          {% set bg = '' %}
-          {% set label_color = 'text-amber-600' %}
-        {% else %}
-          {% set border = 'border-gray-300' %}
-          {% set bg = '' %}
-          {% set label_color = 'text-gray-500' %}
-        {% endif %}
-
-        <div class="flex items-start gap-3 py-2 border-l-4 {{ border }} pl-4 {{ bg }} rounded-r">
-          <input type="checkbox" class="mt-1 rounded">
-          <div class="flex-1">
-            <div class="flex items-center gap-2">
-              <span class="text-xs font-semibold {{ label_color }} uppercase tracking-wider">{{ prompt.priority }}</span>
-              {% if prompt.category %}
-              <span class="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">{{ prompt.category }}</span>
-              {% endif %}
-            </div>
-            <p class="text-sm text-gray-700 mt-0.5">{{ prompt.question }}</p>
-            {% if prompt.relevance %}
-            <p class="text-xs text-gray-400 mt-0.5">{{ prompt.relevance }}</p>
-            {% endif %}
-            {% if prompt.coverage_lines %}
-            <div class="flex items-center gap-1 mt-1">
-              {% for line in prompt.coverage_lines %}
-              <span class="text-[10px] bg-gray-100 text-gray-500 px-1 py-0.5 rounded">{{ line }}</span>
-              {% endfor %}
-              <button type="button" class="text-[10px] text-marsh hover:underline ml-2"
-                      onclick="var d=document.querySelector('details:has(#add-req-form)');if(d){d.open=true;setTimeout(function(){var sel=document.querySelector('#add-req-coverage');if(sel){sel.value='{{ prompt.coverage_lines[0] }}';sel.scrollIntoView({behavior:'smooth',block:'center'})}},200)}">
-                + Add Requirement
-              </button>
-            </div>
-            {% endif %}
-          </div>
-        </div>
-      {% endfor %}
-    </div>
-  </details>
-  {% endif %}
+  {# Guided Risk Review removed — risk prompts will be integrated into the
+     Risk & Exposure Profile on the client detail page (future brainstorm). #}
 
   {# ── Quick Add Requirement (collapsible) ─────────────────────────────── #}
   <details id="add-req-form" class="bg-white rounded-lg shadow-sm border border-gray-200 mb-6 no-print">
