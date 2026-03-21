@@ -273,6 +273,11 @@ def _score_pair(
     Confidence tiers: high>=75, medium>=45, low<45.
     """
 
+    # Diff tracking lists — populated by each scoring section below
+    diff_fields: list[str] = []
+    cosmetic_diffs: list[str] = []
+    fillable_fields: list[str] = []
+
     # ── Policy Number (max 40) ────────────────────────────────────────────────
     ext_pn_raw = str(ext.get("policy_number") or "").strip()
     db_pn_raw = str(db.get("policy_number") or "").strip()
@@ -332,12 +337,19 @@ def _score_pair(
     if ext_type_norm and db_type_norm:
         if ext_type_norm.lower() == db_type_norm.lower():
             score_type = 15.0
+            # Raw values differ but normalized match = cosmetic
+            if ext_type_raw.lower() != db_type_raw.lower():
+                cosmetic_diffs.append("policy_type")
         else:
             type_ratio = fuzz.WRatio(ext_type_norm, db_type_norm)
             if type_ratio >= 85:
                 score_type = 12.0
+                cosmetic_diffs.append("policy_type")
             elif type_ratio >= 70:
                 score_type = 8.0
+                diff_fields.append("policy_type")
+            else:
+                diff_fields.append("policy_type")
 
     # ── Carrier (max 10) ──────────────────────────────────────────────────────
     ext_carrier_raw = str(ext.get("carrier") or "").strip()
@@ -349,12 +361,18 @@ def _score_pair(
     if ext_carrier_norm and db_carrier_norm:
         if ext_carrier_norm.lower() == db_carrier_norm.lower():
             score_carrier = 10.0
+            if ext_carrier_raw.lower() != db_carrier_raw.lower():
+                cosmetic_diffs.append("carrier")
         else:
             carrier_ratio = fuzz.WRatio(ext_carrier_norm, db_carrier_norm)
             if carrier_ratio >= 80:
                 score_carrier = 7.0
+                cosmetic_diffs.append("carrier")
             elif carrier_ratio >= 60:
                 score_carrier = 4.0
+                diff_fields.append("carrier")
+            else:
+                diff_fields.append("carrier")
 
     # ── Client Name / FNI (max 5) ────────────────────────────────────────────
     if single_client:
@@ -401,11 +419,6 @@ def _score_pair(
         confidence = "medium"
     else:
         confidence = "low"
-
-    # ── Diff / cosmetic / fillable tracking (currency fields) ─────────────────
-    diff_fields: list[str] = []
-    cosmetic_diffs: list[str] = []
-    fillable_fields: list[str] = []
 
     # Currency fields: premium, limit_amount, deductible
     for cf in ("premium", "limit_amount", "deductible"):
