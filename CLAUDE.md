@@ -288,6 +288,12 @@ The **pairing board** is a reusable UI pattern for matching/comparing records fr
 
 ---
 
+## Skills
+
+- Risk analysis skill available at `.claude/skills/risk-analysis-skill/` — use for any client risk assessment, coverage strategy, or exposure analysis work.
+
+---
+
 ## Development Notes
 
 - Always pass `renewal_statuses` to any template that renders `_status_badge.html`
