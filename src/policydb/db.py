@@ -21,6 +21,9 @@ _HEALTH_STATUS: dict = {
     "last_backup": None,
     "last_backup_verified": False,
     "backup_count": 0,
+    "migration_last_backup": None,
+    "migration_last_backup_verified": False,
+    "migration_backup_count": 0,
     "db_size": 0,
     "wal_size": 0,
 }
