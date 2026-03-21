@@ -2,8 +2,10 @@
 
 from policydb.utils import (
     normalize_client_name_for_matching,
+    normalize_coverage_type,
     normalize_policy_number_for_matching,
     parse_currency,
+    rebuild_coverage_aliases,
 )
 
 
@@ -75,3 +77,18 @@ def test_parse_currency_invalid():
 
 def test_parse_currency_negative():
     assert parse_currency("-$500") == -500.0
+
+
+# ─── rebuild_coverage_aliases ──────────────────────────────────────────────
+
+
+def test_rebuild_coverage_aliases_merges_config(monkeypatch):
+    """Config coverage_aliases should merge with hardcoded aliases."""
+    import policydb.config as cfg
+    monkeypatch.setattr(cfg, 'get', lambda key, default=None:
+        {"Custom Coverage": ["custom cov", "cc"]} if key == "coverage_aliases" else default)
+    rebuild_coverage_aliases()
+    assert normalize_coverage_type("custom cov") == "Custom Coverage"
+    assert normalize_coverage_type("cc") == "Custom Coverage"
+    # Hardcoded aliases still work
+    assert normalize_coverage_type("gl") == "General Liability"
