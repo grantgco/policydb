@@ -1,4 +1,4 @@
-{# Compliance coverage matrix — rows = coverage lines, columns = locations #}
+{# Compliance coverage matrix — auto-switches between column layout (≤6 locations) and list layout (>6) #}
 {# Context: locations, client_id, all_policies #}
 
 {# Build unique coverage lines across all locations #}
@@ -14,10 +14,19 @@
 <div id="compliance-matrix" class="bg-white rounded-lg shadow-sm border border-gray-200 mb-6">
   <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
     <h2 class="font-semibold text-sm text-gray-700">Coverage Matrix</h2>
-    <span class="text-xs text-gray-400">Click a cell for details &bull; Click a location header to drill down</span>
+    <span class="text-xs text-gray-400">
+      {% if locations | length <= 6 %}
+        Click a cell for details &bull; Click a location header to drill down
+      {% else %}
+        Click a location to drill down into requirements
+      {% endif %}
+    </span>
   </div>
 
   {% if ns.all_lines %}
+
+  {# ── COLUMN LAYOUT (≤6 locations) ─────────────────────────────────── #}
+  {% if locations | length <= 6 %}
   <div class="overflow-x-auto">
     <table class="w-full text-sm">
       <thead>
@@ -38,16 +47,12 @@
       <tbody>
         {% for line in ns.all_lines %}
         {# Find the highest governing limit across all locations for this line #}
-        {% set gov_ns = namespace(best_limit=none, best_limit_display='', best_ded=none, best_ded_type='') %}
+        {% set gov_ns = namespace(best_limit=none) %}
         {% for loc in locations %}
           {% if line in loc.governing %}
             {% set gov = loc.governing[line] %}
             {% if gov.required_limit is not none and (gov_ns.best_limit is none or gov.required_limit > gov_ns.best_limit) %}
               {% set gov_ns.best_limit = gov.required_limit %}
-            {% endif %}
-            {% if gov.max_deductible is not none and (gov_ns.best_ded is none or gov.max_deductible < gov_ns.best_ded) %}
-              {% set gov_ns.best_ded = gov.max_deductible %}
-              {% set gov_ns.best_ded_type = gov.deductible_type or '' %}
             {% endif %}
           {% endif %}
         {% endfor %}
@@ -67,83 +72,51 @@
             {% if line in loc.governing %}
               {% set gov = loc.governing[line] %}
               {% set status = (gov.compliance_status or 'Needs Review') | lower %}
-
-              {# Determine cell colors based on status #}
               {% if status == 'compliant' %}
-                {% set bg = 'bg-green-50' %}
-                {% set text_color = 'text-green-700' %}
-                {% set dot = 'bg-green-500' %}
+                {% set bg = 'bg-green-50' %}{% set text_color = 'text-green-700' %}{% set dot = 'bg-green-500' %}
               {% elif status == 'gap' %}
-                {% set bg = 'bg-red-50' %}
-                {% set text_color = 'text-red-700' %}
-                {% set dot = 'bg-red-500' %}
+                {% set bg = 'bg-red-50' %}{% set text_color = 'text-red-700' %}{% set dot = 'bg-red-500' %}
               {% elif status == 'partial' %}
-                {% set bg = 'bg-amber-50' %}
-                {% set text_color = 'text-amber-700' %}
-                {% set dot = 'bg-amber-500' %}
-              {% elif status in ('waived', 'n/a', 'na') %}
-                {% set bg = 'bg-gray-50' %}
-                {% set text_color = 'text-gray-500' %}
-                {% set dot = 'bg-gray-400' %}
+                {% set bg = 'bg-amber-50' %}{% set text_color = 'text-amber-700' %}{% set dot = 'bg-amber-500' %}
               {% else %}
-                {# Needs Review #}
-                {% set bg = 'bg-gray-50' %}
-                {% set text_color = 'text-gray-600' %}
-                {% set dot = 'bg-gray-400' %}
+                {% set bg = 'bg-gray-50' %}{% set text_color = 'text-gray-600' %}{% set dot = 'bg-gray-400' %}
               {% endif %}
 
-              {# Find the linked or suggested policy #}
               {% set pol_uid = gov.linked_policy_uid %}
               {% set pol_ns = namespace(policy=none) %}
               {% if pol_uid %}
-                {% for p in all_policies %}
-                  {% if p.policy_uid == pol_uid %}
-                    {% set pol_ns.policy = p %}
-                  {% endif %}
-                {% endfor %}
+                {% for p in all_policies %}{% if p.policy_uid == pol_uid %}{% set pol_ns.policy = p %}{% endif %}{% endfor %}
               {% elif gov.suggested_policy is defined and gov.suggested_policy %}
                 {% set pol_ns.policy = gov.suggested_policy %}
               {% endif %}
 
-              {# Render the status badge #}
               {% if status == 'gap' %}
                 <div class="inline-flex items-center gap-1.5 {{ bg }} {{ text_color }} px-2 py-1 rounded text-xs">
-                  <span class="w-2 h-2 rounded-full {{ dot }}"></span>
-                  <span>GAP</span>
+                  <span class="w-2 h-2 rounded-full {{ dot }}"></span> GAP
                 </div>
-                {% if gov.notes %}
-                <div class="text-[10px] text-red-500 mt-0.5">{{ gov.notes }}</div>
-                {% endif %}
+                {% if gov.notes %}<div class="text-[10px] text-red-500 mt-0.5">{{ gov.notes }}</div>{% endif %}
               {% elif pol_ns.policy %}
                 <div class="inline-flex items-center gap-1.5 {{ bg }} {{ text_color }} px-2 py-1 rounded text-xs">
                   <span class="w-2 h-2 rounded-full {{ dot }}"></span>
-                  <span>{{ pol_ns.policy.policy_number or pol_ns.policy.policy_uid[:8] }}</span>
-                </div>
-              {% elif status in ('waived', 'n/a', 'na') %}
-                <div class="inline-flex items-center gap-1.5 {{ bg }} {{ text_color }} px-2 py-1 rounded text-xs">
-                  <span class="w-2 h-2 rounded-full {{ dot }}"></span>
-                  <span>{{ gov.compliance_status or 'N/A' }}</span>
+                  {{ pol_ns.policy.policy_number or pol_ns.policy.policy_uid[:8] }}
                 </div>
               {% else %}
                 <div class="inline-flex items-center gap-1.5 {{ bg }} {{ text_color }} px-2 py-1 rounded text-xs">
                   <span class="w-2 h-2 rounded-full {{ dot }}"></span>
-                  <span>{{ gov.compliance_status or 'Needs Review' }}</span>
+                  {{ gov.compliance_status or 'Needs Review' }}
                 </div>
               {% endif %}
 
-              {# Governing source annotation #}
               {% if gov.governing_source %}
               <div class="text-[10px] text-gray-400 mt-0.5">Governed by: {{ gov.governing_source }}</div>
               {% endif %}
 
-              {# Deductible warning #}
               {% if gov.max_deductible is not none and pol_ns.policy and pol_ns.policy.deductible is not none %}
                 {% if pol_ns.policy.deductible > gov.max_deductible %}
                 <div class="text-[10px] text-red-500 mt-0.5">Ded {{ pol_ns.policy.deductible | currency }} &gt; max {{ gov.max_deductible | currency }}</div>
                 {% endif %}
               {% endif %}
 
-              {# Required endorsements #}
               {% set endorsements = gov.required_endorsements if gov.required_endorsements is iterable and gov.required_endorsements is not string else [] %}
               {% if endorsements %}
               <div class="flex flex-wrap gap-0.5 mt-1 justify-center">
@@ -152,9 +125,7 @@
                 {% endfor %}
               </div>
               {% endif %}
-
             {% else %}
-              {# No requirement for this line at this location #}
               <span class="text-gray-300 text-xs">&mdash;</span>
             {% endif %}
           </td>
@@ -164,6 +135,97 @@
       </tbody>
     </table>
   </div>
+
+  {# ── LOCATION LIST LAYOUT (>6 locations) ──────────────────────────── #}
+  {% else %}
+  <div class="divide-y divide-gray-50">
+    {% for loc in locations %}
+      {% set s = loc.summary %}
+      {% set pct = s.compliance_pct %}
+      {% set gap_lines = [] %}
+      {% set review_lines = [] %}
+      {% for line, gov in loc.governing.items() %}
+        {% set st = (gov.compliance_status or 'Needs Review') | lower %}
+        {% if st == 'gap' %}
+          {% if gap_lines.append(line) %}{% endif %}
+        {% elif st not in ('compliant', 'waived', 'n/a', 'na') %}
+          {% if review_lines.append(line) %}{% endif %}
+        {% endif %}
+      {% endfor %}
+
+      <div class="flex items-center gap-4 px-5 py-3 hover:bg-gray-50/50 cursor-pointer transition-colors"
+           hx-get="/compliance/client/{{ client_id }}/location/{{ loc.project.id }}"
+           hx-target="#location-detail"
+           hx-swap="innerHTML">
+        {# Compliance score circle #}
+        <div class="flex-shrink-0 w-12 h-12 relative">
+          <svg viewBox="0 0 36 36" class="w-12 h-12 transform -rotate-90">
+            <circle cx="18" cy="18" r="15.9" fill="none" stroke="#e5e7eb" stroke-width="3"/>
+            <circle cx="18" cy="18" r="15.9" fill="none"
+                    stroke="{{ '#22c55e' if pct >= 75 else '#f59e0b' if pct >= 50 else '#ef4444' if s.total > 0 else '#d1d5db' }}"
+                    stroke-width="3"
+                    stroke-dasharray="{{ pct }}, 100"
+                    stroke-linecap="round"/>
+          </svg>
+          <div class="absolute inset-0 flex items-center justify-center">
+            <span class="text-[10px] font-bold text-gray-700">{{ pct }}%</span>
+          </div>
+        </div>
+
+        {# Location info #}
+        <div class="flex-1 min-w-0">
+          <div class="font-medium text-sm text-gray-800">{{ loc.project.name }}</div>
+          {% if loc.project.address %}
+          <div class="text-xs text-gray-400 truncate">{{ loc.project.address }}</div>
+          {% endif %}
+        </div>
+
+        {# Stats #}
+        <div class="flex items-center gap-4 text-xs">
+          {% if s.compliant > 0 %}
+          <span class="inline-flex items-center gap-1 text-green-600">
+            <span class="w-1.5 h-1.5 rounded-full bg-green-500"></span> {{ s.compliant }}
+          </span>
+          {% endif %}
+          {% if s.gap > 0 %}
+          <span class="inline-flex items-center gap-1 text-red-600 font-medium">
+            <span class="w-1.5 h-1.5 rounded-full bg-red-500"></span> {{ s.gap }} gap{{ 's' if s.gap != 1 else '' }}
+          </span>
+          {% endif %}
+          {% if s.needs_review > 0 %}
+          <span class="inline-flex items-center gap-1 text-gray-500">
+            <span class="w-1.5 h-1.5 rounded-full bg-gray-400"></span> {{ s.needs_review }} review
+          </span>
+          {% endif %}
+        </div>
+
+        {# Top gaps #}
+        <div class="flex-shrink-0 max-w-[200px]">
+          {% if gap_lines %}
+            {% for gl in gap_lines[:3] %}
+            <span class="text-[10px] bg-red-50 text-red-600 px-1.5 py-0.5 rounded mr-0.5">{{ gl }}</span>
+            {% endfor %}
+            {% if gap_lines | length > 3 %}
+            <span class="text-[10px] text-gray-400">+{{ gap_lines | length - 3 }} more</span>
+            {% endif %}
+          {% elif review_lines %}
+            {% for rl in review_lines[:2] %}
+            <span class="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded mr-0.5">{{ rl }}</span>
+            {% endfor %}
+          {% else %}
+            <span class="text-[10px] text-green-500">All compliant</span>
+          {% endif %}
+        </div>
+
+        {# Chevron #}
+        <svg class="w-4 h-4 text-gray-300 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+        </svg>
+      </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
   {% else %}
   <div class="px-5 py-8 text-center text-gray-400 text-sm">
     No coverage requirements defined yet. Add requirement sources and requirements to see the compliance matrix.

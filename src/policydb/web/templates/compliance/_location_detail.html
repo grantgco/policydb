@@ -177,6 +177,12 @@
     {% endfor %}
   </div>
 
+  {# COPE Data — lazy loaded #}
+  <div class="px-5"
+       hx-get="/compliance/client/{{ client_id }}/location/{{ project.id }}/cope"
+       hx-trigger="load once"
+       hx-swap="innerHTML"></div>
+
   {# Policies covering this location #}
   {% if loc.policies %}
   <div class="px-5 py-3 bg-gray-50 border-t border-gray-100">
