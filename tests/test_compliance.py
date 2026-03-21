@@ -1,10 +1,17 @@
 """Tests for the compliance engine."""
 
+import json
+import sqlite3
+from pathlib import Path
+
 from policydb.compliance import (
+    _parse_endorsements,
     resolve_governing_requirements,
     suggest_policy_for_requirement,
     compute_compliance_summary,
     get_risk_review_prompts,
+    get_location_requirements,
+    get_client_compliance_data,
 )
 
 
@@ -349,3 +356,251 @@ def test_relevance_field_always_present():
     ]
     result = get_risk_review_prompts(client, [], [], cfg_prompts)
     assert "relevance" in result[0]
+
+
+# ── Integration helpers ──────────────────────────────────────────────────────
+
+_MIGRATION_SQL = (
+    Path(__file__).parent.parent
+    / "src" / "policydb" / "migrations" / "066_compliance_requirements.sql"
+)
+
+
+def _make_db() -> sqlite3.Connection:
+    """Create an in-memory SQLite database with minimal supporting tables
+    and the compliance migration applied."""
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+
+    # Minimal supporting tables (FK-referenced by migration)
+    conn.executescript("""
+        CREATE TABLE clients (
+            id   INTEGER PRIMARY KEY,
+            name TEXT,
+            industry_segment TEXT
+        );
+        CREATE TABLE projects (
+            id        INTEGER PRIMARY KEY,
+            client_id INTEGER,
+            name      TEXT,
+            address   TEXT
+        );
+        CREATE TABLE policies (
+            policy_uid    TEXT PRIMARY KEY,
+            client_id     INTEGER,
+            policy_type   TEXT,
+            carrier       TEXT,
+            limit_amount  REAL,
+            deductible    REAL,
+            project_id    INTEGER,
+            archived      INTEGER DEFAULT 0,
+            policy_number TEXT
+        );
+        CREATE TABLE client_risks (
+            id        INTEGER PRIMARY KEY,
+            client_id INTEGER,
+            category  TEXT,
+            severity  TEXT DEFAULT 'Medium'
+        );
+    """)
+
+    # Run the compliance migration
+    conn.executescript(_MIGRATION_SQL.read_text())
+    conn.commit()
+    return conn
+
+
+# ── Integration tests ────────────────────────────────────────────────────────
+
+def test_full_compliance_flow_with_db():
+    """Full flow: insert requirements across two locations, resolve governing,
+    suggest policies, and build the full compliance dataset."""
+    conn = _make_db()
+
+    # Client
+    conn.execute("INSERT INTO clients (id, name) VALUES (1, 'ABC Condos')")
+
+    # Two locations
+    conn.execute("INSERT INTO projects (id, client_id, name) VALUES (1, 1, 'Oceanview Tower')")
+    conn.execute("INSERT INTO projects (id, client_id, name) VALUES (2, 1, 'Bayfront Villa')")
+
+    # Corporate policies (no project_id)
+    conn.execute("""
+        INSERT INTO policies (policy_uid, client_id, policy_type, carrier,
+                              limit_amount, deductible, project_id, archived)
+        VALUES ('POL-GL', 1, 'General Liability', 'Hartford', 2000000, 5000, NULL, 0)
+    """)
+    conn.execute("""
+        INSERT INTO policies (policy_uid, client_id, policy_type, carrier,
+                              limit_amount, deductible, project_id, archived)
+        VALUES ('POL-UMB', 1, 'Umbrella', 'Travelers', 10000000, 0, NULL, 0)
+    """)
+
+    # Requirement sources
+    # Source 1: Management Agreement — client-wide (project_id = NULL)
+    conn.execute("""
+        INSERT INTO requirement_sources (id, client_id, project_id, name)
+        VALUES (1, 1, NULL, 'Management Agreement')
+    """)
+    # Source 2: Lender Covenant — Oceanview Tower only (project_id = 1)
+    conn.execute("""
+        INSERT INTO requirement_sources (id, client_id, project_id, name)
+        VALUES (2, 1, 1, 'Lender Covenant')
+    """)
+
+    # Requirements
+    # Source 1: GL $1M — client-wide (project_id IS NULL)
+    conn.execute("""
+        INSERT INTO coverage_requirements
+            (client_id, project_id, source_id, coverage_line,
+             required_limit, required_endorsements)
+        VALUES (1, NULL, 1, 'General Liability', 1000000, '[]')
+    """)
+    # Source 2: GL $2M with AI + WOS — Oceanview only (project_id = 1)
+    conn.execute("""
+        INSERT INTO coverage_requirements
+            (client_id, project_id, source_id, coverage_line,
+             required_limit, required_endorsements)
+        VALUES (1, 1, 2, 'General Liability', 2000000, ?)
+    """, (json.dumps(["Additional Insured", "Waiver of Subrogation"]),))
+    # Source 2: Property $10M — Oceanview only (project_id = 1)
+    conn.execute("""
+        INSERT INTO coverage_requirements
+            (client_id, project_id, source_id, coverage_line,
+             required_limit, required_endorsements)
+        VALUES (1, 1, 2, 'Property', 10000000, '[]')
+    """)
+    conn.commit()
+
+    # ── get_location_requirements ────────────────────────────────────────────
+
+    oceanview_reqs = get_location_requirements(conn, 1, 1)
+    # Oceanview inherits the client-wide GL + gets its 2 lender reqs → 3 total
+    assert len(oceanview_reqs) == 3, (
+        f"Expected 3 requirements for Oceanview, got {len(oceanview_reqs)}"
+    )
+
+    bayfront_reqs = get_location_requirements(conn, 1, 2)
+    # Bayfront only inherits the client-wide GL → 1 requirement
+    assert len(bayfront_reqs) == 1, (
+        f"Expected 1 requirement for Bayfront, got {len(bayfront_reqs)}"
+    )
+
+    # ── resolve_governing_requirements for Oceanview ─────────────────────────
+
+    gov = resolve_governing_requirements(oceanview_reqs)
+
+    # GL governing limit should be $2M (lender wins over $1M management agreement)
+    assert "General Liability" in gov
+    assert gov["General Liability"]["required_limit"] == 2_000_000, (
+        f"Expected GL governing limit $2M, got {gov['General Liability']['required_limit']}"
+    )
+    assert gov["General Liability"]["governing_source"] == "Lender Covenant"
+
+    # Endorsements should include both AI and WOS
+    gl_endorsements = gov["General Liability"]["required_endorsements"]
+    assert "Additional Insured" in gl_endorsements
+    assert "Waiver of Subrogation" in gl_endorsements
+
+    # Property requirement should also be present
+    assert "Property" in gov
+    assert gov["Property"]["required_limit"] == 10_000_000
+
+    # ── suggest_policy_for_requirement ──────────────────────────────────────
+
+    all_policies = [dict(r) for r in conn.execute(
+        "SELECT policy_uid, policy_type, carrier, limit_amount, deductible, project_id "
+        "FROM policies WHERE client_id=1 AND archived=0"
+    ).fetchall()]
+
+    gl_suggestion = suggest_policy_for_requirement(
+        gov["General Liability"], all_policies, location_project_id=1
+    )
+    assert gl_suggestion is not None
+    assert gl_suggestion["policy_uid"] == "POL-GL"
+
+    # ── get_client_compliance_data ───────────────────────────────────────────
+
+    data = get_client_compliance_data(conn, 1)
+
+    assert len(data["locations"]) == 2
+    assert len(data["sources"]) == 2
+
+    # Overall summary should aggregate governing reqs across both locations
+    assert data["overall_summary"]["total"] > 0
+
+    conn.close()
+
+
+def test_endorsements_stored_as_json():
+    """Endorsements round-trip through JSON and are correctly unioned during
+    governing resolution."""
+    conn = _make_db()
+
+    conn.execute("INSERT INTO clients (id, name) VALUES (1, 'Test Client')")
+    conn.execute("INSERT INTO projects (id, client_id, name) VALUES (1, 1, 'Site A')")
+
+    # Source with two endorsements
+    conn.execute("""
+        INSERT INTO requirement_sources (id, client_id, project_id, name)
+        VALUES (1, 1, NULL, 'Contract X')
+    """)
+    endorsements_a = ["Additional Insured", "Primary & Non-Contributory"]
+    conn.execute("""
+        INSERT INTO coverage_requirements
+            (client_id, project_id, source_id, coverage_line,
+             required_limit, required_endorsements)
+        VALUES (1, NULL, 1, 'General Liability', 1000000, ?)
+    """, (json.dumps(endorsements_a),))
+
+    # Second source for same coverage with a different endorsement
+    conn.execute("""
+        INSERT INTO requirement_sources (id, client_id, project_id, name)
+        VALUES (2, 1, NULL, 'Contract Y')
+    """)
+    endorsements_b = ["Waiver of Subrogation"]
+    conn.execute("""
+        INSERT INTO coverage_requirements
+            (client_id, project_id, source_id, coverage_line,
+             required_limit, required_endorsements)
+        VALUES (1, NULL, 2, 'General Liability', 500000, ?)
+    """, (json.dumps(endorsements_b),))
+    conn.commit()
+
+    reqs = get_location_requirements(conn, 1, 1)
+    assert len(reqs) == 2
+
+    # Verify _parse_endorsements correctly parses each raw row
+    for req in reqs:
+        parsed = _parse_endorsements(req["required_endorsements"])
+        assert isinstance(parsed, list)
+
+    # Governing resolution should union all three endorsements
+    gov = resolve_governing_requirements(reqs)
+    unioned = gov["General Liability"]["required_endorsements"]
+    assert "Additional Insured" in unioned
+    assert "Primary & Non-Contributory" in unioned
+    assert "Waiver of Subrogation" in unioned
+    assert len(unioned) == 3  # deduplicated
+
+    conn.close()
+
+
+def test_empty_client_returns_empty_data():
+    """A client with no locations, policies, or requirements returns empty
+    lists and a zero summary."""
+    conn = _make_db()
+
+    conn.execute("INSERT INTO clients (id, name) VALUES (1, 'Empty Client')")
+    conn.commit()
+
+    data = get_client_compliance_data(conn, 1)
+
+    assert data["locations"] == []
+    assert data["client_requirements"] == []
+    assert data["sources"] == []
+    assert data["all_policies"] == []
+    assert data["overall_summary"]["total"] == 0
+    assert data["overall_summary"]["compliance_pct"] == 0
+
+    conn.close()
