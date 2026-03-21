@@ -109,6 +109,16 @@
 
 {# ── Board-level JS ─────────────────────────────────────────────────────────── #}
 <script>
+/* applyFieldValue — used by inline dropdown/input for coverage type and carrier */
+function applyFieldValue(policyUid, fieldName, value, targetEl) {
+  if (!value) return;
+  htmx.ajax('PATCH', '/reconcile/apply-field/' + policyUid, {
+    target: targetEl,
+    swap: 'outerHTML',
+    values: { field_name: fieldName, value: value }
+  });
+}
+
 /* toggleBreakdown — hoisted so each _pair_row.html does not duplicate it */
 function toggleBreakdown(idx) {
   var el = document.getElementById('breakdown-' + idx);

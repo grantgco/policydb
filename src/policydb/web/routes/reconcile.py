@@ -482,6 +482,7 @@ def reconcile_run_match(
     ctx["pairs"] = _find_likely_pairs(missing_rows, extra_rows)
     ctx["download_token"] = download_token
     ctx["today"] = date.today().isoformat()
+    ctx["policy_types"] = cfg.get("policy_types", [])
     ctx["program_summary"] = program_reconcile_summary(all_results, carrier_map=_carrier_map)
     return templates.TemplateResponse("reconcile/index.html", ctx)
 
