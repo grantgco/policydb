@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import csv
-import re
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -13,20 +12,13 @@ import dateparser
 
 from policydb import config as cfg
 from policydb.db import next_policy_uid
-from policydb.utils import normalize_carrier, normalize_coverage_type, normalize_policy_number, normalize_client_name
+from policydb.utils import normalize_carrier, normalize_coverage_type, normalize_policy_number, normalize_client_name, parse_currency
+
+# Backward-compat alias: other modules import _parse_currency from here
+_parse_currency = parse_currency
 
 
 # ─── NORMALIZATION HELPERS ───────────────────────────────────────────────────
-
-def _parse_currency(value: str) -> float:
-    """Strip currency symbols, commas; return float."""
-    if not value or not str(value).strip():
-        return 0.0
-    cleaned = re.sub(r"[^\d.\-]", "", str(value).replace(",", ""))
-    try:
-        return float(cleaned)
-    except ValueError:
-        return 0.0
 
 
 def _parse_date(value: str) -> str | None:

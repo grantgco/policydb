@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import csv
 import io
-import re
 from collections import namedtuple
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -12,52 +11,13 @@ from rapidfuzz import fuzz
 
 from policydb.importer import PolicyImporter, _parse_currency, _parse_date
 from policydb.utils import (
+    _COVERAGE_ALIASES,
     normalize_carrier,
     normalize_client_name_for_matching,
     normalize_coverage_type,
     normalize_policy_number_for_matching,
     parse_currency,
 )
-
-
-def _normalize_coverage(value: str) -> str:
-    """Normalize a policy type / line of business name to a canonical form."""
-    return normalize_coverage_type(value)
-
-
-_LEGAL_SUFFIX_RE = re.compile(
-    r'\s*(,?\s*)?(LLC|LLP|LP|PLLC|Inc\.?|Corp\.?|Corporation|Co\.?|'
-    r'Ltd\.?|Limited|Company|Enterprises?)\b[.,]?$',
-    re.IGNORECASE,
-)
-
-
-_PLACEHOLDER_POLICY_NUMBERS = {
-    "999", "TBD", "TBA", "PENDING", "NA", "N/A", "NONE", "XXX", "000", "123",
-    "NEW", "RENEWAL", "RENEW", "QUOTE", "QUOTED", "APPLIED",
-}
-
-def _normalize_policy_number(pn: str) -> str:
-    """Normalize a policy number for comparison — strip formatting characters."""
-    if not pn:
-        return ""
-    # Remove spaces, dashes, slashes, dots; uppercase
-    normalized = re.sub(r'[\s\-/.]', '', pn.strip().upper())
-    # Strip leading zeros
-    normalized = normalized.lstrip('0') or '0'
-    # Skip placeholders — these cause false matches across unrelated policies
-    if normalized in _PLACEHOLDER_POLICY_NUMBERS:
-        return ""
-    return normalized
-
-
-def _normalize_client_name(name: str) -> str:
-    """Strip common legal entity suffixes and normalize case before fuzzy scoring."""
-    if not name:
-        return name
-    cleaned = re.sub(r'\s+', ' ', _LEGAL_SUFFIX_RE.sub('', name.strip())).strip()
-    # Title-case to normalize "AVALONBAY COMMUNITIES" vs "Avalonbay Communities"
-    return cleaned.title()
 
 
 # ─── TYPES ────────────────────────────────────────────────────────────────────
@@ -74,7 +34,7 @@ COMPARE_FIELDS = [
     "deductible",
 ]
 
-_STATUS_SORT = {"PAIRED": 0, "UNMATCHED": 1, "EXTRA": 2}
+_STATUS_SORT = {"DIFF": 0, "PAIRED": 0, "MISSING": 1, "UNMATCHED": 1, "EXTRA": 2, "MATCH": 3}
 
 
 @dataclass
@@ -553,7 +513,7 @@ def _resolve_program_carrier(ext: dict, db: dict, ext_pn_norm: str) -> tuple[int
     # First try matching by policy number (strongest signal)
     if ext_pn_norm:
         for pc in db["_program_carrier_rows"]:
-            pc_pn = _normalize_policy_number(pc.get("policy_number") or "")
+            pc_pn = normalize_policy_number_for_matching(pc.get("policy_number") or "")
             if pc_pn and ext_pn_norm == pc_pn:
                 return pc.get("id"), pc
 
@@ -586,13 +546,13 @@ def reconcile(ext_rows: list[dict], db_rows: list[dict], date_priority: bool = F
     # Maps normalized policy number → (db_row, is_from_program_carrier)
     db_by_polnum: dict[str, dict] = {}
     for db in db_rows:
-        pn = _normalize_policy_number(db.get("policy_number") or "")
+        pn = normalize_policy_number_for_matching(db.get("policy_number") or "")
         if pn and pn not in db_by_polnum:
             db_by_polnum[pn] = db
         # Also index program carrier row policy numbers → parent program
         if db.get("is_program") and db.get("_program_carrier_rows"):
             for pc in db["_program_carrier_rows"]:
-                pc_pn = _normalize_policy_number(pc.get("policy_number") or "")
+                pc_pn = normalize_policy_number_for_matching(pc.get("policy_number") or "")
                 if pc_pn and pc_pn not in db_by_polnum:
                     db_by_polnum[pc_pn] = db  # maps to the parent program
 
@@ -612,7 +572,7 @@ def reconcile(ext_rows: list[dict], db_rows: list[dict], date_priority: bool = F
 
     # ── Pass 1: Exact policy number match ──────────────────────────────────────
     for i, ext in enumerate(ext_rows):
-        ext_pn = _normalize_policy_number(ext.get("policy_number") or "")
+        ext_pn = normalize_policy_number_for_matching(ext.get("policy_number") or "")
         if not ext_pn:
             continue
         db = db_by_polnum.get(ext_pn)
@@ -667,7 +627,7 @@ def reconcile(ext_rows: list[dict], db_rows: list[dict], date_priority: bool = F
             pc_matched_cid = None
             if is_program and db.get("_program_carrier_rows"):
                 ext_carrier = ext.get("carrier", "")
-                ext_pn = _normalize_policy_number(ext.get("policy_number") or "")
+                ext_pn = normalize_policy_number_for_matching(ext.get("policy_number") or "")
                 for pc in db["_program_carrier_rows"]:
                     pc_db = {**db, "carrier": pc.get("carrier", ""),
                              "policy_number": pc.get("policy_number", ""),
@@ -702,7 +662,7 @@ def reconcile(ext_rows: list[dict], db_rows: list[dict], date_priority: bool = F
             continue
         # Build metadata even for unmatched rows
         raw_type = ext.get("policy_type", "")
-        norm_type = _normalize_coverage(raw_type) if raw_type else ""
+        norm_type = normalize_coverage_type(raw_type) if raw_type else ""
         row = ReconcileRow(
             ext=ext, db=None, status="UNMATCHED", match_score=0.0,
             ext_type_raw=raw_type, ext_type_normalized=norm_type,
@@ -855,32 +815,24 @@ def _find_likely_pairs(
 # ─── SUMMARY ──────────────────────────────────────────────────────────────────
 
 def summarize(results: list[ReconcileRow]) -> dict:
-    counts = {
+    paired = [r for r in results if r.status == "PAIRED"]
+    paired_with_diffs = [r for r in paired if r.diff_fields]
+    confirmed = [r for r in paired if r.confirmed]
+    review = [r for r in paired if not r.confirmed]
+    return {
         "total": len(results),
-        "paired": 0, "unmatched": 0, "extra": 0,
-        # Legacy keys for backward compat with templates/XLSX
-        "match": 0, "diff": 0, "missing": 0,
+        "paired": len(paired),
+        "paired_clean": len(paired) - len(paired_with_diffs),
+        "paired_diffs": len(paired_with_diffs),
+        "confirmed": len(confirmed),
+        "review": len(review),
+        "unmatched": sum(1 for r in results if r.status == "UNMATCHED"),
+        "extra": sum(1 for r in results if r.status == "EXTRA"),
+        # Legacy compat
+        "match": sum(1 for r in results if r.status in ("MATCH", "PAIRED") and not r.diff_fields),
+        "diff": sum(1 for r in results if r.status in ("DIFF",) or (r.status == "PAIRED" and r.diff_fields)),
+        "missing": sum(1 for r in results if r.status in ("MISSING", "UNMATCHED")),
     }
-    for r in results:
-        status = r.status.upper()
-        if status == "PAIRED":
-            counts["paired"] += 1
-            # Map to legacy: PAIRED with diff_fields → "diff", else → "match"
-            if r.diff_fields:
-                counts["diff"] += 1
-            else:
-                counts["match"] += 1
-        elif status == "UNMATCHED":
-            counts["unmatched"] += 1
-            counts["missing"] += 1  # legacy
-        elif status == "EXTRA":
-            counts["extra"] += 1
-        else:
-            # Handle any legacy statuses (MATCH, DIFF, MISSING) from route manual operations
-            key = status.lower()
-            if key in counts:
-                counts[key] += 1
-    return counts
 
 
 # ─── XLSX EXPORT ──────────────────────────────────────────────────────────────
