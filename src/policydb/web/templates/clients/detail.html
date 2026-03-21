@@ -433,9 +433,22 @@
 </div>
 <script>
 function addFirstProject(clientId) {
+  var scrollY = window.scrollY;
   fetch('/clients/' + clientId + '/projects/pipeline', {method: 'POST'})
-    .then(function() { window.location.reload(); });
+    .then(function(r) { return r.text(); })
+    .then(function() {
+      sessionStorage.setItem('scrollRestore', scrollY);
+      window.location.reload();
+    });
 }
+/* Restore scroll after reload */
+(function() {
+  var saved = sessionStorage.getItem('scrollRestore');
+  if (saved) {
+    sessionStorage.removeItem('scrollRestore');
+    window.scrollTo(0, parseInt(saved, 10));
+  }
+})();
 </script>
 {% endif %}
 </div>
