@@ -118,12 +118,32 @@
     </div>
     {% endfor %}
     {% for f in row.cosmetic_diffs %}
-    <div class="flex items-center gap-2 text-[10px]">
+    <div class="flex items-center gap-2 text-[10px] flex-wrap" id="diff-{{ policy_uid }}-{{ f }}">
       <span class="font-semibold text-green-600 w-24 flex-shrink-0">{{ f }}</span>
       <span class="text-gray-600">"{{ (row.ext or {}).get(f, '') }}"</span>
       <span class="text-green-500">&rarr;</span>
       <span class="text-gray-600">"{{ (row.db or {}).get(f, '') }}"</span>
-      <span class="bg-green-100 text-green-700 px-1.5 py-0.5 rounded">&#10003; same after normalization</span>
+      <span class="bg-green-100 text-green-700 px-1.5 py-0.5 rounded">&#10003; normalized match</span>
+      {% if policy_uid and f == 'policy_type' %}
+      <select onchange="applyFieldValue('{{ policy_uid }}', '{{ f }}', this.value, this.closest('[id^=diff-]'))"
+        class="text-[10px] border border-gray-300 rounded px-1 py-0.5 bg-white focus:border-green-500 focus:outline-none no-print">
+        <option value="">Update to...</option>
+        <option value="{{ (row.ext or {}).get(f, '') }}">&#8592; Upload: {{ (row.ext or {}).get(f, '') }}</option>
+        <option value="{{ (row.db or {}).get(f, '') }}">&#8594; Keep: {{ (row.db or {}).get(f, '') }}</option>
+        <optgroup label="Canonical Types">
+        {% for t in policy_types %}
+        <option value="{{ t }}">{{ t }}</option>
+        {% endfor %}
+        </optgroup>
+      </select>
+      {% elif policy_uid and f == 'carrier' %}
+      <select onchange="applyFieldValue('{{ policy_uid }}', '{{ f }}', this.value, this.closest('[id^=diff-]'))"
+        class="text-[10px] border border-gray-300 rounded px-1 py-0.5 bg-white focus:border-green-500 focus:outline-none no-print">
+        <option value="">Update to...</option>
+        <option value="{{ (row.ext or {}).get(f, '') }}">&#8592; Upload: {{ (row.ext or {}).get(f, '') }}</option>
+        <option value="{{ (row.db or {}).get(f, '') }}">&#8594; Keep: {{ (row.db or {}).get(f, '') }}</option>
+      </select>
+      {% endif %}
     </div>
     {% endfor %}
   </div>
