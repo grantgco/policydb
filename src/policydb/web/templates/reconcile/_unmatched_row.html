@@ -36,12 +36,19 @@
     ondragleave="this.classList.remove('bg-purple-100', 'border-purple-400'); this.classList.add('border-dashed')"
     ondrop="handleDrop(event, {{ idx }})">
     <div class="border-2 border-dashed border-gray-300 rounded-lg w-full h-full flex flex-col items-center justify-center py-3 px-2 text-center">
-      <button type="button"
-        hx-get="/reconcile/suggest?row_uid={{ idx }}&client_name={{ e.get('client_name','') | urlencode }}&policy_type={{ e.get('policy_type','') | urlencode }}&carrier={{ e.get('carrier','') | urlencode }}&effective_date={{ e.get('effective_date','') | urlencode }}&expiration_date={{ e.get('expiration_date','') | urlencode }}&policy_number={{ e.get('policy_number','') | urlencode }}&premium={{ e.get('premium','') }}&limit_amount={{ e.get('limit_amount','') }}&deductible={{ e.get('deductible','') }}"
-        hx-target="#drop-{{ idx }}"
-        hx-swap="innerHTML"
-        class="text-xs text-blue-600 hover:underline cursor-pointer"
-        onclick="event.stopPropagation()">Search coverage</button>
+      <div class="w-full">
+        <input type="text" placeholder="Search coverage..."
+          hx-get="/reconcile/search-coverage"
+          hx-trigger="keyup changed delay:300ms"
+          hx-target="#search-results-{{ idx }}"
+          hx-swap="innerHTML"
+          hx-include="this"
+          name="q"
+          hx-vals='{"idx": "{{ idx }}", "token": "{{ token }}", "client_name": "{{ e.get('client_name','') }}"}'
+          class="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:border-blue-400 focus:outline-none"
+          onclick="event.stopPropagation()">
+        <div id="search-results-{{ idx }}" class="mt-1 text-left"></div>
+      </div>
       <p class="text-[10px] text-gray-400 mt-1">or drag from extras below</p>
     </div>
   </div>
@@ -49,18 +56,15 @@
   {# ── Actions ────────────────────────────────────────────────────────────── #}
   <div class="w-20 flex flex-col items-center justify-center gap-1.5 px-2 no-print">
     <button type="button"
-      hx-get="/reconcile/create-form?row_uid={{ idx }}&client_name={{ e.get('client_name','') | urlencode }}&policy_type={{ e.get('policy_type','') | urlencode }}&carrier={{ e.get('carrier','') | urlencode }}&effective_date={{ e.get('effective_date','') | urlencode }}&expiration_date={{ e.get('expiration_date','') | urlencode }}&premium={{ e.get('premium','') }}&limit_amount={{ e.get('limit_amount','') }}&deductible={{ e.get('deductible','') }}&policy_number={{ e.get('policy_number','') | urlencode }}&description={{ e.get('description','') | urlencode }}&project_name={{ e.get('project_name','') | urlencode }}&placement_colleague={{ e.get('placement_colleague','') | urlencode }}&underwriter_name={{ e.get('underwriter_name','') | urlencode }}&commission_rate={{ e.get('commission_rate','') }}"
+      hx-get="/reconcile/create-form?row_uid={{ idx }}&token={{ token }}&client_name={{ e.get('client_name','') | urlencode }}&policy_type={{ e.get('policy_type','') | urlencode }}&carrier={{ e.get('carrier','') | urlencode }}&effective_date={{ e.get('effective_date','') | urlencode }}&expiration_date={{ e.get('expiration_date','') | urlencode }}&premium={{ e.get('premium','') }}&limit_amount={{ e.get('limit_amount','') }}&deductible={{ e.get('deductible','') }}&policy_number={{ e.get('policy_number','') | urlencode }}&description={{ e.get('description','') | urlencode }}&project_name={{ e.get('project_name','') | urlencode }}&placement_colleague={{ e.get('placement_colleague','') | urlencode }}&underwriter_name={{ e.get('underwriter_name','') | urlencode }}&commission_rate={{ e.get('commission_rate','') }}"
       hx-target="#pair-{{ idx }}"
       hx-swap="afterend"
       class="text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded transition-colors w-full text-center"
       title="Create new policy">Create</button>
     <button type="button"
-      hx-get="/reconcile/suggest?row_uid={{ idx }}&client_name={{ e.get('client_name','') | urlencode }}&policy_type={{ e.get('policy_type','') | urlencode }}&carrier={{ e.get('carrier','') | urlencode }}&effective_date={{ e.get('effective_date','') | urlencode }}&expiration_date={{ e.get('expiration_date','') | urlencode }}&policy_number={{ e.get('policy_number','') | urlencode }}&premium={{ e.get('premium','') }}&limit_amount={{ e.get('limit_amount','') }}&deductible={{ e.get('deductible','') }}"
-      hx-target="#drop-{{ idx }}"
-      hx-swap="innerHTML"
+      onclick="event.stopPropagation(); this.closest('.pair-row').querySelector('input[name=q]').focus()"
       class="text-xs border border-gray-300 text-gray-600 hover:bg-gray-100 px-3 py-1 rounded transition-colors w-full text-center"
-      title="Find matches in Coverage"
-      onclick="event.stopPropagation()">Search</button>
+      title="Focus the search field">Search</button>
   </div>
 </div>
 
