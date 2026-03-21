@@ -1,0 +1,95 @@
+{# Inline edit form for a requirement row — loaded via HTMX #}
+<tr id="req-row-{{ req.id }}" class="bg-amber-50/30 border-b border-gray-100">
+  <form hx-post="/compliance/client/{{ client_id }}/requirements/{{ req.id }}/edit"
+        hx-target="body"
+        class="contents">
+    <td class="py-2 px-2" colspan="4">
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        <div>
+          <label class="block text-[10px] text-gray-500 uppercase">Coverage Line</label>
+          <input name="coverage_line" value="{{ req.coverage_line }}" required
+                 list="policy-types-list"
+                 class="border border-gray-300 rounded px-2 py-1 text-sm w-full focus:border-marsh">
+          <datalist id="policy-types-list">
+            {% for pt in policy_types %}<option value="{{ pt }}">{% endfor %}
+          </datalist>
+        </div>
+        <div>
+          <label class="block text-[10px] text-gray-500 uppercase">Required Limit</label>
+          <input name="required_limit" value="{{ req.required_limit or '' }}"
+                 placeholder="e.g., 1m, 500k, 2000000"
+                 class="border border-gray-300 rounded px-2 py-1 text-sm w-full focus:border-marsh">
+        </div>
+        <div>
+          <label class="block text-[10px] text-gray-500 uppercase">Max Deductible</label>
+          <input name="max_deductible" value="{{ req.max_deductible or '' }}"
+                 placeholder="e.g., 10k, 25000"
+                 class="border border-gray-300 rounded px-2 py-1 text-sm w-full focus:border-marsh">
+        </div>
+        <div>
+          <label class="block text-[10px] text-gray-500 uppercase">Deductible Type</label>
+          <select name="deductible_type" class="border border-gray-300 rounded px-2 py-1 text-sm w-full focus:border-marsh">
+            <option value="">—</option>
+            {% for dt in deductible_types %}
+            <option value="{{ dt }}" {{ 'selected' if req.deductible_type == dt else '' }}>{{ dt }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="block text-[10px] text-gray-500 uppercase">Source</label>
+          <select name="source_id" class="border border-gray-300 rounded px-2 py-1 text-sm w-full focus:border-marsh">
+            <option value="">—</option>
+            {% for s in sources %}
+            <option value="{{ s.id }}" {{ 'selected' if req.source_id == s.id else '' }}>{{ s.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="block text-[10px] text-gray-500 uppercase">Location</label>
+          <select name="project_id" class="border border-gray-300 rounded px-2 py-1 text-sm w-full focus:border-marsh">
+            <option value="">All (Client-wide)</option>
+            {% for p in projects %}
+            <option value="{{ p.id }}" {{ 'selected' if req.project_id == p.id else '' }}>{{ p.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="block text-[10px] text-gray-500 uppercase">Status</label>
+          <select name="compliance_status" class="border border-gray-300 rounded px-2 py-1 text-sm w-full focus:border-marsh">
+            {% for cs in compliance_statuses %}
+            <option value="{{ cs }}" {{ 'selected' if req.compliance_status == cs else '' }}>{{ cs }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="block text-[10px] text-gray-500 uppercase">Notes</label>
+          <input name="notes" value="{{ req.notes or '' }}"
+                 class="border border-gray-300 rounded px-2 py-1 text-sm w-full focus:border-marsh">
+        </div>
+      </div>
+      {# Endorsements as toggleable pills #}
+      <div class="mt-2">
+        <label class="block text-[10px] text-gray-500 uppercase mb-1">Required Endorsements</label>
+        <input type="hidden" name="required_endorsements" id="edit-endorse-json-{{ req.id }}" value='{{ req.required_endorsements or "[]" }}'>
+        <div class="flex flex-wrap gap-1">
+          {% for et in endorsement_types %}
+            {% set is_active = et in (req._endorsements_list or []) %}
+            <button type="button"
+                    class="text-xs px-2 py-0.5 rounded border cursor-pointer transition-colors
+                           {{ 'bg-green-100 text-green-700 border-green-300' if is_active else 'bg-gray-50 text-gray-400 border-gray-200 hover:bg-gray-100' }}"
+                    onclick="(function(btn){var hid=document.getElementById('edit-endorse-json-{{ req.id }}');var arr=JSON.parse(hid.value||'[]');var v=btn.textContent.trim();var i=arr.indexOf(v);if(i>=0){arr.splice(i,1);btn.className=btn.className.replace(/bg-green-100 text-green-700 border-green-300/g,'bg-gray-50 text-gray-400 border-gray-200 hover:bg-gray-100')}else{arr.push(v);btn.className=btn.className.replace(/bg-gray-50 text-gray-400 border-gray-200 hover:bg-gray-100/g,'bg-green-100 text-green-700 border-green-300')}hid.value=JSON.stringify(arr)})(this)">{{ et }}</button>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="mt-2 flex gap-2">
+        <button type="submit" class="bg-marsh text-white px-3 py-1 rounded text-xs hover:opacity-90">Save</button>
+        <button type="button" class="text-gray-400 hover:text-gray-600 text-xs"
+                onclick="window.location.reload()">Cancel</button>
+        <button type="button" class="text-red-400 hover:text-red-600 text-xs ml-auto"
+                hx-post="/compliance/client/{{ client_id }}/requirements/{{ req.id }}/delete"
+                hx-target="body"
+                hx-confirm="Delete this requirement?">Delete</button>
+      </div>
+    </td>
+  </form>
+</tr>
