@@ -52,6 +52,14 @@ def settings_page(request: Request, conn=Depends(get_db)):
         if backup_dir.exists()
         else []
     )
+    migration_backup_dir = backup_dir / "migrations"
+    migration_backups = (
+        sorted(migration_backup_dir.glob("policydb_*_pre_migration.sqlite"), key=lambda p: p.stat().st_mtime, reverse=True)
+        if migration_backup_dir.exists()
+        else []
+    )
+    # Legacy backups in root dir
+    legacy_backups = sorted(DB_PATH.parent.glob("policydb.sqlite.backup_*"), key=lambda p: p.stat().st_mtime, reverse=True)
     db_counts: dict = {}
     for tbl in ["clients", "policies", "activity_log", "contacts"]:
         try:
@@ -117,6 +125,10 @@ def settings_page(request: Request, conn=Depends(get_db)):
         "wal_size": wal_size,
         "db_counts": db_counts,
         "backups": backups,
+        "migration_backups": migration_backups,
+        "legacy_backups": legacy_backups,
+        "backup_retention_max": cfg.get("backup_retention_count", 30),
+        "migration_backup_retention_max": cfg.get("migration_backup_retention_count", 10),
         "max_migration": max_migration,
         "backup_dir": backup_dir,
         "sql_examples": _SQL_EXAMPLES,
@@ -580,6 +592,23 @@ def db_backup_now():
             "verified": verified,
             "count": count,
         })
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+
+@router.post("/db/cleanup-legacy")
+def db_cleanup_legacy():
+    """Delete old-format backup files from ~/.policydb/ root."""
+    try:
+        legacy = sorted(DB_PATH.parent.glob("policydb.sqlite.backup_*"))
+        count = 0
+        for f in legacy:
+            try:
+                f.unlink()
+                count += 1
+            except Exception:
+                pass
+        return JSONResponse({"ok": True, "message": f"Removed {count} legacy backup(s)."})
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
