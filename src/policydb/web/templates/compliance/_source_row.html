@@ -4,7 +4,11 @@
   <td class="text-gray-600">{{ src.counterparty or '' }}</td>
   <td>
     {% if src.project_id %}
-      <span class="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">Location-specific</span>
+      {% set proj_name = namespace(val='Location ' ~ src.project_id) %}
+      {% for p in (projects or []) %}
+        {% if p.id == src.project_id %}{% set proj_name.val = p.name %}{% endif %}
+      {% endfor %}
+      <span class="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">{{ proj_name.val }}</span>
     {% else %}
       <span class="text-xs bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">All Locations</span>
     {% endif %}
