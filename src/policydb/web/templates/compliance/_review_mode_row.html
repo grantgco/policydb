@@ -1,14 +1,14 @@
 {# Single row for review mode rapid entry table #}
 <tr class="matrix-row border-b border-gray-50" data-req-id="{{ req.id }}">
-  <td class="matrix-cell-combo py-2 px-2" data-field="coverage_line"
+  <td class="matrix-cell-combo py-2 px-2 relative" data-field="coverage_line"
       data-options='{{ policy_types | tojson }}'>
     <span class="cell-display text-sm">{{ req.coverage_line or '' }}</span>
   </td>
   <td class="matrix-cell-editable py-2 px-2 text-sm" contenteditable="true"
-      data-field="required_limit" data-placeholder="e.g. 1m">{{ '%g' % req.required_limit if req.required_limit else '' }}</td>
+      data-field="required_limit" data-placeholder="e.g. 1m">{{ req.required_limit | currency_short if req.required_limit else '' }}</td>
   <td class="matrix-cell-editable py-2 px-2 text-sm" contenteditable="true"
-      data-field="max_deductible" data-placeholder="e.g. 5k">{{ '%g' % req.max_deductible if req.max_deductible else '' }}</td>
-  <td class="matrix-cell-combo py-2 px-2" data-field="deductible_type"
+      data-field="max_deductible" data-placeholder="e.g. 5k">{{ req.max_deductible | currency_short if req.max_deductible else '' }}</td>
+  <td class="matrix-cell-combo py-2 px-2 relative" data-field="deductible_type"
       data-options='{{ deductible_types | tojson }}'>
     <span class="cell-display text-sm text-gray-600">{{ req.deductible_type or '' }}</span>
   </td>

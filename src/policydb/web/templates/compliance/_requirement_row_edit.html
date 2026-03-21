@@ -15,13 +15,13 @@
         </div>
         <div>
           <label class="block text-[10px] text-gray-500 uppercase">Required Limit</label>
-          <input name="required_limit" value="{{ '%g' % req.required_limit if req.required_limit else '' }}"
+          <input name="required_limit" value="{{ '{:,.0f}'.format(req.required_limit) if req.required_limit else '' }}"
                  placeholder="e.g., 1m, 500k, 2000000"
                  class="border border-gray-300 rounded px-2 py-1 text-sm w-full focus:border-marsh">
         </div>
         <div>
           <label class="block text-[10px] text-gray-500 uppercase">Max Deductible</label>
-          <input name="max_deductible" value="{{ '%g' % req.max_deductible if req.max_deductible else '' }}"
+          <input name="max_deductible" value="{{ '{:,.0f}'.format(req.max_deductible) if req.max_deductible else '' }}"
                  placeholder="e.g., 10k, 25000"
                  class="border border-gray-300 rounded px-2 py-1 text-sm w-full focus:border-marsh">
         </div>
