@@ -392,3 +392,5 @@ The **pairing board** is a reusable UI pattern for matching/comparing records fr
 **7. `window.location.reload()` scroll jump:** Full page reloads reset scroll position. When a JS action triggers a reload, save `window.scrollY` to `sessionStorage` (with a page-specific key) before reload, and restore on page load. Always scope the storage key to prevent cross-page interference.
 
 **8. NOT NULL constraints on blank row creation:** When creating blank/empty rows for rapid-entry patterns, save empty string `""` (not `None`) for NOT NULL text columns. Check the migration schema for which columns are NOT NULL before implementing add-row endpoints.
+
+**9. `initMatrix()` add-row endpoint must return a single `<tr>`:** The `createNewRow` function in `base.html` POSTs to `addRowUrl` and appends the response HTML children to the `<tbody>`. If the endpoint returns the entire card/section HTML (`<div><table><tbody>...</tbody></table></div>`), the card markup gets appended INSIDE the tbody, causing overlapping renders. Always return just the `<tr>` row template from add-row endpoints used with `initMatrix()`.
