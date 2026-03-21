@@ -1337,14 +1337,35 @@ def external_contact_assign(
 
 @router.post("/{client_id}/external/add-row", response_class=HTMLResponse)
 def external_contact_add_row(request: Request, client_id: int, conn=Depends(get_db)):
-    """Create blank external stakeholder contact."""
+    """Create blank external stakeholder contact — returns single row for initMatrix()."""
     cid = get_or_create_contact(conn, 'New Contact')
     conn.execute(
         "INSERT INTO contact_client_assignments (contact_id, client_id, contact_type) VALUES (?, ?, 'external')",
         (cid, client_id),
     )
     conn.commit()
-    return _external_contacts_response(request, conn, client_id)
+    # Get the new assignment row (initMatrix expects a single <tr>, not the full card)
+    assignment = conn.execute(
+        """SELECT ca.id, ca.contact_id, c.name, c.email, c.phone, c.mobile, c.organization,
+                  ca.role, ca.notes
+           FROM contact_client_assignments ca
+           JOIN contacts c ON c.id = ca.contact_id
+           WHERE ca.contact_id = ? AND ca.client_id = ? AND ca.contact_type = 'external'
+           ORDER BY ca.id DESC LIMIT 1""",
+        (cid, client_id),
+    ).fetchone()
+    client = conn.execute("SELECT * FROM clients WHERE id=?", (client_id,)).fetchone()
+    from policydb.email_templates import client_context as _client_ctx, render_tokens as _render_tokens
+    _mail_ctx = _client_ctx(conn, client_id)
+    mailto_subject = _render_tokens(cfg.get("email_subject_client", "Re: {{client_name}}"), _mail_ctx)
+    return templates.TemplateResponse("clients/_external_contact_row.html", {
+        "request": request,
+        "c": dict(assignment),
+        "client": dict(client) if client else {},
+        "mailto_subject": mailto_subject,
+        "contact_roles": cfg.get("contact_roles", []),
+        "all_orgs": sorted({r["organization"] for r in conn.execute("SELECT DISTINCT organization FROM contacts WHERE organization IS NOT NULL AND organization != ''").fetchall()}),
+    })
 
 
 @router.patch("/{client_id}/external/{contact_id}/cell")
