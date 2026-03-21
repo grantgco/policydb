@@ -137,7 +137,7 @@ def test_reconciler_program_carrier_match_with_policy_number():
         "first_named_insured": "",
     }]
     results = reconcile(ext_rows, db_rows)
-    matches = [r for r in results if r.status in ("MATCH", "DIFF")]
+    matches = [r for r in results if r.status == "PAIRED"]
     assert len(matches) >= 1
     assert matches[0].is_program_match is True
     assert matches[0].matched_carrier_id == 10
@@ -165,6 +165,6 @@ def test_reconciler_program_carrier_no_match():
         "first_named_insured": "",
     }]
     results = reconcile(ext_rows, db_rows)
-    # Should match the program (on client + dates) but show as DIFF (carrier/premium differ)
-    matched = [r for r in results if r.status in ("MATCH", "DIFF")]
+    # Should match the program (on client + dates) — carrier is a scoring factor, not a gate
+    matched = [r for r in results if r.status == "PAIRED"]
     assert len(matched) >= 1

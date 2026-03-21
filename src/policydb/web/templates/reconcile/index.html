@@ -333,19 +333,45 @@
   });
 
   // ── Filter / toggle ─────────────────────────────────────────────────────────
+  // Map filter button values to the set of data-status values they should show
+  var _filterStatusMap = {
+    'DIFF': ['DIFF', 'PAIRED'],  // PAIRED rows with diff_fields show in DIFF filter
+    'MISSING': ['MISSING', 'UNMATCHED'],
+    'MATCH': ['MATCH', 'PAIRED'],  // PAIRED rows without diff_fields show in MATCH filter
+    'EXTRA': ['EXTRA'],
+  };
+
   function filterRows(status) {
-    const rows = document.querySelectorAll('tr[data-status]');
-    rows.forEach(row => {
-      const detail = document.getElementById('detail-' + row.dataset.uid);
-      if (status === 'all' || row.dataset.status === status) {
+    var allowed = _filterStatusMap[status] || [];
+    var rows = document.querySelectorAll('tr[data-status]');
+    rows.forEach(function(row) {
+      var detail = document.getElementById('detail-' + row.dataset.uid);
+      if (status === 'all') {
         row.style.display = '';
+      } else if (allowed.indexOf(row.dataset.status) !== -1) {
+        // For DIFF filter, only show PAIRED rows that have diff badges
+        // For MATCH filter, only show PAIRED rows without diff badges
+        if (row.dataset.status === 'PAIRED') {
+          var hasDiffs = row.querySelector('.bg-amber-100.text-amber-700');
+          if (status === 'DIFF' && hasDiffs) {
+            row.style.display = '';
+          } else if (status === 'MATCH' && !hasDiffs) {
+            row.style.display = '';
+          } else {
+            row.style.display = 'none';
+            if (detail) detail.style.display = 'none';
+            return;
+          }
+        } else {
+          row.style.display = '';
+        }
       } else {
         row.style.display = 'none';
         if (detail) detail.style.display = 'none';
       }
     });
     // Update active badge styling
-    document.querySelectorAll('[data-filter-btn]').forEach(btn => {
+    document.querySelectorAll('[data-filter-btn]').forEach(function(btn) {
       btn.classList.toggle('active-filter', btn.dataset.filter === status);
     });
   }

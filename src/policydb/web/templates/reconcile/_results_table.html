@@ -1,16 +1,23 @@
 {% set status_classes = {
-  'MATCH':   'bg-green-100 text-green-700',
-  'DIFF':    'bg-amber-100 text-amber-700',
-  'MISSING': 'bg-red-100 text-red-700',
-  'EXTRA':   'bg-blue-100 text-blue-700',
+  'PAIRED':    'bg-green-100 text-green-700',
+  'UNMATCHED': 'bg-red-100 text-red-700',
+  'EXTRA':     'bg-blue-100 text-blue-700',
+  'MATCH':     'bg-green-100 text-green-700',
+  'DIFF':      'bg-amber-100 text-amber-700',
+  'MISSING':   'bg-red-100 text-red-700',
 } %}
 
 {% set method_labels = {
   'policy_number': 'pol#',
+  'scored': 'scored',
   'date_pair': 'dates',
   'fuzzy': 'fuzzy',
   'manual': 'manual',
 } %}
+
+{# Helpers for status group checks (handles both new PAIRED/UNMATCHED and legacy MATCH/DIFF/MISSING) #}
+{% set _paired_statuses = ('PAIRED', 'MATCH', 'DIFF') %}
+{% set _unmatched_statuses = ('UNMATCHED', 'MISSING') %}
 
 <div class="card overflow-hidden">
   <table class="w-full text-sm" id="reconcile-table">
@@ -34,17 +41,21 @@
       {% set side = r.db if r.db else r.ext %}
 
       <tr id="row-{{ uid }}" data-status="{{ r.status }}" data-uid="{{ uid }}"
-          class="hover:bg-gray-50 cursor-pointer {% if r.status == 'DIFF' %}bg-amber-50/30{% elif r.status == 'MISSING' %}bg-red-50/30{% elif r.status == 'EXTRA' %}bg-blue-50/20{% endif %}"
+          class="hover:bg-gray-50 cursor-pointer {% if r.status == 'DIFF' or (r.status == 'PAIRED' and r.diff_fields) %}bg-amber-50/30{% elif r.status in _unmatched_statuses %}bg-red-50/30{% elif r.status == 'EXTRA' %}bg-blue-50/20{% endif %}"
           onclick="toggleDetail({{ uid }})">
 
         <td class="px-3 py-3 text-gray-300 text-xs select-none">&#9654;</td>
 
         <td class="px-4 py-3">
-          <span class="text-xs font-semibold px-2 py-0.5 rounded {{ status_classes[r.status] }}">{{ r.status }}</span>
-          {% if r.match_score and r.match_score < 100 and r.status in ('MATCH', 'DIFF') %}
+          {% if r.status == 'PAIRED' and r.diff_fields %}
+          <span class="text-xs font-semibold px-2 py-0.5 rounded bg-amber-100 text-amber-700">PAIRED</span>
+          {% else %}
+          <span class="text-xs font-semibold px-2 py-0.5 rounded {{ status_classes.get(r.status, 'bg-gray-100 text-gray-700') }}">{{ r.status }}</span>
+          {% endif %}
+          {% if r.match_score and r.match_score < 100 and r.status in _paired_statuses %}
           <span class="text-xs text-gray-400 ml-1">{{ r.match_score|round|int }}%</span>
           {% endif %}
-          {% if r.match_method and r.status in ('MATCH', 'DIFF') %}
+          {% if r.match_method and r.status in _paired_statuses %}
           <span class="text-[10px] text-gray-400 ml-0.5 font-mono" title="Match method: {{ r.match_method }}">{{ method_labels.get(r.match_method, r.match_method) }}</span>
           {% endif %}
         </td>
@@ -79,14 +90,14 @@
 
         <td class="px-4 py-3 text-xs whitespace-nowrap {% if 'effective_date' in r.diff_fields %}text-amber-700 font-semibold{% else %}text-gray-600{% endif %}">
           {{ (side or {}).get('effective_date', '—') or '—' }}
-          {% if r.eff_delta_days is not none and r.status in ('MATCH', 'DIFF') %}
+          {% if r.eff_delta_days is not none and r.status in _paired_statuses %}
           <span class="text-[10px] {% if r.eff_delta_days > 14 %}text-amber-500{% else %}text-gray-400{% endif %}">({{ r.eff_delta_days }}d)</span>
           {% endif %}
         </td>
 
         <td class="px-4 py-3 text-xs whitespace-nowrap {% if 'expiration_date' in r.diff_fields %}text-amber-700 font-semibold{% else %}text-gray-600{% endif %}">
           {{ (side or {}).get('expiration_date', '—') or '—' }}
-          {% if r.exp_delta_days is not none and r.status in ('MATCH', 'DIFF') %}
+          {% if r.exp_delta_days is not none and r.status in _paired_statuses %}
           <span class="text-[10px] {% if r.exp_delta_days > 14 %}text-amber-500{% else %}text-gray-400{% endif %}">({{ r.exp_delta_days }}d)</span>
           {% endif %}
         </td>
@@ -115,7 +126,7 @@
             <button type="submit" class="text-xs text-blue-600 hover:underline ml-1">Fill empty fields</button>
           </form>
           {% endif %}
-          {% if not r.diff_fields and not r.cosmetic_diffs and not r.fillable_fields and r.status not in ('MISSING', 'EXTRA') %}
+          {% if not r.diff_fields and not r.cosmetic_diffs and not r.fillable_fields and r.status not in _unmatched_statuses and r.status != 'EXTRA' %}
           <span class="text-xs text-green-500">&#10003;</span>
           {% endif %}
         </td>
@@ -124,7 +135,7 @@
       <!-- Detail row (hidden by default) -->
       <tr id="detail-{{ uid }}" style="display:none" class="bg-gray-50 border-b border-gray-200">
         <td colspan="10" class="px-6 py-4">
-          {% if r.status == 'DIFF' %}
+          {% if r.status == 'DIFF' or (r.status == 'PAIRED' and r.diff_fields) %}
           {% set e = r.ext or {} %}
           <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Field Comparison — click Accept or Keep for each field</p>
 
@@ -233,7 +244,7 @@
           <div id="diff-edit-area-{{ uid }}"></div>
           {% endif %}
 
-          {% elif r.status == 'MISSING' %}
+          {% elif r.status in _unmatched_statuses %}
           {% set e = r.ext or {} %}
           <p class="text-xs font-semibold text-red-600 mb-2">In uploaded file — not found in Coverage</p>
           <!-- Compact review of what will be created -->
