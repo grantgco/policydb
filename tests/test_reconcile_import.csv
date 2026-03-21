@@ -1,0 +1,13 @@
+client_name,policy_type,carrier,policy_number,effective_date,expiration_date,premium,limit_amount,deductible
+Meridian Development Group,General Liability,Test Carrier,GL-2025-MDG-001,04/01/2025,04/01/2026,50000,1000000,5000
+Meridian Development Group,GL,Chubb,CP-2025-MDG-001,04/01/2025,04/01/2026,72000,2000000,10000
+Meridian Development Group,Property,Hartford,HRT-PROP-2026-001,07/01/2026,07/01/2027,128000,5000000,25000
+Meridian Development Group,Umbrella,Berkley,UM-2025-MDG-001,04/01/2025,04/01/2026,18500,5000000,0
+Meridian Development Group,Workers Compensation,Travelers,,07/01/2026,07/01/2027,35000,,
+Meridian Development Group,Cyber Liability,Axis,,08/01/2026,08/01/2027,12000,3000000,5000
+Towerlink Infrastructure,Commercial Auto,Progressive,CA-2025-TLI-001,06/01/2025,06/01/2026,21500,,
+Towerlink Infrastructure,GL,Liberty Mutual,GL-2025-TLI-001,06/01/2025,06/01/2026,37200,1000000,
+Towerlink Infrastructure Inc.,General Liability,AIG,AIG-GL-2026-001,06/01/2026,06/01/2027,55000,2000000,10000
+Towerlink Infrastructure,Professional Liability,CNA,,06/01/2026,06/01/2027,28000,1000000,15000
+Apex Data Centers LLC,Commercial Property,Zurich,,04/01/2026,04/01/2027,95000,10000000,50000
+Apex Data Centers,Cyber / Tech E&O,Axis,,04/01/2026,04/01/2027,42000,5000000,10000

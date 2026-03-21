@@ -1,0 +1,6 @@
+client_name,policy_type,carrier,policy_number,effective_date,expiration_date,premium,limit_amount,deductible
+Meridian Development Group,Commercial Property,Hartford,HRT-PROP-2026-001,07/01/2026,07/01/2027,135000,5000000,50000
+Meridian Development Group,Pollution Liability,Berkley,UM-2025-MDG-001,04/01/2025,04/01/2026,9000,2000000,10000
+Towerlink Infrastructure,Auto Liability,Progressive,CA-2025-TLI-001,06/01/2025,06/01/2026,24000,1000000,2500
+Cornerstone Commercial RE,Management Liability,AIG,DO-2025-CCR-001,03/15/2025,03/15/2026,42000,5000000,25000
+Apex Data Centers,Prof Liab,AIG,EO-2025-ADC-001,07/15/2025,07/15/2026,58000,5000000,25000

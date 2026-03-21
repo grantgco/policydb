@@ -1,0 +1,19 @@
+client_name,policy_type,carrier,policy_number,effective_date,expiration_date,premium,limit_amount,deductible
+Meridian Development Group,General Liability,Chubb,CP-2025-MDG-001,04/01/2025,04/01/2026,74500,2000000,10000
+Meridian Development Group,Commercial Property,Hartford,HRT-PROP-2026-001,07/01/2026,07/01/2027,135000,5000000,50000
+Meridian Development Group,Excess Liability,Zurich,ZUR-UMB-2026-001,07/01/2026,07/01/2027,29500,10000000,0
+Meridian Development Group,Excess,Markel,MRK-XS2-2026-001,07/01/2026,07/01/2027,19000,15000000,0
+Meridian Development Group,GL,Travelers,TRV-GL-2026-001,07/01/2026,07/01/2027,38000,2000000,5000
+Meridian Development Group,Workers Comp,Travelers,,07/01/2026,07/01/2027,45000,,
+Meridian Development Group,Cyber Liability,Axis,,08/01/2026,08/01/2027,14500,5000000,10000
+Meridian Development Group,Pollution Liability,Berkley,,09/01/2026,09/01/2027,7200,2000000,25000
+Towerlink Infrastructure,CGL,Liberty Mutual,GL-2025-TLI-001,06/01/2025,06/01/2026,39500,2000000,10000
+Towerlink Infrastructure,Auto Liability,Progressive,CA-2025-TLI-001,06/01/2025,06/01/2026,24000,1000000,2500
+Towerlink Infrastructure,GL,AIG,AIG-GL-2026-001,06/01/2026,06/01/2027,55000,5000000,10000
+Towerlink Infrastructure,Excess,Zurich,,06/01/2026,06/01/2027,30000,5000000,0
+Towerlink Infrastructure,WC,Zurich,WC-2025-TLI-001,06/01/2025,06/01/2026,47000,,
+Cornerstone Commercial RE,Management Liability,AIG,DO-2025-CCR-001,03/15/2025,03/15/2026,42000,5000000,25000
+Cornerstone Commercial RE,CGL,Travelers,CP-2025-CCR-001,03/15/2025,03/15/2026,53500,10000000,15000
+Apex Data Centers,GL,Hartford,GL-2025-ADC-001,07/15/2025,07/15/2026,33000,1000000,5000
+Apex Data Centers,Prof Liab,AIG,,07/15/2025,07/15/2026,58000,5000000,25000
+Apex Data Centers,Cyber,Coalition,CY-2025-ADC-001,07/15/2025,07/15/2026,98000,5000000,50000
