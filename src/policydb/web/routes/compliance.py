@@ -206,6 +206,11 @@ def sources_delete(
     request: Request,
     conn=Depends(get_db),
 ):
+    # Cascade: delete requirements linked to this source
+    conn.execute(
+        "DELETE FROM coverage_requirements WHERE source_id=? AND client_id=?",
+        (source_id, client_id),
+    )
     conn.execute(
         "DELETE FROM requirement_sources WHERE id=? AND client_id=?",
         (source_id, client_id),
