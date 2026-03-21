@@ -143,6 +143,8 @@ Key config lists managed in Settings UI (`/settings`):
 
 `cfg.get(key, default)`, `cfg.add_list_item()`, `cfg.remove_list_item()`, `cfg.save_config()` are the main API.
 
+**Critical rule: No hardcoded lists.** All categorized lists (dropdowns, prompt categories, endorsement types, coverage categories, etc.) MUST be stored in `_DEFAULTS` in config.py and editable via the Settings UI. Never hardcode lists in Python code — always read from `cfg.get("key_name")` at runtime.
+
 ---
 
 ## Reconciler

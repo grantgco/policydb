@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Compliance Review — Mockup</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root { --marsh: #1a3c34; --marsh-light: #2a5c4c; --gold: #c8a96e; }
+  .bg-marsh { background-color: var(--marsh); }
+  .bg-marsh-light { background-color: var(--marsh-light); }
+  .text-marsh { color: var(--marsh); }
+  .text-gold { color: var(--gold); }
+  .border-gold { border-color: var(--gold); }
+  .bg-gold { background-color: var(--gold); }
+  body { font-family: 'IBM Plex Sans', -apple-system, sans-serif; background: #f8f7f4; }
+  .section-label { font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: #9ca3af; }
+</style>
+</head>
+<body class="text-gray-800">
+
+<!-- Nav (simplified from base.html) -->
+<nav class="bg-marsh text-white">
+  <div class="mx-auto max-w-[1600px] px-6 flex h-14 items-center justify-between">
+    <div class="flex items-center gap-8">
+      <span class="font-mono tracking-[7px] text-[#f0ece4] text-lg">COVERAGE</span>
+      <span class="text-white/40 text-xs font-mono ml-1">v2.8</span>
+      <div class="flex gap-1 items-center">
+        <a href="#" class="px-3 py-1.5 text-sm text-white/80 hover:text-white rounded">Dashboard</a>
+        <a href="#" class="px-3 py-1.5 text-sm text-white/80 hover:text-white rounded">Book</a>
+        <a href="#" class="px-3 py-1.5 text-sm text-white/80 hover:text-white rounded">Activity</a>
+        <a href="#" class="px-3 py-1.5 text-sm text-white/80 hover:text-white rounded">Tools</a>
+      </div>
+    </div>
+  </div>
+</nav>
+
+<div class="mx-auto max-w-[1600px] px-6 py-6">
+
+  <!-- Breadcrumb -->
+  <nav class="text-sm text-gray-500 mb-4">
+    <a href="#" class="hover:text-marsh">Clients</a>
+    <span class="mx-1">/</span>
+    <a href="#" class="hover:text-marsh">Oceanview Condo Association</a>
+    <span class="mx-1">/</span>
+    <span class="text-gray-700 font-medium">Compliance Review</span>
+  </nav>
+
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <!-- SUMMARY BANNER                                                      -->
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-5 mb-6">
+    <div class="flex items-center justify-between mb-4">
+      <div>
+        <h1 class="text-xl font-semibold text-gray-800">Compliance Review</h1>
+        <p class="text-sm text-gray-500">Oceanview Condo Association &mdash; 3 locations, 4 contracts reviewed</p>
+      </div>
+      <div class="flex gap-2">
+        <button class="bg-white text-marsh border border-marsh px-3 py-1.5 rounded text-sm hover:bg-marsh hover:text-white transition">Export XLSX</button>
+        <button class="bg-white text-marsh border border-marsh px-3 py-1.5 rounded text-sm hover:bg-marsh hover:text-white transition">Export PDF</button>
+        <button class="bg-white text-gray-600 border border-gray-300 px-3 py-1.5 rounded text-sm hover:bg-gray-50 transition">Print</button>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-4 gap-4">
+      <!-- Compliance Score -->
+      <div class="text-center">
+        <svg width="80" height="80" viewBox="0 0 80 80" class="mx-auto">
+          <circle cx="40" cy="40" r="34" fill="none" stroke="#e5e7eb" stroke-width="6"/>
+          <circle cx="40" cy="40" r="34" fill="none" stroke="#22c55e" stroke-width="6"
+                  stroke-dasharray="160 214" stroke-dashoffset="0" transform="rotate(-90 40 40)"/>
+          <text x="40" y="38" text-anchor="middle" font-size="18" font-weight="600" fill="#1a3c34">75%</text>
+          <text x="40" y="52" text-anchor="middle" font-size="9" fill="#6b7280">Compliant</text>
+        </svg>
+      </div>
+      <!-- Status Breakdown -->
+      <div class="flex flex-col justify-center gap-1.5">
+        <div class="flex items-center gap-2">
+          <span class="w-3 h-3 rounded-full bg-green-500 inline-block"></span>
+          <span class="text-sm text-gray-600">Compliant</span>
+          <span class="ml-auto text-sm font-semibold text-gray-700">9</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="w-3 h-3 rounded-full bg-red-500 inline-block"></span>
+          <span class="text-sm text-gray-600">Gap</span>
+          <span class="ml-auto text-sm font-semibold text-gray-700">2</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="w-3 h-3 rounded-full bg-amber-500 inline-block"></span>
+          <span class="text-sm text-gray-600">Partial</span>
+          <span class="ml-auto text-sm font-semibold text-gray-700">1</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="w-3 h-3 rounded-full bg-gray-400 inline-block"></span>
+          <span class="text-sm text-gray-600">Needs Review</span>
+          <span class="ml-auto text-sm font-semibold text-gray-700">0</span>
+        </div>
+      </div>
+      <!-- Locations -->
+      <div class="flex flex-col justify-center">
+        <span class="section-label mb-1">Locations</span>
+        <span class="text-2xl font-semibold text-marsh">3</span>
+        <span class="text-xs text-gray-500">Oceanview Tower, Bayfront Villa, Palm Court</span>
+      </div>
+      <!-- Contracts -->
+      <div class="flex flex-col justify-center">
+        <span class="section-label mb-1">Contracts Reviewed</span>
+        <span class="text-2xl font-semibold text-marsh">4</span>
+        <span class="text-xs text-gray-500">2 mgmt agreements, 1 lender, 1 association</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <!-- REQUIREMENT SOURCES (collapsible)                                   -->
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <details class="bg-white rounded-lg shadow-sm border border-gray-200 mb-6">
+    <summary class="px-5 py-3 cursor-pointer font-semibold text-sm text-gray-700 hover:bg-gray-50 flex items-center justify-between">
+      <span>Requirement Sources (4)</span>
+      <span class="text-xs text-gray-400">Click to expand</span>
+    </summary>
+    <div class="px-5 pb-4 border-t border-gray-100">
+      <table class="w-full text-sm mt-2">
+        <thead><tr class="text-left text-gray-400 text-xs uppercase tracking-wider">
+          <th class="py-2">Contract/Source</th><th>Counterparty</th><th>Scope</th><th>Clause Ref</th><th>Notes</th><th></th>
+        </tr></thead>
+        <tbody>
+          <tr class="border-b border-gray-50">
+            <td class="py-2 font-medium">Management Agreement</td>
+            <td class="text-gray-600">Premier Property Mgmt</td>
+            <td><span class="text-xs bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">All Locations</span></td>
+            <td class="text-gray-500">Section 8.2</td>
+            <td class="text-gray-500">Requires $1M GL, $5M Umbrella minimum</td>
+            <td><button class="text-red-400 hover:text-red-600 text-xs">Delete</button></td>
+          </tr>
+          <tr class="border-b border-gray-50">
+            <td class="py-2 font-medium">Lender Covenant</td>
+            <td class="text-gray-600">First National Bank</td>
+            <td><span class="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">Oceanview Tower</span></td>
+            <td class="text-gray-500">Exhibit C</td>
+            <td class="text-gray-500">$2M GL required, $2K max deductible</td>
+            <td><button class="text-red-400 hover:text-red-600 text-xs">Delete</button></td>
+          </tr>
+          <tr class="border-b border-gray-50">
+            <td class="py-2 font-medium">Association Bylaws</td>
+            <td class="text-gray-600">Oceanview HOA</td>
+            <td><span class="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">Oceanview Tower</span></td>
+            <td class="text-gray-500">Article IX</td>
+            <td class="text-gray-500">D&O for board members required</td>
+            <td><button class="text-red-400 hover:text-red-600 text-xs">Delete</button></td>
+          </tr>
+          <tr class="border-b border-gray-50">
+            <td class="py-2 font-medium">Lender Covenant</td>
+            <td class="text-gray-600">Coastal Credit Union</td>
+            <td><span class="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">Bayfront Villa</span></td>
+            <td class="text-gray-500">Schedule B</td>
+            <td class="text-gray-500">Property at RCV, named storm 5% max</td>
+            <td class="flex gap-2">
+              <button class="text-marsh hover:underline text-xs font-medium">Review</button>
+              <button class="text-red-400 hover:text-red-600 text-xs">Delete</button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <!-- Add source form -->
+      <div class="mt-3 flex flex-wrap gap-2 items-end border-t border-gray-100 pt-3">
+        <div>
+          <label class="block text-xs text-gray-500">Contract Name</label>
+          <input class="border rounded px-2 py-1 text-sm w-48" placeholder="e.g., Management Agreement">
+        </div>
+        <div>
+          <label class="block text-xs text-gray-500">Counterparty</label>
+          <input class="border rounded px-2 py-1 text-sm w-36" placeholder="e.g., First National Bank">
+        </div>
+        <div>
+          <label class="block text-xs text-gray-500">Location</label>
+          <select class="border rounded px-2 py-1 text-sm">
+            <option>All Locations</option>
+            <option>Oceanview Tower</option>
+            <option>Bayfront Villa</option>
+            <option>Palm Court</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs text-gray-500">Clause Ref</label>
+          <input class="border rounded px-2 py-1 text-sm w-24" placeholder="e.g., §8.2">
+        </div>
+        <div>
+          <label class="block text-xs text-gray-500">Notes</label>
+          <input class="border rounded px-2 py-1 text-sm w-48">
+        </div>
+        <button class="bg-marsh text-white px-3 py-1 rounded text-sm hover:opacity-90">Add Source</button>
+      </div>
+    </div>
+  </details>
+
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <!-- COMPLIANCE MATRIX                                                   -->
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <div class="bg-white rounded-lg shadow-sm border border-gray-200 mb-6">
+    <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+      <h2 class="font-semibold text-sm text-gray-700">Coverage Matrix</h2>
+      <span class="text-xs text-gray-400">Click a cell for details &bull; Click a location header to drill down</span>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
+            <th class="py-3 px-4 text-left font-medium w-48">Coverage Line</th>
+            <th class="py-3 px-4 text-center font-medium">Governing Limit</th>
+            <th class="py-3 px-4 text-center font-medium cursor-pointer hover:text-marsh">
+              <div class="font-semibold text-gray-700 normal-case text-sm">Oceanview Tower</div>
+              <div class="text-[10px] text-gray-400 normal-case">4 requirements</div>
+            </th>
+            <th class="py-3 px-4 text-center font-medium cursor-pointer hover:text-marsh">
+              <div class="font-semibold text-gray-700 normal-case text-sm">Bayfront Villa</div>
+              <div class="text-[10px] text-gray-400 normal-case">3 requirements</div>
+            </th>
+            <th class="py-3 px-4 text-center font-medium cursor-pointer hover:text-marsh">
+              <div class="font-semibold text-gray-700 normal-case text-sm">Palm Court</div>
+              <div class="text-[10px] text-gray-400 normal-case">2 requirements</div>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <!-- GL Row -->
+          <tr class="border-b border-gray-50 hover:bg-gray-50/50">
+            <td class="py-3 px-4 font-medium">General Liability</td>
+            <td class="py-3 px-4 text-center text-gray-600">$2,000,000</td>
+            <td class="py-3 px-4 text-center">
+              <div class="inline-flex items-center gap-1.5 bg-green-50 text-green-700 px-2 py-1 rounded text-xs">
+                <span class="w-2 h-2 rounded-full bg-green-500"></span>
+                <span>POL-GL01</span>
+              </div>
+              <div class="text-[10px] text-gray-400 mt-0.5">Governed by: Lender Covenant</div>
+            </td>
+            <td class="py-3 px-4 text-center">
+              <div class="inline-flex items-center gap-1.5 bg-green-50 text-green-700 px-2 py-1 rounded text-xs">
+                <span class="w-2 h-2 rounded-full bg-green-500"></span>
+                <span>POL-GL01</span>
+              </div>
+              <div class="text-[10px] text-gray-400 mt-0.5">Corporate program</div>
+            </td>
+            <td class="py-3 px-4 text-center">
+              <div class="inline-flex items-center gap-1.5 bg-green-50 text-green-700 px-2 py-1 rounded text-xs">
+                <span class="w-2 h-2 rounded-full bg-green-500"></span>
+                <span>POL-GL01</span>
+              </div>
+              <div class="text-[10px] text-gray-400 mt-0.5">Corporate program</div>
+            </td>
+          </tr>
+          <!-- Property Row -->
+          <tr class="border-b border-gray-50 hover:bg-gray-50/50">
+            <td class="py-3 px-4 font-medium">Property</td>
+            <td class="py-3 px-4 text-center text-gray-600">At RCV</td>
+            <td class="py-3 px-4 text-center">
+              <div class="inline-flex items-center gap-1.5 bg-green-50 text-green-700 px-2 py-1 rounded text-xs">
+                <span class="w-2 h-2 rounded-full bg-green-500"></span>
+                <span>POL-PR01</span>
+              </div>
+            </td>
+            <td class="py-3 px-4 text-center">
+              <div class="inline-flex items-center gap-1.5 bg-amber-50 text-amber-700 px-2 py-1 rounded text-xs">
+                <span class="w-2 h-2 rounded-full bg-amber-500"></span>
+                <span>Partial</span>
+              </div>
+              <div class="text-[10px] text-red-500 mt-0.5">Ded $25K &gt; max $5K</div>
+            </td>
+            <td class="py-3 px-4 text-center">
+              <div class="inline-flex items-center gap-1.5 bg-green-50 text-green-700 px-2 py-1 rounded text-xs">
+                <span class="w-2 h-2 rounded-full bg-green-500"></span>
+                <span>POL-PR01</span>
+              </div>
+            </td>
+          </tr>
+          <!-- Umbrella Row -->
+          <tr class="border-b border-gray-50 hover:bg-gray-50/50">
+            <td class="py-3 px-4 font-medium">Umbrella / Excess</td>
+            <td class="py-3 px-4 text-center text-gray-600">$5,000,000</td>
+            <td class="py-3 px-4 text-center">
+              <div class="inline-flex items-center gap-1.5 bg-green-50 text-green-700 px-2 py-1 rounded text-xs">
+                <span class="w-2 h-2 rounded-full bg-green-500"></span>
+                <span>POL-UMB1</span>
+              </div>
+            </td>
+            <td class="py-3 px-4 text-center">
+              <div class="inline-flex items-center gap-1.5 bg-green-50 text-green-700 px-2 py-1 rounded text-xs">
+                <span class="w-2 h-2 rounded-full bg-green-500"></span>
+                <span>POL-UMB1</span>
+              </div>
+            </td>
+            <td class="py-3 px-4 text-center">
+              <div class="inline-flex items-center gap-1.5 bg-green-50 text-green-700 px-2 py-1 rounded text-xs">
+                <span class="w-2 h-2 rounded-full bg-green-500"></span>
+                <span>POL-UMB1</span>
+              </div>
+            </td>
+          </tr>
+          <!-- D&O Row -->
+          <tr class="border-b border-gray-50 hover:bg-gray-50/50">
+            <td class="py-3 px-4 font-medium">Directors & Officers</td>
+            <td class="py-3 px-4 text-center text-gray-600">$1,000,000</td>
+            <td class="py-3 px-4 text-center">
+              <div class="inline-flex items-center gap-1.5 bg-red-50 text-red-700 px-2 py-1 rounded text-xs">
+                <span class="w-2 h-2 rounded-full bg-red-500"></span>
+                <span>GAP</span>
+              </div>
+              <div class="text-[10px] text-red-500 mt-0.5">No policy — board requires standalone D&O</div>
+            </td>
+            <td class="py-3 px-4 text-center">
+              <span class="text-gray-300 text-xs">—</span>
+            </td>
+            <td class="py-3 px-4 text-center">
+              <span class="text-gray-300 text-xs">—</span>
+            </td>
+          </tr>
+          <!-- Crime Row -->
+          <tr class="border-b border-gray-50 hover:bg-gray-50/50">
+            <td class="py-3 px-4 font-medium">Crime / Fidelity</td>
+            <td class="py-3 px-4 text-center text-gray-600">$250,000</td>
+            <td class="py-3 px-4 text-center">
+              <div class="inline-flex items-center gap-1.5 bg-red-50 text-red-700 px-2 py-1 rounded text-xs">
+                <span class="w-2 h-2 rounded-full bg-red-500"></span>
+                <span>GAP</span>
+              </div>
+            </td>
+            <td class="py-3 px-4 text-center">
+              <span class="text-gray-300 text-xs">—</span>
+            </td>
+            <td class="py-3 px-4 text-center">
+              <span class="text-gray-300 text-xs">—</span>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <!-- LOCATION DRILL-DOWN (shown when clicking Oceanview Tower)           -->
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <div class="bg-white rounded-lg shadow-sm border border-gray-200 mb-6">
+    <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+      <div>
+        <h2 class="font-semibold text-sm text-gray-700">Oceanview Tower — Requirements Detail</h2>
+        <p class="text-xs text-gray-500">123 Ocean Blvd, Miami Beach, FL 33139 &bull; 4 coverage requirements from 3 sources</p>
+      </div>
+      <button class="text-xs text-gray-400 hover:text-gray-600">Close ×</button>
+    </div>
+
+    <!-- Per-source sections -->
+    <div class="px-5 py-4 space-y-4">
+      <!-- Source 1: Management Agreement (inherited) -->
+      <div class="border-l-4 border-blue-300 pl-4">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="font-medium text-sm">Management Agreement</span>
+          <span class="text-xs bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded">↓ Inherited</span>
+          <span class="text-xs text-gray-400">Premier Property Mgmt &bull; Section 8.2</span>
+        </div>
+        <table class="w-full text-sm">
+          <tr class="border-b border-gray-50">
+            <td class="py-2 w-48">General Liability</td>
+            <td class="py-2 w-32">$1,000,000</td>
+            <td class="py-2">
+              <span class="inline-flex gap-1 text-xs">
+                <span class="bg-green-100 text-green-700 px-1.5 py-0.5 rounded">AI</span>
+                <span class="bg-green-100 text-green-700 px-1.5 py-0.5 rounded">WOS</span>
+              </span>
+            </td>
+            <td class="py-2 text-right">
+              <span class="text-xs text-gray-400 line-through">Overridden by Lender ($2M)</span>
+            </td>
+          </tr>
+          <tr class="border-b border-gray-50">
+            <td class="py-2">Umbrella / Excess</td>
+            <td class="py-2">$5,000,000</td>
+            <td></td>
+            <td class="py-2 text-right">
+              <span class="inline-flex items-center gap-1 text-xs bg-green-50 text-green-700 px-2 py-0.5 rounded">
+                <span class="w-1.5 h-1.5 rounded-full bg-green-500"></span> POL-UMB1
+              </span>
+            </td>
+          </tr>
+          <!-- Inline add row -->
+          <tr class="text-gray-400 hover:text-gray-600 cursor-pointer">
+            <td class="py-1.5 text-xs" colspan="4">
+              <span class="hover:text-marsh">+ Add requirement to this source...</span>
+            </td>
+          </tr>
+        </table>
+      </div>
+
+      <!-- Source 2: Lender Covenant (location-specific) -->
+      <div class="border-l-4 border-purple-300 pl-4">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="font-medium text-sm">Lender Covenant</span>
+          <span class="text-xs bg-purple-50 text-purple-600 px-1.5 py-0.5 rounded">Local</span>
+          <span class="text-xs text-gray-400">First National Bank &bull; Exhibit C</span>
+        </div>
+        <table class="w-full text-sm">
+          <tr class="border-b border-gray-50">
+            <td class="py-2 w-48">General Liability</td>
+            <td class="py-2 w-32">$2,000,000</td>
+            <td class="py-2">
+              <span class="inline-flex gap-1 text-xs">
+                <span class="bg-green-100 text-green-700 px-1.5 py-0.5 rounded">AI</span>
+                <span class="bg-green-100 text-green-700 px-1.5 py-0.5 rounded">P&NC</span>
+              </span>
+            </td>
+            <td class="py-2 text-right">
+              <div>
+                <span class="inline-flex items-center gap-1 text-xs bg-green-50 text-green-700 px-2 py-0.5 rounded">
+                  <span class="w-1.5 h-1.5 rounded-full bg-green-500"></span> POL-GL01 ($2M) — Governs
+                </span>
+              </div>
+              <div class="text-[10px] text-gray-400 mt-0.5">Max Ded: $2,000 (Per Occurrence)</div>
+            </td>
+          </tr>
+        </table>
+      </div>
+
+      <!-- Source 3: Association Bylaws (location-specific) -->
+      <div class="border-l-4 border-purple-300 pl-4">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="font-medium text-sm">Association Bylaws</span>
+          <span class="text-xs bg-purple-50 text-purple-600 px-1.5 py-0.5 rounded">Local</span>
+          <span class="text-xs text-gray-400">Oceanview HOA &bull; Article IX</span>
+        </div>
+        <table class="w-full text-sm">
+          <tr class="border-b border-gray-50">
+            <td class="py-2 w-48">Directors & Officers</td>
+            <td class="py-2 w-32">$1,000,000</td>
+            <td></td>
+            <td class="py-2 text-right">
+              <span class="inline-flex items-center gap-1 text-xs bg-red-50 text-red-700 px-2 py-0.5 rounded">
+                <span class="w-1.5 h-1.5 rounded-full bg-red-500"></span> GAP — No policy
+              </span>
+            </td>
+          </tr>
+          <tr class="border-b border-gray-50">
+            <td class="py-2">Crime / Fidelity</td>
+            <td class="py-2">$250,000</td>
+            <td></td>
+            <td class="py-2 text-right">
+              <span class="inline-flex items-center gap-1 text-xs bg-red-50 text-red-700 px-2 py-0.5 rounded">
+                <span class="w-1.5 h-1.5 rounded-full bg-red-500"></span> GAP — No policy
+              </span>
+            </td>
+          </tr>
+          <!-- Inline add row -->
+          <tr class="text-gray-400 hover:text-gray-600 cursor-pointer">
+            <td class="py-1.5 text-xs" colspan="4">
+              <span class="hover:text-marsh">+ Add requirement to this source...</span>
+            </td>
+          </tr>
+        </table>
+      </div>
+    </div>
+
+    <!-- Policies available for this location -->
+    <div class="px-5 py-3 bg-gray-50 border-t border-gray-100">
+      <span class="section-label">Policies covering this location</span>
+      <div class="flex flex-wrap gap-2 mt-2">
+        <span class="text-xs bg-white border border-gray-200 px-2 py-1 rounded">POL-GL01 — General Liability ($2M) <span class="text-gray-400">Corporate</span></span>
+        <span class="text-xs bg-white border border-gray-200 px-2 py-1 rounded">POL-PR01 — Property ($15M TIV) <span class="text-gray-400">Corporate</span></span>
+        <span class="text-xs bg-white border border-gray-200 px-2 py-1 rounded">POL-UMB1 — Umbrella ($10M) <span class="text-gray-400">Corporate</span></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <!-- GUIDED RISK REVIEW PROMPTS (collapsible)                            -->
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <details class="bg-white rounded-lg shadow-sm border border-gray-200 mb-6">
+    <summary class="px-5 py-3 cursor-pointer font-semibold text-sm text-gray-700 hover:bg-gray-50 flex items-center justify-between">
+      <span>Guided Risk Review <span class="text-xs font-normal text-gray-400 ml-2">3 of 12 reviewed</span></span>
+      <span class="text-xs text-gray-400">Click to expand</span>
+    </summary>
+    <div class="px-5 pb-4 border-t border-gray-100 space-y-2 mt-2">
+      <!-- High priority prompt -->
+      <div class="flex items-start gap-3 py-2 border-l-4 border-red-400 pl-4 bg-red-50/30 rounded-r">
+        <input type="checkbox" class="mt-1 rounded">
+        <div class="flex-1">
+          <div class="flex items-center gap-2">
+            <span class="text-xs font-semibold text-red-600 uppercase tracking-wider">High</span>
+            <span class="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">Contractual</span>
+          </div>
+          <p class="text-sm text-gray-700 mt-0.5">Do different locations have different lenders, management agreements, or counterparties with distinct insurance requirements?</p>
+          <p class="text-xs text-gray-400 mt-0.5">Client has 3 location(s) — review per-location exposure.</p>
+          <div class="flex gap-1 mt-1">
+            <span class="text-[10px] bg-gray-100 text-gray-500 px-1 py-0.5 rounded">General Liability</span>
+            <span class="text-[10px] bg-gray-100 text-gray-500 px-1 py-0.5 rounded">Umbrella / Excess</span>
+          </div>
+        </div>
+      </div>
+      <!-- High priority prompt -->
+      <div class="flex items-start gap-3 py-2 border-l-4 border-red-400 pl-4 bg-red-50/30 rounded-r">
+        <input type="checkbox" checked class="mt-1 rounded">
+        <div class="flex-1">
+          <div class="flex items-center gap-2">
+            <span class="text-xs font-semibold text-red-600 uppercase tracking-wider">High</span>
+            <span class="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">People</span>
+          </div>
+          <p class="text-sm text-gray-700 mt-0.5">Is there a board of directors, HOA board, or management committee? What management liability exposure exists?</p>
+          <p class="text-xs text-gray-400 mt-0.5">No current policy for: Directors & Officers, Employment Practices</p>
+        </div>
+      </div>
+      <!-- Medium priority -->
+      <div class="flex items-start gap-3 py-2 border-l-4 border-amber-400 pl-4 rounded-r">
+        <input type="checkbox" checked class="mt-1 rounded">
+        <div class="flex-1">
+          <div class="flex items-center gap-2">
+            <span class="text-xs font-semibold text-amber-600 uppercase tracking-wider">Medium</span>
+            <span class="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">Operational</span>
+          </div>
+          <p class="text-sm text-gray-700 mt-0.5">What are the critical assets at each location — property, equipment, inventory, IP, data? What perils threaten them?</p>
+          <p class="text-xs text-gray-400 mt-0.5">Current coverage includes: Property, Inland Marine / Equipment</p>
+        </div>
+      </div>
+      <!-- Medium priority -->
+      <div class="flex items-start gap-3 py-2 border-l-4 border-amber-400 pl-4 rounded-r">
+        <input type="checkbox" checked class="mt-1 rounded">
+        <div class="flex-1">
+          <div class="flex items-center gap-2">
+            <span class="text-xs font-semibold text-amber-600 uppercase tracking-wider">Medium</span>
+            <span class="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">Financial</span>
+          </div>
+          <p class="text-sm text-gray-700 mt-0.5">What is the organization's balance sheet capacity to retain risk? What deductible/SIR level represents the pain threshold?</p>
+        </div>
+      </div>
+    </div>
+  </details>
+
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <!-- CONTRACT REVIEW MODE (for entering a new contract's requirements)   -->
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <div class="bg-white rounded-lg shadow-sm border-2 border-marsh/30 mb-6">
+    <div class="px-5 py-3 bg-marsh/5 border-b border-marsh/20 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <span class="text-xs font-bold uppercase tracking-wider text-marsh bg-marsh/10 px-2 py-1 rounded">Review Mode</span>
+        <div>
+          <h2 class="font-semibold text-sm text-gray-700">Reviewing: Lender Covenant — Coastal Credit Union</h2>
+          <p class="text-xs text-gray-500">Schedule B &bull; Bayfront Villa &bull; 3 requirements entered</p>
+        </div>
+      </div>
+      <button class="bg-marsh text-white px-3 py-1.5 rounded text-sm hover:opacity-90">Done Reviewing</button>
+    </div>
+
+    <!-- Rapid entry table -->
+    <div class="px-5 py-4">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="text-xs text-gray-400 uppercase tracking-wider border-b border-gray-200">
+            <th class="py-2 text-left w-48">Coverage Line</th>
+            <th class="py-2 text-left w-32">Required Limit</th>
+            <th class="py-2 text-left w-28">Max Deductible</th>
+            <th class="py-2 text-left w-24">Ded Type</th>
+            <th class="py-2 text-left">Endorsements</th>
+            <th class="py-2 text-left w-48">Notes</th>
+            <th class="py-2 w-8"></th>
+          </tr>
+        </thead>
+        <tbody>
+          <!-- Existing entered rows -->
+          <tr class="border-b border-gray-50 group">
+            <td class="py-2">
+              <span class="font-medium">Property</span>
+            </td>
+            <td class="py-2 text-gray-600">At RCV</td>
+            <td class="py-2 text-gray-600">$5,000</td>
+            <td class="py-2 text-gray-500 text-xs">Named Storm %</td>
+            <td class="py-2">
+              <span class="text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded mr-1">NOC</span>
+            </td>
+            <td class="py-2 text-gray-500 text-xs">5% named storm max</td>
+            <td class="py-2"><button class="text-red-400 hover:text-red-600 text-xs opacity-0 group-hover:opacity-100">×</button></td>
+          </tr>
+          <tr class="border-b border-gray-50 group">
+            <td class="py-2">
+              <span class="font-medium">General Liability</span>
+            </td>
+            <td class="py-2 text-gray-600">$1,000,000</td>
+            <td class="py-2 text-gray-600">$2,500</td>
+            <td class="py-2 text-gray-500 text-xs">Per Occurrence</td>
+            <td class="py-2">
+              <span class="text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded mr-1">AI</span>
+              <span class="text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded mr-1">WOS</span>
+            </td>
+            <td class="py-2 text-gray-500 text-xs"></td>
+            <td class="py-2"><button class="text-red-400 hover:text-red-600 text-xs opacity-0 group-hover:opacity-100">×</button></td>
+          </tr>
+          <tr class="border-b border-gray-50 group">
+            <td class="py-2">
+              <span class="font-medium">Umbrella / Excess</span>
+            </td>
+            <td class="py-2 text-gray-600">$5,000,000</td>
+            <td class="py-2 text-gray-300">—</td>
+            <td class="py-2 text-gray-300">—</td>
+            <td class="py-2"></td>
+            <td class="py-2 text-gray-500 text-xs">Follow form required</td>
+            <td class="py-2"><button class="text-red-400 hover:text-red-600 text-xs opacity-0 group-hover:opacity-100">×</button></td>
+          </tr>
+
+          <!-- Active new row (cursor here) -->
+          <tr class="border-b border-gray-100 bg-blue-50/30">
+            <td class="py-2">
+              <select class="border-0 border-b-2 border-blue-400 bg-transparent text-sm w-full focus:ring-0 px-0 py-0.5">
+                <option value="">Select coverage...</option>
+                <option>General Liability</option>
+                <option>Property</option>
+                <option>Umbrella / Excess</option>
+                <option>Workers Compensation</option>
+                <option selected>Directors & Officers</option>
+                <option>Crime / Fidelity</option>
+                <option>Cyber / Privacy</option>
+                <option>Professional Liability / E&O</option>
+              </select>
+            </td>
+            <td class="py-2">
+              <input class="border-0 border-b-2 border-blue-400 bg-transparent text-sm w-full focus:ring-0 px-0 py-0.5" placeholder="$" value="$1,000,000">
+            </td>
+            <td class="py-2">
+              <input class="border-0 border-b-2 border-gray-200 bg-transparent text-sm w-full focus:ring-0 px-0 py-0.5" placeholder="$">
+            </td>
+            <td class="py-2">
+              <select class="border-0 border-b-2 border-gray-200 bg-transparent text-xs w-full focus:ring-0 px-0 py-0.5">
+                <option>—</option>
+                <option>Per Occurrence</option>
+                <option>Per Claim</option>
+                <option>Aggregate</option>
+                <option>Named Storm %</option>
+              </select>
+            </td>
+            <td class="py-2">
+              <div class="flex flex-wrap gap-1">
+                <button class="text-[10px] border border-gray-300 text-gray-500 px-1.5 py-0.5 rounded hover:bg-green-100 hover:text-green-700 hover:border-green-300 transition">AI</button>
+                <button class="text-[10px] border border-gray-300 text-gray-500 px-1.5 py-0.5 rounded hover:bg-green-100 hover:text-green-700 hover:border-green-300 transition">WOS</button>
+                <button class="text-[10px] border border-gray-300 text-gray-500 px-1.5 py-0.5 rounded hover:bg-green-100 hover:text-green-700 hover:border-green-300 transition">P&NC</button>
+                <button class="text-[10px] border border-gray-300 text-gray-500 px-1.5 py-0.5 rounded hover:bg-green-100 hover:text-green-700 hover:border-green-300 transition">NOC</button>
+                <button class="text-[10px] border border-gray-300 text-gray-500 px-1.5 py-0.5 rounded hover:bg-green-100 hover:text-green-700 hover:border-green-300 transition">+</button>
+              </div>
+            </td>
+            <td class="py-2">
+              <input class="border-0 border-b-2 border-gray-200 bg-transparent text-sm w-full focus:ring-0 px-0 py-0.5" placeholder="Notes...">
+            </td>
+            <td class="py-2 text-center">
+              <span class="text-xs text-gray-300">Enter ↵</span>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="flex items-center justify-between mt-3 pt-3 border-t border-gray-100">
+        <span class="text-xs text-gray-400">Tab to advance &bull; Enter to save row &bull; Endorsement pills toggle on click</span>
+        <div class="flex gap-2">
+          <button class="text-xs text-marsh hover:underline">Apply Template...</button>
+          <button class="text-xs text-gray-500 hover:underline">Add Notes to Source</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>
