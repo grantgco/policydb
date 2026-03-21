@@ -4096,3 +4096,155 @@ def project_timeline_export(
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{client["name"]}_timeline.pdf"'},
     )
+
+
+# ── Location Assignment Board ────────────────────────────────────────────────
+
+
+@router.get("/{client_id}/locations", response_class=HTMLResponse)
+def client_locations(request: Request, client_id: int, conn=Depends(get_db)):
+    """Location assignment board for a client."""
+    client = conn.execute("SELECT * FROM clients WHERE id=?", (client_id,)).fetchone()
+    if not client:
+        return HTMLResponse("Client not found", status_code=404)
+
+    policies = [dict(r) for r in conn.execute("""
+        SELECT *
+        FROM policies
+        WHERE client_id = ? AND archived = 0
+        ORDER BY policy_type
+    """, (client_id,)).fetchall()]
+
+    # Group by project assignment
+    unassigned = [p for p in policies if not p.get("project_name")]
+
+    # Build location groups from projects table
+    projects = [dict(r) for r in conn.execute(
+        "SELECT * FROM projects WHERE client_id=? ORDER BY name", (client_id,)
+    ).fetchall()]
+
+    # Color palette for location groups
+    colors = [
+        ("blue-100", "blue-700", "blue-50"),
+        ("green-100", "green-700", "green-50"),
+        ("purple-100", "purple-700", "purple-50"),
+        ("teal-100", "teal-700", "teal-50"),
+        ("amber-100", "amber-700", "amber-50"),
+        ("pink-100", "pink-700", "pink-50"),
+    ]
+
+    locations = []
+    for i, proj in enumerate(projects):
+        proj_policies = [p for p in policies if p.get("project_id") == proj["id"]]
+        bg, text, light = colors[i % len(colors)]
+        locations.append({
+            "id": proj["id"], "name": proj["name"],
+            "address": " ".join(filter(None, [
+                proj.get("address"), proj.get("city"),
+                proj.get("state"), proj.get("zip"),
+            ])),
+            "policies": proj_policies,
+            "total_premium": sum(p.get("premium") or 0 for p in proj_policies),
+            "color_bg": bg, "color_text": text, "color_light": light,
+        })
+
+    # Smart suggestions: group unassigned by shared exposure_address
+    suggestions = []
+    from collections import defaultdict
+    addr_groups: dict[str, list] = defaultdict(list)
+    for p in unassigned:
+        addr = (p.get("exposure_address") or "").strip()
+        if addr:
+            addr_groups[addr].append(p)
+    for addr, pols in addr_groups.items():
+        if len(pols) >= 2:
+            matching_loc = next(
+                (loc for loc in locations if addr.lower() in loc["address"].lower()),
+                None,
+            )
+            suggestions.append({
+                "address": addr, "policies": pols, "count": len(pols),
+                "matching_location": matching_loc,
+            })
+
+    return templates.TemplateResponse("clients/_location_board.html", {
+        "request": request, "client_id": client_id, "client_name": client["name"],
+        "unassigned": unassigned, "locations": locations, "suggestions": suggestions,
+    })
+
+
+@router.patch("/{client_id}/locations/assign", response_class=HTMLResponse)
+def location_assign(
+    request: Request,
+    client_id: int,
+    policy_uid: str = Form(...),
+    project_id: int = Form(...),
+    conn=Depends(get_db),
+):
+    """Assign a policy to a location/project."""
+    project = conn.execute("SELECT name FROM projects WHERE id=?", (project_id,)).fetchone()
+    if project:
+        conn.execute(
+            "UPDATE policies SET project_id=?, project_name=? WHERE policy_uid=? AND client_id=?",
+            (project_id, project["name"], policy_uid, client_id),
+        )
+        conn.commit()
+    return HTMLResponse("", headers={"HX-Trigger": "locationChanged"})
+
+
+@router.patch("/{client_id}/locations/unassign", response_class=HTMLResponse)
+def location_unassign(
+    request: Request,
+    client_id: int,
+    policy_uid: str = Form(...),
+    conn=Depends(get_db),
+):
+    """Remove a policy from its location/project."""
+    conn.execute(
+        "UPDATE policies SET project_id=NULL, project_name=NULL WHERE policy_uid=? AND client_id=?",
+        (policy_uid, client_id),
+    )
+    conn.commit()
+    return HTMLResponse("", headers={"HX-Trigger": "locationChanged"})
+
+
+@router.patch("/{client_id}/locations/bulk-assign", response_class=HTMLResponse)
+def location_bulk_assign(
+    request: Request,
+    client_id: int,
+    address: str = Form(...),
+    project_id: int = Form(...),
+    conn=Depends(get_db),
+):
+    """Bulk-assign all unassigned policies sharing an exposure_address to a location."""
+    project = conn.execute("SELECT name FROM projects WHERE id=?", (project_id,)).fetchone()
+    if project:
+        conn.execute(
+            """UPDATE policies SET project_id=?, project_name=?
+               WHERE client_id=? AND archived=0
+               AND TRIM(exposure_address)=TRIM(?)
+               AND (project_id IS NULL OR project_id=0)""",
+            (project_id, project["name"], client_id, address),
+        )
+        conn.commit()
+    return HTMLResponse("", headers={"HX-Trigger": "locationChanged"})
+
+
+@router.post("/{client_id}/locations/create", response_class=HTMLResponse)
+def location_create(
+    request: Request,
+    client_id: int,
+    name: str = Form(...),
+    address: str = Form(""),
+    city: str = Form(""),
+    state: str = Form(""),
+    zip: str = Form(""),
+    conn=Depends(get_db),
+):
+    """Create a new location/project for a client."""
+    conn.execute(
+        "INSERT INTO projects (name, client_id, address, city, state, zip, project_type) VALUES (?, ?, ?, ?, ?, ?, 'Location')",
+        (name, client_id, address, city, state, zip),
+    )
+    conn.commit()
+    return HTMLResponse("", headers={"HX-Trigger": "locationChanged"})
