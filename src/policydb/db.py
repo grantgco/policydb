@@ -891,6 +891,15 @@ def init_db(path: Path | None = None) -> None:
         )
         conn.commit()
 
+    if 66 not in applied:
+        sql = (_MIGRATIONS_DIR / "066_compliance_requirements.sql").read_text()
+        conn.executescript(sql)
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (66, "Add compliance requirements tables"),
+        )
+        conn.commit()
+
     # Data hygiene: fix 'None' string corruption in text fields (runs every startup, fast no-op if clean)
     conn.execute("UPDATE clients SET cn_number = NULL WHERE cn_number = 'None'")
 
