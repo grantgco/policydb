@@ -1,0 +1,48 @@
+{# _location_group.html — one location group on the assignment board #}
+{# Context: location (dict with id, name, address, policies, total_premium, color_bg, color_text, color_light),
+            client_id (int) #}
+
+<div id="location-{{ location.id }}" class="card mb-4 overflow-hidden">
+  {# ── Header (collapsible + drop zone) ── #}
+  <div class="px-4 py-2.5 flex items-center gap-3 cursor-pointer select-none bg-{{ location.color_light }} border-b border-gray-100 hover:brightness-95 transition-all"
+    onclick="var b=document.getElementById('loc-body-{{ location.id }}'); b.classList.toggle('hidden');">
+
+    <span class="text-xs text-gray-400 details-arrow" id="loc-arrow-{{ location.id }}">&#9660;</span>
+
+    <span class="inline-flex items-center gap-1.5">
+      <span class="w-2.5 h-2.5 rounded-full bg-{{ location.color_bg }} inline-block"></span>
+      <span class="text-sm font-semibold text-{{ location.color_text }}">{{ location.name }}</span>
+    </span>
+
+    {% if location.address %}
+    <span class="text-xs text-gray-400 truncate hidden sm:inline">{{ location.address }}</span>
+    {% endif %}
+
+    <span class="text-xs text-gray-400">&middot; {{ location.policies | length }} polic{{ 'y' if location.policies | length == 1 else 'ies' }}</span>
+    <span class="text-xs text-gray-500 tabular-nums font-medium">{{ location.total_premium | currency }}</span>
+
+    <div class="ml-auto flex items-center gap-2 no-print">
+      <a href="/clients/{{ client_id }}/projects/{{ location.id }}"
+        class="text-xs text-gray-400 hover:text-marsh"
+        onclick="event.stopPropagation()" title="Open location detail">Edit &rarr;</a>
+    </div>
+  </div>
+
+  {# ── Body: drop zone + policy rows ── #}
+  <div id="loc-body-{{ location.id }}"
+    class="p-3 min-h-[60px] transition-colors"
+    ondragover="event.preventDefault(); this.classList.add('bg-green-50', 'ring-2', 'ring-green-300', 'ring-inset');"
+    ondragleave="this.classList.remove('bg-green-50', 'ring-2', 'ring-green-300', 'ring-inset');"
+    ondrop="this.classList.remove('bg-green-50', 'ring-2', 'ring-green-300', 'ring-inset'); handleLocationDrop(this, event, {{ location.id }}, {{ client_id }});">
+
+    {% for p in location.policies %}
+      {% with policy=p, assigned=True %}
+        {% include "clients/_location_policy_row.html" %}
+      {% endwith %}
+    {% else %}
+    <div class="text-center text-xs text-gray-300 py-4 border-2 border-dashed border-gray-200 rounded-lg">
+      Drop policies here to assign
+    </div>
+    {% endfor %}
+  </div>
+</div>

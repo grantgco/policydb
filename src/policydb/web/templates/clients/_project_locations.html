@@ -1,6 +1,8 @@
 {# Locations Summary — Contenteditable table for location-type projects #}
 {% if not location_projects %}
-<div class="mb-2 flex justify-end no-print">
+<div class="mb-2 flex justify-end gap-2 no-print">
+  <a href="/clients/{{ client.id }}/locations"
+    class="text-xs bg-indigo-500 text-white px-3 py-1 rounded hover:bg-indigo-600 transition-colors">Organize by Location</a>
   <button type="button" onclick="addLocation({{ client.id }})"
     class="text-xs text-gray-400 border border-dashed border-gray-300 px-3 py-1 rounded hover:border-marsh hover:text-marsh transition-colors">+ Add Location</button>
 </div>
@@ -18,6 +20,8 @@ window.addLocation = function(clientId) {
     <span class="text-xs font-bold text-marsh uppercase tracking-wide">Locations</span>
     <span class="text-xs text-gray-400">&middot; {{ location_projects | length }} location{{ 's' if location_projects | length != 1 }}</span>
     <div class="ml-auto flex gap-2 items-center no-print">
+      <a href="/clients/{{ client.id }}/locations" onclick="event.stopPropagation()"
+        class="text-xs bg-indigo-500 text-white px-3 py-1 rounded hover:bg-indigo-600 transition-colors">Organize by Location</a>
       <a href="/clients/{{ client.id }}/projects/locations/export?format=xlsx" class="text-xs text-marsh hover:underline">XLSX</a>
       <a href="/clients/{{ client.id }}/projects/locations/export?format=csv" class="text-xs text-gray-400 hover:underline">CSV</a>
       <button type="button" onclick="addLocation({{ client.id }})"
