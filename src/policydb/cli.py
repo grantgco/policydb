@@ -117,45 +117,34 @@ def db_seed():
 
 
 @db_group.command("backup")
-@click.option("--dest-dir", default=None, help="Directory to write backup into (default: ~/.policydb/backups/).")
-@click.option("--keep", default=30, show_default=True, help="Number of daily backups to retain before pruning.")
+@click.option("--dest-dir", default=None, hidden=True, help="DEPRECATED — ignored. Backups always go to ~/.policydb/backups/.")
+@click.option("--keep", default=30, show_default=True, help="Number of backups to retain before pruning oldest.")
 def db_backup(dest_dir, keep):
     """Back up the database to a timestamped file and prune old backups.
 
     Creates ~/.policydb/backups/policydb_YYYY-MM-DD_HHMMSS.sqlite.
-    Run daily via launchd or cron; old copies beyond --keep days are deleted.
+    Run daily via launchd or cron; oldest copies beyond --keep are deleted.
     """
-    import shutil
-    import datetime
+    if dest_dir is not None:
+        click.echo("Warning: --dest-dir is deprecated and ignored. Backups are always written to ~/.policydb/backups/")
 
     src = get_db_path()
     if not src.exists():
         raise click.ClickException("No database found.")
 
-    backup_dir = Path(dest_dir) if dest_dir else src.parent / "backups"
-    backup_dir.mkdir(parents=True, exist_ok=True)
+    from policydb.db import _auto_backup, _HEALTH_STATUS
+    _auto_backup(src, max_backups=keep)
 
-    ts = datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")
-    dest = backup_dir / f"policydb_{ts}.sqlite"
+    backup_path = _HEALTH_STATUS.get("last_backup", "")
+    verified = _HEALTH_STATUS.get("last_backup_verified", False)
+    count = _HEALTH_STATUS.get("backup_count", 0)
 
-    shutil.copy2(src, dest)
-    click.echo(f"Backup saved: {dest}")
-
-    # Prune backups older than --keep days
-    cutoff = datetime.datetime.now() - datetime.timedelta(days=keep)
-    pruned = 0
-    for f in sorted(backup_dir.glob("policydb_*.sqlite")):
-        if f == dest:
-            continue
-        try:
-            mtime = datetime.datetime.fromtimestamp(f.stat().st_mtime)
-            if mtime < cutoff:
-                f.unlink()
-                pruned += 1
-        except OSError:
-            pass
-    if pruned:
-        click.echo(f"Pruned {pruned} backup(s) older than {keep} days.")
+    if backup_path:
+        click.echo(f"Backup saved: {backup_path}")
+        click.echo(f"Integrity: {'Verified' if verified else 'UNVERIFIED'}")
+        click.echo(f"Total backups: {count} (keeping {keep})")
+    else:
+        click.echo("Warning: Backup may have failed — check ~/.policydb/backups/")
 
 
 @db_group.command("stats")
