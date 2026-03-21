@@ -532,6 +532,57 @@ def learn_carrier_alias(raw: str = Form(...), canonical: str = Form(...)):
 # ── Pairing Board Endpoints ─────────────────────────────────────────────────
 
 
+@router.get("/search-coverage", response_class=HTMLResponse)
+def reconcile_search_coverage(
+    request: Request,
+    q: str = "",
+    idx: int = 0,
+    token: str = "",
+    client_name: str = "",
+    conn=Depends(get_db),
+):
+    """Search DB policies for manual pairing. Returns HTML dropdown with Pair buttons."""
+    if not q or len(q) < 2:
+        return HTMLResponse('<p class="text-xs text-gray-400 p-2">Type at least 2 characters...</p>')
+
+    rows = conn.execute("""
+        SELECT p.id, p.policy_uid, c.name AS client_name, p.policy_type, p.carrier,
+               p.policy_number, p.effective_date, p.expiration_date, p.premium
+        FROM policies p JOIN clients c ON p.client_id = c.id
+        WHERE p.archived = 0
+          AND (p.policy_type LIKE ? OR p.carrier LIKE ? OR p.policy_number LIKE ?
+               OR c.name LIKE ?)
+        ORDER BY c.name, p.policy_type LIMIT 10
+    """, (f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%")).fetchall()
+
+    if not rows:
+        return HTMLResponse('<p class="text-xs text-gray-500 p-2">No policies found matching that search.</p>')
+
+    html = '<div class="space-y-1 max-h-48 overflow-y-auto p-2">'
+    for r in rows:
+        premium_str = f"${r['premium']:,.0f}" if r['premium'] else "—"
+        html += (
+            f'<div class="flex items-center justify-between text-xs bg-white border border-gray-200 rounded px-2 py-1.5 hover:bg-gray-50">'
+            f'<div class="min-w-0 flex-1">'
+            f'<span class="font-medium text-gray-800">{r["policy_type"]}</span>'
+            f' <span class="text-gray-400">&middot;</span> '
+            f'<span class="text-gray-600">{r["carrier"] or "—"}</span>'
+            f' <span class="text-gray-400">&middot;</span> '
+            f'<span class="text-gray-500">{r["client_name"]}</span>'
+            f'<br><span class="text-gray-400">{r["policy_number"] or "—"} &middot; '
+            f'{r["effective_date"] or "—"} &rarr; {r["expiration_date"] or "—"} &middot; {premium_str}</span>'
+            f'</div>'
+            f'<button type="button" '
+            f'hx-post="/reconcile/manual-pair" '
+            f'hx-vals=\'{{"idx": "{idx}", "policy_uid": "{r["policy_uid"]}", "token": "{token}"}}\' '
+            f'hx-target="#pair-{idx}" hx-swap="outerHTML" '
+            f'class="text-xs bg-green-600 text-white px-2 py-0.5 rounded ml-2 flex-shrink-0">Pair</button>'
+            f'</div>'
+        )
+    html += '</div>'
+    return HTMLResponse(html)
+
+
 @router.post("/confirm/{idx}", response_class=HTMLResponse)
 def reconcile_confirm(request: Request, idx: int, token: str = Form("")):
     """Mark a paired row as confirmed. Returns updated pair row + OOB counters."""
@@ -825,6 +876,7 @@ def reconcile_create_form(
     underwriter_name: str = "",
     commission_rate: str = "",
     row_uid: str = "",
+    token: str = "",
     conn=Depends(get_db),
 ):
     """HTMX: render an inline quick-create form for a MISSING row."""
@@ -855,6 +907,7 @@ def reconcile_create_form(
         "all_clients": [dict(c) for c in all_clients],
         "policy_types": cfg.get("policy_types", []),
         "row_uid": row_uid,
+        "token": token,
     })
 
 
@@ -977,8 +1030,8 @@ def reconcile_create(
             except (ValueError, IndexError):
                 pass
 
-    return HTMLResponse(
-        f'<div id="pair-{row_uid}" class="pair-row flex items-center rounded-lg border border-green-200 bg-green-50 mb-2 px-4 py-3">'
+    created_html = (
+        f'<div class="pair-row flex items-center rounded-lg border border-green-200 bg-green-50 mb-2 px-4 py-3" data-status="confirmed" data-confirmed="true">'
         f'<span class="text-green-500 text-lg mr-3">&#10003;</span>'
         f'<div class="flex-1 min-w-0">'
         f'<span class="text-xs font-semibold text-green-700 px-2 py-0.5 rounded bg-green-100">CREATED</span>'
@@ -994,8 +1047,11 @@ def reconcile_create(
         f'</div>'
         f'<a href="/policies/{uid}/edit" class="text-xs text-blue-500 hover:underline ml-3">{uid} &rarr;</a>'
         f'</div>'
-        + counter_html
     )
+    # OOB: replace the original unmatched row with the created confirmation
+    oob_replace = f'<div id="pair-{row_uid}" hx-swap-oob="outerHTML">{created_html}</div>'
+    # The primary response replaces the create-form-wrapper; OOB replaces the unmatched row
+    return HTMLResponse(created_html + oob_replace + counter_html)
 
 
 @router.post("/apply-carrier-field/{policy_uid}/{carrier_id}")

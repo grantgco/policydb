@@ -141,26 +141,31 @@ function handleDrop(event, idx) {
 
 /* filterBoardRows — client-side filter using data-status / data-confirmed / diff_fields */
 function filterBoardRows(status) {
+  var extrasPool = document.getElementById('extras-pool');
+
   document.querySelectorAll('.pair-row').forEach(function(row) {
     if (status === 'all') {
       row.style.display = '';
-      /* Also show any breakdown divs that might follow */
-      var nextSib = row.nextElementSibling;
-      if (nextSib && nextSib.id && nextSib.id.startsWith('breakdown-')) nextSib.style.display = 'none';
       return;
     }
     var rowStatus = row.dataset.status || '';
-    var isConfirmed = row.classList.contains('opacity-75');
-    var hasDiffs = !!row.querySelector('.bg-amber-100');
+    var isConfirmed = row.dataset.confirmed === 'true';
+    var hasDiffs = row.dataset.hasDiffs === 'true' || !!row.querySelector('.diff-tag');
 
     if (status === 'review') {
-      row.style.display = (rowStatus === 'medium' || rowStatus === 'unmatched') ? '' : 'none';
+      /* Show unconfirmed pairs + unmatched rows */
+      row.style.display = (!isConfirmed && (rowStatus === 'medium' || rowStatus === 'high' || rowStatus === 'unmatched')) ? '' : 'none';
     } else if (status === 'confirmed') {
       row.style.display = isConfirmed ? '' : 'none';
     } else if (status === 'diffs') {
       row.style.display = hasDiffs ? '' : 'none';
     }
   });
+
+  /* Always show extras pool in 'all' and 'review' modes, hide in others */
+  if (extrasPool) {
+    extrasPool.style.display = (status === 'all' || status === 'review') ? '' : 'none';
+  }
 
   /* Update active tab styling */
   document.querySelectorAll('.filter-tab').forEach(function(t) {
