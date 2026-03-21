@@ -112,14 +112,22 @@ def get_location_requirements(
     Each row is joined with requirement_sources for source_name.
     """
     sql = """
-        SELECT cr.*, rs.name AS source_name, rs.counterparty, rs.clause_ref
+        SELECT cr.*, rs.name AS source_name, rs.counterparty, rs.clause_ref,
+               rs.project_id AS source_project_id
         FROM coverage_requirements cr
         LEFT JOIN requirement_sources rs ON cr.source_id = rs.id
         WHERE cr.client_id = ?
-          AND (cr.project_id IS NULL OR cr.project_id = ?)
+          AND (
+            /* Requirement explicitly for this location */
+            cr.project_id = ?
+            /* OR requirement is client-wide AND its source is also client-wide (or unlinked) */
+            OR (cr.project_id IS NULL AND (rs.project_id IS NULL OR rs.id IS NULL))
+            /* OR requirement is client-wide AND its source is scoped to THIS location */
+            OR (cr.project_id IS NULL AND rs.project_id = ?)
+          )
         ORDER BY cr.coverage_line, cr.source_id
     """
-    rows = conn.execute(sql, (client_id, project_id)).fetchall()
+    rows = conn.execute(sql, (client_id, project_id, project_id)).fetchall()
     return [dict(r) for r in rows]
 
 
