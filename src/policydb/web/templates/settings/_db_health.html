@@ -27,7 +27,7 @@
   <p class="text-xs text-gray-400 mb-3">Status as of last server start. Actions run against the live database.</p>
 
   <!-- Metric grid -->
-  <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+  <div class="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-4">
     <div class="bg-gray-50 rounded-lg p-3">
       <p class="text-xs text-gray-500 mb-0.5">DB Size</p>
       <p class="text-sm font-semibold text-gray-800">
@@ -47,23 +47,32 @@
       </p>
     </div>
     <div class="bg-gray-50 rounded-lg p-3">
-      <p class="text-xs text-gray-500 mb-0.5">Last Backup</p>
+      <p class="text-xs text-gray-500 mb-0.5">Startup Backups</p>
       {% if db_health.last_backup %}
-      <p class="text-sm font-semibold text-gray-800 truncate" title="{{ db_health.last_backup }}">
-        {{ db_health.last_backup | replace(backup_dir | string + '/', '') if backup_dir else db_health.last_backup }}
-      </p>
+      <p class="text-sm font-semibold text-gray-800">{{ db_health.backup_count }} of {{ backup_retention_max }}</p>
       <p class="text-xs {{ 'text-green-600' if db_health.last_backup_verified else 'text-amber-600' }}">
-        {{ db_health.backup_count }} backup{{ 's' if db_health.backup_count != 1 else '' }} &middot; {{ 'Verified' if db_health.last_backup_verified else 'Unverified' }}
+        Last: {{ 'Verified' if db_health.last_backup_verified else 'Unverified' }}
       </p>
       {% else %}
       <p class="text-sm font-semibold text-amber-600">None yet</p>
-      <p class="text-xs text-gray-400">Will run on next restart</p>
+      {% endif %}
+    </div>
+    <div class="bg-gray-50 rounded-lg p-3">
+      <p class="text-xs text-gray-500 mb-0.5">Migration Backups</p>
+      {% if db_health.migration_last_backup %}
+      <p class="text-sm font-semibold text-gray-800">{{ db_health.migration_backup_count }} of {{ migration_backup_retention_max }}</p>
+      <p class="text-xs {{ 'text-green-600' if db_health.migration_last_backup_verified else 'text-amber-600' }}">
+        Last: {{ 'Verified' if db_health.migration_last_backup_verified else 'Unverified' }}
+      </p>
+      {% else %}
+      <p class="text-sm font-semibold text-gray-500">None</p>
+      <p class="text-xs text-gray-400">Created before migrations</p>
       {% endif %}
     </div>
     <div class="bg-gray-50 rounded-lg p-3">
       <p class="text-xs text-gray-500 mb-0.5">Schema Version</p>
       <p class="text-sm font-semibold text-gray-800">Migration {{ max_migration or '—' }}</p>
-      <p class="text-xs text-gray-400">{{ backups | length }} backup file{{ 's' if backups | length != 1 else '' }}</p>
+      <p class="text-xs text-gray-400">{{ backups | length }} startup + {{ migration_backups | length }} migration files</p>
     </div>
   </div>
 
@@ -131,6 +140,19 @@
       </button>
     </div>
   </div>
+
+  {% if legacy_backups %}
+  <div class="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-center justify-between">
+    <div>
+      <p class="text-xs font-medium text-amber-700">{{ legacy_backups | length }} legacy backup{{ 's' if legacy_backups | length != 1 else '' }} in ~/.policydb/</p>
+      <p class="text-xs text-amber-600">Old-format backups from before the backup consolidation. Safe to remove.</p>
+    </div>
+    <button type="button" onclick="dbCleanupLegacy()"
+      class="text-xs bg-amber-100 text-amber-800 hover:bg-amber-200 border border-amber-300 px-3 py-1.5 rounded-lg font-medium transition-colors whitespace-nowrap ml-3">
+      Clean Up
+    </button>
+  </div>
+  {% endif %}
   </div>
 </details>
 
@@ -193,6 +215,22 @@ function dbPurgeConfirm() {
     .then(function(d) {
       if (d.ok) {
         _dbSetStatus(d.message, 'text-green-600');
+      } else {
+        _dbSetStatus('Error: ' + d.error, 'text-red-600');
+      }
+    })
+    .catch(function(e) { _dbSetStatus('Request failed.', 'text-red-600'); });
+}
+
+function dbCleanupLegacy() {
+  if (!confirm('Delete legacy backup files from ~/.policydb/?')) return;
+  _dbSetStatus('Cleaning up…', 'text-gray-500');
+  fetch('/settings/db/cleanup-legacy', { method: 'POST' })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.ok) {
+        _dbSetStatus(d.message, 'text-green-600');
+        setTimeout(function() { location.reload(); }, 1500);
       } else {
         _dbSetStatus('Error: ' + d.error, 'text-red-600');
       }
