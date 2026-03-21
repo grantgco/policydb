@@ -44,6 +44,11 @@ def _compliance_context(conn: sqlite3.Connection, client_id: int, request: Reque
         cfg_prompts=cfg_prompts,
     )
 
+    # Simple projects list for dropdowns
+    projects = [dict(r) for r in conn.execute(
+        "SELECT id, name FROM projects WHERE client_id=? ORDER BY name", (client_id,)
+    ).fetchall()]
+
     return {
         "request": request,
         "client": client,
@@ -54,6 +59,7 @@ def _compliance_context(conn: sqlite3.Connection, client_id: int, request: Reque
         "all_policies": data["all_policies"],
         "overall_summary": data["overall_summary"],
         "risk_prompts": risk_prompts,
+        "projects": projects,
         # Config values
         "compliance_statuses": cfg.get("compliance_statuses", []),
         "deductible_types": cfg.get("deductible_types", []),
@@ -86,11 +92,18 @@ def sources_add(
     counterparty: str = Form(""),
     clause_ref: str = Form(""),
     notes: str = Form(""),
+    project_id: str = Form(""),
 ):
+    def _int_or_none(v):
+        try:
+            return int(v) if str(v).strip() else None
+        except (ValueError, TypeError):
+            return None
+
     conn.execute(
-        """INSERT INTO requirement_sources (client_id, name, counterparty, clause_ref, notes)
-           VALUES (?, ?, ?, ?, ?)""",
-        (client_id, name.strip(), counterparty.strip(), clause_ref.strip(), notes.strip()),
+        """INSERT INTO requirement_sources (client_id, project_id, name, counterparty, clause_ref, notes)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (client_id, _int_or_none(project_id), name.strip(), counterparty.strip(), clause_ref.strip(), notes.strip()),
     )
     conn.commit()
     ctx = _compliance_context(conn, client_id, request)
@@ -107,12 +120,19 @@ def sources_edit(
     counterparty: str = Form(""),
     clause_ref: str = Form(""),
     notes: str = Form(""),
+    project_id: str = Form(""),
 ):
+    def _int_or_none(v):
+        try:
+            return int(v) if str(v).strip() else None
+        except (ValueError, TypeError):
+            return None
+
     conn.execute(
         """UPDATE requirement_sources
-           SET name=?, counterparty=?, clause_ref=?, notes=?
+           SET name=?, counterparty=?, clause_ref=?, notes=?, project_id=?
            WHERE id=? AND client_id=?""",
-        (name.strip(), counterparty.strip(), clause_ref.strip(), notes.strip(), source_id, client_id),
+        (name.strip(), counterparty.strip(), clause_ref.strip(), notes.strip(), _int_or_none(project_id), source_id, client_id),
     )
     conn.commit()
     ctx = _compliance_context(conn, client_id, request)
@@ -131,9 +151,12 @@ def sources_row_edit(
         "SELECT * FROM requirement_sources WHERE id=? AND client_id=?",
         (source_id, client_id),
     ).fetchone()
+    projects = [dict(r) for r in conn.execute(
+        "SELECT id, name FROM projects WHERE client_id=? ORDER BY name", (client_id,)
+    ).fetchall()]
     return templates.TemplateResponse(
         "compliance/_source_row_edit.html",
-        {"request": request, "src": dict(source), "client_id": client_id},
+        {"request": request, "src": dict(source), "client_id": client_id, "projects": projects},
     )
 
 
@@ -152,7 +175,7 @@ def sources_row_display(
     ).fetchone()
     return templates.TemplateResponse(
         "compliance/_source_row.html",
-        {"request": request, "src": dict(source), "client_id": client_id, "locations": ctx["locations"]},
+        {"request": request, "src": dict(source), "client_id": client_id, "locations": ctx["locations"], "projects": ctx["projects"]},
     )
 
 

@@ -9,7 +9,13 @@
            class="border border-gray-300 rounded px-2 py-1 text-sm w-full focus:border-marsh focus:ring-1 focus:ring-marsh">
   </td>
   <td class="py-2">
-    <span class="text-xs text-gray-400">Set via requirements</span>
+    <select name="project_id" id="src-edit-pid-{{ src.id }}"
+            class="border border-gray-300 rounded px-2 py-1 text-sm w-full focus:border-marsh">
+      <option value="">All Locations</option>
+      {% for p in projects %}
+      <option value="{{ p.id }}" {{ 'selected' if src.project_id == p.id else '' }}>{{ p.name }}</option>
+      {% endfor %}
+    </select>
   </td>
   <td class="py-2">
     <input name="clause_ref" value="{{ src.clause_ref or '' }}" id="src-edit-cr-{{ src.id }}"
@@ -22,7 +28,7 @@
   <td class="py-2 no-print text-right whitespace-nowrap">
     <button type="button" class="bg-marsh text-white px-2 py-1 rounded text-xs hover:opacity-90"
             hx-post="/compliance/client/{{ client_id }}/sources/{{ src.id }}/edit"
-            hx-include="#source-row-{{ src.id }} input"
+            hx-include="#source-row-{{ src.id }} input, #source-row-{{ src.id }} select"
             hx-target="body">Save</button>
     <button type="button" class="text-gray-400 hover:text-gray-600 text-xs ml-1"
             hx-get="/compliance/client/{{ client_id }}/sources/{{ src.id }}/row"

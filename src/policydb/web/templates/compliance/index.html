@@ -40,22 +40,13 @@
             <td class="py-2 font-medium">{{ src.name }}</td>
             <td class="text-gray-600">{{ src.counterparty or '' }}</td>
             <td>
-              {# Determine scope: check if any requirement uses this source with a project_id #}
-              {% set src_ns = namespace(has_location=false, loc_names=[]) %}
-              {% for loc in locations %}
-                {% for req in loc.requirements %}
-                  {% if req.source_id == src.id and req.project_id is not none %}
-                    {% if loc.project.name not in src_ns.loc_names %}
-                      {% set src_ns.has_location = true %}
-                      {% set src_ns.loc_names = src_ns.loc_names + [loc.project.name] %}
-                    {% endif %}
-                  {% endif %}
+              {# Scope: check source's own project_id first, then fall back to requirement scan #}
+              {% if src.project_id %}
+                {% set proj_name = namespace(val='Location ' ~ src.project_id) %}
+                {% for p in projects %}
+                  {% if p.id == src.project_id %}{% set proj_name.val = p.name %}{% endif %}
                 {% endfor %}
-              {% endfor %}
-              {% if src_ns.has_location %}
-                {% for loc_name in src_ns.loc_names %}
-                <span class="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">{{ loc_name }}</span>
-                {% endfor %}
+                <span class="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">{{ proj_name.val }}</span>
               {% else %}
                 <span class="text-xs bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">All Locations</span>
               {% endif %}
@@ -91,6 +82,15 @@
         <div>
           <label class="block text-xs text-gray-500">Counterparty</label>
           <input name="counterparty" class="border rounded px-2 py-1 text-sm w-36" placeholder="e.g., First National Bank">
+        </div>
+        <div>
+          <label class="block text-xs text-gray-500">Scope</label>
+          <select name="project_id" class="border rounded px-2 py-1 text-sm">
+            <option value="">All Locations (Client-wide)</option>
+            {% for p in projects %}
+            <option value="{{ p.id }}">{{ p.name }}</option>
+            {% endfor %}
+          </select>
         </div>
         <div>
           <label class="block text-xs text-gray-500">Clause Ref</label>
