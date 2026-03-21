@@ -35,6 +35,13 @@ EDITABLE_LISTS: dict[str, str] = {
     "expertise_lines": "Contact Expertise — Lines",
     "expertise_industries": "Contact Expertise — Industries",
     "cor_auto_triggers": "COR Auto-Triggers",
+    "endorsement_types": "Required Endorsement Types",
+    "compliance_statuses": "Compliance Statuses",
+    "deductible_types": "Deductible Types",
+    "construction_types": "Construction Types (ISO)",
+    "sprinkler_options": "Sprinkler Options",
+    "roof_types": "Roof Types",
+    "protection_classes": "Protection Classes (ISO)",
 }
 
 
