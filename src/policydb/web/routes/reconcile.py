@@ -11,6 +11,8 @@ from fastapi.responses import HTMLResponse, Response
 from policydb.queries import get_client_by_name
 from policydb.utils import normalize_carrier, normalize_coverage_type, normalize_policy_number
 from policydb.reconciler import (
+    ReconcileRow,
+    _build_reconcile_row,
     _find_likely_pairs,
     _score_pair,
     build_reconcile_xlsx,
@@ -31,6 +33,9 @@ _RESULT_CACHE: dict[str, tuple[bytes, float]] = {}  # token → (xlsx_bytes, tim
 _MISSING_CACHE: dict[str, tuple[list[dict], float]] = {}  # token → (missing_ext_rows, timestamp)
 _LAST_MISSING_TOKEN: str = ""  # most recent token for batch-create fallback
 
+# Board state cache: token → (results list, extras list, db_rows, timestamp)
+_BOARD_CACHE: dict[str, tuple[list, list, list, float]] = {}
+
 def _cache_cleanup():
     """Remove cache entries older than 1 hour."""
     cutoff = _time.time() - 3600
@@ -40,6 +45,35 @@ def _cache_cleanup():
     for k in list(_MISSING_CACHE):
         if _MISSING_CACHE[k][1] < cutoff:
             del _MISSING_CACHE[k]
+    for k in list(_BOARD_CACHE):
+        if _BOARD_CACHE[k][3] < cutoff:
+            del _BOARD_CACHE[k]
+
+
+def _render_counters(summary: dict) -> str:
+    """Build OOB counter HTML matching the board-counters div in _pairing_board.html."""
+    return (
+        '<div id="board-counters" hx-swap-oob="true" class="flex flex-wrap items-center gap-3 mb-4">'
+        '  <span class="flex items-center gap-1.5 text-sm text-gray-600">'
+        '    <span class="w-2.5 h-2.5 rounded-full bg-green-500 inline-block"></span>'
+        f'    Paired <span class="font-bold">{summary["paired_clean"]}</span>'
+        '  </span>'
+        '  <span class="flex items-center gap-1.5 text-sm text-gray-600">'
+        '    <span class="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block"></span>'
+        f'    Review <span class="font-bold">{summary["paired_diffs"]}</span>'
+        '  </span>'
+        '  <span class="flex items-center gap-1.5 text-sm text-gray-600">'
+        '    <span class="w-2.5 h-2.5 rounded-full bg-red-500 inline-block"></span>'
+        f'    Unmatched <span class="font-bold">{summary["unmatched"]}</span>'
+        '  </span>'
+        '  <span class="flex items-center gap-1.5 text-sm text-gray-600">'
+        '    <span class="w-2.5 h-2.5 rounded-full bg-purple-500 inline-block"></span>'
+        f'    Extra <span class="font-bold">{summary["extra"]}</span>'
+        '  </span>'
+        '  <span class="text-gray-300 mx-1">|</span>'
+        f'  <span class="text-xs text-gray-400">{summary["total"]} total rows</span>'
+        '</div>'
+    )
 
 
 def _load_db_policies(conn, client_id: int, scope: str) -> list[dict]:
@@ -192,10 +226,13 @@ async def reconcile_run(
         if r.get("is_program"):
             r["_program_carrier_rows"] = _carrier_map.get(r["id"], [])
 
-    results = reconcile(ext_rows, db_rows, date_priority=bool(date_priority), single_client=bool(client_id))
+    all_results = reconcile(ext_rows, db_rows, date_priority=bool(date_priority), single_client=bool(client_id))
 
-    missing_rows = [r for r in results if r.status in ("MISSING", "UNMATCHED")]
-    extra_rows = [r for r in results if r.status == "EXTRA"]
+    missing_rows = [r for r in all_results if r.status in ("MISSING", "UNMATCHED")]
+    extra_rows = [r for r in all_results if r.status == "EXTRA"]
+
+    # Separate into board results (non-EXTRA) and extras for the pairing board cache
+    board_results = [r for r in all_results if r.status != "EXTRA"]
 
     # Generate token first — used for both MISSING cache and XLSX cache
     download_token = str(_uuid.uuid4())
@@ -207,15 +244,20 @@ async def reconcile_run(
 
     # Cache XLSX for download-without-reupload
     _cache_cleanup()
-    xlsx_bytes = build_reconcile_xlsx(results, run_date=date.today().isoformat(), filename=file.filename or "")
+    xlsx_bytes = build_reconcile_xlsx(all_results, run_date=date.today().isoformat(), filename=file.filename or "")
     _RESULT_CACHE[download_token] = (xlsx_bytes, _time.time())
 
-    ctx["results"] = results
-    ctx["summary"] = summarize(results)
+    # Cache board state for interactive pairing operations
+    _BOARD_CACHE[download_token] = (board_results, extra_rows, db_rows, _time.time())
+
+    # Pass all results to index.html (it filters extras via selectattr in template)
+    ctx["results"] = all_results
+    ctx["extras"] = extra_rows
+    ctx["summary"] = summarize(all_results)
     ctx["pairs"] = _find_likely_pairs(missing_rows, extra_rows)
     ctx["download_token"] = download_token
     ctx["today"] = date.today().isoformat()
-    ctx["program_summary"] = program_reconcile_summary(results, carrier_map=_carrier_map)
+    ctx["program_summary"] = program_reconcile_summary(all_results, carrier_map=_carrier_map)
     return templates.TemplateResponse("reconcile/index.html", ctx)
 
 
@@ -267,6 +309,206 @@ def reconcile_suggest(
         "row_uid": row_uid,
         "scope": scope,
         "client_id": client_id,
+    })
+
+
+# ── Pairing Board Endpoints ─────────────────────────────────────────────────
+
+
+@router.post("/confirm/{idx}", response_class=HTMLResponse)
+def reconcile_confirm(request: Request, idx: int, token: str = Form("")):
+    """Mark a paired row as confirmed. Returns updated pair row + OOB counters."""
+    cache = _BOARD_CACHE.get(token)
+    if not cache:
+        return HTMLResponse('<div class="text-xs text-red-500 p-2">Session expired. Please re-run reconciliation.</div>')
+    results, extras, db_rows, _ = cache
+    if idx < 0 or idx >= len(results):
+        return HTMLResponse('<div class="text-xs text-red-500 p-2">Invalid row index.</div>')
+    results[idx].confirmed = True
+    summary = summarize(results + extras)
+    row_html = templates.TemplateResponse("reconcile/_pair_row.html", {
+        "request": request,
+        "row": results[idx],
+        "idx": idx,
+        "token": token,
+    }).body.decode()
+    counter_html = _render_counters(summary)
+    return HTMLResponse(row_html + counter_html)
+
+
+@router.post("/break/{idx}", response_class=HTMLResponse)
+def reconcile_break(request: Request, idx: int, token: str = Form("")):
+    """Break a pair: move DB policy to extras, convert row to unmatched."""
+    cache = _BOARD_CACHE.get(token)
+    if not cache:
+        return HTMLResponse('<div class="text-xs text-red-500 p-2">Session expired. Please re-run reconciliation.</div>')
+    results, extras, db_rows, ts = cache
+    if idx < 0 or idx >= len(results):
+        return HTMLResponse('<div class="text-xs text-red-500 p-2">Invalid row index.</div>')
+    row = results[idx]
+    # Move DB side to extras pool
+    new_extra_html = ""
+    extras_existed_before = len(extras) > 0
+    if row.db:
+        extra_row = ReconcileRow(ext=None, db=row.db, status="EXTRA")
+        extras.append(extra_row)
+        extra_row_html = templates.TemplateResponse("reconcile/_extra_row.html", {
+            "request": request,
+            "row": extra_row,
+            "token": token,
+            "today": date.today().isoformat(),
+        }).body.decode()
+        if extras_existed_before:
+            # Append to existing extras pool
+            new_extra_html = (
+                '<div id="extras-pool" hx-swap-oob="beforeend">'
+                + extra_row_html
+                + '</div>'
+            )
+        else:
+            # Create the extras pool from scratch (it wasn't rendered initially)
+            new_extra_html = (
+                '<div id="extras-pool" hx-swap-oob="afterend:#board-rows" class="mt-6">'
+                '  <div class="flex items-center gap-3 mb-3">'
+                '    <h3 class="text-sm font-semibold text-purple-700">In Coverage, Not in Upload (1)</h3>'
+                '    <span class="text-xs text-gray-400">Drag a row above to pair it with an unmatched upload row</span>'
+                '  </div>'
+                + extra_row_html
+                + '</div>'
+            )
+    # Convert to unmatched
+    row.db = None
+    row.status = "UNMATCHED"
+    row.match_score = 0
+    row.confidence = "none"
+    row.confirmed = False
+    row.diff_fields = []
+    row.cosmetic_diffs = []
+    row.fillable_fields = []
+    row.score_policy_number = 0.0
+    row.score_dates = 0.0
+    row.score_type = 0.0
+    row.score_carrier = 0.0
+    row.score_name = 0.0
+    row.match_method = ""
+    # Return unmatched row + OOB new extra + OOB counters
+    summary = summarize(results + extras)
+    unmatched_html = templates.TemplateResponse("reconcile/_unmatched_row.html", {
+        "request": request,
+        "row": row,
+        "idx": idx,
+        "token": token,
+    }).body.decode()
+    counter_html = _render_counters(summary)
+    return HTMLResponse(unmatched_html + new_extra_html + counter_html)
+
+
+@router.post("/manual-pair", response_class=HTMLResponse)
+def reconcile_manual_pair(
+    request: Request,
+    idx: int = Form(...),
+    policy_uid: str = Form(...),
+    token: str = Form(""),
+    conn=Depends(get_db),
+):
+    """Manual pair: pair an unmatched row with a specific DB policy (from drag or search)."""
+    cache = _BOARD_CACHE.get(token)
+    if not cache:
+        return HTMLResponse('<div class="text-xs text-red-500 p-2">Session expired. Please re-run reconciliation.</div>')
+    results, extras, db_rows, ts = cache
+    if idx < 0 or idx >= len(results):
+        return HTMLResponse('<div class="text-xs text-red-500 p-2">Invalid row index.</div>')
+
+    row = results[idx]
+    if not row.ext:
+        return HTMLResponse('<div class="text-xs text-red-500 p-2">Row has no upload data.</div>')
+
+    # Find the DB policy — check extras first, then db_rows, then query DB
+    target_db = None
+    extra_idx_to_remove = None
+    for ei, er in enumerate(extras):
+        if er.db and er.db.get("policy_uid") == policy_uid.upper():
+            target_db = er.db
+            extra_idx_to_remove = ei
+            break
+    if target_db is None:
+        for db in db_rows:
+            if db.get("policy_uid") == policy_uid.upper():
+                target_db = db
+                break
+    if target_db is None:
+        # Fallback: query DB directly
+        db_row_raw = conn.execute(
+            """SELECT p.policy_uid, c.name AS client_name, p.policy_type, p.carrier,
+                      p.policy_number, p.effective_date, p.expiration_date,
+                      p.premium, p.limit_amount, p.deductible, p.client_id
+               FROM policies p JOIN clients c ON p.client_id = c.id
+               WHERE p.policy_uid = ?""",
+            (policy_uid.upper(),),
+        ).fetchone()
+        if db_row_raw:
+            target_db = dict(db_row_raw)
+    if target_db is None:
+        return HTMLResponse(f'<div class="text-xs text-red-500 p-2">Policy {policy_uid} not found.</div>')
+
+    # Score the pair
+    breakdown = _score_pair(row.ext, target_db)
+
+    # Update the row in place
+    row.db = target_db
+    row.status = "PAIRED"
+    row.match_score = breakdown.total
+    row.confidence = breakdown.confidence
+    row.match_method = "manual"
+    row.confirmed = False
+    row.score_policy_number = breakdown.score_policy_number
+    row.score_dates = breakdown.score_dates
+    row.score_type = breakdown.score_type
+    row.score_carrier = breakdown.score_carrier
+    row.score_name = breakdown.score_name
+    row.diff_fields = list(breakdown.diff_fields)
+    row.cosmetic_diffs = list(breakdown.cosmetic_diffs)
+    row.fillable_fields = list(breakdown.fillable_fields)
+    row.eff_delta_days = breakdown.eff_delta_days
+    row.exp_delta_days = breakdown.exp_delta_days
+
+    # Remove from extras if found there
+    if extra_idx_to_remove is not None:
+        extras.pop(extra_idx_to_remove)
+
+    # Return the updated pair row (the JS in _pairing_board.html handles extra removal client-side)
+    summary = summarize(results + extras)
+    pair_html = templates.TemplateResponse("reconcile/_pair_row.html", {
+        "request": request,
+        "row": row,
+        "idx": idx,
+        "token": token,
+    }).body.decode()
+    counter_html = _render_counters(summary)
+    return HTMLResponse(pair_html + counter_html)
+
+
+@router.post("/confirm-all", response_class=HTMLResponse)
+def reconcile_confirm_all(request: Request, token: str = Form("")):
+    """Confirm all high-confidence paired rows (score >= 75). Re-renders entire board."""
+    cache = _BOARD_CACHE.get(token)
+    if not cache:
+        return HTMLResponse('<div class="text-xs text-red-500 p-2">Session expired. Please re-run reconciliation.</div>')
+    results, extras, db_rows, ts = cache
+    confirmed_count = 0
+    for row in results:
+        if row.status == "PAIRED" and not row.confirmed and row.match_score >= 75:
+            row.confirmed = True
+            confirmed_count += 1
+    summary = summarize(results + extras)
+    # Re-render the full board content
+    return templates.TemplateResponse("reconcile/_pairing_board.html", {
+        "request": request,
+        "results": results,
+        "extras": extras,
+        "token": token,
+        "summary": summary,
+        "today": date.today().isoformat(),
     })
 
 
@@ -436,13 +678,29 @@ async def reconcile_fill(
 
 
 @router.post("/archive/{policy_uid}", response_class=HTMLResponse)
-def reconcile_archive(request: Request, policy_uid: str, conn=Depends(get_db)):
-    """HTMX: archive an EXTRA policy and return a confirmation row."""
+def reconcile_archive(request: Request, policy_uid: str, token: str = Form(""), conn=Depends(get_db)):
+    """HTMX: archive an EXTRA policy. Remove from board cache, return OOB delete + counters."""
     conn.execute("UPDATE policies SET archived=1 WHERE policy_uid=?", (policy_uid.upper(),))
     conn.commit()
+
+    # Update board cache if active
+    counter_html = ""
+    cache = _BOARD_CACHE.get(token) if token else None
+    if cache:
+        results, extras, db_rows, ts = cache
+        # Remove from extras
+        for i, er in enumerate(extras):
+            if er.db and er.db.get("policy_uid") == policy_uid.upper():
+                extras.pop(i)
+                break
+        summary = summarize(results + extras)
+        counter_html = _render_counters(summary)
+
+    # Return empty div (hx-swap="outerHTML" removes the extra row) + OOB counters
     return HTMLResponse(
-        f'<tr class="bg-gray-50"><td colspan="10" class="px-4 py-3 text-xs text-gray-400 italic">'
-        f'Policy {policy_uid.upper()} archived.</td></tr>'
+        f'<div id="extra-{policy_uid.upper()}" class="text-xs text-gray-400 italic p-2 mb-2">'
+        f'Policy {policy_uid.upper()} archived.</div>'
+        + counter_html
     )
 
 
@@ -516,6 +774,7 @@ def reconcile_create(
     underwriter_name: str = Form(""),
     commission_rate: str = Form(""),
     is_program: str = Form("0"),
+    token: str = Form(""),
     conn=Depends(get_db),
 ):
     """HTMX: create a new policy from a MISSING reconcile row, return confirmation."""
@@ -581,19 +840,58 @@ def reconcile_create(
         conn.commit()
 
     client_name = conn.execute("SELECT name FROM clients WHERE id=?", (client_id,)).fetchone()["name"]
+
+    # Update board cache — mark the row as PAIRED after creation
+    counter_html = ""
+    if token:
+        cache = _BOARD_CACHE.get(token)
+        if cache:
+            results, extras, db_rows_cached, ts = cache
+            try:
+                idx = int(row_uid)
+                if 0 <= idx < len(results):
+                    new_db = {
+                        "policy_uid": uid,
+                        "client_name": client_name,
+                        "policy_type": policy_type,
+                        "carrier": carrier,
+                        "policy_number": policy_number,
+                        "effective_date": effective_date,
+                        "expiration_date": expiration_date,
+                        "premium": premium,
+                        "limit_amount": _f(limit_amount),
+                        "deductible": _f(deductible),
+                        "client_id": client_id,
+                    }
+                    results[idx].db = new_db
+                    results[idx].status = "PAIRED"
+                    results[idx].match_score = 100.0
+                    results[idx].confidence = "high"
+                    results[idx].match_method = "created"
+                    results[idx].confirmed = True
+                    summary = summarize(results + extras)
+                    counter_html = _render_counters(summary)
+            except (ValueError, IndexError):
+                pass
+
     return HTMLResponse(
-        f'<tr id="row-{row_uid}" class="bg-green-50">'
-        f'<td class="px-3 py-2 text-xs text-gray-300">✓</td>'
-        f'<td class="px-4 py-2"><span class="text-xs font-semibold text-green-700 px-2 py-0.5 rounded bg-green-100">CREATED</span></td>'
-        f'<td class="px-4 py-2 text-sm font-medium text-gray-800">{client_name}</td>'
-        f'<td class="px-4 py-2 text-xs text-gray-600">{policy_type}</td>'
-        f'<td class="px-4 py-2 text-xs text-gray-600">{carrier}</td>'
-        f'<td class="px-4 py-2 text-xs font-mono text-gray-500">{policy_number or "—"}</td>'
-        f'<td class="px-4 py-2 text-xs whitespace-nowrap text-gray-600">{effective_date}</td>'
-        f'<td class="px-4 py-2 text-xs whitespace-nowrap text-gray-600">{expiration_date}</td>'
-        f'<td class="px-4 py-2 text-right tabular-nums text-gray-700">${premium:,.0f}</td>'
-        f'<td class="px-4 py-2"><a href="/policies/{uid}/edit" class="text-xs text-marsh hover:underline">{uid} →</a></td>'
-        f'</tr>'
+        f'<div id="pair-{row_uid}" class="pair-row flex items-center rounded-lg border border-green-200 bg-green-50 mb-2 px-4 py-3">'
+        f'<span class="text-green-500 text-lg mr-3">&#10003;</span>'
+        f'<div class="flex-1 min-w-0">'
+        f'<span class="text-xs font-semibold text-green-700 px-2 py-0.5 rounded bg-green-100">CREATED</span>'
+        f' <span class="text-sm font-medium text-gray-800 ml-2">{client_name}</span>'
+        f' <span class="text-xs text-gray-400 mx-1">&middot;</span>'
+        f' <span class="text-xs text-gray-600">{policy_type}</span>'
+        f' <span class="text-xs text-gray-400 mx-1">&middot;</span>'
+        f' <span class="text-xs text-gray-600">{carrier}</span>'
+        f' <span class="text-xs text-gray-400 mx-1">&middot;</span>'
+        f' <span class="text-xs text-gray-600">{effective_date} &rarr; {expiration_date}</span>'
+        f' <span class="text-xs text-gray-400 mx-1">&middot;</span>'
+        f' <span class="text-xs text-gray-700 tabular-nums">${premium:,.0f}</span>'
+        f'</div>'
+        f'<a href="/policies/{uid}/edit" class="text-xs text-blue-500 hover:underline ml-3">{uid} &rarr;</a>'
+        f'</div>'
+        + counter_html
     )
 
 
@@ -1352,12 +1650,18 @@ async def reconcile_apply_field(
 
 @router.get("/download/{token}")
 def reconcile_download_cached(token: str):
-    """Download cached XLSX report without re-uploading the file."""
+    """Download cached XLSX report. Regenerates from board cache if available (reflects mutations)."""
     _cache_cleanup()
-    entry = _RESULT_CACHE.get(token)
-    if not entry:
-        return HTMLResponse("Report expired. Please re-run reconciliation.", status_code=404)
-    xlsx_bytes, _ = entry
+    # Prefer board cache (reflects confirm/break/pair changes)
+    board = _BOARD_CACHE.get(token)
+    if board:
+        results, extras, db_rows, _ = board
+        xlsx_bytes = build_reconcile_xlsx(results + extras, run_date=date.today().isoformat())
+    else:
+        entry = _RESULT_CACHE.get(token)
+        if not entry:
+            return HTMLResponse("Report expired. Please re-run reconciliation.", status_code=404)
+        xlsx_bytes, _ = entry
     return Response(
         content=xlsx_bytes,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
