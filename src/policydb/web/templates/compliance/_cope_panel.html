@@ -4,13 +4,16 @@
 <div class="border-t border-gray-100 px-0 py-3">
   <div class="flex items-center gap-2 mb-3">
     <span class="text-xs uppercase tracking-wider text-gray-400 font-medium">COPE Data</span>
-    <span class="text-[10px] text-gray-300">Construction &bull; Occupancy &bull; Protection &bull; Exposure</span>
+    <span class="text-[10px] text-gray-300">
+      <strong>C</strong>onstruction &bull; <strong>O</strong>ccupancy &bull; <strong>P</strong>rotection &bull; <strong>E</strong>xposure
+    </span>
+    <span class="text-[10px] text-gray-300 ml-auto cursor-help" title="COPE is the standard property underwriting framework:&#10;&#10;CONSTRUCTION — How the building is built (frame type, materials, fire resistance)&#10;OCCUPANCY — What the building is used for and by whom&#10;PROTECTION — Fire protection systems and emergency response capabilities&#10;EXPOSURE — External risk factors (neighboring buildings, geography, CAT zones)">ⓘ What is COPE?</span>
   </div>
 
   <div class="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-2" id="cope-grid-{{ project.id }}">
-    {# Construction Type — combobox #}
+    {# C — Construction Type #}
     <div>
-      <label class="block text-[10px] text-gray-400 uppercase">Construction</label>
+      <label class="block text-[10px] text-gray-400 uppercase" title="ISO construction class — determines fire resistance rating">C &mdash; Construction Type</label>
       <select class="cope-field w-full text-sm border-0 border-b border-gray-200 focus:border-marsh focus:outline-none bg-transparent py-1 px-0"
               data-field="construction_type"
               onchange="saveCope(this)">
@@ -23,28 +26,28 @@
 
     {# Year Built #}
     <div>
-      <label class="block text-[10px] text-gray-400 uppercase">Year Built</label>
+      <label class="block text-[10px] text-gray-400 uppercase" title="Original construction year — affects code compliance and building condition">C &mdash; Year Built</label>
       <span contenteditable="true" class="cope-cell block text-sm py-1 border-b border-transparent focus:border-marsh outline-none"
             data-field="year_built" data-placeholder="e.g. 2005">{{ cope.get('year_built') or '' }}</span>
     </div>
 
     {# Stories #}
     <div>
-      <label class="block text-[10px] text-gray-400 uppercase">Stories</label>
+      <label class="block text-[10px] text-gray-400 uppercase" title="Number of floors — impacts fire department access and egress">C &mdash; Stories</label>
       <span contenteditable="true" class="cope-cell block text-sm py-1 border-b border-transparent focus:border-marsh outline-none"
             data-field="stories" data-placeholder="e.g. 12">{{ cope.get('stories') or '' }}</span>
     </div>
 
     {# Sq Footage #}
     <div>
-      <label class="block text-[10px] text-gray-400 uppercase">Sq Footage</label>
+      <label class="block text-[10px] text-gray-400 uppercase" title="Total building square footage — key factor for property valuation">C &mdash; Sq Footage</label>
       <span contenteditable="true" class="cope-cell block text-sm py-1 border-b border-transparent focus:border-marsh outline-none"
             data-field="sq_footage" data-placeholder="e.g. 145000">{{ '{:,.0f}'.format(cope.get('sq_footage')) if cope.get('sq_footage') else '' }}</span>
     </div>
 
     {# Sprinklered — pill buttons #}
     <div>
-      <label class="block text-[10px] text-gray-400 uppercase mb-1">Sprinklered</label>
+      <label class="block text-[10px] text-gray-400 uppercase mb-1" title="Automatic fire sprinkler system — major rating factor for property premiums">P &mdash; Sprinklered</label>
       <div class="flex gap-1">
         {% for opt in sprinkler_options %}
         <button type="button"
@@ -58,7 +61,7 @@
 
     {# Roof Type — combobox #}
     <div>
-      <label class="block text-[10px] text-gray-400 uppercase">Roof Type</label>
+      <label class="block text-[10px] text-gray-400 uppercase" title="Roofing material and system — affects wind/hail susceptibility and replacement cost">C &mdash; Roof Type</label>
       <select class="cope-field w-full text-sm border-0 border-b border-gray-200 focus:border-marsh focus:outline-none bg-transparent py-1 px-0"
               data-field="roof_type"
               onchange="saveCope(this)">
@@ -71,7 +74,7 @@
 
     {# Protection Class #}
     <div>
-      <label class="block text-[10px] text-gray-400 uppercase">Protection Class</label>
+      <label class="block text-[10px] text-gray-400 uppercase" title="ISO PPC 1-10 (1=best) — based on fire dept distance, water supply, alarm systems">P &mdash; Protection Class</label>
       <select class="cope-field w-full text-sm border-0 border-b border-gray-200 focus:border-marsh focus:outline-none bg-transparent py-1 px-0"
               data-field="protection_class"
               onchange="saveCope(this)">
@@ -84,7 +87,7 @@
 
     {# TIV #}
     <div>
-      <label class="block text-[10px] text-gray-400 uppercase">TIV</label>
+      <label class="block text-[10px] text-gray-400 uppercase" title="Total Insurable Value — building + contents + business income at this location">E &mdash; TIV</label>
       <span contenteditable="true" class="cope-cell block text-sm py-1 border-b border-transparent focus:border-marsh outline-none"
             data-field="total_insurable_value" data-placeholder="e.g. 45m">{{ '{:,.0f}'.format(cope.get('total_insurable_value')) if cope.get('total_insurable_value') else '' }}</span>
     </div>
@@ -93,7 +96,7 @@
   {# Full-width fields #}
   <div class="mt-2 space-y-2">
     <div>
-      <label class="block text-[10px] text-gray-400 uppercase">Occupancy</label>
+      <label class="block text-[10px] text-gray-400 uppercase" title="What the building is used for, tenant mix, hazardous operations — drives liability and property exposures">O &mdash; Occupancy Description</label>
       <span contenteditable="true" class="cope-cell block text-sm py-1 border-b border-transparent focus:border-marsh outline-none w-full"
             data-field="occupancy_description" data-placeholder="e.g. Residential Condo — 120 units, ground floor retail">{{ cope.get('occupancy_description') or '' }}</span>
     </div>

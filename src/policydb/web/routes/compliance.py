@@ -568,12 +568,17 @@ async def review_mode_cell(
     formatted = value
     save_value = value or None
 
-    # Currency parsing for money fields
+    # Currency parsing for money fields — return shorthand (1M, 500K)
     if field in ("required_limit", "max_deductible") and value:
         parsed = parse_currency_with_magnitude(value)
         if parsed:
             save_value = parsed
-            formatted = f"{parsed:,.0f}" if parsed == int(parsed) else f"{parsed:,.2f}"
+            if abs(parsed) >= 1_000_000:
+                formatted = f"{parsed/1_000_000:,.1f}M"
+            elif abs(parsed) >= 1_000:
+                formatted = f"{parsed/1_000:,.0f}K"
+            else:
+                formatted = f"{parsed:,.0f}"
         else:
             save_value = None
             formatted = ""
