@@ -367,3 +367,28 @@ The **pairing board** is a reusable UI pattern for matching/comparing records fr
 - `_attach_client_ids(conn, rows)` adds `client_id` to pipeline rows for linking
 - Phone formatting: always call `format_phone()` from `src/policydb/utils.py` when saving phone fields
 - SQLite migrations are one-way; use `ALTER TABLE ... ADD COLUMN` and never remove columns
+
+### Lessons Learned (Bug Patterns to Avoid)
+
+**1. Migration wiring:** Adding a `.sql` file to `migrations/` is NOT enough. Every migration MUST also be wired into `init_db()` in `db.py` with the version check + INSERT into `schema_version`. Forgetting this causes "no such table" errors at runtime.
+
+**2. `<form>` inside `<tr>` is invalid HTML:** Browsers silently discard `<form>` elements that are direct children of `<tr>`. This causes Save buttons to silently do nothing. Solutions:
+   - Move the `<form>` inside a `<td>` (valid HTML)
+   - Use `hx-post` + `hx-include` on the button instead of wrapping in a form
+   - Never use `<form class="contents">` inside `<tr>` — it doesn't work
+
+**3. Currency display — never use `%g` format:** Python's `%g` produces scientific notation (`1e+06`) for large numbers. Always use:
+   - `'{:,.0f}'.format(value)` for comma-separated integers (1,000,000)
+   - `{{ value | currency }}` for dollar display ($1,000,000)
+   - `{{ value | currency_short }}` for shorthand ($1.0M, $500K)
+   - PATCH endpoints returning formatted values should use shorthand format
+
+**4. `initMatrix()` combobox positioning:** Combobox dropdown uses `position: absolute`. The parent `<td>` MUST have `position: relative` (add Tailwind class `relative`) or the dropdown will span full page width.
+
+**5. Config lists MUST be in Settings UI:** When adding new config lists to `_DEFAULTS` in `config.py`, ALSO add them to `EDITABLE_LISTS` in `settings.py` so users can manage them from the Settings page. Otherwise the list exists but is invisible/uneditable.
+
+**6. Source-level scoping propagation:** When a `requirement_source` is scoped to a `project_id`, the compliance engine query must check BOTH the requirement's `project_id` AND the source's `project_id` to determine which locations see those requirements. A source scoped to Location B should not have its requirements inherited by Location A.
+
+**7. `window.location.reload()` scroll jump:** Full page reloads reset scroll position. When a JS action triggers a reload, save `window.scrollY` to `sessionStorage` (with a page-specific key) before reload, and restore on page load. Always scope the storage key to prevent cross-page interference.
+
+**8. NOT NULL constraints on blank row creation:** When creating blank/empty rows for rapid-entry patterns, save empty string `""` (not `None`) for NOT NULL text columns. Check the migration schema for which columns are NOT NULL before implementing add-row endpoints.
