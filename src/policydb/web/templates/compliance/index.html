@@ -105,6 +105,21 @@
     </div>
   </details>
 
+  {# ── Review Mode (Rapid Entry) ──────────────────────────────────────── #}
+  {% if sources %}
+  <details class="bg-white rounded-lg shadow-sm border border-gray-200 mb-6 no-print">
+    <summary class="px-5 py-3 cursor-pointer font-semibold text-sm text-gray-700 hover:bg-gray-50 flex items-center justify-between">
+      <span>Review Mode <span class="text-xs font-normal text-gray-400 ml-2">Rapid contract entry</span></span>
+      <span class="text-xs text-gray-400">Click to expand</span>
+    </summary>
+    <div id="review-mode-container"
+         hx-get="/compliance/client/{{ client_id }}/review-mode"
+         hx-trigger="toggle from:closest details once"
+         hx-swap="innerHTML">
+    </div>
+  </details>
+  {% endif %}
+
   {# ── Compliance Matrix ───────────────────────────────────────────────── #}
   {% include "compliance/_matrix.html" %}
 

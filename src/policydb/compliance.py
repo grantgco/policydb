@@ -347,3 +347,71 @@ def get_risk_review_prompts(
         result.append(prompt)
 
     return result
+
+
+# ── Risk → Requirement Spawning ──────────────────────────────────────────────
+
+
+def spawn_requirements_from_risk(
+    conn,
+    client_id: int,
+    risk_id: int,
+    source_id: int | None = None,
+) -> list[int]:
+    """Create coverage_requirements for each risk_coverage_line not already present.
+
+    For each coverage_line linked to the risk that doesn't already have a
+    matching coverage_requirement (same client_id, risk_id, coverage_line),
+    create one with compliance_status='Needs Review'.
+
+    Returns list of created requirement IDs.
+    """
+    # Get the risk description for notes
+    risk_row = conn.execute(
+        "SELECT description, category FROM client_risks WHERE id=?", (risk_id,)
+    ).fetchone()
+    risk_desc = dict(risk_row).get("description", "") if risk_row else ""
+
+    # Get coverage lines for this risk
+    risk_lines = conn.execute(
+        "SELECT coverage_line FROM risk_coverage_lines WHERE risk_id=?",
+        (risk_id,),
+    ).fetchall()
+
+    if not risk_lines:
+        return []
+
+    # Get existing requirements already spawned from this risk
+    existing = {
+        r["coverage_line"]
+        for r in conn.execute(
+            "SELECT coverage_line FROM coverage_requirements WHERE client_id=? AND risk_id=?",
+            (client_id, risk_id),
+        ).fetchall()
+    }
+
+    created_ids = []
+    for row in risk_lines:
+        line = row["coverage_line"]
+        if line in existing:
+            continue
+
+        cur = conn.execute(
+            """INSERT INTO coverage_requirements
+               (client_id, risk_id, source_id, coverage_line,
+                compliance_status, notes, required_endorsements)
+               VALUES (?, ?, ?, ?, 'Needs Review', ?, '[]')""",
+            (
+                client_id,
+                risk_id,
+                source_id,
+                line,
+                f"Auto-created from risk: {risk_desc}" if risk_desc else None,
+            ),
+        )
+        created_ids.append(cur.lastrowid)
+
+    if created_ids:
+        conn.commit()
+
+    return created_ids
