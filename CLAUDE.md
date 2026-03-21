@@ -255,6 +255,39 @@ data-options='{{ items | tojson }}'
 
 ---
 
+### Pairing Board Pattern
+
+The **pairing board** is a reusable UI pattern for matching/comparing records from two sources side by side. Use it whenever records from one list need to be matched, paired, or assigned to records in another list.
+
+**Structure:**
+- **Left column**: Source records (upload rows, unassigned items)
+- **Center column**: Score/status badge (clickable for breakdown)
+- **Right column**: Target records (DB matches, locations, programs)
+- **Action column**: Confirm / Break / Create buttons
+
+**Implementation recipe:**
+1. **Define two sides** — "source" rows and "target" rows
+2. **Write a scoring function** — returns 0–100 with per-signal breakdown (use `_score_pair()` pattern from `reconciler.py`)
+3. **Cache results server-side** with a UUID token (in-memory dict, 1-hour TTL)
+4. **Create 4 row templates** — paired row, unmatched-source row, extra-target row, score breakdown
+5. **Wire HTMX endpoints** — confirm, break, pair, create (each returns one row HTML + OOB counter updates)
+6. **Add drag-drop** — `draggable="true"` on extras, drop zone on unmatched, `htmx.ajax()` on drop (~40 lines JS)
+7. **Filter tabs** — client-side toggle on `data-status` attributes, no server round-trip
+
+**Color conventions:**
+- Green (`bg-green-50`): high-confidence pair (score >= 75)
+- Amber (`bg-amber-50`): medium-confidence pair (score 45–74)
+- Red (`bg-red-50`): unmatched source row
+- Purple (`bg-indigo-50`): extra target row (draggable)
+
+**OOB counter pattern:** Every action endpoint returns the updated row HTML plus `<div id="board-counters" hx-swap-oob="true">` with updated counts.
+
+**Current implementations:**
+- `src/policydb/web/templates/reconcile/_pairing_board.html` — reconcile upload vs DB policies
+- `src/policydb/web/templates/clients/_location_board.html` — policies vs locations (planned)
+
+---
+
 ## Development Notes
 
 - Always pass `renewal_statuses` to any template that renders `_status_badge.html`
