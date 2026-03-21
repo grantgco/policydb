@@ -263,6 +263,115 @@ _DEFAULTS: dict[str, Any] = {
     "risk_adequacy_levels": [
         "Adequate", "Inadequate", "Needs Review", "N/A",
     ],
+    "compliance_statuses": [
+        "Compliant", "Gap", "Partial", "Waived", "N/A", "Needs Review",
+    ],
+    "deductible_types": [
+        "Per Occurrence", "Per Claim", "Aggregate", "Named Storm %",
+    ],
+    "construction_types": [
+        "Frame (ISO 1)", "Joisted Masonry (ISO 2)", "Non-Combustible (ISO 3)",
+        "Masonry Non-Combustible (ISO 4)", "Modified Fire Resistive (ISO 5)",
+        "Fire Resistive (ISO 6)",
+    ],
+    "sprinkler_options": [
+        "Yes", "No", "Partial", "Unknown",
+    ],
+    "endorsement_flags": [
+        "ai_required", "wos_required", "primary_noncontrib",
+        "per_project_aggregate", "noc_required", "completed_ops_required",
+        "professional_liability_required", "pollution_required",
+        "cyber_required", "builders_risk_required",
+    ],
+    "endorsement_flag_labels": {
+        "ai_required": "Additional Insured",
+        "wos_required": "Waiver of Subrogation",
+        "primary_noncontrib": "Primary & Non-Contributory",
+        "per_project_aggregate": "Per-Project Aggregate",
+        "noc_required": "Notice of Cancellation",
+        "completed_ops_required": "Completed Operations",
+        "professional_liability_required": "Professional Liability",
+        "pollution_required": "Pollution",
+        "cyber_required": "Cyber",
+        "builders_risk_required": "Builders Risk",
+    },
+    "risk_review_prompt_categories": [
+        "Operational", "People", "Liability", "Financial", "Contractual",
+    ],
+    "risk_review_prompts": [
+        {
+            "category": "Operational",
+            "question": "What are the critical assets at each location — property, equipment, inventory, IP, data? What perils threaten them (CAT zones, flood, wind, seismic)?",
+            "coverage_lines": ["Property", "Inland Marine / Equipment", "Builders Risk"],
+            "industry_keywords_high": [],
+        },
+        {
+            "category": "Operational",
+            "question": "What is the revenue model and what interrupts it? Are there single-source suppliers or long lead-time dependencies?",
+            "coverage_lines": ["Property"],
+            "industry_keywords_high": [],
+        },
+        {
+            "category": "People",
+            "question": "Are subcontractors or contingent labor used? Are certificates of insurance collected and tracked for all subs?",
+            "coverage_lines": ["General Liability", "Umbrella / Excess", "Workers Compensation"],
+            "industry_keywords_high": ["construction", "contractor", "builder"],
+        },
+        {
+            "category": "People",
+            "question": "Is there a board of directors, HOA board, or management committee? What management liability exposure exists?",
+            "coverage_lines": ["Directors & Officers", "Employment Practices"],
+            "industry_keywords_high": ["condo", "hoa", "association", "nonprofit"],
+        },
+        {
+            "category": "Liability",
+            "question": "What contractual indemnification obligations exist? Do upstream contracts require specific AI, WOS, or primary/noncontributory endorsements?",
+            "coverage_lines": ["General Liability", "Umbrella / Excess", "Professional Liability / E&O"],
+            "industry_keywords_high": [],
+        },
+        {
+            "category": "Liability",
+            "question": "Does the organization give advice, design, certify, or provide professional services? Is there completed operations exposure?",
+            "coverage_lines": ["Professional Liability / E&O", "General Liability"],
+            "industry_keywords_high": ["architect", "engineer", "consultant"],
+        },
+        {
+            "category": "Liability",
+            "question": "Is there pollution or environmental liability exposure at any location? Underground storage tanks, hazardous materials, or remediation obligations?",
+            "coverage_lines": ["Pollution / Environmental"],
+            "industry_keywords_high": ["manufacturing", "chemical", "energy", "oil"],
+        },
+        {
+            "category": "Liability",
+            "question": "What data does the organization collect, store, or process? What systems are mission-critical? Is there regulatory exposure (PII, PHI, PCI)?",
+            "coverage_lines": ["Cyber / Privacy"],
+            "industry_keywords_high": ["technology", "healthcare", "financial"],
+        },
+        {
+            "category": "Financial",
+            "question": "What is the organization's balance sheet capacity to retain risk? What deductible/SIR level represents the pain threshold?",
+            "coverage_lines": [],
+            "industry_keywords_high": [],
+        },
+        {
+            "category": "Financial",
+            "question": "Is there crime, social engineering fraud, or employee theft exposure? Are fiduciary obligations (ERISA, benefit plans) in scope?",
+            "coverage_lines": ["Crime / Fidelity"],
+            "industry_keywords_high": [],
+        },
+        {
+            "category": "Contractual",
+            "question": "Are there OCIP/CCIP (wrap-up) programs at any location? Which parties are enrolled vs. excluded?",
+            "coverage_lines": ["General Liability", "Workers Compensation", "Umbrella / Excess"],
+            "industry_keywords_high": ["construction", "development"],
+        },
+        {
+            "category": "Contractual",
+            "question": "Do different locations have different lenders, management agreements, or counterparties with distinct insurance requirements?",
+            "coverage_lines": [],
+            "industry_keywords_high": ["condo", "hoa", "real estate", "portfolio"],
+        },
+    ],
     "contact_roles": [
         "Account Executive", "Account Manager", "Producer", "CSR",
         "Placement Colleague", "Underwriter", "Broker", "Claims Adjuster",
