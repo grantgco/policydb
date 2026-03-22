@@ -1194,11 +1194,52 @@ def policy_tab_workflow(request: Request, policy_uid: str, conn=Depends(get_db))
     if not policy_dict:
         return HTMLResponse("Not found", status_code=404)
 
+    # Program context for child policies
+    program_policy = None
+    program_health = ""
+    if policy_dict.get("program_id"):
+        _pp = conn.execute(
+            "SELECT policy_uid, policy_type FROM policies WHERE id = ?",
+            (policy_dict["program_id"],),
+        ).fetchone()
+        if _pp:
+            program_policy = dict(_pp)
+            _ph = conn.execute(
+                """SELECT health FROM policy_timeline
+                   WHERE policy_uid = ? AND completed_date IS NULL
+                   ORDER BY CASE health
+                     WHEN 'critical' THEN 1 WHEN 'at_risk' THEN 2
+                     WHEN 'compressed' THEN 3 WHEN 'drifting' THEN 4 ELSE 5 END
+                   LIMIT 1""",
+                (program_policy["policy_uid"],),
+            ).fetchone()
+            program_health = _ph["health"] if _ph else ""
+
     return templates.TemplateResponse("policies/_tab_workflow.html", {
         "request": request,
         "policy": policy_dict,
         "checklist": _build_checklist(conn, uid),
         "request_categories": cfg.get("request_categories", []),
+        "program_policy": program_policy,
+        "program_health": program_health,
+    })
+
+
+@router.get("/{policy_uid}/timeline", response_class=HTMLResponse)
+def policy_timeline_view(request: Request, policy_uid: str, conn=Depends(get_db)):
+    """HTMX partial: vertical timeline visualization for a policy."""
+    uid = policy_uid.upper()
+    policy_dict, _ = _policy_base(conn, uid)
+    if not policy_dict:
+        return HTMLResponse("Not found", status_code=404)
+
+    from policydb.timeline_engine import get_policy_timeline
+    timeline = get_policy_timeline(conn, uid)
+
+    return templates.TemplateResponse("policies/_timeline.html", {
+        "request": request,
+        "policy": policy_dict,
+        "timeline": timeline,
     })
 
 
@@ -1395,6 +1436,27 @@ def policy_edit_form(request: Request, policy_uid: str, add_contact: str = "", c
         ).fetchall()
         suggested_contact_ids = {r["contact_id"] for r in _suggested}
 
+    # Program context for child policies (used by workflow tab timeline banner)
+    _program_policy = None
+    _program_health = ""
+    if policy_dict.get("program_id"):
+        _pp = conn.execute(
+            "SELECT policy_uid, policy_type FROM policies WHERE id = ?",
+            (policy_dict["program_id"],),
+        ).fetchone()
+        if _pp:
+            _program_policy = dict(_pp)
+            _ph = conn.execute(
+                """SELECT health FROM policy_timeline
+                   WHERE policy_uid = ? AND completed_date IS NULL
+                   ORDER BY CASE health
+                     WHEN 'critical' THEN 1 WHEN 'at_risk' THEN 2
+                     WHEN 'compressed' THEN 3 WHEN 'drifting' THEN 4 ELSE 5 END
+                   LIMIT 1""",
+                (_program_policy["policy_uid"],),
+            ).fetchone()
+            _program_health = _ph["health"] if _ph else ""
+
     from policydb.queries import REVIEW_CYCLE_LABELS as _REVIEW_CYCLE_LABELS
     return templates.TemplateResponse("policies/edit.html", {
         "request": request,
@@ -1457,6 +1519,8 @@ def policy_edit_form(request: Request, policy_uid: str, add_contact: str = "", c
             "SELECT * FROM program_carriers WHERE program_id = ? ORDER BY sort_order",
             (policy_dict["id"],),
         ).fetchall()] if policy_dict.get("is_program") else [],
+        "program_policy": _program_policy,
+        "program_health": _program_health,
     })
 
 
