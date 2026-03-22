@@ -99,6 +99,26 @@ Variants exist for: `row` (client detail), `dash` (dashboard), `renew` (renewals
 ### Inline Status Badge
 `src/policydb/web/templates/policies/_status_badge.html` — renders a `<select>` that auto-saves status via HTMX POST to `/policies/{uid}/status`. Needs `renewal_statuses` in template context.
 
+### UID & Reference Tag System
+
+**Policy UIDs:** Auto-generated sequential `POL-001`, `POL-002`, etc. via `next_policy_uid()` in `db.py`. Separate from `policy_number` (carrier's external number).
+
+**Client Numbers:** `cn_number` on `clients` table — external account number from AMS. Used as root of ref tag hierarchy. Fallback: `C{client_id}`.
+
+**Reference Tags:** Built by `build_ref_tag()` in `utils.py`. Hierarchical format: `CN{number}-L{project_id}-{policy_uid}`. Registered as Jinja2 global in `app.py`.
+
+**Copy format:** `copyRefTag()` in `base.html` wraps with `[PDB:...]` for Outlook search distinctiveness. Clicking any ref tag pill copies `[PDB:CN123456789-POL042]` to clipboard.
+
+**Ref tag pill partial:** `_ref_tag_pill.html` — reusable component. Usage:
+```jinja2
+{% set _ref = build_ref_tag(cn_number=..., client_id=..., policy_uid=..., project_id=...) %}
+{% with ref_tag=_ref %}{% include "_ref_tag_pill.html" %}{% endwith %}
+```
+
+**Copy depth for emails:** Client + Location + Policy only — no activity/thread suffixes in email tags. Deeper suffixes (`-A{id}`, `-RFI{nn}`) are for internal PolicyDB linking only.
+
+**Activity Timeline:** Activities on the policy Contacts tab are auto-clustered by time proximity (`activity_cluster_days` config, default 7 days). Display-only grouping — no data model. Replaces the old COR correspondence threading (manual `thread_id` approach removed).
+
 ### Opportunities
 Policies with `is_opportunity=1` are excluded from:
 - Renewal pipeline, suggested follow-ups, stale renewal alerts
@@ -476,3 +496,7 @@ This is not optional — UI changes without visual verification have repeatedly 
 **17. Config key names must match between Python and templates:** When a subagent or plan spec defines config keys (e.g., `conditions.min_premium`, `profile`), verify the actual config structure in `_DEFAULTS` before writing templates. Config keys drift between spec and implementation. Always read `config.py` to confirm the real key names before referencing them in Jinja2 templates.
 
 **18. Milestone profiles use `renewal_milestones` names, not `mandated_activities` names:** The `milestone_profiles` config references milestone names from `renewal_milestones` (e.g., "Submission Sent", "Quote Received"). The `mandated_activities` config uses activity names (e.g., "RSM Meeting", "Market Submissions") which map to checklist milestones via the `checklist_milestone` field. When building UI for profiles, iterate over `renewal_milestones` for the pill list, not `mandated_activities`.
+
+**19. Ref tag copy must use `build_ref_tag()`, never bare `policy_uid`:** Every copy-to-clipboard for a policy reference MUST use `build_ref_tag()` to build the full hierarchical tag (client + location + policy). Copying bare `policy_uid` (e.g., "POL-042") defeats the purpose — the ref tag needs the `CN{number}` prefix for Outlook searchability. The `copyRefTag()` JS function auto-wraps with `[PDB:...]` — always use it instead of direct `navigator.clipboard.writeText()`.
+
+**20. `thread_id` column is legacy — do not write to it:** The `activity_log.thread_id` column exists for backwards compatibility but is no longer written to. New activities get `NULL` thread_id. The auto-clustered activity timeline (grouped by `activity_cluster_days` time gap) replaces the old manual COR correspondence threading. COR search in ref_lookup still works for old data.
