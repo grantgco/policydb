@@ -77,10 +77,14 @@ Each route module is in `src/policydb/web/routes/`. Routers registered in `src/p
 | dashboard.py | / | Dashboard, search, pipeline partial |
 | clients.py | /clients | Client CRUD, contacts, team |
 | policies.py | /policies | Policy CRUD, row edit, quick log, inline forms |
-| activities.py | /activities, /followups, /renewals | Follow-ups, activities, renewal pipeline |
+| action_center.py | /action-center | Unified tabbed page: Follow-ups, Inbox, Activities, Scratchpads |
+| activities.py | /followups/plan, /renewals | Plan Week, renewal pipeline, activity PATCH |
 | settings.py | /settings | Config list management, email subjects |
 | templates.py | /templates | Email template CRUD + compose panel |
 | reconcile.py | /reconcile | Statement reconciliation |
+| inbox.py | /inbox/* | Inbox capture, process, scratchpad process (redirects /inbox → Action Center) |
+
+**Note:** `/inbox`, `/followups`, and `/activities` all redirect to `/action-center?tab=...`. The Action Center is the primary UI for daily work management.
 
 ### HTMX Row Edit Pattern
 Every pipeline/table view has three endpoint variants per row:
@@ -430,3 +434,13 @@ This is not optional — UI changes without visual verification have repeatedly 
 **8. NOT NULL constraints on blank row creation:** When creating blank/empty rows for rapid-entry patterns, save empty string `""` (not `None`) for NOT NULL text columns. Check the migration schema for which columns are NOT NULL before implementing add-row endpoints.
 
 **9. `initMatrix()` add-row endpoint must return a single `<tr>`:** The `createNewRow` function in `base.html` POSTs to `addRowUrl` and appends the response HTML children to the `<tbody>`. If the endpoint returns the entire card/section HTML (`<div><table><tbody>...</tbody></table></div>`), the card markup gets appended INSIDE the tbody, causing overlapping renders. Always return just the `<tr>` row template from add-row endpoints used with `initMatrix()`.
+
+**10. `initAtComplete()` must be called on dynamically-loaded inputs:** The `@` contact autocomplete only works on inputs that have `initAtComplete(input, hiddenId)` called on them. HTMX-loaded tab content doesn't get this automatically — call it in a `<script>` block within the partial template after the input is rendered.
+
+**11. `table-fixed` breaks with narrow viewports:** Using `table-fixed` with pixel-width `<col>` elements causes text to wrap character-by-character when the table is compressed. Prefer `table-layout: auto` with `min-width` on key columns and `whitespace-nowrap` on narrow columns.
+
+**12. Scratchpads are working documents — activities are the record:** The platform philosophy is that scratchpads are ephemeral working spaces. When done, "Log as Activity" creates the permanent record. There is no separate "Saved Notes" layer — notes become activities. The `saved_notes` table exists but is legacy (data migrated to `activity_log` via migration 068).
+
+**13. Sidebar responsive visibility:** Use `hidden xl:block` (not `lg:block`) for sidebars on pages with tabbed content. At `lg` (1024px) the sidebar overlaps tab content. `xl` (1280px) gives enough room for both.
+
+**14. Worktree rebase stash conflicts with pycache:** When rebasing a worktree, `git stash pop` can fail on `.pyc` file conflicts. Drop the stash, `git checkout -- '**/__pycache__/'`, and re-run `pip install -e .` to regenerate.
