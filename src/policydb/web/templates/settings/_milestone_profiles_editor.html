@@ -31,9 +31,7 @@
         <label class="text-[10px] text-gray-500 block mb-1">Milestones (click to toggle)</label>
         <div class="flex flex-wrap gap-1.5" id="mp-milestones-{{ prof_idx }}">
           {% set active_milestones = prof.milestones|default([]) %}
-          {% set all_milestone_names = [] %}
-          {% for act in mandated_activities %}{% if act.name not in all_milestone_names %}{% if all_milestone_names.append(act.name) %}{% endif %}{% endif %}{% endfor %}
-          {% for m in all_milestone_names %}
+          {% for m in renewal_milestones %}
           <button type="button"
             class="text-xs px-2.5 py-1 rounded-full border transition-colors
               {% if m in active_milestones %}bg-marsh text-white border-marsh{% else %}bg-gray-50 text-gray-500 border-gray-200 hover:border-marsh hover:text-marsh{% endif %}"
@@ -54,10 +52,10 @@
       <div class="space-y-1">
         {% for rule in milestone_profile_rules %}
         <div class="text-xs text-gray-600">
-          {% if rule.conditions is defined and rule.conditions.get('min_premium') %}Premium &ge; ${{ '{:,.0f}'.format(rule.conditions.min_premium) }}{% endif %}
-          {% if rule.conditions is defined and rule.conditions.get('default') %}Default{% endif %}
+          {% if rule.if_premium_gte is defined %}Premium &ge; ${{ '{:,.0f}'.format(rule.if_premium_gte) }}{% endif %}
+          {% if rule.if_premium_lt is defined %}Premium &lt; ${{ '{:,.0f}'.format(rule.if_premium_lt) }}{% endif %}
           <span class="text-gray-400">&rarr;</span>
-          <span class="font-medium text-gray-800">{{ rule.profile }}</span>
+          <span class="font-medium text-gray-800">{{ rule.suggest_profile }}</span>
         </div>
         {% endfor %}
       </div>
