@@ -261,6 +261,111 @@ def complete_meeting(meeting_id: int, conn=Depends(get_db)):
     return RedirectResponse(f"/meetings/{meeting_id}", status_code=303)
 
 
+@router.get("/meetings/{meeting_id}/prep-briefing", response_class=HTMLResponse)
+def prep_briefing(
+    request: Request,
+    meeting_id: int,
+    compact: int = 0,
+    conn=Depends(get_db),
+):
+    """Auto-generated prep briefing with all client data."""
+    m = _meeting_dict(conn, meeting_id)
+    if not m:
+        return HTMLResponse("Meeting not found", status_code=404)
+    client_id = m["client_id"]
+    today = date.today().isoformat()
+
+    # Renewal status summary
+    renewals = [dict(r) for r in conn.execute(
+        "SELECT * FROM v_renewal_pipeline WHERE client_id = ?", (client_id,)
+    ).fetchall()]
+
+    # Outstanding: overdue follow-ups
+    overdue_followups = [dict(r) for r in conn.execute(
+        "SELECT * FROM v_overdue_followups WHERE client_id = ?", (client_id,)
+    ).fetchall()]
+
+    # Incomplete milestones
+    incomplete_milestones = [dict(r) for r in conn.execute(
+        """SELECT pm.id, pm.policy_uid, pm.milestone AS description, pm.completed,
+                  p.policy_type
+           FROM policy_milestones pm
+           JOIN policies p ON p.policy_uid = pm.policy_uid
+           WHERE p.client_id = ? AND pm.completed = 0""",
+        (client_id,),
+    ).fetchall()]
+
+    # Open action items from PREVIOUS meetings (not this one)
+    prev_actions = [dict(r) for r in conn.execute(
+        """SELECT mai.*, cm.title as meeting_title
+           FROM meeting_action_items mai
+           JOIN client_meetings cm ON cm.id = mai.meeting_id
+           WHERE cm.client_id = ? AND mai.completed = 0 AND cm.id != ?
+           ORDER BY mai.due_date""",
+        (client_id, meeting_id),
+    ).fetchall()]
+
+    # Schedule of insurance — query policies directly since v_schedule has no client_id
+    schedule = [dict(r) for r in conn.execute(
+        """SELECT policy_type, carrier, policy_number, effective_date, expiration_date,
+                  premium, limit_amount, deductible, project_name
+           FROM policies
+           WHERE client_id = ? AND archived = 0
+             AND (is_opportunity = 0 OR is_opportunity IS NULL)
+           ORDER BY policy_type, layer_position""",
+        (client_id,),
+    ).fetchall()]
+
+    # Recent activity (30 days)
+    thirty_days_ago = (date.today() - timedelta(days=30)).isoformat()
+    recent_activity = [dict(r) for r in conn.execute(
+        """SELECT al.activity_date, al.activity_type, al.subject, al.duration_hours
+           FROM activity_log al
+           WHERE al.client_id = ? AND al.activity_date >= ?
+           ORDER BY al.activity_date DESC LIMIT 10""",
+        (client_id, thirty_days_ago),
+    ).fetchall()]
+
+    # Client summary / account pulse
+    client_summary = conn.execute(
+        "SELECT * FROM v_client_summary WHERE id = ?", (client_id,)
+    ).fetchone()
+    client_summary = dict(client_summary) if client_summary else {}
+
+    from policydb.queries import get_client_total_hours
+    total_hours = get_client_total_hours(conn, client_id)
+
+    template = "meetings/_prep_briefing.html"
+    return templates.TemplateResponse(template, {
+        "request": request,
+        "meeting": m,
+        "compact": bool(compact),
+        "attendees": m.get("attendees", []),
+        "renewals": renewals,
+        "overdue_followups": overdue_followups,
+        "incomplete_milestones": incomplete_milestones,
+        "prev_actions": prev_actions,
+        "schedule": schedule,
+        "recent_activity": recent_activity,
+        "client_summary": client_summary,
+        "total_hours": total_hours,
+    })
+
+
+@router.post("/meetings/{meeting_id}/agenda")
+async def save_agenda(
+    meeting_id: int,
+    request: Request,
+    conn=Depends(get_db),
+):
+    """Save meeting agenda / talking points."""
+    form = await request.form()
+    agenda = form.get("agenda", "")
+    conn.execute("UPDATE client_meetings SET agenda = ? WHERE id = ?", (agenda, meeting_id))
+    conn.commit()
+    return JSONResponse({"ok": True})
+
+
 @router.get("/meetings/{meeting_id}", response_class=HTMLResponse)
 def meeting_detail(
     request: Request,
@@ -285,6 +390,17 @@ def meeting_detail(
         (m["client_id"],),
     ).fetchall()]
 
+    # For the Before phase Account Pulse sidebar — load eagerly so no spinner for right column
+    client_summary = {}
+    total_hours = 0.0
+    if (m.get("phase") or "before") == "before":
+        cs = conn.execute(
+            "SELECT * FROM v_client_summary WHERE id = ?", (m["client_id"],)
+        ).fetchone()
+        client_summary = dict(cs) if cs else {}
+        from policydb.queries import get_client_total_hours
+        total_hours = get_client_total_hours(conn, m["client_id"])
+
     return templates.TemplateResponse("meetings/detail_phased.html", {
         "request": request,
         "active": "meetings",
@@ -298,6 +414,8 @@ def meeting_detail(
         "just_created": bool(created),
         "meeting_types": cfg.get("meeting_types", []),
         "renewal_statuses": cfg.get("renewal_statuses", []),
+        "client_summary": client_summary,
+        "total_hours": total_hours,
     })
 
 
