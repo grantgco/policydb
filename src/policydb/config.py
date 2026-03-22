@@ -95,6 +95,15 @@ _DEFAULTS: dict[str, Any] = {
         "Renewal Check-In",
         "Other",
     ],
+    "meeting_types": [
+        "Stewardship",
+        "Renewal Strategy",
+        "Claims Review",
+        "New Business",
+        "General Check-in",
+        "Prospecting",
+        "Annual Review",
+    ],
     "cor_auto_triggers": ["Email", "Left VM", "Sent Email", "Awaiting Response"],
     "follow_up_dispositions": [
         {"label": "Left VM", "default_days": 3},
@@ -388,6 +397,7 @@ _DEFAULTS: dict[str, Any] = {
     "email_subject_policy": "Re: {{client_name}}{{project_name_sep}} \u2014 {{policy_type}} \u2014 Eff. {{effective_date}}",
     "email_subject_client": "Re: {{client_name}}",
     "email_subject_followup": "Re: {{client_name}}{{project_name_sep}} \u2014 {{policy_type}} \u2014 {{subject}}",
+    "email_subject_meeting": "Meeting Recap: {{meeting_title}} \u2014 {{meeting_date}}",
     "mandated_activity_horizon_days": 180,
     "mandated_activities": [
         {

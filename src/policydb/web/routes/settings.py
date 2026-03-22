@@ -21,6 +21,7 @@ EDITABLE_LISTS: dict[str, str] = {
     "opportunity_statuses": "Opportunity Statuses",
     "industry_segments": "Industry Segments",
     "activity_types": "Activity Types",
+    "meeting_types": "Meeting Types",
     "renewal_milestones": "Renewal Checklist",
     "critical_milestones": "Critical Milestones",
     "risk_categories": "Risk / Exposure Categories",
