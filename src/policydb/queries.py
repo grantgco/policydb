@@ -1930,10 +1930,9 @@ def get_week_followups(
     """, (sat_before, fri, sat_before, fri)).fetchall()
 
     # Build accountability map from config dispositions
-    from policydb.config import cfg as _cfg
     disp_map = {
         d["label"]: d.get("accountability", "my_action")
-        for d in _cfg.get("follow_up_dispositions", [])
+        for d in cfg.get("follow_up_dispositions", [])
     }
 
     # Build set of policy_uids due for review
