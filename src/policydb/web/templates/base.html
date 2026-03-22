@@ -24,6 +24,17 @@
     .htmx-indicator { opacity: 0; transition: opacity 200ms ease-in; }
     .htmx-request .htmx-indicator { opacity: 1; }
     .htmx-request.htmx-indicator { opacity: 1; }
+    /* Tab component styles */
+    .tab-bar { display: flex; gap: 2px; border-bottom: 2px solid #e5e7eb; margin-bottom: 1rem; }
+    .tab-btn { padding: 8px 16px; font-size: 13px; font-weight: 500; color: #6b7280; cursor: pointer;
+               border: none; background: none; border-bottom: 2px solid transparent; margin-bottom: -2px;
+               transition: color 0.15s, border-color 0.15s; white-space: nowrap; }
+    .tab-btn:hover { color: #1a3c34; }
+    .tab-btn.active { color: #1a3c34; border-bottom-color: #1a3c34; font-weight: 600; }
+    .tab-btn .tab-badge { font-size: 10px; background: #e5e7eb; color: #6b7280; padding: 1px 6px;
+                          border-radius: 9px; margin-left: 4px; font-weight: 600; }
+    .tab-btn.active .tab-badge { background: #1a3c34; color: white; }
+
     /* Shared matrix styles */
     .matrix-cell-editable:focus { border-bottom: 2px solid var(--color-marsh, #003865); margin-bottom: -2px; outline: none; }
     .matrix-cell-combo.cell-active { border-bottom: 2px solid var(--color-marsh, #003865); margin-bottom: -2px; }
@@ -105,6 +116,47 @@
     }
 
     window.flashCell = flashCell;
+
+    /* ── Tab Component ──────────────────────────────────────────────────── */
+    window.initTabs = function(containerId, storageKey) {
+      var container = document.getElementById(containerId);
+      if (!container) return;
+      var bar = container.querySelector('.tab-bar');
+      var content = container.querySelector('.tab-content');
+      if (!bar || !content) return;
+      var buttons = bar.querySelectorAll('.tab-btn');
+      var saved = sessionStorage.getItem(storageKey);
+
+      function activateTab(btn) {
+        buttons.forEach(function(b) { b.classList.remove('active'); });
+        btn.classList.add('active');
+        sessionStorage.setItem(storageKey, btn.dataset.tab);
+        /* HTMX lazy load: if content div has hx-get matching this tab, trigger it */
+        var url = btn.dataset.tabUrl;
+        if (url) {
+          content.setAttribute('hx-get', url);
+          content.setAttribute('hx-swap', 'innerHTML');
+          content.setAttribute('hx-trigger', 'load');
+          htmx.process(content);
+          htmx.trigger(content, 'load');
+          /* After first load, mark as loaded so we don't re-fetch */
+          btn.dataset.loaded = 'true';
+        }
+      }
+
+      /* Click handler */
+      buttons.forEach(function(btn) {
+        btn.addEventListener('click', function() { activateTab(btn); });
+      });
+
+      /* Restore saved tab or activate first */
+      var target = null;
+      if (saved) {
+        buttons.forEach(function(b) { if (b.dataset.tab === saved) target = b; });
+      }
+      if (!target) target = buttons[0];
+      if (target) activateTab(target);
+    };
 
     window.initMatrix = function(cfg) {
       var tbody = document.getElementById(cfg.tbodyId);
