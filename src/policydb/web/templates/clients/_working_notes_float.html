@@ -5,7 +5,7 @@
       class="bg-marsh text-white text-xs font-medium px-3 py-2 rounded-lg shadow-lg hover:bg-marsh-light transition-colors flex items-center gap-1.5">
       <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
       Working Notes
-      {% if policy_scratchpad %}<span class="w-2 h-2 bg-green-400 rounded-full"></span>{% endif %}
+      {% if client_scratchpad %}<span class="w-2 h-2 bg-green-400 rounded-full"></span>{% endif %}
     </button>
   </div>
 
@@ -16,11 +16,11 @@
         class="text-gray-400 hover:text-gray-600 text-sm leading-none">&times;</button>
     </div>
     <div class="flex-1 overflow-y-auto p-3">
-      {% include "policies/_scratchpad.html" %}
+      {% include "clients/_scratchpad.html" %}
     </div>
-    {% if policy_scratchpad_updated %}
+    {% if client_scratchpad_updated %}
     <div class="px-3 py-1.5 border-t border-gray-100 text-right">
-      <span class="text-xs text-gray-400">Last saved: {{ policy_scratchpad_updated }}</span>
+      <span class="text-xs text-gray-400">Last saved: {{ client_scratchpad_updated }}</span>
     </div>
     {% endif %}
   </div>
