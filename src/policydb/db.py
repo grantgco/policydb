@@ -903,6 +903,13 @@ def init_db(path: Path | None = None) -> None:
     # Data hygiene: fix 'None' string corruption in text fields (runs every startup, fast no-op if clean)
     conn.execute("UPDATE clients SET cn_number = NULL WHERE cn_number = 'None'")
 
+    # Data hygiene: remove orphaned compliance requirements (source deleted but requirements remain)
+    conn.execute("""
+        DELETE FROM coverage_requirements
+        WHERE source_id IS NOT NULL
+          AND source_id NOT IN (SELECT id FROM requirement_sources)
+    """)
+
     # Backfill project addresses from linked policies (idempotent — only fills empty project addresses)
     conn.execute("""
         UPDATE projects SET
