@@ -313,4 +313,12 @@ function acLoadPolicies(inboxId, clientId) {
     }
   });
 })();
+
+/* Wire up @ contact autocomplete on the inbox tab capture input */
+(function() {
+  var input = document.getElementById('ac-capture-input');
+  if (input && typeof initAtComplete === 'function') {
+    initAtComplete(input, 'ac-capture-contact-id');
+  }
+})();
 </script>
