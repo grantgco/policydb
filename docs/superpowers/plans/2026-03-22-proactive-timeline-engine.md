@@ -705,7 +705,7 @@ def recalculate_downstream(
 
     Returns list of {milestone_name, old_projected, new_projected} for changed rows.
     """
-    cfg = Config()
+    import policydb.config as cfg
     minimum_gap = cfg.get("timeline_engine", {}).get("minimum_gap_days", 3)
     exp = date.fromisoformat(expiration_date)
 
@@ -1280,7 +1280,7 @@ Replace existing overdue/upcoming layout with the new sections template. Apply e
 
 - [ ] **Step 5: QA — navigate to Action Center, verify 5 sections render correctly**
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add src/policydb/web/routes/action_center.py \
