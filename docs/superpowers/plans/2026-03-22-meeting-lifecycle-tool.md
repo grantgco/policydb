@@ -19,7 +19,8 @@
 |------|---------------|
 | `src/policydb/migrations/068_meeting_lifecycle.sql` | Add phase, meeting_type, agenda, start_time, end_time to client_meetings; create meeting_decisions table |
 | `src/policydb/web/templates/meetings/detail_phased.html` | Phased detail page with header + phase indicator + phase content areas |
-| `src/policydb/web/templates/meetings/_phase_before.html` | Auto-generated prep briefing layout |
+| `src/policydb/web/templates/meetings/_phase_before.html` | Auto-generated prep briefing layout (includes `_prep_briefing.html`) |
+| `src/policydb/web/templates/meetings/_prep_briefing.html` | Shared briefing content partial — full version in Before, condensed in During reference panel |
 | `src/policydb/web/templates/meetings/_phase_during.html` | Side-by-side notes + prep reference |
 | `src/policydb/web/templates/meetings/_phase_after.html` | Six-step guided closeout |
 | `src/policydb/web/templates/meetings/_decision_row.html` | Single decision display row |
@@ -43,6 +44,8 @@
 | `src/policydb/web/routes/clients.py` | Add meetings section data to client detail context |
 | `src/policydb/web/templates/clients/detail.html` | Include meetings section partial |
 | `src/policydb/web/templates/activities/_activity_row.html` | Add meeting ref tag (MTG-xxx) display |
+| `src/policydb/web/routes/policies.py` | Add meeting/decision data to policy activity tab context |
+| `src/policydb/web/templates/policies/_tab_activity.html` | Show linked meetings and decisions in activity timeline |
 | `src/policydb/web/templates/followups/_row.html` | Add "Schedule as Meeting" action button |
 
 ---
@@ -623,14 +626,22 @@ async def prep_briefing(request: Request, meeting_id: int):
         conn.close()
 ```
 
-- [ ] **Step 4: Create `_phase_before.html` template**
+- [ ] **Step 4: Create shared `_prep_briefing.html` partial**
+
+Create `src/policydb/web/templates/meetings/_prep_briefing.html` — the shared briefing content used in both Before (full) and During (condensed reference). Accepts a `compact` boolean variable:
+- When `compact` is false (Before phase): full-size cards with all detail
+- When `compact` is true (During reference panel): condensed one-line-per-item format, smaller text
+
+Sections: Attendees, Renewal Status (color-coded), Outstanding Items, SOI table, Recent Activity, Account Pulse, Talking Points. Color conventions: green for attendees, amber for renewals, red for outstanding/overdue, indigo for SOI, purple for account pulse.
+
+- [ ] **Step 5: Create `_phase_before.html` template**
 
 Create `src/policydb/web/templates/meetings/_phase_before.html`. Layout per spec:
-- **Left column (3/5)**: Attendees card, Renewal Status card (color-coded urgency), Outstanding Items card (overdue + milestones + prev actions), SOI compact table, Recent Activity timeline (last 10, 30 days)
-- **Right column (2/5)**: Account Pulse card (total premium, policy count, hours YTD), Talking Points / Agenda (contenteditable list with `hx-post="/meetings/{meeting.id}/agenda"` on blur)
+- **Left column (3/5)**: `{% include "meetings/_prep_briefing.html" with compact=False %}`
+- **Right column (2/5)**: Account Pulse card, Talking Points / Agenda (contenteditable list with `hx-post="/meetings/{meeting.id}/agenda"` on blur)
 - **Footer**: "Start Meeting →" button with `hx-post="/meetings/{meeting.id}/start"` and `hx-target="#meeting-content"`
 
-Use Tailwind utility classes. Color conventions: green for attendees, amber for renewals, red for outstanding/overdue, indigo for SOI, purple for account pulse.
+Use Tailwind utility classes.
 
 - [ ] **Step 5: Add agenda save endpoint**
 
@@ -810,10 +821,8 @@ Single decision row: diamond icon (◆), description text, optional policy link 
 
 Layout per spec:
 - **Left side (3/5)**: Large contenteditable notes area with `hx-post="/meetings/{meeting.id}/notes"` on blur/interval. Below: Action Items list (reuse existing `_action_row.html` pattern) with "+ Add" button. Below: Decisions list using `_decision_row.html` with "+ Add" button that expands inline form.
-- **Right side (2/5)**: Condensed prep reference panel (collapsible). Shows: attendees (names+roles), renewal statuses (one-line), outstanding items (one-line), talking points with strike-through toggle.
+- **Right side (2/5)**: Condensed prep reference using shared `_prep_briefing.html` with `compact=True`. Collapsible via "Collapse »" link. Talking points have strike-through toggle (click to mark as covered). Loaded via `hx-get="/meetings/{meeting.id}/prep-briefing?compact=true"` on phase load.
 - **Footer**: "End Meeting →" button with `hx-post="/meetings/{meeting.id}/end"`
-
-The prep reference panel is loaded via `hx-get="/meetings/{meeting.id}/prep-briefing?compact=true"` on phase load, or rendered server-side with a `compact` flag.
 
 - [ ] **Step 6: Run tests**
 
@@ -1013,6 +1022,8 @@ async def schedule_next_meeting(request: Request, meeting_id: int):
 
 Formatted meeting recap: meeting title, date, attendees list, notes summary, decisions list, action items list. "Copy" button uses JS `navigator.clipboard.writeText()`. "Email" button opens `mailto:` with attendee emails and recap body, using `email_subject_meeting` config template.
 
+**Note:** The existing `GET /meetings/{meeting_id}/recap` route (line 722 in meetings.py) already generates a recap. Enhance it to use the new `_recap_preview.html` template and include decisions. This is a GET endpoint (read-only generation).
+
 - [ ] **Step 6: Create `_phase_after.html` template**
 
 Two-column layout per spec with six numbered steps:
@@ -1120,7 +1131,7 @@ def meeting_context(conn, meeting_id):
         "attendees": attendee_names,
         "decisions": decisions_text,
         "action_items": actions_text,
-        "meeting_notes": (meeting.get("notes", "") or "")[:500],
+        "meeting_notes": (meeting.get("meeting_notes", "") or meeting.get("notes", "") or "")[:500],
     }
 ```
 
@@ -1346,7 +1357,60 @@ git commit -m "feat: meeting ref tags on activity rows"
 
 ---
 
-## Task 12: Cross-Links — Follow-Up "Schedule as Meeting" Button
+## Task 12: Cross-Links — Policy Activity Tab Meeting Refs
+
+**Files:**
+- Modify: `src/policydb/web/templates/policies/_tab_activity.html`
+- Modify: `src/policydb/web/routes/policies.py` (add meeting data to activity tab context)
+
+- [ ] **Step 1: Add meeting-linked data to policy activity tab context**
+
+In the route that renders the policy activity tab, query for meetings where this policy was discussed (via `meeting_policies`) and decisions linked to this policy (via `meeting_decisions`):
+
+```python
+# Meetings linked to this policy
+linked_meetings = conn.execute(
+    """SELECT cm.id, cm.title, cm.meeting_date, cm.meeting_uid
+       FROM meeting_policies mp
+       JOIN client_meetings cm ON cm.id = mp.meeting_id
+       WHERE mp.policy_uid = ?
+       ORDER BY cm.meeting_date DESC""",
+    (policy_uid,),
+).fetchall()
+
+# Decisions linked to this policy
+linked_decisions = conn.execute(
+    """SELECT md.*, cm.title as meeting_title, cm.meeting_uid
+       FROM meeting_decisions md
+       JOIN client_meetings cm ON cm.id = md.meeting_id
+       WHERE md.policy_uid = ?
+       ORDER BY md.created_at DESC""",
+    (policy_uid,),
+).fetchall()
+```
+
+Add both to the template context.
+
+- [ ] **Step 2: Update `_tab_activity.html` to show meeting refs and decisions**
+
+In `src/policydb/web/templates/policies/_tab_activity.html`, add a section above or alongside the activity timeline:
+- **Linked Meetings**: List meetings where this policy was discussed, each with a clickable `MTG-{meeting_uid}` badge linking to `/meetings/{id}`
+- **Policy Decisions**: List decisions from meetings that were linked to this policy, with meeting title reference and date
+
+- [ ] **Step 3: Visual QA**
+
+Navigate to a policy that has been linked to a meeting. Verify meeting refs and decisions appear in the activity tab.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add src/policydb/web/routes/policies.py src/policydb/web/templates/policies/_tab_activity.html
+git commit -m "feat: policy activity tab shows linked meetings and decisions"
+```
+
+---
+
+## Task 13: Cross-Links — Follow-Up "Schedule as Meeting" Button
 
 **Files:**
 - Modify: `src/policydb/web/templates/followups/_row.html` (or wherever follow-up action buttons are)
@@ -1380,7 +1444,7 @@ git commit -m "feat: 'Schedule as Meeting' button on follow-up rows"
 
 ---
 
-## Task 13: Meeting Type on Creation Form
+## Task 14: Meeting Type on Creation Form
 
 **Files:**
 - Modify: `src/policydb/web/templates/meetings/detail_phased.html` (or the creation form area)
@@ -1411,7 +1475,7 @@ git commit -m "feat: meeting type field on creation and edit"
 
 ---
 
-## Task 14: Final Integration Test + Visual QA
+## Task 15: Final Integration Test + Visual QA
 
 **Files:**
 - Modify: `tests/test_meeting_lifecycle.py` (add integration test)
