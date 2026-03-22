@@ -205,6 +205,184 @@ def compute_health(
     return "on_track"
 
 
+# ── Recalculation Logic ────────────────────────────────────────────────
+
+
+def recalculate_downstream(
+    conn,
+    policy_uid: str,
+    changed_milestone: str,
+    new_projected: str,
+    expiration_date: str,
+) -> list[dict]:
+    """Shift projected dates for all milestones at or after the changed one.
+
+    Algorithm:
+    1. Read all timeline rows ordered by ideal_date.
+    2. Find the changed milestone; update its projected_date to new_projected.
+    3. For each downstream milestone (those after the changed one in ideal order):
+       - original_gap = ideal[M] - ideal[M-1]
+       - new_gap = max(original_gap, minimum_gap_days)
+       - new_projected[M] = prev_projected + new_gap
+       - Clamp to expiration_date if the new projected would exceed it.
+    4. Persist all changes to DB.
+    5. Call _recompute_prep_and_health() to refresh prep_alert_date and health.
+    6. Return list of {milestone_name, old_projected, new_projected} for rows
+       whose projected_date actually changed.
+    """
+    minimum_gap_days = cfg.get("timeline_engine", {}).get("minimum_gap_days", 3)
+    exp_date = _parse_date(expiration_date)
+
+    rows = conn.execute("""
+        SELECT id, milestone_name, ideal_date, projected_date
+        FROM policy_timeline
+        WHERE policy_uid = ?
+        ORDER BY ideal_date
+    """, (policy_uid,)).fetchall()
+
+    rows = [dict(r) for r in rows]
+
+    # Locate the changed milestone index
+    changed_idx = None
+    for i, r in enumerate(rows):
+        if r["milestone_name"] == changed_milestone:
+            changed_idx = i
+            break
+
+    if changed_idx is None:
+        # Milestone not found — nothing to do
+        return []
+
+    changes: list[dict] = []
+
+    # Update the changed milestone
+    old_projected = rows[changed_idx]["projected_date"]
+    rows[changed_idx]["projected_date"] = new_projected
+    if old_projected != new_projected:
+        changes.append({
+            "milestone_name": changed_milestone,
+            "old_projected": old_projected,
+            "new_projected": new_projected,
+        })
+
+    # Propagate downstream
+    for i in range(changed_idx + 1, len(rows)):
+        prev_ideal = _parse_date(rows[i - 1]["ideal_date"])
+        curr_ideal = _parse_date(rows[i]["ideal_date"])
+        original_gap = (curr_ideal - prev_ideal).days if (curr_ideal and prev_ideal) else minimum_gap_days
+        new_gap = max(original_gap, minimum_gap_days)
+
+        prev_projected = _parse_date(rows[i - 1]["projected_date"])
+        new_proj = prev_projected + timedelta(days=new_gap)
+
+        # Clamp to expiration_date
+        if exp_date and new_proj > exp_date:
+            new_proj = exp_date
+
+        old_proj = rows[i]["projected_date"]
+        new_proj_str = new_proj.isoformat()
+        rows[i]["projected_date"] = new_proj_str
+
+        if old_proj != new_proj_str:
+            changes.append({
+                "milestone_name": rows[i]["milestone_name"],
+                "old_projected": old_proj,
+                "new_projected": new_proj_str,
+            })
+
+    # Persist all rows from changed_idx onward
+    for i in range(changed_idx, len(rows)):
+        conn.execute("""
+            UPDATE policy_timeline
+            SET projected_date = ?
+            WHERE id = ?
+        """, (rows[i]["projected_date"], rows[i]["id"]))
+
+    conn.commit()
+
+    # Recompute prep_alert_date and health for all rows
+    _recompute_prep_and_health(conn, policy_uid, expiration_date)
+
+    return changes
+
+
+def _recompute_prep_and_health(conn, policy_uid: str, expiration_date: str) -> None:
+    """Recompute prep_alert_date and health for every timeline row of a policy.
+
+    For each row:
+    - Looks up prep_days from the matching mandated_activities config entry.
+    - Sets prep_alert_date = projected_date - prep_days.
+    - Computes spacing to the next milestone.
+    - Calls compute_health() to derive new health status.
+    - Updates the row in the DB.
+    """
+    mandated = cfg.get("mandated_activities", [])
+    te_cfg = cfg.get("timeline_engine", {})
+    drift_threshold = te_cfg.get("drift_threshold_days", 7)
+    compression_threshold = te_cfg.get("compression_threshold", 0.5)
+
+    exp_date = _parse_date(expiration_date)
+
+    # Build lookup: milestone name → prep_days
+    prep_days_map: dict[str, int] = {}
+    for act in mandated:
+        prep_days_map[act["name"]] = act.get("prep_days", 0)
+
+    rows = conn.execute("""
+        SELECT id, milestone_name, ideal_date, projected_date, completed_date,
+               accountability, waiting_on, health, acknowledged
+        FROM policy_timeline
+        WHERE policy_uid = ?
+        ORDER BY ideal_date
+    """, (policy_uid,)).fetchall()
+    rows = [dict(r) for r in rows]
+
+    for idx, row in enumerate(rows):
+        projected = _parse_date(row["projected_date"])
+        ideal = _parse_date(row["ideal_date"])
+        completed = _parse_date(row["completed_date"]) if row["completed_date"] else None
+
+        if projected is None or ideal is None:
+            continue
+
+        # prep_alert_date
+        prep_days = prep_days_map.get(row["milestone_name"], 0)
+        prep_alert = projected - timedelta(days=prep_days) if prep_days else projected
+
+        # Spacing: compare to next milestone
+        if idx + 1 < len(rows):
+            next_projected = _parse_date(rows[idx + 1]["projected_date"])
+            next_ideal = _parse_date(rows[idx + 1]["ideal_date"])
+            current_spacing = (next_projected - projected).days if next_projected else 0
+            original_spacing = (next_ideal - ideal).days if next_ideal else 0
+        else:
+            # Last milestone — spacing to expiration
+            current_spacing = (exp_date - projected).days if exp_date else 0
+            original_spacing = (exp_date - ideal).days if exp_date else 0
+
+        is_critical = prep_days_map.get(row["milestone_name"], 0) >= 3  # heuristic
+
+        new_health = compute_health(
+            projected_date=projected,
+            ideal_date=ideal,
+            completed_date=completed,
+            expiration_date=exp_date or projected,
+            is_critical_milestone=is_critical,
+            original_spacing=max(original_spacing, 0),
+            current_spacing=max(current_spacing, 0),
+            drift_threshold=drift_threshold,
+            compression_threshold=compression_threshold,
+        )
+
+        conn.execute("""
+            UPDATE policy_timeline
+            SET prep_alert_date = ?, health = ?
+            WHERE id = ?
+        """, (prep_alert.isoformat(), new_health, row["id"]))
+
+    conn.commit()
+
+
 # ── Helpers ────────────────────────────────────────────────────────────
 
 

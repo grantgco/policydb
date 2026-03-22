@@ -114,7 +114,7 @@ def _insert_test_client(conn, client_id=1, name="Acme Corp"):
     )
 
 
-def _insert_test_policy(conn, policy_uid, client_id, eff_date, exp_date, **kw):
+def _insert_test_policy(conn, policy_uid, client_id, eff_date=None, exp_date=None, **kw):
     """Helper to insert a test policy with required NOT NULL fields."""
     cols = {
         "policy_uid": policy_uid,
@@ -311,3 +311,72 @@ def test_health_evaluation_order_critical_wins():
         original_spacing=30, current_spacing=28,
     )
     assert result == "critical"
+
+
+# ── Task 5: Recalculation Logic Tests ──────────────────────────────────
+
+
+from policydb.timeline_engine import recalculate_downstream
+
+
+def _insert_timeline_row(conn, policy_uid, name, ideal, projected, prep_alert=None):
+    """Helper to insert a timeline row directly."""
+    conn.execute("""
+        INSERT INTO policy_timeline
+            (policy_uid, milestone_name, ideal_date, projected_date, prep_alert_date)
+        VALUES (?, ?, ?, ?, ?)
+    """, (policy_uid, name, ideal, projected, prep_alert or projected))
+
+
+def test_recalculate_shifts_downstream(tmp_db):
+    conn = get_connection(tmp_db)
+    exp = date.today() + timedelta(days=150)
+    _insert_test_client(conn, 1, "Acme Corp")
+    _insert_test_policy(conn, "POL-001", 1, exp_date=exp.isoformat(), milestone_profile="Simple Renewal")
+    _insert_timeline_row(conn, "POL-001", "Quote Received", "2026-05-01", "2026-05-01")
+    _insert_timeline_row(conn, "POL-001", "Client Approved", "2026-05-15", "2026-05-15")
+    _insert_timeline_row(conn, "POL-001", "Binder Requested", "2026-05-30", "2026-05-30")
+    conn.commit()
+
+    recalculate_downstream(conn, "POL-001", "Quote Received", "2026-05-08", exp.isoformat())
+
+    timeline = get_policy_timeline(conn, "POL-001")
+    by_name = {r["milestone_name"]: r for r in timeline}
+    assert by_name["Quote Received"]["projected_date"] == "2026-05-08"
+    assert by_name["Client Approved"]["projected_date"] > "2026-05-08"
+    assert by_name["Binder Requested"]["projected_date"] > by_name["Client Approved"]["projected_date"]
+
+
+def test_recalculate_respects_expiration_boundary(tmp_db):
+    conn = get_connection(tmp_db)
+    exp = date.today() + timedelta(days=30)
+    _insert_test_client(conn, 1, "Acme Corp")
+    _insert_test_policy(conn, "POL-001", 1, exp_date=exp.isoformat(), milestone_profile="Simple Renewal")
+    _insert_timeline_row(conn, "POL-001", "Quote Received", "2026-04-01", "2026-04-01")
+    _insert_timeline_row(conn, "POL-001", "Binder Requested", "2026-04-20", "2026-04-20")
+    conn.commit()
+
+    recalculate_downstream(conn, "POL-001", "Quote Received", exp.isoformat(), exp.isoformat())
+
+    timeline = get_policy_timeline(conn, "POL-001")
+    by_name = {r["milestone_name"]: r for r in timeline}
+    binder_projected = date.fromisoformat(by_name["Binder Requested"]["projected_date"])
+    assert binder_projected <= exp
+
+
+def test_recalculate_minimum_gap(tmp_db):
+    conn = get_connection(tmp_db)
+    exp = date.today() + timedelta(days=150)
+    _insert_test_client(conn, 1, "Acme Corp")
+    _insert_test_policy(conn, "POL-001", 1, exp_date=exp.isoformat(), milestone_profile="Simple Renewal")
+    _insert_timeline_row(conn, "POL-001", "Quote Received", "2026-05-01", "2026-05-01")
+    _insert_timeline_row(conn, "POL-001", "Client Approved", "2026-05-03", "2026-05-03")
+    conn.commit()
+
+    recalculate_downstream(conn, "POL-001", "Quote Received", "2026-05-05", exp.isoformat())
+
+    timeline = get_policy_timeline(conn, "POL-001")
+    by_name = {r["milestone_name"]: r for r in timeline}
+    approved = date.fromisoformat(by_name["Client Approved"]["projected_date"])
+    quote = date.fromisoformat(by_name["Quote Received"]["projected_date"])
+    assert (approved - quote).days >= 3  # minimum_gap_days
