@@ -11,69 +11,21 @@
     rows="4"
     placeholder="Working notes for this policy — type here, then pin with Save Note…"
     class="w-full text-sm text-gray-800 bg-transparent resize-none focus:outline-none placeholder-gray-300 leading-relaxed">{{ policy_scratchpad }}</textarea>
-  <div class="flex justify-end mt-1">
-    <button id="scratch-save-{{ policy.policy_uid }}"
-      hx-post="/policies/{{ policy.policy_uid }}/notes/save"
-      hx-target="#policy-scratchpad-{{ policy.policy_uid }}"
-      hx-swap="outerHTML"
+  <div class="flex justify-end gap-1 mt-1">
+    <button type="button" id="scratch-log-{{ policy.policy_uid }}"
+      onclick="logScratchCombined('policy', '{{ policy.policy_uid }}')"
       {% if not policy_scratchpad or not policy_scratchpad.strip() %}disabled{% endif %}
       class="text-xs bg-marsh text-white px-3 py-1 rounded hover:bg-marsh-light disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
-      Save Note
+      Log as Activity
+    </button>
+    <button type="button" id="scratch-clear-{{ policy.policy_uid }}"
+      onclick="clearScratch('policy', '{{ policy.policy_uid }}')"
+      {% if not policy_scratchpad or not policy_scratchpad.strip() %}disabled{% endif %}
+      class="text-xs text-gray-400 border border-gray-200 px-3 py-1 rounded hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+      Clear
     </button>
   </div>
 
-  {% if policy_saved_notes %}
-  {% set note_count = policy_saved_notes | length %}
-  <div class="mt-4 pt-3 border-t border-gray-100">
-    <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Saved Notes <span class="font-normal text-gray-400">({{ note_count }})</span></p>
-    <div class="space-y-2.5 max-h-[32rem] overflow-y-auto">
-      {% for n in policy_saved_notes[:2] %}
-      <div class="group relative">
-        <p class="text-xs text-gray-400 mb-0.5">{{ n.created_at[:16] }}</p>
-        <div id="pn-{{ n.id }}" class="text-sm text-gray-700 md-render line-clamp-3">{{ n.content }}</div>
-        {% if n.content and (n.content.count('\n') > 2 or n.content | length > 200) %}
-        <button type="button"
-          onclick="var el=document.getElementById('pn-{{ n.id }}');el.classList.toggle('line-clamp-3');this.textContent=el.classList.contains('line-clamp-3')?'show more':'show less'"
-          class="text-xs text-marsh hover:underline mt-0.5">show more</button>
-        {% endif %}
-        <button
-          hx-delete="/policies/{{ policy.policy_uid }}/notes/{{ n.id }}"
-          hx-target="#policy-scratchpad-{{ policy.policy_uid }}"
-          hx-swap="outerHTML"
-          hx-confirm="Delete this saved note?"
-          class="absolute top-0 right-0 text-xs text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">x</button>
-      </div>
-      {% endfor %}
-
-      {% if note_count > 2 %}
-      <details class="mt-1">
-        <summary class="text-xs text-gray-400 hover:text-marsh cursor-pointer select-none py-1">
-          {{ note_count - 2 }} older note{{ 's' if note_count - 2 != 1 else '' }}
-        </summary>
-        <div class="space-y-2.5 mt-2">
-          {% for n in policy_saved_notes[2:] %}
-          <div class="group relative">
-            <p class="text-xs text-gray-400 mb-0.5">{{ n.created_at[:16] }}</p>
-            <div id="pn-{{ n.id }}" class="text-sm text-gray-700 md-render line-clamp-3">{{ n.content }}</div>
-            {% if n.content and (n.content.count('\n') > 2 or n.content | length > 200) %}
-            <button type="button"
-              onclick="var el=document.getElementById('pn-{{ n.id }}');el.classList.toggle('line-clamp-3');this.textContent=el.classList.contains('line-clamp-3')?'show more':'show less'"
-              class="text-xs text-marsh hover:underline mt-0.5">show more</button>
-            {% endif %}
-            <button
-              hx-delete="/policies/{{ policy.policy_uid }}/notes/{{ n.id }}"
-              hx-target="#policy-scratchpad-{{ policy.policy_uid }}"
-              hx-swap="outerHTML"
-              hx-confirm="Delete this saved note?"
-              class="absolute top-0 right-0 text-xs text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">x</button>
-          </div>
-          {% endfor %}
-        </div>
-      </details>
-      {% endif %}
-    </div>
-  </div>
-  {% endif %}
 </div>
 
 <script>
@@ -81,13 +33,14 @@
   var UID = "{{ policy.policy_uid }}";
   var ta = document.getElementById('scratch-ta-' + UID);
   var ts = document.getElementById('scratch-ts-' + UID);
-  var saveBtn = document.getElementById('scratch-save-' + UID);
+  var logBtn = document.getElementById('scratch-log-' + UID);
+  var clearBtn = document.getElementById('scratch-clear-' + UID);
   if (!ta) return;
 
-  function updateSaveBtn() {
-    if (!saveBtn) return;
+  function updateBtns() {
     var hasContent = (ta.value || '').trim().length > 0;
-    saveBtn.disabled = !hasContent;
+    if (logBtn) logBtn.disabled = !hasContent;
+    if (clearBtn) clearBtn.disabled = !hasContent;
   }
 
   var mde = window.initMarkdownEditor('scratch-ta-' + UID, {minHeight: '100px'});
@@ -109,13 +62,13 @@
 
   if (mde) {
     mde.on('change', function() {
-      updateSaveBtn();
+      updateBtns();
       clearTimeout(saveTimer);
       saveTimer = setTimeout(autoSave, 800);
     });
   } else {
     ta.addEventListener('input', function() {
-      updateSaveBtn();
+      updateBtns();
       clearTimeout(saveTimer);
       saveTimer = setTimeout(autoSave, 800);
     });
@@ -123,4 +76,51 @@
 
   if (typeof renderMarkdown === 'function') renderMarkdown('.md-render');
 })();
+
+/* Combined scratchpad functions (shared with client scratchpad) */
+if (!window.logScratchCombined) {
+  window.logScratchCombined = function(source, scopeId) {
+    var ta = document.getElementById('scratch-ta-' + scopeId);
+    if (!ta || !ta.value.trim()) return;
+    var fd = new FormData();
+    fd.set('source', source);
+    fd.set('scope_id', scopeId);
+    fd.set('activity_type', 'Note');
+    fd.set('subject', 'Working note');
+    fd.set('details', ta.value.trim());
+    fetch('/inbox/scratchpad/process', {method: 'POST', body: fd})
+      .then(function(r) {
+        if (r.ok) {
+          ta.value = '';
+          var lb = document.getElementById('scratch-log-' + scopeId);
+          var cb = document.getElementById('scratch-clear-' + scopeId);
+          if (lb) lb.disabled = true;
+          if (cb) cb.disabled = true;
+          if (typeof showToast === 'function') showToast('Note logged as activity + saved', true);
+        }
+      })
+      .catch(function() { if (typeof showToast === 'function') showToast('Failed to process', false); });
+  };
+}
+if (!window.clearScratch) {
+  window.clearScratch = function(source, scopeId) {
+    var ta = document.getElementById('scratch-ta-' + scopeId);
+    if (!ta) return;
+    var fd = new FormData();
+    fd.set('source', source);
+    fd.set('scope_id', scopeId);
+    fetch('/inbox/scratchpad/clear', {method: 'POST', body: fd})
+      .then(function(r) {
+        if (r.ok) {
+          ta.value = '';
+          var lb = document.getElementById('scratch-log-' + scopeId);
+          var cb = document.getElementById('scratch-clear-' + scopeId);
+          if (lb) lb.disabled = true;
+          if (cb) cb.disabled = true;
+          if (typeof showToast === 'function') showToast('Scratchpad cleared', true);
+        }
+      })
+      .catch(function() { if (typeof showToast === 'function') showToast('Failed to clear', false); });
+  };
+}
 </script>

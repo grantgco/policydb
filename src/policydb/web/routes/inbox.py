@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date
 
 from fastapi import APIRouter, Depends, Form, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from policydb import config as cfg
 from policydb.web.app import get_db, templates
@@ -41,81 +41,25 @@ def inbox_capture(content: str = Form(...), client_id: int = Form(0), contact_id
     })
 
 
-@router.get("/inbox", response_class=HTMLResponse)
-def inbox_page(request: Request, show_processed: str = "", conn=Depends(get_db)):
-    """Inbox page - pending items for processing."""
-    pending = [dict(r) for r in conn.execute("""
-        SELECT i.*, c.name AS client_name, ct.name AS contact_name
-        FROM inbox i LEFT JOIN clients c ON i.client_id = c.id
-        LEFT JOIN contacts ct ON i.contact_id = ct.id
-        WHERE i.status = 'pending'
-        ORDER BY i.created_at DESC
-    """).fetchall()]
-    processed = []
-    if show_processed:
-        processed = [dict(r) for r in conn.execute("""
-            SELECT i.*, c.name AS client_name, a.subject AS activity_subject
-            FROM inbox i LEFT JOIN clients c ON i.client_id = c.id
-            LEFT JOIN activity_log a ON i.activity_id = a.id
-            WHERE i.status = 'processed'
-            ORDER BY i.processed_at DESC LIMIT 50
-        """).fetchall()]
-    all_clients = [dict(r) for r in conn.execute(
-        "SELECT id, name FROM clients WHERE archived=0 ORDER BY name"
-    ).fetchall()]
-    # Aggregate non-empty scratchpads from all sources
-    scratchpads = []
-    # Dashboard scratchpad
-    dash_note = conn.execute("SELECT content, updated_at FROM user_notes WHERE id=1").fetchone()
-    if dash_note and (dash_note["content"] or "").strip():
-        scratchpads.append({"source": "dashboard", "label": "Dashboard", "link": "/",
-                            "content": dash_note["content"], "updated_at": dash_note["updated_at"]})
-    # Client scratchpads
-    for cs in conn.execute("""
-        SELECT cs.client_id, cs.content, cs.updated_at, c.name AS client_name
-        FROM client_scratchpad cs JOIN clients c ON cs.client_id = c.id
-        WHERE cs.content IS NOT NULL AND cs.content != ''
-    """).fetchall():
-        scratchpads.append({"source": "client", "label": cs["client_name"], "link": f"/clients/{cs['client_id']}",
-                            "content": cs["content"], "updated_at": cs["updated_at"],
-                            "client_id": cs["client_id"]})
-    # Policy scratchpads
-    for ps in conn.execute("""
-        SELECT ps.policy_uid, ps.content, ps.updated_at, p.policy_type, p.id AS policy_id,
-               p.client_id, c.name AS client_name
-        FROM policy_scratchpad ps JOIN policies p ON ps.policy_uid = p.policy_uid
-        JOIN clients c ON p.client_id = c.id
-        WHERE ps.content IS NOT NULL AND ps.content != ''
-    """).fetchall():
-        scratchpads.append({"source": "policy", "label": f"{ps['client_name']} — {ps['policy_type']}",
-                            "link": f"/policies/{ps['policy_uid']}/edit",
-                            "content": ps["content"], "updated_at": ps["updated_at"],
-                            "policy_id": ps["policy_id"], "client_id": ps["client_id"]})
-    return templates.TemplateResponse("inbox.html", {
-        "request": request, "active": "inbox",
-        "pending": pending,
-        "processed": processed,
-        "show_processed": bool(show_processed),
-        "all_clients": all_clients,
-        "activity_types": cfg.get("activity_types", []),
-        "dispositions": cfg.get("follow_up_dispositions", []),
-        "cor_auto_triggers": cfg.get("cor_auto_triggers", []),
-        "scratchpads": scratchpads,
-    })
+@router.get("/inbox")
+def inbox_page():
+    """Redirect to Action Center inbox tab."""
+    return RedirectResponse("/action-center?tab=inbox", status_code=302)
 
 
 # ── Scratchpad routes (must be before {inbox_id} routes to avoid path conflict) ──
 
 @router.post("/inbox/scratchpad/clear")
-def scratchpad_clear(source: str = Form(...), source_id: str = Form(...), conn=Depends(get_db)):
+def scratchpad_clear(source: str = Form(...), source_id: str = Form(""), scope_id: str = Form(""), conn=Depends(get_db)):
     """Clear a scratchpad's content."""
+    sid = scope_id or source_id
     if source == "dashboard":
         conn.execute("UPDATE user_notes SET content='', updated_at=CURRENT_TIMESTAMP WHERE id=1")
     elif source == "client":
-        cid = source_id.split("/")[-1]
-        conn.execute("UPDATE client_scratchpad SET content='', updated_at=CURRENT_TIMESTAMP WHERE client_id=?", (int(cid),))
+        cid = int(sid.split("/")[-1]) if "/" in sid else int(sid)
+        conn.execute("UPDATE client_scratchpad SET content='', updated_at=CURRENT_TIMESTAMP WHERE client_id=?", (cid,))
     elif source == "policy":
-        uid = source_id.split("/")[2]
+        uid = sid.split("/")[2] if "/" in sid else sid
         conn.execute("UPDATE policy_scratchpad SET content='', updated_at=CURRENT_TIMESTAMP WHERE policy_uid=?", (uid,))
     conn.commit()
     return HTMLResponse("", headers={
@@ -125,8 +69,9 @@ def scratchpad_clear(source: str = Form(...), source_id: str = Form(...), conn=D
 
 @router.post("/inbox/scratchpad/process", response_class=HTMLResponse)
 def scratchpad_process(
-    source: str = Form(...), source_id: str = Form(...),
-    client_id: int = Form(...), subject: str = Form(""),
+    source: str = Form(...),
+    source_id: str = Form(""), scope_id: str = Form(""),
+    client_id: int = Form(0), subject: str = Form(""),
     details: str = Form(""),
     policy_id: int = Form(0),
     activity_type: str = Form("Note"),
@@ -135,17 +80,51 @@ def scratchpad_process(
     start_correspondence: str = Form(""),
     conn=Depends(get_db),
 ):
-    """Process a scratchpad into an activity and clear it."""
+    """Process a scratchpad: create activity + clear."""
     from policydb.utils import round_duration
+
+    # Resolve scope_id (new backported JS sends scope_id directly)
+    sid = scope_id or source_id
+    resolved_client_id = client_id
+    resolved_policy_uid = None
+    content_for_note = details or ""
+
+    if source == "client" and not resolved_client_id:
+        # Extract client_id from scope_id or source_id
+        try:
+            resolved_client_id = int(sid.split("/")[-1]) if "/" in sid else int(sid)
+        except (ValueError, IndexError):
+            resolved_client_id = 0
+        # Get scratchpad content if details not provided
+        if not content_for_note:
+            row = conn.execute("SELECT content FROM client_scratchpad WHERE client_id=?", (resolved_client_id,)).fetchone()
+            if row:
+                content_for_note = row["content"] or ""
+    elif source == "policy" and not resolved_client_id:
+        resolved_policy_uid = sid.split("/")[2] if "/" in sid else sid
+        row = conn.execute("SELECT client_id FROM policies WHERE policy_uid=?", (resolved_policy_uid,)).fetchone()
+        if row:
+            resolved_client_id = row["client_id"]
+        if not content_for_note:
+            row2 = conn.execute("SELECT content FROM policy_scratchpad WHERE policy_uid=?", (resolved_policy_uid,)).fetchone()
+            if row2:
+                content_for_note = row2["content"] or ""
+    elif source == "dashboard" and not content_for_note:
+        row = conn.execute("SELECT content FROM user_notes WHERE id=1").fetchone()
+        if row:
+            content_for_note = row["content"] or ""
+
     account_exec = cfg.get("default_account_exec", "Grant")
     dur = round_duration(duration_hours)
+
+    # 1. Create activity
     cursor = conn.execute(
         """INSERT INTO activity_log
            (activity_date, client_id, policy_id, activity_type, subject, details,
             follow_up_date, account_exec, duration_hours)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (date.today().isoformat(), client_id, policy_id or None, activity_type,
-         subject or "Scratchpad note", details or None,
+        (date.today().isoformat(), resolved_client_id or None, policy_id or None, activity_type,
+         subject or "Scratchpad note", content_for_note or None,
          follow_up_date or None, account_exec, dur),
     )
     activity_id = cursor.lastrowid
@@ -154,16 +133,17 @@ def scratchpad_process(
     if follow_up_date and policy_id:
         from policydb.queries import supersede_followups
         supersede_followups(conn, policy_id, follow_up_date)
-    conn.commit()
-    # Clear the scratchpad
+
+    # 2. Clear the scratchpad
     if source == "dashboard":
         conn.execute("UPDATE user_notes SET content='', updated_at=CURRENT_TIMESTAMP WHERE id=1")
     elif source == "client":
-        cid = source_id.split("/")[-1]
-        conn.execute("UPDATE client_scratchpad SET content='', updated_at=CURRENT_TIMESTAMP WHERE client_id=?", (int(cid),))
+        cid = resolved_client_id
+        conn.execute("UPDATE client_scratchpad SET content='', updated_at=CURRENT_TIMESTAMP WHERE client_id=?", (cid,))
     elif source == "policy":
-        uid = source_id.split("/")[2]
-        conn.execute("UPDATE policy_scratchpad SET content='', updated_at=CURRENT_TIMESTAMP WHERE policy_uid=?", (uid,))
+        puid = resolved_policy_uid or (sid.split("/")[2] if "/" in sid else sid)
+        conn.execute("UPDATE policy_scratchpad SET content='', updated_at=CURRENT_TIMESTAMP WHERE policy_uid=?", (puid,))
+
     conn.commit()
     return HTMLResponse("", headers={
         "HX-Trigger": '{"activityLogged": "Scratchpad processed - activity created"}'
@@ -177,6 +157,7 @@ def inbox_process(
     request: Request, inbox_id: int,
     client_id: int = Form(...),
     policy_id: int = Form(0),
+    contact_id: int = Form(0),
     activity_type: str = Form("Note"),
     subject: str = Form(""),
     details: str = Form(""),
@@ -185,18 +166,23 @@ def inbox_process(
     duration_hours: str = Form(""),
     conn=Depends(get_db),
 ):
-    """Process inbox item - create activity."""
+    """Process inbox item - create activity with contact carryover."""
     from policydb.utils import round_duration
     account_exec = cfg.get("default_account_exec", "Grant")
     dur = round_duration(duration_hours)
+    # Carry over contact_id from inbox item if not explicitly provided
+    if not contact_id:
+        inbox_row = conn.execute("SELECT contact_id FROM inbox WHERE id=?", (inbox_id,)).fetchone()
+        if inbox_row and inbox_row["contact_id"]:
+            contact_id = inbox_row["contact_id"]
     cursor = conn.execute(
         """INSERT INTO activity_log
            (activity_date, client_id, policy_id, activity_type, subject, details,
-            follow_up_date, account_exec, duration_hours)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            follow_up_date, account_exec, duration_hours, contact_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (date.today().isoformat(), client_id, policy_id or None, activity_type,
          subject or "Inbox item", details or None,
-         follow_up_date or None, account_exec, dur),
+         follow_up_date or None, account_exec, dur, contact_id or None),
     )
     activity_id = cursor.lastrowid
     # Start correspondence if requested

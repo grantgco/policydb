@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "policydb",
+      "runtimeExecutable": "policydb",
+      "runtimeArgs": ["serve", "--port", "8001", "--reload"],
+      "port": 8001
+    }
+  ]
+}

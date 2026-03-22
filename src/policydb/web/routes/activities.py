@@ -544,6 +544,38 @@ def followup_date_count(date: str = "", conn=Depends(get_db)):
     return JSONResponse({"count": count})
 
 
+# ── Activity field PATCH (Action Center inline editing) ──────────────────────
+
+
+_ACTIVITY_EDITABLE_FIELDS = {"subject", "activity_type", "duration_hours", "disposition", "details"}
+
+
+@router.patch("/activities/{activity_id}/field")
+def patch_activity_field(activity_id: int, request_body: dict = None, conn=Depends(get_db)):
+    """Update a single field on an activity (for inline editing)."""
+    import json
+    from starlette.requests import Request as _Req
+
+    if request_body is None:
+        return JSONResponse({"ok": False, "error": "No body"}, status_code=400)
+
+    field = request_body.get("field", "")
+    value = request_body.get("value", "")
+
+    if field not in _ACTIVITY_EDITABLE_FIELDS:
+        return JSONResponse({"ok": False, "error": f"Field '{field}' not editable"}, status_code=400)
+
+    # Validate & format
+    formatted = value
+    if field == "duration_hours":
+        formatted = str(round_duration(value))
+        value = round_duration(value)
+
+    conn.execute(f"UPDATE activity_log SET {field} = ? WHERE id = ?", (value or None, activity_id))
+    conn.commit()
+    return JSONResponse({"ok": True, "formatted": formatted})
+
+
 # ── Plan Week routes ─────────────────────────────────────────────────────────
 
 
@@ -742,19 +774,10 @@ def _followups_ctx(conn, window: int, activity_type: str, q: str,
     }
 
 
-@router.get("/followups", response_class=HTMLResponse)
-def followups_page(
-    request: Request,
-    window: int = 30,
-    activity_type: str = "",
-    q: str = "",
-    client_id: int = 0,
-    group_id: int = 0,
-    conn=Depends(get_db),
-):
-    ctx = _followups_ctx(conn, window, activity_type, q, client_id=client_id, group_id=group_id)
-    ctx.update({"request": request, "active": "followups"})
-    return templates.TemplateResponse("followups.html", ctx)
+@router.get("/followups")
+def followups_page():
+    """Redirect to Action Center follow-ups tab."""
+    return RedirectResponse("/action-center?tab=followups", status_code=302)
 
 
 @router.get("/followups/results", response_class=HTMLResponse)
@@ -773,8 +796,14 @@ def followups_results(
     return templates.TemplateResponse("followups/_results.html", ctx)
 
 
-@router.get("/activities", response_class=HTMLResponse)
-def activity_list(
+@router.get("/activities")
+def activity_list():
+    """Redirect to Action Center activities tab."""
+    return RedirectResponse("/action-center?tab=activities", status_code=302)
+
+
+@router.get("/activities-old", response_class=HTMLResponse)
+def activity_list_old(
     request: Request,
     days: int = 90,
     activity_type: str = "",
