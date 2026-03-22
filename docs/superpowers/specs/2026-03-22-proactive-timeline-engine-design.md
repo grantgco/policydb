@@ -62,11 +62,13 @@ The user has ADD and needs the system to enforce consistency, surface the right 
 
 | Health | Condition |
 |--------|-----------|
-| `on_track` | Projected date ≥ 14 days away, or milestone completed |
-| `drifting` | Projected date slipped from ideal by > 7 days but still achievable |
+| `on_track` | Projected date ≥ 7 days away AND drift from ideal ≤ 7 days, or milestone completed |
+| `drifting` | Projected date slipped from ideal by > 7 days but projected date is still ≥ 7 days away |
 | `compressed` | Downstream milestones have < 50% of their original spacing remaining |
 | `at_risk` | Projected date is past OR < 7 days away and not completed |
 | `critical` | Policy expiration ≤ 30 days away with incomplete critical milestones |
+
+**Evaluation order:** `critical` → `at_risk` → `compressed` → `drifting` → `on_track`. First matching condition wins. This ensures no gaps — every milestone gets exactly one health status.
 
 ### Creation Trigger
 
@@ -166,6 +168,7 @@ Each entry in `mandated_activities` gains:
 |-------|------|---------|
 | `prep_days` | INTEGER | Days before projected_date to surface a prep alert |
 | `prep_notes` | TEXT (optional) | Description of what prep work is needed |
+| `checklist_milestone` | TEXT (optional) | Name of `renewal_milestones` item to sync with (see Milestone Name Reconciliation) |
 
 Example:
 
@@ -183,6 +186,7 @@ mandated_activities:
     trigger: "days_before_expiry"
     days: 90
     prep_days: 14
+    checklist_milestone: "Submission Sent"
     activity_type: "Internal Strategy"
     subject: "Prepare submissions — {{policy_type}}"
 
@@ -190,6 +194,7 @@ mandated_activities:
     trigger: "days_before_expiry"
     days: 75
     prep_days: 7
+    checklist_milestone: "Quote Received"
     activity_type: "Renewal Check-In"
     subject: "Follow up on quotes — {{policy_type}}"
 
@@ -197,6 +202,7 @@ mandated_activities:
     trigger: "days_before_expiry"
     days: 60
     prep_days: 10
+    checklist_milestone: "Coverage Comparison Prepared"
     activity_type: "Internal Strategy"
     subject: "Build comparison — {{policy_type}}"
 
@@ -211,6 +217,7 @@ mandated_activities:
     trigger: "days_before_expiry"
     days: 40
     prep_days: 3
+    checklist_milestone: "Client Approved"
     activity_type: "Renewal Check-In"
     subject: "Get client decision — {{policy_type}}"
 
@@ -218,6 +225,7 @@ mandated_activities:
     trigger: "days_before_expiry"
     days: 30
     prep_days: 3
+    checklist_milestone: "Binder Requested"
     activity_type: "Email"
     subject: "Request binder — {{policy_type}}"
 
@@ -225,6 +233,7 @@ mandated_activities:
     trigger: "days_before_expiry"
     days: 14
     prep_days: 0
+    checklist_milestone: "Policy Received"
     activity_type: "Renewal Check-In"
     subject: "Confirm policy issued — {{policy_type}}"
 ```
@@ -534,17 +543,21 @@ This design **expands `mandated_activities`** to include timeline-aware versions
 
 **Name alignment table:**
 
-| `mandated_activities` name | Maps to `renewal_milestones` | Notes |
-|---------------------------|------------------------------|-------|
+**Approach:** `mandated_activities` and `renewal_milestones` use **independent names** because they serve different purposes. Mandated activities describe timed workflow steps ("Market Submissions" = the act of sending); renewal milestones describe deliverable checkpoints ("Submission Sent" = the result). The timeline engine maps between them at sync time using a `checklist_milestone` field on each mandated activity.
+
+| `mandated_activities` name | `checklist_milestone` (syncs to `renewal_milestones`) | Notes |
+|---------------------------|------------------------------------------------------|-------|
 | RSM Meeting | — | Meeting, not a checklist item |
-| Market Submissions | Submission Sent | Same concept, use "Submission Sent" |
-| Quote Received | Quote Received | Exact match |
+| Market Submissions | Submission Sent | Completing this timeline milestone also checks off "Submission Sent" |
+| Quote Received | Quote Received | Exact match — same name in both systems |
 | Coverage Comparison Prepared | Coverage Comparison Prepared | Exact match |
 | Client Presentation | — | Meeting, not a checklist item |
 | Client Approved | Client Approved | Exact match |
 | Binder Requested | Binder Requested | Exact match |
 | Policy Received | Policy Received | Exact match |
 | Post-Binding Meeting | — | Post-effective trigger, not in renewal checklist |
+
+When a mandated activity has a `checklist_milestone` value, completing the timeline milestone auto-marks the corresponding `policy_milestones` checklist item done (and vice versa). Activities without a `checklist_milestone` (meetings) are timeline-only.
 
 ---
 
@@ -596,13 +609,14 @@ CREATE TABLE IF NOT EXISTS policy_timeline (
 ALTER TABLE policies ADD COLUMN milestone_profile TEXT DEFAULT '';
 ```
 
-**Migration numbering:** Next available migration is **069** (068 exists on disk as `068_migrate_saved_notes_to_activities.sql`). The `policy_timeline` table and `milestone_profile` column should be migration 069. Note: migration 068 must be wired into `_KNOWN_MIGRATIONS` in `db.py` if not already.
+**Migration numbering:** Next available migration is **069** (068 exists on disk as `068_migrate_saved_notes_to_activities.sql`). The `policy_timeline` table and `milestone_profile` column should be migration 069. **Pre-requisite fix:** Migration 068 is currently NOT in `_KNOWN_MIGRATIONS` set in `db.py` (line 298) — it must be added before wiring 069, otherwise the backup trigger logic won't cover it.
 
 ### Config Additions
 
 - `follow_up_dispositions[].accountability` — new field per disposition
 - `mandated_activities[].prep_days` — new field per milestone
 - `mandated_activities[].prep_notes` — new optional field per milestone
+- `mandated_activities[].checklist_milestone` — new optional field to sync with `renewal_milestones`
 - `milestone_profiles` — new config key (list of profile definitions)
 - `milestone_profile_rules` — new config key (auto-suggest rules)
 - `timeline_engine` — new config key (minimum_gap_days, drift_threshold_days, compression_threshold)
@@ -660,7 +674,7 @@ ALTER TABLE policies ADD COLUMN milestone_profile TEXT DEFAULT '';
 |------|---------|
 | **`src/policydb/config.py`** | Add `prep_days`/`prep_notes` to `mandated_activities` defaults; add `accountability` to `follow_up_dispositions`; add new keys: `milestone_profiles`, `milestone_profile_rules`, `timeline_engine`, `risk_alert_thresholds` |
 | **`src/policydb/db.py`** | Wire migration 069 into `_KNOWN_MIGRATIONS`; call `generate_policy_timelines()` on startup alongside existing `generate_mandated_activities()` |
-| **`src/policydb/queries.py`** | Modify `get_all_followups()` to include accountability state; modify `get_suggested_followups()` to use timeline health; modify `get_escalation_alerts()` to use timeline health; modify `get_stale_renewals()` to use timeline health; add `supersede_followups()` → timeline recalc trigger |
+| **`src/policydb/queries.py`** | Modify `get_all_followups()` to include accountability state; modify `get_suggested_followups()` to use timeline health; modify `get_escalation_alerts()` to use timeline health; modify `get_stale_renewals()` to use timeline health. **Note:** `supersede_followups()` uses `policy_id` (int) but `policy_timeline` is keyed by `policy_uid` (text) — timeline recalc triggers should be placed at call sites where both IDs are available, or add a `policy_id` → `policy_uid` lookup inside the recalc function. |
 | **`src/policydb/web/routes/activities.py`** | `activity_complete()` — update timeline accountability on completion; `activity_followup()` (re-diary) — trigger timeline recalculation; add timeline context to re-diary response |
 | **`src/policydb/web/routes/action_center.py`** | Rewrite `_followups_ctx()` to produce 5 sections instead of overdue/upcoming; add `_portfolio_health_ctx()` for sidebar widget; add `_risk_alerts_ctx()` for banner; update `_sidebar_ctx()` with new badge counts |
 | **`src/policydb/web/routes/policies.py`** | Add `milestone_profile` field handling to policy edit; add timeline view endpoint; modify milestone toggle to sync with `policy_timeline`; add program timeline banner endpoint |
