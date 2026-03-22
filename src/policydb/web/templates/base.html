@@ -474,8 +474,10 @@
               </div>
             </div>
 
-            <a href="/action-center" class="nav-link {% if active == 'action-center' %}bg-marsh-light{% endif %}">
-              Action Center
+            {% set _fu_badge = followup_badge_counts() %}
+            <a href="/action-center" class="nav-link {% if active == 'action-center' %}bg-marsh-light{% endif %}"
+              {% if _fu_badge.act_now or _fu_badge.nudge_due %}title="{{ _fu_badge.act_now }} action{{ 's' if _fu_badge.act_now != 1 else '' }} &middot; {{ _fu_badge.nudge_due }} nudge{{ 's' if _fu_badge.nudge_due != 1 else '' }}"{% endif %}>
+              Action Center{% if _fu_badge.act_now or _fu_badge.nudge_due %}<span class="bg-white/20 text-white text-[10px] px-1.5 py-0.5 rounded-full ml-1">{{ _fu_badge.act_now + _fu_badge.nudge_due }}</span>{% endif %}
             </a>
 
             <!-- Tools dropdown -->

@@ -255,6 +255,73 @@ def _run_hygiene_062(conn: sqlite3.Connection) -> None:
         print(f"[hygiene-062] Normalized {total} fields: {changed}")
 
 
+def _seed_nudge_templates(conn: sqlite3.Connection) -> None:
+    """Seed default nudge email templates if none exist."""
+    existing = conn.execute(
+        "SELECT COUNT(*) as cnt FROM email_templates WHERE context = 'nudge'"
+    ).fetchone()["cnt"]
+    if existing > 0:
+        return
+
+    templates = [
+        {
+            "name": "Waiting on Client — Document/Signature",
+            "context": "nudge",
+            "subject_template": "Quick follow-up — {{policy_type}} renewal materials",
+            "body_template": (
+                "Hi {{contact_first_name}},\n\n"
+                "Hope all is well. Just wanted to circle back on the {{policy_type}} renewal items we sent over. "
+                "We're in good shape on timing but want to make sure we keep things moving so there are no gaps "
+                "as we approach {{expiration_date}}.\n\n"
+                "Let me know if you have any questions or if there's anything I can help with on your end.\n\n"
+                "Best regards"
+            ),
+        },
+        {
+            "name": "Waiting on Client — Decision/Approval",
+            "context": "nudge",
+            "subject_template": "{{policy_type}} renewal options — next steps",
+            "body_template": (
+                "Hi {{contact_first_name}},\n\n"
+                "Wanted to check in on the {{policy_type}} renewal options we reviewed. "
+                "Happy to jump on a quick call if it would help talk through anything. "
+                "We have some runway but I want to make sure we lock in the best terms while they're available.\n\n"
+                "Best regards"
+            ),
+        },
+        {
+            "name": "Waiting on Carrier — Status Check",
+            "context": "nudge",
+            "subject_template": "Status check — {{client_name}} {{policy_type}}",
+            "body_template": (
+                "Following up on the {{policy_type}} submission for {{client_name}}. "
+                "This is follow-up #{{nudge_count}} — expiration is {{days_to_expiry}} days out. "
+                "Appreciate any update on timing for quotes.\n\n"
+                "Thank you"
+            ),
+        },
+        {
+            "name": "Scheduled Meeting — Confirmation",
+            "context": "nudge",
+            "subject_template": "Confirming our meeting — {{client_name}} {{policy_type}} review",
+            "body_template": (
+                "Hi {{contact_first_name}},\n\n"
+                "Just confirming our meeting on {{meeting_date}} to review the {{policy_type}} renewal. "
+                "I'll have the comparison ready and we can walk through options together.\n\n"
+                "Let me know if the time still works.\n\n"
+                "Best regards"
+            ),
+        },
+    ]
+
+    for t in templates:
+        conn.execute(
+            "INSERT INTO email_templates (name, context, subject_template, body_template) VALUES (?, ?, ?, ?)",
+            (t["name"], t["context"], t["subject_template"], t["body_template"]),
+        )
+    conn.commit()
+
+
 def init_db(path: Path | None = None) -> None:
     """Create schema, run pending migrations, create views."""
     ensure_dirs()
@@ -295,7 +362,7 @@ def init_db(path: Path | None = None) -> None:
 
     # Back up the database once before running any pending migrations.
     # This gives a clean restore point regardless of which migration fails.
-    _KNOWN_MIGRATIONS = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69}
+    _KNOWN_MIGRATIONS = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70}
     if _KNOWN_MIGRATIONS - applied:
         _backup_db(conn, db_path)
 
@@ -927,6 +994,15 @@ def init_db(path: Path | None = None) -> None:
         )
         conn.commit()
 
+    if 70 not in applied:
+        sql = (_MIGRATIONS_DIR / "070_policy_timeline.sql").read_text()
+        conn.executescript(sql)
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (70, "Add policy_timeline table and milestone_profile column to policies"),
+        )
+        conn.commit()
+
     # Data hygiene: fix 'None' string corruption in text fields (runs every startup, fast no-op if clean)
     conn.execute("UPDATE clients SET cn_number = NULL WHERE cn_number = 'None'")
 
@@ -989,6 +1065,13 @@ def init_db(path: Path | None = None) -> None:
     # Generate mandated activities (runs every startup, idempotent via tracking table)
     from policydb.queries import generate_mandated_activities
     generate_mandated_activities(conn)
+
+    # Generate policy timelines for all active policies with milestone profiles
+    from policydb.timeline_engine import generate_policy_timelines
+    generate_policy_timelines(conn)
+
+    # Seed default nudge email templates if none exist
+    _seed_nudge_templates(conn)
 
     # Clean up premature mandated activities (beyond horizon window)
     try:

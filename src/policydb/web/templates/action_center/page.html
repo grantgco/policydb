@@ -7,11 +7,17 @@
 
     {# ── Main content area (tabs) ── #}
     <div class="flex-1 min-w-0">
+      {# Risk alerts banner — above tabs #}
+      {% include "action_center/_risk_alerts.html" %}
+
       {# Tab bar #}
       <div class="tab-bar no-print" id="ac-tab-bar">
         <button class="tab-btn" data-tab="followups" data-tab-url="/action-center/followups">
           Follow-ups
-          {% if overdue is defined and overdue|length %}
+          {% set _fu_badge = (act_now_count if act_now_count is defined else 0) + (nudge_due_count if nudge_due_count is defined else 0) %}
+          {% if _fu_badge %}
+            <span class="tab-badge" style="background:#ef4444;color:white">{{ _fu_badge }}</span>
+          {% elif overdue is defined and overdue|length %}
             <span class="tab-badge" style="background:#ef4444;color:white">{{ overdue|length }}</span>
           {% endif %}
         </button>

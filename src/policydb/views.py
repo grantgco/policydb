@@ -267,9 +267,23 @@ SELECT
         p.underwriter_contact
     ) AS underwriter_contact,
     p.last_reviewed_at,
-    p.review_cycle
+    p.review_cycle,
+    COALESCE(th.timeline_health, '') AS timeline_health
 FROM policies p
 JOIN clients c ON p.client_id = c.id
+LEFT JOIN (
+    SELECT policy_uid,
+        CASE MIN(CASE health
+            WHEN 'critical' THEN 1 WHEN 'at_risk' THEN 2
+            WHEN 'compressed' THEN 3 WHEN 'drifting' THEN 4
+            ELSE 5 END)
+            WHEN 1 THEN 'critical' WHEN 2 THEN 'at_risk'
+            WHEN 3 THEN 'compressed' WHEN 4 THEN 'drifting'
+            ELSE 'on_track' END as timeline_health
+    FROM policy_timeline
+    WHERE completed_date IS NULL
+    GROUP BY policy_uid
+) th ON th.policy_uid = p.policy_uid
 WHERE p.archived = 0
   AND (p.is_opportunity = 0 OR p.is_opportunity IS NULL)
   AND (p.is_program = 0 OR p.is_program IS NULL)
@@ -289,10 +303,24 @@ SELECT
     a.activity_type,
     a.subject,
     a.follow_up_date,
-    CAST(julianday('now') - julianday(a.follow_up_date) AS INTEGER) AS days_overdue
+    CAST(julianday('now') - julianday(a.follow_up_date) AS INTEGER) AS days_overdue,
+    COALESCE(th.timeline_health, '') AS timeline_health
 FROM activity_log a
 JOIN clients c ON a.client_id = c.id
 LEFT JOIN policies p ON a.policy_id = p.id
+LEFT JOIN (
+    SELECT policy_uid,
+        CASE MIN(CASE health
+            WHEN 'critical' THEN 1 WHEN 'at_risk' THEN 2
+            WHEN 'compressed' THEN 3 WHEN 'drifting' THEN 4
+            ELSE 5 END)
+            WHEN 1 THEN 'critical' WHEN 2 THEN 'at_risk'
+            WHEN 3 THEN 'compressed' WHEN 4 THEN 'drifting'
+            ELSE 'on_track' END as timeline_health
+    FROM policy_timeline
+    WHERE completed_date IS NULL
+    GROUP BY policy_uid
+) th ON th.policy_uid = p.policy_uid
 WHERE a.follow_up_date < date('now')
   AND a.follow_up_done = 0
 ORDER BY a.follow_up_date ASC
@@ -355,6 +383,7 @@ SELECT
 FROM policies p
 JOIN clients c ON c.id = p.client_id
 WHERE p.archived = 0
+  AND (p.program_id IS NULL)
   AND (
     p.last_reviewed_at IS NULL
     OR CAST(julianday('now') - julianday(p.last_reviewed_at) AS INTEGER) >= {_cycle_case('p.review_cycle')}
