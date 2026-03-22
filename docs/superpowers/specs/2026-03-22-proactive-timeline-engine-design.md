@@ -533,9 +533,23 @@ The existing `/review` page cycles through policies, opportunities, and clients 
 **Delete the auto-review system entirely.** The current `check_auto_review_policy()` and `check_auto_review_client()` functions in `queries.py` auto-mark items as "reviewed" when activity thresholds are met (2 field changes or 3 activities). This is counter to the purpose of the review — the review is a deliberate weekly sit-down where you force yourself to look at everything, not something that gets silently checked off because you happened to log 3 activities.
 
 **What gets removed:**
-- `check_auto_review_policy()` and `check_auto_review_client()` in `queries.py` (lines 1311-1351)
-- All call sites in `review.py` that trigger auto-review after edits/activity logs
-- Config keys: `auto_review_enabled`, `auto_review_field_threshold`, `auto_review_activity_threshold`
+
+*Core functions in `queries.py`:*
+- `check_auto_review_policy()` (lines 1311-1351)
+- `check_auto_review_client()` (lines 1354-1389)
+- `count_changed_fields()` (line 1285) — only used by auto-review callers
+
+*All call sites across four route modules:*
+
+| File | Call sites to remove |
+|------|---------------------|
+| `review.py` | Lines 289, 381 (after edit save + after activity log) |
+| `policies.py` | Lines 281, 362, 453, 592, 692, 1829, 2391 (after various field saves) |
+| `activities.py` | Lines 114, 115, 430, 431, 1088 (after activity create/complete) |
+| `clients.py` | Line 2302 (after client field save) |
+
+*Config keys:*
+- `auto_review_enabled`, `auto_review_field_threshold`, `auto_review_activity_threshold`
 
 The auto-review is replaced by the deliberate weekly review workflow described below.
 
