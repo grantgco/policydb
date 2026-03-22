@@ -360,6 +360,20 @@ The **pairing board** is a reusable UI pattern for matching/comparing records fr
 
 ---
 
+## QA Testing Requirement
+
+**After any change that impacts the UI** (template edits, route changes, new features, CSS changes), Claude MUST run a thorough QA test using the browser:
+1. Navigate to the affected page(s) and take screenshots
+2. Verify all elements render correctly — no overflow, no overlapping, no missing data
+3. Test interactive elements — click buttons, fill forms, verify saves work
+4. Check for regressions on related pages (e.g., changing a contact template → test contacts on client detail, contacts directory, and policy edit pages)
+5. Document any visual UI bugs or functional issues found
+6. Fix issues before committing, or log them in a bug report if deferred
+
+This is not optional — UI changes without visual verification have repeatedly shipped broken layouts, invisible form fields, and non-functional buttons.
+
+---
+
 ## Development Notes
 
 - Always pass `renewal_statuses` to any template that renders `_status_badge.html`
