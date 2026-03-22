@@ -61,10 +61,34 @@
           <span class="text-gray-300 cursor-grab text-[10px] mt-0.5" title="Drag to move">&#9776;</span>
           {% endif %}
           <div class="flex-1 min-w-0">
-            <p class="font-medium text-gray-800 truncate">{{ item.subject }}</p>
-            <p class="text-gray-400 truncate">{{ item.client_name }}{% if item.policy_type %} · {{ item.policy_type }}{% endif %}</p>
+            <div class="flex items-center gap-1">
+              {% if item.timeline_health %}
+              <span class="w-1.5 h-1.5 rounded-full inline-block flex-shrink-0
+                {% if item.timeline_health == 'critical' %}bg-red-500
+                {% elif item.timeline_health == 'at_risk' %}bg-orange-500
+                {% elif item.timeline_health == 'compressed' %}bg-amber-500
+                {% elif item.timeline_health == 'drifting' %}bg-blue-500
+                {% else %}bg-green-500{% endif %}"
+                title="Timeline: {{ item.timeline_health | replace('_', ' ') }}"></span>
+              {% endif %}
+              <p class="font-medium text-gray-800 truncate">{{ item.subject }}</p>
+            </div>
+            <div class="flex items-center gap-1 flex-wrap">
+              <p class="text-gray-400 truncate">{{ item.client_name }}{% if item.policy_type %} · {{ item.policy_type }}{% endif %}</p>
+              {% if item.accountability == 'waiting_external' %}
+              <span class="text-xs text-blue-500 flex-shrink-0" title="Nudge">&#8635;</span>
+              {% elif item.accountability == 'scheduled' %}
+              <span class="text-xs text-indigo-500 flex-shrink-0" title="Scheduled">&#128197;</span>
+              {% endif %}
+            </div>
             {% if item.pinned and item.days_to_renewal is not none %}
             <p class="text-red-500 text-[10px]">{{ item.days_to_renewal }}d to renewal</p>
+            {% endif %}
+            {% if item.milestone_name %}
+            <p class="text-[10px] text-gray-400 truncate">{{ item.milestone_name }}</p>
+            {% endif %}
+            {% if item.due_for_review %}
+            <a href="/review" class="text-[10px] text-amber-600 hover:underline">Review due</a>
             {% endif %}
           </div>
         </div>

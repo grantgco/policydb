@@ -1847,6 +1847,7 @@ def get_week_followups(
 
     Each item includes a `pinned` flag based on renewal urgency.
     Items from Saturday/Sunday before the week are bucketed into Monday.
+    Enriched with timeline_health, milestone_name, accountability, and due_for_review.
     """
     from datetime import date, timedelta
     mon = date.fromisoformat(week_start)
@@ -1859,10 +1860,29 @@ def get_week_followups(
                a.activity_type, a.client_id, a.policy_id,
                c.name AS client_name,
                p.policy_type, p.carrier, p.expiration_date, p.renewal_status,
-               CAST(julianday(p.expiration_date) - julianday('now') AS INTEGER) AS days_to_renewal
+               CAST(julianday(p.expiration_date) - julianday('now') AS INTEGER) AS days_to_renewal,
+               p.policy_uid,
+               a.disposition,
+               COALESCE(th.timeline_health, '') AS timeline_health,
+               th.next_milestone AS milestone_name
         FROM activity_log a
         JOIN clients c ON a.client_id = c.id
         LEFT JOIN policies p ON a.policy_id = p.id
+        LEFT JOIN (
+            SELECT policy_uid,
+                MIN(CASE health WHEN 'critical' THEN 1 WHEN 'at_risk' THEN 2
+                    WHEN 'compressed' THEN 3 WHEN 'drifting' THEN 4 ELSE 5 END) AS health_rank,
+                CASE MIN(CASE health WHEN 'critical' THEN 1 WHEN 'at_risk' THEN 2
+                    WHEN 'compressed' THEN 3 WHEN 'drifting' THEN 4 ELSE 5 END)
+                    WHEN 1 THEN 'critical' WHEN 2 THEN 'at_risk'
+                    WHEN 3 THEN 'compressed' WHEN 4 THEN 'drifting' ELSE 'on_track' END AS timeline_health,
+                (SELECT pt2.milestone_name FROM policy_timeline pt2
+                 WHERE pt2.policy_uid = policy_timeline.policy_uid AND pt2.completed_date IS NULL
+                 ORDER BY pt2.projected_date LIMIT 1) AS next_milestone
+            FROM policy_timeline
+            WHERE completed_date IS NULL
+            GROUP BY policy_uid
+        ) th ON th.policy_uid = p.policy_uid
         WHERE a.follow_up_done = 0 AND a.follow_up_date IS NOT NULL
           AND a.follow_up_date BETWEEN ? AND ?
 
@@ -1873,9 +1893,28 @@ def get_week_followups(
                p.client_id, p.id AS policy_id,
                c.name AS client_name,
                p.policy_type, p.carrier, p.expiration_date, p.renewal_status,
-               CAST(julianday(p.expiration_date) - julianday('now') AS INTEGER) AS days_to_renewal
+               CAST(julianday(p.expiration_date) - julianday('now') AS INTEGER) AS days_to_renewal,
+               p.policy_uid,
+               NULL AS disposition,
+               COALESCE(th.timeline_health, '') AS timeline_health,
+               th.next_milestone AS milestone_name
         FROM policies p
         JOIN clients c ON p.client_id = c.id
+        LEFT JOIN (
+            SELECT policy_uid,
+                MIN(CASE health WHEN 'critical' THEN 1 WHEN 'at_risk' THEN 2
+                    WHEN 'compressed' THEN 3 WHEN 'drifting' THEN 4 ELSE 5 END) AS health_rank,
+                CASE MIN(CASE health WHEN 'critical' THEN 1 WHEN 'at_risk' THEN 2
+                    WHEN 'compressed' THEN 3 WHEN 'drifting' THEN 4 ELSE 5 END)
+                    WHEN 1 THEN 'critical' WHEN 2 THEN 'at_risk'
+                    WHEN 3 THEN 'compressed' WHEN 4 THEN 'drifting' ELSE 'on_track' END AS timeline_health,
+                (SELECT pt2.milestone_name FROM policy_timeline pt2
+                 WHERE pt2.policy_uid = policy_timeline.policy_uid AND pt2.completed_date IS NULL
+                 ORDER BY pt2.projected_date LIMIT 1) AS next_milestone
+            FROM policy_timeline
+            WHERE completed_date IS NULL
+            GROUP BY policy_uid
+        ) th ON th.policy_uid = p.policy_uid
         WHERE p.follow_up_date IS NOT NULL
           AND p.follow_up_date BETWEEN ? AND ?
           AND p.archived = 0
@@ -1890,6 +1929,22 @@ def get_week_followups(
         ORDER BY 4
     """, (sat_before, fri, sat_before, fri)).fetchall()
 
+    # Build accountability map from config dispositions
+    from policydb.config import cfg as _cfg
+    disp_map = {
+        d["label"]: d.get("accountability", "my_action")
+        for d in _cfg.get("follow_up_dispositions", [])
+    }
+
+    # Build set of policy_uids due for review
+    try:
+        review_uids = set(
+            r["policy_uid"]
+            for r in conn.execute("SELECT policy_uid FROM v_review_queue").fetchall()
+        )
+    except Exception:
+        review_uids = set()
+
     items = []
     for r in rows:
         d = dict(r)
@@ -1902,13 +1957,18 @@ def get_week_followups(
                 d["bucketed_from"] = fu_date
         except (ValueError, TypeError):
             pass
-        # Pin logic
+        # Pin logic — based on renewal urgency or critical/at_risk timeline
         dtr = d.get("days_to_renewal")
         status = d.get("renewal_status") or ""
         d["pinned"] = bool(
             (dtr is not None and dtr <= pin_days)
             or status.upper() in ("EXPIRED",)
+            or d.get("timeline_health") in ("critical", "at_risk")
         )
+        # Accountability from disposition
+        d["accountability"] = disp_map.get(d.get("disposition") or "", "my_action")
+        # Review status
+        d["due_for_review"] = (d.get("policy_uid") or "") in review_uids
         # Composite ID for reschedule (matches bulk-reschedule pattern)
         d["composite_id"] = f"{d['source']}-{d['id']}"
         items.append(d)
