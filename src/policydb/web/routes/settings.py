@@ -122,6 +122,10 @@ def settings_page(request: Request, conn=Depends(get_db)):
         "renewal_milestones": cfg.get("renewal_milestones", []),
         "fu_workload": cfg.get("followup_workload_thresholds", {"warning": 3, "danger": 5}),
         "mandated_activities": cfg.get("mandated_activities", []),
+        "milestone_profiles": cfg.get("milestone_profiles", []),
+        "milestone_profile_rules": cfg.get("milestone_profile_rules", []),
+        "timeline_engine": cfg.get("timeline_engine", {}),
+        "risk_alert_thresholds": cfg.get("risk_alert_thresholds", {}),
         "dispositions": cfg.get("follow_up_dispositions", []),
         "carrier_aliases": cfg.get("carrier_aliases", {}),
         # DB health
@@ -262,14 +266,16 @@ def disposition_reorder(request: Request, label: str = Form(...), direction: str
 
 @router.patch("/dispositions/update")
 async def disposition_update(request: Request):
-    """Update default_days for a disposition."""
+    """Update default_days and/or accountability for a disposition."""
     body = await request.json()
     label = body.get("label", "")
-    default_days = int(body.get("default_days", 0))
     lst = cfg.get("follow_up_dispositions", [])
     for d in lst:
         if d["label"] == label:
-            d["default_days"] = max(0, default_days)
+            if "default_days" in body:
+                d["default_days"] = max(0, int(body["default_days"]))
+            if "accountability" in body:
+                d["accountability"] = body["accountability"]
             break
     full = dict(cfg.load_config())
     full["follow_up_dispositions"] = lst
@@ -485,6 +491,78 @@ def _render_mandated_activities(request: Request) -> HTMLResponse:
     if not html_parts:
         html_parts.append('<p class="text-xs text-gray-400 py-2">No mandated activities configured.</p>')
     return HTMLResponse("".join(html_parts))
+
+
+# ── Mandated Activities — inline PATCH editor ────────────────────────────────
+
+@router.patch("/mandated-activities/{index}", response_class=HTMLResponse)
+async def save_mandated_activity(request: Request, index: int):
+    """PATCH a single field on a mandated activity by index."""
+    form = await request.form()
+    activities = list(cfg.get("mandated_activities", []))
+    if 0 <= index < len(activities):
+        for key in ("name", "trigger", "days", "prep_days", "activity_type",
+                     "checklist_milestone", "prep_notes", "subject"):
+            if key in form:
+                val = form[key]
+                if key in ("days", "prep_days"):
+                    val = int(val) if val else 0
+                activities[index][key] = val
+        full = dict(cfg.load_config())
+        full["mandated_activities"] = activities
+        cfg.save_config(full)
+        cfg.reload_config()
+    return HTMLResponse('<span class="text-green-600 text-xs">&#10003;</span>')
+
+
+# ── Milestone Profiles — inline PATCH editor ─────────────────────────────────
+
+@router.patch("/milestone-profiles/{index}", response_class=HTMLResponse)
+async def save_milestone_profile(request: Request, index: int):
+    """PATCH name, description, or milestones on a milestone profile."""
+    form = await request.form()
+    profiles = list(cfg.get("milestone_profiles", []))
+    if 0 <= index < len(profiles):
+        if "name" in form:
+            profiles[index]["name"] = form["name"]
+        if "description" in form:
+            profiles[index]["description"] = form["description"]
+        if "milestones" in form:
+            profiles[index]["milestones"] = [
+                m.strip() for m in form["milestones"].split(",") if m.strip()
+            ]
+        full = dict(cfg.load_config())
+        full["milestone_profiles"] = profiles
+        cfg.save_config(full)
+        cfg.reload_config()
+    return HTMLResponse('<span class="text-green-600 text-xs">&#10003;</span>')
+
+
+# ── Timeline Engine — PATCH editor ───────────────────────────────────────────
+
+@router.patch("/timeline-engine", response_class=HTMLResponse)
+async def save_timeline_engine(request: Request):
+    """PATCH timeline engine scheduling params and risk alert toggles."""
+    form = await request.form()
+    full = dict(cfg.load_config())
+
+    te = dict(full.get("timeline_engine", {}))
+    for key in ("minimum_gap_days", "drift_threshold_days"):
+        if key in form:
+            te[key] = int(form[key])
+    if "compression_threshold" in form:
+        te["compression_threshold"] = float(form["compression_threshold"])
+    full["timeline_engine"] = te
+
+    rat = dict(full.get("risk_alert_thresholds", {}))
+    for key in ("at_risk_notify", "critical_notify", "critical_auto_draft"):
+        if key in form:
+            rat[key] = form[key] == "true"
+    full["risk_alert_thresholds"] = rat
+
+    cfg.save_config(full)
+    cfg.reload_config()
+    return HTMLResponse('<span class="text-green-600 text-xs">&#10003;</span>')
 
 
 # ── Carrier Aliases ───────────────────────────────────────────────────────────
