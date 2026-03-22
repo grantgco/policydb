@@ -999,6 +999,10 @@ def init_db(path: Path | None = None) -> None:
     from policydb.queries import generate_mandated_activities
     generate_mandated_activities(conn)
 
+    # Generate policy timelines for all active policies with milestone profiles
+    from policydb.timeline_engine import generate_policy_timelines
+    generate_policy_timelines(conn)
+
     # Clean up premature mandated activities (beyond horizon window)
     try:
         from policydb import config as _ma_cfg
