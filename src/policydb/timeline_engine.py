@@ -8,7 +8,7 @@ This module owns all timeline logic:
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Optional
 
 import policydb.config as cfg
@@ -425,6 +425,52 @@ def update_timeline_from_followup(
                 conn, policy_uid, milestone_name,
                 new_followup_date, expiration["expiration_date"]
             )
+
+    conn.commit()
+
+
+# ── Milestone Completion ───────────────────────────────────────────────
+
+
+def complete_timeline_milestone(conn, policy_uid: str, milestone_name: str) -> None:
+    """Mark a timeline milestone as completed. Also syncs to policy_milestones checklist.
+
+    If the mandated_activities config maps this milestone to a checklist_milestone,
+    the corresponding policy_milestones row is also marked completed. Finally,
+    health is recomputed for the entire policy timeline.
+    """
+    now = datetime.now().isoformat()
+    conn.execute("""
+        UPDATE policy_timeline SET completed_date = ?
+        WHERE policy_uid = ? AND milestone_name = ? AND completed_date IS NULL
+    """, (now, policy_uid, milestone_name))
+
+    # Find matching checklist_milestone from config
+    activities = cfg.get("mandated_activities", [])
+    checklist_name = None
+    for act in activities:
+        if act["name"] == milestone_name:
+            checklist_name = act.get("checklist_milestone")
+            break
+
+    # If there's a matching checklist milestone, mark it done too
+    if checklist_name:
+        existing = conn.execute("""
+            SELECT id, completed FROM policy_milestones
+            WHERE policy_uid = ? AND milestone = ?
+        """, (policy_uid, checklist_name)).fetchone()
+        if existing and not existing["completed"]:
+            conn.execute("""
+                UPDATE policy_milestones SET completed = 1, completed_at = ?
+                WHERE id = ?
+            """, (now, existing["id"]))
+
+    # Recompute health
+    exp = conn.execute(
+        "SELECT expiration_date FROM policies WHERE policy_uid = ?", (policy_uid,)
+    ).fetchone()
+    if exp and exp["expiration_date"]:
+        _recompute_prep_and_health(conn, policy_uid, exp["expiration_date"])
 
     conn.commit()
 

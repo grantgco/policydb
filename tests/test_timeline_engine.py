@@ -472,3 +472,34 @@ def test_update_timeline_from_followup_waiting(tmp_db):
     if qr:
         assert qr["accountability"] == "waiting_external"
         assert qr["waiting_on"] == "AmTrust"
+
+
+# ── Task 9: Milestone completion syncs between timeline and checklist ───
+
+
+def test_complete_milestone_syncs_checklist(tmp_db):
+    from policydb.timeline_engine import complete_timeline_milestone
+    conn = get_connection(tmp_db)
+    exp = date.today() + timedelta(days=120)
+    _insert_test_client(conn, 1, "Acme Corp")
+    _insert_test_policy(conn, "POL-001", 1, exp_date=exp.isoformat(), milestone_profile="Simple Renewal")
+    conn.commit()
+    generate_policy_timelines(conn)
+    conn.execute("""
+        INSERT INTO policy_milestones (policy_uid, milestone, completed)
+        VALUES ('POL-001', 'Quote Received', 0)
+    """)
+    conn.commit()
+
+    complete_timeline_milestone(conn, "POL-001", "Quote Received")
+
+    timeline = get_policy_timeline(conn, "POL-001")
+    by_name = {r["milestone_name"]: r for r in timeline}
+    qr = by_name.get("Quote Received")
+    if qr:
+        assert qr["completed_date"] is not None
+
+    checklist = conn.execute(
+        "SELECT completed FROM policy_milestones WHERE policy_uid='POL-001' AND milestone='Quote Received'"
+    ).fetchone()
+    assert checklist["completed"] == 1
