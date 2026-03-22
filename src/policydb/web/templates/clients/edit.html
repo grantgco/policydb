@@ -157,7 +157,7 @@
           {% for opt in ['', 'Email', 'Phone', 'Text', 'In Person'] %}
           <input type="radio" name="preferred_contact_method" id="pcm-{{ loop.index }}" value="{{ opt }}"
             {% if (client and client.preferred_contact_method == opt) or (not client and opt == '') or (client and not client.preferred_contact_method and opt == '') %}checked{% endif %}>
-          <label for="pcm-{{ loop.index }}">{{ opt if opt else '—' }}</label>
+          <label for="pcm-{{ loop.index }}">{{ opt if opt else 'No Pref' }}</label>
           {% endfor %}
         </div>
       </div>

@@ -76,11 +76,8 @@
                 </td>
                 <td class="py-2">
                   {# Required endorsements as pills #}
-                  {% set r_endorsements = r.required_endorsements %}
-                  {% if r_endorsements is string %}
-                    {% set r_endorsements = [] %}
-                  {% endif %}
-                  {% if r_endorsements is iterable and r_endorsements %}
+                  {% set r_endorsements = r.get('_endorsements_list', []) if r.get is defined else [] %}
+                  {% if r_endorsements %}
                     <span class="inline-flex gap-1 text-xs">
                       {% for e in r_endorsements %}
                       <span class="bg-green-100 text-green-700 px-1.5 py-0.5 rounded">{{ e }}</span>
