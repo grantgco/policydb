@@ -12,8 +12,6 @@ from policydb import config as cfg
 from policydb.email_templates import followup_context, render_tokens
 from policydb.utils import round_duration
 from policydb.queries import (
-    check_auto_review_client,
-    check_auto_review_policy,
     get_activities,
     get_activity_by_id,
     get_all_followups,
@@ -107,12 +105,6 @@ def activity_log(
         from policydb.queries import supersede_followups
         supersede_followups(conn, policy_id, follow_up_date)
     conn.commit()
-    # Auto-review checks
-    if policy_id:
-        pol = conn.execute("SELECT policy_uid FROM policies WHERE id=?", (policy_id,)).fetchone()
-        if pol:
-            check_auto_review_policy(conn, pol["policy_uid"], 0)
-    check_auto_review_client(conn, client_id, 0)
     # Return the new activity row as HTMX partial
     row = conn.execute(
         """SELECT a.*, c.name AS client_name, c.cn_number, p.policy_uid, p.project_id
@@ -443,13 +435,6 @@ def activity_followup(
                     disposition, new_follow_up_date or None,
                     waiting_on=None,
                 )
-
-    # Auto-review checks
-    if original.get("policy_id"):
-        pol = conn.execute("SELECT policy_uid FROM policies WHERE id=?", (original["policy_id"],)).fetchone()
-        if pol:
-            check_auto_review_policy(conn, pol["policy_uid"], 0)
-    check_auto_review_client(conn, original["client_id"], 0)
 
     if context == "followup_table":
         # Build a followup-table-style dict for the new activity
@@ -1099,14 +1084,7 @@ def bulk_log(
             from policydb.queries import supersede_followups
             supersede_followups(conn, policy["id"], fu)
     conn.commit()
-    # Auto-review checks for each policy in the bulk set
-    count = 0
-    for uid in policy_uids.split(","):
-        uid = uid.strip().upper()
-        if not uid:
-            continue
-        count += 1
-        check_auto_review_policy(conn, uid, 0)
+    count = sum(1 for uid in policy_uids.split(",") if uid.strip())
     resp = HTMLResponse("")
     resp.headers["HX-Trigger"] = '{"activityLogged": "' + f'Activity logged to {count} policies' + '"}'
     return resp
