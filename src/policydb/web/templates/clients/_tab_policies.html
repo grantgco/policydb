@@ -1,0 +1,257 @@
+{# Client Policies Tab — schedule, programs, towers, pipeline, locations, opportunities, archived #}
+<div id="tab-policies-content">
+
+{# ── Corporate Programs ── #}
+{% include "clients/_programs.html" %}
+
+{# ── Policy Groups ── #}
+<div class="mb-6">
+  <div class="flex items-center justify-between mb-3">
+    <h2 class="font-semibold text-gray-900 text-lg">Policies</h2>
+    <div class="flex gap-3 no-print">
+      <a href="/policies/new?client={{ client.id }}&opp=1" class="text-xs text-amber-600 hover:underline">+ Opportunity</a>
+      <a href="/policies/new?client={{ client.id }}" class="text-xs text-marsh hover:underline">+ Add Policy</a>
+    </div>
+  </div>
+
+  {% set col_headers %}
+  <tr class="border-b border-gray-100 text-left text-xs text-gray-500 uppercase tracking-wide bg-gray-50">
+    <th class="px-4 py-3">UID</th>
+    <th class="px-4 py-3">Line of Business</th>
+    <th class="px-4 py-3">Carrier</th>
+    <th class="px-4 py-3">Expires</th>
+    <th class="px-4 py-3 text-right">Premium</th>
+    <th class="px-4 py-3 text-right">Commission</th>
+    <th class="px-4 py-3 text-right">Limit</th>
+    <th class="px-4 py-3">Status</th>
+    <th class="px-4 py-3">!</th>
+    <th class="px-4 py-3"></th>
+  </tr>
+  {% endset %}
+
+  {% for project_name, group in policy_groups %}
+  {% set note = project_notes.get((project_name or '').lower().strip(), '') if project_notes else '' %}
+  {% set addr = project_addresses.get((project_name or '').lower().strip(), {}) if project_addresses else {} %}
+  {% set exposure_address = addr.get('exposure_address', '') %}
+  {% set exposure_city    = addr.get('exposure_city', '') %}
+  {% set exposure_state   = addr.get('exposure_state', '') %}
+  {% set exposure_zip     = addr.get('exposure_zip', '') %}
+  {% set show_header = policy_groups | length > 1 or project_name %}
+
+  {% if show_header %}
+  <details class="card mb-3 overflow-hidden" {% if group | length <= 8 %}open{% endif %}>
+    <summary class="px-4 py-2 bg-gray-50 border-b border-gray-200 cursor-pointer select-none list-none flex items-center gap-2 hover:bg-gray-100 transition-colors">
+      <span class="text-xs text-gray-400 details-arrow">▶</span>
+      {% set _proj_id = project_ids.get((project_name or '').lower().strip(), 0) if project_ids else 0 %}
+      {% if project_name and _proj_id %}
+      <a href="/clients/{{ client.id }}/projects/{{ _proj_id }}"
+         onclick="event.stopPropagation()"
+         class="text-xs font-semibold text-gray-600 uppercase tracking-wide hover:text-marsh">{{ project_name }}</a>
+      {% else %}
+      <span class="text-xs font-semibold text-gray-600 uppercase tracking-wide">
+        {{ project_name or 'Corporate / Standalone' }}
+      </span>
+      {% endif %}
+      {% if _proj_id %}
+      <button type="button" onclick="event.stopPropagation(); copyRefTag(this, '{{ build_ref_tag(cn_number=client.cn_number|default(''), client_id=client.id, project_id=_proj_id) }}')"
+        class="text-xs font-mono text-gray-300 hover:text-marsh" title="Copy location ref tag">L{{ _proj_id }}</button>
+      {% endif %}
+      <span class="text-xs text-gray-400">· {{ group | length }} polic{{ 'y' if group | length == 1 else 'ies' }}</span>
+      <a href="/clients/{{ client.id }}/export/project?project={{ project_name | urlencode }}"
+         onclick="event.stopPropagation()" class="text-gray-300 hover:text-marsh text-xs no-print" title="Export location XLSX">&#8615;</a>
+      {% if exposure_address or exposure_city %}
+      <span class="text-xs text-gray-400 hidden sm:inline">·
+        {{ [exposure_address, exposure_city, exposure_state, exposure_zip] | select | join(', ') }}
+      </span>
+      {% endif %}
+    </summary>
+    {% if project_name %}
+    {% include "clients/_project_header.html" %}
+    {% endif %}
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead>{{ col_headers }}</thead>
+        <tbody>
+          {% for p in group %}{% if p.policy_uid not in program_linked_uids %}{% include "policies/_policy_row.html" %}{% endif %}{% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </details>
+  {% else %}
+  <div class="card mb-3 overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead>{{ col_headers }}</thead>
+        <tbody>
+          {% for p in group %}{% if p.policy_uid not in program_linked_uids %}{% include "policies/_policy_row.html" %}{% endif %}{% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+  {% endfor %}
+</div>
+
+{# ── Tower Structure ── #}
+{% if tower_visuals %}
+<div class="card mb-6">
+  <div class="px-5 py-4 border-b border-gray-100">
+    <h2 class="font-semibold text-gray-900">Tower Structure</h2>
+  </div>
+  {% for project_name, tgs in tower_visuals.items() %}
+  <div class="{% if not loop.last %}border-b border-gray-200{% endif %}">
+    <div class="px-5 py-2 bg-gray-50 border-b border-gray-100">
+      <p class="text-xs font-bold text-gray-500 uppercase tracking-wide">{{ project_name }}</p>
+    </div>
+    {% for tower_name, tower in tgs.items() %}
+    <div class="px-5 py-4 {% if not loop.last %}border-b border-gray-100{% endif %}">
+      <p class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3 ml-1">{{ tower_name }}</p>
+      {% set layer_colors = [
+        'rgba(5,150,105,0.14)', 'rgba(59,130,246,0.13)',
+        'rgba(99,102,241,0.11)', 'rgba(139,92,246,0.09)',
+        'rgba(148,163,184,0.08)'
+      ] %}
+      <div class="relative pt-3 pb-1">
+        <div class="flex flex-col-reverse rounded-lg overflow-visible border border-gray-200"
+             style="min-height: {{ [tower.layers | length * 72, 240] | max }}px;">
+          {% for vl in tower.layers %}
+          {% set lc = layer_colors[loop.index0] if loop.index0 < layer_colors | length else layer_colors[-1] %}
+          <div class="relative group" style="flex: {{ vl.flex }} 0 44px;">
+            <div class="absolute inset-0 {% if loop.first %}rounded-b-lg{% endif %} {% if loop.last %}rounded-t-lg{% endif %}"
+                 style="background: {{ lc }};"></div>
+            {% if not loop.last %}<div class="absolute inset-x-0 top-0 h-px bg-gray-200/70 z-10"></div>{% endif %}
+            <div class="relative z-10 flex items-stretch h-full">
+              {% for c in vl.carriers %}
+              <div class="flex items-center px-3 gap-2 min-w-0 {% if not loop.first %}border-l border-gray-200/50{% endif %}"
+                   style="width: {{ c.fill_pct }}%;">
+                <div class="min-w-0 flex-1 py-1.5">
+                  <div class="flex items-center gap-1.5 flex-wrap">
+                    <span class="text-xs font-semibold text-gray-700">{{ c.carrier }}</span>
+                    <a href="/policies/{{ c.policy_uid }}/edit" class="text-[10px] font-mono text-marsh hover:underline shrink-0">{{ c.policy_uid }}</a>
+                  </div>
+                  <p class="text-[11px] font-mono text-gray-500 mt-0.5 truncate">{{ c.notation }}</p>
+                </div>
+                <div class="text-right shrink-0">
+                  <span class="text-[10px] text-gray-400 tabular-nums block">{{ c.premium | currency }}</span>
+                  {% if vl.is_shared %}
+                  <span class="text-[10px] text-gray-400 tabular-nums">{{ c.fill_pct | round(0) | int }}%</span>
+                  {% endif %}
+                </div>
+              </div>
+              {% endfor %}
+              {% if vl.open_pct > 0 %}
+              <div class="flex items-center justify-center border-l border-dashed border-gray-300/70"
+                   style="width: {{ vl.open_pct }}%; background: repeating-linear-gradient(45deg, transparent, transparent 3px, rgba(0,0,0,0.04) 3px, rgba(0,0,0,0.04) 6px);">
+                <div class="text-center px-1">
+                  <span class="text-[10px] text-gray-400 italic block">Open</span>
+                  <span class="text-[10px] font-mono text-gray-400">
+                    {% if vl.open_amount >= 1000000 %}${{ "{:,.0f}".format(vl.open_amount / 1000000) }}M{% else %}${{ "{:,.0f}".format(vl.open_amount) }}{% endif %}
+                  </span>
+                </div>
+              </div>
+              {% endif %}
+            </div>
+            <div class="absolute -top-px right-3 -translate-y-1/2 z-20">
+              <span class="text-[9px] font-mono text-gray-500 bg-white px-1.5 py-px rounded border border-gray-200 shadow-sm tabular-nums whitespace-nowrap">
+                {% if vl.ground_up >= 1000000 %}${{ "{:,.0f}".format(vl.ground_up / 1000000) }}M{% else %}${{ "{:,.0f}".format(vl.ground_up) }}{% endif %}
+              </span>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+        <div class="flex justify-end mr-3 -mt-0.5">
+          <span class="text-[9px] font-mono text-gray-400">$0</span>
+        </div>
+      </div>
+      <div class="flex items-center gap-1.5 mt-2 ml-1 text-xs text-gray-400">
+        <span class="font-semibold text-gray-600 tabular-nums">
+          {% if tower.total_ground_up >= 1000000 %}${{ "{:,.0f}".format(tower.total_ground_up / 1000000) }}M{% else %}${{ "{:,.0f}".format(tower.total_ground_up) }}{% endif %}
+        </span> program limit
+        · {{ tower.total_premium | currency }} total premium
+        · {{ tower.carrier_count }} carrier{{ 's' if tower.carrier_count != 1 else '' }}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{# ── Project Pipeline ── #}
+<div id="pipeline-section">
+{% if pipeline_projects %}
+{% include 'clients/_project_pipeline.html' %}
+{% else %}
+<div class="mb-4 flex justify-end no-print">
+  <button type="button" onclick="addFirstProject({{ client.id }})"
+          class="text-xs text-gray-400 border border-dashed border-gray-300 px-3 py-1 rounded hover:border-marsh hover:text-marsh transition-colors">
+    + Add Project
+  </button>
+</div>
+{% endif %}
+</div>
+
+{# ── Locations ── #}
+{% include 'clients/_project_locations.html' %}
+
+{# ── Opportunities ── #}
+{% include "clients/_opportunities.html" %}
+
+{# ── Archived Policies ── #}
+{% if archived_policies %}
+<details class="card mb-6 group">
+  <summary class="px-5 py-4 cursor-pointer flex items-center justify-between text-sm font-medium text-gray-500 hover:text-gray-700 select-none list-none">
+    <span>Archived Policies <span class="ml-1 text-xs font-normal text-gray-400">({{ archived_policies | length }})</span></span>
+    <span class="text-xs text-gray-400 group-open:hidden">Show ▾</span>
+    <span class="text-xs text-gray-400 hidden group-open:inline">Hide ▴</span>
+  </summary>
+  <div class="border-t border-gray-100 overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="text-left text-xs text-gray-500 uppercase tracking-wide bg-gray-50 border-b border-gray-100">
+          <th class="px-4 py-3">UID</th>
+          <th class="px-4 py-3">Line of Business</th>
+          <th class="px-4 py-3">Carrier</th>
+          <th class="px-4 py-3">Project</th>
+          <th class="px-4 py-3">Effective</th>
+          <th class="px-4 py-3">Expired</th>
+          <th class="px-4 py-3 text-right">Premium</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-50">
+        {% for p in archived_policies %}
+        <tr class="hover:bg-gray-50 text-gray-500">
+          <td class="px-4 py-2 font-mono text-xs">{{ p.policy_uid }}</td>
+          <td class="px-4 py-2">{{ p.policy_type }}</td>
+          <td class="px-4 py-2">{{ p.carrier or '—' }}</td>
+          <td class="px-4 py-2 text-xs text-gray-400">{{ p.project_name or '—' }}</td>
+          <td class="px-4 py-2 text-xs whitespace-nowrap">{{ p.effective_date or '—' }}</td>
+          <td class="px-4 py-2 text-xs whitespace-nowrap">{{ p.expiration_date or '—' }}</td>
+          <td class="px-4 py-2 text-right text-xs">{{ p.premium | currency if p.premium else '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</details>
+{% endif %}
+
+<script>
+function addFirstProject(clientId) {
+  var scrollY = window.scrollY;
+  var key = 'scrollRestore_' + window.location.pathname;
+  fetch('/clients/' + clientId + '/projects/pipeline', {method: 'POST'})
+    .then(function(r) { return r.text(); })
+    .then(function() {
+      sessionStorage.setItem(key, scrollY);
+      window.location.reload();
+    });
+}
+(function() {
+  var key = 'scrollRestore_' + window.location.pathname;
+  var saved = sessionStorage.getItem(key);
+  if (saved) { sessionStorage.removeItem(key); window.scrollTo(0, parseInt(saved, 10)); }
+})();
+</script>
+
+</div>

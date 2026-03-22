@@ -1,0 +1,27 @@
+{# Floating Working Notes panel — accessible from any tab #}
+<div id="working-notes-float" class="fixed bottom-4 right-4 z-40 no-print" style="width: 50vw; max-width: calc(100vw - 2rem); min-width: 400px;">
+  <div id="wn-collapsed" class="cursor-pointer flex justify-end">
+    <button type="button" onclick="document.getElementById('wn-collapsed').classList.add('hidden'); document.getElementById('wn-expanded').classList.remove('hidden');"
+      class="bg-marsh text-white text-xs font-medium px-3 py-2 rounded-lg shadow-lg hover:bg-marsh-light transition-colors flex items-center gap-1.5">
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+      Working Notes
+      {% if client_scratchpad %}<span class="w-2 h-2 bg-green-400 rounded-full"></span>{% endif %}
+    </button>
+  </div>
+
+  <div id="wn-expanded" class="hidden bg-white border border-gray-200 rounded-xl shadow-xl flex flex-col" style="max-height: 70vh; min-height: 300px;">
+    <div class="flex items-center justify-between px-3 py-2 border-b border-gray-100 bg-gray-50 rounded-t-xl">
+      <span class="text-xs font-semibold text-gray-600 uppercase tracking-wide">Working Notes</span>
+      <button type="button" onclick="document.getElementById('wn-expanded').classList.add('hidden'); document.getElementById('wn-collapsed').classList.remove('hidden');"
+        class="text-gray-400 hover:text-gray-600 text-sm leading-none">&times;</button>
+    </div>
+    <div class="flex-1 overflow-y-auto p-3">
+      {% include "clients/_scratchpad.html" %}
+    </div>
+    {% if client_scratchpad_updated %}
+    <div class="px-3 py-1.5 border-t border-gray-100 text-right">
+      <span class="text-xs text-gray-400">Last saved: {{ client_scratchpad_updated }}</span>
+    </div>
+    {% endif %}
+  </div>
+</div>

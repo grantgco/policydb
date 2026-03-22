@@ -1,0 +1,211 @@
+{# Client Overview Tab — Account Pulse, Activity, Linked Accounts, Working Notes #}
+<div id="tab-overview-content">
+
+<!-- Account Pulse -->
+{% include "clients/_account_pulse.html" %}
+
+<!-- Activity -->
+<div class="card mt-4">
+  <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between gap-3">
+    <div class="flex items-center gap-3">
+      <h2 class="font-semibold text-gray-900">Activity <span class="text-sm font-normal text-gray-400">last 90 days</span></h2>
+      <div class="seg-control" id="activity-filter-seg">
+        <input type="radio" name="activity-filter" id="af-all" value="all" checked>
+        <label for="af-all">All</label>
+        <input type="radio" name="activity-filter" id="af-open" value="open">
+        <label for="af-open">Open Follow-ups</label>
+      </div>
+    </div>
+    <button
+      onclick="document.getElementById('log-form').classList.toggle('hidden')"
+      class="text-xs bg-marsh hover:bg-marsh-light text-white px-3 py-1.5 rounded-lg transition-colors no-print">
+      + Log Activity
+    </button>
+  </div>
+
+  {# Inline log form (hidden by default) #}
+  <div id="log-form" class="hidden border-b border-gray-100 px-5 py-3 bg-gray-50/80">
+    <form id="client-log-form"
+          class="border-l-4 border-marsh bg-green-50/30 pl-3 pr-2 py-2 rounded-r">
+      <input type="hidden" name="client_id" value="{{ client.id }}">
+      <div class="flex items-end gap-3 flex-wrap">
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">Type</label>
+          <select name="activity_type" class="border border-gray-300 rounded px-2 py-1 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-marsh" required>
+            {% for t in activity_types %}<option>{{ t }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="flex-1 min-w-32">
+          <label class="block text-xs font-medium text-gray-600 mb-1">Subject <span class="text-red-400">*</span></label>
+          <input type="text" name="subject" required class="w-full border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-marsh">
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">Contact</label>
+          <input type="text" name="contact_person" data-client-id="{{ client.id }}"
+            placeholder="{{ client.primary_contact or '' }}" autocomplete="off"
+            class="border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-marsh w-32">
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">Duration</label>
+          <input type="number" name="duration_hours" min="0" step="any" placeholder="hrs"
+            class="border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-marsh w-20">
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">Follow-Up</label>
+          <input type="date" name="follow_up_date" class="border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-marsh">
+        </div>
+        <div>
+          <label class="toggle-switch">
+            <input type="checkbox" name="start_correspondence" value="1">
+            <span class="toggle-track"></span>
+            <span class="text-xs text-gray-600 ml-1">COR</span>
+          </label>
+        </div>
+        <button type="submit" class="bg-marsh hover:bg-marsh-light text-white text-xs font-medium px-3 py-1 rounded transition-colors">Log</button>
+        <button type="button" onclick="document.getElementById('log-form').classList.add('hidden')"
+          class="text-xs text-gray-500 hover:text-gray-700">Cancel</button>
+      </div>
+      <div class="mt-2">
+        <textarea name="details" rows="1" placeholder="Optional notes, context, next steps…"
+          class="w-full border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-marsh"></textarea>
+      </div>
+    </form>
+  </div>
+
+  <div id="log-confirm-banner" class="hidden px-4 py-2 bg-green-50 border-b border-green-200 flex items-center gap-2">
+    <span class="text-xs text-green-700 font-medium">Activity logged successfully</span>
+  </div>
+
+  {% set activity_limit = 10 %}
+  <ul class="divide-y divide-gray-50" id="activity-list">
+    {% for a in activities[:activity_limit] %}
+    {% include "activities/_activity_row.html" %}
+    {% else %}
+    <li class="px-5 py-8 text-center text-sm text-gray-400">No activity in the last 90 days.</li>
+    {% endfor %}
+  </ul>
+  {% if activities | length > activity_limit %}
+  <ul class="divide-y divide-gray-50 hidden" id="activity-list-more">
+    {% for a in activities[activity_limit:] %}
+    {% include "activities/_activity_row.html" %}
+    {% endfor %}
+  </ul>
+  <div class="px-5 py-3 border-t border-gray-100 text-center" id="show-more-activities">
+    <button type="button"
+      onclick="document.getElementById('activity-list-more').classList.remove('hidden'); this.parentElement.remove(); var list=document.getElementById('activity-list'); var more=document.getElementById('activity-list-more'); while(more.firstChild){list.appendChild(more.firstChild);} more.remove();"
+      class="text-xs text-marsh hover:underline font-medium">
+      Show all {{ activities | length }} activities ({{ activities | length - activity_limit }} more)
+    </button>
+  </div>
+  {% endif %}
+</div>
+
+<!-- Linked Accounts -->
+<div class="mt-4">{% include "clients/_linked_accounts.html" %}</div>
+
+
+<script>
+/* Activity log form submit handler */
+(function() {
+  var form = document.getElementById('client-log-form');
+  if (!form) return;
+  form.addEventListener('submit', function(e) {
+    e.preventDefault();
+    var fd = new FormData(form);
+    var btn = form.querySelector('button[type="submit"]');
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving...'; }
+    fetch('/activities/log', { method: 'POST', body: fd })
+      .then(function(r) { return r.text(); })
+      .then(function(html) {
+        var list = document.getElementById('activity-list');
+        if (list) {
+          var empty = list.querySelector('.text-center');
+          if (empty) empty.remove();
+          list.insertAdjacentHTML('afterbegin', html);
+          var newRow = list.firstElementChild;
+          if (newRow) {
+            newRow.style.transition = 'background-color 0.4s ease';
+            newRow.style.backgroundColor = '#d1fae5';
+            if (typeof htmx !== 'undefined') htmx.process(newRow);
+            setTimeout(function() { newRow.style.backgroundColor = ''; }, 1500);
+          }
+          if (typeof reorderActivityList === 'function') reorderActivityList('activity-list');
+        }
+        form.reset();
+        document.getElementById('log-form').classList.add('hidden');
+        var banner = document.getElementById('log-confirm-banner');
+        if (banner) { banner.classList.remove('hidden'); setTimeout(function() { banner.classList.add('hidden'); }, 3000); }
+      })
+      .catch(function() { if (typeof showToast === 'function') showToast('Save failed', false); })
+      .finally(function() { if (btn) { btn.disabled = false; btn.textContent = 'Log'; } });
+  });
+})();
+
+/* Activity filter: All vs Open Follow-ups */
+(function() {
+  var seg = document.getElementById('activity-filter-seg');
+  if (!seg) return;
+  seg.addEventListener('change', function(e) {
+    var mode = e.target.value;
+    var lists = [document.getElementById('activity-list'), document.getElementById('activity-list-more')];
+    lists.forEach(function(ul) {
+      if (!ul) return;
+      ul.querySelectorAll('.activity-item').forEach(function(li) {
+        li.style.display = (mode === 'open' && li.dataset.hasFollowup !== '1') ? 'none' : '';
+      });
+      ul.querySelectorAll('.activity-item-form').forEach(function(li) {
+        if (mode === 'open') {
+          var parent = document.getElementById('activity-' + li.dataset.parentActivity);
+          li.style.display = (parent && parent.dataset.hasFollowup === '1') ? '' : 'none';
+        } else { li.style.display = ''; }
+      });
+    });
+    if (mode === 'open') {
+      var more = document.getElementById('activity-list-more');
+      var btn = document.getElementById('show-more-activities');
+      if (more && more.classList.contains('hidden')) {
+        more.classList.remove('hidden');
+        if (btn) btn.remove();
+        var list = document.getElementById('activity-list');
+        while (more.firstChild) { list.appendChild(more.firstChild); }
+        more.remove();
+      }
+    }
+  });
+})();
+
+/* Re-sort activity list after snooze */
+function reorderActivityList(listId) {
+  var ul = document.getElementById(listId);
+  if (!ul) return;
+  var items = Array.from(ul.querySelectorAll('.activity-item'));
+  items.sort(function(a, b) {
+    var aFu = a.dataset.followupDate || '', bFu = b.dataset.followupDate || '';
+    if (aFu && !bFu) return -1;
+    if (!aFu && bFu) return 1;
+    if (aFu && bFu) return aFu < bFu ? -1 : (aFu > bFu ? 1 : 0);
+    var aDate = a.dataset.activityDate || '', bDate = b.dataset.activityDate || '';
+    if (aDate !== bDate) return bDate < aDate ? -1 : (bDate > aDate ? 1 : 0);
+    return (parseInt(b.dataset.activityId) || 0) - (parseInt(a.dataset.activityId) || 0);
+  });
+  items.forEach(function(li) {
+    ul.appendChild(li);
+    var aid = li.id.replace('activity-', '');
+    ul.querySelectorAll('.activity-item-form[data-parent-activity="' + aid + '"]').forEach(function(f) { ul.appendChild(f); });
+  });
+}
+document.body.addEventListener('reorderActivities', function() { reorderActivityList('activity-list'); });
+
+/* COR auto-trigger */
+var corTriggers = {{ cor_auto_triggers | tojson }};
+document.addEventListener('change', function(e) {
+  if (e.target.name === 'activity_type') {
+    var form = e.target.closest('form');
+    if (!form) return;
+    var corBox = form.querySelector('[name="start_correspondence"]');
+    if (corBox && corTriggers.includes(e.target.value)) corBox.checked = true;
+  }
+});
+</script>
+
+</div>

@@ -1,0 +1,33 @@
+{# Policy Workflow Tab — renewal checklist + information requests #}
+<div id="tab-workflow-content">
+
+<!-- Renewal Checklist -->
+<div class="card mb-4">
+  <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+    <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Renewal Checklist</span>
+    <span class="text-xs text-gray-400 font-normal">
+      {% set done = checklist | selectattr('completed') | list | length %}
+      {% set total = checklist | length %}
+      {% if total %}{{ done }}/{{ total }} complete{% endif %}
+    </span>
+  </div>
+  <div class="p-4">
+    {% include "policies/_milestones.html" %}
+  </div>
+</div>
+
+<!-- Information Requests -->
+<div class="card mb-4">
+  <div class="px-5 py-3 border-b border-gray-100">
+    <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Information Requests</span>
+  </div>
+  <div class="p-4"
+       id="policy-requests-{{ policy.policy_uid }}"
+       hx-get="/clients/{{ policy.client_id }}/requests/policy-view?policy_uid={{ policy.policy_uid }}"
+       hx-trigger="load"
+       hx-swap="innerHTML">
+    <div class="text-xs text-gray-400 italic">Loading...</div>
+  </div>
+</div>
+
+</div>

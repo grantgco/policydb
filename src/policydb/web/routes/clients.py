@@ -421,6 +421,397 @@ def client_new_post(
     return RedirectResponse(f"/clients/{cursor.lastrowid}", status_code=303)
 
 
+@router.get("/{client_id}/tab/overview", response_class=HTMLResponse)
+def client_tab_overview(request: Request, client_id: int, conn=Depends(get_db)):
+    client = get_client_by_id(conn, client_id, include_archived=True)
+    if not client:
+        return HTMLResponse("Not found", status_code=404)
+    activities = [dict(a) for a in get_activities(conn, client_id=client_id, days=90)]
+    from policydb.web.routes.activities import _attach_pc_emails
+    _attach_pc_emails(conn, activities)
+
+    # Linked accounts
+    linked_group = get_linked_group_for_client(conn, client_id)
+
+    # Scratchpad
+    _scratch = conn.execute("SELECT content, updated_at FROM client_scratchpad WHERE client_id=?", (client_id,)).fetchone()
+
+    # Pulse data
+    from policydb.web.routes.policies import _attach_milestone_progress
+    _active_policies = [dict(p) for p in get_policies_for_client(conn, client_id) if not p["is_opportunity"]]
+    _attach_milestone_progress(conn, _active_policies)
+    pulse_milestone_done = sum(p.get("milestone_done", 0) for p in _active_policies)
+    pulse_milestone_total = sum(p.get("milestone_total", 0) for p in _active_policies)
+    pulse_overdue = conn.execute(
+        """SELECT COUNT(*) FROM (
+             SELECT 1 FROM activity_log WHERE client_id=? AND follow_up_done=0 AND follow_up_date < date('now')
+             UNION ALL
+             SELECT 1 FROM policies WHERE client_id=? AND archived=0 AND (is_opportunity=0 OR is_opportunity IS NULL)
+               AND follow_up_date IS NOT NULL AND follow_up_date < date('now')
+           )""", (client_id, client_id)
+    ).fetchone()[0]
+    _risks_for_pulse = conn.execute("SELECT severity FROM client_risks WHERE client_id=?", (client_id,)).fetchall()
+    pulse_high_risks = sum(1 for r in _risks_for_pulse if r["severity"] in ("High", "Critical"))
+
+    # Recent activity for pulse
+    _today = datetime.now().strftime("%Y-%m-%d")
+    pulse_recent = [dict(a) | {"_type": "activity"} for a in activities[:5]]
+    _saved_notes = get_saved_notes_for_client_timeline(conn, client_id)
+    for sn in _saved_notes[:5]:
+        pulse_recent.append(dict(sn) | {"_type": "note"})
+    pulse_recent.sort(key=lambda x: x.get("activity_date") or x.get("created_at") or "", reverse=True)
+    pulse_recent = pulse_recent[:5]
+
+    summary = get_client_summary(conn, client_id)
+    return templates.TemplateResponse("clients/_tab_overview.html", {
+        "request": request,
+        "client": dict(client),
+        "summary": dict(summary) if summary else {},
+        "activities": activities,
+        "activity_types": cfg.get("activity_types"),
+        "dispositions": cfg.get("follow_up_dispositions", []),
+        "cor_auto_triggers": cfg.get("cor_auto_triggers", []),
+        "linked_group": linked_group,
+        "linked_relationships": cfg.get("linked_account_relationships", []),
+        "client_scratchpad": _scratch["content"] if _scratch else "",
+        "client_scratchpad_updated": _scratch["updated_at"] if _scratch else "",
+        "client_saved_notes": get_saved_notes(conn, "client", client_id),
+        "pulse_overdue": pulse_overdue,
+        "pulse_milestone_done": pulse_milestone_done,
+        "pulse_milestone_total": pulse_milestone_total,
+        "pulse_high_risks": pulse_high_risks,
+        "pulse_recent": pulse_recent,
+        "today": _today,
+        "today_iso": _today,
+    })
+
+
+@router.get("/{client_id}/tab/policies", response_class=HTMLResponse)
+def client_tab_policies(request: Request, client_id: int, conn=Depends(get_db)):
+    from collections import defaultdict
+    client = get_client_by_id(conn, client_id, include_archived=True)
+    if not client:
+        return HTMLResponse("Not found", status_code=404)
+
+    all_policies = [dict(p) for p in get_policies_for_client(conn, client_id)]
+    opportunities = [p for p in all_policies if p.get("is_opportunity")]
+    policies = [p for p in all_policies if not p.get("is_opportunity")]
+
+    from policydb.web.routes.policies import _attach_milestone_progress, _attach_readiness_score
+    policies = _attach_readiness_score(conn, _attach_milestone_progress(conn, policies))
+
+    # Attach team contacts to opportunities
+    if opportunities:
+        opp_ids = [o["id"] for o in opportunities]
+        _pc_ph = ",".join("?" * len(opp_ids))
+        _opc = conn.execute(
+            f"SELECT cpa.policy_id, co.name, co.email, co.phone, cpa.role, co.organization "  # noqa: S608
+            f"FROM contact_policy_assignments cpa JOIN contacts co ON cpa.contact_id = co.id "
+            f"WHERE cpa.policy_id IN ({_pc_ph}) ORDER BY cpa.id", opp_ids
+        ).fetchall()
+        _opc_map: dict = {}
+        for _c in _opc:
+            _opc_map.setdefault(_c["policy_id"], []).append(dict(_c))
+        for o in opportunities:
+            o["team"] = _opc_map.get(o["id"], [])
+
+    # Group policies by project_name
+    def _proj_key(name):
+        if not name:
+            return ""
+        return " ".join(name.strip().split()).lower()
+
+    groups: dict = defaultdict(list)
+    group_display: dict = {}
+    for p in policies:
+        raw = (p.get("project_name") or "").strip()
+        key = _proj_key(raw)
+        groups[key].append(p)
+        if key and key not in group_display:
+            group_display[key] = raw
+
+    policy_groups = sorted(
+        [(group_display.get(k, ""), v) for k, v in groups.items()],
+        key=lambda x: ("\xff" if not x[0] else x[0].lower()),
+    )
+
+    # Tower visuals
+    tower_by_project: dict = defaultdict(lambda: defaultdict(list))
+    for p in policies:
+        tg = p.get("tower_group")
+        if tg:
+            proj = (p.get("project_name") or "").strip() or "Corporate / Standalone"
+            tower_by_project[proj][tg].append(p)
+
+    def _tower_sort_key(lp):
+        att = lp.get("attachment_point")
+        if att is not None:
+            return (float(att), 0)
+        pos = lp.get("layer_position") or "Primary"
+        try:
+            return (-1, int(pos))
+        except (ValueError, TypeError):
+            return (-1, 0)
+
+    def _attach_ground_up(layers):
+        sorted_layers = sorted(layers, key=_tower_sort_key)
+        running = 0.0
+        for lp in sorted_layers:
+            lim = float(lp.get("limit_amount") or 0)
+            att = lp.get("attachment_point")
+            part = lp.get("participation_of")
+            if att is not None and float(att) >= 0:
+                layer_size = float(part) if part else lim
+                lp["ground_up"] = float(att) + layer_size
+            else:
+                running += lim
+                lp["ground_up"] = running
+        return sorted_layers
+
+    tower_groups = {
+        proj: {tg: _attach_ground_up(layers) for tg, layers in sorted(tgs.items())}
+        for proj, tgs in sorted(tower_by_project.items(),
+            key=lambda x: ("\xff" if x[0] == "Corporate / Standalone" else x[0].lower()))
+    }
+
+    def _build_tower_visuals_tab(tg_dict):
+        from policydb.analysis import layer_notation as _ln
+        visuals = {}
+        for proj, tgs in tg_dict.items():
+            visuals[proj] = {}
+            for tg_name, layers in tgs.items():
+                if not layers:
+                    continue
+                total_gu = max(float(l.get("ground_up") or 0) for l in layers)
+                if total_gu == 0:
+                    continue
+                grouped: dict = {}
+                for l in layers:
+                    att = l.get("attachment_point")
+                    key = str(float(att)) if att is not None else f"pos-{l.get('layer_position', 'Primary')}"
+                    grouped.setdefault(key, []).append(l)
+                visual_layers = []
+                for gkey, carriers in grouped.items():
+                    parts = [float(c["participation_of"]) for c in carriers if c.get("participation_of")]
+                    carrier_limits = [float(c.get("limit_amount") or 0) for c in carriers]
+                    full_limit = max(parts) if parts else (sum(carrier_limits) if len(carriers) > 1 else (carrier_limits[0] if carrier_limits else 0))
+                    flex = max(full_limit / 1_000_000, 0.5)
+                    att_val = carriers[0].get("attachment_point")
+                    gu_val = max(float(c.get("ground_up") or 0) for c in carriers)
+                    carrier_data = []
+                    for c in carriers:
+                        climit = float(c.get("limit_amount") or 0)
+                        fill_pct = round(climit / full_limit * 100, 1) if full_limit > 0 else 100
+                        carrier_data.append({
+                            "carrier": c.get("carrier", ""), "limit": climit, "fill_pct": fill_pct,
+                            "policy_uid": c.get("policy_uid", ""), "policy_type": c.get("policy_type", ""),
+                            "premium": c.get("premium") or 0,
+                            "notation": _ln(c.get("limit_amount"), c.get("attachment_point"), c.get("participation_of")) or "",
+                        })
+                    is_shared = len(carriers) > 1 or any(c.get("participation_of") for c in carriers)
+                    total_fill = sum(cd["fill_pct"] for cd in carrier_data)
+                    open_pct = round(100 - total_fill, 1) if is_shared and total_fill < 100 else 0
+                    open_amount = full_limit - sum(cd["limit"] for cd in carrier_data) if open_pct > 0 else 0
+                    visual_layers.append({
+                        "attachment": float(att_val) if att_val is not None else None,
+                        "full_limit": full_limit, "flex": flex, "ground_up": gu_val,
+                        "carriers": carrier_data, "total_premium": sum(cd["premium"] for cd in carrier_data),
+                        "is_shared": is_shared, "open_pct": open_pct, "open_amount": open_amount,
+                    })
+                visual_layers.sort(key=lambda vl: vl["attachment"] if vl["attachment"] is not None else -1)
+                visuals[proj][tg_name] = {
+                    "layers": visual_layers, "total_ground_up": total_gu,
+                    "total_premium": sum(vl["total_premium"] for vl in visual_layers),
+                    "carrier_count": sum(len(vl["carriers"]) for vl in visual_layers),
+                }
+        return visuals
+
+    tower_visuals = _build_tower_visuals_tab(tower_groups) if tower_groups else {}
+
+    # Archived policies
+    archived_policies = [dict(r) for r in conn.execute(
+        """SELECT policy_uid, policy_type, carrier, effective_date, expiration_date,
+                  premium, policy_number, project_name
+           FROM policies WHERE client_id = ? AND archived = 1 ORDER BY expiration_date DESC""",
+        (client_id,),
+    ).fetchall()]
+
+    # Programs
+    programs = [dict(r) for r in conn.execute(
+        """SELECT id, policy_uid, policy_type, carrier, effective_date, expiration_date,
+                  premium, limit_amount, renewal_status
+           FROM policies WHERE client_id = ? AND archived = 0 AND is_program = 1 ORDER BY policy_type""",
+        (client_id,),
+    ).fetchall()]
+    _program_linked_ids = set()
+    for pgm in programs:
+        pgm["carrier_rows"] = [dict(r) for r in conn.execute(
+            "SELECT id, carrier, policy_number, premium, limit_amount FROM program_carriers WHERE program_id = ? ORDER BY sort_order",
+            (pgm["id"],),
+        ).fetchall()]
+        pgm["program_carrier_count"] = len(pgm["carrier_rows"])
+        linked = [dict(r) for r in conn.execute(
+            """SELECT policy_uid, policy_type, carrier, premium, limit_amount, effective_date, expiration_date
+               FROM policies WHERE program_id = ? AND archived = 0 ORDER BY policy_type""",
+            (pgm["id"],),
+        ).fetchall()]
+        pgm["linked_policies"] = linked
+        for lp in linked:
+            _program_linked_ids.add(lp["policy_uid"])
+
+    # Project notes & addresses
+    notes_rows = conn.execute("SELECT id, LOWER(TRIM(name)) AS key, name, notes FROM projects WHERE client_id = ?", (client_id,)).fetchall()
+    project_notes = {r["key"]: r["notes"] for r in notes_rows}
+    project_ids = {r["key"]: r["id"] for r in notes_rows}
+    project_addresses: dict = {}
+    for p in sorted(policies, key=lambda x: x.get("id", 0), reverse=True):
+        key = _proj_key(p.get("project_name"))
+        if key and key not in project_addresses:
+            project_addresses[key] = {
+                "exposure_address": p.get("exposure_address") or "",
+                "exposure_city": p.get("exposure_city") or "",
+                "exposure_state": p.get("exposure_state") or "",
+                "exposure_zip": p.get("exposure_zip") or "",
+            }
+
+    return templates.TemplateResponse("clients/_tab_policies.html", {
+        "request": request,
+        "client": dict(client),
+        "policy_groups": policy_groups,
+        "tower_visuals": tower_visuals,
+        "renewal_statuses": cfg.get("renewal_statuses"),
+        "programs": programs,
+        "program_linked_uids": _program_linked_ids,
+        "archived_policies": archived_policies,
+        "project_notes": project_notes,
+        "project_ids": project_ids,
+        "project_addresses": project_addresses,
+        "opportunities": opportunities,
+        "pipeline_projects": _get_project_pipeline(conn, client_id),
+        "location_projects": _get_project_locations(conn, client_id),
+        "project_stages": cfg.get("project_stages", []),
+        "project_types": cfg.get("project_types", []),
+        "timeline_data": _build_timeline_data(_get_project_pipeline(conn, client_id)),
+    })
+
+
+@router.get("/{client_id}/tab/contacts", response_class=HTMLResponse)
+def client_tab_contacts(request: Request, client_id: int, add_contact: str = "", conn=Depends(get_db)):
+    client = get_client_by_id(conn, client_id, include_archived=True)
+    if not client:
+        return HTMLResponse("Not found", status_code=404)
+    import json as _json
+
+    contacts = get_client_contacts(conn, client_id, contact_type='client')
+    team_contacts = get_client_contacts(conn, client_id, contact_type='internal')
+    external_contacts = get_client_contacts(conn, client_id, contact_type='external')
+
+    # Placement colleagues
+    _pc_rows = conn.execute(
+        """SELECT co.id, co.name, co.email, co.phone, co.mobile,
+                  cpa.role, cpa.title, co.organization,
+                  GROUP_CONCAT(p.policy_type, ', ') AS policy_types
+           FROM contact_policy_assignments cpa
+           JOIN contacts co ON cpa.contact_id = co.id
+           JOIN policies p ON cpa.policy_id = p.id
+           WHERE p.client_id = ? AND p.archived = 0 AND cpa.is_placement_colleague = 1
+           GROUP BY co.id ORDER BY LOWER(co.name)""",
+        (client_id,),
+    ).fetchall()
+    placement_colleagues = [dict(r) | {"organization": r["organization"] or ""} for r in _pc_rows]
+
+    from policydb.email_templates import client_context as _client_ctx, render_tokens as _render_tokens
+    _mail_ctx = _client_ctx(conn, client_id)
+    mailto_subject = _render_tokens(cfg.get("email_subject_client", "Re: {{client_name}}"), _mail_ctx)
+
+    _ac_rows = conn.execute(
+        """SELECT co.name, MAX(co.email) AS email, MAX(co.phone) AS phone, MAX(co.mobile) AS mobile,
+                  MAX(COALESCE(cca.title, cpa.title)) AS title, MAX(COALESCE(cca.role, cpa.role)) AS role
+           FROM contacts co
+           LEFT JOIN contact_client_assignments cca ON co.id = cca.contact_id AND cca.client_id = ?
+           LEFT JOIN contact_policy_assignments cpa ON co.id = cpa.contact_id
+           WHERE co.name IS NOT NULL AND co.name != '' GROUP BY co.id ORDER BY co.name""",
+        (client_id,),
+    ).fetchall()
+    all_contacts_json = _json.dumps({r["name"]: {"email": r["email"] or "", "phone": r["phone"] or "", "mobile": r["mobile"] or "", "title": r["title"] or "", "role": r["role"] or ""} for r in _ac_rows})
+
+    all_internal_contacts_json = _json.dumps({
+        r["name"]: {"title": r["title"] or "", "email": r["email"] or "", "phone": r["phone"] or "", "mobile": r["mobile"] or "", "role": r["role"] or ""}
+        for r in conn.execute(
+            """SELECT co.name, MAX(cca.title) AS title, MAX(co.email) AS email,
+                      MAX(co.phone) AS phone, MAX(co.mobile) AS mobile, MAX(cca.role) AS role
+               FROM contacts co JOIN contact_client_assignments cca ON co.id = cca.contact_id
+               WHERE cca.contact_type='internal' AND co.name IS NOT NULL AND co.name != ''
+               GROUP BY LOWER(TRIM(co.name)) ORDER BY co.name"""
+        ).fetchall()
+    })
+
+    return templates.TemplateResponse("clients/_tab_contacts.html", {
+        "request": request,
+        "client": dict(client),
+        "contacts": contacts,
+        "team_contacts": team_contacts,
+        "external_contacts": external_contacts,
+        "billing_accounts": [dict(r) for r in conn.execute(
+            "SELECT * FROM billing_accounts WHERE client_id=? ORDER BY is_master DESC, billing_id", (client_id,)
+        ).fetchall()],
+        "placement_colleagues": placement_colleagues,
+        "mailto_subject": mailto_subject,
+        "all_contacts_json": all_contacts_json,
+        "all_internal_contacts_json": all_internal_contacts_json,
+        "add_contact": add_contact,
+        "contact_roles": cfg.get("contact_roles", []),
+        "all_orgs": _get_all_client_contact_orgs(conn),
+    })
+
+
+@router.get("/{client_id}/tab/risk", response_class=HTMLResponse)
+def client_tab_risk(request: Request, client_id: int, conn=Depends(get_db)):
+    client = get_client_by_id(conn, client_id, include_archived=True)
+    if not client:
+        return HTMLResponse("Not found", status_code=404)
+
+    # Risks
+    _risk_rows = conn.execute(
+        """SELECT cr.*, p.policy_type AS linked_policy_type, p.carrier AS linked_carrier
+           FROM client_risks cr LEFT JOIN policies p ON cr.policy_uid = p.policy_uid
+           WHERE cr.client_id = ? ORDER BY
+             CASE cr.severity WHEN 'Critical' THEN 0 WHEN 'High' THEN 1 WHEN 'Medium' THEN 2 ELSE 3 END,
+             cr.category""",
+        (client_id,),
+    ).fetchall()
+    risks = [dict(r) for r in _risk_rows]
+    for risk in risks:
+        risk["coverage_lines"] = [dict(r) for r in conn.execute(
+            "SELECT * FROM risk_coverage_lines WHERE risk_id=?", (risk["id"],)
+        ).fetchall()]
+        risk["controls"] = [dict(r) for r in conn.execute(
+            "SELECT * FROM risk_controls WHERE risk_id=? ORDER BY id", (risk["id"],)
+        ).fetchall()]
+
+    # Policy UID options for linking
+    policy_uid_options = [{"uid": r["policy_uid"], "label": f"{r['policy_uid']} — {r['policy_type']}"} for r in conn.execute(
+        "SELECT policy_uid, policy_type FROM policies WHERE client_id=? AND archived=0 ORDER BY policy_type",
+        (client_id,),
+    ).fetchall()]
+
+    return templates.TemplateResponse("clients/_tab_risk.html", {
+        "request": request,
+        "client": dict(client),
+        "risks": risks,
+        "risk_summary": _compute_risk_summary(risks),
+        "risk_categories": cfg.get("risk_categories", []),
+        "risk_severities": cfg.get("risk_severities", []),
+        "risk_sources": cfg.get("risk_sources", []),
+        "risk_control_types": cfg.get("risk_control_types", []),
+        "risk_control_statuses": cfg.get("risk_control_statuses", []),
+        "risk_adequacy_levels": cfg.get("risk_adequacy_levels", []),
+        "policy_types": cfg.get("policy_types", []),
+        "policy_uid_options": policy_uid_options,
+        "bundles": _get_request_bundles(conn, client_id),
+    })
+
+
 @router.get("/{client_id}", response_class=HTMLResponse)
 def client_detail(request: Request, client_id: int, add_contact: str = "", conn=Depends(get_db)):
     from collections import defaultdict
