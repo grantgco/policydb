@@ -1,0 +1,18 @@
+<div id="decision-{{ decision.id }}" class="flex items-center gap-2 py-2 px-3 border-b border-gray-50 group">
+  <span class="text-amber-500 text-sm shrink-0">◆</span>
+  <span class="flex-1 text-sm text-gray-700 {% if decision.confirmed %}line-through text-gray-400{% endif %}">{{ decision.description }}</span>
+  {% if decision.policy_uid %}
+  <span class="text-xs bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded shrink-0">{{ decision.policy_uid }}</span>
+  {% endif %}
+  <button hx-post="/meetings/{{ meeting_id }}/decisions/{{ decision.id }}/confirm"
+          hx-swap="none"
+          onclick="(function(btn) { var sp = btn.querySelector('span'); var confirmed = sp.textContent === '✓'; sp.textContent = confirmed ? '○' : '✓'; btn.className = btn.className.replace(confirmed ? 'text-green-600' : 'text-gray-300', confirmed ? 'text-gray-300' : 'text-green-600'); var desc = btn.closest('[id^=\"decision-\"]').querySelector('span:nth-child(2)'); if (desc) { if (!confirmed) { desc.classList.add('line-through','text-gray-400'); } else { desc.classList.remove('line-through','text-gray-400'); } } })(this)"
+          class="text-sm shrink-0 {% if decision.confirmed %}text-green-600{% else %}text-gray-300 hover:text-green-400{% endif %} transition-colors"
+          title="Confirm decision">
+    <span>{% if decision.confirmed %}✓{% else %}○{% endif %}</span>
+  </button>
+  <button hx-post="/meetings/{{ meeting_id }}/decisions/{{ decision.id }}/delete"
+          hx-target="#decision-{{ decision.id }}" hx-swap="outerHTML"
+          class="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 text-sm shrink-0 transition-opacity"
+          title="Remove">×</button>
+</div>

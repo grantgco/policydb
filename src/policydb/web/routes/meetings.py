@@ -366,6 +366,53 @@ async def save_agenda(
     return JSONResponse({"ok": True})
 
 
+@router.post("/meetings/{meeting_id}/decisions")
+async def add_decision(
+    request: Request,
+    meeting_id: int,
+    conn=Depends(get_db),
+):
+    form = await request.form()
+    description = form.get("description", "").strip()
+    policy_uid = form.get("policy_uid", "") or None
+    if not description:
+        return JSONResponse({"ok": False, "error": "Description required"}, status_code=400)
+    cur = conn.execute(
+        "INSERT INTO meeting_decisions (meeting_id, description, policy_uid) VALUES (?, ?, ?)",
+        (meeting_id, description, policy_uid),
+    )
+    conn.commit()
+    decision = dict(conn.execute("SELECT * FROM meeting_decisions WHERE id = ?", (cur.lastrowid,)).fetchone())
+    return templates.TemplateResponse("meetings/_decision_row.html", {
+        "request": request, "decision": decision, "meeting_id": meeting_id,
+    })
+
+
+@router.post("/meetings/{meeting_id}/decisions/{decision_id}/confirm")
+def confirm_decision(
+    meeting_id: int,
+    decision_id: int,
+    conn=Depends(get_db),
+):
+    conn.execute(
+        "UPDATE meeting_decisions SET confirmed = CASE WHEN confirmed = 1 THEN 0 ELSE 1 END WHERE id = ?",
+        (decision_id,),
+    )
+    conn.commit()
+    return JSONResponse({"ok": True})
+
+
+@router.post("/meetings/{meeting_id}/decisions/{decision_id}/delete")
+def delete_decision(
+    meeting_id: int,
+    decision_id: int,
+    conn=Depends(get_db),
+):
+    conn.execute("DELETE FROM meeting_decisions WHERE id = ?", (decision_id,))
+    conn.commit()
+    return JSONResponse({"ok": True})
+
+
 @router.get("/meetings/{meeting_id}", response_class=HTMLResponse)
 def meeting_detail(
     request: Request,

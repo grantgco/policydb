@@ -197,10 +197,9 @@
 </div>
 
 {% elif phase == 'during' %}
-{# ── DURING: Live Notes ── #}
+{# ── DURING: Live Notes + Capture ── #}
 <div class="card p-5 mb-4">
-  <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Live Notes</p>
-  <p class="text-sm text-gray-400 italic">During phase — live notes and decisions will appear here.</p>
+  {% include "meetings/_phase_during.html" %}
 </div>
 
 {% elif phase == 'after' %}
@@ -254,8 +253,8 @@
 </div>
 {% endif %}
 
-{# ── Meeting Notes (always visible unless complete) ── #}
-{% if phase != 'complete' %}
+{# ── Meeting Notes (before/after only — during phase has its own inline notes) ── #}
+{% if phase not in ('complete', 'during') %}
 <div class="card p-4 mb-4">
   <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Meeting Notes</p>
   <textarea id="meeting-notes-ta" rows="10"
@@ -281,12 +280,17 @@
 </script>
 {% endif %}
 
-{# ── Action Items ── #}
+{# ── Action Items (before/after only — during phase has its own inline action list) ── #}
+{% if phase != 'during' %}
 <div class="card p-4 mb-4">
   <div id="actions-section">
     {% include "meetings/_actions.html" %}
   </div>
 </div>
+{% else %}
+{# Hidden anchor so HTMX action toggles from _phase_during.html still have a target to swap into #}
+<div id="actions-section" class="hidden">{% include "meetings/_actions.html" %}</div>
+{% endif %}
 
 {# ── Attendees ── #}
 <div class="card p-4 mb-4">
@@ -344,22 +348,13 @@
   </div>
 </details>
 
-{# ── Phase Action Button ── #}
+{# ── Phase Action Button (during phase has its own button inside _phase_during.html) ── #}
 {% if phase == 'before' %}
 <div class="mt-6 mb-2 no-print">
   <form method="post" action="/meetings/{{ meeting.id }}/start">
     <button type="submit"
       class="bg-marsh text-white px-6 py-2.5 rounded-lg hover:bg-marsh-light transition-colors text-sm font-medium">
       Start Meeting →
-    </button>
-  </form>
-</div>
-{% elif phase == 'during' %}
-<div class="mt-6 mb-2 no-print">
-  <form method="post" action="/meetings/{{ meeting.id }}/end">
-    <button type="submit"
-      class="bg-marsh text-white px-6 py-2.5 rounded-lg hover:bg-marsh-light transition-colors text-sm font-medium">
-      End Meeting →
     </button>
   </form>
 </div>
