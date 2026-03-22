@@ -5,7 +5,7 @@
   <div class="mt-2 border border-gray-200 rounded-lg p-3 bg-white shadow-sm">
     <input type="text" name="q" placeholder="Search by name or email..."
            hx-get="/contacts/search?context={{ picker_context }}&target_id={{ picker_target_id }}"
-           hx-trigger="input changed delay:300ms"
+           hx-trigger="keyup delay:300ms"
            hx-target="#picker-results-{{ picker_context }}-{{ picker_target_id }}"
            hx-include="this"
            autocomplete="off"
