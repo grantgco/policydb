@@ -94,7 +94,7 @@ Auto-generated briefing from existing client/policy data. All sections populate 
 - SOI: `v_schedule` filtered to client
 - Activity: `activity_log` filtered to client, last 30 days
 - Account Pulse: `v_client_summary` + `get_client_total_hours()`
-- Talking points: New `meeting_talking_points` field or stored in `client_meetings.agenda` column
+- Talking points: stored in `client_meetings.agenda` column (TEXT)
 
 ---
 
@@ -148,6 +148,8 @@ Six numbered steps in a two-column layout. Each step is independent — can be c
 - "Create All as Follow-Ups" button converts each to an `activity_log` entry with `follow_up_date`, linked to the correct client and policy
 - Individual review: each item shows assignee, due date, and inferred policy link. Can edit before creating.
 - Uses existing `activity_log` INSERT pattern with `activity_type = 'Follow-up'`
+- Back-links the created `activity_log.id` into `meeting_action_items.activity_id` to prevent duplicate creation
+- Action items with a non-null `activity_id` are shown as "already routed" and skipped by "Create All"
 
 **2. Finalize Decision Log**
 - Lists decisions captured during the meeting
@@ -191,6 +193,22 @@ Six numbered steps in a two-column layout. Each step is independent — can be c
 ---
 
 ## Database Changes
+
+### Existing tables (referenced, not modified):
+
+**`meeting_attendees`** (migration 055 + 057):
+- `id`, `meeting_id` (FK → client_meetings), `contact_id`, `name`, `role`, `is_internal`, `attendee_type`
+- Used in: Before phase (attendee list), During phase (assignee combobox), After phase (recap recipients)
+
+**`meeting_action_items`** (migration 055 + 056):
+- `id`, `meeting_id` (FK → client_meetings), `description`, `assignee`, `due_date`, `completed`, `activity_id` (FK → activity_log), `policy_uid`
+- Used in: During phase (action item capture), After phase (follow-up routing)
+- `activity_id` populated when action item is converted to a follow-up activity
+
+**`meeting_policies`** (migration 056):
+- `id`, `meeting_id` (FK → client_meetings), `policy_uid`
+- Rows created when user explicitly links a policy to a meeting (existing feature in meeting detail)
+- Also used for cross-link queries on policy activity tab
 
 ### Modified tables:
 
@@ -244,6 +262,8 @@ Added to `CONTEXT_TOKENS` under a `meeting` context key:
 
 New config key: `email_subject_meeting` — default: `"Meeting Recap: {{meeting_title}} — {{meeting_date}}"`
 
+New function: `meeting_context(conn, meeting_id)` in `email_templates.py` — builds token dict for meeting context, matching the existing pattern of `policy_context()`, `client_context()`, and `followup_context()`.
+
 ---
 
 ## Cross-Links
@@ -261,10 +281,12 @@ New config key: `email_subject_meeting` — default: `"Meeting Recap: {{meeting_
 - Compact list: date, title, type, phase status
 
 ### Policy Activity Tab
-- Meetings where the policy was discussed appear in the activity timeline
+- Meetings where the policy was discussed appear in the activity timeline via two paths:
+  1. **Explicit links:** rows in `meeting_policies` (user linked the policy to the meeting)
+  2. **Decision links:** rows in `meeting_decisions` where `policy_uid` matches
 - Clickable meeting ref tag (`MTG-{meeting_uid}`) links back to meeting detail
-- Decisions linked to the policy also appear as timeline entries
-- Query joins `meeting_policies` + `meeting_decisions` with `policy_uid`
+- Decisions linked to the policy also appear as separate timeline entries
+- Query: `SELECT ... FROM meeting_policies mp JOIN client_meetings cm ... WHERE mp.policy_uid = ? UNION SELECT ... FROM meeting_decisions md JOIN client_meetings cm ... WHERE md.policy_uid = ?`
 
 ### Follow-Up → Meeting
 - "Schedule as Meeting" action button on follow-up rows
