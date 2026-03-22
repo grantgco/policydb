@@ -93,39 +93,41 @@ Timelines are generated automatically by `generate_policy_timelines()` (replaces
 
 Each disposition in `follow_up_dispositions` config gains an `accountability` field:
 
+**Note:** Existing config uses `label` (not `name`) as the key for each disposition. The new `accountability` field is added alongside the existing structure.
+
 ```yaml
 follow_up_dispositions:
-  - name: "Left VM"
+  - label: "Left VM"
     default_days: 3
     accountability: "waiting_external"
-  - name: "No Answer"
+  - label: "No Answer"
     default_days: 1
     accountability: "my_action"
-  - name: "Sent Email"
+  - label: "Sent Email"
     default_days: 7
     accountability: "waiting_external"
-  - name: "Sent RFI"
+  - label: "Sent RFI"
     default_days: 7
     accountability: "waiting_external"
-  - name: "Waiting on Colleague"
+  - label: "Waiting on Colleague"
     default_days: 5
     accountability: "waiting_external"
-  - name: "Waiting on Client"
+  - label: "Waiting on Client"
     default_days: 7
     accountability: "waiting_external"
-  - name: "Waiting on Carrier"
+  - label: "Waiting on Carrier"
     default_days: 7
     accountability: "waiting_external"
-  - name: "Connected"
+  - label: "Connected"
     default_days: 0
     accountability: "my_action"
-  - name: "Received Response"
+  - label: "Received Response"
     default_days: 0
     accountability: "my_action"
-  - name: "Meeting Scheduled"
+  - label: "Meeting Scheduled"
     default_days: 0
     accountability: "scheduled"
-  - name: "Escalated"
+  - label: "Escalated"
     default_days: 3
     accountability: "my_action"
 ```
@@ -513,6 +515,58 @@ Each milestone inherits its `days`, `prep_days`, and other timing from `mandated
 
 ---
 
+## Milestone Name Reconciliation
+
+The existing codebase has two independent milestone systems that this design unifies:
+
+**`renewal_milestones`** (checklist items — simple strings):
+- Submission Sent, Loss Runs Received, Quote Received, Coverage Comparison Prepared, Client Approved, Binder Requested, Policy Received
+
+**`mandated_activities`** (timed triggers — currently only 2):
+- RSM Meeting (120d before expiry), Post-Binding Meeting (45d after effective)
+
+This design **expands `mandated_activities`** to include timeline-aware versions of the renewal milestones. The naming must be consistent between the two systems. Implementation should:
+
+1. Keep `renewal_milestones` as the canonical name list (user-editable in Settings)
+2. `mandated_activities` references those names and adds timing/trigger metadata
+3. When a `mandated_activities` entry shares a name with a `renewal_milestones` item, completing the timeline milestone also marks the `policy_milestones` checklist item done (and vice versa)
+4. New milestones like "RSM Meeting" and "Client Presentation" exist only in `mandated_activities` (not in the basic checklist) since they are meeting-type activities, not deliverable checkpoints
+
+**Name alignment table:**
+
+| `mandated_activities` name | Maps to `renewal_milestones` | Notes |
+|---------------------------|------------------------------|-------|
+| RSM Meeting | — | Meeting, not a checklist item |
+| Market Submissions | Submission Sent | Same concept, use "Submission Sent" |
+| Quote Received | Quote Received | Exact match |
+| Coverage Comparison Prepared | Coverage Comparison Prepared | Exact match |
+| Client Presentation | — | Meeting, not a checklist item |
+| Client Approved | Client Approved | Exact match |
+| Binder Requested | Binder Requested | Exact match |
+| Policy Received | Policy Received | Exact match |
+| Post-Binding Meeting | — | Post-effective trigger, not in renewal checklist |
+
+---
+
+## Settings UI for Nested Config
+
+The current `EDITABLE_LISTS` in `settings.py` only handles flat string lists. Several new config keys in this design are nested structures (list of dicts):
+
+- `follow_up_dispositions` (already nested — `label` + `default_days`, now + `accountability`)
+- `mandated_activities` (already nested — `name` + `trigger` + `days`, now + `prep_days` + `prep_notes`)
+- `milestone_profiles` (new — `name` + `description` + `milestones[]`)
+- `timeline_engine` (new — flat dict of thresholds)
+- `risk_alert_thresholds` (new — flat dict of booleans)
+
+**Implementation approach:** Create custom editor sections in the Settings page for these structured configs, similar to how `follow_up_dispositions` is already managed (it has its own editor outside of `EDITABLE_LISTS`). Each gets a dedicated card/section with appropriate controls:
+
+- **Dispositions:** Existing editor + new accountability dropdown per row
+- **Mandated Activities:** Table editor with columns for name, trigger, days, prep_days, prep_notes
+- **Milestone Profiles:** Card per profile with drag-to-reorder milestone list
+- **Timeline Engine / Risk Alerts:** Simple key-value editors for threshold numbers and boolean toggles
+
+---
+
 ## Schema Changes Summary
 
 ### New Table: `policy_timeline`
@@ -541,6 +595,8 @@ CREATE TABLE IF NOT EXISTS policy_timeline (
 ```sql
 ALTER TABLE policies ADD COLUMN milestone_profile TEXT DEFAULT '';
 ```
+
+**Migration numbering:** Next available migration is **069** (068 exists on disk as `068_migrate_saved_notes_to_activities.sql`). The `policy_timeline` table and `milestone_profile` column should be migration 069. Note: migration 068 must be wired into `_KNOWN_MIGRATIONS` in `db.py` if not already.
 
 ### Config Additions
 
@@ -579,3 +635,50 @@ ALTER TABLE policies ADD COLUMN milestone_profile TEXT DEFAULT '';
 - **Auto-send emails** — system drafts notifications, user always sends manually.
 - **Workflow state machine** — no formal states with enforced transitions. The timeline is advisory, not gating.
 - **Policy-level milestone overrides within a program** — if a policy is in a program, it uses the program's timeline. No per-policy exceptions within a program.
+
+---
+
+## Implementation Impact Analysis
+
+### New Files
+
+| File | Purpose |
+|------|---------|
+| `src/policydb/timeline_engine.py` | Core engine: timeline generation, recalculation, health computation. Keeps `queries.py` from growing further. |
+| `src/policydb/migrations/069_policy_timeline.sql` | New `policy_timeline` table + `milestone_profile` column on policies |
+| `src/policydb/web/templates/action_center/_risk_alerts.html` | Risk alert banner partial |
+| `src/policydb/web/templates/action_center/_portfolio_health.html` | Sidebar portfolio health widget |
+| `src/policydb/web/templates/action_center/_followup_sections.html` | Restructured follow-up sections (Act Now, Nudge Due, Prep, Watching, Scheduled) |
+| `src/policydb/web/templates/policies/_timeline.html` | Policy/program timeline visualization |
+| `src/policydb/web/templates/policies/_timeline_banner.html` | Compact banner for child policies in a program |
+| `src/policydb/web/templates/settings/_mandated_activities_editor.html` | Custom editor for mandated activities config |
+| `src/policydb/web/templates/settings/_milestone_profiles_editor.html` | Custom editor for milestone profiles config |
+
+### Modified Files
+
+| File | Changes |
+|------|---------|
+| **`src/policydb/config.py`** | Add `prep_days`/`prep_notes` to `mandated_activities` defaults; add `accountability` to `follow_up_dispositions`; add new keys: `milestone_profiles`, `milestone_profile_rules`, `timeline_engine`, `risk_alert_thresholds` |
+| **`src/policydb/db.py`** | Wire migration 069 into `_KNOWN_MIGRATIONS`; call `generate_policy_timelines()` on startup alongside existing `generate_mandated_activities()` |
+| **`src/policydb/queries.py`** | Modify `get_all_followups()` to include accountability state; modify `get_suggested_followups()` to use timeline health; modify `get_escalation_alerts()` to use timeline health; modify `get_stale_renewals()` to use timeline health; add `supersede_followups()` → timeline recalc trigger |
+| **`src/policydb/web/routes/activities.py`** | `activity_complete()` — update timeline accountability on completion; `activity_followup()` (re-diary) — trigger timeline recalculation; add timeline context to re-diary response |
+| **`src/policydb/web/routes/action_center.py`** | Rewrite `_followups_ctx()` to produce 5 sections instead of overdue/upcoming; add `_portfolio_health_ctx()` for sidebar widget; add `_risk_alerts_ctx()` for banner; update `_sidebar_ctx()` with new badge counts |
+| **`src/policydb/web/routes/policies.py`** | Add `milestone_profile` field handling to policy edit; add timeline view endpoint; modify milestone toggle to sync with `policy_timeline`; add program timeline banner endpoint |
+| **`src/policydb/web/routes/dashboard.py`** | Replace urgency-based widgets with health-based widgets; update stale/suggested to use timeline data |
+| **`src/policydb/web/routes/settings.py`** | Add custom editor routes for mandated activities, milestone profiles, timeline thresholds, risk alert config |
+| **`src/policydb/views.py`** | Update `v_renewal_pipeline` to include `health` from timeline; update `v_overdue_followups` to include accountability state |
+| **`src/policydb/email_templates.py`** | Add `timeline_context()` function; add timeline tokens to `CONTEXT_TOKEN_GROUPS`; seed nudge templates in `email_templates` table |
+| **`src/policydb/web/templates/action_center/page.html`** | Add risk alerts banner slot; restructure follow-ups tab layout |
+| **`src/policydb/web/templates/action_center/_followups.html`** | Major rewrite for 5-section layout |
+| **`src/policydb/web/templates/action_center/_sidebar.html`** | Add portfolio health widget; update badge format |
+| **`src/policydb/web/templates/policies/_tab_details.html`** | Add milestone profile dropdown; add timeline view/banner |
+| **`src/policydb/web/templates/base.html`** | Update nav badge to "actions · nudges" format |
+
+### Recommended Implementation Phases
+
+| Phase | Scope | Depends On |
+|-------|-------|-----------|
+| **Phase 1: Foundation** | Migration 069, `timeline_engine.py` (generate + recalculate + health compute), config additions, `generate_policy_timelines()` wired into startup | Nothing |
+| **Phase 2: Accountability** | `accountability` field on dispositions, modify re-diary to trigger recalc, modify complete to update timeline, sync milestone toggle with timeline | Phase 1 |
+| **Phase 3: Action Center Overhaul** | 5-section follow-ups, portfolio health sidebar, risk alerts banner, badge update | Phase 1 + 2 |
+| **Phase 4: Templates & Polish** | Nudge templates, risk notification drafts, timeline tokens in email system, timeline visualization on policy/program pages, Settings UI editors | Phase 1 + 2 + 3 |
