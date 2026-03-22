@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
@@ -50,7 +50,16 @@ def _sidebar_ctx(conn) -> dict:
 
 def _followups_ctx(conn, window: int, activity_type: str, q: str,
                    client_id: int = 0) -> dict:
-    """Build follow-ups tab context — reuses logic from activities.py."""
+    """Build follow-ups tab context — reuses logic from activities.py.
+
+    Produces 5 accountability buckets alongside the existing overdue/upcoming
+    breakdown for backward compatibility:
+      act_now       – my_action items due today or overdue
+      nudge_due     – waiting_external items with follow_up_date <= today
+      prep_coming   – timeline milestones whose prep_alert_date has arrived
+      watching      – waiting_external items with follow_up_date > today
+      scheduled     – items with 'scheduled' accountability
+    """
     from policydb.web.routes.activities import _add_mailto_subjects
 
     filter_client_ids = [client_id] if client_id else None
@@ -77,17 +86,85 @@ def _followups_ctx(conn, window: int, activity_type: str, q: str,
     tomorrow_items = [r for r in upcoming if r.get("follow_up_date") == tomorrow_str]
     later_items = [r for r in upcoming if r.get("follow_up_date", "") > tomorrow_str]
 
+    # ── 5 accountability buckets ──────────────────────────────────────
+    all_items = overdue + upcoming
+    act_now: list[dict] = []
+    nudge_due: list[dict] = []
+    watching: list[dict] = []
+    scheduled: list[dict] = []
+
+    for item in all_items:
+        acc = item.get("accountability", "my_action")
+        fu_date = item.get("follow_up_date") or ""
+        if acc == "scheduled":
+            scheduled.append(item)
+        elif acc == "waiting_external":
+            if fu_date <= today_str:
+                nudge_due.append(item)
+            else:
+                watching.append(item)
+        else:  # my_action or unknown
+            act_now.append(item)
+
+    # Compute nudge escalation tiers for nudge_due items
+    for item in nudge_due:
+        thread_id = item.get("thread_id")
+        if thread_id:
+            count = conn.execute(
+                "SELECT COUNT(*) FROM activity_log WHERE thread_id = ?",
+                (thread_id,),
+            ).fetchone()[0]
+            item["nudge_count"] = count
+            item["escalation_tier"] = (
+                "urgent" if count >= 3 else "elevated" if count >= 2 else "normal"
+            )
+        else:
+            item["nudge_count"] = 1
+            item["escalation_tier"] = "normal"
+
+    # Prep coming — timeline milestones whose prep_alert_date has arrived
+    prep_coming: list[dict] = []
+    try:
+        prep_rows = conn.execute("""
+            SELECT pt.policy_uid, pt.milestone_name, pt.projected_date,
+                   pt.prep_alert_date, pt.accountability, pt.health,
+                   p.policy_type, c.name AS client_name, c.id AS client_id
+            FROM policy_timeline pt
+            JOIN policies p ON p.policy_uid = pt.policy_uid
+            JOIN clients c ON c.id = p.client_id
+            WHERE pt.prep_alert_date <= ? AND pt.completed_date IS NULL
+              AND pt.prep_alert_date IS NOT NULL
+            ORDER BY pt.projected_date
+        """, (today_str,)).fetchall()
+        prep_coming = [dict(r) for r in prep_rows]
+    except Exception:
+        # policy_timeline table may not exist yet — degrade gracefully
+        pass
+
+    # Apply search filter to prep items
+    if q:
+        q_lower = q.lower()
+        prep_coming = [r for r in prep_coming if q_lower in r.get("client_name", "").lower()]
+
     all_clients = [dict(c) for c in conn.execute(
         "SELECT id, name FROM clients WHERE archived=0 ORDER BY name"
     ).fetchall()]
 
     return {
+        # Legacy buckets (backward compat for existing row templates)
         "overdue": overdue,
         "upcoming": upcoming,
         "today_items": today_items,
         "tomorrow_items": tomorrow_items,
         "later_items": later_items,
         "suggested": suggested,
+        # New accountability buckets
+        "act_now": act_now,
+        "nudge_due": nudge_due,
+        "prep_coming": prep_coming,
+        "watching": watching,
+        "scheduled": scheduled,
+        # Filter state
         "window": window,
         "activity_type": activity_type,
         "q": q,
@@ -215,6 +292,53 @@ def _scratchpads_ctx(conn) -> dict:
     return {"scratchpads": scratchpads}
 
 
+def _portfolio_health_ctx(conn) -> dict:
+    """Compute portfolio health counts by worst-health-per-policy from timeline."""
+    counts = {"on_track": 0, "drifting": 0, "compressed": 0, "at_risk": 0, "critical": 0}
+    try:
+        rows = conn.execute("""
+            SELECT policy_uid,
+                   MIN(CASE health
+                       WHEN 'critical' THEN 1 WHEN 'at_risk' THEN 2
+                       WHEN 'compressed' THEN 3 WHEN 'drifting' THEN 4
+                       ELSE 5 END) AS worst_rank
+            FROM policy_timeline
+            WHERE completed_date IS NULL
+            GROUP BY policy_uid
+        """).fetchall()
+        rank_map = {1: "critical", 2: "at_risk", 3: "compressed", 4: "drifting", 5: "on_track"}
+        for r in rows:
+            h = rank_map.get(r["worst_rank"], "on_track")
+            counts[h] = counts.get(h, 0) + 1
+    except Exception:
+        pass  # policy_timeline may not exist yet
+    return {"health_counts": [(k, v) for k, v in counts.items()]}
+
+
+def _risk_alerts_ctx(conn) -> dict:
+    """Return at_risk / critical timeline items for the risk alerts banner."""
+    alerts: list[dict] = []
+    try:
+        rows = conn.execute("""
+            SELECT DISTINCT pt.policy_uid, pt.health, pt.waiting_on,
+                   pt.acknowledged, pt.acknowledged_at,
+                   p.policy_type, p.expiration_date,
+                   c.name AS client_name, c.id AS client_id,
+                   CAST(julianday(p.expiration_date) - julianday('now') AS INTEGER) AS days_to_expiry,
+                   CAST(julianday(pt.projected_date) - julianday(pt.ideal_date) AS INTEGER) AS drift_days
+            FROM policy_timeline pt
+            JOIN policies p ON p.policy_uid = pt.policy_uid
+            JOIN clients c ON c.id = p.client_id
+            WHERE pt.health IN ('at_risk', 'critical')
+              AND pt.completed_date IS NULL
+            ORDER BY CASE pt.health WHEN 'critical' THEN 0 ELSE 1 END, p.expiration_date
+        """).fetchall()
+        alerts = [dict(r) for r in rows]
+    except Exception:
+        pass  # policy_timeline may not exist yet
+    return {"risk_alerts": alerts}
+
+
 # ── Main page ────────────────────────────────────────────────────────────────
 
 
@@ -245,13 +369,23 @@ def action_center_page(request: Request, tab: str = "", conn=Depends(get_db)):
         scratchpad_count += conn.execute(
             "SELECT COUNT(*) FROM policy_scratchpad WHERE content IS NOT NULL AND content != ''"
         ).fetchone()[0]
+    # Portfolio health + risk alerts (always shown)
+    health_ctx = _portfolio_health_ctx(conn)
+    risk_ctx = _risk_alerts_ctx(conn)
+    # Accountability counts for sidebar badges
+    act_now_count = len(tab_ctx.get("act_now", []))
+    nudge_due_count = len(tab_ctx.get("nudge_due", []))
     ctx = {
         "request": request,
         "active": "action-center",
         "initial_tab": initial_tab,
         "scratchpad_count": scratchpad_count,
+        "act_now_count": act_now_count,
+        "nudge_due_count": nudge_due_count,
         **sidebar,
         **tab_ctx,
+        **health_ctx,
+        **risk_ctx,
     }
     return templates.TemplateResponse("action_center/page.html", ctx)
 
@@ -309,5 +443,50 @@ def ac_scratchpads(request: Request, conn=Depends(get_db)):
 @router.get("/action-center/sidebar", response_class=HTMLResponse)
 def ac_sidebar(request: Request, conn=Depends(get_db)):
     ctx = _sidebar_ctx(conn)
+    health_ctx = _portfolio_health_ctx(conn)
+    ctx.update(health_ctx)
     ctx["request"] = request
     return templates.TemplateResponse("action_center/_sidebar.html", ctx)
+
+
+# ── Risk alert acknowledge ────────────────────────────────────────────────────
+
+
+@router.post("/action-center/acknowledge/{policy_uid}", response_class=HTMLResponse)
+def acknowledge_alert(request: Request, policy_uid: str, conn=Depends(get_db)):
+    """Mark at_risk/critical timeline items as acknowledged for a policy."""
+    now = datetime.now().isoformat()
+    try:
+        conn.execute("""
+            UPDATE policy_timeline SET acknowledged = 1, acknowledged_at = ?
+            WHERE policy_uid = ? AND health IN ('at_risk', 'critical')
+        """, (now, policy_uid))
+        conn.commit()
+    except Exception:
+        pass
+    # Return the updated alert row
+    try:
+        row = conn.execute("""
+            SELECT DISTINCT pt.policy_uid, pt.health, pt.waiting_on,
+                   pt.acknowledged, pt.acknowledged_at,
+                   p.policy_type, p.expiration_date,
+                   c.name AS client_name, c.id AS client_id,
+                   CAST(julianday(p.expiration_date) - julianday('now') AS INTEGER) AS days_to_expiry,
+                   CAST(julianday(pt.projected_date) - julianday(pt.ideal_date) AS INTEGER) AS drift_days
+            FROM policy_timeline pt
+            JOIN policies p ON p.policy_uid = pt.policy_uid
+            JOIN clients c ON c.id = p.client_id
+            WHERE pt.policy_uid = ? AND pt.health IN ('at_risk', 'critical')
+              AND pt.completed_date IS NULL
+            LIMIT 1
+        """, (policy_uid,)).fetchone()
+        if row:
+            alert = dict(row)
+            return templates.TemplateResponse(
+                "action_center/_risk_alert_row.html",
+                {"request": request, "alert": alert},
+            )
+    except Exception:
+        pass
+    # Fallback: return empty (row disappears)
+    return HTMLResponse("")

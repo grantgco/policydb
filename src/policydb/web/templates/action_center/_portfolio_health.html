@@ -1,0 +1,30 @@
+{# Portfolio Health widget — shows health distribution from policy_timeline #}
+{% if health_counts is defined %}
+{% set has_data = health_counts | selectattr('1', 'gt', 0) | list | length > 0 %}
+{% if has_data %}
+<div class="bg-white rounded-md border border-gray-200 p-3 mb-4">
+  <p class="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-2">Portfolio Health</p>
+  {% for health, count in health_counts %}
+  {% if count > 0 %}
+  <div class="flex items-center justify-between py-0.5">
+    <span class="flex items-center gap-1.5 text-[11px]
+      {% if health == 'critical' %}text-red-600
+      {% elif health == 'at_risk' %}text-orange-600
+      {% elif health == 'compressed' %}text-amber-600
+      {% elif health == 'drifting' %}text-blue-600
+      {% else %}text-green-600{% endif %}">
+      <span class="w-1.5 h-1.5 rounded-full inline-block
+        {% if health == 'critical' %}bg-red-500
+        {% elif health == 'at_risk' %}bg-orange-500
+        {% elif health == 'compressed' %}bg-amber-500
+        {% elif health == 'drifting' %}bg-blue-500
+        {% else %}bg-green-500{% endif %}"></span>
+      {{ health | replace('_', ' ') | title }}
+    </span>
+    <span class="text-[11px] font-medium text-gray-700">{{ count }}</span>
+  </div>
+  {% endif %}
+  {% endfor %}
+</div>
+{% endif %}
+{% endif %}
