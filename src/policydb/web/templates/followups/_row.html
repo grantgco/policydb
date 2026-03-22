@@ -2,7 +2,7 @@
 {% set row_id = "followup-" ~ r.source ~ "-" ~ r.id %}
 {% set mailto_subject = r.get('mailto_subject') or ('Re: ' ~ r.client_name ~ ' — ' ~ r.subject) %}
 {% set _rfi_uid = r.subject.split('Send RFI: ')[1].split(' ', 1)[0] if r.subject and r.subject.startswith('Send RFI: ') else '' %}
-{% set _ref_tag = build_ref_tag(cn_number=r.get('cn_number', ''), client_id=r.client_id, policy_uid=r.policy_uid|default(''), project_id=r.get('project_id', 0), activity_id=r.id, thread_id=r.get('thread_id', 0), rfi_uid=_rfi_uid) %}
+{% set _ref_tag = build_ref_tag(cn_number=r.get('cn_number', ''), client_id=r.client_id, policy_uid=r.policy_uid|default(''), project_id=r.get('project_id', 0), activity_id=r.id, rfi_uid=_rfi_uid) %}
 <tr class="hover:bg-{{ 'red' if is_overdue else 'amber' }}-50/40" id="{{ row_id }}">
   <td class="px-3 py-3 w-8 no-print">
     <input type="checkbox" class="followup-check rounded border-gray-300" value="{{ r.source }}-{{ r.id }}"
@@ -268,8 +268,8 @@
 
       {# Reference tag — copyable from within the form #}
       <div class="flex items-center gap-2 mb-1">
-        <span class="text-[10px] font-mono text-blue-500 bg-blue-50 px-2 py-0.5 rounded select-all cursor-pointer" title="Click to select, then copy"
-              onclick="navigator.clipboard.writeText(this.textContent.trim());if(typeof showToast==='function')showToast('Ref tag copied',true);">{{ _ref_tag }}</span>
+        <span class="text-[10px] font-mono text-blue-500 bg-blue-50 px-2 py-0.5 rounded cursor-pointer" title="Click to copy ref tag"
+              onclick="copyRefTag(this, '{{ _ref_tag }}')">{{ _ref_tag }}</span>
         <span class="text-[10px] text-gray-300">|</span>
         <span class="text-[10px] text-gray-400">A-{{ r.id }}</span>
       </div>

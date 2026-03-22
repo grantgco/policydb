@@ -139,11 +139,6 @@
             <input type="date" name="follow_up_date"
               class="text-sm border border-gray-200 rounded px-2 py-1.5 focus:border-marsh focus:outline-none">
           </div>
-          <label class="toggle-switch pb-1" title="Start correspondence thread">
-            <input type="checkbox" name="start_correspondence" value="1">
-            <span class="toggle-track"></span>
-            <span class="text-xs text-gray-500 ml-1.5">COR</span>
-          </label>
           <div>
             <label class="text-xs font-medium text-gray-500 block mb-1">Duration (hrs)</label>
             <input type="text" name="duration_hours" placeholder="0.25"
@@ -286,10 +281,6 @@
             <button type="submit" class="text-xs bg-marsh text-white px-4 py-1.5 rounded hover:bg-marsh-light transition-colors font-medium">Log Activity &amp; Clear</button>
             <button type="button" onclick="toggleScratchpadProcess(this)" class="text-xs text-gray-500 px-3 py-1.5 rounded hover:bg-gray-100">Cancel</button>
           </div>
-          <label class="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer">
-            <input type="checkbox" name="start_correspondence" value="1" class="rounded border-gray-300 text-marsh focus:ring-marsh">
-            Start correspondence
-          </label>
         </div>
       </form>
     </div>
@@ -363,17 +354,5 @@ function toggleScratchpadProcess(btn) {
   if (form) form.classList.toggle('hidden');
 }
 
-// COR auto-trigger for inbox process forms
-var corTriggers = {{ cor_auto_triggers | tojson }};
-document.addEventListener('change', function(e) {
-  if (e.target.name === 'activity_type') {
-    var form = e.target.closest('form');
-    if (!form) return;
-    var corBox = form.querySelector('[name="start_correspondence"]');
-    if (corBox && corTriggers.includes(e.target.value)) {
-      corBox.checked = true;
-    }
-  }
-});
 </script>
 {% endblock %}

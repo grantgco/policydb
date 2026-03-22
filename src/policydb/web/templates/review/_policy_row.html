@@ -91,8 +91,9 @@
         hx-swap="outerHTML"
         class="text-xs text-amber-600 hover:underline">Log</button>
       <a href="/policies/{{ p.policy_uid }}/edit" class="text-xs text-gray-400 hover:underline">Full →</a>
-      <button type="button" onclick="copyRefTag(this, '{{ p.policy_uid }}')"
-        class="text-xs font-mono text-gray-300 hover:text-marsh" title="Copy Policy UID">{{ p.policy_uid }}</button>
+      {% set _rref = build_ref_tag(cn_number=p.cn_number|default(''), client_id=p.client_id|default(0), policy_uid=p.policy_uid, project_id=p.project_id|default(0)) %}
+      <button type="button" onclick="copyRefTag(this, '{{ _rref }}')"
+        class="text-xs font-mono text-gray-300 hover:text-marsh" title="Copy ref tag">{{ _rref }}</button>
     </div>
   </td>
 </tr>

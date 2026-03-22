@@ -54,13 +54,6 @@
           <label class="block text-xs font-medium text-gray-600 mb-1">Follow-Up</label>
           <input type="date" name="follow_up_date" class="border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-marsh">
         </div>
-        <div>
-          <label class="toggle-switch">
-            <input type="checkbox" name="start_correspondence" value="1">
-            <span class="toggle-track"></span>
-            <span class="text-xs text-gray-600 ml-1">COR</span>
-          </label>
-        </div>
         <button type="submit" class="bg-marsh hover:bg-marsh-light text-white text-xs font-medium px-3 py-1 rounded transition-colors">Log</button>
         <button type="button" onclick="document.getElementById('log-form').classList.add('hidden')"
           class="text-xs text-gray-500 hover:text-gray-700">Cancel</button>
@@ -195,17 +188,6 @@ function reorderActivityList(listId) {
   });
 }
 document.body.addEventListener('reorderActivities', function() { reorderActivityList('activity-list'); });
-
-/* COR auto-trigger */
-var corTriggers = {{ cor_auto_triggers | tojson }};
-document.addEventListener('change', function(e) {
-  if (e.target.name === 'activity_type') {
-    var form = e.target.closest('form');
-    if (!form) return;
-    var corBox = form.querySelector('[name="start_correspondence"]');
-    if (corBox && corTriggers.includes(e.target.value)) corBox.checked = true;
-  }
-});
 </script>
 
 </div>

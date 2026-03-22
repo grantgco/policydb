@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
@@ -944,6 +944,21 @@ def export_policy(policy_uid: str, conn=Depends(get_db)):
     )
 
 
+def _build_cluster(activities: list[dict]) -> dict:
+    """Build a display cluster from a list of activities (ordered DESC)."""
+    dates = [a["activity_date"] for a in activities if a.get("activity_date")]
+    total_hours = sum(a.get("duration_hours") or 0 for a in activities)
+    has_pending = any(not a.get("follow_up_done", 1) for a in activities)
+    return {
+        "date_start": dates[-1] if dates else "",
+        "date_end": dates[0] if dates else "",
+        "activity_count": len(activities),
+        "total_hours": total_hours,
+        "has_pending": has_pending,
+        "activities": activities,
+    }
+
+
 def _policy_base(conn, uid: str):
     """Load base policy + client info used by all tab routes."""
     policy = get_policy_by_uid(conn, uid)
@@ -1066,7 +1081,6 @@ def policy_tab_activity(request: Request, policy_uid: str, conn=Depends(get_db))
         "all_contact_names": all_contact_names,
         "policy_total_hours": get_policy_total_hours(conn, policy_dict["id"]),
         "dispositions": cfg.get("follow_up_dispositions", []),
-        "cor_auto_triggers": cfg.get("cor_auto_triggers", []),
     })
 
 
@@ -1120,19 +1134,34 @@ def policy_tab_contacts(request: Request, policy_uid: str, conn=Depends(get_db))
     from policydb.email_templates import policy_context as _pctx, render_tokens as _rtk
     mailto_subject = _rtk(cfg.get("email_subject_policy", "Re: {{client_name}} — {{policy_type}}"), _pctx(conn, uid))
 
-    # Correspondence threads
-    _corr_threads = [dict(r) for r in conn.execute("""
-        SELECT thread_id, MIN(subject) AS thread_subject,
-               COUNT(*) AS attempt_count, COALESCE(SUM(duration_hours), 0) AS total_hours,
-               MAX(CASE WHEN follow_up_done = 0 THEN 1 ELSE 0 END) AS has_pending
-        FROM activity_log WHERE policy_id = ? AND thread_id IS NOT NULL
-        GROUP BY thread_id ORDER BY MAX(activity_date) DESC
-    """, (policy_dict["id"],)).fetchall()] if policy_dict.get("id") else []
-    for _ct in _corr_threads:
-        _ct["activities"] = [dict(r) for r in conn.execute(
-            "SELECT activity_date, disposition, details, duration_hours, follow_up_done FROM activity_log WHERE thread_id = ? ORDER BY activity_date DESC, id DESC",
-            (_ct["thread_id"],),
-        ).fetchall()]
+    # Auto-clustered activity timeline (replaces correspondence threads)
+    _cluster_days = cfg.get("activity_cluster_days", 7)
+    _all_acts = [dict(r) for r in conn.execute(
+        """SELECT activity_date, activity_type, subject, disposition, details,
+                  duration_hours, follow_up_done
+           FROM activity_log WHERE policy_id = ?
+           ORDER BY activity_date DESC, id DESC""",
+        (policy_dict["id"],),
+    ).fetchall()] if policy_dict.get("id") else []
+
+    _activity_clusters: list[dict] = []
+    _cur_cluster: list[dict] = []
+    _prev_date_str: str = ""
+    for _act in _all_acts:
+        _act_date = _act.get("activity_date") or ""
+        if _prev_date_str and _act_date:
+            try:
+                gap = (date.fromisoformat(_prev_date_str) - date.fromisoformat(_act_date)).days
+            except (ValueError, TypeError):
+                gap = 0
+            if gap > _cluster_days and _cur_cluster:
+                _activity_clusters.append(_build_cluster(_cur_cluster))
+                _cur_cluster = []
+        _cur_cluster.append(_act)
+        if _act_date:
+            _prev_date_str = _act_date
+    if _cur_cluster:
+        _activity_clusters.append(_build_cluster(_cur_cluster))
 
     suggested_contact_ids: set[int] = set()
     if policy_dict.get("policy_type"):
@@ -1153,7 +1182,7 @@ def policy_tab_contacts(request: Request, policy_uid: str, conn=Depends(get_db))
         "suggested_contact_ids": suggested_contact_ids,
         "team_cc_json": team_cc_json,
         "mailto_subject": mailto_subject,
-        "correspondence_threads": _corr_threads,
+        "activity_clusters": _activity_clusters,
         "contact_roles": cfg.get("contact_roles", []),
         "expertise_lines": cfg.get("expertise_lines", []),
         "expertise_industries": cfg.get("expertise_industries", []),
@@ -1402,7 +1431,6 @@ def policy_edit_form(request: Request, policy_uid: str, add_contact: str = "", c
         "activities": activities,
         "activity_types": cfg.get("activity_types", ["Call", "Email", "Meeting", "Note", "Other"]),
         "dispositions": cfg.get("follow_up_dispositions", []),
-        "cor_auto_triggers": cfg.get("cor_auto_triggers", []),
         "opportunity_statuses": cfg.get("opportunity_statuses"),
         "add_contact": add_contact,
         "cycle_labels": _REVIEW_CYCLE_LABELS,
