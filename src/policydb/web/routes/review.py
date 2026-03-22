@@ -22,8 +22,72 @@ from policydb.web.app import get_db, templates
 router = APIRouter(prefix="/review")
 
 
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+_REVIEW_ROW_SQL = """
+    SELECT p.*, c.name AS client_name, c.id AS client_id,
+           CASE WHEN p.is_opportunity = 1 THEN NULL
+                ELSE CAST(julianday(p.expiration_date) - julianday('now') AS INTEGER)
+           END AS days_to_renewal,
+           CASE WHEN p.is_opportunity = 1 THEN 'OPPORTUNITY'
+                WHEN julianday(p.expiration_date) - julianday('now') <= 0 THEN 'EXPIRED'
+                WHEN julianday(p.expiration_date) - julianday('now') <= 90 THEN 'URGENT'
+                WHEN julianday(p.expiration_date) - julianday('now') <= 120 THEN 'WARNING'
+                WHEN julianday(p.expiration_date) - julianday('now') <= 180 THEN 'UPCOMING'
+                ELSE 'OK'
+           END AS urgency,
+           CASE WHEN p.last_reviewed_at IS NULL THEN 9999
+                ELSE CAST(julianday('now') - julianday(p.last_reviewed_at) AS INTEGER)
+           END AS days_since_review
+    FROM policies p JOIN clients c ON c.id = p.client_id
+    WHERE p.policy_uid = ?
+"""
+
+
+def _fetch_review_row(conn, uid: str) -> dict | None:
+    """Fetch a single policy with review-relevant computed columns."""
+    row = conn.execute(_REVIEW_ROW_SQL, (uid,)).fetchone()
+    if not row:
+        return None
+    r = dict(row)
+    from policydb.web.routes.policies import _attach_milestone_progress
+    rows = _attach_milestone_progress(conn, [r])
+    r = rows[0]
+    _attach_timeline_health(conn, [r])
+    return r
+
+
+def _attach_timeline_health(conn, rows: list[dict]) -> None:
+    """Enrich rows in-place with worst timeline health status."""
+    for row in rows:
+        uid = row.get("policy_uid")
+        if not uid:
+            continue
+        health = conn.execute("""
+            SELECT health FROM policy_timeline
+            WHERE policy_uid = ? AND completed_date IS NULL
+            ORDER BY CASE health WHEN 'critical' THEN 1 WHEN 'at_risk' THEN 2
+                     WHEN 'compressed' THEN 3 WHEN 'drifting' THEN 4 ELSE 5 END
+            LIMIT 1
+        """, (uid,)).fetchone()
+        row["timeline_health"] = health["health"] if health else ""
+
+
+def _policy_row_context(request, row: dict, reviewed: bool = False, needs_followup: bool = False) -> dict:
+    """Build the template context for _policy_row.html."""
+    return {
+        "request": request,
+        "p": row,
+        "renewal_statuses": cfg.get("renewal_statuses", []),
+        "cycle_labels": REVIEW_CYCLE_LABELS,
+        "milestone_profiles": cfg.get("milestone_profiles", []),
+        "reviewed": reviewed,
+        "needs_followup": needs_followup,
+    }
+
+
 def _enrich_policy_rows(conn, rows: list[dict]) -> list[dict]:
-    """Attach client_id and milestone progress to review queue rows."""
+    """Attach client_id, milestone progress, and timeline health to review queue rows."""
     from policydb.web.routes.policies import _attach_milestone_progress
     for r in rows:
         if "client_id" not in r or not r.get("client_id"):
@@ -31,8 +95,12 @@ def _enrich_policy_rows(conn, rows: list[dict]) -> list[dict]:
                 "SELECT id FROM clients WHERE name=?", (r["client_name"],)
             ).fetchone()
             r["client_id"] = client_row["id"] if client_row else 0
-    return _attach_milestone_progress(conn, rows)
+    rows = _attach_milestone_progress(conn, rows)
+    _attach_timeline_health(conn, rows)
+    return rows
 
+
+# ── Page ──────────────────────────────────────────────────────────────────────
 
 @router.get("", response_class=HTMLResponse)
 def review_page(request: Request, conn=Depends(get_db)):
@@ -52,6 +120,7 @@ def review_page(request: Request, conn=Depends(get_db)):
         "stats": stats,
         "renewal_statuses": cfg.get("renewal_statuses", []),
         "cycle_labels": REVIEW_CYCLE_LABELS,
+        "milestone_profiles": cfg.get("milestone_profiles", []),
         "today": date.today().isoformat(),
     })
 
@@ -75,38 +144,37 @@ def policy_mark_reviewed(
     conn=Depends(get_db),
 ):
     mark_reviewed(conn, "policy", uid, review_cycle or None)
-    row = conn.execute(
-        """SELECT p.*, c.name AS client_name, c.id AS client_id,
-                  CASE WHEN p.is_opportunity = 1 THEN NULL
-                       ELSE CAST(julianday(p.expiration_date) - julianday('now') AS INTEGER)
-                  END AS days_to_renewal,
-                  CASE WHEN p.is_opportunity = 1 THEN 'OPPORTUNITY'
-                       WHEN julianday(p.expiration_date) - julianday('now') <= 0 THEN 'EXPIRED'
-                       WHEN julianday(p.expiration_date) - julianday('now') <= 90 THEN 'URGENT'
-                       WHEN julianday(p.expiration_date) - julianday('now') <= 120 THEN 'WARNING'
-                       WHEN julianday(p.expiration_date) - julianday('now') <= 180 THEN 'UPCOMING'
-                       ELSE 'OK'
-                  END AS urgency,
-                  CASE WHEN p.last_reviewed_at IS NULL THEN 9999
-                       ELSE CAST(julianday('now') - julianday(p.last_reviewed_at) AS INTEGER)
-                  END AS days_since_review
-           FROM policies p JOIN clients c ON c.id = p.client_id
-           WHERE p.policy_uid = ?""",
-        (uid,),
+
+    # Cascade review to child policies if this is a program
+    prog_row = conn.execute(
+        "SELECT id, is_program FROM policies WHERE policy_uid = ?", (uid,)
     ).fetchone()
-    if not row:
+    if prog_row and prog_row["is_program"]:
+        conn.execute(
+            "UPDATE policies SET last_reviewed_at = CURRENT_TIMESTAMP WHERE program_id = ?",
+            (prog_row["id"],),
+        )
+        conn.commit()
+
+    r = _fetch_review_row(conn, uid)
+    if not r:
         return HTMLResponse("")
-    r = dict(row)
-    from policydb.web.routes.policies import _attach_milestone_progress
-    rows = _attach_milestone_progress(conn, [r])
-    r = rows[0]
-    resp = templates.TemplateResponse("review/_policy_row.html", {
-        "request": request,
-        "p": r,
-        "renewal_statuses": cfg.get("renewal_statuses", []),
-        "cycle_labels": REVIEW_CYCLE_LABELS,
-        "reviewed": True,
-    })
+
+    # Check if policy has an active follow-up
+    policy_id = r.get("id")
+    needs_followup = False
+    if policy_id:
+        active_fu = conn.execute("""
+            SELECT 1 FROM activity_log
+            WHERE policy_id = ? AND follow_up_done = 0 AND follow_up_date IS NOT NULL
+            LIMIT 1
+        """, (policy_id,)).fetchone()
+        needs_followup = active_fu is None
+
+    resp = templates.TemplateResponse(
+        "review/_policy_row.html",
+        _policy_row_context(request, r, reviewed=True, needs_followup=needs_followup),
+    )
     resp.headers["HX-Trigger"] = "refreshReviewStats"
     return resp
 
@@ -119,74 +187,24 @@ def policy_set_cycle(
     conn=Depends(get_db),
 ):
     set_review_cycle(conn, "policy", uid, review_cycle)
-    row = conn.execute(
-        """SELECT p.*, c.name AS client_name, c.id AS client_id,
-                  CASE WHEN p.is_opportunity = 1 THEN NULL
-                       ELSE CAST(julianday(p.expiration_date) - julianday('now') AS INTEGER)
-                  END AS days_to_renewal,
-                  CASE WHEN p.is_opportunity = 1 THEN 'OPPORTUNITY'
-                       WHEN julianday(p.expiration_date) - julianday('now') <= 0 THEN 'EXPIRED'
-                       WHEN julianday(p.expiration_date) - julianday('now') <= 90 THEN 'URGENT'
-                       WHEN julianday(p.expiration_date) - julianday('now') <= 120 THEN 'WARNING'
-                       WHEN julianday(p.expiration_date) - julianday('now') <= 180 THEN 'UPCOMING'
-                       ELSE 'OK'
-                  END AS urgency,
-                  CASE WHEN p.last_reviewed_at IS NULL THEN 9999
-                       ELSE CAST(julianday('now') - julianday(p.last_reviewed_at) AS INTEGER)
-                  END AS days_since_review
-           FROM policies p JOIN clients c ON c.id = p.client_id
-           WHERE p.policy_uid = ?""",
-        (uid,),
-    ).fetchone()
-    if not row:
+    r = _fetch_review_row(conn, uid)
+    if not r:
         return HTMLResponse("")
-    r = dict(row)
-    from policydb.web.routes.policies import _attach_milestone_progress
-    rows = _attach_milestone_progress(conn, [r])
-    r = rows[0]
-    return templates.TemplateResponse("review/_policy_row.html", {
-        "request": request,
-        "p": r,
-        "renewal_statuses": cfg.get("renewal_statuses", []),
-        "cycle_labels": REVIEW_CYCLE_LABELS,
-        "reviewed": False,
-    })
+    return templates.TemplateResponse(
+        "review/_policy_row.html",
+        _policy_row_context(request, r),
+    )
 
 
 @router.get("/policies/{uid}/row", response_class=HTMLResponse)
 def policy_row(request: Request, uid: str, conn=Depends(get_db)):
-    row = conn.execute(
-        """SELECT p.*, c.name AS client_name, c.id AS client_id,
-                  CASE WHEN p.is_opportunity = 1 THEN NULL
-                       ELSE CAST(julianday(p.expiration_date) - julianday('now') AS INTEGER)
-                  END AS days_to_renewal,
-                  CASE WHEN p.is_opportunity = 1 THEN 'OPPORTUNITY'
-                       WHEN julianday(p.expiration_date) - julianday('now') <= 0 THEN 'EXPIRED'
-                       WHEN julianday(p.expiration_date) - julianday('now') <= 90 THEN 'URGENT'
-                       WHEN julianday(p.expiration_date) - julianday('now') <= 120 THEN 'WARNING'
-                       WHEN julianday(p.expiration_date) - julianday('now') <= 180 THEN 'UPCOMING'
-                       ELSE 'OK'
-                  END AS urgency,
-                  CASE WHEN p.last_reviewed_at IS NULL THEN 9999
-                       ELSE CAST(julianday('now') - julianday(p.last_reviewed_at) AS INTEGER)
-                  END AS days_since_review
-           FROM policies p JOIN clients c ON c.id = p.client_id
-           WHERE p.policy_uid = ?""",
-        (uid,),
-    ).fetchone()
-    if not row:
+    r = _fetch_review_row(conn, uid)
+    if not r:
         return HTMLResponse("")
-    r = dict(row)
-    from policydb.web.routes.policies import _attach_milestone_progress
-    rows = _attach_milestone_progress(conn, [r])
-    r = rows[0]
-    return templates.TemplateResponse("review/_policy_row.html", {
-        "request": request,
-        "p": r,
-        "renewal_statuses": cfg.get("renewal_statuses", []),
-        "cycle_labels": REVIEW_CYCLE_LABELS,
-        "reviewed": False,
-    })
+    return templates.TemplateResponse(
+        "review/_policy_row.html",
+        _policy_row_context(request, r),
+    )
 
 
 @router.get("/policies/{uid}/row/edit", response_class=HTMLResponse)
@@ -268,38 +286,13 @@ def policy_row_edit_save(
     )
     conn.commit()
 
-    row = conn.execute(
-        """SELECT p.*, c.name AS client_name, c.id AS client_id,
-                  CASE WHEN p.is_opportunity = 1 THEN NULL
-                       ELSE CAST(julianday(p.expiration_date) - julianday('now') AS INTEGER)
-                  END AS days_to_renewal,
-                  CASE WHEN p.is_opportunity = 1 THEN 'OPPORTUNITY'
-                       WHEN julianday(p.expiration_date) - julianday('now') <= 0 THEN 'EXPIRED'
-                       WHEN julianday(p.expiration_date) - julianday('now') <= 90 THEN 'URGENT'
-                       WHEN julianday(p.expiration_date) - julianday('now') <= 120 THEN 'WARNING'
-                       WHEN julianday(p.expiration_date) - julianday('now') <= 180 THEN 'UPCOMING'
-                       ELSE 'OK'
-                  END AS urgency,
-                  CASE WHEN p.last_reviewed_at IS NULL THEN 9999
-                       ELSE CAST(julianday('now') - julianday(p.last_reviewed_at) AS INTEGER)
-                  END AS days_since_review
-           FROM policies p JOIN clients c ON c.id = p.client_id
-           WHERE p.policy_uid = ?""",
-        (uid,),
-    ).fetchone()
-    if not row:
+    r = _fetch_review_row(conn, uid)
+    if not r:
         return HTMLResponse("")
-    r = dict(row)
-    from policydb.web.routes.policies import _attach_milestone_progress
-    rows = _attach_milestone_progress(conn, [r])
-    r = rows[0]
-    return templates.TemplateResponse("review/_policy_row.html", {
-        "request": request,
-        "p": r,
-        "renewal_statuses": cfg.get("renewal_statuses", []),
-        "cycle_labels": REVIEW_CYCLE_LABELS,
-        "reviewed": False,
-    })
+    return templates.TemplateResponse(
+        "review/_policy_row.html",
+        _policy_row_context(request, r),
+    )
 
 
 @router.get("/policies/{uid}/row/log", response_class=HTMLResponse)
@@ -355,38 +348,41 @@ def policy_row_log_save(
         supersede_followups(conn, policy_id, follow_up_date)
     conn.commit()
 
-    row = conn.execute(
-        """SELECT p.*, c.name AS client_name, c.id AS client_id,
-                  CASE WHEN p.is_opportunity = 1 THEN NULL
-                       ELSE CAST(julianday(p.expiration_date) - julianday('now') AS INTEGER)
-                  END AS days_to_renewal,
-                  CASE WHEN p.is_opportunity = 1 THEN 'OPPORTUNITY'
-                       WHEN julianday(p.expiration_date) - julianday('now') <= 0 THEN 'EXPIRED'
-                       WHEN julianday(p.expiration_date) - julianday('now') <= 90 THEN 'URGENT'
-                       WHEN julianday(p.expiration_date) - julianday('now') <= 120 THEN 'WARNING'
-                       WHEN julianday(p.expiration_date) - julianday('now') <= 180 THEN 'UPCOMING'
-                       ELSE 'OK'
-                  END AS urgency,
-                  CASE WHEN p.last_reviewed_at IS NULL THEN 9999
-                       ELSE CAST(julianday('now') - julianday(p.last_reviewed_at) AS INTEGER)
-                  END AS days_since_review
-           FROM policies p JOIN clients c ON c.id = p.client_id
-           WHERE p.policy_uid = ?""",
-        (uid,),
-    ).fetchone()
-    if not row:
+    r = _fetch_review_row(conn, uid)
+    if not r:
         return HTMLResponse("")
-    r = dict(row)
-    from policydb.web.routes.policies import _attach_milestone_progress
-    rows = _attach_milestone_progress(conn, [r])
-    r = rows[0]
-    return templates.TemplateResponse("review/_policy_row.html", {
-        "request": request,
-        "p": r,
-        "renewal_statuses": cfg.get("renewal_statuses", []),
-        "cycle_labels": REVIEW_CYCLE_LABELS,
-        "reviewed": False,
-    })
+    return templates.TemplateResponse(
+        "review/_policy_row.html",
+        _policy_row_context(request, r),
+    )
+
+
+# ── Milestone profile change ─────────────────────────────────────────────────
+
+@router.post("/policies/{uid}/profile", response_class=HTMLResponse)
+def change_profile(
+    request: Request,
+    uid: str,
+    milestone_profile: str = Form(""),
+    conn=Depends(get_db),
+):
+    conn.execute(
+        "UPDATE policies SET milestone_profile = ? WHERE policy_uid = ?",
+        (milestone_profile, uid),
+    )
+    conn.commit()
+
+    # Regenerate timeline for this policy with new profile
+    from policydb.timeline_engine import generate_policy_timelines
+    generate_policy_timelines(conn, policy_uid=uid)
+
+    r = _fetch_review_row(conn, uid)
+    if not r:
+        return HTMLResponse("")
+    return templates.TemplateResponse(
+        "review/_policy_row.html",
+        _policy_row_context(request, r),
+    )
 
 
 # ── Client review actions ──────────────────────────────────────────────────────

@@ -383,6 +383,7 @@ SELECT
 FROM policies p
 JOIN clients c ON c.id = p.client_id
 WHERE p.archived = 0
+  AND (p.program_id IS NULL)
   AND (
     p.last_reviewed_at IS NULL
     OR CAST(julianday('now') - julianday(p.last_reviewed_at) AS INTEGER) >= {_cycle_case('p.review_cycle')}
