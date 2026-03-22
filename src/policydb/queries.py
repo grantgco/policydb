@@ -643,45 +643,7 @@ def get_all_followups(
     overdue = [r for r in rows if r["follow_up_date"] < today]
     upcoming = [r for r in rows if today <= r["follow_up_date"] <= cutoff]
 
-    # Compute thread stats for rows with thread_id
     all_rows = overdue + upcoming
-    thread_ids = {r["thread_id"] for r in all_rows if r.get("thread_id")}
-    if thread_ids:
-        placeholders = ",".join("?" * len(thread_ids))
-        stats = conn.execute(f"""
-            SELECT thread_id, COUNT(*) AS thread_total,
-                   MAX(activity_date) AS latest_date
-            FROM activity_log WHERE thread_id IN ({placeholders})
-            GROUP BY thread_id
-        """, list(thread_ids)).fetchall()
-        stats_map = {s["thread_id"]: dict(s) for s in stats}
-
-        # Get previous disposition per thread (the second-to-last activity)
-        prev_map = {}
-        for tid in thread_ids:
-            prev = conn.execute("""
-                SELECT disposition, activity_date FROM activity_log
-                WHERE thread_id = ? ORDER BY activity_date DESC, id DESC LIMIT 1 OFFSET 1
-            """, (tid,)).fetchone()
-            if prev:
-                prev_map[tid] = dict(prev)
-
-        for r in all_rows:
-            tid = r.get("thread_id")
-            if tid and tid in stats_map:
-                r["thread_total"] = stats_map[tid]["thread_total"]
-                r["thread_attempt_num"] = conn.execute(
-                    "SELECT COUNT(*) FROM activity_log WHERE thread_id = ? AND id <= ?",
-                    (tid, r["id"]),
-                ).fetchone()[0]
-                if tid in prev_map:
-                    r["prev_disposition"] = prev_map[tid].get("disposition")
-                    prev_date = prev_map[tid].get("activity_date")
-                    if prev_date:
-                        try:
-                            r["prev_days_ago"] = (date.today() - date.fromisoformat(prev_date)).days
-                        except (ValueError, TypeError):
-                            r["prev_days_ago"] = None
 
     # Attach placement colleague email for "Forward to Colleague" button
     policy_uids = {r.get("policy_uid") for r in all_rows if r.get("policy_uid") and r.get("source") == "activity"}

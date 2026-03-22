@@ -11,13 +11,13 @@
     <span>/</span>
     <a href="/clients/{{ policy.client_id }}" class="hover:text-marsh">{{ policy.client_name }}</a>
     <span>/</span>
-    <button type="button" onclick="copyRefTag(this, '{{ policy.policy_uid }}')"
-      class="text-gray-600 hover:text-marsh cursor-pointer" title="Copy Policy UID">{{ policy.policy_uid }}</button>
+    {% set _ref = build_ref_tag(cn_number=policy.cn_number|default(''), client_id=policy.client_id, policy_uid=policy.policy_uid, project_id=policy.project_id|default(0)) %}
+    <button type="button" onclick="copyRefTag(this, '{{ _ref }}')"
+      class="text-gray-600 hover:text-marsh cursor-pointer" title="Copy ref tag">{{ policy.policy_uid }}</button>
   </div>
   <h1 class="text-2xl font-bold text-gray-900">Edit Policy</h1>
   <p class="text-sm text-gray-500 mt-1">{{ policy.policy_type }} · {{ policy.carrier }}
-    {% set _ref = build_ref_tag(cn_number=policy.cn_number|default(''), client_id=policy.client_id, policy_uid=policy.policy_uid, project_id=policy.project_id|default(0)) %}
-    <button type="button" onclick="navigator.clipboard.writeText('{{ _ref }}').then(function(){var b=event.target;b.textContent='Copied!';setTimeout(function(){b.textContent='{{ _ref }}'},1500)})"
+    <button type="button" onclick="copyRefTag(this, '{{ _ref }}')"
       class="ml-2 text-xs font-mono text-gray-400 hover:text-marsh bg-gray-100 hover:bg-gray-200 px-1.5 py-0.5 rounded cursor-pointer transition-colors" title="Click to copy email ref tag">{{ _ref }}</button>
   </p>
   {% if policy.first_named_insured %}<p class="text-xs text-gray-400 mt-0.5">First Named Insured: <span class="text-gray-600 font-medium">{{ policy.first_named_insured }}</span></p>{% endif %}

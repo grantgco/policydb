@@ -23,6 +23,8 @@
           {% else %}
           <span class="text-sm font-medium text-gray-800">{{ sp.label }}</span>
           {% endif %}
+          {% set _sp_ref = build_ref_tag(cn_number=sp.cn_number|default(''), client_id=sp.client_id|default(0), policy_uid=sp.policy_uid|default(''), project_id=sp.project_id|default(0)) %}
+          {% with ref_tag=_sp_ref %}{% include "_ref_tag_pill.html" %}{% endwith %}
         </div>
 
         {% if sp.updated_at %}

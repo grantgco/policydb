@@ -14,9 +14,8 @@
     <div class="flex-1 min-w-0">
       <div class="flex items-center gap-2">
         <a href="/clients/{{ item.client_id }}" class="text-sm font-semibold text-gray-900 hover:text-[#003865] hover:underline truncate">{{ item.client_name }}</a>
-        {% if item.thread_id %}
-        <span class="bg-gray-100 text-gray-600 text-[10px] px-1.5 py-0.5 rounded whitespace-nowrap">COR-{{ item.thread_id }} &middot; Attempt {{ item.thread_attempt_num }}</span>
-        {% endif %}
+        {% set _fu_ref = build_ref_tag(cn_number=item.cn_number|default(''), client_id=item.client_id|default(0), policy_uid=item.policy_uid|default(''), project_id=item.project_id|default(0)) %}
+        {% with ref_tag=_fu_ref %}{% include "_ref_tag_pill.html" %}{% endwith %}
         {% if item.escalation_tier is defined and item.escalation_tier == 'urgent' %}
         <span class="text-[10px] text-red-600 font-medium">Consider escalating</span>
         {% endif %}

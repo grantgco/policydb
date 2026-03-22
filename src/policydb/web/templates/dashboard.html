@@ -220,7 +220,7 @@
             <p class="text-xs text-gray-700 truncate">{{ o.subject }}</p>
             <p class="text-xs text-gray-400 mt-0.5">
               {% set _o_rfi = o.subject.split('Send RFI: ')[1].split(' ', 1)[0] if o.subject and o.subject.startswith('Send RFI: ') else '' %}
-              {% set _o_ref = build_ref_tag(cn_number=o.get('cn_number', ''), client_id=o.client_id, policy_uid=o.get('policy_uid', ''), project_id=o.get('project_id', 0), activity_id=o.id, thread_id=o.get('thread_id', 0), rfi_uid=_o_rfi) %}
+              {% set _o_ref = build_ref_tag(cn_number=o.get('cn_number', ''), client_id=o.client_id, policy_uid=o.get('policy_uid', ''), project_id=o.get('project_id', 0), activity_id=o.id, rfi_uid=_o_rfi) %}
               <button type="button" onclick="copyRefTag(this, '{{ _o_ref }}')" class="font-mono text-gray-300 hover:text-marsh text-[10px]" title="Copy ref tag">{{ _o_ref }}</button>
               {% if o.disposition %}<span class="text-[10px] px-1 py-0.5 rounded bg-gray-100 text-gray-500">{{ o.disposition }}</span>{% endif %}
               {% if o.contact_person %} · <span class="text-gray-500">{{ o.contact_person }}</span>{% if o.contact_email %}<button type="button" class="ep-trigger ml-1 text-marsh hover:text-marsh-light" data-to="{{ o.contact_email }}" data-to-label="{{ o.contact_person }}" data-subject="{{ o.mailto_subject }}" {% if o.policy_uid %}data-cc-url="/policies/{{ o.policy_uid }}/team-cc"{% endif %} data-ref="{{ _o_ref }}">✉</button>{% endif %}{% endif %}
@@ -285,7 +285,7 @@
             <p class="text-xs text-gray-700 truncate">{{ u.subject }}</p>
             <p class="text-xs text-gray-400 mt-0.5">
               {% set _u_rfi = u.subject.split('Send RFI: ')[1].split(' ', 1)[0] if u.subject and u.subject.startswith('Send RFI: ') else '' %}
-              {% set _u_ref = build_ref_tag(cn_number=u.get('cn_number', ''), client_id=u.client_id, policy_uid=u.get('policy_uid', ''), project_id=u.get('project_id', 0), activity_id=u.id, thread_id=u.get('thread_id', 0), rfi_uid=_u_rfi) %}
+              {% set _u_ref = build_ref_tag(cn_number=u.get('cn_number', ''), client_id=u.client_id, policy_uid=u.get('policy_uid', ''), project_id=u.get('project_id', 0), activity_id=u.id, rfi_uid=_u_rfi) %}
               <button type="button" onclick="copyRefTag(this, '{{ _u_ref }}')" class="font-mono text-gray-300 hover:text-marsh text-[10px]" title="Copy ref tag">{{ _u_ref }}</button>
               {% if u.disposition %}<span class="text-[10px] px-1 py-0.5 rounded bg-gray-100 text-gray-500">{{ u.disposition }}</span>{% endif %}
               {% if u.contact_person %} · <span class="text-gray-500">{{ u.contact_person }}</span>{% if u.contact_email %}<button type="button" class="ep-trigger ml-1 text-marsh hover:text-marsh-light" data-to="{{ u.contact_email }}" data-to-label="{{ u.contact_person }}" data-subject="{{ u.mailto_subject }}" {% if u.policy_uid %}data-cc-url="/policies/{{ u.policy_uid }}/team-cc"{% endif %} data-ref="{{ _u_ref }}">✉</button>{% endif %}{% endif %}
