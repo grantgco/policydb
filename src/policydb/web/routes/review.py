@@ -194,7 +194,7 @@ def policy_row(request: Request, uid: str, conn=Depends(get_db)):
 @router.get("/policies/{uid}/row/edit", response_class=HTMLResponse)
 def policy_row_edit(request: Request, uid: str, conn=Depends(get_db)):
     row = conn.execute(
-        "SELECT p.*, c.name AS client_name, c.id AS client_id FROM policies p JOIN clients c ON c.id = p.client_id WHERE p.policy_uid = ?",
+        "SELECT p.*, c.name AS client_name, c.id AS client_id, c.cn_number FROM policies p JOIN clients c ON c.id = p.client_id WHERE p.policy_uid = ?",
         (uid,),
     ).fetchone()
     if not row:
@@ -328,7 +328,7 @@ def policy_row_edit_save(
 @router.get("/policies/{uid}/row/log", response_class=HTMLResponse)
 def policy_row_log(request: Request, uid: str, conn=Depends(get_db)):
     row = conn.execute(
-        "SELECT p.*, c.name AS client_name, c.id AS client_id FROM policies p JOIN clients c ON c.id = p.client_id WHERE p.policy_uid = ?",
+        "SELECT p.*, c.name AS client_name, c.id AS client_id, c.cn_number FROM policies p JOIN clients c ON c.id = p.client_id WHERE p.policy_uid = ?",
         (uid,),
     ).fetchone()
     if not row:

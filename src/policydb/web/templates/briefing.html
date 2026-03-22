@@ -133,8 +133,9 @@
 
           {# Copy ref tag #}
           {% if item.policy_uid %}
-          <button type="button" onclick="copyRefTag(this, '{{ item.policy_uid }}')"
-            class="text-xs text-gray-300 hover:text-marsh border border-gray-200 hover:border-marsh rounded px-2 py-1.5 transition-colors" title="Copy ref tag">&#10697;</button>
+          {% set _bref = build_ref_tag(cn_number=item.cn_number|default(''), client_id=item.client_id|default(0), policy_uid=item.policy_uid, project_id=item.project_id|default(0)) %}
+          <button type="button" onclick="copyRefTag(this, '{{ _bref }}')"
+            class="text-xs font-mono text-gray-300 hover:text-marsh border border-gray-200 hover:border-marsh rounded px-2 py-1.5 transition-colors" title="Copy ref tag">{{ _bref }}</button>
           {% endif %}
         </div>
       </div>

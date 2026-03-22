@@ -71,7 +71,6 @@ def activity_log(
     contact_id: int = Form(0),
     follow_up_date: str = Form(""),
     duration_hours: str = Form(""),
-    start_correspondence: str = Form(""),
     conn=Depends(get_db),
 ):
     def _float(v):
@@ -98,10 +97,6 @@ def activity_log(
          contact_person or None, _contact_id, subject, details or None,
          follow_up_date or None, account_exec, round_duration(duration_hours)),
     )
-    # Start correspondence thread if requested
-    if start_correspondence == "1":
-        new_id = cursor.lastrowid
-        conn.execute("UPDATE activity_log SET thread_id = ? WHERE id = ?", (new_id, new_id))
 
     if follow_up_date and policy_id:
         from policydb.queries import supersede_followups
@@ -389,17 +384,7 @@ def activity_followup(
             (disposition.strip(), activity_id),
         )
 
-    # Threading: determine thread_id for the new activity
-    _thread_id = original.get("thread_id")
-    if _thread_id is None:
-        # Lazy thread creation: set parent's thread_id to itself
-        _thread_id = original["id"]
-        conn.execute(
-            "UPDATE activity_log SET thread_id=? WHERE id=?",
-            (_thread_id, activity_id),
-        )
-
-    # Create new activity continuing the thread
+    # Create new activity (re-diary)
     account_exec = cfg.get("default_account_exec", "Grant")
     dur = round_duration(duration_hours)
     subject = original.get("subject", "")
@@ -409,14 +394,14 @@ def activity_followup(
     cursor = conn.execute(
         """INSERT INTO activity_log
            (activity_date, client_id, policy_id, activity_type, contact_person,
-            subject, details, follow_up_date, account_exec, duration_hours, thread_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            subject, details, follow_up_date, account_exec, duration_hours)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (date.today().isoformat(), original["client_id"],
          original.get("policy_id") or None,
          original.get("activity_type", "Call"),
          original.get("contact_person") or None,
          subject, notes or None,
-         new_follow_up_date or None, account_exec, dur, _thread_id),
+         new_follow_up_date or None, account_exec, dur),
     )
     if new_follow_up_date and original.get("policy_id"):
         from policydb.queries import supersede_followups

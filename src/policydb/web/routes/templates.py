@@ -255,7 +255,8 @@ def render_template(
     rendered_body = render_tokens(tpl["body_template"], ctx)
     ref_tag = ctx.get("ref_tag", "")
     if ref_tag:
-        rendered_body = rendered_body.rstrip() + "\n\n" + ref_tag if rendered_body.strip() else ref_tag
+        pdb_ref = f"[PDB:{ref_tag}]"
+        rendered_body = rendered_body.rstrip() + "\n\n" + pdb_ref if rendered_body.strip() else pdb_ref
 
     # Load all contacts for recipient selection
     all_contacts = _load_contacts(conn, policy_uid=policy_uid, client_id=client_id, project_name=project_name)
@@ -329,7 +330,8 @@ def compose_panel(
             rendered_body = render_tokens(tpl["body_template"], ctx)
             ref_tag = ctx.get("ref_tag", "")
             if ref_tag:
-                rendered_body = rendered_body.rstrip() + "\n\n" + ref_tag if rendered_body.strip() else ref_tag
+                pdb_ref = f"[PDB:{ref_tag}]"
+                rendered_body = rendered_body.rstrip() + "\n\n" + pdb_ref if rendered_body.strip() else pdb_ref
 
     # Build quick-email fallback: primary contact email + pre-rendered subject
     from policydb import config as _cfg

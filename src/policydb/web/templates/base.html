@@ -767,7 +767,7 @@
 
 <script>
 function copyRefTag(btn, tag) {
-  navigator.clipboard.writeText(tag).then(function() {
+  navigator.clipboard.writeText('[PDB:' + tag + ']').then(function() {
     var orig = btn.textContent;
     btn.textContent = '✓';
     btn.classList.add('text-green-600');

@@ -136,12 +136,10 @@
             </div>
           </td>
 
-          {# Ref — thread link #}
+          {# Ref tag pill #}
           <td class="px-3 py-2 text-xs whitespace-nowrap">
-            {% if a.thread_id %}
-            <a href="/activities?thread={{ a.thread_id }}"
-               class="text-purple-600 hover:underline font-mono">COR-{{ a.thread_id }}</a>
-            {% endif %}
+            {% set _a_ref = build_ref_tag(cn_number=a.cn_number|default(''), client_id=a.client_id|default(0), policy_uid=a.policy_uid|default(''), project_id=a.project_id|default(0)) %}
+            {% with ref_tag=_a_ref %}{% include "_ref_tag_pill.html" %}{% endwith %}
           </td>
         </tr>
         {% endfor %}
