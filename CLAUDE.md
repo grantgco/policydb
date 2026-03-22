@@ -229,6 +229,26 @@ Key endpoints: `/reconcile`, `/reconcile/run-match`, `/reconcile/confirm/{idx}`,
 
 ## UI Implementation Standards
 
+### Core UI Defaults (Design Decisions)
+
+These are standing decisions that apply across the entire application. Do not deviate without explicit user approval.
+
+| Decision | Default | Notes |
+|----------|---------|-------|
+| **Page layout for detail/edit pages** | Tabbed (4 tabs per page), lazy-loaded via HTMX | Client page and policy page both use tabs |
+| **Tab loading** | Lazy-load each tab on first click | Active tab loads on page render; others on demand |
+| **Tab persistence** | sessionStorage remembers last tab per page | Returning to a page opens the last-used tab |
+| **Default tab** | Always first tab (Overview/Details) | No context-aware routing from entry point |
+| **Save behavior** | Per-field PATCH on blur — no Save button | Every field saves individually when focus leaves. Toast confirms. No form POST. |
+| **Field style** | Contenteditable + combobox everywhere | ALL edit fields use contenteditable text or combobox pattern, not `<input>` boxes |
+| **Form sections** | All open by default | No collapsed `<details>` on detail/edit pages — everything visible |
+| **Sidebar** | Sticky right sidebar on client page | Key Dates + Quick Actions always visible. Independent scroll. |
+| **Summary cards** | Condensed to one compact horizontal bar | Not 6 separate cards — single row with key stats |
+| **Policy drill-down from client** | Quick-edit popover (status, follow-up, premium, checklist) | Not inline row expand. "Open →" link for full page. |
+| **Working Notes** | Floating panel accessible from any tab | Not locked to one tab — always available |
+| **Contacts on policy page** | Editable inline (matrix pattern) | Not read-only. Full add/edit/remove capability. |
+| **Checklist/RFIs** | Both pages — summary on client, detail on policy | Per-policy checklist items, aggregate progress on client |
+
 ### Input Pattern Hierarchy
 
 **Default:** ALL data entry fields across the app should use the `contenteditable` + combobox pattern with per-field PATCH saves on blur. This is the universal standard — not just for tables but for ALL edit pages including policy edit and client edit. Traditional `<input>` boxes with form POST are being phased out.
