@@ -1,0 +1,252 @@
+{# Action Center — Scratchpads Tab (HTMX partial, no base inheritance) #}
+<div id="ac-scratchpads-panel">
+
+  {% if scratchpads %}
+  <div class="space-y-4">
+    {% for sp in scratchpads %}
+    {% set sp_id = sp.source ~ '-' ~ (sp.client_id|default(0)) ~ '-' ~ (sp.policy_uid|default('')) %}
+    <div id="sp-card-{{ sp_id }}" class="bg-white border border-gray-200 rounded-lg p-4">
+
+      {# ── Header Row ── #}
+      <div class="flex items-center justify-between mb-2">
+        <div class="flex items-center gap-2">
+          {% if sp.source == 'dashboard' %}
+          <span class="text-[10px] font-medium px-2 py-0.5 rounded bg-gray-200 text-gray-600">Dashboard</span>
+          {% elif sp.source == 'client' %}
+          <span class="text-[10px] font-medium px-2 py-0.5 rounded bg-teal-50 text-teal-700">Client</span>
+          {% elif sp.source == 'policy' %}
+          <span class="text-[10px] font-medium px-2 py-0.5 rounded bg-indigo-50 text-indigo-700">Policy</span>
+          {% endif %}
+
+          {% if sp.link and sp.source != 'dashboard' %}
+          <a href="{{ sp.link }}" class="text-sm font-medium text-marsh hover:underline">{{ sp.label }}</a>
+          {% else %}
+          <span class="text-sm font-medium text-gray-800">{{ sp.label }}</span>
+          {% endif %}
+        </div>
+
+        {% if sp.updated_at %}
+        <span class="text-xs text-gray-400 italic">Updated {{ sp.updated_at }}</span>
+        {% endif %}
+      </div>
+
+      {# ── Content Textarea ── #}
+      <textarea
+        id="sp-ta-{{ sp_id }}"
+        rows="4"
+        class="w-full text-sm text-gray-800 border border-dashed border-gray-200 rounded-md p-3 resize-y focus:outline-none focus:border-gray-300 placeholder-gray-300 leading-relaxed"
+        placeholder="Working notes...">{{ sp.content }}</textarea>
+
+      {# ── Footer Row ── #}
+      <div class="flex items-center gap-2 mt-2">
+        <button type="button"
+          class="no-print text-xs bg-[#003865] text-white px-3 py-1.5 rounded hover:bg-[#0055a5] transition-colors"
+          onclick="toggleLogForm('{{ sp_id }}')">Log as Activity</button>
+        <button type="button"
+          class="no-print text-xs text-gray-400 border border-gray-200 px-3 py-1.5 rounded hover:bg-gray-50 hover:text-gray-600 transition-colors"
+          onclick="clearScratchpad('{{ sp_id }}', '{{ sp.source }}', '{{ sp.client_id|default('') }}', '{{ sp.policy_uid|default('') }}')">Clear</button>
+        <span id="sp-indicator-{{ sp_id }}" class="ml-auto text-xs text-green-500 opacity-0 transition-opacity duration-300"></span>
+      </div>
+
+      {# ── Log as Activity Form (hidden by default) ── #}
+      <div id="sp-log-form-{{ sp_id }}" class="hidden mt-3 pt-3 border-t border-gray-100">
+        <div class="flex flex-wrap items-end gap-3">
+          <div>
+            <label class="text-[10px] text-gray-500 block mb-0.5">Type</label>
+            <select id="sp-log-type-{{ sp_id }}"
+              class="text-xs border border-gray-200 rounded px-2 py-1.5 bg-white focus:ring-1 focus:ring-marsh">
+              <option value="Note" selected>Note</option>
+              <option value="Call">Call</option>
+              <option value="Email">Email</option>
+              <option value="Meeting">Meeting</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+
+          <div class="flex-1 min-w-[150px]">
+            <label class="text-[10px] text-gray-500 block mb-0.5">Subject</label>
+            <input type="text" id="sp-log-subject-{{ sp_id }}" value="Working note"
+              class="w-full text-xs border border-gray-200 rounded px-2 py-1.5 focus:ring-1 focus:ring-marsh">
+          </div>
+
+          <div>
+            <label class="text-[10px] text-gray-500 block mb-0.5">Hours</label>
+            <input type="number" id="sp-log-hours-{{ sp_id }}" step="0.1" min="0" placeholder="0"
+              class="w-16 text-xs border border-gray-200 rounded px-2 py-1.5 focus:ring-1 focus:ring-marsh">
+          </div>
+
+          <div>
+            <label class="text-[10px] text-gray-500 block mb-0.5">Follow-Up</label>
+            <div class="flex items-center gap-1">
+              <input type="date" id="sp-log-fu-{{ sp_id }}"
+                class="text-xs border border-gray-200 rounded px-2 py-1.5 focus:ring-1 focus:ring-marsh">
+              <button type="button" onclick="setSpFuDays('{{ sp_id }}', 1)"
+                class="no-print text-[10px] text-gray-400 hover:text-marsh border border-gray-200 rounded px-1.5 py-1 transition-colors">+1d</button>
+              <button type="button" onclick="setSpFuDays('{{ sp_id }}', 3)"
+                class="no-print text-[10px] text-gray-400 hover:text-marsh border border-gray-200 rounded px-1.5 py-1 transition-colors">+3d</button>
+              <button type="button" onclick="setSpFuDays('{{ sp_id }}', 7)"
+                class="no-print text-[10px] text-gray-400 hover:text-marsh border border-gray-200 rounded px-1.5 py-1 transition-colors">+7d</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-2 mt-3">
+          <button type="button"
+            class="no-print text-xs bg-[#003865] text-white px-3 py-1.5 rounded hover:bg-[#0055a5] transition-colors"
+            onclick="submitLogActivity('{{ sp_id }}', '{{ sp.source }}', '{{ sp.client_id|default('') }}', '{{ sp.policy_uid|default('') }}')">
+            Log Activity</button>
+          <button type="button"
+            class="no-print text-xs text-gray-400 hover:text-gray-600 transition-colors"
+            onclick="toggleLogForm('{{ sp_id }}')">Cancel</button>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  {% else %}
+  {# ── Empty State ── #}
+  <div class="border border-dashed border-gray-300 rounded-lg p-6 text-center text-gray-400">
+    All scratchpads are empty. Notes added on client or policy pages will appear here.
+  </div>
+  {% endif %}
+
+</div>
+
+<script>
+(function() {
+  /* ── Auto-save for each scratchpad textarea ── */
+  var cards = document.querySelectorAll('[id^="sp-card-"]');
+  cards.forEach(function(card) {
+    var spId = card.id.replace('sp-card-', '');
+    var ta = document.getElementById('sp-ta-' + spId);
+    var indicator = document.getElementById('sp-indicator-' + spId);
+    if (!ta) return;
+
+    /* Determine save URL from the spId pattern: source-clientId-policyUid */
+    var parts = spId.split('-');
+    var source = parts[0];
+    var saveUrl = '';
+    if (source === 'dashboard') {
+      saveUrl = '/dashboard/scratchpad';
+    } else if (source === 'client') {
+      saveUrl = '/clients/' + parts[1] + '/scratchpad';
+    } else if (source === 'policy') {
+      saveUrl = '/policies/' + parts.slice(2).join('-') + '/scratchpad';
+    }
+
+    var timer = null;
+    var saving = false;
+    ta.addEventListener('input', function() {
+      clearTimeout(timer);
+      timer = setTimeout(function() {
+        if (saving || !saveUrl) return;
+        saving = true;
+        var fd = new FormData();
+        fd.set('content', ta.value);
+        fetch(saveUrl, {
+          method: 'POST', body: fd,
+          headers: {'Accept': 'application/json'}
+        }).then(function(r) { return r.json(); }).then(function(data) {
+          if (data.ok && indicator) {
+            indicator.textContent = 'Auto-saved';
+            indicator.style.opacity = '1';
+            setTimeout(function() { indicator.style.opacity = '0'; }, 2000);
+          }
+        }).catch(function() {}).finally(function() { saving = false; });
+      }, 800);
+    });
+  });
+
+  /* ── Toggle log form visibility ── */
+  window.toggleLogForm = function(spId) {
+    var form = document.getElementById('sp-log-form-' + spId);
+    if (form) form.classList.toggle('hidden');
+  };
+
+  /* ── Follow-up date shortcut pills ── */
+  window.setSpFuDays = function(spId, days) {
+    var dateInput = document.getElementById('sp-log-fu-' + spId);
+    if (dateInput) {
+      var d = new Date();
+      d.setDate(d.getDate() + days);
+      dateInput.value = d.toISOString().split('T')[0];
+    }
+  };
+
+  /* ── Clear scratchpad ── */
+  window.clearScratchpad = function(spId, source, clientId, policyUid) {
+    var saveUrl = '';
+    if (source === 'dashboard') saveUrl = '/dashboard/scratchpad';
+    else if (source === 'client') saveUrl = '/clients/' + clientId + '/scratchpad';
+    else if (source === 'policy') saveUrl = '/policies/' + policyUid + '/scratchpad';
+    if (!saveUrl) return;
+
+    var fd = new FormData();
+    fd.set('content', '');
+    fetch(saveUrl, {
+      method: 'POST', body: fd,
+      headers: {'Accept': 'application/json'}
+    }).then(function(r) { return r.json(); }).then(function(data) {
+      if (data.ok) {
+        var card = document.getElementById('sp-card-' + spId);
+        if (card) {
+          card.style.transition = 'opacity 0.3s ease';
+          card.style.opacity = '0';
+          setTimeout(function() { card.remove(); checkEmpty(); }, 300);
+        }
+        if (typeof showToast === 'function') showToast('Scratchpad cleared', true);
+      }
+    }).catch(function() {
+      if (typeof showToast === 'function') showToast('Failed to clear', false);
+    });
+  };
+
+  /* ── Submit log as activity ── */
+  window.submitLogActivity = function(spId, source, clientId, policyUid) {
+    var ta = document.getElementById('sp-ta-' + spId);
+    var typeEl = document.getElementById('sp-log-type-' + spId);
+    var subjectEl = document.getElementById('sp-log-subject-' + spId);
+    var hoursEl = document.getElementById('sp-log-hours-' + spId);
+    var fuEl = document.getElementById('sp-log-fu-' + spId);
+
+    var fd = new FormData();
+    fd.set('source', source);
+    if (clientId) fd.set('client_id', clientId);
+    if (policyUid) fd.set('policy_uid', policyUid);
+    fd.set('activity_type', typeEl ? typeEl.value : 'Note');
+    fd.set('subject', subjectEl ? subjectEl.value : 'Working note');
+    fd.set('details', ta ? ta.value : '');
+    fd.set('duration_hours', hoursEl ? hoursEl.value || '0' : '0');
+    if (fuEl && fuEl.value) fd.set('follow_up_date', fuEl.value);
+
+    fetch('/inbox/scratchpad/process', {
+      method: 'POST', body: fd,
+      headers: {'Accept': 'application/json'}
+    }).then(function(r) { return r.json(); }).then(function(data) {
+      if (data.ok) {
+        var card = document.getElementById('sp-card-' + spId);
+        if (card) {
+          card.style.transition = 'opacity 0.3s ease';
+          card.style.opacity = '0';
+          setTimeout(function() { card.remove(); checkEmpty(); }, 300);
+        }
+        if (typeof showToast === 'function') showToast('Logged as activity', true);
+      }
+    }).catch(function() {
+      if (typeof showToast === 'function') showToast('Failed to log activity', false);
+    });
+  };
+
+  /* ── Show empty state if all cards removed ── */
+  function checkEmpty() {
+    var panel = document.getElementById('ac-scratchpads-panel');
+    if (!panel) return;
+    var remaining = panel.querySelectorAll('[id^="sp-card-"]');
+    if (remaining.length === 0) {
+      panel.innerHTML = '<div class="border border-dashed border-gray-300 rounded-lg p-6 text-center text-gray-400">' +
+        'All scratchpads are empty. Notes added on client or policy pages will appear here.</div>';
+    }
+  }
+})();
+</script>

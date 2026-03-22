@@ -1,0 +1,57 @@
+{# Sidebar partial — persistent across all tabs. Rendered inside #action-center-sidebar #}
+
+{# ── Stats Grid ── #}
+<div class="mb-5">
+  <p class="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-2">Summary</p>
+  <div class="grid grid-cols-2 gap-2">
+    <div class="text-center py-2 px-1 bg-white rounded-md border border-gray-200">
+      <div class="text-xl font-bold {% if overdue_count %}text-red-500{% else %}text-gray-300{% endif %}">{{ overdue_count }}</div>
+      <div class="text-[9px] text-gray-500 uppercase">Overdue</div>
+    </div>
+    <div class="text-center py-2 px-1 bg-white rounded-md border border-gray-200">
+      <div class="text-xl font-bold {% if due_this_week %}text-amber-500{% else %}text-gray-300{% endif %}">{{ due_this_week }}</div>
+      <div class="text-[9px] text-gray-500 uppercase">This Week</div>
+    </div>
+    <div class="text-center py-2 px-1 bg-white rounded-md border border-gray-200">
+      <div class="text-xl font-bold {% if inbox_pending %}text-teal-600{% else %}text-gray-300{% endif %}">{{ inbox_pending }}</div>
+      <div class="text-[9px] text-gray-500 uppercase">Inbox</div>
+    </div>
+    <div class="text-center py-2 px-1 bg-white rounded-md border border-gray-200">
+      <div class="text-xl font-bold text-gray-700">{{ hours_month | format_hours }}</div>
+      <div class="text-[9px] text-gray-500 uppercase">This Month</div>
+    </div>
+  </div>
+</div>
+
+{# ── Quick Actions ── #}
+<div class="mb-5">
+  <p class="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-2">Quick Actions</p>
+  <div class="flex flex-col gap-1">
+    <button onclick="document.querySelector('[data-tab=activities]').click();setTimeout(function(){var f=document.getElementById('ac-quick-log');if(f)f.style.display='block'},300)"
+            class="text-left text-[11px] bg-marsh text-white px-3 py-1.5 rounded hover:bg-marsh-light transition-colors">
+      + Log Activity
+    </button>
+    <button onclick="document.querySelector('[data-tab=followups]').click()"
+            class="text-left text-[11px] bg-white text-gray-700 border border-gray-300 px-3 py-1.5 rounded hover:bg-gray-50 transition-colors">
+      + New Follow-up
+    </button>
+  </div>
+</div>
+
+{# ── Recent Activity Feed ── #}
+<div>
+  <p class="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-2">Recent</p>
+  <div class="space-y-1.5">
+    {% for a in recent_activities %}
+    <div class="p-2 bg-white rounded border border-gray-100 text-[11px]">
+      <div class="font-medium text-gray-700">
+        <span class="{% if a.activity_type == 'Call' %}text-blue-600{% elif a.activity_type == 'Email' %}text-amber-600{% elif a.activity_type == 'Meeting' %}text-indigo-600{% else %}text-gray-600{% endif %}">{{ a.activity_type }}</span>
+        — {{ a.client_name }}
+      </div>
+      <div class="text-[10px] text-gray-400 truncate">{{ a.subject }}</div>
+    </div>
+    {% else %}
+    <p class="text-[11px] text-gray-400 italic">No recent activity</p>
+    {% endfor %}
+  </div>
+</div>
