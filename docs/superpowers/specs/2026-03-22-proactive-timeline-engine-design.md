@@ -524,6 +524,96 @@ Each milestone inherits its `days`, `prep_days`, and other timing from `mandated
 
 ---
 
+## Section 9: Review Panel Integration
+
+The existing `/review` page cycles through policies, opportunities, and clients on a configurable cadence (weekly, biweekly, monthly, quarterly, etc.). It currently operates independently from the timeline engine. This design connects them.
+
+### Remove Auto-Review
+
+**Delete the auto-review system entirely.** The current `check_auto_review_policy()` and `check_auto_review_client()` functions in `queries.py` auto-mark items as "reviewed" when activity thresholds are met (2 field changes or 3 activities). This is counter to the purpose of the review — the review is a deliberate weekly sit-down where you force yourself to look at everything, not something that gets silently checked off because you happened to log 3 activities.
+
+**What gets removed:**
+- `check_auto_review_policy()` and `check_auto_review_client()` in `queries.py` (lines 1311-1351)
+- All call sites in `review.py` that trigger auto-review after edits/activity logs
+- Config keys: `auto_review_enabled`, `auto_review_field_threshold`, `auto_review_activity_threshold`
+
+The auto-review is replaced by the deliberate weekly review workflow described below.
+
+### Program-Level Review Scoping
+
+Same hierarchy rule as timelines:
+
+| Scenario | Review target |
+|----------|--------------|
+| Standalone policy | Review the policy directly |
+| Policy in a program | Review the **program** — child policies roll up |
+| Program (`is_program = 1`) | Review the program (covers all child policies) |
+
+**Changes to `v_review_queue` view:**
+- Exclude policies where `program_id IS NOT NULL` (child policies)
+- Include program policies (`is_program = 1`) with aggregate stats from child policies
+- When a program is marked "reviewed," all child policies' `last_reviewed_at` updates too
+
+### Milestone Profile Selection in Review Row
+
+The review row is the natural place to assign the milestone profile — you're already looking at the policy, assessing its complexity, deciding how to handle the renewal. Add a **profile dropdown** to the review row:
+
+```
++-----------------------------------------------------------------+
+|  Acme Corp -- General Liability      Exp: Jun 15 (85 days)      |
+|  AmTrust  .  GL-2026-001  .  $45,000 premium                   |
+|                                                                 |
+|  Renewal: [Full Renewal v]    Status: [Not Started v]           |
+|  Health: * on_track           Review: Weekly                    |
+|                                                                 |
+|  [Reviewed]  [Edit]  [Log]  [Open ->]                           |
++-----------------------------------------------------------------+
+```
+
+- The `[Full Renewal v]` dropdown sets `milestone_profile` on the policy/program
+- When changed, the timeline engine regenerates milestones for the new profile
+- Auto-suggest pre-fills based on premium, but the dropdown is always visible for override
+- This is the **primary workflow** for assigning profiles — not buried in the policy edit page
+
+### Review -> Timeline Connection
+
+When reviewing a policy/program, the review row shows the current timeline health badge and the next active milestone. This gives context during the review: "this one is drifting, I should check on it" vs "this one is on track, just mark reviewed and move on."
+
+After marking reviewed, if there's no active follow-up set, the system prompts: "Set a follow-up?" with a quick date picker. This ensures the review doesn't just mark a checkbox — it produces an action.
+
+---
+
+## Section 10: Plan Week Integration
+
+The existing Plan Week view (`/followups/plan`) shows a 5-day grid of follow-ups with drag-to-rebalance. The timeline engine enriches this with context.
+
+### Timeline Context in Plan Week Items
+
+Each follow-up item in the Plan Week grid gains:
+
+| Addition | Source | Purpose |
+|----------|--------|---------|
+| Health badge | `policy_timeline.health` | See at a glance which items are for drifting/at-risk policies |
+| Accountability icon | Follow-up disposition | Distinguish "my action" items from "nudge" items |
+| Milestone label | `policy_timeline.milestone_name` | Know which workflow step this follow-up relates to |
+| Prep flag | `policy_timeline.prep_alert_date` | Items from prep alerts are visually distinct |
+
+This means the Plan Week grid isn't just "things to do Monday through Friday" — it's "here's the strategic importance of each item." A nudge on a drifting policy is different from a prep task for an on-track one.
+
+### Pinning Rules Enhanced
+
+Current pinning: items within 14 days of renewal are pinned (can't be moved).
+
+**Enhanced pinning:** Also pin items for policies with `critical` or `at_risk` health. These are the most important items and shouldn't be spread to lighter days — they need to happen when scheduled.
+
+### Plan Week <-> Review Connection
+
+The Plan Week view gets a link to the Review Board for items that are also due for review. Small badge on the follow-up card: "Due for review" — clicking it opens the review panel filtered to that policy.
+
+Conversely, when doing the weekly review, a "Plan this week" button appears if there are unscheduled follow-ups. This creates a natural workflow: **Review -> Plan -> Execute**.
+
+---
+
 ## Milestone Name Reconciliation
 
 The existing codebase has two independent milestone systems that this design unifies:
@@ -679,13 +769,17 @@ ALTER TABLE policies ADD COLUMN milestone_profile TEXT DEFAULT '';
 | **`src/policydb/web/routes/action_center.py`** | Rewrite `_followups_ctx()` to produce 5 sections instead of overdue/upcoming; add `_portfolio_health_ctx()` for sidebar widget; add `_risk_alerts_ctx()` for banner; update `_sidebar_ctx()` with new badge counts |
 | **`src/policydb/web/routes/policies.py`** | Add `milestone_profile` field handling to policy edit; add timeline view endpoint; modify milestone toggle to sync with `policy_timeline`; add program timeline banner endpoint |
 | **`src/policydb/web/routes/dashboard.py`** | Replace urgency-based widgets with health-based widgets; update stale/suggested to use timeline data |
-| **`src/policydb/web/routes/settings.py`** | Add custom editor routes for mandated activities, milestone profiles, timeline thresholds, risk alert config |
-| **`src/policydb/views.py`** | Update `v_renewal_pipeline` to include `health` from timeline; update `v_overdue_followups` to include accountability state |
+| **`src/policydb/web/routes/review.py`** | Remove auto-review call sites; add milestone profile dropdown to review row; add timeline health badge to review row; add program-level review scoping; add follow-up prompt after marking reviewed |
+| **`src/policydb/web/routes/settings.py`** | Add custom editor routes for mandated activities, milestone profiles, timeline thresholds, risk alert config; remove auto-review config keys |
+| **`src/policydb/views.py`** | Update `v_renewal_pipeline` to include `health` from timeline; update `v_overdue_followups` to include accountability state; update `v_review_queue` to exclude child policies in programs and include program policies |
 | **`src/policydb/email_templates.py`** | Add `timeline_context()` function; add timeline tokens to `CONTEXT_TOKEN_GROUPS`; seed nudge templates in `email_templates` table |
 | **`src/policydb/web/templates/action_center/page.html`** | Add risk alerts banner slot; restructure follow-ups tab layout |
 | **`src/policydb/web/templates/action_center/_followups.html`** | Major rewrite for 5-section layout |
 | **`src/policydb/web/templates/action_center/_sidebar.html`** | Add portfolio health widget; update badge format |
 | **`src/policydb/web/templates/policies/_tab_details.html`** | Add milestone profile dropdown; add timeline view/banner |
+| **`src/policydb/web/templates/review/index.html`** | Add program-level rows; exclude child policies |
+| **`src/policydb/web/templates/review/_policy_row.html`** | Add milestone profile dropdown; add timeline health badge; add follow-up prompt after review; remove auto-review triggers |
+| **`src/policydb/web/templates/followups/plan.html`** | Add health badges, accountability icons, milestone labels, prep flags to grid items; enhance pinning for at_risk/critical; add "Due for review" badge |
 | **`src/policydb/web/templates/base.html`** | Update nav badge to "actions · nudges" format |
 
 ### Recommended Implementation Phases
@@ -694,5 +788,7 @@ ALTER TABLE policies ADD COLUMN milestone_profile TEXT DEFAULT '';
 |-------|-------|-----------|
 | **Phase 1: Foundation** | Migration 069, `timeline_engine.py` (generate + recalculate + health compute), config additions, `generate_policy_timelines()` wired into startup | Nothing |
 | **Phase 2: Accountability** | `accountability` field on dispositions, modify re-diary to trigger recalc, modify complete to update timeline, sync milestone toggle with timeline | Phase 1 |
-| **Phase 3: Action Center Overhaul** | 5-section follow-ups, portfolio health sidebar, risk alerts banner, badge update | Phase 1 + 2 |
-| **Phase 4: Templates & Polish** | Nudge templates, risk notification drafts, timeline tokens in email system, timeline visualization on policy/program pages, Settings UI editors | Phase 1 + 2 + 3 |
+| **Phase 3: Review Panel Overhaul** | Remove auto-review, add program-level review scoping to `v_review_queue`, add milestone profile dropdown to review rows, add timeline health badge, add follow-up prompt after marking reviewed | Phase 1 |
+| **Phase 4: Action Center Overhaul** | 5-section follow-ups, portfolio health sidebar, risk alerts banner, badge update | Phase 1 + 2 |
+| **Phase 5: Plan Week Enrichment** | Timeline context (health badges, accountability icons, milestone labels, prep flags) in Plan Week items; enhanced pinning for at_risk/critical; review badge cross-link; Review -> Plan -> Execute workflow | Phase 1 + 2 + 4 |
+| **Phase 6: Templates & Polish** | Nudge templates, risk notification drafts, timeline tokens in email system, timeline visualization on policy/program pages, Settings UI editors | Phase 1-5 |
