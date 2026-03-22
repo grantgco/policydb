@@ -110,6 +110,27 @@ Opportunities have optional dates/carrier; the "Convert to Policy" flow sets rea
 ### Renewal Status Exclusion
 `renewal_statuses_excluded` config key stores statuses silenced from alerts. Pass `excluded_statuses=cfg.get("renewal_statuses_excluded", [])` to `get_renewal_pipeline()`, `get_suggested_followups()`, and `get_stale_renewals()`.
 
+### Timeline Engine
+`src/policydb/timeline_engine.py` — proactive workflow engine that tracks ideal vs projected dates per policy milestone.
+
+**Key functions:**
+- `generate_policy_timelines(conn, policy_uid=None)` — generates timeline rows from milestone profiles. Called on startup. Pass `policy_uid` to regenerate a single policy.
+- `get_policy_timeline(conn, policy_uid)` — returns all timeline rows ordered by ideal_date
+- `compute_health(...)` — computes milestone health: `on_track` → `drifting` → `compressed` → `at_risk` → `critical`
+- `recalculate_downstream(conn, policy_uid, changed_milestone, new_projected, expiration_date)` — shifts downstream dates when a milestone slips
+- `update_timeline_from_followup(conn, policy_uid, milestone_name, disposition, new_followup_date, waiting_on)` — updates accountability + triggers recalc on re-diary
+- `complete_timeline_milestone(conn, policy_uid, milestone_name)` — marks milestone done, syncs to checklist
+
+**Schema:** `policy_timeline` table (migration 070) with `ideal_date`, `projected_date`, `completed_date`, `prep_alert_date`, `accountability`, `waiting_on`, `health`, `acknowledged`, `acknowledged_at`. Policies have `milestone_profile` column.
+
+**Accountability states:** `my_action` (your action needed), `waiting_external` (ball in someone else's court), `scheduled` (meeting/call booked). Derived from disposition config.
+
+**Milestone profiles:** `Full Renewal`, `Standard Renewal`, `Simple Renewal` — configurable in Settings. Each profile selects which milestones from `renewal_milestones` apply. Auto-suggest by premium threshold.
+
+**Action Center integration:** Follow-ups tab restructured into 5 sections: Act Now, Nudge Due, Prep Coming Up, Watching, Scheduled. Portfolio health sidebar widget. Risk alerts banner with acknowledge.
+
+**Programs:** Timeline milestones live at the program level. Child policies (those with `program_id`) are excluded from timeline generation and from the review queue. Reviewing a program cascades `last_reviewed_at` to all children.
+
 ---
 
 ## Email Template System
@@ -120,6 +141,7 @@ Opportunities have optional dates/carrier; the "Convert to Policy" flow sets rea
 - `policy_context(conn, policy_uid)` — builds token dict for policy context
 - `client_context(conn, client_id)` — builds token dict for client context
 - `followup_context(row_dict)` — builds token dict for follow-up rows
+- `timeline_context(conn, policy_uid)` — builds token dict for timeline data (drift, blocking reason, milestones)
 - `CONTEXT_TOKENS` — dict of `{context: [(key, label), ...]}` pairs used to build pill toolbars
 
 ### Critical Rule: New Fields → Add to Tokens
@@ -444,3 +466,13 @@ This is not optional — UI changes without visual verification have repeatedly 
 **13. Sidebar responsive visibility:** Use `hidden xl:block` (not `lg:block`) for sidebars on pages with tabbed content. At `lg` (1024px) the sidebar overlaps tab content. `xl` (1280px) gives enough room for both.
 
 **14. Worktree rebase stash conflicts with pycache:** When rebasing a worktree, `git stash pop` can fail on `.pyc` file conflicts. Drop the stash, `git checkout -- '**/__pycache__/'`, and re-run `pip install -e .` to regenerate.
+
+**15. Jinja2 `loop.parent` does not exist:** Jinja2 has no `loop.parent` to access an outer loop's context from a nested loop. Capture the outer loop index into a `{% set %}` variable before entering the inner loop:
+   - **Wrong:** `{{ loop.parent.loop.index0 }}`
+   - **Correct:** `{% set outer_idx = loop.index0 %}` before the inner `{% for %}`, then use `{{ outer_idx }}`
+
+**16. Config import pattern — `import policydb.config as cfg`:** The config module is imported as `import policydb.config as cfg`, then accessed via `cfg.get("key")`. Never use `from policydb.config import cfg` — there is no `cfg` object to import. The module itself IS the config interface.
+
+**17. Config key names must match between Python and templates:** When a subagent or plan spec defines config keys (e.g., `conditions.min_premium`, `profile`), verify the actual config structure in `_DEFAULTS` before writing templates. Config keys drift between spec and implementation. Always read `config.py` to confirm the real key names before referencing them in Jinja2 templates.
+
+**18. Milestone profiles use `renewal_milestones` names, not `mandated_activities` names:** The `milestone_profiles` config references milestone names from `renewal_milestones` (e.g., "Submission Sent", "Quote Received"). The `mandated_activities` config uses activity names (e.g., "RSM Meeting", "Market Submissions") which map to checklist milestones via the `checklist_milestone` field. When building UI for profiles, iterate over `renewal_milestones` for the pill list, not `mandated_activities`.
