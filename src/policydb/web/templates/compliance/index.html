@@ -139,12 +139,16 @@
         <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
           <div>
             <label class="block text-xs text-gray-500 mb-1">Coverage Line</label>
-            <select name="coverage_line" id="add-req-coverage" required class="border rounded px-2 py-1.5 text-sm w-full">
-              <option value="">Select coverage...</option>
+            <input name="coverage_line" id="add-req-coverage" required
+                   list="add-req-coverage-list"
+                   class="border rounded px-2 py-1.5 text-sm w-full"
+                   placeholder="Type or select coverage..."
+                   autocomplete="off">
+            <datalist id="add-req-coverage-list">
               {% for pt in policy_types %}
-              <option value="{{ pt }}">{{ pt }}</option>
+              <option value="{{ pt }}">
               {% endfor %}
-            </select>
+            </datalist>
           </div>
           <div>
             <label class="block text-xs text-gray-500 mb-1">Required Limit</label>
@@ -156,12 +160,15 @@
           </div>
           <div>
             <label class="block text-xs text-gray-500 mb-1">Deductible Type</label>
-            <select name="deductible_type" class="border rounded px-2 py-1.5 text-sm w-full">
-              <option value="">&mdash;</option>
+            <input name="deductible_type" list="add-req-dedtype-list"
+                   class="border rounded px-2 py-1.5 text-sm w-full"
+                   placeholder="e.g., Per Occurrence"
+                   autocomplete="off">
+            <datalist id="add-req-dedtype-list">
               {% for dt in deductible_types %}
-              <option value="{{ dt }}">{{ dt }}</option>
+              <option value="{{ dt }}">
               {% endfor %}
-            </select>
+            </datalist>
           </div>
         </div>
         <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
