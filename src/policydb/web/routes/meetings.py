@@ -413,6 +413,112 @@ def delete_decision(
     return JSONResponse({"ok": True})
 
 
+@router.post("/meetings/{meeting_id}/actions/create-followups")
+def create_followups(
+    request: Request,
+    meeting_id: int,
+    conn=Depends(get_db),
+):
+    """Bulk-convert unrouted action items to follow-up activities."""
+    m = _meeting_dict(conn, meeting_id)
+    if not m:
+        return HTMLResponse("Not found", status_code=404)
+
+    account_exec = cfg.get("default_account_exec", "")
+    actions = conn.execute(
+        "SELECT * FROM meeting_action_items WHERE meeting_id = ? AND completed = 0 AND activity_id IS NULL",
+        (meeting_id,),
+    ).fetchall()
+
+    created_count = 0
+    for action in actions:
+        action = dict(action)
+        cur = conn.execute(
+            """INSERT INTO activity_log
+               (activity_date, client_id, activity_type, subject, details,
+                follow_up_date, follow_up_done, account_exec)
+               VALUES (?, ?, 'Follow-up', ?, ?, ?, 0, ?)""",
+            (date.today().isoformat(), m["client_id"],
+             action["description"],
+             f"Action from meeting: {m['title']}",
+             action["due_date"] or None,
+             account_exec),
+        )
+        conn.execute(
+            "UPDATE meeting_action_items SET activity_id = ? WHERE id = ?",
+            (cur.lastrowid, action["id"]),
+        )
+        created_count += 1
+
+    conn.commit()
+    return JSONResponse({"ok": True, "created": created_count})
+
+
+@router.post("/meetings/{meeting_id}/schedule-next")
+async def schedule_next(
+    request: Request,
+    meeting_id: int,
+    conn=Depends(get_db),
+):
+    """Create next meeting with same client, attendees, unresolved items."""
+    form = await request.form()
+    m = _meeting_dict(conn, meeting_id)
+    if not m:
+        return HTMLResponse("Not found", status_code=404)
+
+    new_title = form.get("title", m["title"]).strip()
+    new_date = form.get("meeting_date", "")
+
+    from policydb.db import next_meeting_uid
+    new_uid = next_meeting_uid(conn, m["client_id"])
+
+    cur = conn.execute(
+        """INSERT INTO client_meetings
+           (client_id, title, meeting_date, meeting_time, duration_hours,
+            location, meeting_uid, phase, meeting_type)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'before', ?)""",
+        (m["client_id"], new_title, new_date,
+         m.get("meeting_time", ""), m.get("duration_hours", 1.0),
+         m.get("location", ""), new_uid, m.get("meeting_type", "")),
+    )
+    new_id = cur.lastrowid
+
+    # Copy attendees
+    for att in m.get("attendees", []):
+        conn.execute(
+            """INSERT INTO meeting_attendees
+               (meeting_id, contact_id, name, role, is_internal, attendee_type)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (new_id, att.get("contact_id"), att["name"],
+             att.get("role", ""), att.get("is_internal", 0), att.get("attendee_type", "")),
+        )
+
+    # Carry forward unresolved action items
+    unresolved = conn.execute(
+        "SELECT * FROM meeting_action_items WHERE meeting_id = ? AND completed = 0",
+        (meeting_id,),
+    ).fetchall()
+    for action in unresolved:
+        action = dict(action)
+        conn.execute(
+            """INSERT INTO meeting_action_items
+               (meeting_id, description, assignee, due_date, completed, policy_uid)
+               VALUES (?, ?, ?, ?, 0, ?)""",
+            (new_id, action["description"], action.get("assignee", ""),
+             action.get("due_date", ""), action.get("policy_uid")),
+        )
+
+    # Auto-log activity
+    conn.execute(
+        """INSERT INTO activity_log (activity_date, client_id, activity_type, subject, account_exec)
+           VALUES (?, ?, 'Meeting', ?, ?)""",
+        (new_date or date.today().isoformat(), m["client_id"], new_title, cfg.get("default_account_exec", "")),
+    )
+
+    conn.commit()
+    return RedirectResponse(f"/meetings/{new_id}", status_code=303)
+
+
 @router.get("/meetings/{meeting_id}", response_class=HTMLResponse)
 def meeting_detail(
     request: Request,
@@ -448,6 +554,18 @@ def meeting_detail(
         from policydb.queries import get_client_total_hours
         total_hours = get_client_total_hours(conn, m["client_id"])
 
+    # For the After phase status sweep — load active policies with renewal status
+    after_policies = []
+    if (m.get("phase") or "before") == "after":
+        after_policies = [dict(r) for r in conn.execute(
+            """SELECT policy_uid, policy_type, carrier, renewal_status, expiration_date
+               FROM policies
+               WHERE client_id = ? AND archived = 0
+                 AND (is_opportunity = 0 OR is_opportunity IS NULL)
+               ORDER BY expiration_date, policy_type""",
+            (m["client_id"],),
+        ).fetchall()]
+
     return templates.TemplateResponse("meetings/detail_phased.html", {
         "request": request,
         "active": "meetings",
@@ -463,6 +581,7 @@ def meeting_detail(
         "renewal_statuses": cfg.get("renewal_statuses", []),
         "client_summary": client_summary,
         "total_hours": total_hours,
+        "after_policies": after_policies,
     })
 
 
