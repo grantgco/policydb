@@ -575,6 +575,78 @@ def contacts_list(request: Request, q: str = "", org: str = "", role: str = "", 
 
 
 # ---------------------------------------------------------------------------
+# Search — unified across all stores via contacts table
+# (MUST be before /{contact_id} to avoid route capture)
+# ---------------------------------------------------------------------------
+
+@router.get("/search", response_class=HTMLResponse)
+def contacts_search(request: Request, q: str = "", context: str = "", target_id: str = "", conn=Depends(get_db)):
+    """Unified contact search across all stores. Returns HTML partial for picker."""
+    if len(q.strip()) < 2:
+        return HTMLResponse('<p class="text-xs text-gray-400 py-2">Type at least 2 characters...</p>')
+
+    rows = search_contacts(conn, q, limit=20)
+
+    # Enrich each result with sources and assignment-level fields (title, role)
+    results = []
+    for r in rows:
+        cid = r["id"]
+        sources = []
+        if conn.execute(
+            "SELECT 1 FROM contact_policy_assignments WHERE contact_id=? LIMIT 1", (cid,)
+        ).fetchone():
+            sources.append("policy")
+        int_row = conn.execute(
+            "SELECT 1 FROM contact_client_assignments WHERE contact_id=? AND contact_type='internal' LIMIT 1",
+            (cid,),
+        ).fetchone()
+        cli_row = conn.execute(
+            "SELECT 1 FROM contact_client_assignments WHERE contact_id=? AND contact_type='client' LIMIT 1",
+            (cid,),
+        ).fetchone()
+        if int_row:
+            sources.append("team")
+        if cli_row:
+            sources.append("client")
+
+        title = None
+        role = None
+        asg = conn.execute(
+            "SELECT title, role FROM contact_client_assignments WHERE contact_id=? AND (title IS NOT NULL OR role IS NOT NULL) LIMIT 1",
+            (cid,),
+        ).fetchone()
+        if asg:
+            title = asg["title"]
+            role = asg["role"]
+        if not role:
+            pol_asg = conn.execute(
+                "SELECT role FROM contact_policy_assignments WHERE contact_id=? AND role IS NOT NULL LIMIT 1",
+                (cid,),
+            ).fetchone()
+            if pol_asg:
+                role = pol_asg["role"]
+
+        results.append({
+            "name": r["name"],
+            "email": r.get("email"),
+            "phone": r.get("phone"),
+            "mobile": r.get("mobile"),
+            "title": title,
+            "role": role,
+            "organization": r.get("organization"),
+            "sources": ",".join(sources) if sources else "",
+        })
+
+    return templates.TemplateResponse("contacts/_search_results.html", {
+        "request": request,
+        "results": results,
+        "q": q,
+        "context": context,
+        "target_id": target_id,
+    })
+
+
+# ---------------------------------------------------------------------------
 # Contact detail page
 # ---------------------------------------------------------------------------
 
@@ -1264,79 +1336,6 @@ def check_duplicate(request: Request, name: str = "", email: str = "", conn=Depe
     return templates.TemplateResponse("contacts/_duplicate_warning.html", {
         "request": request,
         "matches": matches[:5],
-    })
-
-
-# ---------------------------------------------------------------------------
-# Search — unified across all stores via contacts table
-# ---------------------------------------------------------------------------
-
-@router.get("/search", response_class=HTMLResponse)
-def contacts_search(request: Request, q: str = "", context: str = "", target_id: str = "", conn=Depends(get_db)):
-    """Unified contact search across all stores. Returns HTML partial for picker."""
-    if len(q.strip()) < 2:
-        return HTMLResponse('<p class="text-xs text-gray-400 py-2">Type at least 2 characters...</p>')
-
-    rows = search_contacts(conn, q, limit=20)
-
-    # Enrich each result with sources and assignment-level fields (title, role)
-    results = []
-    for r in rows:
-        cid = r["id"]
-        # Determine which stores this contact appears in
-        sources = []
-        if conn.execute(
-            "SELECT 1 FROM contact_policy_assignments WHERE contact_id=? LIMIT 1", (cid,)
-        ).fetchone():
-            sources.append("policy")
-        int_row = conn.execute(
-            "SELECT 1 FROM contact_client_assignments WHERE contact_id=? AND contact_type='internal' LIMIT 1",
-            (cid,),
-        ).fetchone()
-        cli_row = conn.execute(
-            "SELECT 1 FROM contact_client_assignments WHERE contact_id=? AND contact_type='client' LIMIT 1",
-            (cid,),
-        ).fetchone()
-        if int_row:
-            sources.append("team")
-        if cli_row:
-            sources.append("client")
-
-        # Get assignment-level fields (title, role) from best available
-        title = None
-        role = None
-        asg = conn.execute(
-            "SELECT title, role FROM contact_client_assignments WHERE contact_id=? AND (title IS NOT NULL OR role IS NOT NULL) LIMIT 1",
-            (cid,),
-        ).fetchone()
-        if asg:
-            title = asg["title"]
-            role = asg["role"]
-        if not role:
-            pol_asg = conn.execute(
-                "SELECT role FROM contact_policy_assignments WHERE contact_id=? AND role IS NOT NULL LIMIT 1",
-                (cid,),
-            ).fetchone()
-            if pol_asg:
-                role = pol_asg["role"]
-
-        results.append({
-            "name": r["name"],
-            "email": r.get("email"),
-            "phone": r.get("phone"),
-            "mobile": r.get("mobile"),
-            "title": title,
-            "role": role,
-            "organization": r.get("organization"),
-            "sources": ",".join(sources) if sources else "",
-        })
-
-    return templates.TemplateResponse("contacts/_search_results.html", {
-        "request": request,
-        "results": results,
-        "q": q,
-        "context": context,
-        "target_id": target_id,
     })
 
 

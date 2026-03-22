@@ -121,6 +121,16 @@ def dashboard(request: Request, conn=Depends(get_db)):
 
     hours_this_month = get_dashboard_hours_this_month(conn)
     note_row = conn.execute("SELECT content, updated_at FROM user_notes WHERE id=1").fetchone()
+
+    upcoming_meetings = [dict(r) for r in conn.execute(
+        """SELECT cm.id, cm.title, cm.meeting_date, cm.meeting_time, cm.meeting_type, cm.phase,
+                  c.name as client_name
+           FROM client_meetings cm
+           JOIN clients c ON c.id = cm.client_id
+           WHERE cm.meeting_date >= date('now') AND cm.phase != 'complete'
+           ORDER BY cm.meeting_date ASC, cm.meeting_time ASC
+           LIMIT 3""",
+    ).fetchall()]
     scratchpad_content = note_row["content"] if note_row else ""
     scratchpad_updated = note_row["updated_at"] if note_row else ""
 
@@ -156,6 +166,7 @@ def dashboard(request: Request, conn=Depends(get_db)):
         "suggested_uids": suggested_uids,
         "open_opportunities": open_opportunities,
         "hours_this_month": hours_this_month,
+        "upcoming_meetings": upcoming_meetings,
     })
 
 

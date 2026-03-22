@@ -1,0 +1,53 @@
+{% if client_meetings is defined %}
+<div class="card mt-4">
+  <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+    <h2 class="font-semibold text-gray-900 text-sm">Meetings</h2>
+    <a href="/meetings/new?client_id={{ client.id }}"
+       class="text-xs bg-marsh text-white px-3 py-1 rounded hover:bg-marsh-light transition-colors no-print">
+      Schedule Meeting
+    </a>
+  </div>
+  {% if client_meetings %}
+  <ul class="divide-y divide-gray-50">
+    {% for m in client_meetings %}
+    <li class="px-4 py-2.5">
+      <a href="/meetings/{{ m.id }}" class="block hover:text-marsh group transition-colors">
+        <div class="flex items-start justify-between gap-2">
+          <div class="min-w-0">
+            <p class="text-sm font-medium text-gray-800 group-hover:text-marsh truncate">{{ m.title }}</p>
+            <div class="flex items-center gap-1.5 mt-0.5 flex-wrap">
+              {% if m.meeting_type %}
+              <span class="text-[10px] bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded">{{ m.meeting_type }}</span>
+              {% endif %}
+              {% if m.phase == 'complete' %}
+              <span class="text-[10px] bg-green-50 text-green-700 px-1.5 py-0.5 rounded">Complete</span>
+              {% elif m.phase == 'during' %}
+              <span class="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded">In Progress</span>
+              {% elif m.phase == 'after' %}
+              <span class="text-[10px] bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded">Follow-up</span>
+              {% endif %}
+              {% if m.open_actions %}
+              <span class="text-[10px] bg-red-50 text-red-600 px-1.5 py-0.5 rounded">{{ m.open_actions }} open action{{ 's' if m.open_actions != 1 }}</span>
+              {% endif %}
+            </div>
+          </div>
+          <div class="text-right shrink-0">
+            <p class="text-xs text-gray-500 whitespace-nowrap">{{ m.meeting_date }}</p>
+            {% if m.meeting_time %}<p class="text-xs text-gray-400">{{ m.meeting_time }}</p>{% endif %}
+          </div>
+        </div>
+      </a>
+    </li>
+    {% endfor %}
+  </ul>
+  <div class="px-4 py-2 border-t border-gray-50">
+    <a href="/meetings?client_id={{ client.id }}" class="text-xs text-marsh hover:underline">View all meetings →</a>
+  </div>
+  {% else %}
+  <div class="px-4 py-4 text-center">
+    <p class="text-sm text-gray-400">No meetings recorded.</p>
+    <a href="/meetings/new?client_id={{ client.id }}" class="text-xs text-marsh hover:underline mt-1 block no-print">Schedule first meeting →</a>
+  </div>
+  {% endif %}
+</div>
+{% endif %}

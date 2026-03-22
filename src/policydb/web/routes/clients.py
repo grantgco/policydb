@@ -483,6 +483,14 @@ def client_tab_overview(request: Request, client_id: int, conn=Depends(get_db)):
         "pulse_recent": pulse_recent,
         "today": _today,
         "today_iso": _today,
+        "client_meetings": [dict(r) for r in conn.execute(
+            """SELECT cm.id, cm.title, cm.meeting_date, cm.meeting_time, cm.meeting_type, cm.phase,
+                      (SELECT COUNT(*) FROM meeting_action_items WHERE meeting_id = cm.id AND completed = 0) as open_actions
+               FROM client_meetings cm
+               WHERE cm.client_id = ?
+               ORDER BY cm.meeting_date DESC LIMIT 6""",
+            (client_id,),
+        ).fetchall()],
     })
 
 
@@ -1266,6 +1274,15 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
         except Exception:
             last_activity_relative = _la["dt"]
 
+    client_meetings = [dict(r) for r in conn.execute(
+        """SELECT cm.id, cm.title, cm.meeting_date, cm.meeting_time, cm.meeting_type, cm.phase,
+                  (SELECT COUNT(*) FROM meeting_action_items WHERE meeting_id = cm.id AND completed = 0) as open_actions
+           FROM client_meetings cm
+           WHERE cm.client_id = ?
+           ORDER BY cm.meeting_date DESC LIMIT 6""",
+        (client_id,),
+    ).fetchall()]
+
     from policydb.queries import REVIEW_CYCLE_LABELS as _REVIEW_CYCLE_LABELS
     return templates.TemplateResponse("clients/detail.html", {
         "request": request,
@@ -1347,6 +1364,7 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
         "project_stages": cfg.get("project_stages", []),
         "project_types": cfg.get("project_types", []),
         "timeline_data": _build_timeline_data(_get_project_pipeline(conn, client_id)),
+        "client_meetings": client_meetings,
     })
 
 
