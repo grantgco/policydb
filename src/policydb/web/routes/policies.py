@@ -893,6 +893,17 @@ def toggle_milestone(
             (uid, milestone, now),
         )
     conn.commit()
+
+    # When a checklist milestone is completed, sync to timeline if mapped
+    completed_now = (existing is None) or (not existing["completed"])
+    if completed_now:
+        from policydb.timeline_engine import complete_timeline_milestone
+        activities = cfg.get("mandated_activities", [])
+        for act in activities:
+            if act.get("checklist_milestone") == milestone:
+                complete_timeline_milestone(conn, uid, act["name"])
+                break
+
     policy = get_policy_by_uid(conn, uid)
     if not policy:
         return HTMLResponse("", status_code=404)
