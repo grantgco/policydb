@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}Action Center — Coverage{% endblock %}
+
+{% block content %}
+<div id="action-center" class="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-4">
+  <div class="flex gap-6">
+
+    {# ── Main content area (tabs) ── #}
+    <div class="flex-1 min-w-0">
+      {# Tab bar #}
+      <div class="tab-bar no-print" id="ac-tab-bar">
+        <button class="tab-btn" data-tab="followups" data-tab-url="/action-center/followups">
+          Follow-ups
+          {% if overdue is defined and overdue|length %}
+            <span class="tab-badge" style="background:#ef4444;color:white">{{ overdue|length }}</span>
+          {% endif %}
+        </button>
+        <button class="tab-btn" data-tab="inbox" data-tab-url="/action-center/inbox">
+          Inbox
+          {% if inbox_pending %}
+            <span class="tab-badge" style="background:#ef4444;color:white">{{ inbox_pending }}</span>
+          {% endif %}
+        </button>
+        <button class="tab-btn" data-tab="activities" data-tab-url="/action-center/activities">
+          Activities
+        </button>
+        <button class="tab-btn" data-tab="scratchpads" data-tab-url="/action-center/scratchpads">
+          Scratchpads
+          {% set _sp_count = scratchpad_count if scratchpad_count is defined else (scratchpads|length if scratchpads is defined else 0) %}
+          {% if _sp_count %}
+            <span class="tab-badge" style="background:#ef4444;color:white">{{ _sp_count }}</span>
+          {% endif %}
+        </button>
+      </div>
+
+      {# Tab content area #}
+      <div class="tab-content" id="ac-tab-content">
+        {# Initial tab content rendered server-side #}
+        {% if initial_tab == 'followups' %}
+          {% include "action_center/_followups.html" %}
+        {% elif initial_tab == 'inbox' %}
+          {% include "action_center/_inbox.html" %}
+        {% elif initial_tab == 'activities' %}
+          {% include "action_center/_activities.html" %}
+        {% elif initial_tab == 'scratchpads' %}
+          {% include "action_center/_scratchpads.html" %}
+        {% endif %}
+      </div>
+    </div>
+
+    {# ── Sidebar ── #}
+    <div id="action-center-sidebar" class="w-56 flex-shrink-0 no-print hidden xl:block">
+      <div class="sticky top-4">
+        {% include "action_center/_sidebar.html" %}
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+(function() {
+  /* Initialize tabs — override initTabs to support ?tab= query param */
+  var params = new URLSearchParams(window.location.search);
+  var requestedTab = params.get('tab') || '{{ initial_tab }}';
+
+  var container = document.getElementById('action-center');
+  var bar = document.getElementById('ac-tab-bar');
+  var content = document.getElementById('ac-tab-content');
+  if (!bar || !content) return;
+  var buttons = bar.querySelectorAll('.tab-btn');
+
+  function activateTab(btn, skipLoad) {
+    buttons.forEach(function(b) { b.classList.remove('active'); });
+    btn.classList.add('active');
+    sessionStorage.setItem('action-center-tab', btn.dataset.tab);
+    if (!skipLoad && btn.dataset.tabUrl) {
+      htmx.ajax('GET', btn.dataset.tabUrl, {target: '#ac-tab-content', swap: 'innerHTML'});
+    }
+  }
+
+  buttons.forEach(function(btn) {
+    btn.addEventListener('click', function() { activateTab(btn); });
+  });
+
+  /* Activate initial tab without re-fetching (already server-rendered) */
+  var target = null;
+  buttons.forEach(function(b) { if (b.dataset.tab === requestedTab) target = b; });
+  if (!target) target = buttons[0];
+  if (target) activateTab(target, true);
+})();
+</script>
+{% endblock %}
