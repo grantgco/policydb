@@ -41,12 +41,16 @@ Each field in a schema is a dict with metadata that drives both prompt generatio
     "type": "string",                    # string | number | date | boolean | array
     "required": True,                    # Whether the prompt marks this as required
     "description": "The insurance company providing coverage",
+    "db_column": "carrier",              # Explicit DB column mapping (defaults to key if omitted)
     "config_values": "carriers",         # Key into cfg.get() — injects allowed values into prompt
     "config_mode": "prefer",             # "prefer" = use if match, accept unknown
                                          # "strict" = must be one of these values
     "normalizer": "normalize_carrier",   # Function name from utils.py/reconciler.py to run on import
     "example": "Travelers"               # Example value for the JSON template in prompt
 }
+```
+
+Each schema also carries a `"version"` field (integer, starting at 1) for forward compatibility.
 ```
 
 ### Config Value Modes
@@ -60,41 +64,53 @@ Top-level metadata:
 ```python
 {
     "name": "policy_extraction",
+    "version": 1,
     "description": "Extract policy details from a declaration page, binder, or certificate of insurance",
     "context_fields": ["client_name", "industry"],
     "fields": [...]
 }
 ```
 
-Fields (~25):
+**Note on `context_fields`:** These are *input* context keys injected into the prompt's Context Block (Section 3) to help the LLM disambiguate. They are NOT output JSON keys — they come from the route handler's context dict, not from the extracted document.
 
-| Key | Label | Type | Required | Config Values | Normalizer |
-|-----|-------|------|----------|---------------|------------|
-| `carrier` | Insurance Carrier | string | yes | `carriers` (prefer) | `normalize_carrier` |
-| `policy_type` | Line of Business / Coverage Type | string | yes | `policy_types` (prefer) | `normalize_coverage_type` |
-| `policy_number` | Policy Number | string | yes | — | `normalize_policy_number` |
-| `effective_date` | Effective Date | date | yes | — | `dateparser.parse` |
-| `expiration_date` | Expiration Date | date | yes | — | `dateparser.parse` |
-| `premium` | Annual Premium | number | no | — | `parse_currency_with_magnitude` |
-| `limit_amount` | Per-Occurrence Limit | number | no | — | `parse_currency_with_magnitude` |
-| `deductible` | Deductible | number | no | — | `parse_currency_with_magnitude` |
-| `coverage_form` | Coverage Form | string | no | `coverage_forms` (strict) | — |
-| `first_named_insured` | First Named Insured | string | no | — | — |
-| `description` | Coverage Description / Summary | string | no | — | — |
-| `layer_position` | Layer Position | string | no | — | — |
-| `commission_rate` | Commission Rate | number | no | — | — |
-| `prior_premium` | Prior Term Premium | number | no | — | `parse_currency_with_magnitude` |
-| `underwriter_name` | Underwriter Name | string | no | — | — |
-| `underwriter_contact` | Underwriter Email or Phone | string | no | — | — |
-| `placement_colleague` | Placement Colleague / Broker | string | no | — | — |
-| `exposure_address` | Property / Risk Address | string | no | — | — |
-| `exposure_city` | City | string | no | — | `format_city` |
-| `exposure_state` | State | string | no | — | `format_state` |
-| `exposure_zip` | ZIP Code | string | no | — | `format_zip` |
-| `exposure_basis` | Exposure Basis | string | no | `exposure_basis_options` (prefer) | — |
-| `project_name` | Location / Project Name | string | no | — | — |
-| `access_point` | Program / Access Point | string | no | — | — |
-| `notes` | Additional Notes | string | no | — | — |
+Fields (~28):
+
+| Key | Label | Type | Required | Config Values | Normalizer | DB Column |
+|-----|-------|------|----------|---------------|------------|-----------|
+| `carrier` | Insurance Carrier | string | yes | `carriers` (prefer) | `normalize_carrier` | `policies.carrier` |
+| `policy_type` | Line of Business / Coverage Type | string | yes | `policy_types` (prefer) | `normalize_coverage_type` | `policies.policy_type` |
+| `policy_number` | Policy Number | string | yes | — | `normalize_policy_number` | `policies.policy_number` |
+| `effective_date` | Effective Date | date | yes | — | *date* | `policies.effective_date` |
+| `expiration_date` | Expiration Date | date | yes | — | *date* | `policies.expiration_date` |
+| `premium` | Annual Premium | number | no | — | `parse_currency_with_magnitude` | `policies.premium` |
+| `limit_amount` | Per-Occurrence Limit | number | no | — | `parse_currency_with_magnitude` | `policies.limit_amount` |
+| `deductible` | Deductible | number | no | — | `parse_currency_with_magnitude` | `policies.deductible` |
+| `coverage_form` | Coverage Form | string | no | `coverage_forms` (strict) | — | `policies.coverage_form` |
+| `first_named_insured` | First Named Insured | string | no | — | — | `policies.first_named_insured` |
+| `fein` | Federal Employer ID Number (FEIN) | string | no | — | `format_fein` | `clients.fein` (cross-ref) |
+| `description` | Coverage Description / Summary | string | no | — | — | `policies.description` |
+| `layer_position` | Layer Position | string | no | — | — | `policies.layer_position` |
+| `commission_rate` | Commission Rate | number | no | — | — | `policies.commission_rate` |
+| `prior_premium` | Prior Term Premium | number | no | — | `parse_currency_with_magnitude` | `policies.prior_premium` |
+| `underwriter_name` | Underwriter Name | string | no | — | — | *contact system* |
+| `underwriter_contact` | Underwriter Email or Phone | string | no | — | — | *contact system* |
+| `placement_colleague` | Placement Colleague / Broker | string | no | — | — | *contact system* |
+| `exposure_address` | Property / Risk Address | string | no | — | — | `policies.exposure_address` |
+| `exposure_city` | City | string | no | — | `format_city` | `policies.exposure_city` |
+| `exposure_state` | State | string | no | — | `format_state` | `policies.exposure_state` |
+| `exposure_zip` | ZIP Code | string | no | — | `format_zip` | `policies.exposure_zip` |
+| `exposure_basis` | Exposure Basis | string | no | `exposure_basis_options` (prefer) | — | `policies.exposure_basis` |
+| `exposure_amount` | Exposure Amount | number | no | — | `parse_currency_with_magnitude` | `policies.exposure_amount` |
+| `project_name` | Location / Project Name | string | no | — | — | `policies.project_name` |
+| `access_point` | Program / Access Point | string | no | — | — | `policies.access_point` |
+| `attachment_point` | Attachment Point (Excess/Umbrella) | number | no | — | `parse_currency_with_magnitude` | `policies.attachment_point` |
+| `notes` | Additional Notes | string | no | — | — | `policies.notes` |
+
+**Contact system fields:** `underwriter_name`, `underwriter_contact`, and `placement_colleague` do not map to flat columns on the `policies` table. On import, the parse route calls `get_or_create_contact()` to find or create a contact record, then `assign_contact_to_policy()` to link them. This mirrors the existing policy edit POST behavior. The values pre-fill the contact fields on the edit form for user review before the save triggers the contact creation.
+
+**Date normalizer:** Date fields use a special-case normalizer (marked *date* in the table). The pipeline calls `dateparser.parse()` (third-party library, per CLAUDE.md) and formats the result as `YYYY-MM-DD` string. This is handled explicitly in `parse_llm_json()`, not through the general normalizer-resolution mechanism.
+
+**Aggregate limit & retention/SIR:** These commonly appear on dec pages but do not have dedicated columns in the `policies` table. The prompt instructs the LLM to include them in the `notes` field if found: "If the document lists an aggregate limit, retention, or self-insured retention (SIR), include these in the notes field."
 
 ### Schema: Compliance Extraction (`COMPLIANCE_EXTRACTION_SCHEMA`)
 
@@ -102,6 +118,7 @@ Top-level metadata:
 ```python
 {
     "name": "compliance_extraction",
+    "version": 1,
     "description": "Extract insurance requirements from a contract, loan covenant, or lease agreement",
     "context_fields": ["client_name", "location_name", "source_name"],
     "fields": {
@@ -111,6 +128,8 @@ Top-level metadata:
     }
 }
 ```
+
+**Note on `context_fields`:** Same as policy schema — these are *input* context injected into the prompt, not output JSON keys. `source_name` in context means "the name of the requirement source already selected in the UI" which helps the LLM label the extracted data. The output JSON uses `source.name` as the extracted document name.
 
 **Source fields:**
 
@@ -201,7 +220,8 @@ Walk each field through its declared normalizer:
 - `parse_currency_with_magnitude()` for all money fields
 - `dateparser.parse()` for dates (output as YYYY-MM-DD string)
 - `format_state()`, `format_city()`, `format_zip()` for address fields
-- Unknown normalizer names are resolved at runtime from `utils.py` and `reconciler.py`
+- Normalizer names are resolved at runtime from a registry dict mapping names to functions from `utils.py` and `reconciler.py`
+- Date fields are special-cased: `dateparser.parse()` → format as `YYYY-MM-DD` string (not in the general registry)
 - Fields without normalizers pass through as-is
 
 **Step 4 — Return result:**
@@ -226,34 +246,44 @@ On parse failure:
 }
 ```
 
-## UI: Prompt & Paste Slideover Panel
+## UI: Prompt & Paste Panel
 
 ### Trigger
 - **Policy page:** "Import from AI" button on policy edit page toolbar
 - **Compliance page:** "Import from AI" button on compliance page (near review mode)
 
-### Panel Behavior
-- Right-side slideover panel (consistent with existing PolicyDB slideover patterns)
-- Two-step flow within the same panel:
+### Panel Pattern
+This is a **new UI pattern** — a right-side slideover panel. PolicyDB does not currently have a slideover component. Implementation should use a fixed-position `<div>` with `transform: translateX()` transition, `z-index` above page content, and a semi-transparent backdrop. The panel width should be ~480px on desktop, full-width on mobile. Close via backdrop click, Escape key, or Cancel button.
+
+Two-step flow within the same panel:
 
 **Step 1 — Generate & Copy Prompt:**
 - Context block at top showing client name, industry, location (read-only)
 - Auto-generated prompt displayed in a dark code block (scrollable, read-only)
-- "Copy Prompt to Clipboard" button (full width, primary color)
+- "Copy Prompt to Clipboard" primary button (full width)
+- "Copy JSON Template Only" secondary link — copies just the Section 4 JSON structure for users who want to hand-fill without GPT
 - Helper text: "Paste this into your AI tool along with the policy document"
-- After copy, panel transitions to Step 2
+- After copy, panel transitions to Step 2 (but user can also manually advance)
+
+**Clipboard implementation:** Use `navigator.clipboard.writeText()` (available on localhost as a secure context). Fallback: create a temporary `<textarea>`, select, `document.execCommand('copy')`, remove. Show a brief "Copied!" toast on success.
 
 **Step 2 — Paste JSON Response:**
+- "Back to Prompt" link at top — returns to Step 1 without losing textarea content
 - Textarea (monospace, ~200px height) for pasting JSON
+- Size limit: 500KB max on raw text input. If exceeded, inline error: "Input too large (max 500KB)."
 - "Import & Review" primary button + "Cancel" secondary button
 - On submit: POST to parse endpoint
 - If parse succeeds: panel closes, form/table pre-filled, amber warning banner if warnings
 - If parse fails: inline error message below textarea with specific issue, textarea preserved for editing
 
+### Jinja2 Safety
+The prompt text contains `{{` sequences (from the JSON template examples). Per CLAUDE.md rules, prompt text must be injected via a `data-` attribute (`data-prompt='{{ prompt_text | tojson }}'`) and read by JavaScript — never rendered inline in a `<script>` block where Jinja2 would process the `{{` as a template expression.
+
 ### Shared Template
 Single template `_ai_import_panel.html` used by both policy and compliance pages. The route passes:
 - `import_type` ("policy" or "compliance")
 - `prompt_text` (the generated prompt)
+- `json_template` (the Section 4 JSON example, for the "Copy JSON Template" button)
 - `context_display` (dict of context fields to show in the header)
 - `parse_url` (the POST endpoint for step 2)
 
@@ -267,30 +297,31 @@ Single template `_ai_import_panel.html` used by both policy and compliance pages
 6. User pastes JSON into textarea, clicks "Import & Review"
 7. HTMX POST to `/policies/{uid}/ai-import/parse` with the raw text
 8. Route calls `parse_llm_json(raw_text, POLICY_EXTRACTION_SCHEMA)`
-9. On success: returns the policy edit form template pre-filled with `parsed` values + OOB warning banner
-10. User reviews pre-filled form, adjusts as needed, saves normally (existing per-field PATCH on blur)
+9. On success: returns a **re-rendered Details tab partial** with `parsed` values merged over current DB values. The existing policy edit template is rendered with a `prefill` dict — for each field in `parsed`, the template uses the parsed value instead of the DB value. This is the same Jinja2 template used for normal editing, just with different context values. An OOB `<div id="ai-import-warnings">` banner is included with any warnings.
+10. Panel closes. The Details tab content is swapped via `hx-swap="innerHTML"` targeting the tab container.
+11. User reviews pre-filled form — all fields are editable via the existing per-field PATCH on blur. **No data is saved until the user interacts with individual fields.** The pre-fill is visual only; each field saves when the user blurs it (same as manual editing).
+
+**Contact fields:** `underwriter_name`, `underwriter_contact`, and `placement_colleague` pre-fill their respective input fields on the form. The actual contact creation (`get_or_create_contact()` + `assign_contact_to_policy()`) happens when the user blurs those fields, triggering the existing PATCH endpoints — same as manual entry.
 
 ## Integration: Compliance Flow
 
+**Critical: the compliance flow does NOT write to the database on parse.** All extracted data pre-fills existing UI elements for user review. Data is only saved when the user interacts with the pre-filled fields (blur → PATCH, same as manual entry).
+
 1. User is on `/compliance/client/{id}` (optionally with a source/location selected)
 2. Clicks "Import from AI" → HTMX GET to `/compliance/client/{id}/ai-import/prompt`
-3. Route builds context: client name, location name (if selected), source name (if selected), plus config lists
+3. Route builds context: client name, location name (if selected), source name (if selected), plus config lists. The `client_id` comes from the URL parameter; `project_id` from the selected location (if any).
 4. Returns slideover panel HTML (step 1)
 5. User copies prompt, processes document in GPT 5.2, gets JSON back
 6. User pastes JSON, clicks "Import & Review"
-7. HTMX POST to `/compliance/client/{id}/ai-import/parse`
+7. HTMX POST to `/compliance/client/{id}/ai-import/parse` with optional query params `?source_id=X&project_id=Y`
 8. Route calls `parse_llm_json(raw_text, COMPLIANCE_EXTRACTION_SCHEMA)`
-9. On success:
-   - If source context exists: update source fields (or show diff if they differ)
-   - If no source context: create new requirement source from `source` block
-   - Each item in `requirements[]`: insert as `coverage_requirement` row linked to the source
-   - If `cope` present and location context exists: upsert COPE data
-10. Returns updated compliance page with:
-    - Source populated/updated
-    - Review mode table filled with extracted requirements
-    - COPE panel filled (if data present)
-    - Amber warning banner for any issues
-11. User reviews and edits inline through existing contenteditable cells
+9. On success, the route returns HTML partials that **pre-fill** existing UI elements (no DB writes):
+   - **Source fields:** If a source is selected, returns an OOB swap of the source edit form pre-filled with extracted `source` fields. If no source selected, returns the "Add Source" form pre-filled. The user reviews and submits the form to create/update the source (existing endpoint).
+   - **Requirements:** Returns pre-filled review mode table rows. Each row is rendered using the existing `_review_mode_row.html` template with extracted values. Rows have a `data-pending="true"` attribute — they are displayed but **not yet in the database**. A "Save All" button at the top of the review mode table POSTs the pending rows to the existing add-row endpoint in batch.
+   - **COPE data:** If `cope` is present and a location is selected, returns an OOB swap of the COPE panel pre-filled with extracted values. The user reviews and each field saves on blur via the existing COPE PATCH endpoint.
+   - **Warnings:** OOB banner with any normalization warnings.
+10. Panel closes. Pre-filled content appears in the compliance page sections.
+11. User reviews all pre-filled data and saves through existing interaction patterns (form submit for source, "Save All" for requirements batch, blur for COPE cells).
 
 ## File Changes Summary
 
@@ -311,6 +342,7 @@ Single template `_ai_import_panel.html` used by both policy and compliance pages
 
 | Scenario | Behavior |
 |----------|----------|
+| Input exceeds 500KB | Inline error below textarea: "Input too large (max 500KB)." Textarea preserved. |
 | Invalid JSON syntax | Inline error below textarea: "Invalid JSON: [specific error]". Textarea preserved. |
 | Missing required fields | Warning banner on edit form: "Missing: carrier, expiration_date". Fields left empty for manual entry. |
 | Unknown carrier/policy type | Warning banner: "Carrier 'X' not in your list — verify or add in Settings." Value passes through to combobox. |
@@ -318,3 +350,4 @@ Single template `_ai_import_panel.html` used by both policy and compliance pages
 | JSON has extra unexpected fields | Silently ignored. Only schema-defined fields are processed. |
 | Compliance JSON missing `requirements` array | Error: "Expected a 'requirements' array in the JSON." |
 | Normalizer fails on a value | Warning for that field, raw value passes through. Other fields still processed. |
+| FEIN extracted but mismatches client record | Warning: "FEIN 'X' differs from client record 'Y' — verify." Value shown for review. |
