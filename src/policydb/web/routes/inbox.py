@@ -77,7 +77,6 @@ def scratchpad_process(
     activity_type: str = Form("Note"),
     follow_up_date: str = Form(""),
     duration_hours: str = Form(""),
-    start_correspondence: str = Form(""),
     conn=Depends(get_db),
 ):
     """Process a scratchpad: create activity + clear."""
@@ -128,8 +127,6 @@ def scratchpad_process(
          follow_up_date or None, account_exec, dur),
     )
     activity_id = cursor.lastrowid
-    if start_correspondence == "1":
-        conn.execute("UPDATE activity_log SET thread_id = ? WHERE id = ?", (activity_id, activity_id))
     if follow_up_date and policy_id:
         from policydb.queries import supersede_followups
         supersede_followups(conn, policy_id, follow_up_date)
@@ -162,7 +159,6 @@ def inbox_process(
     subject: str = Form(""),
     details: str = Form(""),
     follow_up_date: str = Form(""),
-    start_correspondence: str = Form(""),
     duration_hours: str = Form(""),
     conn=Depends(get_db),
 ):
@@ -185,9 +181,6 @@ def inbox_process(
          follow_up_date or None, account_exec, dur, contact_id or None),
     )
     activity_id = cursor.lastrowid
-    # Start correspondence if requested
-    if start_correspondence == "1":
-        conn.execute("UPDATE activity_log SET thread_id = ? WHERE id = ?", (activity_id, activity_id))
     # Supersede follow-ups if needed
     if follow_up_date and policy_id:
         from policydb.queries import supersede_followups

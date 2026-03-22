@@ -180,7 +180,7 @@ def _followups_ctx(conn, window: int, activity_type: str, q: str,
 def _inbox_ctx(conn, show_processed: bool = False) -> dict:
     """Build inbox tab context."""
     pending = [dict(r) for r in conn.execute("""
-        SELECT i.*, c.name AS client_name, ct.name AS contact_name
+        SELECT i.*, c.name AS client_name, c.cn_number, ct.name AS contact_name
         FROM inbox i LEFT JOIN clients c ON i.client_id = c.id
         LEFT JOIN contacts ct ON i.contact_id = ct.id
         WHERE i.status = 'pending'
@@ -264,7 +264,7 @@ def _scratchpads_ctx(conn) -> dict:
         })
     # Client scratchpads
     for cs in conn.execute("""
-        SELECT cs.client_id, cs.content, cs.updated_at, c.name AS client_name
+        SELECT cs.client_id, cs.content, cs.updated_at, c.name AS client_name, c.cn_number
         FROM client_scratchpad cs JOIN clients c ON cs.client_id = c.id
         WHERE cs.content IS NOT NULL AND cs.content != ''
     """).fetchall():
@@ -272,12 +272,12 @@ def _scratchpads_ctx(conn) -> dict:
             "source": "client", "label": cs["client_name"],
             "link": f"/clients/{cs['client_id']}",
             "content": cs["content"], "updated_at": cs["updated_at"],
-            "client_id": cs["client_id"],
+            "client_id": cs["client_id"], "cn_number": cs["cn_number"],
         })
     # Policy scratchpads
     for ps in conn.execute("""
         SELECT ps.policy_uid, ps.content, ps.updated_at, p.policy_type,
-               p.client_id, c.name AS client_name
+               p.client_id, p.project_id, c.name AS client_name, c.cn_number
         FROM policy_scratchpad ps JOIN policies p ON ps.policy_uid = p.policy_uid
         JOIN clients c ON p.client_id = c.id
         WHERE ps.content IS NOT NULL AND ps.content != ''
@@ -288,6 +288,7 @@ def _scratchpads_ctx(conn) -> dict:
             "link": f"/policies/{ps['policy_uid']}/edit",
             "content": ps["content"], "updated_at": ps["updated_at"],
             "client_id": ps["client_id"], "policy_uid": ps["policy_uid"],
+            "cn_number": ps["cn_number"], "project_id": ps["project_id"],
         })
     return {"scratchpads": scratchpads}
 
