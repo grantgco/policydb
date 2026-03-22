@@ -10,7 +10,8 @@
 
     <div class="space-y-4" id="mp-editor">
       {% for prof in milestone_profiles %}
-      <div class="border border-gray-200 rounded-lg p-4 bg-white" data-mp-idx="{{ loop.index0 }}">
+      {% set prof_idx = loop.index0 %}
+      <div class="border border-gray-200 rounded-lg p-4 bg-white" data-mp-idx="{{ prof_idx }}">
         <div class="flex items-start justify-between gap-3 mb-3">
           <div class="flex-1">
             <label class="text-[10px] text-gray-500 block mb-0.5">Profile Name</label>
@@ -28,13 +29,15 @@
         </div>
 
         <label class="text-[10px] text-gray-500 block mb-1">Milestones (click to toggle)</label>
-        <div class="flex flex-wrap gap-1.5" id="mp-milestones-{{ loop.index0 }}">
+        <div class="flex flex-wrap gap-1.5" id="mp-milestones-{{ prof_idx }}">
           {% set active_milestones = prof.milestones|default([]) %}
-          {% for m in renewal_milestones %}
+          {% set all_milestone_names = [] %}
+          {% for act in mandated_activities %}{% if act.name not in all_milestone_names %}{% if all_milestone_names.append(act.name) %}{% endif %}{% endif %}{% endfor %}
+          {% for m in all_milestone_names %}
           <button type="button"
             class="text-xs px-2.5 py-1 rounded-full border transition-colors
               {% if m in active_milestones %}bg-marsh text-white border-marsh{% else %}bg-gray-50 text-gray-500 border-gray-200 hover:border-marsh hover:text-marsh{% endif %}"
-            onclick="toggleMpMilestone({{ loop.parent.loop.index0 }}, '{{ m }}', this)">
+            onclick="toggleMpMilestone({{ prof_idx }}, '{{ m }}', this)">
             {{ m }}
           </button>
           {% endfor %}
@@ -51,10 +54,10 @@
       <div class="space-y-1">
         {% for rule in milestone_profile_rules %}
         <div class="text-xs text-gray-600">
-          {% if rule.get('if_premium_gte') %}Premium &ge; {{ rule.if_premium_gte | currency }}{% endif %}
-          {% if rule.get('if_premium_lt') %}Premium &lt; {{ rule.if_premium_lt | currency }}{% endif %}
+          {% if rule.conditions is defined and rule.conditions.get('min_premium') %}Premium &ge; ${{ '{:,.0f}'.format(rule.conditions.min_premium) }}{% endif %}
+          {% if rule.conditions is defined and rule.conditions.get('default') %}Default{% endif %}
           <span class="text-gray-400">&rarr;</span>
-          <span class="font-medium text-gray-800">{{ rule.suggest_profile }}</span>
+          <span class="font-medium text-gray-800">{{ rule.profile }}</span>
         </div>
         {% endfor %}
       </div>
