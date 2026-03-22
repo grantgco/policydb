@@ -80,9 +80,8 @@ def scratchpad_process(
     start_correspondence: str = Form(""),
     conn=Depends(get_db),
 ):
-    """Process a scratchpad: create activity + save note + clear."""
+    """Process a scratchpad: create activity + clear."""
     from policydb.utils import round_duration
-    from policydb.queries import save_note
 
     # Resolve scope_id (new backported JS sends scope_id directly)
     sid = scope_id or source_id
@@ -135,17 +134,7 @@ def scratchpad_process(
         from policydb.queries import supersede_followups
         supersede_followups(conn, policy_id, follow_up_date)
 
-    # 2. Save note (new combined behavior)
-    if content_for_note.strip():
-        if source == "client" and resolved_client_id:
-            save_note(conn, "client", str(resolved_client_id), content_for_note)
-        elif source == "policy":
-            puid = resolved_policy_uid or (sid.split("/")[2] if "/" in sid else sid)
-            save_note(conn, "policy", puid, content_for_note)
-        elif source == "dashboard":
-            save_note(conn, "client", "0", content_for_note)  # Dashboard notes don't have a scope
-
-    # 3. Clear the scratchpad
+    # 2. Clear the scratchpad
     if source == "dashboard":
         conn.execute("UPDATE user_notes SET content='', updated_at=CURRENT_TIMESTAMP WHERE id=1")
     elif source == "client":
@@ -157,7 +146,7 @@ def scratchpad_process(
 
     conn.commit()
     return HTMLResponse("", headers={
-        "HX-Trigger": '{"activityLogged": "Scratchpad processed - activity created + note saved"}'
+        "HX-Trigger": '{"activityLogged": "Scratchpad processed - activity created"}'
     })
 
 

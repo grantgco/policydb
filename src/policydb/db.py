@@ -909,6 +909,15 @@ def init_db(path: Path | None = None) -> None:
         )
         conn.commit()
 
+    if 68 not in applied:
+        sql = (_MIGRATIONS_DIR / "068_migrate_saved_notes_to_activities.sql").read_text()
+        conn.executescript(sql)
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (68, "Migrate saved_notes to activity_log entries"),
+        )
+        conn.commit()
+
     # Data hygiene: fix 'None' string corruption in text fields (runs every startup, fast no-op if clean)
     conn.execute("UPDATE clients SET cn_number = NULL WHERE cn_number = 'None'")
 
