@@ -134,5 +134,27 @@ The spawn button was added but not tested in browser during this QA (it was veri
 | Templates | ✅ | Renders correctly |
 | Inbox | ✅ | 2 pending, scratchpads |
 | Compliance review | ✅ | Matrix, drill-down, COPE, review mode |
-| Search | Not tested | |
-| Reconcile | Not tested | |
+| Search | ✅ | Enter-to-submit works, finds clients/policies/activities, ref tag detection |
+| Reconcile | ✅ | Upload page renders, backend accepts CSV (200), column mapping loads |
+| Activity log | ✅ | By-client/by-type charts, overdue follow-ups, filters |
+| Capture bar | ✅ | Creates inbox item, toast confirmation, clears input |
+| Briefing | ✅ | URL is /briefing/client/{id}, renders open items + activity + coverage |
+| Client edit | ⚠️ | See BUG-016 (CN "None" string corruption) |
+
+## ADDITIONAL BUGS (Found in Extended Testing)
+
+### BUG-016: Client Edit — CN Number Shows "None" String
+**Page:** `/clients/2/edit`
+**Severity:** Medium — data corruption
+**Description:** The CN Number field shows the literal string "None" instead of being empty. This is the `None` string corruption issue — Python `None` was saved as the string `"None"` at some point. The `init_db()` has a cleanup query but it only runs on startup.
+**Fix:** The cleanup query in `init_db()` handles this. Restart the server to trigger cleanup. Also add validation to prevent saving the string "None" in the future.
+
+### BUG-017: Search — No Live Autocomplete/Dropdown
+**Page:** Global search (nav bar)
+**Severity:** Low — enhancement
+**Description:** The search bar requires pressing Enter to see results. There's no live dropdown showing suggestions as you type. This is more of a feature gap than a bug, but users expect instant results from a search bar.
+
+### BUG-018: Reconcile — Cannot Test File Upload via Browser Automation
+**Page:** `/reconcile`
+**Severity:** N/A — testing limitation
+**Description:** Browser automation couldn't upload a file due to Chrome extension permissions. Manual testing recommended. Backend API test confirmed 200 response with CSV upload.
