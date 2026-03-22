@@ -8,6 +8,8 @@ from typing import Optional
 
 from rapidfuzz import process, fuzz
 
+import policydb.config as cfg
+
 
 # ─── CLIENT QUERIES ──────────────────────────────────────────────────────────
 
@@ -528,7 +530,17 @@ def supersede_followups(conn, policy_id: int, new_date: str) -> None:
 def get_all_followups(
     conn: sqlite3.Connection, window: int = 30, client_ids: list[int] | None = None
 ) -> tuple[list[dict], list[dict]]:
-    """Return (overdue, upcoming) follow-ups from both activity_log and policy records."""
+    """Return (overdue, upcoming) follow-ups from both activity_log and policy records.
+
+    Each item is a plain dict enriched with an 'accountability' key derived from
+    the row's disposition value (via the follow_up_dispositions config list).
+    Unknown or missing dispositions default to 'my_action'.
+    """
+    # Build disposition → accountability lookup from config
+    _disp_accountability: dict[str, str] = {
+        d["label"]: d.get("accountability", "my_action")
+        for d in cfg.get("follow_up_dispositions", [])
+    }
     sql = """
     SELECT 'activity' AS source,
            a.id, a.subject, a.follow_up_date, a.activity_type,
@@ -689,6 +701,11 @@ def get_all_followups(
             if pc:
                 r["pc_name"] = pc["pc_name"]
                 r["pc_email"] = pc["pc_email"]
+
+    # Enrich every row with accountability state
+    for r in overdue + upcoming:
+        disposition = r.get("disposition") or ""
+        r["accountability"] = _disp_accountability.get(disposition, "my_action")
 
     return overdue, upcoming
 
