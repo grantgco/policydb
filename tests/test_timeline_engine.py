@@ -418,3 +418,28 @@ def test_overdue_followups_view_includes_timeline_health(tmp_db):
     conn = get_connection(tmp_db)
     cols = [d[0] for d in conn.execute("SELECT * FROM v_overdue_followups LIMIT 0").description]
     assert "timeline_health" in cols
+
+
+# ── Task 7: Accountability state on follow-up queries ───────────────────
+
+
+def test_get_all_followups_includes_accountability(tmp_db):
+    from policydb.queries import get_all_followups
+    conn = get_connection(tmp_db)
+    _insert_test_client(conn, 1, "Acme Corp")
+    exp_date = (date.today() + timedelta(days=90)).isoformat()
+    eff_date = (date.today() - timedelta(days=275)).isoformat()
+    _insert_test_policy(conn, "POL-001", 1, eff_date=eff_date, exp_date=exp_date)
+    # Get the policy's integer id
+    pol_id = conn.execute("SELECT id FROM policies WHERE policy_uid='POL-001'").fetchone()["id"]
+    conn.execute("""
+        INSERT INTO activity_log (id, client_id, policy_id, activity_type, subject,
+                                   follow_up_date, follow_up_done, disposition)
+        VALUES (1, 1, ?, 'Call', 'Follow up on quotes', ?, 0, 'Waiting on Carrier')
+    """, (pol_id, (date.today() + timedelta(days=3)).isoformat()))
+    conn.commit()
+    overdue, upcoming = get_all_followups(conn)
+    all_items = overdue + upcoming
+    assert len(all_items) > 0
+    item = all_items[0]
+    assert item["accountability"] == "waiting_external"
