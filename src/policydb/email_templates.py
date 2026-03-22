@@ -303,6 +303,55 @@ def location_context(conn: sqlite3.Connection, client_id: int, project_name: str
     return ctx
 
 
+def meeting_context(conn: sqlite3.Connection, meeting_id: int) -> dict:
+    """Build token dict for meeting email templates."""
+    meeting = conn.execute(
+        """SELECT cm.*, c.name as client_name
+           FROM client_meetings cm
+           JOIN clients c ON c.id = cm.client_id
+           WHERE cm.id = ?""",
+        (meeting_id,),
+    ).fetchone()
+    if not meeting:
+        return {}
+    meeting = dict(meeting)
+
+    attendees = conn.execute(
+        "SELECT name, role FROM meeting_attendees WHERE meeting_id = ?",
+        (meeting_id,),
+    ).fetchall()
+    attendee_names = ", ".join(a["name"] for a in attendees)
+
+    decisions = conn.execute(
+        "SELECT description FROM meeting_decisions WHERE meeting_id = ?",
+        (meeting_id,),
+    ).fetchall()
+    decisions_text = "\n".join(f"- {d['description']}" for d in decisions)
+
+    actions = conn.execute(
+        "SELECT description, assignee, due_date FROM meeting_action_items WHERE meeting_id = ?",
+        (meeting_id,),
+    ).fetchall()
+    actions_text = "\n".join(
+        f"- {a['description']} ({a['assignee'] or 'TBD'}, {a['due_date'] or 'No date'})"
+        for a in actions
+    )
+
+    return {
+        "meeting_title": meeting.get("title", ""),
+        "meeting_date": meeting.get("meeting_date", ""),
+        "meeting_time": meeting.get("meeting_time", ""),
+        "meeting_type": meeting.get("meeting_type", ""),
+        "meeting_location": meeting.get("location", ""),
+        "meeting_duration": str(meeting.get("duration_hours", "") or ""),
+        "client_name": meeting.get("client_name", ""),
+        "attendees": attendee_names,
+        "decisions": decisions_text,
+        "action_items": actions_text,
+        "meeting_notes": (meeting.get("notes", "") or "")[:500],
+    }
+
+
 def followup_context(row: dict) -> dict:
     """Build token context dict from a follow-up row dict."""
     proj = row.get("project_name") or ""
@@ -453,6 +502,21 @@ CONTEXT_TOKEN_GROUPS: dict[str, list[tuple[str, list[tuple[str, str]]]]] = {
             ("today", "Today's Date"),
         ]),
         ("Tracking", [("ref_tag", "Email Ref Tag")]),
+    ],
+    "meeting": [
+        ("Meeting", [
+            ("meeting_title", "Meeting Title"),
+            ("meeting_date", "Meeting Date"),
+            ("meeting_time", "Meeting Time"),
+            ("meeting_type", "Meeting Type"),
+            ("meeting_location", "Location"),
+            ("meeting_duration", "Duration"),
+            ("client_name", "Client Name"),
+            ("attendees", "Attendees"),
+            ("decisions", "Decisions"),
+            ("action_items", "Action Items"),
+            ("meeting_notes", "Notes (first 500 chars)"),
+        ]),
     ],
 }
 

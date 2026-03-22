@@ -32,7 +32,7 @@
     </div>
     <div class="sm:col-span-2">
       <label class="field-label">Title <span class="text-red-400">*</span></label>
-      <input type="text" name="title" required placeholder="Q2 Renewal Strategy" class="form-input w-full">
+      <input type="text" name="title" required placeholder="Q2 Renewal Strategy" value="{{ prefill_title | default('') }}" class="form-input w-full">
     </div>
     <div>
       <label class="field-label">Date</label>
@@ -45,6 +45,15 @@
     <div>
       <label class="field-label">Duration (hrs)</label>
       <input type="number" name="duration_hours" step="any" min="0" placeholder="1.0" class="form-input w-full">
+    </div>
+    <div>
+      <label class="field-label">Meeting Type</label>
+      <select name="meeting_type" class="form-select w-full">
+        <option value="">— Select type —</option>
+        {% for mt in meeting_types | default([]) %}
+        <option value="{{ mt }}">{{ mt }}</option>
+        {% endfor %}
+      </select>
     </div>
     <div class="sm:col-span-2">
       <label class="field-label">Location</label>

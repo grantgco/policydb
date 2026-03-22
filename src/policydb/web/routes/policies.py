@@ -1058,6 +1058,24 @@ def policy_tab_activity(request: Request, policy_uid: str, conn=Depends(get_db))
         "SELECT DISTINCT name FROM contacts WHERE name IS NOT NULL AND name != '' ORDER BY name"
     ).fetchall()]
 
+    linked_meetings = [dict(r) for r in conn.execute(
+        """SELECT cm.id, cm.title, cm.meeting_date, cm.meeting_uid
+           FROM meeting_policies mp
+           JOIN client_meetings cm ON cm.id = mp.meeting_id
+           WHERE mp.policy_uid = ?
+           ORDER BY cm.meeting_date DESC""",
+        (uid,),
+    ).fetchall()]
+
+    linked_decisions = [dict(r) for r in conn.execute(
+        """SELECT md.description, md.confirmed, cm.title as meeting_title, cm.id as meeting_id
+           FROM meeting_decisions md
+           JOIN client_meetings cm ON cm.id = md.meeting_id
+           WHERE md.policy_uid = ?
+           ORDER BY md.created_at DESC""",
+        (uid,),
+    ).fetchall()]
+
     return templates.TemplateResponse("policies/_tab_activity.html", {
         "request": request,
         "policy": policy_dict,
@@ -1067,6 +1085,8 @@ def policy_tab_activity(request: Request, policy_uid: str, conn=Depends(get_db))
         "policy_total_hours": get_policy_total_hours(conn, policy_dict["id"]),
         "dispositions": cfg.get("follow_up_dispositions", []),
         "cor_auto_triggers": cfg.get("cor_auto_triggers", []),
+        "linked_meetings": linked_meetings,
+        "linked_decisions": linked_decisions,
     })
 
 

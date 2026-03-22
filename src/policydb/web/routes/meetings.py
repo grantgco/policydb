@@ -38,6 +38,10 @@ def _meeting_dict(conn, meeting_id: int) -> dict | None:
            ORDER BY p.policy_type""",
         (meeting_id,),
     ).fetchall()]
+    m["decisions"] = [dict(d) for d in conn.execute(
+        "SELECT * FROM meeting_decisions WHERE meeting_id = ? ORDER BY created_at",
+        (meeting_id,),
+    ).fetchall()]
     m["client_name"] = ""
     client = conn.execute("SELECT name FROM clients WHERE id = ?", (m["client_id"],)).fetchone()
     if client:
@@ -51,39 +55,57 @@ def meetings_list(
     client_id: int = 0,
     conn=Depends(get_db),
 ):
-    today = date.today()
-    cutoff_past = (today - timedelta(days=30)).isoformat()
-    cutoff_future = (today + timedelta(days=7)).isoformat()
+    today = date.today().isoformat()
 
-    params: list = []
-    where = "1=1"
+    params_up: list = []
+    params_past: list = []
+    where_up = "1=1"
+    where_past = "1=1"
     if client_id:
-        where = "m.client_id = ?"
-        params.append(client_id)
+        where_up = "m.client_id = ?"
+        where_past = "m.client_id = ?"
+        params_up.append(client_id)
+        params_past.append(client_id)
 
-    rows = conn.execute(
-        f"""SELECT m.*, c.name AS client_name,
+    _agg_cols = """m.*, c.name AS client_name,
                    (SELECT COUNT(*) FROM meeting_attendees WHERE meeting_id = m.id) AS attendee_count,
                    (SELECT COUNT(*) FROM meeting_action_items WHERE meeting_id = m.id) AS action_total,
-                   (SELECT COUNT(*) FROM meeting_action_items WHERE meeting_id = m.id AND completed = 1) AS action_done
+                   (SELECT COUNT(*) FROM meeting_action_items WHERE meeting_id = m.id AND completed = 1) AS action_done"""
+
+    upcoming_rows = conn.execute(
+        f"""SELECT {_agg_cols}
             FROM client_meetings m
             JOIN clients c ON m.client_id = c.id
-            WHERE {where}
-              AND m.meeting_date >= ?
-            ORDER BY m.meeting_date DESC, m.created_at DESC""",
-        params + [cutoff_past],
+            WHERE {where_up}
+              AND m.meeting_date >= date('now')
+            ORDER BY m.meeting_date ASC, m.meeting_time ASC
+            LIMIT 6""",
+        params_up,
+    ).fetchall()
+
+    past_rows = conn.execute(
+        f"""SELECT {_agg_cols}
+            FROM client_meetings m
+            JOIN clients c ON m.client_id = c.id
+            WHERE {where_past}
+              AND m.meeting_date < date('now')
+            ORDER BY m.meeting_date DESC, m.created_at DESC
+            LIMIT 50""",
+        params_past,
     ).fetchall()
 
     all_clients = conn.execute(
         "SELECT id, name FROM clients WHERE archived = 0 ORDER BY name"
     ).fetchall()
 
-    return templates.TemplateResponse("meetings/list.html", {
+    return templates.TemplateResponse("meetings/list_enhanced.html", {
         "request": request,
         "active": "meetings",
-        "meetings": [dict(r) for r in rows],
+        "upcoming": [dict(r) for r in upcoming_rows],
+        "past": [dict(r) for r in past_rows],
         "all_clients": [dict(c) for c in all_clients],
         "selected_client_id": client_id,
+        "meeting_types": cfg.get("meeting_types", []),
     })
 
 
@@ -142,6 +164,7 @@ def meeting_detail_export_csv(
 def meeting_new(
     request: Request,
     client_id: int = 0,
+    title: str = "",
     conn=Depends(get_db),
 ):
     all_clients = conn.execute(
@@ -155,6 +178,8 @@ def meeting_new(
         "all_clients": [dict(c) for c in all_clients],
         "selected_client_id": client_id,
         "today": date.today().isoformat(),
+        "prefill_title": title,
+        "meeting_types": cfg.get("meeting_types", []),
     })
 
 
@@ -168,6 +193,7 @@ def meeting_create(
     duration_hours: str = Form(""),
     location: str = Form(""),
     notes: str = Form(""),
+    meeting_type: str = Form(""),
     conn=Depends(get_db),
 ):
     from policydb.utils import round_duration
@@ -177,10 +203,12 @@ def meeting_create(
     meeting_uid = next_meeting_uid(conn, client_id)
     cursor = conn.execute(
         """INSERT INTO client_meetings
-           (client_id, title, meeting_date, meeting_time, duration_hours, location, notes, meeting_uid)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+           (client_id, title, meeting_date, meeting_time, duration_hours, location, notes, meeting_uid,
+            meeting_type, phase)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'before')""",
         (client_id, title.strip(), meeting_date or date.today().isoformat(),
-         meeting_time or None, dur, location or None, notes, meeting_uid),
+         meeting_time or None, dur, location or None, notes, meeting_uid,
+         meeting_type or None),
     )
     meeting_id = cursor.lastrowid
 
@@ -195,6 +223,303 @@ def meeting_create(
     )
     conn.commit()
     return RedirectResponse(f"/meetings/{meeting_id}?created=1", status_code=303)
+
+
+@router.post("/meetings/{meeting_id}/start")
+def start_meeting(meeting_id: int, conn=Depends(get_db)):
+    from datetime import datetime
+    now = datetime.now().strftime("%H:%M")
+    conn.execute("UPDATE client_meetings SET phase = 'during', start_time = ? WHERE id = ?", (now, meeting_id))
+    conn.commit()
+    return RedirectResponse(f"/meetings/{meeting_id}", status_code=303)
+
+
+@router.post("/meetings/{meeting_id}/end")
+def end_meeting(meeting_id: int, conn=Depends(get_db)):
+    from datetime import datetime
+    now = datetime.now().strftime("%H:%M")
+    conn.execute("UPDATE client_meetings SET phase = 'after', end_time = ? WHERE id = ?", (now, meeting_id))
+    conn.commit()
+    return RedirectResponse(f"/meetings/{meeting_id}", status_code=303)
+
+
+@router.post("/meetings/{meeting_id}/complete")
+def complete_meeting(meeting_id: int, conn=Depends(get_db)):
+    conn.execute("UPDATE client_meetings SET phase = 'complete' WHERE id = ?", (meeting_id,))
+    m = dict(conn.execute("SELECT * FROM client_meetings WHERE id = ?", (meeting_id,)).fetchone())
+    if m.get("start_time") and m.get("end_time"):
+        from policydb.utils import round_duration
+        start_parts = m["start_time"].split(":")
+        end_parts = m["end_time"].split(":")
+        start_mins = int(start_parts[0]) * 60 + int(start_parts[1])
+        end_mins = int(end_parts[0]) * 60 + int(end_parts[1])
+        if end_mins > start_mins:
+            dur = round_duration(str((end_mins - start_mins) / 60))
+            conn.execute("UPDATE client_meetings SET duration_hours = ? WHERE id = ?", (dur, meeting_id))
+            conn.execute(
+                "UPDATE activity_log SET duration_hours = ? WHERE client_id = ? AND activity_type = 'Meeting' AND subject = ?",
+                (dur, m["client_id"], m["title"]),
+            )
+    conn.commit()
+    return RedirectResponse(f"/meetings/{meeting_id}", status_code=303)
+
+
+@router.get("/meetings/{meeting_id}/prep-briefing", response_class=HTMLResponse)
+def prep_briefing(
+    request: Request,
+    meeting_id: int,
+    compact: int = 0,
+    conn=Depends(get_db),
+):
+    """Auto-generated prep briefing with all client data."""
+    m = _meeting_dict(conn, meeting_id)
+    if not m:
+        return HTMLResponse("Meeting not found", status_code=404)
+    client_id = m["client_id"]
+    today = date.today().isoformat()
+
+    # Renewal status summary
+    renewals = [dict(r) for r in conn.execute(
+        "SELECT * FROM v_renewal_pipeline WHERE client_id = ?", (client_id,)
+    ).fetchall()]
+
+    # Outstanding: overdue follow-ups
+    overdue_followups = [dict(r) for r in conn.execute(
+        "SELECT * FROM v_overdue_followups WHERE client_id = ?", (client_id,)
+    ).fetchall()]
+
+    # Incomplete milestones
+    incomplete_milestones = [dict(r) for r in conn.execute(
+        """SELECT pm.id, pm.policy_uid, pm.milestone AS description, pm.completed,
+                  p.policy_type
+           FROM policy_milestones pm
+           JOIN policies p ON p.policy_uid = pm.policy_uid
+           WHERE p.client_id = ? AND pm.completed = 0""",
+        (client_id,),
+    ).fetchall()]
+
+    # Open action items from PREVIOUS meetings (not this one)
+    prev_actions = [dict(r) for r in conn.execute(
+        """SELECT mai.*, cm.title as meeting_title
+           FROM meeting_action_items mai
+           JOIN client_meetings cm ON cm.id = mai.meeting_id
+           WHERE cm.client_id = ? AND mai.completed = 0 AND cm.id != ?
+           ORDER BY mai.due_date""",
+        (client_id, meeting_id),
+    ).fetchall()]
+
+    # Schedule of insurance — query policies directly since v_schedule has no client_id
+    schedule = [dict(r) for r in conn.execute(
+        """SELECT policy_type, carrier, policy_number, effective_date, expiration_date,
+                  premium, limit_amount, deductible, project_name
+           FROM policies
+           WHERE client_id = ? AND archived = 0
+             AND (is_opportunity = 0 OR is_opportunity IS NULL)
+           ORDER BY policy_type, layer_position""",
+        (client_id,),
+    ).fetchall()]
+
+    # Recent activity (30 days)
+    thirty_days_ago = (date.today() - timedelta(days=30)).isoformat()
+    recent_activity = [dict(r) for r in conn.execute(
+        """SELECT al.activity_date, al.activity_type, al.subject, al.duration_hours
+           FROM activity_log al
+           WHERE al.client_id = ? AND al.activity_date >= ?
+           ORDER BY al.activity_date DESC LIMIT 10""",
+        (client_id, thirty_days_ago),
+    ).fetchall()]
+
+    # Client summary / account pulse
+    client_summary = conn.execute(
+        "SELECT * FROM v_client_summary WHERE id = ?", (client_id,)
+    ).fetchone()
+    client_summary = dict(client_summary) if client_summary else {}
+
+    from policydb.queries import get_client_total_hours
+    total_hours = get_client_total_hours(conn, client_id)
+
+    template = "meetings/_prep_briefing.html"
+    return templates.TemplateResponse(template, {
+        "request": request,
+        "meeting": m,
+        "compact": bool(compact),
+        "attendees": m.get("attendees", []),
+        "renewals": renewals,
+        "overdue_followups": overdue_followups,
+        "incomplete_milestones": incomplete_milestones,
+        "prev_actions": prev_actions,
+        "schedule": schedule,
+        "recent_activity": recent_activity,
+        "client_summary": client_summary,
+        "total_hours": total_hours,
+    })
+
+
+@router.post("/meetings/{meeting_id}/agenda")
+async def save_agenda(
+    meeting_id: int,
+    request: Request,
+    conn=Depends(get_db),
+):
+    """Save meeting agenda / talking points."""
+    form = await request.form()
+    agenda = form.get("agenda", "")
+    conn.execute("UPDATE client_meetings SET agenda = ? WHERE id = ?", (agenda, meeting_id))
+    conn.commit()
+    return JSONResponse({"ok": True})
+
+
+@router.post("/meetings/{meeting_id}/decisions")
+async def add_decision(
+    request: Request,
+    meeting_id: int,
+    conn=Depends(get_db),
+):
+    form = await request.form()
+    description = form.get("description", "").strip()
+    policy_uid = form.get("policy_uid", "") or None
+    if not description:
+        return JSONResponse({"ok": False, "error": "Description required"}, status_code=400)
+    cur = conn.execute(
+        "INSERT INTO meeting_decisions (meeting_id, description, policy_uid) VALUES (?, ?, ?)",
+        (meeting_id, description, policy_uid),
+    )
+    conn.commit()
+    decision = dict(conn.execute("SELECT * FROM meeting_decisions WHERE id = ?", (cur.lastrowid,)).fetchone())
+    return templates.TemplateResponse("meetings/_decision_row.html", {
+        "request": request, "decision": decision, "meeting_id": meeting_id,
+    })
+
+
+@router.post("/meetings/{meeting_id}/decisions/{decision_id}/confirm")
+def confirm_decision(
+    meeting_id: int,
+    decision_id: int,
+    conn=Depends(get_db),
+):
+    conn.execute(
+        "UPDATE meeting_decisions SET confirmed = CASE WHEN confirmed = 1 THEN 0 ELSE 1 END WHERE id = ?",
+        (decision_id,),
+    )
+    conn.commit()
+    return JSONResponse({"ok": True})
+
+
+@router.post("/meetings/{meeting_id}/decisions/{decision_id}/delete")
+def delete_decision(
+    meeting_id: int,
+    decision_id: int,
+    conn=Depends(get_db),
+):
+    conn.execute("DELETE FROM meeting_decisions WHERE id = ?", (decision_id,))
+    conn.commit()
+    return JSONResponse({"ok": True})
+
+
+@router.post("/meetings/{meeting_id}/actions/create-followups")
+def create_followups(
+    request: Request,
+    meeting_id: int,
+    conn=Depends(get_db),
+):
+    """Bulk-convert unrouted action items to follow-up activities."""
+    m = _meeting_dict(conn, meeting_id)
+    if not m:
+        return HTMLResponse("Not found", status_code=404)
+
+    account_exec = cfg.get("default_account_exec", "")
+    actions = conn.execute(
+        "SELECT * FROM meeting_action_items WHERE meeting_id = ? AND completed = 0 AND activity_id IS NULL",
+        (meeting_id,),
+    ).fetchall()
+
+    created_count = 0
+    for action in actions:
+        action = dict(action)
+        cur = conn.execute(
+            """INSERT INTO activity_log
+               (activity_date, client_id, activity_type, subject, details,
+                follow_up_date, follow_up_done, account_exec)
+               VALUES (?, ?, 'Follow-up', ?, ?, ?, 0, ?)""",
+            (date.today().isoformat(), m["client_id"],
+             action["description"],
+             f"Action from meeting: {m['title']}",
+             action["due_date"] or None,
+             account_exec),
+        )
+        conn.execute(
+            "UPDATE meeting_action_items SET activity_id = ? WHERE id = ?",
+            (cur.lastrowid, action["id"]),
+        )
+        created_count += 1
+
+    conn.commit()
+    return JSONResponse({"ok": True, "created": created_count})
+
+
+@router.post("/meetings/{meeting_id}/schedule-next")
+async def schedule_next(
+    request: Request,
+    meeting_id: int,
+    conn=Depends(get_db),
+):
+    """Create next meeting with same client, attendees, unresolved items."""
+    form = await request.form()
+    m = _meeting_dict(conn, meeting_id)
+    if not m:
+        return HTMLResponse("Not found", status_code=404)
+
+    new_title = form.get("title", m["title"]).strip()
+    new_date = form.get("meeting_date", "")
+
+    from policydb.db import next_meeting_uid
+    new_uid = next_meeting_uid(conn, m["client_id"])
+
+    cur = conn.execute(
+        """INSERT INTO client_meetings
+           (client_id, title, meeting_date, meeting_time, duration_hours,
+            location, meeting_uid, phase, meeting_type)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'before', ?)""",
+        (m["client_id"], new_title, new_date,
+         m.get("meeting_time", ""), m.get("duration_hours", 1.0),
+         m.get("location", ""), new_uid, m.get("meeting_type", "")),
+    )
+    new_id = cur.lastrowid
+
+    # Copy attendees
+    for att in m.get("attendees", []):
+        conn.execute(
+            """INSERT INTO meeting_attendees
+               (meeting_id, contact_id, name, role, is_internal, attendee_type)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (new_id, att.get("contact_id"), att["name"],
+             att.get("role", ""), att.get("is_internal", 0), att.get("attendee_type", "")),
+        )
+
+    # Carry forward unresolved action items
+    unresolved = conn.execute(
+        "SELECT * FROM meeting_action_items WHERE meeting_id = ? AND completed = 0",
+        (meeting_id,),
+    ).fetchall()
+    for action in unresolved:
+        action = dict(action)
+        conn.execute(
+            """INSERT INTO meeting_action_items
+               (meeting_id, description, assignee, due_date, completed, policy_uid)
+               VALUES (?, ?, ?, ?, 0, ?)""",
+            (new_id, action["description"], action.get("assignee", ""),
+             action.get("due_date", ""), action.get("policy_uid")),
+        )
+
+    # Auto-log activity
+    conn.execute(
+        """INSERT INTO activity_log (activity_date, client_id, activity_type, subject, account_exec)
+           VALUES (?, ?, 'Meeting', ?, ?)""",
+        (new_date or date.today().isoformat(), m["client_id"], new_title, cfg.get("default_account_exec", "")),
+    )
+
+    conn.commit()
+    return RedirectResponse(f"/meetings/{new_id}", status_code=303)
 
 
 @router.get("/meetings/{meeting_id}", response_class=HTMLResponse)
@@ -221,7 +546,30 @@ def meeting_detail(
         (m["client_id"],),
     ).fetchall()]
 
-    return templates.TemplateResponse("meetings/detail.html", {
+    # For the Before phase Account Pulse sidebar — load eagerly so no spinner for right column
+    client_summary = {}
+    total_hours = 0.0
+    if (m.get("phase") or "before") == "before":
+        cs = conn.execute(
+            "SELECT * FROM v_client_summary WHERE id = ?", (m["client_id"],)
+        ).fetchone()
+        client_summary = dict(cs) if cs else {}
+        from policydb.queries import get_client_total_hours
+        total_hours = get_client_total_hours(conn, m["client_id"])
+
+    # For the After phase status sweep — load active policies with renewal status
+    after_policies = []
+    if (m.get("phase") or "before") == "after":
+        after_policies = [dict(r) for r in conn.execute(
+            """SELECT policy_uid, policy_type, carrier, renewal_status, expiration_date
+               FROM policies
+               WHERE client_id = ? AND archived = 0
+                 AND (is_opportunity = 0 OR is_opportunity IS NULL)
+               ORDER BY expiration_date, policy_type""",
+            (m["client_id"],),
+        ).fetchall()]
+
+    return templates.TemplateResponse("meetings/detail_phased.html", {
         "request": request,
         "active": "meetings",
         "meeting": m,
@@ -232,6 +580,11 @@ def meeting_detail(
         "client_policies": client_policies,
         "today": date.today().isoformat(),
         "just_created": bool(created),
+        "meeting_types": cfg.get("meeting_types", []),
+        "renewal_statuses": cfg.get("renewal_statuses", []),
+        "client_summary": client_summary,
+        "total_hours": total_hours,
+        "after_policies": after_policies,
     })
 
 
@@ -246,7 +599,7 @@ async def meeting_patch(
     body = _json.loads(await request.body())
     field = body.get("field", "")
     value = body.get("value", "").strip()
-    allowed = {"title", "meeting_date", "meeting_time", "duration_hours", "location"}
+    allowed = {"title", "meeting_date", "meeting_time", "duration_hours", "location", "meeting_type"}
     if field not in allowed:
         return JSONResponse({"ok": False, "error": "Invalid field"}, status_code=400)
     if field == "duration_hours":
