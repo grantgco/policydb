@@ -1,0 +1,64 @@
+{# Policy Timeline Partial — vertical milestone timeline visualization #}
+<div class="space-y-1">
+    {% for m in timeline %}
+    <div class="flex items-start gap-3 py-2 px-3 rounded
+        {% if m.completed_date %}bg-green-50
+        {% elif m.health == 'critical' %}bg-red-50
+        {% elif m.health == 'at_risk' %}bg-orange-50
+        {% elif m.health == 'compressed' %}bg-amber-50
+        {% elif m.health == 'drifting' %}bg-blue-50
+        {% else %}bg-gray-50{% endif %}">
+
+        {# Status icon #}
+        <div class="mt-0.5 w-4 shrink-0 text-center">
+            {% if m.completed_date %}
+            <span class="text-green-600 text-sm font-bold">✓</span>
+            {% elif m.health in ('critical', 'at_risk') %}
+            <span class="text-red-500 text-sm">●</span>
+            {% else %}
+            <span class="text-gray-300 text-sm">○</span>
+            {% endif %}
+        </div>
+
+        {# Milestone details #}
+        <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2 flex-wrap">
+                <span class="text-sm font-medium text-gray-800">{{ m.milestone_name }}</span>
+                {% if m.health and not m.completed_date %}
+                <span class="text-[10px] px-1.5 py-0.5 rounded-full font-medium whitespace-nowrap
+                    {% if m.health == 'critical' %}bg-red-100 text-red-700
+                    {% elif m.health == 'at_risk' %}bg-orange-100 text-orange-700
+                    {% elif m.health == 'compressed' %}bg-amber-100 text-amber-700
+                    {% elif m.health == 'drifting' %}bg-blue-100 text-blue-700
+                    {% else %}bg-green-100 text-green-700{% endif %}">
+                    {{ m.health | replace('_', ' ') }}
+                </span>
+                {% endif %}
+                {% if m.accountability == 'waiting_external' %}
+                <span class="text-[10px] text-blue-500 whitespace-nowrap">↻ {{ m.waiting_on or 'Waiting' }}</span>
+                {% elif m.accountability == 'scheduled' %}
+                <span class="text-[10px] text-indigo-500 whitespace-nowrap">Scheduled</span>
+                {% endif %}
+            </div>
+
+            <div class="text-xs text-gray-500 mt-0.5">
+                {% if m.completed_date %}
+                Completed {{ m.completed_date[:10] }}
+                <span class="text-gray-400">(ideal: {{ m.ideal_date[:10] }})</span>
+                {% else %}
+                Target: {{ m.projected_date[:10] if m.projected_date else '—' }}
+                {% if m.ideal_date and m.projected_date and m.ideal_date[:10] != m.projected_date[:10] %}
+                <span class="text-gray-400">(ideal: {{ m.ideal_date[:10] }}
+                    {% if m.projected_date[:10] > m.ideal_date[:10] %}&middot; slipped{% endif %})
+                </span>
+                {% endif %}
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+
+    {% if not timeline %}
+    <p class="text-sm text-gray-400 italic py-2">No timeline milestones configured. Assign a milestone profile to enable timeline tracking.</p>
+    {% endif %}
+</div>

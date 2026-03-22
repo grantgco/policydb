@@ -35,8 +35,6 @@ from policydb.queries import (
     remove_client_from_group,
     update_linked_group,
     delete_linked_group,
-    count_changed_fields,
-    check_auto_review_client,
 )
 from policydb.web.app import get_db, templates
 
@@ -2299,25 +2297,6 @@ def client_edit_post(
          client_id),
     )
     conn.commit()
-
-    _auto_review_fields = [
-        "name", "industry_segment", "cn_number", "is_prospect", "primary_contact",
-        "contact_email", "contact_phone", "contact_mobile", "address", "notes",
-        "broker_fee", "business_description", "website", "renewal_month",
-        "client_since", "preferred_contact_method", "referral_source", "fein",
-    ]
-    new_values = {
-        "name": name, "industry_segment": industry_segment, "cn_number": cn_number,
-        "is_prospect": is_prospect, "primary_contact": primary_contact,
-        "contact_email": contact_email, "contact_phone": contact_phone,
-        "contact_mobile": contact_mobile, "address": address, "notes": notes,
-        "broker_fee": broker_fee, "business_description": business_description,
-        "website": website, "renewal_month": renewal_month, "client_since": client_since,
-        "preferred_contact_method": preferred_contact_method, "referral_source": referral_source,
-        "fein": fein,
-    }
-    changed = count_changed_fields(old_row, new_values, _auto_review_fields)
-    check_auto_review_client(conn, client_id, changed)
 
     if action == "autosave":
         return JSONResponse({"ok": True})

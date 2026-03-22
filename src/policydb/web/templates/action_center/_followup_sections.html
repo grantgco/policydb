@@ -1,0 +1,244 @@
+{# Accountability-based follow-up sections (included in _followups.html) #}
+
+{# ══════════════════════════════════════════════════════════════════
+   MACRO: Follow-up row with inline disposition form
+   ══════════════════════════════════════════════════════════════════ #}
+{% macro fu_row(item, bg_class, border_class, dot_color, date_class, section_tag) %}
+{% set row_id = "ac-fu-" ~ item.source ~ "-" ~ item.id %}
+<div class="fu-row {{ bg_class }} rounded-lg {{ border_class }} hover:border-gray-300 transition-colors" data-status="{{ section_tag }}" id="{{ row_id }}">
+  <div class="flex items-center gap-3 px-4 py-3">
+    {# Color dot #}
+    <div class="w-2 h-2 rounded-full {{ dot_color }} flex-shrink-0"></div>
+
+    {# Client + Subject #}
+    <div class="flex-1 min-w-0">
+      <div class="flex items-center gap-2">
+        <a href="/clients/{{ item.client_id }}" class="text-sm font-semibold text-gray-900 hover:text-[#003865] hover:underline truncate">{{ item.client_name }}</a>
+        {% if item.thread_id %}
+        <span class="bg-gray-100 text-gray-600 text-[10px] px-1.5 py-0.5 rounded whitespace-nowrap">COR-{{ item.thread_id }} &middot; Attempt {{ item.thread_attempt_num }}</span>
+        {% endif %}
+        {% if item.escalation_tier is defined and item.escalation_tier == 'urgent' %}
+        <span class="text-[10px] text-red-600 font-medium">Consider escalating</span>
+        {% endif %}
+      </div>
+      <div class="text-xs text-gray-600 truncate mt-0.5">
+        {% if item.source == 'policy' %}
+          {{ item.policy_type }}{% if item.carrier %} <span class="text-gray-400">&middot; {{ item.carrier }}</span>{% endif %}
+        {% else %}
+          {{ item.subject }}
+        {% endif %}
+      </div>
+      {% if item.prev_disposition %}
+      <div class="text-[11px] text-gray-400 mt-0.5">Previous: {{ item.prev_disposition }}{% if item.prev_days_ago is not none %} &middot; {{ item.prev_days_ago }} days ago{% endif %}</div>
+      {% endif %}
+    </div>
+
+    {# Date / info column #}
+    <div class="text-right flex-shrink-0">
+      <div class="text-xs font-medium {{ date_class }}">{{ item.follow_up_date }}</div>
+      {% if item.days_overdue is defined and item.days_overdue > 0 %}
+      <div class="text-[10px] text-red-400">{{ item.days_overdue }}d overdue</div>
+      {% endif %}
+      {% if item.nudge_count is defined %}
+      <div class="text-[10px] text-blue-500">nudge {{ item.nudge_count }}</div>
+      {% endif %}
+    </div>
+
+    {# Action buttons #}
+    <div class="flex gap-1.5 flex-shrink-0 no-print">
+      <button type="button" onclick="toggleAcFuForm('{{ row_id }}')"
+        class="text-xs bg-[#003865] text-white px-3 py-1.5 rounded font-medium hover:bg-[#004a80] transition-colors">Follow Up</button>
+      {% if item.source == 'policy' %}
+      <button hx-post="/policies/{{ item.policy_uid }}/snooze-followup?days=1" hx-target="#{{ row_id }}" hx-swap="outerHTML"
+        class="text-xs text-gray-500 bg-white border border-gray-200 px-2 py-1.5 rounded hover:border-gray-300 transition-colors">+1d</button>
+      {% else %}
+      <button hx-post="/activities/{{ item.id }}/snooze?days=1" hx-target="#{{ row_id }}" hx-swap="outerHTML"
+        class="text-xs text-gray-500 bg-white border border-gray-200 px-2 py-1.5 rounded hover:border-gray-300 transition-colors">+1d</button>
+      {% endif %}
+    </div>
+  </div>
+
+  {# ── Inline disposition form (hidden) ── #}
+  <div id="ac-fu-form-{{ row_id }}" class="hidden">
+    <div class="bg-white border border-gray-200 rounded-lg p-3 ml-4 mr-4 mb-3 mt-1">
+      {% if item.source == 'policy' %}
+      <form hx-post="/policies/{{ item.policy_uid }}/followup"
+            hx-target="#{{ row_id }}" hx-swap="outerHTML"
+            hx-on::after-request="var f=document.getElementById('ac-fu-form-{{ row_id }}');if(f)f.remove();"
+            class="space-y-2">
+      {% else %}
+      <form hx-post="/activities/{{ item.id }}/followup"
+            hx-target="#{{ row_id }}" hx-swap="outerHTML"
+            hx-on::after-request="var f=document.getElementById('ac-fu-form-{{ row_id }}');if(f)f.remove();"
+            class="space-y-2">
+        <input type="hidden" name="context" value="followup_table">
+      {% endif %}
+
+        {# Disposition pills #}
+        <input type="hidden" name="disposition" id="ac-disp-val-{{ row_id }}" value="">
+        <div class="flex flex-wrap gap-1">
+          {% for d in dispositions %}
+          <button type="button" data-days="{{ d.default_days }}"
+            onclick="selectAcDisp(this, '{{ d.label }}', {{ d.default_days }}, '{{ row_id }}')"
+            class="ac-disp-pill text-[10px] px-2 py-0.5 rounded border border-gray-200 text-gray-500 hover:border-[#003865] hover:text-[#003865] transition-colors cursor-pointer">{{ d.label }}</button>
+          {% endfor %}
+        </div>
+
+        {# Hours + Note #}
+        <div class="flex items-center gap-3">
+          <div class="w-16">
+            <label class="text-[10px] text-gray-500 block">Hours</label>
+            <input type="number" name="duration_hours" step="0.1" min="0" placeholder="0"
+              class="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:ring-1 focus:ring-[#003865]">
+          </div>
+          <div class="flex-1">
+            <label class="text-[10px] text-gray-500 block">Note</label>
+            <input type="text" name="notes" placeholder="Details..."
+              class="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:ring-1 focus:ring-[#003865]">
+          </div>
+        </div>
+
+        {# Next follow-up shortcuts #}
+        <div>
+          <label class="text-[10px] text-gray-500 block">Next Follow-Up</label>
+          <div class="flex items-center gap-1.5">
+            <button type="button" onclick="setAcFuDate('{{ row_id }}', 1)" class="text-[10px] text-gray-400 hover:text-[#003865] border border-gray-200 hover:border-[#003865] rounded px-1.5 py-0.5 transition-colors">+1d</button>
+            <button type="button" onclick="setAcFuDate('{{ row_id }}', 3)" class="text-[10px] text-gray-400 hover:text-[#003865] border border-gray-200 hover:border-[#003865] rounded px-1.5 py-0.5 transition-colors">+3d</button>
+            <button type="button" onclick="setAcFuDate('{{ row_id }}', 7)" class="text-[10px] text-gray-400 hover:text-[#003865] border border-gray-200 hover:border-[#003865] rounded px-1.5 py-0.5 transition-colors">+7d</button>
+            <button type="button" onclick="setAcFuDate('{{ row_id }}', 14)" class="text-[10px] text-gray-400 hover:text-[#003865] border border-gray-200 hover:border-[#003865] rounded px-1.5 py-0.5 transition-colors">+14d</button>
+            <input type="date" name="new_follow_up_date" id="ac-fu-date-{{ row_id }}"
+              class="text-xs border border-gray-200 rounded px-2 py-1 focus:ring-1 focus:ring-[#003865]">
+          </div>
+        </div>
+
+        {# Save / Cancel #}
+        <div class="flex items-center gap-2 pt-1">
+          <button type="submit"
+            class="text-xs bg-[#003865] text-white px-4 py-1.5 rounded font-medium hover:bg-[#004a80] transition-colors">Save</button>
+          <button type="button" onclick="document.getElementById('ac-fu-form-{{ row_id }}').classList.add('hidden')"
+            class="text-xs text-gray-400 hover:text-gray-600">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endmacro %}
+
+
+{# ══════════════════════════════════════════════════════════════════
+   ACT NOW — my_action items due today or overdue
+   ══════════════════════════════════════════════════════════════════ #}
+<div class="mb-5 fu-section" data-section="act_now">
+  <div class="flex items-center gap-2 mb-2">
+    <span class="w-2 h-2 rounded-full bg-red-500 flex-shrink-0"></span>
+    <span class="text-[10px] font-bold uppercase tracking-widest text-red-600">Act Now</span>
+    <span class="bg-red-100 text-red-700 text-[10px] font-bold px-2 py-0.5 rounded-full">{{ act_now | length }}</span>
+  </div>
+  {% if act_now %}
+  <div class="space-y-1">
+    {% for item in act_now %}
+    {{ fu_row(item, 'bg-red-50', 'border border-red-100 hover:border-red-200', 'bg-red-500', 'text-red-600', 'act_now') }}
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="text-xs text-gray-400 italic ml-4">Nothing needs your action right now</p>
+  {% endif %}
+</div>
+
+{# ══════════════════════════════════════════════════════════════════
+   NUDGE DUE — waiting_external with follow_up_date <= today
+   ══════════════════════════════════════════════════════════════════ #}
+<div class="mb-5 fu-section" data-section="nudge_due">
+  <div class="flex items-center gap-2 mb-2">
+    <span class="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0"></span>
+    <span class="text-[10px] font-bold uppercase tracking-widest text-blue-600">Nudge Due</span>
+    <span class="bg-blue-100 text-blue-700 text-[10px] font-bold px-2 py-0.5 rounded-full">{{ nudge_due | length }}</span>
+  </div>
+  {% if nudge_due %}
+  <div class="space-y-1">
+    {% for item in nudge_due %}
+    {% set esc_bg = 'bg-red-50' if item.escalation_tier == 'urgent' else 'bg-amber-50' if item.escalation_tier == 'elevated' else 'bg-blue-50' %}
+    {% set esc_border = 'border border-red-200' if item.escalation_tier == 'urgent' else 'border border-amber-200' if item.escalation_tier == 'elevated' else 'border border-blue-100' %}
+    {{ fu_row(item, esc_bg, esc_border, 'bg-blue-500', 'text-blue-600', 'nudge_due') }}
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="text-xs text-gray-400 italic ml-4">No nudges due</p>
+  {% endif %}
+</div>
+
+{# ══════════════════════════════════════════════════════════════════
+   PREP COMING UP — timeline milestones with prep_alert_date arrived
+   ══════════════════════════════════════════════════════════════════ #}
+{% if prep_coming %}
+<div class="mb-5 fu-section" data-section="prep_coming">
+  <div class="flex items-center gap-2 mb-2">
+    <span class="w-2 h-2 rounded-full bg-purple-500 flex-shrink-0"></span>
+    <span class="text-[10px] font-bold uppercase tracking-widest text-purple-600">Prep Coming Up</span>
+    <span class="bg-purple-100 text-purple-700 text-[10px] font-bold px-2 py-0.5 rounded-full">{{ prep_coming | length }}</span>
+  </div>
+  <div class="space-y-1">
+    {% for item in prep_coming %}
+    <div class="fu-row bg-purple-50 rounded-lg border border-purple-200 hover:border-purple-300 transition-colors px-4 py-3" data-status="prep_coming">
+      <div class="flex items-center gap-3">
+        <div class="w-2 h-2 rounded-full bg-purple-400 flex-shrink-0"></div>
+        <div class="flex-1 min-w-0">
+          <div class="text-sm font-medium text-gray-800">Prep: {{ item.milestone_name }}</div>
+          <div class="text-xs text-gray-500 mt-0.5">
+            {{ item.client_name }} &middot; {{ item.policy_type }}
+          </div>
+        </div>
+        <div class="text-right flex-shrink-0">
+          <div class="text-xs text-purple-600 font-medium">Target: {{ item.projected_date }}</div>
+          {% if item.health and item.health != 'on_track' %}
+          <span class="text-[10px] {% if item.health == 'critical' %}text-red-600{% elif item.health == 'at_risk' %}text-orange-600{% else %}text-amber-600{% endif %}">
+            {{ item.health | replace('_', ' ') | title }}
+          </span>
+          {% endif %}
+        </div>
+        <div class="flex gap-1.5 flex-shrink-0 no-print">
+          <a href="/policies/{{ item.policy_uid }}"
+             class="text-xs text-gray-500 bg-white border border-gray-200 px-2 py-1.5 rounded hover:border-gray-300 transition-colors">View</a>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{# ══════════════════════════════════════════════════════════════════
+   WATCHING — waiting_external, follow_up_date > today (collapsed)
+   ══════════════════════════════════════════════════════════════════ #}
+{% if watching %}
+<details class="mb-5 fu-section" data-section="watching">
+  <summary class="flex items-center gap-2 mb-2 cursor-pointer select-none">
+    <span class="w-2 h-2 rounded-full bg-gray-400 flex-shrink-0"></span>
+    <span class="text-[10px] font-bold uppercase tracking-widest text-gray-500">Watching</span>
+    <span class="bg-gray-200 text-gray-600 text-[10px] font-bold px-2 py-0.5 rounded-full">{{ watching | length }}</span>
+  </summary>
+  <div class="space-y-1 mt-1">
+    {% for item in watching %}
+    {{ fu_row(item, 'bg-gray-50', 'border border-gray-200', 'bg-gray-400', 'text-gray-500', 'watching') }}
+    {% endfor %}
+  </div>
+</details>
+{% endif %}
+
+{# ══════════════════════════════════════════════════════════════════
+   SCHEDULED — items with 'scheduled' accountability (collapsed)
+   ══════════════════════════════════════════════════════════════════ #}
+{% if scheduled %}
+<details class="mb-5 fu-section" data-section="scheduled">
+  <summary class="flex items-center gap-2 mb-2 cursor-pointer select-none">
+    <span class="w-2 h-2 rounded-full bg-indigo-400 flex-shrink-0"></span>
+    <span class="text-[10px] font-bold uppercase tracking-widest text-indigo-600">Scheduled</span>
+    <span class="bg-indigo-100 text-indigo-700 text-[10px] font-bold px-2 py-0.5 rounded-full">{{ scheduled | length }}</span>
+  </summary>
+  <div class="space-y-1 mt-1">
+    {% for item in scheduled %}
+    {{ fu_row(item, 'bg-indigo-50', 'border border-indigo-200', 'bg-indigo-400', 'text-indigo-600', 'scheduled') }}
+    {% endfor %}
+  </div>
+</details>
+{% endif %}

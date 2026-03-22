@@ -137,6 +137,44 @@ def _inbox_pending_count():
 templates.env.globals["inbox_pending_count"] = _inbox_pending_count
 
 
+def _followup_badge_counts():
+    """Jinja2 global — returns {act_now, nudge_due} for the nav badge.
+
+    act_now  = follow-ups due/overdue where disposition accountability is my_action (or unset)
+    nudge_due = follow-ups due/overdue where disposition accountability is waiting_external
+    """
+    from datetime import date
+    try:
+        conn = get_connection()
+        today = date.today().isoformat()
+        # Build accountability map from config
+        dispositions = _cfg.get("follow_up_dispositions", [])
+        waiting_labels = [
+            d["label"] for d in dispositions
+            if isinstance(d, dict) and d.get("accountability") == "waiting_external"
+        ]
+        # Total overdue/due follow-ups (undone, with a date <= today)
+        rows = conn.execute(
+            "SELECT disposition FROM activity_log "
+            "WHERE follow_up_done = 0 AND follow_up_date IS NOT NULL AND follow_up_date <= ?",
+            (today,),
+        ).fetchall()
+        conn.close()
+
+        act_now = 0
+        nudge_due = 0
+        for row in rows:
+            disp = row[0] if row[0] else ""
+            if disp in waiting_labels:
+                nudge_due += 1
+            else:
+                act_now += 1
+        return {"act_now": act_now, "nudge_due": nudge_due}
+    except Exception:
+        return {"act_now": 0, "nudge_due": 0}
+templates.env.globals["followup_badge_counts"] = _followup_badge_counts
+
+
 # ── DB dependency ─────────────────────────────────────────────────────────────
 
 def get_db() -> Generator[sqlite3.Connection, None, None]:

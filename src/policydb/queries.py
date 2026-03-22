@@ -8,6 +8,8 @@ from typing import Optional
 
 from rapidfuzz import process, fuzz
 
+import policydb.config as cfg
+
 
 # ─── CLIENT QUERIES ──────────────────────────────────────────────────────────
 
@@ -528,7 +530,17 @@ def supersede_followups(conn, policy_id: int, new_date: str) -> None:
 def get_all_followups(
     conn: sqlite3.Connection, window: int = 30, client_ids: list[int] | None = None
 ) -> tuple[list[dict], list[dict]]:
-    """Return (overdue, upcoming) follow-ups from both activity_log and policy records."""
+    """Return (overdue, upcoming) follow-ups from both activity_log and policy records.
+
+    Each item is a plain dict enriched with an 'accountability' key derived from
+    the row's disposition value (via the follow_up_dispositions config list).
+    Unknown or missing dispositions default to 'my_action'.
+    """
+    # Build disposition → accountability lookup from config
+    _disp_accountability: dict[str, str] = {
+        d["label"]: d.get("accountability", "my_action")
+        for d in cfg.get("follow_up_dispositions", [])
+    }
     sql = """
     SELECT 'activity' AS source,
            a.id, a.subject, a.follow_up_date, a.activity_type,
@@ -689,6 +701,11 @@ def get_all_followups(
             if pc:
                 r["pc_name"] = pc["pc_name"]
                 r["pc_email"] = pc["pc_email"]
+
+    # Enrich every row with accountability state
+    for r in overdue + upcoming:
+        disposition = r.get("disposition") or ""
+        r["accountability"] = _disp_accountability.get(disposition, "my_action")
 
     return overdue, upcoming
 
@@ -1279,116 +1296,6 @@ def set_review_cycle(
     conn.commit()
 
 
-# ─── AUTO-REVIEW ─────────────────────────────────────────────────────────────
-
-
-def count_changed_fields(old_row: dict, new_values: dict, fields: list[str]) -> int:
-    """Compare old DB values against new form values for a list of field names.
-
-    Normalises None / empty-string / float equivalence to avoid false positives.
-    Returns the count of actually-changed fields.
-    """
-    changed = 0
-    for f in fields:
-        old = old_row.get(f)
-        new = new_values.get(f)
-        # Normalise: treat None and '' as equivalent
-        if old is None:
-            old = ""
-        if new is None:
-            new = ""
-        # Normalise numeric equivalence (e.g. 1000.0 == "1000")
-        try:
-            if str(float(old)) == str(float(new)):
-                continue
-        except (ValueError, TypeError):
-            pass
-        if str(old).strip() != str(new).strip():
-            changed += 1
-    return changed
-
-
-def check_auto_review_policy(
-    conn: sqlite3.Connection, policy_uid: str, changed_field_count: int = 0
-) -> bool:
-    """Auto-mark a policy as reviewed if work thresholds are met.
-
-    Returns True if auto-review was triggered.
-    """
-    from policydb import config as cfg
-
-    if not cfg.get("auto_review_enabled", True):
-        return False
-
-    field_thresh = cfg.get("auto_review_field_threshold", 3)
-    activity_thresh = cfg.get("auto_review_activity_threshold", 3)
-
-    # Signal 1: enough fields changed in this save
-    if changed_field_count >= field_thresh:
-        mark_reviewed(conn, "policy", policy_uid)
-        return True
-
-    # Signal 2: enough activities since last review
-    row = conn.execute(
-        "SELECT last_reviewed_at FROM policies WHERE policy_uid = ?",
-        (policy_uid,),
-    ).fetchone()
-    if not row:
-        return False
-    since = row["last_reviewed_at"] or "2000-01-01"
-    pid = conn.execute(
-        "SELECT id FROM policies WHERE policy_uid = ?", (policy_uid,)
-    ).fetchone()
-    if not pid:
-        return False
-    count = conn.execute(
-        "SELECT COUNT(*) AS cnt FROM activity_log WHERE policy_id = ? AND activity_date >= ?",
-        (pid["id"], since),
-    ).fetchone()["cnt"]
-    if count >= activity_thresh:
-        mark_reviewed(conn, "policy", policy_uid)
-        return True
-    return False
-
-
-def check_auto_review_client(
-    conn: sqlite3.Connection, client_id: int, changed_field_count: int = 0
-) -> bool:
-    """Auto-mark a client as reviewed if work thresholds are met.
-
-    Returns True if auto-review was triggered.
-    """
-    from policydb import config as cfg
-
-    if not cfg.get("auto_review_enabled", True):
-        return False
-
-    field_thresh = cfg.get("auto_review_field_threshold", 3)
-    activity_thresh = cfg.get("auto_review_activity_threshold", 3)
-
-    # Signal 1: enough fields changed in this save
-    if changed_field_count >= field_thresh:
-        mark_reviewed(conn, "client", client_id)
-        return True
-
-    # Signal 2: enough activities since last review
-    row = conn.execute(
-        "SELECT last_reviewed_at FROM clients WHERE id = ?",
-        (client_id,),
-    ).fetchone()
-    if not row:
-        return False
-    since = row["last_reviewed_at"] or "2000-01-01"
-    count = conn.execute(
-        "SELECT COUNT(*) AS cnt FROM activity_log WHERE client_id = ? AND activity_date >= ?",
-        (client_id, since),
-    ).fetchone()["cnt"]
-    if count >= activity_thresh:
-        mark_reviewed(conn, "client", client_id)
-        return True
-    return False
-
-
 # ─── SAVED NOTES ──────────────────────────────────────────────────────────────
 
 
@@ -1940,6 +1847,7 @@ def get_week_followups(
 
     Each item includes a `pinned` flag based on renewal urgency.
     Items from Saturday/Sunday before the week are bucketed into Monday.
+    Enriched with timeline_health, milestone_name, accountability, and due_for_review.
     """
     from datetime import date, timedelta
     mon = date.fromisoformat(week_start)
@@ -1952,10 +1860,29 @@ def get_week_followups(
                a.activity_type, a.client_id, a.policy_id,
                c.name AS client_name,
                p.policy_type, p.carrier, p.expiration_date, p.renewal_status,
-               CAST(julianday(p.expiration_date) - julianday('now') AS INTEGER) AS days_to_renewal
+               CAST(julianday(p.expiration_date) - julianday('now') AS INTEGER) AS days_to_renewal,
+               p.policy_uid,
+               a.disposition,
+               COALESCE(th.timeline_health, '') AS timeline_health,
+               th.next_milestone AS milestone_name
         FROM activity_log a
         JOIN clients c ON a.client_id = c.id
         LEFT JOIN policies p ON a.policy_id = p.id
+        LEFT JOIN (
+            SELECT policy_uid,
+                MIN(CASE health WHEN 'critical' THEN 1 WHEN 'at_risk' THEN 2
+                    WHEN 'compressed' THEN 3 WHEN 'drifting' THEN 4 ELSE 5 END) AS health_rank,
+                CASE MIN(CASE health WHEN 'critical' THEN 1 WHEN 'at_risk' THEN 2
+                    WHEN 'compressed' THEN 3 WHEN 'drifting' THEN 4 ELSE 5 END)
+                    WHEN 1 THEN 'critical' WHEN 2 THEN 'at_risk'
+                    WHEN 3 THEN 'compressed' WHEN 4 THEN 'drifting' ELSE 'on_track' END AS timeline_health,
+                (SELECT pt2.milestone_name FROM policy_timeline pt2
+                 WHERE pt2.policy_uid = policy_timeline.policy_uid AND pt2.completed_date IS NULL
+                 ORDER BY pt2.projected_date LIMIT 1) AS next_milestone
+            FROM policy_timeline
+            WHERE completed_date IS NULL
+            GROUP BY policy_uid
+        ) th ON th.policy_uid = p.policy_uid
         WHERE a.follow_up_done = 0 AND a.follow_up_date IS NOT NULL
           AND a.follow_up_date BETWEEN ? AND ?
 
@@ -1966,9 +1893,28 @@ def get_week_followups(
                p.client_id, p.id AS policy_id,
                c.name AS client_name,
                p.policy_type, p.carrier, p.expiration_date, p.renewal_status,
-               CAST(julianday(p.expiration_date) - julianday('now') AS INTEGER) AS days_to_renewal
+               CAST(julianday(p.expiration_date) - julianday('now') AS INTEGER) AS days_to_renewal,
+               p.policy_uid,
+               NULL AS disposition,
+               COALESCE(th.timeline_health, '') AS timeline_health,
+               th.next_milestone AS milestone_name
         FROM policies p
         JOIN clients c ON p.client_id = c.id
+        LEFT JOIN (
+            SELECT policy_uid,
+                MIN(CASE health WHEN 'critical' THEN 1 WHEN 'at_risk' THEN 2
+                    WHEN 'compressed' THEN 3 WHEN 'drifting' THEN 4 ELSE 5 END) AS health_rank,
+                CASE MIN(CASE health WHEN 'critical' THEN 1 WHEN 'at_risk' THEN 2
+                    WHEN 'compressed' THEN 3 WHEN 'drifting' THEN 4 ELSE 5 END)
+                    WHEN 1 THEN 'critical' WHEN 2 THEN 'at_risk'
+                    WHEN 3 THEN 'compressed' WHEN 4 THEN 'drifting' ELSE 'on_track' END AS timeline_health,
+                (SELECT pt2.milestone_name FROM policy_timeline pt2
+                 WHERE pt2.policy_uid = policy_timeline.policy_uid AND pt2.completed_date IS NULL
+                 ORDER BY pt2.projected_date LIMIT 1) AS next_milestone
+            FROM policy_timeline
+            WHERE completed_date IS NULL
+            GROUP BY policy_uid
+        ) th ON th.policy_uid = p.policy_uid
         WHERE p.follow_up_date IS NOT NULL
           AND p.follow_up_date BETWEEN ? AND ?
           AND p.archived = 0
@@ -1983,6 +1929,21 @@ def get_week_followups(
         ORDER BY 4
     """, (sat_before, fri, sat_before, fri)).fetchall()
 
+    # Build accountability map from config dispositions
+    disp_map = {
+        d["label"]: d.get("accountability", "my_action")
+        for d in cfg.get("follow_up_dispositions", [])
+    }
+
+    # Build set of policy_uids due for review
+    try:
+        review_uids = set(
+            r["policy_uid"]
+            for r in conn.execute("SELECT policy_uid FROM v_review_queue").fetchall()
+        )
+    except Exception:
+        review_uids = set()
+
     items = []
     for r in rows:
         d = dict(r)
@@ -1995,13 +1956,18 @@ def get_week_followups(
                 d["bucketed_from"] = fu_date
         except (ValueError, TypeError):
             pass
-        # Pin logic
+        # Pin logic — based on renewal urgency or critical/at_risk timeline
         dtr = d.get("days_to_renewal")
         status = d.get("renewal_status") or ""
         d["pinned"] = bool(
             (dtr is not None and dtr <= pin_days)
             or status.upper() in ("EXPIRED",)
+            or d.get("timeline_health") in ("critical", "at_risk")
         )
+        # Accountability from disposition
+        d["accountability"] = disp_map.get(d.get("disposition") or "", "my_action")
+        # Review status
+        d["due_for_review"] = (d.get("policy_uid") or "") in review_uids
         # Composite ID for reschedule (matches bulk-reschedule pattern)
         d["composite_id"] = f"{d['source']}-{d['id']}"
         items.append(d)

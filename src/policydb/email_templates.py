@@ -352,6 +352,59 @@ def meeting_context(conn: sqlite3.Connection, meeting_id: int) -> dict:
     }
 
 
+def timeline_context(conn, policy_uid: str) -> dict:
+    """Build token dict from policy_timeline data."""
+    from policydb.timeline_engine import get_policy_timeline
+
+    timeline = get_policy_timeline(conn, policy_uid)
+    if not timeline:
+        return {}
+
+    # Get policy info for expiration
+    policy = conn.execute(
+        "SELECT expiration_date, policy_type FROM policies WHERE policy_uid = ?",
+        (policy_uid,)
+    ).fetchone()
+
+    completed = [r for r in timeline if r.get("completed_date")]
+    incomplete = [r for r in timeline if not r.get("completed_date")]
+
+    # Find current active milestone (first incomplete)
+    active = incomplete[0] if incomplete else None
+
+    # Compute drift for active milestone
+    drift_days = 0
+    if active:
+        ideal = date.fromisoformat(active["ideal_date"])
+        projected = date.fromisoformat(active["projected_date"])
+        drift_days = (ideal - projected).days  # negative = slipped
+
+    # Days to expiry
+    days_to_expiry = ""
+    if policy and policy["expiration_date"]:
+        exp = date.fromisoformat(policy["expiration_date"])
+        days_to_expiry = str((exp - date.today()).days)
+
+    # Build blocking reason from active milestone
+    blocking_reason = ""
+    if active and active.get("waiting_on"):
+        blocking_reason = f"Waiting on {active['waiting_on']}"
+    elif active and active.get("accountability") == "waiting_external":
+        blocking_reason = f"Awaiting external response for {active['milestone_name']}"
+
+    return {
+        "days_to_expiry": days_to_expiry,
+        "drift_days": str(abs(drift_days)) if drift_days else "0",
+        "blocking_reason": blocking_reason,
+        "current_status": active["accountability"].replace("_", " ").title() if active else "",
+        "milestones_complete": f"{len(completed)} of {len(timeline)}",
+        "milestones_remaining": ", ".join(r["milestone_name"] for r in incomplete),
+        "contact_first_name": "",  # Filled from contact context when available
+        "nudge_count": "",  # Filled from follow-up thread context when available
+        "meeting_date": "",  # Filled from scheduled follow-up date when available
+    }
+
+
 def followup_context(row: dict) -> dict:
     """Build token context dict from a follow-up row dict."""
     proj = row.get("project_name") or ""
@@ -516,6 +569,19 @@ CONTEXT_TOKEN_GROUPS: dict[str, list[tuple[str, list[tuple[str, str]]]]] = {
             ("decisions", "Decisions"),
             ("action_items", "Action Items"),
             ("meeting_notes", "Notes (first 500 chars)"),
+        ]),
+    ],
+    "timeline": [
+        ("Timeline", [
+            ("days_to_expiry", "Days to Expiry"),
+            ("drift_days", "Timeline Drift (days)"),
+            ("blocking_reason", "Blocking Reason"),
+            ("current_status", "Current Status"),
+            ("milestones_complete", "Milestones Complete"),
+            ("milestones_remaining", "Milestones Remaining"),
+            ("contact_first_name", "Contact First Name"),
+            ("nudge_count", "Nudge Count"),
+            ("meeting_date", "Meeting Date"),
         ]),
     ],
 }
