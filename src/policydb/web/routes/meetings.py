@@ -38,6 +38,10 @@ def _meeting_dict(conn, meeting_id: int) -> dict | None:
            ORDER BY p.policy_type""",
         (meeting_id,),
     ).fetchall()]
+    m["decisions"] = [dict(d) for d in conn.execute(
+        "SELECT * FROM meeting_decisions WHERE meeting_id = ? ORDER BY created_at",
+        (meeting_id,),
+    ).fetchall()]
     m["client_name"] = ""
     client = conn.execute("SELECT name FROM clients WHERE id = ?", (m["client_id"],)).fetchone()
     if client:
@@ -51,39 +55,57 @@ def meetings_list(
     client_id: int = 0,
     conn=Depends(get_db),
 ):
-    today = date.today()
-    cutoff_past = (today - timedelta(days=30)).isoformat()
-    cutoff_future = (today + timedelta(days=7)).isoformat()
+    today = date.today().isoformat()
 
-    params: list = []
-    where = "1=1"
+    params_up: list = []
+    params_past: list = []
+    where_up = "1=1"
+    where_past = "1=1"
     if client_id:
-        where = "m.client_id = ?"
-        params.append(client_id)
+        where_up = "m.client_id = ?"
+        where_past = "m.client_id = ?"
+        params_up.append(client_id)
+        params_past.append(client_id)
 
-    rows = conn.execute(
-        f"""SELECT m.*, c.name AS client_name,
+    _agg_cols = """m.*, c.name AS client_name,
                    (SELECT COUNT(*) FROM meeting_attendees WHERE meeting_id = m.id) AS attendee_count,
                    (SELECT COUNT(*) FROM meeting_action_items WHERE meeting_id = m.id) AS action_total,
-                   (SELECT COUNT(*) FROM meeting_action_items WHERE meeting_id = m.id AND completed = 1) AS action_done
+                   (SELECT COUNT(*) FROM meeting_action_items WHERE meeting_id = m.id AND completed = 1) AS action_done"""
+
+    upcoming_rows = conn.execute(
+        f"""SELECT {_agg_cols}
             FROM client_meetings m
             JOIN clients c ON m.client_id = c.id
-            WHERE {where}
-              AND m.meeting_date >= ?
-            ORDER BY m.meeting_date DESC, m.created_at DESC""",
-        params + [cutoff_past],
+            WHERE {where_up}
+              AND m.meeting_date >= date('now')
+            ORDER BY m.meeting_date ASC, m.meeting_time ASC
+            LIMIT 6""",
+        params_up,
+    ).fetchall()
+
+    past_rows = conn.execute(
+        f"""SELECT {_agg_cols}
+            FROM client_meetings m
+            JOIN clients c ON m.client_id = c.id
+            WHERE {where_past}
+              AND m.meeting_date < date('now')
+            ORDER BY m.meeting_date DESC, m.created_at DESC
+            LIMIT 50""",
+        params_past,
     ).fetchall()
 
     all_clients = conn.execute(
         "SELECT id, name FROM clients WHERE archived = 0 ORDER BY name"
     ).fetchall()
 
-    return templates.TemplateResponse("meetings/list.html", {
+    return templates.TemplateResponse("meetings/list_enhanced.html", {
         "request": request,
         "active": "meetings",
-        "meetings": [dict(r) for r in rows],
+        "upcoming": [dict(r) for r in upcoming_rows],
+        "past": [dict(r) for r in past_rows],
         "all_clients": [dict(c) for c in all_clients],
         "selected_client_id": client_id,
+        "meeting_types": cfg.get("meeting_types", []),
     })
 
 
@@ -168,6 +190,7 @@ def meeting_create(
     duration_hours: str = Form(""),
     location: str = Form(""),
     notes: str = Form(""),
+    meeting_type: str = Form(""),
     conn=Depends(get_db),
 ):
     from policydb.utils import round_duration
@@ -177,10 +200,12 @@ def meeting_create(
     meeting_uid = next_meeting_uid(conn, client_id)
     cursor = conn.execute(
         """INSERT INTO client_meetings
-           (client_id, title, meeting_date, meeting_time, duration_hours, location, notes, meeting_uid)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+           (client_id, title, meeting_date, meeting_time, duration_hours, location, notes, meeting_uid,
+            meeting_type, phase)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'before')""",
         (client_id, title.strip(), meeting_date or date.today().isoformat(),
-         meeting_time or None, dur, location or None, notes, meeting_uid),
+         meeting_time or None, dur, location or None, notes, meeting_uid,
+         meeting_type or None),
     )
     meeting_id = cursor.lastrowid
 
@@ -195,6 +220,45 @@ def meeting_create(
     )
     conn.commit()
     return RedirectResponse(f"/meetings/{meeting_id}?created=1", status_code=303)
+
+
+@router.post("/meetings/{meeting_id}/start")
+def start_meeting(meeting_id: int, conn=Depends(get_db)):
+    from datetime import datetime
+    now = datetime.now().strftime("%H:%M")
+    conn.execute("UPDATE client_meetings SET phase = 'during', start_time = ? WHERE id = ?", (now, meeting_id))
+    conn.commit()
+    return RedirectResponse(f"/meetings/{meeting_id}", status_code=303)
+
+
+@router.post("/meetings/{meeting_id}/end")
+def end_meeting(meeting_id: int, conn=Depends(get_db)):
+    from datetime import datetime
+    now = datetime.now().strftime("%H:%M")
+    conn.execute("UPDATE client_meetings SET phase = 'after', end_time = ? WHERE id = ?", (now, meeting_id))
+    conn.commit()
+    return RedirectResponse(f"/meetings/{meeting_id}", status_code=303)
+
+
+@router.post("/meetings/{meeting_id}/complete")
+def complete_meeting(meeting_id: int, conn=Depends(get_db)):
+    conn.execute("UPDATE client_meetings SET phase = 'complete' WHERE id = ?", (meeting_id,))
+    m = dict(conn.execute("SELECT * FROM client_meetings WHERE id = ?", (meeting_id,)).fetchone())
+    if m.get("start_time") and m.get("end_time"):
+        from policydb.utils import round_duration
+        start_parts = m["start_time"].split(":")
+        end_parts = m["end_time"].split(":")
+        start_mins = int(start_parts[0]) * 60 + int(start_parts[1])
+        end_mins = int(end_parts[0]) * 60 + int(end_parts[1])
+        if end_mins > start_mins:
+            dur = round_duration(str((end_mins - start_mins) / 60))
+            conn.execute("UPDATE client_meetings SET duration_hours = ? WHERE id = ?", (dur, meeting_id))
+            conn.execute(
+                "UPDATE activity_log SET duration_hours = ? WHERE client_id = ? AND activity_type = 'Meeting' AND subject = ?",
+                (dur, m["client_id"], m["title"]),
+            )
+    conn.commit()
+    return RedirectResponse(f"/meetings/{meeting_id}", status_code=303)
 
 
 @router.get("/meetings/{meeting_id}", response_class=HTMLResponse)
@@ -221,7 +285,7 @@ def meeting_detail(
         (m["client_id"],),
     ).fetchall()]
 
-    return templates.TemplateResponse("meetings/detail.html", {
+    return templates.TemplateResponse("meetings/detail_phased.html", {
         "request": request,
         "active": "meetings",
         "meeting": m,
@@ -232,6 +296,8 @@ def meeting_detail(
         "client_policies": client_policies,
         "today": date.today().isoformat(),
         "just_created": bool(created),
+        "meeting_types": cfg.get("meeting_types", []),
+        "renewal_statuses": cfg.get("renewal_statuses", []),
     })
 
 
@@ -246,7 +312,7 @@ async def meeting_patch(
     body = _json.loads(await request.body())
     field = body.get("field", "")
     value = body.get("value", "").strip()
-    allowed = {"title", "meeting_date", "meeting_time", "duration_hours", "location"}
+    allowed = {"title", "meeting_date", "meeting_time", "duration_hours", "location", "meeting_type"}
     if field not in allowed:
         return JSONResponse({"ok": False, "error": "Invalid field"}, status_code=400)
     if field == "duration_hours":
