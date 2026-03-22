@@ -97,3 +97,217 @@ def test_timeline_engine_config(tmp_db):
     assert te["minimum_gap_days"] == 3
     assert te["drift_threshold_days"] == 7
     assert te["compression_threshold"] == 0.5
+
+
+# ── Task 3: Timeline Generation Tests ──────────────────────────────────
+
+
+from datetime import date, timedelta
+from policydb.timeline_engine import generate_policy_timelines, get_policy_timeline
+
+
+def _insert_test_client(conn, client_id=1, name="Acme Corp"):
+    """Helper to insert a test client with required NOT NULL fields."""
+    conn.execute(
+        "INSERT INTO clients (id, name, industry_segment) VALUES (?, ?, 'Other')",
+        (client_id, name),
+    )
+
+
+def _insert_test_policy(conn, policy_uid, client_id, eff_date, exp_date, **kw):
+    """Helper to insert a test policy with required NOT NULL fields."""
+    cols = {
+        "policy_uid": policy_uid,
+        "client_id": client_id,
+        "effective_date": eff_date,
+        "expiration_date": exp_date,
+        "policy_type": "General Liability",
+        "is_opportunity": 0,
+        "archived": 0,
+        "milestone_profile": "",
+    }
+    cols.update(kw)
+    keys = ", ".join(cols.keys())
+    placeholders = ", ".join("?" for _ in cols)
+    conn.execute(
+        f"INSERT INTO policies ({keys}) VALUES ({placeholders})",
+        tuple(cols.values()),
+    )
+
+
+def test_generate_timeline_standalone_policy(tmp_db):
+    conn = get_connection(tmp_db)
+    exp_date = (date.today() + timedelta(days=150)).isoformat()
+    eff_date = (date.today() - timedelta(days=215)).isoformat()
+    _insert_test_client(conn)
+    _insert_test_policy(conn, 'POL-001', 1, eff_date, exp_date,
+                        milestone_profile='Simple Renewal')
+    conn.commit()
+    generate_policy_timelines(conn)
+    timeline = get_policy_timeline(conn, 'POL-001')
+    milestone_names = [row["milestone_name"] for row in timeline]
+    assert "Quote Received" in milestone_names
+    assert "Client Approved" in milestone_names
+    assert "Binder Requested" in milestone_names
+    assert "RSM Meeting" not in milestone_names
+
+
+def test_generate_timeline_ideal_equals_projected_initially(tmp_db):
+    conn = get_connection(tmp_db)
+    exp_date = (date.today() + timedelta(days=150)).isoformat()
+    eff_date = (date.today() - timedelta(days=215)).isoformat()
+    _insert_test_client(conn)
+    _insert_test_policy(conn, 'POL-001', 1, eff_date, exp_date,
+                        milestone_profile='Simple Renewal')
+    conn.commit()
+    generate_policy_timelines(conn)
+    timeline = get_policy_timeline(conn, 'POL-001')
+    for row in timeline:
+        assert row["ideal_date"] == row["projected_date"]
+
+
+def test_skip_child_policies_in_program(tmp_db):
+    conn = get_connection(tmp_db)
+    exp_date = (date.today() + timedelta(days=150)).isoformat()
+    eff_date = (date.today() - timedelta(days=215)).isoformat()
+    _insert_test_client(conn)
+    _insert_test_policy(conn, 'PGM-001', 1, eff_date, exp_date,
+                        id=1, is_program=1, milestone_profile='Full Renewal')
+    _insert_test_policy(conn, 'POL-002', 1, eff_date, exp_date,
+                        id=2, program_id=1, milestone_profile='')
+    conn.commit()
+    generate_policy_timelines(conn)
+    pgm_timeline = get_policy_timeline(conn, 'PGM-001')
+    assert len(pgm_timeline) > 0
+    child_timeline = get_policy_timeline(conn, 'POL-002')
+    assert len(child_timeline) == 0
+
+
+def test_skip_opportunities(tmp_db):
+    conn = get_connection(tmp_db)
+    exp_date = (date.today() + timedelta(days=150)).isoformat()
+    eff_date = (date.today() - timedelta(days=215)).isoformat()
+    _insert_test_client(conn)
+    _insert_test_policy(conn, 'OPP-001', 1, eff_date, exp_date,
+                        is_opportunity=1, milestone_profile='Simple Renewal')
+    conn.commit()
+    generate_policy_timelines(conn)
+    timeline = get_policy_timeline(conn, 'OPP-001')
+    assert len(timeline) == 0
+
+
+def test_default_profile_when_empty(tmp_db):
+    conn = get_connection(tmp_db)
+    exp_date = (date.today() + timedelta(days=150)).isoformat()
+    eff_date = (date.today() - timedelta(days=215)).isoformat()
+    _insert_test_client(conn)
+    _insert_test_policy(conn, 'POL-001', 1, eff_date, exp_date,
+                        milestone_profile='')
+    conn.commit()
+    generate_policy_timelines(conn)
+    timeline = get_policy_timeline(conn, 'POL-001')
+    names = [r["milestone_name"] for r in timeline]
+    assert "Quote Received" in names
+    assert "RSM Meeting" not in names
+
+
+# ── Task 4: Health Computation Tests ───────────────────────────────────
+
+
+from policydb.timeline_engine import compute_health
+
+
+def test_health_on_track():
+    result = compute_health(
+        projected_date=date.today() + timedelta(days=14),
+        ideal_date=date.today() + timedelta(days=16),
+        completed_date=None,
+        expiration_date=date.today() + timedelta(days=120),
+        is_critical_milestone=False,
+        original_spacing=30, current_spacing=28,
+    )
+    assert result == "on_track"
+
+
+def test_health_completed_is_on_track():
+    result = compute_health(
+        projected_date=date.today() - timedelta(days=5),
+        ideal_date=date.today() - timedelta(days=10),
+        completed_date=date.today() - timedelta(days=3),
+        expiration_date=date.today() + timedelta(days=120),
+        is_critical_milestone=False,
+        original_spacing=30, current_spacing=28,
+    )
+    assert result == "on_track"
+
+
+def test_health_drifting():
+    result = compute_health(
+        projected_date=date.today() + timedelta(days=10),
+        ideal_date=date.today() + timedelta(days=25),
+        completed_date=None,
+        expiration_date=date.today() + timedelta(days=120),
+        is_critical_milestone=False,
+        original_spacing=30, current_spacing=28,
+    )
+    assert result == "drifting"
+
+
+def test_health_compressed():
+    result = compute_health(
+        projected_date=date.today() + timedelta(days=14),
+        ideal_date=date.today() + timedelta(days=16),
+        completed_date=None,
+        expiration_date=date.today() + timedelta(days=120),
+        is_critical_milestone=False,
+        original_spacing=30, current_spacing=12,
+    )
+    assert result == "compressed"
+
+
+def test_health_at_risk_overdue():
+    result = compute_health(
+        projected_date=date.today() - timedelta(days=3),
+        ideal_date=date.today() - timedelta(days=3),
+        completed_date=None,
+        expiration_date=date.today() + timedelta(days=60),
+        is_critical_milestone=False,
+        original_spacing=30, current_spacing=28,
+    )
+    assert result == "at_risk"
+
+
+def test_health_at_risk_imminent():
+    result = compute_health(
+        projected_date=date.today() + timedelta(days=3),
+        ideal_date=date.today() + timedelta(days=3),
+        completed_date=None,
+        expiration_date=date.today() + timedelta(days=60),
+        is_critical_milestone=False,
+        original_spacing=30, current_spacing=28,
+    )
+    assert result == "at_risk"
+
+
+def test_health_critical():
+    result = compute_health(
+        projected_date=date.today() + timedelta(days=10),
+        ideal_date=date.today() + timedelta(days=10),
+        completed_date=None,
+        expiration_date=date.today() + timedelta(days=25),
+        is_critical_milestone=True,
+        original_spacing=30, current_spacing=28,
+    )
+    assert result == "critical"
+
+
+def test_health_evaluation_order_critical_wins():
+    result = compute_health(
+        projected_date=date.today() - timedelta(days=5),
+        ideal_date=date.today() - timedelta(days=5),
+        completed_date=None,
+        expiration_date=date.today() + timedelta(days=20),
+        is_critical_milestone=True,
+        original_spacing=30, current_spacing=28,
+    )
+    assert result == "critical"
