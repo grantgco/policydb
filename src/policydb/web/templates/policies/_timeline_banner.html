@@ -1,0 +1,24 @@
+{# Timeline banner for child policies — shown when the program owns the timeline #}
+{% if program_policy %}
+<div class="bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-2 mb-4 flex items-center justify-between gap-3">
+    <div class="flex items-center gap-2 flex-wrap min-w-0">
+        <span class="text-xs text-indigo-600 font-medium shrink-0">Timeline managed by:</span>
+        <a href="/policies/{{ program_policy.policy_uid }}/edit"
+           class="text-sm font-semibold text-indigo-700 hover:underline">
+            {{ program_policy.policy_type }} Program
+        </a>
+        {% if program_health %}
+        <span class="text-xs whitespace-nowrap
+            {% if program_health == 'critical' %}text-red-600
+            {% elif program_health == 'at_risk' %}text-orange-600
+            {% elif program_health == 'compressed' %}text-amber-600
+            {% elif program_health == 'drifting' %}text-blue-600
+            {% else %}text-green-600{% endif %}">
+            ● {{ program_health | replace('_', ' ') | title }}
+        </span>
+        {% endif %}
+    </div>
+    <a href="/policies/{{ program_policy.policy_uid }}/timeline"
+       class="text-xs text-indigo-600 hover:underline shrink-0">View Timeline →</a>
+</div>
+{% endif %}
