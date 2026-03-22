@@ -164,6 +164,7 @@ def meeting_detail_export_csv(
 def meeting_new(
     request: Request,
     client_id: int = 0,
+    title: str = "",
     conn=Depends(get_db),
 ):
     all_clients = conn.execute(
@@ -177,6 +178,8 @@ def meeting_new(
         "all_clients": [dict(c) for c in all_clients],
         "selected_client_id": client_id,
         "today": date.today().isoformat(),
+        "prefill_title": title,
+        "meeting_types": cfg.get("meeting_types", []),
     })
 
 
