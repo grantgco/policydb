@@ -1,0 +1,201 @@
+{# Action Center — Activities Tab (HTMX partial, no base inheritance) #}
+<div id="ac-activities-panel">
+
+  {# ── Filter Bar ── #}
+  <div class="flex flex-wrap items-center gap-3 mb-4">
+    <select id="ac-act-days"
+      hx-get="/action-center/activities"
+      hx-target="#ac-tab-content"
+      hx-include="#ac-act-days, #ac-act-type, #ac-act-client, #ac-act-search"
+      name="days"
+      class="text-xs border border-gray-200 rounded-md px-2 py-1.5 bg-white focus:ring-1 focus:ring-marsh focus:border-marsh">
+      <option value="7" {{ 'selected' if days == 7 }}>Last 7 Days</option>
+      <option value="30" {{ 'selected' if days == 30 }}>Last 30 Days</option>
+      <option value="90" {{ 'selected' if days == 90 }}>Last 90 Days</option>
+      <option value="365" {{ 'selected' if days == 365 }}>This Year</option>
+    </select>
+
+    <select id="ac-act-type"
+      hx-get="/action-center/activities"
+      hx-target="#ac-tab-content"
+      hx-include="#ac-act-days, #ac-act-type, #ac-act-client, #ac-act-search"
+      name="activity_type"
+      class="text-xs border border-gray-200 rounded-md px-2 py-1.5 bg-white focus:ring-1 focus:ring-marsh focus:border-marsh">
+      <option value="">All Types</option>
+      {% for t in activity_types %}
+      <option value="{{ t }}" {{ 'selected' if activity_type == t }}>{{ t }}</option>
+      {% endfor %}
+    </select>
+
+    <select id="ac-act-client"
+      hx-get="/action-center/activities"
+      hx-target="#ac-tab-content"
+      hx-include="#ac-act-days, #ac-act-type, #ac-act-client, #ac-act-search"
+      name="client_id"
+      class="text-xs border border-gray-200 rounded-md px-2 py-1.5 bg-white focus:ring-1 focus:ring-marsh focus:border-marsh">
+      <option value="">All Clients</option>
+      {% for c in all_clients %}
+      <option value="{{ c.id }}" {{ 'selected' if client_id == c.id }}>{{ c.name }}</option>
+      {% endfor %}
+    </select>
+
+    <input id="ac-act-search"
+      type="text"
+      name="q"
+      placeholder="Search subjects..."
+      hx-get="/action-center/activities"
+      hx-target="#ac-tab-content"
+      hx-trigger="keyup changed delay:400ms"
+      hx-include="#ac-act-days, #ac-act-type, #ac-act-client, #ac-act-search"
+      class="text-xs border border-gray-200 rounded-md px-2.5 py-1.5 w-48 bg-white focus:ring-1 focus:ring-marsh focus:border-marsh placeholder-gray-300">
+
+    <span class="ml-auto bg-gray-100 text-gray-600 text-xs px-2.5 py-1 rounded-md whitespace-nowrap">
+      {{ activities | length }} activit{{ 'y' if activities | length == 1 else 'ies' }}
+      {% if time_summary and time_summary.total_hours %} &middot; {{ '%.1f' | format(time_summary.total_hours) }}h{% endif %}
+    </span>
+  </div>
+
+  {# ── Activities Table ── #}
+  {% if activities %}
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm" style="table-layout:auto">
+      <thead>
+        <tr class="text-left text-xs text-gray-400 uppercase tracking-wide border-b border-gray-100 bg-gray-50">
+          <th class="px-3 py-2 whitespace-nowrap">Date</th>
+          <th class="px-3 py-2 whitespace-nowrap">Type</th>
+          <th class="px-3 py-2 whitespace-nowrap" style="min-width:100px">Client</th>
+          <th class="px-3 py-2" style="min-width:200px">Subject</th>
+          <th class="px-3 py-2 whitespace-nowrap">Hrs</th>
+          <th class="px-3 py-2 whitespace-nowrap">Disposition</th>
+          <th class="px-3 py-2 whitespace-nowrap">Ref</th>
+        </tr>
+      </thead>
+      <tbody id="ac-activities-tbody" class="divide-y divide-gray-50">
+        {% for a in activities %}
+        <tr class="matrix-row hover:bg-gray-50 transition-colors" data-row-id="{{ a.id }}">
+          {# Date — display only #}
+          <td class="px-3 py-2 text-xs text-gray-500 whitespace-nowrap">
+            {% if a.activity_date %}{{ a.activity_date[5:].replace('-', '/') }}{% endif %}
+          </td>
+
+          {# Type — colored pill, combobox editable #}
+          <td class="px-3 py-2 relative matrix-cell-combo" data-field="activity_type"
+              data-options='{{ activity_types | tojson }}'>
+            <div class="cell-display">
+              {% if a.activity_type == 'Call' %}
+              <span class="text-xs px-2 py-0.5 rounded bg-blue-100 text-blue-700">{{ a.activity_type }}</span>
+              {% elif a.activity_type == 'Email' %}
+              <span class="text-xs px-2 py-0.5 rounded bg-amber-100 text-amber-700">{{ a.activity_type }}</span>
+              {% elif a.activity_type == 'Meeting' %}
+              <span class="text-xs px-2 py-0.5 rounded bg-indigo-100 text-indigo-700">{{ a.activity_type }}</span>
+              {% elif a.activity_type == 'Note' %}
+              <span class="text-xs px-2 py-0.5 rounded bg-pink-100 text-pink-700">{{ a.activity_type }}</span>
+              {% elif a.activity_type %}
+              <span class="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-600">{{ a.activity_type }}</span>
+              {% else %}
+              <span class="text-gray-300 text-xs">&mdash;</span>
+              {% endif %}
+            </div>
+          </td>
+
+          {# Client — link, not editable #}
+          <td class="px-3 py-2 text-xs truncate whitespace-nowrap" style="max-width:140px">
+            {% if a.client_id %}
+            <a href="/clients/{{ a.client_id }}" class="text-teal-700 hover:underline">{{ a.client_name or '' }}</a>
+            {% else %}
+            <span class="text-gray-300">&mdash;</span>
+            {% endif %}
+          </td>
+
+          {# Subject — contenteditable #}
+          <td class="px-3 py-2">
+            <div contenteditable="true"
+                 class="matrix-cell-editable text-xs text-gray-800 min-h-[1.25rem] outline-none"
+                 data-field="subject"
+                 data-placeholder="Add subject...">{{ a.subject or '' }}</div>
+          </td>
+
+          {# Hours — contenteditable, narrow #}
+          <td class="px-3 py-2">
+            <div contenteditable="true"
+                 class="matrix-cell-editable text-xs text-gray-600 text-right min-h-[1.25rem] outline-none"
+                 data-field="duration_hours"
+                 data-placeholder="0"
+                 style="max-width:50px">{{ a.duration_hours if a.duration_hours else '' }}</div>
+          </td>
+
+          {# Disposition — combobox #}
+          <td class="px-3 py-2 relative matrix-cell-combo" data-field="disposition"
+              data-options='{{ disposition_labels | tojson }}'>
+            <div class="cell-display">
+              {% if a.disposition %}
+              <span class="text-xs text-gray-600">{{ a.disposition }}</span>
+              {% else %}
+              <span class="text-gray-300 text-xs">&mdash;</span>
+              {% endif %}
+            </div>
+          </td>
+
+          {# Ref — thread link #}
+          <td class="px-3 py-2 text-xs whitespace-nowrap">
+            {% if a.thread_id %}
+            <a href="/activities?thread={{ a.thread_id }}"
+               class="text-purple-600 hover:underline font-mono">COR-{{ a.thread_id }}</a>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% else %}
+  {# ── Empty State ── #}
+  <div class="border border-dashed border-gray-300 rounded-lg p-8 text-center text-gray-400 text-sm">
+    No activities found for this period.
+  </div>
+  {% endif %}
+
+</div>
+
+<script>
+(function() {
+  /* ── Wire up initMatrix for inline editing ── */
+  var matrix = window.initMatrix({
+    tbodyId: 'ac-activities-tbody',
+    idAttr: 'data-row-id',
+    rowClass: 'matrix-row',
+    patchUrl: function(id) { return '/activities/' + id + '/field'; }
+  });
+
+  /* After PATCH on activity_type, re-render the pill color */
+  if (matrix) {
+    var tbody = document.getElementById('ac-activities-tbody');
+    if (tbody) {
+      var origFocusout = null;
+      /* Override combo close to re-color the pill after type change */
+      tbody.addEventListener('focusout', function(e) {
+        var combo = e.target.closest('.matrix-cell-combo');
+        if (!combo) return;
+        var field = combo.dataset.field;
+        if (field !== 'activity_type') return;
+        /* Small delay to let the combo close handler run first */
+        setTimeout(function() {
+          var display = combo.querySelector('.cell-display');
+          if (!display) return;
+          var span = display.querySelector('span');
+          if (!span) return;
+          var val = span.textContent.trim();
+          /* Reset pill classes */
+          span.className = 'text-xs px-2 py-0.5 rounded';
+          if (val === 'Call') span.className += ' bg-blue-100 text-blue-700';
+          else if (val === 'Email') span.className += ' bg-amber-100 text-amber-700';
+          else if (val === 'Meeting') span.className += ' bg-indigo-100 text-indigo-700';
+          else if (val === 'Note') span.className += ' bg-pink-100 text-pink-700';
+          else span.className += ' bg-gray-100 text-gray-600';
+        }, 100);
+      });
+    }
+  }
+})();
+</script>

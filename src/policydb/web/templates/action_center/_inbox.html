@@ -1,0 +1,316 @@
+{# Action Center — Inbox Tab (HTMX partial, no base inheritance) #}
+
+{# ── Capture Area ── #}
+<div class="bg-teal-50 border-b border-teal-100 rounded-t-lg px-4 py-3 mb-4 no-print">
+  <form hx-post="/inbox/capture" hx-swap="none"
+        hx-on::after-request="if(event.detail.successful){this.reset();document.getElementById('ac-capture-contact-id').value='0';htmx.ajax('GET','/action-center/inbox{% if show_processed %}?show_processed=1{% endif %}',{target:'#ac-tab-content',swap:'innerHTML'})}"
+        class="flex items-center gap-3">
+    <input type="text" name="content" id="ac-capture-input"
+      placeholder="Capture a note, task, or reminder... (@ to tag a contact)"
+      required
+      class="flex-1 text-[13px] border border-teal-200 rounded-lg px-3 py-2 focus:border-[#003865] focus:outline-none focus:ring-1 focus:ring-[#003865]/20 bg-white">
+    <input type="hidden" name="contact_id" id="ac-capture-contact-id" value="0">
+    <button type="submit"
+      class="bg-[#003865] text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-[#0055a5] transition-colors whitespace-nowrap no-print">
+      Add to Inbox
+    </button>
+  </form>
+</div>
+
+{# ── Pending Header ── #}
+<div class="flex items-center justify-between mb-3 px-1">
+  <div class="flex items-center gap-2">
+    <h3 class="text-sm font-bold text-gray-700">Pending</h3>
+    {% if pending %}
+    <span class="bg-teal-100 text-teal-700 text-xs font-semibold px-2 py-0.5 rounded-full">{{ pending | length }} item{{ 's' if pending | length != 1 else '' }}</span>
+    {% endif %}
+  </div>
+  <label class="flex items-center gap-1.5 cursor-pointer no-print">
+    <input type="checkbox" {% if show_processed %}checked{% endif %}
+      hx-get="/action-center/inbox?show_processed={{ '0' if show_processed else '1' }}"
+      hx-target="#ac-tab-content"
+      hx-swap="innerHTML"
+      class="rounded border-gray-300 text-[#003865] focus:ring-[#003865]">
+    <span class="text-xs text-gray-500">Show processed</span>
+  </label>
+</div>
+
+{# ── Empty State ── #}
+{% if not pending %}
+<div class="text-center py-10 text-gray-400 text-sm">
+  No pending items &mdash; your inbox is clear!
+</div>
+{% endif %}
+
+{# ── Pending Items ── #}
+{% if pending %}
+<div id="ac-inbox-pending" class="space-y-2 mb-6">
+  {% for item in pending %}
+  <div id="ac-inbox-item-{{ item.id }}" class="bg-white border border-gray-200 rounded-lg overflow-hidden">
+    <div class="flex items-start gap-3 px-4 py-3">
+      {# INB badge #}
+      <span class="bg-teal-50 text-teal-700 text-[10px] font-semibold px-1.5 py-0.5 rounded flex-shrink-0 mt-0.5 select-all cursor-pointer"
+        onclick="navigator.clipboard.writeText('INB-{{ item.id }}');if(typeof showToast==='function')showToast('INB-{{ item.id }} copied',true)"
+        title="Click to copy INB-{{ item.id }}">INB-{{ item.id }}</span>
+
+      {# Content + meta #}
+      <div class="flex-1 min-w-0">
+        <p class="text-[13px] text-gray-900">{{ item.content }}</p>
+        <div class="flex items-center gap-2 mt-1 flex-wrap">
+          {% if item.contact_name %}
+          <span class="bg-indigo-50 text-indigo-700 text-xs px-2 py-0.5 rounded-full">@{{ item.contact_name }}</span>
+          {% endif %}
+          {% if item.client_name %}
+          <span class="text-xs text-gray-500">{{ item.client_name }}</span>
+          {% endif %}
+          <span class="text-xs text-gray-400">{{ item.created_at }}</span>
+        </div>
+      </div>
+
+      {# Action buttons #}
+      <div class="flex items-center gap-1.5 flex-shrink-0 no-print">
+        <button type="button" onclick="acToggleProcessForm({{ item.id }})"
+          class="text-xs bg-[#003865] text-white px-3 py-1 rounded hover:bg-[#0055a5] transition-colors font-medium">
+          Process
+        </button>
+        <button type="button" onclick="acToggleScheduleForm({{ item.id }})"
+          class="text-xs bg-amber-100 text-amber-700 px-3 py-1 rounded hover:bg-amber-200 transition-colors">
+          Schedule
+        </button>
+        <button hx-post="/inbox/{{ item.id }}/dismiss"
+          hx-swap="delete" hx-target="#ac-inbox-item-{{ item.id }}"
+          hx-confirm="Dismiss INB-{{ item.id }}?"
+          class="text-xs bg-gray-100 text-gray-500 px-3 py-1 rounded hover:bg-gray-200 transition-colors">
+          Dismiss
+        </button>
+      </div>
+    </div>
+
+    {# ── Inline Process Form (hidden by default) ── #}
+    <div id="ac-process-form-{{ item.id }}" class="hidden">
+      <div class="bg-white border border-gray-200 rounded-lg p-3 ml-11 mt-0 mb-3 mr-4">
+        <form hx-post="/inbox/{{ item.id }}/process"
+              hx-target="#ac-inbox-item-{{ item.id }}"
+              hx-swap="delete"
+              class="space-y-3">
+
+          {# Row 1: Client + Policy #}
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="text-xs font-medium text-gray-500 block mb-1">Client</label>
+              <select name="client_id" id="ac-proc-client-{{ item.id }}" required
+                onchange="acLoadPolicies({{ item.id }}, this.value)"
+                class="w-full text-sm border border-gray-200 rounded px-2 py-1.5 focus:border-[#003865] focus:outline-none">
+                <option value="">Select client...</option>
+                {% for c in all_clients %}
+                <option value="{{ c.id }}" {% if item.client_id == c.id %}selected{% endif %}>{{ c.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div>
+              <label class="text-xs font-medium text-gray-500 block mb-1">Policy (optional)</label>
+              <select name="policy_id" id="ac-proc-policy-{{ item.id }}"
+                class="w-full text-sm border border-gray-200 rounded px-2 py-1.5 focus:border-[#003865] focus:outline-none">
+                <option value="0">None</option>
+              </select>
+            </div>
+          </div>
+
+          {# Row 1b: Contact #}
+          <div>
+            <label class="text-xs font-medium text-gray-500 block mb-1">Contact</label>
+            <input type="text" name="contact_name_display" id="ac-proc-contact-name-{{ item.id }}"
+              value="{{ item.contact_name or '' }}"
+              placeholder="Contact name..."
+              class="w-full text-sm border border-gray-200 rounded px-2 py-1.5 focus:border-[#003865] focus:outline-none">
+            <input type="hidden" name="contact_id" id="ac-proc-contact-id-{{ item.id }}" value="{{ item.contact_id or 0 }}">
+          </div>
+
+          {# Row 2: Type + Subject + Hours #}
+          <div class="grid grid-cols-3 gap-3">
+            <div>
+              <label class="text-xs font-medium text-gray-500 block mb-1">Type</label>
+              <select name="activity_type"
+                class="w-full text-sm border border-gray-200 rounded px-2 py-1.5 focus:border-[#003865] focus:outline-none">
+                {% for at in activity_types %}
+                <option value="{{ at }}" {% if at == 'Note' %}selected{% endif %}>{{ at }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div>
+              <label class="text-xs font-medium text-gray-500 block mb-1">Subject</label>
+              <input type="text" name="subject" value="{{ item.content }}"
+                class="w-full text-sm border border-gray-200 rounded px-2 py-1.5 focus:border-[#003865] focus:outline-none">
+            </div>
+            <div>
+              <label class="text-xs font-medium text-gray-500 block mb-1">Hours</label>
+              <input type="text" name="duration_hours" placeholder="0.25"
+                class="w-full text-sm border border-gray-200 rounded px-2 py-1.5 focus:border-[#003865] focus:outline-none">
+            </div>
+          </div>
+
+          {# Details #}
+          <div>
+            <label class="text-xs font-medium text-gray-500 block mb-1">Details</label>
+            <textarea name="details" rows="2"
+              class="w-full text-sm border border-gray-200 rounded px-2 py-1.5 focus:border-[#003865] focus:outline-none">{{ item.content }}</textarea>
+          </div>
+
+          {# Follow-up shortcuts + date + COR #}
+          <div class="flex items-end gap-3 flex-wrap">
+            <div>
+              <label class="text-xs font-medium text-gray-500 block mb-1">Follow-up</label>
+              <div class="flex items-center gap-1">
+                <input type="date" name="follow_up_date" id="ac-proc-fudate-{{ item.id }}"
+                  class="text-sm border border-gray-200 rounded px-2 py-1.5 focus:border-[#003865] focus:outline-none">
+                <button type="button" onclick="acSetFuDate({{ item.id }}, 1)"
+                  class="text-[10px] text-gray-400 hover:text-teal-600 border border-gray-200 hover:border-teal-300 rounded px-1.5 py-1.5 transition-colors no-print">+1d</button>
+                <button type="button" onclick="acSetFuDate({{ item.id }}, 3)"
+                  class="text-[10px] text-gray-400 hover:text-teal-600 border border-gray-200 hover:border-teal-300 rounded px-1.5 py-1.5 transition-colors no-print">+3d</button>
+                <button type="button" onclick="acSetFuDate({{ item.id }}, 7)"
+                  class="text-[10px] text-gray-400 hover:text-teal-600 border border-gray-200 hover:border-teal-300 rounded px-1.5 py-1.5 transition-colors no-print">+7d</button>
+              </div>
+            </div>
+            <label class="flex items-center gap-1.5 pb-1 cursor-pointer">
+              <input type="checkbox" name="start_correspondence" value="1"
+                class="rounded border-gray-300 text-[#003865] focus:ring-[#003865]">
+              <span class="text-xs text-gray-500">Start COR</span>
+            </label>
+          </div>
+
+          {# Buttons #}
+          <div class="flex items-center gap-2 pt-1">
+            <button type="submit"
+              class="text-xs bg-[#003865] text-white px-4 py-1.5 rounded hover:bg-[#0055a5] transition-colors font-medium">
+              Save &amp; Process
+            </button>
+            <button type="button" onclick="acToggleProcessForm({{ item.id }})"
+              class="text-xs text-gray-500 px-3 py-1.5 rounded hover:bg-gray-100 transition-colors">
+              Cancel
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    {# ── Inline Schedule Form (hidden by default) ── #}
+    <div id="ac-schedule-form-{{ item.id }}" class="hidden border-t border-gray-100 bg-amber-50/50 px-4 py-3">
+      <form hx-post="/inbox/{{ item.id }}/schedule"
+            hx-swap="delete" hx-target="#ac-inbox-item-{{ item.id }}"
+            class="flex items-end gap-3 flex-wrap">
+        <div>
+          <label class="text-xs font-medium text-gray-500 block mb-1">Client</label>
+          <select name="client_id" required
+            class="text-sm border border-gray-200 rounded px-2 py-1.5 focus:border-[#003865] focus:outline-none">
+            <option value="">Select client...</option>
+            {% for c in all_clients %}
+            <option value="{{ c.id }}" {% if item.client_id == c.id %}selected{% endif %}>{{ c.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="text-xs font-medium text-gray-500 block mb-1">Follow-up Date</label>
+          <input type="date" name="follow_up_date" required
+            class="text-sm border border-gray-200 rounded px-2 py-1.5 focus:border-[#003865] focus:outline-none">
+        </div>
+        <div class="flex-1">
+          <label class="text-xs font-medium text-gray-500 block mb-1">Subject</label>
+          <input type="text" name="subject" value="{{ item.content }}"
+            class="w-full text-sm border border-gray-200 rounded px-2 py-1.5 focus:border-[#003865] focus:outline-none">
+        </div>
+        <div class="flex gap-2">
+          <button type="submit"
+            class="text-xs bg-amber-600 text-white px-4 py-1.5 rounded hover:bg-amber-700 transition-colors font-medium">
+            Schedule Task
+          </button>
+          <button type="button" onclick="acToggleScheduleForm({{ item.id }})"
+            class="text-xs text-gray-500 px-3 py-1.5 rounded hover:bg-gray-100 transition-colors">
+            Cancel
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{# ── Processed History ── #}
+{% if show_processed and processed %}
+<div class="mt-6">
+  <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Processed</h3>
+  <div class="space-y-1">
+    {% for item in processed %}
+    <div class="bg-gray-50 border border-gray-100 rounded px-4 py-2 flex items-center gap-3 opacity-60">
+      <span class="bg-gray-100 text-gray-500 text-[10px] font-semibold px-1.5 py-0.5 rounded">INB-{{ item.id }}</span>
+      <span class="text-xs text-gray-500 flex-1 truncate">{{ item.content }}</span>
+      {% if item.activity_subject %}
+      <span class="text-xs text-green-600 flex-shrink-0">&#8594; {{ item.activity_subject }}</span>
+      {% else %}
+      <span class="text-xs text-gray-400 flex-shrink-0">Dismissed</span>
+      {% endif %}
+      <span class="text-xs text-gray-300 flex-shrink-0">{{ item.created_at }}</span>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{# ── JavaScript ── #}
+<script>
+/* Toggle Process form for an inbox item */
+function acToggleProcessForm(id) {
+  var el = document.getElementById('ac-process-form-' + id);
+  if (el) el.classList.toggle('hidden');
+  // Close schedule form if open
+  var sf = document.getElementById('ac-schedule-form-' + id);
+  if (sf && !sf.classList.contains('hidden')) sf.classList.add('hidden');
+}
+
+/* Toggle Schedule form for an inbox item */
+function acToggleScheduleForm(id) {
+  var el = document.getElementById('ac-schedule-form-' + id);
+  if (el) el.classList.toggle('hidden');
+  // Close process form if open
+  var pf = document.getElementById('ac-process-form-' + id);
+  if (pf && !pf.classList.contains('hidden')) pf.classList.add('hidden');
+}
+
+/* Follow-up date shortcut pills */
+function acSetFuDate(inboxId, days) {
+  var dateInput = document.getElementById('ac-proc-fudate-' + inboxId);
+  if (dateInput) {
+    var d = new Date();
+    d.setDate(d.getDate() + days);
+    dateInput.value = d.toISOString().split('T')[0];
+  }
+}
+
+/* Load policies for selected client */
+function acLoadPolicies(inboxId, clientId) {
+  var sel = document.getElementById('ac-proc-policy-' + inboxId);
+  if (!sel) return;
+  sel.innerHTML = '<option value="0">None</option>';
+  if (!clientId) return;
+  fetch('/inbox/' + inboxId + '/policies?client_id=' + clientId)
+    .then(function(r) { return r.json(); })
+    .then(function(policies) {
+      policies.forEach(function(p) {
+        var opt = document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = p.type + (p.carrier ? ' - ' + p.carrier : '') + ' (' + p.uid + ')';
+        sel.appendChild(opt);
+      });
+    });
+}
+
+/* On load: if a client is already selected (pre-tagged), load their policies */
+(function() {
+  document.querySelectorAll('[id^="ac-proc-client-"]').forEach(function(sel) {
+    if (sel.value) {
+      var inboxId = sel.id.replace('ac-proc-client-', '');
+      acLoadPolicies(parseInt(inboxId), sel.value);
+    }
+  });
+})();
+</script>

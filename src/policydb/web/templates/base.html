@@ -474,19 +474,9 @@
               </div>
             </div>
 
-            <!-- Activity dropdown -->
-            <div class="relative" onmouseenter="openNavDrop(this)" onmouseleave="closeNavDrop(this)">
-              <button class="nav-link flex items-center gap-1 {% if active in ['followups','activities','meetings','review'] %}bg-marsh-light border-b-2 border-[#c8a96e]{% endif %}">
-                Activity
-                <svg class="w-3 h-3 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
-              </button>
-              <div class="nav-drop-panel hidden absolute left-0 top-full mt-0.5 w-40 bg-white rounded-md shadow-lg border border-gray-200 py-1 z-50">
-                <a href="/followups" class="block px-4 py-1.5 text-sm text-gray-700 hover:bg-gray-100 {% if active == 'followups' %}font-semibold text-marsh{% endif %}">Follow-Ups</a>
-                <a href="/activities" class="block px-4 py-1.5 text-sm text-gray-700 hover:bg-gray-100 {% if active == 'activities' %}font-semibold text-marsh{% endif %}">Activity Log</a>
-                <a href="/meetings" class="block px-4 py-1.5 text-sm text-gray-700 hover:bg-gray-100 {% if active == 'meetings' %}font-semibold text-marsh{% endif %}">Meetings</a>
-                <a href="/review" class="block px-4 py-1.5 text-sm text-gray-700 hover:bg-gray-100 {% if active == 'review' %}font-semibold text-marsh{% endif %}">Review</a>
-              </div>
-            </div>
+            <a href="/action-center" class="nav-link {% if active == 'action-center' %}bg-marsh-light{% endif %}">
+              Action Center
+            </a>
 
             <!-- Tools dropdown -->
             <div class="relative" onmouseenter="openNavDrop(this)" onmouseleave="closeNavDrop(this)">
@@ -504,7 +494,7 @@
             </div>
 
             {% set _inbox_count = inbox_pending_count() %}
-            <a href="/inbox" class="nav-link {% if active == 'inbox' %}bg-marsh-light{% endif %}">
+            <a href="/action-center?tab=inbox" class="nav-link {% if active == 'inbox' %}bg-marsh-light{% endif %}">
               Inbox{% if _inbox_count %}<span class="bg-white/20 text-white text-[10px] px-1.5 py-0.5 rounded-full ml-1">{{ _inbox_count }}</span>{% endif %}
             </a>
           </div>
@@ -1369,6 +1359,10 @@ function policySaveDate(input, uid, field) {
     input.addEventListener('blur', function() { setTimeout(closeDropdown, 200); });
     input.addEventListener('keydown', function(e) {
       if (e.key === 'Escape') closeDropdown();
+      if (e.key === 'Tab' && dropdown) {
+        var first = dropdown.querySelector('div');
+        if (first) { e.preventDefault(); first.dispatchEvent(new MouseEvent('mousedown')); }
+      }
     });
     var form = input.closest('form');
     if (form) form.addEventListener('reset', function() {
