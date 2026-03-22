@@ -65,71 +65,11 @@
   </div>
 </details>
 
-<!-- Mandated Activities -->
-<details class="card mb-6 overflow-hidden">
-  <summary class="px-5 py-3 cursor-pointer select-none list-none flex items-center gap-2 hover:bg-gray-50 transition-colors">
-    <span class="text-xs text-gray-400 details-arrow">▶</span>
-    <h2 class="font-semibold text-gray-900 text-sm">Mandated Activities</h2>
-    <span class="text-xs text-gray-400 ml-1">— auto-created follow-ups on every active policy</span>
-  </summary>
-  <div class="px-5 pb-5">
-    <p class="text-xs text-gray-400 mb-4 pt-3">Activities that are automatically created as follow-ups and milestones on every active policy. New rules take effect on the next server restart.</p>
+{% include 'settings/_mandated_activities_editor.html' %}
 
-    <div id="mandated-activities-list" class="mb-4">
-      {% for r in mandated_activities %}
-      {% set trigger_label = {"days_before_expiry": "before expiry", "days_after_effective": "after effective", "days_after_binding": "after binding"}.get(r.trigger, r.trigger) %}
-      <div class="flex items-center justify-between py-2 border-b border-gray-50">
-        <div class="text-sm text-gray-800">
-          <span class="font-medium">{{ r.name }}</span>
-          &mdash; <span class="text-gray-500">{{ r.days }}d {{ trigger_label }}</span>
-          &middot; <span class="text-gray-400">{{ r.activity_type or 'Meeting' }}</span>
-        </div>
-        <form hx-post="/settings/mandated-activities/remove" hx-target="#mandated-activities-list" hx-swap="innerHTML">
-          <input type="hidden" name="name" value="{{ r.name }}">
-          <button type="submit" class="text-xs text-red-400 hover:text-red-600">&times;</button>
-        </form>
-      </div>
-      {% else %}
-      <p class="text-xs text-gray-400 py-2">No mandated activities configured.</p>
-      {% endfor %}
-    </div>
+{% include 'settings/_milestone_profiles_editor.html' %}
 
-    <form hx-post="/settings/mandated-activities/add" hx-target="#mandated-activities-list" hx-swap="innerHTML"
-          class="flex items-end gap-2 flex-wrap">
-      <div>
-        <label class="text-[10px] text-gray-500 block">Name</label>
-        <input type="text" name="name" required placeholder="RSM Meeting"
-          class="border border-gray-200 rounded px-2 py-1 text-xs w-36 focus:outline-none focus:ring-1 focus:ring-marsh">
-      </div>
-      <div>
-        <label class="text-[10px] text-gray-500 block">Trigger</label>
-        <select name="trigger" class="border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-marsh">
-          <option value="days_before_expiry">Days before expiry</option>
-          <option value="days_after_effective">Days after effective</option>
-        </select>
-      </div>
-      <div>
-        <label class="text-[10px] text-gray-500 block">Days</label>
-        <input type="number" name="days" required value="120" min="1" max="365"
-          class="border border-gray-200 rounded px-2 py-1 text-xs w-16 focus:outline-none focus:ring-1 focus:ring-marsh">
-      </div>
-      <div>
-        <label class="text-[10px] text-gray-500 block">Activity Type</label>
-        <select name="activity_type" class="border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-marsh">
-          {% for at in lists.get('activity_types', []) or ['Call','Email','Meeting','Other'] %}
-          <option value="{{ at }}" {{ 'selected' if at == 'Meeting' else '' }}>{{ at }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div>
-        <label class="text-[10px] text-gray-500 block">Subject</label>
-        <input type="text" name="subject" placeholder="Auto: Name — {%raw%}{{policy_type}}{%endraw%}"
-          class="border border-gray-200 rounded px-2 py-1 text-xs w-48 focus:outline-none focus:ring-1 focus:ring-marsh">
-      </div>
-      <button type="submit" class="text-xs text-marsh hover:underline font-medium py-1">+ Add</button>
-    </form>
-  </div>
-</details>
+{% include 'settings/_timeline_engine_editor.html' %}
 
 <!-- Alert & Readiness Thresholds -->
 <details class="card mb-6 overflow-hidden">

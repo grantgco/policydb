@@ -1,0 +1,103 @@
+{# Timeline Engine Thresholds + Risk Alert Toggles — PATCH-on-blur saves #}
+<details class="card mb-6 overflow-hidden">
+  <summary class="px-5 py-3 cursor-pointer select-none list-none flex items-center gap-2 hover:bg-gray-50 transition-colors">
+    <span class="text-xs text-gray-400 details-arrow">&#9654;</span>
+    <h2 class="font-semibold text-gray-900 text-sm">Timeline Engine</h2>
+    <span class="text-xs text-gray-400 ml-1">-- scheduling gaps, drift detection, and risk alert behavior</span>
+  </summary>
+  <div class="px-5 pb-5 pt-3">
+    <p class="text-xs text-gray-400 mb-4">Controls how the proactive timeline engine schedules mandated activities, detects drift, and manages compression. Changes apply on next page load.</p>
+
+    <div class="space-y-5">
+      <!-- Scheduling Parameters -->
+      <div>
+        <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Scheduling Parameters</p>
+        <div class="grid grid-cols-3 gap-4 max-w-xl">
+          <div>
+            <label class="block text-xs text-gray-600 mb-0.5">Minimum Gap (days)</label>
+            <p class="text-[10px] text-gray-400 mb-1">Min days between back-to-back activities</p>
+            <input type="number" id="te-min-gap" value="{{ timeline_engine.get('minimum_gap_days', 3) }}" min="0" max="30"
+              class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-marsh"
+              onchange="saveTimelineEngine()">
+          </div>
+          <div>
+            <label class="block text-xs text-gray-600 mb-0.5">Drift Threshold (days)</label>
+            <p class="text-[10px] text-gray-400 mb-1">Days past target before flagging as drifted</p>
+            <input type="number" id="te-drift" value="{{ timeline_engine.get('drift_threshold_days', 7) }}" min="1" max="60"
+              class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-marsh"
+              onchange="saveTimelineEngine()">
+          </div>
+          <div>
+            <label class="block text-xs text-gray-600 mb-0.5">Compression Threshold</label>
+            <p class="text-[10px] text-gray-400 mb-1">Fraction (0-1) of timeline used before compressing</p>
+            <input type="number" id="te-compress" value="{{ timeline_engine.get('compression_threshold', 0.5) }}" min="0" max="1" step="0.05"
+              class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-marsh"
+              onchange="saveTimelineEngine()">
+          </div>
+        </div>
+      </div>
+
+      <!-- Risk Alert Behavior -->
+      <div>
+        <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Risk Alert Behavior</p>
+        <p class="text-xs text-gray-400 mb-3">Control what happens when a policy reaches at-risk or critical readiness status.</p>
+        <div class="space-y-3">
+          <label class="toggle-switch flex items-center gap-3">
+            <input type="checkbox" id="rat-at-risk" {{ 'checked' if risk_alert_thresholds.get('at_risk_notify', true) }}
+              onchange="saveTimelineEngine()">
+            <span class="toggle-track"></span>
+            <div>
+              <span class="text-sm text-gray-700">At-Risk Notification</span>
+              <p class="text-[10px] text-gray-400">Show banner when a policy drops to at-risk readiness</p>
+            </div>
+          </label>
+          <label class="toggle-switch flex items-center gap-3">
+            <input type="checkbox" id="rat-critical" {{ 'checked' if risk_alert_thresholds.get('critical_notify', true) }}
+              onchange="saveTimelineEngine()">
+            <span class="toggle-track"></span>
+            <div>
+              <span class="text-sm text-gray-700">Critical Notification</span>
+              <p class="text-[10px] text-gray-400">Show urgent banner when a policy drops to critical readiness</p>
+            </div>
+          </label>
+          <label class="toggle-switch flex items-center gap-3">
+            <input type="checkbox" id="rat-auto-draft" {{ 'checked' if risk_alert_thresholds.get('critical_auto_draft', true) }}
+              onchange="saveTimelineEngine()">
+            <span class="toggle-track"></span>
+            <div>
+              <span class="text-sm text-gray-700">Critical Auto-Draft</span>
+              <p class="text-[10px] text-gray-400">Auto-draft a follow-up when readiness hits critical</p>
+            </div>
+          </label>
+        </div>
+      </div>
+
+      <div>
+        <span id="te-status" class="text-xs"></span>
+      </div>
+    </div>
+  </div>
+</details>
+
+<script>
+function saveTimelineEngine() {
+  var body = new URLSearchParams();
+  body.append('minimum_gap_days', document.getElementById('te-min-gap').value);
+  body.append('drift_threshold_days', document.getElementById('te-drift').value);
+  body.append('compression_threshold', document.getElementById('te-compress').value);
+  body.append('at_risk_notify', document.getElementById('rat-at-risk').checked ? 'true' : 'false');
+  body.append('critical_notify', document.getElementById('rat-critical').checked ? 'true' : 'false');
+  body.append('critical_auto_draft', document.getElementById('rat-auto-draft').checked ? 'true' : 'false');
+  fetch('/settings/timeline-engine', {
+    method: 'PATCH',
+    body: body
+  }).then(function(r) {
+    if (r.ok) {
+      var s = document.getElementById('te-status');
+      s.textContent = 'Saved';
+      s.className = 'text-xs text-green-600';
+      setTimeout(function() { s.textContent = ''; }, 2000);
+    }
+  });
+}
+</script>
