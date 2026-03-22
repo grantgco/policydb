@@ -1,0 +1,42 @@
+{# Condensed single-row summary bar — replaces 6 separate cards #}
+<div class="card px-5 py-3 mb-4">
+  <div class="flex items-center justify-between gap-6 flex-wrap">
+    <div class="flex items-center gap-6 text-sm">
+      <div>
+        <span class="text-xs text-gray-400 uppercase tracking-wide">Premium</span>
+        <span class="font-bold text-gray-900 ml-1">{{ summary.total_premium | currency }}</span>
+      </div>
+      <div>
+        <span class="text-xs text-gray-400 uppercase tracking-wide">Revenue</span>
+        <span class="font-bold text-gray-900 ml-1">{{ summary.total_revenue | currency }}</span>
+        <span class="text-xs text-gray-400 ml-0.5">
+          {%- if summary.total_commission and summary.total_fees -%}comm+fee
+          {%- elif summary.total_fees -%}fee
+          {%- elif summary.total_commission -%}comm
+          {%- endif -%}
+        </span>
+      </div>
+      <div>
+        <span class="text-xs text-gray-400 uppercase tracking-wide">Policies</span>
+        <span class="font-bold text-gray-900 ml-1">{{ summary.total_policies }}</span>
+      </div>
+      <div class="{{ 'text-amber-700' if summary.next_renewal_days and summary.next_renewal_days <= 90 else '' }}">
+        <span class="text-xs text-gray-400 uppercase tracking-wide">Renewal</span>
+        <span class="font-bold ml-1">{% if summary.next_renewal_days %}{{ summary.next_renewal_days }}d{% else %}—{% endif %}</span>
+      </div>
+      <div>
+        <span class="text-xs text-gray-400 uppercase tracking-wide">Carriers</span>
+        <span class="font-bold text-gray-900 ml-1">{{ summary.carrier_count }}</span>
+      </div>
+      <div>
+        <span class="text-xs text-gray-400 uppercase tracking-wide">Hours</span>
+        <span class="font-bold text-gray-900 ml-1">{{ client_total_hours | format_hours }}</span>
+      </div>
+    </div>
+    <div class="flex gap-2 no-print">
+      <a href="/clients/{{ client.id }}/edit" class="text-xs border border-gray-300 hover:border-marsh text-gray-600 hover:text-marsh px-3 py-1.5 rounded-lg transition-colors">Edit</a>
+      <a href="/compliance/client/{{ client.id }}" class="text-xs border border-gray-300 hover:border-marsh text-gray-600 hover:text-marsh px-3 py-1.5 rounded-lg transition-colors">Compliance</a>
+      <a href="/clients/{{ client.id }}/export/schedule?fmt=xlsx" class="text-xs border border-green-600 hover:bg-green-600 text-green-700 hover:text-white px-3 py-1.5 rounded-lg transition-colors">Schedule ↓</a>
+    </div>
+  </div>
+</div>
