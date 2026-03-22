@@ -161,11 +161,13 @@
         <div class="flex-shrink-0 w-12 h-12 relative">
           <svg viewBox="0 0 36 36" class="w-12 h-12 transform -rotate-90">
             <circle cx="18" cy="18" r="15.9" fill="none" stroke="#e5e7eb" stroke-width="3"/>
+            {% if pct > 0 %}
             <circle cx="18" cy="18" r="15.9" fill="none"
-                    stroke="{{ '#22c55e' if pct >= 75 else '#f59e0b' if pct >= 50 else '#ef4444' if s.total > 0 else '#d1d5db' }}"
+                    stroke="{{ '#22c55e' if pct >= 75 else '#f59e0b' if pct >= 50 else '#ef4444' }}"
                     stroke-width="3"
                     stroke-dasharray="{{ pct }}, 100"
                     stroke-linecap="round"/>
+            {% endif %}
           </svg>
           <div class="absolute inset-0 flex items-center justify-center">
             <span class="text-[10px] font-bold text-gray-700">{{ pct }}%</span>

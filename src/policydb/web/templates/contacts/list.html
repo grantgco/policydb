@@ -254,7 +254,7 @@
                  class="ucell outline-none text-gray-600 text-xs rounded px-1 -mx-1"
                  data-field="title" data-placeholder="Title...">{{ c.title or '' }}</div>
           </td>
-          <td class="ucell-email px-3 py-2.5 overflow-hidden cursor-pointer" data-field="email">
+          <td class="ucell-email px-3 py-2.5 overflow-hidden cursor-pointer max-w-[180px]" data-field="email">
             <span class="cell-display text-xs">
             {% if c.email %}
             <a href="mailto:{{ c.email }}" class="text-marsh hover:underline truncate block max-w-full" title="{{ c.email }}" onclick="event.stopPropagation()">{{ c.email }}</a>
