@@ -903,6 +903,19 @@ def init_db(path: Path | None = None) -> None:
     # Data hygiene: fix 'None' string corruption in text fields (runs every startup, fast no-op if clean)
     conn.execute("UPDATE clients SET cn_number = NULL WHERE cn_number = 'None'")
 
+    # Data hygiene: clean up blank "New Contact" / "New Person" entries with no real data
+    conn.execute("""
+        DELETE FROM contacts WHERE id IN (
+            SELECT c.id FROM contacts c
+            WHERE c.name IN ('New Contact', 'New Person')
+              AND (c.email IS NULL OR c.email = '')
+              AND (c.phone IS NULL OR c.phone = '')
+              AND (c.mobile IS NULL OR c.mobile = '')
+              AND c.id NOT IN (SELECT contact_id FROM contact_client_assignments WHERE role IS NOT NULL AND role != '')
+              AND c.id NOT IN (SELECT contact_id FROM contact_policy_assignments)
+        )
+    """)
+
     # Data hygiene: remove orphaned compliance requirements (source deleted but requirements remain)
     conn.execute("""
         DELETE FROM coverage_requirements

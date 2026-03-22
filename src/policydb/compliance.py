@@ -128,7 +128,13 @@ def get_location_requirements(
         ORDER BY cr.coverage_line, cr.source_id
     """
     rows = conn.execute(sql, (client_id, project_id, project_id)).fetchall()
-    return [dict(r) for r in rows]
+    result = []
+    for r in rows:
+        d = dict(r)
+        # Pre-parse endorsements JSON for template rendering
+        d["_endorsements_list"] = _parse_endorsements(d.get("required_endorsements"))
+        result.append(d)
+    return result
 
 
 def suggest_policy_for_requirement(
