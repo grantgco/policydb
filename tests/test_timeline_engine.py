@@ -443,3 +443,32 @@ def test_get_all_followups_includes_accountability(tmp_db):
     assert len(all_items) > 0
     item = all_items[0]
     assert item["accountability"] == "waiting_external"
+
+
+# ── Task 8: Re-diary triggers timeline recalculation ────────────────────
+
+
+def test_update_timeline_from_followup_waiting(tmp_db):
+    from policydb.timeline_engine import update_timeline_from_followup
+    conn = get_connection(tmp_db)
+    exp = date.today() + timedelta(days=120)
+    _insert_test_client(conn, 1, "Acme Corp")
+    _insert_test_policy(conn, "POL-001", 1, exp_date=exp.isoformat(), milestone_profile="Simple Renewal")
+    conn.commit()
+    generate_policy_timelines(conn)
+
+    new_followup_date = (date.today() + timedelta(days=10)).isoformat()
+    update_timeline_from_followup(
+        conn, policy_uid="POL-001",
+        milestone_name="Quote Received",
+        disposition="Waiting on Carrier",
+        new_followup_date=new_followup_date,
+        waiting_on="AmTrust",
+    )
+
+    timeline = get_policy_timeline(conn, "POL-001")
+    by_name = {r["milestone_name"]: r for r in timeline}
+    qr = by_name.get("Quote Received")
+    if qr:
+        assert qr["accountability"] == "waiting_external"
+        assert qr["waiting_on"] == "AmTrust"

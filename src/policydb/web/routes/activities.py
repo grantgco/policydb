@@ -423,6 +423,27 @@ def activity_followup(
         supersede_followups(conn, original["policy_id"], new_follow_up_date)
     conn.commit()
 
+    # If this follow-up is for a policy with a disposition, update the timeline
+    if original.get("policy_id") and disposition:
+        pol_row = conn.execute(
+            "SELECT policy_uid FROM policies WHERE id=?", (original["policy_id"],)
+        ).fetchone()
+        if pol_row:
+            _policy_uid = pol_row["policy_uid"]
+            from policydb.timeline_engine import update_timeline_from_followup
+            # Find the earliest incomplete milestone to re-diary against
+            active = conn.execute("""
+                SELECT milestone_name FROM policy_timeline
+                WHERE policy_uid = ? AND completed_date IS NULL
+                ORDER BY projected_date LIMIT 1
+            """, (_policy_uid,)).fetchone()
+            if active:
+                update_timeline_from_followup(
+                    conn, _policy_uid, active["milestone_name"],
+                    disposition, new_follow_up_date or None,
+                    waiting_on=None,
+                )
+
     # Auto-review checks
     if original.get("policy_id"):
         pol = conn.execute("SELECT policy_uid FROM policies WHERE id=?", (original["policy_id"],)).fetchone()

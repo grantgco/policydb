@@ -383,6 +383,52 @@ def _recompute_prep_and_health(conn, policy_uid: str, expiration_date: str) -> N
     conn.commit()
 
 
+# ── Follow-up / Re-diary Integration ──────────────────────────────────
+
+
+def update_timeline_from_followup(
+    conn,
+    policy_uid: str,
+    milestone_name: str,
+    disposition: str,
+    new_followup_date: Optional[str],
+    waiting_on: Optional[str] = None,
+) -> None:
+    """Update timeline when a follow-up is re-diaried with a disposition.
+
+    Looks up the accountability state for the given disposition from config,
+    updates the milestone's accountability and waiting_on fields, and — when
+    the disposition maps to waiting_external — shifts the projected_date
+    forward to new_followup_date and recalculates downstream milestones.
+    """
+    dispositions = cfg.get("follow_up_dispositions", [])
+    accountability = "my_action"
+    for d in dispositions:
+        if d["label"] == disposition:
+            accountability = d.get("accountability", "my_action")
+            break
+
+    # Update the milestone's accountability and waiting_on
+    conn.execute("""
+        UPDATE policy_timeline
+        SET accountability = ?, waiting_on = ?
+        WHERE policy_uid = ? AND milestone_name = ?
+    """, (accountability, waiting_on, policy_uid, milestone_name))
+
+    # If waiting_external, extend projected_date and recalculate downstream
+    if accountability == "waiting_external" and new_followup_date:
+        expiration = conn.execute(
+            "SELECT expiration_date FROM policies WHERE policy_uid = ?", (policy_uid,)
+        ).fetchone()
+        if expiration and expiration["expiration_date"]:
+            recalculate_downstream(
+                conn, policy_uid, milestone_name,
+                new_followup_date, expiration["expiration_date"]
+            )
+
+    conn.commit()
+
+
 # ── Helpers ────────────────────────────────────────────────────────────
 
 
