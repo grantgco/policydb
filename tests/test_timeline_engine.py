@@ -380,3 +380,41 @@ def test_recalculate_minimum_gap(tmp_db):
     approved = date.fromisoformat(by_name["Client Approved"]["projected_date"])
     quote = date.fromisoformat(by_name["Quote Received"]["projected_date"])
     assert (approved - quote).days >= 3  # minimum_gap_days
+
+
+# ── Task 6: Startup Wiring Tests ────────────────────────────────────────
+
+
+def test_init_db_calls_generate_timelines(tmp_db):
+    """After init_db, policies with profiles should have timeline rows."""
+    conn = get_connection(tmp_db)
+    _insert_test_client(conn, 1, "Acme Corp")
+    exp_date = (date.today() + timedelta(days=150)).isoformat()
+    eff_date = (date.today() - timedelta(days=215)).isoformat()
+    _insert_test_policy(conn, 'POL-001', 1, eff_date=eff_date, exp_date=exp_date,
+                        milestone_profile="Simple Renewal")
+    conn.commit()
+    conn.close()
+    # Re-run init_db which should call generate_policy_timelines
+    import policydb.config as cfg
+    cfg.reload_config()
+    init_db(path=tmp_db)
+    # Open a fresh connection to see rows written by init_db's internal connection
+    conn2 = get_connection(tmp_db)
+    timeline = get_policy_timeline(conn2, 'POL-001')
+    assert len(timeline) > 0
+
+
+# ── Task 6b: Pipeline View Timeline Health Tests ─────────────────────────
+
+
+def test_pipeline_view_includes_timeline_health(tmp_db):
+    conn = get_connection(tmp_db)
+    cols = [d[0] for d in conn.execute("SELECT * FROM v_renewal_pipeline LIMIT 0").description]
+    assert "timeline_health" in cols
+
+
+def test_overdue_followups_view_includes_timeline_health(tmp_db):
+    conn = get_connection(tmp_db)
+    cols = [d[0] for d in conn.execute("SELECT * FROM v_overdue_followups LIMIT 0").description]
+    assert "timeline_health" in cols
