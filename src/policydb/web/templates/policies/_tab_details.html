@@ -1,0 +1,709 @@
+{# Policy Details Tab — per-field PATCH on blur, no form wrapper #}
+<div id="tab-details-content">
+
+{% if policy.is_opportunity %}
+<!-- Opportunity banner -->
+<div class="bg-amber-50 border border-amber-200 rounded-xl px-5 py-4 mb-4 flex items-start justify-between gap-4">
+  <div>
+    <p class="text-sm font-semibold text-amber-800">Opportunity — not yet bound</p>
+    <p class="text-xs text-amber-600 mt-0.5">This record will not appear in the renewal pipeline or schedule of insurance until converted to a policy.</p>
+  </div>
+  <button type="button" onclick="document.getElementById('convert-panel').classList.toggle('hidden')"
+    class="shrink-0 text-xs bg-amber-600 hover:bg-amber-700 text-white font-medium px-3 py-1.5 rounded-lg transition-colors no-print">
+    Convert to Policy →
+  </button>
+</div>
+
+<!-- Convert to Policy panel -->
+<div id="convert-panel" class="hidden card p-5 mb-4 border-amber-200 bg-amber-50/30">
+  <p class="text-sm font-semibold text-gray-800 mb-3">Convert Opportunity to Policy</p>
+  <form method="post" action="/policies/{{ policy.policy_uid }}/convert" class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+    <div>
+      <label class="field-label">Effective Date <span class="text-red-400">*</span></label>
+      <input type="date" name="effective_date" value="{{ policy.target_effective_date or '' }}" required class="form-input w-full">
+    </div>
+    <div>
+      <label class="field-label">Expiration Date <span class="text-red-400">*</span></label>
+      <input type="date" name="expiration_date" required class="form-input w-full">
+    </div>
+    <div>
+      <label class="field-label">Carrier</label>
+      <input type="text" name="carrier" value="{{ policy.carrier or '' }}" class="form-input w-full" list="ac-carrier" autocomplete="off">
+    </div>
+    <div class="flex items-end">
+      <button type="submit" class="w-full bg-marsh hover:bg-marsh-light text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
+        Bind It
+      </button>
+    </div>
+  </form>
+</div>
+{% endif %}
+
+{% if policy.is_program %}
+<!-- Program-specific fields -->
+<div class="card mb-4">
+  <div class="px-5 py-3 border-b border-gray-100">
+    <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-1">
+      <span class="bg-blue-100 text-blue-700 text-xs font-bold px-1.5 py-0.5 rounded mr-1">PGM</span> Program Details
+    </span>
+  </div>
+  <div class="p-5">
+    {% include 'policies/_program_carriers_matrix.html' %}
+    {# ── Linked Policies ── #}
+    <div class="mt-4 border-t border-gray-100 pt-4">
+      <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Linked Policies</p>
+      <table class="w-full text-sm mb-3">
+        <thead><tr class="text-left text-xs text-gray-400 border-b border-gray-100">
+          <th class="px-3 py-1.5">UID</th><th class="px-3 py-1.5">Type</th><th class="px-3 py-1.5">Carrier</th>
+          <th class="px-3 py-1.5 text-right">Premium</th><th class="px-3 py-1.5"></th>
+        </tr></thead>
+        <tbody id="program-linked-list">
+          {% if program_linked_policies %}
+          {% for lp in program_linked_policies %}
+          <tr class="border-b border-gray-50">
+            <td class="px-3 py-1.5 text-xs"><a href="/policies/{{ lp.policy_uid }}/edit" class="text-marsh hover:underline">{{ lp.policy_uid }}</a></td>
+            <td class="px-3 py-1.5 text-xs text-gray-700">{{ lp.policy_type }}</td>
+            <td class="px-3 py-1.5 text-xs text-gray-500">{{ lp.carrier or '—' }}</td>
+            <td class="px-3 py-1.5 text-xs text-right">{% if lp.premium %}{{ lp.premium | currency }}{% else %}—{% endif %}</td>
+            <td class="px-3 py-1.5 text-xs">
+              <button type="button" hx-post="/policies/{{ policy.policy_uid }}/program-link"
+                hx-vals='{"unlink_uid": "{{ lp.policy_uid }}"}'
+                hx-target="#program-linked-list" hx-swap="innerHTML"
+                class="text-red-400 hover:text-red-600 text-xs no-print">Unlink</button>
+            </td>
+          </tr>
+          {% endfor %}
+          {% else %}
+          <tr><td colspan="5" class="px-3 py-3 text-xs text-gray-400 text-center italic">No policies linked yet</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+      {% if linkable_policies %}
+      <div class="flex items-end gap-2 no-print">
+        <div class="flex-1">
+          <label class="text-xs text-gray-500 mb-0.5 block">Link a policy to this program</label>
+          <select id="program-link-select" class="form-select w-full text-xs">
+            <option value="">— Select policy —</option>
+            {% for lp in linkable_policies %}
+            {% if not lp.policy_uid in (program_linked_policies | map(attribute='policy_uid') | list) %}
+            <option value="{{ lp.policy_uid }}">{{ lp.policy_uid }} — {{ lp.policy_type }} · {{ lp.carrier or 'No carrier' }}{% if lp.premium %} · {{ lp.premium | currency }}{% endif %}</option>
+            {% endif %}
+            {% endfor %}
+          </select>
+        </div>
+        <button type="button" onclick="var sel=document.getElementById('program-link-select');if(sel.value){htmx.ajax('POST','/policies/{{ policy.policy_uid }}/program-link',{target:'#program-linked-list',swap:'innerHTML',values:{link_uid:sel.value}});sel.value='';}"
+          class="text-xs bg-marsh text-white px-3 py-1.5 rounded hover:bg-marsh-light transition-colors">+ Link</button>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<!-- ── Placement & Renewal ── -->
+<div class="card mb-4">
+  <div class="px-5 py-3 border-b border-gray-100">
+    <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Placement &amp; Renewal</span>
+  </div>
+  <div class="p-5">
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+
+      <div{% if renewal_statuses | length <= 10 %} class="sm:col-span-2 lg:col-span-3"{% endif %}>
+        <label class="field-label">Renewal Status</label>
+        {% if renewal_statuses | length <= 10 %}
+        <div class="seg-control" id="seg-renewal-status">
+          {% for s in renewal_statuses %}
+          <input type="radio" name="renewal_status" id="rs-{{ loop.index }}" value="{{ s }}"
+            data-field="renewal_status"
+            {% if s == policy.renewal_status or (not policy.renewal_status and s == 'Not Started') %}checked{% endif %}>
+          <label for="rs-{{ loop.index }}">{{ s }}</label>
+          {% endfor %}
+        </div>
+        {% else %}
+        <select data-field="renewal_status" class="form-select w-full">
+          {% for s in renewal_statuses %}
+          <option value="{{ s }}" {% if s == policy.renewal_status %}selected{% endif %}>{{ s }}</option>
+          {% endfor %}
+        </select>
+        {% endif %}
+      </div>
+
+      <div>
+        <label class="field-label">Follow-Up Date</label>
+        <input type="date" data-field="follow_up_date" value="{{ policy.follow_up_date or '' }}" class="form-input w-full">
+      </div>
+
+      <div class="sm:col-span-2 lg:col-span-3 border-t border-gray-100 pt-3 mt-1">
+        <div id="review-badge-policy-{{ policy.policy_uid }}" class="flex items-center gap-3 flex-wrap">
+          <div class="flex items-center gap-1.5">
+            <span class="text-xs text-gray-500">Review cycle:</span>
+            <form hx-post="/review/policies/{{ policy.policy_uid }}/mark"
+                  hx-trigger="change" hx-target="#review-badge-policy-{{ policy.policy_uid }}" hx-swap="outerHTML">
+              <input type="hidden" name="mark" value="0">
+              <select name="review_cycle"
+                      class="text-xs border border-gray-200 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-marsh bg-white">
+                {% for code, label in cycle_labels.items() %}
+                <option value="{{ code }}" {% if code == (policy.review_cycle or '1w') %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+            </form>
+          </div>
+          <span class="text-xs {% if not policy.last_reviewed_at %}text-red-500 font-medium{% else %}text-gray-500{% endif %}">
+            {% if policy.last_reviewed_at %}Last reviewed: {{ policy.last_reviewed_at }}{% else %}Never reviewed{% endif %}
+          </span>
+          <form hx-post="/review/policies/{{ policy.policy_uid }}/mark"
+                hx-target="#review-badge-policy-{{ policy.policy_uid }}" hx-swap="outerHTML">
+            <input type="hidden" name="mark" value="1">
+            <input type="hidden" name="review_cycle" value="{{ policy.review_cycle or '1w' }}">
+            <button type="submit"
+                    class="text-xs bg-green-50 text-green-700 border border-green-200 hover:bg-green-100 px-2.5 py-1 rounded transition-colors no-print">
+              ✓ Mark Reviewed
+            </button>
+          </form>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ── Core Fields ── -->
+<div class="card mb-4">
+  <div class="px-5 py-3 border-b border-gray-100">
+    <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Core Fields</span>
+  </div>
+  <div class="p-5">
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+
+      <div class="sm:col-span-2 lg:col-span-1">
+        <label class="field-label">Line of Business <span class="text-red-400">*</span></label>
+        <select data-field="policy_type" class="form-select w-full" required>
+          {% if policy.policy_type and policy.policy_type not in policy_types %}
+          <option value="{{ policy.policy_type }}" selected>{{ policy.policy_type }}</option>
+          {% endif %}
+          {% for t in policy_types %}
+          <option value="{{ t }}" {% if t == policy.policy_type %}selected{% endif %}>{{ t }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div>
+        <label class="field-label">Carrier {% if not policy.is_opportunity %}<span class="text-red-400">*</span>{% endif %}</label>
+        <input type="text" data-field="carrier" value="{{ policy.carrier or '' }}" class="form-input w-full"
+          list="ac-carrier" autocomplete="off">
+      </div>
+
+      <div>
+        <label class="field-label">Access Point</label>
+        <input type="text" data-field="access_point" value="{{ policy.access_point or '' }}"
+          placeholder="Wholesaler, MGA, etc." class="form-input w-full"
+          list="ac-access_point" autocomplete="off">
+      </div>
+
+      {% if policy.is_opportunity %}
+      <div{% if opportunity_statuses | length <= 10 %} class="sm:col-span-2"{% endif %}>
+        <label class="field-label">Opportunity Status</label>
+        {% if opportunity_statuses | length <= 10 %}
+        <div class="seg-control" id="seg-opp-status">
+          {% for s in opportunity_statuses %}
+          <input type="radio" name="opportunity_status" id="os-{{ loop.index }}" value="{{ s }}"
+            data-field="opportunity_status"
+            {% if s == policy.opportunity_status %}checked{% endif %}>
+          <label for="os-{{ loop.index }}">{{ s }}</label>
+          {% endfor %}
+        </div>
+        {% else %}
+        <select data-field="opportunity_status" class="form-select w-full">
+          <option value="">— Select —</option>
+          {% for s in opportunity_statuses %}
+          <option value="{{ s }}" {% if s == policy.opportunity_status %}selected{% endif %}>{{ s }}</option>
+          {% endfor %}
+        </select>
+        {% endif %}
+      </div>
+      <div>
+        <label class="field-label">Target Effective Date</label>
+        <input type="date" data-field="target_effective_date" value="{{ policy.target_effective_date or '' }}" class="form-input w-full">
+      </div>
+      {% endif %}
+
+      <div>
+        <label class="field-label">Policy Number</label>
+        <input type="text" data-field="policy_number" value="{{ policy.policy_number or '' }}" class="form-input w-full">
+      </div>
+
+      <div>
+        <label class="field-label">First Named Insured</label>
+        <input type="text" data-field="first_named_insured" value="{{ policy.first_named_insured or '' }}"
+          placeholder="If different from client name" class="form-input w-full"
+          list="ac-first_named_insured" autocomplete="off">
+      </div>
+
+      {% if not policy.is_opportunity %}
+      <div>
+        <label class="field-label">Effective Date <span class="text-red-400">*</span></label>
+        <input type="date" data-field="effective_date" value="{{ policy.effective_date or '' }}" required class="form-input w-full">
+      </div>
+      <div>
+        <label class="field-label">Expiration Date <span class="text-red-400">*</span></label>
+        <input type="date" data-field="expiration_date" value="{{ policy.expiration_date or '' }}" required class="form-input w-full">
+      </div>
+      {% endif %}
+
+      <div>
+        <label class="field-label">{% if not policy.is_opportunity %}Annual Premium <span class="text-red-400">*</span>{% else %}Est. Premium{% endif %}</label>
+        <input type="text" class="form-input w-full currency-input" autocomplete="off"
+          value="{% if policy.premium %}{{ '{:,.0f}'.format(policy.premium | float) }}{% endif %}"
+          placeholder="0" data-currency-field="premium">
+      </div>
+
+      <div>
+        <label class="field-label">Limit</label>
+        <input type="text" class="form-input w-full currency-input" autocomplete="off"
+          value="{% if policy.limit_amount %}{{ '{:,.0f}'.format(policy.limit_amount | float) }}{% endif %}"
+          placeholder="0" data-currency-field="limit_amount">
+      </div>
+
+      <div>
+        <label class="field-label">Deductible</label>
+        <input type="text" class="form-input w-full currency-input" autocomplete="off"
+          value="{% if policy.deductible %}{{ '{:,.0f}'.format(policy.deductible | float) }}{% endif %}"
+          placeholder="0" data-currency-field="deductible">
+      </div>
+
+      <div>
+        <label class="field-label">Coverage Form</label>
+        <select data-field="coverage_form" class="form-select w-full">
+          <option value="">—</option>
+          {% for f in coverage_forms %}
+          <option value="{{ f }}" {% if f == policy.coverage_form %}selected{% endif %}>{{ f }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div>
+        <label class="field-label">Project / Location</label>
+        <input type="text" data-field="project_name" value="{{ policy.project_name or '' }}"
+          placeholder="e.g. Main Street Condos" class="form-input w-full"
+          list="ac-project_name" autocomplete="off">
+      </div>
+
+      <div class="flex items-center gap-6 pt-2">
+        <label class="toggle-switch">
+          <input type="checkbox" data-field="is_bor" value="1" {% if policy.is_bor %}checked{% endif %}>
+          <span class="toggle-track"></span>
+          <span class="text-sm text-gray-700 ml-2">BOR</span>
+        </label>
+        <label class="toggle-switch">
+          <input type="checkbox" data-field="is_standalone" value="1" {% if policy.is_standalone %}checked{% endif %}>
+          <span class="toggle-track"></span>
+          <span class="text-sm text-gray-700 ml-2">Standalone</span>
+        </label>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ── Description ── -->
+<div class="card mb-4">
+  <div class="px-5 py-3 border-b border-gray-100">
+    <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Description <span class="font-normal text-gray-400 normal-case tracking-normal">client-facing · appears on schedule of insurance</span></span>
+  </div>
+  <div class="p-5">
+    <textarea data-field="description" rows="3" placeholder="Plain-English summary of what this policy covers and why the client has it."
+      class="form-input w-full">{{ policy.description or '' }}</textarea>
+  </div>
+</div>
+
+<!-- ── Program Structure ── -->
+<div class="card mb-4">
+  <div class="px-5 py-3 border-b border-gray-100">
+    <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Program Structure</span>
+  </div>
+  <div class="p-5">
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+
+      <div>
+        <label class="field-label">Layer Type</label>
+        {% set lp = (policy.layer_position or 0) | int %}
+        <select data-field="layer_position" id="layer-position-select" class="form-select w-full">
+          <option value="0" {% if lp == 0 %}selected{% endif %}>Primary</option>
+          <option value="1" {% if lp == 1 %}selected{% endif %}>1st Excess</option>
+          <option value="2" {% if lp == 2 %}selected{% endif %}>2nd Excess</option>
+          <option value="3" {% if lp == 3 %}selected{% endif %}>3rd Excess</option>
+          <option value="4" {% if lp == 4 %}selected{% endif %}>4th Excess</option>
+          <option value="5" {% if lp == 5 %}selected{% endif %}>5th Excess</option>
+          {% for n in range(6, 16) %}
+          <option value="{{ n }}" {% if lp == n %}selected{% endif %}>{{ n }}th Excess</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div>
+        <label class="field-label">Tower Group</label>
+        <input type="text" data-field="tower_group" value="{{ policy.tower_group or '' }}" placeholder="e.g. GL Tower" class="form-input w-full"
+          list="ac-tower_group" autocomplete="off">
+      </div>
+
+      <div>
+        <label class="field-label">Attachment Point ($)</label>
+        <input type="text" id="attachment_point" class="form-input w-full currency-input" autocomplete="off"
+          value="{% if policy.attachment_point %}{{ '{:,.0f}'.format(policy.attachment_point | float) }}{% endif %}"
+          placeholder="Leave blank for Primary" data-currency-field="attachment_point">
+        <p id="layer-notation-preview" class="text-xs text-marsh mt-1 font-mono"></p>
+        <p id="attachment-hint" class="text-xs text-gray-400 mt-0.5 hidden"></p>
+      </div>
+
+      <div>
+        <label class="field-label">Part Of Layer ($) <span class="text-gray-400 font-normal">— if shared layer</span></label>
+        <input type="text" id="participation_of" class="form-input w-full currency-input" autocomplete="off"
+          value="{% if policy.participation_of %}{{ '{:,.0f}'.format(policy.participation_of | float) }}{% endif %}"
+          placeholder="Total layer limit if co-participation" data-currency-field="participation_of">
+      </div>
+
+    </div>
+
+    {# Live layer notation #}
+    <div id="layer-summary-box" class="mt-4 p-3 bg-gray-50 rounded-lg border border-gray-100 hidden">
+      <p class="text-xs text-gray-400 uppercase tracking-wide mb-1">Placement Notation</p>
+      <p id="layer-summary-text" class="text-sm font-mono text-gray-800 font-medium"></p>
+    </div>
+
+    {% if tower_layers and tower_layers | length > 1 %}
+    <div class="mt-5 pt-4 border-t border-gray-100">
+      <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Tower Structure</p>
+      <div class="flex flex-col-reverse gap-px">
+        {% for layer in tower_layers %}
+        {% set lim = (layer.limit_amount or 0) | float %}
+        {% set att = layer.attachment_point %}
+        <div class="flex items-stretch {% if layer.is_current %}bg-blue-50 border border-blue-200{% else %}bg-white border border-gray-100{% endif %} rounded-lg overflow-hidden">
+          <div class="w-24 shrink-0 flex flex-col items-center justify-center py-2.5 {% if layer.is_current %}bg-blue-100/60{% else %}bg-gray-50{% endif %}">
+            {% set lpos = (layer.layer_position or 0) | int %}
+            <span class="text-xs font-semibold {% if layer.is_current %}text-blue-700{% else %}text-gray-500{% endif %}">
+              {% if lpos == 0 %}Primary{% elif lpos == 1 %}1st Excess{% elif lpos == 2 %}2nd Excess{% elif lpos == 3 %}3rd Excess{% else %}{{ lpos }}th Excess{% endif %}
+            </span>
+          </div>
+          <div class="flex-1 py-2.5 px-4 flex items-center justify-between gap-3 min-w-0">
+            <div class="min-w-0">
+              <p class="text-sm {% if layer.is_current %}font-semibold text-gray-900{% else %}text-gray-700{% endif %}">
+                {{ layer.policy_type or '' }}
+                {% if layer.carrier %}<span class="font-normal text-gray-400">— {{ layer.carrier }}</span>{% endif %}
+              </p>
+              <p class="text-xs font-mono text-gray-500 mt-0.5">
+                {% if lim >= 1000000 %}${{ "{:,.0f}".format(lim / 1000000) }}M{% else %}${{ "{:,.0f}".format(lim) }}{% endif %}
+                {% if att is not none and att | float > 0 %}
+                  xs {% if att | float >= 1000000 %}${{ "{:,.0f}".format(att | float / 1000000) }}M{% else %}${{ "{:,.0f}".format(att | float) }}{% endif %}
+                {% elif lpos == 0 %} Primary
+                {% else %} xs Primary{% endif %}
+                {% if layer.participation_of and layer.participation_of | float > 0 %}
+                  PO {% if layer.participation_of | float >= 1000000 %}${{ "{:,.0f}".format(layer.participation_of | float / 1000000) }}M{% else %}${{ "{:,.0f}".format(layer.participation_of | float) }}{% endif %}
+                {% endif %}
+              </p>
+            </div>
+            <div class="text-right shrink-0">
+              {% if layer.is_current %}
+              <span class="text-xs text-blue-500">this policy</span>
+              {% else %}
+              <a href="/policies/{{ layer.policy_uid }}/edit" class="text-xs text-marsh hover:underline">{{ layer.policy_uid }}</a>
+              {% endif %}
+            </div>
+          </div>
+          <div class="w-28 shrink-0 flex flex-col items-end justify-center pr-3 py-2.5 {% if layer.is_current %}bg-blue-100/40{% else %}bg-gray-50/50{% endif %}">
+            <span class="text-xs text-gray-400">Ground-Up</span>
+            <span class="text-sm font-mono tabular-nums font-semibold {% if layer.is_current %}text-blue-700{% else %}text-gray-700{% endif %}">
+              {% if layer.ground_up >= 1000000 %}${{ "{:,.0f}".format(layer.ground_up / 1000000) }}M{% else %}${{ "{:,.0f}".format(layer.ground_up) }}{% endif %}
+            </span>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      <div class="mt-3 flex justify-end">
+        <div class="bg-marsh/5 border border-marsh/20 rounded-lg px-4 py-2">
+          <span class="text-xs text-gray-500">Total Program Limit:</span>
+          <span class="text-sm font-mono tabular-nums font-bold text-marsh ml-2">
+            {% if tower_layers[-1].ground_up >= 1000000 %}${{ "{:,.0f}".format(tower_layers[-1].ground_up / 1000000) }}M{% else %}${{ "{:,.0f}".format(tower_layers[-1].ground_up) }}{% endif %}
+          </span>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- ── Exposure ── -->
+<div class="card mb-4">
+  <div class="px-5 py-3 border-b border-gray-100">
+    <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Exposure</span>
+  </div>
+  <div class="p-5 space-y-4">
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div>
+        <label class="field-label">Exposure Basis</label>
+        <input type="text" data-field="exposure_basis" value="{{ policy.exposure_basis or '' }}"
+          placeholder="e.g. Payroll, Revenue, Sq Ft" class="form-input w-full"
+          list="ac-exposure_basis" autocomplete="off">
+      </div>
+      <div>
+        <label class="field-label">Exposure Amount</label>
+        <input type="text" class="form-input w-full currency-input" autocomplete="off"
+          value="{% if policy.exposure_amount %}{{ '{:,.0f}'.format(policy.exposure_amount | float) }}{% endif %}"
+          placeholder="0" data-currency-field="exposure_amount">
+      </div>
+      <div>
+        <label class="field-label">Exposure Unit</label>
+        <input type="text" data-field="exposure_unit" value="{{ policy.exposure_unit or '' }}"
+          placeholder="e.g. per $100, per $1,000, per unit" class="form-input w-full"
+          list="ac-exposure_unit" autocomplete="off">
+      </div>
+    </div>
+
+    <div>
+      <p class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-3">Primary Exposure Address / Location</p>
+      <div class="grid grid-cols-1 sm:grid-cols-6 gap-4">
+        <div class="sm:col-span-6">
+          <label class="field-label">Street Address</label>
+          <input type="text" data-field="exposure_address" value="{{ policy.exposure_address or '' }}"
+            placeholder="123 Main St, Suite 100" class="form-input w-full">
+        </div>
+        <div class="sm:col-span-3">
+          <label class="field-label">City</label>
+          <input type="text" data-field="exposure_city" value="{{ policy.exposure_city or '' }}"
+            class="form-input w-full" list="ac-exposure_city" autocomplete="off">
+        </div>
+        <div class="sm:col-span-2">
+          <label class="field-label">State</label>
+          <select data-field="exposure_state" class="form-select w-full">
+            <option value="">—</option>
+            {% for abbr, name in us_states %}
+            <option value="{{ abbr }}" {% if abbr == policy.exposure_state %}selected{% endif %}>{{ abbr }} – {{ name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="sm:col-span-1">
+          <label class="field-label">ZIP</label>
+          <input type="text" data-field="exposure_zip" value="{{ policy.exposure_zip or '' }}"
+            placeholder="12345" maxlength="10" class="form-input w-full">
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Internal ── -->
+<div class="card mb-4">
+  <div class="px-5 py-3 border-b border-gray-100">
+    <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Internal <span class="font-normal text-gray-400 normal-case tracking-normal">never client-facing</span></span>
+  </div>
+  <div class="p-5">
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+
+      <div>
+        <label class="field-label">Commission Rate</label>
+        <input type="number" data-field="commission_rate" value="{{ policy.commission_rate or '' }}" step="0.001" min="0" max="1" placeholder="0.12 = 12%" class="form-input w-full">
+      </div>
+
+      <div>
+        <label class="field-label">Prior Premium</label>
+        <input type="text" class="form-input w-full currency-input" autocomplete="off"
+          value="{% if policy.prior_premium %}{{ '{:,.0f}'.format(policy.prior_premium | float) }}{% endif %}"
+          placeholder="0" data-currency-field="prior_premium">
+      </div>
+
+      <div class="sm:col-span-2 lg:col-span-3">
+        <label class="field-label">Internal Notes</label>
+        <textarea data-field="notes" rows="2" class="form-input w-full">{{ policy.notes or '' }}</textarea>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ── Actions ── -->
+<div class="flex items-center justify-between mb-4 no-print">
+  <a href="/clients/{{ policy.client_id }}" class="text-sm text-gray-500 hover:text-gray-700">&larr; Back to Client</a>
+  <span class="text-xs text-gray-400 italic">All changes auto-save on blur</span>
+</div>
+
+<!-- Renew action -->
+<div class="pt-4 border-t border-gray-200 flex items-center justify-between mb-4 no-print">
+  <p class="text-xs text-gray-400">Ready to start the next term? This archives the current policy and opens the new term for editing.</p>
+  <form method="post" action="/policies/{{ policy.policy_uid }}/renew"
+        onsubmit="return confirm('Create renewal term for {{ policy.policy_uid }} ({{ policy.policy_type }})?\n\nThis will archive the current record and open the new term for editing.')">
+    <button type="submit"
+      class="border border-blue-500 text-blue-600 hover:bg-blue-500 hover:text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
+      Renew Policy →
+    </button>
+  </form>
+</div>
+
+<!-- Archive / Delete actions -->
+<div class="pt-4 border-t border-gray-200 flex items-center justify-between gap-4 no-print">
+  <p class="text-xs text-gray-400">Entered in error? <strong>Archive</strong> hides from views (data preserved). <strong>Delete</strong> permanently removes all data.</p>
+  <div class="flex gap-2 shrink-0">
+    <form method="post" action="/policies/{{ policy.policy_uid }}/archive"
+          onsubmit="return confirm('Archive {{ policy.policy_uid }} ({{ policy.policy_type }})?\n\nThis hides the policy from all views. Data is preserved.')">
+      <button type="submit"
+        class="border border-amber-300 text-amber-600 hover:bg-amber-50 text-xs font-medium px-4 py-2 rounded-lg transition-colors">Archive</button>
+    </form>
+    <form method="post" action="/policies/{{ policy.policy_uid }}/delete"
+          onsubmit="return confirm('PERMANENTLY DELETE {{ policy.policy_uid }} ({{ policy.policy_type }})?\n\nThis cannot be undone. All related data (milestones, contacts, notes) will be removed.')">
+      <button type="submit"
+        class="border border-red-300 text-red-500 hover:bg-red-50 text-xs font-medium px-4 py-2 rounded-lg transition-colors">Delete</button>
+    </form>
+  </div>
+</div>
+
+<!-- Datalists -->
+<datalist id="ac-carrier"></datalist>
+<datalist id="ac-exposure_basis"></datalist>
+<datalist id="ac-exposure_unit"></datalist>
+<datalist id="ac-project_name"></datalist>
+<datalist id="ac-exposure_city"></datalist>
+<datalist id="ac-access_point"></datalist>
+<datalist id="ac-first_named_insured"></datalist>
+<datalist id="ac-tower_group"></datalist>
+
+<script>
+(function () {
+  var POLICY_UID = '{{ policy.policy_uid }}';
+  var PATCH_URL = '/policies/' + POLICY_UID + '/cell';
+  var CLIENT_ID = {{ policy.client_id }};
+  var container = document.getElementById('tab-details-content');
+  if (!container) return;
+
+  /* ── Per-field PATCH on blur/change ── */
+  function patchField(field, value, el) {
+    fetch(PATCH_URL, {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({field: field, value: value})
+    }).then(function(r) { return r.json(); }).then(function(data) {
+      if (data.ok) {
+        if (typeof showToast === 'function') showToast('Saved', true);
+        if (el && data.formatted !== undefined && data.formatted !== value) {
+          if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') el.value = data.formatted;
+          if (typeof flashCell === 'function') flashCell(el);
+        }
+      } else {
+        if (typeof showToast === 'function') showToast(data.error || 'Save failed', false);
+      }
+    }).catch(function() {
+      if (typeof showToast === 'function') showToast('Save failed', false);
+    });
+  }
+
+  /* Wire all elements with data-field */
+  container.querySelectorAll('[data-field]').forEach(function(el) {
+    var field = el.dataset.field;
+    if (el.type === 'radio') {
+      el.addEventListener('change', function() { if (el.checked) patchField(field, el.value, el); });
+    } else if (el.type === 'checkbox') {
+      el.addEventListener('change', function() { patchField(field, el.checked ? '1' : '0', el); });
+    } else if (el.tagName === 'SELECT') {
+      el.addEventListener('change', function() { patchField(field, el.value, el); });
+    } else {
+      el.addEventListener('blur', function() { patchField(field, el.value, el); });
+    }
+  });
+
+  /* Wire currency fields (display input with data-currency-field) */
+  container.querySelectorAll('[data-currency-field]').forEach(function(el) {
+    var field = el.dataset.currencyField;
+    el.addEventListener('blur', function() {
+      patchField(field, el.value, el);
+    });
+  });
+
+  /* ── Autocomplete loading ── */
+  var AC_FIELDS = ["carrier", "exposure_basis", "exposure_unit", "project_name", "exposure_city", "access_point", "first_named_insured", "tower_group"];
+  var CLIENT_SCOPED = ["project_name", "exposure_city", "tower_group"];
+
+  function loadList(field) {
+    var clientParam = CLIENT_SCOPED.indexOf(field) !== -1 && CLIENT_ID ? '&client_id=' + CLIENT_ID : '';
+    fetch('/policies/autocomplete?field=' + field + clientParam)
+      .then(function(r) { return r.json(); })
+      .then(function(values) {
+        var dl = document.getElementById('ac-' + field);
+        if (!dl) return;
+        dl.innerHTML = values.map(function(v) { return '<option value="' + v.replace(/"/g, '&quot;') + '">'; }).join('');
+      });
+  }
+  AC_FIELDS.forEach(loadList);
+
+  /* ── Live layer notation preview ── */
+  (function () {
+    var limEl    = container.querySelector('[data-currency-field="limit_amount"]');
+    var attEl    = document.getElementById('attachment_point');
+    var poEl     = document.getElementById('participation_of');
+    var layerSel = document.getElementById('layer-position-select');
+    var summBox  = document.getElementById('layer-summary-box');
+    var summText = document.getElementById('layer-summary-text');
+    var hintEl   = document.getElementById('attachment-hint');
+    if (!limEl || !attEl || !summBox || !summText) return;
+
+    var towerLayers = {{ tower_layers | tojson }};
+    var currentUid = '{{ policy.policy_uid }}';
+
+    function fmt(v) {
+      if (v >= 1000000) { var m = v / 1000000; return '$' + (m % 1 === 0 ? m.toFixed(0) : m.toFixed(1)) + 'M'; }
+      if (v >= 1000) return '$' + (v / 1000).toFixed(0) + 'K';
+      return '$' + v.toFixed(0);
+    }
+
+    function parseCurrencyDisplay(s) {
+      if (!s) return 0;
+      return parseFloat(String(s).replace(/[$,]/g, '')) || 0;
+    }
+
+    function update() {
+      var lim = parseCurrencyDisplay(limEl.value);
+      var attRaw = attEl.value.replace(/[$,]/g, '').trim();
+      var att = attRaw === '' ? null : parseFloat(attRaw);
+      var po = parseCurrencyDisplay(poEl ? poEl.value : '');
+      var layerPos = layerSel ? parseInt(layerSel.value) : 0;
+
+      if (!lim) { summBox.classList.add('hidden'); return; }
+
+      var parts = [];
+      parts.push(fmt(lim));
+      if (po) parts.push('PO ' + fmt(po));
+      if (layerPos === 0 && att === null) {
+        parts.push('Primary');
+      } else if (att !== null && att > 0) {
+        parts.push('xs ' + fmt(att));
+      } else if (att === 0 || (layerPos > 0 && att === null)) {
+        parts.push('xs Primary');
+      } else {
+        parts.push('Primary');
+      }
+
+      summText.textContent = parts.join(' ');
+      summBox.classList.remove('hidden');
+
+      if (hintEl && towerLayers.length > 0 && layerPos > 0) {
+        var sumBelow = 0;
+        for (var i = 0; i < towerLayers.length; i++) {
+          var tl = towerLayers[i];
+          if (tl.policy_uid === currentUid) continue;
+          if ((parseInt(tl.layer_position) || 0) < layerPos) sumBelow += parseFloat(tl.limit_amount) || 0;
+        }
+        if (sumBelow > 0 && (att === null || att === 0)) {
+          hintEl.textContent = 'Suggested attachment: ' + fmt(sumBelow) + ' (sum of layers below)';
+          hintEl.classList.remove('hidden');
+        } else {
+          hintEl.classList.add('hidden');
+        }
+      } else if (hintEl) {
+        hintEl.classList.add('hidden');
+      }
+    }
+
+    [limEl, attEl, poEl].forEach(function (el) { if (el) el.addEventListener('input', update); });
+    if (layerSel) layerSel.addEventListener('change', update);
+    update();
+  })();
+})();
+</script>
+
+</div>

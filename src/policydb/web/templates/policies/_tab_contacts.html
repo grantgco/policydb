@@ -1,0 +1,106 @@
+{# Policy Contacts Tab — client contacts, policy team, correspondence, compose email #}
+<div id="tab-contacts-content">
+
+{% if contacts or team_contacts %}
+<div class="card p-3 mb-4">
+  <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Contacts</p>
+  <div class="divide-y divide-gray-100">
+    {% for c in contacts %}
+    <div class="flex items-center justify-between py-1.5">
+      <div>
+        <span class="text-sm font-medium text-gray-800">{{ c.name }}</span>
+        {% if c.title %}<span class="text-xs text-gray-400 ml-1">· {{ c.title }}</span>{% endif %}
+        {% if c.role %}<span class="text-xs text-gray-400 ml-1">· {{ c.role }}</span>{% endif %}
+      </div>
+      <div class="flex gap-4 text-xs">
+        {% if c.phone %}<span class="text-gray-500">{{ c.phone }}</span>{% endif %}
+        {% if c.mobile %}<span class="text-gray-400">Cell: {{ c.mobile }}</span>{% endif %}
+        {% if c.email %}
+        <button type="button" class="ep-trigger text-marsh hover:underline"
+          data-to="{{ c.email }}"
+          data-to-label="{{ c.name }}"
+          data-subject="{{ mailto_subject }}"
+          data-cc="{{ team_cc_json }}"
+          data-ref="{{ build_ref_tag(cn_number=policy.cn_number|default(''), client_id=policy.client_id, policy_uid=policy.policy_uid, project_id=policy.project_id|default(0)) }}">✉ {{ c.email }}</button>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+    {% for c in team_contacts %}
+    <div class="flex items-center justify-between py-1.5 bg-indigo-50/30">
+      <div>
+        <span class="text-sm font-medium text-gray-700">{{ c.name }}</span>
+        {% if c.role %}<span class="text-xs text-indigo-500 ml-1.5">· {{ c.role }}</span>{% endif %}
+        {% if c.title %}<span class="text-xs text-gray-400 ml-1">· {{ c.title }}</span>{% endif %}
+      </div>
+      <div class="flex gap-4 text-xs">
+        {% if c.phone %}<span class="text-gray-500">{{ c.phone }}</span>{% endif %}
+        {% if c.mobile %}<span class="text-gray-400">Cell: {{ c.mobile }}</span>{% endif %}
+        {% if c.email %}
+        <a href="mailto:{{ c.email }}?subject={{ mailto_subject | urlencode }}" class="text-indigo-500 hover:underline" title="Email {{ c.name }}">✉ {{ c.email }}</a>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<!-- Correspondence Threads -->
+<div class="mb-4">{% include 'policies/_correspondence_threads.html' %}</div>
+
+<!-- Policy Team -->
+<div class="mb-4">{% include 'policies/_policy_team.html' %}</div>
+
+<!-- Compose Email -->
+<details id="compose-panel-policy" class="card mb-4">
+  <summary class="px-4 py-2.5 cursor-pointer text-sm font-medium text-marsh hover:bg-gray-50 rounded-xl select-none list-none flex items-center gap-2 no-print">
+    <span>✉</span> Compose Email
+  </summary>
+  <div hx-get="/templates/compose?context=policy&policy_uid={{ policy.policy_uid }}"
+       hx-trigger="toggle from:#compose-panel-policy once"
+       hx-swap="innerHTML">
+    <div class="p-4 text-sm text-gray-400">Loading…</div>
+  </div>
+</details>
+
+<script>
+/* Expertise toggle for policy team contacts */
+document.addEventListener('click', function(e) {
+  var btn = e.target.closest('.expertise-toggle');
+  if (!btn) return;
+  var cid = parseInt(btn.dataset.cid);
+  var category = btn.dataset.category;
+  var tag = btn.dataset.tag;
+  var isActive = btn.dataset.active === 'true';
+  var action = isActive ? 'remove' : 'add';
+  fetch('/contacts/' + cid + '/expertise', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({category: category, tag: tag, action: action})
+  }).then(function(r) { return r.json(); }).then(function(data) {
+    if (!data.ok) return;
+    btn.dataset.active = isActive ? 'false' : 'true';
+    if (category === 'line') {
+      if (isActive) {
+        btn.classList.remove('bg-blue-500', 'text-white', 'border-blue-500');
+        btn.classList.add('bg-white', 'text-blue-600', 'border-blue-200', 'hover:border-blue-400');
+      } else {
+        btn.classList.remove('bg-white', 'text-blue-600', 'border-blue-200', 'hover:border-blue-400');
+        btn.classList.add('bg-blue-500', 'text-white', 'border-blue-500');
+      }
+    } else {
+      if (isActive) {
+        btn.classList.remove('bg-green-500', 'text-white', 'border-green-500');
+        btn.classList.add('bg-white', 'text-green-600', 'border-green-200', 'hover:border-green-400');
+      } else {
+        btn.classList.remove('bg-white', 'text-green-600', 'border-green-200', 'hover:border-green-400');
+        btn.classList.add('bg-green-500', 'text-white', 'border-green-500');
+      }
+    }
+    if (typeof showToast === 'function') showToast('Expertise updated', true);
+  });
+});
+</script>
+
+</div>
