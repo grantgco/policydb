@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
 from policydb import config as cfg
-from policydb.queries import get_all_policies, get_client_by_id, get_opportunity_by_uid, get_policy_by_uid, get_policy_total_hours, get_saved_notes, save_note, delete_saved_note, renew_policy, count_changed_fields, check_auto_review_policy, get_or_create_contact, assign_contact_to_policy, remove_contact_from_policy, set_placement_colleague, get_policy_contacts
+from policydb.queries import get_all_policies, get_client_by_id, get_opportunity_by_uid, get_policy_by_uid, get_policy_total_hours, get_saved_notes, save_note, delete_saved_note, renew_policy, get_or_create_contact, assign_contact_to_policy, remove_contact_from_policy, set_placement_colleague, get_policy_contacts
 from policydb.utils import round_duration, normalize_carrier, normalize_coverage_type, normalize_policy_number, format_city, format_state, format_zip
 from policydb.web.app import get_db, templates
 
@@ -278,7 +278,6 @@ def policy_row_log_post(
         from policydb.queries import supersede_followups
         supersede_followups(conn, policy_id, follow_up_date)
     conn.commit()
-    check_auto_review_policy(conn, policy_uid.upper(), 0)
 
     uid = policy_uid.upper()
     policy = get_policy_by_uid(conn, uid)
@@ -359,7 +358,6 @@ def policy_dash_log_post(
         from policydb.queries import supersede_followups
         supersede_followups(conn, policy_id, follow_up_date)
     conn.commit()
-    check_auto_review_policy(conn, policy_uid.upper(), 0)
 
     uid = policy_uid.upper()
     policy = get_policy_by_uid(conn, uid)
@@ -450,7 +448,6 @@ def policy_renew_log_post(
         from policydb.queries import supersede_followups
         supersede_followups(conn, policy_id, follow_up_date)
     conn.commit()
-    check_auto_review_policy(conn, policy_uid.upper(), 0)
 
     uid = policy_uid.upper()
     policy = get_policy_by_uid(conn, uid)
@@ -589,7 +586,6 @@ def opp_log_post(
         from policydb.queries import supersede_followups
         supersede_followups(conn, policy_id, follow_up_date)
     conn.commit()
-    check_auto_review_policy(conn, policy_uid.upper(), 0)
     return _opp_row_response(request, policy_uid.upper(), conn)
 
 
@@ -689,7 +685,6 @@ def opp_row_edit_post(
         ),
     )
     conn.commit()
-    check_auto_review_policy(conn, uid, 0)
     return _opp_client_row_response(request, uid, conn)
 
 
@@ -1829,35 +1824,6 @@ def policy_edit_post(
         ),
     )
     conn.commit()
-    _main_edit_fields = [
-        "policy_type", "carrier", "policy_number", "effective_date", "expiration_date",
-        "premium", "limit_amount", "deductible", "description", "coverage_form",
-        "layer_position", "tower_group", "is_standalone", "is_opportunity",
-        "opportunity_status", "target_effective_date", "renewal_status", "commission_rate",
-        "prior_premium", "notes", "project_name", "exposure_basis", "exposure_amount",
-        "exposure_unit", "exposure_address", "exposure_city", "exposure_state", "exposure_zip",
-        "follow_up_date", "attachment_point", "participation_of", "first_named_insured",
-        "access_point",
-    ]
-    _main_edit_new = {
-        "policy_type": policy_type, "carrier": carrier, "policy_number": policy_number,
-        "effective_date": effective_date, "expiration_date": expiration_date,
-        "premium": premium, "limit_amount": limit_amount, "deductible": deductible,
-        "description": description, "coverage_form": coverage_form,
-        "layer_position": layer_position, "tower_group": tower_group,
-        "is_standalone": is_standalone, "is_opportunity": is_opportunity,
-        "opportunity_status": opportunity_status, "target_effective_date": target_effective_date,
-        "renewal_status": renewal_status, "commission_rate": commission_rate,
-        "prior_premium": prior_premium, "notes": notes, "project_name": project_name,
-        "exposure_basis": exposure_basis, "exposure_amount": exposure_amount,
-        "exposure_unit": exposure_unit, "exposure_address": exposure_address,
-        "exposure_city": exposure_city, "exposure_state": exposure_state,
-        "exposure_zip": exposure_zip, "follow_up_date": follow_up_date,
-        "attachment_point": attachment_point, "participation_of": participation_of,
-        "first_named_insured": first_named_insured, "access_point": access_point,
-    }
-    changed = count_changed_fields(old_row, _main_edit_new, _main_edit_fields)
-    check_auto_review_policy(conn, uid, changed)
 
     policy = get_policy_by_uid(conn, uid)
     _client_id = policy["client_id"] if policy else 0
@@ -2417,9 +2383,6 @@ def policy_followup(
         (new_follow_up_date or None, uid),
     )
     conn.commit()
-
-    # Auto-review check
-    check_auto_review_policy(conn, uid, 0)
 
     # If no new follow-up date, the row should disappear from follow-ups
     if not new_follow_up_date:

@@ -224,9 +224,6 @@ _DEFAULTS: dict[str, Any] = {
         "Related", "Subsidiary", "Sister Company",
         "Common Ownership", "Joint Venture", "Parent / Holding",
     ],
-    "auto_review_enabled": True,
-    "auto_review_field_threshold": 2,
-    "auto_review_activity_threshold": 3,
     "review_cycle_default": "1w",
     "auto_followup_days_before_expiry": 120,
     "quick_log_templates": [

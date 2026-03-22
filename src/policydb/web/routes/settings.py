@@ -121,9 +121,6 @@ def settings_page(request: Request, conn=Depends(get_db)):
         "renewal_statuses": cfg.get("renewal_statuses", []),
         "renewal_milestones": cfg.get("renewal_milestones", []),
         "fu_workload": cfg.get("followup_workload_thresholds", {"warning": 3, "danger": 5}),
-        "auto_review_enabled": cfg.get("auto_review_enabled", True),
-        "auto_review_field_threshold": cfg.get("auto_review_field_threshold", 3),
-        "auto_review_activity_threshold": cfg.get("auto_review_activity_threshold", 3),
         "mandated_activities": cfg.get("mandated_activities", []),
         "dispositions": cfg.get("follow_up_dispositions", []),
         "carrier_aliases": cfg.get("carrier_aliases", {}),
@@ -393,23 +390,6 @@ async def save_readiness_weights(request: Request):
     cfg.reload_config()
     return HTMLResponse(
         '<span id="rw-status" class="text-xs text-green-600 font-medium">Saved</span>'
-    )
-
-
-@router.post("/auto-review", response_class=HTMLResponse)
-def save_auto_review(
-    auto_review_enabled: str = Form(""),
-    auto_review_field_threshold: int = Form(3),
-    auto_review_activity_threshold: int = Form(3),
-):
-    full = dict(cfg.load_config())
-    full["auto_review_enabled"] = bool(auto_review_enabled)
-    full["auto_review_field_threshold"] = max(2, min(10, auto_review_field_threshold))
-    full["auto_review_activity_threshold"] = max(1, min(10, auto_review_activity_threshold))
-    cfg.save_config(full)
-    cfg.reload_config()
-    return HTMLResponse(
-        '<span id="ar-status" class="text-xs text-green-600 font-medium">Saved</span>'
     )
 
 
