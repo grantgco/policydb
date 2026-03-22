@@ -944,6 +944,238 @@ def export_policy(policy_uid: str, conn=Depends(get_db)):
     )
 
 
+def _policy_base(conn, uid: str):
+    """Load base policy + client info used by all tab routes."""
+    policy = get_policy_by_uid(conn, uid)
+    if not policy:
+        return None, None
+    p = dict(policy)
+    client_row = conn.execute("SELECT id, name, cn_number FROM clients WHERE id = ?", (p["client_id"],)).fetchone()
+    client_info = dict(client_row) if client_row else {"id": p["client_id"], "name": "", "cn_number": ""}
+    # Inject client_name/cn_number into policy dict for convenience
+    p["client_name"] = client_info["name"]
+    p["cn_number"] = client_info.get("cn_number", "")
+    return p, client_info
+
+
+@router.get("/{policy_uid}/tab/details", response_class=HTMLResponse)
+def policy_tab_details(request: Request, policy_uid: str, conn=Depends(get_db)):
+    uid = policy_uid.upper()
+    policy_dict, client_info = _policy_base(conn, uid)
+    if not policy_dict:
+        return HTMLResponse("Not found", status_code=404)
+
+    from policydb.queries import REVIEW_CYCLE_LABELS as _RCL
+
+    # Tower structure
+    _tower_layers = []
+    if policy_dict.get("tower_group"):
+        _tg_rows = conn.execute(
+            """SELECT policy_uid, policy_type, carrier, limit_amount, layer_position,
+                      attachment_point, participation_of
+               FROM policies
+               WHERE client_id = ? AND LOWER(TRIM(tower_group)) = LOWER(TRIM(?)) AND archived = 0""",
+            (policy_dict["client_id"], policy_dict["tower_group"]),
+        ).fetchall()
+
+        def _layer_sort_key(r):
+            att = r["attachment_point"]
+            if att is not None:
+                return (float(att), 0)
+            lp = r["layer_position"] or "Primary"
+            try:
+                return (-1, int(lp))
+            except (ValueError, TypeError):
+                return (-1, 0)
+
+        _tg_rows = sorted(_tg_rows, key=_layer_sort_key)
+        running = 0.0
+        for tr in _tg_rows:
+            lim = float(tr["limit_amount"] or 0)
+            att = tr["attachment_point"]
+            part = tr["participation_of"]
+            if att is not None and float(att) >= 0:
+                layer_size = float(part) if part else lim
+                ground_up = float(att) + layer_size
+            else:
+                running += lim
+                ground_up = running
+            _tower_layers.append(dict(tr) | {"ground_up": ground_up, "is_current": tr["policy_uid"] == uid})
+
+    return templates.TemplateResponse("policies/_tab_details.html", {
+        "request": request,
+        "policy": policy_dict,
+        "client": client_info,
+        "policy_types": cfg.get("policy_types"),
+        "coverage_forms": cfg.get("coverage_forms"),
+        "renewal_statuses": _renewal_statuses(),
+        "us_states": US_STATES,
+        "opportunity_statuses": cfg.get("opportunity_statuses"),
+        "tower_layers": _tower_layers,
+        "cycle_labels": _RCL,
+        "program_linked_policies": [dict(r) for r in conn.execute(
+            """SELECT policy_uid, policy_type, carrier, premium, effective_date, expiration_date
+               FROM policies WHERE program_id = ? AND archived = 0 ORDER BY policy_type""",
+            (policy_dict["id"],),
+        ).fetchall()] if policy_dict.get("is_program") else [],
+        "linkable_policies": [dict(r) for r in conn.execute(
+            """SELECT policy_uid, policy_type, carrier, premium
+               FROM policies WHERE client_id = ? AND archived = 0
+                 AND (is_program = 0 OR is_program IS NULL)
+                 AND (is_opportunity = 0 OR is_opportunity IS NULL)
+                 AND (program_id IS NULL OR program_id = ?)
+               ORDER BY policy_type""",
+            (policy_dict["client_id"], policy_dict["id"]),
+        ).fetchall()] if policy_dict.get("is_program") else [],
+        "program_carrier_rows": [dict(r) for r in conn.execute(
+            "SELECT * FROM program_carriers WHERE program_id = ? ORDER BY sort_order",
+            (policy_dict["id"],),
+        ).fetchall()] if policy_dict.get("is_program") else [],
+    })
+
+
+@router.get("/{policy_uid}/tab/activity", response_class=HTMLResponse)
+def policy_tab_activity(request: Request, policy_uid: str, conn=Depends(get_db)):
+    uid = policy_uid.upper()
+    policy_dict, _ = _policy_base(conn, uid)
+    if not policy_dict:
+        return HTMLResponse("Not found", status_code=404)
+
+    activities = [dict(r) for r in conn.execute(
+        """SELECT a.*, c.name AS client_name, c.cn_number, p.policy_uid, p.project_id
+           FROM activity_log a
+           JOIN clients c ON a.client_id = c.id
+           LEFT JOIN policies p ON a.policy_id = p.id
+           WHERE a.policy_id = ? AND a.activity_date >= date('now', '-90 days')
+           ORDER BY
+             CASE WHEN a.follow_up_date IS NOT NULL AND (a.follow_up_done IS NULL OR a.follow_up_done = 0) THEN 0 ELSE 1 END,
+             CASE WHEN a.follow_up_date IS NOT NULL AND (a.follow_up_done IS NULL OR a.follow_up_done = 0) THEN a.follow_up_date END ASC,
+             a.activity_date DESC, a.id DESC""",
+        (policy_dict["id"],),
+    ).fetchall()]
+
+    all_contact_names = [r[0] for r in conn.execute(
+        "SELECT DISTINCT name FROM contacts WHERE name IS NOT NULL AND name != '' ORDER BY name"
+    ).fetchall()]
+
+    return templates.TemplateResponse("policies/_tab_activity.html", {
+        "request": request,
+        "policy": policy_dict,
+        "activities": activities,
+        "activity_types": cfg.get("activity_types", ["Call", "Email", "Meeting", "Note", "Other"]),
+        "all_contact_names": all_contact_names,
+        "policy_total_hours": get_policy_total_hours(conn, policy_dict["id"]),
+        "dispositions": cfg.get("follow_up_dispositions", []),
+        "cor_auto_triggers": cfg.get("cor_auto_triggers", []),
+    })
+
+
+@router.get("/{policy_uid}/tab/contacts", response_class=HTMLResponse)
+def policy_tab_contacts(request: Request, policy_uid: str, conn=Depends(get_db)):
+    uid = policy_uid.upper()
+    policy_dict, client_info = _policy_base(conn, uid)
+    if not policy_dict:
+        return HTMLResponse("Not found", status_code=404)
+
+    from policydb.queries import get_client_contacts as _gcc
+    contacts = _gcc(conn, policy_dict["client_id"], contact_type="client")
+    team_contacts = _gcc(conn, policy_dict["client_id"], contact_type="internal")
+    policy_contacts = get_policy_contacts(conn, policy_dict["id"])
+
+    # Expertise tags
+    _pc_ids = [c["contact_id"] for c in policy_contacts if c.get("contact_id")]
+    if _pc_ids:
+        _exp_rows = conn.execute(
+            f"SELECT contact_id, category, tag FROM contact_expertise WHERE contact_id IN ({','.join('?' * len(_pc_ids))})",
+            _pc_ids,
+        ).fetchall()
+        _exp_map: dict = {}
+        for _er in _exp_rows:
+            _exp_map.setdefault(_er["contact_id"], {"line": [], "industry": []})
+            _exp_map[_er["contact_id"]][_er["category"]].append(_er["tag"])
+        for _pc in policy_contacts:
+            _cid = _pc.get("contact_id")
+            _pc["expertise_lines"] = _exp_map.get(_cid, {}).get("line", [])
+            _pc["expertise_industries"] = _exp_map.get(_cid, {}).get("industry", [])
+
+    all_contact_names = [r[0] for r in conn.execute(
+        "SELECT DISTINCT name FROM contacts WHERE name IS NOT NULL AND name != '' ORDER BY name"
+    ).fetchall()]
+
+    import json as _json_ct
+    _ac_rows = conn.execute(
+        """SELECT co.name, co.email, co.phone, co.mobile, co.organization,
+                  MAX(COALESCE(cpa.role, cca.role)) AS role,
+                  MAX(COALESCE(cpa.title, cca.title)) AS title
+           FROM contacts co
+           LEFT JOIN contact_policy_assignments cpa ON co.id = cpa.contact_id
+           LEFT JOIN contact_client_assignments cca ON co.id = cca.contact_id
+           WHERE co.name IS NOT NULL AND co.name != ''
+           GROUP BY co.id ORDER BY co.name"""
+    ).fetchall()
+    all_contacts_for_ac_json = _json_ct.dumps({r["name"]: {"email": r["email"] or "", "role": r["role"] or "", "phone": r["phone"] or "", "mobile": r["mobile"] or "", "title": r["title"] or "", "organization": r["organization"] or ""} for r in _ac_rows})
+
+    team_cc_json = _json_ct.dumps([{"name": c["name"], "email": c["email"]} for c in team_contacts if c.get("email")])
+
+    from policydb.email_templates import policy_context as _pctx, render_tokens as _rtk
+    mailto_subject = _rtk(cfg.get("email_subject_policy", "Re: {{client_name}} — {{policy_type}}"), _pctx(conn, uid))
+
+    # Correspondence threads
+    _corr_threads = [dict(r) for r in conn.execute("""
+        SELECT thread_id, MIN(subject) AS thread_subject,
+               COUNT(*) AS attempt_count, COALESCE(SUM(duration_hours), 0) AS total_hours,
+               MAX(CASE WHEN follow_up_done = 0 THEN 1 ELSE 0 END) AS has_pending
+        FROM activity_log WHERE policy_id = ? AND thread_id IS NOT NULL
+        GROUP BY thread_id ORDER BY MAX(activity_date) DESC
+    """, (policy_dict["id"],)).fetchall()] if policy_dict.get("id") else []
+    for _ct in _corr_threads:
+        _ct["activities"] = [dict(r) for r in conn.execute(
+            "SELECT activity_date, disposition, details, duration_hours, follow_up_done FROM activity_log WHERE thread_id = ? ORDER BY activity_date DESC, id DESC",
+            (_ct["thread_id"],),
+        ).fetchall()]
+
+    suggested_contact_ids: set[int] = set()
+    if policy_dict.get("policy_type"):
+        suggested_contact_ids = {r["contact_id"] for r in conn.execute(
+            "SELECT DISTINCT contact_id FROM contact_expertise WHERE category = 'line' AND tag = ?",
+            (policy_dict["policy_type"],),
+        ).fetchall()}
+
+    return templates.TemplateResponse("policies/_tab_contacts.html", {
+        "request": request,
+        "policy": policy_dict,
+        "client": client_info,
+        "contacts": contacts,
+        "team_contacts": team_contacts,
+        "policy_contacts": policy_contacts,
+        "all_contact_names": all_contact_names,
+        "all_contacts_for_ac_json": all_contacts_for_ac_json,
+        "suggested_contact_ids": suggested_contact_ids,
+        "team_cc_json": team_cc_json,
+        "mailto_subject": mailto_subject,
+        "correspondence_threads": _corr_threads,
+        "contact_roles": cfg.get("contact_roles", []),
+        "expertise_lines": cfg.get("expertise_lines", []),
+        "expertise_industries": cfg.get("expertise_industries", []),
+        "all_orgs": sorted({r["organization"] for r in conn.execute("SELECT DISTINCT organization FROM contacts WHERE organization IS NOT NULL AND organization != ''").fetchall()}),
+    })
+
+
+@router.get("/{policy_uid}/tab/workflow", response_class=HTMLResponse)
+def policy_tab_workflow(request: Request, policy_uid: str, conn=Depends(get_db)):
+    uid = policy_uid.upper()
+    policy_dict, _ = _policy_base(conn, uid)
+    if not policy_dict:
+        return HTMLResponse("Not found", status_code=404)
+
+    return templates.TemplateResponse("policies/_tab_workflow.html", {
+        "request": request,
+        "policy": policy_dict,
+        "checklist": _build_checklist(conn, uid),
+        "request_categories": cfg.get("request_categories", []),
+    })
+
+
 @router.get("/{policy_uid}/edit", response_class=HTMLResponse)
 def policy_edit_form(request: Request, policy_uid: str, add_contact: str = "", conn=Depends(get_db)):
     uid = policy_uid.upper()
@@ -1721,42 +1953,133 @@ def _policy_team_response(request, conn, policy_uid: str):
 
 @router.patch("/{policy_uid}/cell")
 async def policy_cell_save(request: Request, policy_uid: str, conn=Depends(get_db)):
-    """Save a single field on a policy (contenteditable cell save)."""
+    """Save a single field on a policy (contenteditable / combobox cell save).
+
+    Handles all policy fields with type-specific parsing:
+    - Currency fields: parse_currency_with_magnitude()
+    - Date fields: stripped ISO string
+    - Boolean fields: toggle true/false
+    - Combobox fields: normalize or validate
+    - Text fields: strip + save
+    """
+    from policydb.utils import (
+        clean_email, format_city, format_phone, format_state, format_zip,
+        parse_currency_with_magnitude,
+    )
+
     body = await request.json()
     field = body.get("field", "")
     value = body.get("value", "")
 
-    allowed = {
-        "policy_type", "carrier", "policy_number", "premium",
-        "effective_date", "expiration_date", "limit_amount", "deductible",
-        "description", "notes",
+    # -- Field allowlists by type --
+    currency_fields = {
+        "premium", "limit_amount", "deductible", "attachment_point",
+        "participation_of", "prior_premium", "exposure_amount",
     }
+    date_fields = {
+        "effective_date", "expiration_date", "follow_up_date", "target_effective_date",
+    }
+    bool_fields = {"is_bor", "is_standalone"}
+    text_fields = {
+        "policy_number", "first_named_insured", "access_point", "description",
+        "notes", "placement_notation", "exposure_address", "exposure_basis",
+        "exposure_unit", "tower_group", "exposure_zip",
+    }
+    combobox_fields = {
+        "policy_type", "carrier", "renewal_status", "opportunity_status",
+        "coverage_form", "layer_position", "exposure_state", "exposure_city",
+        "review_cycle",
+    }
+    special_fields = {"project_name", "commission_rate"}
+
+    allowed = currency_fields | date_fields | bool_fields | text_fields | combobox_fields | special_fields
     if field not in allowed:
         return JSONResponse({"ok": False, "error": f"Invalid field: {field}"}, status_code=400)
 
     uid = policy_uid.upper()
-    policy = conn.execute("SELECT id FROM policies WHERE policy_uid = ?", (uid,)).fetchone()
+    policy = conn.execute(
+        "SELECT id, client_id FROM policies WHERE policy_uid = ?", (uid,)
+    ).fetchone()
     if not policy:
         return JSONResponse({"ok": False, "error": "Not found"}, status_code=404)
 
     formatted = value
-    if field in ("premium", "limit_amount", "deductible"):
-        from policydb.utils import parse_currency_with_magnitude
+
+    # -- Currency fields --
+    if field in currency_fields:
         num = parse_currency_with_magnitude(value)
         conn.execute(f"UPDATE policies SET {field} = ? WHERE policy_uid = ?", (num, uid))  # noqa: S608
-        formatted = f"${num:,.0f}"
+        formatted = f"${num:,.0f}" if num else ""
+
+    # -- Date fields --
+    elif field in date_fields:
+        val = value.strip() or None
+        conn.execute(f"UPDATE policies SET {field} = ? WHERE policy_uid = ?", (val, uid))  # noqa: S608
+        formatted = val or ""
+
+    # -- Boolean toggle fields --
+    elif field in bool_fields:
+        bval = 1 if str(value).lower() in ("1", "true", "yes", "on") else 0
+        conn.execute(f"UPDATE policies SET {field} = ? WHERE policy_uid = ?", (bval, uid))  # noqa: S608
+        formatted = str(bval)
+
+    # -- Combobox / validated fields --
     elif field == "policy_type":
         formatted = normalize_coverage_type(value)
         conn.execute("UPDATE policies SET policy_type = ? WHERE policy_uid = ?", (formatted, uid))
     elif field == "carrier":
         formatted = normalize_carrier(value)
         conn.execute("UPDATE policies SET carrier = ? WHERE policy_uid = ?", (formatted or None, uid))
+    elif field == "renewal_status":
+        val = value.strip()
+        conn.execute("UPDATE policies SET renewal_status = ? WHERE policy_uid = ?", (val or None, uid))
+        formatted = val
+    elif field == "opportunity_status":
+        val = value.strip()
+        conn.execute("UPDATE policies SET opportunity_status = ? WHERE policy_uid = ?", (val or None, uid))
+        formatted = val
+    elif field == "coverage_form":
+        val = value.strip()
+        conn.execute("UPDATE policies SET coverage_form = ? WHERE policy_uid = ?", (val or None, uid))
+        formatted = val
+    elif field == "layer_position":
+        val = value.strip()
+        conn.execute("UPDATE policies SET layer_position = ? WHERE policy_uid = ?", (val or None, uid))
+        formatted = val
+    elif field == "exposure_state":
+        formatted = format_state(value)
+        conn.execute("UPDATE policies SET exposure_state = ? WHERE policy_uid = ?", (formatted or None, uid))
+    elif field == "exposure_city":
+        formatted = format_city(value)
+        conn.execute("UPDATE policies SET exposure_city = ? WHERE policy_uid = ?", (formatted or None, uid))
+    elif field == "review_cycle":
+        val = value.strip()
+        conn.execute("UPDATE policies SET review_cycle = ? WHERE policy_uid = ?", (val or None, uid))
+        formatted = val
+
+    # -- Text fields --
     elif field == "policy_number":
         formatted = normalize_policy_number(value)
         conn.execute("UPDATE policies SET policy_number = ? WHERE policy_uid = ?", (formatted, uid))
-    else:
-        conn.execute(f"UPDATE policies SET {field} = ? WHERE policy_uid = ?", (value.strip() or None, uid))  # noqa: S608
+    elif field == "exposure_zip":
+        formatted = format_zip(value)
+        conn.execute("UPDATE policies SET exposure_zip = ? WHERE policy_uid = ?", (formatted or None, uid))
+    elif field in text_fields:
+        val = value.strip()
+        conn.execute(f"UPDATE policies SET {field} = ? WHERE policy_uid = ?", (val or None, uid))  # noqa: S608
+        formatted = val
+
+    # -- Special fields --
+    elif field == "project_name":
+        _sync_project_id(conn, policy["id"], policy["client_id"], value)
         formatted = value.strip()
+    elif field == "commission_rate":
+        try:
+            rate = float(value) if value.strip() else None
+        except (ValueError, TypeError):
+            rate = None
+        conn.execute("UPDATE policies SET commission_rate = ? WHERE policy_uid = ?", (rate, uid))
+        formatted = f"{rate:.3f}" if rate is not None else ""
 
     conn.commit()
     return JSONResponse({"ok": True, "formatted": formatted})
