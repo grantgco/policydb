@@ -231,6 +231,8 @@ Key endpoints: `/reconcile`, `/reconcile/run-match`, `/reconcile/confirm/{idx}`,
 
 ### Input Pattern Hierarchy
 
+**Default:** ALL data entry fields across the app should use the `contenteditable` + combobox pattern with per-field PATCH saves on blur. This is the universal standard — not just for tables but for ALL edit pages including policy edit and client edit. Traditional `<input>` boxes with form POST are being phased out.
+
 When implementing any data entry field, form element, or interactive control — whether adding a new feature or modifying an existing one — prefer modern contextual inputs over default browser form elements. Select the pattern that best matches the data type and interaction context:
 
 | Field Type | Preferred Pattern | Avoid |
