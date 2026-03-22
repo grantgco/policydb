@@ -67,8 +67,11 @@ def _should_include_activity(
     return activity["name"] in profile_milestones
 
 
-def generate_policy_timelines(conn) -> None:
-    """Generate timeline rows for all eligible policies.
+def generate_policy_timelines(conn, policy_uid: str | None = None) -> None:
+    """Generate timeline rows for eligible policies.
+
+    If *policy_uid* is provided, deletes existing rows and regenerates only
+    that one policy's timeline.  Otherwise processes all eligible policies.
 
     Eligible = active, non-opportunity, non-archived, not a child in a program.
     For each eligible policy, resolves the milestone profile, then inserts
@@ -80,22 +83,36 @@ def generate_policy_timelines(conn) -> None:
 
     mandated = cfg.get("mandated_activities", [])
 
-    rows = conn.execute("""
-        SELECT policy_uid, effective_date, expiration_date,
-               milestone_profile, program_id, is_program
-        FROM policies
-        WHERE (is_opportunity = 0 OR is_opportunity IS NULL)
-          AND (archived = 0 OR archived IS NULL)
-          AND expiration_date IS NOT NULL
-          AND effective_date IS NOT NULL
-    """).fetchall()
+    if policy_uid:
+        # Single-policy regeneration
+        conn.execute("DELETE FROM policy_timeline WHERE policy_uid = ?", (policy_uid,))
+        rows = conn.execute("""
+            SELECT policy_uid, effective_date, expiration_date,
+                   milestone_profile, program_id, is_program
+            FROM policies
+            WHERE policy_uid = ?
+              AND (is_opportunity = 0 OR is_opportunity IS NULL)
+              AND (archived = 0 OR archived IS NULL)
+              AND expiration_date IS NOT NULL
+              AND effective_date IS NOT NULL
+        """, (policy_uid,)).fetchall()
+    else:
+        rows = conn.execute("""
+            SELECT policy_uid, effective_date, expiration_date,
+                   milestone_profile, program_id, is_program
+            FROM policies
+            WHERE (is_opportunity = 0 OR is_opportunity IS NULL)
+              AND (archived = 0 OR archived IS NULL)
+              AND expiration_date IS NOT NULL
+              AND effective_date IS NOT NULL
+        """).fetchall()
 
     for pol in rows:
         # Skip child policies in a program (they inherit from the parent)
         if pol["program_id"] is not None:
             continue
 
-        policy_uid = pol["policy_uid"]
+        uid = pol["policy_uid"]
         eff_date = _parse_date(pol["effective_date"])
         exp_date = _parse_date(pol["expiration_date"])
         if eff_date is None or exp_date is None:
@@ -127,7 +144,7 @@ def generate_policy_timelines(conn) -> None:
                     (policy_uid, milestone_name, ideal_date, projected_date, prep_alert_date)
                 VALUES (?, ?, ?, ?, ?)
             """, (
-                policy_uid,
+                uid,
                 activity["name"],
                 ideal.isoformat(),
                 ideal.isoformat(),
