@@ -255,6 +255,73 @@ def _run_hygiene_062(conn: sqlite3.Connection) -> None:
         print(f"[hygiene-062] Normalized {total} fields: {changed}")
 
 
+def _seed_nudge_templates(conn: sqlite3.Connection) -> None:
+    """Seed default nudge email templates if none exist."""
+    existing = conn.execute(
+        "SELECT COUNT(*) as cnt FROM email_templates WHERE context = 'nudge'"
+    ).fetchone()["cnt"]
+    if existing > 0:
+        return
+
+    templates = [
+        {
+            "name": "Waiting on Client — Document/Signature",
+            "context": "nudge",
+            "subject_template": "Quick follow-up — {{policy_type}} renewal materials",
+            "body_template": (
+                "Hi {{contact_first_name}},\n\n"
+                "Hope all is well. Just wanted to circle back on the {{policy_type}} renewal items we sent over. "
+                "We're in good shape on timing but want to make sure we keep things moving so there are no gaps "
+                "as we approach {{expiration_date}}.\n\n"
+                "Let me know if you have any questions or if there's anything I can help with on your end.\n\n"
+                "Best regards"
+            ),
+        },
+        {
+            "name": "Waiting on Client — Decision/Approval",
+            "context": "nudge",
+            "subject_template": "{{policy_type}} renewal options — next steps",
+            "body_template": (
+                "Hi {{contact_first_name}},\n\n"
+                "Wanted to check in on the {{policy_type}} renewal options we reviewed. "
+                "Happy to jump on a quick call if it would help talk through anything. "
+                "We have some runway but I want to make sure we lock in the best terms while they're available.\n\n"
+                "Best regards"
+            ),
+        },
+        {
+            "name": "Waiting on Carrier — Status Check",
+            "context": "nudge",
+            "subject_template": "Status check — {{client_name}} {{policy_type}}",
+            "body_template": (
+                "Following up on the {{policy_type}} submission for {{client_name}}. "
+                "This is follow-up #{{nudge_count}} — expiration is {{days_to_expiry}} days out. "
+                "Appreciate any update on timing for quotes.\n\n"
+                "Thank you"
+            ),
+        },
+        {
+            "name": "Scheduled Meeting — Confirmation",
+            "context": "nudge",
+            "subject_template": "Confirming our meeting — {{client_name}} {{policy_type}} review",
+            "body_template": (
+                "Hi {{contact_first_name}},\n\n"
+                "Just confirming our meeting on {{meeting_date}} to review the {{policy_type}} renewal. "
+                "I'll have the comparison ready and we can walk through options together.\n\n"
+                "Let me know if the time still works.\n\n"
+                "Best regards"
+            ),
+        },
+    ]
+
+    for t in templates:
+        conn.execute(
+            "INSERT INTO email_templates (name, context, subject_template, body_template) VALUES (?, ?, ?, ?)",
+            (t["name"], t["context"], t["subject_template"], t["body_template"]),
+        )
+    conn.commit()
+
+
 def init_db(path: Path | None = None) -> None:
     """Create schema, run pending migrations, create views."""
     ensure_dirs()
@@ -1002,6 +1069,9 @@ def init_db(path: Path | None = None) -> None:
     # Generate policy timelines for all active policies with milestone profiles
     from policydb.timeline_engine import generate_policy_timelines
     generate_policy_timelines(conn)
+
+    # Seed default nudge email templates if none exist
+    _seed_nudge_templates(conn)
 
     # Clean up premature mandated activities (beyond horizon window)
     try:
