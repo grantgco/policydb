@@ -21,7 +21,8 @@
       <a href="/clients/{{ client.id }}/project/email-team?project={{ project_name | urlencode }}"
         class="text-xs text-gray-300 hover:text-marsh" title="Quick email all contacts">✉ Email</a>
       <span class="text-gray-200">|</span>
-      <button type="button" onclick="var el=this.closest('.proj-hdr-wrap').querySelector('.proj-compose');el.classList.toggle('hidden');if(!el.dataset.loaded){el.dataset.loaded='1';htmx.ajax('GET','/templates/compose?context=location&client_id={{ client.id }}&project_name={{ project_name | urlencode }}',{target:el,swap:'innerHTML'});}"
+      <button type="button"
+        onclick="openComposeSlideover({context:'policy', client_id:{{ client.id }}, project_name:'{{ project_name | e }}'})"
         class="text-xs text-gray-300 hover:text-marsh" title="Compose with template">✉ Compose</button>
       <span class="text-gray-200">|</span>
       <button type="button"
@@ -54,8 +55,5 @@
         hx-swap="outerHTML"
         class="text-xs text-gray-300 hover:text-marsh shrink-0">✎ Edit</button>
     </div>
-  </div>
-  <div class="proj-compose hidden mt-2 border-t border-gray-100 pt-2">
-    <p class="text-xs text-gray-400 italic">Click "Compose" to load templates...</p>
   </div>
 </div>

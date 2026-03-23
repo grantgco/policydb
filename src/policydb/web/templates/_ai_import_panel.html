@@ -243,10 +243,31 @@ function submitAiImport() {
                 errorDiv.innerHTML = html;
                 errorDiv.style.display = '';
             } else {
-                /* Success — swap into target and close panel */
+                /* Success — extract OOB elements first, then swap main content */
+                var temp = document.createElement('div');
+                temp.innerHTML = html;
+
+                /* Process hx-swap-oob elements manually (fetch bypasses HTMX OOB) */
+                var oobEls = temp.querySelectorAll('[hx-swap-oob]');
+                oobEls.forEach(function(el) {
+                    var targetEl = document.getElementById(el.id);
+                    if (targetEl) targetEl.innerHTML = el.innerHTML;
+                    el.remove();
+                });
+
+                /* Swap remaining content into target */
                 var target = document.querySelector(importTarget);
-                if (target) target.innerHTML = html;
-                htmx.process(target);
+                if (target) {
+                    target.innerHTML = temp.innerHTML;
+                    htmx.process(target);
+                }
+
+                /* Open parent <details> if collapsed (compliance review mode) */
+                if (target) {
+                    var details = target.closest('details');
+                    if (details && !details.open) details.open = true;
+                }
+
                 closeAiImport();
             }
         });

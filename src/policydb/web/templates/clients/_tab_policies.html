@@ -197,6 +197,11 @@
 {# ── Opportunities ── #}
 {% include "clients/_opportunities.html" %}
 
+{# ── Information Requests ── #}
+{% if bundles is defined and bundles %}
+{% include "clients/_requests.html" %}
+{% endif %}
+
 {# ── Archived Policies ── #}
 {% if archived_policies %}
 <details class="card mb-6 group">

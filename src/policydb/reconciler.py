@@ -66,6 +66,9 @@ class ReconcileRow:
     ext_type_raw: str = ""
     ext_type_normalized: str = ""
     coverage_alias_applied: bool = False
+    ext_carrier_raw: str = ""
+    ext_carrier_normalized: str = ""
+    carrier_alias_applied: bool = False
 
     # Program support
     is_program_match: bool = False
@@ -250,6 +253,9 @@ ScoreBreakdown = namedtuple(
         "ext_type_raw",
         "ext_type_normalized",
         "coverage_alias_applied",
+        "ext_carrier_raw",
+        "ext_carrier_normalized",
+        "carrier_alias_applied",
     ],
 )
 
@@ -356,6 +362,10 @@ def _score_pair(
     db_carrier_raw = str(db.get("carrier") or "").strip()
     ext_carrier_norm = normalize_carrier(ext_carrier_raw)
     db_carrier_norm = normalize_carrier(db_carrier_raw)
+    carrier_alias_applied = (
+        bool(ext_carrier_raw)
+        and ext_carrier_raw.strip().lower() != ext_carrier_norm.lower()
+    )
 
     score_carrier = 0.0
     if ext_carrier_norm and db_carrier_norm:
@@ -431,9 +441,26 @@ def _score_pair(
         elif ext_val > 0 and db_val == 0:
             fillable_fields.append(cf)
 
-    # Policy number fillable: ext has one, db doesn't
+    # ── Policy Number diff tracking ────────────────────────────────────────────
     if ext_pn_raw and not db_pn_raw:
         fillable_fields.append("policy_number")
+    elif ext_pn_raw and db_pn_raw:
+        if ext_pn != db_pn:
+            # Normalized forms differ — real diff
+            diff_fields.append("policy_number")
+        elif ext_pn_raw.strip().lower() != db_pn_raw.strip().lower():
+            # Same after normalization but raw values differ — cosmetic
+            cosmetic_diffs.append("policy_number")
+
+    # ── Text field diff tracking (no scoring weight, just diff detection) ────
+    for tf in ("first_named_insured", "placement_colleague",
+               "underwriter_name", "exposure_address"):
+        ext_val = str(ext.get(tf) or "").strip()
+        db_val = str(db.get(tf) or "").strip()
+        if ext_val and not db_val:
+            fillable_fields.append(tf)
+        elif ext_val and db_val and ext_val.lower() != db_val.lower():
+            diff_fields.append(tf)
 
     return ScoreBreakdown(
         score_policy_number=score_policy_number,
@@ -451,6 +478,9 @@ def _score_pair(
         ext_type_raw=ext_type_raw,
         ext_type_normalized=ext_type_norm,
         coverage_alias_applied=coverage_alias_applied,
+        ext_carrier_raw=ext_carrier_raw,
+        ext_carrier_normalized=ext_carrier_norm,
+        carrier_alias_applied=carrier_alias_applied,
     )
 
 
@@ -507,6 +537,9 @@ def _build_reconcile_row(ext: dict, db: dict, breakdown: ScoreBreakdown,
         ext_type_raw=breakdown.ext_type_raw,
         ext_type_normalized=breakdown.ext_type_normalized,
         coverage_alias_applied=breakdown.coverage_alias_applied,
+        ext_carrier_raw=breakdown.ext_carrier_raw,
+        ext_carrier_normalized=breakdown.ext_carrier_normalized,
+        carrier_alias_applied=breakdown.carrier_alias_applied,
         is_program_match=is_program_match,
         matched_carrier_id=matched_carrier_id,
     )
