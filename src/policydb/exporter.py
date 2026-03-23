@@ -2187,6 +2187,19 @@ def export_compliance_pdf(
 
     from policydb.compliance import get_client_compliance_data
 
+    def _safe(text):
+        """Sanitize text for fpdf2 core fonts (latin-1 only)."""
+        if not text:
+            return ""
+        return (
+            str(text)
+            .replace("\u2022", "-").replace("\u2014", "--").replace("\u2013", "-")
+            .replace("\u2018", "'").replace("\u2019", "'")
+            .replace("\u201c", '"').replace("\u201d", '"')
+            .replace("\u2026", "...").replace("\u2605", "*")
+            .replace("\u2713", "Y").replace("\u2717", "N")
+        )
+
     data = get_client_compliance_data(conn, client_id)
     client_name = data.get("client_name") or ""
     if not client_name:
@@ -2307,8 +2320,8 @@ def export_compliance_pdf(
     pdf.set_text_color(60, 60, 60)
     if findings:
         for finding in findings:
-            pdf.cell(5, 5, chr(8226))  # bullet
-            pdf.cell(0, 5, f"  {finding}", new_x="LMARGIN", new_y="NEXT")
+            pdf.cell(5, 5, "-")
+            pdf.cell(0, 5, f"  {_safe(finding)}", new_x="LMARGIN", new_y="NEXT")
     else:
         pdf.cell(0, 5, "No gaps or partial compliance issues found.", new_x="LMARGIN", new_y="NEXT")
 
@@ -2420,8 +2433,9 @@ def export_compliance_pdf(
             bg = LIGHT_GRAY if i % 2 else WHITE
             pdf.set_fill_color(*bg)
             pdf.set_text_color(40, 40, 40)
-            vals = [gr["location"], gr["coverage_line"], gr["required_limit"], gr["source"]]
+            vals = [gr.get("location") or "", gr.get("coverage_line") or "", gr.get("required_limit") or "", gr.get("source") or ""]
             for (label, w), val in zip(gap_cols, vals):
+                val = _safe(str(val))
                 disp = (val[:int(w / 2)] + "..") if len(val) > int(w / 2) + 2 else val
                 pdf.cell(w, row_h, disp, border=1, fill=True)
             pdf.ln()
@@ -2622,7 +2636,7 @@ def export_compliance_pdf(
         pdf.set_text_color(150, 150, 150)
         pdf.cell(0, 5, f"Insurance Compliance Review - {client_name} - Page {page_num}/{total_pages}", align="C")
 
-    pdf_bytes = pdf.output()
+    pdf_bytes = bytes(pdf.output())
     return pdf_bytes, filename
 
 
