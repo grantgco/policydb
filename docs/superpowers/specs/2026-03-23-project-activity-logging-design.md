@@ -24,7 +24,7 @@ Two bugs in the project-level activity logging flow:
 
 ---
 
-## 1. Data Model: Migration 072
+## 1. Data Model: Migration 073
 
 ```sql
 ALTER TABLE activity_log ADD COLUMN project_id INTEGER REFERENCES projects(id);
@@ -49,15 +49,9 @@ No changes to `projects`, `policies`, or `contacts` tables. Existing `activity_l
 
 Change hardcoded `id="proj-log-contacts"` to `id="proj-log-contacts-{{ project_id }}"` in `_project_log_form.html`. Update the `list=` attribute on the input to match.
 
-### Broaden Contact Query
+### Contact Query
 
-`_project_contacts()` in `clients.py` currently only queries `contact_policy_assignments`. Change to UNION three sources:
-
-1. **Policy-assigned contacts** — existing query (contacts assigned to policies in this project)
-2. **Client-level contacts** — contacts from `contact_client_assignments` for this client (fallback)
-3. **All client contacts** — contacts from `contacts` table linked to this client via any assignment
-
-Deduplicate by `contact.id`. This ensures the datalist is never empty for a valid client.
+`_project_contacts()` in `clients.py` already unions two sources (policy-assigned via `contact_policy_assignments` + client-level via `contact_client_assignments`). The primary fix is the datalist ID scoping above. If the query still returns empty for some clients (no contacts assigned at any level), add a third fallback source: all contacts in the `contacts` table linked to this client via any assignment type. Deduplicate by `contact.id`.
 
 ---
 
@@ -74,6 +68,8 @@ Replace the current "Lead policy only" / "All N policies" radio buttons with:
 
 When "Specific policy" is selected, a dropdown appears showing all active policies in the project (format: `POL-xxx — Policy Type — Carrier`).
 
+**Template context variable:** The GET log-form route must pass `project_policies` — a list of dicts with `id`, `policy_uid`, `policy_type`, `carrier` for all active (non-archived) policies where `project_id` matches. Query: `SELECT id, policy_uid, policy_type, carrier FROM policies WHERE project_id = ? AND archived = 0 ORDER BY policy_type`.
+
 ### Post-Save Behavior
 
 - `project_log_save()` creates **one** `activity_log` row (not N)
@@ -88,24 +84,28 @@ When "Specific policy" is selected, a dropdown appears showing all active polici
 
 ### `get_all_followups()` Update
 
-Add a UNION branch for project-level follow-ups:
+Add a UNION branch for project-level follow-ups. **Note:** The SQL below is a sketch showing the key columns and filters. The actual implementation must align column count and types with the existing UNION branches in `get_all_followups()` (~22 columns including `source`, `thread_id`, `cn_number`, `is_opportunity`, `days_overdue`, `contact_email`, `internal_cc`, `note_details`, etc.). Use NULL placeholders for policy-specific columns.
 
 ```sql
-SELECT a.id, a.activity_date, a.subject, a.follow_up_date, a.contact_person,
-       a.disposition, a.activity_type, a.client_id, a.project_id,
-       c.name AS client_name, p.name AS project_name,
+-- Sketch — align columns with existing UNION branches during implementation
+SELECT 'activity' AS source, a.id, a.subject, a.follow_up_date,
+       a.activity_type, a.contact_person, a.disposition,
+       c.name AS client_name, a.client_id, c.cn_number,
        NULL AS policy_uid, NULL AS policy_type, NULL AS carrier,
-       1 AS is_project_followup
+       pr.name AS project_name, a.project_id,
+       0 AS is_opportunity,
+       1 AS is_project_followup,
+       ... -- remaining columns as NULL to match existing branches
 FROM activity_log a
 JOIN clients c ON a.client_id = c.id
-JOIN projects p ON a.project_id = p.id
+JOIN projects pr ON a.project_id = pr.id
 WHERE a.follow_up_date IS NOT NULL
   AND a.follow_up_done = 0
   AND a.project_id IS NOT NULL
   AND a.policy_id IS NULL
 ```
 
-Also attach `policy_count` — count of active policies in that project — for the badge display.
+Also attach `policy_count` at the Python level — count of active policies in that project — for the badge display. Use `projects.name` for `project_name` (not the legacy `policies.project_name` text column used by existing branches).
 
 ### Action Center Display
 
@@ -120,10 +120,13 @@ Project follow-ups render **inline**, sorted by date alongside policy follow-ups
 
 ### Disposition Handling
 
-Project follow-ups use the same disposition flow as policy follow-ups. Key difference: `supersede_followups()` is NOT called (that's per-policy chain logic). Instead:
+Project follow-ups use the same disposition flow as policy follow-ups. Key difference: `supersede_followups()` is NOT called (that's per-policy chain logic).
 
+**Detection:** The disposition PATCH endpoint in `activities.py` must check whether the activity has `project_id IS NOT NULL AND policy_id IS NULL`. If so, use project disposition logic; otherwise, use existing per-policy logic with `supersede_followups()`.
+
+**Project disposition actions:**
 - **Completed:** Set `follow_up_done = 1` on the activity
-- **Re-diary:** Create a new `activity_log` row with the new `follow_up_date`, same `project_id`, mark old one done
+- **Re-diary:** Create a new `activity_log` row with the new `follow_up_date`, same `project_id` and `client_id`, mark old one done
 - **Waiting:** Update `disposition` to waiting state, keep follow-up active
 
 ---
@@ -171,7 +174,7 @@ This ensures when reviewing any individual policy, you see the full context incl
 | Function | File | Change |
 |----------|------|--------|
 | `get_all_followups()` | `queries.py` | Add UNION for project-level follow-ups |
-| `get_recent_activities()` | `queries.py` | Include project-level activities in timeline |
+| `get_activities()` | `queries.py` | Select `a.project_id` directly (or `COALESCE(a.project_id, p.project_id)`) since policy-level JOIN returns NULL for project-level activities. Include project activities in timeline results. |
 | `_project_contacts()` | `clients.py` | Broaden to include client-level contacts |
 
 ### Template Changes
@@ -188,10 +191,10 @@ This ensures when reviewing any individual policy, you see the full context incl
 
 | File | Type | Changes |
 |------|------|---------|
-| `src/policydb/migrations/072_activity_project_id.sql` | **New** | `ALTER TABLE activity_log ADD COLUMN project_id` |
-| `src/policydb/db.py` | Modify | Wire migration 072 |
+| `src/policydb/migrations/073_activity_project_id.sql` | **New** | `ALTER TABLE activity_log ADD COLUMN project_id` |
+| `src/policydb/db.py` | Modify | Wire migration 073 into `init_db()` with `if 73 not in applied:` version check + INSERT into `schema_version` |
 | `src/policydb/web/routes/clients.py` | Modify | Rewrite `project_log_save()`, fix `_project_contacts()`, update log form GET |
-| `src/policydb/queries.py` | Modify | Update `get_all_followups()`, `get_recent_activities()` |
+| `src/policydb/queries.py` | Modify | Update `get_all_followups()`, `get_activities()` |
 | `src/policydb/web/templates/clients/_project_log_form.html` | Modify | Scoped datalist ID, scope selector, policy dropdown |
 | `src/policydb/web/templates/action_center/_followups.html` | Modify | Project follow-up row rendering with purple badge |
 | Activity timeline template(s) | Modify | Cross-reference display for project activities |
