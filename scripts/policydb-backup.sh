@@ -5,8 +5,11 @@
 
 set -euo pipefail
 
-# Use the same Python environment that runs policydb
-POLICYDB_BIN="$(which policydb 2>/dev/null || echo "$HOME/.local/bin/policydb")"
+# Use the venv that install.sh creates, fall back to PATH
+POLICYDB_BIN="${HOME}/.policydb/venv/bin/policydb"
+if [ ! -x "$POLICYDB_BIN" ]; then
+  POLICYDB_BIN="$(which policydb 2>/dev/null || echo "")"
+fi
 
 if [ ! -x "$POLICYDB_BIN" ]; then
   echo "ERROR: policydb not found. Check POLICYDB_BIN in this script." >&2
