@@ -36,7 +36,7 @@
           {% for loc in locations %}
           <th class="py-3 px-4 text-center font-medium cursor-pointer hover:text-marsh"
               hx-get="/compliance/client/{{ client_id }}/location/{{ loc.project.id }}"
-              hx-target="#location-detail"
+              hx-target="#location-tab-content"
               hx-swap="innerHTML">
             <div class="font-semibold text-gray-700 normal-case text-sm">{{ loc.project.name }}</div>
             <div class="text-[10px] text-gray-400 normal-case">{{ loc.governing | length }} requirement{{ 's' if loc.governing | length != 1 else '' }}</div>
@@ -155,7 +155,7 @@
 
       <div class="flex items-center gap-4 px-5 py-3 hover:bg-gray-50/50 cursor-pointer transition-colors"
            hx-get="/compliance/client/{{ client_id }}/location/{{ loc.project.id }}"
-           hx-target="#location-detail"
+           hx-target="#location-tab-content"
            hx-swap="innerHTML">
         {# Compliance score circle #}
         <div class="flex-shrink-0 w-12 h-12 relative">
@@ -235,5 +235,4 @@
   {% endif %}
 </div>
 
-{# Location detail panel — loaded via HTMX #}
-<div id="location-detail"></div>
+{# Location detail panel moved to #location-tab-content in index.html #}

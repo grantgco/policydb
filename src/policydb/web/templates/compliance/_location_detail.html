@@ -18,7 +18,7 @@
       </p>
     </div>
     <button class="text-xs text-gray-400 hover:text-gray-600 no-print"
-            onclick="document.getElementById('location-detail').innerHTML = ''">Close &times;</button>
+            onclick="document.getElementById('location-tab-content').innerHTML = ''">Close &times;</button>
   </div>
 
   {# Group requirements by source #}
@@ -183,15 +183,21 @@
   {# Policies covering this location #}
   {% if loc.policies %}
   <div class="px-5 py-3 bg-gray-50 border-t border-gray-100">
-    <span class="text-xs uppercase tracking-wider text-gray-400">Policies covering this location</span>
-    <div class="flex flex-wrap gap-2 mt-2">
+    <span class="text-xs uppercase tracking-wider text-gray-400">Policies covering this location ({{ loc.policies | length }})</span>
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
       {% for pol in loc.policies %}
-      <span class="text-xs bg-white border border-gray-200 px-2 py-1 rounded">
-        {{ pol.policy_number or pol.policy_uid[:8] }}
-        &mdash; {{ pol.policy_type or 'Unknown' }}
-        {% if pol.limit_amount %} ({{ pol.limit_amount | currency }}){% endif %}
-        {% if not pol.project_id %}<span class="text-gray-400">Corporate</span>{% endif %}
-      </span>
+      <a href="/policies/{{ pol.policy_uid }}/edit" class="block bg-white border border-gray-200 px-3 py-2 rounded hover:border-marsh hover:shadow-sm transition-all group">
+        <div class="flex items-center gap-2">
+          <span class="font-mono text-xs text-gray-400 group-hover:text-marsh">{{ pol.policy_uid }}</span>
+          <span class="text-xs font-medium text-gray-800">{{ pol.policy_type or 'Unknown' }}</span>
+          {% if not pol.project_id %}<span class="text-[10px] bg-gray-100 text-gray-500 px-1 rounded">Corporate</span>{% endif %}
+        </div>
+        <div class="flex items-center gap-3 mt-0.5 text-[11px] text-gray-500">
+          {% if pol.carrier %}<span>{{ pol.carrier }}</span>{% endif %}
+          {% if pol.limit_amount %}<span>Limit: {{ pol.limit_amount | currency_short }}</span>{% endif %}
+          {% if pol.expiration_date %}<span class="tabular-nums">Exp: {{ pol.expiration_date }}</span>{% endif %}
+        </div>
+      </a>
       {% endfor %}
     </div>
   </div>

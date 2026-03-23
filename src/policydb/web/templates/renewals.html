@@ -2,18 +2,18 @@
 {% from "_sort_th.html" import th as sort_th %}
 {% block title %}Renewals — Coverage{% endblock %}
 {% block content %}
-{%- set sparams = 'window=' ~ window ~ '&urgency=' ~ urgency ~ '&status=' ~ (status | urlencode) -%}
+{%- set sparams = 'window=' ~ window ~ '&urgency=' ~ urgency ~ '&status=' ~ (status | urlencode) ~ '&client_id=' ~ (client_id or '') -%}
 
 <div class="mb-6">
   <div class="flex items-center justify-between mb-3">
     <div>
       <h1 class="text-2xl font-bold text-gray-900">Renewal Pipeline</h1>
-      <p class="text-sm text-gray-500 mt-1">{{ rows | length }} polic{{ 'y' if rows|length == 1 else 'ies' }} · next {{ window }} days{% if urgency %} · {{ urgency }}{% endif %}{% if status %} · {{ status }}{% endif %}</p>
+      <p class="text-sm text-gray-500 mt-1">{{ rows | length }} polic{{ 'y' if rows|length == 1 else 'ies' }} · next {{ window }} days{% if urgency %} · {{ urgency }}{% endif %}{% if status %} · {{ status }}{% endif %}{% if selected_client_name %} · {{ selected_client_name }}{% endif %}</p>
     </div>
     <div class="flex gap-2 items-center">
-      <a href="/renewals?window=90&urgency={{ urgency }}&status={{ status | urlencode }}&sort={{ sort }}&dir={{ dir }}" class="btn-filter {{ 'active' if window == 90 else '' }}">90d</a>
-      <a href="/renewals?window=120&urgency={{ urgency }}&status={{ status | urlencode }}&sort={{ sort }}&dir={{ dir }}" class="btn-filter {{ 'active' if window == 120 else '' }}">120d</a>
-      <a href="/renewals?window=180&urgency={{ urgency }}&status={{ status | urlencode }}&sort={{ sort }}&dir={{ dir }}" class="btn-filter {{ 'active' if window == 180 else '' }}">180d</a>
+      <a href="/renewals?window=90&urgency={{ urgency }}&status={{ status | urlencode }}&sort={{ sort }}&dir={{ dir }}&client_id={{ client_id or '' }}" class="btn-filter {{ 'active' if window == 90 else '' }}">90d</a>
+      <a href="/renewals?window=120&urgency={{ urgency }}&status={{ status | urlencode }}&sort={{ sort }}&dir={{ dir }}&client_id={{ client_id or '' }}" class="btn-filter {{ 'active' if window == 120 else '' }}">120d</a>
+      <a href="/renewals?window=180&urgency={{ urgency }}&status={{ status | urlencode }}&sort={{ sort }}&dir={{ dir }}&client_id={{ client_id or '' }}" class="btn-filter {{ 'active' if window == 180 else '' }}">180d</a>
       <span class="border-l border-gray-200 h-6 mx-1"></span>
       <a href="/renewals/calendar" class="btn-filter">Calendar</a>
       <span class="border-l border-gray-200 h-6 mx-1"></span>
@@ -24,18 +24,33 @@
   <!-- Urgency filter -->
   <div class="flex gap-1.5 flex-wrap items-center mb-1.5">
     <span class="text-xs text-gray-400 w-14 shrink-0">Urgency:</span>
-    <a href="/renewals?window={{ window }}&status={{ status | urlencode }}&sort={{ sort }}&dir={{ dir }}" class="btn-filter {{ 'active' if not urgency else '' }}">All</a>
+    <a href="/renewals?window={{ window }}&status={{ status | urlencode }}&sort={{ sort }}&dir={{ dir }}&client_id={{ client_id or '' }}" class="btn-filter {{ 'active' if not urgency else '' }}">All</a>
     {% for u in ['EXPIRED', 'URGENT', 'WARNING', 'UPCOMING'] %}
-    <a href="/renewals?window={{ window }}&urgency={{ u }}&status={{ status | urlencode }}&sort={{ sort }}&dir={{ dir }}" class="btn-filter {{ 'active' if urgency == u else '' }}">{{ u }}</a>
+    <a href="/renewals?window={{ window }}&urgency={{ u }}&status={{ status | urlencode }}&sort={{ sort }}&dir={{ dir }}&client_id={{ client_id or '' }}" class="btn-filter {{ 'active' if urgency == u else '' }}">{{ u }}</a>
     {% endfor %}
   </div>
   <!-- Status filter -->
-  <div class="flex gap-1.5 flex-wrap items-center">
+  <div class="flex gap-1.5 flex-wrap items-center mb-1.5">
     <span class="text-xs text-gray-400 w-14 shrink-0">Status:</span>
-    <a href="/renewals?window={{ window }}&urgency={{ urgency }}&sort={{ sort }}&dir={{ dir }}" class="btn-filter {{ 'active' if not status else '' }}">All</a>
+    <a href="/renewals?window={{ window }}&urgency={{ urgency }}&sort={{ sort }}&dir={{ dir }}&client_id={{ client_id or '' }}" class="btn-filter {{ 'active' if not status else '' }}">All</a>
     {% for s in renewal_statuses %}
-    <a href="/renewals?window={{ window }}&urgency={{ urgency }}&status={{ s | urlencode }}&sort={{ sort }}&dir={{ dir }}" class="btn-filter {{ 'active' if status == s else '' }}">{{ s }}</a>
+    <a href="/renewals?window={{ window }}&urgency={{ urgency }}&status={{ s | urlencode }}&sort={{ sort }}&dir={{ dir }}&client_id={{ client_id or '' }}" class="btn-filter {{ 'active' if status == s else '' }}">{{ s }}</a>
     {% endfor %}
+  </div>
+  <!-- Client filter -->
+  <div class="flex gap-1.5 items-center">
+    <span class="text-xs text-gray-400 w-14 shrink-0">Client:</span>
+    <input type="text" list="renew-client-opts" value="{{ selected_client_name }}" placeholder="All Clients"
+           class="text-xs border border-gray-200 rounded px-2 py-1 w-56 focus:outline-none focus:ring-1 focus:ring-marsh"
+           onchange="var o=document.querySelector('#renew-client-opts option[value=&quot;'+this.value+'&quot;]');var cid=o?o.dataset.cid:'';window.location='/renewals?window={{ window }}&urgency={{ urgency }}&status={{ status | urlencode }}&sort={{ sort }}&dir={{ dir }}&client_id='+cid">
+    <datalist id="renew-client-opts">
+      {% for c in all_clients %}
+      <option value="{{ c.name }}" data-cid="{{ c.id }}">{{ c.name }}</option>
+      {% endfor %}
+    </datalist>
+    {% if client_id %}
+    <a href="/renewals?window={{ window }}&urgency={{ urgency }}&status={{ status | urlencode }}&sort={{ sort }}&dir={{ dir }}" class="text-xs text-gray-400 hover:text-red-500">&times; Clear</a>
+    {% endif %}
   </div>
 </div>
 
