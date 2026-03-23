@@ -50,8 +50,8 @@
     <div class="flex items-start gap-3 px-4 py-3">
       {# INB badge #}
       <span class="bg-teal-50 text-teal-700 text-[10px] font-semibold px-1.5 py-0.5 rounded flex-shrink-0 mt-0.5 select-all cursor-pointer"
-        onclick="navigator.clipboard.writeText('INB-{{ item.id }}');if(typeof showToast==='function')showToast('INB-{{ item.id }} copied',true)"
-        title="Click to copy INB-{{ item.id }}">INB-{{ item.id }}</span>
+        onclick="copyRefTag(this, 'INB-{{ item.id }}')"
+        title="Click to copy [PDB:INB-{{ item.id }}]">INB-{{ item.id }}</span>
 
       {# Content + meta #}
       <div class="flex-1 min-w-0">

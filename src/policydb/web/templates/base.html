@@ -517,7 +517,7 @@
     <div class="mx-auto max-w-[1600px] px-4 sm:px-6 lg:px-8 flex items-center gap-3 py-1">
       <span class="text-white/35 text-[11px] flex-shrink-0">Capture:</span>
       <form hx-post="/inbox/capture" hx-swap="none"
-            hx-on::after-request="if(event.detail.successful){this.reset();var h=event.detail.xhr.getResponseHeader('HX-Trigger');if(h){var m=h.match(/INB-\\d+/);if(m)navigator.clipboard.writeText(m[0])}}"
+            hx-on::after-request="if(event.detail.successful){this.reset();var h=event.detail.xhr.getResponseHeader('HX-Trigger');if(h){var m=h.match(/INB-\\d+/);if(m)navigator.clipboard.writeText('[PDB:'+m[0]+']')}}"
             class="flex-1 max-w-xl">
         <input id="capture-input" type="text" name="content" placeholder="Type a note, press Enter... (@ to tag contact)" required
           class="w-full bg-white/10 text-white placeholder-white/30 text-xs rounded px-3 py-1
