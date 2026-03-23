@@ -46,7 +46,7 @@ POLICY_EXTRACTION_SCHEMA: dict = {
         "Extract policy details from a certificate of insurance, "
         "declaration page, binder, or quote document"
     ),
-    "context_fields": ["client_name", "first_named_insured"],
+    "context_fields": ["client_name", "industry"],
     "fields": [
         # --- Required fields ---
         {
