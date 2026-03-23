@@ -41,6 +41,7 @@ _CELL_ALLOWED_FIELDS = {
 
 def _compliance_context(conn: sqlite3.Connection, client_id: int, request: Request) -> dict:
     """Build full template context for the compliance index page."""
+    active_location_id = int(request.query_params.get("location", 0))
     client = get_client_by_id(conn, client_id)
     data = get_client_compliance_data(conn, client_id)
 
@@ -68,6 +69,7 @@ def _compliance_context(conn: sqlite3.Connection, client_id: int, request: Reque
         "overall_summary": data["overall_summary"],
         "risk_prompts": risk_prompts,
         "projects": projects,
+        "active_location_id": active_location_id,
         # Config values
         "compliance_statuses": cfg.get("compliance_statuses", []),
         "deductible_types": cfg.get("deductible_types", []),
@@ -225,8 +227,14 @@ def ai_import_parse(
             ),
         )
 
+    req_count = len(parsed.get("requirements", []))
+
     # --- COPE ---
+    cope_skipped = False
     cope = parsed.get("cope")
+    if cope and project_id is None:
+        cope_skipped = True
+        warnings.append("COPE data detected but no location selected — COPE data was not imported. Select a location first, then re-import.")
     if cope and project_id is not None:
         conn.execute(
             """INSERT OR REPLACE INTO cope_data
@@ -272,7 +280,13 @@ def ai_import_parse(
         "SELECT id, name, description FROM requirement_templates ORDER BY name"
     ).fetchall()]
 
-    # Build OOB warnings HTML
+    # Build OOB success + warnings HTML
+    success_html = (
+        f'<div class="bg-green-50 border border-green-200 rounded-lg p-3 text-sm text-green-800 mb-3">'
+        f'<p class="font-semibold">Imported {req_count} requirement{"s" if req_count != 1 else ""}</p>'
+        f'</div>'
+    ) if req_count else ""
+
     warnings_html = ""
     if warnings:
         items = "".join(f"<li>{w}</li>" for w in warnings)
@@ -295,9 +309,14 @@ def ai_import_parse(
         "endorsement_types": cfg.get("endorsement_types", []),
     })
 
-    # Append OOB warnings if any
-    if warnings_html:
-        response.body += warnings_html.encode()
+    # Prepend success banner + append OOB warnings
+    if success_html or warnings_html:
+        body = response.body
+        if success_html:
+            body = success_html.encode() + body
+        if warnings_html:
+            body += warnings_html.encode()
+        response.body = body
 
     return response
 

@@ -1,33 +1,33 @@
 <tr id="row-{{ p.policy_uid }}" class="hover:bg-gray-50 border-t border-gray-100">
-  <td class="px-4 py-3 font-mono text-xs text-gray-400">
+  <td class="px-3 py-2 font-mono text-xs text-gray-400">
     <button type="button" onclick="event.stopPropagation(); copyRefTag(this, '{{ build_ref_tag(cn_number=p.cn_number|default(''), client_id=p.client_id, policy_uid=p.policy_uid, project_id=p.project_id|default(0)) }}')"
       class="hover:text-marsh cursor-pointer" title="Copy ref tag">{{ p.policy_uid }}</button>
   </td>
-  <td class="px-4 py-3">
+  <td class="px-3 py-2">
     <span contenteditable="true" class="policy-cell font-medium text-gray-800" data-field="policy_type" data-uid="{{ p.policy_uid }}" data-placeholder="Line of business">{{ p.policy_type }}</span>
     {% set notation = p | layer_notation %}
     {% if notation %}
     <p class="text-xs text-gray-400 font-mono">{{ notation }}</p>
     {% endif %}
   </td>
-  <td class="px-4 py-3 text-gray-600">
-    <div class="flex items-center gap-1.5 flex-wrap">
+  <td class="px-3 py-2 text-gray-600 max-w-[200px]">
+    <div class="flex items-center gap-1 flex-wrap">
       {% if p.carrier %}
-        <span contenteditable="true" class="policy-cell font-medium text-gray-700" data-field="carrier" data-uid="{{ p.policy_uid }}" data-placeholder="Carrier">{{ p.carrier }}</span>
+        <span contenteditable="true" class="policy-cell font-medium text-gray-700 truncate max-w-[120px]" data-field="carrier" data-uid="{{ p.policy_uid }}" data-placeholder="Carrier" title="{{ p.carrier }}">{{ p.carrier }}</span>
       {% elif p.is_opportunity %}
         <span class="text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">TBD</span>
       {% else %}
         <span contenteditable="true" class="policy-cell text-gray-400" data-field="carrier" data-uid="{{ p.policy_uid }}" data-placeholder="Carrier">&mdash;</span>
       {% endif %}
       {% if p.first_named_insured %}
-        <span class="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded-full whitespace-nowrap truncate max-w-[140px]" title="FNI: {{ p.first_named_insured }}">FNI: {{ p.first_named_insured }}</span>
+        <span class="text-[10px] bg-blue-50 text-blue-700 px-1 py-0.5 rounded-full whitespace-nowrap truncate max-w-[100px]" title="FNI: {{ p.first_named_insured }}">FNI: {{ p.first_named_insured }}</span>
       {% endif %}
       {% if p.access_point %}
-        <span class="text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded-full whitespace-nowrap truncate max-w-[100px]" title="via {{ p.access_point }}">via {{ p.access_point }}</span>
+        <span class="text-[10px] bg-gray-100 text-gray-600 px-1 py-0.5 rounded-full whitespace-nowrap truncate max-w-[80px]" title="via {{ p.access_point }}">via {{ p.access_point }}</span>
       {% endif %}
     </div>
   </td>
-  <td class="px-4 py-3 whitespace-nowrap">
+  <td class="px-3 py-2 whitespace-nowrap">
     <input type="date" value="{{ p.expiration_date }}"
       onchange="policySaveDate(this, '{{ p.policy_uid }}', 'expiration_date')"
       class="text-sm text-gray-700 tabular-nums bg-transparent border-none p-0 focus:outline-none focus:ring-0 cursor-pointer">
@@ -35,42 +35,30 @@
     <span class="{{ p.urgency | urgency_class }} text-xs px-1.5 py-0.5 rounded font-medium">{{ p.days_to_renewal }}d</span>
     {% endif %}
     {% if p.readiness_label is defined and p.readiness_label %}
-    <span class="text-xs px-1.5 py-0.5 rounded block mt-0.5 whitespace-nowrap {{ p.readiness_label | readiness_class }} cursor-help" title="{{ p.readiness_tooltip or '' }}">{{ p.readiness_label }}</span>
-    {% endif %}
-    {% if p.follow_up_date %}
-    <span class="block text-xs {{ 'text-red-500 font-medium' if p.followup_overdue else 'text-gray-400' }} mt-0.5">FU: {{ p.follow_up_date }}</span>
+    <span class="text-xs px-1 py-0.5 rounded inline-block mt-0.5 whitespace-nowrap {{ p.readiness_label | readiness_class }} cursor-help" title="{{ p.readiness_tooltip or '' }}">{{ p.readiness_label }}</span>
     {% endif %}
   </td>
-  <td class="px-4 py-3 text-right tabular-nums text-gray-700">
+  <td class="px-3 py-2 text-right tabular-nums text-gray-700">
     <span contenteditable="true" class="policy-cell" data-field="premium" data-uid="{{ p.policy_uid }}" data-placeholder="$0">{{ p.premium | currency }}</span>
   </td>
-  <td class="px-4 py-3 text-right tabular-nums text-gray-500 text-xs">
+  <td class="px-3 py-2 text-right tabular-nums text-gray-500 text-xs hidden xl:table-cell">
     {% if p.commission_amount %}
       {{ p.commission_amount | currency }}
       {% if p.commission_rate %}<span class="text-gray-400"> ({{ "%.0f"|format(p.commission_rate * 100) }}%)</span>{% endif %}
     {% else %}&mdash;{% endif %}
   </td>
-  <td class="px-4 py-3 text-right tabular-nums text-gray-500 text-xs">{{ p.limit_amount | currency_short if p.limit_amount else '—' }}</td>
-  <td class="px-4 py-3">
+  <td class="px-3 py-2 text-right tabular-nums text-gray-500 text-xs hidden xl:table-cell">{{ p.limit_amount | currency_short if p.limit_amount else '—' }}</td>
+  <td class="px-3 py-2">
     {% include "policies/_status_badge.html" %}
   </td>
-  <td class="px-4 py-3">
-    <span class="{{ p.urgency | urgency_class }} text-xs font-bold px-1.5 py-0.5 rounded">{{ p.urgency }}</span>
-  </td>
-  <td class="px-4 py-3 flex items-center gap-3">
-    <a href="/policies/{{ p.policy_uid }}/edit" class="text-xs text-gray-400 hover:underline">Full Edit</a>
+  <td class="px-3 py-2 whitespace-nowrap">
+    <a href="/policies/{{ p.policy_uid }}/edit" class="text-gray-400 hover:text-marsh text-xs no-print" title="Full edit">&rarr;</a>
     <button
       hx-get="/policies/{{ p.policy_uid }}/row/log"
       hx-target="#row-{{ p.policy_uid }}"
       hx-swap="outerHTML"
-      class="text-xs text-amber-600 hover:underline">Log</button>
-    <form method="post" action="/policies/{{ p.policy_uid }}/renew" class="inline"
-          onsubmit="return confirm('Create new term for {{ p.policy_uid }} ({{ p.policy_type }})?')">
-      <button type="submit" class="text-xs text-blue-600 hover:underline">Renew</button>
-    </form>
-    <a href="/policies/{{ p.policy_uid }}/export" onclick="event.stopPropagation()"
-      class="text-gray-300 hover:text-marsh text-xs no-print" title="Export policy XLSX">&#8615;</a>
+      class="text-xs text-amber-600 hover:underline no-print ml-1" title="Log activity">Log</button>
     <button type="button" onclick="copyRefTag(this, '{{ build_ref_tag(cn_number=p.cn_number|default(''), client_id=p.client_id, policy_uid=p.policy_uid, project_id=p.project_id|default(0)) }}')"
-      class="text-gray-300 hover:text-marsh text-xs" title="Copy email ref tag">&#10697;</button>
+      class="text-gray-300 hover:text-marsh text-xs no-print ml-1" title="Copy ref tag">&#10697;</button>
   </td>
 </tr>
