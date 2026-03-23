@@ -69,6 +69,7 @@ def scratchpad_clear(source: str = Form(...), source_id: str = Form(""), scope_i
 
 @router.post("/inbox/scratchpad/process", response_class=HTMLResponse)
 def scratchpad_process(
+    request: Request,
     source: str = Form(...),
     source_id: str = Form(""), scope_id: str = Form(""),
     client_id: int = Form(0), subject: str = Form(""),
@@ -113,6 +114,20 @@ def scratchpad_process(
         if row:
             content_for_note = row["content"] or ""
 
+    # Resolve policy_id (integer FK) from policy_uid if needed
+    resolved_policy_id = policy_id
+    if not resolved_policy_id and resolved_policy_uid:
+        pid_row = conn.execute("SELECT id FROM policies WHERE policy_uid=?", (resolved_policy_uid,)).fetchone()
+        if pid_row:
+            resolved_policy_id = pid_row["id"]
+
+    # Guard: activity_log.client_id is NOT NULL — dashboard scratchpads have no client
+    if not resolved_client_id:
+        accept = request.headers.get("accept", "")
+        if "application/json" in accept:
+            return JSONResponse({"ok": False, "error": "No client associated — cannot log as activity"}, status_code=400)
+        return HTMLResponse("No client associated with this scratchpad", status_code=400)
+
     account_exec = cfg.get("default_account_exec", "Grant")
     dur = round_duration(duration_hours)
 
@@ -122,14 +137,14 @@ def scratchpad_process(
            (activity_date, client_id, policy_id, activity_type, subject, details,
             follow_up_date, account_exec, duration_hours)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (date.today().isoformat(), resolved_client_id or None, policy_id or None, activity_type,
+        (date.today().isoformat(), resolved_client_id or None, resolved_policy_id or None, activity_type,
          subject or "Scratchpad note", content_for_note or None,
          follow_up_date or None, account_exec, dur),
     )
     activity_id = cursor.lastrowid
-    if follow_up_date and policy_id:
+    if follow_up_date and resolved_policy_id:
         from policydb.queries import supersede_followups
-        supersede_followups(conn, policy_id, follow_up_date)
+        supersede_followups(conn, resolved_policy_id, follow_up_date)
 
     # 2. Clear the scratchpad
     if source == "dashboard":
@@ -142,6 +157,12 @@ def scratchpad_process(
         conn.execute("UPDATE policy_scratchpad SET content='', updated_at=CURRENT_TIMESTAMP WHERE policy_uid=?", (puid,))
 
     conn.commit()
+
+    # Return JSON if requested (Action Center scratchpads use fetch + json)
+    accept = request.headers.get("accept", "")
+    if "application/json" in accept:
+        return JSONResponse({"ok": True, "activity_id": activity_id})
+
     return HTMLResponse("", headers={
         "HX-Trigger": '{"activityLogged": "Scratchpad processed - activity created"}'
     })

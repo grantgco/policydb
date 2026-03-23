@@ -510,3 +510,19 @@ This is not optional — UI changes without visual verification have repeatedly 
 **24. HTMX `hx-target` with element IDs works across tabs:** Partials that use `hx-target="#list-{key}"` or similar ID-based targeting continue to work when moved into tab partials, because HTMX targets by element ID regardless of which tab container the element is in. No changes needed to existing partial targeting when refactoring to tabs.
 
 **25. Pages with 10+ config sections need tabbed navigation, not long scroll:** A monolithic settings page with collapsible `<details>` sections doesn't scale — users with ADD especially struggle to find what they need. Group related settings into tabs with a search bar for cross-tab discovery. Complex editors get stacked cards (all open), simple lists get a 2-column grid within each tab.
+**22. Worktree edits require `pip install -e .` for server visibility:** When working in a git worktree, template/code edits are NOT visible to the running `policydb serve` unless the package is installed in editable mode (`pip install -e .`) from the worktree directory. The server uses the installed package — if it was installed from the main repo, it reads templates from there, not the worktree. Always run `pip install -e .` from the worktree before starting the dev server.
+
+**23. `fetch()` bypasses HTMX OOB swap processing:** When using `fetch()` + `innerHTML` instead of `htmx.ajax()` (e.g. to inspect HTTP status codes for error handling), `hx-swap-oob` attributes in the response HTML are NOT processed. You must manually extract OOB elements from the response, find their targets by ID, and swap their innerHTML before setting the main target content. Pattern:
+```javascript
+var temp = document.createElement('div');
+temp.innerHTML = html;
+temp.querySelectorAll('[hx-swap-oob]').forEach(function(el) {
+    var target = document.getElementById(el.id);
+    if (target) target.innerHTML = el.innerHTML;
+    el.remove();
+});
+mainTarget.innerHTML = temp.innerHTML;
+htmx.process(mainTarget);
+```
+
+**24. HTMX swap targets must exist before the response arrives:** When a slideover/panel triggers a `fetch()` that swaps content into a page element (e.g. `#ai-import-target`), the target element must have a stable ID in the page template. If the swap target is dynamically created or inside lazy-loaded content, verify it exists at swap time. Missing targets silently fail — the response HTML is fetched but never displayed.

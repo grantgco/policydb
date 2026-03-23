@@ -1,0 +1,18 @@
+{% set type_classes = {
+  'Construction': 'bg-amber-50 text-amber-700 border-amber-200',
+  'Development': 'bg-purple-50 text-purple-700 border-purple-200',
+  'Renovation': 'bg-orange-50 text-orange-700 border-orange-200'
+} %}
+<div class="flex items-center gap-1" id="pp-type-{{ p.id }}">
+  <select
+    hx-post="/clients/{{ client.id }}/projects/{{ p.id }}/type"
+    hx-target="#pp-type-{{ p.id }}"
+    hx-swap="outerHTML"
+    hx-include="this"
+    name="project_type"
+    class="text-xs border rounded px-2 py-1 {{ type_classes.get(p.project_type, 'bg-gray-100 text-gray-600 border-gray-200') }} cursor-pointer focus:outline-none focus:ring-1 focus:ring-marsh">
+    {% for t in (project_types or ['Location', 'Construction', 'Development', 'Renovation']) %}
+    <option value="{{ t }}" {% if t == p.project_type %}selected{% endif %}>{{ t }}</option>
+    {% endfor %}
+  </select>
+</div>

@@ -337,6 +337,10 @@ def activity_delete(
         resp = HTMLResponse(
             f'<tr id="followup-activity-{activity_id}"><td colspan="8" class="px-4 py-2 text-xs text-gray-400 italic">Deleted.</td></tr>'
         )
+    elif context == "action_center":
+        resp = HTMLResponse(
+            f'<tr><td colspan="8" class="px-3 py-2 text-xs text-gray-400 italic">Deleted.</td></tr>'
+        )
     else:
         resp = HTMLResponse(
             f'<li id="activity-{activity_id}" class="py-2 text-xs text-gray-400 italic">Deleted.</li>'
