@@ -2,7 +2,7 @@
 <tr id="req-row-{{ req.id }}" class="bg-amber-50/30 border-b border-gray-100">
     <td class="py-2 px-2" colspan="5">
       <form hx-post="/compliance/client/{{ client_id }}/requirements/{{ req.id }}/edit"
-            hx-target="body">
+            hx-target="#location-tab-content">
       <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
         <div>
           <label class="block text-[10px] text-gray-500 uppercase">Coverage Line</label>
@@ -83,10 +83,12 @@
       <div class="mt-2 flex gap-2">
         <button type="submit" class="bg-marsh text-white px-3 py-1 rounded text-xs hover:opacity-90">Save</button>
         <button type="button" class="text-gray-400 hover:text-gray-600 text-xs"
-                onclick="window.location.reload()">Cancel</button>
+                hx-get="/compliance/client/{{ client_id }}/requirements/{{ req.id }}/row"
+                hx-target="#req-row-{{ req.id }}"
+                hx-swap="outerHTML">Cancel</button>
         <button type="button" class="text-red-400 hover:text-red-600 text-xs ml-auto"
                 hx-post="/compliance/client/{{ client_id }}/requirements/{{ req.id }}/delete"
-                hx-target="body"
+                hx-target="#location-tab-content"
                 hx-confirm="Delete this requirement?">Delete</button>
       </div>
       </form>

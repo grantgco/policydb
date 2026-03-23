@@ -22,7 +22,7 @@
             hx-swap="outerHTML">Edit</button>
     <button class="text-red-400 hover:text-red-600 text-xs"
             hx-post="/compliance/client/{{ client_id }}/sources/{{ src.id }}/delete"
-            hx-target="body"
+            hx-target="#sources-container"
             hx-confirm="Delete this source and its requirements?">Delete</button>
   </td>
 </tr>

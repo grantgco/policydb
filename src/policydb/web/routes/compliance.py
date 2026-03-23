@@ -79,9 +79,100 @@ def _compliance_context(conn: sqlite3.Connection, client_id: int, request: Reque
     }
 
 
-# ── Literal routes first ───────────────────────────────────────────────────────
+# ── Helpers for targeted partial + OOB responses ──────────────────────────────
 
-# (none currently — all routes are parameterized)
+
+def _oob_summary_and_matrix(request: Request, conn: sqlite3.Connection, client_id: int) -> str:
+    """Return OOB HTML string for summary banner + matrix refresh."""
+    ctx = _compliance_context(conn, client_id, request)
+    summary_resp = templates.TemplateResponse("compliance/_summary_banner.html", {
+        "request": request, **ctx
+    })
+    matrix_resp = templates.TemplateResponse("compliance/_matrix.html", {
+        "request": request, **ctx
+    })
+    # outerHTML replaces the entire #compliance-summary / #compliance-matrix divs
+    summary_oob = summary_resp.body.decode().replace(
+        'id="compliance-summary"', 'id="compliance-summary" hx-swap-oob="outerHTML"', 1
+    )
+    matrix_oob = matrix_resp.body.decode().replace(
+        'id="compliance-matrix"', 'id="compliance-matrix" hx-swap-oob="outerHTML"', 1
+    )
+    return summary_oob + matrix_oob
+
+
+def _location_response(request: Request, conn: sqlite3.Connection, client_id: int, project_id: int) -> str:
+    """Build _location_detail.html context and render for a given location."""
+    data = get_client_compliance_data(conn, client_id)
+    locs = data["locations"]
+    loc = next((l for l in locs if l["project"]["id"] == project_id), None)
+    if not loc:
+        return ""
+    idx = next((i for i, l in enumerate(locs) if l["project"]["id"] == project_id), 0)
+    next_loc = locs[idx + 1]["project"] if idx + 1 < len(locs) else None
+    return templates.TemplateResponse("compliance/_location_detail.html", {
+        "request": request, "client_id": client_id,
+        "location_data": loc,
+        "project": loc["project"],
+        "loc": loc,
+        "locations": locs,
+        "sources": data["sources"],
+        "all_policies": data["all_policies"],
+        "compliance_statuses": cfg.get("compliance_statuses", []),
+        "policy_types": cfg.get("policy_types", []),
+        "deductible_types": cfg.get("deductible_types", []),
+        "endorsement_types": cfg.get("endorsement_types", []),
+        "location_index": idx, "location_count": len(locs),
+        "next_location": next_loc,
+    }).body.decode()
+
+
+def _sources_container_html(request: Request, conn: sqlite3.Connection, client_id: int) -> str:
+    """Render the sources container partial (_sources_section.html)."""
+    sources = [dict(r) for r in conn.execute(
+        "SELECT * FROM requirement_sources WHERE client_id=? ORDER BY name",
+        (client_id,),
+    ).fetchall()]
+    projects = [dict(r) for r in conn.execute(
+        "SELECT id, name FROM projects WHERE client_id=? ORDER BY name", (client_id,)
+    ).fetchall()]
+    return templates.TemplateResponse("compliance/_sources_section.html", {
+        "request": request,
+        "client_id": client_id,
+        "sources": sources,
+        "projects": projects,
+    }).body.decode()
+
+
+def _corporate_location_html(request: Request, conn: sqlite3.Connection, client_id: int) -> str:
+    """Render the corporate (project_id IS NULL) location detail."""
+    reqs = [dict(r) for r in conn.execute(
+        "SELECT * FROM coverage_requirements WHERE client_id=? AND project_id IS NULL ORDER BY coverage_line",
+        (client_id,),
+    ).fetchall()]
+    for req in reqs:
+        try:
+            req["_endorsements_list"] = json.loads(req.get("required_endorsements") or "[]")
+        except (ValueError, TypeError):
+            req["_endorsements_list"] = []
+    sources = [dict(r) for r in conn.execute(
+        "SELECT * FROM requirement_sources WHERE client_id=? AND (project_id IS NULL) ORDER BY name",
+        (client_id,),
+    ).fetchall()]
+    return templates.TemplateResponse("compliance/_location_detail.html", {
+        "request": request, "client_id": client_id,
+        "location_data": {"project": {"id": 0, "name": "Corporate"}, "requirements": reqs, "sources": sources, "policies": [], "governing": {}, "summary": {"gap": 0, "met": 0, "total": len(reqs)}},
+        "project": {"id": 0, "name": "Corporate"},
+        "loc": {"project": {"id": 0, "name": "Corporate"}, "requirements": reqs, "sources": sources, "policies": [], "governing": {}, "summary": {"gap": 0, "met": 0, "total": len(reqs)}},
+        "locations": [],
+        "sources": sources,
+        "all_policies": [],
+        "compliance_statuses": cfg.get("compliance_statuses", []),
+        "policy_types": cfg.get("policy_types", []),
+        "deductible_types": cfg.get("deductible_types", []),
+        "endorsement_types": cfg.get("endorsement_types", []),
+    }).body.decode()
+
 
 # ── AI Import ─────────────────────────────────────────────────────────────────
 
@@ -354,8 +445,9 @@ def sources_add(
         (client_id, _int_or_none(project_id), name.strip(), counterparty.strip(), clause_ref.strip(), notes.strip()),
     )
     conn.commit()
-    ctx = _compliance_context(conn, client_id, request)
-    return templates.TemplateResponse("compliance/index.html", ctx)
+    html = _sources_container_html(request, conn, client_id)
+    oob = _oob_summary_and_matrix(request, conn, client_id)
+    return HTMLResponse(html + oob)
 
 
 @router.post("/client/{client_id}/sources/{source_id}/edit", response_class=HTMLResponse)
@@ -383,8 +475,9 @@ def sources_edit(
         (name.strip(), counterparty.strip(), clause_ref.strip(), notes.strip(), _int_or_none(project_id), source_id, client_id),
     )
     conn.commit()
-    ctx = _compliance_context(conn, client_id, request)
-    return templates.TemplateResponse("compliance/index.html", ctx)
+    html = _sources_container_html(request, conn, client_id)
+    oob = _oob_summary_and_matrix(request, conn, client_id)
+    return HTMLResponse(html + oob)
 
 
 @router.get("/client/{client_id}/sources/{source_id}/row/edit", response_class=HTMLResponse)
@@ -487,8 +580,9 @@ def sources_delete(
         (source_id, client_id),
     )
     conn.commit()
-    ctx = _compliance_context(conn, client_id, request)
-    return templates.TemplateResponse("compliance/index.html", ctx)
+    html = _sources_container_html(request, conn, client_id)
+    oob = _oob_summary_and_matrix(request, conn, client_id)
+    return HTMLResponse(html + oob)
 
 
 # ── Requirements CRUD ─────────────────────────────────────────────────────────
@@ -530,6 +624,7 @@ def requirements_add(
     except (ValueError, TypeError):
         endorsements = _json.dumps([e.strip() for e in required_endorsements.split(",") if e.strip()])
 
+    pid = _int_or_none(project_id)
     conn.execute(
         """INSERT INTO coverage_requirements (
                client_id, project_id, source_id, risk_id, coverage_line,
@@ -539,7 +634,7 @@ def requirements_add(
            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             client_id,
-            _int_or_none(project_id),
+            pid,
             _int_or_none(source_id),
             _int_or_none(risk_id),
             coverage_line.strip() or "",
@@ -553,8 +648,13 @@ def requirements_add(
         ),
     )
     conn.commit()
-    ctx = _compliance_context(conn, client_id, request)
-    return templates.TemplateResponse("compliance/index.html", ctx)
+    # Return location detail for the affected location + OOB summary/matrix
+    if pid:
+        html = _location_response(request, conn, client_id, pid)
+    else:
+        html = _corporate_location_html(request, conn, client_id)
+    oob = _oob_summary_and_matrix(request, conn, client_id)
+    return HTMLResponse(html + oob)
 
 
 @router.patch("/client/{client_id}/requirements/{req_id}/cell", response_class=HTMLResponse)
@@ -619,6 +719,7 @@ def requirements_edit(
     except (ValueError, TypeError):
         endorsements = _json.dumps([e.strip() for e in required_endorsements.split(",") if e.strip()])
 
+    pid = _int_or_none(project_id)
     conn.execute(
         """UPDATE coverage_requirements
            SET coverage_line=?, project_id=?, source_id=?, risk_id=?,
@@ -628,7 +729,7 @@ def requirements_edit(
            WHERE id=? AND client_id=?""",
         (
             coverage_line.strip(),
-            _int_or_none(project_id),
+            pid,
             _int_or_none(source_id),
             _int_or_none(risk_id),
             _money_or_none(required_limit),
@@ -643,8 +744,12 @@ def requirements_edit(
         ),
     )
     conn.commit()
-    ctx = _compliance_context(conn, client_id, request)
-    return templates.TemplateResponse("compliance/index.html", ctx)
+    if pid:
+        html = _location_response(request, conn, client_id, pid)
+    else:
+        html = _corporate_location_html(request, conn, client_id)
+    oob = _oob_summary_and_matrix(request, conn, client_id)
+    return HTMLResponse(html + oob)
 
 
 @router.post("/client/{client_id}/requirements/{req_id}/status", response_class=HTMLResponse)
@@ -660,8 +765,18 @@ def requirements_status(
         (compliance_status.strip(), req_id, client_id),
     )
     conn.commit()
+    # Return updated matrix + OOB summary
     ctx = _compliance_context(conn, client_id, request)
-    return templates.TemplateResponse("compliance/_matrix.html", ctx)
+    matrix_html = templates.TemplateResponse("compliance/_matrix.html", {
+        "request": request, **ctx
+    }).body.decode()
+    summary_resp = templates.TemplateResponse("compliance/_summary_banner.html", {
+        "request": request, **ctx
+    })
+    summary_oob = summary_resp.body.decode().replace(
+        'id="compliance-summary"', 'id="compliance-summary" hx-swap-oob="outerHTML"', 1
+    )
+    return HTMLResponse(matrix_html + summary_oob)
 
 
 @router.post("/client/{client_id}/requirements/{req_id}/link-policy", response_class=HTMLResponse)
@@ -672,13 +787,24 @@ def requirements_link_policy(
     conn=Depends(get_db),
     linked_policy_uid: str = Form(""),
 ):
+    # Look up the requirement's project_id before updating
+    row = conn.execute(
+        "SELECT project_id FROM coverage_requirements WHERE id=? AND client_id=?",
+        (req_id, client_id),
+    ).fetchone()
+    pid = row["project_id"] if row else None
+
     conn.execute(
         "UPDATE coverage_requirements SET linked_policy_uid=? WHERE id=? AND client_id=?",
         (linked_policy_uid.strip() or None, req_id, client_id),
     )
     conn.commit()
-    ctx = _compliance_context(conn, client_id, request)
-    return templates.TemplateResponse("compliance/index.html", ctx)
+    if pid:
+        html = _location_response(request, conn, client_id, pid)
+    else:
+        html = _corporate_location_html(request, conn, client_id)
+    oob = _oob_summary_and_matrix(request, conn, client_id)
+    return HTMLResponse(html + oob)
 
 
 @router.post("/client/{client_id}/requirements/{req_id}/delete", response_class=HTMLResponse)
@@ -688,13 +814,24 @@ def requirements_delete(
     request: Request,
     conn=Depends(get_db),
 ):
+    # Look up project_id before deleting so we know which location to refresh
+    row = conn.execute(
+        "SELECT project_id FROM coverage_requirements WHERE id=? AND client_id=?",
+        (req_id, client_id),
+    ).fetchone()
+    pid = row["project_id"] if row else None
+
     conn.execute(
         "DELETE FROM coverage_requirements WHERE id=? AND client_id=?",
         (req_id, client_id),
     )
     conn.commit()
-    ctx = _compliance_context(conn, client_id, request)
-    return templates.TemplateResponse("compliance/index.html", ctx)
+    if pid:
+        html = _location_response(request, conn, client_id, pid)
+    else:
+        html = _corporate_location_html(request, conn, client_id)
+    oob = _oob_summary_and_matrix(request, conn, client_id)
+    return HTMLResponse(html + oob)
 
 
 # ── Review Mode (rapid entry) ─────────────────────────────────────────────────
@@ -850,7 +987,31 @@ async def review_mode_cell(
     return JSONResponse({"ok": True, "formatted": formatted})
 
 
+# ── Requirement row restore ───────────────────────────────────────────────────
+
+@router.get("/client/{client_id}/requirements/{req_id}/row", response_class=HTMLResponse)
+def requirement_row_display(client_id: int, req_id: int, request: Request, conn=Depends(get_db)):
+    """Return display row for a requirement (cancel edit)."""
+    req = dict(conn.execute(
+        "SELECT * FROM coverage_requirements WHERE id=?", (req_id,)
+    ).fetchone())
+    try:
+        req["_endorsements_list"] = json.loads(req.get("required_endorsements") or "[]")
+    except (ValueError, TypeError):
+        req["_endorsements_list"] = []
+    return templates.TemplateResponse("compliance/_requirement_row.html", {
+        "request": request, "req": req, "client_id": client_id,
+    })
+
+
 # ── Location detail ───────────────────────────────────────────────────────────
+
+# IMPORTANT: literal route "corporate" must come BEFORE parameterized {project_id}
+@router.get("/client/{client_id}/location/corporate", response_class=HTMLResponse)
+def location_corporate(client_id: int, request: Request, conn=Depends(get_db)):
+    """Return location detail for corporate-level (project_id IS NULL) requirements."""
+    return HTMLResponse(_corporate_location_html(request, conn, client_id))
+
 
 @router.get("/client/{client_id}/location/{project_id}", response_class=HTMLResponse)
 def location_detail(
