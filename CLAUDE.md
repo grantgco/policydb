@@ -533,3 +533,26 @@ This is not optional — UI changes without visual verification have repeatedly 
 **23. `logging.getLogger()` child loggers propagate automatically:** When you configure handlers on `logging.getLogger("policydb")`, all child loggers like `policydb.db`, `policydb.web.requests` automatically propagate up. No need to add handlers to each child logger — just use `logging.getLogger("policydb.module_name")` in each module and the root `policydb` logger's handlers capture everything.
 
 **24. Opportunities share policy infrastructure — don't exclude them without reason:** Opportunities are stored in the `policies` table with `is_opportunity=1` and have valid `policy_uid` values. Features that operate on `policy_uid` (RFI items, quick-add, policy-view partials, compose) work for opportunities automatically. When adding `AND (is_opportunity=0 OR is_opportunity IS NULL)` filters, ask whether the exclusion is intentional — seeding RFIs, linking items, and showing workflow views should include opportunities unless there's a specific reason not to.
+**22. Action Center tab pattern is the canonical reference for HTMX tabs:** When adding tabbed navigation to any page, follow `action_center/page.html` — it implements `?tab=` query param support, sessionStorage persistence, HTMX lazy-loading of tab content, and server-side initial tab rendering to avoid loading flash. Reuse `initTabs()` from `base.html`.
+
+**23. Redirect-after-POST must include `?tab=` when page uses tabs:** Any route that redirects back to a tabbed page (e.g., `RedirectResponse("/settings")`) must append `?tab=X` to preserve the user's tab context. Otherwise the redirect lands on the default tab, losing the user's place.
+
+**24. HTMX `hx-target` with element IDs works across tabs:** Partials that use `hx-target="#list-{key}"` or similar ID-based targeting continue to work when moved into tab partials, because HTMX targets by element ID regardless of which tab container the element is in. No changes needed to existing partial targeting when refactoring to tabs.
+
+**25. Pages with 10+ config sections need tabbed navigation, not long scroll:** A monolithic settings page with collapsible `<details>` sections doesn't scale — users with ADD especially struggle to find what they need. Group related settings into tabs with a search bar for cross-tab discovery. Complex editors get stacked cards (all open), simple lists get a 2-column grid within each tab.
+**22. Worktree edits require `pip install -e .` for server visibility:** When working in a git worktree, template/code edits are NOT visible to the running `policydb serve` unless the package is installed in editable mode (`pip install -e .`) from the worktree directory. The server uses the installed package — if it was installed from the main repo, it reads templates from there, not the worktree. Always run `pip install -e .` from the worktree before starting the dev server.
+
+**23. `fetch()` bypasses HTMX OOB swap processing:** When using `fetch()` + `innerHTML` instead of `htmx.ajax()` (e.g. to inspect HTTP status codes for error handling), `hx-swap-oob` attributes in the response HTML are NOT processed. You must manually extract OOB elements from the response, find their targets by ID, and swap their innerHTML before setting the main target content. Pattern:
+```javascript
+var temp = document.createElement('div');
+temp.innerHTML = html;
+temp.querySelectorAll('[hx-swap-oob]').forEach(function(el) {
+    var target = document.getElementById(el.id);
+    if (target) target.innerHTML = el.innerHTML;
+    el.remove();
+});
+mainTarget.innerHTML = temp.innerHTML;
+htmx.process(mainTarget);
+```
+
+**24. HTMX swap targets must exist before the response arrives:** When a slideover/panel triggers a `fetch()` that swaps content into a page element (e.g. `#ai-import-target`), the target element must have a stable ID in the page template. If the swap target is dynamically created or inside lazy-loaded content, verify it exists at swap time. Missing targets silently fail — the response HTML is fetched but never displayed.
