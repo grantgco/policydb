@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, Form, Query, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
 import policydb.config as cfg
 from policydb.config import reorder_list_item
@@ -118,6 +119,7 @@ SEARCH_INDEX = [
     {"label": "Readiness Score Weights", "tab": "readiness", "anchor": "section-readiness-weights"},
     {"label": "Carrier Aliases", "tab": "carriers", "anchor": "section-carrier-aliases"},
     {"label": "Email Subject Lines", "tab": "email-contacts", "anchor": "section-email-subjects"},
+    {"label": "Report Logo", "tab": "database", "anchor": "section-report-logo"},
     {"label": "Database Health", "tab": "database", "anchor": "section-db-health"},
     {"label": "SQL Console", "tab": "database", "anchor": "section-sql-console"},
     {"label": "Schema Reference", "tab": "database", "anchor": "section-schema-ref"},
@@ -178,6 +180,7 @@ def _build_tab_context(tab: str, conn) -> dict:
         ctx["email_subject_rfi_notify"] = cfg.get("email_subject_rfi_notify", "")
 
     elif tab == "database":
+        ctx["logo_exists"] = Path(cfg.get("report_logo_path", "")).exists()
         db_size = os.path.getsize(DB_PATH) if os.path.exists(DB_PATH) else 0
         wal_path = str(DB_PATH) + "-wal"
         wal_size = os.path.getsize(wal_path) if os.path.exists(wal_path) else 0
@@ -1138,6 +1141,68 @@ def db_schema(table: str = "", conn=Depends(get_db)):
         return JSONResponse({"table": table, "columns": columns, "indexes": indexes, "row_count": row_count})
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
+
+
+# ── Logo Upload ──────────────────────────────────────────────────────────────
+
+
+@router.post("/logo", response_class=HTMLResponse)
+async def upload_logo(request: Request, file: UploadFile = File(...)):
+    """Upload a logo image for PDF compliance reports."""
+    import shutil
+
+    logo_path = Path(cfg.get("report_logo_path"))
+    logo_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(logo_path, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+    try:
+        from PIL import Image
+
+        img = Image.open(logo_path)
+        img.thumbnail((300, 80))
+        img.save(logo_path)
+    except ImportError:
+        pass
+    # Return updated preview
+    import time
+
+    return HTMLResponse(
+        f'<img src="/settings/logo/preview?t={int(time.time())}" class="max-h-12 mb-3" alt="Logo">'
+        f'<button hx-delete="/settings/logo" hx-target="#logo-preview" hx-swap="innerHTML"'
+        f' class="text-xs text-red-500 hover:underline block mt-1">Remove Logo</button>'
+        f'<form hx-post="/settings/logo" hx-target="#logo-preview" hx-swap="innerHTML"'
+        f' hx-encoding="multipart/form-data" class="mt-3">'
+        f'<input type="file" name="file" accept="image/*" class="text-xs">'
+        f'<button type="submit" class="ml-2 text-xs text-marsh hover:underline">Replace</button>'
+        f'</form>'
+    )
+
+
+@router.delete("/logo", response_class=HTMLResponse)
+def remove_logo():
+    """Remove the uploaded logo."""
+    logo_path = Path(cfg.get("report_logo_path"))
+    if logo_path.exists():
+        logo_path.unlink()
+    return HTMLResponse(
+        '<p class="text-xs text-gray-400 mb-3">No logo uploaded</p>'
+        '<form hx-post="/settings/logo" hx-target="#logo-preview" hx-swap="innerHTML"'
+        ' hx-encoding="multipart/form-data" class="mt-2">'
+        '<input type="file" name="file" accept="image/*" class="text-xs">'
+        '<button type="submit" class="ml-2 text-xs text-marsh hover:underline">Upload</button>'
+        '</form>'
+    )
+
+
+@router.get("/logo/preview")
+def logo_preview():
+    """Serve the uploaded logo for preview."""
+    from fastapi.responses import FileResponse
+
+    logo_path = Path(cfg.get("report_logo_path"))
+    if logo_path.exists():
+        return FileResponse(logo_path, media_type="image/png")
+    return Response(status_code=404)
 
 
 # ── Audit Log ────────────────────────────────────────────────────────────────

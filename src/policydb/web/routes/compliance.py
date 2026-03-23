@@ -190,6 +190,22 @@ def export_xlsx(client_id: int, conn=Depends(get_db)):
     )
 
 
+# ── PDF Export ────────────────────────────────────────────────────────────────
+
+
+@router.get("/client/{client_id}/export/pdf")
+def export_pdf(client_id: int, conn=Depends(get_db)):
+    """Download the compliance report as a professional PDF."""
+    from policydb.exporter import export_compliance_pdf
+
+    pdf_bytes, filename = export_compliance_pdf(conn, client_id)
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 # ── AI Import ─────────────────────────────────────────────────────────────────
 
 

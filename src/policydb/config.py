@@ -17,6 +17,7 @@ _DEFAULTS: dict[str, Any] = {
         "upcoming": 180,
     },
     "export_dir": str(Path.home() / ".policydb" / "exports"),
+    "report_logo_path": str(Path.home() / ".policydb" / "logo.png"),
     "stale_threshold_days": 14,
     "default_hourly_rate": 150,
     "renewal_effort_multiplier": 1.5,
