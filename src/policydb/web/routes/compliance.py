@@ -7,7 +7,7 @@ import sqlite3
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Form, Query, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 
 from policydb import config as cfg
 from policydb.compliance import (
@@ -172,6 +172,22 @@ def _corporate_location_html(request: Request, conn: sqlite3.Connection, client_
         "deductible_types": cfg.get("deductible_types", []),
         "endorsement_types": cfg.get("endorsement_types", []),
     }).body.decode()
+
+
+# ── XLSX Export ───────────────────────────────────────────────────────────────
+
+
+@router.get("/client/{client_id}/export/xlsx")
+def export_xlsx(client_id: int, conn=Depends(get_db)):
+    """Download the 5-sheet compliance workbook."""
+    from policydb.exporter import export_compliance_xlsx
+
+    xlsx_bytes, filename = export_compliance_xlsx(conn, client_id)
+    return Response(
+        content=xlsx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 # ── AI Import ─────────────────────────────────────────────────────────────────
