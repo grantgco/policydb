@@ -35,9 +35,23 @@
       </div>
       <div>
         <p class="text-xs text-gray-500 mb-0.5">Follow-Up Date</p>
-        <input type="date" name="follow_up_date"
-          class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh">
+        <input type="date" name="follow_up_date" id="proj-fu-date"
+          class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh"
+          onchange="document.getElementById('fu-scope-row').style.display = this.value ? '' : 'none'">
       </div>
+    </div>
+
+    {# Follow-up scope — only visible when a follow-up date is set #}
+    <div id="fu-scope-row" class="flex items-center gap-4 text-xs text-gray-600" style="display:none">
+      <span class="text-gray-500 font-medium">Follow-up applies to:</span>
+      <label class="flex items-center gap-1 cursor-pointer">
+        <input type="radio" name="follow_up_scope" value="lead" checked class="accent-green-600">
+        Lead policy only
+      </label>
+      <label class="flex items-center gap-1 cursor-pointer">
+        <input type="radio" name="follow_up_scope" value="all" class="accent-green-600">
+        All {{ policy_count }} policies
+      </label>
     </div>
 
     <div class="grid grid-cols-4 gap-2">
