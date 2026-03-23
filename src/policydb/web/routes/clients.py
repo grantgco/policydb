@@ -692,6 +692,7 @@ def client_tab_policies(request: Request, client_id: int, conn=Depends(get_db)):
         "project_ids": project_ids,
         "project_addresses": project_addresses,
         "opportunities": opportunities,
+        "bundles": _get_request_bundles(conn, client_id),
         "pipeline_projects": _get_project_pipeline(conn, client_id),
         "location_projects": _get_project_locations(conn, client_id),
         "project_stages": cfg.get("project_stages", []),
