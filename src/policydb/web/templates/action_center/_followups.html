@@ -1,15 +1,15 @@
 {# Action Center — Follow-Ups Tab (HTMX partial, no base inheritance) #}
 {% set today_str = today or '' %}
-{% set overdue_count = overdue | length %}
-{% set today_count = today_items | length %}
-{% set upcoming_count = (today_items | length) + (tomorrow_items | length) + (later_items | length) %}
-{% set suggested_count = suggested | length %}
-{% set all_count = overdue_count + upcoming_count + suggested_count %}
-{% set act_now_count = act_now | length if act_now is defined else 0 %}
+{% set triage_count = triage | length if triage is defined else 0 %}
+{% set today_b_count = today_bucket | length if today_bucket is defined else 0 %}
+{% set overdue_b_count = overdue_bucket | length if overdue_bucket is defined else 0 %}
+{% set stale_count = stale | length if stale is defined else 0 %}
 {% set nudge_due_count = nudge_due | length if nudge_due is defined else 0 %}
 {% set prep_count = prep_coming | length if prep_coming is defined else 0 %}
 {% set watching_count = watching | length if watching is defined else 0 %}
 {% set scheduled_count = scheduled | length if scheduled is defined else 0 %}
+{% set suggested_count = suggested | length %}
+{% set total_action = triage_count + today_b_count + overdue_b_count + stale_count %}
 
 {# ══════════════════════════════════════════════════════════════════
    FILTER BAR
@@ -20,26 +20,51 @@
     <button type="button" onclick="filterFuStatus('all', this)"
       class="fu-status-pill text-xs px-3 py-1.5 rounded-full font-medium transition-colors bg-[#003865] text-white"
       data-filter="all">All</button>
-    <button type="button" onclick="filterFuStatus('act_now', this)"
-      class="fu-status-pill text-xs px-3 py-1.5 rounded-full font-medium transition-colors bg-white text-gray-600 border border-gray-200 hover:border-red-300 hover:text-red-600"
-      data-filter="act_now">Act Now ({{ act_now_count }})</button>
-    <button type="button" onclick="filterFuStatus('nudge_due', this)"
+    {% if triage_count %}
+    <button type="button" onclick="filterFuStatus('triage', this)"
+      class="fu-status-pill text-xs px-3 py-1.5 rounded-full font-medium transition-colors bg-white text-gray-600 border border-gray-200 hover:border-gray-400 hover:text-gray-700"
+      data-filter="triage">Triage ({{ triage_count }})</button>
+    {% endif %}
+    {% if today_b_count %}
+    <button type="button" onclick="filterFuStatus('today', this)"
       class="fu-status-pill text-xs px-3 py-1.5 rounded-full font-medium transition-colors bg-white text-gray-600 border border-gray-200 hover:border-blue-300 hover:text-blue-600"
-      data-filter="nudge_due">Nudge Due ({{ nudge_due_count }})</button>
+      data-filter="today">Today ({{ today_b_count }})</button>
+    {% endif %}
+    {% if overdue_b_count %}
+    <button type="button" onclick="filterFuStatus('overdue', this)"
+      class="fu-status-pill text-xs px-3 py-1.5 rounded-full font-medium transition-colors bg-white text-gray-600 border border-gray-200 hover:border-amber-300 hover:text-amber-600"
+      data-filter="overdue">Overdue ({{ overdue_b_count }})</button>
+    {% endif %}
+    {% if stale_count %}
+    <button type="button" onclick="filterFuStatus('stale', this)"
+      class="fu-status-pill text-xs px-3 py-1.5 rounded-full font-medium transition-colors bg-white text-gray-600 border border-gray-200 hover:border-red-300 hover:text-red-600"
+      data-filter="stale">Stale ({{ stale_count }})</button>
+    {% endif %}
+    {% if nudge_due_count %}
+    <button type="button" onclick="filterFuStatus('nudge_due', this)"
+      class="fu-status-pill text-xs px-3 py-1.5 rounded-full font-medium transition-colors bg-white text-gray-600 border border-gray-200 hover:border-indigo-300 hover:text-indigo-600"
+      data-filter="nudge_due">Nudge ({{ nudge_due_count }})</button>
+    {% endif %}
     {% if prep_count %}
     <button type="button" onclick="filterFuStatus('prep_coming', this)"
       class="fu-status-pill text-xs px-3 py-1.5 rounded-full font-medium transition-colors bg-white text-gray-600 border border-gray-200 hover:border-purple-300 hover:text-purple-600"
       data-filter="prep_coming">Prep ({{ prep_count }})</button>
     {% endif %}
+    {% if watching_count %}
     <button type="button" onclick="filterFuStatus('watching', this)"
       class="fu-status-pill text-xs px-3 py-1.5 rounded-full font-medium transition-colors bg-white text-gray-600 border border-gray-200 hover:border-gray-400 hover:text-gray-700"
       data-filter="watching">Watching ({{ watching_count }})</button>
+    {% endif %}
+    {% if scheduled_count %}
     <button type="button" onclick="filterFuStatus('scheduled', this)"
       class="fu-status-pill text-xs px-3 py-1.5 rounded-full font-medium transition-colors bg-white text-gray-600 border border-gray-200 hover:border-indigo-300 hover:text-indigo-600"
       data-filter="scheduled">Scheduled ({{ scheduled_count }})</button>
+    {% endif %}
+    {% if suggested_count %}
     <button type="button" onclick="filterFuStatus('suggested', this)"
       class="fu-status-pill text-xs px-3 py-1.5 rounded-full font-medium transition-colors bg-white text-gray-600 border border-gray-200 hover:border-green-300 hover:text-green-600"
       data-filter="suggested">Suggested ({{ suggested_count }})</button>
+    {% endif %}
   </div>
 
   <a href="/followups/plan" class="text-xs bg-amber-100 text-amber-700 px-3 py-1.5 rounded-full hover:bg-amber-200 transition-colors font-medium whitespace-nowrap">Plan Week</a>
@@ -89,344 +114,9 @@
 </div>
 
 {# ══════════════════════════════════════════════════════════════════
-   ACCOUNTABILITY SECTIONS (Act Now, Nudge Due, Prep, Watching, Scheduled)
+   ACCOUNTABILITY SECTIONS (8 tiers + suggested)
    ══════════════════════════════════════════════════════════════════ #}
 {% include "action_center/_followup_sections.html" %}
-
-{# Legacy upcoming section removed — items now shown in accountability sections above #}
-{% if false and (today_items or tomorrow_items or later_items) %}
-<div class="mb-5 fu-section" data-section="upcoming" style="display:none">
-  <div class="flex items-center gap-2 mb-2">
-    <span class="text-[10px] font-bold uppercase tracking-widest text-gray-600">Upcoming</span>
-    <span class="bg-gray-200 text-gray-600 text-[10px] font-bold px-2 py-0.5 rounded-full">{{ upcoming_count }}</span>
-  </div>
-
-  {# ── Today sub-group ── #}
-  {% if today_items %}
-  <div class="mb-3">
-    <div class="flex items-center gap-1.5 mb-1.5 ml-1">
-      <span class="text-[10px] font-semibold uppercase tracking-wide text-amber-700">Today</span>
-      <span class="text-[10px] text-amber-500">{{ today_items | length }}</span>
-    </div>
-    <div class="space-y-1">
-      {% for item in today_items %}
-      {% set row_id = "ac-fu-" ~ item.source ~ "-" ~ item.id %}
-      <div class="fu-row bg-amber-50 rounded-lg border border-amber-100 hover:border-amber-200 transition-colors" data-status="today" id="{{ row_id }}">
-        <div class="flex items-center gap-3 px-4 py-3">
-          <div class="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0"></div>
-          <div class="flex-1 min-w-0">
-            <div class="flex items-center gap-2">
-              <a href="/clients/{{ item.client_id }}" class="text-sm font-semibold text-gray-900 hover:text-[#003865] hover:underline truncate">{{ item.client_name }}</a>
-              {% if item.thread_id %}
-              <span class="bg-gray-100 text-gray-600 text-[10px] px-1.5 py-0.5 rounded whitespace-nowrap">COR-{{ item.thread_id }} &middot; Attempt {{ item.thread_attempt_num }}</span>
-              {% endif %}
-            </div>
-            <div class="text-xs text-gray-600 truncate mt-0.5">
-              {% if item.source == 'policy' %}
-                {{ item.policy_type }}{% if item.carrier %} <span class="text-gray-400">&middot; {{ item.carrier }}</span>{% endif %}
-              {% else %}
-                {{ item.subject }}
-              {% endif %}
-            </div>
-            {% if item.prev_disposition %}
-            <div class="text-[11px] text-gray-400 mt-0.5">Previous: {{ item.prev_disposition }}{% if item.prev_days_ago is not none %} &middot; {{ item.prev_days_ago }} days ago{% endif %}</div>
-            {% endif %}
-          </div>
-          <div class="text-right flex-shrink-0">
-            <div class="text-xs font-medium text-amber-700">Today</div>
-          </div>
-          <div class="flex gap-1.5 flex-shrink-0 no-print">
-            <button type="button" onclick="toggleAcFuForm('{{ row_id }}')"
-              class="text-xs bg-[#003865] text-white px-3 py-1.5 rounded font-medium hover:bg-[#004a80] transition-colors">Follow Up</button>
-            {% if item.source == 'policy' %}
-            <button hx-post="/policies/{{ item.policy_uid }}/snooze-followup?days=1" hx-target="#{{ row_id }}" hx-swap="outerHTML"
-              class="text-xs text-gray-500 bg-white border border-gray-200 px-2 py-1.5 rounded hover:border-gray-300 transition-colors">+1d</button>
-            {% else %}
-            <button hx-post="/activities/{{ item.id }}/snooze?days=1" hx-target="#{{ row_id }}" hx-swap="outerHTML"
-              class="text-xs text-gray-500 bg-white border border-gray-200 px-2 py-1.5 rounded hover:border-gray-300 transition-colors">+1d</button>
-            {% endif %}
-          </div>
-        </div>
-
-        {# Inline disposition form #}
-        <div id="ac-fu-form-{{ row_id }}" class="hidden">
-          <div class="bg-white border border-gray-200 rounded-lg p-3 ml-4 mr-4 mb-3 mt-1">
-            {% if item.source == 'policy' %}
-            <form hx-post="/policies/{{ item.policy_uid }}/followup"
-                  hx-target="#{{ row_id }}" hx-swap="outerHTML"
-                  hx-on::after-request="var f=document.getElementById('ac-fu-form-{{ row_id }}');if(f)f.remove();"
-                  class="space-y-2">
-            {% else %}
-            <form hx-post="/activities/{{ item.id }}/followup"
-                  hx-target="#{{ row_id }}" hx-swap="outerHTML"
-                  hx-on::after-request="var f=document.getElementById('ac-fu-form-{{ row_id }}');if(f)f.remove();"
-                  class="space-y-2">
-              <input type="hidden" name="context" value="followup_table">
-            {% endif %}
-              <input type="hidden" name="disposition" id="ac-disp-val-{{ row_id }}" value="">
-              <div class="flex flex-wrap gap-1">
-                {% for d in dispositions %}
-                <button type="button" data-days="{{ d.default_days }}"
-                  onclick="selectAcDisp(this, '{{ d.label }}', {{ d.default_days }}, '{{ row_id }}')"
-                  class="ac-disp-pill text-[10px] px-2 py-0.5 rounded border border-gray-200 text-gray-500 hover:border-[#003865] hover:text-[#003865] transition-colors cursor-pointer">{{ d.label }}</button>
-                {% endfor %}
-              </div>
-              <div class="flex items-center gap-3">
-                <div class="w-16">
-                  <label class="text-[10px] text-gray-500 block">Hours</label>
-                  <input type="number" name="duration_hours" step="0.1" min="0" placeholder="0"
-                    class="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:ring-1 focus:ring-[#003865]">
-                </div>
-                <div class="flex-1">
-                  <label class="text-[10px] text-gray-500 block">Note</label>
-                  <input type="text" name="notes" placeholder="Details..."
-                    class="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:ring-1 focus:ring-[#003865]">
-                </div>
-              </div>
-              <div>
-                <label class="text-[10px] text-gray-500 block">Next Follow-Up</label>
-                <div class="flex items-center gap-1.5">
-                  <button type="button" onclick="setAcFuDate('{{ row_id }}', 1)" class="text-[10px] text-gray-400 hover:text-[#003865] border border-gray-200 hover:border-[#003865] rounded px-1.5 py-0.5 transition-colors">+1d</button>
-                  <button type="button" onclick="setAcFuDate('{{ row_id }}', 3)" class="text-[10px] text-gray-400 hover:text-[#003865] border border-gray-200 hover:border-[#003865] rounded px-1.5 py-0.5 transition-colors">+3d</button>
-                  <button type="button" onclick="setAcFuDate('{{ row_id }}', 7)" class="text-[10px] text-gray-400 hover:text-[#003865] border border-gray-200 hover:border-[#003865] rounded px-1.5 py-0.5 transition-colors">+7d</button>
-                  <button type="button" onclick="setAcFuDate('{{ row_id }}', 14)" class="text-[10px] text-gray-400 hover:text-[#003865] border border-gray-200 hover:border-[#003865] rounded px-1.5 py-0.5 transition-colors">+14d</button>
-                  <input type="date" name="new_follow_up_date" id="ac-fu-date-{{ row_id }}"
-                    class="text-xs border border-gray-200 rounded px-2 py-1 focus:ring-1 focus:ring-[#003865]">
-                </div>
-              </div>
-              <div class="flex items-center gap-2 pt-1">
-                <button type="submit"
-                  class="text-xs bg-[#003865] text-white px-4 py-1.5 rounded font-medium hover:bg-[#004a80] transition-colors">Save</button>
-                <button type="button" onclick="document.getElementById('ac-fu-form-{{ row_id }}').classList.add('hidden')"
-                  class="text-xs text-gray-400 hover:text-gray-600">Cancel</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      </div>
-      {% endfor %}
-    </div>
-  </div>
-  {% endif %}
-
-  {# ── Tomorrow sub-group ── #}
-  {% if tomorrow_items %}
-  <div class="mb-3">
-    <div class="flex items-center gap-1.5 mb-1.5 ml-1">
-      <span class="text-[10px] font-semibold uppercase tracking-wide text-gray-600">Tomorrow</span>
-      <span class="text-[10px] text-gray-400">{{ tomorrow_items | length }}</span>
-    </div>
-    <div class="space-y-1">
-      {% for item in tomorrow_items %}
-      {% set row_id = "ac-fu-" ~ item.source ~ "-" ~ item.id %}
-      <div class="fu-row rounded-lg border border-gray-100 hover:border-gray-200 transition-colors" data-status="upcoming" id="{{ row_id }}">
-        <div class="flex items-center gap-3 px-4 py-3">
-          <div class="w-2 h-2 rounded-full bg-gray-300 flex-shrink-0"></div>
-          <div class="flex-1 min-w-0">
-            <div class="flex items-center gap-2">
-              <a href="/clients/{{ item.client_id }}" class="text-sm font-semibold text-gray-900 hover:text-[#003865] hover:underline truncate">{{ item.client_name }}</a>
-              {% if item.thread_id %}
-              <span class="bg-gray-100 text-gray-600 text-[10px] px-1.5 py-0.5 rounded whitespace-nowrap">COR-{{ item.thread_id }} &middot; Attempt {{ item.thread_attempt_num }}</span>
-              {% endif %}
-            </div>
-            <div class="text-xs text-gray-600 truncate mt-0.5">
-              {% if item.source == 'policy' %}
-                {{ item.policy_type }}{% if item.carrier %} <span class="text-gray-400">&middot; {{ item.carrier }}</span>{% endif %}
-              {% else %}
-                {{ item.subject }}
-              {% endif %}
-            </div>
-            {% if item.prev_disposition %}
-            <div class="text-[11px] text-gray-400 mt-0.5">Previous: {{ item.prev_disposition }}{% if item.prev_days_ago is not none %} &middot; {{ item.prev_days_ago }} days ago{% endif %}</div>
-            {% endif %}
-          </div>
-          <div class="text-right flex-shrink-0">
-            <div class="text-xs text-gray-500">{{ item.follow_up_date }}</div>
-            <div class="text-[10px] text-gray-400">Tomorrow</div>
-          </div>
-          <div class="flex gap-1.5 flex-shrink-0 no-print">
-            <button type="button" onclick="toggleAcFuForm('{{ row_id }}')"
-              class="text-xs bg-[#003865] text-white px-3 py-1.5 rounded font-medium hover:bg-[#004a80] transition-colors">Follow Up</button>
-            {% if item.source == 'policy' %}
-            <button hx-post="/policies/{{ item.policy_uid }}/snooze-followup?days=1" hx-target="#{{ row_id }}" hx-swap="outerHTML"
-              class="text-xs text-gray-500 bg-white border border-gray-200 px-2 py-1.5 rounded hover:border-gray-300 transition-colors">+1d</button>
-            {% else %}
-            <button hx-post="/activities/{{ item.id }}/snooze?days=1" hx-target="#{{ row_id }}" hx-swap="outerHTML"
-              class="text-xs text-gray-500 bg-white border border-gray-200 px-2 py-1.5 rounded hover:border-gray-300 transition-colors">+1d</button>
-            {% endif %}
-          </div>
-        </div>
-
-        {# Inline disposition form #}
-        <div id="ac-fu-form-{{ row_id }}" class="hidden">
-          <div class="bg-white border border-gray-200 rounded-lg p-3 ml-4 mr-4 mb-3 mt-1">
-            {% if item.source == 'policy' %}
-            <form hx-post="/policies/{{ item.policy_uid }}/followup"
-                  hx-target="#{{ row_id }}" hx-swap="outerHTML"
-                  hx-on::after-request="var f=document.getElementById('ac-fu-form-{{ row_id }}');if(f)f.remove();"
-                  class="space-y-2">
-            {% else %}
-            <form hx-post="/activities/{{ item.id }}/followup"
-                  hx-target="#{{ row_id }}" hx-swap="outerHTML"
-                  hx-on::after-request="var f=document.getElementById('ac-fu-form-{{ row_id }}');if(f)f.remove();"
-                  class="space-y-2">
-              <input type="hidden" name="context" value="followup_table">
-            {% endif %}
-              <input type="hidden" name="disposition" id="ac-disp-val-{{ row_id }}" value="">
-              <div class="flex flex-wrap gap-1">
-                {% for d in dispositions %}
-                <button type="button" data-days="{{ d.default_days }}"
-                  onclick="selectAcDisp(this, '{{ d.label }}', {{ d.default_days }}, '{{ row_id }}')"
-                  class="ac-disp-pill text-[10px] px-2 py-0.5 rounded border border-gray-200 text-gray-500 hover:border-[#003865] hover:text-[#003865] transition-colors cursor-pointer">{{ d.label }}</button>
-                {% endfor %}
-              </div>
-              <div class="flex items-center gap-3">
-                <div class="w-16">
-                  <label class="text-[10px] text-gray-500 block">Hours</label>
-                  <input type="number" name="duration_hours" step="0.1" min="0" placeholder="0"
-                    class="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:ring-1 focus:ring-[#003865]">
-                </div>
-                <div class="flex-1">
-                  <label class="text-[10px] text-gray-500 block">Note</label>
-                  <input type="text" name="notes" placeholder="Details..."
-                    class="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:ring-1 focus:ring-[#003865]">
-                </div>
-              </div>
-              <div>
-                <label class="text-[10px] text-gray-500 block">Next Follow-Up</label>
-                <div class="flex items-center gap-1.5">
-                  <button type="button" onclick="setAcFuDate('{{ row_id }}', 1)" class="text-[10px] text-gray-400 hover:text-[#003865] border border-gray-200 hover:border-[#003865] rounded px-1.5 py-0.5 transition-colors">+1d</button>
-                  <button type="button" onclick="setAcFuDate('{{ row_id }}', 3)" class="text-[10px] text-gray-400 hover:text-[#003865] border border-gray-200 hover:border-[#003865] rounded px-1.5 py-0.5 transition-colors">+3d</button>
-                  <button type="button" onclick="setAcFuDate('{{ row_id }}', 7)" class="text-[10px] text-gray-400 hover:text-[#003865] border border-gray-200 hover:border-[#003865] rounded px-1.5 py-0.5 transition-colors">+7d</button>
-                  <button type="button" onclick="setAcFuDate('{{ row_id }}', 14)" class="text-[10px] text-gray-400 hover:text-[#003865] border border-gray-200 hover:border-[#003865] rounded px-1.5 py-0.5 transition-colors">+14d</button>
-                  <input type="date" name="new_follow_up_date" id="ac-fu-date-{{ row_id }}"
-                    class="text-xs border border-gray-200 rounded px-2 py-1 focus:ring-1 focus:ring-[#003865]">
-                </div>
-              </div>
-              <div class="flex items-center gap-2 pt-1">
-                <button type="submit"
-                  class="text-xs bg-[#003865] text-white px-4 py-1.5 rounded font-medium hover:bg-[#004a80] transition-colors">Save</button>
-                <button type="button" onclick="document.getElementById('ac-fu-form-{{ row_id }}').classList.add('hidden')"
-                  class="text-xs text-gray-400 hover:text-gray-600">Cancel</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      </div>
-      {% endfor %}
-    </div>
-  </div>
-  {% endif %}
-
-  {# ── Later sub-group ── #}
-  {% if later_items %}
-  <div class="mb-3">
-    <div class="flex items-center gap-1.5 mb-1.5 ml-1">
-      <span class="text-[10px] font-semibold uppercase tracking-wide text-gray-500">Later</span>
-      <span class="text-[10px] text-gray-400">{{ later_items | length }}</span>
-    </div>
-    <div class="space-y-1">
-      {% for item in later_items %}
-      {% set row_id = "ac-fu-" ~ item.source ~ "-" ~ item.id %}
-      <div class="fu-row rounded-lg border border-gray-100 hover:border-gray-200 transition-colors" data-status="upcoming" id="{{ row_id }}">
-        <div class="flex items-center gap-3 px-4 py-3">
-          <div class="w-2 h-2 rounded-full bg-gray-300 flex-shrink-0"></div>
-          <div class="flex-1 min-w-0">
-            <div class="flex items-center gap-2">
-              <a href="/clients/{{ item.client_id }}" class="text-sm font-semibold text-gray-900 hover:text-[#003865] hover:underline truncate">{{ item.client_name }}</a>
-              {% if item.thread_id %}
-              <span class="bg-gray-100 text-gray-600 text-[10px] px-1.5 py-0.5 rounded whitespace-nowrap">COR-{{ item.thread_id }} &middot; Attempt {{ item.thread_attempt_num }}</span>
-              {% endif %}
-            </div>
-            <div class="text-xs text-gray-600 truncate mt-0.5">
-              {% if item.source == 'policy' %}
-                {{ item.policy_type }}{% if item.carrier %} <span class="text-gray-400">&middot; {{ item.carrier }}</span>{% endif %}
-              {% else %}
-                {{ item.subject }}
-              {% endif %}
-            </div>
-            {% if item.prev_disposition %}
-            <div class="text-[11px] text-gray-400 mt-0.5">Previous: {{ item.prev_disposition }}{% if item.prev_days_ago is not none %} &middot; {{ item.prev_days_ago }} days ago{% endif %}</div>
-            {% endif %}
-          </div>
-          <div class="text-right flex-shrink-0">
-            <div class="text-xs text-gray-500">{{ item.follow_up_date }}</div>
-          </div>
-          <div class="flex gap-1.5 flex-shrink-0 no-print">
-            <button type="button" onclick="toggleAcFuForm('{{ row_id }}')"
-              class="text-xs bg-[#003865] text-white px-3 py-1.5 rounded font-medium hover:bg-[#004a80] transition-colors">Follow Up</button>
-            {% if item.source == 'policy' %}
-            <button hx-post="/policies/{{ item.policy_uid }}/snooze-followup?days=1" hx-target="#{{ row_id }}" hx-swap="outerHTML"
-              class="text-xs text-gray-500 bg-white border border-gray-200 px-2 py-1.5 rounded hover:border-gray-300 transition-colors">+1d</button>
-            {% else %}
-            <button hx-post="/activities/{{ item.id }}/snooze?days=1" hx-target="#{{ row_id }}" hx-swap="outerHTML"
-              class="text-xs text-gray-500 bg-white border border-gray-200 px-2 py-1.5 rounded hover:border-gray-300 transition-colors">+1d</button>
-            {% endif %}
-          </div>
-        </div>
-
-        {# Inline disposition form #}
-        <div id="ac-fu-form-{{ row_id }}" class="hidden">
-          <div class="bg-white border border-gray-200 rounded-lg p-3 ml-4 mr-4 mb-3 mt-1">
-            {% if item.source == 'policy' %}
-            <form hx-post="/policies/{{ item.policy_uid }}/followup"
-                  hx-target="#{{ row_id }}" hx-swap="outerHTML"
-                  hx-on::after-request="var f=document.getElementById('ac-fu-form-{{ row_id }}');if(f)f.remove();"
-                  class="space-y-2">
-            {% else %}
-            <form hx-post="/activities/{{ item.id }}/followup"
-                  hx-target="#{{ row_id }}" hx-swap="outerHTML"
-                  hx-on::after-request="var f=document.getElementById('ac-fu-form-{{ row_id }}');if(f)f.remove();"
-                  class="space-y-2">
-              <input type="hidden" name="context" value="followup_table">
-            {% endif %}
-              <input type="hidden" name="disposition" id="ac-disp-val-{{ row_id }}" value="">
-              <div class="flex flex-wrap gap-1">
-                {% for d in dispositions %}
-                <button type="button" data-days="{{ d.default_days }}"
-                  onclick="selectAcDisp(this, '{{ d.label }}', {{ d.default_days }}, '{{ row_id }}')"
-                  class="ac-disp-pill text-[10px] px-2 py-0.5 rounded border border-gray-200 text-gray-500 hover:border-[#003865] hover:text-[#003865] transition-colors cursor-pointer">{{ d.label }}</button>
-                {% endfor %}
-              </div>
-              <div class="flex items-center gap-3">
-                <div class="w-16">
-                  <label class="text-[10px] text-gray-500 block">Hours</label>
-                  <input type="number" name="duration_hours" step="0.1" min="0" placeholder="0"
-                    class="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:ring-1 focus:ring-[#003865]">
-                </div>
-                <div class="flex-1">
-                  <label class="text-[10px] text-gray-500 block">Note</label>
-                  <input type="text" name="notes" placeholder="Details..."
-                    class="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:ring-1 focus:ring-[#003865]">
-                </div>
-              </div>
-              <div>
-                <label class="text-[10px] text-gray-500 block">Next Follow-Up</label>
-                <div class="flex items-center gap-1.5">
-                  <button type="button" onclick="setAcFuDate('{{ row_id }}', 1)" class="text-[10px] text-gray-400 hover:text-[#003865] border border-gray-200 hover:border-[#003865] rounded px-1.5 py-0.5 transition-colors">+1d</button>
-                  <button type="button" onclick="setAcFuDate('{{ row_id }}', 3)" class="text-[10px] text-gray-400 hover:text-[#003865] border border-gray-200 hover:border-[#003865] rounded px-1.5 py-0.5 transition-colors">+3d</button>
-                  <button type="button" onclick="setAcFuDate('{{ row_id }}', 7)" class="text-[10px] text-gray-400 hover:text-[#003865] border border-gray-200 hover:border-[#003865] rounded px-1.5 py-0.5 transition-colors">+7d</button>
-                  <button type="button" onclick="setAcFuDate('{{ row_id }}', 14)" class="text-[10px] text-gray-400 hover:text-[#003865] border border-gray-200 hover:border-[#003865] rounded px-1.5 py-0.5 transition-colors">+14d</button>
-                  <input type="date" name="new_follow_up_date" id="ac-fu-date-{{ row_id }}"
-                    class="text-xs border border-gray-200 rounded px-2 py-1 focus:ring-1 focus:ring-[#003865]">
-                </div>
-              </div>
-              <div class="flex items-center gap-2 pt-1">
-                <button type="submit"
-                  class="text-xs bg-[#003865] text-white px-4 py-1.5 rounded font-medium hover:bg-[#004a80] transition-colors">Save</button>
-                <button type="button" onclick="document.getElementById('ac-fu-form-{{ row_id }}').classList.add('hidden')"
-                  class="text-xs text-gray-400 hover:text-gray-600">Cancel</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      </div>
-      {% endfor %}
-    </div>
-  </div>
-  {% endif %}
-</div>
-{% endif %}
 
 {# ══════════════════════════════════════════════════════════════════
    SUGGESTED SECTION
@@ -486,7 +176,7 @@
 {# ══════════════════════════════════════════════════════════════════
    EMPTY STATE
    ══════════════════════════════════════════════════════════════════ #}
-{% if not act_now and not nudge_due and not (prep_coming is defined and prep_coming) and not watching and not scheduled and not suggested %}
+{% if not triage and not today_bucket and not overdue_bucket and not stale and not nudge_due and not (prep_coming is defined and prep_coming) and not watching and not scheduled and not suggested %}
 <div class="text-center py-16">
   <div class="text-gray-300 text-4xl mb-3">&#10003;</div>
   <p class="text-gray-400 text-sm">No follow-ups found{% if q %} matching "{{ q }}"{% endif %}{% if activity_type %} for type "{{ activity_type }}"{% endif %}.</p>
@@ -513,7 +203,7 @@ function filterFuStatus(status, btn) {
     var sectionType = sec.getAttribute('data-section');
     if (status === 'all') {
       sec.style.display = '';
-      // Re-open collapsed details if showing all
+      // Close collapsed details when showing all
       if (sec.tagName === 'DETAILS') sec.removeAttribute('open');
     } else {
       sec.style.display = (sectionType === status) ? '' : 'none';
@@ -521,12 +211,22 @@ function filterFuStatus(status, btn) {
       if (sectionType === status && sec.tagName === 'DETAILS') sec.setAttribute('open', '');
     }
   });
+
+  // Show/hide summary bar based on filter
+  var summaryBar = document.getElementById('fu-summary-bar');
+  if (summaryBar) summaryBar.style.display = (status === 'all') ? '' : 'none';
 }
 
 /* ── Toggle inline follow-up form ── */
 function toggleAcFuForm(rowId) {
   var form = document.getElementById('ac-fu-form-' + rowId);
   if (form) form.classList.toggle('hidden');
+}
+
+/* ── Toggle triage disposition pills ── */
+function toggleTriageDisp(rowId) {
+  var panel = document.getElementById('ac-triage-' + rowId);
+  if (panel) panel.classList.toggle('hidden');
 }
 
 /* ── Disposition pill selection ── */
