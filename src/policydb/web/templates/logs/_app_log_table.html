@@ -1,0 +1,130 @@
+<!-- Summary bar -->
+<div class="flex items-center gap-6 mb-4 text-sm text-gray-600">
+  <span><strong>{{ "{:,}".format(total) }}</strong> total entries</span>
+  <span class="{% if errors_today > 0 %}text-red-600 font-semibold{% endif %}">{{ errors_today }} error{{ 's' if errors_today != 1 }} today</span>
+  {% if avg_duration is not none %}
+  <span>Avg response: <strong>{{ avg_duration }}ms</strong> today</span>
+  {% endif %}
+</div>
+
+<!-- Filters -->
+<form hx-get="/logs/app" hx-target="#tab-app" hx-swap="innerHTML" class="card mb-4 px-5 py-4">
+  <div class="flex flex-wrap items-end gap-4">
+    <div>
+      <label class="block text-xs font-medium text-gray-500 mb-1">Level</label>
+      <select name="level" class="text-sm border border-gray-300 rounded-md px-3 py-1.5 bg-white focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+        <option value="">All levels</option>
+        {% for lv in levels %}
+        <option value="{{ lv }}" {{ 'selected' if f_level == lv }}>{{ lv }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="block text-xs font-medium text-gray-500 mb-1">Path contains</label>
+      <input type="text" name="path" value="{{ f_path }}" placeholder="/policies/..." class="text-sm border border-gray-300 rounded-md px-3 py-1.5 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 w-40">
+    </div>
+    <div>
+      <label class="block text-xs font-medium text-gray-500 mb-1">From</label>
+      <input type="date" name="from" value="{{ f_from }}" class="text-sm border border-gray-300 rounded-md px-3 py-1.5 focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+    </div>
+    <div>
+      <label class="block text-xs font-medium text-gray-500 mb-1">To</label>
+      <input type="date" name="to" value="{{ f_to }}" class="text-sm border border-gray-300 rounded-md px-3 py-1.5 focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+    </div>
+    <div>
+      <label class="block text-xs font-medium text-gray-500 mb-1">Search</label>
+      <input type="text" name="q" value="{{ f_search }}" placeholder="Search messages..." class="text-sm border border-gray-300 rounded-md px-3 py-1.5 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 w-48">
+    </div>
+    <button type="submit" class="px-4 py-1.5 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 transition-colors">Filter</button>
+    {% if f_level or f_path or f_from or f_to or f_search %}
+    <a href="#" hx-get="/logs/app" hx-target="#tab-app" hx-swap="innerHTML" class="text-sm text-gray-500 hover:text-gray-700 py-1.5">Clear</a>
+    {% endif %}
+  </div>
+</form>
+
+<!-- Results table -->
+<div class="card overflow-hidden">
+  <div class="overflow-x-auto">
+    <table class="min-w-full text-sm">
+      <thead>
+        <tr class="bg-gray-50 border-b border-gray-200">
+          <th class="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider w-40">Time</th>
+          <th class="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider w-20">Level</th>
+          <th class="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider w-36">Source</th>
+          <th class="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Request</th>
+          <th class="px-4 py-2.5 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider w-20">Duration</th>
+          <th class="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Message</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-100">
+        {% for row in rows %}
+        <tr class="hover:bg-gray-50 transition-colors">
+          <td class="px-4 py-2.5 text-gray-600 whitespace-nowrap font-mono text-xs">{{ row.logged_at[:19] }}</td>
+          <td class="px-4 py-2.5">
+            {% if row.level == 'DEBUG' %}
+            <span class="inline-block bg-gray-100 text-gray-600 text-xs font-semibold px-2 py-0.5 rounded">DEBUG</span>
+            {% elif row.level == 'INFO' %}
+            <span class="inline-block bg-green-100 text-green-700 text-xs font-semibold px-2 py-0.5 rounded">INFO</span>
+            {% elif row.level == 'WARNING' %}
+            <span class="inline-block bg-amber-100 text-amber-700 text-xs font-semibold px-2 py-0.5 rounded">WARN</span>
+            {% elif row.level == 'ERROR' %}
+            <span class="inline-block bg-red-100 text-red-700 text-xs font-semibold px-2 py-0.5 rounded">ERROR</span>
+            {% elif row.level == 'CRITICAL' %}
+            <span class="inline-block bg-red-200 text-red-800 text-xs font-semibold px-2 py-0.5 rounded">CRIT</span>
+            {% else %}
+            <span class="inline-block bg-gray-100 text-gray-600 text-xs font-semibold px-2 py-0.5 rounded">{{ row.level }}</span>
+            {% endif %}
+          </td>
+          <td class="px-4 py-2.5 text-gray-500 text-xs truncate max-w-[9rem]" title="{{ row.logger_name }}">{{ row.logger_name or '—' }}</td>
+          <td class="px-4 py-2.5 font-mono text-xs whitespace-nowrap">
+            {% if row.method %}
+            <span class="{% if row.status_code and row.status_code >= 400 %}text-red-600{% else %}text-gray-700{% endif %}">{{ row.method }} {{ row.path }} → {{ row.status_code }}</span>
+            {% else %}
+            <span class="text-gray-400">—</span>
+            {% endif %}
+          </td>
+          <td class="px-4 py-2.5 text-right font-mono text-xs text-gray-500 whitespace-nowrap">
+            {% if row.duration_ms is not none %}{{ "%.1f" | format(row.duration_ms) }}ms{% else %}—{% endif %}
+          </td>
+          <td class="px-4 py-2.5 text-gray-700 text-xs">
+            {% if row.extra %}
+            <details class="group">
+              <summary class="cursor-pointer select-none">
+                <span class="group-open:hidden">{{ row.message[:120] }}{% if row.message|length > 120 %}...{% endif %}</span>
+                <span class="hidden group-open:inline">{{ row.message[:120] }}</span>
+              </summary>
+              <pre class="mt-2 text-xs bg-gray-50 rounded p-2 overflow-x-auto max-h-40 whitespace-pre-wrap">{{ row.extra }}</pre>
+            </details>
+            {% else %}
+            {{ row.message[:200] }}{% if row.message|length > 200 %}...{% endif %}
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="6" class="px-4 py-8 text-center text-gray-400 text-sm">
+            {% if f_level or f_path or f_from or f_to or f_search %}
+            No log entries match the current filters.
+            {% else %}
+            No log entries yet. Events will appear here as you use the application.
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Pagination -->
+  {% if has_next %}
+  <div class="px-4 py-3 border-t border-gray-200 text-center">
+    <button
+      hx-get="/logs/app?page={{ page + 1 }}&level={{ f_level }}&path={{ f_path }}&from={{ f_from }}&to={{ f_to }}&q={{ f_search }}"
+      hx-target="#tab-app"
+      hx-swap="innerHTML"
+      class="text-sm text-blue-600 hover:text-blue-800 font-medium">
+      Load more...
+    </button>
+  </div>
+  {% endif %}
+</div>
