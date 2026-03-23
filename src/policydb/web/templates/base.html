@@ -566,6 +566,9 @@
   <main class="mx-auto {% block main_width %}max-w-[1600px]{% endblock %} px-4 sm:px-6 lg:px-8 py-5">
     {% block content %}{% endblock %}
   </main>
+
+  <!-- Compose Slideover (content loaded via HTMX, template provides its own positioning) -->
+  <div id="compose-slideover-body"></div>
 </div>
 
 <style>
@@ -621,154 +624,52 @@
   .row-saved { animation: row-saved 1.5s ease-out; }
 </style>
 
-<!-- Email popover -->
-<div id="email-popover" style="display:none"
-  class="fixed z-50 bg-white rounded-xl shadow-2xl border border-gray-200 p-4 w-80 text-sm">
-</div>
-
 <script>
-(function() {
-  var pop = document.getElementById('email-popover');
-  var _activeCcUrl = null;
+/* --- Compose Slideover --- */
+var composeEdited = false;
 
-  function closePopover() {
-    pop.style.display = 'none';
-    pop.innerHTML = '';
-    _activeCcUrl = null;
-  }
+function buildMailto(to, subject, ccEmails, body, ref) {
+  if (ref) body = (body ? body + '\n\n' : '') + ref;
+  var url = 'mailto:' + encodeURIComponent(to) + '?subject=' + encodeURIComponent(subject);
+  if (ccEmails.length) url += '&cc=' + encodeURIComponent(ccEmails.join(','));
+  if (body) url += '&body=' + encodeURIComponent(body);
+  return url;
+}
 
-  function buildMailto(to, subject, ccEmails, body, ref) {
-    if (ref) body = (body ? body + '\n\n' : '') + ref;
-    var url = 'mailto:' + encodeURIComponent(to) + '?subject=' + encodeURIComponent(subject);
-    if (ccEmails.length) url += '&cc=' + encodeURIComponent(ccEmails.join(','));
-    if (body) url += '&body=' + encodeURIComponent(body);
-    return url;
-  }
+function openComposeSlideover(params) {
+  var qs = new URLSearchParams();
+  if (params.context) qs.set('context', params.context);
+  if (params.policy_uid) qs.set('policy_uid', params.policy_uid);
+  if (params.client_id) qs.set('client_id', params.client_id);
+  if (params.project_name) qs.set('project_name', params.project_name);
+  if (params.bundle_id) qs.set('bundle_id', params.bundle_id);
+  if (params.mode) qs.set('mode', params.mode);
+  if (params.to_email) qs.set('to_email', params.to_email);
+  if (params.template_id) qs.set('template_id', params.template_id);
 
-  function renderCcOptions(ccList) {
-    if (!ccList.length) return '<p class="text-gray-400 text-xs italic">No team members with email.</p>';
-    var html = '<p class="text-xs font-medium text-gray-500 mb-1">CC <span class="font-normal text-gray-400">(opt-in)</span></p><div class="space-y-1">';
-    ccList.forEach(function(m) {
-      html += '<label class="flex items-center gap-2 cursor-pointer text-xs">'
-        + '<input type="checkbox" value="' + m.email.replace(/"/g,'&quot;') + '" class="rounded border-gray-300">'
-        + '<span class="text-gray-700">' + m.name.replace(/</g,'&lt;') + '</span>'
-        + '</label>';
-    });
-    return html + '</div>';
-  }
-
-  function getSelectedCc() {
-    var emails = [];
-    pop.querySelectorAll('input[type=checkbox]:checked').forEach(function(cb) { emails.push(cb.value); });
-    return emails;
-  }
-
-  function openPopover(trigger, config) {
-    closePopover();
-
-    // Build content
-    var subject = config.subject || '';
-    var shortSub = subject.length > 55 ? subject.substring(0, 52) + '…' : subject;
-    var html = '<div class="space-y-2">'
-      + '<div class="text-xs"><span class="text-gray-400 font-medium w-8 inline-block">To</span>'
-      + '<span class="text-gray-800">' + (config.toLabel || config.to).replace(/</g,'&lt;') + '</span>'
-      + ' <span class="text-gray-400">&lt;' + config.to + '&gt;</span></div>'
-      + '<div class="text-xs"><span class="text-gray-400 font-medium w-8 inline-block">Sub</span>'
-      + '<span class="text-gray-600 font-mono">' + shortSub.replace(/</g,'&lt;') + '</span></div>'
-      + '<div id="ep-cc" class="border-t border-gray-100 pt-2">';
-
-    if (config.cc && config.cc.length) {
-      html += renderCcOptions(config.cc);
-    } else if (config.ccUrl) {
-      html += '<p class="text-xs text-gray-400 italic">Loading team…</p>';
-    } else {
-      html += '<p class="text-xs text-gray-400 italic">No team CC available.</p>';
-    }
-
-    html += '</div>'
-      + '<div class="flex gap-2 pt-2 border-t border-gray-100">'
-      + '<button id="ep-open" class="flex-1 bg-marsh text-white text-xs font-medium py-1.5 rounded-lg hover:bg-marsh-light transition-colors">Open in Mail →</button>'
-      + '<button id="ep-cancel" class="text-xs text-gray-400 hover:text-gray-600 px-2 py-1.5">Cancel</button>'
-      + '</div></div>';
-
-    pop.innerHTML = html;
-
-    // Position near trigger (fixed element uses viewport coords — no scroll offset)
-    var rect = trigger.getBoundingClientRect();
-    var top = rect.bottom + 6;
-    var left = rect.left;
-    left = Math.min(left, window.innerWidth - 328);
-    left = Math.max(8, left);
-    pop.style.top = top + 'px';
-    pop.style.left = left + 'px';
-    pop.style.display = 'block';
-
-    // Wire buttons
-    var body = config.body || '';
-    var ref = config.ref || '';
-    pop.querySelector('#ep-cancel').addEventListener('click', closePopover);
-    pop.querySelector('#ep-open').addEventListener('click', function() {
-      window.location.href = buildMailto(config.to, subject, getSelectedCc(), body, ref);
-      closePopover();
-    });
-
-    // Lazy-load CC — disable Open button until loaded
-    if (config.ccUrl && (!config.cc || !config.cc.length)) {
-      _activeCcUrl = config.ccUrl;
-      var openBtn = pop.querySelector('#ep-open');
-      openBtn.disabled = true;
-      openBtn.textContent = 'Loading team\u2026';
-      openBtn.style.opacity = '0.5';
-      openBtn.style.cursor = 'wait';
-      fetch(config.ccUrl)
-        .then(function(r) { return r.json(); })
-        .then(function(data) {
-          var sec = pop.querySelector('#ep-cc');
-          if (sec) sec.innerHTML = renderCcOptions(data);
-        })
-        .catch(function() {
-          var sec = pop.querySelector('#ep-cc');
-          if (sec) sec.innerHTML = '<p class="text-xs text-red-400">Could not load team.</p>';
-        })
-        .finally(function() {
-          if (openBtn) {
-            openBtn.disabled = false;
-            openBtn.textContent = 'Open in Mail \u2192';
-            openBtn.style.opacity = '';
-            openBtn.style.cursor = '';
-          }
-        });
-    }
-  }
-
-  // Event delegation — handles all .ep-trigger buttons including after HTMX swaps
-  document.addEventListener('click', function(e) {
-    var btn = e.target.closest('.ep-trigger');
-    if (btn) {
-      e.preventDefault();
-      var cc = [];
-      try { if (btn.dataset.cc) cc = JSON.parse(btn.dataset.cc); } catch(_) {}
-      openPopover(btn, {
-        to: btn.dataset.to || '',
-        toLabel: btn.dataset.toLabel || '',
-        subject: btn.dataset.subject || '',
-        body: btn.dataset.body || '',
-        cc: cc,
-        ccUrl: btn.dataset.ccUrl || '',
-        ref: btn.dataset.ref || ''
-      });
-      return;
-    }
-    if (pop.style.display !== 'none' && !pop.contains(e.target)) {
-      closePopover();
-    }
+  htmx.ajax('GET', '/compose?' + qs.toString(), {
+    target: '#compose-slideover-body',
+    swap: 'innerHTML'
+  }).then(function() {
+    document.body.style.overflow = 'hidden';
   });
+}
 
-  document.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape') closePopover();
-  });
-})();
+function closeComposeSlideover() {
+  var backdrop = document.getElementById('compose-backdrop');
+  var panel = document.getElementById('compose-panel');
+  if (backdrop) backdrop.remove();
+  if (panel) panel.remove();
+  document.body.style.overflow = '';
+}
+
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape' && document.getElementById('compose-panel')) {
+    closeComposeSlideover();
+  }
+});
 </script>
+
 
 <script>
 function copyRefTag(btn, tag) {

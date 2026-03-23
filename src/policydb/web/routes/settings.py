@@ -173,6 +173,7 @@ def _build_tab_context(tab: str, conn) -> dict:
         ctx["email_subject_followup"] = cfg.get("email_subject_followup", "")
         ctx["email_subject_request"] = cfg.get("email_subject_request", "")
         ctx["email_subject_request_all"] = cfg.get("email_subject_request_all", "")
+        ctx["email_subject_rfi_notify"] = cfg.get("email_subject_rfi_notify", "")
 
     elif tab == "database":
         db_size = os.path.getsize(DB_PATH) if os.path.exists(DB_PATH) else 0
@@ -274,7 +275,7 @@ def settings_page(request: Request, tab: str = Query("workflow"), conn=Depends(g
 
 @router.post("/email-subject", response_class=HTMLResponse)
 def save_email_subject(key: str = Form(...), value: str = Form(...)):
-    _allowed = {"email_subject_policy", "email_subject_client", "email_subject_followup", "email_subject_request", "email_subject_request_all"}
+    _allowed = {"email_subject_policy", "email_subject_client", "email_subject_followup", "email_subject_request", "email_subject_request_all", "email_subject_rfi_notify"}
     if key in _allowed:
         full = dict(cfg.load_config())
         full[key] = value

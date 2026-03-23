@@ -696,6 +696,7 @@ def client_tab_policies(request: Request, client_id: int, conn=Depends(get_db)):
         "project_ids": project_ids,
         "project_addresses": project_addresses,
         "opportunities": opportunities,
+        "bundles": _get_request_bundles(conn, client_id),
         "pipeline_projects": _get_project_pipeline(conn, client_id),
         "location_projects": _get_project_locations(conn, client_id),
         "project_stages": cfg.get("project_stages", []),
@@ -1433,14 +1434,12 @@ def _internal_contacts_response(request, conn, client_id: int):
                     "phone": r["phone"] or "", "mobile": r["mobile"] or "", "role": r["role"] or ""}
         for r in _ac_rows
     })
-    team_cc_json = _json.dumps([{"name": c["name"], "email": c["email"]} for c in team_contacts if c.get("email")])
     return templates.TemplateResponse("clients/_team_contacts.html", {
         "request": request,
         "client": dict(client) if client else {},
         "team_contacts": team_contacts,
         "mailto_subject": mailto_subject,
         "all_internal_contacts_json": all_internal_contacts_json,
-        "team_cc_json": team_cc_json,
         "contact_roles": cfg.get("contact_roles", []),
         "add_contact": "",
     })
@@ -2156,58 +2155,6 @@ def risk_control_delete(request: Request, client_id: int, risk_id: int, ctrl_id:
     conn.execute("DELETE FROM risk_controls WHERE id=? AND risk_id=?", (ctrl_id, risk_id))
     conn.commit()
     return _risks_response(request, conn, client_id)
-
-
-@router.get("/{client_id}/team-cc")
-def client_team_cc(client_id: int, project: str = "", conn=Depends(get_db)):
-    """JSON list of team emails for CC — aggregated from policy contacts + internal team."""
-    emails: list[dict] = []
-    seen: set[str] = set()
-
-    # Internal team members for this client
-    internal = conn.execute(
-        """SELECT co.name, co.email
-           FROM contact_client_assignments cca
-           JOIN contacts co ON cca.contact_id = co.id
-           WHERE cca.client_id=? AND cca.contact_type='internal'
-             AND co.email IS NOT NULL AND TRIM(co.email) != ''""",
-        (client_id,),
-    ).fetchall()
-    for r in internal:
-        key = r["email"].strip().lower()
-        if key not in seen:
-            seen.add(key)
-            emails.append({"name": r["name"], "email": r["email"]})
-
-    # Policy contacts — optionally filtered by project/location
-    if project:
-        pc_rows = conn.execute(
-            """SELECT DISTINCT co.name, co.email
-               FROM contact_policy_assignments cpa
-               JOIN contacts co ON cpa.contact_id = co.id
-               JOIN policies p ON cpa.policy_id = p.id
-               WHERE p.client_id = ? AND p.archived = 0
-                 AND LOWER(TRIM(COALESCE(p.project_name, ''))) = LOWER(TRIM(?))
-                 AND co.email IS NOT NULL AND TRIM(co.email) != ''""",
-            (client_id, project),
-        ).fetchall()
-    else:
-        pc_rows = conn.execute(
-            """SELECT DISTINCT co.name, co.email
-               FROM contact_policy_assignments cpa
-               JOIN contacts co ON cpa.contact_id = co.id
-               JOIN policies p ON cpa.policy_id = p.id
-               WHERE p.client_id = ? AND p.archived = 0
-                 AND co.email IS NOT NULL AND TRIM(co.email) != ''""",
-            (client_id,),
-        ).fetchall()
-    for r in pc_rows:
-        key = r["email"].strip().lower()
-        if key not in seen:
-            seen.add(key)
-            emails.append({"name": r["name"], "email": r["email"]})
-
-    return JSONResponse(emails)
 
 
 @router.get("/{client_id}/edit", response_class=HTMLResponse)
@@ -3185,52 +3132,6 @@ def project_delete(
     return HTMLResponse("", headers={"HX-Redirect": f"/clients/{client_id}"})
 
 
-@router.get("/{client_id}/project/email-team")
-def project_email_team(client_id: int, project: str, conn=Depends(get_db)):
-    """Build a mailto: URL with all contacts for policies in a project."""
-    from urllib.parse import quote
-    # Gather emails from contact_policy_assignments for policies in this project
-    rows = conn.execute(
-        """SELECT DISTINCT co.email
-           FROM contact_policy_assignments cpa
-           JOIN contacts co ON cpa.contact_id = co.id
-           JOIN policies p ON cpa.policy_id = p.id
-           WHERE p.client_id = ? AND LOWER(TRIM(COALESCE(p.project_name,''))) = LOWER(TRIM(?))
-             AND co.email IS NOT NULL AND TRIM(co.email) != ''
-             AND p.archived = 0""",
-        (client_id, project),
-    ).fetchall()
-    emails = [r["email"] for r in rows]
-    # Also include client contacts
-    client_rows = conn.execute(
-        """SELECT DISTINCT co.email
-           FROM contact_client_assignments cca
-           JOIN contacts co ON cca.contact_id = co.id
-           WHERE cca.client_id = ? AND co.email IS NOT NULL AND TRIM(co.email) != ''""",
-        (client_id,),
-    ).fetchall()
-    emails.extend(r["email"] for r in client_rows)
-    # Also include client's primary email
-    client = conn.execute("SELECT contact_email FROM clients WHERE id = ?", (client_id,)).fetchone()
-    if client and client["contact_email"]:
-        emails.append(client["contact_email"])
-    # Deduplicate (case-insensitive)
-    seen: set[str] = set()
-    unique: list[str] = []
-    for e in emails:
-        low = e.strip().lower()
-        if low not in seen:
-            seen.add(low)
-            unique.append(e.strip())
-    # Build subject from config
-    client_row = get_client_by_id(conn, client_id)
-    client_name = client_row["name"] if client_row else ""
-    subject = f"Re: {client_name} — {project}"
-    mailto = f"mailto:{','.join(unique)}?subject={quote(subject)}"
-    from fastapi.responses import RedirectResponse as _RR
-    return _RR(mailto, status_code=303)
-
-
 @router.get("/{client_id}/project/log-form", response_class=HTMLResponse)
 def project_log_form(request: Request, client_id: int, project: str, conn=Depends(get_db)):
     """HTMX partial: inline activity log form for all policies in a project."""
@@ -3700,40 +3601,6 @@ def request_export_all(client_id: int, conn=Depends(get_db)):
     )
 
 
-@router.get("/{client_id}/requests/compose-all", response_class=HTMLResponse)
-def request_compose_all(request: Request, client_id: int, conn=Depends(get_db)):
-    """Generate compose panel with all outstanding items across all open bundles."""
-    from policydb.exporter import render_client_requests_compose_text
-    from policydb.email_templates import client_context as _client_ctx, render_tokens as _render_tokens
-
-    body_text = render_client_requests_compose_text(conn, client_id)
-    mail_ctx = _client_ctx(conn, client_id)
-    subject_tpl = cfg.get("email_subject_request_all", "{{client_name}} — Outstanding Information Requests")
-    subject = _render_tokens(subject_tpl, mail_ctx)
-
-    contacts = []
-    _cc_rows = conn.execute(
-        """SELECT co.name, co.email
-           FROM contact_client_assignments cca
-           JOIN contacts co ON cca.contact_id = co.id
-           WHERE cca.client_id=? AND cca.contact_type='client'
-             AND co.email IS NOT NULL AND TRIM(co.email) != ''
-           ORDER BY cca.is_primary DESC, co.name""",
-        (client_id,),
-    ).fetchall()
-    for c in _cc_rows:
-        contacts.append({"name": c["name"], "email": c["email"]})
-
-    return templates.TemplateResponse("clients/_request_compose.html", {
-        "request": request,
-        "client_id": client_id,
-        "bundle": None,
-        "subject": subject,
-        "body_text": body_text,
-        "contacts": contacts,
-    })
-
-
 @router.get("/{client_id}/requests/{bundle_id}", response_class=HTMLResponse)
 def get_request_bundle(
     request: Request, client_id: int, bundle_id: int, conn=Depends(get_db)
@@ -4045,52 +3912,6 @@ def set_bundle_send_by(
     if policy_uid:
         return request_policy_view(request, client_id, policy_uid, conn)
     return _bundle_response(request, conn, client_id, bundle_id)
-
-
-@router.get("/{client_id}/requests/{bundle_id}/compose", response_class=HTMLResponse)
-def request_bundle_compose(
-    request: Request, client_id: int, bundle_id: int, conn=Depends(get_db)
-):
-    """Generate compose panel with formatted outstanding/received item list."""
-    from policydb.exporter import render_request_compose_text
-    from policydb.email_templates import client_context as _client_ctx, render_tokens as _render_tokens
-
-    bundle = conn.execute(
-        "SELECT * FROM client_request_bundles WHERE id=? AND client_id=?",
-        (bundle_id, client_id),
-    ).fetchone()
-    if not bundle:
-        return HTMLResponse("Bundle not found", status_code=404)
-
-    body_text = render_request_compose_text(conn, bundle_id)
-    mail_ctx = _client_ctx(conn, client_id)
-    subject_tpl = cfg.get("email_subject_request", "{{client_name}} — {{request_title}}")
-    mail_ctx["request_title"] = bundle["title"]
-    mail_ctx["rfi_uid"] = bundle["rfi_uid"] or ""
-    subject = _render_tokens(subject_tpl, mail_ctx)
-
-    # Load contacts for recipient picker
-    contacts = []
-    _cc_rows2 = conn.execute(
-        """SELECT co.name, co.email
-           FROM contact_client_assignments cca
-           JOIN contacts co ON cca.contact_id = co.id
-           WHERE cca.client_id=? AND cca.contact_type='client'
-             AND co.email IS NOT NULL AND TRIM(co.email) != ''
-           ORDER BY cca.is_primary DESC, co.name""",
-        (client_id,),
-    ).fetchall()
-    for c in _cc_rows2:
-        contacts.append({"name": c["name"], "email": c["email"]})
-
-    return templates.TemplateResponse("clients/_request_compose.html", {
-        "request": request,
-        "client_id": client_id,
-        "bundle": dict(bundle),
-        "subject": subject,
-        "body_text": body_text,
-        "contacts": contacts,
-    })
 
 
 @router.get("/{client_id}/requests/{bundle_id}/export")

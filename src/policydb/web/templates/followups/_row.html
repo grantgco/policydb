@@ -51,12 +51,8 @@
     {% if r.contact_person %}
     <span class="text-gray-700">{{ r.contact_person }}</span>
     {% if r.contact_email %}
-    <button type="button" class="ep-trigger text-marsh hover:text-marsh-light ml-1.5"
-      data-to="{{ r.contact_email }}"
-      data-to-label="{{ r.contact_person }}"
-      data-subject="{{ mailto_subject }}"
-      {% if r.policy_uid %}data-cc-url="/policies/{{ r.policy_uid }}/team-cc"{% endif %}
-      data-ref="{{ build_ref_tag(cn_number=r.get('cn_number', ''), client_id=r.client_id, policy_uid=r.policy_uid|default(''), project_id=r.get('project_id', 0), activity_id=r.id) }}">&#9993;</button>
+    <button type="button" onclick="openComposeSlideover({context:'policy', policy_uid:'{{ r.policy_uid|default("", true) }}', client_id:{{ r.client_id }}, to_email:'{{ r.contact_email|default("", true) }}'})"
+      class="text-marsh hover:text-marsh-light ml-1.5" title="Compose email">&#9993;</button>
     {% endif %}
     {% else %}&mdash;{% endif %}
   </td>
@@ -131,23 +127,19 @@
         hx-vals='{"context": "followup_table"}'
         hx-target="#{{ row_id }}"
         hx-swap="outerHTML"
-        hx-on::before-request="var rows=['disposition-form-row-','followup-form-row-','complete-form-row-','edit-row-','compose-row-'];rows.forEach(function(p){var el=document.getElementById(p+'{{ row_id }}');if(el)el.remove();});"
+        hx-on::before-request="var rows=['disposition-form-row-','followup-form-row-','complete-form-row-','edit-row-'];rows.forEach(function(p){var el=document.getElementById(p+'{{ row_id }}');if(el)el.remove();});"
         hx-confirm="Delete this activity and its follow-up?"
         class="text-xs text-gray-300 hover:text-red-500 border border-gray-200 hover:border-red-300 rounded px-2 py-1.5 transition-colors" title="Delete activity">&#10005;</button>
       {% endif %}
       <button type="button"
-        onclick="toggleComposeRow('{{ row_id }}')"
-        class="text-xs text-gray-300 hover:text-marsh border border-gray-200 hover:border-marsh rounded px-2 py-1.5 transition-colors">
+        onclick="openComposeSlideover({context:'policy', policy_uid:'{{ r.policy_uid|default("", true) }}', client_id:{{ r.client_id }}})"
+        class="text-xs text-gray-300 hover:text-marsh border border-gray-200 hover:border-marsh rounded px-2 py-1.5 transition-colors" title="Compose email">
         &#9993;+
       </button>
       {% if r.get('pc_email') %}
       <button type="button"
-        class="ep-trigger text-xs text-gray-300 hover:text-indigo-500 border border-gray-200 hover:border-indigo-300 rounded px-2 py-1.5 transition-colors"
-        data-to="{{ r.pc_email }}"
-        data-to-label="{{ r.pc_name or '' }}"
-        data-subject="{{ r.get('mailto_subject', '') or ('Re: ' ~ r.client_name ~ ' — ' ~ r.subject) }}"
-        {% if r.policy_uid %}data-cc-url="/policies/{{ r.policy_uid }}/team-cc"{% endif %}
-        data-ref="{{ _ref_tag }}"
+        onclick="openComposeSlideover({context:'policy', policy_uid:'{{ r.policy_uid|default("", true) }}', client_id:{{ r.client_id }}, to_email:'{{ r.pc_email }}'})"
+        class="text-xs text-gray-300 hover:text-indigo-500 border border-gray-200 hover:border-indigo-300 rounded px-2 py-1.5 transition-colors"
         title="Forward to {{ r.pc_name or 'placement colleague' }}">&#8594; {{ r.pc_name or 'Colleague' }}</button>
       {% endif %}
       <button type="button" onclick="copyRefTag(this, '{{ _ref_tag }}')"
@@ -166,13 +158,13 @@
     <form hx-post="/policies/{{ r.policy_uid }}/followup"
           hx-target="#{{ row_id }}"
           hx-swap="outerHTML"
-          hx-on::before-request="var old=document.getElementById('followup-form-row-{{ row_id }}');if(old)old.remove();var c=document.getElementById('compose-row-{{ row_id }}');if(c)c.remove();"
+          hx-on::before-request="var old=document.getElementById('followup-form-row-{{ row_id }}');if(old)old.remove();"
           class="space-y-2">
     {% else %}
     <form hx-post="/activities/{{ r.id }}/followup"
           hx-target="#{{ row_id }}"
           hx-swap="outerHTML"
-          hx-on::before-request="var old=document.getElementById('followup-form-row-{{ row_id }}');if(old)old.remove();var c=document.getElementById('compose-row-{{ row_id }}');if(c)c.remove();"
+          hx-on::before-request="var old=document.getElementById('followup-form-row-{{ row_id }}');if(old)old.remove();"
           class="space-y-2">
       <input type="hidden" name="context" value="followup_table">
     {% endif %}
@@ -227,11 +219,11 @@
     {% if r.source == 'policy' %}
     <form hx-post="/policies/{{ r.policy_uid }}/clear-followup"
           hx-target="#{{ row_id }}" hx-swap="outerHTML"
-          hx-on::before-request="var rows=['followup-form-row-','complete-form-row-','edit-row-','compose-row-'];rows.forEach(function(p){var el=document.getElementById(p+'{{ row_id }}');if(el)el.remove();});">
+          hx-on::before-request="var rows=['followup-form-row-','complete-form-row-','edit-row-'];rows.forEach(function(p){var el=document.getElementById(p+'{{ row_id }}');if(el)el.remove();});">
     {% else %}
     <form hx-post="/activities/{{ r.id }}/complete"
           hx-target="#{{ row_id }}" hx-swap="outerHTML"
-          hx-on::before-request="var rows=['followup-form-row-','complete-form-row-','edit-row-','compose-row-'];rows.forEach(function(p){var el=document.getElementById(p+'{{ row_id }}');if(el)el.remove();});">
+          hx-on::before-request="var rows=['followup-form-row-','complete-form-row-','edit-row-'];rows.forEach(function(p){var el=document.getElementById(p+'{{ row_id }}');if(el)el.remove();});">
     {% endif %}
       <div class="flex items-center gap-2 mb-2">
         <span class="text-xs font-semibold text-green-700">Complete Follow-Up</span>
@@ -330,13 +322,6 @@
   </td>
 </tr>
 {% endif %}
-<tr id="compose-row-{{ row_id }}" class="hidden bg-gray-50/50">
-  <td colspan="8" class="px-4 py-2">
-    <div id="compose-area-{{ row_id }}">
-      <div class="text-xs text-gray-400 italic">Loading compose panel...</div>
-    </div>
-  </td>
-</tr>
 
 <script>
 function toggleFollowupForm(rowId) {
@@ -359,7 +344,7 @@ function toggleDispositionForm(rowId) {
   var el = document.getElementById('disposition-form-row-' + rowId);
   if (el) el.classList.toggle('hidden');
   // Hide other forms
-  var others = ['followup-form-row-', 'complete-form-row-', 'edit-row-', 'compose-row-'];
+  var others = ['followup-form-row-', 'complete-form-row-', 'edit-row-'];
   others.forEach(function(prefix) {
     var o = document.getElementById(prefix + rowId);
     if (o) o.classList.add('hidden');
@@ -433,20 +418,4 @@ function toggleActivityEdit(rowId, activityId) {
   }
 }
 
-function toggleComposeRow(rowId) {
-  var composeRow = document.getElementById('compose-row-' + rowId);
-  var area = document.getElementById('compose-area-' + rowId);
-  if (composeRow.classList.contains('hidden')) {
-    composeRow.classList.remove('hidden');
-    // Lazy-load compose panel on first open
-    if (area.querySelector('div.text-xs')) {
-      htmx.ajax('GET', '/templates/compose?context=policy{% if r.policy_uid %}&policy_uid={{ r.policy_uid }}{% endif %}&client_id={{ r.client_id }}', {
-        target: '#compose-area-' + rowId,
-        swap: 'innerHTML'
-      });
-    }
-  } else {
-    composeRow.classList.add('hidden');
-  }
-}
 </script>

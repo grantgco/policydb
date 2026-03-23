@@ -1,0 +1,266 @@
+{# Compose Email Slideover — unified email compose panel.
+   Loaded via HTMX into a slideover container.
+   Expects: context, policy_uid, client_id, project_name, bundle_id, mode,
+            recipients, primary_to, subject, body, ref_tag,
+            available_templates, selected_template, template_id, ctx.
+#}
+
+{# ── Backdrop ── #}
+<div id="compose-backdrop"
+     class="fixed inset-0 bg-black/30 z-40"
+     onclick="closeComposeSlideover()"></div>
+
+{# ── Panel ── #}
+<div id="compose-panel"
+     class="fixed top-0 right-0 bottom-0 w-[480px] max-sm:w-full bg-white shadow-xl z-50 flex flex-col">
+
+  {# ── Header ── #}
+  <div class="flex items-center justify-between p-4 border-b shrink-0">
+    <h2 class="text-base font-semibold text-gray-900">Compose Email</h2>
+    <button onclick="closeComposeSlideover()"
+            class="text-gray-400 hover:text-gray-600 transition-colors"
+            aria-label="Close panel">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+      </svg>
+    </button>
+  </div>
+
+  {# ── Scrollable content ── #}
+  <div class="flex-1 overflow-y-auto p-4 space-y-4">
+
+    {# ── Context label ── #}
+    {% set _ctx_label %}
+      {% if mode == 'rfi_notify' %}RFI Notification
+      {% elif policy_uid %}Policy: {{ ctx.get('policy_uid', policy_uid) }}
+      {% elif project_name %}Location: {{ project_name }}
+      {% elif client_id %}Client: {{ ctx.get('client_name', '') }}
+      {% else %}General
+      {% endif %}
+    {% endset %}
+    <div>
+      <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
+        {{ _ctx_label | trim }}
+      </span>
+    </div>
+
+    {# ── Recipient picker ── #}
+    {% include "_recipient_picker.html" %}
+
+    {# ── Separator ── #}
+    <hr class="border-gray-100">
+
+    {# ── Subject ── #}
+    <div>
+      <label class="text-xs font-medium text-gray-500 mb-1 block">Subject</label>
+      <input type="text" id="compose-subject"
+             value="{{ subject }}"
+             oninput="markComposeEdited()"
+             class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-marsh">
+    </div>
+
+    {# ── Template selector ── #}
+    <div>
+      <label class="text-xs font-medium text-gray-500 mb-1 block">Template</label>
+      <select id="compose-template-select"
+              onchange="loadComposeTemplate(this.value)"
+              class="w-full text-xs border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-marsh bg-white">
+        <option value="">No template — quick email</option>
+        {% for t in available_templates %}
+        <option value="{{ t.id }}"
+                {% if template_id and t.id == template_id %}selected{% endif %}>
+          {{ t.name }}{% if t.context != context %} ({{ t.context }}){% endif %}
+        </option>
+        {% endfor %}
+      </select>
+    </div>
+
+    {# ── Body ── #}
+    <div>
+      <label class="text-xs font-medium text-gray-500 mb-1 block">Body</label>
+      <textarea id="compose-body" rows="8"
+                oninput="markComposeEdited()"
+                class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-marsh resize-y font-mono leading-relaxed">{{ body }}</textarea>
+    </div>
+
+    {# ── Separator ── #}
+    <hr class="border-gray-100">
+
+    {# ── Preview ── #}
+    <div>
+      <div class="text-xs font-medium text-gray-500 mb-1">Preview</div>
+      <div id="compose-preview-final" class="text-xs text-gray-500 bg-gray-50 rounded-lg p-3 min-h-[2rem]"></div>
+    </div>
+  </div>
+
+  {# ── Actions (sticky bottom) ── #}
+  <div class="shrink-0 border-t p-4 flex items-center gap-3 bg-white">
+    <button type="button" onclick="copyComposeAll()"
+            class="flex-1 text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg py-2 transition-colors">
+      Copy All
+    </button>
+    <button type="button" onclick="openComposeInMail()"
+            class="flex-1 text-xs font-medium text-white bg-marsh hover:bg-marsh-light rounded-lg py-2 transition-colors">
+      Open in Mail &rarr;
+    </button>
+  </div>
+</div>
+
+{# ── Script ── #}
+<script>
+(function() {
+  var composeEdited = false;
+  var originalSubject = {{ subject | tojson }};
+  var originalBody = {{ body | tojson }};
+
+  // Store params for template render endpoint
+  var composeParams = {
+    policy_uid: {{ policy_uid | tojson }},
+    client_id: {{ client_id | tojson }},
+    project_name: {{ project_name | tojson }},
+    bundle_id: {{ bundle_id | tojson }},
+    mode: {{ mode | tojson }},
+    ref_tag: {{ ref_tag | tojson }}
+  };
+
+  window.markComposeEdited = function() {
+    composeEdited = true;
+  };
+
+  window.loadComposeTemplate = function(templateId) {
+    if (!templateId) {
+      // Reset to original values
+      document.getElementById('compose-subject').value = originalSubject;
+      document.getElementById('compose-body').value = originalBody;
+      composeEdited = false;
+      return;
+    }
+    var url = '/compose/render?template_id=' + encodeURIComponent(templateId)
+      + '&policy_uid=' + encodeURIComponent(composeParams.policy_uid)
+      + '&client_id=' + encodeURIComponent(composeParams.client_id)
+      + '&project_name=' + encodeURIComponent(composeParams.project_name)
+      + '&bundle_id=' + encodeURIComponent(composeParams.bundle_id)
+      + '&mode=' + encodeURIComponent(composeParams.mode);
+    fetch(url)
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.subject) document.getElementById('compose-subject').value = data.subject;
+        if (data.body !== undefined) document.getElementById('compose-body').value = data.body;
+        composeEdited = false;
+      })
+      .catch(function(err) {
+        console.error('Failed to load template:', err);
+      });
+  };
+
+  window.updateComposePreview = function() {
+    var toEl = document.getElementById('compose-to-email');
+    var toEmail = toEl ? toEl.value : '';
+    var toName = '';
+    var toNameEl = document.getElementById('compose-to-name');
+    if (toNameEl && toNameEl.value) toName = toNameEl.value;
+
+    var ccEmails = [];
+    document.querySelectorAll('.compose-cc-check:checked').forEach(function(cb) {
+      ccEmails.push(cb.getAttribute('data-name') || cb.value);
+    });
+
+    var parts = [];
+    if (toEmail) parts.push('To: ' + (toName || toEmail));
+    if (ccEmails.length) parts.push('CC: ' + ccEmails.join(', '));
+
+    var previewText = parts.join(' | ') || 'No recipients selected';
+
+    var previewEl = document.getElementById('compose-preview');
+    if (previewEl) previewEl.textContent = previewText;
+    var previewFinal = document.getElementById('compose-preview-final');
+    if (previewFinal) previewFinal.textContent = previewText;
+  };
+
+  window.removeComposeTo = function() {
+    var row = document.getElementById('compose-to-row');
+    if (row) {
+      row.innerHTML = '<span class="text-xs text-gray-400 italic">Removed — use CC or add a new recipient</span>'
+        + '<input type="hidden" id="compose-to-email" value="">'
+        + '<input type="hidden" id="compose-to-name" value="">';
+    }
+    updateComposePreview();
+  };
+
+  window.addComposeRecipient = function() {
+    var input = document.getElementById('compose-add-email');
+    var email = (input.value || '').trim();
+    if (!email) return;
+
+    var ccList = document.getElementById('compose-cc-list');
+    if (!ccList) return;
+
+    // Check for duplicate
+    var existing = ccList.querySelectorAll('.compose-cc-check');
+    for (var i = 0; i < existing.length; i++) {
+      if (existing[i].value.toLowerCase() === email.toLowerCase()) {
+        existing[i].checked = true;
+        input.value = '';
+        updateComposePreview();
+        return;
+      }
+    }
+
+    var label = document.createElement('label');
+    label.className = 'flex items-center gap-2 cursor-pointer text-xs';
+    label.innerHTML = '<input type="checkbox" class="compose-cc-check rounded border-gray-300" '
+      + 'value="' + email.replace(/"/g, '&quot;') + '" '
+      + 'data-name="" checked '
+      + 'onchange="updateComposePreview()">'
+      + '<span class="inline-flex items-center gap-1">'
+      + '<span class="text-gray-700">' + email.replace(/</g, '&lt;') + '</span>'
+      + '<span class="px-1.5 py-0 rounded text-[10px] font-medium bg-gray-100 text-gray-500">manual</span>'
+      + '</span>';
+    ccList.appendChild(label);
+    input.value = '';
+    updateComposePreview();
+  };
+
+  window.copyComposeAll = function() {
+    var subject = document.getElementById('compose-subject').value || '';
+    var body = document.getElementById('compose-body').value || '';
+    var text = subject + '\n' + body;
+    navigator.clipboard.writeText(text).then(function() {
+      if (typeof showToast === 'function') showToast('Copied to clipboard', true);
+    });
+  };
+
+  window.openComposeInMail = function() {
+    var toEl = document.getElementById('compose-to-email');
+    var toEmail = toEl ? toEl.value : '';
+    var subject = document.getElementById('compose-subject').value || '';
+    var body = document.getElementById('compose-body').value || '';
+    var ref = composeParams.ref_tag || '';
+
+    var ccEmails = [];
+    document.querySelectorAll('.compose-cc-check:checked').forEach(function(cb) {
+      ccEmails.push(cb.value);
+    });
+
+    if (typeof buildMailto === 'function') {
+      window.location.href = buildMailto(toEmail, subject, ccEmails, body, ref);
+    } else {
+      // Fallback: build mailto manually
+      var url = 'mailto:' + encodeURIComponent(toEmail) + '?subject=' + encodeURIComponent(subject);
+      if (ccEmails.length) url += '&cc=' + encodeURIComponent(ccEmails.join(','));
+      if (body) url += '&body=' + encodeURIComponent(body);
+      window.location.href = url;
+    }
+  };
+
+  window.closeComposeSlideover = function() {
+    var backdrop = document.getElementById('compose-backdrop');
+    var panel = document.getElementById('compose-panel');
+    if (backdrop) backdrop.remove();
+    if (panel) panel.remove();
+  };
+
+  // Initialize preview on load
+  updateComposePreview();
+})();
+</script>

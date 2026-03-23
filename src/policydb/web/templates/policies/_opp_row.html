@@ -50,12 +50,8 @@
     {% if o.placement_colleague %}
     {{ o.placement_colleague }}
     {% if o.placement_colleague_email %}
-    <button type="button" class="ep-trigger text-marsh hover:text-marsh-light ml-1"
-      data-to="{{ o.placement_colleague_email }}"
-      data-to-label="{{ o.placement_colleague }}"
-      data-subject="{{ o.mailto_subject }}"
-      data-cc-url="/policies/{{ o.policy_uid }}/team-cc"
-      data-ref="{{ build_ref_tag(cn_number=o.cn_number|default(''), client_id=o.client_id, policy_uid=o.policy_uid, project_id=o.project_id|default(0)) }}">✉</button>
+    <button type="button" onclick="openComposeSlideover({context:'policy', policy_uid:'{{ o.policy_uid }}', client_id:{{ o.client_id }}, to_email:'{{ o.placement_colleague_email }}'})"
+      class="text-marsh hover:text-marsh-light ml-1 no-print" title="Compose email">✉</button>
     {% endif %}
     {% else %}—{% endif %}
   </td>
