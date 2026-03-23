@@ -153,6 +153,7 @@ def ai_import_prompt(
         "json_template": json_template,
         "context_display": context_display,
         "parse_url": parse_url,
+        "import_target": "#review-mode-container",
     })
 
 
