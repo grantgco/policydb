@@ -212,6 +212,18 @@ function updateEndorsements() {
 }
 </script>
 <script>
+/* Toggle active tab styling on click */
+document.getElementById('location-tab-bar').addEventListener('click', function(e) {
+  var btn = e.target.closest('button');
+  if (!btn) return;
+  this.querySelectorAll('button').forEach(function(b) {
+    b.classList.remove('border-marsh', 'text-marsh');
+    b.classList.add('border-transparent', 'text-gray-500');
+  });
+  btn.classList.remove('border-transparent', 'text-gray-500');
+  btn.classList.add('border-marsh', 'text-marsh');
+});
+
 /* Auto-load active location tab from URL param on page load */
 document.addEventListener('DOMContentLoaded', function() {
   var params = new URLSearchParams(window.location.search);
