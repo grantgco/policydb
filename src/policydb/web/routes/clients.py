@@ -452,6 +452,18 @@ def client_tab_overview(request: Request, client_id: int, conn=Depends(get_db)):
                AND follow_up_date IS NOT NULL AND follow_up_date < date('now')
            )""", (client_id, client_id)
     ).fetchone()[0]
+    # Next upcoming follow-up date (earliest pending across activities + policies)
+    pulse_next_followup = conn.execute(
+        """SELECT MIN(fu) FROM (
+             SELECT MIN(follow_up_date) AS fu FROM activity_log
+             WHERE client_id=? AND follow_up_done=0 AND follow_up_date >= date('now')
+             UNION ALL
+             SELECT MIN(follow_up_date) AS fu FROM policies
+             WHERE client_id=? AND archived=0 AND (is_opportunity=0 OR is_opportunity IS NULL)
+               AND follow_up_date IS NOT NULL AND follow_up_date >= date('now')
+           )""", (client_id, client_id)
+    ).fetchone()[0]
+
     _risks_for_pulse = conn.execute("SELECT severity FROM client_risks WHERE client_id=?", (client_id,)).fetchall()
     pulse_high_risks = sum(1 for r in _risks_for_pulse if r["severity"] in ("High", "Critical"))
 
@@ -478,6 +490,7 @@ def client_tab_overview(request: Request, client_id: int, conn=Depends(get_db)):
         "client_scratchpad_updated": _scratch["updated_at"] if _scratch else "",
         "client_saved_notes": get_saved_notes(conn, "client", client_id),
         "pulse_overdue": pulse_overdue,
+        "pulse_next_followup": pulse_next_followup,
         "pulse_milestone_done": pulse_milestone_done,
         "pulse_milestone_total": pulse_milestone_total,
         "pulse_high_risks": pulse_high_risks,
@@ -1350,6 +1363,7 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
         "linked_group": linked_group,
         "linked_relationships": cfg.get("linked_account_relationships", []),
         "pulse_overdue": pulse_overdue,
+        "pulse_next_followup": next_followup_date,
         "pulse_milestone_done": pulse_milestone_done,
         "pulse_milestone_total": pulse_milestone_total,
         "pulse_high_risks": pulse_high_risks,
@@ -3134,22 +3148,31 @@ def project_delete(
     return HTMLResponse("", headers={"HX-Redirect": f"/clients/{client_id}"})
 
 
+def _project_contacts(conn, client_id: int, project: str) -> list[dict]:
+    """Get all contacts relevant to a project: policy-assigned + client-level."""
+    rows = conn.execute(
+        """SELECT DISTINCT co.id, co.name FROM (
+             SELECT co2.id, co2.name FROM contact_policy_assignments cpa
+               JOIN contacts co2 ON cpa.contact_id = co2.id
+               JOIN policies p ON cpa.policy_id = p.id
+               WHERE p.client_id = ? AND LOWER(TRIM(COALESCE(p.project_name,''))) = LOWER(TRIM(?))
+                 AND co2.name IS NOT NULL AND TRIM(co2.name) != '' AND p.archived = 0
+             UNION
+             SELECT co3.id, co3.name FROM contact_client_assignments cca
+               JOIN contacts co3 ON cca.contact_id = co3.id
+               WHERE cca.client_id = ? AND co3.name IS NOT NULL AND TRIM(co3.name) != ''
+           ) co ORDER BY co.name""",
+        (client_id, project, client_id),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
 @router.get("/{client_id}/project/log-form", response_class=HTMLResponse)
 def project_log_form(request: Request, client_id: int, project: str, conn=Depends(get_db)):
     """HTMX partial: inline activity log form for all policies in a project."""
     ctx = _project_note_ctx(conn, client_id, project)
     ctx["activity_types"] = cfg.get("activity_types")
-    # Get contacts for datalist
-    contacts = conn.execute(
-        """SELECT DISTINCT co.name FROM contact_policy_assignments cpa
-           JOIN contacts co ON cpa.contact_id = co.id
-           JOIN policies p ON cpa.policy_id = p.id
-           WHERE p.client_id = ? AND LOWER(TRIM(COALESCE(p.project_name,''))) = LOWER(TRIM(?))
-             AND co.name IS NOT NULL AND TRIM(co.name) != '' AND p.archived = 0
-           ORDER BY co.name""",
-        (client_id, project),
-    ).fetchall()
-    ctx["contacts"] = [dict(r) for r in contacts]
+    ctx["contacts"] = _project_contacts(conn, client_id, project)
     return templates.TemplateResponse("clients/_project_log_form.html", {"request": request, **ctx})
 
 
@@ -3163,6 +3186,7 @@ def project_log_save(
     subject: str = Form(...),
     details: str = Form(""),
     follow_up_date: str = Form(""),
+    follow_up_scope: str = Form("all"),
     duration_hours: str = Form(""),
     conn=Depends(get_db),
 ):
@@ -3171,7 +3195,8 @@ def project_log_save(
     policies = conn.execute(
         """SELECT id FROM policies
            WHERE client_id = ? AND LOWER(TRIM(COALESCE(project_name,''))) = LOWER(TRIM(?))
-             AND archived = 0""",
+             AND archived = 0
+           ORDER BY id""",
         (client_id, project_name),
     ).fetchall()
     account_exec = cfg.get("default_account_exec", "")
@@ -3182,35 +3207,44 @@ def project_log_save(
         except ValueError:
             dur = None
     today = date.today().isoformat()
+
+    # Resolve contact_person → contact_id
+    _contact_id = None
+    if contact_person and contact_person.strip():
+        _row = conn.execute(
+            "SELECT id FROM contacts WHERE LOWER(TRIM(name))=LOWER(TRIM(?))",
+            (contact_person.strip(),),
+        ).fetchone()
+        if _row:
+            _contact_id = _row["id"]
+
+    # follow_up_scope: "all" = set follow-up on every policy, "lead" = only the first
+    _fu_date_for = follow_up_date if follow_up_date else None
     count = 0
-    for p in policies:
+    for i, p in enumerate(policies):
+        # Only set follow-up on first policy if scope is "lead"
+        row_fu = _fu_date_for if (follow_up_scope == "all" or i == 0) else None
         conn.execute(
             """INSERT INTO activity_log
                (activity_date, client_id, policy_id, activity_type, contact_person,
-                subject, details, follow_up_date, duration_hours, account_exec)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                contact_id, subject, details, follow_up_date, duration_hours, account_exec)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (today, client_id, p["id"], activity_type, contact_person or None,
-             subject, details or None, follow_up_date or None, dur, account_exec),
+             _contact_id, subject, details or None, row_fu, dur, account_exec),
         )
-        if follow_up_date:
+        if row_fu:
             from policydb.queries import supersede_followups
-            supersede_followups(conn, p["id"], follow_up_date)
+            supersede_followups(conn, p["id"], row_fu)
         count += 1
     conn.commit()
-    # Return the log form again with a success banner so user can continue editing
+    # Return the log form again with a success banner
     ctx = _project_note_ctx(conn, client_id, project_name)
     ctx["activity_types"] = cfg.get("activity_types")
-    contacts = conn.execute(
-        """SELECT DISTINCT co.name FROM contact_policy_assignments cpa
-           JOIN contacts co ON cpa.contact_id = co.id
-           JOIN policies p ON cpa.policy_id = p.id
-           WHERE p.client_id = ? AND LOWER(TRIM(COALESCE(p.project_name,''))) = LOWER(TRIM(?))
-             AND co.name IS NOT NULL AND TRIM(co.name) != '' AND p.archived = 0
-           ORDER BY co.name""",
-        (client_id, project_name),
-    ).fetchall()
-    ctx["contacts"] = [dict(r) for r in contacts]
-    ctx["log_success"] = f'Logged to {count} polic{"y" if count == 1 else "ies"} in {project_name}'
+    ctx["contacts"] = _project_contacts(conn, client_id, project_name)
+    fu_note = ""
+    if _fu_date_for and follow_up_scope == "lead":
+        fu_note = " (follow-up on lead policy only)"
+    ctx["log_success"] = f'Logged to {count} polic{"y" if count == 1 else "ies"} in {project_name}{fu_note}'
     return templates.TemplateResponse("clients/_project_log_form.html", {"request": request, **ctx})
 
 

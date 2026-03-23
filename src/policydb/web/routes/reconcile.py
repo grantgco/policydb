@@ -65,6 +65,19 @@ def _cache_cleanup():
             del _PARSED_CACHE[k]
 
 
+def _get_program_summary(token: str) -> dict:
+    """Reconstruct program_summary from cached board state."""
+    cache = _BOARD_CACHE.get(token)
+    if not cache:
+        return {}
+    results, extras, db_rows, ts = cache
+    carrier_map = {}
+    for r in db_rows:
+        if r.get("is_program") and r.get("_program_carrier_rows"):
+            carrier_map[r["id"]] = r["_program_carrier_rows"]
+    return program_reconcile_summary(results + extras, carrier_map=carrier_map)
+
+
 def _render_counters(summary: dict) -> str:
     """Build OOB counter HTML matching the board-counters div in _pairing_board.html."""
     return (
@@ -879,6 +892,33 @@ def reconcile_confirm_all(request: Request, token: str = Form("")):
         "today": date.today().isoformat(),
         "field_display": _FIELD_DISPLAY,
         "policy_types": cfg.get("policy_types", []),
+        "program_summary": _get_program_summary(token),
+    })
+
+
+@router.post("/confirm-all-programs", response_class=HTMLResponse)
+def reconcile_confirm_all_programs(request: Request, token: str = Form("")):
+    """Confirm all program-matched paired rows regardless of score. Re-renders entire board."""
+    cache = _BOARD_CACHE.get(token)
+    if not cache:
+        return HTMLResponse('<div class="text-xs text-red-500 p-2">Session expired. Please re-run reconciliation.</div>')
+    results, extras, db_rows, ts = cache
+    confirmed_count = 0
+    for row in results:
+        if row.status == "PAIRED" and not row.confirmed and row.is_program_match:
+            row.confirmed = True
+            confirmed_count += 1
+    summary = summarize(results + extras)
+    return templates.TemplateResponse("reconcile/_pairing_board.html", {
+        "request": request,
+        "results": results,
+        "extras": extras,
+        "token": token,
+        "summary": summary,
+        "today": date.today().isoformat(),
+        "field_display": _FIELD_DISPLAY,
+        "policy_types": cfg.get("policy_types", []),
+        "program_summary": _get_program_summary(token),
     })
 
 
@@ -1628,6 +1668,7 @@ def reconcile_all(request: Request, token: str = Form(""), conn=Depends(get_db))
         "today": date.today().isoformat(),
         "field_display": _FIELD_DISPLAY,
         "policy_types": cfg.get("policy_types", []),
+        "program_summary": _get_program_summary(token),
     }).body.decode()
 
     return HTMLResponse(learn_banner + board_html)
