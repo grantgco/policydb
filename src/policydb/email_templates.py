@@ -48,6 +48,16 @@ def _fmt_currency(v) -> str:
         return ""
 
 
+def _fmt_date(d: str | None) -> str:
+    """Format ISO date string as MM/DD/YYYY for email readability."""
+    if not d:
+        return ""
+    try:
+        return date.fromisoformat(d).strftime("%m/%d/%Y")
+    except (ValueError, TypeError):
+        return d
+
+
 def _linked_account_names(conn: sqlite3.Connection, client_id: int) -> str:
     """Return comma-separated names of other clients in this client's linked group."""
     try:
@@ -67,6 +77,110 @@ def _linked_account_names(conn: sqlite3.Connection, client_id: int) -> str:
         return ", ".join(r["name"] for r in names) if names else ""
     except Exception:
         return ""
+
+
+def _build_policy_list_tokens(conn: sqlite3.Connection, client_id: int, project_name: str | None = None) -> dict:
+    """Build formatted policy list and coverage summary tokens.
+
+    If *project_name* is given the results are scoped to that location,
+    otherwise all active policies for the client are included.
+    """
+    from collections import defaultdict
+
+    params: list = [client_id]
+    location_filter = ""
+    if project_name is not None:
+        location_filter = "AND LOWER(TRIM(COALESCE(p.project_name, ''))) = LOWER(TRIM(?))"
+        params.append(project_name)
+
+    policies = conn.execute(
+        f"""SELECT p.policy_uid, p.policy_type, p.carrier, p.premium,
+                   p.effective_date, p.expiration_date
+            FROM policies p
+            WHERE p.client_id = ? AND p.archived = 0
+              AND (p.is_opportunity = 0 OR p.is_opportunity IS NULL)
+              {location_filter}
+            ORDER BY p.policy_type, p.policy_uid""",
+        params,
+    ).fetchall()
+
+    # -- policy_list: one bullet per policy --
+    lines: list[str] = []
+    for r in policies:
+        parts = [r["policy_type"] or "Unknown"]
+        if r["policy_uid"]:
+            parts[0] += f" ({r['policy_uid']})"
+        if r["carrier"]:
+            parts.append(r["carrier"])
+        prem = _fmt_currency(r["premium"])
+        if prem:
+            parts.append(prem)
+        eff = _fmt_date(r["effective_date"])
+        exp = _fmt_date(r["expiration_date"])
+        if eff and exp:
+            parts.append(f"{eff} to {exp}")
+        elif eff:
+            parts.append(f"Eff: {eff}")
+        elif exp:
+            parts.append(f"Exp: {exp}")
+        lines.append("  - " + " \u2014 ".join(parts))
+
+    # -- coverage_summary: grouped by policy_type --
+    by_type: dict[str, dict] = defaultdict(lambda: {"count": 0, "premium": 0.0, "carriers": set()})
+    for r in policies:
+        t = r["policy_type"] or "Other"
+        by_type[t]["count"] += 1
+        by_type[t]["premium"] += float(r["premium"] or 0)
+        if r["carrier"]:
+            by_type[t]["carriers"].add(r["carrier"])
+    summary_lines: list[str] = []
+    for ptype in sorted(by_type):
+        info = by_type[ptype]
+        word = "policy" if info["count"] == 1 else "policies"
+        summary_lines.append(f"{ptype} \u2014 {info['count']} {word} \u2014 {_fmt_currency(info['premium'])}")
+        if info["carriers"]:
+            summary_lines.append(f"  Carriers: {', '.join(sorted(info['carriers']))}")
+
+    total = sum(float(r["premium"] or 0) for r in policies)
+
+    return {
+        "policy_list": "\n".join(lines),
+        "coverage_summary": "\n".join(summary_lines),
+        "client_total_premium": _fmt_currency(total),
+        "client_policy_count": str(len(policies)),
+    }
+
+
+def _build_rfi_tokens(conn: sqlite3.Connection, client_id: int) -> dict:
+    """Build RFI due-date list token for non-complete bundles."""
+    try:
+        bundles = conn.execute(
+            """SELECT b.rfi_uid, b.title, b.send_by_date, b.status,
+                      (SELECT COUNT(*) FROM client_request_items WHERE bundle_id = b.id) AS total_items,
+                      (SELECT COUNT(*) FROM client_request_items WHERE bundle_id = b.id AND received = 0) AS outstanding
+               FROM client_request_bundles b
+               WHERE b.client_id = ? AND b.status != 'complete'
+               ORDER BY b.send_by_date, b.rfi_uid""",
+            (client_id,),
+        ).fetchall()
+    except Exception:
+        return {"rfi_due_dates": "", "rfi_outstanding_count": "0"}
+
+    lines: list[str] = []
+    for b in bundles:
+        parts = [b["rfi_uid"] or "RFI"]
+        if b["title"]:
+            parts[0] += f" {b['title']}"
+        due = _fmt_date(b["send_by_date"])
+        if due:
+            parts.append(f"Due: {due}")
+        parts.append(f"{b['outstanding']} of {b['total_items']} items outstanding")
+        lines.append("  - " + " \u2014 ".join(parts))
+
+    return {
+        "rfi_due_dates": "\n".join(lines),
+        "rfi_outstanding_count": str(len(bundles)),
+    }
 
 
 def _client_tokens(conn: sqlite3.Connection, client_id: int, row) -> dict:
@@ -237,6 +351,8 @@ def client_context(conn: sqlite3.Connection, client_id: int) -> dict:
             client_id=row["id"],
         ),
     })
+    ctx.update(_build_policy_list_tokens(conn, row["id"]))
+    ctx.update(_build_rfi_tokens(conn, row["id"]))
     return ctx
 
 
@@ -319,6 +435,7 @@ def location_context(conn: sqlite3.Connection, client_id: int, project_name: str
             project_id=location_project_id,
         ),
     })
+    ctx.update(_build_policy_list_tokens(conn, client_id, project_name))
     return ctx
 
 
@@ -563,6 +680,8 @@ CONTEXT_TOKEN_GROUPS: dict[str, list[tuple[str, list[tuple[str, str]]]]] = {
             ("team_emails", "Team Emails (list)"),
             ("placement_colleagues", "Placement Colleagues (list)"),
             ("placement_emails", "Placement Emails (list)"),
+            ("policy_list", "Policy List (location)"),
+            ("coverage_summary", "Coverage Summary (location)"),
         ]),
         ("COPE", [
             ("construction_type", "Construction Type"),
@@ -595,6 +714,14 @@ CONTEXT_TOKEN_GROUPS: dict[str, list[tuple[str, list[tuple[str, str]]]]] = {
     "client": [
         ("Client", _CLIENT_GROUP),
         ("Contact", _CLIENT_CONTACT_GROUP),
+        ("Book of Business", [
+            ("policy_list", "Policy List"),
+            ("coverage_summary", "Coverage Summary"),
+            ("client_total_premium", "Total Premium"),
+            ("client_policy_count", "Policy Count"),
+            ("rfi_due_dates", "RFI Due Dates"),
+            ("rfi_outstanding_count", "Outstanding RFIs"),
+        ]),
         ("Meeting", [
             ("meeting_title", "Meeting Title"),
             ("meeting_date", "Meeting Date"),
