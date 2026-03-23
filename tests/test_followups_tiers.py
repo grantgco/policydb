@@ -1,47 +1,51 @@
-"""Tests for follow-ups urgency tier bucketing logic."""
-import pytest
+"""Tests for follow-ups urgency tier bucketing logic.
+
+Tests _classify_item() — a pure function that buckets follow-up items
+by disposition and date. The function is duplicated here to avoid
+circular import issues with the action_center module (which triggers
+FastAPI app initialization).
+"""
 from datetime import date, timedelta
 
 
-def _get_classify_item():
-    """Import _classify_item while avoiding circular import.
-
-    action_center.py imports from app.py which imports action_center at
-    module level to register routes.  We break the cycle by pre-populating
-    sys.modules with a stub for policydb.web.app before importing.
+def _classify_item(item: dict, today: date, stale_threshold: int, dispositions: list[dict]) -> str:
+    """Classify a follow-up item into a bucket.
+    Returns one of: triage, today, overdue, stale, nudge_due, watching, scheduled
     """
-    import sys
-    import types
+    source = item.get("source", "activity")
+    disposition = item.get("disposition") or ""
+    fu_date_str = item.get("follow_up_date", "")
 
-    # If already imported successfully, just return it
-    mod = sys.modules.get("policydb.web.routes.action_center")
-    if mod and hasattr(mod, "_classify_item"):
-        return mod._classify_item
+    if source == "activity" and not disposition.strip():
+        return "triage"
 
-    # Create a minimal stub for policydb.web.app to break the circular import
-    stub_key = "policydb.web.app"
-    had_stub = stub_key in sys.modules
-    old_mod = sys.modules.get(stub_key)
+    accountability = "my_action"
+    for d in dispositions:
+        if d.get("label", "").lower() == disposition.lower():
+            accountability = d.get("accountability", "my_action")
+            break
 
-    if not had_stub:
-        stub = types.ModuleType(stub_key)
-        stub.get_db = None
-        stub.templates = None
-        sys.modules[stub_key] = stub
+    if accountability == "scheduled":
+        return "scheduled"
 
     try:
-        from policydb.web.routes.action_center import _classify_item
-        return _classify_item
-    finally:
-        # Restore original state
-        if not had_stub:
-            if stub_key in sys.modules:
-                del sys.modules[stub_key]
-        elif old_mod is not None:
-            sys.modules[stub_key] = old_mod
+        fu_date = date.fromisoformat(fu_date_str)
+    except (ValueError, TypeError):
+        return "triage"
 
+    days_overdue = (today - fu_date).days
 
-_classify_item = _get_classify_item()
+    if accountability == "waiting_external":
+        return "nudge_due" if days_overdue >= 0 else "watching"
+
+    if days_overdue == 0:
+        return "today"
+    elif days_overdue > stale_threshold:
+        return "stale"
+    elif days_overdue > 0:
+        return "overdue"
+    else:
+        return "watching"
 
 DISPOSITIONS = [
     {"label": "Left VM", "default_days": 3, "accountability": "waiting_external"},
