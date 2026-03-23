@@ -564,13 +564,8 @@
     {% block content %}{% endblock %}
   </main>
 
-  <!-- Compose Slideover -->
-  <div id="compose-slideover-overlay" class="fixed inset-0 bg-black/30 z-40 hidden" onclick="closeComposeSlideover()"></div>
-  <div id="compose-slideover" class="fixed top-0 right-0 h-full w-96 max-w-full bg-white shadow-2xl z-50 transform translate-x-full transition-transform duration-200 ease-in-out overflow-y-auto">
-    <div id="compose-slideover-body" class="p-4">
-      <!-- Loaded via HTMX -->
-    </div>
-  </div>
+  <!-- Compose Slideover (content loaded via HTMX, template provides its own positioning) -->
+  <div id="compose-slideover-body"></div>
 </div>
 
 <style>
@@ -653,24 +648,20 @@ function openComposeSlideover(params) {
     target: '#compose-slideover-body',
     swap: 'innerHTML'
   }).then(function() {
-    document.getElementById('compose-slideover').classList.remove('translate-x-full');
-    document.getElementById('compose-slideover-overlay').classList.remove('hidden');
     document.body.style.overflow = 'hidden';
   });
 }
 
 function closeComposeSlideover() {
-  if (typeof composeEdited !== 'undefined' && composeEdited) {
-    if (!confirm('You have unsaved changes. Close anyway?')) return;
-  }
-  document.getElementById('compose-slideover').classList.add('translate-x-full');
-  document.getElementById('compose-slideover-overlay').classList.add('hidden');
+  var backdrop = document.getElementById('compose-backdrop');
+  var panel = document.getElementById('compose-panel');
+  if (backdrop) backdrop.remove();
+  if (panel) panel.remove();
   document.body.style.overflow = '';
-  composeEdited = false;
 }
 
 document.addEventListener('keydown', function(e) {
-  if (e.key === 'Escape' && !document.getElementById('compose-slideover').classList.contains('translate-x-full')) {
+  if (e.key === 'Escape' && document.getElementById('compose-panel')) {
     closeComposeSlideover();
   }
 });
