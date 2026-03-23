@@ -231,12 +231,28 @@ function submitAiImport() {
     var parseUrl = JSON.parse(panel.dataset.parseUrl);
     var importTarget = JSON.parse(panel.dataset.importTarget);
 
-    htmx.ajax('POST', parseUrl, {
-        values: { json_text: raw },
-        target: importTarget,
-        swap: 'innerHTML'
-    }).then(function() {
-        closeAiImport();
+    /* Use fetch so we can inspect the status code */
+    fetch(parseUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'json_text=' + encodeURIComponent(raw)
+    }).then(function(resp) {
+        return resp.text().then(function(html) {
+            if (!resp.ok) {
+                /* 422 or other error — show inline */
+                errorDiv.innerHTML = html;
+                errorDiv.style.display = '';
+            } else {
+                /* Success — swap into target and close panel */
+                var target = document.querySelector(importTarget);
+                if (target) target.innerHTML = html;
+                htmx.process(target);
+                closeAiImport();
+            }
+        });
+    }).catch(function(err) {
+        errorDiv.textContent = 'Network error: ' + err.message;
+        errorDiv.style.display = '';
     });
 }
 
