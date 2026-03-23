@@ -189,9 +189,12 @@ def _inbox_ctx(conn, show_processed: bool = False) -> dict:
     processed = []
     if show_processed:
         processed = [dict(r) for r in conn.execute("""
-            SELECT i.*, c.name AS client_name, a.subject AS activity_subject
+            SELECT i.*, c.name AS client_name, c.cn_number,
+                   a.subject AS activity_subject, a.policy_uid AS activity_policy_uid,
+                   p.project_id AS activity_project_id
             FROM inbox i LEFT JOIN clients c ON i.client_id = c.id
             LEFT JOIN activity_log a ON i.activity_id = a.id
+            LEFT JOIN policies p ON a.policy_uid = p.policy_uid
             WHERE i.status = 'processed'
             ORDER BY i.processed_at DESC LIMIT 50
         """).fetchall()]

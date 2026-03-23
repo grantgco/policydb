@@ -239,10 +239,14 @@
   <div class="space-y-1">
     {% for item in processed %}
     <div class="bg-gray-50 border border-gray-100 rounded px-4 py-2 flex items-center gap-3 opacity-60">
-      <span class="bg-gray-100 text-gray-500 text-[10px] font-semibold px-1.5 py-0.5 rounded">INB-{{ item.id }}</span>
+      <span class="bg-gray-100 text-gray-500 text-[10px] font-semibold px-1.5 py-0.5 rounded cursor-pointer"
+        onclick="copyRefTag(this, 'INB-{{ item.id }}')"
+        title="Click to copy [PDB:INB-{{ item.id }}]">INB-{{ item.id }}</span>
       <span class="text-xs text-gray-500 flex-1 truncate">{{ item.content }}</span>
       {% if item.activity_subject %}
       <span class="text-xs text-green-600 flex-shrink-0">&#8594; {{ item.activity_subject }}</span>
+      {% set _proc_ref = build_ref_tag(cn_number=item.cn_number|default(''), client_id=item.client_id|default(0), policy_uid=item.activity_policy_uid|default(''), project_id=item.activity_project_id|default(0)) %}
+      {% with ref_tag=_proc_ref %}{% include "_ref_tag_pill.html" %}{% endwith %}
       {% else %}
       <span class="text-xs text-gray-400 flex-shrink-0">Dismissed</span>
       {% endif %}
