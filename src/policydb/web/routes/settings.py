@@ -113,6 +113,7 @@ SEARCH_INDEX = [
     {"label": "Milestone Profiles", "tab": "workflow", "anchor": "section-milestone-profiles"},
     {"label": "Timeline Engine", "tab": "workflow", "anchor": "section-timeline-engine"},
     {"label": "Follow-Up Dispositions", "tab": "workflow", "anchor": "section-dispositions"},
+    {"label": "Follow-Up Urgency Tiers", "tab": "workflow", "anchor": "section-stale-threshold"},
     {"label": "Alert & Readiness Thresholds", "tab": "readiness", "anchor": "section-thresholds"},
     {"label": "Readiness Score Weights", "tab": "readiness", "anchor": "section-readiness-weights"},
     {"label": "Carrier Aliases", "tab": "carriers", "anchor": "section-carrier-aliases"},
@@ -145,6 +146,7 @@ def _build_tab_context(tab: str, conn) -> dict:
         ctx["client_facing_milestones"] = cfg.get("client_facing_milestones", [])
         ctx["renewal_statuses"] = cfg.get("renewal_statuses", [])
         ctx["renewal_milestones"] = cfg.get("renewal_milestones", [])
+        ctx["stale_threshold_days"] = cfg.get("stale_threshold_days", 14)
         # activity_types needed by mandated activities editor
         if "lists" not in ctx:
             ctx["lists"] = {}
@@ -477,6 +479,15 @@ def save_thresholds(
     return HTMLResponse(
         '<span id="thresh-status" class="text-xs text-green-600 font-medium">Saved</span>'
     )
+
+
+@router.post("/config/stale-threshold")
+def update_stale_threshold(request: Request, value: int = Form(...)):
+    full = dict(cfg.load_config())
+    full["stale_threshold_days"] = max(1, min(value, 90))
+    cfg.save_config(full)
+    cfg.reload_config()
+    return RedirectResponse("/settings", status_code=303)
 
 
 @router.post("/readiness-weights", response_class=HTMLResponse)
