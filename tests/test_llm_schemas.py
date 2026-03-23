@@ -40,9 +40,19 @@ def test_policy_schema_has_required_metadata():
     assert POLICY_EXTRACTION_SCHEMA["name"] == "policy_extraction"
     assert POLICY_EXTRACTION_SCHEMA["version"] == 1
     assert "description" in POLICY_EXTRACTION_SCHEMA
-    assert "context_fields" in POLICY_EXTRACTION_SCHEMA
+    assert POLICY_EXTRACTION_SCHEMA["context_fields"] == ["client_name", "industry"]
     assert "fields" in POLICY_EXTRACTION_SCHEMA
     assert isinstance(POLICY_EXTRACTION_SCHEMA["fields"], list)
+    assert len(POLICY_EXTRACTION_SCHEMA["fields"]) == 28
+
+
+def test_policy_schema_date_fields_have_no_normalizer():
+    from policydb.llm_schemas import POLICY_EXTRACTION_SCHEMA
+
+    fields = {f["key"]: f for f in POLICY_EXTRACTION_SCHEMA["fields"]}
+    for key in ["effective_date", "expiration_date"]:
+        assert fields[key]["type"] == "date"
+        assert "normalizer" not in fields[key], f"{key} should not have a normalizer"
 
 
 def test_policy_schema_required_fields():
