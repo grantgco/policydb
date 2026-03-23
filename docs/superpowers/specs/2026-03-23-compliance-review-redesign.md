@@ -135,10 +135,15 @@ Use `fpdf2` for server-side PDF generation — consistent with existing codebase
 
 ### Logo Support
 
-- **Path:** `~/.policydb/logo.png` (or `.jpg`)
-- **NOTE FOR USER:** Place your company logo at `~/.policydb/logo.png` — it will appear in the top-left of PDF reports. The logo auto-resizes to fit the header placeholder (max height ~50px, width scales proportionally).
-- **Fallback:** If no logo file exists, the header renders client name as styled text only.
+- **Storage path:** `~/.policydb/logo.png` (saved by the upload handler, any format converted to PNG)
+- **Upload UI:** New section in `/settings` page — "Report Logo" card with:
+  - Current logo preview (thumbnail) if one exists
+  - File upload input (`<input type="file" accept="image/*">`) with "Upload Logo" button
+  - "Remove Logo" button if one exists
+  - Route: `POST /settings/logo` (multipart form, saves to `~/.policydb/logo.png`), `DELETE /settings/logo` (removes the file)
+- **Fallback:** If no logo file exists, PDF header renders client name as styled text only.
 - **Config key:** `report_logo_path` in config.yaml (defaults to `~/.policydb/logo.png`). Must be added to `_DEFAULTS` in `config.py`.
+- **Resize:** On upload, the image is resized to max 300px wide / 80px tall (preserving aspect ratio) using `Pillow`. If `Pillow` is not available, the raw file is saved as-is and `fpdf2` handles scaling at render time.
 
 ### XLSX Workbook Structure
 
@@ -229,6 +234,8 @@ Use `fpdf2` for server-side PDF generation — consistent with existing codebase
 | `src/policydb/exporter.py` | Modify | Add `export_compliance_xlsx()` and `export_compliance_pdf()` |
 | `src/policydb/compliance.py` | Modify | Add helper for export data aggregation (COPE JOIN with projects for address) |
 | `src/policydb/config.py` | Modify | Add `report_logo_path` to `_DEFAULTS` |
+| `src/policydb/web/routes/settings.py` | Modify | Add `POST /settings/logo` upload + `DELETE /settings/logo` remove routes |
+| `src/policydb/web/templates/settings.html` | Modify | Add "Report Logo" upload card section |
 
 ---
 
@@ -237,4 +244,4 @@ Use `fpdf2` for server-side PDF generation — consistent with existing codebase
 - Requirement-level field accept/reject during import (future enhancement)
 - Bulk status changes across locations
 - Requirement template builder UI redesign
-- Server-side logo upload UI (user places file manually at `~/.policydb/logo.png`)
+- Logo cropping/editing UI (upload only — cropping done externally before upload)
