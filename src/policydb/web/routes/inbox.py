@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+logger = logging.getLogger("policydb.web.routes.inbox")
+
 from datetime import date
 
 from fastapi import APIRouter, Depends, Form, Request
@@ -36,6 +39,7 @@ def inbox_capture(content: str = Form(...), client_id: int = Form(0), contact_id
     uid = f"INB-{row_id}"
     conn.execute("UPDATE inbox SET inbox_uid = ? WHERE id = ?", (uid, row_id))
     conn.commit()
+    logger.info("Inbox item created: %s", uid)
     return HTMLResponse("", headers={
         "HX-Trigger": '{"activityLogged": "Captured ' + uid + ' - copied to clipboard"}'
     })
@@ -212,6 +216,7 @@ def inbox_process(
         (activity_id, inbox_id),
     )
     conn.commit()
+    logger.info("Inbox item %d processed -> activity", inbox_id)
     uid = conn.execute("SELECT inbox_uid FROM inbox WHERE id=?", (inbox_id,)).fetchone()
     return HTMLResponse("", headers={
         "HX-Trigger": '{"activityLogged": "' + (uid["inbox_uid"] if uid else '') + ' processed - activity created"}'
