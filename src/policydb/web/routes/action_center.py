@@ -20,6 +20,56 @@ from policydb.queries import (
 router = APIRouter()
 
 
+# ── Classification ───────────────────────────────────────────────────────────
+
+
+def _classify_item(item: dict, today: date, stale_threshold: int, dispositions: list[dict]) -> str:
+    """Classify a follow-up item into a bucket.
+
+    Returns one of: triage, today, overdue, stale, nudge_due, watching, scheduled
+    """
+    source = item.get("source", "activity")
+    disposition = item.get("disposition") or ""
+    fu_date_str = item.get("follow_up_date", "")
+
+    # Step 1: Triage — activity items with no disposition
+    if source == "activity" and not disposition.strip():
+        return "triage"
+
+    # Step 2: Map disposition → accountability
+    accountability = "my_action"  # default
+    for d in dispositions:
+        if d.get("label", "").lower() == disposition.lower():
+            accountability = d.get("accountability", "my_action")
+            break
+
+    # Step 3: Scheduled
+    if accountability == "scheduled":
+        return "scheduled"
+
+    # Parse date
+    try:
+        fu_date = date.fromisoformat(fu_date_str)
+    except (ValueError, TypeError):
+        return "triage"  # bad date → triage
+
+    days_overdue = (today - fu_date).days
+
+    # Step 4: waiting_external
+    if accountability == "waiting_external":
+        return "nudge_due" if days_overdue >= 0 else "watching"
+
+    # Step 5: my_action date tiers
+    if days_overdue == 0:
+        return "today"
+    elif days_overdue > stale_threshold:
+        return "stale"
+    elif days_overdue > 0:
+        return "overdue"
+    else:
+        return "watching"  # future my_action → watching with "my turn" badge
+
+
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 
@@ -52,12 +102,15 @@ def _followups_ctx(conn, window: int, activity_type: str, q: str,
                    client_id: int = 0) -> dict:
     """Build follow-ups tab context — reuses logic from activities.py.
 
-    Produces 5 accountability buckets alongside the existing overdue/upcoming
-    breakdown for backward compatibility:
-      act_now       – my_action items due today or overdue
+    Produces 8 urgency/accountability buckets alongside the existing
+    overdue/upcoming breakdown for backward compatibility:
+      triage        – activity items with no disposition (need initial triage)
+      today_bucket  – my_action items due today
+      overdue_bucket– my_action items overdue (1..stale_threshold days)
+      stale         – my_action items overdue beyond stale_threshold
       nudge_due     – waiting_external items with follow_up_date <= today
       prep_coming   – timeline milestones whose prep_alert_date has arrived
-      watching      – waiting_external items with follow_up_date > today
+      watching      – future items (both my_action and waiting_external)
       scheduled     – items with 'scheduled' accountability
     """
     from policydb.web.routes.activities import _add_mailto_subjects
@@ -86,28 +139,39 @@ def _followups_ctx(conn, window: int, activity_type: str, q: str,
     tomorrow_items = [r for r in upcoming if r.get("follow_up_date") == tomorrow_str]
     later_items = [r for r in upcoming if r.get("follow_up_date", "") > tomorrow_str]
 
-    # ── 5 accountability buckets ──────────────────────────────────────
+    # ── 7 accountability/urgency buckets ──────────────────────────────
     all_items = overdue + upcoming
-    act_now: list[dict] = []
-    nudge_due: list[dict] = []
-    watching: list[dict] = []
-    scheduled: list[dict] = []
+    stale_threshold = cfg.get("stale_threshold_days", 14)
+    dispositions = cfg.get("follow_up_dispositions", [])
+    today = date.today()
+
+    buckets: dict[str, list[dict]] = {
+        "triage": [], "today": [], "overdue": [], "stale": [],
+        "nudge_due": [], "watching": [], "scheduled": [],
+    }
 
     for item in all_items:
-        acc = item.get("accountability", "my_action")
-        fu_date = item.get("follow_up_date") or ""
-        if acc == "scheduled":
-            scheduled.append(item)
-        elif acc == "waiting_external":
-            if fu_date <= today_str:
-                nudge_due.append(item)
-            else:
-                watching.append(item)
-        else:  # my_action or unknown
-            act_now.append(item)
+        bucket = _classify_item(item, today, stale_threshold, dispositions)
+        # Ensure days_overdue is computed
+        fu_date_val = item.get("follow_up_date", "")
+        try:
+            d = date.fromisoformat(fu_date_val)
+            item["days_overdue"] = (today - d).days
+        except (ValueError, TypeError):
+            item["days_overdue"] = 0
+        # Mark future my_action items in watching with "my turn" badge
+        if bucket == "watching":
+            disp = (item.get("disposition") or "").lower()
+            acct = "my_action"
+            for dd in dispositions:
+                if dd.get("label", "").lower() == disp:
+                    acct = dd.get("accountability", "my_action")
+                    break
+            item["is_my_turn"] = (acct == "my_action")
+        buckets[bucket].append(item)
 
     # Compute nudge escalation tiers for nudge_due items
-    for item in nudge_due:
+    for item in buckets["nudge_due"]:
         thread_id = item.get("thread_id")
         if thread_id:
             count = conn.execute(
@@ -158,12 +222,18 @@ def _followups_ctx(conn, window: int, activity_type: str, q: str,
         "tomorrow_items": tomorrow_items,
         "later_items": later_items,
         "suggested": suggested,
-        # New accountability buckets
-        "act_now": act_now,
-        "nudge_due": nudge_due,
+        # Urgency-tier buckets (replaces act_now)
+        "triage": buckets["triage"],
+        "today_bucket": buckets["today"],
+        "overdue_bucket": buckets["overdue"],
+        "stale": buckets["stale"],
+        # Backward compat — union of triage+today+overdue+stale for old template
+        "act_now": buckets["triage"] + buckets["today"] + buckets["overdue"] + buckets["stale"],
+        # Accountability buckets
+        "nudge_due": buckets["nudge_due"],
         "prep_coming": prep_coming,
-        "watching": watching,
-        "scheduled": scheduled,
+        "watching": buckets["watching"],
+        "scheduled": buckets["scheduled"],
         # Filter state
         "window": window,
         "activity_type": activity_type,
@@ -377,7 +447,12 @@ def action_center_page(request: Request, tab: str = "", conn=Depends(get_db)):
     health_ctx = _portfolio_health_ctx(conn)
     risk_ctx = _risk_alerts_ctx(conn)
     # Accountability counts for sidebar badges
-    act_now_count = len(tab_ctx.get("act_now", []))
+    act_now_count = (
+        len(tab_ctx.get("triage", []))
+        + len(tab_ctx.get("today_bucket", []))
+        + len(tab_ctx.get("overdue_bucket", []))
+        + len(tab_ctx.get("stale", []))
+    )
     nudge_due_count = len(tab_ctx.get("nudge_due", []))
     ctx = {
         "request": request,
