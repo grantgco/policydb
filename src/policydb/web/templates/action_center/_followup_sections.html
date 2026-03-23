@@ -18,6 +18,11 @@
         {% with ref_tag=_fu_ref %}{% include "_ref_tag_pill.html" %}{% endwith %}
         {% if item.escalation_tier is defined and item.escalation_tier == 'urgent' %}
         <span class="text-[10px] text-red-600 font-medium">Consider escalating</span>
+        {% elif item.escalation_tier is defined and item.escalation_tier == 'elevated' %}
+        <span class="text-[10px] text-amber-600 font-medium">2nd nudge</span>
+        {% endif %}
+        {% if item.is_my_turn is defined and item.is_my_turn %}
+        <span class="text-[10px] bg-blue-100 text-blue-700 font-medium px-1.5 py-0.5 rounded">my turn</span>
         {% endif %}
       </div>
       <div class="text-xs text-gray-600 truncate mt-0.5">
@@ -38,8 +43,8 @@
       {% if item.days_overdue is defined and item.days_overdue > 0 %}
       <div class="text-[10px] text-red-400">{{ item.days_overdue }}d overdue</div>
       {% endif %}
-      {% if item.nudge_count is defined %}
-      <div class="text-[10px] text-blue-500">nudge {{ item.nudge_count }}</div>
+      {% if item.nudge_count is defined and item.nudge_count > 1 %}
+      <div class="text-[10px] text-indigo-500">nudge #{{ item.nudge_count }}</div>
       {% endif %}
     </div>
 
@@ -125,118 +130,248 @@
 
 
 {# ══════════════════════════════════════════════════════════════════
-   ACT NOW — my_action items due today or overdue
+   MACRO: Triage row — dashed border, disposition pill inline
    ══════════════════════════════════════════════════════════════════ #}
-<div class="mb-5 fu-section" data-section="act_now">
-  <div class="flex items-center gap-2 mb-2">
-    <span class="w-2 h-2 rounded-full bg-red-500 flex-shrink-0"></span>
-    <span class="text-[10px] font-bold uppercase tracking-widest text-red-600">Act Now</span>
-    <span class="bg-red-100 text-red-700 text-[10px] font-bold px-2 py-0.5 rounded-full">{{ act_now | length }}</span>
-  </div>
-  {% if act_now %}
-  <div class="space-y-1">
-    {% for item in act_now %}
-    {{ fu_row(item, 'bg-red-50', 'border border-red-100 hover:border-red-200', 'bg-red-500', 'text-red-600', 'act_now') }}
-    {% endfor %}
-  </div>
-  {% else %}
-  <p class="text-xs text-gray-400 italic ml-4">Nothing needs your action right now</p>
-  {% endif %}
-</div>
+{% macro triage_row(item) %}
+{% set row_id = "ac-fu-" ~ item.source ~ "-" ~ item.id %}
+<div class="fu-row bg-gray-50 rounded-lg border border-dashed border-gray-300 hover:border-gray-400 transition-colors" data-status="triage" id="{{ row_id }}">
+  <div class="flex items-center gap-3 px-4 py-3">
+    {# Color dot — gray open circle #}
+    <div class="w-2 h-2 rounded-full border-2 border-gray-400 flex-shrink-0"></div>
 
-{# ══════════════════════════════════════════════════════════════════
-   NUDGE DUE — waiting_external with follow_up_date <= today
-   ══════════════════════════════════════════════════════════════════ #}
-<div class="mb-5 fu-section" data-section="nudge_due">
-  <div class="flex items-center gap-2 mb-2">
-    <span class="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0"></span>
-    <span class="text-[10px] font-bold uppercase tracking-widest text-blue-600">Nudge Due</span>
-    <span class="bg-blue-100 text-blue-700 text-[10px] font-bold px-2 py-0.5 rounded-full">{{ nudge_due | length }}</span>
-  </div>
-  {% if nudge_due %}
-  <div class="space-y-1">
-    {% for item in nudge_due %}
-    {% set esc_bg = 'bg-red-50' if item.escalation_tier == 'urgent' else 'bg-amber-50' if item.escalation_tier == 'elevated' else 'bg-blue-50' %}
-    {% set esc_border = 'border border-red-200' if item.escalation_tier == 'urgent' else 'border border-amber-200' if item.escalation_tier == 'elevated' else 'border border-blue-100' %}
-    {{ fu_row(item, esc_bg, esc_border, 'bg-blue-500', 'text-blue-600', 'nudge_due') }}
-    {% endfor %}
-  </div>
-  {% else %}
-  <p class="text-xs text-gray-400 italic ml-4">No nudges due</p>
-  {% endif %}
-</div>
-
-{# ══════════════════════════════════════════════════════════════════
-   PREP COMING UP — timeline milestones with prep_alert_date arrived
-   ══════════════════════════════════════════════════════════════════ #}
-{% if prep_coming %}
-<div class="mb-5 fu-section" data-section="prep_coming">
-  <div class="flex items-center gap-2 mb-2">
-    <span class="w-2 h-2 rounded-full bg-purple-500 flex-shrink-0"></span>
-    <span class="text-[10px] font-bold uppercase tracking-widest text-purple-600">Prep Coming Up</span>
-    <span class="bg-purple-100 text-purple-700 text-[10px] font-bold px-2 py-0.5 rounded-full">{{ prep_coming | length }}</span>
-  </div>
-  <div class="space-y-1">
-    {% for item in prep_coming %}
-    <div class="fu-row bg-purple-50 rounded-lg border border-purple-200 hover:border-purple-300 transition-colors px-4 py-3" data-status="prep_coming">
-      <div class="flex items-center gap-3">
-        <div class="w-2 h-2 rounded-full bg-purple-400 flex-shrink-0"></div>
-        <div class="flex-1 min-w-0">
-          <div class="text-sm font-medium text-gray-800">Prep: {{ item.milestone_name }}</div>
-          <div class="text-xs text-gray-500 mt-0.5">
-            {{ item.client_name }} &middot; {{ item.policy_type }}
-          </div>
-        </div>
-        <div class="text-right flex-shrink-0">
-          <div class="text-xs text-purple-600 font-medium">Target: {{ item.projected_date }}</div>
-          {% if item.health and item.health != 'on_track' %}
-          <span class="text-[10px] {% if item.health == 'critical' %}text-red-600{% elif item.health == 'at_risk' %}text-orange-600{% else %}text-amber-600{% endif %}">
-            {{ item.health | replace('_', ' ') | title }}
-          </span>
-          {% endif %}
-        </div>
-        <div class="flex gap-1.5 flex-shrink-0 no-print">
-          <a href="/policies/{{ item.policy_uid }}"
-             class="text-xs text-gray-500 bg-white border border-gray-200 px-2 py-1.5 rounded hover:border-gray-300 transition-colors">View</a>
-        </div>
+    {# Client + Subject #}
+    <div class="flex-1 min-w-0">
+      <div class="flex items-center gap-2">
+        <a href="/clients/{{ item.client_id }}" class="text-sm font-semibold text-gray-900 hover:text-[#003865] hover:underline truncate">{{ item.client_name }}</a>
+        {% set _fu_ref = build_ref_tag(cn_number=item.cn_number|default(''), client_id=item.client_id|default(0), policy_uid=item.policy_uid|default(''), project_id=item.project_id|default(0)) %}
+        {% with ref_tag=_fu_ref %}{% include "_ref_tag_pill.html" %}{% endwith %}
+      </div>
+      <div class="text-xs text-gray-600 truncate mt-0.5">
+        {% if item.source == 'policy' %}
+          {{ item.policy_type }}{% if item.carrier %} <span class="text-gray-400">&middot; {{ item.carrier }}</span>{% endif %}
+        {% else %}
+          {{ item.subject }}
+        {% endif %}
       </div>
     </div>
-    {% endfor %}
+
+    {# Date #}
+    <div class="text-right flex-shrink-0">
+      <div class="text-xs text-gray-500">{{ item.follow_up_date }}</div>
+      {% if item.days_overdue is defined and item.days_overdue > 0 %}
+      <div class="text-[10px] text-gray-400">{{ item.days_overdue }}d ago</div>
+      {% endif %}
+    </div>
+
+    {# Set disposition button — reveals inline pills #}
+    <div class="flex gap-1.5 flex-shrink-0 no-print">
+      <button type="button" onclick="toggleTriageDisp('{{ row_id }}')"
+        class="text-xs bg-gray-600 text-white px-3 py-1.5 rounded font-medium hover:bg-gray-700 transition-colors">Set disposition &rarr;</button>
+    </div>
+  </div>
+
+  {# ── Inline triage disposition pills (hidden) ── #}
+  <div id="ac-triage-{{ row_id }}" class="hidden">
+    <div class="px-4 pb-3 pt-1">
+      <div class="text-[10px] text-gray-500 mb-1">Pick a disposition to classify this item:</div>
+      <div class="flex flex-wrap gap-1.5">
+        {% for d in dispositions %}
+        <button type="button"
+          hx-post="/action-center/set-disposition/{{ item.id }}"
+          hx-vals='{"disposition": "{{ d.label }}"}'
+          hx-target="#ac-tab-content"
+          hx-swap="innerHTML"
+          class="text-[11px] px-2.5 py-1 rounded border border-gray-200 text-gray-600 hover:border-[#003865] hover:text-[#003865] hover:bg-blue-50 transition-colors cursor-pointer">{{ d.label }}</button>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endmacro %}
+
+
+{# ══════════════════════════════════════════════════════════════════
+   SUMMARY BAR
+   ══════════════════════════════════════════════════════════════════ #}
+<div class="flex gap-4 px-4 py-2 bg-white border-b text-sm text-gray-500 mb-4 rounded-lg" id="fu-summary-bar">
+  {% if triage %}<span><strong class="text-gray-600">{{ triage | length }}</strong> Triage</span>{% endif %}
+  {% if today_bucket %}<span><strong class="text-blue-700">{{ today_bucket | length }}</strong> Today</span>{% endif %}
+  {% if overdue_bucket %}<span><strong class="text-amber-600">{{ overdue_bucket | length }}</strong> Overdue</span>{% endif %}
+  {% if stale %}<span><strong class="text-red-600">{{ stale | length }}</strong> Stale</span>{% endif %}
+  {% if nudge_due %}<span class="ml-auto"><strong class="text-indigo-600">{{ nudge_due | length }}</strong> Nudge</span>{% endif %}
+  {% if prep_coming %}<span><strong class="text-purple-600">{{ prep_coming | length }}</strong> Prep</span>{% endif %}
+  {% if watching %}<span><strong class="text-gray-400">{{ watching | length }}</strong> Watching</span>{% endif %}
+  {% if scheduled %}<span><strong class="text-indigo-400">{{ scheduled | length }}</strong> Scheduled</span>{% endif %}
+</div>
+
+
+{# ══════════════════════════════════════════════════════════════════
+   1. TRIAGE — activity items with no disposition
+   ══════════════════════════════════════════════════════════════════ #}
+{% if triage %}
+<div class="mb-5 fu-section" data-section="triage">
+  <div class="border-l-4 border-gray-300 bg-gray-50 px-4 py-3 rounded-r-lg">
+    <div class="flex items-center gap-2 mb-2">
+      <span class="text-white text-xs font-semibold px-2.5 py-0.5 rounded-full bg-gray-500">Triage</span>
+      <span class="text-gray-400 text-xs">{{ triage | length }} item{{ 's' if triage | length != 1 }} need{{ '' if triage | length != 1 else 's' }} a disposition</span>
+    </div>
+    <div class="space-y-1">
+      {% for item in triage %}
+        {{ triage_row(item) }}
+      {% endfor %}
+    </div>
   </div>
 </div>
 {% endif %}
 
 {# ══════════════════════════════════════════════════════════════════
-   WATCHING — waiting_external, follow_up_date > today (collapsed)
+   2. TODAY — my_action items due today
+   ══════════════════════════════════════════════════════════════════ #}
+{% if today_bucket %}
+<div class="mb-5 fu-section" data-section="today">
+  <div class="border-l-4 border-blue-500 bg-blue-50 px-4 py-3 rounded-r-lg">
+    <div class="flex items-center gap-2 mb-2">
+      <span class="text-white text-xs font-semibold px-2.5 py-0.5 rounded-full bg-blue-800">Today</span>
+      <span class="text-gray-400 text-xs">{{ today_bucket | length }} item{{ 's' if today_bucket | length != 1 }} due today</span>
+    </div>
+    <div class="space-y-1">
+      {% for item in today_bucket %}
+        {{ fu_row(item, 'bg-blue-50', 'border border-blue-100 hover:border-blue-200', 'bg-blue-500', 'text-blue-600', 'today') }}
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{# ══════════════════════════════════════════════════════════════════
+   3. OVERDUE — my_action items 1-14d overdue
+   ══════════════════════════════════════════════════════════════════ #}
+{% if overdue_bucket %}
+<div class="mb-5 fu-section" data-section="overdue">
+  <div class="border-l-4 border-amber-500 bg-amber-50 px-4 py-3 rounded-r-lg">
+    <div class="flex items-center gap-2 mb-2">
+      <span class="text-white text-xs font-semibold px-2.5 py-0.5 rounded-full bg-amber-700">Overdue</span>
+      <span class="text-gray-400 text-xs">{{ overdue_bucket | length }} item{{ 's' if overdue_bucket | length != 1 }} overdue</span>
+    </div>
+    <div class="space-y-1">
+      {% for item in overdue_bucket %}
+        {{ fu_row(item, 'bg-amber-50', 'border border-amber-100 hover:border-amber-200', 'bg-amber-500', 'text-amber-600', 'overdue') }}
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{# ══════════════════════════════════════════════════════════════════
+   4. STALE — my_action items 14+d overdue
+   ══════════════════════════════════════════════════════════════════ #}
+{% if stale %}
+<div class="mb-5 fu-section" data-section="stale">
+  <div class="border-l-4 border-red-500 bg-red-50 px-4 py-3 rounded-r-lg">
+    <div class="flex items-center gap-2 mb-2">
+      <span class="text-white text-xs font-semibold px-2.5 py-0.5 rounded-full bg-red-700">Stale</span>
+      <span class="text-gray-400 text-xs">{{ stale | length }} item{{ 's' if stale | length != 1 }} — {{ cfg.get('stale_threshold_days', 14) if cfg is defined else 14 }}+ days overdue</span>
+    </div>
+    <div class="space-y-1">
+      {% for item in stale %}
+        {{ fu_row(item, 'bg-red-50', 'border border-red-100 hover:border-red-200', 'bg-red-500', 'text-red-600', 'stale') }}
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{# ══════════════════════════════════════════════════════════════════
+   5. NUDGE DUE — waiting_external with follow_up_date <= today
+   ══════════════════════════════════════════════════════════════════ #}
+{% if nudge_due %}
+<div class="mb-5 fu-section" data-section="nudge_due">
+  <div class="border-l-4 border-indigo-500 bg-indigo-50 px-4 py-3 rounded-r-lg">
+    <div class="flex items-center gap-2 mb-2">
+      <span class="text-white text-xs font-semibold px-2.5 py-0.5 rounded-full bg-indigo-700">Nudge Due</span>
+      <span class="text-gray-400 text-xs">{{ nudge_due | length }} item{{ 's' if nudge_due | length != 1 }} waiting on external response</span>
+    </div>
+    <div class="space-y-1">
+      {% for item in nudge_due %}
+      {% set esc_bg = 'bg-red-50' if item.escalation_tier == 'urgent' else 'bg-amber-50' if item.escalation_tier == 'elevated' else 'bg-indigo-50' %}
+      {% set esc_border = 'border border-red-200' if item.escalation_tier == 'urgent' else 'border border-amber-200' if item.escalation_tier == 'elevated' else 'border border-indigo-100' %}
+      {{ fu_row(item, esc_bg, esc_border, 'bg-indigo-500', 'text-indigo-600', 'nudge_due') }}
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{# ══════════════════════════════════════════════════════════════════
+   6. PREP COMING UP — timeline milestones with prep_alert_date arrived
+   ══════════════════════════════════════════════════════════════════ #}
+{% if prep_coming %}
+<div class="mb-5 fu-section" data-section="prep_coming">
+  <div class="border-l-4 border-purple-500 bg-purple-50 px-4 py-3 rounded-r-lg">
+    <div class="flex items-center gap-2 mb-2">
+      <span class="text-white text-xs font-semibold px-2.5 py-0.5 rounded-full bg-purple-700">Prep Coming Up</span>
+      <span class="text-gray-400 text-xs">{{ prep_coming | length }} milestone{{ 's' if prep_coming | length != 1 }} approaching</span>
+    </div>
+    <div class="space-y-1">
+      {% for item in prep_coming %}
+      <div class="fu-row bg-purple-50 rounded-lg border border-purple-200 hover:border-purple-300 transition-colors px-4 py-3" data-status="prep_coming">
+        <div class="flex items-center gap-3">
+          <div class="w-2 h-2 rounded-full bg-purple-400 flex-shrink-0"></div>
+          <div class="flex-1 min-w-0">
+            <div class="text-sm font-medium text-gray-800">Prep: {{ item.milestone_name }}</div>
+            <div class="text-xs text-gray-500 mt-0.5">
+              {{ item.client_name }} &middot; {{ item.policy_type }}
+            </div>
+          </div>
+          <div class="text-right flex-shrink-0">
+            <div class="text-xs text-purple-600 font-medium">Target: {{ item.projected_date }}</div>
+            {% if item.health and item.health != 'on_track' %}
+            <span class="text-[10px] {% if item.health == 'critical' %}text-red-600{% elif item.health == 'at_risk' %}text-orange-600{% else %}text-amber-600{% endif %}">
+              {{ item.health | replace('_', ' ') | title }}
+            </span>
+            {% endif %}
+          </div>
+          <div class="flex gap-1.5 flex-shrink-0 no-print">
+            <a href="/policies/{{ item.policy_uid }}"
+               class="text-xs text-gray-500 bg-white border border-gray-200 px-2 py-1.5 rounded hover:border-gray-300 transition-colors">View</a>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{# ══════════════════════════════════════════════════════════════════
+   7. WATCHING — future items (collapsed by default)
    ══════════════════════════════════════════════════════════════════ #}
 {% if watching %}
 <details class="mb-5 fu-section" data-section="watching">
-  <summary class="flex items-center gap-2 mb-2 cursor-pointer select-none">
-    <span class="w-2 h-2 rounded-full bg-gray-400 flex-shrink-0"></span>
-    <span class="text-[10px] font-bold uppercase tracking-widest text-gray-500">Watching</span>
-    <span class="bg-gray-200 text-gray-600 text-[10px] font-bold px-2 py-0.5 rounded-full">{{ watching | length }}</span>
+  <summary class="flex items-center gap-2 mb-2 cursor-pointer select-none border-l-4 border-gray-300 px-4 py-2 bg-white rounded-r-lg">
+    <span class="text-gray-500 text-xs font-semibold px-2.5 py-0.5 rounded-full bg-gray-200">Watching</span>
+    <span class="text-gray-400 text-xs">{{ watching | length }} item{{ 's' if watching | length != 1 }} — not yet due</span>
   </summary>
-  <div class="space-y-1 mt-1">
+  <div class="space-y-1 mt-1 ml-1">
     {% for item in watching %}
-    {{ fu_row(item, 'bg-gray-50', 'border border-gray-200', 'bg-gray-400', 'text-gray-500', 'watching') }}
+    {{ fu_row(item, 'bg-white', 'border border-gray-200', 'bg-gray-400', 'text-gray-500', 'watching') }}
     {% endfor %}
   </div>
 </details>
 {% endif %}
 
 {# ══════════════════════════════════════════════════════════════════
-   SCHEDULED — items with 'scheduled' accountability (collapsed)
+   8. SCHEDULED — booked meetings/calls (collapsed by default)
    ══════════════════════════════════════════════════════════════════ #}
 {% if scheduled %}
 <details class="mb-5 fu-section" data-section="scheduled">
-  <summary class="flex items-center gap-2 mb-2 cursor-pointer select-none">
-    <span class="w-2 h-2 rounded-full bg-indigo-400 flex-shrink-0"></span>
-    <span class="text-[10px] font-bold uppercase tracking-widest text-indigo-600">Scheduled</span>
-    <span class="bg-indigo-100 text-indigo-700 text-[10px] font-bold px-2 py-0.5 rounded-full">{{ scheduled | length }}</span>
+  <summary class="flex items-center gap-2 mb-2 cursor-pointer select-none border-l-4 border-indigo-300 px-4 py-2 bg-white rounded-r-lg">
+    <span class="text-indigo-700 text-xs font-semibold px-2.5 py-0.5 rounded-full bg-indigo-100">Scheduled</span>
+    <span class="text-gray-400 text-xs">{{ scheduled | length }} meeting{{ 's' if scheduled | length != 1 }} booked</span>
   </summary>
-  <div class="space-y-1 mt-1">
+  <div class="space-y-1 mt-1 ml-1">
     {% for item in scheduled %}
-    {{ fu_row(item, 'bg-indigo-50', 'border border-indigo-200', 'bg-indigo-400', 'text-indigo-600', 'scheduled') }}
+    {{ fu_row(item, 'bg-white', 'border border-indigo-200', 'bg-indigo-400', 'text-indigo-600', 'scheduled') }}
     {% endfor %}
   </div>
 </details>

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse
 
 from policydb.web.app import get_db, templates
@@ -18,6 +18,35 @@ from policydb.queries import (
 )
 
 router = APIRouter()
+
+
+# ── Nudge escalation ─────────────────────────────────────────────────────────
+
+
+def _compute_nudge_tier(conn, policy_uid: str, dispositions: list[dict]) -> tuple[int, str]:
+    """Count waiting_external activities for a policy in last 90 days.
+
+    Returns (count, tier) where tier is 'normal', 'elevated', or 'urgent'.
+    """
+    waiting_labels = [
+        d["label"] for d in dispositions
+        if d.get("accountability") == "waiting_external"
+    ]
+    if not waiting_labels or not policy_uid:
+        return 1, "normal"
+
+    placeholders = ",".join("?" * len(waiting_labels))
+    count = conn.execute(
+        f"""SELECT COUNT(*) FROM activity_log
+            WHERE policy_id = (SELECT id FROM policies WHERE policy_uid = ?)
+              AND disposition IN ({placeholders})
+              AND activity_date >= date('now', '-90 days')""",
+        [policy_uid] + waiting_labels,
+    ).fetchone()[0]
+
+    count = max(count, 1)
+    tier = "urgent" if count >= 3 else "elevated" if count >= 2 else "normal"
+    return count, tier
 
 
 # ── Classification ───────────────────────────────────────────────────────────
@@ -172,19 +201,9 @@ def _followups_ctx(conn, window: int, activity_type: str, q: str,
 
     # Compute nudge escalation tiers for nudge_due items
     for item in buckets["nudge_due"]:
-        thread_id = item.get("thread_id")
-        if thread_id:
-            count = conn.execute(
-                "SELECT COUNT(*) FROM activity_log WHERE thread_id = ?",
-                (thread_id,),
-            ).fetchone()[0]
-            item["nudge_count"] = count
-            item["escalation_tier"] = (
-                "urgent" if count >= 3 else "elevated" if count >= 2 else "normal"
-            )
-        else:
-            item["nudge_count"] = 1
-            item["escalation_tier"] = "normal"
+        count, tier = _compute_nudge_tier(conn, item.get("policy_uid"), dispositions)
+        item["nudge_count"] = count
+        item["escalation_tier"] = tier
 
     # Prep coming — timeline milestones whose prep_alert_date has arrived
     prep_coming: list[dict] = []
@@ -569,3 +588,26 @@ def acknowledge_alert(request: Request, policy_uid: str, conn=Depends(get_db)):
         pass
     # Fallback: return empty (row disappears)
     return HTMLResponse("")
+
+
+# ── Triage disposition ───────────────────────────────────────────────────────
+
+
+@router.post("/action-center/set-disposition/{activity_id}", response_class=HTMLResponse)
+def set_disposition(
+    request: Request,
+    activity_id: int,
+    disposition: str = Form(""),
+    conn=Depends(get_db),
+):
+    """Set disposition on a triage activity item and re-render followups tab."""
+    if disposition:
+        conn.execute(
+            "UPDATE activity_log SET disposition = ? WHERE id = ?",
+            (disposition, activity_id),
+        )
+        conn.commit()
+    # Re-render the full followups tab so the item moves to its new section
+    ctx = _followups_ctx(conn, window=30, activity_type="", q="")
+    ctx["request"] = request
+    return templates.TemplateResponse("action_center/_followups.html", ctx)
