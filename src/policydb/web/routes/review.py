@@ -5,10 +5,11 @@ from __future__ import annotations
 from datetime import date
 
 from fastapi import APIRouter, Depends, Form, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 
 from policydb import config as cfg
 from policydb.utils import round_duration
+from policydb.timeline_engine import suggest_profile
 from policydb.queries import (
     REVIEW_CYCLE_DAYS,
     REVIEW_CYCLE_LABELS,
@@ -73,7 +74,9 @@ def _attach_timeline_health(conn, rows: list[dict]) -> None:
         row["timeline_health"] = health["health"] if health else ""
 
 
-def _policy_row_context(request, row: dict, reviewed: bool = False, needs_followup: bool = False) -> dict:
+def _policy_row_context(request, row: dict, reviewed: bool = False,
+                        needs_followup: bool = False,
+                        suggestions: dict | None = None) -> dict:
     """Build the template context for _policy_row.html."""
     return {
         "request": request,
@@ -83,6 +86,7 @@ def _policy_row_context(request, row: dict, reviewed: bool = False, needs_follow
         "milestone_profiles": cfg.get("milestone_profiles", []),
         "reviewed": reviewed,
         "needs_followup": needs_followup,
+        "suggestions": suggestions or {},
     }
 
 
@@ -111,6 +115,9 @@ def review_page(request: Request, client_id: int = 0, conn=Depends(get_db)):
     opportunities = _enrich_policy_rows(conn, queue["opportunities"])
     clients = queue["clients"]
 
+    suggestions = suggest_profile(conn)
+    unassigned_count = len(suggestions)
+
     all_clients = [dict(c) for c in conn.execute(
         "SELECT id, name FROM clients WHERE archived = 0 ORDER BY name"
     ).fetchall()]
@@ -122,6 +129,8 @@ def review_page(request: Request, client_id: int = 0, conn=Depends(get_db)):
         "opportunities": opportunities,
         "clients": clients,
         "stats": stats,
+        "suggestions": suggestions,
+        "unassigned_count": unassigned_count,
         "renewal_statuses": cfg.get("renewal_statuses", []),
         "cycle_labels": REVIEW_CYCLE_LABELS,
         "milestone_profiles": cfg.get("milestone_profiles", []),
@@ -177,9 +186,11 @@ def policy_mark_reviewed(
         """, (policy_id,)).fetchone()
         needs_followup = active_fu is None
 
+    suggestions = suggest_profile(conn)
     resp = templates.TemplateResponse(
         "review/_policy_row.html",
-        _policy_row_context(request, r, reviewed=True, needs_followup=needs_followup),
+        _policy_row_context(request, r, reviewed=True, needs_followup=needs_followup,
+                            suggestions=suggestions),
     )
     resp.headers["HX-Trigger"] = "refreshReviewStats"
     return resp
@@ -196,9 +207,10 @@ def policy_set_cycle(
     r = _fetch_review_row(conn, uid)
     if not r:
         return HTMLResponse("")
+    suggestions = suggest_profile(conn)
     return templates.TemplateResponse(
         "review/_policy_row.html",
-        _policy_row_context(request, r),
+        _policy_row_context(request, r, suggestions=suggestions),
     )
 
 
@@ -207,9 +219,10 @@ def policy_row(request: Request, uid: str, conn=Depends(get_db)):
     r = _fetch_review_row(conn, uid)
     if not r:
         return HTMLResponse("")
+    suggestions = suggest_profile(conn)
     return templates.TemplateResponse(
         "review/_policy_row.html",
-        _policy_row_context(request, r),
+        _policy_row_context(request, r, suggestions=suggestions),
     )
 
 
@@ -292,12 +305,22 @@ def policy_row_edit_save(
     )
     conn.commit()
 
+    # Regenerate timeline if dates changed and profile is set
+    if effective_date or expiration_date:
+        _regen = conn.execute(
+            "SELECT milestone_profile FROM policies WHERE policy_uid = ?", (uid,)
+        ).fetchone()
+        if _regen and _regen["milestone_profile"]:
+            from policydb.timeline_engine import generate_policy_timelines
+            generate_policy_timelines(conn, policy_uid=uid)
+
     r = _fetch_review_row(conn, uid)
     if not r:
         return HTMLResponse("")
+    suggestions = suggest_profile(conn)
     return templates.TemplateResponse(
         "review/_policy_row.html",
-        _policy_row_context(request, r),
+        _policy_row_context(request, r, suggestions=suggestions),
     )
 
 
@@ -357,9 +380,10 @@ def policy_row_log_save(
     r = _fetch_review_row(conn, uid)
     if not r:
         return HTMLResponse("")
+    suggestions = suggest_profile(conn)
     return templates.TemplateResponse(
         "review/_policy_row.html",
-        _policy_row_context(request, r),
+        _policy_row_context(request, r, suggestions=suggestions),
     )
 
 
@@ -385,10 +409,57 @@ def change_profile(
     r = _fetch_review_row(conn, uid)
     if not r:
         return HTMLResponse("")
+    suggestions = suggest_profile(conn)
     return templates.TemplateResponse(
         "review/_policy_row.html",
-        _policy_row_context(request, r),
+        _policy_row_context(request, r, suggestions=suggestions),
     )
+
+
+# ── Profile suggestion accept ─────────────────────────────────────────────────
+
+@router.post("/policies/{uid}/accept-profile", response_class=HTMLResponse)
+def accept_profile(
+    request: Request,
+    uid: str,
+    profile: str = Form(""),
+    conn=Depends(get_db),
+):
+    """Accept a suggested milestone profile for a policy."""
+    if profile:
+        conn.execute(
+            "UPDATE policies SET milestone_profile = ? WHERE policy_uid = ?",
+            (profile, uid),
+        )
+        conn.commit()
+        from policydb.timeline_engine import generate_policy_timelines
+        generate_policy_timelines(conn, policy_uid=uid)
+
+    r = _fetch_review_row(conn, uid)
+    if not r:
+        return HTMLResponse("")
+    suggestions = suggest_profile(conn)
+    return templates.TemplateResponse(
+        "review/_policy_row.html",
+        _policy_row_context(request, r, suggestions=suggestions),
+    )
+
+
+# ── Bulk accept all profile suggestions ──────────────────────────────────────
+
+@router.post("/accept-all-profiles")
+def accept_all_profiles(request: Request, conn=Depends(get_db)):
+    """Accept all suggested milestone profiles at once."""
+    suggestions = suggest_profile(conn)
+    for pol_uid, profile_name in suggestions.items():
+        conn.execute(
+            "UPDATE policies SET milestone_profile = ? WHERE policy_uid = ?",
+            (profile_name, pol_uid),
+        )
+    conn.commit()
+    from policydb.timeline_engine import generate_policy_timelines
+    generate_policy_timelines(conn)
+    return RedirectResponse("/review", status_code=303)
 
 
 # ── Client review actions ──────────────────────────────────────────────────────

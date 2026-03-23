@@ -50,6 +50,17 @@
       {% endfor %}
     </select>
     {% endif %}
+    {# Profile suggestion badge #}
+    {% if suggestions is defined and suggestions and p.policy_uid in suggestions and not (p.milestone_profile or '') %}
+    <div class="flex items-center gap-1 mt-1">
+      <span class="text-[10px] text-purple-600">Suggested: {{ suggestions[p.policy_uid] }}</span>
+      <form class="inline" hx-post="/review/policies/{{ p.policy_uid }}/accept-profile"
+            hx-target="#review-row-{{ p.policy_uid }}" hx-swap="outerHTML">
+        <input type="hidden" name="profile" value="{{ suggestions[p.policy_uid] }}">
+        <button type="submit" class="text-[10px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded hover:bg-purple-200 transition-colors font-medium">Accept</button>
+      </form>
+    </div>
+    {% endif %}
     {# Timeline health badge #}
     {% if p.get('timeline_health') %}
     <span class="inline-flex items-center gap-1 text-xs whitespace-nowrap

@@ -12,6 +12,13 @@
         <p class="text-sm text-gray-500 mt-0.5">Cycle through your book and ensure everything is current.</p>
       </div>
       <div class="flex items-center gap-3">
+        {% if unassigned_count is defined and unassigned_count > 0 %}
+        <form hx-post="/review/accept-all-profiles" hx-swap="none" class="inline">
+          <button type="submit" class="text-xs bg-purple-100 text-purple-700 px-3 py-1.5 rounded-full hover:bg-purple-200 transition-colors font-medium whitespace-nowrap">
+            Accept All Profile Suggestions ({{ unassigned_count }})
+          </button>
+        </form>
+        {% endif %}
         <select id="review-client-filter"
           onchange="window.location.href='/review' + (this.value ? '?client_id=' + this.value : '')"
           class="text-xs border border-gray-200 rounded-md px-2 py-1.5 bg-white focus:ring-1 focus:ring-marsh">
