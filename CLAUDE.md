@@ -502,3 +502,20 @@ This is not optional — UI changes without visual verification have repeatedly 
 **20. `thread_id` column is legacy — do not write to it:** The `activity_log.thread_id` column exists for backwards compatibility but is no longer written to. New activities get `NULL` thread_id. The auto-clustered activity timeline (grouped by `activity_cluster_days` time gap) replaces the old manual COR correspondence threading. COR search in ref_lookup still works for old data.
 
 **21. NEVER force-remove worktrees without checking for uncommitted work:** Before removing ANY worktree, run `git -C <worktree-path> status` to check for uncommitted changes. If there are uncommitted changes, STOP and ask the user. Never batch-remove worktrees. When user says "clean up" or "merge all", explicitly ask which branches are still actively being worked on. Assume worktrees have active work unless confirmed otherwise. This rule exists because force-removing an active worktree destroyed in-progress uncommitted work with no recovery path.
+
+**22. Worktree edits require `pip install -e .` for server visibility:** When working in a git worktree, template/code edits are NOT visible to the running `policydb serve` unless the package is installed in editable mode (`pip install -e .`) from the worktree directory. The server uses the installed package — if it was installed from the main repo, it reads templates from there, not the worktree. Always run `pip install -e .` from the worktree before starting the dev server.
+
+**23. `fetch()` bypasses HTMX OOB swap processing:** When using `fetch()` + `innerHTML` instead of `htmx.ajax()` (e.g. to inspect HTTP status codes for error handling), `hx-swap-oob` attributes in the response HTML are NOT processed. You must manually extract OOB elements from the response, find their targets by ID, and swap their innerHTML before setting the main target content. Pattern:
+```javascript
+var temp = document.createElement('div');
+temp.innerHTML = html;
+temp.querySelectorAll('[hx-swap-oob]').forEach(function(el) {
+    var target = document.getElementById(el.id);
+    if (target) target.innerHTML = el.innerHTML;
+    el.remove();
+});
+mainTarget.innerHTML = temp.innerHTML;
+htmx.process(mainTarget);
+```
+
+**24. HTMX swap targets must exist before the response arrives:** When a slideover/panel triggers a `fetch()` that swaps content into a page element (e.g. `#ai-import-target`), the target element must have a stable ID in the page template. If the swap target is dynamically created or inside lazy-loaded content, verify it exists at swap time. Missing targets silently fail — the response HTML is fetched but never displayed.
