@@ -563,6 +563,14 @@
   <main class="mx-auto {% block main_width %}max-w-[1600px]{% endblock %} px-4 sm:px-6 lg:px-8 py-5">
     {% block content %}{% endblock %}
   </main>
+
+  <!-- Compose Slideover -->
+  <div id="compose-slideover-overlay" class="fixed inset-0 bg-black/30 z-40 hidden" onclick="closeComposeSlideover()"></div>
+  <div id="compose-slideover" class="fixed top-0 right-0 h-full w-96 max-w-full bg-white shadow-2xl z-50 transform translate-x-full transition-transform duration-200 ease-in-out overflow-y-auto">
+    <div id="compose-slideover-body" class="p-4">
+      <!-- Loaded via HTMX -->
+    </div>
+  </div>
 </div>
 
 <style>
@@ -617,6 +625,56 @@
   @keyframes row-saved { from { background-color: #ecfdf5; } to { background-color: transparent; } }
   .row-saved { animation: row-saved 1.5s ease-out; }
 </style>
+
+<script>
+/* --- Compose Slideover --- */
+var composeEdited = false;
+
+function buildMailto(to, subject, ccEmails, body, ref) {
+  if (ref) body = (body ? body + '\n\n' : '') + ref;
+  var url = 'mailto:' + encodeURIComponent(to) + '?subject=' + encodeURIComponent(subject);
+  if (ccEmails.length) url += '&cc=' + encodeURIComponent(ccEmails.join(','));
+  if (body) url += '&body=' + encodeURIComponent(body);
+  return url;
+}
+
+function openComposeSlideover(params) {
+  var qs = new URLSearchParams();
+  if (params.context) qs.set('context', params.context);
+  if (params.policy_uid) qs.set('policy_uid', params.policy_uid);
+  if (params.client_id) qs.set('client_id', params.client_id);
+  if (params.project_name) qs.set('project_name', params.project_name);
+  if (params.bundle_id) qs.set('bundle_id', params.bundle_id);
+  if (params.mode) qs.set('mode', params.mode);
+  if (params.to_email) qs.set('to_email', params.to_email);
+  if (params.template_id) qs.set('template_id', params.template_id);
+
+  htmx.ajax('GET', '/compose?' + qs.toString(), {
+    target: '#compose-slideover-body',
+    swap: 'innerHTML'
+  }).then(function() {
+    document.getElementById('compose-slideover').classList.remove('translate-x-full');
+    document.getElementById('compose-slideover-overlay').classList.remove('hidden');
+    document.body.style.overflow = 'hidden';
+  });
+}
+
+function closeComposeSlideover() {
+  if (typeof composeEdited !== 'undefined' && composeEdited) {
+    if (!confirm('You have unsaved changes. Close anyway?')) return;
+  }
+  document.getElementById('compose-slideover').classList.add('translate-x-full');
+  document.getElementById('compose-slideover-overlay').classList.add('hidden');
+  document.body.style.overflow = '';
+  composeEdited = false;
+}
+
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape' && !document.getElementById('compose-slideover').classList.contains('translate-x-full')) {
+    closeComposeSlideover();
+  }
+});
+</script>
 
 <!-- Email popover -->
 <div id="email-popover" style="display:none"
