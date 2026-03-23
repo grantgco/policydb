@@ -15,7 +15,9 @@ from policydb import config as cfg
 from policydb.queries import get_client_by_name
 from policydb.utils import (
     normalize_carrier, normalize_coverage_type, normalize_policy_number,
-    _COVERAGE_ALIASES, rebuild_coverage_aliases, rebuild_carrier_aliases,
+    parse_currency_with_magnitude,
+    _COVERAGE_ALIASES, _BASE_COVERAGE_ALIASES, _BASE_CARRIER_ALIASES,
+    rebuild_coverage_aliases, rebuild_carrier_aliases,
 )
 from policydb.reconciler import (
     ReconcileRow,
@@ -488,6 +490,7 @@ def reconcile_run_match(
     ctx["download_token"] = download_token
     ctx["today"] = date.today().isoformat()
     ctx["policy_types"] = cfg.get("policy_types", [])
+    ctx["field_display"] = _FIELD_DISPLAY
     ctx["program_summary"] = program_reconcile_summary(all_results, carrier_map=_carrier_map)
     return templates.TemplateResponse("reconcile/index.html", ctx)
 
@@ -601,9 +604,78 @@ def reconcile_search_coverage(
     return HTMLResponse(html)
 
 
+def _auto_learn_aliases(row: ReconcileRow) -> list[str]:
+    """Auto-learn coverage/carrier aliases from a confirmed pair.
+
+    Returns a list of human-readable descriptions of what was learned
+    (e.g., ['"work comp" → Workers Compensation']).
+    Skips aliases already in the hardcoded base.
+    """
+    learned: list[str] = []
+
+    # Coverage alias
+    if row.coverage_alias_applied and row.ext_type_raw and row.ext_type_normalized:
+        raw_key = row.ext_type_raw.strip().lower()
+        if raw_key not in _BASE_COVERAGE_ALIASES:
+            aliases = cfg.get("coverage_aliases", {})
+            canonical = row.ext_type_normalized
+            if canonical not in aliases:
+                aliases[canonical] = []
+            if raw_key not in [a.lower() for a in aliases[canonical]]:
+                aliases[canonical].append(row.ext_type_raw.strip())
+                full = dict(cfg.load_config())
+                full["coverage_aliases"] = aliases
+                cfg.save_config(full)
+                cfg.reload_config()
+                rebuild_coverage_aliases()
+                learned.append(f'"{row.ext_type_raw.strip()}" &rarr; {canonical}')
+                logger.info("Auto-learned coverage alias: %s → %s", row.ext_type_raw.strip(), canonical)
+
+    # Carrier alias
+    if row.carrier_alias_applied and row.ext_carrier_raw and row.ext_carrier_normalized:
+        raw_key = row.ext_carrier_raw.strip().lower()
+        if raw_key not in _BASE_CARRIER_ALIASES:
+            aliases = cfg.get("carrier_aliases", {})
+            canonical = row.ext_carrier_normalized
+            if canonical not in aliases:
+                aliases[canonical] = []
+            if raw_key not in [a.lower() for a in aliases[canonical]]:
+                aliases[canonical].append(row.ext_carrier_raw.strip())
+                full = dict(cfg.load_config())
+                full["carrier_aliases"] = aliases
+                cfg.save_config(full)
+                cfg.reload_config()
+                rebuild_carrier_aliases()
+                learned.append(f'"{row.ext_carrier_raw.strip()}" &rarr; {canonical}')
+                logger.info("Auto-learned carrier alias: %s → %s", row.ext_carrier_raw.strip(), canonical)
+
+    return learned
+
+
+def _render_learn_toast(learned: list[str]) -> str:
+    """Render OOB toast HTML for auto-learned aliases."""
+    if not learned:
+        return ""
+    pills = " ".join(
+        f'<span class="inline-block px-2 py-0.5 rounded bg-blue-100 text-blue-700 text-[10px]">{item}</span>'
+        for item in learned
+    )
+    return (
+        f'<div id="learn-toast" hx-swap-oob="innerHTML">'
+        f'<div class="flex items-center gap-2 px-3 py-2 mb-2 rounded-lg bg-blue-50 border border-blue-200 text-xs text-blue-800 '
+        f'transition-opacity duration-1000" '
+        f'x-data x-init="setTimeout(() => $el.style.opacity=\'0\', 3000); setTimeout(() => $el.remove(), 4000)">'
+        f'<span class="font-semibold">Learned:</span> {pills}'
+        f'</div></div>'
+    )
+
+
 @router.post("/confirm/{idx}", response_class=HTMLResponse)
 def reconcile_confirm(request: Request, idx: int, token: str = Form("")):
-    """Mark a paired row as confirmed. Returns updated pair row + OOB counters."""
+    """Mark a paired row as confirmed. Returns updated pair row + OOB counters.
+
+    Auto-learns coverage/carrier aliases if the pair used normalization.
+    """
     cache = _BOARD_CACHE.get(token)
     if not cache:
         return HTMLResponse('<div class="text-xs text-red-500 p-2">Session expired. Please re-run reconciliation.</div>')
@@ -612,15 +684,22 @@ def reconcile_confirm(request: Request, idx: int, token: str = Form("")):
         return HTMLResponse('<div class="text-xs text-red-500 p-2">Invalid row index.</div>')
     results[idx].confirmed = True
     logger.info("Reconcile pair confirmed: idx=%d", idx)
+
+    # Auto-learn aliases
+    learned = _auto_learn_aliases(results[idx])
+    toast_html = _render_learn_toast(learned)
+
     summary = summarize(results + extras)
     row_html = templates.TemplateResponse("reconcile/_pair_row.html", {
         "request": request,
         "row": results[idx],
         "idx": idx,
         "token": token,
+        "field_display": _FIELD_DISPLAY,
+        "policy_types": cfg.get("policy_types", []),
     }).body.decode()
     counter_html = _render_counters(summary)
-    return HTMLResponse(row_html + counter_html)
+    return HTMLResponse(row_html + counter_html + toast_html)
 
 
 @router.post("/break/{idx}", response_class=HTMLResponse)
@@ -770,6 +849,8 @@ def reconcile_manual_pair(
         "row": row,
         "idx": idx,
         "token": token,
+        "field_display": _FIELD_DISPLAY,
+        "policy_types": cfg.get("policy_types", []),
     }).body.decode()
     counter_html = _render_counters(summary)
     return HTMLResponse(pair_html + counter_html)
@@ -796,6 +877,8 @@ def reconcile_confirm_all(request: Request, token: str = Form("")):
         "token": token,
         "summary": summary,
         "today": date.today().isoformat(),
+        "field_display": _FIELD_DISPLAY,
+        "policy_types": cfg.get("policy_types", []),
     })
 
 
@@ -1230,6 +1313,50 @@ def reconcile_apply(
     )
 
 
+_ALLOWED_FIELDS = {
+    "policy_type", "carrier", "policy_number",
+    "effective_date", "expiration_date",
+    "premium", "limit_amount", "deductible",
+    "first_named_insured", "placement_colleague",
+    "underwriter_name", "exposure_address",
+}
+
+_CURRENCY_FIELDS = {"premium", "limit_amount", "deductible"}
+
+_FIELD_DISPLAY = {
+    "policy_type": "Coverage Type",
+    "carrier": "Carrier",
+    "policy_number": "Policy Number",
+    "effective_date": "Effective Date",
+    "expiration_date": "Expiration Date",
+    "premium": "Premium",
+    "limit_amount": "Limit",
+    "deductible": "Deductible",
+    "first_named_insured": "First Named Insured",
+    "placement_colleague": "Placement Colleague",
+    "underwriter_name": "Underwriter",
+    "exposure_address": "Address",
+}
+
+
+def _parse_field_value(field_name: str, value: str):
+    """Parse a field value for DB storage. Uses parse_currency_with_magnitude for money fields."""
+    if field_name in _CURRENCY_FIELDS:
+        parsed = parse_currency_with_magnitude(value)
+        return parsed if parsed is not None else None
+    return value
+
+
+def _format_field_display(field_name: str, value: str) -> str:
+    """Format a field value for display after apply."""
+    if field_name in _CURRENCY_FIELDS and value:
+        try:
+            return "${:,.0f}".format(float(parse_currency_with_magnitude(value) or 0))
+        except (ValueError, TypeError):
+            return value or "—"
+    return value or "—"
+
+
 @router.patch("/apply-field/{policy_uid}", response_class=HTMLResponse)
 async def reconcile_apply_field(
     request: Request,
@@ -1241,26 +1368,13 @@ async def reconcile_apply_field(
     field_name = form.get("field_name", "")
     value = form.get("value", "")
 
-    _ALLOWED_FIELDS = {
-        "policy_type", "carrier", "policy_number",
-        "effective_date", "expiration_date",
-        "premium", "limit_amount", "deductible",
-    }
-
     if field_name not in _ALLOWED_FIELDS:
         return HTMLResponse(
             f'<td colspan="4" class="text-xs text-red-500">Invalid field: {field_name}</td>',
             status_code=400,
         )
 
-    def _f(v):
-        try:
-            return float(v) if v else None
-        except (ValueError, TypeError):
-            return None
-
-    _CURRENCY_FIELDS = {"premium", "limit_amount", "deductible"}
-    db_value = _f(value) if field_name in _CURRENCY_FIELDS else value
+    db_value = _parse_field_value(field_name, value)
 
     conn.execute(
         f"UPDATE policies SET {field_name}=? WHERE policy_uid=?",
@@ -1268,14 +1382,255 @@ async def reconcile_apply_field(
     )
     conn.commit()
 
-    display_value = "${:,.0f}".format(float(value)) if field_name in _CURRENCY_FIELDS and value else value or "—"
+    display_label = _FIELD_DISPLAY.get(field_name, field_name)
+    display_value = _format_field_display(field_name, value)
     return HTMLResponse(
         f'<div class="flex items-center gap-2 text-[10px]">'
-        f'<span class="font-semibold text-green-600 w-24 flex-shrink-0">{field_name}</span>'
+        f'<span class="font-semibold text-green-600 w-24 flex-shrink-0">{display_label}</span>'
         f'<span class="text-green-700 font-semibold">{display_value}</span>'
         f'<span class="text-green-500">applied &#10003;</span>'
         f'</div>'
     )
+
+
+def _apply_all_fields_for_row(row: ReconcileRow, conn) -> int:
+    """Apply all diff_fields and fillable_fields from ext to DB for one pair.
+
+    Returns count of fields applied.
+    """
+    if not row.ext or not row.db:
+        return 0
+    policy_uid = row.db.get("policy_uid", "")
+    if not policy_uid:
+        return 0
+
+    applied = 0
+    for f in list(row.diff_fields) + list(row.fillable_fields):
+        if f not in _ALLOWED_FIELDS:
+            continue
+        value = str(row.ext.get(f) or "").strip()
+        if not value:
+            continue
+        db_value = _parse_field_value(f, value)
+        try:
+            conn.execute(
+                f"UPDATE policies SET {f}=? WHERE policy_uid=?",
+                (db_value, policy_uid.upper()),
+            )
+            applied += 1
+        except Exception:
+            logger.warning("Failed to apply field %s for %s", f, policy_uid)
+    return applied
+
+
+@router.patch("/accept-all-fields/{idx}", response_class=HTMLResponse)
+async def reconcile_accept_all_fields(
+    request: Request,
+    idx: int,
+    conn=Depends(get_db),
+):
+    """Accept all diff + fillable fields for a single pair at once."""
+    form = await request.form()
+    token = form.get("token", "")
+    cache = _BOARD_CACHE.get(token)
+    if not cache:
+        return HTMLResponse('<div class="text-xs text-red-500 p-2">Session expired. Please re-run reconciliation.</div>')
+    results, extras, db_rows, _ = cache
+    if idx < 0 or idx >= len(results):
+        return HTMLResponse('<div class="text-xs text-red-500 p-2">Invalid row index.</div>')
+
+    row = results[idx]
+    applied = _apply_all_fields_for_row(row, conn)
+    conn.commit()
+    logger.info("Accept all fields: idx=%d, applied=%d fields", idx, applied)
+
+    # Build response showing all fields as applied
+    html_parts = []
+    for f in list(row.diff_fields) + list(row.fillable_fields):
+        if f not in _ALLOWED_FIELDS:
+            continue
+        value = str(row.ext.get(f) or "").strip()
+        display_label = _FIELD_DISPLAY.get(f, f)
+        display_value = _format_field_display(f, value)
+        html_parts.append(
+            f'<div class="flex items-center gap-2 text-[10px]">'
+            f'<span class="font-semibold text-green-600 w-24 flex-shrink-0">{display_label}</span>'
+            f'<span class="text-green-700 font-semibold">{display_value}</span>'
+            f'<span class="text-green-500">applied &#10003;</span>'
+            f'</div>'
+        )
+    return HTMLResponse("\n".join(html_parts) if html_parts else '<div class="text-[10px] text-gray-400">No fields to apply.</div>')
+
+
+@router.get("/reconcile-all-preview", response_class=HTMLResponse)
+def reconcile_all_preview(request: Request, token: str = ""):
+    """Preview what reconcile-all would do: count pairs, fields, aliases to learn."""
+    cache = _BOARD_CACHE.get(token)
+    if not cache:
+        return HTMLResponse('<div class="text-xs text-red-500 p-2">Session expired. Please re-run reconciliation.</div>')
+    results, extras, db_rows, _ = cache
+
+    total_pairs = 0
+    total_fields = 0
+    aliases_to_learn: list[str] = []
+    seen_aliases: set[str] = set()
+
+    for row in results:
+        if row.status == "PAIRED" and not row.confirmed:
+            total_pairs += 1
+            total_fields += len([f for f in list(row.diff_fields) + list(row.fillable_fields) if f in _ALLOWED_FIELDS])
+            # Check for aliases to learn
+            if row.coverage_alias_applied and row.ext_type_raw:
+                key = row.ext_type_raw.strip().lower()
+                if key not in _BASE_COVERAGE_ALIASES and key not in seen_aliases:
+                    seen_aliases.add(key)
+                    aliases_to_learn.append(f'"{row.ext_type_raw.strip()}" &rarr; {row.ext_type_normalized}')
+            if row.carrier_alias_applied and row.ext_carrier_raw:
+                key = row.ext_carrier_raw.strip().lower()
+                if key not in _BASE_CARRIER_ALIASES and key not in seen_aliases:
+                    seen_aliases.add(key)
+                    aliases_to_learn.append(f'"{row.ext_carrier_raw.strip()}" &rarr; {row.ext_carrier_normalized}')
+
+    alias_html = ""
+    if aliases_to_learn:
+        pills = " ".join(
+            f'<span class="inline-block px-2 py-0.5 rounded bg-blue-100 text-blue-700 text-[10px]">{a}</span>'
+            for a in aliases_to_learn
+        )
+        alias_html = f'<div class="mt-2 text-[10px] text-blue-700">Will learn {len(aliases_to_learn)} alias(es): {pills}</div>'
+
+    return HTMLResponse(
+        f'<div class="p-3 bg-amber-50 border border-amber-200 rounded-lg">'
+        f'<div class="text-sm font-semibold text-amber-800 mb-1">Reconcile All</div>'
+        f'<div class="text-xs text-amber-700">'
+        f'Confirm <strong>{total_pairs}</strong> pairs and apply <strong>{total_fields}</strong> field updates.'
+        f'</div>'
+        f'{alias_html}'
+        f'<div class="flex gap-2 mt-3">'
+        f'<button type="button" hx-post="/reconcile/reconcile-all" '
+        f'hx-vals=\'{{"token": "{token}"}}\' '
+        f'hx-target="#pairing-board" hx-swap="innerHTML" '
+        f'class="text-xs bg-green-600 text-white px-4 py-1.5 rounded hover:bg-green-700 font-medium">'
+        f'Confirm &amp; Apply All</button>'
+        f'<button type="button" onclick="this.closest(\'.p-3\').remove()" '
+        f'class="text-xs text-gray-500 hover:text-gray-700 px-3 py-1.5">Cancel</button>'
+        f'</div></div>'
+    )
+
+
+@router.post("/reconcile-all", response_class=HTMLResponse)
+def reconcile_all(request: Request, token: str = Form(""), conn=Depends(get_db)):
+    """Bulk confirm all pairs, apply all diffs, auto-learn all aliases."""
+    cache = _BOARD_CACHE.get(token)
+    if not cache:
+        return HTMLResponse('<div class="text-xs text-red-500 p-2">Session expired. Please re-run reconciliation.</div>')
+    results, extras, db_rows, _ = cache
+
+    confirmed_count = 0
+    total_applied = 0
+    all_learned: list[str] = []
+    seen_coverage: set[str] = set()
+    seen_carrier: set[str] = set()
+
+    # Collect unique aliases first for deduplication
+    coverage_to_learn: dict[str, str] = {}  # raw → canonical
+    carrier_to_learn: dict[str, str] = {}
+
+    for row in results:
+        if row.status != "PAIRED" or row.confirmed:
+            continue
+
+        # Confirm
+        row.confirmed = True
+        confirmed_count += 1
+
+        # Apply all fields
+        applied = _apply_all_fields_for_row(row, conn)
+        total_applied += applied
+
+        # Collect aliases to learn (deduplicated)
+        if row.coverage_alias_applied and row.ext_type_raw and row.ext_type_normalized:
+            raw_key = row.ext_type_raw.strip().lower()
+            if raw_key not in _BASE_COVERAGE_ALIASES and raw_key not in seen_coverage:
+                seen_coverage.add(raw_key)
+                coverage_to_learn[row.ext_type_raw.strip()] = row.ext_type_normalized
+        if row.carrier_alias_applied and row.ext_carrier_raw and row.ext_carrier_normalized:
+            raw_key = row.ext_carrier_raw.strip().lower()
+            if raw_key not in _BASE_CARRIER_ALIASES and raw_key not in seen_carrier:
+                seen_carrier.add(raw_key)
+                carrier_to_learn[row.ext_carrier_raw.strip()] = row.ext_carrier_normalized
+
+    conn.commit()
+
+    # Write learned aliases once (not per-pair)
+    if coverage_to_learn:
+        aliases = cfg.get("coverage_aliases", {})
+        for raw, canonical in coverage_to_learn.items():
+            if canonical not in aliases:
+                aliases[canonical] = []
+            if raw.lower() not in [a.lower() for a in aliases[canonical]]:
+                aliases[canonical].append(raw)
+                all_learned.append(f'"{raw}" &rarr; {canonical}')
+        full = dict(cfg.load_config())
+        full["coverage_aliases"] = aliases
+        cfg.save_config(full)
+        cfg.reload_config()
+        rebuild_coverage_aliases()
+
+    if carrier_to_learn:
+        aliases = cfg.get("carrier_aliases", {})
+        for raw, canonical in carrier_to_learn.items():
+            if canonical not in aliases:
+                aliases[canonical] = []
+            if raw.lower() not in [a.lower() for a in aliases[canonical]]:
+                aliases[canonical].append(raw)
+                all_learned.append(f'"{raw}" &rarr; {canonical}')
+        full = dict(cfg.load_config())
+        full["carrier_aliases"] = aliases
+        cfg.save_config(full)
+        cfg.reload_config()
+        rebuild_carrier_aliases()
+
+    logger.info("Reconcile all: confirmed=%d, applied=%d fields, learned=%d aliases",
+                confirmed_count, total_applied, len(all_learned))
+
+    # Build learning summary banner
+    learn_banner = ""
+    if all_learned:
+        pills = " ".join(
+            f'<span class="inline-block px-2 py-0.5 rounded bg-blue-100 text-blue-700 text-[10px]">{item}</span>'
+            for item in all_learned
+        )
+        learn_banner = (
+            f'<div class="mb-4 px-4 py-3 rounded-lg bg-blue-50 border border-blue-200 text-xs text-blue-800">'
+            f'<span class="font-semibold">Reconciled {confirmed_count} pairs</span> · '
+            f'Applied {total_applied} field updates · '
+            f'Learned {len(all_learned)} new alias(es): {pills}'
+            f'<button onclick="this.parentElement.remove()" class="ml-2 text-blue-400 hover:text-blue-600">&times;</button>'
+            f'</div>'
+        )
+    elif confirmed_count:
+        learn_banner = (
+            f'<div class="mb-4 px-4 py-3 rounded-lg bg-green-50 border border-green-200 text-xs text-green-800">'
+            f'<span class="font-semibold">Reconciled {confirmed_count} pairs</span> · '
+            f'Applied {total_applied} field updates'
+            f'<button onclick="this.parentElement.remove()" class="ml-2 text-green-400 hover:text-green-600">&times;</button>'
+            f'</div>'
+        )
+
+    summary = summarize(results + extras)
+    board_html = templates.TemplateResponse("reconcile/_pairing_board.html", {
+        "request": request,
+        "results": results,
+        "extras": extras,
+        "token": token,
+        "summary": summary,
+        "today": date.today().isoformat(),
+        "field_display": _FIELD_DISPLAY,
+        "policy_types": cfg.get("policy_types", []),
+    }).body.decode()
+
+    return HTMLResponse(learn_banner + board_html)
 
 
 @router.get("/download/{token}")
