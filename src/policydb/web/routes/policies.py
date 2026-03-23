@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 logger = logging.getLogger("policydb.web.routes.policies")
 
@@ -965,13 +966,26 @@ def policy_ai_import_prompt(request: Request, policy_uid: str, conn=Depends(get_
         "config_lists": {},
     }
 
-    # Collect config values referenced by schema fields
+    # Collect config values referenced by schema fields (flat + nested groups)
     seen_config_keys: set[str] = set()
     for field in POLICY_EXTRACTION_SCHEMA["fields"]:
         ck = field.get("config_values")
         if ck and ck not in seen_config_keys:
             seen_config_keys.add(ck)
             context["config_lists"][ck] = cfg.get(ck, [])
+    # Walk nested_groups for additional config keys (COPE, location fields)
+    for _gname, gdef in POLICY_EXTRACTION_SCHEMA.get("nested_groups", {}).items():
+        for field in gdef.get("fields", []):
+            ck = field.get("config_values")
+            if ck and ck not in seen_config_keys:
+                seen_config_keys.add(ck)
+                context["config_lists"][ck] = cfg.get(ck, [])
+        for _sname, sdef in gdef.get("nested", {}).items():
+            for field in sdef.get("fields", []):
+                ck = field.get("config_values")
+                if ck and ck not in seen_config_keys:
+                    seen_config_keys.add(ck)
+                    context["config_lists"][ck] = cfg.get(ck, [])
 
     prompt_text = generate_extraction_prompt(POLICY_EXTRACTION_SCHEMA, context)
     json_template = generate_json_template(POLICY_EXTRACTION_SCHEMA)
@@ -980,6 +994,13 @@ def policy_ai_import_prompt(request: Request, policy_uid: str, conn=Depends(get_
     industry = client_info.get("industry_segment", "")
     if industry:
         context_display["Industry"] = industry
+    # Show location name if policy is linked to one
+    if policy_dict.get("project_id"):
+        loc_row = conn.execute(
+            "SELECT name FROM projects WHERE id = ?", (policy_dict["project_id"],)
+        ).fetchone()
+        if loc_row and loc_row["name"]:
+            context_display["Location"] = loc_row["name"]
 
     return templates.TemplateResponse("_ai_import_panel.html", {
         "request": request,
@@ -1014,10 +1035,10 @@ def policy_ai_import_parse(
     if not policy_dict:
         return HTMLResponse("Not found", status_code=404)
 
-    # Merge parsed values onto existing policy
+    # Merge parsed values onto existing policy (skip nested groups)
     merged = dict(policy_dict)
     for k, v in result["parsed"].items():
-        if v is not None:
+        if v is not None and k != "locations":
             merged[k] = v
 
     # FEIN cross-reference warning
@@ -1032,6 +1053,156 @@ def policy_ai_import_parse(
                 f"FEIN mismatch: document shows {parsed_fein}, "
                 f"client record has {client_fein['fein']}"
             )
+
+    # ── Build policy-level diffs ──
+    from policydb.llm_schemas import POLICY_EXTRACTION_SCHEMA as _SCHEMA, LOCATION_FIELDS, COPE_FIELDS
+    _field_labels = {f["key"]: f["label"] for f in _SCHEMA["fields"]}
+    ai_policy_diffs: list[dict] = []
+    for k, v in result["parsed"].items():
+        if k == "locations" or v is None:
+            continue
+        current = policy_dict.get(k)
+        current_str = str(current) if current is not None else ""
+        extracted_str = str(v) if v is not None else ""
+        if current_str != extracted_str:
+            ai_policy_diffs.append({
+                "field": k,
+                "label": _field_labels.get(k, k),
+                "current": current,
+                "extracted": v,
+                "is_fill": not current_str,  # empty→filled = pre-check
+            })
+
+    # ── Build location & COPE diffs ──
+    locations_parsed = result["parsed"].get("locations", [])
+    ai_location_data: list[dict] = []
+    if locations_parsed:
+        from rapidfuzz import fuzz
+
+        _loc_labels = {f["key"]: f["label"] for f in LOCATION_FIELDS}
+        _cope_labels = {f["key"]: f["label"] for f in COPE_FIELDS}
+
+        # Load client's existing locations for fuzzy matching
+        existing_locations = [dict(r) for r in conn.execute(
+            """SELECT id, name, address, city, state, zip, notes
+               FROM projects WHERE client_id = ? AND (project_type = 'Location' OR project_type IS NULL)""",
+            (policy_dict["client_id"],),
+        ).fetchall()]
+
+        for loc_idx, loc in enumerate(locations_parsed):
+            cope_extracted = loc.get("cope", {})
+            loc_entry: dict = {
+                "index": loc_idx,
+                "extracted": {k: v for k, v in loc.items() if k != "cope"},
+                "cope_extracted": cope_extracted,
+                "existing": None,
+                "cope_existing": None,
+                "diffs": [],
+                "cope_diffs": [],
+                "match_score": 0,
+                "project_id": None,
+                "match_type": "new",
+            }
+
+            # Try to match: policy's project_id first, then fuzzy
+            matched_project = None
+            if policy_dict.get("project_id") and len(locations_parsed) == 1:
+                matched_project = conn.execute(
+                    "SELECT id, name, address, city, state, zip, notes FROM projects WHERE id = ?",
+                    (policy_dict["project_id"],),
+                ).fetchone()
+                if matched_project:
+                    loc_entry["match_type"] = "linked"
+                    loc_entry["match_score"] = 100
+            if not matched_project and existing_locations:
+                # Fuzzy match on name + address
+                loc_name = loc.get("name", "")
+                loc_addr = loc.get("address", "")
+                best_score = 0
+                best_match = None
+                for eloc in existing_locations:
+                    name_score = fuzz.ratio(
+                        (loc_name or "").lower(), (eloc.get("name") or "").lower()
+                    ) if loc_name else 0
+                    addr_score = fuzz.ratio(
+                        (loc_addr or "").lower(), (eloc.get("address") or "").lower()
+                    ) if loc_addr else 0
+                    combined = max(name_score, addr_score)
+                    if combined > best_score and combined >= 60:
+                        best_score = combined
+                        best_match = eloc
+                if best_match:
+                    matched_project = best_match
+                    loc_entry["match_type"] = "fuzzy"
+                    loc_entry["match_score"] = int(best_score)
+
+            if matched_project:
+                mp = dict(matched_project) if not isinstance(matched_project, dict) else matched_project
+                loc_entry["project_id"] = mp["id"]
+                loc_entry["existing"] = {k: mp.get(k) for k in ["name", "address", "city", "state", "zip", "notes"]}
+
+                # Location field diffs
+                for fkey in ["name", "address", "city", "state", "zip", "notes"]:
+                    ext_val = loc.get(fkey)
+                    cur_val = mp.get(fkey)
+                    if ext_val is not None:
+                        cur_str = str(cur_val) if cur_val else ""
+                        ext_str = str(ext_val) if ext_val else ""
+                        if cur_str != ext_str:
+                            loc_entry["diffs"].append({
+                                "field": fkey,
+                                "label": _loc_labels.get(fkey, fkey),
+                                "current": cur_val,
+                                "extracted": ext_val,
+                                "is_fill": not cur_str,
+                            })
+
+                # COPE diffs
+                if cope_extracted:
+                    cope_row = conn.execute(
+                        "SELECT * FROM cope_data WHERE project_id = ?", (mp["id"],)
+                    ).fetchone()
+                    cope_current = dict(cope_row) if cope_row else {}
+                    loc_entry["cope_existing"] = cope_current
+                    for fkey in [f["key"] for f in COPE_FIELDS]:
+                        ext_val = cope_extracted.get(fkey)
+                        cur_val = cope_current.get(fkey)
+                        if ext_val is not None:
+                            cur_str = str(cur_val) if cur_val else ""
+                            ext_str = str(ext_val) if ext_val else ""
+                            if cur_str != ext_str:
+                                loc_entry["cope_diffs"].append({
+                                    "field": fkey,
+                                    "label": _cope_labels.get(fkey, fkey),
+                                    "current": cur_val,
+                                    "extracted": ext_val,
+                                    "is_fill": not cur_str,
+                                })
+            else:
+                # New location — all extracted fields are "diffs" (fills)
+                for fkey in ["name", "address", "city", "state", "zip", "notes"]:
+                    ext_val = loc.get(fkey)
+                    if ext_val:
+                        loc_entry["diffs"].append({
+                            "field": fkey,
+                            "label": _loc_labels.get(fkey, fkey),
+                            "current": None,
+                            "extracted": ext_val,
+                            "is_fill": True,
+                        })
+                if cope_extracted:
+                    for fkey in [f["key"] for f in COPE_FIELDS]:
+                        ext_val = cope_extracted.get(fkey)
+                        if ext_val is not None:
+                            loc_entry["cope_diffs"].append({
+                                "field": fkey,
+                                "label": _cope_labels.get(fkey, fkey),
+                                "current": None,
+                                "extracted": ext_val,
+                                "is_fill": True,
+                            })
+
+            ai_location_data.append(loc_entry)
 
     # Build the same context as policy_tab_details
     from policydb.queries import REVIEW_CYCLE_LABELS as _RCL
@@ -1101,6 +1272,9 @@ def policy_ai_import_parse(
             (merged["id"],),
         ).fetchall()] if merged.get("is_program") else [],
         "ai_warnings": ai_warnings,
+        "ai_policy_diffs": ai_policy_diffs,
+        "ai_location_data": ai_location_data,
+        "ai_parsed_json": json.dumps(result["parsed"], default=str),
     })
 
     # Append OOB warnings div if there are warnings
@@ -1118,6 +1292,132 @@ def policy_ai_import_parse(
         html.body += oob_html.encode()
 
     return html
+
+
+@router.post("/{policy_uid}/ai-import/apply-location")
+async def policy_ai_import_apply_location(
+    request: Request,
+    policy_uid: str,
+    conn=Depends(get_db),
+):
+    """Apply extracted location and COPE data from AI import."""
+    uid = policy_uid.upper()
+    body = await request.json()
+    project_id = body.get("project_id")
+    create_new = body.get("create_new", False)
+    location_fields = body.get("location_fields", {})
+    cope_fields = body.get("cope_fields", {})
+    location_name = body.get("location_name", "")
+
+    policy = get_policy_by_uid(conn, uid)
+    if not policy:
+        return JSONResponse({"ok": False, "error": "Policy not found"}, status_code=404)
+
+    created = False
+    # Create new location if requested
+    if create_new:
+        conn.execute(
+            """INSERT INTO projects (client_id, name, address, city, state, zip, notes, project_type, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, 'Location', datetime('now'), datetime('now'))""",
+            (
+                policy["client_id"],
+                location_fields.get("name", location_name or "Imported Location"),
+                location_fields.get("address", ""),
+                location_fields.get("city", ""),
+                location_fields.get("state", ""),
+                location_fields.get("zip", ""),
+                location_fields.get("notes", ""),
+            ),
+        )
+        project_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        # Link policy to new location
+        conn.execute(
+            "UPDATE policies SET project_id = ?, updated_at = datetime('now') WHERE policy_uid = ?",
+            (project_id, uid),
+        )
+        created = True
+        logger.info("AI import: created location %s for policy %s", project_id, uid)
+    elif project_id and location_fields:
+        # Update existing location fields
+        update_parts = []
+        update_vals = []
+        for fkey in ["name", "address", "city", "state", "zip"]:
+            if fkey in location_fields:
+                update_parts.append(f"{fkey} = ?")
+                update_vals.append(location_fields[fkey])
+        # Notes: append if existing, set if empty
+        if "notes" in location_fields and location_fields["notes"]:
+            existing_notes = conn.execute(
+                "SELECT notes FROM projects WHERE id = ?", (project_id,)
+            ).fetchone()
+            if existing_notes and existing_notes["notes"]:
+                update_parts.append("notes = ?")
+                update_vals.append(
+                    existing_notes["notes"] + "\n\n--- Imported ---\n" + location_fields["notes"]
+                )
+            else:
+                update_parts.append("notes = ?")
+                update_vals.append(location_fields["notes"])
+        if update_parts:
+            update_parts.append("updated_at = datetime('now')")
+            update_vals.append(project_id)
+            conn.execute(
+                f"UPDATE projects SET {', '.join(update_parts)} WHERE id = ?",
+                update_vals,
+            )
+        # Link policy to location if not already linked
+        if not policy["project_id"]:
+            conn.execute(
+                "UPDATE policies SET project_id = ?, updated_at = datetime('now') WHERE policy_uid = ?",
+                (project_id, uid),
+            )
+        logger.info("AI import: updated location %s for policy %s", project_id, uid)
+
+    # Apply COPE data
+    if project_id and cope_fields:
+        # Check if cope_data row exists
+        cope_row = conn.execute(
+            "SELECT id FROM cope_data WHERE project_id = ?", (project_id,)
+        ).fetchone()
+        if cope_row:
+            # Update existing COPE row
+            cope_updates = []
+            cope_vals = []
+            for fkey, fval in cope_fields.items():
+                cope_updates.append(f"{fkey} = ?")
+                cope_vals.append(fval)
+            if cope_updates:
+                cope_updates.append("updated_at = datetime('now')")
+                cope_vals.append(project_id)
+                conn.execute(
+                    f"UPDATE cope_data SET {', '.join(cope_updates)} WHERE project_id = ?",
+                    cope_vals,
+                )
+        else:
+            # Insert new COPE row
+            cols = ["project_id"]
+            vals = [project_id]
+            for fkey, fval in cope_fields.items():
+                cols.append(fkey)
+                vals.append(fval)
+            placeholders = ", ".join("?" for _ in cols)
+            conn.execute(
+                f"INSERT INTO cope_data ({', '.join(cols)}, created_at, updated_at) "
+                f"VALUES ({placeholders}, datetime('now'), datetime('now'))",
+                vals,
+            )
+        logger.info("AI import: saved COPE data for location %s", project_id)
+
+    conn.commit()
+
+    # Get location name for response
+    loc_name = location_name
+    if project_id:
+        loc_row = conn.execute("SELECT name FROM projects WHERE id = ?", (project_id,)).fetchone()
+        if loc_row:
+            loc_name = loc_row["name"] or loc_name
+
+    return JSONResponse({"ok": True, "location_name": loc_name, "created": created, "project_id": project_id})
 
 
 @router.get("/{policy_uid}/tab/details", response_class=HTMLResponse)

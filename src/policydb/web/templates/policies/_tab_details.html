@@ -1,6 +1,10 @@
 {# Policy Details Tab — per-field PATCH on blur, no form wrapper #}
 <div id="tab-details-content">
 
+{% if ai_policy_diffs is defined and (ai_policy_diffs or ai_location_data) %}
+{% include 'policies/_ai_review_panel.html' %}
+{% endif %}
+
 {% if policy.is_opportunity %}
 <!-- Opportunity banner -->
 <div class="bg-amber-50 border border-amber-200 rounded-xl px-5 py-4 mb-4 flex items-start justify-between gap-4">

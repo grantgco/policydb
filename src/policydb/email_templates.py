@@ -167,6 +167,15 @@ def policy_context(conn: sqlite3.Connection, policy_uid: str) -> dict:
         ctx["program_carriers"] = ""
         ctx["program_carrier_count"] = ""
 
+    # COPE data from linked location
+    cope_data: dict = {}
+    if row["project_id"]:
+        _cope_row = conn.execute(
+            "SELECT * FROM cope_data WHERE project_id = ?", (row["project_id"],)
+        ).fetchone()
+        if _cope_row:
+            cope_data = dict(_cope_row)
+
     ctx.update({
         "policy_type": row["policy_type"] or "",
         "carrier": row["carrier"] or "",
@@ -196,6 +205,16 @@ def policy_context(conn: sqlite3.Connection, policy_uid: str) -> dict:
             policy_uid=row["policy_uid"] or "",
             project_id=row["project_id"] or 0,
         ),
+        # COPE tokens
+        "construction_type": cope_data.get("construction_type", ""),
+        "year_built": str(cope_data.get("year_built", "")) if cope_data.get("year_built") else "",
+        "stories": str(cope_data.get("stories", "")) if cope_data.get("stories") else "",
+        "sq_footage": str(int(cope_data["sq_footage"])) if cope_data.get("sq_footage") else "",
+        "sprinklered": cope_data.get("sprinklered", ""),
+        "roof_type": cope_data.get("roof_type", ""),
+        "occupancy_description": cope_data.get("occupancy_description", ""),
+        "protection_class": cope_data.get("protection_class", ""),
+        "total_insurable_value": _fmt_currency(cope_data.get("total_insurable_value")),
     })
     return ctx
 
@@ -544,6 +563,17 @@ CONTEXT_TOKEN_GROUPS: dict[str, list[tuple[str, list[tuple[str, str]]]]] = {
             ("team_emails", "Team Emails (list)"),
             ("placement_colleagues", "Placement Colleagues (list)"),
             ("placement_emails", "Placement Emails (list)"),
+        ]),
+        ("COPE", [
+            ("construction_type", "Construction Type"),
+            ("year_built", "Year Built"),
+            ("stories", "Stories"),
+            ("sq_footage", "Square Footage"),
+            ("sprinklered", "Sprinklered"),
+            ("roof_type", "Roof Type"),
+            ("occupancy_description", "Occupancy"),
+            ("protection_class", "Protection Class"),
+            ("total_insurable_value", "Total Insurable Value"),
         ]),
         ("Follow-up", [
             ("subject", "Follow-Up Subject"),
