@@ -205,7 +205,42 @@ def _followups_ctx(conn, window: int, activity_type: str, q: str,
         item["nudge_count"] = count
         item["escalation_tier"] = tier
 
+    # Inject overdue milestones into urgency tiers
+    try:
+        milestone_rows = conn.execute("""
+            SELECT pt.policy_uid, pt.milestone_name, pt.projected_date,
+                   pt.ideal_date, pt.health, pt.accountability, pt.completed_date,
+                   p.policy_type, c.name AS client_name, c.id AS client_id
+            FROM policy_timeline pt
+            JOIN policies p ON p.policy_uid = pt.policy_uid
+            JOIN clients c ON c.id = p.client_id
+            WHERE pt.projected_date <= ?
+              AND pt.completed_date IS NULL
+            ORDER BY pt.projected_date
+        """, (today_str,)).fetchall()
+
+        for row in milestone_rows:
+            item = dict(row)
+            item["source"] = "milestone"
+            item["is_milestone"] = True
+            item["follow_up_date"] = item["projected_date"]
+            item["id"] = f"ms-{item['policy_uid']}-{item['milestone_name']}"
+            try:
+                days_past = (today - date.fromisoformat(item["projected_date"])).days
+            except (ValueError, TypeError):
+                days_past = 0
+            item["days_overdue"] = days_past
+            if days_past == 0:
+                buckets["today"].append(item)
+            elif days_past > stale_threshold:
+                buckets["stale"].append(item)
+            elif days_past > 0:
+                buckets["overdue"].append(item)
+    except Exception:
+        pass  # policy_timeline may not exist yet
+
     # Prep coming — timeline milestones whose prep_alert_date has arrived
+    # Only include milestones whose projected_date is still in the future
     prep_coming: list[dict] = []
     try:
         prep_rows = conn.execute("""
@@ -215,10 +250,11 @@ def _followups_ctx(conn, window: int, activity_type: str, q: str,
             FROM policy_timeline pt
             JOIN policies p ON p.policy_uid = pt.policy_uid
             JOIN clients c ON c.id = p.client_id
-            WHERE pt.prep_alert_date <= ? AND pt.completed_date IS NULL
+            WHERE pt.prep_alert_date <= ? AND pt.projected_date > ?
+              AND pt.completed_date IS NULL
               AND pt.prep_alert_date IS NOT NULL
             ORDER BY pt.projected_date
-        """, (today_str,)).fetchall()
+        """, (today_str, today_str)).fetchall()
         prep_coming = [dict(r) for r in prep_rows]
     except Exception:
         # policy_timeline table may not exist yet — degrade gracefully
@@ -591,6 +627,25 @@ def acknowledge_alert(request: Request, policy_uid: str, conn=Depends(get_db)):
 
 
 # ── Triage disposition ───────────────────────────────────────────────────────
+
+
+@router.post("/policies/{policy_uid}/milestone/{milestone_name}/complete", response_class=HTMLResponse)
+def complete_timeline_milestone_endpoint(
+    request: Request,
+    policy_uid: str,
+    milestone_name: str,
+    conn=Depends(get_db),
+):
+    """Complete a timeline milestone and re-render the followups tab."""
+    import urllib.parse
+    from policydb.timeline_engine import complete_timeline_milestone
+    decoded_name = urllib.parse.unquote(milestone_name)
+    complete_timeline_milestone(conn, policy_uid, decoded_name)
+    conn.commit()
+    # Re-render the full followups tab
+    ctx = _followups_ctx(conn, window=30, activity_type="", q="")
+    ctx["request"] = request
+    return templates.TemplateResponse("action_center/_followups.html", ctx)
 
 
 @router.post("/action-center/set-disposition/{activity_id}", response_class=HTMLResponse)
