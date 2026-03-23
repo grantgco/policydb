@@ -19,6 +19,14 @@
           </button>
         </form>
         {% endif %}
+        <select id="review-client-filter"
+          onchange="window.location.href='/review' + (this.value ? '?client_id=' + this.value : '')"
+          class="text-xs border border-gray-200 rounded-md px-2 py-1.5 bg-white focus:ring-1 focus:ring-marsh">
+          <option value="">All Clients</option>
+          {% for c in all_clients %}
+          <option value="{{ c.id }}" {{ 'selected' if client_id == c.id }}>{{ c.name }}</option>
+          {% endfor %}
+        </select>
         <a href="/renewals" class="text-xs text-marsh hover:underline">Renewals →</a>
       </div>
     </div>

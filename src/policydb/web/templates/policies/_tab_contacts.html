@@ -16,12 +16,9 @@
         {% if c.phone %}<span class="text-gray-500">{{ c.phone }}</span>{% endif %}
         {% if c.mobile %}<span class="text-gray-400">Cell: {{ c.mobile }}</span>{% endif %}
         {% if c.email %}
-        <button type="button" class="ep-trigger text-marsh hover:underline"
-          data-to="{{ c.email }}"
-          data-to-label="{{ c.name }}"
-          data-subject="{{ mailto_subject }}"
-          data-cc="{{ team_cc_json }}"
-          data-ref="{{ build_ref_tag(cn_number=policy.cn_number|default(''), client_id=policy.client_id, policy_uid=policy.policy_uid, project_id=policy.project_id|default(0)) }}">✉ {{ c.email }}</button>
+        <button type="button"
+          onclick="openComposeSlideover({context:'policy', policy_uid:'{{ policy.policy_uid }}', client_id:{{ policy.client_id }}, to_email:'{{ c.email }}'})"
+          class="text-marsh hover:underline">✉ {{ c.email }}</button>
         {% endif %}
       </div>
     </div>
@@ -53,16 +50,13 @@
 <div class="mb-4">{% include 'policies/_policy_team.html' %}</div>
 
 <!-- Compose Email -->
-<details id="compose-panel-policy" class="card mb-4">
-  <summary class="px-4 py-2.5 cursor-pointer text-sm font-medium text-marsh hover:bg-gray-50 rounded-xl select-none list-none flex items-center gap-2 no-print">
-    <span>✉</span> Compose Email
-  </summary>
-  <div hx-get="/templates/compose?context=policy&policy_uid={{ policy.policy_uid }}"
-       hx-trigger="toggle from:#compose-panel-policy once"
-       hx-swap="innerHTML">
-    <div class="p-4 text-sm text-gray-400">Loading…</div>
-  </div>
-</details>
+<div class="mb-4 no-print">
+  <button type="button"
+    onclick="openComposeSlideover({context:'policy', policy_uid:'{{ policy.policy_uid }}', client_id:{{ policy.client_id }}})"
+    class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-marsh hover:text-white bg-white hover:bg-marsh border border-marsh/30 hover:border-marsh rounded-lg transition-colors no-print">
+    ✉ Compose Email
+  </button>
+</div>
 
 <script>
 /* Expertise toggle for policy team contacts */

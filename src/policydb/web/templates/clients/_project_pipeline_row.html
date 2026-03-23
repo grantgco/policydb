@@ -1,16 +1,7 @@
 <tr id="pp-row-{{ p.id }}" class="pp-row hover:bg-gray-50/60 align-middle border-b border-gray-100">
-  {# Type — pill buttons #}
+  {# Type — dropdown #}
   <td class="px-2 py-2">
-    <div class="flex flex-wrap gap-1">
-      {% for pt in project_types if pt != 'Location' %}
-      <button type="button" data-pp-field="project_type"
-        onclick="ppSelectPill(this, 'project_type', {{ pt | tojson }}, {{ client.id }}, {{ p.id }})"
-        class="text-xs px-2 py-0.5 rounded-full border transition-colors
-               {% if p.project_type == pt %}bg-marsh text-white border-marsh{% else %}border-gray-200 text-gray-500 hover:border-marsh hover:text-marsh{% endif %}">
-        {{ pt }}
-      </button>
-      {% endfor %}
-    </div>
+    {% include "clients/_project_type_badge.html" %}
   </td>
 
   {# Project name — contenteditable, links to detail #}
@@ -26,18 +17,9 @@
     </div>
   </td>
 
-  {# Status — pill buttons #}
+  {# Status — dropdown #}
   <td class="px-2 py-2">
-    <div class="flex flex-wrap gap-1">
-      {% for stage in project_stages %}
-      <button type="button" data-pp-field="status"
-        onclick="ppSelectPill(this, 'status', {{ stage | tojson }}, {{ client.id }}, {{ p.id }})"
-        class="text-xs px-2 py-0.5 rounded-full border transition-colors
-               {% if p.status == stage %}bg-marsh text-white border-marsh{% else %}border-gray-200 text-gray-500 hover:border-marsh hover:text-marsh{% endif %}">
-        {{ stage }}
-      </button>
-      {% endfor %}
-    </div>
+    {% include "clients/_project_status_badge.html" %}
   </td>
 
   {# Insurance Needed By #}

@@ -1,0 +1,63 @@
+{# Mandated Activities — table rows partial (used by editor + HTMX add/remove responses) #}
+{% for r in mandated_activities %}
+<tr class="border-b border-gray-50 hover:bg-gray-50/50 group" data-ma-idx="{{ loop.index0 }}">
+  <td class="py-1.5 pr-2">
+    <span class="text-gray-800 font-medium cursor-text ma-cell" contenteditable="true"
+      data-field="name" data-idx="{{ loop.index0 }}"
+      data-original="{{ r.name }}">{{ r.name }}</span>
+  </td>
+  <td class="py-1.5 pr-2 relative">
+    <select class="text-xs border border-gray-200 rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-marsh bg-transparent"
+      data-field="trigger" data-idx="{{ loop.index0 }}"
+      onchange="saveMaField(this, '{{ loop.index0 }}', 'trigger', this.value)">
+      <option value="days_before_expiry" {{ 'selected' if r.trigger == 'days_before_expiry' }}>Before Expiry</option>
+      <option value="days_after_effective" {{ 'selected' if r.trigger == 'days_after_effective' }}>After Effective</option>
+      <option value="days_after_binding" {{ 'selected' if r.trigger == 'days_after_binding' }}>After Binding</option>
+    </select>
+  </td>
+  <td class="py-1.5 pr-2">
+    <span class="text-gray-700 cursor-text ma-cell" contenteditable="true"
+      data-field="days" data-idx="{{ loop.index0 }}"
+      data-original="{{ r.days }}">{{ r.days }}</span>
+  </td>
+  <td class="py-1.5 pr-2">
+    <span class="text-gray-700 cursor-text ma-cell" contenteditable="true"
+      data-field="prep_days" data-idx="{{ loop.index0 }}"
+      data-original="{{ r.prep_days|default(0) }}">{{ r.prep_days|default(0) }}</span>
+  </td>
+  <td class="py-1.5 pr-2">
+    <select class="text-xs border border-gray-200 rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-marsh bg-transparent"
+      data-field="checklist_milestone" data-idx="{{ loop.index0 }}"
+      onchange="saveMaField(this, '{{ loop.index0 }}', 'checklist_milestone', this.value)">
+      <option value="">-- none --</option>
+      {% for m in renewal_milestones %}
+      <option value="{{ m }}" {{ 'selected' if r.get('checklist_milestone') == m }}>{{ m }}</option>
+      {% endfor %}
+    </select>
+  </td>
+  <td class="py-1.5 pr-2">
+    <select class="text-xs border border-gray-200 rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-marsh bg-transparent"
+      data-field="activity_type" data-idx="{{ loop.index0 }}"
+      onchange="saveMaField(this, '{{ loop.index0 }}', 'activity_type', this.value)">
+      {% for at in activity_types %}
+      <option value="{{ at }}" {{ 'selected' if r.get('activity_type') == at }}>{{ at }}</option>
+      {% endfor %}
+    </select>
+  </td>
+  <td class="py-1.5 pr-2">
+    <span class="text-gray-600 cursor-text ma-cell truncate max-w-[200px] inline-block" contenteditable="true"
+      data-field="subject" data-idx="{{ loop.index0 }}"
+      data-original="{{ r.get('subject', '') }}"
+      data-placeholder="Auto-generated">{{ r.get('subject', '') }}</span>
+  </td>
+  <td class="py-1.5">
+    <form hx-post="/settings/mandated-activities/remove" hx-target="#ma-editor-body" hx-swap="innerHTML"
+      class="inline opacity-0 group-hover:opacity-100 transition-opacity">
+      <input type="hidden" name="name" value="{{ r.name }}">
+      <button type="submit" class="text-red-400 hover:text-red-600">&times;</button>
+    </form>
+  </td>
+</tr>
+{% else %}
+<tr><td colspan="8" class="py-4 text-gray-400 text-center">No mandated activities configured.</td></tr>
+{% endfor %}

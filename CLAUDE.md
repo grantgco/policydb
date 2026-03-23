@@ -5,6 +5,27 @@ PolicyDB is a local FastAPI + SQLite insurance book-of-business management tool.
 
 ---
 
+## Workflow Guidance
+
+Not every task needs a full brainstorm cycle. Use this to calibrate:
+
+| Situation | Approach |
+|-----------|----------|
+| Bug fix with clear repro steps | Just fix it. Verify with QA. |
+| Small UI tweak (move a button, change a label, adjust spacing) | Just do it. Screenshot to confirm. |
+| Add a field to an existing form/table | Code directly. Remember: migration + token + importer alias. |
+| New config list or settings entry | Code directly. Follow existing patterns. |
+| Template/copy changes | Code directly. |
+| New feature, new page, or new workflow | **Brainstorm first** — explore intent, requirements, edge cases. |
+| Redesign or rethink an existing page | **Brainstorm first** — mockup before code. |
+| Multi-file architectural change | **Plan first** — write a plan, get approval, then execute. |
+| Ambiguous request ("make this better", "improve X") | **Brainstorm first** — clarify what "better" means. |
+| New integration or external system | **Plan first** — scope, API, data flow. |
+
+**Rule of thumb:** If the change touches 1–2 files and follows an existing pattern, skip brainstorm and just code. If it introduces a new pattern, affects 3+ files, or has design choices to make, brainstorm or plan first.
+
+---
+
 ## Technology Stack
 
 | Layer | Technology |
@@ -19,19 +40,11 @@ PolicyDB is a local FastAPI + SQLite insurance book-of-business management tool.
 | Phone formatting | `phonenumbers` library via `format_phone()` in `src/policydb/utils.py` |
 | Currency parsing | `parse_currency_with_magnitude()` in `src/policydb/utils.py` — supports shorthand like `1m`, `1.5M`, `500k`, `$2,000,000` |
 
-### Currency Shorthand Parsing
+### Currency & Phone Rules
 
-**Every money/currency input field** (limits, deductibles, premiums, retentions, etc.) MUST use `parse_currency_with_magnitude()` from `src/policydb/utils.py` when saving. This function supports shorthand notation:
+**Currency:** Every money field MUST use `parse_currency_with_magnitude()` from `utils.py` (supports `1m`, `500k`, `$2,000,000`). Never use raw `float()`. For display: `{{ value | currency }}` or `{{ value | currency_short }}`. Never use Python `%g` (produces scientific notation).
 
-| Input | Parsed Value |
-|-------|-------------|
-| `1m` or `1M` | 1,000,000 |
-| `1.5m` | 1,500,000 |
-| `500k` | 500,000 |
-| `$2,000,000` | 2,000,000 |
-| `25000` | 25,000 |
-
-**Never use raw `float()` for currency fields.** Always import and use `parse_currency_with_magnitude` to ensure consistent shorthand support across the entire platform.
+**Phone:** Always call `format_phone()` from `utils.py` when saving. **Email:** Always call `clean_email()` from `utils.py` when saving. Both must return `{"ok": true, "formatted": "..."}` in PATCH responses and flash the cell green when the value changes.
 
 ---
 
@@ -42,7 +55,7 @@ PolicyDB is a local FastAPI + SQLite insurance book-of-business management tool.
 - Migrations: `src/policydb/migrations/NNN_description.sql` — sequentially numbered
 - Migration runner: `src/policydb/db.py` — `init_db()` runs all migrations and rebuilds views on every server start
 - Views are **always dropped and recreated** on startup — never reference non-existent columns in view SQL
-- Current migration count: ~022
+- Current migration count: 071
 
 ### Key Tables
 - `clients` — name, industry, contacts, account exec, scratchpad
@@ -109,15 +122,9 @@ Variants exist for: `row` (client detail), `dash` (dashboard), `renew` (renewals
 
 **Copy format:** `copyRefTag()` in `base.html` wraps with `[PDB:...]` for Outlook search distinctiveness. Clicking any ref tag pill copies `[PDB:CN123456789-POL042]` to clipboard.
 
-**Ref tag pill partial:** `_ref_tag_pill.html` — reusable component. Usage:
-```jinja2
-{% set _ref = build_ref_tag(cn_number=..., client_id=..., policy_uid=..., project_id=...) %}
-{% with ref_tag=_ref %}{% include "_ref_tag_pill.html" %}{% endwith %}
-```
+**Ref tag pill partial:** `_ref_tag_pill.html` — reusable component. See template for usage. Copy depth for emails: Client + Location + Policy only — deeper suffixes are for internal linking only.
 
-**Copy depth for emails:** Client + Location + Policy only — no activity/thread suffixes in email tags. Deeper suffixes (`-A{id}`, `-RFI{nn}`) are for internal PolicyDB linking only.
-
-**Activity Timeline:** Activities on the policy Contacts tab are auto-clustered by time proximity (`activity_cluster_days` config, default 7 days). Display-only grouping — no data model. Replaces the old COR correspondence threading (manual `thread_id` approach removed).
+**Activity Timeline:** Auto-clustered by `activity_cluster_days` config (default 7 days). Display-only grouping, no data model.
 
 ### Opportunities
 Policies with `is_opportunity=1` are excluded from:
@@ -197,11 +204,7 @@ Opportunities have optional dates/carrier; the "Convert to Policy" flow sets rea
 This makes the field available as a clickable token pill in the template builder at `/templates`.
 
 ### Compose Panel
-Triggered from policy edit page, client detail page, and follow-ups page via a `<details>` element. The HTMX trigger pattern is:
-```html
-hx-trigger="toggle from:#compose-panel-id once"
-```
-**Do NOT use `toggle[open]`** — the `[open]` filter evaluates on the `<div>` (not the `<details>`), which is always falsy and the request never fires.
+Uses `hx-trigger="toggle from:#compose-panel-id once"` on `<details>`. Do NOT use `toggle[open]` — the `[open]` filter is always falsy on the inner div.
 
 ---
 
@@ -235,60 +238,21 @@ Key config lists managed in Settings UI (`/settings`):
 
 ## Reconciler
 
-`src/policydb/reconciler.py` — matches imported statement/renewal list rows to existing policies using additive scoring.
+`src/policydb/reconciler.py` — matches imported rows to existing policies using additive scoring via `_score_pair()`.
 
-### Scoring Algorithm (`_score_pair()`)
+**Core principles:**
+- **No hard gates** — every signal contributes independently, no single field blocks a match
+- **Two normalization categories:** display/save functions (write to DB) vs matching functions (comparison only, never save)
+- Track diffs at **both** levels: `diff_fields` (real) AND `cosmetic_diffs` (same after normalization)
+- **Railroad Protective Liability** is a distinct type — never alias to General Liability
+- Coverage aliases: `_COVERAGE_ALIASES` in `utils.py` + user-learned `coverage_aliases` in config
+- Carrier aliases: `carrier_aliases` in config (merged via `rebuild_carrier_aliases()`)
 
-Additive scoring with **no hard gates** — every signal contributes independently:
+See `reconciler.py` for scoring weights/tiers and `utils.py` for normalization functions.
 
-| Signal | Max Points | Details |
-|--------|-----------|---------|
-| Policy Number | 40 | Exact normalized = 40, fuzzy >= 90 = 32, >= 75 = 20, missing = 0 (neutral) |
-| Dates (eff + exp) | 30 | Split 15+15. Exact = 15, <= 14d = 12, <= 45d = 8, same year = 4 |
-| Policy Type | 15 | Normalized match = 15, fuzzy >= 85 = 12, >= 70 = 8 |
-| Carrier | 10 | Normalized match = 10, fuzzy >= 80 = 7, >= 60 = 4 |
-| Client Name | 5 | Normalized match = 5, fuzzy >= 80 = 4, >= 60 = 2 |
+**Reconcile UI:** Upload → column mapping → validation panel → pairing board → confirm → export XLSX. Endpoints under `/reconcile/*`.
 
-**Confidence tiers:** high >= 75, medium >= 45, low < 45
-
-**Important rules:**
-- **No hard gates** — no single field can block a match
-- **Railroad Protective Liability** is a distinct policy type — do NOT alias it to General Liability
-- `_score_pair()` must track diffs at **both** levels: `diff_fields` (real differences) AND `cosmetic_diffs` (same after normalization) — both need UI update controls
-- FNI cross-matching: checks all combinations of ext client/FNI vs db client/FNI, takes best score
-- Single-client mode: auto-max name score to 5
-
-### Normalization (Two Categories)
-
-**Display/save functions** (write to DB):
-- `normalize_client_name()` — preserves legal suffixes, title case
-- `normalize_policy_number()` — uppercase + trim, preserves formatting
-- `normalize_coverage_type()` — alias map → canonical name
-- `normalize_carrier()` — config-driven alias → canonical carrier
-
-**Matching functions** (comparison only, never write to DB):
-- `normalize_client_name_for_matching()` — strips legal suffixes entirely
-- `normalize_policy_number_for_matching()` — strips all formatting + filters placeholders
-
-### Coverage Aliases
-
-- `_COVERAGE_ALIASES` in `utils.py` — hardcoded base aliases (~237 entries)
-- `coverage_aliases` in config.yaml — user-learned aliases (merged via `rebuild_coverage_aliases()`)
-- `carrier_aliases` in config.yaml — carrier name mappings (merged via `rebuild_carrier_aliases()`)
-
-### Reconcile UI (Pairing Board)
-
-The reconcile page uses the **Pairing Board pattern** (see below). Flow:
-1. Upload CSV/XLSX → column mapping
-2. **Validation panel** — pre-match data quality check with auto-learn aliases
-3. **Pairing board** — side-by-side with drag-to-match, score breakdowns, field-level diff accept/fill
-4. Confirm pairs → export XLSX
-
-Key endpoints: `/reconcile`, `/reconcile/run-match`, `/reconcile/confirm/{idx}`, `/reconcile/break/{idx}`, `/reconcile/manual-pair`, `/reconcile/search-coverage`, `/reconcile/apply-field/{uid}`
-
-### Location Assignment Board
-
-`/clients/{id}/locations` — same pairing board pattern for assigning policies to physical locations. Drag policies to location groups, smart suggestions from shared `exposure_address`.
+**Location Assignment Board:** `/clients/{id}/locations` — same pairing board pattern for policies → physical locations.
 
 ---
 
@@ -364,86 +328,21 @@ When building or modifying any tabular data view (policy schedules, client lists
 
 ### Server-Side Parsing & Visual Feedback
 
-When a cell value is saved via PATCH, the server may clean or reformat the input (phone formatting, email normalization). The response must return the formatted value so the UI can update the cell and signal the change to the user.
-
-**PATCH response format:**
-```json
-{"ok": true, "formatted": "(512) 555-1234"}
-```
-
-**Frontend pattern:**
-1. On blur, send the raw cell text to the PATCH endpoint
-2. On success, compare `data.formatted` to the raw value that was sent
-3. If they differ, update the cell text **and** flash the cell green (800ms fade) to indicate the server cleaned/formatted the input
-4. If they match, update silently (no flash needed)
-
-**`flashCell` helper** (used in all matrix controllers):
-```javascript
-function flashCell(el) {
-  el.style.transition = 'background-color 0.3s ease';
-  el.style.backgroundColor = '#d1fae5';
-  setTimeout(function() {
-    el.style.backgroundColor = '';
-    setTimeout(function() { el.style.transition = ''; }, 300);
-  }, 800);
-}
-```
-
-**Fields that trigger server-side formatting:**
-
-| Field | Function | Example |
-|-------|----------|---------|
-| Phone, Mobile | `format_phone()` from `src/policydb/utils.py` | `5125551234` → `(512) 555-1234` |
-| Email | `clean_email()` from `src/policydb/utils.py` | `Jane <jane@co.com>` → `jane@co.com` |
-
-**Rules for new PATCH cell-save endpoints:**
-- Always run `format_phone()` on phone/mobile fields before saving
-- Always run `clean_email()` on email fields before saving
-- Always return `{"ok": true, "formatted": "..."}` with the post-processing value
-- The JS callback must update `cell.textContent` (or rebuild the display HTML for email links) with the `formatted` value and call `flashCell()` when it differs from the raw input
+PATCH cell-save endpoints must return `{"ok": true, "formatted": "..."}`. The JS callback updates the cell and calls `flashCell()` when the formatted value differs from raw input. See `base.html` for the `flashCell` helper implementation.
 
 ### Jinja2 `tojson` in HTML Attributes
 
-Never use `{{ list | tojson | e }}` inside double-quoted HTML attributes. With autoescape enabled, `tojson` returns `Markup` (safe), so `| e` is a no-op — raw JSON double quotes break the attribute delimiter.
-
-**Correct:** Use single-quote attribute delimiters with `| tojson` alone:
-```html
-data-options='{{ items | tojson }}'
-```
-`tojson` auto-escapes `'` as `\u0027`, so single-quote delimiters are safe even for values containing apostrophes.
+Use single-quote delimiters: `data-options='{{ items | tojson }}'`. Never use `| e` with `tojson` inside double-quoted attributes — it breaks the delimiter.
 
 ---
 
 ### Pairing Board Pattern
 
-The **pairing board** is a reusable UI pattern for matching/comparing records from two sources side by side. Use it whenever records from one list need to be matched, paired, or assigned to records in another list.
+Reusable UI for matching records from two sources: left (source) | center (score badge) | right (target) | actions (confirm/break/create). Drag-to-pair supported. OOB counter pattern: every action returns row HTML + `hx-swap-oob` counter update.
 
-**Structure:**
-- **Left column**: Source records (upload rows, unassigned items)
-- **Center column**: Score/status badge (clickable for breakdown)
-- **Right column**: Target records (DB matches, locations, programs)
-- **Action column**: Confirm / Break / Create buttons
+**Colors:** Green (high >=75), Amber (medium 45–74), Red (unmatched source), Purple (extra target/draggable).
 
-**Implementation recipe:**
-1. **Define two sides** — "source" rows and "target" rows
-2. **Write a scoring function** — returns 0–100 with per-signal breakdown (use `_score_pair()` pattern from `reconciler.py`)
-3. **Cache results server-side** with a UUID token (in-memory dict, 1-hour TTL)
-4. **Create 4 row templates** — paired row, unmatched-source row, extra-target row, score breakdown
-5. **Wire HTMX endpoints** — confirm, break, pair, create (each returns one row HTML + OOB counter updates)
-6. **Add drag-drop** — `draggable="true"` on extras, drop zone on unmatched, `htmx.ajax()` on drop (~40 lines JS)
-7. **Filter tabs** — client-side toggle on `data-status` attributes, no server round-trip
-
-**Color conventions:**
-- Green (`bg-green-50`): high-confidence pair (score >= 75)
-- Amber (`bg-amber-50`): medium-confidence pair (score 45–74)
-- Red (`bg-red-50`): unmatched source row
-- Purple (`bg-indigo-50`): extra target row (draggable)
-
-**OOB counter pattern:** Every action endpoint returns the updated row HTML plus `<div id="board-counters" hx-swap-oob="true">` with updated counts.
-
-**Current implementations:**
-- `src/policydb/web/templates/reconcile/_pairing_board.html` — reconcile upload vs DB policies
-- `src/policydb/web/templates/clients/_location_board.html` — policies vs locations (planned)
+**Reference implementation:** `reconcile/_pairing_board.html`. See `reconciler.py` for the `_score_pair()` pattern.
 
 ---
 
@@ -472,62 +371,48 @@ This is not optional — UI changes without visual verification have repeatedly 
 - Always pass `renewal_statuses` to any template that renders `_status_badge.html`
 - Always call `_attach_milestone_progress(conn, rows)` before passing pipeline rows to templates that show checklist progress
 - `_attach_client_ids(conn, rows)` adds `client_id` to pipeline rows for linking
-- Phone formatting: always call `format_phone()` from `src/policydb/utils.py` when saving phone fields
 - SQLite migrations are one-way; use `ALTER TABLE ... ADD COLUMN` and never remove columns
 
 ### Lessons Learned (Bug Patterns to Avoid)
 
-**1. Migration wiring:** Adding a `.sql` file to `migrations/` is NOT enough. Every migration MUST also be wired into `init_db()` in `db.py` with the version check + INSERT into `schema_version`. Forgetting this causes "no such table" errors at runtime.
+**1. Migration wiring:** `.sql` file alone is NOT enough — must also wire into `init_db()` in `db.py` with version check + INSERT into `schema_version`.
 
-**2. `<form>` inside `<tr>` is invalid HTML:** Browsers silently discard `<form>` elements that are direct children of `<tr>`. This causes Save buttons to silently do nothing. Solutions:
-   - Move the `<form>` inside a `<td>` (valid HTML)
-   - Use `hx-post` + `hx-include` on the button instead of wrapping in a form
-   - Never use `<form class="contents">` inside `<tr>` — it doesn't work
+**2. `<form>` inside `<tr>` is invalid HTML:** Browsers silently discard it. Use `hx-post` + `hx-include` on the button instead, or move the form inside a `<td>`.
 
-**3. Currency display — never use `%g` format:** Python's `%g` produces scientific notation (`1e+06`) for large numbers. Always use:
-   - `'{:,.0f}'.format(value)` for comma-separated integers (1,000,000)
-   - `{{ value | currency }}` for dollar display ($1,000,000)
-   - `{{ value | currency_short }}` for shorthand ($1.0M, $500K)
-   - PATCH endpoints returning formatted values should use shorthand format
+**3. `initMatrix()` combobox positioning:** Parent `<td>` MUST have `position: relative` (Tailwind: `relative`) or dropdown spans full page width.
 
-**4. `initMatrix()` combobox positioning:** Combobox dropdown uses `position: absolute`. The parent `<td>` MUST have `position: relative` (add Tailwind class `relative`) or the dropdown will span full page width.
+**4. Config lists MUST be in Settings UI:** Add new config lists to BOTH `_DEFAULTS` in `config.py` AND `EDITABLE_LISTS` in `settings.py`.
 
-**5. Config lists MUST be in Settings UI:** When adding new config lists to `_DEFAULTS` in `config.py`, ALSO add them to `EDITABLE_LISTS` in `settings.py` so users can manage them from the Settings page. Otherwise the list exists but is invisible/uneditable.
+**5. Source-level scoping propagation:** Compliance queries must check BOTH requirement's `project_id` AND source's `project_id`.
 
-**6. Source-level scoping propagation:** When a `requirement_source` is scoped to a `project_id`, the compliance engine query must check BOTH the requirement's `project_id` AND the source's `project_id` to determine which locations see those requirements. A source scoped to Location B should not have its requirements inherited by Location A.
+**6. `window.location.reload()` scroll jump:** Save `window.scrollY` to `sessionStorage` before reload, restore on load. Scope the key per-page.
 
-**7. `window.location.reload()` scroll jump:** Full page reloads reset scroll position. When a JS action triggers a reload, save `window.scrollY` to `sessionStorage` (with a page-specific key) before reload, and restore on page load. Always scope the storage key to prevent cross-page interference.
+**7. NOT NULL constraints on blank rows:** Use `""` (not `None`) for NOT NULL text columns in add-row endpoints.
 
-**8. NOT NULL constraints on blank row creation:** When creating blank/empty rows for rapid-entry patterns, save empty string `""` (not `None`) for NOT NULL text columns. Check the migration schema for which columns are NOT NULL before implementing add-row endpoints.
+**8. `initMatrix()` add-row must return a single `<tr>`:** Not the entire card/section HTML — that causes overlapping renders inside tbody.
 
-**9. `initMatrix()` add-row endpoint must return a single `<tr>`:** The `createNewRow` function in `base.html` POSTs to `addRowUrl` and appends the response HTML children to the `<tbody>`. If the endpoint returns the entire card/section HTML (`<div><table><tbody>...</tbody></table></div>`), the card markup gets appended INSIDE the tbody, causing overlapping renders. Always return just the `<tr>` row template from add-row endpoints used with `initMatrix()`.
+**9. `initAtComplete()` on HTMX-loaded inputs:** Must be called in a `<script>` block within the partial template after the input renders.
 
-**10. `initAtComplete()` must be called on dynamically-loaded inputs:** The `@` contact autocomplete only works on inputs that have `initAtComplete(input, hiddenId)` called on them. HTMX-loaded tab content doesn't get this automatically — call it in a `<script>` block within the partial template after the input is rendered.
+**10. `table-fixed` breaks on narrow viewports:** Use `table-layout: auto` with `min-width` + `whitespace-nowrap` instead.
 
-**11. `table-fixed` breaks with narrow viewports:** Using `table-fixed` with pixel-width `<col>` elements causes text to wrap character-by-character when the table is compressed. Prefer `table-layout: auto` with `min-width` on key columns and `whitespace-nowrap` on narrow columns.
+**11. Scratchpads are ephemeral → activities are the record:** "Log as Activity" creates the permanent record. `saved_notes` table is legacy.
 
-**12. Scratchpads are working documents — activities are the record:** The platform philosophy is that scratchpads are ephemeral working spaces. When done, "Log as Activity" creates the permanent record. There is no separate "Saved Notes" layer — notes become activities. The `saved_notes` table exists but is legacy (data migrated to `activity_log` via migration 068).
+**12. Sidebar responsive:** Use `hidden xl:block` (not `lg:block`) — `lg` overlaps tabbed content.
 
-**13. Sidebar responsive visibility:** Use `hidden xl:block` (not `lg:block`) for sidebars on pages with tabbed content. At `lg` (1024px) the sidebar overlaps tab content. `xl` (1280px) gives enough room for both.
+**13. Worktree pycache conflicts:** Drop stash, `git checkout -- '**/__pycache__/'`, re-run `pip install -e .`.
 
-**14. Worktree rebase stash conflicts with pycache:** When rebasing a worktree, `git stash pop` can fail on `.pyc` file conflicts. Drop the stash, `git checkout -- '**/__pycache__/'`, and re-run `pip install -e .` to regenerate.
+**14. Jinja2 has no `loop.parent`:** Capture outer loop index with `{% set outer_idx = loop.index0 %}` before inner loop.
 
-**15. Jinja2 `loop.parent` does not exist:** Jinja2 has no `loop.parent` to access an outer loop's context from a nested loop. Capture the outer loop index into a `{% set %}` variable before entering the inner loop:
-   - **Wrong:** `{{ loop.parent.loop.index0 }}`
-   - **Correct:** `{% set outer_idx = loop.index0 %}` before the inner `{% for %}`, then use `{{ outer_idx }}`
+**15. Config import:** `import policydb.config as cfg` then `cfg.get("key")`. Never `from policydb.config import cfg`.
 
-**16. Config import pattern — `import policydb.config as cfg`:** The config module is imported as `import policydb.config as cfg`, then accessed via `cfg.get("key")`. Never use `from policydb.config import cfg` — there is no `cfg` object to import. The module itself IS the config interface.
+**16. Verify config key names against `_DEFAULTS`:** Spec/plan key names drift from actual implementation. Always read `config.py` first.
 
-**17. Config key names must match between Python and templates:** When a subagent or plan spec defines config keys (e.g., `conditions.min_premium`, `profile`), verify the actual config structure in `_DEFAULTS` before writing templates. Config keys drift between spec and implementation. Always read `config.py` to confirm the real key names before referencing them in Jinja2 templates.
+**17. Milestone profiles use `renewal_milestones` names**, not `mandated_activities` names.
 
-**18. Milestone profiles use `renewal_milestones` names, not `mandated_activities` names:** The `milestone_profiles` config references milestone names from `renewal_milestones` (e.g., "Submission Sent", "Quote Received"). The `mandated_activities` config uses activity names (e.g., "RSM Meeting", "Market Submissions") which map to checklist milestones via the `checklist_milestone` field. When building UI for profiles, iterate over `renewal_milestones` for the pill list, not `mandated_activities`.
+**18. Ref tag copy must use `build_ref_tag()`**, never bare `policy_uid`. Always use `copyRefTag()` JS function.
 
-**19. Ref tag copy must use `build_ref_tag()`, never bare `policy_uid`:** Every copy-to-clipboard for a policy reference MUST use `build_ref_tag()` to build the full hierarchical tag (client + location + policy). Copying bare `policy_uid` (e.g., "POL-042") defeats the purpose — the ref tag needs the `CN{number}` prefix for Outlook searchability. The `copyRefTag()` JS function auto-wraps with `[PDB:...]` — always use it instead of direct `navigator.clipboard.writeText()`.
+**19. `thread_id` column is legacy** — do not write to it. Timeline uses auto-clustering now.
 
-**20. `thread_id` column is legacy — do not write to it:** The `activity_log.thread_id` column exists for backwards compatibility but is no longer written to. New activities get `NULL` thread_id. The auto-clustered activity timeline (grouped by `activity_cluster_days` time gap) replaces the old manual COR correspondence threading. COR search in ref_lookup still works for old data.
+**20. SQLite handler attaches in uvicorn worker**, not CLI process. Must use `@app.on_event("startup")` in `app.py`.
 
-**21. NEVER force-remove worktrees without checking for uncommitted work:** Before removing ANY worktree, run `git -C <worktree-path> status` to check for uncommitted changes. If there are uncommitted changes, STOP and ask the user. Never batch-remove worktrees. When user says "clean up" or "merge all", explicitly ask which branches are still actively being worked on. Assume worktrees have active work unless confirmed otherwise. This rule exists because force-removing an active worktree destroyed in-progress uncommitted work with no recovery path.
-
-**22. SQLite handler must attach in the uvicorn worker process, not the CLI process:** When using `--reload` mode, `setup_logging()` in `cli.py` runs in the parent process, but uvicorn forks a new worker process. The SQLite logging handler must be attached via `@app.on_event("startup")` in `app.py` so it runs in the actual worker. Otherwise the handler's background writer thread and DB connection exist in the wrong process and no logs reach the `app_log` table.
-
-**23. `logging.getLogger()` child loggers propagate automatically:** When you configure handlers on `logging.getLogger("policydb")`, all child loggers like `policydb.db`, `policydb.web.requests` automatically propagate up. No need to add handlers to each child logger — just use `logging.getLogger("policydb.module_name")` in each module and the root `policydb` logger's handlers capture everything.
+**21. Child loggers propagate automatically** — only configure handlers on root `policydb` logger.

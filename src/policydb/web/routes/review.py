@@ -107,8 +107,8 @@ def _enrich_policy_rows(conn, rows: list[dict]) -> list[dict]:
 # ── Page ──────────────────────────────────────────────────────────────────────
 
 @router.get("", response_class=HTMLResponse)
-def review_page(request: Request, conn=Depends(get_db)):
-    queue = get_review_queue(conn)
+def review_page(request: Request, client_id: int = 0, conn=Depends(get_db)):
+    queue = get_review_queue(conn, client_id=client_id)
     stats = get_review_stats(conn)
 
     policies = _enrich_policy_rows(conn, queue["policies"])
@@ -117,6 +117,10 @@ def review_page(request: Request, conn=Depends(get_db)):
 
     suggestions = suggest_profile(conn)
     unassigned_count = len(suggestions)
+
+    all_clients = [dict(c) for c in conn.execute(
+        "SELECT id, name FROM clients WHERE archived = 0 ORDER BY name"
+    ).fetchall()]
 
     return templates.TemplateResponse("review/index.html", {
         "request": request,
@@ -131,6 +135,8 @@ def review_page(request: Request, conn=Depends(get_db)):
         "cycle_labels": REVIEW_CYCLE_LABELS,
         "milestone_profiles": cfg.get("milestone_profiles", []),
         "today": date.today().isoformat(),
+        "all_clients": all_clients,
+        "client_id": client_id,
     })
 
 
