@@ -1,4 +1,31 @@
 <div class="space-y-6">
+  {# Report Logo #}
+  <div class="card mb-6" id="section-report-logo">
+    <div class="px-5 py-3 border-b border-gray-100">
+      <h3 class="text-sm font-semibold text-gray-700">Report Logo</h3>
+      <p class="text-xs text-gray-400">Appears in PDF compliance reports. Upload an image or place at ~/.policydb/logo.png.</p>
+    </div>
+    <div class="px-5 py-4" id="logo-preview">
+      {% if logo_exists %}
+      <img src="/settings/logo/preview" class="max-h-12 mb-3" alt="Current logo">
+      <button hx-delete="/settings/logo" hx-target="#logo-preview" hx-swap="innerHTML"
+              class="text-xs text-red-500 hover:underline block mt-1">Remove Logo</button>
+      <form hx-post="/settings/logo" hx-target="#logo-preview" hx-swap="innerHTML"
+            hx-encoding="multipart/form-data" class="mt-3">
+        <input type="file" name="file" accept="image/*" class="text-xs">
+        <button type="submit" class="ml-2 text-xs text-marsh hover:underline">Replace</button>
+      </form>
+      {% else %}
+      <p class="text-xs text-gray-400 mb-3">No logo uploaded</p>
+      <form hx-post="/settings/logo" hx-target="#logo-preview" hx-swap="innerHTML"
+            hx-encoding="multipart/form-data" class="mt-2">
+        <input type="file" name="file" accept="image/*" class="text-xs">
+        <button type="submit" class="ml-2 text-xs text-marsh hover:underline">Upload</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+
   <div id="section-db-health">
     {% include 'settings/_db_health.html' %}
   </div>

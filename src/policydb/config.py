@@ -17,6 +17,7 @@ _DEFAULTS: dict[str, Any] = {
         "upcoming": 180,
     },
     "export_dir": str(Path.home() / ".policydb" / "exports"),
+    "report_logo_path": str(Path.home() / ".policydb" / "logo.png"),
     "stale_threshold_days": 14,
     "default_hourly_rate": 150,
     "renewal_effort_multiplier": 1.5,
@@ -507,6 +508,9 @@ _DEFAULTS: dict[str, Any] = {
     "migration_backup_retention_count": 10,
     "log_level": "INFO",
     "log_retention_days": 730,
+    "default_review_activity_type": "Other",
+    "review_session_gap_minutes": 30,
+    "review_dismiss_days": 7,
     "milestone_profiles": [
         {
             "name": "Full Renewal",
