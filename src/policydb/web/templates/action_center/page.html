@@ -37,6 +37,15 @@
             <span class="tab-badge" style="background:#ef4444;color:white">{{ _sp_count }}</span>
           {% endif %}
         </button>
+        <button class="tab-btn" data-tab="activity-review" data-tab-url="/action-center/activity-review">
+          Activity Review
+          <span id="review-badge">
+          {% set _rev_count = review_pending_count if review_pending_count is defined else 0 %}
+          {% if _rev_count %}
+            <span class="tab-badge" style="background:#f59e0b;color:white">{{ _rev_count }}</span>
+          {% endif %}
+          </span>
+        </button>
       </div>
 
       {# Tab content area #}
@@ -50,6 +59,8 @@
           {% include "action_center/_activities.html" %}
         {% elif initial_tab == 'scratchpads' %}
           {% include "action_center/_scratchpads.html" %}
+        {% elif initial_tab == 'activity-review' %}
+          {% include "action_center/_activity_review.html" %}
         {% endif %}
       </div>
     </div>
