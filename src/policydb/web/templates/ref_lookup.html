@@ -26,7 +26,7 @@
   <div class="card overflow-hidden">
     {# Client root #}
     <div class="px-4 py-3 bg-gray-50 border-b border-gray-100 flex items-center gap-2">
-      <button onclick="navigator.clipboard.writeText('{{ tree.client.uid }}');if(typeof showToast==='function')showToast('Copied',true)"
+      <button onclick="copyRefTag(this, '{{ tree.client.uid }}')"
         class="bg-blue-100 text-blue-700 text-[10px] font-bold font-mono px-2 py-0.5 rounded cursor-pointer hover:bg-blue-200 {% if tree.highlight == tree.client.uid %}ring-2 ring-amber-400{% endif %}">{{ tree.client.uid }}</button>
       <a href="/clients/{{ tree.client.id }}" class="text-sm font-medium text-marsh hover:underline">{{ tree.client.name }}</a>
     </div>
@@ -37,7 +37,7 @@
       <div class="ml-4 border-l-2 border-gray-200 pl-3 py-1">
         <div class="flex items-center gap-2">
           <span class="text-gray-300 text-xs">├</span>
-          <button onclick="navigator.clipboard.writeText('{{ p.uid }}');if(typeof showToast==='function')showToast('Copied',true)"
+          <button onclick="copyRefTag(this, '{{ p.uid }}')"
             class="bg-blue-100 text-blue-700 text-[10px] font-bold font-mono px-2 py-0.5 rounded cursor-pointer hover:bg-blue-200 {% if p.uid in tree.highlight %}ring-2 ring-amber-400{% endif %}">{{ p.uid }}</button>
           <a href="/policies/{{ p.uid }}/edit" class="text-xs text-gray-700 hover:text-marsh">{{ p.type }}{% if p.carrier %} — {{ p.carrier }}{% endif %}</a>
         </div>
@@ -47,14 +47,14 @@
         <div class="ml-6 mt-1">
           <div class="flex items-center gap-2">
             <span class="text-gray-300 text-xs">└</span>
-            <button onclick="navigator.clipboard.writeText('{{ t.uid }}');if(typeof showToast==='function')showToast('Copied',true)"
+            <button onclick="copyRefTag(this, '{{ t.uid }}')"
               class="bg-indigo-100 text-indigo-700 text-[10px] font-bold font-mono px-2 py-0.5 rounded cursor-pointer hover:bg-indigo-200 {% if t.uid in tree.highlight %}ring-2 ring-amber-400{% endif %}">{{ t.uid }}</button>
             <span class="text-xs text-gray-400">({{ t.activity_count }} activit{{ 'y' if t.activity_count == 1 else 'ies' }})</span>
           </div>
           {% for a in t.activities %}
           <div class="ml-8 flex items-center gap-2 mt-0.5">
             <span class="text-gray-200 text-[10px]">{{ '└' if loop.last else '├' }}</span>
-            <button onclick="navigator.clipboard.writeText('A-{{ a.id }}');if(typeof showToast==='function')showToast('Copied',true)"
+            <button onclick="copyRefTag(this, 'A-{{ a.id }}')"
               class="bg-gray-100 text-gray-500 text-[10px] font-mono px-1.5 py-0.5 rounded cursor-pointer hover:bg-gray-200 {% if ('A-' ~ a.id|string) == tree.highlight %}ring-2 ring-amber-400{% endif %}">A-{{ a.id }}</button>
             <span class="text-xs text-gray-600 truncate">{{ a.subject or '—' }}</span>
             <span class="text-[10px] text-gray-300">{{ a.activity_date }}</span>
@@ -69,7 +69,7 @@
           <summary class="text-[10px] text-gray-400 cursor-pointer hover:text-gray-600">{{ p.standalone_activities | length }} standalone activit{{ 'y' if p.standalone_activities | length == 1 else 'ies' }}</summary>
           {% for a in p.standalone_activities %}
           <div class="ml-2 flex items-center gap-2 mt-0.5">
-            <button onclick="navigator.clipboard.writeText('A-{{ a.id }}');if(typeof showToast==='function')showToast('Copied',true)"
+            <button onclick="copyRefTag(this, 'A-{{ a.id }}')"
               class="bg-gray-100 text-gray-500 text-[10px] font-mono px-1.5 py-0.5 rounded cursor-pointer hover:bg-gray-200">A-{{ a.id }}</button>
             <span class="text-xs text-gray-600 truncate">{{ a.subject or '—' }}</span>
             <span class="text-[10px] text-gray-300">{{ a.activity_date }}</span>
@@ -85,14 +85,14 @@
       <div class="ml-4 border-l-2 border-indigo-100 pl-3 py-1">
         <div class="flex items-center gap-2">
           <span class="text-gray-300 text-xs">├</span>
-          <button onclick="navigator.clipboard.writeText('{{ t.uid }}');if(typeof showToast==='function')showToast('Copied',true)"
+          <button onclick="copyRefTag(this, '{{ t.uid }}')"
             class="bg-indigo-100 text-indigo-700 text-[10px] font-bold font-mono px-2 py-0.5 rounded cursor-pointer hover:bg-indigo-200 {% if t.uid in tree.highlight %}ring-2 ring-amber-400{% endif %}">{{ t.uid }}</button>
           <span class="text-xs text-gray-400">({{ t.activity_count }} activit{{ 'y' if t.activity_count == 1 else 'ies' }}, no policy)</span>
         </div>
         {% for a in t.activities %}
         <div class="ml-8 flex items-center gap-2 mt-0.5">
           <span class="text-gray-200 text-[10px]">{{ '└' if loop.last else '├' }}</span>
-          <button onclick="navigator.clipboard.writeText('A-{{ a.id }}');if(typeof showToast==='function')showToast('Copied',true)"
+          <button onclick="copyRefTag(this, 'A-{{ a.id }}')"
             class="bg-gray-100 text-gray-500 text-[10px] font-mono px-1.5 py-0.5 rounded cursor-pointer hover:bg-gray-200">A-{{ a.id }}</button>
           <span class="text-xs text-gray-600 truncate">{{ a.subject or '—' }}</span>
           <span class="text-[10px] text-gray-300">{{ a.activity_date }}</span>
@@ -105,7 +105,7 @@
       {% for r in tree.rfis %}
       <div class="ml-4 pl-3 py-1 flex items-center gap-2">
         <span class="text-gray-300 text-xs">├</span>
-        <button onclick="navigator.clipboard.writeText('{{ r.rfi_uid }}');if(typeof showToast==='function')showToast('Copied',true)"
+        <button onclick="copyRefTag(this, '{{ r.rfi_uid }}')"
           class="bg-green-100 text-green-700 text-[10px] font-bold font-mono px-2 py-0.5 rounded cursor-pointer hover:bg-green-200 {% if r.rfi_uid in tree.highlight %}ring-2 ring-amber-400{% endif %}">{{ r.rfi_uid }}</button>
         <span class="text-xs text-gray-600">{{ r.title }} — {{ r.received_count }}/{{ r.item_count }} received</span>
         <span class="text-[10px] px-1.5 py-0.5 rounded {% if r.status == 'complete' %}bg-green-50 text-green-600{% elif r.status == 'sent' %}bg-blue-50 text-blue-600{% else %}bg-amber-50 text-amber-600{% endif %}">{{ r.status }}</span>
@@ -116,7 +116,7 @@
       {% for i in tree.inbox_items %}
       <div class="ml-4 pl-3 py-1 flex items-center gap-2">
         <span class="text-gray-300 text-xs">{{ '└' if loop.last else '├' }}</span>
-        <button onclick="navigator.clipboard.writeText('{{ i.inbox_uid }}');if(typeof showToast==='function')showToast('Copied',true)"
+        <button onclick="copyRefTag(this, '{{ i.inbox_uid }}')"
           class="bg-indigo-50 text-indigo-600 text-[10px] font-bold font-mono px-2 py-0.5 rounded cursor-pointer hover:bg-indigo-100 {% if i.inbox_uid in tree.highlight %}ring-2 ring-amber-400{% endif %}">{{ i.inbox_uid }}</button>
         <span class="text-xs text-gray-600 truncate">{{ i.content }}</span>
         {% if i.status == 'processed' and i.activity_subject %}
