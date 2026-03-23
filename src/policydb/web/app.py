@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import logging
 import sqlite3
+import time
 from pathlib import Path
 from typing import Generator
 
@@ -12,10 +14,65 @@ from fastapi.templating import Jinja2Templates
 
 from policydb.db import get_connection
 
+_req_logger = logging.getLogger("policydb.web.requests")
+
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 
 app = FastAPI(title="PolicyDB", docs_url=None, redoc_url=None)
+
+
+@app.on_event("startup")
+def _attach_sqlite_log_handler():
+    """Attach the SQLite logging handler after the app starts.
+
+    This runs in the uvicorn worker process (important for --reload mode).
+    """
+    try:
+        from policydb.logging_config import setup_logging, setup_sqlite_handler
+        setup_logging()  # No-op if already configured (idempotent)
+        setup_sqlite_handler()
+    except Exception:
+        pass  # Never block app startup
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+
+
+# ── Request logging middleware ────────────────────────────────────────────────
+
+@app.middleware("http")
+async def request_logging_middleware(request: Request, call_next):
+    path = request.url.path
+    # Skip static asset requests to reduce noise
+    if path.startswith("/static"):
+        return await call_next(request)
+
+    start = time.perf_counter()
+    response = await call_next(request)
+    duration_ms = round((time.perf_counter() - start) * 1000, 1)
+
+    method = request.method
+    status = response.status_code
+
+    # Log level based on status code
+    if status >= 500:
+        _req_logger.error(
+            "%s %s → %d (%.1fms)",
+            method, path, status, duration_ms,
+            extra={"method": method, "path": path, "status_code": status, "duration_ms": duration_ms},
+        )
+    elif status >= 400:
+        _req_logger.warning(
+            "%s %s → %d (%.1fms)",
+            method, path, status, duration_ms,
+            extra={"method": method, "path": path, "status_code": status, "duration_ms": duration_ms},
+        )
+    else:
+        _req_logger.info(
+            "%s %s → %d (%.1fms)",
+            method, path, status, duration_ms,
+            extra={"method": method, "path": path, "status_code": status, "duration_ms": duration_ms},
+        )
+
+    return response
 
 
 # ── Template filters ──────────────────────────────────────────────────────────
@@ -186,7 +243,7 @@ def get_db() -> Generator[sqlite3.Connection, None, None]:
 
 
 # ── Register routers ──────────────────────────────────────────────────────────
-from policydb.web.routes import dashboard, clients, policies, activities, settings, reconcile, templates as tpl_routes, contacts, review, briefing, meetings, inbox, ref_lookup, compliance, action_center, compose  # noqa: E402
+from policydb.web.routes import dashboard, clients, policies, activities, settings, reconcile, templates as tpl_routes, contacts, review, briefing, meetings, inbox, ref_lookup, compliance, action_center, logs, compose  # noqa: E402
 
 app.include_router(dashboard.router)
 app.include_router(clients.router)
@@ -203,4 +260,5 @@ app.include_router(inbox.router)
 app.include_router(ref_lookup.router)
 app.include_router(compliance.router)
 app.include_router(action_center.router)
+app.include_router(logs.router)
 app.include_router(compose.router)

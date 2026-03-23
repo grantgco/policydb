@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import sqlite3
 from pathlib import Path
+
+logger = logging.getLogger("policydb.db")
 
 
 DB_DIR = Path.home() / ".policydb"
@@ -72,15 +75,13 @@ def _backup_db(conn: sqlite3.Connection, db_path: Path) -> None:
         # Checkpoint WAL on the already-open connection before copying
         conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
     except Exception as e:
-        import sys
-        print(f"[WARNING] Pre-migration WAL checkpoint failed: {e}", file=sys.stderr)
+        logger.warning("Pre-migration WAL checkpoint failed: %s", e)
 
     migration_dir = db_path.parent / "backups" / "migrations"
     try:
         migration_dir.mkdir(parents=True, exist_ok=True)
     except Exception as e:
-        import sys
-        print(f"[WARNING] Cannot create migration backup dir: {e}", file=sys.stderr)
+        logger.warning("Cannot create migration backup dir: %s", e)
         return
 
     ts = datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")
@@ -89,8 +90,7 @@ def _backup_db(conn: sqlite3.Connection, db_path: Path) -> None:
     try:
         shutil.copy2(db_path, backup_path)
     except Exception as e:
-        import sys
-        print(f"[WARNING] Migration backup copy failed: {e}", file=sys.stderr)
+        logger.warning("Migration backup copy failed: %s", e)
         # Clean up partial file
         try:
             backup_path.unlink(missing_ok=True)
@@ -144,8 +144,7 @@ def _auto_backup(db_path: Path, max_backups: int = 30) -> None:
     try:
         backup_dir.mkdir(exist_ok=True)
     except Exception as e:
-        import sys
-        print(f"[WARNING] Cannot create backup dir: {e}", file=sys.stderr)
+        logger.warning("Cannot create backup dir: %s", e)
         return
 
     # Checkpoint WAL before copying to ensure consistency.
@@ -155,8 +154,7 @@ def _auto_backup(db_path: Path, max_backups: int = 30) -> None:
         ckpt_conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         ckpt_conn.close()
     except Exception as e:
-        import sys
-        print(f"[WARNING] Backup WAL checkpoint failed: {e}", file=sys.stderr)
+        logger.warning("Backup WAL checkpoint failed: %s", e)
 
     ts = datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")
     backup_path = backup_dir / f"policydb_{ts}.sqlite"
@@ -164,8 +162,7 @@ def _auto_backup(db_path: Path, max_backups: int = 30) -> None:
     try:
         shutil.copy2(db_path, backup_path)
     except Exception as e:
-        import sys
-        print(f"[WARNING] Backup copy failed: {e}", file=sys.stderr)
+        logger.warning("Backup copy failed: %s", e)
         try:
             backup_path.unlink(missing_ok=True)
         except Exception:
@@ -252,7 +249,7 @@ def _run_hygiene_062(conn: sqlite3.Connection) -> None:
     conn.commit()
     total = sum(changed.values())
     if total > 0:
-        print(f"[hygiene-062] Normalized {total} fields: {changed}")
+        logger.info("Normalized %d address fields: %s", total, changed)
 
 
 def _seed_nudge_templates(conn: sqlite3.Connection) -> None:
@@ -362,7 +359,7 @@ def init_db(path: Path | None = None) -> None:
 
     # Back up the database once before running any pending migrations.
     # This gives a clean restore point regardless of which migration fails.
-    _KNOWN_MIGRATIONS = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71}
+    _KNOWN_MIGRATIONS = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72}
     if _KNOWN_MIGRATIONS - applied:
         _backup_db(conn, db_path)
 
@@ -1004,11 +1001,20 @@ def init_db(path: Path | None = None) -> None:
         conn.commit()
 
     if 71 not in applied:
-        sql = (_MIGRATIONS_DIR / "071_simplify_template_contexts.sql").read_text()
+        sql = (_MIGRATIONS_DIR / "071_app_log.sql").read_text()
         conn.executescript(sql)
         conn.execute(
             "INSERT INTO schema_version (version, description) VALUES (?, ?)",
-            (71, "Simplify template contexts to policy+client"),
+            (71, "Add app_log table for application logging"),
+        )
+        conn.commit()
+
+    if 72 not in applied:
+        sql = (_MIGRATIONS_DIR / "072_simplify_template_contexts.sql").read_text()
+        conn.executescript(sql)
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (72, "Simplify template contexts to policy+client"),
         )
         conn.commit()
 
@@ -1064,9 +1070,9 @@ def init_db(path: Path | None = None) -> None:
                 _carrier_changed += 1
         if _carrier_changed:
             conn.commit()
-            print(f"[hygiene] Normalized {_carrier_changed} carrier names")
+            logger.info("Normalized %d carrier names", _carrier_changed)
     except Exception as e:
-        print(f"[WARNING] Carrier normalization failed: {e}")
+        logger.warning("Carrier normalization failed: %s", e)
 
     _create_views(conn)
     conn.commit()
@@ -1100,24 +1106,24 @@ def init_db(path: Path | None = None) -> None:
                 conn.execute("DELETE FROM policy_milestones WHERE policy_uid = ? AND milestone IN (SELECT rule_name FROM mandated_activity_log WHERE policy_uid = ? AND activity_id IS NULL)", (_fa["policy_uid"], _fa["policy_uid"]))
                 conn.execute("DELETE FROM activity_log WHERE id = ?", (_fa["id"],))
             conn.commit()
-            print(f"[hygiene] Removed {len(_far_activities)} mandated activities beyond {_horizon_days}d horizon")
+            logger.info("Removed %d mandated activities beyond %dd horizon", len(_far_activities), _horizon_days)
     except Exception as e:
-        print(f"[WARNING] Mandated activity cleanup failed: {e}")
+        logger.warning("Mandated activity cleanup failed: %s", e)
 
     # Health checks — wrapped in try/except so they don't block server start
     try:
         conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
     except Exception as e:
-        print(f"[WARNING] WAL checkpoint failed (DB may be locked by another process): {e}")
+        logger.warning("WAL checkpoint failed (DB may be locked by another process): %s", e)
 
     try:
         _integrity = conn.execute("PRAGMA integrity_check").fetchone()[0]
         _HEALTH_STATUS["integrity"] = _integrity
         if _integrity != "ok":
-            print(f"[WARNING] DB integrity: {_integrity}")
+            logger.warning("DB integrity: %s", _integrity)
     except Exception as e:
         _HEALTH_STATUS["integrity"] = f"error: {e}"
-        print(f"[WARNING] Integrity check failed: {e}")
+        logger.warning("Integrity check failed: %s", e)
 
     try:
         _fk_violations = conn.execute("PRAGMA foreign_key_check").fetchall()
@@ -1133,15 +1139,18 @@ def init_db(path: Path | None = None) -> None:
                     except Exception:
                         pass
                 conn.commit()
-                print(f"[hygiene] Cleaned {len(_legacy_violations)} orphaned legacy contact records")
+                logger.info("Cleaned %d orphaned legacy contact records", len(_legacy_violations))
                 # Re-check after cleanup
                 _fk_violations = conn.execute("PRAGMA foreign_key_check").fetchall()
         _HEALTH_STATUS["fk_violations"] = len(_fk_violations)
         _HEALTH_STATUS["fk_details"] = [{"table": v["table"], "rowid": v["rowid"], "parent": v["parent"]} for v in _fk_violations[:20]]
         if _fk_violations:
-            print(f"[WARNING] {len(_fk_violations)} FK violation(s) detected")
+            logger.warning("%d FK violation(s) detected", len(_fk_violations))
     except Exception as e:
-        print(f"[WARNING] FK check failed: {e}")
+        logger.warning("FK check failed: %s", e)
+
+    # Purge old log entries
+    _purge_old_logs(conn)
 
     # DB size
     _HEALTH_STATUS["db_size"] = os.path.getsize(db_path) if os.path.exists(db_path) else 0
@@ -1153,6 +1162,59 @@ def init_db(path: Path | None = None) -> None:
     # Auto-backup (runs after connection is closed so the file is fully flushed)
     from policydb import config as _cfg
     _auto_backup(db_path, max_backups=_cfg.get("backup_retention_count", 30))
+
+
+def _purge_old_logs(conn: sqlite3.Connection) -> None:
+    """Purge audit_log and app_log rows older than configured retention.
+
+    Runs on every server startup. Safe — failures never block startup.
+    """
+    from datetime import date, timedelta
+    from policydb import config as _purge_cfg
+
+    retention_days = _purge_cfg.get("log_retention_days", 730)
+    cutoff = (date.today() - timedelta(days=retention_days)).isoformat()
+
+    audit_deleted = 0
+    app_deleted = 0
+
+    try:
+        count = conn.execute(
+            "SELECT COUNT(*) FROM audit_log WHERE changed_at < ?", (cutoff,)
+        ).fetchone()[0]
+        if count > 0:
+            conn.execute("DELETE FROM audit_log WHERE changed_at < ?", (cutoff,))
+            audit_deleted = count
+    except Exception:
+        pass  # Table may not exist yet
+
+    try:
+        count = conn.execute(
+            "SELECT COUNT(*) FROM app_log WHERE logged_at < ?", (cutoff,)
+        ).fetchone()[0]
+        if count > 0:
+            conn.execute("DELETE FROM app_log WHERE logged_at < ?", (cutoff,))
+            app_deleted = count
+    except Exception:
+        pass  # Table may not exist yet
+
+    if audit_deleted or app_deleted:
+        conn.commit()
+        logger.info(
+            "Log purge: %d audit + %d app rows older than %d days deleted",
+            audit_deleted, app_deleted, retention_days,
+        )
+        _HEALTH_STATUS["last_purge_audit"] = audit_deleted
+        _HEALTH_STATUS["last_purge_app"] = app_deleted
+
+        # VACUUM only on large purges — rewrites entire DB, expensive
+        total = audit_deleted + app_deleted
+        if total > 10_000:
+            try:
+                conn.execute("VACUUM")
+                logger.info("VACUUM completed after large purge (%d rows)", total)
+            except Exception as e:
+                logger.warning("VACUUM failed after purge: %s", e)
 
 
 def _migrate_unified_contacts(conn: sqlite3.Connection) -> None:

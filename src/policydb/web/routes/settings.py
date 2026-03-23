@@ -42,107 +42,235 @@ EDITABLE_LISTS: dict[str, str] = {
     "sprinkler_options": "Sprinkler Options",
     "roof_types": "Roof Types",
     "protection_classes": "Protection Classes (ISO)",
+    "carriers": "Carriers",
+    "exposure_basis_options": "Exposure Basis Options",
+    "exposure_unit_options": "Exposure Unit Options",
+    "contact_roles": "Contact Roles",
+    "request_categories": "Request Categories",
 }
+
+TAB_LISTS: dict[str, dict[str, str]] = {
+    "workflow": {
+        "renewal_statuses": "Renewal Statuses",
+        "renewal_milestones": "Renewal Checklist",
+        "critical_milestones": "Critical Milestones",
+        "activity_types": "Activity Types",
+        "meeting_types": "Meeting Types",
+        "request_categories": "Request Categories",
+    },
+    "readiness": {},
+    "carriers": {
+        "carriers": "Carriers",
+        "policy_types": "Lines of Business",
+        "coverage_forms": "Coverage Forms",
+        "deductible_types": "Deductible Types",
+        "endorsement_types": "Required Endorsement Types",
+        "exposure_basis_options": "Exposure Basis Options",
+        "exposure_unit_options": "Exposure Unit Options",
+    },
+    "property-risk": {
+        "construction_types": "Construction Types (ISO)",
+        "sprinkler_options": "Sprinkler Options",
+        "roof_types": "Roof Types",
+        "protection_classes": "Protection Classes (ISO)",
+        "risk_categories": "Risk / Exposure Categories",
+        "risk_severities": "Risk Severity Levels",
+        "risk_sources": "Risk Sources",
+        "risk_control_types": "Risk Control Types",
+        "risk_control_statuses": "Risk Control Statuses",
+        "risk_adequacy_levels": "Coverage Adequacy Levels",
+        "compliance_statuses": "Compliance Statuses",
+    },
+    "email-contacts": {
+        "industry_segments": "Industry Segments",
+        "opportunity_statuses": "Opportunity Statuses",
+        "expertise_lines": "Contact Expertise — Lines",
+        "expertise_industries": "Contact Expertise — Industries",
+        "linked_account_relationships": "Account Relationship Types",
+        "contact_roles": "Contact Roles",
+    },
+    "database": {
+        "project_stages": "Project Stages",
+        "project_types": "Project Types",
+    },
+}
+
+TAB_LABELS = {
+    "workflow": "Renewal Workflow",
+    "readiness": "Readiness & Alerts",
+    "carriers": "Carriers & Coverage",
+    "property-risk": "Property & Risk",
+    "email-contacts": "Email & Contacts",
+    "database": "Database & Admin",
+}
+
+SEARCH_INDEX = [
+    {"label": label, "tab": tab, "anchor": f"list-{key}"}
+    for tab, lists in TAB_LISTS.items()
+    for key, label in lists.items()
+] + [
+    {"label": "Mandated Activities", "tab": "workflow", "anchor": "section-mandated-activities"},
+    {"label": "Milestone Profiles", "tab": "workflow", "anchor": "section-milestone-profiles"},
+    {"label": "Timeline Engine", "tab": "workflow", "anchor": "section-timeline-engine"},
+    {"label": "Follow-Up Dispositions", "tab": "workflow", "anchor": "section-dispositions"},
+    {"label": "Alert & Readiness Thresholds", "tab": "readiness", "anchor": "section-thresholds"},
+    {"label": "Readiness Score Weights", "tab": "readiness", "anchor": "section-readiness-weights"},
+    {"label": "Carrier Aliases", "tab": "carriers", "anchor": "section-carrier-aliases"},
+    {"label": "Email Subject Lines", "tab": "email-contacts", "anchor": "section-email-subjects"},
+    {"label": "Database Health", "tab": "database", "anchor": "section-db-health"},
+    {"label": "SQL Console", "tab": "database", "anchor": "section-sql-console"},
+    {"label": "Schema Reference", "tab": "database", "anchor": "section-schema-ref"},
+]
+
+
+# ── Tab context builder ──────────────────────────────────────────────────────
+
+def _build_tab_context(tab: str, conn) -> dict:
+    """Build template context for a specific settings tab."""
+    ctx: dict = {}
+
+    tab_lists = TAB_LISTS.get(tab, {})
+    if tab_lists:
+        ctx["lists"] = {key: cfg.get(key, []) for key in tab_lists}
+        ctx["tab_lists"] = tab_lists
+
+    if tab == "workflow":
+        ctx["mandated_activities"] = cfg.get("mandated_activities", [])
+        ctx["milestone_profiles"] = cfg.get("milestone_profiles", [])
+        ctx["milestone_profile_rules"] = cfg.get("milestone_profile_rules", [])
+        ctx["timeline_engine"] = cfg.get("timeline_engine", {})
+        ctx["risk_alert_thresholds"] = cfg.get("risk_alert_thresholds", {})
+        ctx["dispositions"] = cfg.get("follow_up_dispositions", [])
+        ctx["excluded_statuses"] = cfg.get("renewal_statuses_excluded", [])
+        ctx["client_facing_milestones"] = cfg.get("client_facing_milestones", [])
+        ctx["renewal_statuses"] = cfg.get("renewal_statuses", [])
+        ctx["renewal_milestones"] = cfg.get("renewal_milestones", [])
+        # activity_types needed by mandated activities editor
+        if "lists" not in ctx:
+            ctx["lists"] = {}
+        ctx["lists"]["activity_types"] = cfg.get("activity_types", [])
+
+    elif tab == "readiness":
+        ctx["escalation_thresholds"] = cfg.get("escalation_thresholds", {})
+        ctx["readiness_thresholds"] = cfg.get("readiness_thresholds", {})
+        ctx["readiness_weights"] = cfg.get("readiness_weights", {})
+        ctx["readiness_status_scores"] = cfg.get("readiness_status_scores", {})
+        ctx["readiness_milestone_weights"] = cfg.get("readiness_milestone_weights", {})
+        ctx["readiness_activity_tiers"] = cfg.get("readiness_activity_tiers", [])
+        ctx["renewal_statuses"] = cfg.get("renewal_statuses", [])
+        ctx["renewal_milestones"] = cfg.get("renewal_milestones", [])
+        ctx["fu_workload"] = cfg.get("followup_workload_thresholds", {"warning": 3, "danger": 5})
+
+    elif tab == "carriers":
+        ctx["carrier_aliases"] = cfg.get("carrier_aliases", {})
+
+    elif tab == "property-risk":
+        pass  # Only needs lists, already loaded above
+
+    elif tab == "email-contacts":
+        ctx["email_subject_policy"] = cfg.get("email_subject_policy", "")
+        ctx["email_subject_client"] = cfg.get("email_subject_client", "")
+        ctx["email_subject_followup"] = cfg.get("email_subject_followup", "")
+        ctx["email_subject_request"] = cfg.get("email_subject_request", "")
+        ctx["email_subject_request_all"] = cfg.get("email_subject_request_all", "")
+        ctx["email_subject_rfi_notify"] = cfg.get("email_subject_rfi_notify", "")
+
+    elif tab == "database":
+        db_size = os.path.getsize(DB_PATH) if os.path.exists(DB_PATH) else 0
+        wal_path = str(DB_PATH) + "-wal"
+        wal_size = os.path.getsize(wal_path) if os.path.exists(wal_path) else 0
+        backup_dir = DB_PATH.parent / "backups"
+        backups = (
+            sorted(backup_dir.glob("policydb_*.sqlite"), key=lambda p: p.stat().st_mtime, reverse=True)
+            if backup_dir.exists()
+            else []
+        )
+        migration_backup_dir = backup_dir / "migrations"
+        migration_backups = (
+            sorted(migration_backup_dir.glob("policydb_*_pre_migration.sqlite"), key=lambda p: p.stat().st_mtime, reverse=True)
+            if migration_backup_dir.exists()
+            else []
+        )
+        legacy_backups = sorted(DB_PATH.parent.glob("policydb.sqlite.backup_*"), key=lambda p: p.stat().st_mtime, reverse=True)
+        db_counts: dict = {}
+        for tbl in ["clients", "policies", "activity_log", "contacts"]:
+            try:
+                db_counts[tbl] = conn.execute(f"SELECT COUNT(*) FROM {tbl}").fetchone()[0]  # noqa: S608
+            except Exception:
+                db_counts[tbl] = 0
+        try:
+            db_counts["clients_archived"] = conn.execute(
+                "SELECT COUNT(*) FROM clients WHERE archived=1"
+            ).fetchone()[0]
+        except Exception:
+            db_counts["clients_archived"] = 0
+        try:
+            db_counts["policies_archived"] = conn.execute(
+                "SELECT COUNT(*) FROM policies WHERE archived=1"
+            ).fetchone()[0]
+        except Exception:
+            db_counts["policies_archived"] = 0
+        try:
+            max_migration = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
+        except Exception:
+            max_migration = None
+        try:
+            db_tables = [
+                r[0]
+                for r in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+                ).fetchall()
+            ]
+        except Exception:
+            db_tables = []
+
+        ctx["db_health"] = _HEALTH_STATUS
+        ctx["db_size"] = db_size
+        ctx["wal_size"] = wal_size
+        ctx["db_counts"] = db_counts
+        ctx["backups"] = backups
+        ctx["migration_backups"] = migration_backups
+        ctx["legacy_backups"] = legacy_backups
+        ctx["backup_retention_max"] = cfg.get("backup_retention_count", 30)
+        ctx["migration_backup_retention_max"] = cfg.get("migration_backup_retention_count", 10)
+        ctx["max_migration"] = max_migration
+        ctx["backup_dir"] = backup_dir
+        ctx["sql_examples"] = _SQL_EXAMPLES
+        ctx["db_tables"] = db_tables
+
+    return ctx
+
+
+# ── Tab content endpoint (MUST come before parameterized routes) ─────────────
+
+@router.get("/tab/{tab_name}", response_class=HTMLResponse)
+def settings_tab(tab_name: str, request: Request, conn=Depends(get_db)):
+    if tab_name not in TAB_LABELS:
+        return HTMLResponse("Not found", status_code=404)
+    ctx = _build_tab_context(tab_name, conn)
+    ctx["request"] = request
+    return templates.TemplateResponse(f"settings/_tab_{tab_name.replace('-', '_')}.html", ctx)
 
 
 @router.get("", response_class=HTMLResponse)
-def settings_page(request: Request, conn=Depends(get_db)):
-    lists = {key: cfg.get(key, []) for key in EDITABLE_LISTS}
+def settings_page(request: Request, tab: str = Query("workflow"), conn=Depends(get_db)):
+    initial_tab = tab if tab in TAB_LABELS else "workflow"
 
-    # DB health data
-    db_size = os.path.getsize(DB_PATH) if os.path.exists(DB_PATH) else 0
-    wal_path = str(DB_PATH) + "-wal"
-    wal_size = os.path.getsize(wal_path) if os.path.exists(wal_path) else 0
-    backup_dir = DB_PATH.parent / "backups"
-    backups = (
-        sorted(backup_dir.glob("policydb_*.sqlite"), key=lambda p: p.stat().st_mtime, reverse=True)
-        if backup_dir.exists()
-        else []
-    )
-    migration_backup_dir = backup_dir / "migrations"
-    migration_backups = (
-        sorted(migration_backup_dir.glob("policydb_*_pre_migration.sqlite"), key=lambda p: p.stat().st_mtime, reverse=True)
-        if migration_backup_dir.exists()
-        else []
-    )
-    # Legacy backups in root dir
-    legacy_backups = sorted(DB_PATH.parent.glob("policydb.sqlite.backup_*"), key=lambda p: p.stat().st_mtime, reverse=True)
-    db_counts: dict = {}
-    for tbl in ["clients", "policies", "activity_log", "contacts"]:
-        try:
-            db_counts[tbl] = conn.execute(f"SELECT COUNT(*) FROM {tbl}").fetchone()[0]  # noqa: S608
-        except Exception:
-            db_counts[tbl] = 0
-    try:
-        db_counts["clients_archived"] = conn.execute(
-            "SELECT COUNT(*) FROM clients WHERE archived=1"
-        ).fetchone()[0]
-    except Exception:
-        db_counts["clients_archived"] = 0
-    try:
-        db_counts["policies_archived"] = conn.execute(
-            "SELECT COUNT(*) FROM policies WHERE archived=1"
-        ).fetchone()[0]
-    except Exception:
-        db_counts["policies_archived"] = 0
-    try:
-        max_migration = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
-    except Exception:
-        max_migration = None
+    # Build context for the initially-active tab
+    tab_ctx = _build_tab_context(initial_tab, conn)
 
-    try:
-        db_tables = [
-            r[0]
-            for r in conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
-            ).fetchall()
-        ]
-    except Exception:
-        db_tables = []
-
-    return templates.TemplateResponse("settings.html", {
+    # Base context
+    ctx = {
         "request": request,
         "active": "settings",
-        "lists": lists,
-        "list_labels": EDITABLE_LISTS,
-        "excluded_statuses": cfg.get("renewal_statuses_excluded", []),
-        "email_subject_policy": cfg.get("email_subject_policy", ""),
-        "email_subject_client": cfg.get("email_subject_client", ""),
-        "email_subject_followup": cfg.get("email_subject_followup", ""),
-        "email_subject_request": cfg.get("email_subject_request", ""),
-        "email_subject_request_all": cfg.get("email_subject_request_all", ""),
-        "email_subject_rfi_notify": cfg.get("email_subject_rfi_notify", ""),
-        "escalation_thresholds": cfg.get("escalation_thresholds", {}),
-        "readiness_thresholds": cfg.get("readiness_thresholds", {}),
-        "readiness_weights": cfg.get("readiness_weights", {}),
-        "readiness_status_scores": cfg.get("readiness_status_scores", {}),
-        "readiness_milestone_weights": cfg.get("readiness_milestone_weights", {}),
-        "readiness_activity_tiers": cfg.get("readiness_activity_tiers", []),
-        "renewal_statuses": cfg.get("renewal_statuses", []),
-        "renewal_milestones": cfg.get("renewal_milestones", []),
-        "fu_workload": cfg.get("followup_workload_thresholds", {"warning": 3, "danger": 5}),
-        "mandated_activities": cfg.get("mandated_activities", []),
-        "milestone_profiles": cfg.get("milestone_profiles", []),
-        "milestone_profile_rules": cfg.get("milestone_profile_rules", []),
-        "timeline_engine": cfg.get("timeline_engine", {}),
-        "risk_alert_thresholds": cfg.get("risk_alert_thresholds", {}),
-        "dispositions": cfg.get("follow_up_dispositions", []),
-        "carrier_aliases": cfg.get("carrier_aliases", {}),
-        # DB health
-        "db_health": _HEALTH_STATUS,
-        "db_size": db_size,
-        "wal_size": wal_size,
-        "db_counts": db_counts,
-        "backups": backups,
-        "migration_backups": migration_backups,
-        "legacy_backups": legacy_backups,
-        "backup_retention_max": cfg.get("backup_retention_count", 30),
-        "migration_backup_retention_max": cfg.get("migration_backup_retention_count", 10),
-        "max_migration": max_migration,
-        "backup_dir": backup_dir,
-        "sql_examples": _SQL_EXAMPLES,
-        "db_tables": db_tables,
-    })
+        "initial_tab": initial_tab,
+        "tab_labels": TAB_LABELS,
+        "all_list_labels": EDITABLE_LISTS,
+        "search_index": SEARCH_INDEX,
+    }
+    ctx.update(tab_ctx)
+
+    return templates.TemplateResponse("settings.html", ctx)
 
 
 @router.post("/email-subject", response_class=HTMLResponse)
@@ -220,18 +348,33 @@ def list_reorder(request: Request, key: str = Form(...), item: str = Form(...), 
     return _render_list(request, key)
 
 
+@router.post("/list/reorder-all")
+async def list_reorder_all(request: Request):
+    """Accept a full reordered list from drag-to-reorder."""
+    body = await request.json()
+    key = body.get("key", "")
+    items = body.get("items", [])
+    if key not in EDITABLE_LISTS or not items:
+        return JSONResponse({"ok": False})
+    full = dict(cfg.load_config())
+    full[key] = items
+    cfg.save_config(full)
+    cfg.reload_config()
+    return JSONResponse({"ok": True})
+
+
 @router.post("/dispositions/add")
 def disposition_add(request: Request, label: str = Form(...), default_days: int = Form(0)):
     """Add a new disposition to follow_up_dispositions."""
     lst = cfg.get("follow_up_dispositions", [])
     if any(d["label"] == label for d in lst):
-        return RedirectResponse("/settings", status_code=303)
+        return RedirectResponse("/settings?tab=workflow", status_code=303)
     lst.append({"label": label, "default_days": max(0, default_days)})
     full = dict(cfg.load_config())
     full["follow_up_dispositions"] = lst
     cfg.save_config(full)
     cfg.reload_config()
-    return RedirectResponse("/settings", status_code=303)
+    return RedirectResponse("/settings?tab=workflow", status_code=303)
 
 
 @router.post("/dispositions/remove")
@@ -243,7 +386,7 @@ def disposition_remove(request: Request, label: str = Form(...)):
     full["follow_up_dispositions"] = lst
     cfg.save_config(full)
     cfg.reload_config()
-    return RedirectResponse("/settings", status_code=303)
+    return RedirectResponse("/settings?tab=workflow", status_code=303)
 
 
 @router.post("/dispositions/reorder")
@@ -252,7 +395,7 @@ def disposition_reorder(request: Request, label: str = Form(...), direction: str
     lst = cfg.get("follow_up_dispositions", [])
     idx = next((i for i, d in enumerate(lst) if d["label"] == label), None)
     if idx is None:
-        return RedirectResponse("/settings", status_code=303)
+        return RedirectResponse("/settings?tab=workflow", status_code=303)
     if direction == "up" and idx > 0:
         lst[idx], lst[idx - 1] = lst[idx - 1], lst[idx]
     elif direction == "down" and idx < len(lst) - 1:
@@ -261,7 +404,7 @@ def disposition_reorder(request: Request, label: str = Form(...), direction: str
     full["follow_up_dispositions"] = lst
     cfg.save_config(full)
     cfg.reload_config()
-    return RedirectResponse("/settings", status_code=303)
+    return RedirectResponse("/settings?tab=workflow", status_code=303)
 
 
 @router.patch("/dispositions/update")
@@ -399,6 +542,81 @@ async def save_readiness_weights(request: Request):
     )
 
 
+# ── Per-field auto-save PATCH endpoints ──────────────────────────────────────
+
+@router.patch("/threshold-field", response_class=HTMLResponse)
+def patch_threshold_field(request: Request, field: str = Form(...), value: str = Form(...)):
+    """Save a single threshold field on blur."""
+    escalation_fields = {"critical_days", "critical_stale_days", "warning_days", "nudge_days", "nudge_stale_days"}
+
+    full = dict(cfg.load_config())
+
+    if field in escalation_fields:
+        thresholds = full.get("escalation_thresholds", {})
+        thresholds[field] = int(value)
+        full["escalation_thresholds"] = thresholds
+    elif field.startswith("readiness_"):
+        key = field.replace("readiness_", "")
+        thresholds = full.get("readiness_thresholds", {})
+        thresholds[key] = int(value)
+        full["readiness_thresholds"] = thresholds
+    elif field == "followup_workload_warning":
+        wl = full.get("followup_workload_thresholds", {})
+        wl["warning"] = int(value)
+        full["followup_workload_thresholds"] = wl
+    elif field == "followup_workload_danger":
+        wl = full.get("followup_workload_thresholds", {})
+        wl["danger"] = int(value)
+        full["followup_workload_thresholds"] = wl
+    else:
+        return HTMLResponse('<span class="text-red-500 text-xs">Unknown field</span>')
+
+    cfg.save_config(full)
+    cfg.reload_config()
+    return HTMLResponse('<span class="text-green-600 text-xs">Saved</span>')
+
+
+@router.patch("/readiness-weight-field", response_class=HTMLResponse)
+def patch_readiness_weight_field(request: Request, field: str = Form(...), value: str = Form(...)):
+    """Save a single readiness weight field on blur."""
+    full = dict(cfg.load_config())
+
+    component_fields = {"status", "checklist", "activity", "followup", "placement"}
+
+    if field.startswith("w_") and field[2:] in component_fields:
+        weights = full.get("readiness_weights", {})
+        weights[field[2:]] = int(value)
+        full["readiness_weights"] = weights
+    elif field.startswith("ss_"):
+        # Status score: field is "ss_StatusName", value is the score
+        status_name = field[3:]
+        scores = full.get("readiness_status_scores", {})
+        scores[status_name] = int(value)
+        full["readiness_status_scores"] = scores
+    elif field.startswith("mw_"):
+        # Milestone weight: field is "mw_MilestoneName", value is the weight
+        milestone_name = field[3:]
+        weights = full.get("readiness_milestone_weights", {})
+        weights[milestone_name] = int(value)
+        full["readiness_milestone_weights"] = weights
+    elif field.startswith("at_"):
+        # Activity tier: field is "at_0_days" or "at_0_pct"
+        parts = field[3:].split("_", 1)
+        if len(parts) == 2:
+            idx = int(parts[0])
+            subfield = parts[1]  # "days" or "pct"
+            tiers = list(full.get("readiness_activity_tiers", []))
+            if 0 <= idx < len(tiers):
+                tiers[idx][subfield] = int(value)
+                full["readiness_activity_tiers"] = tiers
+    else:
+        return HTMLResponse('<span class="text-red-500 text-xs">Unknown field</span>')
+
+    cfg.save_config(full)
+    cfg.reload_config()
+    return HTMLResponse('<span class="text-green-600 text-xs">Saved</span>')
+
+
 @router.post("/milestone/toggle-client-facing", response_class=HTMLResponse)
 def toggle_milestone_client_facing(request: Request, item: str = Form(...)):
     """Toggle whether a renewal milestone is flagged for client request seeding."""
@@ -442,6 +660,7 @@ def mandated_activity_add(
     name: str = Form(...),
     trigger: str = Form(...),
     days: int = Form(...),
+    prep_days: int = Form(0),
     activity_type: str = Form("Meeting"),
     subject: str = Form(""),
 ):
@@ -451,6 +670,7 @@ def mandated_activity_add(
         "name": name.strip(),
         "trigger": trigger,
         "days": days,
+        "prep_days": prep_days,
         "activity_type": activity_type,
         "subject": subject.strip() or f"{name.strip()} — {{{{policy_type}}}}",
     })
@@ -471,26 +691,12 @@ def mandated_activity_remove(request: Request, name: str = Form(...)):
 
 
 def _render_mandated_activities(request: Request) -> HTMLResponse:
-    rules = cfg.get("mandated_activities", [])
-    activity_types = cfg.get("activity_types", [])
-    html_parts = []
-    for r in rules:
-        trigger_label = {"days_before_expiry": "before expiry", "days_after_effective": "after effective", "days_after_binding": "after binding"}.get(r.get("trigger"), r.get("trigger", ""))
-        html_parts.append(
-            f'<div class="flex items-center justify-between py-2 border-b border-gray-50">'
-            f'<div class="text-sm text-gray-800">'
-            f'<span class="font-medium">{r["name"]}</span>'
-            f' &mdash; <span class="text-gray-500">{r["days"]}d {trigger_label}</span>'
-            f' &middot; <span class="text-gray-400">{r.get("activity_type", "Meeting")}</span>'
-            f'</div>'
-            f'<form hx-post="/settings/mandated-activities/remove" hx-target="#mandated-activities-list" hx-swap="innerHTML">'
-            f'<input type="hidden" name="name" value="{r["name"]}">'
-            f'<button type="submit" class="text-xs text-red-400 hover:text-red-600">&times;</button>'
-            f'</form></div>'
-        )
-    if not html_parts:
-        html_parts.append('<p class="text-xs text-gray-400 py-2">No mandated activities configured.</p>')
-    return HTMLResponse("".join(html_parts))
+    return templates.TemplateResponse("settings/_mandated_activities_rows.html", {
+        "request": request,
+        "mandated_activities": cfg.get("mandated_activities", []),
+        "renewal_milestones": cfg.get("renewal_milestones", []),
+        "activity_types": cfg.get("activity_types", []),
+    })
 
 
 # ── Mandated Activities — inline PATCH editor ────────────────────────────────
@@ -578,7 +784,7 @@ def carrier_alias_add_group(request: Request, canonical: str = Form(...)):
         cfg.reload_config()
         from policydb.utils import rebuild_carrier_aliases
         rebuild_carrier_aliases()
-    return RedirectResponse("/settings", status_code=303)
+    return RedirectResponse("/settings?tab=carriers", status_code=303)
 
 
 @router.post("/carrier-aliases/add-alias")
@@ -593,7 +799,7 @@ def carrier_alias_add(request: Request, canonical: str = Form(...), alias: str =
         cfg.reload_config()
         from policydb.utils import rebuild_carrier_aliases
         rebuild_carrier_aliases()
-    return RedirectResponse("/settings", status_code=303)
+    return RedirectResponse("/settings?tab=carriers", status_code=303)
 
 
 @router.post("/carrier-aliases/remove-alias")
@@ -607,7 +813,7 @@ def carrier_alias_remove(request: Request, canonical: str = Form(...), alias: st
         cfg.reload_config()
         from policydb.utils import rebuild_carrier_aliases
         rebuild_carrier_aliases()
-    return RedirectResponse("/settings", status_code=303)
+    return RedirectResponse("/settings?tab=carriers", status_code=303)
 
 
 @router.post("/carrier-aliases/rename-group")
@@ -623,7 +829,7 @@ def carrier_alias_rename_group(request: Request, old_name: str = Form(...), new_
         cfg.reload_config()
         from policydb.utils import rebuild_carrier_aliases
         rebuild_carrier_aliases()
-    return RedirectResponse("/settings#carrier-aliases-card", status_code=303)
+    return RedirectResponse("/settings?tab=carriers", status_code=303)
 
 
 @router.post("/carrier-aliases/remove-group")
@@ -637,7 +843,7 @@ def carrier_alias_remove_group(request: Request, canonical: str = Form(...)):
         cfg.reload_config()
         from policydb.utils import rebuild_carrier_aliases
         rebuild_carrier_aliases()
-    return RedirectResponse("/settings", status_code=303)
+    return RedirectResponse("/settings?tab=carriers", status_code=303)
 
 
 # ── DB Health Actions ─────────────────────────────────────────────────────────
@@ -933,64 +1139,8 @@ _AUDIT_TABLES = [
 _AUDIT_OPERATIONS = ["INSERT", "UPDATE", "DELETE"]
 
 
-@router.get("/audit-log", response_class=HTMLResponse)
-def audit_log_page(
-    request: Request,
-    conn=Depends(get_db),
-    table_name: str = Query("", alias="table"),
-    operation: str = Query("", alias="op"),
-    date_from: str = Query("", alias="from"),
-    date_to: str = Query("", alias="to"),
-):
-    """Show the last 100 audit log entries with optional filters."""
-    clauses = []
-    params: list = []
-
-    if table_name and table_name in _AUDIT_TABLES:
-        clauses.append("table_name = ?")
-        params.append(table_name)
-    if operation and operation in _AUDIT_OPERATIONS:
-        clauses.append("operation = ?")
-        params.append(operation)
-    if date_from:
-        clauses.append("changed_at >= ?")
-        params.append(date_from)
-    if date_to:
-        clauses.append("changed_at <= ? || ' 23:59:59'")
-        params.append(date_to)
-
-    where = ""
-    if clauses:
-        where = "WHERE " + " AND ".join(clauses)
-
-    try:
-        rows = conn.execute(
-            f"SELECT id, table_name, row_id, operation, old_values, new_values, "  # noqa: S608
-            f"changed_at, changed_by FROM audit_log {where} "
-            f"ORDER BY changed_at DESC LIMIT 100",
-            params,
-        ).fetchall()
-    except Exception:
-        rows = []
-
-    # Count total entries for the header
-    try:
-        total = conn.execute(
-            f"SELECT COUNT(*) FROM audit_log {where}",  # noqa: S608
-            params,
-        ).fetchone()[0]
-    except Exception:
-        total = 0
-
-    return templates.TemplateResponse("settings/audit_log.html", {
-        "request": request,
-        "active": "settings",
-        "rows": rows,
-        "total": total,
-        "tables": _AUDIT_TABLES,
-        "operations": _AUDIT_OPERATIONS,
-        "f_table": table_name,
-        "f_op": operation,
-        "f_from": date_from,
-        "f_to": date_to,
-    })
+@router.get("/audit-log")
+def audit_log_page(request: Request):
+    """Redirect to the unified logs page (audit tab)."""
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/logs?tab=audit", status_code=302)

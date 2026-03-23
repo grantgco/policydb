@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+logger = logging.getLogger("policydb.web.routes.policies")
+
 from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Depends, Form, Request
@@ -2544,6 +2547,7 @@ def policy_update_status(
         (status, uid),
     )
     conn.commit()
+    logger.info("Policy %s status -> %s", uid, status)
     policy = get_policy_by_uid(conn, uid)
     if not policy:
         return HTMLResponse("", status_code=404)
@@ -2820,6 +2824,7 @@ def policy_archive(policy_uid: str, conn=Depends(get_db)):
     client_id = policy["client_id"]
     conn.execute("UPDATE policies SET archived=1 WHERE policy_uid=?", (uid,))
     conn.commit()
+    logger.info("Policy %s archived", uid)
     return RedirectResponse(f"/clients/{client_id}", status_code=303)
 
 
@@ -3058,6 +3063,7 @@ def policy_new_post(
          pgm),
     )
     conn.commit()
+    logger.info("Policy %s created for client %d", uid, client_id)
     new_policy = get_policy_by_uid(conn, uid)
     if new_policy:
         _pid = new_policy["id"]
