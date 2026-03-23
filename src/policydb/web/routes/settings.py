@@ -111,6 +111,7 @@ def settings_page(request: Request, conn=Depends(get_db)):
         "email_subject_followup": cfg.get("email_subject_followup", ""),
         "email_subject_request": cfg.get("email_subject_request", ""),
         "email_subject_request_all": cfg.get("email_subject_request_all", ""),
+        "email_subject_rfi_notify": cfg.get("email_subject_rfi_notify", ""),
         "escalation_thresholds": cfg.get("escalation_thresholds", {}),
         "readiness_thresholds": cfg.get("readiness_thresholds", {}),
         "readiness_weights": cfg.get("readiness_weights", {}),
@@ -146,7 +147,7 @@ def settings_page(request: Request, conn=Depends(get_db)):
 
 @router.post("/email-subject", response_class=HTMLResponse)
 def save_email_subject(key: str = Form(...), value: str = Form(...)):
-    _allowed = {"email_subject_policy", "email_subject_client", "email_subject_followup", "email_subject_request", "email_subject_request_all"}
+    _allowed = {"email_subject_policy", "email_subject_client", "email_subject_followup", "email_subject_request", "email_subject_request_all", "email_subject_rfi_notify"}
     if key in _allowed:
         full = dict(cfg.load_config())
         full[key] = value

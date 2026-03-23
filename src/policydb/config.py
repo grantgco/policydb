@@ -488,6 +488,7 @@ _DEFAULTS: dict[str, Any] = {
     ],
     "email_subject_request": "{{client_name}} \u2014 {{rfi_uid}} {{request_title}}",
     "email_subject_request_all": "{{client_name}} \u2014 Outstanding Information Requests",
+    "email_subject_rfi_notify": "FYI: {{client_name}} \u2014 {{rfi_uid}} Items Received",
     "project_stages": ["Upcoming", "Quoting", "Bound", "Active", "Complete"],
     "project_types": ["Location", "Construction", "Development", "Renovation"],
     "expertise_lines": [

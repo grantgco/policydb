@@ -32,6 +32,7 @@
       ('email_subject_followup', 'Follow-up emails', 'Subject when emailing from the follow-up list', email_subject_followup),
       ('email_subject_request', 'Request bundle emails', 'Subject when composing from an RFI bundle', email_subject_request),
       ('email_subject_request_all', 'Request all emails', 'Subject when composing all outstanding requests', email_subject_request_all),
+      ('email_subject_rfi_notify', 'RFI Team Notification', 'Subject when notifying team of received RFI items', email_subject_rfi_notify),
     ] %}
 
     <div class="space-y-4">
@@ -51,6 +52,8 @@
         <div class="flex flex-wrap gap-1 mt-1.5">
           {% if 'policy' in field_key or 'followup' in field_key %}
           {% set pills = [('client_name','Client Name'),('project_name_sep','Project (sep)'),('policy_type','Policy Type'),('carrier','Carrier'),('policy_uid','Policy ID'),('effective_date','Eff. Date'),('expiration_date','Exp. Date'),('subject','Subject'),('today','Today')] %}
+          {% elif 'rfi_notify' in field_key %}
+          {% set pills = [('client_name','Client Name'),('rfi_uid','RFI ID'),('today','Today')] %}
           {% else %}
           {% set pills = [('client_name','Client Name'),('primary_contact','Primary Contact'),('account_exec','Acct Exec'),('today','Today')] %}
           {% endif %}
