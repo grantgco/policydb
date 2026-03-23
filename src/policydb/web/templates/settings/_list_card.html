@@ -3,26 +3,11 @@
     <span class="section-title">{{ label }}</span>
     <span class="text-xs text-gray-400">{{ items | length }} items</span>
   </div>
-  <ul class="divide-y divide-gray-100">
+  <ul class="divide-y divide-gray-100 sortable-list" data-key="{{ key }}">
     {% for item in items %}
     {% set is_excluded = item in (excluded_items or []) %}
-    <li class="flex items-center justify-between px-5 py-2 {{ 'bg-gray-50/60' if is_excluded else '' }}">
-      <div class="flex items-center gap-1 shrink-0 mr-2">
-        <form hx-post="/settings/list/reorder" hx-target="#list-{{ key }}" hx-swap="outerHTML">
-          <input type="hidden" name="key" value="{{ key }}">
-          <input type="hidden" name="item" value="{{ item }}">
-          <input type="hidden" name="direction" value="up">
-          <button type="submit" {% if loop.first %}disabled{% endif %}
-            class="text-gray-300 hover:text-gray-600 disabled:opacity-20 disabled:cursor-default leading-none px-0.5">↑</button>
-        </form>
-        <form hx-post="/settings/list/reorder" hx-target="#list-{{ key }}" hx-swap="outerHTML">
-          <input type="hidden" name="key" value="{{ key }}">
-          <input type="hidden" name="item" value="{{ item }}">
-          <input type="hidden" name="direction" value="down">
-          <button type="submit" {% if loop.last %}disabled{% endif %}
-            class="text-gray-300 hover:text-gray-600 disabled:opacity-20 disabled:cursor-default leading-none px-0.5">↓</button>
-        </form>
-      </div>
+    <li class="flex items-center justify-between px-4 py-1.5 {{ 'bg-gray-50/60' if is_excluded else '' }}" data-value="{{ item }}">
+      <span class="drag-handle cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 mr-2 select-none" title="Drag to reorder">⠿</span>
       <span class="text-sm flex-1 {{ 'text-gray-400 italic' if is_excluded else 'text-gray-800' }}">
         {{ item }}
         {% if is_excluded %}<span class="text-xs ml-1 text-amber-600">· silenced</span>{% endif %}
@@ -64,10 +49,10 @@
       </form>
     </li>
     {% else %}
-    <li class="px-5 py-4 text-sm text-gray-400 italic">No items — add one below.</li>
+    <li class="px-4 py-3 text-sm text-gray-400 italic">No items — add one below.</li>
     {% endfor %}
   </ul>
-  <div class="px-5 py-3 border-t border-gray-100 bg-gray-50/60">
+  <div class="px-4 py-2 border-t border-gray-100 bg-gray-50/60">
     <form hx-post="/settings/list/add"
           hx-target="#list-{{ key }}"
           hx-swap="outerHTML"
@@ -75,11 +60,35 @@
           class="flex gap-2">
       <input type="hidden" name="key" value="{{ key }}">
       <input type="text" name="item" required placeholder="Add new option…"
-        class="flex-1 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-marsh">
+        class="flex-1 border border-gray-300 rounded-lg px-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-marsh">
       <button type="submit"
-        class="bg-marsh hover:bg-marsh-light text-white text-sm font-medium px-4 py-1.5 rounded-lg transition-colors">
+        class="bg-marsh hover:bg-marsh-light text-white text-sm font-medium px-4 py-1 rounded-lg transition-colors">
         Add
       </button>
     </form>
   </div>
 </div>
+<script>
+(function() {
+  var card = document.getElementById('list-{{ key }}');
+  if (!card || typeof Sortable === 'undefined') return;
+  var ul = card.querySelector('.sortable-list');
+  if (!ul || ul.children.length < 2) return;
+  Sortable.create(ul, {
+    handle: '.drag-handle',
+    animation: 150,
+    ghostClass: 'bg-blue-50',
+    onEnd: function() {
+      var items = [];
+      ul.querySelectorAll('li[data-value]').forEach(function(li) {
+        items.push(li.dataset.value);
+      });
+      fetch('/settings/list/reorder-all', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({key: '{{ key }}', items: items})
+      });
+    }
+  });
+})();
+</script>
