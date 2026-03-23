@@ -260,6 +260,12 @@ function submitAiImport() {
                 if (target) {
                     target.innerHTML = temp.innerHTML;
                     htmx.process(target);
+                    /* Execute <script> blocks that innerHTML doesn't run */
+                    target.querySelectorAll('script').forEach(function(oldScript) {
+                        var newScript = document.createElement('script');
+                        newScript.textContent = oldScript.textContent;
+                        oldScript.parentNode.replaceChild(newScript, oldScript);
+                    });
                 }
 
                 /* Open parent <details> if collapsed (compliance review mode) */

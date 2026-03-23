@@ -1,0 +1,250 @@
+{# AI Import Review Panel — shows diffs for policy fields, locations, and COPE data.
+   Rendered inside _tab_details.html when ai_policy_diffs or ai_location_data are present.
+   Context:
+     ai_policy_diffs   — list of {field, label, current, extracted, is_fill}
+     ai_location_data   — list of location dicts with diffs, cope_diffs, match info
+     ai_parsed_json     — JSON string of all parsed data (for apply endpoints)
+     policy             — current policy dict
+#}
+<div id="ai-review-panel" class="mb-6" data-parsed='{{ ai_parsed_json }}'>
+
+  {# ══ Header ══ #}
+  <div class="flex items-center gap-3 mb-4">
+    <div class="flex items-center gap-2">
+      <svg class="w-5 h-5 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+      </svg>
+      <h3 class="text-sm font-semibold text-gray-900">AI Import Review</h3>
+    </div>
+    <span class="text-xs text-gray-400">Select fields to apply, then confirm</span>
+    <button onclick="document.getElementById('ai-review-panel').remove()"
+            class="ml-auto text-xs text-gray-400 hover:text-gray-600 transition-colors">Dismiss</button>
+  </div>
+
+  {# ══════════════════════════════════════════════════════════════════════════
+     SECTION A — Policy Field Diffs
+     ══════════════════════════════════════════════════════════════════════════ #}
+  {% if ai_policy_diffs %}
+  <div class="card border-indigo-200 bg-indigo-50/20 mb-4" id="ai-policy-diffs-card">
+    <div class="px-5 py-3 border-b border-indigo-100 flex items-center justify-between">
+      <span class="text-xs font-semibold text-indigo-600 uppercase tracking-wide">Policy Fields</span>
+      <span class="text-xs text-gray-400">{{ ai_policy_diffs | length }} change{{ 's' if ai_policy_diffs | length != 1 }}</span>
+    </div>
+    <div class="divide-y divide-indigo-50">
+      {% for d in ai_policy_diffs %}
+      <label class="flex items-center gap-4 px-5 py-2.5 hover:bg-indigo-50/40 cursor-pointer transition-colors">
+        <input type="checkbox" name="apply_field" value="{{ d.field }}"
+               class="ai-field-cb rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+               {% if d.is_fill %}checked{% endif %}>
+        <span class="text-xs font-medium text-gray-500 w-36 shrink-0">{{ d.label }}</span>
+        <span class="text-xs text-gray-400 flex-1 truncate" title="{{ d.current or '(empty)' }}">
+          {% if d.current %}{{ d.current }}{% else %}<em class="text-gray-300">empty</em>{% endif %}
+        </span>
+        <svg class="w-4 h-4 text-indigo-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/>
+        </svg>
+        <span class="text-xs font-medium text-indigo-700 flex-1 truncate" title="{{ d.extracted }}">
+          {{ d.extracted }}
+        </span>
+      </label>
+      {% endfor %}
+    </div>
+    <div class="px-5 py-3 border-t border-indigo-100 flex items-center gap-3">
+      <button type="button" onclick="applyPolicyFields()"
+              class="px-4 py-1.5 rounded-lg text-xs font-medium bg-indigo-600 text-white hover:bg-indigo-700 transition-colors">
+        Apply Selected Fields
+      </button>
+      <button type="button" onclick="toggleAllFieldCbs(true)" class="text-xs text-indigo-500 hover:text-indigo-700">Select All</button>
+      <button type="button" onclick="toggleAllFieldCbs(false)" class="text-xs text-gray-400 hover:text-gray-600">Clear All</button>
+    </div>
+  </div>
+  {% endif %}
+
+  {# ══════════════════════════════════════════════════════════════════════════
+     SECTION B — Location & COPE Review (per location)
+     ══════════════════════════════════════════════════════════════════════════ #}
+  {% if ai_location_data %}
+  {% for loc in ai_location_data %}
+  <div class="card border-emerald-200 bg-emerald-50/20 mb-4" id="ai-loc-card-{{ loc.index }}">
+    <div class="px-5 py-3 border-b border-emerald-100 flex items-center gap-3">
+      <svg class="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/>
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/>
+      </svg>
+      <span class="text-xs font-semibold text-emerald-700 uppercase tracking-wide">
+        {% if loc.match_type == 'linked' %}
+          Linked Location: {{ loc.existing.name or 'Unnamed' }}
+        {% elif loc.match_type == 'fuzzy' %}
+          Matched Location: {{ loc.existing.name or 'Unnamed' }}
+        {% else %}
+          New Location: {{ loc.extracted.name or 'Location ' ~ (loc.index + 1) }}
+        {% endif %}
+      </span>
+      {% if loc.match_type == 'fuzzy' %}
+      <span class="px-2 py-0.5 rounded-full text-[10px] font-bold
+        {% if loc.match_score >= 75 %}bg-green-100 text-green-700
+        {% elif loc.match_score >= 60 %}bg-amber-100 text-amber-700
+        {% else %}bg-gray-100 text-gray-500{% endif %}">
+        {{ loc.match_score }}% match
+      </span>
+      {% endif %}
+      {% if loc.diffs or loc.cope_diffs %}
+      <span class="text-xs text-gray-400 ml-auto">
+        {{ (loc.diffs | length) + (loc.cope_diffs | length) }} field{{ 's' if (loc.diffs | length) + (loc.cope_diffs | length) != 1 }}
+      </span>
+      {% endif %}
+    </div>
+
+    {# Location field diffs #}
+    {% if loc.diffs %}
+    <div class="divide-y divide-emerald-50">
+      {% for d in loc.diffs %}
+      <label class="flex items-center gap-4 px-5 py-2.5 hover:bg-emerald-50/40 cursor-pointer transition-colors">
+        <input type="checkbox" name="apply_loc_{{ loc.index }}" value="{{ d.field }}"
+               class="ai-loc-cb-{{ loc.index }} rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+               {% if d.is_fill %}checked{% endif %}>
+        <span class="text-xs font-medium text-gray-500 w-36 shrink-0">{{ d.label }}</span>
+        <span class="text-xs text-gray-400 flex-1 truncate">
+          {% if d.current %}{{ d.current }}{% else %}<em class="text-gray-300">empty</em>{% endif %}
+        </span>
+        <svg class="w-4 h-4 text-emerald-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/>
+        </svg>
+        <span class="text-xs font-medium text-emerald-700 flex-1 truncate">{{ d.extracted }}</span>
+      </label>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {# COPE field diffs #}
+    {% if loc.cope_diffs %}
+    <div class="px-5 py-2 border-t border-emerald-100">
+      <span class="text-[10px] font-semibold text-emerald-500 uppercase tracking-wider">COPE Data</span>
+    </div>
+    <div class="divide-y divide-emerald-50">
+      {% for d in loc.cope_diffs %}
+      <label class="flex items-center gap-4 px-5 py-2.5 hover:bg-emerald-50/40 cursor-pointer transition-colors">
+        <input type="checkbox" name="apply_cope_{{ loc.index }}" value="{{ d.field }}"
+               class="ai-cope-cb-{{ loc.index }} rounded border-gray-300 text-teal-600 focus:ring-teal-500"
+               {% if d.is_fill %}checked{% endif %}>
+        <span class="text-xs font-medium text-gray-500 w-36 shrink-0">{{ d.label }}</span>
+        <span class="text-xs text-gray-400 flex-1 truncate">
+          {% if d.current is not none and d.current != '' %}{{ d.current }}{% else %}<em class="text-gray-300">empty</em>{% endif %}
+        </span>
+        <svg class="w-4 h-4 text-teal-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/>
+        </svg>
+        <span class="text-xs font-medium text-teal-700 flex-1 truncate">{{ d.extracted }}</span>
+      </label>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {# Actions #}
+    <div class="px-5 py-3 border-t border-emerald-100 flex items-center gap-3">
+      {% if loc.match_type == 'new' %}
+      <button type="button" onclick="applyLocation({{ loc.index }}, null, true)"
+              class="px-4 py-1.5 rounded-lg text-xs font-medium bg-emerald-600 text-white hover:bg-emerald-700 transition-colors">
+        Create Location &amp; Apply
+      </button>
+      {% else %}
+      <button type="button" onclick="applyLocation({{ loc.index }}, {{ loc.project_id }}, false)"
+              class="px-4 py-1.5 rounded-lg text-xs font-medium bg-emerald-600 text-white hover:bg-emerald-700 transition-colors">
+        Apply to {{ loc.existing.name or 'Location' }}
+      </button>
+      {% endif %}
+      <button type="button" onclick="document.getElementById('ai-loc-card-{{ loc.index }}').remove()"
+              class="text-xs text-gray-400 hover:text-gray-600 transition-colors">Skip</button>
+    </div>
+  </div>
+  {% endfor %}
+  {% endif %}
+
+</div>
+
+<script>
+/* ── AI Review Panel helpers ── */
+function toggleAllFieldCbs(checked) {
+  document.querySelectorAll('.ai-field-cb').forEach(function(cb) { cb.checked = checked; });
+}
+
+function applyPolicyFields() {
+  var panel = document.getElementById('ai-review-panel');
+  var parsed = JSON.parse(panel.dataset.parsed);
+  var checked = [];
+  document.querySelectorAll('.ai-field-cb:checked').forEach(function(cb) {
+    checked.push(cb.value);
+  });
+  if (!checked.length) return;
+
+  /* Build updates — one PATCH per field using existing cell-save endpoint */
+  var uid = '{{ policy.policy_uid }}';
+  var promises = checked.map(function(field) {
+    var value = parsed[field];
+    if (value === null || value === undefined) value = '';
+    return fetch('/policies/' + uid + '/cell', {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({field: field, value: String(value)})
+    });
+  });
+
+  Promise.all(promises).then(function() {
+    var card = document.getElementById('ai-policy-diffs-card');
+    if (card) {
+      card.innerHTML = '<div class="px-5 py-4 text-sm text-emerald-600 font-medium flex items-center gap-2">' +
+        '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>' +
+        checked.length + ' field' + (checked.length !== 1 ? 's' : '') + ' applied</div>';
+      card.className = 'card border-emerald-200 bg-emerald-50/20 mb-4';
+    }
+  });
+}
+
+function applyLocation(locIndex, projectId, createNew) {
+  var panel = document.getElementById('ai-review-panel');
+  var parsed = JSON.parse(panel.dataset.parsed);
+  var locData = parsed.locations ? parsed.locations[locIndex] : null;
+  if (!locData) return;
+
+  /* Collect selected location fields */
+  var locFields = {};
+  document.querySelectorAll('.ai-loc-cb-' + locIndex + ':checked').forEach(function(cb) {
+    locFields[cb.value] = locData[cb.value] || '';
+  });
+
+  /* Collect selected COPE fields */
+  var copeFields = {};
+  document.querySelectorAll('.ai-cope-cb-' + locIndex + ':checked').forEach(function(cb) {
+    var copeData = locData.cope || {};
+    copeFields[cb.value] = copeData[cb.value];
+    if (copeFields[cb.value] === undefined) copeFields[cb.value] = '';
+  });
+
+  var uid = '{{ policy.policy_uid }}';
+  fetch('/policies/' + uid + '/ai-import/apply-location', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      loc_index: locIndex,
+      project_id: projectId,
+      create_new: createNew,
+      location_fields: locFields,
+      cope_fields: copeFields,
+      location_name: locData.name || ''
+    })
+  }).then(function(resp) {
+    return resp.json();
+  }).then(function(data) {
+    var card = document.getElementById('ai-loc-card-' + locIndex);
+    if (card && data.ok) {
+      var label = data.location_name || ('Location ' + (locIndex + 1));
+      var count = Object.keys(locFields).length + Object.keys(copeFields).length;
+      card.innerHTML = '<div class="px-5 py-4 text-sm text-emerald-600 font-medium flex items-center gap-2">' +
+        '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>' +
+        label + ' — ' + count + ' field' + (count !== 1 ? 's' : '') + ' applied' +
+        (data.created ? ' (new location created)' : '') + '</div>';
+      card.className = 'card border-emerald-200 bg-emerald-50/20 mb-4';
+    }
+  });
+}
+</script>
