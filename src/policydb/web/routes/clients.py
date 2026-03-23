@@ -3980,9 +3980,9 @@ def seed_from_checklist(
     client_facing = cfg.get("client_facing_milestones", [])
     if not client_facing:
         return _bundle_response(request, conn, client_id, bundle_id)
-    # Get all active non-opportunity policies for this client
+    # Get all active policies and opportunities for this client
     policies = conn.execute(
-        "SELECT policy_uid, policy_type, carrier, project_name FROM policies WHERE client_id=? AND archived=0 AND (is_opportunity=0 OR is_opportunity IS NULL)",
+        "SELECT policy_uid, policy_type, carrier, project_name FROM policies WHERE client_id=? AND archived=0",
         (client_id,),
     ).fetchall()
     for pol in policies:
