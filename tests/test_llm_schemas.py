@@ -95,3 +95,131 @@ def test_compliance_schema_requirement_fields():
     assert "max_deductible" in req_fields
     assert "required_endorsements" in req_fields
     assert req_fields["required_endorsements"]["type"] == "array"
+
+
+# ---------------------------------------------------------------------------
+# Prompt Generator
+# ---------------------------------------------------------------------------
+
+
+def test_generate_prompt_has_four_sections():
+    """Prompt should have Role, Fields, Context, and JSON Template sections."""
+    from policydb.llm_schemas import generate_extraction_prompt, POLICY_EXTRACTION_SCHEMA
+
+    context = {
+        "client_name": "ABC Construction",
+        "industry": "General Contractor",
+        "config_lists": {
+            "carriers": ["Travelers", "Chubb", "Hartford"],
+            "policy_types": ["General Liability", "Property"],
+            "coverage_forms": ["Occurrence", "Claims-Made", "Reporting"],
+        },
+    }
+    prompt = generate_extraction_prompt(POLICY_EXTRACTION_SCHEMA, context)
+
+    assert isinstance(prompt, str)
+    assert len(prompt) > 100
+    assert "insurance document analyst" in prompt.lower()
+    assert "Insurance Carrier" in prompt
+    assert "Line of Business" in prompt
+    assert "ABC Construction" in prompt
+    assert "{" in prompt and "}" in prompt
+
+
+def test_generate_prompt_injects_config_values_prefer_mode():
+    from policydb.llm_schemas import generate_extraction_prompt, POLICY_EXTRACTION_SCHEMA
+
+    context = {
+        "client_name": "Test Client",
+        "industry": "Construction",
+        "config_lists": {
+            "carriers": ["Travelers", "Chubb"],
+            "policy_types": ["General Liability"],
+            "coverage_forms": ["Occurrence", "Claims-Made", "Reporting"],
+        },
+    }
+    prompt = generate_extraction_prompt(POLICY_EXTRACTION_SCHEMA, context)
+    assert "Travelers" in prompt
+    assert "Chubb" in prompt
+    assert "exact name" in prompt.lower() or "as it appears" in prompt.lower()
+
+
+def test_generate_prompt_injects_config_values_strict_mode():
+    from policydb.llm_schemas import generate_extraction_prompt, POLICY_EXTRACTION_SCHEMA
+
+    context = {
+        "client_name": "Test Client",
+        "industry": "Construction",
+        "config_lists": {
+            "carriers": [],
+            "policy_types": [],
+            "coverage_forms": ["Occurrence", "Claims-Made", "Reporting"],
+        },
+    }
+    prompt = generate_extraction_prompt(POLICY_EXTRACTION_SCHEMA, context)
+    assert "Occurrence" in prompt
+    assert "Claims-Made" in prompt
+    assert "must be one of" in prompt.lower()
+
+
+def test_generate_json_template_returns_valid_json():
+    import json
+    from policydb.llm_schemas import generate_json_template, POLICY_EXTRACTION_SCHEMA
+
+    template = generate_json_template(POLICY_EXTRACTION_SCHEMA)
+    parsed = json.loads(template)
+    assert isinstance(parsed, dict)
+    assert "carrier" in parsed
+    assert "policy_type" in parsed
+
+
+def test_generate_json_template_compliance_nested():
+    import json
+    from policydb.llm_schemas import generate_json_template, COMPLIANCE_EXTRACTION_SCHEMA
+
+    template = generate_json_template(COMPLIANCE_EXTRACTION_SCHEMA)
+    parsed = json.loads(template)
+    assert "source" in parsed
+    assert "requirements" in parsed
+    assert isinstance(parsed["requirements"], list)
+
+
+def test_generate_prompt_compliance_nested_json():
+    from policydb.llm_schemas import generate_extraction_prompt, COMPLIANCE_EXTRACTION_SCHEMA
+
+    context = {
+        "client_name": "ABC Construction",
+        "location_name": "Project Alpha",
+        "source_name": "GC Contract",
+        "config_lists": {
+            "policy_types": ["General Liability", "Workers Compensation"],
+            "deductible_types": ["Per Occurrence", "Aggregate"],
+            "endorsement_types": ["Additional Insured", "Waiver of Subrogation"],
+            "construction_types": ["Type I", "Type II"],
+            "sprinkler_options": ["Yes", "No", "Unknown"],
+            "roof_types": ["Built-Up"],
+            "protection_classes": ["1", "2"],
+        },
+    }
+    prompt = generate_extraction_prompt(COMPLIANCE_EXTRACTION_SCHEMA, context)
+
+    assert "source" in prompt
+    assert "requirements" in prompt
+    assert "cope" in prompt
+    assert "Project Alpha" in prompt
+    assert "GC Contract" in prompt
+    assert "Additional Insured" in prompt
+
+
+def test_generate_prompt_includes_aggregate_retention_instruction():
+    from policydb.llm_schemas import generate_extraction_prompt, POLICY_EXTRACTION_SCHEMA
+
+    context = {
+        "client_name": "Test",
+        "industry": "Test",
+        "config_lists": {"carriers": [], "policy_types": [], "coverage_forms": []},
+    }
+    prompt = generate_extraction_prompt(POLICY_EXTRACTION_SCHEMA, context)
+    assert "aggregate" in prompt.lower()
+    assert "retention" in prompt.lower() or "sir" in prompt.lower()
+    assert "notes" in prompt.lower()
