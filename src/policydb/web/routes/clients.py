@@ -697,6 +697,7 @@ def client_tab_policies(request: Request, client_id: int, conn=Depends(get_db)):
         "project_addresses": project_addresses,
         "opportunities": opportunities,
         "bundles": _get_request_bundles(conn, client_id),
+        "today_iso": datetime.now().strftime("%Y-%m-%d"),
         "pipeline_projects": _get_project_pipeline(conn, client_id),
         "location_projects": _get_project_locations(conn, client_id),
         "project_stages": cfg.get("project_stages", []),
@@ -819,6 +820,7 @@ def client_tab_risk(request: Request, client_id: int, conn=Depends(get_db)):
         "policy_types": cfg.get("policy_types", []),
         "policy_uid_options": policy_uid_options,
         "bundles": _get_request_bundles(conn, client_id),
+        "today_iso": datetime.now().strftime("%Y-%m-%d"),
     })
 
 
