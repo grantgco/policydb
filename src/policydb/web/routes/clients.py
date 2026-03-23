@@ -730,19 +730,27 @@ def client_tab_contacts(request: Request, client_id: int, add_contact: str = "",
     team_contacts = get_client_contacts(conn, client_id, contact_type='internal')
     external_contacts = get_client_contacts(conn, client_id, contact_type='external')
 
-    # Placement colleagues
+    # Placement colleagues — include archived/lost policies, tagged accordingly
     _pc_rows = conn.execute(
         """SELECT co.id, co.name, co.email, co.phone, co.mobile,
                   cpa.role, cpa.title, co.organization,
-                  GROUP_CONCAT(p.policy_type, ', ') AS policy_types
+                  GROUP_CONCAT(p.policy_type, ', ') AS policy_types,
+                  MAX(p.archived) AS has_archived,
+                  MIN(p.archived) AS all_archived
            FROM contact_policy_assignments cpa
            JOIN contacts co ON cpa.contact_id = co.id
            JOIN policies p ON cpa.policy_id = p.id
-           WHERE p.client_id = ? AND p.archived = 0 AND cpa.is_placement_colleague = 1
+           WHERE p.client_id = ? AND cpa.is_placement_colleague = 1
            GROUP BY co.id ORDER BY LOWER(co.name)""",
         (client_id,),
     ).fetchall()
-    placement_colleagues = [dict(r) | {"organization": r["organization"] or ""} for r in _pc_rows]
+    placement_colleagues = [
+        dict(r) | {
+            "organization": r["organization"] or "",
+            "is_lost_only": bool(r["all_archived"]),
+        }
+        for r in _pc_rows
+    ]
 
     from policydb.email_templates import client_context as _client_ctx, render_tokens as _render_tokens
     _mail_ctx = _client_ctx(conn, client_id)
@@ -1089,7 +1097,11 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
     mailto_subject = _render_tokens(cfg.get("email_subject_client", "Re: {{client_name}}"), _mail_ctx)
 
     # Aggregate placement touchpoints from contact_policy_assignments
-    _pol_map = {p["id"]: p for p in all_policies}
+    # Include archived policies so lost-policy contacts still appear
+    _all_pols_incl_archived = [dict(r) for r in conn.execute(
+        "SELECT * FROM policies WHERE client_id = ?", (client_id,)
+    ).fetchall()]
+    _pol_map = {p["id"]: p for p in _all_pols_incl_archived}
     _pol_subj_tpl = cfg.get("email_subject_policy", "Re: {{client_name}} \u2014 {{policy_type}}")
     _colleagues: dict[str, dict] = {}
 
@@ -1119,6 +1131,7 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
             "project_name": (p.get("project_name") or "").strip(),
             "expiration_date": p.get("expiration_date") or "",
             "mailto_subject": _render_tokens(_pol_subj_tpl, _pol_ctx),
+            "is_archived": bool(p.get("archived")),
         })
 
     # Source: contact_policy_assignments + contacts tables
@@ -1127,7 +1140,7 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
            FROM contact_policy_assignments cpa
            JOIN contacts co ON cpa.contact_id = co.id
            JOIN policies p ON cpa.policy_id = p.id
-           WHERE p.client_id = ? AND p.archived = 0
+           WHERE p.client_id = ?
            ORDER BY co.name, p.policy_type""",
         (client_id,),
     ).fetchall()

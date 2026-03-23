@@ -903,14 +903,16 @@ _RENEWAL_SORT_FIELDS = {
 
 @router.get("/renewals", response_class=HTMLResponse)
 def renewals(request: Request, window: int = 180, urgency: str = "", status: str = "",
-             sort: str = "expiration_date", dir: str = "asc", conn=Depends(get_db)):
+             sort: str = "expiration_date", dir: str = "asc", client_id: int = 0, conn=Depends(get_db)):
     excluded = cfg.get("renewal_statuses_excluded", [])
+    filter_client_ids = [client_id] if client_id else None
     rows = get_renewal_pipeline(
         conn,
         window_days=window,
         urgency=urgency or None,
         renewal_status=status or None,
         excluded_statuses=excluded,
+        client_ids=filter_client_ids,
     )
 
     # Attach client_id for linking, then milestone progress
@@ -947,6 +949,14 @@ def renewals(request: Request, window: int = 180, urgency: str = "", status: str
         else:
             o["days_to_target"] = None
 
+    all_clients = [dict(c) for c in conn.execute(
+        "SELECT id, name FROM clients WHERE archived=0 ORDER BY name"
+    ).fetchall()]
+    selected_client_name = ""
+    if client_id:
+        _sc = conn.execute("SELECT name FROM clients WHERE id=?", (client_id,)).fetchone()
+        selected_client_name = _sc["name"] if _sc else ""
+
     return templates.TemplateResponse("renewals.html", {
         "request": request,
         "active": "renewals",
@@ -956,6 +966,9 @@ def renewals(request: Request, window: int = 180, urgency: str = "", status: str
         "status": status,
         "sort": sort_field,
         "dir": dir,
+        "client_id": client_id,
+        "selected_client_name": selected_client_name,
+        "all_clients": all_clients,
         "renewal_statuses": cfg.get("renewal_statuses"),
         "renewal_milestones": cfg.get("renewal_milestones", []),
         "activity_types": cfg.get("activity_types", ["Call", "Email", "Meeting", "Note", "Other"]),
