@@ -16,7 +16,9 @@ Three interconnected changes:
 
 1. **Workflow Persistence** — Restructure the compliance page into a location-tabbed layout with targeted HTMX partial swaps. No full-page reloads during review work.
 2. **JSON Import with Location Context** — Add a location selector to the AI import slideover so COPE data lands in the correct location.
-3. **Professional Exports** — Server-generated PDF (via `weasyprint`) and formatted XLSX (via `openpyxl`) following the Combined report layout: executive summary → matrix → gap drill-down → per-location detail.
+3. **Professional Exports** — Server-generated PDF (via `fpdf2`, already used in codebase) and formatted XLSX (via `openpyxl`) following the Combined report layout: executive summary → matrix → gap drill-down → per-location detail.
+
+**No new migrations required.** All needed tables (`coverage_requirements`, `requirement_sources`, `cope_data`, `projects`) already exist via migration 066.
 
 ---
 
@@ -26,20 +28,24 @@ Three interconnected changes:
 
 The compliance page is restructured into three persistent zones:
 
-| Zone | ID | Content |
-|------|----|---------|
-| Summary Banner | `#compliance-summary` | Donut chart, scores, export buttons |
-| Matrix Overview | `#compliance-matrix` | Heatmap grid (coverage × locations) |
-| Location Workspace | `#location-workspace` | Tab bar + active location content |
+| Zone | ID | Content | Notes |
+|------|----|---------|-------|
+| Summary Banner | `#compliance-summary` | Donut chart, scores, export buttons | **Must add this ID to `_summary_banner.html` outer div** |
+| Matrix Overview | `#compliance-matrix` | Heatmap grid (coverage × locations) | Already has this ID |
+| Location Workspace | `#location-workspace` | Tab bar + active location content | New container div |
+
+**ID Migration:** The current `#location-detail` div (in `_matrix.html` line 239) becomes `#location-tab-content` inside the new `#location-workspace` zone. All existing `hx-target="#location-detail"` references in `_matrix.html` and the `location_detail()` route must be updated to `#location-tab-content`.
 
 ### Location Tabs
 
 - **Tab bar** renders one tab per location (from `projects` table) plus a "Corporate" tab for client-wide requirements.
 - Active tab loads its content via `hx-get="/compliance/client/{cid}/location/{pid}"` into `#location-tab-content`.
+- **Corporate tab** uses route `GET /compliance/client/{cid}/location/corporate` — displays only client-wide requirements (`project_id IS NULL`) without inheritance resolution. Uses `project_id=0` convention (0 = corporate).
 - Tab state persists via:
   - `hx-push-url="?location={project_id}"` — URL reflects active location
   - `sessionStorage` fallback — remembers last tab per client
   - On page load, if `?location=` param exists, that tab activates automatically
+- **Tab overflow (8+ locations):** Tab bar uses `overflow-x-auto` with horizontal scroll. Matches the app's existing pattern for narrow viewports.
 
 ### Targeted HTMX Swaps (No Full-Page Reloads)
 
@@ -53,6 +59,22 @@ Every CRUD operation within a location returns targeted partials instead of the 
 | Requirement add (POST) | Returns full page | Returns updated `_location_detail.html` into `#location-tab-content` + OOB summary + OOB matrix |
 | Source add/edit/delete | Returns full page | Returns updated sources partial + OOB summary + OOB matrix |
 | Cancel edit | `window.location.reload()` | `hx-get` restores display row (swap `outerHTML` on the row) |
+
+### Template `hx-target="body"` Occurrences to Fix
+
+All of these must change from `hx-target="body"` to targeted partials:
+
+| Template | Lines | New Target |
+|----------|-------|------------|
+| `_location_detail.html` | ~154, ~168 | `hx-target="#location-tab-content"` |
+| `_requirement_row_edit.html` | ~5, ~89 | `hx-target="#location-tab-content"` (save); `hx-get` row restore (cancel) |
+| `_source_row.html` | ~25 | `hx-target="#sources-container"` |
+| `_source_row_edit.html` | ~32 | `hx-target="#sources-container"` |
+| `index.html` | ~63, ~77, ~148 | `hx-target="#sources-container"` or `#location-tab-content"` as appropriate |
+
+### New Route: Requirement Row Restore
+
+Add `GET /compliance/client/{cid}/requirements/{rid}/row` — returns the display-mode requirement row HTML. Analogous to the existing `GET /compliance/client/{cid}/sources/{sid}/row` pattern. Used by the cancel button on `_requirement_row_edit.html`.
 
 ### Location Navigation
 
@@ -79,6 +101,7 @@ The user sees the matrix update in real-time as they work through requirements.
 Add a `<select>` dropdown to `_ai_import_panel.html` between the header and step content:
 
 - Options: "Corporate (All Locations)" + each location from `projects` table
+- **Conditional rendering:** The location selector only appears when `locations` context variable is provided (compliance import passes it, policy import does not). This keeps the shared panel working for both contexts.
 - **Pre-selection logic:** If a location tab is active when the user opens the import, pre-select that location in the dropdown
 - The selected `project_id` is included in the POST to `/ai-import/parse`
 
@@ -108,14 +131,14 @@ When a location is selected, the AI prompt template includes location name and a
 
 ### Dependencies
 
-Add `weasyprint` to `pyproject.toml` dependencies for server-side PDF generation.
+Use `fpdf2` for server-side PDF generation — consistent with existing codebase usage (lazy import in `clients.py`). No new dependency needed (already available). If `fpdf2` proves too limited for the report layout, fall back to a print-optimized HTML template with `window.print()`.
 
 ### Logo Support
 
-- **Path:** `~/.policydb/logo.png` (or `.jpg`, `.svg`)
-- **NOTE FOR USER:** Place your company logo at `~/.policydb/logo.png` — it will appear in the top-left of PDF reports. Any image format works. The logo auto-resizes to fit the header placeholder (max height ~50px, width scales proportionally).
+- **Path:** `~/.policydb/logo.png` (or `.jpg`)
+- **NOTE FOR USER:** Place your company logo at `~/.policydb/logo.png` — it will appear in the top-left of PDF reports. The logo auto-resizes to fit the header placeholder (max height ~50px, width scales proportionally).
 - **Fallback:** If no logo file exists, the header renders client name as styled text only.
-- **Config key:** `report_logo_path` in config.yaml (defaults to `~/.policydb/logo.png`)
+- **Config key:** `report_logo_path` in config.yaml (defaults to `~/.policydb/logo.png`). Must be added to `_DEFAULTS` in `config.py`.
 
 ### XLSX Workbook Structure
 
@@ -127,9 +150,9 @@ Add `weasyprint` to `pyproject.toml` dependencies for server-side PDF generation
 | Compliance Matrix | Formatted | Coverage lines × locations grid with conditional fill colors (green=compliant, red=gap, amber=partial, purple=N/A) |
 | Gap Detail | Formatted | Non-compliant rows only: location, coverage, required limit, in-place limit, shortfall, source reference. Sorted by severity. |
 | All Requirements | Raw data | Every requirement across all locations: location, coverage line, required limit, max deductible, deductible type, endorsements, compliance status, linked policy, source name, source clause ref, notes. Auto-filtered. |
-| COPE Data | Raw data | One row per location: project name, address, construction type, year built, stories, sq footage, sprinklered, roof type, occupancy, protection class, TIV |
+| COPE Data | Raw data | One row per location: project name, address (JOIN from `projects` table), construction type, year built, stories, sq footage, sprinklered, roof type, occupancy, protection class, TIV |
 
-**Implementation:** New function `export_compliance_xlsx(conn, client_id)` in `exporter.py` following existing patterns. Route handler at `GET /compliance/client/{cid}/export/xlsx`.
+**Implementation:** New function `export_compliance_xlsx(conn, client_id)` in `exporter.py` following existing patterns. Route returns `Response(content=xlsx_bytes, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")` with `Content-Disposition: attachment; filename="..."` header — same pattern as existing export routes in `clients.py`.
 
 ### PDF Report Structure
 
@@ -145,10 +168,9 @@ Add `weasyprint` to `pyproject.toml` dependencies for server-side PDF generation
 | COPE Data | Table of COPE data per location (only if COPE data exists for any location) |
 
 **Implementation:**
-- New Jinja2 template: `compliance/report_print.html` — HTML/CSS designed for PDF rendering
-- `weasyprint` converts the rendered template to PDF bytes
+- `fpdf2` builds the PDF programmatically (header, sections, tables)
+- New function `export_compliance_pdf(conn, client_id)` in `exporter.py`
 - Route handler at `GET /compliance/client/{cid}/export/pdf`
-- CSS uses `@page` directives for margins, page breaks between location sections
 - Colors match the web UI: green (#dcfce7) for compliant, red (#fef2f2) for gap, amber (#fefce8) for partial
 
 ---
@@ -173,19 +195,22 @@ Add `weasyprint` to `pyproject.toml` dependencies for server-side PDF generation
 
 | Route | Method | Purpose |
 |-------|--------|---------|
-| `/compliance/client/{cid}/export/xlsx` | GET | Download XLSX workbook |
-| `/compliance/client/{cid}/export/pdf` | GET | Download PDF report |
+| `GET /compliance/client/{cid}/requirements/{rid}/row` | GET | Requirement display row restore (cancel edit) |
+| `GET /compliance/client/{cid}/location/corporate` | GET | Corporate (client-wide) requirements tab |
+| `GET /compliance/client/{cid}/export/xlsx` | GET | Download XLSX workbook |
+| `GET /compliance/client/{cid}/export/pdf` | GET | Download PDF report |
 
 ### Template Changes
 
 | Template | Change |
 |----------|--------|
-| `compliance/index.html` | Add location tab bar, restructure zones with persistent IDs |
-| `compliance/_location_detail.html` | Add "Next location →" footer, update hx-targets to `#location-tab-content` |
-| `compliance/_requirement_row_edit.html` | Replace `window.location.reload()` cancel with `hx-get` row restore |
-| `compliance/_summary_banner.html` | Wire export buttons to real routes |
-| `_ai_import_panel.html` | Add location selector dropdown |
-| `compliance/report_print.html` | **New** — PDF report template |
+| `compliance/index.html` | Add location tab bar inside `#location-workspace`, restructure zones with persistent IDs, fix `hx-target="body"` at lines ~63/77/148 |
+| `compliance/_location_detail.html` | Add "Next location →" footer, change `hx-target="body"` at ~154/168 to `#location-tab-content` |
+| `compliance/_requirement_row_edit.html` | Change `hx-target="body"` at ~5/89, replace `window.location.reload()` cancel with `hx-get` row restore |
+| `compliance/_source_row.html` | Change `hx-target="body"` at ~25 to `#sources-container` |
+| `compliance/_source_row_edit.html` | Change `hx-target="body"` at ~32 to `#sources-container` |
+| `compliance/_summary_banner.html` | Add `id="compliance-summary"` to outer div, wire export buttons to real routes |
+| `_ai_import_panel.html` | Add conditional location selector (only when `locations` context provided) |
 
 ---
 
@@ -193,16 +218,17 @@ Add `weasyprint` to `pyproject.toml` dependencies for server-side PDF generation
 
 | File | Type | Changes |
 |------|------|---------|
-| `src/policydb/web/routes/compliance.py` | Modify | Refactor all CRUD returns to targeted partials + OOB; add export routes |
-| `src/policydb/web/templates/compliance/index.html` | Modify | Location tab bar, zone IDs, remove body-targeting swaps |
+| `src/policydb/web/routes/compliance.py` | Modify | Refactor all CRUD returns to targeted partials + OOB; add export routes; add requirement row restore route; add corporate location route |
+| `src/policydb/web/templates/compliance/index.html` | Modify | Location tab bar, zone IDs, fix all `hx-target="body"` |
 | `src/policydb/web/templates/compliance/_location_detail.html` | Modify | hx-target fixes, next-location nav |
-| `src/policydb/web/templates/compliance/_requirement_row_edit.html` | Modify | Cancel button fix |
-| `src/policydb/web/templates/compliance/_summary_banner.html` | Modify | Wire export buttons |
-| `src/policydb/web/templates/_ai_import_panel.html` | Modify | Location selector |
-| `src/policydb/web/templates/compliance/report_print.html` | **New** | PDF report template |
-| `src/policydb/exporter.py` | Modify | Add `export_compliance_xlsx()` |
-| `src/policydb/compliance.py` | Modify | Add helper for export data aggregation |
-| `pyproject.toml` | Modify | Add `weasyprint` dependency |
+| `src/policydb/web/templates/compliance/_requirement_row_edit.html` | Modify | Cancel button fix, hx-target fix |
+| `src/policydb/web/templates/compliance/_source_row.html` | Modify | hx-target fix |
+| `src/policydb/web/templates/compliance/_source_row_edit.html` | Modify | hx-target fix |
+| `src/policydb/web/templates/compliance/_summary_banner.html` | Modify | Add `#compliance-summary` ID, wire export buttons |
+| `src/policydb/web/templates/_ai_import_panel.html` | Modify | Conditional location selector |
+| `src/policydb/exporter.py` | Modify | Add `export_compliance_xlsx()` and `export_compliance_pdf()` |
+| `src/policydb/compliance.py` | Modify | Add helper for export data aggregation (COPE JOIN with projects for address) |
+| `src/policydb/config.py` | Modify | Add `report_logo_path` to `_DEFAULTS` |
 
 ---
 
