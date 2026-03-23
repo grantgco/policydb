@@ -9,6 +9,12 @@ from fastapi.responses import HTMLResponse
 
 from policydb.web.app import get_db, templates
 import policydb.config as cfg
+from policydb.activity_review import (
+    expire_dismissed_suggestions,
+    get_pending_review_count,
+    get_pending_suggestions,
+    scan_for_unlogged_sessions,
+)
 from policydb.queries import (
     get_activities,
     get_all_followups,
@@ -486,6 +492,8 @@ def action_center_page(request: Request, tab: str = "", conn=Depends(get_db)):
         tab_ctx = _activities_ctx(conn)
     elif initial_tab == "scratchpads":
         tab_ctx = _scratchpads_ctx(conn)
+    elif initial_tab == "activity-review":
+        tab_ctx = _activity_review_ctx(conn)
     # Always compute scratchpad count for tab badge
     scratchpad_count = 0
     if "scratchpads" not in tab_ctx:
@@ -509,6 +517,7 @@ def action_center_page(request: Request, tab: str = "", conn=Depends(get_db)):
         + len(tab_ctx.get("stale", []))
     )
     nudge_due_count = len(tab_ctx.get("nudge_due", []))
+    review_pending_count = get_pending_review_count(conn)
     ctx = {
         "request": request,
         "active": "action-center",
@@ -516,6 +525,7 @@ def action_center_page(request: Request, tab: str = "", conn=Depends(get_db)):
         "scratchpad_count": scratchpad_count,
         "act_now_count": act_now_count,
         "nudge_due_count": nudge_due_count,
+        "review_pending_count": review_pending_count,
         **sidebar,
         **tab_ctx,
         **health_ctx,
@@ -666,3 +676,146 @@ def set_disposition(
     ctx = _followups_ctx(conn, window=30, activity_type="", q="")
     ctx["request"] = request
     return templates.TemplateResponse("action_center/_followups.html", ctx)
+
+
+# ── Activity Review ──────────────────────────────────────────────────────────
+
+# Track last scan date in memory (resets on server restart)
+_last_scan_date: str | None = None
+
+
+def _activity_review_ctx(conn, scan_date: str = "") -> dict:
+    """Build context for the Activity Review tab."""
+    global _last_scan_date
+    today = date.today().isoformat()
+    target_date = scan_date or today
+
+    # Auto-scan for today if we haven't yet
+    if _last_scan_date != today and not scan_date:
+        scan_for_unlogged_sessions(conn, today, today)
+        _last_scan_date = today
+
+    suggestions = get_pending_suggestions(conn)
+    activity_types = cfg.get("activity_types", [])
+    default_activity_type = cfg.get("default_review_activity_type", "Other")
+
+    return {
+        "suggestions": suggestions,
+        "review_count": len(suggestions),
+        "scan_date": target_date,
+        "activity_types": activity_types,
+        "default_activity_type": default_activity_type,
+    }
+
+
+@router.get("/action-center/activity-review", response_class=HTMLResponse)
+def ac_activity_review(request: Request, conn=Depends(get_db)):
+    """Activity Review tab partial — lazy loaded."""
+    ctx = _activity_review_ctx(conn)
+    ctx["request"] = request
+    return templates.TemplateResponse("action_center/_activity_review.html", ctx)
+
+
+@router.post("/action-center/activity-review/scan", response_class=HTMLResponse)
+def ac_activity_review_scan(
+    request: Request,
+    scan_date: str = Form(""),
+    conn=Depends(get_db),
+):
+    """Run activity review scan for a specific date."""
+    global _last_scan_date
+    target = scan_date or date.today().isoformat()
+    scan_for_unlogged_sessions(conn, target, target)
+    _last_scan_date = target
+
+    ctx = _activity_review_ctx(conn, scan_date=target)
+    ctx["request"] = request
+    return templates.TemplateResponse("action_center/_activity_review.html", ctx)
+
+
+@router.post("/action-center/activity-review/{suggestion_id}/dismiss", response_class=HTMLResponse)
+def ac_dismiss_suggestion(
+    request: Request,
+    suggestion_id: int,
+    conn=Depends(get_db),
+):
+    """Soft-dismiss a suggested activity (resurfaces after configured days)."""
+    dismiss_days = cfg.get("review_dismiss_days", 7)
+    now = datetime.now()
+    expires = (now + timedelta(days=dismiss_days)).isoformat()
+    conn.execute(
+        """UPDATE suggested_activities
+           SET status = 'dismissed', dismissed_at = ?, dismiss_expires_at = ?
+           WHERE id = ?""",
+        (now.isoformat(), expires, suggestion_id),
+    )
+    conn.commit()
+
+    # Return empty string to remove the card + OOB badge update
+    count = get_pending_review_count(conn)
+    badge_html = f'<span id="review-badge" hx-swap-oob="true">'
+    if count:
+        badge_html += f'<span class="tab-badge" style="background:#f59e0b;color:white">{count}</span>'
+    badge_html += '</span>'
+    return HTMLResponse(badge_html)
+
+
+@router.post("/action-center/activity-review/{suggestion_id}/log", response_class=HTMLResponse)
+def ac_log_suggestion(
+    request: Request,
+    suggestion_id: int,
+    activity_type: str = Form(""),
+    subject: str = Form(""),
+    details: str = Form(""),
+    duration_hours: float = Form(0.1),
+    activity_date: str = Form(""),
+    policy_uid: str = Form(""),
+    conn=Depends(get_db),
+):
+    """Log a suggested activity as a real activity_log entry."""
+    # Look up the suggestion to get client_id
+    suggestion = conn.execute(
+        "SELECT * FROM suggested_activities WHERE id = ?", (suggestion_id,)
+    ).fetchone()
+    if not suggestion:
+        return HTMLResponse("")
+
+    client_id = suggestion["client_id"]
+    act_date = activity_date or suggestion["session_date"]
+
+    # Resolve policy_id from policy_uid if provided
+    policy_id = None
+    if policy_uid:
+        prow = conn.execute(
+            "SELECT id FROM policies WHERE policy_uid = ?", (policy_uid,)
+        ).fetchone()
+        if prow:
+            policy_id = prow["id"]
+
+    # Insert activity
+    cursor = conn.execute(
+        """INSERT INTO activity_log
+           (activity_date, client_id, policy_id, activity_type, subject,
+            details, duration_hours, account_exec, follow_up_done)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'Grant', 0)""",
+        (act_date, client_id, policy_id, activity_type or "Other",
+         subject or "Account work (from review)", details, duration_hours),
+    )
+    activity_id = cursor.lastrowid
+
+    # Mark suggestion as logged
+    conn.execute(
+        """UPDATE suggested_activities
+           SET status = 'logged', logged_activity_id = ?
+           WHERE id = ?""",
+        (activity_id, suggestion_id),
+    )
+    conn.commit()
+
+    # Return empty + OOB badge update
+    count = get_pending_review_count(conn)
+    badge_html = f'<span id="review-badge" hx-swap-oob="true">'
+    if count:
+        badge_html += f'<span class="tab-badge" style="background:#f59e0b;color:white">{count}</span>'
+    badge_html += '</span>'
+    return HTMLResponse(badge_html)
