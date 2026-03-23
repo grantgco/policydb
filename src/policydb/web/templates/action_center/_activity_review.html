@@ -1,0 +1,54 @@
+{# Action Center — Activity Review Tab (HTMX partial, no base inheritance) #}
+<div id="ac-activity-review-panel">
+
+  {# ── Header bar ── #}
+  <div class="flex items-center justify-between mb-4">
+    <div class="flex items-center gap-3">
+      <h2 class="text-sm font-semibold text-gray-700">Activity Review</h2>
+      <span class="text-xs text-gray-400">
+        {% if review_count %}
+          {{ review_count }} unlogged session{{ 's' if review_count != 1 else '' }}
+        {% else %}
+          All caught up
+        {% endif %}
+      </span>
+    </div>
+
+    <form hx-post="/action-center/activity-review/scan"
+          hx-target="#ac-activity-review-panel"
+          hx-swap="outerHTML"
+          class="flex items-center gap-2">
+      <input type="date" name="scan_date" value="{{ scan_date }}"
+             class="text-xs border border-gray-200 rounded px-2 py-1 text-gray-600">
+      <button type="submit"
+              class="text-xs font-medium px-3 py-1.5 rounded bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors">
+        Scan
+      </button>
+    </form>
+  </div>
+
+  {# ── Session cards ── #}
+  {% if suggestions %}
+  <div class="space-y-3">
+    {% for s in suggestions %}
+    {% include "action_center/_review_card.html" %}
+    {% endfor %}
+  </div>
+  <script>
+  function toggleLogForm(id) {
+    var el = document.getElementById('log-form-' + id);
+    if (el) el.classList.toggle('hidden');
+  }
+  </script>
+  {% else %}
+  <div class="text-center py-12 text-gray-400">
+    <svg class="w-10 h-10 mx-auto mb-3 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+            d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+    </svg>
+    <p class="text-sm font-medium">No unlogged sessions found</p>
+    <p class="text-xs mt-1">Use the date picker and Scan button to check other days</p>
+  </div>
+  {% endif %}
+
+</div>
