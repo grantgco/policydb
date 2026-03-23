@@ -669,6 +669,96 @@ def get_all_followups(
         disposition = r.get("disposition") or ""
         r["accountability"] = _disp_accountability.get(disposition, "my_action")
 
+    # Enrich every row with source_label
+    for r in all_rows:
+        src = r.get("source")
+        if src == "activity":
+            r["source_label"] = "Follow-up"
+        elif src == "policy" and r.get("is_opportunity"):
+            r["source_label"] = "Opportunity"
+        elif src == "policy":
+            r["source_label"] = "Renewal"
+        elif src == "client":
+            r["source_label"] = "Client"
+        else:
+            r["source_label"] = ""
+
+    # Enrich every row with reason_line
+    _today = date.today()
+    for r in all_rows:
+        src = r.get("source")
+        if src == "activity":
+            disp = r.get("disposition")
+            if disp:
+                days_over = r.get("days_overdue") or 0
+                if days_over > 0:
+                    r["reason_line"] = f"{disp} — {days_over}d with no response"
+                else:
+                    r["reason_line"] = disp
+            else:
+                # Don't repeat the subject — show note details snippet instead
+                details = (r.get("note_details") or "").strip()
+                subject = (r.get("subject") or "").strip()
+                if details and details != subject:
+                    r["reason_line"] = details[:80]
+                else:
+                    r["reason_line"] = ""
+        elif src == "policy":
+            nd = r.get("note_date")
+            if nd:
+                try:
+                    days_since = (_today - date.fromisoformat(nd)).days
+                except (ValueError, TypeError):
+                    days_since = 0
+                ns = r.get("note_subject")
+                if ns:
+                    r["reason_line"] = f"{ns} — {days_since}d ago"
+                else:
+                    r["reason_line"] = f"Last activity {days_since}d ago"
+            else:
+                r["reason_line"] = "No activity logged"
+        elif src == "client":
+            details = r.get("note_details") or ""
+            r["reason_line"] = details[:80] if details else ""
+        else:
+            r["reason_line"] = ""
+
+    # Enrich activity-sourced items with prev_disposition and prev_days_ago
+    activity_items = [r for r in all_rows if r.get("source") == "activity" and r.get("id")]
+    if activity_items:
+        act_ids = [r["id"] for r in activity_items]
+        placeholders = ",".join("?" * len(act_ids))
+        _prev_rows = conn.execute(f"""
+            SELECT a.id,
+                   prev.disposition AS prev_disposition,
+                   prev.activity_date AS prev_date
+            FROM activity_log a
+            JOIN activity_log prev
+              ON prev.policy_id = a.policy_id
+             AND prev.id < a.id
+             AND prev.disposition IS NOT NULL
+            WHERE a.id IN ({placeholders})
+              AND prev.id = (
+                  SELECT MAX(p2.id)
+                  FROM activity_log p2
+                  WHERE p2.policy_id = a.policy_id
+                    AND p2.id < a.id
+                    AND p2.disposition IS NOT NULL
+              )
+        """, act_ids).fetchall()
+        _prev_map = {r["id"]: r for r in _prev_rows}
+        for r in activity_items:
+            prev = _prev_map.get(r["id"])
+            if prev:
+                r["prev_disposition"] = prev["prev_disposition"]
+                try:
+                    r["prev_days_ago"] = (_today - date.fromisoformat(prev["prev_date"])).days
+                except (ValueError, TypeError):
+                    r["prev_days_ago"] = None
+            else:
+                r["prev_disposition"] = None
+                r["prev_days_ago"] = None
+
     return overdue, upcoming
 
 
