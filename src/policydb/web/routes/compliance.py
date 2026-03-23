@@ -2,15 +2,23 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
+from urllib.parse import urlencode
 
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import HTMLResponse
 
 from policydb import config as cfg
 from policydb.compliance import (
     get_client_compliance_data,
     get_risk_review_prompts,
+)
+from policydb.llm_schemas import (
+    COMPLIANCE_EXTRACTION_SCHEMA,
+    generate_extraction_prompt,
+    generate_json_template,
+    parse_llm_json,
 )
 from policydb.queries import get_client_by_id
 from policydb.utils import parse_currency_with_magnitude
@@ -72,6 +80,226 @@ def _compliance_context(conn: sqlite3.Connection, client_id: int, request: Reque
 # ── Literal routes first ───────────────────────────────────────────────────────
 
 # (none currently — all routes are parameterized)
+
+# ── AI Import ─────────────────────────────────────────────────────────────────
+
+
+@router.get("/client/{client_id}/ai-import/prompt", response_class=HTMLResponse)
+def ai_import_prompt(
+    client_id: int,
+    request: Request,
+    conn=Depends(get_db),
+    source_id: int | None = Query(None),
+    project_id: int | None = Query(None),
+):
+    """Return the slideover panel HTML with the generated compliance prompt."""
+    client = get_client_by_id(conn, client_id)
+
+    context: dict = {
+        "client_name": client["name"],
+        "config_lists": {
+            "policy_types": cfg.get("policy_types", []),
+            "deductible_types": cfg.get("deductible_types", []),
+            "endorsement_types": cfg.get("endorsement_types", []),
+            "construction_types": cfg.get("construction_types", []),
+            "sprinkler_options": cfg.get("sprinkler_options", []),
+            "roof_types": cfg.get("roof_types", []),
+            "protection_classes": cfg.get("protection_classes", []),
+        },
+    }
+
+    # Add location context if project_id provided
+    if project_id is not None:
+        project = conn.execute(
+            "SELECT name FROM projects WHERE id=? AND client_id=?",
+            (project_id, client_id),
+        ).fetchone()
+        if project:
+            context["location_name"] = project["name"]
+
+    # Add source context if source_id provided
+    if source_id is not None:
+        source = conn.execute(
+            "SELECT name FROM requirement_sources WHERE id=? AND client_id=?",
+            (source_id, client_id),
+        ).fetchone()
+        if source:
+            context["source_name"] = source["name"]
+
+    prompt_text = generate_extraction_prompt(COMPLIANCE_EXTRACTION_SCHEMA, context)
+    json_template = generate_json_template(COMPLIANCE_EXTRACTION_SCHEMA)
+
+    # Build context display for the panel
+    context_display: dict = {"Client": client["name"]}
+    if context.get("location_name"):
+        context_display["Location"] = context["location_name"]
+    if context.get("source_name"):
+        context_display["Source"] = context["source_name"]
+
+    # Build parse URL with applicable query params
+    parse_params: dict = {}
+    if source_id is not None:
+        parse_params["source_id"] = source_id
+    if project_id is not None:
+        parse_params["project_id"] = project_id
+    parse_url = f"/compliance/client/{client_id}/ai-import/parse"
+    if parse_params:
+        parse_url += "?" + urlencode(parse_params)
+
+    return templates.TemplateResponse("_ai_import_panel.html", {
+        "request": request,
+        "client_id": client_id,
+        "prompt_text": prompt_text,
+        "json_template": json_template,
+        "context_display": context_display,
+        "parse_url": parse_url,
+    })
+
+
+@router.post("/client/{client_id}/ai-import/parse", response_class=HTMLResponse)
+def ai_import_parse(
+    client_id: int,
+    request: Request,
+    conn=Depends(get_db),
+    json_text: str = Form(...),
+    source_id: int | None = Query(None),
+    project_id: int | None = Query(None),
+):
+    """Parse JSON from LLM, create DB rows, return review mode."""
+    result = parse_llm_json(json_text, COMPLIANCE_EXTRACTION_SCHEMA)
+
+    if not result["ok"]:
+        error_html = (
+            '<div class="bg-red-50 border border-red-200 rounded-lg p-4 text-sm text-red-800">'
+            f'<p class="font-semibold">Parse Error</p>'
+            f'<p>{result["error"]}</p>'
+            '</div>'
+        )
+        return HTMLResponse(error_html, status_code=422)
+
+    parsed = result["parsed"]
+    warnings = result.get("warnings", [])
+
+    # --- Source ---
+    if source_id is not None:
+        # Use existing source
+        sid = source_id
+    else:
+        # Create new source from parsed data
+        src = parsed.get("source", {})
+        cur = conn.execute(
+            """INSERT INTO requirement_sources
+               (client_id, project_id, name, counterparty, clause_ref, notes)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (
+                client_id,
+                project_id,
+                src.get("name", "AI Import"),
+                src.get("counterparty", ""),
+                src.get("clause_ref", ""),
+                src.get("notes", ""),
+            ),
+        )
+        sid = cur.lastrowid
+
+    # --- Requirements ---
+    for item in parsed.get("requirements", []):
+        endorsements = json.dumps(item.get("required_endorsements", []))
+        conn.execute(
+            """INSERT INTO coverage_requirements
+               (client_id, project_id, source_id, coverage_line, required_limit,
+                max_deductible, deductible_type, required_endorsements,
+                compliance_status, notes)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Needs Review', ?)""",
+            (
+                client_id,
+                project_id,
+                sid,
+                item.get("coverage_line", ""),
+                item.get("required_limit"),
+                item.get("max_deductible"),
+                item.get("deductible_type"),
+                endorsements,
+                item.get("notes"),
+            ),
+        )
+
+    # --- COPE ---
+    cope = parsed.get("cope")
+    if cope and project_id is not None:
+        conn.execute(
+            """INSERT OR REPLACE INTO cope_data
+               (project_id, construction_type, year_built, stories, sq_footage,
+                sprinklered, roof_type, occupancy_description, protection_class,
+                total_insurable_value)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                project_id,
+                cope.get("construction_type"),
+                cope.get("year_built"),
+                cope.get("stories"),
+                cope.get("sq_footage"),
+                cope.get("sprinklered"),
+                cope.get("roof_type"),
+                cope.get("occupancy_description"),
+                cope.get("protection_class"),
+                cope.get("total_insurable_value"),
+            ),
+        )
+
+    conn.commit()
+
+    # --- Build response: review mode with newly created rows ---
+    requirements = [dict(r) for r in conn.execute(
+        "SELECT * FROM coverage_requirements WHERE source_id=? ORDER BY id",
+        (sid,),
+    ).fetchall()]
+    for req in requirements:
+        try:
+            req["_endorsements_list"] = json.loads(req.get("required_endorsements") or "[]")
+        except (ValueError, TypeError):
+            req["_endorsements_list"] = []
+
+    # Get sources list for the review mode dropdown
+    sources = [dict(r) for r in conn.execute(
+        "SELECT * FROM requirement_sources WHERE client_id=? ORDER BY name",
+        (client_id,),
+    ).fetchall()]
+
+    # Get templates for "Apply Template" dropdown
+    tmpl_list = [dict(r) for r in conn.execute(
+        "SELECT id, name, description FROM requirement_templates ORDER BY name"
+    ).fetchall()]
+
+    # Build OOB warnings HTML
+    warnings_html = ""
+    if warnings:
+        items = "".join(f"<li>{w}</li>" for w in warnings)
+        warnings_html = (
+            f'<div id="ai-import-warnings" hx-swap-oob="innerHTML">'
+            f'<div class="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">'
+            f'<p class="font-semibold mb-1">Warnings</p><ul class="list-disc ml-4">{items}</ul>'
+            f'</div></div>'
+        )
+
+    response = templates.TemplateResponse("compliance/_review_mode.html", {
+        "request": request,
+        "client_id": client_id,
+        "sources": sources,
+        "selected_source_id": sid,
+        "requirements": requirements,
+        "templates": tmpl_list,
+        "policy_types": cfg.get("policy_types", []),
+        "deductible_types": cfg.get("deductible_types", []),
+        "endorsement_types": cfg.get("endorsement_types", []),
+    })
+
+    # Append OOB warnings if any
+    if warnings_html:
+        response.body += warnings_html.encode()
+
+    return response
+
 
 # ── Main page ─────────────────────────────────────────────────────────────────
 
