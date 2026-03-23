@@ -124,11 +124,8 @@
 
           {# Email #}
           {% if item.contact_email %}
-          <button type="button" class="ep-trigger text-xs text-gray-400 hover:text-marsh border border-gray-200 hover:border-marsh rounded px-2 py-1.5 transition-colors"
-            data-to="{{ item.contact_email }}"
-            data-to-label="{{ item.contact_person or '' }}"
-            data-subject="Re: {{ item.client_name or '' }} — {{ item.policy_type or item.subject or '' }}"
-            {% if item.policy_uid %}data-cc-url="/policies/{{ item.policy_uid }}/team-cc"{% endif %}>&#9993;</button>
+          <button type="button" onclick="openComposeSlideover({context:'policy', policy_uid:'{{ item.policy_uid or '' }}', client_id:{{ item.client_id or 0 }}, to_email:'{{ item.contact_email }}'})"
+            class="text-xs text-gray-400 hover:text-marsh border border-gray-200 hover:border-marsh rounded px-2 py-1.5 transition-colors no-print" title="Compose email">&#9993;</button>
           {% endif %}
 
           {# Copy ref tag #}

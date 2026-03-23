@@ -44,8 +44,15 @@
       <button type="submit" class="text-xs text-amber-600 hover:text-amber-700 border border-amber-200 hover:border-amber-300 rounded px-2 py-1 transition-colors"
               title="Add items from incomplete renewal checklist milestones">Seed from Checklists</button>
     </form>
-    <button type="button" onclick="toggleRequestCompose({{ bundle.id }})"
-       class="text-xs text-marsh hover:text-marsh-light border border-marsh/30 hover:border-marsh rounded px-2 py-1 transition-colors no-print">Compose Email</button>
+    <button type="button"
+       onclick="openComposeSlideover({context:'client', client_id:{{ client.id }}, bundle_id:{{ bundle.id }}})"
+       class="text-xs text-marsh hover:text-marsh-light border border-marsh/30 hover:border-marsh rounded px-2 py-1 transition-colors no-print">✉ Compose Email</button>
+    {% if bundle.item_done and bundle.item_done > 0 %}
+    <button type="button"
+       onclick="openComposeSlideover({mode:'rfi_notify', bundle_id:{{ bundle.id }}, client_id:{{ client.id }}})"
+       class="text-xs text-blue-600 hover:text-blue-800 border border-blue-300 hover:border-blue-500 rounded px-2 py-1 transition-colors no-print">
+       Notify Team</button>
+    {% endif %}
     <a href="/clients/{{ client.id }}/requests/{{ bundle.id }}/export"
        class="text-xs text-green-600 hover:text-green-700 border border-green-200 hover:border-green-300 rounded px-2 py-1 transition-colors no-print">Export XLSX</a>
     <span class="flex-1"></span>
@@ -109,10 +116,6 @@
   <p class="text-[10px] text-gray-400 mt-2">Sent {{ bundle.sent_at[:16] }}</p>
   {% endif %}
 
-  {# Compose panel (lazy-loaded) #}
-  <div id="request-compose-panel-{{ bundle.id }}" class="hidden mt-3 border border-gray-200 rounded-lg bg-white">
-    <div class="text-xs text-gray-400 p-3">Loading compose panel...</div>
-  </div>
 </div>
 
 <script>
@@ -151,19 +154,4 @@
   });
 })();
 
-function toggleRequestCompose(bundleId) {
-  var panel = document.getElementById('request-compose-panel-' + bundleId);
-  if (!panel) return;
-  if (panel.classList.contains('hidden')) {
-    panel.classList.remove('hidden');
-    if (panel.querySelector('.text-gray-400')) {
-      htmx.ajax('GET', '/clients/{{ client.id }}/requests/' + bundleId + '/compose', {
-        target: '#request-compose-panel-' + bundleId,
-        swap: 'innerHTML'
-      });
-    }
-  } else {
-    panel.classList.add('hidden');
-  }
-}
 </script>

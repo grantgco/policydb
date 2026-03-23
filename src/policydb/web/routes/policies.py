@@ -472,47 +472,6 @@ def policy_renew_log_post(
     })
 
 
-@router.get("/{policy_uid}/team-cc")
-def policy_team_cc(policy_uid: str, conn=Depends(get_db)):
-    """JSON: return team CC options for a policy — internal team + policy contacts."""
-    policy = get_policy_by_uid(conn, policy_uid.upper())
-    if not policy:
-        return JSONResponse([])
-    emails: list[dict] = []
-    seen: set[str] = set()
-
-    # Internal team members for the client
-    internal = conn.execute(
-        """SELECT co.name, co.email
-           FROM contacts co
-           JOIN contact_client_assignments cca ON co.id = cca.contact_id
-           WHERE cca.client_id=? AND cca.contact_type='internal'
-             AND co.email IS NOT NULL AND TRIM(co.email) != ''
-           ORDER BY co.name""",
-        (policy["client_id"],),
-    ).fetchall()
-    for r in internal:
-        key = r["email"].strip().lower()
-        if key not in seen:
-            seen.add(key)
-            emails.append({"name": r["name"], "email": r["email"]})
-
-    # Policy contacts (placement colleagues, underwriters, etc.)
-    pc_rows = conn.execute(
-        """SELECT co.name, co.email
-           FROM contacts co
-           JOIN contact_policy_assignments cpa ON co.id = cpa.contact_id
-           WHERE cpa.policy_id = ? AND co.email IS NOT NULL AND TRIM(co.email) != ''
-           ORDER BY co.name""",
-        (policy["id"],),
-    ).fetchall()
-    for r in pc_rows:
-        key = r["email"].strip().lower()
-        if key not in seen:
-            seen.add(key)
-            emails.append({"name": r["name"], "email": r["email"]})
-
-    return JSONResponse(emails)
 
 
 def _opp_row_response(request: Request, uid: str, conn):
@@ -1337,8 +1296,6 @@ def policy_tab_contacts(request: Request, policy_uid: str, conn=Depends(get_db))
     ).fetchall()
     all_contacts_for_ac_json = _json_ct.dumps({r["name"]: {"email": r["email"] or "", "role": r["role"] or "", "phone": r["phone"] or "", "mobile": r["mobile"] or "", "title": r["title"] or "", "organization": r["organization"] or ""} for r in _ac_rows})
 
-    team_cc_json = _json_ct.dumps([{"name": c["name"], "email": c["email"]} for c in team_contacts if c.get("email")])
-
     from policydb.email_templates import policy_context as _pctx, render_tokens as _rtk
     mailto_subject = _rtk(cfg.get("email_subject_policy", "Re: {{client_name}} — {{policy_type}}"), _pctx(conn, uid))
 
@@ -1388,7 +1345,6 @@ def policy_tab_contacts(request: Request, policy_uid: str, conn=Depends(get_db))
         "all_contact_names": all_contact_names,
         "all_contacts_for_ac_json": all_contacts_for_ac_json,
         "suggested_contact_ids": suggested_contact_ids,
-        "team_cc_json": team_cc_json,
         "mailto_subject": mailto_subject,
         "activity_clusters": _activity_clusters,
         "contact_roles": cfg.get("contact_roles", []),
@@ -1517,9 +1473,6 @@ def policy_edit_form(request: Request, policy_uid: str, add_contact: str = "", c
              a.activity_date DESC, a.id DESC""",
         (policy_dict["id"],),
     ).fetchall()]
-    # Build CC options for email popover (opt-in, shown as checkboxes)
-    import json as _json_edit
-    team_cc_json = _json_edit.dumps([{"name": c["name"], "email": c["email"]} for c in team_contacts if c.get("email")])
     # Pre-render mailto subject from config template
     from policydb.email_templates import policy_context as _policy_ctx, render_tokens as _render_tokens
     _mail_ctx = _policy_ctx(conn, uid)
@@ -1696,7 +1649,6 @@ def policy_edit_form(request: Request, policy_uid: str, add_contact: str = "", c
         "all_contact_names": all_contact_names,
         "all_contacts_for_ac_json": all_contacts_for_ac_json,
         "suggested_contact_ids": suggested_contact_ids,
-        "team_cc_json": team_cc_json,
         "mailto_subject": mailto_subject,
         "activities": activities,
         "activity_types": cfg.get("activity_types", ["Call", "Email", "Meeting", "Note", "Other"]),
@@ -2197,8 +2149,6 @@ def _policy_team_response(request, conn, policy_uid: str):
            ORDER BY co.name"""
     ).fetchall()
     all_contacts_for_ac_json = _json.dumps({r["name"]: {"email": r["email"] or "", "role": r["role"] or "", "phone": r["phone"] or "", "mobile": r["mobile"] or "", "title": r["title"] or "", "organization": r["organization"] or ""} for r in _ac_rows2})
-    import json as _json_team
-    team_cc_json = _json_team.dumps([{"name": c["name"], "email": c["email"]} for c in team_contacts if c.get("email")])
     from policydb.email_templates import policy_context as _policy_ctx, render_tokens as _render_tokens
     _mail_ctx = _policy_ctx(conn, policy_uid)
     mailto_subject = _render_tokens(cfg.get("email_subject_policy", "Re: {{client_name}} — {{policy_type}}"), _mail_ctx)
@@ -2212,7 +2162,6 @@ def _policy_team_response(request, conn, policy_uid: str):
         "team_contacts": team_contacts,
         "all_contact_names": all_contact_names,
         "all_contacts_for_ac_json": all_contacts_for_ac_json,
-        "team_cc_json": team_cc_json,
         "mailto_subject": mailto_subject,
         "already_assigned_ids": already_assigned_ids,
         "contact_roles": cfg.get("contact_roles", []),
