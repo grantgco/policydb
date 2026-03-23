@@ -68,6 +68,7 @@
           <th class="px-3 py-2 whitespace-nowrap">Hrs</th>
           <th class="px-3 py-2 whitespace-nowrap">Disposition</th>
           <th class="px-3 py-2 whitespace-nowrap">Ref</th>
+          <th class="px-3 py-2 whitespace-nowrap no-print"></th>
         </tr>
       </thead>
       <tbody id="ac-activities-tbody" class="divide-y divide-gray-50">
@@ -140,6 +141,17 @@
           <td class="px-3 py-2 text-xs whitespace-nowrap">
             {% set _a_ref = build_ref_tag(cn_number=a.cn_number|default(''), client_id=a.client_id|default(0), policy_uid=a.policy_uid|default(''), project_id=a.project_id|default(0)) %}
             {% with ref_tag=_a_ref %}{% include "_ref_tag_pill.html" %}{% endwith %}
+          </td>
+
+          {# Delete button #}
+          <td class="px-3 py-2 whitespace-nowrap no-print">
+            <button
+              hx-post="/activities/{{ a.id }}/delete"
+              hx-vals='{"context": "action_center"}'
+              hx-target="closest tr"
+              hx-swap="outerHTML"
+              hx-confirm="Delete this activity?"
+              class="text-xs text-gray-300 hover:text-red-500 transition-colors">✕</button>
           </td>
         </tr>
         {% endfor %}
