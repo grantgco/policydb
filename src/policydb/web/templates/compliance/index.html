@@ -16,6 +16,7 @@
   {% include "compliance/_summary_banner.html" %}
 
   {# ── Requirement Sources (collapsible) ───────────────────────────────── #}
+  <div id="sources-container">
   <details class="bg-white rounded-lg shadow-sm border border-gray-200 mb-6">
     <summary class="px-5 py-3 cursor-pointer font-semibold text-sm text-gray-700 hover:bg-gray-50 flex items-center justify-between">
       <span>Requirement Sources ({{ sources | length }})</span>
@@ -104,6 +105,7 @@
       </form>
     </div>
   </details>
+  </div>
 
   {# ── AI Import + Warnings ────────────────────────────────────────────── #}
   <div id="ai-import-warnings"></div>
@@ -132,6 +134,36 @@
 
   {# ── Compliance Matrix ───────────────────────────────────────────────── #}
   {% include "compliance/_matrix.html" %}
+
+  {# ── Location Workspace (tab bar + detail panel) ────────────────────── #}
+  <div id="location-workspace" class="mt-6">
+    <div class="border-b border-gray-200 mb-4">
+      <div class="flex gap-1 overflow-x-auto" id="location-tab-bar">
+        {% for loc in locations %}
+        <button class="px-3 py-2 text-sm font-medium border-b-2 whitespace-nowrap
+                       {% if loc.project.id == active_location_id %}border-marsh text-marsh{% else %}border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300{% endif %}"
+                hx-get="/compliance/client/{{ client_id }}/location/{{ loc.project.id }}"
+                hx-target="#location-tab-content"
+                hx-push-url="?location={{ loc.project.id }}"
+                hx-swap="innerHTML">
+          {{ loc.project.name[:20] }}
+          {% if loc.summary.gap > 0 %}<span class="ml-1 text-[10px] bg-red-100 text-red-600 px-1.5 rounded-full">{{ loc.summary.gap }}</span>{% endif %}
+        </button>
+        {% endfor %}
+        <button class="px-3 py-2 text-sm font-medium border-b-2 whitespace-nowrap
+                       {% if active_location_id == 0 %}border-marsh text-marsh{% else %}border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300{% endif %}"
+                hx-get="/compliance/client/{{ client_id }}/location/corporate"
+                hx-target="#location-tab-content"
+                hx-push-url="?location=0"
+                hx-swap="innerHTML">
+          Corporate
+        </button>
+      </div>
+    </div>
+    <div id="location-tab-content">
+      {# Loaded on page render if ?location= param present, otherwise empty #}
+    </div>
+  </div>
 
   {# Guided Risk Review removed — risk prompts will be integrated into the
      Risk & Exposure Profile on the client detail page (future brainstorm). #}
@@ -267,6 +299,21 @@ function updateEndorsements() {
   });
   document.getElementById('endorsements-json').value = JSON.stringify(selected);
 }
+</script>
+<script>
+/* Auto-load active location tab from URL param on page load */
+document.addEventListener('DOMContentLoaded', function() {
+  var params = new URLSearchParams(window.location.search);
+  var loc = params.get('location');
+  if (loc) {
+    var btn = document.querySelector('#location-tab-bar button[hx-push-url="?location=' + loc + '"]');
+    if (btn) btn.click();
+  } else {
+    /* Auto-load first tab */
+    var first = document.querySelector('#location-tab-bar button');
+    if (first) first.click();
+  }
+});
 </script>
 <div id="ai-import-container"></div>
 {% endblock %}
