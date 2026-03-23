@@ -2099,6 +2099,15 @@ def policy_edit_post(
     )
     conn.commit()
 
+    # Regenerate timeline if dates changed and profile is set
+    if effective_date or expiration_date:
+        _regen = conn.execute(
+            "SELECT milestone_profile FROM policies WHERE policy_uid = ?", (uid,)
+        ).fetchone()
+        if _regen and _regen["milestone_profile"]:
+            from policydb.timeline_engine import generate_policy_timelines
+            generate_policy_timelines(conn, policy_uid=uid)
+
     policy = get_policy_by_uid(conn, uid)
     _client_id = policy["client_id"] if policy else 0
     _policy_id = policy["id"] if policy else 0
@@ -2147,6 +2156,15 @@ def policy_convert_opportunity(
     if _float(premium):
         conn.execute("UPDATE policies SET premium=? WHERE policy_uid=?", (_float(premium), uid))
     conn.commit()
+
+    # Generate timeline for converted policy if profile is set
+    _regen = conn.execute(
+        "SELECT milestone_profile FROM policies WHERE policy_uid = ?", (uid,)
+    ).fetchone()
+    if _regen and _regen["milestone_profile"]:
+        from policydb.timeline_engine import generate_policy_timelines
+        generate_policy_timelines(conn, policy_uid=uid)
+
     return RedirectResponse(f"/policies/{uid}/edit", status_code=303)
 
 
@@ -2353,6 +2371,16 @@ async def policy_cell_save(request: Request, policy_uid: str, conn=Depends(get_d
         formatted = f"{rate:.3f}" if rate is not None else ""
 
     conn.commit()
+
+    # Regenerate timeline if a date field changed and profile is set
+    if field in ("effective_date", "expiration_date"):
+        _regen = conn.execute(
+            "SELECT milestone_profile FROM policies WHERE policy_uid = ?", (uid,)
+        ).fetchone()
+        if _regen and _regen["milestone_profile"]:
+            from policydb.timeline_engine import generate_policy_timelines
+            generate_policy_timelines(conn, policy_uid=uid)
+
     return JSONResponse({"ok": True, "formatted": formatted})
 
 
@@ -2874,6 +2902,7 @@ def policy_archive(policy_uid: str, conn=Depends(get_db)):
         return HTMLResponse("Policy not found", status_code=404)
     client_id = policy["client_id"]
     conn.execute("UPDATE policies SET archived=1 WHERE policy_uid=?", (uid,))
+    conn.execute("DELETE FROM policy_timeline WHERE policy_uid=?", (uid,))
     conn.commit()
     logger.info("Policy %s archived", uid)
     return RedirectResponse(f"/clients/{client_id}", status_code=303)
