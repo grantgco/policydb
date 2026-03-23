@@ -495,6 +495,48 @@ def complete_timeline_milestone(conn, policy_uid: str, milestone_name: str) -> N
 # ── Helpers ────────────────────────────────────────────────────────────
 
 
+def suggest_profile(conn, policy_uid: str | None = None) -> dict[str, str]:
+    """Return {policy_uid: suggested_profile_name} for policies without a profile.
+
+    Uses ``milestone_profile_rules`` from config to suggest profiles based on
+    premium thresholds.  Only considers active, non-opportunity, non-archived
+    policies that are not children in a program.
+    """
+    rules = cfg.get("milestone_profile_rules", [])
+    default_profile = "Simple Renewal"
+
+    where = """
+        WHERE (milestone_profile IS NULL OR milestone_profile = '')
+          AND (is_opportunity = 0 OR is_opportunity IS NULL)
+          AND (archived = 0 OR archived IS NULL)
+          AND (program_id IS NULL OR program_id = '')
+    """
+    params: list = []
+    if policy_uid:
+        where += " AND policy_uid = ?"
+        params.append(policy_uid)
+
+    rows = conn.execute(
+        f"SELECT policy_uid, premium FROM policies {where}", params  # noqa: S608
+    ).fetchall()
+
+    suggestions: dict[str, str] = {}
+    for row in rows:
+        premium = row["premium"] or 0
+        profile = default_profile
+        for rule in rules:
+            gte = rule.get("if_premium_gte")
+            lt = rule.get("if_premium_lt")
+            if gte is not None and premium >= gte:
+                profile = rule.get("suggest_profile", default_profile)
+                break
+            if lt is not None and premium < lt:
+                profile = rule.get("suggest_profile", default_profile)
+                break
+        suggestions[row["policy_uid"]] = profile
+    return suggestions
+
+
 def _parse_date(val) -> Optional[date]:
     """Parse a date from a string or return None."""
     if val is None:
