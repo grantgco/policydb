@@ -1,0 +1,266 @@
+{# AI Import Slideover Panel — shared by policy and compliance import flows.
+   Context variables:
+     import_type     — "policy" or "compliance"
+     prompt_text     — full generated prompt string (may contain {{ }} tokens)
+     json_template   — JSON example for "Copy Template" button
+     context_display — dict of {label: value} for context header
+     parse_url       — POST URL for step 2 submission
+     import_target   — CSS selector for htmx swap target (e.g. "#policy-details-tab")
+#}
+
+{# ── Backdrop ── #}
+<div id="ai-backdrop"
+     class="fixed inset-0 bg-black/30 z-40"
+     onclick="closeAiImport()"></div>
+
+{# ── Panel ── #}
+<div id="ai-panel"
+     class="fixed top-0 right-0 bottom-0 w-[480px] max-sm:w-full bg-white shadow-xl z-50 overflow-y-auto"
+     data-parse-url='{{ parse_url | tojson }}'
+     data-import-target='{{ (import_target or "#ai-import-target") | tojson }}'>
+
+  {# ── Header ── #}
+  <div class="flex items-center justify-between p-4 border-b">
+    <h2 class="text-base font-semibold text-gray-900">Import from AI</h2>
+    <button onclick="closeAiImport()"
+            class="text-gray-400 hover:text-gray-600 transition-colors"
+            aria-label="Close panel">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+      </svg>
+    </button>
+  </div>
+
+  <div class="p-4">
+
+    {# ════════════════════════════════════════════
+       STEP 1 — Prompt display + copy
+       ════════════════════════════════════════════ #}
+    <div id="ai-step-prompt">
+
+      {# Context badges #}
+      {% if context_display %}
+      <div class="flex flex-wrap gap-2 mb-4">
+        {% for label, value in context_display.items() %}
+        <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
+          <span class="text-gray-400">{{ label }}:</span> {{ value }}
+        </span>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      {# Prompt code block — injected via data attr for Jinja2 safety #}
+      <pre id="ai-prompt-display"
+           class="rounded-lg p-4 text-xs leading-relaxed overflow-y-auto whitespace-pre-wrap select-all"
+           style="background: #1e1e2e; color: #cdd6f4; max-height: 300px;"
+           data-prompt='{{ prompt_text | tojson }}'
+           data-template='{{ json_template | tojson }}'
+      ></pre>
+
+      {# Copy Prompt button #}
+      <button id="ai-copy-prompt-btn"
+              onclick="copyPromptToClipboard(this)"
+              class="mt-4 w-full px-4 py-2.5 rounded-lg font-medium text-sm bg-indigo-600 text-white hover:bg-indigo-700 transition-colors">
+        Copy Prompt to Clipboard
+      </button>
+
+      {# Copy JSON Template link #}
+      <div class="mt-2 text-center">
+        <button id="ai-copy-template-btn"
+                onclick="copyTemplateToClipboard(this)"
+                class="text-sm text-gray-500 hover:text-gray-700 underline underline-offset-2 transition-colors">
+          Copy JSON Template Only
+        </button>
+      </div>
+
+      <p class="mt-3 text-xs text-gray-400 text-center">
+        Paste this into your AI tool along with the document
+      </p>
+    </div>
+
+    {# ════════════════════════════════════════════
+       STEP 2 — JSON paste + submit
+       ════════════════════════════════════════════ #}
+    <div id="ai-step-paste" style="display:none">
+
+      {# Back link #}
+      <button onclick="showAiStep(1)"
+              class="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 mb-4 transition-colors">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+        </svg>
+        Back to Prompt
+      </button>
+
+      <label for="ai-json-input" class="block text-sm font-medium text-gray-700 mb-1">
+        Paste AI Response
+      </label>
+      <textarea id="ai-json-input"
+                rows="12"
+                placeholder="Paste the JSON response here..."
+                class="w-full rounded-lg border border-gray-300 p-3 text-sm font-mono leading-relaxed focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none resize-y"></textarea>
+
+      {# Error display #}
+      <div id="ai-parse-error"
+           class="mt-2 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm"
+           style="display:none"></div>
+
+      {# Action buttons #}
+      <div class="mt-4 flex flex-col gap-2">
+        <button onclick="submitAiImport()"
+                class="w-full px-4 py-2.5 rounded-lg font-medium text-sm bg-indigo-600 text-white hover:bg-indigo-700 transition-colors">
+          Import &amp; Review
+        </button>
+        <button onclick="closeAiImport()"
+                class="w-full px-4 py-2.5 rounded-lg font-medium text-sm text-gray-500 hover:text-gray-700 transition-colors">
+          Cancel
+        </button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+/* ── Initialize prompt display from data attributes (Jinja2 safety) ── */
+(function() {
+    var pre = document.getElementById('ai-prompt-display');
+    if (pre && pre.dataset.prompt) {
+        pre.textContent = JSON.parse(pre.dataset.prompt);
+    }
+})();
+
+/* ── Panel lifecycle ── */
+function closeAiImport() {
+    var container = document.getElementById('ai-import-container');
+    if (container) container.innerHTML = '';
+}
+
+function showAiStep(n) {
+    document.getElementById('ai-step-prompt').style.display = n === 1 ? '' : 'none';
+    document.getElementById('ai-step-paste').style.display = n === 2 ? '' : 'none';
+}
+
+/* ── Clipboard helpers ── */
+function _aiCopyText(text, btn) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function() {
+            _aiFlashCopied(btn);
+        });
+    } else {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        _aiFlashCopied(btn);
+    }
+}
+
+function _aiFlashCopied(btn) {
+    var orig = btn.textContent;
+    btn.textContent = 'Copied!';
+    btn.classList.add('bg-green-600');
+    btn.classList.remove('bg-indigo-600');
+    setTimeout(function() {
+        btn.textContent = orig;
+        btn.classList.remove('bg-green-600');
+        btn.classList.add('bg-indigo-600');
+    }, 1500);
+}
+
+function copyPromptToClipboard(btn) {
+    var pre = document.getElementById('ai-prompt-display');
+    var text = pre ? pre.textContent : '';
+    _aiCopyText(text, btn);
+    /* After copy flash, advance to step 2 */
+    setTimeout(function() { showAiStep(2); }, 1500);
+}
+
+function copyTemplateToClipboard(btn) {
+    var pre = document.getElementById('ai-prompt-display');
+    var template = '';
+    if (pre && pre.dataset.template) {
+        template = JSON.parse(pre.dataset.template);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(template).then(function() {
+            var orig = btn.textContent;
+            btn.textContent = 'Copied!';
+            setTimeout(function() { btn.textContent = orig; }, 1500);
+        });
+    } else {
+        var ta = document.createElement('textarea');
+        ta.value = template;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        var orig = btn.textContent;
+        btn.textContent = 'Copied!';
+        setTimeout(function() { btn.textContent = orig; }, 1500);
+    }
+}
+
+/* ── Submit JSON ── */
+function submitAiImport() {
+    var textarea = document.getElementById('ai-json-input');
+    var errorDiv = document.getElementById('ai-parse-error');
+    var raw = textarea.value.trim();
+
+    /* Size guard */
+    if (raw.length > 500 * 1024) {
+        errorDiv.textContent = 'Input too large (max 500KB).';
+        errorDiv.style.display = '';
+        return;
+    }
+    if (!raw) {
+        errorDiv.textContent = 'Please paste the JSON response first.';
+        errorDiv.style.display = '';
+        return;
+    }
+
+    errorDiv.style.display = 'none';
+
+    var panel = document.getElementById('ai-panel');
+    var parseUrl = JSON.parse(panel.dataset.parseUrl);
+    var importTarget = JSON.parse(panel.dataset.importTarget);
+
+    /* Use fetch so we can inspect the status code */
+    fetch(parseUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'json_text=' + encodeURIComponent(raw)
+    }).then(function(resp) {
+        return resp.text().then(function(html) {
+            if (!resp.ok) {
+                /* 422 or other error — show inline */
+                errorDiv.innerHTML = html;
+                errorDiv.style.display = '';
+            } else {
+                /* Success — swap into target and close panel */
+                var target = document.querySelector(importTarget);
+                if (target) target.innerHTML = html;
+                htmx.process(target);
+                closeAiImport();
+            }
+        });
+    }).catch(function(err) {
+        errorDiv.textContent = 'Network error: ' + err.message;
+        errorDiv.style.display = '';
+    });
+}
+
+/* ── Close on Escape ── */
+document.addEventListener('keydown', function _aiEscHandler(e) {
+    if (e.key === 'Escape') {
+        var panel = document.getElementById('ai-panel');
+        if (panel) closeAiImport();
+    }
+});
+</script>

@@ -15,7 +15,14 @@
     <button type="button" onclick="copyRefTag(this, '{{ _ref }}')"
       class="text-gray-600 hover:text-marsh cursor-pointer" title="Copy ref tag">{{ policy.policy_uid }}</button>
   </div>
-  <h1 class="text-2xl font-bold text-gray-900">Edit Policy</h1>
+  <div class="flex items-center gap-3">
+    <h1 class="text-2xl font-bold text-gray-900">Edit Policy</h1>
+    <button hx-get="/policies/{{ policy.policy_uid }}/ai-import/prompt"
+            hx-target="#ai-import-container" hx-swap="innerHTML"
+            class="ml-auto px-3 py-1.5 text-xs font-medium rounded-lg border border-indigo-300 text-indigo-600 hover:bg-indigo-50 transition-colors no-print">
+      Import from AI
+    </button>
+  </div>
   <p class="text-sm text-gray-500 mt-1">{{ policy.policy_type }} · {{ policy.carrier }}
     <button type="button" onclick="copyRefTag(this, '{{ _ref }}')"
       class="ml-2 text-xs font-mono text-gray-400 hover:text-marsh bg-gray-100 hover:bg-gray-200 px-1.5 py-0.5 rounded cursor-pointer transition-colors" title="Click to copy email ref tag">{{ _ref }}</button>
@@ -87,6 +94,10 @@
 
 {# ── Floating Working Notes Panel ── #}
 {% include "policies/_working_notes_float.html" %}
+
+{# ── AI Import: warnings banner + slideover container ── #}
+<div id="ai-import-warnings"></div>
+<div id="ai-import-container"></div>
 
 </div>{# close policy-edit-layout #}
 
