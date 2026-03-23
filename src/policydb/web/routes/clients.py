@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+logger = logging.getLogger("policydb.web.routes.clients")
+
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -416,6 +419,7 @@ def client_new_post(
          preferred_contact_method or None, referral_source or None),
     )
     conn.commit()
+    logger.info("Client %d created: %s", cursor.lastrowid, name)
     return RedirectResponse(f"/clients/{cursor.lastrowid}", status_code=303)
 
 
@@ -2306,6 +2310,7 @@ def client_archive(client_id: int, conn=Depends(get_db)):
     """Archive a client (soft delete — hidden from lists, data preserved)."""
     conn.execute("UPDATE clients SET archived=1 WHERE id=?", (client_id,))
     conn.commit()
+    logger.info("Client %d archived", client_id)
     return RedirectResponse(f"/clients/{client_id}", status_code=303)
 
 

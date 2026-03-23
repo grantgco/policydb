@@ -153,6 +153,31 @@ Opportunities have optional dates/carrier; the "Convert to Policy" flow sets rea
 
 ---
 
+## Logging & Audit System
+
+### Application Logging
+- **Module:** `src/policydb/logging_config.py` — `setup_logging()` + `setup_sqlite_handler()`
+- **File handler:** `~/.policydb/logs/policydb.log` — RotatingFileHandler (5MB x 5 files), level from `cfg.get("log_level")`
+- **SQLite handler:** Background writer thread inserts into `app_log` table (flushes every 5s or 50 entries)
+- **Request middleware:** `app.py` logs every non-static HTTP request (method, path, status, duration_ms) at INFO/WARNING/ERROR based on status code
+- **Business events:** Lightweight `logger.info()` calls in `policies.py`, `clients.py`, `activities.py`, `reconcile.py`, `inbox.py`
+
+### Audit Log (Database Triggers)
+- **Migration 067:** SQLite triggers on 7 tables (clients, policies, activity_log, contacts, inbox, policy_milestones, saved_notes)
+- Captures INSERT/UPDATE/DELETE with JSON old_values/new_values
+
+### Auto-Purge
+- `_purge_old_logs()` in `db.py` runs on every server startup after health checks
+- Deletes `audit_log` and `app_log` rows older than `log_retention_days` config (default: 730 = 2 years)
+- VACUUM only on large purges (>10,000 rows)
+
+### Logs UI
+- **Route:** `/logs` — tabbed page (App Log / Audit Log), lazy-loaded via HTMX
+- **Old URL:** `/settings/audit-log` redirects to `/logs?tab=audit`
+- **Config keys:** `log_level` (default INFO), `log_retention_days` (default 730)
+
+---
+
 ## Email Template System
 
 ### Token Rendering
@@ -502,3 +527,7 @@ This is not optional — UI changes without visual verification have repeatedly 
 **20. `thread_id` column is legacy — do not write to it:** The `activity_log.thread_id` column exists for backwards compatibility but is no longer written to. New activities get `NULL` thread_id. The auto-clustered activity timeline (grouped by `activity_cluster_days` time gap) replaces the old manual COR correspondence threading. COR search in ref_lookup still works for old data.
 
 **21. NEVER force-remove worktrees without checking for uncommitted work:** Before removing ANY worktree, run `git -C <worktree-path> status` to check for uncommitted changes. If there are uncommitted changes, STOP and ask the user. Never batch-remove worktrees. When user says "clean up" or "merge all", explicitly ask which branches are still actively being worked on. Assume worktrees have active work unless confirmed otherwise. This rule exists because force-removing an active worktree destroyed in-progress uncommitted work with no recovery path.
+
+**22. SQLite handler must attach in the uvicorn worker process, not the CLI process:** When using `--reload` mode, `setup_logging()` in `cli.py` runs in the parent process, but uvicorn forks a new worker process. The SQLite logging handler must be attached via `@app.on_event("startup")` in `app.py` so it runs in the actual worker. Otherwise the handler's background writer thread and DB connection exist in the wrong process and no logs reach the `app_log` table.
+
+**23. `logging.getLogger()` child loggers propagate automatically:** When you configure handlers on `logging.getLogger("policydb")`, all child loggers like `policydb.db`, `policydb.web.requests` automatically propagate up. No need to add handlers to each child logger — just use `logging.getLogger("policydb.module_name")` in each module and the root `policydb` logger's handlers capture everything.
