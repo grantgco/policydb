@@ -120,6 +120,7 @@ def settings_page(request: Request, conn=Depends(get_db)):
         "renewal_statuses": cfg.get("renewal_statuses", []),
         "renewal_milestones": cfg.get("renewal_milestones", []),
         "fu_workload": cfg.get("followup_workload_thresholds", {"warning": 3, "danger": 5}),
+        "stale_threshold_days": cfg.get("stale_threshold_days", 14),
         "mandated_activities": cfg.get("mandated_activities", []),
         "milestone_profiles": cfg.get("milestone_profiles", []),
         "milestone_profile_rules": cfg.get("milestone_profile_rules", []),
@@ -333,6 +334,15 @@ def save_thresholds(
     return HTMLResponse(
         '<span id="thresh-status" class="text-xs text-green-600 font-medium">Saved</span>'
     )
+
+
+@router.post("/config/stale-threshold")
+def update_stale_threshold(request: Request, value: int = Form(...)):
+    full = dict(cfg.load_config())
+    full["stale_threshold_days"] = max(1, min(value, 90))
+    cfg.save_config(full)
+    cfg.reload_config()
+    return RedirectResponse("/settings", status_code=303)
 
 
 @router.post("/readiness-weights", response_class=HTMLResponse)

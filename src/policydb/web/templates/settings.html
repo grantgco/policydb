@@ -160,6 +160,18 @@
         <span id="thresh-status"></span>
       </div>
     </form>
+
+    <div class="mt-5 pt-4 border-t border-gray-100">
+      <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Follow-Up Urgency Tiers</p>
+      <p class="text-xs text-gray-400 mb-3">Follow-ups older than this threshold are shown as "Stale" (red). Overdue follow-ups between 1 day and this threshold appear amber.</p>
+      <form method="post" action="/settings/config/stale-threshold" class="flex items-center gap-3">
+        <label class="text-sm font-medium text-gray-700 whitespace-nowrap">Stale threshold (days)</label>
+        <input type="number" name="value" value="{{ stale_threshold_days }}"
+               min="1" max="90" class="w-20 rounded border-gray-300 text-sm px-2 py-1 focus:outline-none focus:ring-2 focus:ring-marsh">
+        <button type="submit" class="text-sm text-blue-600 hover:underline">Save</button>
+        <span class="text-xs text-gray-400">Follow-ups older than this are "Stale" (red)</span>
+      </form>
+    </div>
   </div>
 </details>
 
