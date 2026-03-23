@@ -10,6 +10,16 @@
     {# Color dot #}
     <div class="w-2 h-2 rounded-full {{ dot_color }} flex-shrink-0"></div>
 
+    {# Source type pill #}
+    {% if item.source_label is defined and item.source_label %}
+    <span class="text-[9px] font-semibold px-1.5 py-0.5 rounded-full flex-shrink-0
+      {% if item.source_label == 'Follow-up' %}bg-blue-100 text-blue-700
+      {% elif item.source_label == 'Renewal' %}bg-amber-100 text-amber-700
+      {% elif item.source_label == 'Opportunity' %}bg-emerald-100 text-emerald-700
+      {% elif item.source_label == 'Client' %}bg-gray-100 text-gray-600
+      {% endif %}">{{ item.source_label }}</span>
+    {% endif %}
+
     {# Client + Subject #}
     <div class="flex-1 min-w-0">
       <div class="flex items-center gap-2">
@@ -21,7 +31,9 @@
         {% endif %}
       </div>
       <div class="text-xs text-gray-600 truncate mt-0.5">
-        {% if item.source == 'policy' %}
+        {% if item.policy_uid %}
+          <a href="/policies/{{ item.policy_uid }}/edit" class="hover:text-[#003865] hover:underline">{{ item.policy_type }}{% if item.carrier %} <span class="text-gray-400">&middot; {{ item.carrier }}</span>{% endif %}</a>
+        {% elif item.source == 'policy' %}
           {{ item.policy_type }}{% if item.carrier %} <span class="text-gray-400">&middot; {{ item.carrier }}</span>{% endif %}
         {% else %}
           {{ item.subject }}
@@ -30,13 +42,18 @@
       {% if item.prev_disposition %}
       <div class="text-[11px] text-gray-400 mt-0.5">Previous: {{ item.prev_disposition }}{% if item.prev_days_ago is not none %} &middot; {{ item.prev_days_ago }} days ago{% endif %}</div>
       {% endif %}
+      {% if item.reason_line %}
+      <div class="text-[11px] text-gray-500 mt-0.5 truncate">{{ item.reason_line }}</div>
+      {% endif %}
     </div>
 
     {# Date / info column #}
     <div class="text-right flex-shrink-0">
       <div class="text-xs font-medium {{ date_class }}">{{ item.follow_up_date }}</div>
       {% if item.days_overdue is defined and item.days_overdue > 0 %}
-      <div class="text-[10px] text-red-400">{{ item.days_overdue }}d overdue</div>
+      <div class="text-[10px] font-medium
+        {% if item.days_overdue >= 15 %}text-red-600{% elif item.days_overdue >= 4 %}text-orange-500{% else %}text-amber-500{% endif %}">
+        {{ item.days_overdue }}d overdue{% if item.days_overdue >= 15 %} !{% endif %}</div>
       {% endif %}
       {% if item.nudge_count is defined %}
       <div class="text-[10px] text-blue-500">nudge {{ item.nudge_count }}</div>
@@ -133,6 +150,7 @@
     <span class="text-[10px] font-bold uppercase tracking-widest text-red-600">Act Now</span>
     <span class="bg-red-100 text-red-700 text-[10px] font-bold px-2 py-0.5 rounded-full">{{ act_now | length }}</span>
   </div>
+  <p class="text-[10px] text-gray-400 ml-4 mb-2">Your action needed — calls to make, emails to send</p>
   {% if act_now %}
   <div class="space-y-1">
     {% for item in act_now %}
@@ -153,6 +171,7 @@
     <span class="text-[10px] font-bold uppercase tracking-widest text-blue-600">Nudge Due</span>
     <span class="bg-blue-100 text-blue-700 text-[10px] font-bold px-2 py-0.5 rounded-full">{{ nudge_due | length }}</span>
   </div>
+  <p class="text-[10px] text-gray-400 ml-4 mb-2">Waiting on others — follow up if no response</p>
   {% if nudge_due %}
   <div class="space-y-1">
     {% for item in nudge_due %}
@@ -176,6 +195,7 @@
     <span class="text-[10px] font-bold uppercase tracking-widest text-purple-600">Prep Coming Up</span>
     <span class="bg-purple-100 text-purple-700 text-[10px] font-bold px-2 py-0.5 rounded-full">{{ prep_coming | length }}</span>
   </div>
+  <p class="text-[10px] text-gray-400 ml-4 mb-2">Upcoming milestones — prepare before deadlines arrive</p>
   <div class="space-y-1">
     {% for item in prep_coming %}
     <div class="fu-row bg-purple-50 rounded-lg border border-purple-200 hover:border-purple-300 transition-colors px-4 py-3" data-status="prep_coming">
@@ -216,6 +236,7 @@
     <span class="text-[10px] font-bold uppercase tracking-widest text-gray-500">Watching</span>
     <span class="bg-gray-200 text-gray-600 text-[10px] font-bold px-2 py-0.5 rounded-full">{{ watching | length }}</span>
   </summary>
+  <p class="text-[10px] text-gray-400 ml-4 mb-1">Ball in someone else's court — check back later</p>
   <div class="space-y-1 mt-1">
     {% for item in watching %}
     {{ fu_row(item, 'bg-gray-50', 'border border-gray-200', 'bg-gray-400', 'text-gray-500', 'watching') }}
@@ -234,6 +255,7 @@
     <span class="text-[10px] font-bold uppercase tracking-widest text-indigo-600">Scheduled</span>
     <span class="bg-indigo-100 text-indigo-700 text-[10px] font-bold px-2 py-0.5 rounded-full">{{ scheduled | length }}</span>
   </summary>
+  <p class="text-[10px] text-gray-400 ml-4 mb-1">Meetings and calls already booked</p>
   <div class="space-y-1 mt-1">
     {% for item in scheduled %}
     {{ fu_row(item, 'bg-indigo-50', 'border border-indigo-200', 'bg-indigo-400', 'text-indigo-600', 'scheduled') }}

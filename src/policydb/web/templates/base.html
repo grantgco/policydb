@@ -7,6 +7,7 @@
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js"></script>
   <link rel="stylesheet" href="https://uicdn.toast.com/editor/latest/toastui-editor.min.css">
   <script src="https://uicdn.toast.com/editor/latest/toastui-editor-all.min.js"></script>
   <script>
@@ -482,15 +483,17 @@
 
             <!-- Tools dropdown -->
             <div class="relative" onmouseenter="openNavDrop(this)" onmouseleave="closeNavDrop(this)">
-              <button class="nav-link flex items-center gap-1 {% if active in ['briefing','reconcile','templates','settings','ref-lookup'] %}bg-marsh-light border-b-2 border-[#c8a96e]{% endif %}">
+              <button class="nav-link flex items-center gap-1 {% if active in ['briefing','reconcile','templates','settings','ref-lookup','review'] %}bg-marsh-light border-b-2 border-[#c8a96e]{% endif %}">
                 Tools
                 <svg class="w-3 h-3 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
               </button>
               <div class="nav-drop-panel hidden absolute left-0 top-full mt-0.5 w-40 bg-white rounded-md shadow-lg border border-gray-200 py-1 z-50">
+                <a href="/review" class="block px-4 py-1.5 text-sm text-gray-700 hover:bg-gray-100 {% if active == 'review' %}font-semibold text-marsh{% endif %}">Review</a>
                 <a href="/briefing" class="block px-4 py-1.5 text-sm text-gray-700 hover:bg-gray-100 {% if active == 'briefing' %}font-semibold text-marsh{% endif %}">Briefing</a>
                 <a href="/reconcile" class="block px-4 py-1.5 text-sm text-gray-700 hover:bg-gray-100 {% if active == 'reconcile' %}font-semibold text-marsh{% endif %}">Reconcile</a>
                 <a href="/templates" class="block px-4 py-1.5 text-sm text-gray-700 hover:bg-gray-100 {% if active == 'templates' %}font-semibold text-marsh{% endif %}">Templates</a>
                 <a href="/settings" class="block px-4 py-1.5 text-sm text-gray-700 hover:bg-gray-100 {% if active == 'settings' %}font-semibold text-marsh{% endif %}">Settings</a>
+                <a href="/logs" class="block px-4 py-1.5 text-sm text-gray-700 hover:bg-gray-100 {% if active == 'logs' %}font-semibold text-marsh{% endif %}">Logs</a>
                 <a href="/ref-lookup" class="block px-4 py-1.5 text-sm text-gray-700 hover:bg-gray-100 {% if active == 'ref-lookup' %}font-semibold text-marsh{% endif %}">Ref Lookup</a>
               </div>
             </div>
@@ -1081,6 +1084,7 @@ document.addEventListener('keydown', function(e) {
       toast.style.transform = 'translateY(12px)';
     }, 2000);
   }
+  window.showToast = showToast;
 
   // Listen for server-sent toast messages via HX-Trigger
   document.body.addEventListener('activityLogged', function(e) {

@@ -1,0 +1,122 @@
+<!-- Summary -->
+<div class="flex items-center gap-6 mb-4 text-sm text-gray-600">
+  <span><strong>{{ "{:,}".format(total) }}</strong> total entries</span>
+</div>
+
+<!-- Filters -->
+<form hx-get="/logs/audit" hx-target="#tab-audit" hx-swap="innerHTML" class="card mb-4 px-5 py-4">
+  <div class="flex flex-wrap items-end gap-4">
+    <div>
+      <label class="block text-xs font-medium text-gray-500 mb-1">Table</label>
+      <select name="table" class="text-sm border border-gray-300 rounded-md px-3 py-1.5 bg-white focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+        <option value="">All tables</option>
+        {% for t in tables %}
+        <option value="{{ t }}" {{ 'selected' if f_table == t }}>{{ t }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="block text-xs font-medium text-gray-500 mb-1">Operation</label>
+      <select name="op" class="text-sm border border-gray-300 rounded-md px-3 py-1.5 bg-white focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+        <option value="">All operations</option>
+        {% for o in operations %}
+        <option value="{{ o }}" {{ 'selected' if f_op == o }}>{{ o }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="block text-xs font-medium text-gray-500 mb-1">From</label>
+      <input type="date" name="from" value="{{ f_from }}" class="text-sm border border-gray-300 rounded-md px-3 py-1.5 focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+    </div>
+    <div>
+      <label class="block text-xs font-medium text-gray-500 mb-1">To</label>
+      <input type="date" name="to" value="{{ f_to }}" class="text-sm border border-gray-300 rounded-md px-3 py-1.5 focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+    </div>
+    <button type="submit" class="px-4 py-1.5 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 transition-colors">Filter</button>
+    {% if f_table or f_op or f_from or f_to %}
+    <a href="#" hx-get="/logs/audit" hx-target="#tab-audit" hx-swap="innerHTML" class="text-sm text-gray-500 hover:text-gray-700 py-1.5">Clear</a>
+    {% endif %}
+  </div>
+</form>
+
+<!-- Audit Table -->
+<div class="card overflow-hidden">
+  <div class="overflow-x-auto">
+    <table class="min-w-full text-sm">
+      <thead>
+        <tr class="bg-gray-50 border-b border-gray-200">
+          <th class="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Time</th>
+          <th class="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Table</th>
+          <th class="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Row ID</th>
+          <th class="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Operation</th>
+          <th class="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Changes</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-100">
+        {% for row in rows %}
+        <tr class="hover:bg-gray-50 transition-colors">
+          <td class="px-4 py-2.5 text-gray-600 whitespace-nowrap font-mono text-xs">{{ row.changed_at[:19] }}</td>
+          <td class="px-4 py-2.5">
+            <span class="inline-block bg-gray-100 text-gray-700 text-xs font-medium px-2 py-0.5 rounded">{{ row.table_name }}</span>
+          </td>
+          <td class="px-4 py-2.5 text-gray-700 font-mono text-xs">{{ row.row_id }}</td>
+          <td class="px-4 py-2.5">
+            {% if row.operation == 'INSERT' %}
+            <span class="inline-block bg-green-100 text-green-700 text-xs font-semibold px-2 py-0.5 rounded">INSERT</span>
+            {% elif row.operation == 'UPDATE' %}
+            <span class="inline-block bg-amber-100 text-amber-700 text-xs font-semibold px-2 py-0.5 rounded">UPDATE</span>
+            {% elif row.operation == 'DELETE' %}
+            <span class="inline-block bg-red-100 text-red-700 text-xs font-semibold px-2 py-0.5 rounded">DELETE</span>
+            {% endif %}
+          </td>
+          <td class="px-4 py-2.5">
+            <details class="group">
+              <summary class="cursor-pointer text-xs text-blue-600 hover:text-blue-800 select-none">
+                <span class="group-open:hidden">Show details</span>
+                <span class="hidden group-open:inline">Hide details</span>
+              </summary>
+              <div class="mt-2 space-y-2">
+                {% if row.old_values %}
+                <div>
+                  <span class="text-xs font-semibold text-gray-500">Old:</span>
+                  <pre class="mt-0.5 text-xs bg-red-50 text-gray-700 rounded p-2 overflow-x-auto max-h-40">{{ row.old_values }}</pre>
+                </div>
+                {% endif %}
+                {% if row.new_values %}
+                <div>
+                  <span class="text-xs font-semibold text-gray-500">New:</span>
+                  <pre class="mt-0.5 text-xs bg-green-50 text-gray-700 rounded p-2 overflow-x-auto max-h-40">{{ row.new_values }}</pre>
+                </div>
+                {% endif %}
+              </div>
+            </details>
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="5" class="px-4 py-8 text-center text-gray-400 text-sm">
+            {% if f_table or f_op or f_from or f_to %}
+            No audit entries match the current filters.
+            {% else %}
+            No audit entries yet. Changes to tracked tables will appear here automatically.
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Pagination -->
+  {% if has_next %}
+  <div class="px-4 py-3 border-t border-gray-200 text-center">
+    <button
+      hx-get="/logs/audit?page={{ page + 1 }}&table={{ f_table }}&op={{ f_op }}&from={{ f_from }}&to={{ f_to }}"
+      hx-target="#tab-audit"
+      hx-swap="innerHTML"
+      class="text-sm text-blue-600 hover:text-blue-800 font-medium">
+      Load more...
+    </button>
+  </div>
+  {% endif %}
+</div>

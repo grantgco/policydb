@@ -505,6 +505,8 @@ _DEFAULTS: dict[str, Any] = {
     "pin_renewal_days": 14,
     "backup_retention_count": 30,
     "migration_backup_retention_count": 10,
+    "log_level": "INFO",
+    "log_retention_days": 730,
     "milestone_profiles": [
         {
             "name": "Full Renewal",

@@ -47,7 +47,7 @@
           <span class="text-gray-800">{{ o.policy_type or '—' }}</span>
           {% if o.project_name %}<span class="text-xs text-gray-400 ml-1 italic">· {{ o.project_name }}</span>{% endif %}
         </td>
-        <td class="px-4 py-2.5 text-gray-600">{{ o.carrier or '—' }}</td>
+        <td class="px-4 py-2.5 text-gray-600">{% if o.carrier %}{{ o.carrier }}{% else %}<span class="text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">TBD</span>{% endif %}</td>
         <td class="px-4 py-2.5">
           {% if o.opportunity_status %}
           <span class="text-xs font-semibold px-2 py-0.5 rounded {{ opp_colors.get(o.opportunity_status, 'bg-gray-100 text-gray-600') }}">

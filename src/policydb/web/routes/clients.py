@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+logger = logging.getLogger("policydb.web.routes.clients")
+
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -416,6 +419,7 @@ def client_new_post(
          preferred_contact_method or None, referral_source or None),
     )
     conn.commit()
+    logger.info("Client %d created: %s", cursor.lastrowid, name)
     return RedirectResponse(f"/clients/{cursor.lastrowid}", status_code=303)
 
 
@@ -2253,6 +2257,7 @@ def client_archive(client_id: int, conn=Depends(get_db)):
     """Archive a client (soft delete — hidden from lists, data preserved)."""
     conn.execute("UPDATE clients SET archived=1 WHERE id=?", (client_id,))
     conn.commit()
+    logger.info("Client %d archived", client_id)
     return RedirectResponse(f"/clients/{client_id}", status_code=303)
 
 
@@ -3842,9 +3847,9 @@ def seed_from_checklist(
     client_facing = cfg.get("client_facing_milestones", [])
     if not client_facing:
         return _bundle_response(request, conn, client_id, bundle_id)
-    # Get all active non-opportunity policies for this client
+    # Get all active policies and opportunities for this client
     policies = conn.execute(
-        "SELECT policy_uid, policy_type, carrier, project_name FROM policies WHERE client_id=? AND archived=0 AND (is_opportunity=0 OR is_opportunity IS NULL)",
+        "SELECT policy_uid, policy_type, carrier, project_name FROM policies WHERE client_id=? AND archived=0",
         (client_id,),
     ).fetchall()
     for pol in policies:
@@ -3998,6 +4003,60 @@ async def project_pipeline_field(
 
     conn.commit()
     return JSONResponse({"ok": True, "formatted": formatted})
+
+
+@router.post("/{client_id}/projects/{project_id}/status", response_class=HTMLResponse)
+def project_pipeline_status(
+    request: Request,
+    client_id: int,
+    project_id: int,
+    status: str = Form(...),
+    conn=Depends(get_db),
+):
+    """HTMX endpoint: update project status, return updated badge partial."""
+    stages = cfg.get("project_stages", ["Upcoming", "Quoting", "Bound", "Active", "Complete"])
+    if status not in stages:
+        status = stages[0]
+    conn.execute("UPDATE projects SET status = ? WHERE id = ? AND client_id = ?",
+                 (status, project_id, client_id))
+    conn.commit()
+    project = conn.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+    if not project:
+        return HTMLResponse("", status_code=404)
+    client = get_client_by_id(conn, client_id)
+    return templates.TemplateResponse("clients/_project_status_badge.html", {
+        "request": request,
+        "p": dict(project),
+        "client": dict(client),
+        "project_stages": stages,
+    })
+
+
+@router.post("/{client_id}/projects/{project_id}/type", response_class=HTMLResponse)
+def project_pipeline_type(
+    request: Request,
+    client_id: int,
+    project_id: int,
+    project_type: str = Form(...),
+    conn=Depends(get_db),
+):
+    """HTMX endpoint: update project type, return updated badge partial."""
+    types = cfg.get("project_types", ["Location", "Construction", "Development", "Renovation"])
+    if project_type not in types:
+        project_type = types[0]
+    conn.execute("UPDATE projects SET project_type = ? WHERE id = ? AND client_id = ?",
+                 (project_type, project_id, client_id))
+    conn.commit()
+    project = conn.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+    if not project:
+        return HTMLResponse("", status_code=404)
+    client = get_client_by_id(conn, client_id)
+    return templates.TemplateResponse("clients/_project_type_badge.html", {
+        "request": request,
+        "p": dict(project),
+        "client": dict(client),
+        "project_types": types,
+    })
 
 
 @router.post("/{client_id}/projects/pipeline", response_class=HTMLResponse)
