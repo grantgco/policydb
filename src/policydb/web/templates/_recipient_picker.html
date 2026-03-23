@@ -1,0 +1,80 @@
+{# Recipient picker partial for compose slideover.
+   Expects: primary_to (dict with name/email/badge), mode, recipients (list of dicts).
+#}
+
+{# ── To section ── #}
+<div class="mb-3">
+  <div class="text-xs font-medium text-gray-500 mb-1">To</div>
+  {% if primary_to and primary_to.email %}
+  <div id="compose-to-row" class="flex items-center gap-2">
+    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium
+      {% if primary_to.badge == 'CLIENT' %}bg-green-100 text-green-700
+      {% elif primary_to.badge == 'INTERNAL' %}bg-blue-100 text-blue-700
+      {% elif primary_to.badge == 'PLACEMENT' %}bg-amber-100 text-amber-700
+      {% elif primary_to.badge == 'UNDERWRITER' %}bg-amber-100 text-amber-700
+      {% else %}bg-gray-100 text-gray-700{% endif %}">
+      {{ primary_to.name or primary_to.email }}
+      {% if primary_to.badge %}<span class="opacity-60">({{ primary_to.badge | lower }})</span>{% endif %}
+    </span>
+    <button type="button" onclick="removeComposeTo()"
+            class="text-gray-400 hover:text-red-500 transition-colors" title="Remove recipient">
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+      </svg>
+    </button>
+    <input type="hidden" id="compose-to-email" value="{{ primary_to.email }}">
+    <input type="hidden" id="compose-to-name" value="{{ primary_to.name or '' }}">
+  </div>
+  {% elif mode != 'rfi_notify' %}
+  <div id="compose-to-row">
+    <span class="text-xs text-gray-400 italic">No primary recipient — add one below or use CC only</span>
+    <input type="hidden" id="compose-to-email" value="">
+    <input type="hidden" id="compose-to-name" value="">
+  </div>
+  {% else %}
+  <div id="compose-to-row">
+    <span class="text-xs text-gray-400 italic">RFI notification — recipients via CC</span>
+    <input type="hidden" id="compose-to-email" value="">
+    <input type="hidden" id="compose-to-name" value="">
+  </div>
+  {% endif %}
+</div>
+
+{# ── Suggested CC section ── #}
+<div class="mb-3">
+  <div class="text-xs font-medium text-gray-500 mb-1">CC</div>
+  <div id="compose-cc-list" class="space-y-1">
+    {% for r in recipients %}
+      {% if not primary_to or r.email != primary_to.email %}
+      <label class="flex items-center gap-2 cursor-pointer text-xs">
+        <input type="checkbox" class="compose-cc-check rounded border-gray-300"
+               value="{{ r.email }}"
+               data-name="{{ r.name or '' }}"
+               {% if r.pre_checked %}checked{% endif %}
+               onchange="updateComposePreview()">
+        <span class="inline-flex items-center gap-1">
+          <span class="text-gray-700">{{ r.name or r.email }}</span>
+          <span class="px-1.5 py-0 rounded text-[10px] font-medium
+            {% if r.badge == 'CLIENT' %}bg-green-100 text-green-600
+            {% elif r.badge == 'INTERNAL' %}bg-blue-100 text-blue-600
+            {% elif r.badge == 'PLACEMENT' %}bg-amber-100 text-amber-600
+            {% elif r.badge == 'UNDERWRITER' %}bg-amber-100 text-amber-600
+            {% else %}bg-gray-100 text-gray-500{% endif %}">{{ r.badge | lower }}</span>
+        </span>
+      </label>
+      {% endif %}
+    {% endfor %}
+  </div>
+</div>
+
+{# ── Add recipient ── #}
+<div class="flex items-center gap-2 mb-3">
+  <input type="text" id="compose-add-email" placeholder="Add email address..."
+         class="flex-1 text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-marsh"
+         onkeydown="if(event.key==='Enter'){event.preventDefault();addComposeRecipient();}">
+  <button type="button" onclick="addComposeRecipient()"
+          class="text-xs text-marsh hover:text-marsh-light font-medium px-2 py-1.5">+ Add</button>
+</div>
+
+{# ── Preview line ── #}
+<div id="compose-preview" class="text-[11px] text-gray-400 italic"></div>
