@@ -151,8 +151,8 @@
                             hx-swap="outerHTML">Edit</button>
                     <button class="text-red-400 hover:text-red-600 text-xs"
                             hx-post="/compliance/client/{{ client_id }}/requirements/{{ r.id }}/delete"
-                            hx-target="body"
-                            hx-confirm="Delete this requirement?">✕</button>
+                            hx-target="#location-tab-content"
+                            hx-confirm="Delete this requirement?">&#10005;</button>
                   </span>
                 </td>
               </tr>
@@ -165,7 +165,7 @@
                 <button type="button" class="hover:text-marsh text-left"
                         hx-post="/compliance/client/{{ client_id }}/requirements/add"
                         hx-vals='{"coverage_line": "", "source_id": "{{ src_id }}", "project_id": "{{ project.id if not is_inherited else '' }}", "compliance_status": "Needs Review", "required_endorsements": "[]", "required_limit": "", "max_deductible": "", "deductible_type": "", "notes": "", "risk_id": "", "linked_policy_uid": ""}'
-                        hx-target="body">+ Add requirement to this source...</button>
+                        hx-target="#location-tab-content">+ Add requirement to this source...</button>
               </td>
             </tr>
           </table>
@@ -203,6 +203,23 @@
   </div>
   {% endif %}
 </div>
+
+{# Location navigation footer #}
+{% if location_index is defined %}
+<div class="flex items-center justify-between mt-4 pt-3 border-t border-gray-100 text-xs text-gray-400">
+  <span>Location {{ location_index + 1 }} of {{ location_count }}</span>
+  {% if next_location %}
+  <button class="text-marsh font-medium hover:underline"
+          hx-get="/compliance/client/{{ client_id }}/location/{{ next_location.id }}"
+          hx-target="#location-tab-content"
+          hx-push-url="?location={{ next_location.id }}">
+    Next: {{ next_location.name }} &rarr;
+  </button>
+  {% else %}
+  <span class="text-green-600 font-medium">All locations reviewed</span>
+  {% endif %}
+</div>
+{% endif %}
 
 {% else %}
 <div class="bg-white rounded-lg shadow-sm border border-gray-200 mb-6 px-5 py-8 text-center text-gray-400 text-sm">
