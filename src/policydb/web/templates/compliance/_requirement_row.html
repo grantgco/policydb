@@ -1,0 +1,56 @@
+{# Single requirement display row — returned by row restore endpoint (cancel edit) #}
+<tr id="req-row-{{ req.id }}" class="border-b border-gray-50 group">
+  <td class="py-2 w-48">{{ req.coverage_line }}</td>
+  <td class="py-2 w-32">
+    {% if req.required_limit is not none %}
+      {{ req.required_limit | currency }}
+    {% else %}
+      <span class="text-gray-300">&mdash;</span>
+    {% endif %}
+  </td>
+  <td class="py-2">
+    {# Required endorsements as pills #}
+    {% set r_endorsements = req.get('_endorsements_list', []) if req.get is defined else [] %}
+    {% if r_endorsements %}
+      <span class="inline-flex gap-1 text-xs">
+        {% for e in r_endorsements %}
+        <span class="bg-green-100 text-green-700 px-1.5 py-0.5 rounded">{{ e }}</span>
+        {% endfor %}
+      </span>
+    {% endif %}
+  </td>
+  <td class="py-2 text-right">
+    {# Status / linked policy display #}
+    {% set status = (req.compliance_status or 'Needs Review') | lower %}
+    {% if status == 'gap' %}
+      <span class="inline-flex items-center gap-1 text-xs bg-red-50 text-red-700 px-2 py-0.5 rounded">
+        <span class="w-1.5 h-1.5 rounded-full bg-red-500"></span> GAP
+      </span>
+    {% elif req.linked_policy_uid %}
+      <span class="inline-flex items-center gap-1 text-xs bg-green-50 text-green-700 px-2 py-0.5 rounded">
+        <span class="w-1.5 h-1.5 rounded-full bg-green-500"></span>
+        {{ req.linked_policy_uid }}
+      </span>
+    {% elif status in ('waived', 'n/a') %}
+      <span class="inline-flex items-center gap-1 text-xs bg-gray-50 text-gray-500 px-2 py-0.5 rounded">
+        <span class="w-1.5 h-1.5 rounded-full bg-gray-400"></span> {{ req.compliance_status }}
+      </span>
+    {% else %}
+      <span class="inline-flex items-center gap-1 text-xs bg-gray-50 text-gray-600 px-2 py-0.5 rounded">
+        <span class="w-1.5 h-1.5 rounded-full bg-gray-400"></span> {{ req.compliance_status or 'Needs Review' }}
+      </span>
+    {% endif %}
+  </td>
+  <td class="py-2 w-20 text-right no-print">
+    <span class="opacity-0 group-hover:opacity-100 transition-opacity">
+      <button class="text-marsh hover:text-green-800 text-xs mr-1"
+              hx-get="/compliance/client/{{ client_id }}/requirements/{{ req.id }}/row/edit"
+              hx-target="#req-row-{{ req.id }}"
+              hx-swap="outerHTML">Edit</button>
+      <button class="text-red-400 hover:text-red-600 text-xs"
+              hx-post="/compliance/client/{{ client_id }}/requirements/{{ req.id }}/delete"
+              hx-target="#location-tab-content"
+              hx-confirm="Delete this requirement?">&#10005;</button>
+    </span>
+  </td>
+</tr>
