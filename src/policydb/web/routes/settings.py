@@ -441,6 +441,7 @@ def mandated_activity_add(
     name: str = Form(...),
     trigger: str = Form(...),
     days: int = Form(...),
+    prep_days: int = Form(0),
     activity_type: str = Form("Meeting"),
     subject: str = Form(""),
 ):
@@ -450,6 +451,7 @@ def mandated_activity_add(
         "name": name.strip(),
         "trigger": trigger,
         "days": days,
+        "prep_days": prep_days,
         "activity_type": activity_type,
         "subject": subject.strip() or f"{name.strip()} — {{{{policy_type}}}}",
     })
@@ -470,26 +472,12 @@ def mandated_activity_remove(request: Request, name: str = Form(...)):
 
 
 def _render_mandated_activities(request: Request) -> HTMLResponse:
-    rules = cfg.get("mandated_activities", [])
-    activity_types = cfg.get("activity_types", [])
-    html_parts = []
-    for r in rules:
-        trigger_label = {"days_before_expiry": "before expiry", "days_after_effective": "after effective", "days_after_binding": "after binding"}.get(r.get("trigger"), r.get("trigger", ""))
-        html_parts.append(
-            f'<div class="flex items-center justify-between py-2 border-b border-gray-50">'
-            f'<div class="text-sm text-gray-800">'
-            f'<span class="font-medium">{r["name"]}</span>'
-            f' &mdash; <span class="text-gray-500">{r["days"]}d {trigger_label}</span>'
-            f' &middot; <span class="text-gray-400">{r.get("activity_type", "Meeting")}</span>'
-            f'</div>'
-            f'<form hx-post="/settings/mandated-activities/remove" hx-target="#mandated-activities-list" hx-swap="innerHTML">'
-            f'<input type="hidden" name="name" value="{r["name"]}">'
-            f'<button type="submit" class="text-xs text-red-400 hover:text-red-600">&times;</button>'
-            f'</form></div>'
-        )
-    if not html_parts:
-        html_parts.append('<p class="text-xs text-gray-400 py-2">No mandated activities configured.</p>')
-    return HTMLResponse("".join(html_parts))
+    return templates.TemplateResponse("settings/_mandated_activities_rows.html", {
+        "request": request,
+        "mandated_activities": cfg.get("mandated_activities", []),
+        "renewal_milestones": cfg.get("renewal_milestones", []),
+        "activity_types": cfg.get("activity_types", []),
+    })
 
 
 # ── Mandated Activities — inline PATCH editor ────────────────────────────────
