@@ -500,6 +500,8 @@ _CLIENT_CONTACT_GROUP: list[tuple[str, str]] = [
 ]
 
 # Grouped tokens per context — list of (group_name, [(key, label), ...])
+# Consolidated to 2 contexts: policy (includes location, followup, timeline)
+# and client (includes meeting).
 CONTEXT_TOKEN_GROUPS: dict[str, list[tuple[str, list[tuple[str, str]]]]] = {
     "policy": [
         ("Policy", [
@@ -533,84 +535,23 @@ CONTEXT_TOKEN_GROUPS: dict[str, list[tuple[str, list[tuple[str, str]]]]] = {
         ]),
         ("Client", _CLIENT_GROUP),
         ("Contact", _CLIENT_CONTACT_GROUP),
-        ("Tracking", [("ref_tag", "Email Ref Tag")]),
-    ],
-    "client": [
-        ("Client", _CLIENT_GROUP),
-        ("Contact", _CLIENT_CONTACT_GROUP),
-        ("Other", [
-            ("today", "Today's Date"),
-        ]),
-        ("Tracking", [("ref_tag", "Email Ref Tag")]),
-    ],
-    "location": [
         ("Location", [
             ("location_name", "Location / Project"),
             ("location_description", "Location Description"),
             ("policy_count", "# of Policies"),
-            ("policy_types", "Policy Types (list)"),
-            ("carriers", "Carriers (list)"),
-            ("policy_uids", "Policy IDs (list)"),
             ("total_premium", "Total Premium (sum)"),
-            ("earliest_effective", "Earliest Effective"),
-            ("latest_expiration", "Latest Expiration"),
-        ]),
-        ("Team", [
             ("team_names", "Team Names (list)"),
             ("team_emails", "Team Emails (list)"),
             ("placement_colleagues", "Placement Colleagues (list)"),
             ("placement_emails", "Placement Emails (list)"),
         ]),
-        ("Client", _CLIENT_GROUP),
-        ("Contact", _CLIENT_CONTACT_GROUP),
-        ("Other", [
-            ("today", "Today's Date"),
-        ]),
-        ("Tracking", [("ref_tag", "Email Ref Tag")]),
-    ],
-    "general": [
-        ("General", [
-            ("account_exec", "Account Exec"),
-            ("today", "Today's Date"),
-        ]),
-    ],
-    "followup": [
-        ("Follow-Up", [
+        ("Follow-up", [
             ("subject", "Follow-Up Subject"),
             ("contact_person", "Contact Person"),
             ("duration_hours", "Duration (hrs)"),
             ("disposition", "Disposition"),
             ("thread_ref", "Thread Reference"),
         ]),
-        ("Policy", [
-            ("client_name", "Client Name"),
-            ("policy_type", "Policy Type"),
-            ("carrier", "Carrier"),
-            ("policy_uid", "Policy ID"),
-            ("project_name", "Project / Location"),
-            ("project_name_sep", "Project (with separator)"),
-        ]),
-        ("Other", [
-            ("today", "Today's Date"),
-        ]),
-        ("Tracking", [("ref_tag", "Email Ref Tag")]),
-    ],
-    "meeting": [
-        ("Meeting", [
-            ("meeting_title", "Meeting Title"),
-            ("meeting_date", "Meeting Date"),
-            ("meeting_time", "Meeting Time"),
-            ("meeting_type", "Meeting Type"),
-            ("meeting_location", "Location"),
-            ("meeting_duration", "Duration"),
-            ("client_name", "Client Name"),
-            ("attendees", "Attendees"),
-            ("decisions", "Decisions"),
-            ("action_items", "Action Items"),
-            ("meeting_notes", "Notes (first 500 chars)"),
-        ]),
-    ],
-    "timeline": [
         ("Timeline", [
             ("days_to_expiry", "Days to Expiry"),
             ("drift_days", "Timeline Drift (days)"),
@@ -618,10 +559,28 @@ CONTEXT_TOKEN_GROUPS: dict[str, list[tuple[str, list[tuple[str, str]]]]] = {
             ("current_status", "Current Status"),
             ("milestones_complete", "Milestones Complete"),
             ("milestones_remaining", "Milestones Remaining"),
-            ("contact_first_name", "Contact First Name"),
-            ("nudge_count", "Nudge Count"),
-            ("meeting_date", "Meeting Date"),
         ]),
+        ("Tracking", [("ref_tag", "Email Ref Tag")]),
+    ],
+    "client": [
+        ("Client", _CLIENT_GROUP),
+        ("Contact", _CLIENT_CONTACT_GROUP),
+        ("Meeting", [
+            ("meeting_title", "Meeting Title"),
+            ("meeting_date", "Meeting Date"),
+            ("meeting_time", "Meeting Time"),
+            ("meeting_type", "Meeting Type"),
+            ("meeting_location", "Location"),
+            ("meeting_duration", "Duration"),
+            ("attendees", "Attendees"),
+            ("decisions", "Decisions"),
+            ("action_items", "Action Items"),
+            ("meeting_notes", "Notes (first 500 chars)"),
+        ]),
+        ("Other", [
+            ("today", "Today's Date"),
+        ]),
+        ("Tracking", [("ref_tag", "Email Ref Tag")]),
     ],
 }
 

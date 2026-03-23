@@ -24,8 +24,6 @@ router = APIRouter(prefix="/templates")
 _CONTEXT_LABELS = {
     "policy": "Policy",
     "client": "Client",
-    "location": "Location",
-    "general": "General",
 }
 
 

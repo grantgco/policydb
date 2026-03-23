@@ -25,14 +25,25 @@
         class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-marsh">
     </div>
     <div>
-      <label class="text-xs font-medium text-gray-600 block mb-1">Context</label>
-      <select name="context" id="{{ form_id }}-ctx"
-        onchange="updatePills('{{ subj_pills_id }}', '{{ body_pills_id }}', '{{ subj_id }}', '{{ body_id }}', this.value)"
-        class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-marsh">
-        {% for ctx_key, ctx_label in context_labels.items() %}
-        <option value="{{ ctx_key }}" {% if t.context == ctx_key or (not t.context and ctx_key == 'policy') %}selected{% endif %}>{{ ctx_label }}</option>
-        {% endfor %}
-      </select>
+      <label class="text-xs font-medium text-gray-600 block mb-1">Template Type</label>
+      <div class="flex gap-2 mt-1">
+        <label class="cursor-pointer">
+          <input type="radio" name="context" value="policy" class="peer sr-only"
+                 onchange="updatePills('{{ subj_pills_id }}', '{{ body_pills_id }}', '{{ subj_id }}', '{{ body_id }}', this.value)"
+                 {% if t.context == 'policy' or not t.context %}checked{% endif %}>
+          <span class="px-3 py-1.5 text-sm rounded-full border border-gray-200 peer-checked:bg-marsh peer-checked:text-white peer-checked:border-marsh transition-colors">
+            Policy emails
+          </span>
+        </label>
+        <label class="cursor-pointer">
+          <input type="radio" name="context" value="client" class="peer sr-only"
+                 onchange="updatePills('{{ subj_pills_id }}', '{{ body_pills_id }}', '{{ subj_id }}', '{{ body_id }}', this.value)"
+                 {% if t.context == 'client' %}checked{% endif %}>
+          <span class="px-3 py-1.5 text-sm rounded-full border border-gray-200 peer-checked:bg-marsh peer-checked:text-white peer-checked:border-marsh transition-colors">
+            Client emails
+          </span>
+        </label>
+      </div>
     </div>
   </div>
 
