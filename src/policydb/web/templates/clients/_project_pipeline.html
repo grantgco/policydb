@@ -160,30 +160,6 @@ window.sortTable = function(tbodyId, colIdx, type, th) {
     }
   }, true);
 
-  window.ppSelectPill = function(btn, field, value, clientId, projectId) {
-    // Update visual state — find sibling pills by data-pp-field
-    var container = btn.closest('td');
-    if (container) {
-      container.querySelectorAll('button[data-pp-field="' + field + '"]').forEach(function(b) {
-        b.classList.remove('bg-marsh', 'text-white', 'border-marsh');
-        b.classList.add('border-gray-200', 'text-gray-500');
-      });
-    }
-    btn.classList.remove('border-gray-200', 'text-gray-500');
-    btn.classList.add('bg-marsh', 'text-white', 'border-marsh');
-    // Save
-    fetch('/clients/' + clientId + '/projects/' + projectId + '/field', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ field: field, value: value }),
-    })
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
-      if (data.ok && typeof showToast === 'function') showToast('Saved', true);
-    })
-    .catch(function() {});
-  };
-
   window.ppDeleteRow = function(btn, clientId, projectId) {
     if (!confirm('Delete this project? Linked policies will be unassigned.')) return;
     var row = document.getElementById('pp-row-' + projectId);
