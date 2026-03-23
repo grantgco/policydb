@@ -1,17 +1,18 @@
 #!/bin/bash
-# PolicyDB — install from Terminal
-# Bypasses Gatekeeper / JAMF restrictions entirely.
+# PolicyDB — install/update from git on work Mac
+# First time: clones, creates venv, installs, sets up shell command
+# After that: pulls latest, reinstalls
 #
 # Usage:
-#   bash install.sh              Install or upgrade PolicyDB
-#   bash install.sh uninstall    Remove PolicyDB (keeps your data)
+#   bash work-install.sh              # Install or update
+#   bash work-install.sh uninstall    # Remove (keeps your data)
 
 set -euo pipefail
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.."
 
 POLICYDB_HOME="$HOME/.policydb"
 VENV="$POLICYDB_HOME/venv"
-WHEELS="$(pwd)/wheels"
+PROJECT_ROOT="$(pwd)"
 LABEL="com.policydb.server"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 ZSHRC="$HOME/.zshrc"
@@ -43,22 +44,15 @@ if [ "${1:-}" = "uninstall" ]; then
     echo "PolicyDB — Uninstall"
     echo "===================="
     echo ""
-
-    # Stop and unload LaunchAgent
     launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
     rm -f "$PLIST"
     echo "  Removed auto-start agent"
-
-    # Remove shell function from .zshrc
     if [ -f "$ZSHRC" ]; then
         sed -i '' '/# ── PolicyDB ──/,/# ── \/PolicyDB ──/d' "$ZSHRC"
         echo "  Removed shell function from ~/.zshrc"
     fi
-
-    # Remove venv (but keep data)
     rm -rf "$VENV"
     echo "  Removed virtual environment"
-
     echo ""
     echo "Done. Your data is still at: $POLICYDB_HOME"
     echo "  (Delete that folder to remove everything.)"
@@ -66,69 +60,53 @@ if [ "${1:-}" = "uninstall" ]; then
     exit 0
 fi
 
-# ── Install / Upgrade ─────────────────────────────────────────────────────────
+# ── Install / Update ─────────────────────────────────────────────────────────
 echo ""
 echo "============================================"
-echo "  PolicyDB — Install"
+echo "  PolicyDB — Git Install"
 echo "============================================"
 echo ""
 
+# Pull latest if this is a git repo
+if [ -d .git ] || [ -f .git ]; then
+    BRANCH=$(git branch --show-current)
+    echo "  Branch: $BRANCH"
+    echo "  Pulling latest..."
+    git pull --ff-only 2>/dev/null || echo "  (pull skipped — may need manual merge)"
+fi
+
+SRC_VERSION=$(grep '__version__' src/policydb/__init__.py | sed 's/.*"\(.*\)".*/\1/')
+echo "  Version: v${SRC_VERSION}"
+
 PY=$(find_python) || {
     echo "ERROR: Python 3.11 or newer is required."
-    echo ""
-    echo "  Download it from: https://www.python.org/downloads/"
-    echo "  Install it, then run this script again."
-    echo ""
+    echo "  Download from: https://www.python.org/downloads/"
     exit 1
 }
 echo "  Python:  $PY"
 
-# Create / update venv
-UPGRADE=false
-if [ -d "$VENV" ]; then
-    echo "  Upgrading existing install..."
-    UPGRADE=true
-else
+# Create venv if needed
+if [ ! -d "$VENV" ]; then
     echo "  Creating virtual environment..."
     mkdir -p "$POLICYDB_HOME"
     "$PY" -m venv "$VENV"
 fi
 
-# Show what we're installing
-PKG_WHL=$(ls "$WHEELS"/policydb-*.whl 2>/dev/null | head -1)
-PKG_VER=$(basename "$PKG_WHL" | sed 's/policydb-\([^-]*\)-.*/\1/')
-echo "  Package version: v${PKG_VER}"
-
+# Install from source (not editable — clean production install)
 "$VENV/bin/pip" install --quiet --upgrade pip
-if [ "$UPGRADE" = true ]; then
-    OLD_VER=$("$VENV/bin/pip" show policydb 2>/dev/null | grep "^Version:" | awk '{print $2}' || echo "none")
-    echo "  Currently installed: v${OLD_VER}"
-    echo "  Removing old version..."
-    "$VENV/bin/pip" uninstall -y policydb 2>/dev/null || true
-fi
+echo "  Installing from source..."
+"$VENV/bin/pip" install --quiet "$PROJECT_ROOT"
 
-"$VENV/bin/pip" install --quiet --no-index --find-links="$WHEELS" policydb
-
-# Verify install
+# Verify
 INSTALLED_VER=$("$VENV/bin/pip" show policydb 2>/dev/null | grep "^Version:" | awk '{print $2}')
-if [ "$INSTALLED_VER" != "$PKG_VER" ]; then
-    echo ""
-    echo "  WARNING: Version mismatch!"
-    echo "    Package wheel: v${PKG_VER}"
-    echo "    Installed:     v${INSTALLED_VER}"
-    echo "  Try: $VENV/bin/pip install --no-index --find-links=$WHEELS --force-reinstall policydb"
-    echo ""
-else
-    echo "  Installed PolicyDB v${INSTALLED_VER}"
-fi
+echo "  Installed: v${INSTALLED_VER}"
 
 # Initialize / migrate database
-"$VENV/bin/policydb" db init 2>/dev/null
+"$VENV/bin/policydb" db init 2>/dev/null || true
 echo "  Database ready"
 
 # ── Shell function ─────────────────────────────────────────────────────────────
 touch "$ZSHRC"
-# Remove old block if present, then add fresh
 sed -i '' '/# ── PolicyDB ──/,/# ── \/PolicyDB ──/d' "$ZSHRC"
 
 cat >> "$ZSHRC" <<'SHELL'
@@ -145,6 +123,9 @@ policydb() {
     elif [ "$1" = "stop" ]; then
         echo "Stopping PolicyDB..."
         pkill -f "policydb serve" 2>/dev/null && echo "Stopped." || echo "Not running."
+    elif [ "$1" = "update" ]; then
+        echo "Updating PolicyDB..."
+        bash "$(cat "$HOME/.policydb/.project_root")/scripts/work-install.sh"
     else
         "$HOME/.policydb/venv/bin/policydb" "$@"
     fi
@@ -152,12 +133,13 @@ policydb() {
 # ── /PolicyDB ──
 SHELL
 
+# Save project root so `policydb update` knows where to find the repo
+echo "$PROJECT_ROOT" > "$POLICYDB_HOME/.project_root"
+
 echo "  Added 'policydb' command to ~/.zshrc"
 
-# ── LaunchAgent (auto-start on login) ─────────────────────────────────────────
-# Unload old agent if present
+# ── LaunchAgent ────────────────────────────────────────────────────────────────
 launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
-
 mkdir -p "$HOME/Library/LaunchAgents"
 cat > "$PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -167,22 +149,17 @@ cat > "$PLIST" <<EOF
 <dict>
   <key>Label</key>
   <string>$LABEL</string>
-
   <key>ProgramArguments</key>
   <array>
     <string>$VENV/bin/policydb</string>
     <string>serve</string>
   </array>
-
   <key>RunAtLoad</key>
   <true/>
-
   <key>KeepAlive</key>
   <false/>
-
   <key>StandardOutPath</key>
   <string>$POLICYDB_HOME/server.log</string>
-
   <key>StandardErrorPath</key>
   <string>$POLICYDB_HOME/server.log</string>
 </dict>
@@ -194,27 +171,21 @@ if launchctl bootstrap "gui/$(id -u)" "$PLIST" 2>/dev/null; then
     AGENT_OK=true
 else
     echo "  Auto-start agent could not be installed (JAMF restriction — this is OK)"
-    echo "  You can start PolicyDB manually by typing 'policydb' in Terminal"
     AGENT_OK=false
 fi
 
-# ── Stop old server, start fresh ──────────────────────────────────────────────
+# ── Start server ───────────────────────────────────────────────────────────────
 echo ""
-echo "  Stopping any running PolicyDB server..."
 pkill -f "policydb serve" 2>/dev/null || true
 sleep 1
 
 echo "  Starting PolicyDB v${INSTALLED_VER}..."
 if [ "$AGENT_OK" = true ]; then
-    # Reload the agent so it picks up the new binary
     launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
     launchctl bootstrap "gui/$(id -u)" "$PLIST" 2>/dev/null || true
 fi
-# Always start directly as well (agent may not work on JAMF-managed Macs)
 "$VENV/bin/policydb" serve &
-SERVER_PID=$!
 
-echo "  Waiting for server..."
 for i in $(seq 1 15); do
     if curl -s -o /dev/null http://127.0.0.1:8000 2>/dev/null; then
         break
@@ -224,17 +195,11 @@ done
 
 echo ""
 echo "============================================"
-echo "  Install complete!"
+echo "  PolicyDB v${INSTALLED_VER} — ready!"
 echo "============================================"
 echo ""
-echo "  From now on:"
-if [ "$AGENT_OK" = true ]; then
-echo "    - Server auto-starts when you log in"
-fi
-echo "    - Type 'policydb' in any Terminal to open it"
-echo "    - Type 'policydb stop' to stop the server"
-echo ""
-echo "  Your data lives at: ~/.policydb/"
+echo "  To update later, just run:"
+echo "    policydb update"
 echo ""
 
 open "http://127.0.0.1:8000"

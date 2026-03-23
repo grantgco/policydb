@@ -67,4 +67,4 @@ fi
 echo "Starting PolicyDB at http://127.0.0.1:8000"
 echo "(Close this window to stop the server)"
 echo ""
-exec "$VENV/bin/policydb" serve --open-browser
+exec "$VENV/bin/policydb" serve --open
