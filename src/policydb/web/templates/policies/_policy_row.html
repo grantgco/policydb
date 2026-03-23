@@ -11,9 +11,21 @@
     {% endif %}
   </td>
   <td class="px-4 py-3 text-gray-600">
-    <span contenteditable="true" class="policy-cell" data-field="carrier" data-uid="{{ p.policy_uid }}" data-placeholder="Carrier">{{ p.carrier }}</span>
-    {% if p.access_point %}<p class="text-xs text-gray-400 mt-0.5">via {{ p.access_point }}</p>{% endif %}
-    {% if p.first_named_insured %}<p class="text-xs text-gray-400 mt-0.5">FNI: {{ p.first_named_insured }}</p>{% endif %}
+    <div class="flex items-center gap-1.5 flex-wrap">
+      {% if p.carrier %}
+        <span contenteditable="true" class="policy-cell font-medium text-gray-700" data-field="carrier" data-uid="{{ p.policy_uid }}" data-placeholder="Carrier">{{ p.carrier }}</span>
+      {% elif p.is_opportunity %}
+        <span class="text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">TBD</span>
+      {% else %}
+        <span contenteditable="true" class="policy-cell text-gray-400" data-field="carrier" data-uid="{{ p.policy_uid }}" data-placeholder="Carrier">&mdash;</span>
+      {% endif %}
+      {% if p.first_named_insured %}
+        <span class="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded-full whitespace-nowrap truncate max-w-[140px]" title="FNI: {{ p.first_named_insured }}">FNI: {{ p.first_named_insured }}</span>
+      {% endif %}
+      {% if p.access_point %}
+        <span class="text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded-full whitespace-nowrap truncate max-w-[100px]" title="via {{ p.access_point }}">via {{ p.access_point }}</span>
+      {% endif %}
+    </div>
   </td>
   <td class="px-4 py-3 whitespace-nowrap">
     <input type="date" value="{{ p.expiration_date }}"

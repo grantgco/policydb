@@ -1,0 +1,74 @@
+<div class="space-y-6">
+  <div class="card p-5" id="section-email-subjects">
+    <h2 class="font-semibold text-gray-900 text-sm mb-1">Email Subject Lines</h2>
+    <p class="text-xs text-gray-400 mb-4">Configure the subject line for mailto: links. Use <code class="bg-gray-100 px-1 rounded">&#123;&#123;token&#125;&#125;</code> placeholders.</p>
+
+    {% set subject_fields = [
+      ('email_subject_policy', 'Policy emails', 'Subject when emailing from a policy screen', email_subject_policy),
+      ('email_subject_client', 'Client emails', 'Subject when emailing from a client screen', email_subject_client),
+      ('email_subject_followup', 'Follow-up emails', 'Subject when emailing from the follow-up list', email_subject_followup),
+      ('email_subject_request', 'Request bundle emails', 'Subject when composing from an RFI bundle', email_subject_request),
+      ('email_subject_request_all', 'Request all emails', 'Subject when composing all outstanding requests', email_subject_request_all),
+      ('email_subject_rfi_notify', 'RFI Team Notification', 'Subject when notifying team of received RFI items', email_subject_rfi_notify),
+    ] %}
+
+    <div class="space-y-4">
+      {% for field_key, field_label, field_hint, field_value in subject_fields %}
+      <div>
+        <label class="text-xs font-medium text-gray-600 block mb-0.5">{{ field_label }}</label>
+        <p class="text-xs text-gray-400 mb-1">{{ field_hint }}</p>
+        <div>
+          <input type="text" id="es-{{ field_key }}" value="{{ field_value or '' }}"
+            onblur="saveEmailSubject('{{ field_key }}', this)"
+            class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-marsh"
+            placeholder="Re: &#123;&#123;client_name&#125;&#125; -- &#123;&#123;policy_type&#125;&#125;">
+        </div>
+        <div class="flex flex-wrap gap-1 mt-1.5">
+          {% if 'rfi_notify' in field_key %}
+          {% set pills = [('client_name','Client Name'),('rfi_uid','RFI ID'),('today','Today')] %}
+          {% elif 'policy' in field_key or 'followup' in field_key %}
+          {% set pills = [('client_name','Client Name'),('project_name_sep','Project (sep)'),('policy_type','Policy Type'),('carrier','Carrier'),('policy_uid','Policy ID'),('effective_date','Eff. Date'),('expiration_date','Exp. Date'),('subject','Subject'),('today','Today')] %}
+          {% else %}
+          {% set pills = [('client_name','Client Name'),('primary_contact','Primary Contact'),('account_exec','Acct Exec'),('today','Today')] %}
+          {% endif %}
+          {% for tok, lbl in pills %}
+          <button type="button" onclick="insertSubjectToken('es-{{ field_key }}', '{{ tok }}')"
+            class="text-xs bg-gray-100 hover:bg-marsh hover:text-white text-gray-600 px-2 py-0.5 rounded cursor-pointer transition-colors border border-gray-200">{{ lbl }}</button>
+          {% endfor %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="border-t border-gray-200 pt-6 mt-2">
+    <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-4">Dropdown Lists</p>
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {% for key, label in tab_lists.items() %}
+      {% set items = lists[key] %}
+      {% set excluded_items = [] %}
+      {% include "settings/_list_card.html" %}
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<script>
+function insertSubjectToken(fieldId, token) {
+  var el = document.getElementById(fieldId);
+  if (!el) return;
+  var start = el.selectionStart ?? el.value.length;
+  var end = el.selectionEnd ?? el.value.length;
+  var insert = '{' + '{' + token + '}' + '}';
+  el.value = el.value.slice(0, start) + insert + el.value.slice(end);
+  el.selectionStart = el.selectionEnd = start + insert.length;
+  el.focus();
+}
+
+function saveEmailSubject(key, el) {
+  if (!el) return;
+  var body = new URLSearchParams({ key: key, value: el.value });
+  fetch('/settings/email-subject', { method: 'POST', body: body })
+    .then(function(r) { if (r.ok && typeof flashCell === 'function') flashCell(el); });
+}
+</script>

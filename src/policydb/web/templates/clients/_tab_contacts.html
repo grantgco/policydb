@@ -8,15 +8,12 @@
 {% include "clients/_placement_colleagues.html" %}
 
 <!-- Compose Email -->
-<details id="compose-panel-client" class="card mt-4">
-  <summary class="px-4 py-2.5 cursor-pointer text-sm font-medium text-marsh hover:bg-gray-50 rounded-xl select-none list-none flex items-center gap-2 no-print">
-    <span>✉</span> Compose Email
-  </summary>
-  <div hx-get="/templates/compose?context=client&client_id={{ client.id }}"
-       hx-trigger="toggle from:#compose-panel-client once"
-       hx-swap="innerHTML">
-    <div class="p-4 text-sm text-gray-400">Loading…</div>
-  </div>
-</details>
+<div class="mt-4 no-print">
+  <button type="button"
+    onclick="openComposeSlideover({context:'client', client_id:{{ client.id }}})"
+    class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-marsh hover:text-white bg-white hover:bg-marsh border border-marsh/30 hover:border-marsh rounded-lg transition-colors no-print">
+    ✉ Compose Email
+  </button>
+</div>
 
 </div>

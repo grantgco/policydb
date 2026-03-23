@@ -618,13 +618,16 @@ def contacts_search(request: Request, q: str = "", context: str = "", target_id:
         if asg:
             title = asg["title"]
             role = asg["role"]
-        if not role:
+        if not title or not role:
             pol_asg = conn.execute(
-                "SELECT role FROM contact_policy_assignments WHERE contact_id=? AND role IS NOT NULL LIMIT 1",
+                "SELECT title, role FROM contact_policy_assignments WHERE contact_id=? AND (title IS NOT NULL OR role IS NOT NULL) LIMIT 1",
                 (cid,),
             ).fetchone()
             if pol_asg:
-                role = pol_asg["role"]
+                if not title:
+                    title = pol_asg["title"]
+                if not role:
+                    role = pol_asg["role"]
 
         results.append({
             "name": r["name"],
