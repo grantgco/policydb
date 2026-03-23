@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+logger = logging.getLogger("policydb.web.routes.clients")
+
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -416,6 +419,7 @@ def client_new_post(
          preferred_contact_method or None, referral_source or None),
     )
     conn.commit()
+    logger.info("Client %d created: %s", cursor.lastrowid, name)
     return RedirectResponse(f"/clients/{cursor.lastrowid}", status_code=303)
 
 
@@ -2306,6 +2310,7 @@ def client_archive(client_id: int, conn=Depends(get_db)):
     """Archive a client (soft delete — hidden from lists, data preserved)."""
     conn.execute("UPDATE clients SET archived=1 WHERE id=?", (client_id,))
     conn.commit()
+    logger.info("Client %d archived", client_id)
     return RedirectResponse(f"/clients/{client_id}", status_code=303)
 
 
@@ -3975,9 +3980,9 @@ def seed_from_checklist(
     client_facing = cfg.get("client_facing_milestones", [])
     if not client_facing:
         return _bundle_response(request, conn, client_id, bundle_id)
-    # Get all active non-opportunity policies for this client
+    # Get all active policies and opportunities for this client
     policies = conn.execute(
-        "SELECT policy_uid, policy_type, carrier, project_name FROM policies WHERE client_id=? AND archived=0 AND (is_opportunity=0 OR is_opportunity IS NULL)",
+        "SELECT policy_uid, policy_type, carrier, project_name FROM policies WHERE client_id=? AND archived=0",
         (client_id,),
     ).fetchall()
     for pol in policies:

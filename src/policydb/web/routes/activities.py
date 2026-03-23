@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+logger = logging.getLogger("policydb.web.routes.activities")
+
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 
@@ -100,6 +103,7 @@ def activity_log(
         from policydb.queries import supersede_followups
         supersede_followups(conn, policy_id, follow_up_date)
     conn.commit()
+    logger.info("Activity created for client %d: %s", client_id, activity_type)
     # Return the new activity row as HTMX partial
     row = conn.execute(
         """SELECT a.*, c.name AS client_name, c.cn_number, p.policy_uid, p.project_id
@@ -175,6 +179,7 @@ def activity_complete(
     _auto_send_rfi_bundle(conn, activity_id, abandoned=bool(abandon))
 
     conn.commit()
+    logger.info("Follow-up %d completed, disposition=%s", activity_id, disposition or "none")
 
     # If called from the follow-ups table or briefing, return empty to remove the row
     hx_target = request.headers.get("hx-target", "")

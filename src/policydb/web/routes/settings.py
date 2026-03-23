@@ -1150,64 +1150,8 @@ _AUDIT_TABLES = [
 _AUDIT_OPERATIONS = ["INSERT", "UPDATE", "DELETE"]
 
 
-@router.get("/audit-log", response_class=HTMLResponse)
-def audit_log_page(
-    request: Request,
-    conn=Depends(get_db),
-    table_name: str = Query("", alias="table"),
-    operation: str = Query("", alias="op"),
-    date_from: str = Query("", alias="from"),
-    date_to: str = Query("", alias="to"),
-):
-    """Show the last 100 audit log entries with optional filters."""
-    clauses = []
-    params: list = []
-
-    if table_name and table_name in _AUDIT_TABLES:
-        clauses.append("table_name = ?")
-        params.append(table_name)
-    if operation and operation in _AUDIT_OPERATIONS:
-        clauses.append("operation = ?")
-        params.append(operation)
-    if date_from:
-        clauses.append("changed_at >= ?")
-        params.append(date_from)
-    if date_to:
-        clauses.append("changed_at <= ? || ' 23:59:59'")
-        params.append(date_to)
-
-    where = ""
-    if clauses:
-        where = "WHERE " + " AND ".join(clauses)
-
-    try:
-        rows = conn.execute(
-            f"SELECT id, table_name, row_id, operation, old_values, new_values, "  # noqa: S608
-            f"changed_at, changed_by FROM audit_log {where} "
-            f"ORDER BY changed_at DESC LIMIT 100",
-            params,
-        ).fetchall()
-    except Exception:
-        rows = []
-
-    # Count total entries for the header
-    try:
-        total = conn.execute(
-            f"SELECT COUNT(*) FROM audit_log {where}",  # noqa: S608
-            params,
-        ).fetchone()[0]
-    except Exception:
-        total = 0
-
-    return templates.TemplateResponse("settings/audit_log.html", {
-        "request": request,
-        "active": "settings",
-        "rows": rows,
-        "total": total,
-        "tables": _AUDIT_TABLES,
-        "operations": _AUDIT_OPERATIONS,
-        "f_table": table_name,
-        "f_op": operation,
-        "f_from": date_from,
-        "f_to": date_to,
-    })
+@router.get("/audit-log")
+def audit_log_page(request: Request):
+    """Redirect to the unified logs page (audit tab)."""
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/logs?tab=audit", status_code=302)

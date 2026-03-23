@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+logger = logging.getLogger("policydb.web.routes.reconcile")
+
 import io
 from datetime import date
 
@@ -451,6 +454,7 @@ def reconcile_run_match(
             r["_program_carrier_rows"] = _carrier_map.get(r["id"], [])
 
     all_results = reconcile(ext_rows, db_rows, date_priority=bool(date_priority), single_client=bool(client_id))
+    logger.info("Reconcile match started for %d rows", len(ext_rows))
 
     missing_rows = [r for r in all_results if r.status in ("MISSING", "UNMATCHED")]
     extra_rows = [r for r in all_results if r.status == "EXTRA"]
@@ -607,6 +611,7 @@ def reconcile_confirm(request: Request, idx: int, token: str = Form("")):
     if idx < 0 or idx >= len(results):
         return HTMLResponse('<div class="text-xs text-red-500 p-2">Invalid row index.</div>')
     results[idx].confirmed = True
+    logger.info("Reconcile pair confirmed: idx=%d", idx)
     summary = summarize(results + extras)
     row_html = templates.TemplateResponse("reconcile/_pair_row.html", {
         "request": request,
