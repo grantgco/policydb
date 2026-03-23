@@ -1922,6 +1922,260 @@ def export_single_policy_xlsx(conn: sqlite3.Connection, policy_uid: str) -> byte
     return _wb_to_bytes(wb)
 
 
+# ─── COMPLIANCE EXPORT ───────────────────────────────────────────────────────
+
+# Status → fill colour mapping for Compliance Matrix cells
+_COMPLIANCE_FILLS = {
+    "compliant": PatternFill("solid", fgColor="C6EFCE"),
+    "gap": PatternFill("solid", fgColor="FFC7CE"),
+    "partial": PatternFill("solid", fgColor="FFEB9C"),
+    "n/a": PatternFill("solid", fgColor="D9D2E9"),
+    "na": PatternFill("solid", fgColor="D9D2E9"),
+    "needs review": PatternFill("solid", fgColor="D9D9D9"),
+    "waived": PatternFill("solid", fgColor="D9D9D9"),
+}
+_BOLD = Font(bold=True)
+_BOLD_WHITE = Font(bold=True, color="FFFFFF")
+_WRAP = Alignment(wrap_text=True, vertical="top")
+_WRAP_CENTER = Alignment(wrap_text=True, horizontal="center", vertical="center")
+
+
+def export_compliance_xlsx(
+    conn: sqlite3.Connection, client_id: int
+) -> tuple[bytes, str]:
+    """Build a 5-sheet compliance workbook and return (bytes, filename)."""
+    from policydb.compliance import get_client_compliance_data
+
+    data = get_client_compliance_data(conn, client_id)
+    client_name = data.get("client_name") or ""
+    if not client_name:
+        row = conn.execute("SELECT name FROM clients WHERE id=?", (client_id,)).fetchone()
+        client_name = row["name"] if row else f"Client_{client_id}"
+
+    wb = Workbook()
+    wb.remove(wb.active)
+
+    _compliance_sheet_executive(wb, data, client_name)
+    _compliance_sheet_matrix(wb, data)
+    _compliance_sheet_gap_detail(wb, data)
+    _compliance_sheet_all_requirements(wb, data)
+    _compliance_sheet_cope(wb, conn, client_id)
+
+    safe_name = client_name.replace(" ", "_").replace("/", "-")
+    filename = f"Compliance_{safe_name}_{TODAY}.xlsx"
+    return _wb_to_bytes(wb), filename
+
+
+def _compliance_sheet_executive(wb: Workbook, data: dict, client_name: str) -> None:
+    """Sheet 1 — Executive Summary."""
+    ws = wb.create_sheet("Executive Summary")
+    s = data["overall_summary"]
+
+    ws.column_dimensions["A"].width = 25
+    ws.column_dimensions["B"].width = 50
+
+    rows_to_write: list[tuple[str, Any]] = [
+        ("Client", client_name),
+        ("Report Date", TODAY),
+        ("Overall Compliance", f"{s['compliance_pct']}%"),
+        ("", ""),
+        ("Total Requirements", s["total"]),
+        ("Compliant", s["compliant"]),
+        ("Gap", s["gap"]),
+        ("Partial", s["partial"]),
+        ("Waived", s["waived"]),
+        ("N/A", s["na"]),
+        ("Needs Review", s["needs_review"]),
+        ("Locations", len(data["locations"])),
+    ]
+
+    for label, value in rows_to_write:
+        ws.append([label, value])
+        if label:
+            ws.cell(row=ws.max_row, column=1).font = _BOLD
+
+    # Key Findings — list every gap / partial with location and coverage line
+    ws.append([])
+    ws.append(["Key Findings"])
+    ws.cell(row=ws.max_row, column=1).font = Font(bold=True, size=12)
+
+    findings: list[str] = []
+    for loc in data["locations"]:
+        loc_name = loc["project"].get("name", "Unknown")
+        for line, gov in loc.get("governing", {}).items():
+            status = (gov.get("compliance_status") or "Needs Review").lower()
+            if status in ("gap", "partial"):
+                findings.append(
+                    f"{status.capitalize()}: {line} at {loc_name}"
+                )
+
+    if findings:
+        for f in findings:
+            ws.append(["", f])
+    else:
+        ws.append(["", "No gaps or partial compliance issues found."])
+
+
+def _compliance_sheet_matrix(wb: Workbook, data: dict) -> None:
+    """Sheet 2 — Compliance Matrix (coverage lines x locations)."""
+    ws = wb.create_sheet("Compliance Matrix")
+
+    locations = data["locations"]
+    if not locations:
+        ws.append(["No locations"])
+        return
+
+    # Collect all unique coverage lines across all locations
+    all_lines: list[str] = []
+    seen: set[str] = set()
+    for loc in locations:
+        for line in loc.get("governing", {}).keys():
+            if line not in seen:
+                all_lines.append(line)
+                seen.add(line)
+
+    if not all_lines:
+        ws.append(["No coverage requirements"])
+        return
+
+    # Header row: "Coverage Line" + location names
+    loc_names = [loc["project"].get("name", "?") for loc in locations]
+    headers = ["Coverage Line"] + loc_names
+    ws.append(headers)
+    for cell in ws[1]:
+        cell.font = _BOLD_WHITE
+        cell.fill = _HEADER_FILL
+        cell.alignment = _WRAP_CENTER
+
+    # Data rows
+    for line in all_lines:
+        row_vals: list[str] = [line]
+        for loc in locations:
+            gov = loc.get("governing", {}).get(line)
+            status = (gov.get("compliance_status") or "Needs Review") if gov else ""
+            row_vals.append(status)
+        ws.append(row_vals)
+
+        # Apply fill colours to status cells
+        row_idx = ws.max_row
+        for col_idx in range(2, len(headers) + 1):
+            cell = ws.cell(row=row_idx, column=col_idx)
+            cell.alignment = _WRAP_CENTER
+            status_key = (cell.value or "").lower()
+            fill = _COMPLIANCE_FILLS.get(status_key)
+            if fill:
+                cell.fill = fill
+
+    # Auto-size columns
+    ws.column_dimensions["A"].width = 30
+    for col_idx in range(2, len(headers) + 1):
+        ws.column_dimensions[get_column_letter(col_idx)].width = 18
+
+
+def _compliance_sheet_gap_detail(wb: Workbook, data: dict) -> None:
+    """Sheet 3 — Gap Detail (non-compliant rows only)."""
+    gap_rows: list[dict] = []
+    for loc in data["locations"]:
+        loc_name = loc["project"].get("name", "Unknown")
+        for line, gov in loc.get("governing", {}).items():
+            status = (gov.get("compliance_status") or "Needs Review").lower()
+            if status not in ("compliant", "waived", "n/a", "na"):
+                sources = gov.get("source_requirements", [])
+                source_names = ", ".join(
+                    s.get("source_name", "") for s in sources if s.get("source_name")
+                ) or gov.get("governing_source", "")
+                clause_refs = ", ".join(
+                    s.get("clause_ref", "") for s in sources if s.get("clause_ref")
+                )
+                req_limit = gov.get("required_limit") or 0
+                gap_rows.append({
+                    "Location": loc_name,
+                    "Coverage Line": line,
+                    "Required Limit": fmt_limit(req_limit) if req_limit else "",
+                    "In-Place Limit": "",
+                    "Shortfall": "",
+                    "Source Name": source_names,
+                    "Source Clause Ref": clause_refs,
+                    "Notes": gov.get("notes") or "",
+                })
+
+    if gap_rows:
+        _write_sheet(wb, "Gap Detail", gap_rows)
+    else:
+        ws = wb.create_sheet("Gap Detail")
+        ws.append(["No gaps or issues found — all requirements are compliant."])
+
+
+def _compliance_sheet_all_requirements(wb: Workbook, data: dict) -> None:
+    """Sheet 4 — All Requirements with auto-filter."""
+    all_rows: list[dict] = []
+    for loc in data["locations"]:
+        loc_name = loc["project"].get("name", "Unknown")
+        for req in loc.get("requirements", []):
+            endorsements = req.get("_endorsements_list") or []
+            if isinstance(endorsements, str):
+                try:
+                    endorsements = json.loads(endorsements)
+                except (ValueError, TypeError):
+                    endorsements = [endorsements] if endorsements else []
+            all_rows.append({
+                "Location": loc_name,
+                "Coverage Line": req.get("coverage_line", ""),
+                "Required Limit": fmt_limit(req.get("required_limit")) if req.get("required_limit") else "",
+                "Max Deductible": fmt_limit(req.get("max_deductible")) if req.get("max_deductible") else "",
+                "Deductible Type": req.get("deductible_type") or "",
+                "Required Endorsements": ", ".join(endorsements),
+                "Compliance Status": req.get("compliance_status") or "Needs Review",
+                "Linked Policy UID": req.get("linked_policy_uid") or "",
+                "Source Name": req.get("source_name") or "",
+                "Source Clause Ref": req.get("clause_ref") or "",
+                "Notes": req.get("notes") or "",
+            })
+
+    if not all_rows:
+        ws = wb.create_sheet("All Requirements")
+        ws.append(["No requirements"])
+        return
+
+    _write_sheet(wb, "All Requirements", all_rows)
+
+    # Apply auto-filter on the All Requirements sheet
+    ws = wb["All Requirements"]
+    ws.auto_filter.ref = ws.dimensions
+
+
+def _compliance_sheet_cope(
+    wb: Workbook, conn: sqlite3.Connection, client_id: int
+) -> None:
+    """Sheet 5 — COPE Data (one row per location)."""
+    cope_rows = conn.execute(
+        """SELECT p.name AS "Project Name",
+                  COALESCE(p.address, '') || CASE WHEN p.city != '' THEN ', ' || p.city ELSE '' END
+                    || CASE WHEN p.state != '' THEN ', ' || p.state ELSE '' END
+                    || CASE WHEN p.zip != '' THEN ' ' || p.zip ELSE '' END AS "Address",
+                  c.construction_type AS "Construction Type",
+                  c.year_built AS "Year Built",
+                  c.stories AS "Stories",
+                  c.sq_footage AS "Sq Footage",
+                  c.sprinklered AS "Sprinklered",
+                  c.roof_type AS "Roof Type",
+                  c.occupancy_description AS "Occupancy Description",
+                  c.protection_class AS "Protection Class",
+                  c.total_insurable_value AS "Total Insurable Value"
+           FROM cope_data c
+           JOIN projects p ON c.project_id = p.id
+           WHERE p.client_id = ?
+           ORDER BY p.name""",
+        (client_id,),
+    ).fetchall()
+
+    if cope_rows:
+        _write_sheet(wb, "COPE Data", [dict(r) for r in cope_rows])
+    else:
+        ws = wb.create_sheet("COPE Data")
+        ws.append(["No COPE data available"])
+
+
 # ─── SAVE HELPER ─────────────────────────────────────────────────────────────
 
 def save_export(content: str, filename: str) -> Path:
