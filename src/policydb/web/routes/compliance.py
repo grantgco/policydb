@@ -1073,6 +1073,13 @@ def location_detail(
     ctx["location_data"] = location_data
     ctx["project"] = location_data["project"] if location_data else {}
 
+    # Add navigation context for "Next location →" footer
+    locs = ctx.get("locations", [])
+    idx = next((i for i, l in enumerate(locs) if l["project"]["id"] == project_id), 0)
+    ctx["location_index"] = idx
+    ctx["location_count"] = len(locs)
+    ctx["next_location"] = locs[idx + 1]["project"] if idx + 1 < len(locs) else None
+
     return templates.TemplateResponse("compliance/_location_detail.html", ctx)
 
 
