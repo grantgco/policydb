@@ -41,9 +41,9 @@
   <div id="inbox-item-{{ item.id }}" class="card overflow-hidden">
     <div class="flex items-start gap-3 px-4 py-3">
       {# INB tag — copyable #}
-      <button onclick="navigator.clipboard.writeText('{{ item.inbox_uid }}');if(typeof showToast==='function')showToast('{{ item.inbox_uid }} copied',true)"
+      <button onclick="copyRefTag(this, '{{ item.inbox_uid }}')"
         class="bg-indigo-100 text-indigo-700 text-[10px] font-bold px-2 py-0.5 rounded cursor-pointer hover:bg-indigo-200 transition-colors flex-shrink-0 mt-0.5"
-        title="Click to copy {{ item.inbox_uid }}">{{ item.inbox_uid }}</button>
+        title="Click to copy [PDB:{{ item.inbox_uid }}]">{{ item.inbox_uid }}</button>
 
       <div class="flex-1 min-w-0">
         <p class="text-sm text-gray-900">{{ item.content }}</p>

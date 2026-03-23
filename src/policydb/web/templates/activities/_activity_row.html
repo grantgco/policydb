@@ -80,8 +80,8 @@
     {% set _a_rfi_uid = a.subject.split('Send RFI: ')[1].split(' ', 1)[0] if a.subject and a.subject.startswith('Send RFI: ') else '' %}
   {% set _a_ref = build_ref_tag(cn_number=a.cn_number|default(''), client_id=a.client_id, policy_uid=a.policy_uid|default(''), project_id=a.project_id|default(0), activity_id=a.id, rfi_uid=_a_rfi_uid) %}
     <div class="flex items-center gap-2 mb-1">
-      <span class="text-[10px] font-mono text-blue-500 bg-blue-50 px-2 py-0.5 rounded select-all cursor-pointer" title="Click to copy"
-            onclick="navigator.clipboard.writeText(this.textContent.trim());if(typeof showToast==='function')showToast('Ref tag copied',true);">{{ _a_ref }}</span>
+      <span class="text-[10px] font-mono text-blue-500 bg-blue-50 px-2 py-0.5 rounded cursor-pointer" title="Click to copy ref tag"
+            onclick="copyRefTag(this, '{{ _a_ref }}')">{{ _a_ref }}</span>
       <span class="text-[10px] text-gray-300">|</span>
       <span class="text-[10px] text-gray-400">{{ a.subject }}</span>
     </div>

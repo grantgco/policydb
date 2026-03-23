@@ -27,7 +27,7 @@
   <h1 class="text-2xl font-bold text-gray-900">{{ client.name }}</h1>
   <p class="text-gray-500 text-sm mt-1">{{ client.industry_segment }}
     {% set _cref = build_ref_tag(cn_number=client.cn_number|default(''), client_id=client.id) %}
-    <button type="button" onclick="navigator.clipboard.writeText('{{ _cref }}').then(function(){var b=event.target;b.textContent='Copied!';setTimeout(function(){b.textContent='{{ _cref }}'},1500)})"
+    <button type="button" onclick="copyRefTag(this, '{{ _cref }}')"
       class="ml-2 text-xs font-mono text-gray-400 hover:text-marsh bg-gray-100 hover:bg-gray-200 px-1.5 py-0.5 rounded cursor-pointer transition-colors" title="Click to copy email ref tag">{{ _cref }}</button>
   </p>
 </div>

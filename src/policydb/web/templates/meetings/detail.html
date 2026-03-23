@@ -77,7 +77,8 @@
     <p class="text-sm text-gray-400 mt-0.5">
       {{ meeting.client_name }}
       {% if meeting.meeting_uid %}
-      <span class="ml-2 text-xs font-mono bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded" title="Meeting reference ID">{{ meeting.meeting_uid }}</span>
+      <button type="button" onclick="copyRefTag(this, '{{ meeting.meeting_uid }}')"
+        class="ml-2 text-xs font-mono bg-gray-100 text-gray-500 hover:text-marsh hover:bg-gray-200 px-1.5 py-0.5 rounded cursor-pointer transition-colors" title="Click to copy ref tag">{{ meeting.meeting_uid }}</button>
       {% endif %}
     </p>
   </div>
