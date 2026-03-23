@@ -223,3 +223,170 @@ def test_generate_prompt_includes_aggregate_retention_instruction():
     assert "aggregate" in prompt.lower()
     assert "retention" in prompt.lower() or "sir" in prompt.lower()
     assert "notes" in prompt.lower()
+
+
+# ---------------------------------------------------------------------------
+# JSON Parser — parse_llm_json()
+# ---------------------------------------------------------------------------
+
+
+def test_parse_llm_json_strips_code_fences():
+    """Parser should extract JSON from markdown code fences."""
+    from policydb.llm_schemas import parse_llm_json, POLICY_EXTRACTION_SCHEMA
+
+    raw = '''Here's the extracted data:
+
+```json
+{
+    "carrier": "Travelers",
+    "policy_type": "General Liability",
+    "policy_number": "TC-GL-2026-001",
+    "effective_date": "2026-04-01",
+    "expiration_date": "2027-04-01",
+    "premium": 45000
+}
+```
+
+Let me know if you need anything else!'''
+
+    result = parse_llm_json(raw, POLICY_EXTRACTION_SCHEMA)
+    assert result["ok"] is True
+    assert result["parsed"]["carrier"] == "Travelers"
+    assert result["parsed"]["premium"] == 45000.0
+
+
+def test_parse_llm_json_plain_json():
+    from policydb.llm_schemas import parse_llm_json, POLICY_EXTRACTION_SCHEMA
+
+    raw = '{"carrier": "Chubb", "policy_type": "Property", "policy_number": "CHB-001", "effective_date": "2026-01-01", "expiration_date": "2027-01-01"}'
+    result = parse_llm_json(raw, POLICY_EXTRACTION_SCHEMA)
+    assert result["ok"] is True
+    assert result["parsed"]["carrier"] == "Chubb"
+
+
+def test_parse_llm_json_normalizes_fields():
+    from policydb.llm_schemas import parse_llm_json, POLICY_EXTRACTION_SCHEMA
+
+    raw = '''{
+        "carrier": "travelers",
+        "policy_type": "gl",
+        "policy_number": "  tc-001  ",
+        "effective_date": "April 1, 2026",
+        "expiration_date": "April 1, 2027",
+        "premium": "45k",
+        "limit_amount": "1m",
+        "deductible": "$5,000",
+        "exposure_state": "texas"
+    }'''
+    result = parse_llm_json(raw, POLICY_EXTRACTION_SCHEMA)
+    assert result["ok"] is True
+    p = result["parsed"]
+    assert p["premium"] == 45000.0
+    assert p["limit_amount"] == 1000000.0
+    assert p["deductible"] == 5000.0
+    assert p["effective_date"] == "2026-04-01"
+    assert p["expiration_date"] == "2027-04-01"
+    assert p["exposure_state"] == "TX"
+    assert p["policy_number"] == "TC-001"
+
+
+def test_parse_llm_json_warns_on_missing_required():
+    from policydb.llm_schemas import parse_llm_json, POLICY_EXTRACTION_SCHEMA
+
+    raw = '{"carrier": "Travelers", "policy_type": "GL"}'
+    result = parse_llm_json(raw, POLICY_EXTRACTION_SCHEMA)
+    assert result["ok"] is True
+    assert len(result["warnings"]) > 0
+    warning_text = " ".join(result["warnings"]).lower()
+    assert "policy_number" in warning_text or "effective_date" in warning_text
+
+
+def test_parse_llm_json_invalid_json():
+    from policydb.llm_schemas import parse_llm_json, POLICY_EXTRACTION_SCHEMA
+
+    raw = '{"carrier": "Travelers", "policy_type": }'
+    result = parse_llm_json(raw, POLICY_EXTRACTION_SCHEMA)
+    assert result["ok"] is False
+    assert "error" in result
+    assert len(result["error"]) > 0
+
+
+def test_parse_llm_json_compliance_nested():
+    from policydb.llm_schemas import parse_llm_json, COMPLIANCE_EXTRACTION_SCHEMA
+
+    raw = '''{
+        "source": {
+            "name": "General Contract",
+            "counterparty": "XYZ Development"
+        },
+        "requirements": [
+            {
+                "coverage_line": "gl",
+                "required_limit": "2m",
+                "max_deductible": "10k",
+                "required_endorsements": ["Additional Insured", "Waiver of Subrogation"]
+            },
+            {
+                "coverage_line": "workers comp",
+                "notes": "Statutory limits"
+            }
+        ],
+        "cope": {
+            "construction_type": "Type II",
+            "sq_footage": 85000,
+            "sprinklered": "Yes"
+        }
+    }'''
+    result = parse_llm_json(raw, COMPLIANCE_EXTRACTION_SCHEMA)
+    assert result["ok"] is True
+    p = result["parsed"]
+    assert p["source"]["name"] == "General Contract"
+    assert len(p["requirements"]) == 2
+    assert p["requirements"][0]["required_limit"] == 2000000.0
+    assert p["requirements"][0]["max_deductible"] == 10000.0
+    assert p["requirements"][0]["required_endorsements"] == ["Additional Insured", "Waiver of Subrogation"]
+    assert p["cope"]["sq_footage"] == 85000
+    assert p["cope"]["sprinklered"] == "Yes"
+
+
+def test_parse_llm_json_normalizer_failure_passes_through():
+    from policydb.llm_schemas import parse_llm_json, POLICY_EXTRACTION_SCHEMA
+
+    raw = '''{
+        "carrier": "Valid Carrier",
+        "policy_type": "GL",
+        "policy_number": "P-001",
+        "effective_date": "not-a-real-date",
+        "expiration_date": "2027-01-01"
+    }'''
+    result = parse_llm_json(raw, POLICY_EXTRACTION_SCHEMA)
+    assert result["ok"] is True
+    assert any("effective_date" in w for w in result["warnings"])
+    assert result["parsed"]["effective_date"] == "not-a-real-date"
+
+
+def test_parse_llm_json_rejects_oversized_input():
+    from policydb.llm_schemas import parse_llm_json, POLICY_EXTRACTION_SCHEMA
+
+    huge = "x" * (500 * 1024 + 1)
+    result = parse_llm_json(huge, POLICY_EXTRACTION_SCHEMA)
+    assert result["ok"] is False
+    assert "too large" in result["error"].lower()
+
+
+def test_parse_llm_json_empty_object():
+    from policydb.llm_schemas import parse_llm_json, POLICY_EXTRACTION_SCHEMA
+
+    result = parse_llm_json("{}", POLICY_EXTRACTION_SCHEMA)
+    assert result["ok"] is False
+    assert "no fields" in result["error"].lower()
+
+
+def test_parse_llm_json_ignores_extra_fields():
+    from policydb.llm_schemas import parse_llm_json, POLICY_EXTRACTION_SCHEMA
+
+    raw = '{"carrier": "Travelers", "policy_type": "GL", "policy_number": "P-1", "effective_date": "2026-01-01", "expiration_date": "2027-01-01", "unknown_field": "should be ignored", "another_extra": 42}'
+    result = parse_llm_json(raw, POLICY_EXTRACTION_SCHEMA)
+    assert result["ok"] is True
+    assert "unknown_field" not in result["parsed"]
+    assert "another_extra" not in result["parsed"]

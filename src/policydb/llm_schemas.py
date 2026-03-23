@@ -12,6 +12,9 @@ special-cases fields with type == "date" and uses dateparser directly.
 """
 
 import json
+import re
+
+import dateparser
 
 from policydb.utils import (
     format_city,
@@ -634,3 +637,241 @@ def generate_extraction_prompt(schema: dict, context: dict) -> str:
     parts.append(f"```json\n{json_example}\n```")
 
     return "\n".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# JSON Parser
+# ---------------------------------------------------------------------------
+
+_MAX_INPUT_BYTES = 500 * 1024  # 500 KB
+
+# Patterns tried in order to extract JSON from LLM output
+_RE_JSON_CODE_FENCE = re.compile(r"```json\s*\n(.*?)\n\s*```", re.DOTALL)
+_RE_GENERIC_CODE_FENCE = re.compile(r"```\s*\n(.*?)\n\s*```", re.DOTALL)
+
+
+def _extract_json_str(raw_text: str) -> str | None:
+    """Try several strategies to extract a JSON string from LLM output."""
+    # Strategy 1: ```json ... ``` code fence
+    m = _RE_JSON_CODE_FENCE.search(raw_text)
+    if m:
+        return m.group(1).strip()
+
+    # Strategy 2: ``` ... ``` generic code fence
+    m = _RE_GENERIC_CODE_FENCE.search(raw_text)
+    if m:
+        return m.group(1).strip()
+
+    # Strategy 3: Find outermost { ... } via brace counting
+    start = raw_text.find("{")
+    if start != -1:
+        depth = 0
+        in_string = False
+        escape_next = False
+        for i in range(start, len(raw_text)):
+            ch = raw_text[i]
+            if escape_next:
+                escape_next = False
+                continue
+            if ch == "\\":
+                escape_next = True
+                continue
+            if ch == '"':
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    return raw_text[start : i + 1]
+
+    # Strategy 4: Try the whole thing
+    stripped = raw_text.strip()
+    if stripped.startswith("{"):
+        return stripped
+
+    return None
+
+
+def _normalize_field_value(
+    key: str, value, field_def: dict, warnings: list[str]
+):
+    """Normalize a single field value according to its schema definition.
+
+    Returns the normalized value. Appends to ``warnings`` on problems.
+    """
+    ftype = field_def.get("type", "string")
+
+    # --- Date fields: special-case with dateparser ---
+    if ftype == "date":
+        raw_str = str(value)
+        try:
+            parsed_dt = dateparser.parse(raw_str)
+            if parsed_dt is not None:
+                return parsed_dt.strftime("%Y-%m-%d")
+            else:
+                warnings.append(
+                    f"Could not parse date for '{key}': {raw_str!r}"
+                )
+                return raw_str
+        except Exception:
+            warnings.append(
+                f"Could not parse date for '{key}': {raw_str!r}"
+            )
+            return raw_str
+
+    # --- Normalizer from registry ---
+    normalizer_name = field_def.get("normalizer")
+    if normalizer_name and normalizer_name in NORMALIZER_REGISTRY:
+        fn = NORMALIZER_REGISTRY[normalizer_name]
+        try:
+            return fn(value)
+        except Exception:
+            warnings.append(
+                f"Normalizer '{normalizer_name}' failed for '{key}': {value!r}"
+            )
+            return value
+
+    # --- No normalizer: pass through ---
+    return value
+
+
+def _parse_flat_fields(
+    data: dict, field_defs: list[dict]
+) -> tuple[dict, dict, list[str]]:
+    """Parse a flat JSON dict against a list of field definitions.
+
+    Returns (parsed, raw, warnings).
+    """
+    parsed: dict = {}
+    raw: dict = {}
+    warnings: list[str] = []
+
+    for field_def in field_defs:
+        key = field_def["key"]
+        if key not in data:
+            if field_def.get("required"):
+                warnings.append(f"Missing required field: '{key}'")
+            continue
+        value = data[key]
+        raw[key] = value
+        parsed[key] = _normalize_field_value(key, value, field_def, warnings)
+
+    return parsed, raw, warnings
+
+
+def parse_llm_json(raw_text: str, schema: dict) -> dict:
+    """Parse LLM JSON response against a schema, validate and normalize.
+
+    Returns:
+        {"ok": True, "parsed": {...}, "warnings": [...], "raw": {...}}
+        or {"ok": False, "error": "...", "raw_text": "..."}
+    """
+    # --- Size check ---
+    if len(raw_text) > _MAX_INPUT_BYTES:
+        return {
+            "ok": False,
+            "error": "Input too large (max 500KB).",
+            "raw_text": raw_text[:200] + "...",
+        }
+
+    # --- Extract JSON string ---
+    json_str = _extract_json_str(raw_text)
+    if json_str is None:
+        return {
+            "ok": False,
+            "error": "No JSON object found in input.",
+            "raw_text": raw_text,
+        }
+
+    # --- Parse JSON ---
+    try:
+        data = json.loads(json_str)
+    except json.JSONDecodeError as e:
+        return {
+            "ok": False,
+            "error": f"Invalid JSON: {e}",
+            "raw_text": raw_text,
+        }
+
+    if not isinstance(data, dict):
+        return {
+            "ok": False,
+            "error": "Expected a JSON object, got a different type.",
+            "raw_text": raw_text,
+        }
+
+    fields = schema["fields"]
+
+    # --- Flat schema (policy) — fields is a list ---
+    if isinstance(fields, list):
+        parsed, raw, warnings = _parse_flat_fields(data, fields)
+        if not parsed:
+            return {
+                "ok": False,
+                "error": "No fields were extracted from the JSON.",
+                "raw_text": raw_text,
+            }
+        return {"ok": True, "parsed": parsed, "warnings": warnings, "raw": raw}
+
+    # --- Nested schema (compliance) — fields is a dict of groups ---
+    parsed: dict = {}
+    raw: dict = {}
+    warnings: list[str] = []
+
+    # Source
+    source_defs = fields.get("source", [])
+    source_data = data.get("source", {})
+    if isinstance(source_data, dict):
+        p, r, w = _parse_flat_fields(source_data, source_defs)
+        parsed["source"] = p
+        raw["source"] = r
+        warnings.extend(w)
+    else:
+        parsed["source"] = {}
+        raw["source"] = {}
+        warnings.append("'source' field is not an object.")
+
+    # Requirements
+    req_defs = fields.get("requirements", [])
+    req_data = data.get("requirements", [])
+    if not isinstance(req_data, list):
+        return {
+            "ok": False,
+            "error": "'requirements' must be a JSON array.",
+            "raw_text": raw_text,
+        }
+    parsed_reqs: list[dict] = []
+    raw_reqs: list[dict] = []
+    for i, item in enumerate(req_data):
+        if not isinstance(item, dict):
+            warnings.append(f"requirements[{i}] is not an object, skipping.")
+            continue
+        p, r, w = _parse_flat_fields(item, req_defs)
+        parsed_reqs.append(p)
+        raw_reqs.append(r)
+        warnings.extend(w)
+    parsed["requirements"] = parsed_reqs
+    raw["requirements"] = raw_reqs
+
+    # COPE (optional)
+    cope_defs = fields.get("cope", [])
+    cope_data = data.get("cope")
+    if cope_data is not None and isinstance(cope_data, dict):
+        p, r, w = _parse_flat_fields(cope_data, cope_defs)
+        parsed["cope"] = p
+        raw["cope"] = r
+        warnings.extend(w)
+
+    # Empty check: no source fields and no requirements
+    if not parsed.get("source") and not parsed.get("requirements"):
+        return {
+            "ok": False,
+            "error": "No fields were extracted from the JSON.",
+            "raw_text": raw_text,
+        }
+
+    return {"ok": True, "parsed": parsed, "warnings": warnings, "raw": raw}
