@@ -214,8 +214,8 @@
 
     var fd = new FormData();
     fd.set('source', source);
-    if (clientId) fd.set('client_id', clientId);
-    if (policyUid) fd.set('policy_uid', policyUid);
+    if (source === 'policy' && policyUid) fd.set('scope_id', policyUid);
+    else if (source === 'client' && clientId) fd.set('scope_id', clientId);
     fd.set('activity_type', typeEl ? typeEl.value : 'Note');
     fd.set('subject', subjectEl ? subjectEl.value : 'Working note');
     fd.set('details', ta ? ta.value : '');
@@ -225,8 +225,9 @@
     fetch('/inbox/scratchpad/process', {
       method: 'POST', body: fd,
       headers: {'Accept': 'application/json'}
-    }).then(function(r) { return r.json(); }).then(function(data) {
-      if (data.ok) {
+    }).then(function(r) { return r.json().then(function(data) { return {status: r.status, data: data}; }); })
+    .then(function(result) {
+      if (result.data.ok) {
         var card = document.getElementById('sp-card-' + spId);
         if (card) {
           card.style.transition = 'opacity 0.3s ease';
@@ -234,6 +235,8 @@
           setTimeout(function() { card.remove(); checkEmpty(); }, 300);
         }
         if (typeof showToast === 'function') showToast('Logged as activity', true);
+      } else {
+        if (typeof showToast === 'function') showToast(result.data.error || 'Failed to log activity', false);
       }
     }).catch(function() {
       if (typeof showToast === 'function') showToast('Failed to log activity', false);

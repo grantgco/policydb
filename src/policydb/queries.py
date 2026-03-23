@@ -1157,12 +1157,22 @@ REVIEW_CYCLE_LABELS: dict[str, str] = {
 }
 
 
-def get_review_queue(conn: sqlite3.Connection) -> dict:
+def get_review_queue(conn: sqlite3.Connection, client_id: int = 0) -> dict:
     """Return records needing review, split into policies, opportunities, and clients."""
-    all_rows = [dict(r) for r in conn.execute("SELECT * FROM v_review_queue").fetchall()]
+    if client_id:
+        all_rows = [dict(r) for r in conn.execute(
+            "SELECT * FROM v_review_queue WHERE client_id = ?", (client_id,)
+        ).fetchall()]
+    else:
+        all_rows = [dict(r) for r in conn.execute("SELECT * FROM v_review_queue").fetchall()]
     policies = [r for r in all_rows if not r.get("is_opportunity")]
     opportunities = [r for r in all_rows if r.get("is_opportunity")]
-    clients = [dict(r) for r in conn.execute("SELECT * FROM v_review_clients").fetchall()]
+    if client_id:
+        clients = [dict(r) for r in conn.execute(
+            "SELECT * FROM v_review_clients WHERE id = ?", (client_id,)
+        ).fetchall()]
+    else:
+        clients = [dict(r) for r in conn.execute("SELECT * FROM v_review_clients").fetchall()]
     return {"policies": policies, "opportunities": opportunities, "clients": clients}
 
 
