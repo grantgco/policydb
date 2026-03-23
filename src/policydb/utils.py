@@ -45,19 +45,39 @@ def get_status_color(status: str, all_statuses: list | None = None) -> tuple[str
 # Flat lookup dict built from config carrier_aliases on module load.
 # Maps lowercased alias/variation → canonical carrier name.
 _CARRIER_ALIASES: dict[str, str] = {}
+_BASE_CARRIER_ALIASES: dict[str, str] = {}  # populated on first rebuild_carrier_aliases() call
 
 
 def rebuild_carrier_aliases() -> None:
-    """Rebuild _CARRIER_ALIASES from config. Call after config changes."""
-    global _CARRIER_ALIASES
+    """Rebuild _CARRIER_ALIASES from config with snapshot-then-merge pattern.
+
+    Merge order (later overrides earlier):
+    1. Base carrier aliases from config carrier_aliases (snapshotted on first call)
+    2. carriers config list — each entry self-references as canonical
+    3. carrier_aliases config — user-learned mappings layered on top
+    """
+    global _CARRIER_ALIASES, _BASE_CARRIER_ALIASES
     from policydb import config as cfg
     aliases = cfg.get("carrier_aliases", {})
-    result: dict[str, str] = {}
+    # Snapshot base on first call so repeated rebuilds always start from original
+    if not _BASE_CARRIER_ALIASES:
+        base: dict[str, str] = {}
+        for canonical, variations in aliases.items():
+            base[canonical.lower()] = canonical
+            for v in variations:
+                base[v.strip().lower()] = canonical
+        _BASE_CARRIER_ALIASES = base
+    # Start from snapshot
+    merged = dict(_BASE_CARRIER_ALIASES)
+    # Layer carriers config list as self-referencing canonicals
+    for entry in cfg.get("carriers", []):
+        merged[entry.strip().lower()] = entry.strip()
+    # Layer user-learned aliases on top
     for canonical, variations in aliases.items():
-        result[canonical.lower()] = canonical
+        merged[canonical.lower()] = canonical
         for v in variations:
-            result[v.strip().lower()] = canonical
-    _CARRIER_ALIASES = result
+            merged[v.strip().lower()] = canonical
+    _CARRIER_ALIASES = merged
 
 
 def normalize_carrier(raw: str) -> str:
@@ -101,16 +121,21 @@ _BASE_COVERAGE_ALIASES: dict[str, str] = {}  # populated on first rebuild_covera
 def rebuild_coverage_aliases() -> None:
     """Merge config coverage_aliases with hardcoded _COVERAGE_ALIASES.
 
-    Mirrors rebuild_carrier_aliases(). The first call snapshots the hardcoded
-    aliases so repeated calls always start from the original base, then layer
-    config overrides on top.
+    Merge order (later overrides earlier):
+    1. Base hardcoded aliases (snapshotted on first call)
+    2. policy_types config list — each entry self-references as canonical
+    3. coverage_aliases config — user-learned mappings layered on top
     """
     global _COVERAGE_ALIASES, _BASE_COVERAGE_ALIASES
     if not _BASE_COVERAGE_ALIASES:
         _BASE_COVERAGE_ALIASES = dict(_COVERAGE_ALIASES)
     from policydb import config as cfg
-    config_aliases = cfg.get("coverage_aliases", {})
     merged = dict(_BASE_COVERAGE_ALIASES)
+    # Layer policy_types config list as self-referencing canonicals
+    for entry in cfg.get("policy_types", []):
+        merged[entry.strip().lower()] = entry.strip()
+    # Layer user-learned aliases on top
+    config_aliases = cfg.get("coverage_aliases", {})
     for canonical, variations in config_aliases.items():
         merged[canonical.lower()] = canonical
         for v in variations:

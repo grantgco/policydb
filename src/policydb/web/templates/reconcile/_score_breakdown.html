@@ -1,5 +1,5 @@
 {# _score_breakdown.html — inline score pills + diff details #}
-{# Context: row (ReconcileRow) #}
+{# Context: row (ReconcileRow), field_display (dict), policy_types (list) #}
 <div class="flex flex-wrap gap-1.5 items-center">
   <span class="text-[10px] font-semibold text-amber-700 mr-1">SCORE:</span>
 
@@ -41,6 +41,7 @@
 
 {# Diff detail text with accept buttons #}
 {% set policy_uid = (row.db or {}).get('policy_uid', '') %}
+{% set fd = field_display or {} %}
 
 {# Helpful message when no real diffs but score is amber due to missing fields #}
 {% if not row.diff_fields and not row.fillable_fields and row.confidence != 'high' %}
@@ -56,12 +57,23 @@
   <div class="flex items-center gap-2 mb-1.5">
     <span class="text-[10px] font-semibold text-gray-500">DIFFERENCES:</span>
     <span class="text-[10px] text-gray-400">Click "Accept" to update Coverage with the upload value</span>
+    {# Accept All button #}
+    {% set diff_count = (row.diff_fields|length) + (row.fillable_fields|length) %}
+    {% if diff_count > 1 %}
+    <button type="button"
+      hx-patch="/reconcile/accept-all-fields/{{ idx }}"
+      hx-vals='{"token": "{{ token }}"}'
+      hx-target="#breakdown-{{ idx }}"
+      hx-swap="innerHTML"
+      class="text-[10px] bg-green-600 text-white px-2.5 py-0.5 rounded hover:bg-green-700 flex-shrink-0 no-print ml-auto">
+      Accept All ({{ diff_count }})</button>
+    {% endif %}
   </div>
   {% endif %}
   <div class="space-y-1">
     {% for f in row.diff_fields %}
     <div class="flex items-center gap-2 text-[10px] flex-wrap" id="diff-{{ policy_uid }}-{{ f }}">
-      <span class="font-semibold text-amber-700 w-24 flex-shrink-0">{{ f }}</span>
+      <span class="font-semibold text-amber-700 w-24 flex-shrink-0">{{ fd.get(f, f) }}</span>
       <span class="text-gray-800 bg-amber-50 px-1.5 py-0.5 rounded">{{ (row.ext or {}).get(f, '') or '(empty)' }}</span>
       <span class="text-gray-400">&larr; upload &nbsp;|&nbsp; coverage &rarr;</span>
       <span class="text-gray-600">{{ (row.db or {}).get(f, '') or '(empty)' }}</span>
@@ -103,7 +115,7 @@
     {% endfor %}
     {% for f in row.fillable_fields %}
     <div class="flex items-center gap-2 text-[10px]" id="diff-{{ policy_uid }}-{{ f }}">
-      <span class="font-semibold text-blue-700 w-24 flex-shrink-0">{{ f }}</span>
+      <span class="font-semibold text-blue-700 w-24 flex-shrink-0">{{ fd.get(f, f) }}</span>
       <span class="text-gray-800 bg-blue-50 px-1.5 py-0.5 rounded">{{ (row.ext or {}).get(f, '') }}</span>
       <span class="text-gray-400">&larr; upload &nbsp;|&nbsp; coverage &rarr;</span>
       <span class="text-gray-400 italic">(empty)</span>
@@ -119,7 +131,7 @@
     {% endfor %}
     {% for f in row.cosmetic_diffs %}
     <div class="flex items-center gap-2 text-[10px] flex-wrap" id="diff-{{ policy_uid }}-{{ f }}">
-      <span class="font-semibold text-green-600 w-24 flex-shrink-0">{{ f }}</span>
+      <span class="font-semibold text-green-600 w-24 flex-shrink-0">{{ fd.get(f, f) }}</span>
       <span class="text-gray-600">"{{ (row.ext or {}).get(f, '') }}"</span>
       <span class="text-green-500">&rarr;</span>
       <span class="text-gray-600">"{{ (row.db or {}).get(f, '') }}"</span>

@@ -1,7 +1,10 @@
 {# _pairing_board.html — full reconcile pairing board #}
 {# Context: results (list[ReconcileRow]), extras (list[ReconcileRow] with status EXTRA),
             token (str), summary (dict from summarize()), today (str YYYY-MM-DD),
-            all_clients (list), activity_types (list) #}
+            all_clients (list), activity_types (list), field_display (dict) #}
+
+{# ── Toast container for auto-learn feedback ─────────────────────────────── #}
+<div id="learn-toast" class="fixed top-4 right-4 z-50 no-print"></div>
 
 {# ── Hidden token + client_id fields ───────────────────────────────────────── #}
 <input type="hidden" name="token" value="{{ token }}">
@@ -42,6 +45,18 @@
     class="text-xs bg-green-600 hover:bg-green-700 text-white font-medium px-4 py-2 rounded-lg transition-colors">
     Confirm All Paired ({{ summary.review }})
   </button>
+  {% endif %}
+
+  {# Reconcile All — confirm + apply all diffs #}
+  {% if summary.review > 0 and token %}
+  <button type="button"
+    hx-get="/reconcile/reconcile-all-preview?token={{ token }}"
+    hx-target="#reconcile-all-preview"
+    hx-swap="innerHTML"
+    class="text-xs bg-blue-600 hover:bg-blue-700 text-white font-medium px-4 py-2 rounded-lg transition-colors">
+    Reconcile All
+  </button>
+  <div id="reconcile-all-preview"></div>
   {% endif %}
 
   {# Export XLSX #}
