@@ -405,6 +405,45 @@ def timeline_context(conn, policy_uid: str) -> dict:
     }
 
 
+def rfi_notify_context(conn, bundle_id: int) -> dict:
+    """Build token dict for RFI receipt notification."""
+    bundle = conn.execute(
+        """SELECT b.id, b.client_id, b.title, b.status, b.rfi_uid, b.sent_at,
+                  c.name AS client_name, c.cn_number
+           FROM client_request_bundles b
+           JOIN clients c ON c.id = b.client_id
+           WHERE b.id = ?""",
+        (bundle_id,),
+    ).fetchone()
+    if not bundle:
+        return {}
+
+    items = conn.execute(
+        """SELECT description, received
+           FROM client_request_items
+           WHERE bundle_id = ?
+           ORDER BY sort_order, id""",
+        (bundle_id,),
+    ).fetchall()
+
+    received = [r["description"] for r in items if r["received"]]
+    outstanding = [r["description"] for r in items if not r["received"]]
+
+    ref_tag = bundle["rfi_uid"] or ""
+
+    return {
+        "rfi_uid": bundle["rfi_uid"] or "",
+        "request_title": bundle["title"] or "",
+        "client_name": bundle["client_name"] or "",
+        "cn_number": bundle["cn_number"] or "",
+        "bundle_status": bundle["status"] or "",
+        "sent_at": bundle["sent_at"] or "",
+        "received_items": received,
+        "outstanding_items": outstanding,
+        "ref_tag": ref_tag,
+    }
+
+
 def followup_context(row: dict) -> dict:
     """Build token context dict from a follow-up row dict."""
     proj = row.get("project_name") or ""
