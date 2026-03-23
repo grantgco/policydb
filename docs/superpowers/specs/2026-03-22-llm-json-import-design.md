@@ -305,7 +305,7 @@ Single template `_ai_import_panel.html` used by both policy and compliance pages
 
 ## Integration: Compliance Flow
 
-**Critical: the compliance flow does NOT write to the database on parse.** All extracted data pre-fills existing UI elements for user review. Data is only saved when the user interacts with the pre-filled fields (blur → PATCH, same as manual entry).
+**Compliance flow creates DB rows on parse** (unlike the policy flow which only pre-fills). This is necessary because the review mode table's contenteditable cells and `initMatrix()` JS controller require real `req.id` values for PATCH endpoints. Rows are created with `compliance_status='Needs Review'`, serving as the review gate. The user reviews and edits via existing contenteditable cells (blur → PATCH) and deletes unwanted rows via the existing delete endpoint. This matches the existing "Add Row" button behavior.
 
 1. User is on `/compliance/client/{id}` (optionally with a source/location selected)
 2. Clicks "Import from AI" → HTMX GET to `/compliance/client/{id}/ai-import/prompt`
