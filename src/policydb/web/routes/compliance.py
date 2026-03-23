@@ -41,6 +41,7 @@ _CELL_ALLOWED_FIELDS = {
 
 def _compliance_context(conn: sqlite3.Connection, client_id: int, request: Request) -> dict:
     """Build full template context for the compliance index page."""
+    active_location_id = int(request.query_params.get("location", 0))
     client = get_client_by_id(conn, client_id)
     data = get_client_compliance_data(conn, client_id)
 
@@ -68,6 +69,7 @@ def _compliance_context(conn: sqlite3.Connection, client_id: int, request: Reque
         "overall_summary": data["overall_summary"],
         "risk_prompts": risk_prompts,
         "projects": projects,
+        "active_location_id": active_location_id,
         # Config values
         "compliance_statuses": cfg.get("compliance_statuses", []),
         "deductible_types": cfg.get("deductible_types", []),
