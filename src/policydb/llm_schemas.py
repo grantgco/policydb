@@ -43,12 +43,154 @@ NORMALIZER_REGISTRY: dict[str, callable] = {
 }
 
 # ---------------------------------------------------------------------------
+# Shared Field Definitions — reused across policy and compliance schemas
+# ---------------------------------------------------------------------------
+
+COPE_FIELDS: list[dict] = [
+    {
+        "key": "construction_type",
+        "label": "Construction Type",
+        "type": "string",
+        "required": False,
+        "description": "Building construction classification",
+        "config_values": "construction_types",
+        "config_mode": "prefer",
+        "example": "Fire Resistive",
+    },
+    {
+        "key": "year_built",
+        "label": "Year Built",
+        "type": "number",
+        "required": False,
+        "description": "Year the structure was built or last renovated",
+        "example": "2005",
+    },
+    {
+        "key": "stories",
+        "label": "Number of Stories",
+        "type": "number",
+        "required": False,
+        "description": "Number of stories in the building",
+        "example": "3",
+    },
+    {
+        "key": "sq_footage",
+        "label": "Square Footage",
+        "type": "number",
+        "required": False,
+        "description": "Total square footage of the building",
+        "example": "45000",
+    },
+    {
+        "key": "sprinklered",
+        "label": "Sprinkler Status",
+        "type": "string",
+        "required": False,
+        "description": "Whether the building has sprinkler protection",
+        "config_values": "sprinkler_options",
+        "config_mode": "strict",
+        "example": "Yes",
+    },
+    {
+        "key": "roof_type",
+        "label": "Roof Type",
+        "type": "string",
+        "required": False,
+        "description": "Type or material of the roof",
+        "config_values": "roof_types",
+        "config_mode": "prefer",
+        "example": "TPO Membrane",
+    },
+    {
+        "key": "occupancy_description",
+        "label": "Occupancy Description",
+        "type": "string",
+        "required": False,
+        "description": "Description of how the building is occupied or used",
+        "example": "Office space, ground floor retail",
+    },
+    {
+        "key": "protection_class",
+        "label": "Protection Class",
+        "type": "string",
+        "required": False,
+        "description": "ISO protection class rating",
+        "config_values": "protection_classes",
+        "config_mode": "prefer",
+        "example": "3",
+    },
+    {
+        "key": "total_insurable_value",
+        "label": "Total Insurable Value",
+        "type": "number",
+        "required": False,
+        "description": "Total insurable value of the property (building + contents + BI)",
+        "normalizer": "parse_currency_with_magnitude",
+        "example": "12500000",
+    },
+]
+
+LOCATION_FIELDS: list[dict] = [
+    {
+        "key": "name",
+        "label": "Location / Building Name",
+        "type": "string",
+        "required": False,
+        "description": "Name or label for the location or building",
+        "example": "Main Office",
+    },
+    {
+        "key": "address",
+        "label": "Street Address",
+        "type": "string",
+        "required": False,
+        "description": "Street address of the location",
+        "example": "123 Main St",
+    },
+    {
+        "key": "city",
+        "label": "City",
+        "type": "string",
+        "required": False,
+        "description": "City",
+        "normalizer": "format_city",
+        "example": "Austin",
+    },
+    {
+        "key": "state",
+        "label": "State",
+        "type": "string",
+        "required": False,
+        "description": "State code",
+        "normalizer": "format_state",
+        "example": "TX",
+    },
+    {
+        "key": "zip",
+        "label": "ZIP Code",
+        "type": "string",
+        "required": False,
+        "description": "ZIP code",
+        "normalizer": "format_zip",
+        "example": "78701",
+    },
+    {
+        "key": "notes",
+        "label": "Location Notes",
+        "type": "string",
+        "required": False,
+        "description": "Special conditions, building characteristics, or other notes about this location",
+        "example": "24hr security, backup generator",
+    },
+]
+
+# ---------------------------------------------------------------------------
 # Policy Extraction Schema
 # ---------------------------------------------------------------------------
 
 POLICY_EXTRACTION_SCHEMA: dict = {
     "name": "policy_extraction",
-    "version": 1,
+    "version": 2,
     "description": (
         "Extract policy details from a certificate of insurance, "
         "declaration page, binder, or quote document"
@@ -171,8 +313,25 @@ POLICY_EXTRACTION_SCHEMA: dict = {
             "label": "Layer Position",
             "type": "string",
             "required": False,
-            "description": "Position in the tower (e.g. Primary, 1st Excess, Umbrella)",
+            "description": (
+                "Position in the insurance tower. Use 'Primary' for ground-up coverage, "
+                "'1st Excess' / '2nd Excess' etc. for layers above primary, "
+                "'Umbrella' for umbrella policies. If the document says 'excess of' "
+                "a specific limit, this is an excess layer."
+            ),
             "example": "Primary",
+        },
+        {
+            "key": "tower_group",
+            "label": "Tower / Program Group",
+            "type": "string",
+            "required": False,
+            "description": (
+                "Name of the tower or layered program this policy belongs to "
+                "(e.g. 'GL Tower', 'Property Program'). Group policies that stack "
+                "on top of each other under the same tower group name."
+            ),
+            "example": "GL Tower",
         },
         {
             "key": "commission_rate",
@@ -289,7 +448,11 @@ POLICY_EXTRACTION_SCHEMA: dict = {
             "label": "Attachment Point",
             "type": "number",
             "required": False,
-            "description": "Dollar amount where excess coverage attaches above underlying",
+            "description": (
+                "Dollar amount where excess/umbrella coverage begins (attaches above underlying). "
+                "For example, if a policy says 'excess of $1,000,000', the attachment point is 1000000. "
+                "Leave blank/omit for Primary layers."
+            ),
             "normalizer": "parse_currency_with_magnitude",
             "example": "1000000",
         },
@@ -301,6 +464,25 @@ POLICY_EXTRACTION_SCHEMA: dict = {
             "description": "Any additional notes, conditions, or remarks from the document",
         },
     ],
+    "nested_groups": {
+        "locations": {
+            "type": "array",
+            "optional": True,
+            "description": (
+                "Locations or buildings described in the document. Include if the document "
+                "contains property schedules, SOVs, building descriptions, or COPE data."
+            ),
+            "fields": LOCATION_FIELDS,
+            "nested": {
+                "cope": {
+                    "type": "object",
+                    "optional": True,
+                    "description": "COPE (Construction, Occupancy, Protection, Exposure) data for this location",
+                    "fields": COPE_FIELDS,
+                },
+            },
+        },
+    },
 }
 
 # ---------------------------------------------------------------------------
@@ -399,80 +581,7 @@ COMPLIANCE_EXTRACTION_SCHEMA: dict = {
                 "description": "Additional notes about this coverage requirement",
             },
         ],
-        "cope": [
-            {
-                "key": "construction_type",
-                "label": "Construction Type",
-                "type": "string",
-                "required": False,
-                "description": "Building construction classification",
-                "config_values": "construction_types",
-                "config_mode": "prefer",
-            },
-            {
-                "key": "year_built",
-                "label": "Year Built",
-                "type": "number",
-                "required": False,
-                "description": "Year the structure was built or last renovated",
-            },
-            {
-                "key": "stories",
-                "label": "Number of Stories",
-                "type": "number",
-                "required": False,
-                "description": "Number of stories in the building",
-            },
-            {
-                "key": "sq_footage",
-                "label": "Square Footage",
-                "type": "number",
-                "required": False,
-                "description": "Total square footage of the building",
-            },
-            {
-                "key": "sprinklered",
-                "label": "Sprinkler Status",
-                "type": "string",
-                "required": False,
-                "description": "Whether the building has sprinkler protection",
-                "config_values": "sprinkler_options",
-                "config_mode": "strict",
-            },
-            {
-                "key": "roof_type",
-                "label": "Roof Type",
-                "type": "string",
-                "required": False,
-                "description": "Type or material of the roof",
-                "config_values": "roof_types",
-                "config_mode": "prefer",
-            },
-            {
-                "key": "occupancy_description",
-                "label": "Occupancy Description",
-                "type": "string",
-                "required": False,
-                "description": "Description of how the building is occupied or used",
-            },
-            {
-                "key": "protection_class",
-                "label": "Protection Class",
-                "type": "string",
-                "required": False,
-                "description": "ISO protection class rating",
-                "config_values": "protection_classes",
-                "config_mode": "prefer",
-            },
-            {
-                "key": "total_insurable_value",
-                "label": "Total Insurable Value",
-                "type": "number",
-                "required": False,
-                "description": "Total insurable value of the property",
-                "normalizer": "parse_currency_with_magnitude",
-            },
-        ],
+        "cope": COPE_FIELDS,
     },
 }
 
@@ -533,6 +642,23 @@ def _build_json_example(schema: dict) -> dict:
         result = {}
         for f in fields:
             result[f["key"]] = f.get("example", "")
+
+        # Append nested_groups examples (e.g. locations with COPE)
+        nested_groups = schema.get("nested_groups", {})
+        for group_name, group_def in nested_groups.items():
+            group_example = {}
+            for f in group_def.get("fields", []):
+                group_example[f["key"]] = f.get("example", "")
+            # Sub-nested groups (e.g. cope inside location)
+            for sub_name, sub_def in group_def.get("nested", {}).items():
+                sub_example = {}
+                for f in sub_def.get("fields", []):
+                    sub_example[f["key"]] = f.get("example", "")
+                group_example[sub_name] = sub_example
+            if group_def.get("type") == "array":
+                result[group_name] = [group_example]
+            else:
+                result[group_name] = group_example
         return result
 
     # Nested schema (compliance) — fields is a dict of group_name -> list
@@ -598,6 +724,38 @@ def generate_extraction_prompt(schema: dict, context: dict) -> str:
             "If the document lists an aggregate limit, retention, or "
             "self-insured retention (SIR), include these values in the notes field."
         )
+
+        # Nested groups (locations + COPE)
+        nested_groups = schema.get("nested_groups", {})
+        for group_name, group_def in nested_groups.items():
+            desc = group_def.get("description", "")
+            optional = group_def.get("optional", False)
+            opt_note = " (optional — include only if data is found in the document)" if optional else ""
+            parts.append("")
+            parts.append(f"## {group_name.title()}{opt_note}")
+            if desc:
+                parts.append(f"{desc}")
+            parts.append("")
+            gtype = group_def.get("type", "object")
+            if gtype == "array":
+                parts.append(
+                    f'Return "{group_name}" as a JSON array. Each element should contain:'
+                )
+                parts.append("")
+            for f in group_def.get("fields", []):
+                parts.append(_build_field_instruction(f, config_lists))
+            # Sub-nested (e.g. cope inside location)
+            for sub_name, sub_def in group_def.get("nested", {}).items():
+                sub_desc = sub_def.get("description", "")
+                sub_opt = sub_def.get("optional", False)
+                sub_note = " (optional)" if sub_opt else ""
+                parts.append("")
+                parts.append(f"### {sub_name.upper()} Data{sub_note}")
+                if sub_desc:
+                    parts.append(f"{sub_desc}")
+                parts.append("")
+                for f in sub_def.get("fields", []):
+                    parts.append(_build_field_instruction(f, config_lists))
     else:
         # Nested field groups (compliance)
         for group_name, group_fields in fields.items():
@@ -815,6 +973,52 @@ def parse_llm_json(raw_text: str, schema: dict) -> dict:
                 "error": "No fields were extracted from the JSON.",
                 "raw_text": raw_text,
             }
+
+        # Parse nested groups (locations with COPE)
+        nested_groups = schema.get("nested_groups", {})
+        for group_name, group_def in nested_groups.items():
+            group_data = data.get(group_name)
+            if group_data is None:
+                continue  # optional group not present — backward compat
+            gtype = group_def.get("type", "object")
+            group_fields = group_def.get("fields", [])
+            sub_groups = group_def.get("nested", {})
+
+            if gtype == "array" and isinstance(group_data, list):
+                parsed_items: list[dict] = []
+                raw_items: list[dict] = []
+                for i, item in enumerate(group_data):
+                    if not isinstance(item, dict):
+                        warnings.append(f"{group_name}[{i}] is not an object, skipping.")
+                        continue
+                    p, r, w = _parse_flat_fields(item, group_fields)
+                    # Parse sub-nested groups (e.g. cope inside location)
+                    for sub_name, sub_def in sub_groups.items():
+                        sub_data = item.get(sub_name)
+                        if sub_data is not None and isinstance(sub_data, dict):
+                            sp, sr, sw = _parse_flat_fields(sub_data, sub_def.get("fields", []))
+                            p[sub_name] = sp
+                            r[sub_name] = sr
+                            warnings.extend(sw)
+                    parsed_items.append(p)
+                    raw_items.append(r)
+                    warnings.extend(w)
+                if parsed_items:
+                    parsed[group_name] = parsed_items
+                    raw[group_name] = raw_items
+            elif isinstance(group_data, dict):
+                p, r, w = _parse_flat_fields(group_data, group_fields)
+                for sub_name, sub_def in sub_groups.items():
+                    sub_data = group_data.get(sub_name)
+                    if sub_data is not None and isinstance(sub_data, dict):
+                        sp, sr, sw = _parse_flat_fields(sub_data, sub_def.get("fields", []))
+                        p[sub_name] = sp
+                        r[sub_name] = sr
+                        warnings.extend(sw)
+                parsed[group_name] = p
+                raw[group_name] = r
+                warnings.extend(w)
+
         return {"ok": True, "parsed": parsed, "warnings": warnings, "raw": raw}
 
     # --- Nested schema (compliance) — fields is a dict of groups ---
