@@ -1,0 +1,334 @@
+<div class="space-y-6">
+  <div class="card p-5" id="section-thresholds">
+    <h2 class="font-semibold text-gray-900 text-sm mb-1">Alert &amp; Readiness Thresholds</h2>
+    <p class="text-xs text-gray-400 mb-4">Tune when escalation banners appear and how readiness scores are labeled. Changes apply on next page load.</p>
+
+    <div class="space-y-4">
+      <div>
+        <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Escalation Alert Triggers</p>
+        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+          <div>
+            <label class="block text-xs text-gray-600 mb-0.5">Critical: days to renewal</label>
+            <input type="number" name="critical_days" value="{{ escalation_thresholds.get('critical_days', 60) }}" min="1"
+              onchange="saveThresholdField('critical_days', this.value, this)"
+              class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-marsh">
+          </div>
+          <div>
+            <label class="block text-xs text-gray-600 mb-0.5">Critical: stale activity (days)</label>
+            <input type="number" name="critical_stale_days" value="{{ escalation_thresholds.get('critical_stale_days', 14) }}" min="1"
+              onchange="saveThresholdField('critical_stale_days', this.value, this)"
+              class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-marsh">
+          </div>
+          <div>
+            <label class="block text-xs text-gray-600 mb-0.5">Warning: days to renewal</label>
+            <input type="number" name="warning_days" value="{{ escalation_thresholds.get('warning_days', 90) }}" min="1"
+              onchange="saveThresholdField('warning_days', this.value, this)"
+              class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-marsh">
+          </div>
+          <div>
+            <label class="block text-xs text-gray-600 mb-0.5">Nudge: days to renewal</label>
+            <input type="number" name="nudge_days" value="{{ escalation_thresholds.get('nudge_days', 120) }}" min="1"
+              onchange="saveThresholdField('nudge_days', this.value, this)"
+              class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-marsh">
+          </div>
+          <div>
+            <label class="block text-xs text-gray-600 mb-0.5">Nudge: stale activity (days)</label>
+            <input type="number" name="nudge_stale_days" value="{{ escalation_thresholds.get('nudge_stale_days', 30) }}" min="1"
+              onchange="saveThresholdField('nudge_stale_days', this.value, this)"
+              class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-marsh">
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Readiness Score Labels</p>
+        <p class="text-xs text-gray-400 mb-2">Score thresholds (0-100) for readiness badges on pipeline rows.</p>
+        <div class="grid grid-cols-3 gap-3 max-w-md">
+          <div>
+            <label class="block text-xs text-gray-600 mb-0.5">Ready &ge;</label>
+            <input type="number" name="readiness_ready" value="{{ readiness_thresholds.get('ready', 75) }}" min="0" max="100"
+              onchange="saveThresholdField('readiness_ready', this.value, this)"
+              class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-marsh">
+          </div>
+          <div>
+            <label class="block text-xs text-gray-600 mb-0.5">On Track &ge;</label>
+            <input type="number" name="readiness_on_track" value="{{ readiness_thresholds.get('on_track', 50) }}" min="0" max="100"
+              onchange="saveThresholdField('readiness_on_track', this.value, this)"
+              class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-marsh">
+          </div>
+          <div>
+            <label class="block text-xs text-gray-600 mb-0.5">At Risk &ge;</label>
+            <input type="number" name="readiness_at_risk" value="{{ readiness_thresholds.get('at_risk', 25) }}" min="0" max="100"
+              onchange="saveThresholdField('readiness_at_risk', this.value, this)"
+              class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-marsh">
+          </div>
+        </div>
+        <p class="text-xs text-gray-400 mt-1">Below the lowest threshold = Critical.</p>
+      </div>
+
+      <div>
+        <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Follow-Up Workload Hints</p>
+        <p class="text-xs text-gray-400 mb-2">When scheduling a follow-up, a hint shows how many others are already on that day. Set the thresholds for when the count turns yellow (warning) and red (danger). Below the warning threshold the hint appears green.</p>
+        <div class="grid grid-cols-2 gap-3 max-w-xs">
+          <div>
+            <label class="block text-xs text-gray-600 mb-0.5">Warning &ge;</label>
+            <input type="number" name="followup_workload_warning" value="{{ fu_workload.get('warning', 3) }}" min="1"
+              onchange="saveThresholdField('followup_workload_warning', this.value, this)"
+              class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-marsh">
+          </div>
+          <div>
+            <label class="block text-xs text-gray-600 mb-0.5">Danger &ge;</label>
+            <input type="number" name="followup_workload_danger" value="{{ fu_workload.get('danger', 5) }}" min="1"
+              onchange="saveThresholdField('followup_workload_danger', this.value, this)"
+              class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-marsh">
+          </div>
+        </div>
+        <p class="text-xs text-gray-400 mt-1">Example: Warning = 3 means 3+ follow-ups turns yellow; Danger = 5 means 5+ turns red.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="card p-5" id="section-readiness-weights">
+    <h2 class="font-semibold text-gray-900 text-sm mb-1">Readiness Score Weights</h2>
+    <p class="text-xs text-gray-400 mb-4">Control how each component contributes to the readiness score (0-100). Changes apply on next page load.</p>
+
+    <div class="space-y-5">
+      {# Component Weights #}
+      <div>
+        <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Component Weights</p>
+        <div class="grid grid-cols-5 gap-3 max-w-2xl">
+          <div>
+            <label class="block text-xs text-gray-600 mb-0.5">Status</label>
+            <input type="number" name="w_status" value="{{ readiness_weights.get('status', 40) }}" min="0" max="100"
+              onchange="updateAllPreviews(); saveWeightField('w_status', this.value, this)" id="rw-w-status"
+              class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-marsh">
+          </div>
+          <div>
+            <label class="block text-xs text-gray-600 mb-0.5">Checklist</label>
+            <input type="number" name="w_checklist" value="{{ readiness_weights.get('checklist', 25) }}" min="0" max="100"
+              onchange="updateAllPreviews(); saveWeightField('w_checklist', this.value, this)" id="rw-w-checklist"
+              class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-marsh">
+          </div>
+          <div>
+            <label class="block text-xs text-gray-600 mb-0.5">Activity</label>
+            <input type="number" name="w_activity" value="{{ readiness_weights.get('activity', 15) }}" min="0" max="100"
+              onchange="updateAllPreviews(); saveWeightField('w_activity', this.value, this)" id="rw-w-activity"
+              class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-marsh">
+          </div>
+          <div>
+            <label class="block text-xs text-gray-600 mb-0.5">Follow-Up</label>
+            <input type="number" name="w_followup" value="{{ readiness_weights.get('followup', 10) }}" min="0" max="100"
+              onchange="updateAllPreviews(); saveWeightField('w_followup', this.value, this)" id="rw-w-followup"
+              class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-marsh">
+          </div>
+          <div>
+            <label class="block text-xs text-gray-600 mb-0.5">Placement</label>
+            <input type="number" name="w_placement" value="{{ readiness_weights.get('placement', 10) }}" min="0" max="100"
+              onchange="updateAllPreviews(); saveWeightField('w_placement', this.value, this)" id="rw-w-placement"
+              class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-marsh">
+          </div>
+        </div>
+        <p class="text-xs mt-1.5" id="rw-sum-row">
+          Total: <span id="rw-sum" class="font-medium"></span>/100
+          <span id="rw-sum-msg" class="ml-2"></span>
+        </p>
+      </div>
+
+      {# Status Score Mapping #}
+      <div>
+        <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Status Score Mapping <span class="font-normal text-gray-400">-- % of status component</span></p>
+        <table class="text-xs">
+          <tbody>
+            {% for s in renewal_statuses %}
+            <tr>
+              <td class="py-1 pr-3 text-gray-600 whitespace-nowrap">{{ s }}</td>
+              <td class="py-1 pr-1">
+                <input type="number" name="ss_{{ loop.index0 }}" value="{{ readiness_status_scores.get(s, 25) }}" min="0" max="100"
+                  onchange="updateStatusPreviews(); saveWeightField('ss_{{ s }}', this.value, this)"
+                  class="ss-input border border-gray-300 rounded px-2 py-1 text-xs w-16 focus:outline-none focus:ring-1 focus:ring-marsh text-right">
+                <input type="hidden" name="ss_name_{{ loop.index0 }}" value="{{ s }}">
+              </td>
+              <td class="py-1 pr-2 text-gray-400">%</td>
+              <td class="py-1 ss-pts text-blue-500 tabular-nums"></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        <p id="ss-warn" class="text-xs mt-1.5 hidden text-amber-600"></p>
+      </div>
+
+      {# Milestone Weights #}
+      <div>
+        <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Milestone Weights <span class="font-normal text-gray-400">-- higher = more impact on checklist score</span></p>
+        <table class="text-xs">
+          <tbody>
+            {% for m in renewal_milestones %}
+            <tr>
+              <td class="py-1 pr-3 text-gray-600 whitespace-nowrap">{{ m }}</td>
+              <td class="py-1 pr-2">
+                <input type="number" name="mw_{{ loop.index0 }}" value="{{ readiness_milestone_weights.get(m, 1) }}" min="1" max="10"
+                  onchange="updateMilestonePreviews(); saveWeightField('mw_{{ m }}', this.value, this)"
+                  class="mw-input border border-gray-300 rounded px-2 py-1 text-xs w-14 focus:outline-none focus:ring-1 focus:ring-marsh text-right">
+                <input type="hidden" name="mw_name_{{ loop.index0 }}" value="{{ m }}">
+              </td>
+              <td class="py-1 mw-pct text-blue-500 tabular-nums"></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      {# Activity Tiers #}
+      <div>
+        <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Activity Recency Tiers <span class="font-normal text-gray-400">-- % of activity component if last activity within N days</span></p>
+        <div class="space-y-1.5 max-w-sm">
+          {% for tier in readiness_activity_tiers %}
+          <div class="flex items-center gap-2">
+            <span class="text-xs text-gray-500">Within</span>
+            <input type="number" name="at_days_{{ loop.index0 }}" value="{{ tier.days }}" min="1"
+              onchange="updateTierPreviews(); saveWeightField('at_{{ loop.index0 }}_days', this.value, this)"
+              class="at-days border border-gray-300 rounded px-2 py-1 text-xs w-16 focus:outline-none focus:ring-1 focus:ring-marsh text-right">
+            <span class="text-xs text-gray-500">days &rarr;</span>
+            <input type="number" name="at_pct_{{ loop.index0 }}" value="{{ tier.pct }}" min="0" max="100"
+              onchange="updateTierPreviews(); saveWeightField('at_{{ loop.index0 }}_pct', this.value, this)"
+              class="at-pct border border-gray-300 rounded px-2 py-1 text-xs w-16 focus:outline-none focus:ring-1 focus:ring-marsh text-right">
+            <span class="text-xs text-gray-400">%</span>
+            <span class="at-pts text-xs text-blue-500 tabular-nums w-12"></span>
+          </div>
+          {% endfor %}
+        </div>
+        <p id="at-warn" class="text-xs mt-1.5 hidden text-red-600"></p>
+        <p class="text-xs text-gray-400 mt-1">Beyond all tiers = 0%. Days should increase and percentages should decrease top to bottom.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function saveThresholdField(field, value, el) {
+  var body = new URLSearchParams({field: field, value: value});
+  fetch('/settings/threshold-field', {method: 'PATCH', body: body})
+    .then(function(r) { if (r.ok && typeof flashCell === 'function') flashCell(el); });
+}
+
+function saveWeightField(field, value, el) {
+  var body = new URLSearchParams({field: field, value: value});
+  fetch('/settings/readiness-weight-field', {method: 'PATCH', body: body})
+    .then(function(r) { if (r.ok && typeof flashCell === 'function') flashCell(el); });
+}
+
+function updateWeightSum() {
+  var ids = ['rw-w-status', 'rw-w-checklist', 'rw-w-activity', 'rw-w-followup', 'rw-w-placement'];
+  var sum = 0;
+  ids.forEach(function(id) { sum += parseInt(document.getElementById(id).value) || 0; });
+  var el = document.getElementById('rw-sum');
+  var msg = document.getElementById('rw-sum-msg');
+  var row = document.getElementById('rw-sum-row');
+  el.textContent = sum;
+  var diff = sum - 100;
+  if (diff === 0) {
+    el.className = 'font-medium text-green-600';
+    msg.textContent = '';
+    row.className = 'text-xs mt-1.5 text-gray-400';
+  } else {
+    el.className = 'font-medium text-red-600';
+    row.className = 'text-xs mt-1.5 text-red-600';
+    if (diff > 0) {
+      msg.textContent = '-- ' + diff + ' point' + (diff !== 1 ? 's' : '') + ' over. Remove ' + diff + ' from one or more components.';
+    } else {
+      msg.textContent = '-- ' + Math.abs(diff) + ' point' + (Math.abs(diff) !== 1 ? 's' : '') + ' short. Assign ' + Math.abs(diff) + ' more across components.';
+    }
+  }
+}
+
+function updateStatusPreviews() {
+  var statusWeight = parseInt(document.getElementById('rw-w-status').value) || 0;
+  var inputs = document.querySelectorAll('.ss-input');
+  var ptsCells = document.querySelectorAll('.ss-pts');
+  var maxPct = 0;
+  var overList = [];
+  inputs.forEach(function(inp, i) {
+    var pct = parseInt(inp.value) || 0;
+    var actual = Math.round(statusWeight * pct / 100);
+    ptsCells[i].textContent = '= ' + actual + 'pt' + (actual !== 1 ? 's' : '');
+    if (pct > maxPct) maxPct = pct;
+    if (pct > 100) {
+      var row = inp.closest('tr');
+      overList.push(row ? row.querySelector('td').textContent.trim() : ('Status ' + (i + 1)));
+      inp.classList.add('border-red-400', 'bg-red-50');
+    } else {
+      inp.classList.remove('border-red-400', 'bg-red-50');
+    }
+  });
+  var warn = document.getElementById('ss-warn');
+  var msgs = [];
+  if (overList.length > 0) {
+    msgs.push(overList.join(', ') + ' exceed' + (overList.length === 1 ? 's' : '') + ' 100%. Values above 100% award more points than the status component allows.');
+  }
+  if (inputs.length > 0 && maxPct < 100 && overList.length === 0) {
+    msgs.push('No status reaches 100% -- a fully progressed policy can never earn full status points (' + statusWeight + '). Consider setting your final status to 100%.');
+  }
+  if (msgs.length > 0) {
+    warn.textContent = msgs.join(' ');
+    warn.className = 'text-xs mt-1.5 ' + (overList.length > 0 ? 'text-red-600' : 'text-amber-600');
+    warn.classList.remove('hidden');
+  } else {
+    warn.classList.add('hidden');
+  }
+}
+
+function updateMilestonePreviews() {
+  var inputs = document.querySelectorAll('.mw-input');
+  var pcts = document.querySelectorAll('.mw-pct');
+  var totalWeight = 0;
+  inputs.forEach(function(inp) { totalWeight += parseInt(inp.value) || 1; });
+  inputs.forEach(function(inp, i) {
+    var w = parseInt(inp.value) || 1;
+    var pct = Math.round(w / totalWeight * 100);
+    pcts[i].textContent = pct + '% share';
+  });
+}
+
+function updateTierPreviews() {
+  var actWeight = parseInt(document.getElementById('rw-w-activity').value) || 0;
+  var dayInputs = document.querySelectorAll('.at-days');
+  var pctInputs = document.querySelectorAll('.at-pct');
+  var pts = document.querySelectorAll('.at-pts');
+  var warn = document.getElementById('at-warn');
+  var problems = [];
+  var prevDays = 0;
+  var prevPct = 101;
+  dayInputs.forEach(function(dInp, i) {
+    var days = parseInt(dInp.value) || 0;
+    var pct = parseInt(pctInputs[i].value) || 0;
+    var actual = Math.round(actWeight * pct / 100);
+    pts[i].textContent = '= ' + actual + 'pt' + (actual !== 1 ? 's' : '');
+    if (pct > 100) {
+      problems.push('Tier ' + (i + 1) + ' exceeds 100% -- this awards more points than the activity component allows.');
+      pctInputs[i].classList.add('border-red-400', 'bg-red-50');
+    } else {
+      pctInputs[i].classList.remove('border-red-400', 'bg-red-50');
+    }
+    if (days <= prevDays && i > 0) problems.push('Tier ' + (i + 1) + ' days (' + days + ') should be greater than tier ' + i + ' (' + prevDays + ').');
+    if (pct >= prevPct && i > 0) problems.push('Tier ' + (i + 1) + ' % (' + pct + ') should be less than tier ' + i + ' (' + prevPct + ').');
+    prevDays = days;
+    prevPct = pct;
+  });
+  if (problems.length > 0) {
+    warn.textContent = problems.join(' ');
+    warn.classList.remove('hidden');
+  } else {
+    warn.classList.add('hidden');
+  }
+}
+
+function updateAllPreviews() {
+  updateWeightSum();
+  updateStatusPreviews();
+  updateMilestonePreviews();
+  updateTierPreviews();
+}
+
+/* Run previews on load — needed since this is HTMX-loaded content */
+updateAllPreviews();
+</script>
