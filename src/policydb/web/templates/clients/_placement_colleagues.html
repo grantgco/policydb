@@ -23,12 +23,13 @@
       </div>
       <ul class="space-y-1">
         {% for p in c.policies %}
-        <li class="flex items-center gap-1.5 text-xs text-gray-500">
+        <li class="flex items-center gap-1.5 text-xs text-gray-500 {% if p.is_archived %}opacity-60{% endif %}">
           <a href="/policies/{{ p.policy_uid }}/edit" class="font-mono text-gray-400 hover:text-marsh shrink-0">{{ p.policy_uid }}</a>
           <span class="text-gray-700">{{ p.policy_type }}</span>
           <span class="text-gray-400">· {{ p.carrier }}</span>
           {% if p.project_name %}<span class="text-gray-400 italic truncate">· {{ p.project_name }}</span>{% endif %}
           {% if p.expiration_date %}<span class="text-gray-300 tabular-nums">exp {{ p.expiration_date }}</span>{% endif %}
+          {% if p.is_archived %}<span class="text-[10px] bg-red-50 text-red-500 px-1.5 py-0.5 rounded-full font-medium">Lost</span>{% endif %}
           {% if c.email %}
           <a href="mailto:{{ c.email }}?subject={{ p.mailto_subject | urlencode }}"
              title="Email {{ c.name }} about this policy"

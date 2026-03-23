@@ -1035,10 +1035,19 @@ def policy_ai_import_parse(
     if not policy_dict:
         return HTMLResponse("Not found", status_code=404)
 
-    # Merge parsed values onto existing policy (skip nested groups)
+    # Merge parsed values onto existing policy, tracking changes (skip nested groups)
     merged = dict(policy_dict)
+    import_changes: list[dict] = []
+    _field_labels = {f["key"]: f["label"] for f in POLICY_EXTRACTION_SCHEMA.get("fields", [])}
     for k, v in result["parsed"].items():
         if v is not None and k != "locations":
+            old_val = policy_dict.get(k)
+            if str(v).strip() != str(old_val or "").strip():
+                import_changes.append({
+                    "field": _field_labels.get(k, k.replace("_", " ").title()),
+                    "old": old_val or "",
+                    "new": v,
+                })
             merged[k] = v
 
     # FEIN cross-reference warning
@@ -1276,6 +1285,29 @@ def policy_ai_import_parse(
         "ai_location_data": ai_location_data,
         "ai_parsed_json": json.dumps(result["parsed"], default=str),
     })
+
+    # Append OOB import diff summary
+    if import_changes:
+        from html import escape
+        diff_rows = "".join(
+            f'<tr class="border-t border-gray-100">'
+            f'<td class="px-3 py-1.5 text-xs font-medium text-gray-700">{escape(c["field"])}</td>'
+            f'<td class="px-3 py-1.5 text-xs text-red-500 line-through">{escape(str(c["old"]))}</td>'
+            f'<td class="px-3 py-1.5 text-xs text-green-700 font-medium">{escape(str(c["new"]))}</td>'
+            f'</tr>'
+            for c in import_changes
+        )
+        diff_html = (
+            f'<div id="ai-import-diff" hx-swap-oob="innerHTML">'
+            f'<div class="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-3">'
+            f'<p class="text-xs font-semibold text-blue-800 mb-2">{len(import_changes)} field{"s" if len(import_changes) != 1 else ""} updated by import</p>'
+            f'<table class="w-full text-left">'
+            f'<thead><tr class="text-[10px] text-gray-400 uppercase">'
+            f'<th class="px-3 py-1">Field</th><th class="px-3 py-1">Previous</th><th class="px-3 py-1">New Value</th>'
+            f'</tr></thead><tbody>{diff_rows}</tbody></table>'
+            f'</div></div>'
+        )
+        html.body += diff_html.encode()
 
     # Append OOB warnings div if there are warnings
     if ai_warnings:
