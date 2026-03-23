@@ -29,7 +29,7 @@
     <button type="button" class="bg-marsh text-white px-2 py-1 rounded text-xs hover:opacity-90"
             hx-post="/compliance/client/{{ client_id }}/sources/{{ src.id }}/edit"
             hx-include="#source-row-{{ src.id }} input, #source-row-{{ src.id }} select"
-            hx-target="body">Save</button>
+            hx-target="#sources-container">Save</button>
     <button type="button" class="text-gray-400 hover:text-gray-600 text-xs ml-1"
             hx-get="/compliance/client/{{ client_id }}/sources/{{ src.id }}/row"
             hx-target="#source-row-{{ src.id }}"

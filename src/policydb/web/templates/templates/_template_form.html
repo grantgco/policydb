@@ -121,7 +121,7 @@
 
 <script>
 // Grouped token data — {context: [[group_name, [[key, label], ...]], ...]}
-var CONTEXT_TOKENS_DATA = {{ context_tokens_json if context_tokens_json is defined else '{}' }};
+var CONTEXT_TOKENS_DATA = {{ context_tokens_json | safe if context_tokens_json is defined else '{}' }};
 
 // Init Toast UI Editor on body textarea — only if the textarea is visible (not inside a hidden parent)
 (function() {
