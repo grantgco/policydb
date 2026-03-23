@@ -49,6 +49,22 @@
       </div>
       {% endif %}
 
+      {# Location selector — only shown for compliance imports with available locations #}
+      {% if locations is defined and locations %}
+      <div class="mb-4">
+        <label class="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1.5">Location</label>
+        <select name="project_id" id="ai-import-location"
+          class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-marsh">
+          <option value="">Corporate (All Locations)</option>
+          {% for loc in locations %}
+          <option value="{{ loc.project.id }}" {% if loc.project.id == active_location_id %}selected{% endif %}>
+            {{ loc.project.name }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+      {% endif %}
+
       {# Prompt code block — injected via data attr for Jinja2 safety #}
       <pre id="ai-prompt-display"
            class="rounded-lg p-4 text-xs leading-relaxed overflow-y-auto whitespace-pre-wrap select-all"
@@ -231,11 +247,14 @@ function submitAiImport() {
     var parseUrl = JSON.parse(panel.dataset.parseUrl);
     var importTarget = JSON.parse(panel.dataset.importTarget);
 
+    var locSelect = document.getElementById('ai-import-location');
+    var projectId = locSelect ? locSelect.value : '';
+
     /* Use fetch so we can inspect the status code */
     fetch(parseUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: 'json_text=' + encodeURIComponent(raw)
+        body: 'json_text=' + encodeURIComponent(raw) + '&project_id=' + encodeURIComponent(projectId)
     }).then(function(resp) {
         return resp.text().then(function(html) {
             if (!resp.ok) {

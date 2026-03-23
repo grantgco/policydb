@@ -239,6 +239,9 @@ def ai_import_prompt(
     if parse_params:
         parse_url += "?" + urlencode(parse_params)
 
+    # Pass locations for the location selector dropdown
+    data = get_client_compliance_data(conn, client_id)
+
     return templates.TemplateResponse("_ai_import_panel.html", {
         "request": request,
         "client_id": client_id,
@@ -247,6 +250,8 @@ def ai_import_prompt(
         "context_display": context_display,
         "parse_url": parse_url,
         "import_target": "#review-mode-container",
+        "locations": data["locations"],
+        "active_location_id": project_id or 0,
     })
 
 
@@ -258,8 +263,14 @@ def ai_import_parse(
     json_text: str = Form(...),
     source_id: int | None = Query(None),
     project_id: int | None = Query(None),
+    project_id_form: str | None = Form(None, alias="project_id"),
 ):
     """Parse JSON from LLM, create DB rows, return review mode."""
+    # Form body project_id takes precedence over query string (allows location selector override)
+    if project_id_form is not None and project_id_form != "":
+        project_id = int(project_id_form)
+    elif project_id_form == "":
+        project_id = None
     result = parse_llm_json(json_text, COMPLIANCE_EXTRACTION_SCHEMA)
 
     if not result["ok"]:
