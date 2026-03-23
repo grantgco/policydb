@@ -8,6 +8,12 @@ from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
 from policydb import config as cfg
+from policydb.llm_schemas import (
+    POLICY_EXTRACTION_SCHEMA,
+    generate_extraction_prompt,
+    generate_json_template,
+    parse_llm_json,
+)
 from policydb.queries import get_all_policies, get_client_by_id, get_opportunity_by_uid, get_policy_by_uid, get_policy_total_hours, get_saved_notes, save_note, delete_saved_note, renew_policy, get_or_create_contact, assign_contact_to_policy, remove_contact_from_policy, set_placement_colleague, get_policy_contacts
 from policydb.utils import round_duration, normalize_carrier, normalize_coverage_type, normalize_policy_number, format_city, format_state, format_zip
 from policydb.web.app import get_db, templates
@@ -962,6 +968,179 @@ def _policy_base(conn, uid: str):
     p["client_name"] = client_info["name"]
     p["cn_number"] = client_info.get("cn_number", "")
     return p, client_info
+
+
+# ── AI Import endpoints ──────────────────────────────────────────────────────
+
+
+@router.get("/{policy_uid}/ai-import/prompt", response_class=HTMLResponse)
+def policy_ai_import_prompt(request: Request, policy_uid: str, conn=Depends(get_db)):
+    """Return the AI import slideover panel with the generated extraction prompt."""
+    uid = policy_uid.upper()
+    policy_dict, client_info = _policy_base(conn, uid)
+    if not policy_dict:
+        return HTMLResponse("Not found", status_code=404)
+
+    # Build context for prompt generation
+    context: dict = {
+        "client_name": client_info["name"],
+        "industry": client_info.get("industry_segment", ""),
+        "config_lists": {},
+    }
+
+    # Collect config values referenced by schema fields
+    seen_config_keys: set[str] = set()
+    for field in POLICY_EXTRACTION_SCHEMA["fields"]:
+        ck = field.get("config_values")
+        if ck and ck not in seen_config_keys:
+            seen_config_keys.add(ck)
+            context["config_lists"][ck] = cfg.get(ck, [])
+
+    prompt_text = generate_extraction_prompt(POLICY_EXTRACTION_SCHEMA, context)
+    json_template = generate_json_template(POLICY_EXTRACTION_SCHEMA)
+
+    context_display: dict[str, str] = {"Client": client_info["name"]}
+    industry = client_info.get("industry_segment", "")
+    if industry:
+        context_display["Industry"] = industry
+
+    return templates.TemplateResponse("_ai_import_panel.html", {
+        "request": request,
+        "import_type": "policy",
+        "prompt_text": prompt_text,
+        "json_template": json_template,
+        "context_display": context_display,
+        "parse_url": f"/policies/{uid}/ai-import/parse",
+        "import_target": "#ai-import-target",
+    })
+
+
+@router.post("/{policy_uid}/ai-import/parse", response_class=HTMLResponse)
+def policy_ai_import_parse(
+    request: Request,
+    policy_uid: str,
+    json_text: str = Form(...),
+    conn=Depends(get_db),
+):
+    """Parse LLM JSON response and return pre-filled Details tab partial."""
+    uid = policy_uid.upper()
+    result = parse_llm_json(json_text, POLICY_EXTRACTION_SCHEMA)
+
+    if not result["ok"]:
+        return HTMLResponse(
+            f'<div class="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">'
+            f'{result["error"]}</div>',
+            status_code=422,
+        )
+
+    policy_dict, client_info = _policy_base(conn, uid)
+    if not policy_dict:
+        return HTMLResponse("Not found", status_code=404)
+
+    # Merge parsed values onto existing policy
+    merged = dict(policy_dict)
+    for k, v in result["parsed"].items():
+        if v is not None:
+            merged[k] = v
+
+    # FEIN cross-reference warning
+    ai_warnings: list[str] = list(result.get("warnings", []))
+    parsed_fein = result["parsed"].get("fein")
+    if parsed_fein:
+        client_fein = conn.execute(
+            "SELECT fein FROM clients WHERE id = ?", (client_info["id"],)
+        ).fetchone()
+        if client_fein and client_fein["fein"] and client_fein["fein"] != parsed_fein:
+            ai_warnings.append(
+                f"FEIN mismatch: document shows {parsed_fein}, "
+                f"client record has {client_fein['fein']}"
+            )
+
+    # Build the same context as policy_tab_details
+    from policydb.queries import REVIEW_CYCLE_LABELS as _RCL
+
+    # Tower structure
+    _tower_layers: list[dict] = []
+    if merged.get("tower_group"):
+        _tg_rows = conn.execute(
+            """SELECT policy_uid, policy_type, carrier, limit_amount, layer_position,
+                      attachment_point, participation_of
+               FROM policies
+               WHERE client_id = ? AND LOWER(TRIM(tower_group)) = LOWER(TRIM(?)) AND archived = 0""",
+            (merged["client_id"], merged["tower_group"]),
+        ).fetchall()
+
+        def _layer_sort_key(r):
+            att = r["attachment_point"]
+            if att is not None:
+                return (float(att), 0)
+            lp = r["layer_position"] or "Primary"
+            try:
+                return (-1, int(lp))
+            except (ValueError, TypeError):
+                return (-1, 0)
+
+        _tg_rows = sorted(_tg_rows, key=_layer_sort_key)
+        running = 0.0
+        for tr in _tg_rows:
+            lim = float(tr["limit_amount"] or 0)
+            att = tr["attachment_point"]
+            part = tr["participation_of"]
+            if att is not None and float(att) >= 0:
+                layer_size = float(part) if part else lim
+                ground_up = float(att) + layer_size
+            else:
+                running += lim
+                ground_up = running
+            _tower_layers.append(dict(tr) | {"ground_up": ground_up, "is_current": tr["policy_uid"] == uid})
+
+    html = templates.TemplateResponse("policies/_tab_details.html", {
+        "request": request,
+        "policy": merged,
+        "client": client_info,
+        "policy_types": cfg.get("policy_types"),
+        "coverage_forms": cfg.get("coverage_forms"),
+        "renewal_statuses": _renewal_statuses(),
+        "us_states": US_STATES,
+        "opportunity_statuses": cfg.get("opportunity_statuses"),
+        "tower_layers": _tower_layers,
+        "cycle_labels": _RCL,
+        "program_linked_policies": [dict(r) for r in conn.execute(
+            """SELECT policy_uid, policy_type, carrier, premium, effective_date, expiration_date
+               FROM policies WHERE program_id = ? AND archived = 0 ORDER BY policy_type""",
+            (merged["id"],),
+        ).fetchall()] if merged.get("is_program") else [],
+        "linkable_policies": [dict(r) for r in conn.execute(
+            """SELECT policy_uid, policy_type, carrier, premium
+               FROM policies WHERE client_id = ? AND archived = 0
+                 AND (is_program = 0 OR is_program IS NULL)
+                 AND (is_opportunity = 0 OR is_opportunity IS NULL)
+                 AND (program_id IS NULL OR program_id = ?)
+               ORDER BY policy_type""",
+            (merged["client_id"], merged["id"]),
+        ).fetchall()] if merged.get("is_program") else [],
+        "program_carrier_rows": [dict(r) for r in conn.execute(
+            "SELECT * FROM program_carriers WHERE program_id = ? ORDER BY sort_order",
+            (merged["id"],),
+        ).fetchall()] if merged.get("is_program") else [],
+        "ai_warnings": ai_warnings,
+    })
+
+    # Append OOB warnings div if there are warnings
+    if ai_warnings:
+        warning_pills = "".join(
+            f'<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs '
+            f'font-medium bg-amber-100 text-amber-800">{w}</span>'
+            for w in ai_warnings
+        )
+        oob_html = (
+            f'<div id="ai-import-warnings" hx-swap-oob="innerHTML">'
+            f'<div class="flex flex-wrap gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">'
+            f'{warning_pills}</div></div>'
+        )
+        html.body += oob_html.encode()
+
+    return html
 
 
 @router.get("/{policy_uid}/tab/details", response_class=HTMLResponse)
