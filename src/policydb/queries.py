@@ -639,7 +639,6 @@ def get_all_followups(
           WHERE a.policy_id = p.id
             AND a.follow_up_done = 0
             AND a.follow_up_date IS NOT NULL
-            AND a.follow_up_date <= p.follow_up_date
       )
 
     UNION ALL

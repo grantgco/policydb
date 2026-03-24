@@ -7,6 +7,7 @@
 {% set row_id = "ac-fu-" ~ item.source ~ "-" ~ item.id %}
 <div class="fu-row {{ bg_class }} rounded-lg {{ border_class }} hover:border-gray-300 transition-colors" data-status="{{ section_tag }}" id="{{ row_id }}">
   <div class="flex items-center gap-3 px-4 py-3">
+    <input type="checkbox" class="bulk-check accent-[#003865] mr-1" value="{{ item.source }}-{{ item.id }}" onchange="updateBulkCount()">
     {# Color dot — diamond for milestones, circle for regular #}
     {% if item.is_milestone is defined and item.is_milestone %}
     <div class="w-2.5 h-2.5 {{ dot_color }} flex-shrink-0" style="transform: rotate(45deg); border-radius: 2px;"></div>
@@ -51,14 +52,17 @@
       </div>
       <div class="text-xs text-gray-600 truncate mt-0.5">
         {% if item.is_milestone is defined and item.is_milestone %}
+          {% if item.project_name %}<span class="text-[10px] bg-purple-50 text-purple-600 font-medium px-1.5 py-0.5 rounded inline-flex items-center gap-0.5"><span>&#128205;</span> {{ item.project_name }}</span> <span class="text-gray-400">&middot;</span> {% endif %}
           {{ item.milestone_name }} &middot; {{ item.policy_type }}
         {% elif item.policy_uid %}
+          {% if item.project_name %}<span class="text-[10px] bg-purple-50 text-purple-600 font-medium px-1.5 py-0.5 rounded inline-flex items-center gap-0.5"><span>&#128205;</span> {{ item.project_name }}</span> <span class="text-gray-400">&middot;</span> {% endif %}
           <a href="/policies/{{ item.policy_uid }}/edit" class="hover:text-[#003865] hover:underline">{{ item.policy_type }}{% if item.carrier %} <span class="text-gray-400">&middot; {{ item.carrier }}</span>{% endif %}</a>
         {% elif item.source == 'project' %}
           <span class="text-[10px] bg-purple-50 text-purple-600 font-medium px-1.5 py-0.5 rounded inline-flex items-center gap-0.5"><span>&#128205;</span> {{ item.project_name or 'Project' }}</span>
           <span class="text-gray-400">&middot;</span>
           {{ item.subject }}
         {% elif item.source == 'policy' %}
+          {% if item.project_name %}<span class="text-[10px] bg-purple-50 text-purple-600 font-medium px-1.5 py-0.5 rounded inline-flex items-center gap-0.5"><span>&#128205;</span> {{ item.project_name }}</span> <span class="text-gray-400">&middot;</span> {% endif %}
           {{ item.policy_type }}{% if item.carrier %} <span class="text-gray-400">&middot; {{ item.carrier }}</span>{% endif %}
         {% else %}
           {{ item.subject }}
@@ -83,6 +87,24 @@
       {% if item.nudge_count is defined and item.nudge_count > 1 %}
       <div class="text-[10px] text-indigo-500">nudge #{{ item.nudge_count }}</div>
       {% endif %}
+      {% if not (item.is_milestone is defined and item.is_milestone) %}
+        {% if item.disposition %}
+        <button type="button" onclick="toggleDispBar('{{ row_id }}')"
+          class="text-[10px] px-2 py-0.5 rounded-full border border-dashed border-gray-300 text-gray-500 hover:border-[#003865] hover:text-[#003865] cursor-pointer mt-0.5 transition-colors no-print">{{ item.disposition }} &#9998;</button>
+        {% else %}
+        <button type="button" onclick="toggleDispBar('{{ row_id }}')"
+          class="text-[10px] px-2 py-0.5 rounded-full border border-dashed border-gray-300 text-gray-400 hover:border-[#003865] hover:text-[#003865] cursor-pointer mt-0.5 transition-colors no-print">+ disposition</button>
+        {% endif %}
+      {% endif %}
+      {% if item.cadence is defined and item.cadence %}
+        {% if item.cadence == 'mild' %}
+        <div class="text-[10px] font-medium text-amber-600 mt-0.5">over cadence</div>
+        {% elif item.cadence == 'severe' %}
+        <div class="text-[10px] font-medium text-red-600 mt-0.5">over cadence !</div>
+        {% elif item.cadence == 'on_cadence' %}
+        <div class="text-[10px] text-green-600 mt-0.5">on cadence</div>
+        {% endif %}
+      {% endif %}
     </div>
 
     {# Action buttons #}
@@ -106,6 +128,46 @@
       {% endif %}
     </div>
   </div>
+
+  {# ── Inline pill bar for quick disposition (hidden) ── #}
+  {% if not (item.is_milestone is defined and item.is_milestone) %}
+  <div id="disp-bar-{{ row_id }}" class="hidden">
+    <div class="disp-pill-bar bg-white border border-gray-200 rounded-lg p-2 mx-4 mb-2 mt-1">
+      <div class="flex flex-wrap gap-1">
+        {% for d in dispositions %}
+        <button type="button"
+          onclick="quickSaveDisp(this, '{{ d.label }}', {{ d.default_days }}, '{{ row_id }}', '{{ item.source }}-{{ item.id }}', 'action_center')"
+          class="disp-pill-inline text-[10px] px-2 py-0.5 rounded border border-gray-200 text-gray-500 hover:border-[#003865] hover:text-[#003865] transition-colors cursor-pointer{% if item.disposition == d.label %} bg-[#003865] text-white{% endif %}">{{ d.label }}</button>
+        {% endfor %}
+        <button type="button" onclick="expandDispBar('{{ row_id }}')"
+          class="text-[10px] px-2 py-0.5 rounded border border-gray-200 text-gray-400 hover:text-[#003865] transition-colors cursor-pointer" title="Date/note override">&#8943;</button>
+      </div>
+      <div id="disp-expand-{{ row_id }}" class="hidden mt-2 pt-2 border-t border-dashed border-gray-200">
+        <form hx-post="/activities/update-disposition" hx-target="#ac-tab-content" hx-swap="innerHTML" class="flex gap-3 items-end flex-wrap">
+          <input type="hidden" name="composite_id" value="{{ item.source }}-{{ item.id }}">
+          <input type="hidden" name="disposition" id="disp-val-{{ row_id }}" value="{{ item.disposition or '' }}">
+          <input type="hidden" name="context" value="action_center">
+          <div>
+            <div class="text-[9px] text-gray-400">Follow-up date</div>
+            <div class="flex gap-1 items-center">
+              <input type="date" name="follow_up_date" id="disp-date-{{ row_id }}" value="{{ item.follow_up_date }}"
+                class="text-xs border border-gray-200 rounded px-2 py-1 focus:ring-1 focus:ring-[#003865]">
+              <button type="button" onclick="var d=new Date();d.setDate(d.getDate()+1);document.getElementById('disp-date-{{ row_id }}').value=d.toISOString().split('T')[0]" class="text-[9px] border border-gray-200 rounded px-1 py-0.5 text-gray-400 hover:text-[#003865]">+1d</button>
+              <button type="button" onclick="var d=new Date();d.setDate(d.getDate()+3);document.getElementById('disp-date-{{ row_id }}').value=d.toISOString().split('T')[0]" class="text-[9px] border border-gray-200 rounded px-1 py-0.5 text-gray-400 hover:text-[#003865]">+3d</button>
+              <button type="button" onclick="var d=new Date();d.setDate(d.getDate()+7);document.getElementById('disp-date-{{ row_id }}').value=d.toISOString().split('T')[0]" class="text-[9px] border border-gray-200 rounded px-1 py-0.5 text-gray-400 hover:text-[#003865]">+7d</button>
+            </div>
+          </div>
+          <div class="flex-1 min-w-32">
+            <div class="text-[9px] text-gray-400">Note</div>
+            <input type="text" name="note" placeholder="Optional..." class="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:ring-1 focus:ring-[#003865]">
+          </div>
+          <button type="submit" class="text-xs bg-[#003865] text-white px-3 py-1.5 rounded hover:bg-[#004a80]">Save</button>
+          <button type="button" onclick="toggleDispBar('{{ row_id }}')" class="text-xs text-gray-400">Cancel</button>
+        </form>
+      </div>
+    </div>
+  </div>
+  {% endif %}
 
   {# ── Inline disposition form (hidden) — not shown for milestone items ── #}
   {% if not (item.is_milestone is defined and item.is_milestone) %}
@@ -183,6 +245,7 @@
 {% set row_id = "ac-fu-" ~ item.source ~ "-" ~ item.id %}
 <div class="fu-row bg-gray-50 rounded-lg border border-dashed border-gray-300 hover:border-gray-400 transition-colors" data-status="triage" id="{{ row_id }}">
   <div class="flex items-center gap-3 px-4 py-3">
+    <input type="checkbox" class="bulk-check accent-[#003865] mr-1" value="{{ item.source }}-{{ item.id }}" onchange="updateBulkCount()">
     {# Color dot — gray open circle #}
     <div class="w-2 h-2 rounded-full border-2 border-gray-400 flex-shrink-0"></div>
 
@@ -198,6 +261,9 @@
           <span class="text-[10px] bg-purple-50 text-purple-600 font-medium px-1.5 py-0.5 rounded inline-flex items-center gap-0.5"><span>&#128205;</span> {{ item.project_name or 'Project' }}</span>
           <span class="text-gray-400">&middot;</span>
           {{ item.subject }}
+        {% elif item.policy_uid %}
+          {% if item.project_name %}<span class="text-[10px] bg-purple-50 text-purple-600 font-medium px-1.5 py-0.5 rounded inline-flex items-center gap-0.5"><span>&#128205;</span> {{ item.project_name }}</span> <span class="text-gray-400">&middot;</span> {% endif %}
+          {{ item.policy_type }}{% if item.carrier %} <span class="text-gray-400">&middot; {{ item.carrier }}</span>{% endif %}
         {% elif item.source == 'policy' %}
           {{ item.policy_type }}{% if item.carrier %} <span class="text-gray-400">&middot; {{ item.carrier }}</span>{% endif %}
         {% else %}
@@ -216,22 +282,19 @@
 
     {# Set disposition button — reveals inline pills #}
     <div class="flex gap-1.5 flex-shrink-0 no-print">
-      <button type="button" onclick="toggleTriageDisp('{{ row_id }}')"
+      <button type="button" onclick="toggleDispBar('{{ row_id }}')"
         class="text-xs bg-gray-600 text-white px-3 py-1.5 rounded font-medium hover:bg-gray-700 transition-colors">Set disposition &rarr;</button>
     </div>
   </div>
 
-  {# ── Inline triage disposition pills (hidden) ── #}
-  <div id="ac-triage-{{ row_id }}" class="hidden">
-    <div class="px-4 pb-3 pt-1">
+  {# ── Inline triage disposition pills ── #}
+  <div id="disp-bar-{{ row_id }}" class="hidden">
+    <div class="disp-pill-bar bg-white border border-gray-200 rounded-lg p-2 mx-4 mb-2 mt-1">
       <div class="text-[10px] text-gray-500 mb-1">Pick a disposition to classify this item:</div>
       <div class="flex flex-wrap gap-1.5">
         {% for d in dispositions %}
         <button type="button"
-          hx-post="/action-center/set-disposition/{{ item.id }}"
-          hx-vals='{"disposition": "{{ d.label }}"}'
-          hx-target="#ac-tab-content"
-          hx-swap="innerHTML"
+          onclick="quickSaveDisp(this, '{{ d.label }}', {{ d.default_days }}, '{{ row_id }}', '{{ item.source }}-{{ item.id }}', 'action_center')"
           class="text-[11px] px-2.5 py-1 rounded border border-gray-200 text-gray-600 hover:border-[#003865] hover:text-[#003865] hover:bg-blue-50 transition-colors cursor-pointer">{{ d.label }}</button>
         {% endfor %}
       </div>
@@ -372,7 +435,9 @@
           <div class="flex-1 min-w-0">
             <div class="text-sm font-medium text-gray-800">Prep: {{ item.milestone_name }}</div>
             <div class="text-xs text-gray-500 mt-0.5">
-              {{ item.client_name }} &middot; {{ item.policy_type }}
+              {{ item.client_name }}
+              {% if item.project_name %} &middot; <span class="text-[10px] bg-purple-50 text-purple-600 font-medium px-1.5 py-0.5 rounded inline-flex items-center gap-0.5"><span>&#128205;</span> {{ item.project_name }}</span>{% endif %}
+              &middot; {{ item.policy_type }}
             </div>
           </div>
           <div class="text-right flex-shrink-0">

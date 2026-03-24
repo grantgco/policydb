@@ -220,6 +220,36 @@ def _followups_ctx(conn, window: int, activity_type: str, q: str,
         item["nudge_count"] = count
         item["escalation_tier"] = tier
 
+    # ── Cadence computation ──────────────────────────────────────────
+    # For activity/project source items with a disposition that has default_days,
+    # compute how far over cadence they are:
+    #   on_cadence: days_overdue <= default_days
+    #   mild: 1-2x over default_days
+    #   severe: 2x+ over default_days
+    _disp_days_map = {}
+    for d in dispositions:
+        label = d.get("label", "").lower()
+        dd = d.get("default_days", 0)
+        if dd and dd > 0:
+            _disp_days_map[label] = dd
+
+    for bucket_items in buckets.values():
+        for item in bucket_items:
+            src = item.get("source", "")
+            if src not in ("activity", "project"):
+                continue
+            disp_label = (item.get("disposition") or "").lower()
+            default_days = _disp_days_map.get(disp_label, 0)
+            if default_days <= 0:
+                continue
+            days_over = item.get("days_overdue", 0)
+            if days_over <= default_days:
+                item["cadence"] = "on_cadence"
+            elif days_over <= default_days * 2:
+                item["cadence"] = "mild"
+            else:
+                item["cadence"] = "severe"
+
     # Inject overdue milestones into urgency tiers.
     # Skip milestones that already have an activity_log follow-up to avoid
     # double-counting from the dual mandated-activity / timeline systems.
@@ -232,7 +262,8 @@ def _followups_ctx(conn, window: int, activity_type: str, q: str,
         milestone_rows = conn.execute("""
             SELECT pt.policy_uid, pt.milestone_name, pt.projected_date,
                    pt.ideal_date, pt.health, pt.accountability, pt.completed_date,
-                   p.policy_type, c.name AS client_name, c.id AS client_id
+                   p.policy_type, p.carrier, p.project_name, p.project_id,
+                   c.name AS client_name, c.id AS client_id, c.cn_number
             FROM policy_timeline pt
             JOIN policies p ON p.policy_uid = pt.policy_uid
             JOIN clients c ON c.id = p.client_id
@@ -247,6 +278,7 @@ def _followups_ctx(conn, window: int, activity_type: str, q: str,
             if item["policy_uid"] in _activity_policy_uids:
                 continue
             item["source"] = "milestone"
+            item["source_label"] = "Milestone"
             item["is_milestone"] = True
             item["follow_up_date"] = item["projected_date"]
             item["id"] = f"ms-{item['policy_uid']}-{item['milestone_name']}"
@@ -255,7 +287,13 @@ def _followups_ctx(conn, window: int, activity_type: str, q: str,
             except (ValueError, TypeError):
                 days_past = 0
             item["days_overdue"] = days_past
-            if days_past == 0:
+            # Route through accountability classification
+            ms_accountability = item.get("accountability") or "my_action"
+            if ms_accountability == "waiting_external":
+                buckets["nudge_due" if days_past >= 0 else "watching"].append(item)
+            elif ms_accountability == "scheduled":
+                buckets["scheduled"].append(item)
+            elif days_past == 0:
                 buckets["today"].append(item)
             elif days_past > stale_threshold:
                 buckets["stale"].append(item)
@@ -271,7 +309,8 @@ def _followups_ctx(conn, window: int, activity_type: str, q: str,
         prep_rows = conn.execute("""
             SELECT pt.policy_uid, pt.milestone_name, pt.projected_date,
                    pt.prep_alert_date, pt.accountability, pt.health,
-                   p.policy_type, c.name AS client_name, c.id AS client_id
+                   p.policy_type, p.carrier, p.project_name, p.project_id,
+                   c.name AS client_name, c.id AS client_id, c.cn_number
             FROM policy_timeline pt
             JOIN policies p ON p.policy_uid = pt.policy_uid
             JOIN clients c ON c.id = p.client_id

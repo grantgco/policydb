@@ -6,7 +6,7 @@ import json
 import logging
 logger = logging.getLogger("policydb.web.routes.policies")
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
@@ -1659,6 +1659,9 @@ def policy_tab_activity(request: Request, policy_uid: str, conn=Depends(get_db))
         [a for a in activities if a.get("follow_up_date") and not a.get("follow_up_done") and a["follow_up_date"] >= _today_iso],
         key=lambda a: a["follow_up_date"],
     )
+    _week_cutoff = (date.today() + timedelta(days=7)).isoformat()
+    due_soon = [a for a in upcoming_followups if a["follow_up_date"] <= _week_cutoff]
+    later_followups = [a for a in upcoming_followups if a["follow_up_date"] > _week_cutoff]
     history = [a for a in activities if not (a.get("follow_up_date") and not a.get("follow_up_done"))]
 
     # Cross-reference: project-level activities for the same project
@@ -1722,6 +1725,8 @@ def policy_tab_activity(request: Request, policy_uid: str, conn=Depends(get_db))
         "activities": activities,
         "overdue_followups": overdue_followups,
         "upcoming_followups": upcoming_followups,
+        "due_soon": due_soon,
+        "later_followups": later_followups,
         "history": history,
         "activity_types": cfg.get("activity_types", ["Call", "Email", "Meeting", "Note", "Other"]),
         "all_contact_names": all_contact_names,
