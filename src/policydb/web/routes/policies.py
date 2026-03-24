@@ -1131,9 +1131,11 @@ def policy_ai_import_parse(
 
 def _ai_import_parse_inner(request: Request, conn, uid: str, result: dict):
     """Inner logic for AI import parse — separated to wrap in try/except."""
+    logger.debug("AI import parse inner: start for %s", uid)
     policy_dict, client_info = _policy_base(conn, uid)
     if not policy_dict:
         return HTMLResponse("Not found", status_code=404)
+    logger.debug("AI import parse inner: policy loaded, client=%s", client_info.get("name"))
 
     # Merge parsed values onto existing policy, tracking changes (skip nested groups)
     merged = dict(policy_dict)
@@ -1310,6 +1312,11 @@ def _ai_import_parse_inner(request: Request, conn, uid: str, result: dict):
 
             ai_location_data.append(loc_entry)
 
+    logger.debug(
+        "AI import parse inner: diffs built — %d policy diffs, %d locations",
+        len(ai_policy_diffs), len(ai_location_data),
+    )
+
     # Build the same context as policy_tab_details
     _RCL = REVIEW_CYCLE_LABELS
 
@@ -1348,6 +1355,7 @@ def _ai_import_parse_inner(request: Request, conn, uid: str, result: dict):
                 ground_up = running
             _tower_layers.append(dict(tr) | {"ground_up": ground_up, "is_current": tr["policy_uid"] == uid})
 
+    logger.debug("AI import parse inner: rendering _tab_details.html template")
     html = templates.TemplateResponse("policies/_tab_details.html", {
         "request": request,
         "policy": merged,
@@ -1388,6 +1396,7 @@ def _ai_import_parse_inner(request: Request, conn, uid: str, result: dict):
     # mutating html.body after TemplateResponse sets Content-Length causes h11
     # "Too much data for declared Content-Length" which the browser sees as
     # "Failed to fetch".
+    logger.debug("AI import parse inner: template rendered, building OOB fragments")
     body_parts: list[bytes] = [html.body]
 
     # OOB import diff summary
