@@ -1,0 +1,38 @@
+{# _program_group_banner.html — suggested program groups detected from unmatched rows #}
+{# Context: program_candidates (list of dicts with client, type, effective_date, expiration_date, carriers, row_indices),
+            token (str), all_clients (list) #}
+
+{% if program_candidates %}
+<div id="program-candidates" class="mb-4 space-y-2">
+  {% for cand in program_candidates %}
+  <div id="pgm-cand-{{ loop.index0 }}" class="rounded-lg border border-blue-300 bg-blue-50 px-4 py-3">
+    <div class="flex items-center justify-between">
+      <div class="flex items-center gap-2 flex-1 min-w-0">
+        <span class="text-xs font-semibold text-blue-800 uppercase tracking-wide whitespace-nowrap">Suggested Program</span>
+        <span class="text-blue-300">&middot;</span>
+        <span class="text-sm font-medium text-blue-900 truncate">{{ cand.client }}</span>
+        <span class="text-blue-300">&middot;</span>
+        <span class="text-xs text-blue-700">{{ cand.type }}</span>
+        <span class="text-blue-300">&middot;</span>
+        <span class="text-xs text-blue-600 tabular-nums whitespace-nowrap">{{ cand.effective_date }} &rarr; {{ cand.expiration_date }}</span>
+        <span class="text-blue-300">&middot;</span>
+        <span class="text-xs text-blue-700 font-semibold">{{ cand.carriers | length }} carriers</span>
+      </div>
+      <button type="button"
+        hx-get="/reconcile/program-group-form?token={{ token }}&cand_idx={{ loop.index0 }}"
+        hx-target="#pgm-cand-form-{{ loop.index0 }}"
+        hx-swap="innerHTML"
+        class="text-xs bg-blue-600 hover:bg-blue-700 text-white font-medium px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap ml-3">
+        Create Program
+      </button>
+    </div>
+    <div class="flex flex-wrap gap-1.5 mt-2">
+      {% for c in cand.carriers %}
+      <span class="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">{{ c }}</span>
+      {% endfor %}
+    </div>
+    <div id="pgm-cand-form-{{ loop.index0 }}" class="mt-2"></div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}

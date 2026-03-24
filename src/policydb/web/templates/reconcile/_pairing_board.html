@@ -78,6 +78,9 @@
 </div>
 {% endif %}
 
+{# ── Suggested Program Groups (from unmatched rows) ───────────────────────── #}
+{% include "reconcile/_program_group_banner.html" %}
+
 {# ── Toolbar ────────────────────────────────────────────────────────────────── #}
 <div class="flex flex-wrap items-center gap-3 mb-4 no-print">
   {# Confirm All #}
@@ -250,4 +253,47 @@ function filterBoardRows(status) {
     event.target.classList.remove('text-gray-600');
   }
 }
+
+/* ── Multi-select program grouping ────────────────────────────────────────── */
+function updateProgramSelectBar() {
+  var checked = document.querySelectorAll('.pgm-select-cb:checked');
+  var bar = document.getElementById('pgm-select-bar');
+  if (checked.length >= 2) {
+    bar.style.display = '';
+    bar.querySelector('.pgm-select-count').textContent = checked.length;
+  } else {
+    bar.style.display = 'none';
+  }
+}
+
+function clearProgramSelection() {
+  document.querySelectorAll('.pgm-select-cb:checked').forEach(function(cb) { cb.checked = false; });
+  updateProgramSelectBar();
+}
+
+function groupSelectedAsProgram() {
+  var checked = document.querySelectorAll('.pgm-select-cb:checked');
+  var indices = [];
+  checked.forEach(function(cb) { indices.push(cb.dataset.idx); });
+  if (indices.length < 2) return;
+
+  var token = document.querySelector('[name=token]').value;
+  htmx.ajax('GET', '/reconcile/program-group-form?token=' + token + '&indices=' + indices.join(','), {
+    target: '#pgm-group-modal',
+    swap: 'innerHTML'
+  });
+}
 </script>
+
+{# ── Floating action bar for multi-select program grouping ────────────── #}
+<div id="pgm-select-bar" style="display:none"
+  class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-blue-700 text-white rounded-xl shadow-lg px-6 py-3 flex items-center gap-4 no-print">
+  <span class="text-sm font-medium"><span class="pgm-select-count">0</span> rows selected</span>
+  <button type="button" onclick="groupSelectedAsProgram()"
+    class="text-sm bg-white text-blue-700 font-semibold px-4 py-1.5 rounded-lg hover:bg-blue-50 transition-colors">
+    Group as Program
+  </button>
+  <button type="button" onclick="clearProgramSelection()"
+    class="text-sm text-blue-200 hover:text-white transition-colors">Cancel</button>
+</div>
+<div id="pgm-group-modal"></div>
