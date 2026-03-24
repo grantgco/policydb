@@ -886,12 +886,13 @@ window.quickSaveDisp = function(btn, label, days, rowId, compositeId, context) {
   fd.append('context', context || '');
   fetch('/activities/update-disposition', { method: 'POST', body: fd })
     .then(function() {
-      if (typeof htmx !== 'undefined') {
-        var target = context === 'action_center'
-          ? document.getElementById('ac-tab-content')
-          : btn.closest('.fu-section') || btn.closest('[data-section]');
-        if (target) htmx.ajax('GET', target.getAttribute('hx-get') || window.location.pathname, {target: target, swap: 'innerHTML'});
-        else window.location.reload();
+      if (context === 'action_center') {
+        var target = document.getElementById('ac-tab-content');
+        if (target && typeof htmx !== 'undefined') {
+          htmx.ajax('GET', '/action-center/followups', {target: target, swap: 'innerHTML'});
+        } else {
+          window.location.reload();
+        }
       } else {
         window.location.reload();
       }

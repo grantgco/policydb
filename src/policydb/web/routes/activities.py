@@ -720,10 +720,17 @@ def update_disposition(
 
     elif source == "policy":
         # Auto-create activity_log row, then supersede old follow-ups
-        pol = conn.execute(
-            "SELECT id, client_id, policy_type FROM policies WHERE policy_uid = ?",
-            (item_id,),
-        ).fetchone()
+        # item_id may be policy_uid (string like "POL-003") or integer PK
+        if item_id.isdigit():
+            pol = conn.execute(
+                "SELECT id, client_id, policy_type FROM policies WHERE id = ?",
+                (int(item_id),),
+            ).fetchone()
+        else:
+            pol = conn.execute(
+                "SELECT id, client_id, policy_type FROM policies WHERE policy_uid = ?",
+                (item_id,),
+            ).fetchone()
         if pol:
             conn.execute(
                 """INSERT INTO activity_log
@@ -833,10 +840,16 @@ def bulk_action(
                     f"UPDATE activity_log SET {', '.join(updates)} WHERE id = ?", params
                 )
             elif source == "policy":
-                pol = conn.execute(
-                    "SELECT id, client_id, policy_type FROM policies WHERE policy_uid = ?",
-                    (item_id,),
-                ).fetchone()
+                if item_id.isdigit():
+                    pol = conn.execute(
+                        "SELECT id, client_id, policy_type FROM policies WHERE id = ?",
+                        (int(item_id),),
+                    ).fetchone()
+                else:
+                    pol = conn.execute(
+                        "SELECT id, client_id, policy_type FROM policies WHERE policy_uid = ?",
+                        (item_id,),
+                    ).fetchone()
                 if pol:
                     conn.execute(
                         """INSERT INTO activity_log
@@ -878,10 +891,11 @@ def bulk_action(
                     (new_date, int(item_id)),
                 )
             elif source == "policy":
-                conn.execute(
-                    "UPDATE policies SET follow_up_date = ? WHERE policy_uid = ?",
-                    (new_date, item_id),
-                )
+                _pk = int(item_id) if item_id.isdigit() else None
+                if _pk:
+                    conn.execute("UPDATE policies SET follow_up_date = ? WHERE id = ?", (new_date, _pk))
+                else:
+                    conn.execute("UPDATE policies SET follow_up_date = ? WHERE policy_uid = ?", (new_date, item_id))
             elif source == "client":
                 conn.execute(
                     "UPDATE clients SET follow_up_date = ? WHERE id = ?",
@@ -896,10 +910,11 @@ def bulk_action(
                 )
                 _auto_send_rfi_bundle(conn, int(item_id))
             elif source == "policy":
-                conn.execute(
-                    "UPDATE policies SET follow_up_date = NULL WHERE policy_uid = ?",
-                    (item_id,),
-                )
+                _pk = int(item_id) if item_id.isdigit() else None
+                if _pk:
+                    conn.execute("UPDATE policies SET follow_up_date = NULL WHERE id = ?", (_pk,))
+                else:
+                    conn.execute("UPDATE policies SET follow_up_date = NULL WHERE policy_uid = ?", (item_id,))
             elif source == "client":
                 conn.execute(
                     "UPDATE clients SET follow_up_date = NULL WHERE id = ?",
