@@ -1381,7 +1381,7 @@ def _ai_import_parse_inner(request: Request, conn, uid: str, result: dict):
             (merged["id"],),
         ).fetchall()] if merged.get("is_program") else [],
         "linkable_policies": [dict(r) for r in conn.execute(
-            """SELECT policy_uid, policy_type, carrier, premium
+            """SELECT policy_uid, policy_type, carrier, premium, effective_date, expiration_date
                FROM policies WHERE client_id = ? AND archived = 0
                  AND (is_program = 0 OR is_program IS NULL)
                  AND (is_opportunity = 0 OR is_opportunity IS NULL)
@@ -1632,7 +1632,7 @@ def policy_tab_details(request: Request, policy_uid: str, conn=Depends(get_db)):
             (policy_dict["id"],),
         ).fetchall()] if policy_dict.get("is_program") else [],
         "linkable_policies": [dict(r) for r in conn.execute(
-            """SELECT policy_uid, policy_type, carrier, premium
+            """SELECT policy_uid, policy_type, carrier, premium, effective_date, expiration_date
                FROM policies WHERE client_id = ? AND archived = 0
                  AND (is_program = 0 OR is_program IS NULL)
                  AND (is_opportunity = 0 OR is_opportunity IS NULL)
@@ -2293,7 +2293,7 @@ def policy_edit_form(request: Request, policy_uid: str, add_contact: str = "", c
             (policy_dict["id"],),
         ).fetchall()] if policy_dict.get("is_program") else [],
         "linkable_policies": [dict(r) for r in conn.execute(
-            """SELECT policy_uid, policy_type, carrier, premium
+            """SELECT policy_uid, policy_type, carrier, premium, effective_date, expiration_date
                FROM policies WHERE client_id = ? AND archived = 0
                  AND (is_program = 0 OR is_program IS NULL)
                  AND (is_opportunity = 0 OR is_opportunity IS NULL)
