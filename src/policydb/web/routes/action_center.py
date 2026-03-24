@@ -68,7 +68,16 @@ def _classify_item(item: dict, today: date, stale_threshold: int, dispositions: 
     fu_date_str = item.get("follow_up_date", "")
 
     # Step 1: Triage — activity items with no disposition
+    # But only if the follow-up date is today or past. Future items without
+    # a disposition go to "watching" — they were created early and aren't
+    # actionable yet.
     if source == "activity" and not disposition.strip():
+        try:
+            _fu = date.fromisoformat(fu_date_str)
+            if (today - _fu).days < 0:
+                return "watching"
+        except (ValueError, TypeError):
+            pass
         return "triage"
 
     # Step 2: Map disposition → accountability
@@ -211,7 +220,14 @@ def _followups_ctx(conn, window: int, activity_type: str, q: str,
         item["nudge_count"] = count
         item["escalation_tier"] = tier
 
-    # Inject overdue milestones into urgency tiers
+    # Inject overdue milestones into urgency tiers.
+    # Skip milestones that already have an activity_log follow-up to avoid
+    # double-counting from the dual mandated-activity / timeline systems.
+    _activity_policy_uids = {
+        item.get("policy_uid")
+        for item in all_items
+        if item.get("source") == "activity" and item.get("policy_uid")
+    }
     try:
         milestone_rows = conn.execute("""
             SELECT pt.policy_uid, pt.milestone_name, pt.projected_date,
@@ -227,6 +243,9 @@ def _followups_ctx(conn, window: int, activity_type: str, q: str,
 
         for row in milestone_rows:
             item = dict(row)
+            # Skip if an activity follow-up already covers this policy
+            if item["policy_uid"] in _activity_policy_uids:
+                continue
             item["source"] = "milestone"
             item["is_milestone"] = True
             item["follow_up_date"] = item["projected_date"]
