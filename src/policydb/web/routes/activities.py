@@ -73,7 +73,7 @@ def activity_log(
     contact_id: int = Form(0),
     follow_up_date: str = Form(""),
     duration_hours: str = Form(""),
-    _pulse_oob: str = Form(""),
+    pulse_oob: str = Form(""),
     conn=Depends(get_db),
 ):
     def _float(v):
@@ -117,7 +117,7 @@ def activity_log(
     ).fetchone()
     a = dict(row)
 
-    if _pulse_oob:
+    if pulse_oob:
         # Re-fetch pulse sections for OOB swap
         from policydb.timeline_engine import get_policy_timeline
         policy_uid_row = conn.execute(
@@ -155,7 +155,7 @@ def activity_log(
                 overdue_activities, None, timeline, _today
             )
 
-            return templates.TemplateResponse("policies/_pulse_oob.html", {
+            return templates.TemplateResponse("policies/pulse_oob.html", {
                 "request": request,
                 "recent": recent,
                 "effort": effort,
