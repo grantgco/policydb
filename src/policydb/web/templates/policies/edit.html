@@ -86,6 +86,8 @@
       {% set total = checklist | length %}
       {% if total %}<span class="tab-badge">{{ done }}/{{ total }}</span>{% endif %}
     </button>
+    <button class="tab-btn" data-tab="pulse"
+      data-tab-url="/policies/{{ policy.policy_uid }}/tab/pulse">Pulse</button>
   </div>
   <div class="tab-content" id="ai-import-target">
     <div class="py-4 text-sm text-gray-400 text-center">Loading…</div>
