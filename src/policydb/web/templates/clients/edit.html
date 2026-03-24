@@ -135,6 +135,9 @@
                     if (latField) latField.value = item.lat || '';
                     if (lonField) lonField.value = item.lon || '';
                     dropdown.classList.add('hidden');
+                    // Trigger autosave with updated lat/lng (use 'change' to avoid
+                    // re-triggering the autocomplete 'input' handler which clears lat/lng)
+                    input.dispatchEvent(new Event('change', { bubbles: true }));
                   });
                   dropdown.appendChild(div);
                 });

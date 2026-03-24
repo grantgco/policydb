@@ -214,6 +214,10 @@ window.addLocation = function(clientId) {
                 });
               }
 
+              // Save geocoded lat/lng to the project
+              if (item.lat) patchLocField(endpoint, 'latitude', item.lat);
+              if (item.lon) patchLocField(endpoint, 'longitude', item.lon);
+
               locAddrDropdown.classList.add('hidden');
             });
             locAddrDropdown.appendChild(div);
