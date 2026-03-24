@@ -96,6 +96,11 @@ def _sort_clients(clients, sort="name", dir="asc"):
     return clients
 
 
+def _get_us_states():
+    from policydb.web.routes.policies import US_STATES
+    return US_STATES
+
+
 def _get_project_locations(conn, client_id: int) -> list[dict]:
     """Load all location-type projects with policy/opportunity counts, premium, and revenue."""
     rows = conn.execute("""
@@ -355,6 +360,8 @@ def client_new_post(
     client_since: str = Form(""),
     preferred_contact_method: str = Form(""),
     referral_source: str = Form(""),
+    latitude: str = Form(""),
+    longitude: str = Form(""),
     conn=Depends(get_db),
 ):
     def _float(v):
@@ -402,21 +409,25 @@ def client_new_post(
                     "client_since": client_since,
                     "preferred_contact_method": preferred_contact_method,
                     "referral_source": referral_source,
+                    "latitude": latitude,
+                    "longitude": longitude,
                 },
             })
 
     cursor = conn.execute(
         """INSERT INTO clients (name, industry_segment, cn_number, is_prospect, primary_contact, contact_email,
            contact_phone, contact_mobile, address, notes, account_exec, broker_fee, business_description,
-           website, renewal_month, client_since, preferred_contact_method, referral_source)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+           website, renewal_month, client_since, preferred_contact_method, referral_source,
+           latitude, longitude)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (name, industry_segment, cn_number.strip() or None, 1 if is_prospect else 0,
          primary_contact or None, clean_email(contact_email) or None,
          format_phone(contact_phone) or None, format_phone(contact_mobile) or None,
          address or None, notes or None, account_exec,
          _float(broker_fee), business_description or None,
          website or None, _int(renewal_month), client_since or None,
-         preferred_contact_method or None, referral_source or None),
+         preferred_contact_method or None, referral_source or None,
+         _float(latitude), _float(longitude)),
     )
     conn.commit()
     logger.info("Client %d created: %s", cursor.lastrowid, name)
@@ -735,6 +746,7 @@ def client_tab_policies(request: Request, client_id: int, conn=Depends(get_db)):
         "project_stages": cfg.get("project_stages", []),
         "project_types": cfg.get("project_types", []),
         "timeline_data": _build_timeline_data(_get_project_pipeline(conn, client_id)),
+        "us_states": _get_us_states(),
     })
 
 
@@ -2259,6 +2271,8 @@ def client_edit_post(
     referral_source: str = Form(""),
     fein: str = Form(""),
     hourly_rate: str = Form(""),
+    latitude: str = Form(""),
+    longitude: str = Form(""),
     conn=Depends(get_db),
 ):
     def _float(v):
@@ -2281,7 +2295,7 @@ def client_edit_post(
            contact_email=?, contact_phone=?, contact_mobile=?, address=?, notes=?,
            broker_fee=?, business_description=?,
            website=?, renewal_month=?, client_since=?, preferred_contact_method=?, referral_source=?,
-           fein=?, hourly_rate=?
+           fein=?, hourly_rate=?, latitude=?, longitude=?
            WHERE id=?""",
         (name, industry_segment, cn_number.strip() or None, 1 if is_prospect else 0,
          primary_contact or None, clean_email(contact_email) or None,
@@ -2291,6 +2305,7 @@ def client_edit_post(
          website or None, _int(renewal_month), client_since or None,
          preferred_contact_method or None, referral_source or None,
          format_fein(fein) or None, _float(hourly_rate),
+         _float(latitude), _float(longitude),
          client_id),
     )
     conn.commit()

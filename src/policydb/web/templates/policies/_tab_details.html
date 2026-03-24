@@ -465,10 +465,12 @@
     <div>
       <p class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-3">Primary Exposure Address / Location</p>
       <div class="grid grid-cols-1 sm:grid-cols-6 gap-4">
-        <div class="sm:col-span-6">
+        <div class="sm:col-span-6 relative">
           <label class="field-label">Street Address</label>
-          <input type="text" data-field="exposure_address" value="{{ policy.exposure_address or '' }}"
-            placeholder="123 Main St, Suite 100" class="form-input w-full">
+          <input type="text" data-field="exposure_address" id="exposure-address-input" value="{{ policy.exposure_address or '' }}"
+            placeholder="123 Main St, Suite 100" class="form-input w-full"
+            data-1p-ignore data-lpignore="true" autocomplete="off">
+          <div id="exposure-address-suggestions" class="absolute left-0 right-0 top-full z-50 bg-white border border-gray-200 rounded-b-lg shadow-lg max-h-48 overflow-y-auto hidden"></div>
         </div>
         <div class="sm:col-span-3">
           <label class="field-label">City</label>
@@ -634,6 +636,72 @@
       });
   }
   AC_FIELDS.forEach(loadList);
+
+  /* ── Nominatim autocomplete for exposure address ── */
+  (function() {
+    var addrInput = document.getElementById('exposure-address-input');
+    var addrDropdown = document.getElementById('exposure-address-suggestions');
+    if (!addrInput || !addrDropdown) return;
+
+    var stateMap = {};
+    {% for abbr, name in us_states %}
+    stateMap[{{ name | tojson }}.toLowerCase()] = {{ abbr | tojson }};
+    {% endfor %}
+
+    function stateToAbbr(s) {
+      if (!s) return '';
+      var lower = s.trim().toLowerCase();
+      if (stateMap[lower]) return stateMap[lower];
+      var upper = s.trim().toUpperCase();
+      return upper.length === 2 ? upper : s.trim();
+    }
+
+    var timer = null;
+    addrInput.addEventListener('input', function() {
+      clearTimeout(timer);
+      var q = addrInput.value.trim();
+      if (q.length < 4) { addrDropdown.classList.add('hidden'); return; }
+      timer = setTimeout(function() {
+        fetch('https://nominatim.openstreetmap.org/search?format=json&q=' + encodeURIComponent(q) + '&limit=5&addressdetails=1&countrycodes=us,gb,ca')
+          .then(function(r) { return r.json(); })
+          .then(function(data) {
+            if (!data || !data.length) { addrDropdown.classList.add('hidden'); return; }
+            addrDropdown.innerHTML = '';
+            data.forEach(function(item) {
+              var div = document.createElement('div');
+              div.className = 'px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 cursor-pointer border-b border-gray-50';
+              div.textContent = item.display_name;
+              div.addEventListener('mousedown', function(e) {
+                e.preventDefault();
+                var a = item.address || {};
+                var street = (a.house_number ? a.house_number + ' ' : '') + (a.road || '');
+                addrInput.value = street || item.display_name;
+                patchField('exposure_address', addrInput.value, addrInput);
+
+                var city = a.city || a.town || a.village || a.hamlet || '';
+                var cityEl = container.querySelector('[data-field="exposure_city"]');
+                if (cityEl && city) { cityEl.value = city; patchField('exposure_city', city, cityEl); }
+
+                var state = stateToAbbr(a.state || '');
+                var stateEl = container.querySelector('[data-field="exposure_state"]');
+                if (stateEl && state) { stateEl.value = state; patchField('exposure_state', state, stateEl); }
+
+                var zip = a.postcode || '';
+                var zipEl = container.querySelector('[data-field="exposure_zip"]');
+                if (zipEl && zip) { zipEl.value = zip; patchField('exposure_zip', zip, zipEl); }
+
+                addrDropdown.classList.add('hidden');
+              });
+              addrDropdown.appendChild(div);
+            });
+            addrDropdown.classList.remove('hidden');
+          }).catch(function() { addrDropdown.classList.add('hidden'); });
+      }, 400);
+    });
+    addrInput.addEventListener('blur', function() {
+      setTimeout(function() { addrDropdown.classList.add('hidden'); }, 200);
+    });
+  })();
 
   /* ── Live layer notation preview ── */
   (function () {
