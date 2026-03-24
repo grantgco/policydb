@@ -2825,14 +2825,15 @@ def project_detail(
         (project_id,),
     ).fetchall()
     project = dict(project)
-    # Pull address from first policy that has one
-    for pol in policies:
-        if pol["exposure_address"] or pol["exposure_city"]:
-            project["exposure_address"] = pol["exposure_address"] or ""
-            project["exposure_city"] = pol["exposure_city"] or ""
-            project["exposure_state"] = pol["exposure_state"] or ""
-            project["exposure_zip"] = pol["exposure_zip"] or ""
-            break
+    # Pull address from first policy that has one (fallback when project has no own address)
+    if not project.get("address"):
+        for pol in policies:
+            if pol["exposure_address"] or pol["exposure_city"]:
+                project["exposure_address"] = pol["exposure_address"] or ""
+                project["exposure_city"] = pol["exposure_city"] or ""
+                project["exposure_state"] = pol["exposure_state"] or ""
+                project["exposure_zip"] = pol["exposure_zip"] or ""
+                break
     if project.get("updated_at"):
         try:
             dt = dateparser.parse(project["updated_at"])
@@ -2842,6 +2843,13 @@ def project_detail(
                 ).replace("AM", "am").replace("PM", "pm")
         except Exception:
             project["updated_at_fmt"] = project["updated_at"][:16]
+
+    # COPE data for this project/location
+    cope_row = conn.execute(
+        "SELECT * FROM cope_data WHERE project_id = ?", (project_id,)
+    ).fetchone()
+    cope = dict(cope_row) if cope_row else None
+
     return templates.TemplateResponse(
         "clients/project.html",
         {
@@ -2849,6 +2857,7 @@ def project_detail(
             "project": project,
             "client": dict(client),
             "policies": [dict(p) for p in policies],
+            "cope": cope,
         },
     )
 
@@ -4070,7 +4079,8 @@ async def project_pipeline_field(
 
     allowed = {"project_type", "status", "name", "project_value", "start_date",
                "target_completion", "insurance_needed_by", "scope_description",
-               "general_contractor", "owner_name", "address", "city", "state", "zip"}
+               "general_contractor", "owner_name", "address", "city", "state", "zip",
+               "latitude", "longitude"}
     if field not in allowed:
         return JSONResponse({"ok": False, "error": f"Invalid field: {field}"}, status_code=400)
 
@@ -4087,6 +4097,13 @@ async def project_pipeline_field(
         num = parse_currency_with_magnitude(value)
         conn.execute("UPDATE projects SET project_value = ? WHERE id = ?", (num, project_id))
         formatted = f"${num:,.0f}"
+    elif field in ("latitude", "longitude"):
+        try:
+            num = float(value) if str(value).strip() else None
+        except ValueError:
+            num = None
+        conn.execute(f"UPDATE projects SET {field} = ? WHERE id = ?", (num, project_id))
+        formatted = str(num) if num is not None else ""
     elif field in ("start_date", "target_completion", "insurance_needed_by"):
         conn.execute(f"UPDATE projects SET {field} = ? WHERE id = ?",
                      (value.strip() or None, project_id))
@@ -4639,12 +4656,19 @@ def location_create(
     city: str = Form(""),
     state: str = Form(""),
     zip: str = Form(""),
+    latitude: str = Form(""),
+    longitude: str = Form(""),
     conn=Depends(get_db),
 ):
     """Create a new location/project for a client."""
+    def _fl(v):
+        try:
+            return float(v) if str(v).strip() else None
+        except ValueError:
+            return None
     conn.execute(
-        "INSERT INTO projects (name, client_id, address, city, state, zip, project_type) VALUES (?, ?, ?, ?, ?, ?, 'Location')",
-        (name, client_id, address, city, state, zip),
+        "INSERT INTO projects (name, client_id, address, city, state, zip, latitude, longitude, project_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Location')",
+        (name, client_id, address, city, state, zip, _fl(latitude), _fl(longitude)),
     )
     conn.commit()
     return HTMLResponse("", headers={"HX-Trigger": "locationChanged"})
