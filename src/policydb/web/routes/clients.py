@@ -3182,10 +3182,20 @@ def _project_contacts(conn, client_id: int, project: str) -> list[dict]:
 
 @router.get("/{client_id}/project/log-form", response_class=HTMLResponse)
 def project_log_form(request: Request, client_id: int, project: str, conn=Depends(get_db)):
-    """HTMX partial: inline activity log form for all policies in a project."""
+    """HTMX partial: inline activity log form for a project."""
     ctx = _project_note_ctx(conn, client_id, project)
     ctx["activity_types"] = cfg.get("activity_types")
     ctx["contacts"] = _project_contacts(conn, client_id, project)
+    # Policies list for "Specific policy" scope dropdown
+    if ctx.get("project_id"):
+        policies = conn.execute(
+            """SELECT id, policy_uid, policy_type, carrier FROM policies
+               WHERE project_id = ? AND archived = 0 ORDER BY policy_type""",
+            (ctx["project_id"],),
+        ).fetchall()
+        ctx["policies"] = [dict(p) for p in policies]
+    else:
+        ctx["policies"] = []
     return templates.TemplateResponse("clients/_project_log_form.html", {"request": request, **ctx})
 
 
@@ -3199,19 +3209,13 @@ def project_log_save(
     subject: str = Form(...),
     details: str = Form(""),
     follow_up_date: str = Form(""),
-    follow_up_scope: str = Form("all"),
+    scope: str = Form("project"),
+    specific_policy_id: int = Form(0),
     duration_hours: str = Form(""),
     conn=Depends(get_db),
 ):
-    """Create an activity log entry for every active policy in a project."""
+    """Create a single activity log entry at project or specific-policy level."""
     from datetime import date
-    policies = conn.execute(
-        """SELECT id FROM policies
-           WHERE client_id = ? AND LOWER(TRIM(COALESCE(project_name,''))) = LOWER(TRIM(?))
-             AND archived = 0
-           ORDER BY id""",
-        (client_id, project_name),
-    ).fetchall()
     account_exec = cfg.get("default_account_exec", "")
     dur = None
     if duration_hours and duration_hours.strip():
@@ -3231,33 +3235,59 @@ def project_log_save(
         if _row:
             _contact_id = _row["id"]
 
-    # follow_up_scope: "all" = set follow-up on every policy, "lead" = only the first
-    _fu_date_for = follow_up_date if follow_up_date else None
-    count = 0
-    for i, p in enumerate(policies):
-        # Only set follow-up on first policy if scope is "lead"
-        row_fu = _fu_date_for if (follow_up_scope == "all" or i == 0) else None
+    # Resolve project_id from projects table
+    proj_row = conn.execute(
+        "SELECT id FROM projects WHERE client_id = ? AND LOWER(TRIM(name)) = LOWER(TRIM(?))",
+        (client_id, project_name),
+    ).fetchone()
+    _project_id = proj_row["id"] if proj_row else None
+
+    _fu_date = follow_up_date if follow_up_date else None
+
+    if scope == "policy" and specific_policy_id:
+        # Specific policy scope: one row with policy_id set
         conn.execute(
             """INSERT INTO activity_log
-               (activity_date, client_id, policy_id, activity_type, contact_person,
+               (activity_date, client_id, policy_id, project_id, activity_type, contact_person,
                 contact_id, subject, details, follow_up_date, duration_hours, account_exec)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (today, client_id, p["id"], activity_type, contact_person or None,
-             _contact_id, subject, details or None, row_fu, dur, account_exec),
+               VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (today, client_id, specific_policy_id, activity_type, contact_person or None,
+             _contact_id, subject, details or None, _fu_date, dur, account_exec),
         )
-        if row_fu:
+        if _fu_date:
             from policydb.queries import supersede_followups
-            supersede_followups(conn, p["id"], row_fu)
-        count += 1
+            supersede_followups(conn, specific_policy_id, _fu_date)
+        # Look up policy_uid for success message
+        pol = conn.execute("SELECT policy_uid FROM policies WHERE id=?", (specific_policy_id,)).fetchone()
+        log_msg = f"Logged activity to {pol['policy_uid']}" if pol else "Logged activity to policy"
+    else:
+        # Project-level scope: one row with project_id set, policy_id NULL
+        conn.execute(
+            """INSERT INTO activity_log
+               (activity_date, client_id, policy_id, project_id, activity_type, contact_person,
+                contact_id, subject, details, follow_up_date, duration_hours, account_exec)
+               VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (today, client_id, _project_id, activity_type, contact_person or None,
+             _contact_id, subject, details or None, _fu_date, dur, account_exec),
+        )
+        # No supersede_followups for project-level activities (no policy_id to chain)
+        log_msg = f"Logged project activity to {project_name}"
+
     conn.commit()
     # Return the log form again with a success banner
     ctx = _project_note_ctx(conn, client_id, project_name)
     ctx["activity_types"] = cfg.get("activity_types")
     ctx["contacts"] = _project_contacts(conn, client_id, project_name)
-    fu_note = ""
-    if _fu_date_for and follow_up_scope == "lead":
-        fu_note = " (follow-up on lead policy only)"
-    ctx["log_success"] = f'Logged to {count} polic{"y" if count == 1 else "ies"} in {project_name}{fu_note}'
+    if _project_id:
+        policies = conn.execute(
+            """SELECT id, policy_uid, policy_type, carrier FROM policies
+               WHERE project_id = ? AND archived = 0 ORDER BY policy_type""",
+            (_project_id,),
+        ).fetchall()
+        ctx["policies"] = [dict(p) for p in policies]
+    else:
+        ctx["policies"] = []
+    ctx["log_success"] = log_msg
     return templates.TemplateResponse("clients/_project_log_form.html", {"request": request, **ctx})
 
 

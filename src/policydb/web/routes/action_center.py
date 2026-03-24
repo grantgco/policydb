@@ -68,7 +68,7 @@ def _classify_item(item: dict, today: date, stale_threshold: int, dispositions: 
     fu_date_str = item.get("follow_up_date", "")
 
     # Step 1: Triage — activity items with no disposition
-    if source == "activity" and not disposition.strip():
+    if source in ("activity", "project") and not disposition.strip():
         return "triage"
 
     # Step 2: Map disposition → accountability
