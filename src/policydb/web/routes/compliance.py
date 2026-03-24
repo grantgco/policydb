@@ -12,6 +12,11 @@ from fastapi.responses import HTMLResponse, Response
 from policydb import config as cfg
 from policydb.compliance import (
     get_client_compliance_data,
+    get_linkable_policies,
+    get_requirement_links,
+    link_policy_to_requirement,
+    set_primary_link,
+    unlink_policy_from_requirement,
     get_risk_review_prompts,
 )
 from policydb.llm_schemas import (
@@ -58,6 +63,8 @@ def _compliance_context(conn: sqlite3.Connection, client_id: int, request: Reque
         "SELECT id, name FROM projects WHERE client_id=? ORDER BY name", (client_id,)
     ).fetchall()]
 
+    linkable = get_linkable_policies(conn, client_id)
+
     return {
         "request": request,
         "client": client,
@@ -70,6 +77,7 @@ def _compliance_context(conn: sqlite3.Connection, client_id: int, request: Reque
         "risk_prompts": risk_prompts,
         "projects": projects,
         "active_location_id": active_location_id,
+        "linkable_policies": linkable,
         # Config values
         "compliance_statuses": cfg.get("compliance_statuses", []),
         "deductible_types": cfg.get("deductible_types", []),
@@ -110,6 +118,7 @@ def _location_response(request: Request, conn: sqlite3.Connection, client_id: in
         return ""
     idx = next((i for i, l in enumerate(locs) if l["project"]["id"] == project_id), 0)
     next_loc = locs[idx + 1]["project"] if idx + 1 < len(locs) else None
+    linkable = get_linkable_policies(conn, client_id)
     return templates.TemplateResponse("compliance/_location_detail.html", {
         "request": request, "client_id": client_id,
         "location_data": loc,
@@ -118,6 +127,7 @@ def _location_response(request: Request, conn: sqlite3.Connection, client_id: in
         "locations": locs,
         "sources": data["sources"],
         "all_policies": data["all_policies"],
+        "linkable_policies": linkable,
         "compliance_statuses": cfg.get("compliance_statuses", []),
         "policy_types": cfg.get("policy_types", []),
         "deductible_types": cfg.get("deductible_types", []),
@@ -598,6 +608,9 @@ def requirements_row_edit(
         "SELECT id, name FROM projects WHERE client_id=?", (client_id,)
     ).fetchall()]
 
+    links = get_requirement_links(conn, req_id)
+    linkable = get_linkable_policies(conn, client_id)
+
     return templates.TemplateResponse(
         "compliance/_requirement_row_edit.html",
         {
@@ -606,6 +619,8 @@ def requirements_row_edit(
             "client_id": client_id,
             "sources": sources,
             "projects": projects,
+            "links": links,
+            "linkable_policies": linkable,
             "compliance_statuses": cfg.get("compliance_statuses", []),
             "deductible_types": cfg.get("deductible_types", []),
             "policy_types": cfg.get("policy_types", []),
@@ -1050,6 +1065,7 @@ def requirement_row_display(client_id: int, req_id: int, request: Request, conn=
         req["_endorsements_list"] = json.loads(req.get("required_endorsements") or "[]")
     except (ValueError, TypeError):
         req["_endorsements_list"] = []
+    req["policy_links"] = get_requirement_links(conn, req_id)
     return templates.TemplateResponse("compliance/_requirement_row.html", {
         "request": request, "req": req, "client_id": client_id,
     })
@@ -1172,6 +1188,171 @@ async def cope_cell(
     conn.commit()
 
     return JSONResponse({"ok": True, "formatted": formatted})
+
+
+# ── Policy Link Management ────────────────────────────────────────────────────
+
+
+@router.get("/client/{client_id}/requirements/{req_id}/links", response_class=HTMLResponse)
+def requirement_links(
+    client_id: int,
+    req_id: int,
+    request: Request,
+    conn=Depends(get_db),
+):
+    """Return the _policy_links.html partial for a requirement."""
+    links = get_requirement_links(conn, req_id)
+    linkable = get_linkable_policies(conn, client_id)
+    return templates.TemplateResponse("compliance/_policy_links.html", {
+        "request": request,
+        "client_id": client_id,
+        "req_id": req_id,
+        "links": links,
+        "linkable_policies": linkable,
+    })
+
+
+@router.post("/client/{client_id}/requirements/{req_id}/links/add", response_class=HTMLResponse)
+def requirement_link_add(
+    client_id: int,
+    req_id: int,
+    request: Request,
+    conn=Depends(get_db),
+    policy_uid: str = Form(...),
+    link_type: str = Form("direct"),
+):
+    """Add a policy link to a requirement."""
+    link_policy_to_requirement(conn, req_id, policy_uid.strip(), link_type.strip())
+    # Return updated links partial
+    links = get_requirement_links(conn, req_id)
+    linkable = get_linkable_policies(conn, client_id)
+
+    links_html = templates.TemplateResponse("compliance/_policy_links.html", {
+        "request": request,
+        "client_id": client_id,
+        "req_id": req_id,
+        "links": links,
+        "linkable_policies": linkable,
+    }).body.decode()
+
+    oob = _oob_summary_and_matrix(request, conn, client_id)
+    return HTMLResponse(links_html + oob)
+
+
+@router.post("/client/{client_id}/requirements/{req_id}/links/{link_id}/remove", response_class=HTMLResponse)
+def requirement_link_remove(
+    client_id: int,
+    req_id: int,
+    link_id: int,
+    request: Request,
+    conn=Depends(get_db),
+):
+    """Remove a policy link from a requirement."""
+    unlink_policy_from_requirement(conn, req_id, link_id)
+    links = get_requirement_links(conn, req_id)
+    linkable = get_linkable_policies(conn, client_id)
+
+    links_html = templates.TemplateResponse("compliance/_policy_links.html", {
+        "request": request,
+        "client_id": client_id,
+        "req_id": req_id,
+        "links": links,
+        "linkable_policies": linkable,
+    }).body.decode()
+
+    oob = _oob_summary_and_matrix(request, conn, client_id)
+    return HTMLResponse(links_html + oob)
+
+
+@router.post("/client/{client_id}/requirements/{req_id}/links/{link_id}/set-primary", response_class=HTMLResponse)
+def requirement_link_set_primary(
+    client_id: int,
+    req_id: int,
+    link_id: int,
+    request: Request,
+    conn=Depends(get_db),
+):
+    """Set a specific link as the primary for a requirement."""
+    set_primary_link(conn, req_id, link_id)
+    links = get_requirement_links(conn, req_id)
+    linkable = get_linkable_policies(conn, client_id)
+
+    links_html = templates.TemplateResponse("compliance/_policy_links.html", {
+        "request": request,
+        "client_id": client_id,
+        "req_id": req_id,
+        "links": links,
+        "linkable_policies": linkable,
+    }).body.decode()
+
+    oob = _oob_summary_and_matrix(request, conn, client_id)
+    return HTMLResponse(links_html + oob)
+
+
+@router.get("/client/{client_id}/linkable-policies")
+def linkable_policies_search(
+    client_id: int,
+    conn=Depends(get_db),
+    q: str = Query(""),
+):
+    """JSON search endpoint for policy combobox. Returns matching policies grouped by program/standalone."""
+    from fastapi.responses import JSONResponse
+
+    all_policies = get_linkable_policies(conn, client_id)
+    query = q.strip().lower()
+
+    if not query:
+        return JSONResponse(all_policies)
+
+    def _matches(pol: dict) -> bool:
+        searchable = " ".join(filter(None, [
+            pol.get("policy_uid", ""),
+            pol.get("policy_type", ""),
+            pol.get("carrier", ""),
+            pol.get("policy_number", ""),
+        ])).lower()
+        return query in searchable
+
+    result = []
+    for pol in all_policies:
+        children = pol.get("children", [])
+        if _matches(pol):
+            result.append(pol)
+        elif children:
+            matching_children = [c for c in children if _matches(c)]
+            if matching_children:
+                p = dict(pol)
+                p["children"] = matching_children
+                result.append(p)
+
+    return JSONResponse(result)
+
+
+# ── Compliance Report ─────────────────────────────────────────────────────────
+
+
+@router.get("/client/{client_id}/report", response_class=HTMLResponse)
+def compliance_report(
+    client_id: int,
+    request: Request,
+    conn=Depends(get_db),
+):
+    """Render the full compliance report page."""
+    ctx = _compliance_context(conn, client_id, request)
+    return templates.TemplateResponse("compliance/report.html", ctx)
+
+
+@router.get("/client/{client_id}/export/md")
+def export_md(client_id: int, conn=Depends(get_db)):
+    """Download the compliance report as Markdown."""
+    from policydb.exporter import export_compliance_md
+
+    md_text, filename = export_compliance_md(conn, client_id)
+    return Response(
+        content=md_text.encode("utf-8"),
+        media_type="text/markdown; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 # ── Requirement Templates ─────────────────────────────────────────────────────

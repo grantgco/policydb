@@ -359,7 +359,7 @@ def init_db(path: Path | None = None) -> None:
 
     # Back up the database once before running any pending migrations.
     # This gives a clean restore point regardless of which migration fails.
-    _KNOWN_MIGRATIONS = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73}
+    _KNOWN_MIGRATIONS = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75}
     if _KNOWN_MIGRATIONS - applied:
         _backup_db(conn, db_path)
 
@@ -1035,6 +1035,25 @@ def init_db(path: Path | None = None) -> None:
             (74, "Add project_id to activity_log for project-level activities"),
         )
         conn.commit()
+
+    if 75 not in applied:
+        sql = (_MIGRATIONS_DIR / "075_requirement_policy_links.sql").read_text()
+        conn.executescript(sql)
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (75, "Requirement-policy links junction table for manual compliance association"),
+        )
+        conn.commit()
+    else:
+        # Idempotent: ensure table exists even if version 75 was applied by another worktree
+        # with a different migration. CREATE TABLE IF NOT EXISTS is safe to re-run.
+        _rpl_exists = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='requirement_policy_links'"
+        ).fetchone()
+        if not _rpl_exists:
+            sql = (_MIGRATIONS_DIR / "075_requirement_policy_links.sql").read_text()
+            conn.executescript(sql)
+            conn.commit()
 
     # Data hygiene: fix 'None' string corruption in text fields (runs every startup, fast no-op if clean)
     conn.execute("UPDATE clients SET cn_number = NULL WHERE cn_number = 'None'")

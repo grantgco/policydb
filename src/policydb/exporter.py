@@ -2150,6 +2150,17 @@ def _compliance_sheet_all_requirements(wb: Workbook, data: dict) -> None:
                     endorsements = json.loads(endorsements)
                 except (ValueError, TypeError):
                     endorsements = [endorsements] if endorsements else []
+            # Build linked policies string from junction table data
+            policy_links = req.get("policy_links", [])
+            if policy_links:
+                linked_uids = ", ".join(lk.get("policy_uid", "") for lk in policy_links)
+                link_types = ", ".join(lk.get("link_type", "direct") for lk in policy_links)
+                primary_uid = next((lk["policy_uid"] for lk in policy_links if lk.get("is_primary")), "")
+            else:
+                linked_uids = req.get("linked_policy_uid") or ""
+                link_types = "direct" if linked_uids else ""
+                primary_uid = linked_uids
+
             all_rows.append({
                 "Location": loc_name,
                 "Coverage Line": req.get("coverage_line", ""),
@@ -2158,7 +2169,9 @@ def _compliance_sheet_all_requirements(wb: Workbook, data: dict) -> None:
                 "Deductible Type": req.get("deductible_type") or "",
                 "Required Endorsements": ", ".join(endorsements),
                 "Compliance Status": req.get("compliance_status") or "Needs Review",
-                "Linked Policy UID": req.get("linked_policy_uid") or "",
+                "Linked Policies": linked_uids,
+                "Primary Policy": primary_uid,
+                "Link Types": link_types,
                 "Source Name": req.get("source_name") or "",
                 "Source Clause Ref": req.get("clause_ref") or "",
                 "Notes": req.get("notes") or "",

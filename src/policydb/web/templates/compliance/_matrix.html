@@ -94,18 +94,25 @@
                 <div class="inline-flex items-center gap-1.5 {{ bg }} {{ text_color }} px-2 py-1 rounded text-xs">
                   <span class="w-2 h-2 rounded-full {{ dot }}"></span> GAP
                 </div>
-                {% if gov.notes %}<div class="text-[10px] text-red-500 mt-0.5">{{ gov.notes }}</div>{% endif %}
               {% elif pol_ns.policy %}
                 <div class="inline-flex items-center gap-1.5 {{ bg }} {{ text_color }} px-2 py-1 rounded text-xs">
                   <span class="w-2 h-2 rounded-full {{ dot }}"></span>
                   {{ pol_ns.policy.policy_number or pol_ns.policy.policy_uid[:8] }}
                 </div>
+                {# Show +N for additional links #}
+                {% set pl = gov.get('policy_links', []) if gov.get is defined else [] %}
+                {% if pl | length > 1 %}
+                  <div class="text-[10px] text-gray-400 mt-0.5">+{{ pl | length - 1 }} more linked</div>
+                {% endif %}
               {% else %}
                 <div class="inline-flex items-center gap-1.5 {{ bg }} {{ text_color }} px-2 py-1 rounded text-xs">
                   <span class="w-2 h-2 rounded-full {{ dot }}"></span>
                   {{ gov.compliance_status or 'Needs Review' }}
                 </div>
               {% endif %}
+
+              {# Notes — shown for ALL statuses, not just gaps #}
+              {% if gov.notes %}<div class="text-[10px] text-gray-500 mt-0.5 max-w-[140px] truncate" title="{{ gov.notes }}">{{ gov.notes }}</div>{% endif %}
 
               {% if gov.governing_source %}
               <div class="text-[10px] text-gray-400 mt-0.5">Governed by: {{ gov.governing_source }}</div>
