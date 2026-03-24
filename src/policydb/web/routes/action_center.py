@@ -71,7 +71,7 @@ def _classify_item(item: dict, today: date, stale_threshold: int, dispositions: 
     # But only if the follow-up date is today or past. Future items without
     # a disposition go to "watching" — they were created early and aren't
     # actionable yet.
-    if source == "activity" and not disposition.strip():
+    if source in ("activity", "project") and not disposition.strip():
         try:
             _fu = date.fromisoformat(fu_date_str)
             if (today - _fu).days < 0:

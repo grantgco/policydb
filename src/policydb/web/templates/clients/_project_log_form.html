@@ -10,7 +10,30 @@
     <p class="text-xs text-green-700 font-medium bg-green-100 rounded px-2 py-1">{{ log_success }}</p>
     {% endif %}
 
-    <p class="text-xs font-medium text-gray-600">Log activity to all {{ policy_count }} polic{{ 'y' if policy_count == 1 else 'ies' }} in <span class="font-semibold">{{ project_name }}</span></p>
+    <p class="text-xs font-medium text-gray-600">Log activity for <span class="font-semibold">{{ project_name }}</span></p>
+
+    {# Scope selector: project-level (default) or specific policy #}
+    <div class="flex items-center gap-4 text-xs text-gray-600">
+      <span class="text-gray-500 font-medium">Scope:</span>
+      <label class="flex items-center gap-1 cursor-pointer">
+        <input type="radio" name="scope" value="project" checked class="accent-green-600"
+          onchange="document.getElementById('policy-picker-{{ project_id }}').style.display='none'">
+        Project-level
+      </label>
+      <label class="flex items-center gap-1 cursor-pointer">
+        <input type="radio" name="scope" value="policy" class="accent-green-600"
+          onchange="document.getElementById('policy-picker-{{ project_id }}').style.display=''">
+        Specific policy
+      </label>
+    </div>
+    <div id="policy-picker-{{ project_id }}" style="display:none" class="ml-4">
+      <select name="specific_policy_id" class="border border-gray-300 rounded px-2 py-1 text-xs w-full bg-white focus:outline-none focus:ring-1 focus:ring-marsh">
+        <option value="">Select policy...</option>
+        {% for p in policies %}
+        <option value="{{ p.id }}">{{ p.policy_uid }} &mdash; {{ p.policy_type }}{% if p.carrier %} &middot; {{ p.carrier }}{% endif %}</option>
+        {% endfor %}
+      </select>
+    </div>
 
     <div class="grid grid-cols-4 gap-2">
       <div>
@@ -22,9 +45,9 @@
       </div>
       <div>
         <p class="text-xs text-gray-500 mb-0.5">Contact Person</p>
-        <input type="text" name="contact_person" list="proj-log-contacts" autocomplete="off"
+        <input type="text" name="contact_person" list="proj-log-contacts-{{ project_id }}" autocomplete="off"
           class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh">
-        <datalist id="proj-log-contacts">
+        <datalist id="proj-log-contacts-{{ project_id }}">
           {% for c in contacts %}<option value="{{ c.name }}">{% endfor %}
         </datalist>
       </div>
@@ -35,23 +58,9 @@
       </div>
       <div>
         <p class="text-xs text-gray-500 mb-0.5">Follow-Up Date</p>
-        <input type="date" name="follow_up_date" id="proj-fu-date"
-          class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh"
-          onchange="document.getElementById('fu-scope-row').style.display = this.value ? '' : 'none'">
+        <input type="date" name="follow_up_date"
+          class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh">
       </div>
-    </div>
-
-    {# Follow-up scope — only visible when a follow-up date is set #}
-    <div id="fu-scope-row" class="flex items-center gap-4 text-xs text-gray-600" style="display:none">
-      <span class="text-gray-500 font-medium">Follow-up applies to:</span>
-      <label class="flex items-center gap-1 cursor-pointer">
-        <input type="radio" name="follow_up_scope" value="lead" checked class="accent-green-600">
-        Lead policy only
-      </label>
-      <label class="flex items-center gap-1 cursor-pointer">
-        <input type="radio" name="follow_up_scope" value="all" class="accent-green-600">
-        All {{ policy_count }} policies
-      </label>
     </div>
 
     <div class="grid grid-cols-4 gap-2">
@@ -69,7 +78,7 @@
 
     <div class="flex items-center gap-3">
       <button type="submit"
-        class="bg-green-600 hover:bg-green-700 text-white text-xs font-medium px-3 py-1.5 rounded">Log to All</button>
+        class="bg-green-600 hover:bg-green-700 text-white text-xs font-medium px-3 py-1.5 rounded">Log Activity</button>
       <button type="button"
         hx-get="/clients/{{ client.id }}/project-note?project={{ project_name | urlencode }}"
         hx-target="closest .proj-hdr-wrap"
