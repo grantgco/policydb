@@ -276,6 +276,11 @@ def policy_row_log_post(
         except ValueError:
             return None
 
+    # Supersede old follow-ups BEFORE inserting the new one
+    if follow_up_date:
+        from policydb.queries import supersede_followups
+        supersede_followups(conn, policy_id, follow_up_date)
+
     account_exec = cfg.get("default_account_exec", "Grant")
     conn.execute(
         """INSERT INTO activity_log
@@ -287,9 +292,6 @@ def policy_row_log_post(
             follow_up_date or None, account_exec, round_duration(duration_hours),
         ),
     )
-    if follow_up_date:
-        from policydb.queries import supersede_followups
-        supersede_followups(conn, policy_id, follow_up_date)
     conn.commit()
 
     uid = policy_uid.upper()
@@ -356,6 +358,11 @@ def policy_dash_log_post(
         except ValueError:
             return None
 
+    # Supersede old follow-ups BEFORE inserting the new one
+    if follow_up_date:
+        from policydb.queries import supersede_followups
+        supersede_followups(conn, policy_id, follow_up_date)
+
     account_exec = cfg.get("default_account_exec", "Grant")
     conn.execute(
         """INSERT INTO activity_log
@@ -367,9 +374,6 @@ def policy_dash_log_post(
             follow_up_date or None, account_exec, round_duration(duration_hours),
         ),
     )
-    if follow_up_date:
-        from policydb.queries import supersede_followups
-        supersede_followups(conn, policy_id, follow_up_date)
     conn.commit()
 
     uid = policy_uid.upper()
@@ -446,6 +450,11 @@ def policy_renew_log_post(
         except ValueError:
             return None
 
+    # Supersede old follow-ups BEFORE inserting the new one
+    if follow_up_date:
+        from policydb.queries import supersede_followups
+        supersede_followups(conn, policy_id, follow_up_date)
+
     account_exec = cfg.get("default_account_exec", "Grant")
     conn.execute(
         """INSERT INTO activity_log
@@ -457,9 +466,6 @@ def policy_renew_log_post(
             follow_up_date or None, account_exec, round_duration(duration_hours),
         ),
     )
-    if follow_up_date:
-        from policydb.queries import supersede_followups
-        supersede_followups(conn, policy_id, follow_up_date)
     conn.commit()
 
     uid = policy_uid.upper()
@@ -543,6 +549,11 @@ def opp_log_post(
             return float(v) if str(v).strip() else None
         except ValueError:
             return None
+    # Supersede old follow-ups BEFORE inserting the new one
+    if follow_up_date and policy_id:
+        from policydb.queries import supersede_followups
+        supersede_followups(conn, policy_id, follow_up_date)
+
     account_exec = cfg.get("default_account_exec", "Grant")
     conn.execute(
         """INSERT INTO activity_log
@@ -554,9 +565,6 @@ def opp_log_post(
             follow_up_date or None, account_exec, round_duration(duration_hours),
         ),
     )
-    if follow_up_date and policy_id:
-        from policydb.queries import supersede_followups
-        supersede_followups(conn, policy_id, follow_up_date)
     conn.commit()
     return _opp_row_response(request, policy_uid.upper(), conn)
 
