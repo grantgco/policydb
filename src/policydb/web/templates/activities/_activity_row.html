@@ -32,6 +32,7 @@
       {% if a.thread_id %}
       <span class="text-[10px] text-blue-400 font-mono">COR-{{ a.thread_id }}</span>
       {% endif %}
+      {% if a.project_name %}<span class="text-[10px] bg-purple-50 text-purple-600 font-medium px-1.5 py-0.5 rounded inline-flex items-center gap-0.5"><span>&#128205;</span> {{ a.project_name }}</span>{% endif %}
       {% if a.policy_uid %}<a href="/policies/{{ a.policy_uid }}/edit" class="text-xs font-mono text-marsh hover:underline">{{ a.policy_uid }}</a>{% endif %}
       <span class="text-sm font-medium text-gray-800">{{ a.subject }}</span>
       {% if a.activity_type == 'Meeting' %}
