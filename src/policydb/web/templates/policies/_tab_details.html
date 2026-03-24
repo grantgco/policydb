@@ -90,7 +90,7 @@
             <option value="">— Select policy —</option>
             {% for lp in linkable_policies %}
             {% if not lp.policy_uid in (program_linked_policies | map(attribute='policy_uid') | list) %}
-            <option value="{{ lp.policy_uid }}">{{ lp.policy_uid }} — {{ lp.policy_type }} · {{ lp.carrier or 'No carrier' }}{% if lp.premium %} · {{ lp.premium | currency }}{% endif %}</option>
+            <option value="{{ lp.policy_uid }}">{{ lp.policy_uid }} — {{ lp.policy_type }} · {{ lp.carrier or 'No carrier' }}{% if lp.premium %} · {{ lp.premium | currency }}{% endif %}{% if lp.effective_date %} · Eff {{ lp.effective_date }}{% endif %}{% if lp.expiration_date %}–{{ lp.expiration_date }}{% endif %}</option>
             {% endif %}
             {% endfor %}
           </select>
