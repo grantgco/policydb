@@ -431,6 +431,17 @@ def client_tab_overview(request: Request, client_id: int, conn=Depends(get_db)):
     activities = [dict(a) for a in get_activities(conn, client_id=client_id, days=90)]
     from policydb.web.routes.activities import _attach_pc_emails
     _attach_pc_emails(conn, activities)
+    # Split into 3 groups: overdue follow-ups, upcoming follow-ups, history
+    _today_iso = datetime.now().strftime("%Y-%m-%d")
+    overdue_followups = sorted(
+        [a for a in activities if a.get("follow_up_date") and not a.get("follow_up_done") and a["follow_up_date"] < _today_iso],
+        key=lambda a: a["follow_up_date"],
+    )
+    upcoming_followups = sorted(
+        [a for a in activities if a.get("follow_up_date") and not a.get("follow_up_done") and a["follow_up_date"] >= _today_iso],
+        key=lambda a: a["follow_up_date"],
+    )
+    history = [a for a in activities if not (a.get("follow_up_date") and not a.get("follow_up_done"))]
 
     # Linked accounts
     linked_group = get_linked_group_for_client(conn, client_id)
@@ -482,6 +493,9 @@ def client_tab_overview(request: Request, client_id: int, conn=Depends(get_db)):
         "client": dict(client),
         "summary": dict(summary) if summary else {},
         "activities": activities,
+        "overdue_followups": overdue_followups,
+        "upcoming_followups": upcoming_followups,
+        "history": history,
         "activity_types": cfg.get("activity_types"),
         "dispositions": cfg.get("follow_up_dispositions", []),
         "linked_group": linked_group,
