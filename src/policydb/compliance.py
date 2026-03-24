@@ -204,6 +204,189 @@ def compute_compliance_summary(governing: dict[str, dict]) -> dict:
     return {"total": total, **counts, "compliance_pct": pct}
 
 
+def get_requirement_links(conn, requirement_id: int) -> list[dict]:
+    """Return all policy links for a given requirement."""
+    rows = conn.execute(
+        """SELECT rpl.*, p.policy_type, p.carrier, p.limit_amount, p.deductible,
+                  p.is_program, p.program_id, p.policy_number, p.expiration_date
+           FROM requirement_policy_links rpl
+           LEFT JOIN policies p ON p.policy_uid = rpl.policy_uid
+           WHERE rpl.requirement_id = ?
+           ORDER BY rpl.is_primary DESC, rpl.created_at""",
+        (requirement_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_all_requirement_links(conn, client_id: int) -> dict[int, list[dict]]:
+    """Return all links for all requirements belonging to a client, keyed by requirement_id."""
+    rows = conn.execute(
+        """SELECT rpl.*, p.policy_type, p.carrier, p.limit_amount, p.deductible,
+                  p.is_program, p.program_id, p.policy_number, p.expiration_date
+           FROM requirement_policy_links rpl
+           JOIN coverage_requirements cr ON cr.id = rpl.requirement_id
+           LEFT JOIN policies p ON p.policy_uid = rpl.policy_uid
+           WHERE cr.client_id = ?
+           ORDER BY rpl.is_primary DESC, rpl.created_at""",
+        (client_id,),
+    ).fetchall()
+    result: dict[int, list[dict]] = {}
+    for r in rows:
+        d = dict(r)
+        result.setdefault(d["requirement_id"], []).append(d)
+    return result
+
+
+def _sync_primary_link(conn, requirement_id: int) -> None:
+    """Sync the denormalized linked_policy_uid on coverage_requirements from the junction table."""
+    row = conn.execute(
+        "SELECT policy_uid FROM requirement_policy_links WHERE requirement_id=? AND is_primary=1",
+        (requirement_id,),
+    ).fetchone()
+    uid = row["policy_uid"] if row else None
+    conn.execute(
+        "UPDATE coverage_requirements SET linked_policy_uid=? WHERE id=?",
+        (uid, requirement_id),
+    )
+
+
+def link_policy_to_requirement(
+    conn,
+    requirement_id: int,
+    policy_uid: str,
+    link_type: str = "direct",
+    is_primary: bool = False,
+    notes: str | None = None,
+) -> int:
+    """Create a link between a policy and a requirement. Returns link id."""
+    # If marking as primary, clear other primaries first
+    if is_primary:
+        conn.execute(
+            "UPDATE requirement_policy_links SET is_primary=0 WHERE requirement_id=?",
+            (requirement_id,),
+        )
+
+    # Check if no other links exist — auto-set as primary
+    existing = conn.execute(
+        "SELECT COUNT(*) as cnt FROM requirement_policy_links WHERE requirement_id=?",
+        (requirement_id,),
+    ).fetchone()
+    if existing["cnt"] == 0:
+        is_primary = True
+
+    cur = conn.execute(
+        """INSERT OR REPLACE INTO requirement_policy_links
+           (requirement_id, policy_uid, link_type, is_primary, notes)
+           VALUES (?, ?, ?, ?, ?)""",
+        (requirement_id, policy_uid, link_type, 1 if is_primary else 0, notes),
+    )
+    _sync_primary_link(conn, requirement_id)
+    conn.commit()
+    return cur.lastrowid
+
+
+def unlink_policy_from_requirement(conn, requirement_id: int, link_id: int) -> None:
+    """Remove a link between a policy and a requirement."""
+    # Check if this was the primary
+    was_primary = conn.execute(
+        "SELECT is_primary FROM requirement_policy_links WHERE id=? AND requirement_id=?",
+        (link_id, requirement_id),
+    ).fetchone()
+
+    conn.execute(
+        "DELETE FROM requirement_policy_links WHERE id=? AND requirement_id=?",
+        (link_id, requirement_id),
+    )
+
+    # If we deleted the primary, promote the next link
+    if was_primary and was_primary["is_primary"]:
+        next_link = conn.execute(
+            "SELECT id FROM requirement_policy_links WHERE requirement_id=? ORDER BY created_at LIMIT 1",
+            (requirement_id,),
+        ).fetchone()
+        if next_link:
+            conn.execute(
+                "UPDATE requirement_policy_links SET is_primary=1 WHERE id=?",
+                (next_link["id"],),
+            )
+
+    _sync_primary_link(conn, requirement_id)
+    conn.commit()
+
+
+def set_primary_link(conn, requirement_id: int, link_id: int) -> None:
+    """Set a specific link as the primary for a requirement."""
+    conn.execute(
+        "UPDATE requirement_policy_links SET is_primary=0 WHERE requirement_id=?",
+        (requirement_id,),
+    )
+    conn.execute(
+        "UPDATE requirement_policy_links SET is_primary=1 WHERE id=? AND requirement_id=?",
+        (link_id, requirement_id),
+    )
+    _sync_primary_link(conn, requirement_id)
+    conn.commit()
+
+
+def get_linkable_policies(conn, client_id: int) -> list[dict]:
+    """Return all non-archived, non-opportunity policies for a client, grouped for UI display.
+
+    Returns programs first (with nested children), then standalone policies.
+    """
+    rows = conn.execute(
+        """SELECT policy_uid, policy_type, carrier, limit_amount, deductible,
+                  policy_number, is_program, program_id, effective_date, expiration_date
+           FROM policies
+           WHERE client_id=? AND archived=0
+             AND (is_opportunity=0 OR is_opportunity IS NULL)
+           ORDER BY is_program DESC, policy_type, carrier""",
+        (client_id,),
+    ).fetchall()
+    policies = [dict(r) for r in rows]
+
+    # Separate programs, children, and standalone
+    programs = []
+    children_by_program: dict[int, list[dict]] = {}
+    standalone = []
+
+    # Build a uid→id map for program lookups
+    uid_to_id = {}
+    for p in policies:
+        # We need the actual id for program_id matching
+        row = conn.execute(
+            "SELECT id FROM policies WHERE policy_uid=?", (p["policy_uid"],)
+        ).fetchone()
+        if row:
+            uid_to_id[p["policy_uid"]] = row["id"]
+
+    id_to_uid = {v: k for k, v in uid_to_id.items()}
+
+    for p in policies:
+        if p.get("is_program"):
+            pid = uid_to_id.get(p["policy_uid"])
+            p["children"] = []
+            p["_id"] = pid
+            programs.append(p)
+        elif p.get("program_id"):
+            children_by_program.setdefault(p["program_id"], []).append(p)
+        else:
+            standalone.append(p)
+
+    # Attach children to programs
+    for prog in programs:
+        prog["children"] = children_by_program.get(prog.get("_id"), [])
+
+    # Also fetch program_carriers for program display
+    for prog in programs:
+        carriers = conn.execute(
+            "SELECT carrier FROM program_carriers WHERE program_id=? ORDER BY sort_order",
+            (prog.get("_id"),),
+        ).fetchall()
+        prog["program_carrier_names"] = [r["carrier"] for r in carriers]
+
+    return programs + standalone
+
+
 def get_client_compliance_data(conn, client_id: int) -> dict:
     """Build the full compliance dataset for a client.
 
@@ -233,10 +416,13 @@ def get_client_compliance_data(conn, client_id: int) -> dict:
     # Get all policies for this client (non-archived)
     all_policies = [dict(r) for r in conn.execute(
         "SELECT policy_uid, policy_type, carrier, limit_amount, deductible, "
-        "project_id, policy_number FROM policies "
+        "project_id, policy_number, is_program, program_id FROM policies "
         "WHERE client_id=? AND archived=0 ORDER BY policy_type",
         (client_id,),
     ).fetchall()]
+
+    # Load all requirement-policy links for this client (bulk)
+    all_links = get_all_requirement_links(conn, client_id)
 
     # Get all sources for this client
     sources = [dict(r) for r in conn.execute(
@@ -260,11 +446,17 @@ def get_client_compliance_data(conn, client_id: int) -> dict:
 
     for loc in locations:
         loc_reqs = get_location_requirements(conn, client_id, loc["id"])
+        # Attach policy links to each raw requirement for export
+        for req in loc_reqs:
+            req_id = req.get("id")
+            req["policy_links"] = all_links.get(req_id, []) if req_id else []
         gov = resolve_governing_requirements(loc_reqs)
 
-        # Auto-suggest policies for each governing requirement
+        # Attach links and auto-suggest policies for each governing requirement
         for line, gov_req in gov.items():
-            if not gov_req.get("linked_policy_uid"):
+            req_id = gov_req.get("id")
+            gov_req["policy_links"] = all_links.get(req_id, []) if req_id else []
+            if not gov_req.get("linked_policy_uid") and not gov_req["policy_links"]:
                 suggestion = suggest_policy_for_requirement(
                     gov_req, all_policies, location_project_id=loc["id"]
                 )

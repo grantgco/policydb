@@ -96,6 +96,7 @@
                       {# This is the governing requirement — show linked policy status #}
                       {% set pol_uid = governing_req.linked_policy_uid %}
                       {% set pol_ns = namespace(policy=none) %}
+                      {% set policy_links = governing_req.get('policy_links', []) if governing_req.get is defined else [] %}
                       {% if pol_uid %}
                         {% for p in all_policies %}
                           {% if p.policy_uid == pol_uid %}{% set pol_ns.policy = p %}{% endif %}
@@ -110,6 +111,34 @@
                         <span class="inline-flex items-center gap-1 text-xs bg-red-50 text-red-700 px-2 py-0.5 rounded">
                           <span class="w-1.5 h-1.5 rounded-full bg-red-500"></span> GAP &mdash; No policy
                         </span>
+                      {% elif policy_links %}
+                        {# Show primary linked policy from junction table #}
+                        {% for link in policy_links %}
+                          {% if link.is_primary %}
+                        <div>
+                          <span class="inline-flex items-center gap-1 text-xs bg-green-50 text-green-700 px-2 py-0.5 rounded">
+                            <span class="w-1.5 h-1.5 rounded-full bg-green-500"></span>
+                            {{ link.policy_uid }}
+                            {% if link.limit_amount %} ({{ link.limit_amount | currency }}){% endif %}
+                            {% if link.link_type == 'program' %}
+                              <span class="text-[9px] text-indigo-500">[pgm]</span>
+                            {% elif link.link_type == 'child' %}
+                              <span class="text-[9px] text-purple-500">[child]</span>
+                            {% endif %}
+                            &mdash; Governs
+                          </span>
+                        </div>
+                          {% endif %}
+                        {% endfor %}
+                        {% if policy_links | length > 1 %}
+                        <div class="text-[10px] text-gray-400 mt-0.5">+{{ policy_links | length - 1 }} more linked</div>
+                        {% endif %}
+                        {% if governing_req.max_deductible is not none %}
+                        <div class="text-[10px] text-gray-400 mt-0.5">
+                          Max Ded: {{ governing_req.max_deductible | currency }}
+                          {% if governing_req.deductible_type %}({{ governing_req.deductible_type }}){% endif %}
+                        </div>
+                        {% endif %}
                       {% elif pol_ns.policy %}
                         <div>
                           <span class="inline-flex items-center gap-1 text-xs bg-green-50 text-green-700 px-2 py-0.5 rounded">
@@ -156,6 +185,18 @@
                   </span>
                 </td>
               </tr>
+              {# Notes sub-row for this requirement #}
+              {% if r.notes %}
+              <tr class="border-b border-gray-50">
+                <td colspan="5" class="py-1 pl-4">
+                  <span class="text-xs text-gray-500 italic cursor-pointer"
+                        contenteditable="true"
+                        data-field="notes"
+                        data-id="{{ r.id }}"
+                        onblur="(function(el){fetch('/compliance/client/{{ client_id }}/review-mode/'+el.dataset.id+'/cell',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({field:'notes',value:el.textContent.trim()})}).then(r=>r.json()).then(d=>{if(d.ok&&d.formatted!==el.textContent.trim()){el.textContent=d.formatted;if(typeof flashCell==='function')flashCell(el)}})})(this)">{{ r.notes }}</span>
+                </td>
+              </tr>
+              {% endif %}
               {% endif %}
             {% endfor %}
 

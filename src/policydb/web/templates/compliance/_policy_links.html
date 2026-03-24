@@ -1,0 +1,151 @@
+{# Policy links panel — shows linked policies + combobox to add new links #}
+{# Context: client_id, req_id, links, linkable_policies #}
+
+<div id="policy-links-{{ req_id }}" class="space-y-2">
+  {# Current links #}
+  {% if links %}
+  <div class="space-y-1">
+    {% for link in links %}
+    <div class="flex items-center gap-2 bg-{{ 'green' if link.is_primary else 'gray' }}-50 border border-{{ 'green' if link.is_primary else 'gray' }}-200 rounded px-2 py-1 text-xs group">
+      {# Primary star toggle #}
+      {% if link.is_primary %}
+        <span class="text-amber-500" title="Primary link (used for compliance check)">&#9733;</span>
+      {% else %}
+        <button type="button" class="text-gray-300 hover:text-amber-500 transition-colors"
+                title="Set as primary"
+                hx-post="/compliance/client/{{ client_id }}/requirements/{{ req_id }}/links/{{ link.id }}/set-primary"
+                hx-target="#policy-links-{{ req_id }}"
+                hx-swap="outerHTML">&#9734;</button>
+      {% endif %}
+
+      {# Policy info #}
+      <span class="font-mono text-gray-500">{{ link.policy_uid }}</span>
+      <span class="font-medium text-gray-700">{{ link.policy_type or '' }}</span>
+      {% if link.carrier %}
+        <span class="text-gray-400">&middot; {{ link.carrier }}</span>
+      {% endif %}
+
+      {# Link type badge #}
+      {% if link.link_type == 'program' %}
+        <span class="bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded text-[10px]">program</span>
+      {% elif link.link_type == 'child' %}
+        <span class="bg-purple-100 text-purple-600 px-1.5 py-0.5 rounded text-[10px]">child</span>
+      {% else %}
+        <span class="bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded text-[10px]">direct</span>
+      {% endif %}
+
+      {# Remove button #}
+      <button type="button"
+              class="ml-auto text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
+              title="Remove link"
+              hx-post="/compliance/client/{{ client_id }}/requirements/{{ req_id }}/links/{{ link.id }}/remove"
+              hx-target="#policy-links-{{ req_id }}"
+              hx-swap="outerHTML"
+              hx-confirm="Remove this policy link?">&#10005;</button>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {# Add link combobox — vanilla JS, no Alpine #}
+  {% set search_id = 'link-search-' ~ req_id %}
+  {% set dropdown_id = 'link-dropdown-' ~ req_id %}
+  <div class="relative">
+    <input type="text" id="{{ search_id }}"
+           placeholder="Search policies to link..."
+           class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:border-marsh focus:outline-none"
+           autocomplete="off"
+           onfocus="document.getElementById('{{ dropdown_id }}').classList.remove('hidden')"
+           oninput="(function(el){var dd=document.getElementById('{{ dropdown_id }}');dd.classList.remove('hidden');var q=el.value.toLowerCase();dd.querySelectorAll('[data-search]').forEach(function(r){r.style.display=r.dataset.search.includes(q)?'':'none'})})(this)">
+
+    {# Dropdown results #}
+    <div id="{{ dropdown_id }}" class="hidden absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded shadow-lg max-h-64 overflow-y-auto">
+
+      {# Programs section #}
+      {% set ns = namespace(has_programs=false) %}
+      {% for pol in linkable_policies %}
+        {% if pol.get('is_program') %}{% set ns.has_programs = true %}{% endif %}
+      {% endfor %}
+
+      {% if ns.has_programs %}
+      <div class="px-2 py-1 bg-gray-50 text-[10px] text-gray-400 uppercase tracking-wider font-semibold sticky top-0">Programs</div>
+      {% for pol in linkable_policies %}
+        {% if pol.get('is_program') %}
+          {# Program row #}
+          <button type="button"
+                  data-search="{{ (pol.policy_uid + ' ' + (pol.policy_type or '') + ' ' + (pol.carrier or '')) | lower }}"
+                  class="w-full text-left px-3 py-1.5 hover:bg-indigo-50 text-xs flex items-center gap-2 border-b border-gray-50"
+                  hx-post="/compliance/client/{{ client_id }}/requirements/{{ req_id }}/links/add"
+                  hx-vals='{"policy_uid": "{{ pol.policy_uid }}", "link_type": "program"}'
+                  hx-target="#policy-links-{{ req_id }}"
+                  hx-swap="outerHTML">
+            <span class="font-mono text-gray-400">{{ pol.policy_uid }}</span>
+            <span class="font-medium">{{ pol.policy_type }}</span>
+            {% if pol.get('program_carrier_names') %}
+              <span class="text-gray-400">&middot; {{ pol.program_carrier_names | join(', ') }}</span>
+            {% elif pol.carrier %}
+              <span class="text-gray-400">&middot; {{ pol.carrier }}</span>
+            {% endif %}
+            <span class="bg-indigo-100 text-indigo-600 px-1 py-0.5 rounded text-[10px] ml-auto">program</span>
+          </button>
+          {# Child policies #}
+          {% for child in pol.get('children', []) %}
+          <button type="button"
+                  data-search="{{ (child.policy_uid + ' ' + (child.policy_type or '') + ' ' + (child.carrier or '')) | lower }}"
+                  class="w-full text-left pl-8 pr-3 py-1 hover:bg-purple-50 text-xs flex items-center gap-2 border-b border-gray-50"
+                  hx-post="/compliance/client/{{ client_id }}/requirements/{{ req_id }}/links/add"
+                  hx-vals='{"policy_uid": "{{ child.policy_uid }}", "link_type": "child"}'
+                  hx-target="#policy-links-{{ req_id }}"
+                  hx-swap="outerHTML">
+            <span class="text-gray-300">&#8627;</span>
+            <span class="font-mono text-gray-400">{{ child.policy_uid }}</span>
+            <span>{{ child.policy_type }}</span>
+            {% if child.carrier %}
+              <span class="text-gray-400">&middot; {{ child.carrier }}</span>
+            {% endif %}
+            <span class="bg-purple-100 text-purple-600 px-1 py-0.5 rounded text-[10px] ml-auto">child</span>
+          </button>
+          {% endfor %}
+        {% endif %}
+      {% endfor %}
+      {% endif %}
+
+      {# Standalone policies section #}
+      <div class="px-2 py-1 bg-gray-50 text-[10px] text-gray-400 uppercase tracking-wider font-semibold sticky top-0">Standalone Policies</div>
+      {% for pol in linkable_policies %}
+        {% if not pol.get('is_program') and not pol.get('program_id') %}
+        <button type="button"
+                data-search="{{ (pol.policy_uid + ' ' + (pol.policy_type or '') + ' ' + (pol.carrier or '') + ' ' + (pol.policy_number or '')) | lower }}"
+                class="w-full text-left px-3 py-1.5 hover:bg-green-50 text-xs flex items-center gap-2 border-b border-gray-50"
+                hx-post="/compliance/client/{{ client_id }}/requirements/{{ req_id }}/links/add"
+                hx-vals='{"policy_uid": "{{ pol.policy_uid }}", "link_type": "direct"}'
+                hx-target="#policy-links-{{ req_id }}"
+                hx-swap="outerHTML">
+          <span class="font-mono text-gray-400">{{ pol.policy_uid }}</span>
+          <span class="font-medium">{{ pol.policy_type }}</span>
+          {% if pol.carrier %}
+            <span class="text-gray-400">&middot; {{ pol.carrier }}</span>
+          {% endif %}
+          {% if pol.policy_number %}
+            <span class="text-gray-400 text-[10px]">#{{ pol.policy_number }}</span>
+          {% endif %}
+        </button>
+        {% endif %}
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<script>
+{# Close dropdown on outside click #}
+(function(){
+  var dd = document.getElementById('{{ dropdown_id }}');
+  if (!dd) return;
+  document.addEventListener('click', function(e) {
+    var search = document.getElementById('{{ search_id }}');
+    if (!dd.contains(e.target) && e.target !== search) {
+      dd.classList.add('hidden');
+    }
+  });
+})();
+</script>

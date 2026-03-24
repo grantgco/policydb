@@ -2118,6 +2118,17 @@ def _compliance_sheet_all_requirements(wb: Workbook, data: dict) -> None:
                     endorsements = json.loads(endorsements)
                 except (ValueError, TypeError):
                     endorsements = [endorsements] if endorsements else []
+            # Build linked policies string from junction table data
+            policy_links = req.get("policy_links", [])
+            if policy_links:
+                linked_uids = ", ".join(lk.get("policy_uid", "") for lk in policy_links)
+                link_types = ", ".join(lk.get("link_type", "direct") for lk in policy_links)
+                primary_uid = next((lk["policy_uid"] for lk in policy_links if lk.get("is_primary")), "")
+            else:
+                linked_uids = req.get("linked_policy_uid") or ""
+                link_types = "direct" if linked_uids else ""
+                primary_uid = linked_uids
+
             all_rows.append({
                 "Location": loc_name,
                 "Coverage Line": req.get("coverage_line", ""),
@@ -2126,7 +2137,9 @@ def _compliance_sheet_all_requirements(wb: Workbook, data: dict) -> None:
                 "Deductible Type": req.get("deductible_type") or "",
                 "Required Endorsements": ", ".join(endorsements),
                 "Compliance Status": req.get("compliance_status") or "Needs Review",
-                "Linked Policy UID": req.get("linked_policy_uid") or "",
+                "Linked Policies": linked_uids,
+                "Primary Policy": primary_uid,
+                "Link Types": link_types,
                 "Source Name": req.get("source_name") or "",
                 "Source Clause Ref": req.get("clause_ref") or "",
                 "Notes": req.get("notes") or "",
@@ -2174,6 +2187,92 @@ def _compliance_sheet_cope(
     else:
         ws = wb.create_sheet("COPE Data")
         ws.append(["No COPE data available"])
+
+
+# ─── COMPLIANCE MARKDOWN ─────────────────────────────────────────────────────
+
+
+def export_compliance_md(
+    conn: sqlite3.Connection, client_id: int
+) -> tuple[str, str]:
+    """Build a Markdown compliance report and return (text, filename)."""
+    from policydb.compliance import get_client_compliance_data
+
+    data = get_client_compliance_data(conn, client_id)
+    client_name = data.get("client_name") or ""
+    if not client_name:
+        row = conn.execute("SELECT name FROM clients WHERE id=?", (client_id,)).fetchone()
+        client_name = row["name"] if row else f"Client_{client_id}"
+
+    s = data["overall_summary"]
+    lines: list[str] = []
+    lines.append(f"# Compliance Report: {client_name}")
+    lines.append(f"")
+    lines.append(f"**Date:** {TODAY}")
+    lines.append(f"**Overall Compliance:** {s['compliance_pct']}%")
+    lines.append(f"**Total:** {s['total']} | **Compliant:** {s['compliant']} | **Gaps:** {s['gap']} | **Needs Review:** {s['needs_review']}")
+    lines.append("")
+
+    # Per-location detail
+    for loc in data["locations"]:
+        loc_name = loc["project"].get("name", "Unknown")
+        ls = loc["summary"]
+        lines.append(f"## {loc_name} ({ls['compliance_pct']}% Compliant)")
+        lines.append("")
+        lines.append("| Coverage Line | Required Limit | Linked Policies | Status | Source | Notes |")
+        lines.append("|---|---|---|---|---|---|")
+
+        for line_name, gov in loc.get("governing", {}).items():
+            req_limit = f"${gov['required_limit']:,.0f}" if gov.get("required_limit") else "--"
+            status = gov.get("compliance_status") or "Needs Review"
+            source = gov.get("governing_source") or ""
+            notes = (gov.get("notes") or "").replace("|", "/").replace("\n", " ")
+
+            policy_links = gov.get("policy_links", [])
+            if policy_links:
+                linked = ", ".join(
+                    f"{lk['policy_uid']} ({lk.get('link_type', 'direct')})"
+                    for lk in policy_links
+                )
+            elif gov.get("linked_policy_uid"):
+                linked = gov["linked_policy_uid"]
+            else:
+                linked = "--"
+
+            lines.append(f"| {line_name} | {req_limit} | {linked} | {status} | {source} | {notes} |")
+
+        lines.append("")
+
+    # Gap detail
+    gap_lines: list[str] = []
+    for loc in data["locations"]:
+        loc_name = loc["project"].get("name", "Unknown")
+        for line_name, gov in loc.get("governing", {}).items():
+            if (gov.get("compliance_status") or "Needs Review").lower() == "gap":
+                req_limit = f"${gov['required_limit']:,.0f}" if gov.get("required_limit") else "TBD"
+                note = gov.get("notes") or ""
+                gap_lines.append(f"- **{line_name}** at {loc_name} (Required: {req_limit}){' -- ' + note if note else ''}")
+
+    if gap_lines:
+        lines.append("## Coverage Gaps")
+        lines.append("")
+        lines.extend(gap_lines)
+        lines.append("")
+
+    # Sources
+    if data.get("sources"):
+        lines.append("## Requirement Sources")
+        lines.append("")
+        lines.append("| Source | Counterparty | Clause Ref | Notes |")
+        lines.append("|---|---|---|---|")
+        for src in data["sources"]:
+            src_notes = (src.get("notes") or "").replace("|", "/").replace("\n", " ")
+            lines.append(f"| {src.get('name', '')} | {src.get('counterparty', '')} | {src.get('clause_ref', '')} | {src_notes} |")
+        lines.append("")
+
+    safe_name = client_name.replace(" ", "_").replace("/", "-")
+    filename = f"Compliance_{safe_name}_{TODAY}.md"
+    return "\n".join(lines), filename
 
 
 # ─── COMPLIANCE PDF ──────────────────────────────────────────────────────────
