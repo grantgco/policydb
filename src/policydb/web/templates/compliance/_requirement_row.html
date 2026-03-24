@@ -20,12 +20,33 @@
     {% endif %}
   </td>
   <td class="py-2 text-right">
-    {# Status / linked policy display #}
+    {# Status / linked policy display — supports multiple links #}
     {% set status = (req.compliance_status or 'Needs Review') | lower %}
+    {% set policy_links = req.get('policy_links', []) if req.get is defined else [] %}
+
     {% if status == 'gap' %}
       <span class="inline-flex items-center gap-1 text-xs bg-red-50 text-red-700 px-2 py-0.5 rounded">
         <span class="w-1.5 h-1.5 rounded-full bg-red-500"></span> GAP
       </span>
+    {% elif policy_links %}
+      {# Show primary link first #}
+      {% for link in policy_links %}
+        {% if link.is_primary %}
+        <span class="inline-flex items-center gap-1 text-xs bg-green-50 text-green-700 px-2 py-0.5 rounded">
+          <span class="w-1.5 h-1.5 rounded-full bg-green-500"></span>
+          {{ link.policy_uid }}
+          {% if link.link_type == 'program' %}
+            <span class="text-[9px] text-indigo-500">[pgm]</span>
+          {% elif link.link_type == 'child' %}
+            <span class="text-[9px] text-purple-500">[child]</span>
+          {% endif %}
+        </span>
+        {% endif %}
+      {% endfor %}
+      {# Show +N if additional links #}
+      {% if policy_links | length > 1 %}
+        <span class="text-[10px] text-gray-400 ml-1" title="{% for link in policy_links %}{% if not link.is_primary %}{{ link.policy_uid }} ({{ link.link_type }}){% if not loop.last %}, {% endif %}{% endif %}{% endfor %}">+{{ policy_links | length - 1 }}</span>
+      {% endif %}
     {% elif req.linked_policy_uid %}
       <span class="inline-flex items-center gap-1 text-xs bg-green-50 text-green-700 px-2 py-0.5 rounded">
         <span class="w-1.5 h-1.5 rounded-full bg-green-500"></span>
@@ -54,3 +75,15 @@
     </span>
   </td>
 </tr>
+{# Notes sub-row — shown when notes exist, contenteditable for inline editing #}
+{% if req.notes %}
+<tr class="border-b border-gray-50">
+  <td colspan="5" class="py-1 pl-4">
+    <span class="text-xs text-gray-500 italic cursor-pointer"
+          contenteditable="true"
+          data-field="notes"
+          data-id="{{ req.id }}"
+          onblur="(function(el){fetch('/compliance/client/{{ client_id }}/review-mode/'+el.dataset.id+'/cell',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({field:'notes',value:el.textContent.trim()})}).then(r=>r.json()).then(d=>{if(d.ok&&d.formatted!==el.textContent.trim()){el.textContent=d.formatted;if(typeof flashCell==='function')flashCell(el)}})})(this)">{{ req.notes }}</span>
+  </td>
+</tr>
+{% endif %}

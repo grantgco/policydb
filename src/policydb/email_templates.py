@@ -183,6 +183,30 @@ def _build_rfi_tokens(conn: sqlite3.Connection, client_id: int) -> dict:
     }
 
 
+def _build_compliance_tokens(conn: sqlite3.Connection, client_id: int) -> dict:
+    """Build compliance summary tokens for email templates."""
+    try:
+        from policydb.compliance import compute_compliance_summary, get_client_compliance_data
+        data = get_client_compliance_data(conn, client_id)
+        s = data["overall_summary"]
+        gap_lines: list[str] = []
+        for loc in data["locations"]:
+            for line, gov in loc.get("governing", {}).items():
+                if (gov.get("compliance_status") or "Needs Review").lower() == "gap":
+                    gap_lines.append(line)
+        return {
+            "compliance_pct": str(s.get("compliance_pct", 0)),
+            "compliance_gaps": str(s.get("gap", 0)),
+            "compliance_gap_lines": ", ".join(sorted(set(gap_lines))) if gap_lines else "None",
+        }
+    except Exception:
+        return {
+            "compliance_pct": "0",
+            "compliance_gaps": "0",
+            "compliance_gap_lines": "",
+        }
+
+
 def _client_tokens(conn: sqlite3.Connection, client_id: int, row) -> dict:
     """Build the shared client-field token dict used by policy, client, and location contexts."""
     primary_name, primary_email = _resolve_primary_contact(
@@ -353,6 +377,7 @@ def client_context(conn: sqlite3.Connection, client_id: int) -> dict:
     })
     ctx.update(_build_policy_list_tokens(conn, row["id"]))
     ctx.update(_build_rfi_tokens(conn, row["id"]))
+    ctx.update(_build_compliance_tokens(conn, row["id"]))
     return ctx
 
 
@@ -733,6 +758,11 @@ CONTEXT_TOKEN_GROUPS: dict[str, list[tuple[str, list[tuple[str, str]]]]] = {
             ("decisions", "Decisions"),
             ("action_items", "Action Items"),
             ("meeting_notes", "Notes (first 500 chars)"),
+        ]),
+        ("Compliance", [
+            ("compliance_pct", "Compliance %"),
+            ("compliance_gaps", "Gap Count"),
+            ("compliance_gap_lines", "Gap Coverage Lines"),
         ]),
         ("Other", [
             ("today", "Today's Date"),
