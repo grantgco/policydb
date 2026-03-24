@@ -1940,13 +1940,41 @@ _WRAP = Alignment(wrap_text=True, vertical="top")
 _WRAP_CENTER = Alignment(wrap_text=True, horizontal="center", vertical="center")
 
 
+def _filter_compliance_data(data: dict, project_ids: list[int]) -> dict:
+    """Filter compliance data to only the specified location project_ids.
+
+    Returns a new dict with filtered locations and recomputed overall_summary.
+    """
+    from policydb.compliance import compute_compliance_summary
+
+    filtered_locs = [
+        loc for loc in data["locations"]
+        if loc["project"]["id"] in project_ids
+    ]
+    # Recompute overall summary from filtered set
+    all_gov = {}
+    for loc in filtered_locs:
+        for line, g in loc.get("governing", {}).items():
+            key = f"{loc['project']['id']}:{line}"
+            all_gov[key] = g
+
+    return {
+        **data,
+        "locations": filtered_locs,
+        "overall_summary": compute_compliance_summary(all_gov),
+    }
+
+
 def export_compliance_xlsx(
-    conn: sqlite3.Connection, client_id: int
+    conn: sqlite3.Connection, client_id: int,
+    project_ids: list[int] | None = None,
 ) -> tuple[bytes, str]:
     """Build a 5-sheet compliance workbook and return (bytes, filename)."""
     from policydb.compliance import get_client_compliance_data
 
     data = get_client_compliance_data(conn, client_id)
+    if project_ids:
+        data = _filter_compliance_data(data, project_ids)
     client_name = data.get("client_name") or ""
     if not client_name:
         row = conn.execute("SELECT name FROM clients WHERE id=?", (client_id,)).fetchone()
@@ -1959,7 +1987,7 @@ def export_compliance_xlsx(
     _compliance_sheet_matrix(wb, data)
     _compliance_sheet_gap_detail(wb, data)
     _compliance_sheet_all_requirements(wb, data)
-    _compliance_sheet_cope(wb, conn, client_id)
+    _compliance_sheet_cope(wb, conn, client_id, project_ids=project_ids)
 
     safe_name = client_name.replace(" ", "_").replace("/", "-")
     filename = f"Compliance_{safe_name}_{TODAY}.xlsx"
@@ -2088,6 +2116,9 @@ def _compliance_sheet_gap_detail(wb: Workbook, data: dict) -> None:
                     s.get("clause_ref", "") for s in sources if s.get("clause_ref")
                 )
                 req_limit = gov.get("required_limit") or 0
+                source_notes = ", ".join(
+                    s.get("source_notes", "") for s in sources if s.get("source_notes")
+                )
                 gap_rows.append({
                     "Location": loc_name,
                     "Coverage Line": line,
@@ -2097,6 +2128,7 @@ def _compliance_sheet_gap_detail(wb: Workbook, data: dict) -> None:
                     "Source Name": source_names,
                     "Source Clause Ref": clause_refs,
                     "Notes": gov.get("notes") or "",
+                    "Source Notes": source_notes,
                 })
 
     if gap_rows:
@@ -2130,6 +2162,7 @@ def _compliance_sheet_all_requirements(wb: Workbook, data: dict) -> None:
                 "Source Name": req.get("source_name") or "",
                 "Source Clause Ref": req.get("clause_ref") or "",
                 "Notes": req.get("notes") or "",
+                "Source Notes": req.get("source_notes") or "",
             })
 
     if not all_rows:
@@ -2145,11 +2178,11 @@ def _compliance_sheet_all_requirements(wb: Workbook, data: dict) -> None:
 
 
 def _compliance_sheet_cope(
-    wb: Workbook, conn: sqlite3.Connection, client_id: int
+    wb: Workbook, conn: sqlite3.Connection, client_id: int,
+    project_ids: list[int] | None = None,
 ) -> None:
     """Sheet 5 — COPE Data (one row per location)."""
-    cope_rows = conn.execute(
-        """SELECT p.name AS "Project Name",
+    sql = """SELECT p.name AS "Project Name",
                   COALESCE(p.address, '') || CASE WHEN p.city != '' THEN ', ' || p.city ELSE '' END
                     || CASE WHEN p.state != '' THEN ', ' || p.state ELSE '' END
                     || CASE WHEN p.zip != '' THEN ' ' || p.zip ELSE '' END AS "Address",
@@ -2164,10 +2197,14 @@ def _compliance_sheet_cope(
                   c.total_insurable_value AS "Total Insurable Value"
            FROM cope_data c
            JOIN projects p ON c.project_id = p.id
-           WHERE p.client_id = ?
-           ORDER BY p.name""",
-        (client_id,),
-    ).fetchall()
+           WHERE p.client_id = ?"""
+    params: list = [client_id]
+    if project_ids:
+        placeholders = ",".join("?" for _ in project_ids)
+        sql += f" AND p.id IN ({placeholders})"
+        params.extend(project_ids)
+    sql += " ORDER BY p.name"
+    cope_rows = conn.execute(sql, params).fetchall()
 
     if cope_rows:
         _write_sheet(wb, "COPE Data", [dict(r) for r in cope_rows])
@@ -2176,468 +2213,244 @@ def _compliance_sheet_cope(
         ws.append(["No COPE data available"])
 
 
-# ─── COMPLIANCE PDF ──────────────────────────────────────────────────────────
+# ─── COMPLIANCE MARKDOWN ─────────────────────────────────────────────────────
 
 
-def export_compliance_pdf(
-    conn: sqlite3.Connection, client_id: int
-) -> tuple[bytes, str]:
-    """Build a professional PDF compliance report and return (bytes, filename)."""
-    from fpdf import FPDF
-
+def export_compliance_md(
+    conn: sqlite3.Connection, client_id: int,
+    project_ids: list[int] | None = None,
+) -> tuple[str, str]:
+    """Build a Markdown compliance report and return (markdown_text, filename)."""
     from policydb.compliance import get_client_compliance_data
 
-    def _safe(text):
-        """Sanitize text for fpdf2 core fonts (latin-1 only)."""
-        if not text:
-            return ""
-        return (
-            str(text)
-            .replace("\u2022", "-").replace("\u2014", "--").replace("\u2013", "-")
-            .replace("\u2018", "'").replace("\u2019", "'")
-            .replace("\u201c", '"').replace("\u201d", '"')
-            .replace("\u2026", "...").replace("\u2605", "*")
-            .replace("\u2713", "Y").replace("\u2717", "N")
-        )
-
     data = get_client_compliance_data(conn, client_id)
+    if project_ids:
+        data = _filter_compliance_data(data, project_ids)
     client_name = data.get("client_name") or ""
     if not client_name:
         row = conn.execute("SELECT name FROM clients WHERE id=?", (client_id,)).fetchone()
         client_name = row["name"] if row else f"Client_{client_id}"
 
     safe_name = client_name.replace(" ", "_").replace("/", "-")
-    filename = f"Compliance_{safe_name}_{TODAY}.pdf"
-
-    # Colours (RGB tuples)
-    GREEN = (198, 239, 206)
-    RED = (255, 199, 206)
-    AMBER = (255, 235, 156)
-    HEADER_BG = (44, 62, 80)
-    HEADER_FG = (255, 255, 255)
-    LIGHT_GRAY = (245, 245, 245)
-    WHITE = (255, 255, 255)
-
-    STATUS_COLORS = {
-        "compliant": GREEN,
-        "gap": RED,
-        "partial": AMBER,
-        "waived": LIGHT_GRAY,
-        "n/a": LIGHT_GRAY,
-        "na": LIGHT_GRAY,
-        "needs review": AMBER,
-    }
-
-    pdf = FPDF()
-    pdf.set_auto_page_break(auto=True, margin=20)
-
-    # ── Page 1: Header + Executive Summary ───────────────────────────────────
-
-    pdf.add_page()
-
-    # Logo
-    logo_path = cfg.get("report_logo_path", "")
-    logo_y = 10
-    title_x = 10
-    if logo_path and Path(logo_path).exists():
-        try:
-            pdf.image(logo_path, x=10, y=10, h=15)
-            title_x = 60  # shift title right of logo
-        except Exception:
-            pass  # skip logo on error
-
-    # Title
-    pdf.set_xy(title_x, logo_y)
-    pdf.set_font("Helvetica", "B", 18)
-    pdf.set_text_color(44, 62, 80)
-    pdf.cell(0, 10, "Insurance Compliance Review", new_x="LMARGIN", new_y="NEXT")
-
-    pdf.set_font("Helvetica", "", 11)
-    pdf.set_text_color(100, 100, 100)
-    pdf.cell(0, 6, f"Client: {client_name}", new_x="LMARGIN", new_y="NEXT")
-    pdf.cell(0, 6, f"Report Date: {TODAY}", new_x="LMARGIN", new_y="NEXT")
-    pdf.ln(4)
-
-    # Divider line
-    pdf.set_draw_color(200, 200, 200)
-    pdf.line(10, pdf.get_y(), 200, pdf.get_y())
-    pdf.ln(6)
-
-    # ── Executive Summary Score Cards ────────────────────────────────────────
-
-    s = data["overall_summary"]
-
-    pdf.set_font("Helvetica", "B", 14)
-    pdf.set_text_color(44, 62, 80)
-    pdf.cell(0, 8, "Executive Summary", new_x="LMARGIN", new_y="NEXT")
-    pdf.ln(3)
-
-    # Score card row
-    cards = [
-        ("Compliance", f"{s.get('compliance_pct', 0)}%"),
-        ("Gaps", str(s.get("gap", 0))),
-        ("Partial", str(s.get("partial", 0))),
-        ("Locations", str(len(data["locations"]))),
-        ("Total Req.", str(s.get("total", 0))),
-    ]
-    card_w = 36
-    card_h = 18
-    start_x = 10
-    y_top = pdf.get_y()
-
-    for i, (label, value) in enumerate(cards):
-        x = start_x + i * (card_w + 3)
-        pdf.set_fill_color(*LIGHT_GRAY)
-        pdf.rect(x, y_top, card_w, card_h, style="F")
-        pdf.set_xy(x, y_top + 2)
-        pdf.set_font("Helvetica", "", 7)
-        pdf.set_text_color(120, 120, 120)
-        pdf.cell(card_w, 4, label, align="C")
-        pdf.set_xy(x, y_top + 7)
-        pdf.set_font("Helvetica", "B", 14)
-        pdf.set_text_color(44, 62, 80)
-        pdf.cell(card_w, 8, value, align="C")
-
-    pdf.set_y(y_top + card_h + 6)
-
-    # Key Findings
-    pdf.set_font("Helvetica", "B", 11)
-    pdf.set_text_color(44, 62, 80)
-    pdf.cell(0, 7, "Key Findings", new_x="LMARGIN", new_y="NEXT")
-    pdf.ln(1)
-
-    findings: list[str] = []
-    for loc in data["locations"]:
-        loc_name = loc["project"].get("name", "Unknown")
-        for line, gov in loc.get("governing", {}).items():
-            status = (gov.get("compliance_status") or "Needs Review").lower()
-            if status in ("gap", "partial"):
-                findings.append(
-                    f"{status.capitalize()}: {line} at {loc_name}"
-                )
-
-    pdf.set_font("Helvetica", "", 9)
-    pdf.set_text_color(60, 60, 60)
-    if findings:
-        for finding in findings:
-            pdf.cell(5, 5, "-")
-            pdf.cell(0, 5, f"  {_safe(finding)}", new_x="LMARGIN", new_y="NEXT")
-    else:
-        pdf.cell(0, 5, "No gaps or partial compliance issues found.", new_x="LMARGIN", new_y="NEXT")
-
-    pdf.ln(4)
-
-    # ── Compliance Matrix ────────────────────────────────────────────────────
+    filename = f"Compliance_{safe_name}_{TODAY}.md"
 
     locations = data["locations"]
+    s = data["overall_summary"]
+    lines: list[str] = []
+
+    # ── Header ────────────────────────────────────────────────────────────────
+    lines += [
+        "# Insurance Compliance Review",
+        "",
+        f"**Client:** {client_name}  ",
+        f"**Report Date:** {TODAY}  ",
+        f"**Locations:** {len(locations)}",
+        "",
+        "---",
+        "",
+    ]
+
+    # ── Executive Summary ─────────────────────────────────────────────────────
+    lines += [
+        "## Executive Summary",
+        "",
+        "| Metric | Value |",
+        "|--------|-------|",
+        f"| Overall Compliance | {s['compliance_pct']}% |",
+        f"| Total Requirements | {s['total']} |",
+        f"| Compliant | {s['compliant']} |",
+        f"| Gaps | {s['gap']} |",
+        f"| Partial | {s['partial']} |",
+        f"| Waived | {s['waived']} |",
+        f"| N/A | {s['na']} |",
+        f"| Needs Review | {s['needs_review']} |",
+        "",
+    ]
+
+    # ── Key Findings ──────────────────────────────────────────────────────────
+    lines += ["## Key Findings", ""]
+    findings: list[str] = []
+    for loc in locations:
+        loc_name = loc["project"].get("name", "Unknown")
+        for line_name, gov in loc.get("governing", {}).items():
+            status = (gov.get("compliance_status") or "Needs Review").lower()
+            if status in ("gap", "partial"):
+                findings.append(f"- **{status.capitalize()}:** {line_name} at {loc_name}")
+    if findings:
+        lines += findings
+    else:
+        lines.append("No gaps or partial compliance issues found.")
+    lines.append("")
+
+    # ── Compliance Matrix ─────────────────────────────────────────────────────
     if locations:
-        # Collect all unique coverage lines
-        all_lines: list[str] = []
+        all_cov_lines: list[str] = []
         seen: set[str] = set()
         for loc in locations:
-            for line in loc.get("governing", {}).keys():
-                if line not in seen:
-                    all_lines.append(line)
-                    seen.add(line)
+            for line_name in loc.get("governing", {}).keys():
+                if line_name not in seen:
+                    all_cov_lines.append(line_name)
+                    seen.add(line_name)
 
-        if all_lines:
-            pdf.set_font("Helvetica", "B", 14)
-            pdf.set_text_color(44, 62, 80)
-            pdf.cell(0, 8, "Compliance Matrix", new_x="LMARGIN", new_y="NEXT")
-            pdf.ln(3)
-
+        if all_cov_lines:
             loc_names = [loc["project"].get("name", "?") for loc in locations]
-            num_locs = len(loc_names)
-            # Calculate column widths
-            line_col_w = 55
-            avail = 190 - line_col_w
-            loc_col_w = min(avail / max(num_locs, 1), 35)
-
+            lines += ["## Compliance Matrix", ""]
             # Header row
-            row_h = 7
-            pdf.set_font("Helvetica", "B", 7)
-            pdf.set_fill_color(*HEADER_BG)
-            pdf.set_text_color(*HEADER_FG)
-            pdf.cell(line_col_w, row_h, "Coverage Line", border=1, fill=True)
-            for name in loc_names:
-                # Truncate long names
-                disp = (name[:12] + "..") if len(name) > 14 else name
-                pdf.cell(loc_col_w, row_h, disp, border=1, fill=True, align="C")
-            pdf.ln()
-
+            header = "| Coverage Line | " + " | ".join(loc_names) + " |"
+            sep = "|" + "|".join(["---"] * (1 + len(loc_names))) + "|"
+            lines += [header, sep]
             # Data rows
-            pdf.set_font("Helvetica", "", 7)
-            for row_idx, line in enumerate(all_lines):
-                # Alternate row bg
-                if row_idx % 2 == 0:
-                    pdf.set_fill_color(*WHITE)
-                else:
-                    pdf.set_fill_color(*LIGHT_GRAY)
-
-                pdf.set_text_color(40, 40, 40)
-                disp_line = (line[:25] + "..") if len(line) > 27 else line
-                pdf.cell(line_col_w, row_h, disp_line, border=1, fill=True)
-
+            for cov_line in all_cov_lines:
+                cells = [cov_line]
                 for loc in locations:
-                    gov = loc.get("governing", {}).get(line)
-                    status = (gov.get("compliance_status") or "") if gov else ""
-                    status_lower = status.lower()
-                    color = STATUS_COLORS.get(status_lower, WHITE)
-                    pdf.set_fill_color(*color)
-                    pdf.set_text_color(40, 40, 40)
-                    pdf.cell(loc_col_w, row_h, status, border=1, fill=True, align="C")
-                pdf.ln()
+                    gov = loc.get("governing", {}).get(cov_line)
+                    cells.append((gov.get("compliance_status") or "Needs Review") if gov else "")
+                lines.append("| " + " | ".join(cells) + " |")
+            lines.append("")
 
-            pdf.ln(4)
-
-    # ── Gap Drill-Down ───────────────────────────────────────────────────────
-
-    gap_rows: list[dict] = []
-    for loc in data["locations"]:
+    # ── Gap Drill-Down ────────────────────────────────────────────────────────
+    gap_rows: list[list[str]] = []
+    for loc in locations:
         loc_name = loc["project"].get("name", "Unknown")
-        for line, gov in loc.get("governing", {}).items():
+        for line_name, gov in loc.get("governing", {}).items():
             status = (gov.get("compliance_status") or "Needs Review").lower()
             if status not in ("compliant", "waived", "n/a", "na"):
                 sources = gov.get("source_requirements", [])
                 source_names = ", ".join(
-                    s.get("source_name", "") for s in sources if s.get("source_name")
+                    src.get("source_name", "") for src in sources if src.get("source_name")
                 ) or gov.get("governing_source", "")
+                clause_refs = ", ".join(
+                    src.get("clause_ref", "") for src in sources if src.get("clause_ref")
+                )
+                source_notes = ", ".join(
+                    src.get("source_notes", "") for src in sources if src.get("source_notes")
+                )
                 req_limit = gov.get("required_limit") or 0
-                gap_rows.append({
-                    "location": loc_name,
-                    "coverage_line": line,
-                    "required_limit": fmt_limit(req_limit) if req_limit else "",
-                    "source": source_names,
-                })
+                gap_rows.append([
+                    loc_name,
+                    line_name,
+                    fmt_limit(req_limit) if req_limit else "",
+                    source_names,
+                    clause_refs,
+                    gov.get("notes") or "",
+                    source_notes,
+                ])
 
     if gap_rows:
-        pdf.set_font("Helvetica", "B", 14)
-        pdf.set_text_color(44, 62, 80)
-        pdf.cell(0, 8, "Gap Drill-Down", new_x="LMARGIN", new_y="NEXT")
-        pdf.ln(3)
-
-        # Table header
-        gap_cols = [("Location", 45), ("Coverage Line", 50), ("Required Limit", 40), ("Source", 50)]
-        row_h = 6
-        pdf.set_font("Helvetica", "B", 7)
-        pdf.set_fill_color(*HEADER_BG)
-        pdf.set_text_color(*HEADER_FG)
-        for label, w in gap_cols:
-            pdf.cell(w, row_h, label, border=1, fill=True)
-        pdf.ln()
-
-        pdf.set_font("Helvetica", "", 7)
-        for i, gr in enumerate(gap_rows):
-            if pdf.get_y() > 265:
-                pdf.add_page()
-            bg = LIGHT_GRAY if i % 2 else WHITE
-            pdf.set_fill_color(*bg)
-            pdf.set_text_color(40, 40, 40)
-            vals = [gr.get("location") or "", gr.get("coverage_line") or "", gr.get("required_limit") or "", gr.get("source") or ""]
-            for (label, w), val in zip(gap_cols, vals):
-                val = _safe(str(val))
-                disp = (val[:int(w / 2)] + "..") if len(val) > int(w / 2) + 2 else val
-                pdf.cell(w, row_h, disp, border=1, fill=True)
-            pdf.ln()
-
-        pdf.ln(4)
-
-    # ── Per-Location Sections ────────────────────────────────────────────────
-
-    for loc_data in data["locations"]:
-        pdf.add_page()
-        loc_name = loc_data["project"].get("name", "Unknown")
-        loc_address_parts = [
-            loc_data["project"].get("address"),
-            loc_data["project"].get("city"),
-            loc_data["project"].get("state"),
-            loc_data["project"].get("zip"),
+        lines += [
+            "## Gap Drill-Down",
+            "",
+            "| Location | Coverage Line | Required Limit | Source | Clause Ref | Notes | Source Notes |",
+            "|----------|--------------|----------------|--------|------------|-------|-------------|",
         ]
-        loc_address = ", ".join(p for p in loc_address_parts if p) or ""
+        for row in gap_rows:
+            lines.append("| " + " | ".join(row) + " |")
+        lines.append("")
 
-        pdf.set_font("Helvetica", "B", 14)
-        pdf.set_text_color(44, 62, 80)
-        pdf.cell(0, 8, f"Location: {loc_name}", new_x="LMARGIN", new_y="NEXT")
-        if loc_address:
-            pdf.set_font("Helvetica", "", 9)
-            pdf.set_text_color(100, 100, 100)
-            pdf.cell(0, 5, loc_address, new_x="LMARGIN", new_y="NEXT")
-        pdf.ln(4)
+    # ── Per-Location Detail ───────────────────────────────────────────────────
+    for loc in locations:
+        proj = loc["project"]
+        loc_name = proj.get("name", "Unknown")
+        addr_parts = [proj.get("address", "")]
+        if proj.get("city"):
+            addr_parts.append(proj["city"])
+        if proj.get("state"):
+            addr_parts.append(proj["state"])
+        if proj.get("zip"):
+            addr_parts.append(proj["zip"])
+        addr = ", ".join(p for p in addr_parts if p)
 
-        # Location summary
-        loc_summary = loc_data.get("summary", {})
-        pdf.set_font("Helvetica", "", 8)
-        pdf.set_text_color(80, 80, 80)
-        summary_parts = [
-            f"Compliance: {loc_summary.get('compliance_pct', 0)}%",
-            f"Total: {loc_summary.get('total', 0)}",
-            f"Compliant: {loc_summary.get('compliant', 0)}",
-            f"Gaps: {loc_summary.get('gap', 0)}",
-            f"Partial: {loc_summary.get('partial', 0)}",
+        loc_summary = loc.get("summary", {})
+        pct = loc_summary.get("compliance_pct", 0)
+        total = loc_summary.get("total", 0)
+        compliant = loc_summary.get("compliant", 0)
+
+        lines += [
+            f"## Location: {loc_name}",
+            "",
         ]
-        pdf.cell(0, 5, "  |  ".join(summary_parts), new_x="LMARGIN", new_y="NEXT")
-        pdf.ln(4)
+        if addr:
+            lines.append(f"**Address:** {addr}  ")
+        lines += [
+            f"**Compliance:** {pct}% ({compliant}/{total})",
+            "",
+            "| Coverage | Req. Limit | Max Deduct. | Ded. Type | Endorsements | Status | Source | Clause Ref | Notes | Source Notes |",
+            "|----------|-----------|-------------|-----------|-------------|--------|--------|------------|-------|-------------|",
+        ]
 
-        # Requirements table
-        reqs = loc_data.get("requirements", [])
-        if reqs:
-            req_cols = [
-                ("Coverage", 35), ("Req. Limit", 22), ("Max Deduct.", 22),
-                ("Ded. Type", 18), ("Endorsements", 30), ("Status", 18),
-                ("Source", 22), ("Notes", 25),
+        for req in loc.get("requirements", []):
+            endorsements = req.get("_endorsements_list") or []
+            if isinstance(endorsements, str):
+                try:
+                    endorsements = json.loads(endorsements)
+                except (ValueError, TypeError):
+                    endorsements = [endorsements] if endorsements else []
+            cells = [
+                req.get("coverage_line", ""),
+                fmt_limit(req.get("required_limit")) if req.get("required_limit") else "",
+                fmt_limit(req.get("max_deductible")) if req.get("max_deductible") else "",
+                req.get("deductible_type") or "",
+                ", ".join(endorsements),
+                req.get("compliance_status") or "Needs Review",
+                req.get("source_name") or "",
+                req.get("clause_ref") or "",
+                req.get("notes") or "",
+                req.get("source_notes") or "",
             ]
-            row_h = 6
+            lines.append("| " + " | ".join(cells) + " |")
+        lines.append("")
 
-            pdf.set_font("Helvetica", "B", 6)
-            pdf.set_fill_color(*HEADER_BG)
-            pdf.set_text_color(*HEADER_FG)
-            for label, w in req_cols:
-                pdf.cell(w, row_h, label, border=1, fill=True)
-            pdf.ln()
+    # ── COPE Data ─────────────────────────────────────────────────────────────
+    cope_sql = """SELECT p.name, p.address, p.city, p.state, p.zip,
+                         c.construction_type, c.year_built, c.stories, c.sq_footage,
+                         c.sprinklered, c.roof_type, c.occupancy_description,
+                         c.protection_class, c.total_insurable_value
+                  FROM cope_data c
+                  JOIN projects p ON c.project_id = p.id
+                  WHERE p.client_id = ?"""
+    cope_params: list = [client_id]
+    if project_ids:
+        placeholders = ",".join("?" for _ in project_ids)
+        cope_sql += f" AND p.id IN ({placeholders})"
+        cope_params.extend(project_ids)
+    cope_sql += " ORDER BY p.name"
+    cope_rows_raw = conn.execute(cope_sql, cope_params).fetchall()
 
-            pdf.set_font("Helvetica", "", 6)
-            for i, req in enumerate(reqs):
-                if pdf.get_y() > 265:
-                    pdf.add_page()
-                    # Re-draw header
-                    pdf.set_font("Helvetica", "B", 6)
-                    pdf.set_fill_color(*HEADER_BG)
-                    pdf.set_text_color(*HEADER_FG)
-                    for label, w in req_cols:
-                        pdf.cell(w, row_h, label, border=1, fill=True)
-                    pdf.ln()
-                    pdf.set_font("Helvetica", "", 6)
-
-                bg = LIGHT_GRAY if i % 2 else WHITE
-                pdf.set_fill_color(*bg)
-                pdf.set_text_color(40, 40, 40)
-
-                # Parse endorsements
-                endorsements = req.get("_endorsements_list") or []
-                if isinstance(endorsements, str):
-                    try:
-                        import json as _json
-                        endorsements = _json.loads(endorsements)
-                    except (ValueError, TypeError):
-                        endorsements = [endorsements] if endorsements else []
-                endorse_str = ", ".join(endorsements)
-
-                status = req.get("compliance_status") or "Needs Review"
-                status_lower = status.lower()
-                req_limit_val = req.get("required_limit")
-                max_ded_val = req.get("max_deductible")
-
-                vals = [
-                    req.get("coverage_line", ""),
-                    fmt_limit(req_limit_val) if req_limit_val else "",
-                    fmt_limit(max_ded_val) if max_ded_val else "",
-                    req.get("deductible_type") or "",
-                    endorse_str,
-                    status,
-                    req.get("source_name") or "",
-                    req.get("notes") or "",
-                ]
-                for (label, w), val in zip(req_cols, vals):
-                    # Colour status cell
-                    if label == "Status":
-                        sc = STATUS_COLORS.get(status_lower, WHITE)
-                        pdf.set_fill_color(*sc)
-                    else:
-                        pdf.set_fill_color(*bg)
-                    max_chars = max(int(w / 2), 8)
-                    disp = (val[:max_chars] + "..") if len(val) > max_chars + 2 else val
-                    pdf.cell(w, row_h, disp, border=1, fill=True)
-                pdf.ln()
-        else:
-            pdf.set_font("Helvetica", "I", 9)
-            pdf.set_text_color(150, 150, 150)
-            pdf.cell(0, 6, "No requirements for this location.", new_x="LMARGIN", new_y="NEXT")
-
-    # ── COPE Data ────────────────────────────────────────────────────────────
-
-    cope_rows = conn.execute(
-        """SELECT p.name AS project_name,
-                  COALESCE(p.address, '') || CASE WHEN p.city != '' THEN ', ' || p.city ELSE '' END
-                    || CASE WHEN p.state != '' THEN ', ' || p.state ELSE '' END
-                    || CASE WHEN p.zip != '' THEN ' ' || p.zip ELSE '' END AS address,
-                  c.construction_type, c.year_built, c.stories, c.sq_footage,
-                  c.sprinklered, c.roof_type, c.occupancy_description,
-                  c.protection_class, c.total_insurable_value
-           FROM cope_data c
-           JOIN projects p ON c.project_id = p.id
-           WHERE p.client_id = ?
-           ORDER BY p.name""",
-        (client_id,),
-    ).fetchall()
-
-    if cope_rows:
-        pdf.add_page()
-        pdf.set_font("Helvetica", "B", 14)
-        pdf.set_text_color(44, 62, 80)
-        pdf.cell(0, 8, "COPE Data", new_x="LMARGIN", new_y="NEXT")
-        pdf.ln(3)
-
-        cope_cols = [
-            ("Location", 28), ("Address", 32), ("Constr.", 18), ("Year", 12),
-            ("Stories", 12), ("Sq Ft", 16), ("Sprinkler", 14), ("Roof", 18),
-            ("Prot. Class", 14), ("TIV", 22),
+    if cope_rows_raw:
+        lines += [
+            "## COPE Data",
+            "",
+            "| Location | Address | Construction | Year | Stories | Sq Ft | Sprinkler | Roof | Occupancy | Prot. Class | TIV |",
+            "|----------|---------|-------------|------|---------|-------|-----------|------|-----------|-------------|-----|",
         ]
-        row_h = 6
-
-        pdf.set_font("Helvetica", "B", 6)
-        pdf.set_fill_color(*HEADER_BG)
-        pdf.set_text_color(*HEADER_FG)
-        for label, w in cope_cols:
-            pdf.cell(w, row_h, label, border=1, fill=True)
-        pdf.ln()
-
-        pdf.set_font("Helvetica", "", 6)
-        for i, cr in enumerate(cope_rows):
-            if pdf.get_y() > 265:
-                pdf.add_page()
-                pdf.set_font("Helvetica", "B", 6)
-                pdf.set_fill_color(*HEADER_BG)
-                pdf.set_text_color(*HEADER_FG)
-                for label, w in cope_cols:
-                    pdf.cell(w, row_h, label, border=1, fill=True)
-                pdf.ln()
-                pdf.set_font("Helvetica", "", 6)
-
+        for cr in cope_rows_raw:
             cr = dict(cr)
-            bg = LIGHT_GRAY if i % 2 else WHITE
-            pdf.set_fill_color(*bg)
-            pdf.set_text_color(40, 40, 40)
-
+            addr_parts = [cr.get("address") or ""]
+            if cr.get("city"):
+                addr_parts.append(cr["city"])
+            if cr.get("state"):
+                addr_parts.append(cr["state"])
+            if cr.get("zip"):
+                addr_parts.append(cr["zip"])
+            addr = ", ".join(p for p in addr_parts if p)
             tiv = cr.get("total_insurable_value")
-            vals = [
-                cr.get("project_name") or "",
-                cr.get("address") or "",
+            cells = [
+                cr.get("name") or "",
+                addr,
                 cr.get("construction_type") or "",
                 str(cr.get("year_built") or ""),
                 str(cr.get("stories") or ""),
                 str(cr.get("sq_footage") or ""),
                 cr.get("sprinklered") or "",
                 cr.get("roof_type") or "",
+                cr.get("occupancy_description") or "",
                 cr.get("protection_class") or "",
                 fmt_currency(tiv) if tiv else "",
             ]
-            for (label, w), val in zip(cope_cols, vals):
-                max_chars = max(int(w / 2), 6)
-                disp = (val[:max_chars] + "..") if len(val) > max_chars + 2 else val
-                pdf.cell(w, row_h, disp, border=1, fill=True)
-            pdf.ln()
+            lines.append("| " + " | ".join(cells) + " |")
+        lines.append("")
 
-    # Footer on all pages
-    total_pages = pdf.pages_count
-    for page_num in range(1, total_pages + 1):
-        pdf.page = page_num
-        pdf.set_y(-15)
-        pdf.set_font("Helvetica", "I", 7)
-        pdf.set_text_color(150, 150, 150)
-        pdf.cell(0, 5, f"Insurance Compliance Review - {client_name} - Page {page_num}/{total_pages}", align="C")
-
-    pdf_bytes = bytes(pdf.output())
-    return pdf_bytes, filename
+    return "\n".join(lines), filename
 
 
 # ─── SAVE HELPER ─────────────────────────────────────────────────────────────

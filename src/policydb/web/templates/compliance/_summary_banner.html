@@ -14,14 +14,46 @@
       <h1 class="text-xl font-semibold text-gray-800">Compliance Review</h1>
       <p class="text-sm text-gray-500">{{ client.name }} &mdash; {{ locations | length }} location{{ 's' if locations | length != 1 else '' }}, {{ sources | length }} contract{{ 's' if sources | length != 1 else '' }} reviewed</p>
     </div>
-    <div class="flex gap-2 no-print">
-      <a href="/compliance/client/{{ client_id }}/export/xlsx"
+    <div class="flex items-center gap-2 no-print">
+      {# Location filter for exports #}
+      <details class="relative">
+        <summary class="bg-white text-gray-600 border border-gray-300 px-3 py-1.5 rounded text-sm hover:bg-gray-50 transition cursor-pointer select-none">
+          Filter Locations ▾
+        </summary>
+        <div class="absolute right-0 mt-1 bg-white border border-gray-200 rounded shadow-lg z-50 p-3 min-w-[220px]">
+          <div class="text-xs text-gray-500 mb-2 font-medium">Select locations for export:</div>
+          {% for loc in locations %}
+          <label class="flex items-center gap-2 py-1 text-sm text-gray-700 hover:bg-gray-50 px-1 rounded cursor-pointer">
+            <input type="checkbox" class="loc-export-filter rounded" value="{{ loc.project.id }}" checked
+                   onchange="updateExportLinks()">
+            {{ loc.project.name }}
+          </label>
+          {% endfor %}
+          <div class="border-t mt-2 pt-2 flex gap-2">
+            <button onclick="document.querySelectorAll('.loc-export-filter').forEach(c=>c.checked=true);updateExportLinks()"
+                    class="text-xs text-marsh hover:underline">All</button>
+            <button onclick="document.querySelectorAll('.loc-export-filter').forEach(c=>c.checked=false);updateExportLinks()"
+                    class="text-xs text-gray-500 hover:underline">None</button>
+          </div>
+        </div>
+      </details>
+      <a id="export-xlsx-link" href="/compliance/client/{{ client_id }}/export/xlsx"
          class="bg-white text-marsh border border-marsh px-3 py-1.5 rounded text-sm hover:bg-marsh hover:text-white transition">Export XLSX</a>
-      <a href="/compliance/client/{{ client_id }}/export/pdf" download
-         class="bg-white text-marsh border border-marsh px-3 py-1.5 rounded text-sm hover:bg-marsh hover:text-white transition">Export PDF</a>
+      <a id="export-md-link" href="/compliance/client/{{ client_id }}/export/md" download
+         class="bg-white text-marsh border border-marsh px-3 py-1.5 rounded text-sm hover:bg-marsh hover:text-white transition">Export MD</a>
       <button onclick="window.print()"
               class="bg-white text-gray-600 border border-gray-300 px-3 py-1.5 rounded text-sm hover:bg-gray-50 transition">Print</button>
     </div>
+    <script>
+    function updateExportLinks() {
+      const checks = document.querySelectorAll('.loc-export-filter');
+      const allChecked = [...checks].every(c => c.checked);
+      const ids = allChecked ? '' : [...checks].filter(c => c.checked).map(c => c.value).join(',');
+      const suffix = ids ? '?locations=' + ids : '';
+      document.getElementById('export-xlsx-link').href = '/compliance/client/{{ client_id }}/export/xlsx' + suffix;
+      document.getElementById('export-md-link').href = '/compliance/client/{{ client_id }}/export/md' + suffix;
+    }
+    </script>
   </div>
 
   <div class="grid grid-cols-4 gap-4">
