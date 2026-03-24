@@ -1119,6 +1119,52 @@ def init_db(path: Path | None = None) -> None:
     except Exception as e:
         logger.warning("Mandated activity cleanup failed: %s", e)
 
+    # Fix premature mandated activities — those created before their prep window
+    # opened. Deletes untouched activities and their tracking records so they
+    # re-fire at the correct time under the new prep_days-aware logic.
+    try:
+        from policydb import config as _pc_cfg
+        from datetime import date as _pc_date, timedelta as _pc_td
+        _pc_today = _pc_date.today()
+        _pc_rules = _pc_cfg.get("mandated_activities", [])
+        _prep_map = {r["name"]: r.get("prep_days", 0) for r in _pc_rules}
+        _premature = conn.execute("""
+            SELECT mal.id AS mal_id, mal.activity_id, mal.rule_name,
+                   a.follow_up_date, a.activity_date, a.disposition,
+                   a.details, a.duration_hours
+            FROM mandated_activity_log mal
+            JOIN activity_log a ON a.id = mal.activity_id
+            WHERE a.follow_up_done = 0 AND a.follow_up_date IS NOT NULL
+        """).fetchall()
+        _fixed = 0
+        for _pm in _premature:
+            _prep_days = _prep_map.get(_pm["rule_name"], 0)
+            try:
+                _fu_date = _pc_date.fromisoformat(_pm["follow_up_date"])
+                _act_date = _pc_date.fromisoformat(_pm["activity_date"])
+            except (ValueError, TypeError):
+                continue
+            # fire_date is when the activity should have been created:
+            # target_date - prep_days (or target_date itself when prep_days=0)
+            _fire_date = _fu_date - _pc_td(days=_prep_days)
+            # Was it created before the fire date?
+            if _act_date < _fire_date:
+                # Only delete if untouched (no disposition, no details, no duration)
+                _has_interaction = (
+                    (_pm["disposition"] or "").strip()
+                    or (_pm["details"] or "").strip()
+                    or (_pm["duration_hours"] and _pm["duration_hours"] > 0)
+                )
+                if not _has_interaction:
+                    conn.execute("DELETE FROM mandated_activity_log WHERE id = ?", (_pm["mal_id"],))
+                    conn.execute("DELETE FROM activity_log WHERE id = ?", (_pm["activity_id"],))
+                    _fixed += 1
+        if _fixed:
+            conn.commit()
+            logger.info("Corrected %d premature mandated activities (created before prep window)", _fixed)
+    except Exception as e:
+        logger.warning("Premature mandated activity correction failed: %s", e)
+
     # Health checks — wrapped in try/except so they don't block server start
     try:
         conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
