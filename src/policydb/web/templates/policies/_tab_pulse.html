@@ -1,0 +1,403 @@
+{# Policy Pulse Tab — dense single-column summary: metrics, attention, milestones, contacts, activity, notes, quick log #}
+<div id="tab-pulse-content" class="space-y-3">
+
+{# ══════════════════════════════════════════════════════════
+   Section 1: Header + Review Badge
+   ══════════════════════════════════════════════════════════ #}
+<div class="bg-gray-800 rounded-md p-3 flex items-start justify-between gap-3">
+  <div class="min-w-0">
+    <div class="flex items-center gap-2 flex-wrap">
+      <span class="text-base font-bold text-gray-100">Policy Pulse</span>
+      <span class="text-gray-500 text-sm">·</span>
+      <a href="/clients/{{ client.id }}" class="text-sm text-blue-400 hover:text-blue-300 hover:underline truncate max-w-[200px]">{{ client.name }}</a>
+      {% if client.cn_number %}
+      <span class="text-[10px] text-gray-500 font-mono">{{ client.cn_number }}</span>
+      {% endif %}
+    </div>
+    <div class="flex items-center gap-2 mt-1 flex-wrap">
+      {# Ref tag pill #}
+      {% set _pulse_ref = build_ref_tag(cn_number=policy.get('cn_number', client.cn_number or ''), client_id=client.id, policy_uid=policy.policy_uid, project_id=policy.get('project_id', 0)) %}
+      <button type="button" onclick="copyRefTag(this, '{{ _pulse_ref }}')"
+        class="inline-flex items-center gap-1 text-[10px] font-mono text-gray-500 hover:text-blue-400
+               bg-gray-700 hover:bg-gray-600 border border-gray-600 hover:border-blue-500/40
+               rounded-full px-2 py-0.5 cursor-pointer transition-colors whitespace-nowrap no-print"
+        title="Click to copy email ref tag">
+        <svg class="w-3 h-3 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"/>
+        </svg>
+        {{ policy.policy_uid }}
+      </button>
+      {# Review badge #}
+      {% if policy.last_reviewed_at %}
+      <span class="text-[10px] bg-emerald-900/60 text-emerald-400 border border-emerald-700/50 px-2 py-0.5 rounded-full font-medium whitespace-nowrap">
+        Reviewed {{ policy.last_reviewed_at[:10] }}
+        {% if days_since_review is not none %}<span class="opacity-70">({{ days_since_review }}d ago)</span>{% endif %}
+      </span>
+      {% else %}
+      <span class="text-[10px] bg-amber-900/60 text-amber-400 border border-amber-700/50 px-2 py-0.5 rounded-full font-medium whitespace-nowrap">Not yet reviewed</span>
+      {% endif %}
+    </div>
+  </div>
+  {# Mark Reviewed button #}
+  <form method="post" action="/review/policies/{{ policy.policy_uid }}/mark" class="shrink-0 no-print">
+    <input type="hidden" name="mark" value="1">
+    <button type="submit"
+      class="text-[10px] font-semibold px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 text-gray-300 hover:text-gray-100 border border-gray-600 hover:border-gray-500 transition-colors whitespace-nowrap">
+      Mark Reviewed
+    </button>
+  </form>
+</div>
+
+{# ══════════════════════════════════════════════════════════
+   Section 2: Metrics Bar
+   ══════════════════════════════════════════════════════════ #}
+<div id="pulse-metrics" class="grid grid-cols-4 gap-2">
+
+  {# Readiness #}
+  {% set rs = readiness.get('readiness_score') or 0 %}
+  {% set rl = readiness.get('readiness_label') or '' %}
+  <div class="bg-gray-800 rounded-md p-2 px-3">
+    <div class="text-[10px] text-gray-500 font-bold tracking-wider uppercase mb-1">Readiness</div>
+    <div class="text-xl font-bold
+      {% if rs >= 75 %}text-emerald-400
+      {% elif rs >= 50 %}text-amber-400
+      {% else %}text-red-400{% endif %}">{{ rs }}</div>
+    <div class="text-[10px] text-gray-400 mt-0.5">
+      {% if rl %}{{ rl }}{% else %}—{% endif %}
+    </div>
+  </div>
+
+  {# Days to Renewal #}
+  <div class="bg-gray-800 rounded-md p-2 px-3">
+    <div class="text-[10px] text-gray-500 font-bold tracking-wider uppercase mb-1">Days to Renewal</div>
+    <div class="text-xl font-bold
+      {% if days_to_renewal is none %}text-gray-500
+      {% elif days_to_renewal <= 30 %}text-red-400
+      {% elif days_to_renewal <= 90 %}text-amber-400
+      {% else %}text-blue-400{% endif %}">
+      {{ days_to_renewal if days_to_renewal is not none else '—' }}
+    </div>
+    <div class="text-[10px] text-gray-400 mt-0.5">
+      {% if policy.expiration_date %}{{ policy.expiration_date[:10] }}{% else %}no exp date{% endif %}
+    </div>
+  </div>
+
+  {# Premium + Rate Change #}
+  <div class="bg-gray-800 rounded-md p-2 px-3">
+    <div class="text-[10px] text-gray-500 font-bold tracking-wider uppercase mb-1">Premium</div>
+    <div class="text-xl font-bold text-gray-100">
+      {% if policy.premium %}{{ policy.premium | currency_short }}{% else %}—{% endif %}
+    </div>
+    <div class="text-[10px] mt-0.5">
+      {% if rate_change is none %}
+        <span class="text-gray-500">no prior data</span>
+      {% elif rate_change > 0 %}
+        <span class="text-emerald-400">▲ {{ (rate_change * 100) | round(1) }}%</span>
+      {% elif rate_change < 0 %}
+        <span class="text-red-400">▼ {{ (rate_change * 100 * -1) | round(1) }}%</span>
+      {% else %}
+        <span class="text-gray-400">flat</span>
+      {% endif %}
+    </div>
+  </div>
+
+  {# Effort Hours #}
+  <div class="bg-gray-800 rounded-md p-2 px-3">
+    <div class="text-[10px] text-gray-500 font-bold tracking-wider uppercase mb-1">Effort</div>
+    <div class="text-xl font-bold text-gray-100" id="pulse-metrics-effort">
+      {{ (effort | round(1)) if effort else '0' }}h
+    </div>
+    <div class="text-[10px] text-gray-400 mt-0.5">total logged</div>
+  </div>
+
+</div>
+
+{# ══════════════════════════════════════════════════════════
+   Section 3: Needs Attention
+   ══════════════════════════════════════════════════════════ #}
+<div id="pulse-needs-attention">
+  <div class="text-[10px] text-gray-500 font-bold tracking-wider uppercase mb-1 px-0.5">Needs Attention</div>
+  {% if attention_items %}
+  <div class="space-y-1.5">
+    {% for item in attention_items %}
+    <div class="bg-gray-800 rounded-md px-3 py-2 flex items-start gap-2.5 border-l-4
+      {% if item.type == 'overdue' %}border-red-500
+      {% elif item.type == 'milestone' %}
+        {% if item.health in ('critical', 'at_risk') %}border-red-500
+        {% else %}border-amber-500{% endif %}
+      {% elif item.type == 'waiting' %}border-indigo-500
+      {% else %}border-gray-600{% endif %}">
+      {# Badge #}
+      <span class="text-[9px] font-semibold rounded-full px-2 py-0.5 shrink-0 mt-0.5 whitespace-nowrap
+        {% if item.type == 'overdue' %}bg-red-900/60 text-red-400 border border-red-700/50
+        {% elif item.type == 'milestone' %}
+          {% if item.health in ('critical', 'at_risk') %}bg-red-900/60 text-red-400 border border-red-700/50
+          {% else %}bg-amber-900/60 text-amber-400 border border-amber-700/50{% endif %}
+        {% elif item.type == 'waiting' %}bg-indigo-900/60 text-indigo-400 border border-indigo-700/50
+        {% else %}bg-gray-700 text-gray-400 border border-gray-600{% endif %}">
+        {% if item.type == 'overdue' %}OVERDUE
+        {% elif item.type == 'milestone' %}{{ item.health | upper | replace('_', ' ') if item.health else 'MILESTONE' }}
+        {% elif item.type == 'waiting' %}WAITING
+        {% else %}{{ item.type | upper }}{% endif %}
+      </span>
+      {# Text + context #}
+      <div class="flex-1 min-w-0">
+        <span class="text-xs text-gray-200">{{ item.text }}</span>
+        {% if item.type == 'overdue' and item.days is not none %}
+        <span class="text-[10px] text-red-400 ml-1.5">{{ item.days }}d overdue</span>
+        {% elif item.type == 'milestone' and item.days is not none %}
+        <span class="text-[10px] text-amber-400 ml-1.5">{{ item.days }}d behind ideal</span>
+        {% elif item.type == 'waiting' and item.days is not none %}
+        <span class="text-[10px] text-indigo-400 ml-1.5">{{ item.days }}d</span>
+        {% endif %}
+        {% if item.date %}
+        <span class="text-[10px] text-gray-500 ml-1.5">{{ item.date[:10] }}</span>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="bg-emerald-900/30 border border-emerald-700/40 rounded-md px-3 py-2 flex items-center gap-2">
+    <span class="text-emerald-400 text-sm">✓</span>
+    <span class="text-xs text-emerald-400 font-medium">All clear — no attention items</span>
+  </div>
+  {% endif %}
+</div>
+
+{# ══════════════════════════════════════════════════════════
+   Section 4: Milestones
+   ══════════════════════════════════════════════════════════ #}
+<div>
+  <div class="text-[10px] text-gray-500 font-bold tracking-wider uppercase mb-1 px-0.5">Milestones</div>
+  <div class="bg-gray-800 rounded-md p-2 px-3">
+    {% if checklist %}
+    {% set done_count = checklist | selectattr('completed') | list | length %}
+    {% set total_count = checklist | length %}
+
+    {# Progress bar — flex row of segments #}
+    <div class="flex gap-0.5 h-2 rounded overflow-hidden mb-2">
+      {% for item in checklist %}
+      {# Use namespace to find health from timeline for this item #}
+      {% set ns = namespace(ms_health='pending') %}
+      {% for t in timeline if t.milestone_name == item.name and not t.completed_date %}
+        {% set ns.ms_health = t.health or 'pending' %}
+      {% endfor %}
+      <div class="flex-1 rounded-sm
+        {% if item.completed %}bg-emerald-500
+        {% elif ns.ms_health in ('critical', 'at_risk') %}bg-red-500
+        {% elif ns.ms_health in ('compressed', 'drifting') %}bg-amber-500
+        {% else %}bg-gray-600{% endif %}"
+        title="{{ item.name }} — {% if item.completed %}complete{% else %}{{ ns.ms_health }}{% endif %}">
+      </div>
+      {% endfor %}
+    </div>
+
+    {# Count #}
+    <div class="flex items-center justify-between mb-2">
+      <span class="text-[10px] text-gray-400">{{ done_count }} of {{ total_count }} complete</span>
+      {% if total_count > 0 %}
+      <span class="text-[10px] font-semibold
+        {% if done_count == total_count %}text-emerald-400
+        {% elif done_count >= total_count * 0.5 %}text-amber-400
+        {% else %}text-gray-500{% endif %}">
+        {{ ((done_count / total_count) * 100) | round | int }}%
+      </span>
+      {% endif %}
+    </div>
+
+    {# Next milestone detail card #}
+    {% set ns_next = namespace(ms=None) %}
+    {% for t in timeline if not t.completed_date %}
+      {% if not ns_next.ms %}{% set ns_next.ms = t %}{% endif %}
+    {% endfor %}
+    {% if ns_next.ms %}
+    {% set next_ms = ns_next.ms %}
+    <div class="border border-gray-700 rounded px-2.5 py-2 bg-gray-900/50">
+      <div class="flex items-center gap-2 flex-wrap">
+        <span class="text-xs font-medium text-gray-200">{{ next_ms.milestone_name }}</span>
+        {% if next_ms.health %}
+        <span class="text-[9px] font-semibold rounded-full px-2 py-0.5 whitespace-nowrap
+          {% if next_ms.health == 'critical' %}bg-red-900/60 text-red-400 border border-red-700/50
+          {% elif next_ms.health == 'at_risk' %}bg-orange-900/60 text-orange-400 border border-orange-700/50
+          {% elif next_ms.health == 'compressed' %}bg-amber-900/60 text-amber-400 border border-amber-700/50
+          {% elif next_ms.health == 'drifting' %}bg-blue-900/60 text-blue-400 border border-blue-700/50
+          {% else %}bg-gray-700 text-gray-400 border border-gray-600{% endif %}">
+          {{ next_ms.health | replace('_', ' ') }}
+        </span>
+        {% endif %}
+        {% if next_ms.accountability == 'waiting_external' %}
+        <span class="text-[9px] text-indigo-400">↻ {{ next_ms.waiting_on or 'Waiting' }}</span>
+        {% elif next_ms.accountability == 'scheduled' %}
+        <span class="text-[9px] text-indigo-400">Scheduled</span>
+        {% endif %}
+      </div>
+      <div class="text-[10px] text-gray-500 mt-1">
+        Target: {{ next_ms.projected_date[:10] if next_ms.projected_date else '—' }}
+        {% if next_ms.ideal_date and next_ms.projected_date and next_ms.ideal_date[:10] != next_ms.projected_date[:10] %}
+        <span class="text-gray-600">(ideal: {{ next_ms.ideal_date[:10] }})</span>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+
+    {% else %}
+    {# No milestone profile #}
+    <div class="text-xs text-gray-500 italic">
+      No milestone profile assigned.
+      <a href="#" onclick="document.querySelector('[data-tab=workflow]') && document.querySelector('[data-tab=workflow]').click(); return false;"
+        class="text-blue-400 hover:underline ml-1">Go to Workflow tab →</a>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{# ══════════════════════════════════════════════════════════
+   Section 5: Key Contacts
+   ══════════════════════════════════════════════════════════ #}
+<div>
+  <div class="text-[10px] text-gray-500 font-bold tracking-wider uppercase mb-1 px-0.5">Key Contacts</div>
+  <div class="bg-gray-800 rounded-md p-2 px-3">
+    <div class="grid grid-cols-2 gap-0 divide-x divide-gray-700">
+
+      {# Placement Colleague #}
+      <div class="pr-4">
+        <div class="text-[10px] text-gray-500 font-semibold uppercase tracking-wider mb-1.5">Placement</div>
+        {% if placement and placement.get('name') %}
+        <div class="text-sm font-medium text-gray-200 mb-0.5">{{ placement.name }}</div>
+        {% if placement.get('email') %}
+        <a href="mailto:{{ placement.email }}" class="text-[11px] text-blue-400 hover:underline block truncate">{{ placement.email }}</a>
+        {% endif %}
+        {% if placement.get('phone') %}
+        <a href="tel:{{ placement.phone }}" class="text-[11px] text-gray-400 hover:text-gray-300 block mt-0.5">{{ placement.phone }}</a>
+        {% endif %}
+        {% else %}
+        <span class="text-xs text-gray-500 italic">Not assigned</span>
+        {% endif %}
+      </div>
+
+      {# Underwriter #}
+      <div class="pl-4">
+        <div class="text-[10px] text-gray-500 font-semibold uppercase tracking-wider mb-1.5">Underwriter</div>
+        {% if underwriter and underwriter.get('name') %}
+        <div class="text-sm font-medium text-gray-200 mb-0.5">{{ underwriter.name }}</div>
+        {% if underwriter.get('email') %}
+        <a href="mailto:{{ underwriter.email }}" class="text-[11px] text-blue-400 hover:underline block truncate">{{ underwriter.email }}</a>
+        {% endif %}
+        {% if underwriter.get('phone') %}
+        <a href="tel:{{ underwriter.phone }}" class="text-[11px] text-gray-400 hover:text-gray-300 block mt-0.5">{{ underwriter.phone }}</a>
+        {% endif %}
+        {% else %}
+        <span class="text-xs text-gray-500 italic">Not assigned</span>
+        {% endif %}
+      </div>
+
+    </div>
+  </div>
+</div>
+
+{# ══════════════════════════════════════════════════════════
+   Section 6: Recent Activity
+   ══════════════════════════════════════════════════════════ #}
+<div id="pulse-recent-activity">
+  <div class="text-[10px] text-gray-500 font-bold tracking-wider uppercase mb-1 px-0.5">Recent Activity</div>
+  {% if recent %}
+  <div class="bg-gray-800 rounded-md divide-y divide-gray-700/60">
+    {% for a in recent %}
+    <div class="flex items-center gap-2.5 px-3 py-2">
+      {# Activity type badge #}
+      <span class="text-[9px] font-semibold rounded-full px-2 py-0.5 bg-gray-700 text-gray-400 border border-gray-600 whitespace-nowrap shrink-0">
+        {{ a.activity_type or 'Note' }}
+      </span>
+      {# Subject #}
+      <span class="text-xs text-gray-200 truncate max-w-[300px] flex-1 min-w-0">{{ a.subject or '—' }}</span>
+      {# Date + hours #}
+      <div class="text-[10px] text-gray-500 whitespace-nowrap shrink-0 text-right">
+        {% if a.activity_date %}{{ a.activity_date[:10] }}{% endif %}
+        {% if a.duration_hours %}<span class="ml-1 text-gray-600">· {{ a.duration_hours | round(1) }}h</span>{% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="bg-gray-800 rounded-md px-3 py-2.5 text-xs text-gray-500 italic">No recent activity</div>
+  {% endif %}
+</div>
+
+{# ══════════════════════════════════════════════════════════
+   Section 7: Working Notes
+   ══════════════════════════════════════════════════════════ #}
+<div>
+  <div class="text-[10px] text-gray-500 font-bold tracking-wider uppercase mb-1 px-0.5">Working Notes</div>
+  <div class="bg-gray-800 rounded-md px-3 py-2.5">
+    {% if scratchpad and scratchpad.get('content') %}
+    <div class="text-xs text-gray-300 line-clamp-3 leading-relaxed">{{ scratchpad.content }}</div>
+    {% if scratchpad.get('updated_at') %}
+    <div class="text-[10px] text-gray-600 mt-1">Updated {{ scratchpad.updated_at[:10] }}</div>
+    {% endif %}
+    <a href="#" onclick="document.querySelector('[data-tab=workflow]') && document.querySelector('[data-tab=workflow]').click(); return false;"
+      class="text-[10px] text-blue-400 hover:underline mt-1 inline-block no-print">edit →</a>
+    {% else %}
+    <span class="text-xs text-gray-500 italic">No working notes</span>
+    <a href="#" onclick="document.querySelector('[data-tab=workflow]') && document.querySelector('[data-tab=workflow]').click(); return false;"
+      class="text-[10px] text-blue-400 hover:underline ml-2 no-print">add →</a>
+    {% endif %}
+  </div>
+</div>
+
+{# ══════════════════════════════════════════════════════════
+   Section 8: Quick Log (no-print)
+   ══════════════════════════════════════════════════════════ #}
+<div class="no-print">
+  <div class="text-[10px] text-gray-500 font-bold tracking-wider uppercase mb-1 px-0.5">Quick Log</div>
+  <div class="bg-gray-800 rounded-md p-3">
+    <form hx-post="/activities/log"
+          hx-target="#pulse-recent-activity"
+          hx-swap="outerHTML"
+          hx-vals='{"pulse_oob": "1"}'
+          hx-on::after-request="this.reset()">
+      <input type="hidden" name="client_id" value="{{ client.id }}">
+      <input type="hidden" name="policy_id" value="{{ policy.id }}">
+
+      {# Row 1: Type, Subject, Hours #}
+      <div class="flex items-end gap-2 flex-wrap mb-2">
+        <div class="shrink-0">
+          <label class="block text-[10px] text-gray-500 font-semibold uppercase tracking-wider mb-1">Type</label>
+          <input type="text" name="activity_type" list="pulse-activity-types"
+            autocomplete="off" placeholder="Activity type"
+            class="bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-xs text-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-500 w-32">
+          <datalist id="pulse-activity-types">
+            {% for t in activity_types %}<option value="{{ t }}">{% endfor %}
+          </datalist>
+        </div>
+        <div class="flex-1 min-w-[140px]">
+          <label class="block text-[10px] text-gray-500 font-semibold uppercase tracking-wider mb-1">Subject <span class="text-red-400">*</span></label>
+          <input type="text" name="subject" required placeholder="What happened?"
+            class="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-xs text-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-500">
+        </div>
+        <div class="shrink-0">
+          <label class="block text-[10px] text-gray-500 font-semibold uppercase tracking-wider mb-1">Hours</label>
+          <input type="number" name="duration_hours" min="0" step="0.1" placeholder="0.0"
+            class="bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-xs text-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-500 w-20">
+        </div>
+      </div>
+
+      {# Row 2: Follow-up date + Submit #}
+      <div class="flex items-end gap-2 flex-wrap">
+        <div class="shrink-0">
+          <label class="block text-[10px] text-gray-500 font-semibold uppercase tracking-wider mb-1">Follow-up Date</label>
+          <input type="date" name="follow_up_date"
+            class="bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-xs text-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-500">
+        </div>
+        <div class="flex-1"></div>
+        <button type="submit"
+          class="bg-blue-700 text-blue-200 px-4 py-1.5 rounded-md font-semibold hover:bg-blue-600 text-xs transition-colors">
+          Log Activity
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+</div>{# end #tab-pulse-content #}
