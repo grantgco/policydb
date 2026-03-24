@@ -200,7 +200,10 @@ def compute_compliance_summary(governing: dict[str, dict]) -> dict:
         else:
             counts["needs_review"] += 1
 
-    pct = round(counts["compliant"] / total * 100) if total else 0
+    # Exclude Waived and N/A from the denominator — they don't represent
+    # active coverage needs, so they shouldn't drag down the percentage.
+    applicable = total - counts["waived"] - counts["na"]
+    pct = round(counts["compliant"] / applicable * 100) if applicable else (100 if total else 0)
     return {"total": total, **counts, "compliance_pct": pct}
 
 
