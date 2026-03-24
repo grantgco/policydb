@@ -13,6 +13,7 @@ from rapidfuzz import fuzz
 
 from policydb import config as cfg
 from policydb.compliance import (
+    compute_auto_status,
     get_client_compliance_data,
     get_linkable_policies,
     get_requirement_links,
@@ -46,6 +47,8 @@ _CELL_ALLOWED_FIELDS = {
     "compliance_status",
     "linked_policy_uid",
     "notes",
+    "source_id",
+    "project_id",
 }
 
 
@@ -900,6 +903,74 @@ def requirements_row_edit(
             "endorsement_types": cfg.get("endorsement_types", []),
         },
     )
+
+
+@router.get("/client/{client_id}/requirements/{req_id}/detail", response_class=HTMLResponse)
+def requirement_detail(
+    client_id: int,
+    req_id: int,
+    request: Request,
+    conn=Depends(get_db),
+):
+    """Return the slideover detail panel for a requirement."""
+    req = conn.execute(
+        "SELECT * FROM coverage_requirements WHERE id = ? AND client_id = ?",
+        (req_id, client_id),
+    ).fetchone()
+    if not req:
+        return HTMLResponse("Not found", status_code=404)
+
+    req_dict = dict(req)
+    try:
+        req_dict["_endorsements_list"] = json.loads(req_dict.get("required_endorsements") or "[]")
+    except (ValueError, TypeError):
+        req_dict["_endorsements_list"] = []
+
+    # Sources and locations for dropdowns
+    sources = [dict(r) for r in conn.execute(
+        "SELECT id, name, counterparty FROM requirement_sources WHERE client_id = ? ORDER BY name",
+        (client_id,),
+    ).fetchall()]
+    projects = [dict(r) for r in conn.execute(
+        "SELECT id, name FROM projects WHERE client_id = ? ORDER BY name",
+        (client_id,),
+    ).fetchall()]
+
+    # Policy links
+    links = get_requirement_links(conn, req_id)
+    linkable = get_linkable_policies(conn, client_id)
+
+    # Primary linked policy for comparison
+    primary_policy = None
+    for link in links:
+        if link.get("is_primary"):
+            primary_policy = conn.execute(
+                "SELECT policy_uid, policy_type, carrier, limit_amount, deductible, "
+                "expiration_date FROM policies WHERE policy_uid = ? AND archived = 0",
+                (link["policy_uid"],),
+            ).fetchone()
+            if primary_policy:
+                primary_policy = dict(primary_policy)
+            break
+
+    # Compute auto-status for display
+    auto_status = compute_auto_status(req_dict, primary_policy) if primary_policy else "Gap"
+
+    return templates.TemplateResponse("compliance/_requirement_slideover.html", {
+        "request": request,
+        "req": req_dict,
+        "client_id": client_id,
+        "sources": sources,
+        "projects": projects,
+        "links": links,
+        "linkable_policies": linkable,
+        "primary_policy": primary_policy,
+        "auto_status": auto_status,
+        "compliance_statuses": cfg.get("compliance_statuses", []),
+        "deductible_types": cfg.get("deductible_types", []),
+        "policy_types": cfg.get("policy_types", []),
+        "endorsement_types": cfg.get("endorsement_types", []),
+    })
 
 
 @router.post("/client/{client_id}/sources/{source_id}/delete", response_class=HTMLResponse)
