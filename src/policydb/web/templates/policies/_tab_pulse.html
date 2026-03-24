@@ -170,7 +170,17 @@
    Section 4: Milestones
    ══════════════════════════════════════════════════════════ #}
 <div>
-  <div class="text-[10px] text-gray-500 font-bold tracking-wider uppercase mb-1 px-0.5">Milestones</div>
+  <div class="flex items-center justify-between mb-1 px-0.5">
+    <span class="text-[10px] text-gray-500 font-bold tracking-wider uppercase">Milestones</span>
+    {% if checklist %}
+    <button type="button"
+      hx-get="/policies/{{ policy.policy_uid }}/milestones/popover"
+      hx-target="#pulse-milestone-popover"
+      hx-swap="innerHTML"
+      onclick="document.getElementById('pulse-milestone-popover').classList.remove('hidden')"
+      class="text-[10px] text-marsh hover:underline no-print">Edit Checklist</button>
+    {% endif %}
+  </div>
   <div class="card p-2 px-3">
     {% if checklist %}
     {% set done_count = checklist | selectattr('completed') | list | length %}
@@ -251,6 +261,7 @@
     </div>
     {% endif %}
   </div>
+  <div id="pulse-milestone-popover" class="hidden mt-2"></div>
 </div>
 
 {# ══════════════════════════════════════════════════════════
@@ -267,7 +278,7 @@
         {% if placement and placement.get('name') %}
         <div class="text-sm font-medium text-gray-900 mb-0.5">{{ placement.name }}</div>
         {% if placement.get('email') %}
-        <a href="mailto:{{ placement.email }}" class="text-[11px] text-blue-600 hover:underline block truncate">{{ placement.email }}</a>
+        <a href="mailto:{{ placement.email }}?subject={{ mailto_subject | urlencode }}" class="text-[11px] text-blue-600 hover:underline block truncate">{{ placement.email }}</a>
         {% endif %}
         {% if placement.get('phone') %}
         <a href="tel:{{ placement.phone }}" class="text-[11px] text-gray-500 hover:text-gray-700 block mt-0.5">{{ placement.phone }}</a>
@@ -283,7 +294,7 @@
         {% if underwriter and underwriter.get('name') %}
         <div class="text-sm font-medium text-gray-900 mb-0.5">{{ underwriter.name }}</div>
         {% if underwriter.get('email') %}
-        <a href="mailto:{{ underwriter.email }}" class="text-[11px] text-blue-600 hover:underline block truncate">{{ underwriter.email }}</a>
+        <a href="mailto:{{ underwriter.email }}?subject={{ mailto_subject | urlencode }}" class="text-[11px] text-blue-600 hover:underline block truncate">{{ underwriter.email }}</a>
         {% endif %}
         {% if underwriter.get('phone') %}
         <a href="tel:{{ underwriter.phone }}" class="text-[11px] text-gray-500 hover:text-gray-700 block mt-0.5">{{ underwriter.phone }}</a>
@@ -296,6 +307,30 @@
     </div>
   </div>
 </div>
+
+{# ══════════════════════════════════════════════════════════
+   Section 5B: Project / Location
+   ══════════════════════════════════════════════════════════ #}
+{% if policy.project_name or policy.get('exposure_city') or policy.get('exposure_state') %}
+<div>
+  <div class="text-[10px] text-gray-500 font-bold tracking-wider uppercase mb-1 px-0.5">Project / Location</div>
+  <div class="card p-2 px-3">
+    {% if policy.project_name %}
+    <div class="flex items-center gap-2">
+      <span class="text-sm font-medium text-gray-800">{{ policy.project_name }}</span>
+      {% if policy.project_id %}
+      <a href="/clients/{{ client.id }}/locations" class="text-[10px] text-marsh hover:underline no-print">View →</a>
+      {% endif %}
+    </div>
+    {% endif %}
+    {% if policy.get('exposure_city') or policy.get('exposure_state') %}
+    <div class="text-xs text-gray-500 {% if policy.project_name %}mt-0.5{% endif %}">
+      {{ policy.get('exposure_city', '') }}{% if policy.get('exposure_city') and policy.get('exposure_state') %}, {% endif %}{{ policy.get('exposure_state', '') }}
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
 
 {# ══════════════════════════════════════════════════════════
    Section 6: Recent Activity
@@ -387,7 +422,7 @@
       <div class="flex items-end gap-2 flex-wrap">
         <div class="shrink-0">
           <label class="block text-[10px] text-gray-500 font-semibold uppercase tracking-wider mb-1">Follow-up Date</label>
-          <input type="date" name="follow_up_date"
+          <input type="date" name="follow_up_date" id="pulse-ql-fu-date"
             class="border border-gray-300 rounded px-2 py-1.5 text-xs text-gray-900 focus:outline-none focus:ring-1 focus:ring-marsh">
         </div>
         <div class="flex-1"></div>
@@ -396,8 +431,33 @@
           Log Activity
         </button>
       </div>
+
+      {# Row 3: Disposition pills — shown when follow-up date is set #}
+      <input type="hidden" name="disposition" id="pulse-ql-disp-val" value="">
+      <div id="pulse-ql-disp-row" class="hidden mt-2">
+        <label class="block text-[10px] text-gray-500 font-semibold uppercase tracking-wider mb-1">Disposition</label>
+        <div class="flex flex-wrap gap-1">
+          {% for d in dispositions %}
+          <button type="button"
+            onclick="var inp=document.getElementById('pulse-ql-disp-val'); inp.value='{{ d.label }}'; this.parentElement.querySelectorAll('button').forEach(function(b){b.classList.remove('bg-marsh','text-white','border-marsh');b.classList.add('border-gray-300','text-gray-500');}); this.classList.add('bg-marsh','text-white','border-marsh'); this.classList.remove('border-gray-300','text-gray-500');"
+            class="text-[10px] px-2 py-0.5 rounded border border-gray-300 text-gray-500 hover:border-marsh hover:text-marsh transition-colors">{{ d.label }}</button>
+          {% endfor %}
+        </div>
+      </div>
     </form>
   </div>
 </div>
+
+<script>
+(function() {
+  var fuDate = document.getElementById('pulse-ql-fu-date');
+  var dispRow = document.getElementById('pulse-ql-disp-row');
+  if (fuDate && dispRow) {
+    fuDate.addEventListener('input', function() {
+      dispRow.classList.toggle('hidden', !this.value);
+    });
+  }
+})();
+</script>
 
 </div>{# end #tab-pulse-content #}

@@ -33,12 +33,32 @@ Not every task needs a full brainstorm cycle. Use this to calibrate:
 | Web framework | FastAPI + uvicorn |
 | Templates | Jinja2 (in `src/policydb/web/templates/`) |
 | Interactivity | HTMX (partial HTML swaps) |
-| Styling | Tailwind CSS (CDN, utility classes only) |
+| Styling | Tailwind CSS (CDN, utility classes only) — see Theme Colors below |
 | Database | SQLite via `sqlite3` with `row_factory`, WAL mode |
 | CLI | Click (`policydb` / `pdb` entry points) |
 | Parsing | **Humanize, Dateparser, RapidFuzz, Babel** — use these; do not write custom parsing code |
 | Phone formatting | `phonenumbers` library via `format_phone()` in `src/policydb/utils.py` |
 | Currency parsing | `parse_currency_with_magnitude()` in `src/policydb/utils.py` — supports shorthand like `1m`, `1.5M`, `500k`, `$2,000,000` |
+
+### Theme Colors
+
+The app uses a **light theme** throughout. Key conventions:
+
+| Element | Color Approach |
+|---------|---------------|
+| Page background | White / light gray (`bg-white`, `bg-gray-50`) |
+| Cards / sections | `card` class (white bg, border, rounded) — NOT `bg-gray-800` dark cards |
+| Primary brand | `marsh` / `marsh-light` (custom Tailwind color — dark navy blue `#003865`) |
+| Text headings | `text-gray-900` |
+| Text secondary | `text-gray-500`, `text-gray-400` |
+| Links | `text-marsh`, `text-blue-600` — NOT `text-blue-400` (that's dark-theme) |
+| Success/positive | `text-green-700`, `bg-green-50`, `border-green-200` |
+| Warning/caution | `text-amber-700`, `bg-amber-50`, `border-amber-200` |
+| Danger/overdue | `text-red-700`, `bg-red-50`, `border-red-200` |
+| Info/badges | `bg-gray-100 text-gray-600` for neutral, `bg-blue-50 text-blue-700` for info |
+| Inputs | `border-gray-300`, `text-gray-900`, `focus:ring-marsh` |
+
+**Rule:** Never use dark-theme classes (`bg-gray-800`, `bg-gray-900`, `text-gray-100`, `text-blue-400`, `text-emerald-400`, `border-gray-600/700`) in new UI. The Policy Pulse tab was converted to light theme — all new sections should follow the light `card` pattern.
 
 ### Currency & Phone Rules
 

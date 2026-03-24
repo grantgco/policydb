@@ -245,10 +245,10 @@
    SUMMARY BAR
    ══════════════════════════════════════════════════════════════════ #}
 <div class="flex gap-4 px-4 py-2 bg-white border-b text-sm text-gray-500 mb-4 rounded-lg" id="fu-summary-bar">
+  {% if stale %}<span><strong class="text-red-600">{{ stale | length }}</strong> Stale</span>{% endif %}
+  {% if overdue_bucket %}<span><strong class="text-amber-600">{{ overdue_bucket | length }}</strong> Overdue</span>{% endif %}
   {% if triage %}<span><strong class="text-gray-600">{{ triage | length }}</strong> Triage</span>{% endif %}
   {% if today_bucket %}<span><strong class="text-blue-700">{{ today_bucket | length }}</strong> Today</span>{% endif %}
-  {% if overdue_bucket %}<span><strong class="text-amber-600">{{ overdue_bucket | length }}</strong> Overdue</span>{% endif %}
-  {% if stale %}<span><strong class="text-red-600">{{ stale | length }}</strong> Stale</span>{% endif %}
   {% if nudge_due %}<span class="ml-auto"><strong class="text-indigo-600">{{ nudge_due | length }}</strong> Nudge</span>{% endif %}
   {% if prep_coming %}<span><strong class="text-purple-600">{{ prep_coming | length }}</strong> Prep</span>{% endif %}
   {% if watching %}<span><strong class="text-gray-400">{{ watching | length }}</strong> Watching</span>{% endif %}
@@ -257,18 +257,18 @@
 
 
 {# ══════════════════════════════════════════════════════════════════
-   1. TRIAGE — activity items with no disposition
+   1. STALE — my_action items 14+d overdue (most urgent first)
    ══════════════════════════════════════════════════════════════════ #}
-{% if triage %}
-<div class="mb-5 fu-section" data-section="triage">
-  <div class="border-l-4 border-gray-300 bg-gray-50 px-4 py-3 rounded-r-lg">
+{% if stale %}
+<div class="mb-5 fu-section" data-section="stale">
+  <div class="border-l-4 border-red-500 bg-red-50 px-4 py-3 rounded-r-lg">
     <div class="flex items-center gap-2 mb-2">
-      <span class="text-white text-xs font-semibold px-2.5 py-0.5 rounded-full bg-gray-500">Triage</span>
-      <span class="text-gray-400 text-xs">{{ triage | length }} item{{ 's' if triage | length != 1 }} need{{ '' if triage | length != 1 else 's' }} a disposition</span>
+      <span class="text-white text-xs font-semibold px-2.5 py-0.5 rounded-full bg-red-700">Stale</span>
+      <span class="text-gray-400 text-xs">{{ stale | length }} item{{ 's' if stale | length != 1 }} — {{ cfg.get('stale_threshold_days', 14) if cfg is defined else 14 }}+ days overdue</span>
     </div>
     <div class="space-y-1">
-      {% for item in triage %}
-        {{ triage_row(item) }}
+      {% for item in stale %}
+        {{ fu_row(item, 'bg-red-50', 'border border-red-100 hover:border-red-200', 'bg-red-500', 'text-red-600', 'stale') }}
       {% endfor %}
     </div>
   </div>
@@ -276,26 +276,7 @@
 {% endif %}
 
 {# ══════════════════════════════════════════════════════════════════
-   2. TODAY — my_action items due today
-   ══════════════════════════════════════════════════════════════════ #}
-{% if today_bucket %}
-<div class="mb-5 fu-section" data-section="today">
-  <div class="border-l-4 border-blue-500 bg-blue-50 px-4 py-3 rounded-r-lg">
-    <div class="flex items-center gap-2 mb-2">
-      <span class="text-white text-xs font-semibold px-2.5 py-0.5 rounded-full bg-blue-800">Today</span>
-      <span class="text-gray-400 text-xs">{{ today_bucket | length }} item{{ 's' if today_bucket | length != 1 }} due today</span>
-    </div>
-    <div class="space-y-1">
-      {% for item in today_bucket %}
-        {{ fu_row(item, 'bg-blue-50', 'border border-blue-100 hover:border-blue-200', 'bg-blue-500', 'text-blue-600', 'today') }}
-      {% endfor %}
-    </div>
-  </div>
-</div>
-{% endif %}
-
-{# ══════════════════════════════════════════════════════════════════
-   3. OVERDUE — my_action items 1-14d overdue
+   2. OVERDUE — my_action items 1-14d overdue
    ══════════════════════════════════════════════════════════════════ #}
 {% if overdue_bucket %}
 <div class="mb-5 fu-section" data-section="overdue">
@@ -314,18 +295,37 @@
 {% endif %}
 
 {# ══════════════════════════════════════════════════════════════════
-   4. STALE — my_action items 14+d overdue
+   3. TRIAGE — activity items with no disposition
    ══════════════════════════════════════════════════════════════════ #}
-{% if stale %}
-<div class="mb-5 fu-section" data-section="stale">
-  <div class="border-l-4 border-red-500 bg-red-50 px-4 py-3 rounded-r-lg">
+{% if triage %}
+<div class="mb-5 fu-section" data-section="triage">
+  <div class="border-l-4 border-gray-300 bg-gray-50 px-4 py-3 rounded-r-lg">
     <div class="flex items-center gap-2 mb-2">
-      <span class="text-white text-xs font-semibold px-2.5 py-0.5 rounded-full bg-red-700">Stale</span>
-      <span class="text-gray-400 text-xs">{{ stale | length }} item{{ 's' if stale | length != 1 }} — {{ cfg.get('stale_threshold_days', 14) if cfg is defined else 14 }}+ days overdue</span>
+      <span class="text-white text-xs font-semibold px-2.5 py-0.5 rounded-full bg-gray-500">Triage</span>
+      <span class="text-gray-400 text-xs">{{ triage | length }} item{{ 's' if triage | length != 1 }} need{{ '' if triage | length != 1 else 's' }} a disposition</span>
     </div>
     <div class="space-y-1">
-      {% for item in stale %}
-        {{ fu_row(item, 'bg-red-50', 'border border-red-100 hover:border-red-200', 'bg-red-500', 'text-red-600', 'stale') }}
+      {% for item in triage %}
+        {{ triage_row(item) }}
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{# ══════════════════════════════════════════════════════════════════
+   4. TODAY — my_action items due today
+   ══════════════════════════════════════════════════════════════════ #}
+{% if today_bucket %}
+<div class="mb-5 fu-section" data-section="today">
+  <div class="border-l-4 border-blue-500 bg-blue-50 px-4 py-3 rounded-r-lg">
+    <div class="flex items-center gap-2 mb-2">
+      <span class="text-white text-xs font-semibold px-2.5 py-0.5 rounded-full bg-blue-800">Today</span>
+      <span class="text-gray-400 text-xs">{{ today_bucket | length }} item{{ 's' if today_bucket | length != 1 }} due today</span>
+    </div>
+    <div class="space-y-1">
+      {% for item in today_bucket %}
+        {{ fu_row(item, 'bg-blue-50', 'border border-blue-100 hover:border-blue-200', 'bg-blue-500', 'text-blue-600', 'today') }}
       {% endfor %}
     </div>
   </div>
