@@ -29,11 +29,17 @@
 
 {% else %}
 {# ── Unconfirmed: full paired row ──────────────────────────────────────── #}
-<div id="pair-{{ idx }}" data-status="{{ row.confidence }}" data-confirmed="false"
+<div id="pair-{{ idx }}" data-status="{{ row.confidence }}" data-confirmed="false" data-idx="{{ idx }}"
   data-has-diffs="{% if row.diff_fields %}true{% else %}false{% endif %}"
   class="pair-row flex items-stretch rounded-lg border mb-2 transition-colors
     {% if row.confidence == 'high' %}bg-green-50 border-l-4 border-l-green-400 border-green-200
     {% else %}bg-amber-50 border-l-4 border-l-amber-400 border-amber-200{% endif %}">
+
+  {# ── Checkbox for multi-select ─────────────────────────────────────────── #}
+  <div class="flex items-center pl-2 no-print">
+    <input type="checkbox" class="pgm-select-cb rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+      data-idx="{{ idx }}" onchange="updateProgramSelectBar()">
+  </div>
 
   {# ── Left: Upload data ─────────────────────────────────────────────────── #}
   <div class="flex-1 px-4 py-3 min-w-0">
