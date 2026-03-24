@@ -502,6 +502,26 @@ def get_client_compliance_data(conn, client_id: int) -> dict:
                 if suggestion:
                     gov_req["suggested_policy"] = suggestion
 
+        # Auto-compute status for "Needs Review" governing requirements
+        for line, gov_req in gov.items():
+            status = (gov_req.get("compliance_status") or "Needs Review")
+            override = gov_req.get("status_manual_override", 0)
+            if status == "Needs Review" and not override and gov_req.get("linked_policy_uid"):
+                # Fetch primary linked policy data
+                pol = conn.execute(
+                    "SELECT limit_amount, deductible FROM policies WHERE policy_uid = ? AND archived = 0",
+                    (gov_req["linked_policy_uid"],),
+                ).fetchone()
+                if pol:
+                    new_status = compute_auto_status(gov_req, dict(pol))
+                    if new_status != status:
+                        conn.execute(
+                            "UPDATE coverage_requirements SET compliance_status = ? WHERE id = ?",
+                            (new_status, gov_req["id"]),
+                        )
+                        gov_req["compliance_status"] = new_status
+        conn.commit()
+
         summary = compute_compliance_summary(gov)
 
         location_data.append({
