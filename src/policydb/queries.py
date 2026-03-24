@@ -396,10 +396,13 @@ def get_activities(
     activity_type: Optional[str] = None,
     client_ids: list[int] | None = None,
 ) -> list[sqlite3.Row]:
-    sql = """SELECT a.*, c.name AS client_name, c.cn_number, p.policy_uid, p.project_id
+    sql = """SELECT a.*, c.name AS client_name, c.cn_number, p.policy_uid,
+                    COALESCE(a.project_id, p.project_id) AS project_id,
+                    pr.name AS project_name
              FROM activity_log a
              JOIN clients c ON a.client_id = c.id
              LEFT JOIN policies p ON a.policy_id = p.id
+             LEFT JOIN projects pr ON COALESCE(a.project_id, p.project_id) = pr.id
              WHERE 1=1"""
     params: list = []
     if client_ids:
@@ -563,6 +566,34 @@ def get_all_followups(
     LEFT JOIN policies p ON a.policy_id = p.id
     LEFT JOIN contacts co_a ON a.contact_id = co_a.id
     WHERE a.follow_up_done = 0 AND a.follow_up_date IS NOT NULL
+      AND (a.project_id IS NULL OR a.policy_id IS NOT NULL)
+
+    UNION ALL
+
+    SELECT 'project' AS source,
+           a.id, a.subject, a.follow_up_date, a.activity_type,
+           a.contact_person, a.disposition, a.thread_id,
+           c.name AS client_name, c.id AS client_id, c.cn_number,
+           NULL AS policy_uid, NULL AS policy_type, NULL AS carrier,
+           pr.name AS project_name, a.project_id,
+           0 AS is_opportunity,
+           CAST(julianday('now') - julianday(a.follow_up_date) AS INTEGER) AS days_overdue,
+           co_a2.email AS contact_email,
+           (SELECT GROUP_CONCAT(co_i4.email, ',')
+            FROM contact_client_assignments cca_i4
+            JOIN contacts co_i4 ON cca_i4.contact_id = co_i4.id
+            WHERE cca_i4.client_id = c.id AND cca_i4.contact_type = 'internal'
+              AND co_i4.email IS NOT NULL
+           ) AS internal_cc,
+           a.details AS note_details,
+           NULL AS note_subject,
+           a.activity_date AS note_date
+    FROM activity_log a
+    JOIN clients c ON a.client_id = c.id
+    LEFT JOIN projects pr ON a.project_id = pr.id
+    LEFT JOIN contacts co_a2 ON a.contact_id = co_a2.id
+    WHERE a.follow_up_done = 0 AND a.follow_up_date IS NOT NULL
+      AND a.project_id IS NOT NULL AND a.policy_id IS NULL
 
     UNION ALL
 
@@ -680,6 +711,8 @@ def get_all_followups(
             r["source_label"] = "Renewal"
         elif src == "client":
             r["source_label"] = "Client"
+        elif src == "project":
+            r["source_label"] = "Project"
         else:
             r["source_label"] = ""
 
@@ -687,7 +720,7 @@ def get_all_followups(
     _today = date.today()
     for r in all_rows:
         src = r.get("source")
-        if src == "activity":
+        if src in ("activity", "project"):
             disp = r.get("disposition")
             if disp:
                 days_over = r.get("days_overdue") or 0
@@ -724,7 +757,7 @@ def get_all_followups(
             r["reason_line"] = ""
 
     # Enrich activity-sourced items with prev_disposition and prev_days_ago
-    activity_items = [r for r in all_rows if r.get("source") == "activity" and r.get("id")]
+    activity_items = [r for r in all_rows if r.get("source") in ("activity", "project") and r.get("id")]
     if activity_items:
         act_ids = [r["id"] for r in activity_items]
         placeholders = ",".join("?" * len(act_ids))
