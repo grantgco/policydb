@@ -199,10 +199,13 @@ def activity_complete(
 def _activity_row_dict(conn, activity_id: int) -> dict | None:
     """Fetch a single activity row with client_name and policy_uid for template rendering."""
     row = conn.execute(
-        """SELECT a.*, c.name AS client_name, c.id AS client_id, c.cn_number, p.policy_uid, p.project_id
+        """SELECT a.*, c.name AS client_name, c.id AS client_id, c.cn_number, p.policy_uid,
+                  COALESCE(a.project_id, p.project_id) AS project_id,
+                  pr.name AS project_name
            FROM activity_log a
            JOIN clients c ON a.client_id = c.id
            LEFT JOIN policies p ON a.policy_id = p.id
+           LEFT JOIN projects pr ON COALESCE(a.project_id, p.project_id) = pr.id
            WHERE a.id = ?""",
         (activity_id,),
     ).fetchone()
@@ -394,11 +397,12 @@ def activity_followup(
 
     cursor = conn.execute(
         """INSERT INTO activity_log
-           (activity_date, client_id, policy_id, activity_type, contact_person,
+           (activity_date, client_id, policy_id, project_id, activity_type, contact_person,
             subject, details, follow_up_date, account_exec, duration_hours)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (date.today().isoformat(), original["client_id"],
          original.get("policy_id") or None,
+         original.get("project_id") or None,
          original.get("activity_type", "Call"),
          original.get("contact_person") or None,
          subject, notes or None,
@@ -435,19 +439,23 @@ def activity_followup(
         new_id = cursor.lastrowid
         frow = conn.execute(
             """SELECT a.*, c.name AS client_name, c.cn_number, c.id AS client_id,
-                      p.policy_uid, p.project_id, p.policy_type, p.carrier, p.project_name,
+                      p.policy_uid, COALESCE(a.project_id, p.project_id) AS project_id,
+                      p.policy_type, p.carrier,
+                      COALESCE(pr.name, p.project_name) AS project_name,
                       CAST(julianday('now') - julianday(a.follow_up_date) AS INTEGER) AS days_overdue,
                       NULL AS contact_email, NULL AS internal_cc
                FROM activity_log a
                JOIN clients c ON a.client_id = c.id
                LEFT JOIN policies p ON a.policy_id = p.id
+               LEFT JOIN projects pr ON COALESCE(a.project_id, p.project_id) = pr.id
                WHERE a.id = ?""",
             (new_id,),
         ).fetchone()
         if not frow:
             return HTMLResponse("")
         r = dict(frow)
-        r["source"] = "activity"
+        # Set source based on whether this is project-level or policy-level
+        r["source"] = "project" if (r.get("project_id") and not r.get("policy_id")) else "activity"
         today_str = date.today().isoformat()
         r["_is_overdue"] = (r.get("follow_up_date") or "") < today_str
         r["note_details"] = r.get("details")

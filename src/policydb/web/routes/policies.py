@@ -1536,10 +1536,13 @@ def policy_tab_activity(request: Request, policy_uid: str, conn=Depends(get_db))
         return HTMLResponse("Not found", status_code=404)
 
     activities = [dict(r) for r in conn.execute(
-        """SELECT a.*, c.name AS client_name, c.cn_number, p.policy_uid, p.project_id
+        """SELECT a.*, c.name AS client_name, c.cn_number, p.policy_uid,
+                  COALESCE(a.project_id, p.project_id) AS project_id,
+                  pr.name AS project_name
            FROM activity_log a
            JOIN clients c ON a.client_id = c.id
            LEFT JOIN policies p ON a.policy_id = p.id
+           LEFT JOIN projects pr ON COALESCE(a.project_id, p.project_id) = pr.id
            WHERE a.policy_id = ? AND a.activity_date >= date('now', '-90 days')
            ORDER BY
              CASE WHEN a.follow_up_date IS NOT NULL AND (a.follow_up_done IS NULL OR a.follow_up_done = 0) THEN 0 ELSE 1 END,
@@ -1547,6 +1550,39 @@ def policy_tab_activity(request: Request, policy_uid: str, conn=Depends(get_db))
              a.activity_date DESC, a.id DESC""",
         (policy_dict["id"],),
     ).fetchall()]
+
+    # Cross-reference: project-level activities for the same project
+    _proj_id = policy_dict.get("project_id")
+    if _proj_id:
+        xrefs = [dict(r) for r in conn.execute(
+            """SELECT a.*, c.name AS client_name, c.cn_number, NULL AS policy_uid,
+                      a.project_id, pr.name AS project_name
+               FROM activity_log a
+               JOIN clients c ON a.client_id = c.id
+               LEFT JOIN projects pr ON a.project_id = pr.id
+               WHERE a.project_id = ? AND a.policy_id IS NULL
+                 AND a.activity_date >= date('now', '-90 days')
+               ORDER BY a.activity_date DESC, a.id DESC""",
+            (_proj_id,),
+        ).fetchall()]
+        for xa in xrefs:
+            xa["is_project_xref"] = True
+        activities.extend(xrefs)
+        # Re-sort to match original order: open follow-ups first (by fu date asc), then by activity_date desc
+        def _sort_key(x):
+            has_open_fu = bool(x.get("follow_up_date") and not x.get("follow_up_done"))
+            return (
+                0 if has_open_fu else 1,
+                x.get("follow_up_date", "9999") if has_open_fu else "9999",
+                "9999-99-99" if has_open_fu else (x.get("activity_date") or ""),  # secondary: date desc for non-fu
+            )
+        activities.sort(key=_sort_key)
+        # Within same sort group, reverse activity_date for non-fu items
+        # Simpler: just stable-sort non-fu items by date desc
+        fu_items = [a for a in activities if a.get("follow_up_date") and not a.get("follow_up_done")]
+        other_items = [a for a in activities if not (a.get("follow_up_date") and not a.get("follow_up_done"))]
+        other_items.sort(key=lambda x: (x.get("activity_date", ""), x.get("id", 0)), reverse=True)
+        activities = fu_items + other_items
 
     all_contact_names = [r[0] for r in conn.execute(
         "SELECT DISTINCT name FROM contacts WHERE name IS NOT NULL AND name != '' ORDER BY name"
