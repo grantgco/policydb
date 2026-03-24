@@ -92,6 +92,11 @@ def activity_log(
         if _row:
             _contact_id = _row["id"]
 
+    # Supersede old follow-ups BEFORE inserting the new one
+    if follow_up_date and policy_id:
+        from policydb.queries import supersede_followups
+        supersede_followups(conn, policy_id, follow_up_date)
+
     account_exec = cfg.get("default_account_exec", "Grant")
     cursor = conn.execute(
         """INSERT INTO activity_log
@@ -102,10 +107,6 @@ def activity_log(
          follow_up_date or None, account_exec, round_duration(duration_hours),
          disposition.strip() or None),
     )
-
-    if follow_up_date and policy_id:
-        from policydb.queries import supersede_followups
-        supersede_followups(conn, policy_id, follow_up_date)
     conn.commit()
     logger.info("Activity created for client %d: %s", client_id, activity_type)
     # Return the new activity row as HTMX partial
@@ -438,6 +439,12 @@ def activity_followup(
             (disposition.strip(), activity_id),
         )
 
+    # Supersede old follow-ups BEFORE inserting the new one — otherwise the
+    # blanket UPDATE in supersede_followups marks the just-created activity as done.
+    if new_follow_up_date and original.get("policy_id"):
+        from policydb.queries import supersede_followups
+        supersede_followups(conn, original["policy_id"], new_follow_up_date)
+
     # Create new activity (re-diary)
     account_exec = cfg.get("default_account_exec", "Grant")
     dur = round_duration(duration_hours)
@@ -458,9 +465,6 @@ def activity_followup(
          subject, notes or None,
          new_follow_up_date or None, account_exec, dur),
     )
-    if new_follow_up_date and original.get("policy_id"):
-        from policydb.queries import supersede_followups
-        supersede_followups(conn, original["policy_id"], new_follow_up_date)
     conn.commit()
 
     # If this follow-up is for a policy with a disposition, update the timeline
