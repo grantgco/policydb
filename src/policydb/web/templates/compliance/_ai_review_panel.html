@@ -1,0 +1,338 @@
+{# AI Import Review Panel — compliance diff review before applying changes.
+   Context:
+     client_id           — client ID
+     source_id           — existing source ID (or None for new source)
+     project_id          — selected location ID (or None)
+     ai_source_diffs     — list of {field, label, current, extracted, is_fill}
+     ai_requirement_data — list of {index, extracted, match_type, match_score, existing, existing_id, diffs}
+     ai_cope_diffs       — list of {field, label, current, extracted, is_fill}
+     ai_parsed_json      — JSON string of all parsed data
+     is_new_source       — bool: creating new source vs updating existing
+     existing_source_name — name of existing source (or None)
+#}
+<div id="ai-review-panel" class="mb-6" data-parsed='{{ ai_parsed_json }}'
+     data-client-id="{{ client_id }}"
+     data-source-id="{{ source_id or '' }}"
+     data-project-id="{{ project_id or '' }}">
+
+  {# ── Header ── #}
+  <div class="flex items-center gap-3 mb-4">
+    <div class="flex items-center gap-2">
+      <svg class="w-5 h-5 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+      </svg>
+      <h3 class="text-sm font-semibold text-gray-900">AI Import Review</h3>
+    </div>
+    <span class="text-xs text-gray-400">Review extracted data before applying</span>
+    <button onclick="document.getElementById('ai-review-panel').remove()"
+            class="ml-auto text-xs text-gray-400 hover:text-gray-600 transition-colors">Dismiss</button>
+  </div>
+
+  {# ══════════════════════════════════════════════════════════════════════════
+     SECTION A — Source Fields
+     ══════════════════════════════════════════════════════════════════════════ #}
+  {% if ai_source_diffs %}
+  <div class="card border-indigo-200 bg-indigo-50/20 mb-4" id="ai-source-diffs-card">
+    <div class="px-5 py-3 border-b border-indigo-100 flex items-center justify-between">
+      <span class="text-xs font-semibold text-indigo-600 uppercase tracking-wide">
+        {% if is_new_source %}New Source{% else %}Source: {{ existing_source_name or 'Unnamed' }}{% endif %}
+      </span>
+      <span class="text-xs text-gray-400">{{ ai_source_diffs | length }} field{{ 's' if ai_source_diffs | length != 1 }}</span>
+    </div>
+    <div class="divide-y divide-indigo-50">
+      {% for d in ai_source_diffs %}
+      <label class="flex items-center gap-4 px-5 py-2.5 hover:bg-indigo-50/40 cursor-pointer transition-colors">
+        <input type="checkbox" name="apply_source" value="{{ d.field }}"
+               class="ai-source-cb rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+               {% if d.is_fill %}checked{% endif %}>
+        <span class="text-xs font-medium text-gray-500 w-36 shrink-0">{{ d.label }}</span>
+        <span class="text-xs text-gray-400 flex-1 truncate" title="{{ d.current or '(empty)' }}">
+          {% if d.current %}{{ d.current }}{% else %}<em class="text-gray-300">empty</em>{% endif %}
+        </span>
+        <svg class="w-4 h-4 text-indigo-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/>
+        </svg>
+        <span class="text-xs font-medium text-indigo-700 flex-1 truncate" title="{{ d.extracted }}">
+          {{ d.extracted }}
+        </span>
+      </label>
+      {% endfor %}
+    </div>
+    <div class="px-5 py-3 border-t border-indigo-100 flex items-center gap-3">
+      <button type="button" onclick="applySourceFields()"
+              class="px-4 py-1.5 rounded-lg text-xs font-medium bg-indigo-600 text-white hover:bg-indigo-700 transition-colors">
+        {% if is_new_source %}Create Source{% else %}Apply Source Changes{% endif %}
+      </button>
+      <button type="button" onclick="toggleCbs('.ai-source-cb', true)" class="text-xs text-indigo-500 hover:text-indigo-700">Select All</button>
+      <button type="button" onclick="toggleCbs('.ai-source-cb', false)" class="text-xs text-gray-400 hover:text-gray-600">Clear All</button>
+    </div>
+  </div>
+  {% endif %}
+
+  {# ══════════════════════════════════════════════════════════════════════════
+     SECTION B — Requirements (one card per extracted requirement)
+     ══════════════════════════════════════════════════════════════════════════ #}
+  {% if ai_requirement_data %}
+  {% for req in ai_requirement_data %}
+  <div class="card border-emerald-200 bg-emerald-50/20 mb-4" id="ai-req-card-{{ req.index }}">
+    <div class="px-5 py-3 border-b border-emerald-100 flex items-center gap-3">
+      <svg class="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+      </svg>
+      <span class="text-xs font-semibold text-emerald-700 uppercase tracking-wide">
+        {% if req.match_type == 'matched' %}
+          {{ req.existing.coverage_line or 'Requirement' }}
+        {% else %}
+          New: {{ req.extracted.coverage_line or 'Requirement ' ~ (req.index + 1) }}
+        {% endif %}
+      </span>
+      {% if req.match_type == 'matched' %}
+      <span class="px-2 py-0.5 rounded-full text-[10px] font-bold
+        {% if req.match_score >= 75 %}bg-green-100 text-green-700
+        {% elif req.match_score >= 60 %}bg-amber-100 text-amber-700
+        {% else %}bg-gray-100 text-gray-500{% endif %}">
+        {{ req.match_score }}% match
+      </span>
+      {% else %}
+      <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-700">New</span>
+      {% endif %}
+      {% if req.diffs %}
+      <span class="text-xs text-gray-400 ml-auto">{{ req.diffs | length }} field{{ 's' if req.diffs | length != 1 }}</span>
+      {% endif %}
+    </div>
+
+    {% if req.diffs %}
+    <div class="divide-y divide-emerald-50">
+      {% for d in req.diffs %}
+      <label class="flex items-center gap-4 px-5 py-2.5 hover:bg-emerald-50/40 cursor-pointer transition-colors">
+        <input type="checkbox" name="apply_req_{{ req.index }}" value="{{ d.field }}"
+               class="ai-req-cb-{{ req.index }} rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+               {% if d.is_fill %}checked{% endif %}>
+        <span class="text-xs font-medium text-gray-500 w-36 shrink-0">{{ d.label }}</span>
+        <span class="text-xs text-gray-400 flex-1 truncate">
+          {% if d.current is not none and d.current != '' and d.current != [] %}
+            {% if d.field == 'required_endorsements' and d.current is iterable and d.current is not string %}
+              {{ d.current | join(', ') }}
+            {% else %}
+              {{ d.current }}
+            {% endif %}
+          {% else %}
+            <em class="text-gray-300">empty</em>
+          {% endif %}
+        </span>
+        <svg class="w-4 h-4 text-emerald-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/>
+        </svg>
+        <span class="text-xs font-medium text-emerald-700 flex-1 truncate">
+          {% if d.field == 'required_endorsements' and d.extracted is iterable and d.extracted is not string %}
+            {{ d.extracted | join(', ') }}
+          {% else %}
+            {{ d.extracted }}
+          {% endif %}
+        </span>
+      </label>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <div class="px-5 py-3 border-t border-emerald-100 flex items-center gap-3">
+      {% if req.match_type == 'new' %}
+      <button type="button" onclick="applyRequirement({{ req.index }}, null, true)"
+              class="px-4 py-1.5 rounded-lg text-xs font-medium bg-emerald-600 text-white hover:bg-emerald-700 transition-colors">
+        Create Requirement
+      </button>
+      {% else %}
+      <button type="button" onclick="applyRequirement({{ req.index }}, {{ req.existing_id }}, false)"
+              class="px-4 py-1.5 rounded-lg text-xs font-medium bg-emerald-600 text-white hover:bg-emerald-700 transition-colors">
+        Apply Changes
+      </button>
+      {% endif %}
+      <button type="button" onclick="document.getElementById('ai-req-card-{{ req.index }}').remove()"
+              class="text-xs text-gray-400 hover:text-gray-600 transition-colors">Skip</button>
+    </div>
+  </div>
+  {% endfor %}
+  {% endif %}
+
+  {# ══════════════════════════════════════════════════════════════════════════
+     SECTION C — COPE Data
+     ══════════════════════════════════════════════════════════════════════════ #}
+  {% if ai_cope_diffs %}
+  <div class="card border-teal-200 bg-teal-50/20 mb-4" id="ai-cope-diffs-card">
+    <div class="px-5 py-3 border-b border-teal-100 flex items-center justify-between">
+      <span class="text-xs font-semibold text-teal-600 uppercase tracking-wide">COPE Data</span>
+      <span class="text-xs text-gray-400">{{ ai_cope_diffs | length }} field{{ 's' if ai_cope_diffs | length != 1 }}</span>
+    </div>
+    <div class="divide-y divide-teal-50">
+      {% for d in ai_cope_diffs %}
+      <label class="flex items-center gap-4 px-5 py-2.5 hover:bg-teal-50/40 cursor-pointer transition-colors">
+        <input type="checkbox" name="apply_cope" value="{{ d.field }}"
+               class="ai-cope-cb rounded border-gray-300 text-teal-600 focus:ring-teal-500"
+               {% if d.is_fill %}checked{% endif %}>
+        <span class="text-xs font-medium text-gray-500 w-36 shrink-0">{{ d.label }}</span>
+        <span class="text-xs text-gray-400 flex-1 truncate">
+          {% if d.current is not none and d.current != '' %}{{ d.current }}{% else %}<em class="text-gray-300">empty</em>{% endif %}
+        </span>
+        <svg class="w-4 h-4 text-teal-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/>
+        </svg>
+        <span class="text-xs font-medium text-teal-700 flex-1 truncate">{{ d.extracted }}</span>
+      </label>
+      {% endfor %}
+    </div>
+    <div class="px-5 py-3 border-t border-teal-100 flex items-center gap-3">
+      <button type="button" onclick="applyCope()"
+              class="px-4 py-1.5 rounded-lg text-xs font-medium bg-teal-600 text-white hover:bg-teal-700 transition-colors">
+        Apply COPE Data
+      </button>
+      <button type="button" onclick="toggleCbs('.ai-cope-cb', true)" class="text-xs text-teal-500 hover:text-teal-700">Select All</button>
+      <button type="button" onclick="toggleCbs('.ai-cope-cb', false)" class="text-xs text-gray-400 hover:text-gray-600">Clear All</button>
+    </div>
+  </div>
+  {% endif %}
+
+</div>
+
+<script>
+/* ── Compliance AI Review Panel helpers ── */
+function toggleCbs(selector, checked) {
+  document.querySelectorAll(selector).forEach(function(cb) { cb.checked = checked; });
+}
+
+function _panelData() {
+  var panel = document.getElementById('ai-review-panel');
+  return {
+    parsed: JSON.parse(panel.dataset.parsed),
+    clientId: panel.dataset.clientId,
+    sourceId: panel.dataset.sourceId || null,
+    projectId: panel.dataset.projectId || null,
+  };
+}
+
+function _replaceCard(cardId, message) {
+  var card = document.getElementById(cardId);
+  if (card) {
+    card.innerHTML = '<div class="px-5 py-4 text-sm text-emerald-600 font-medium flex items-center gap-2">' +
+      '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>' +
+      message + '</div>';
+    card.className = 'card border-emerald-200 bg-emerald-50/20 mb-4';
+  }
+}
+
+function applySourceFields() {
+  var ctx = _panelData();
+  var checked = [];
+  document.querySelectorAll('.ai-source-cb:checked').forEach(function(cb) {
+    checked.push(cb.value);
+  });
+  if (!checked.length) return;
+
+  var sourceFields = {};
+  var src = ctx.parsed.source || {};
+  checked.forEach(function(field) {
+    sourceFields[field] = src[field] || '';
+  });
+
+  fetch('/compliance/client/' + ctx.clientId + '/ai-import/apply-source', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      source_fields: sourceFields,
+      source_id: ctx.sourceId ? parseInt(ctx.sourceId) : null,
+      project_id: ctx.projectId ? parseInt(ctx.projectId) : null,
+    })
+  }).then(function(resp) {
+    return resp.json();
+  }).then(function(data) {
+    if (data.ok) {
+      /* Update panel's source_id for subsequent requirement applies */
+      var panel = document.getElementById('ai-review-panel');
+      if (data.source_id) panel.dataset.sourceId = data.source_id;
+      var label = data.created ? 'Source created' : 'Source updated';
+      _replaceCard('ai-source-diffs-card', label + ' — ' + checked.length + ' field' + (checked.length !== 1 ? 's' : '') + ' applied');
+    }
+  });
+}
+
+function applyRequirement(reqIndex, existingId, createNew) {
+  var ctx = _panelData();
+  var reqData = ctx.parsed.requirements ? ctx.parsed.requirements[reqIndex] : null;
+  if (!reqData) return;
+
+  var checked = [];
+  document.querySelectorAll('.ai-req-cb-' + reqIndex + ':checked').forEach(function(cb) {
+    checked.push(cb.value);
+  });
+
+  var reqFields = {};
+  checked.forEach(function(field) {
+    reqFields[field] = reqData[field];
+    if (reqFields[field] === undefined) reqFields[field] = '';
+  });
+
+  /* If creating new and no fields checked, use all extracted fields */
+  if (createNew && !checked.length) {
+    ['coverage_line', 'required_limit', 'max_deductible', 'deductible_type', 'required_endorsements', 'notes'].forEach(function(f) {
+      if (reqData[f] !== undefined && reqData[f] !== null && reqData[f] !== '') {
+        reqFields[f] = reqData[f];
+      }
+    });
+  }
+
+  /* Use panel's source_id (may have been updated by applySourceFields) */
+  var panel = document.getElementById('ai-review-panel');
+  var sourceId = panel.dataset.sourceId || ctx.sourceId;
+
+  fetch('/compliance/client/' + ctx.clientId + '/ai-import/apply-requirement', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      requirement_fields: reqFields,
+      existing_id: existingId,
+      source_id: sourceId ? parseInt(sourceId) : null,
+      project_id: ctx.projectId ? parseInt(ctx.projectId) : null,
+      create_new: createNew,
+    })
+  }).then(function(resp) {
+    return resp.json();
+  }).then(function(data) {
+    if (data.ok) {
+      var covLine = reqData.coverage_line || ('Requirement ' + (reqIndex + 1));
+      var label = data.created ? covLine + ' created' : covLine + ' updated';
+      var count = Object.keys(reqFields).length;
+      _replaceCard('ai-req-card-' + reqIndex, label + ' — ' + count + ' field' + (count !== 1 ? 's' : ''));
+    }
+  });
+}
+
+function applyCope() {
+  var ctx = _panelData();
+  var checked = [];
+  document.querySelectorAll('.ai-cope-cb:checked').forEach(function(cb) {
+    checked.push(cb.value);
+  });
+  if (!checked.length) return;
+
+  var copeFields = {};
+  var cope = ctx.parsed.cope || {};
+  checked.forEach(function(field) {
+    copeFields[field] = cope[field];
+    if (copeFields[field] === undefined) copeFields[field] = '';
+  });
+
+  fetch('/compliance/client/' + ctx.clientId + '/ai-import/apply-cope', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      cope_fields: copeFields,
+      project_id: ctx.projectId ? parseInt(ctx.projectId) : null,
+    })
+  }).then(function(resp) {
+    return resp.json();
+  }).then(function(data) {
+    if (data.ok) {
+      _replaceCard('ai-cope-diffs-card', 'COPE data applied — ' + checked.length + ' field' + (checked.length !== 1 ? 's' : ''));
+    }
+  });
+}
+</script>

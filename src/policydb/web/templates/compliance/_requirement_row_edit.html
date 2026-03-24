@@ -60,17 +60,18 @@
             {% endfor %}
           </select>
         </div>
-        <div>
-          <label class="block text-[10px] text-gray-500 uppercase">Notes</label>
-          <input name="notes" value="{{ req.notes or '' }}"
-                 class="border border-gray-300 rounded px-2 py-1 text-sm w-full focus:border-marsh">
-        </div>
+      </div>
+      <div>
+        <label class="block text-[10px] text-gray-500 uppercase">Notes</label>
+        <input name="notes" value="{{ req.notes or '' }}"
+               class="border border-gray-300 rounded px-2 py-1 text-sm w-full focus:border-marsh">
       </div>
       {# Linked Policies #}
       <div class="col-span-2 sm:col-span-4">
         <label class="block text-[10px] text-gray-500 uppercase mb-1">Linked Policies</label>
         <div hx-get="/compliance/client/{{ client_id }}/requirements/{{ req.id }}/links"
              hx-trigger="load once"
+             hx-target="this"
              hx-swap="innerHTML">
           <span class="text-xs text-gray-400">Loading links...</span>
         </div>
