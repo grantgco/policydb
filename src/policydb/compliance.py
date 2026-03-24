@@ -207,6 +207,42 @@ def compute_compliance_summary(governing: dict[str, dict]) -> dict:
     return {"total": total, **counts, "compliance_pct": pct}
 
 
+def compute_auto_status(requirement: dict, policy: dict | None) -> str:
+    """Auto-compute compliance status from requirement vs. linked policy.
+
+    Returns "Compliant", "Partial", or "Gap".
+    - No policy → Gap
+    - Policy limit < required limit → Gap
+    - Policy deductible > max deductible → Gap
+    - Limits pass but endorsements required → Partial
+    - Limits pass and no endorsements → Compliant
+    """
+    if policy is None:
+        return "Gap"
+
+    req_limit = float(requirement.get("required_limit") or 0)
+    pol_limit = float(policy.get("limit_amount") or 0)
+    if req_limit > 0 and pol_limit < req_limit:
+        return "Gap"
+
+    max_ded = requirement.get("max_deductible")
+    if max_ded is not None:
+        pol_ded = float(policy.get("deductible") or 0)
+        if pol_ded > float(max_ded):
+            return "Gap"
+
+    # Check endorsements
+    endorsements_raw = requirement.get("required_endorsements") or "[]"
+    try:
+        endorsements = json.loads(endorsements_raw) if isinstance(endorsements_raw, str) else endorsements_raw
+    except (ValueError, TypeError):
+        endorsements = []
+    if endorsements:
+        return "Partial"
+
+    return "Compliant"
+
+
 def get_requirement_links(conn, requirement_id: int) -> list[dict]:
     """Return all policy links for a given requirement."""
     rows = conn.execute(
