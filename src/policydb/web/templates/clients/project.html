@@ -64,15 +64,123 @@
       {% endif %}
     </div>
 
-    {# Address #}
-    {% if project.exposure_address or project.exposure_city %}
+    {# Address + Map #}
+    {% set addr = project.address or project.get('exposure_address', '') %}
+    {% set city = project.city or project.get('exposure_city', '') %}
+    {% set state = project.state or project.get('exposure_state', '') %}
+    {% set zip_code = project.zip or project.get('exposure_zip', '') %}
+    {% if addr or city %}
     <div class="card p-4">
-      <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Address</p>
-      <p class="text-sm text-gray-700">
-        {% if project.exposure_address %}{{ project.exposure_address }}<br>{% endif %}
-        {% if project.exposure_city %}{{ project.exposure_city }}{% if project.exposure_state %}, {{ project.exposure_state }}{% endif %}{% if project.exposure_zip %} {{ project.exposure_zip }}{% endif %}{% endif %}
+      <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Location</p>
+      <p class="text-sm text-gray-700 mb-2">
+        {% if addr %}{{ addr }}<br>{% endif %}
+        {% if city %}{{ city }}{% if state %}, {{ state }}{% endif %}{% if zip_code %} {{ zip_code }}{% endif %}{% endif %}
       </p>
-      <a href="/clients/{{ client.id }}" class="text-xs text-gray-400 hover:text-marsh mt-1 block">Edit on client page ↗</a>
+      <div id="project-map-container" style="width:100%;height:120px;border-radius:6px;background:#f3f4f6;display:flex;align-items:center;justify-content:center">
+        <span class="text-xs text-gray-400">Loading map...</span>
+      </div>
+      {% set full_addr = [addr, city, state, zip_code] | select | join(', ') %}
+      <a href="https://www.openstreetmap.org/search?query={{ full_addr | urlencode }}"
+         target="_blank" rel="noopener"
+         class="text-xs text-marsh hover:underline mt-1 block">Open full map →</a>
+      <script>
+      (function() {
+        var container = document.getElementById('project-map-container');
+        if (!container) return;
+        function showMap(lat, lon) {
+          var d = 0.01;
+          var bbox = (lon - d) + ',' + (lat - d) + ',' + (lon + d) + ',' + (lat + d);
+          container.innerHTML = '<iframe src="https://www.openstreetmap.org/export/embed.html?bbox=' + bbox + '&layer=mapnik&marker=' + lat + ',' + lon + '" style="width:100%;height:120px;border:0;border-radius:6px" loading="lazy"></iframe>';
+        }
+        {% if project.latitude and project.longitude %}
+        showMap({{ project.latitude }}, {{ project.longitude }});
+        {% else %}
+        var addr = {{ full_addr | tojson }};
+        if (!addr) { container.innerHTML = '<span class="text-xs text-gray-400">No address for map</span>'; return; }
+        fetch('https://nominatim.openstreetmap.org/search?format=json&q=' + encodeURIComponent(addr) + '&limit=1&countrycodes=us,gb,ca')
+          .then(function(r) { return r.json(); })
+          .then(function(data) {
+            if (data && data.length > 0) {
+              showMap(parseFloat(data[0].lat), parseFloat(data[0].lon));
+            } else {
+              container.innerHTML = '<span class="text-xs text-gray-400">Address not found on map</span>';
+            }
+          }).catch(function() {
+            container.innerHTML = '<span class="text-xs text-gray-400">Map unavailable</span>';
+          });
+        {% endif %}
+      })();
+      </script>
+    </div>
+    {% endif %}
+
+    {# COPE Data #}
+    {% if cope %}
+    <div class="card p-4">
+      <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">COPE Data</p>
+      <dl class="text-xs text-gray-600 space-y-1.5">
+        {% if cope.construction_type %}
+        <div class="flex justify-between gap-2">
+          <dt class="text-gray-400 shrink-0">Construction</dt>
+          <dd class="text-right">{{ cope.construction_type }}</dd>
+        </div>
+        {% endif %}
+        {% if cope.occupancy_description %}
+        <div class="flex justify-between gap-2">
+          <dt class="text-gray-400 shrink-0">Occupancy</dt>
+          <dd class="text-right">{{ cope.occupancy_description }}</dd>
+        </div>
+        {% endif %}
+        {% if cope.protection_class %}
+        <div class="flex justify-between gap-2">
+          <dt class="text-gray-400 shrink-0">Protection Class</dt>
+          <dd class="text-right">{{ cope.protection_class }}</dd>
+        </div>
+        {% endif %}
+        {% if cope.year_built %}
+        <div class="flex justify-between gap-2">
+          <dt class="text-gray-400 shrink-0">Year Built</dt>
+          <dd class="text-right">{{ cope.year_built }}</dd>
+        </div>
+        {% endif %}
+        {% if cope.stories %}
+        <div class="flex justify-between gap-2">
+          <dt class="text-gray-400 shrink-0">Stories</dt>
+          <dd class="text-right">{{ cope.stories }}</dd>
+        </div>
+        {% endif %}
+        {% if cope.sq_footage %}
+        <div class="flex justify-between gap-2">
+          <dt class="text-gray-400 shrink-0">Sq Footage</dt>
+          <dd class="text-right">{{ '{:,.0f}'.format(cope.sq_footage) }}</dd>
+        </div>
+        {% endif %}
+        {% if cope.sprinklered and cope.sprinklered != 'Unknown' %}
+        <div class="flex justify-between gap-2">
+          <dt class="text-gray-400 shrink-0">Sprinklered</dt>
+          <dd class="text-right">{{ cope.sprinklered }}</dd>
+        </div>
+        {% endif %}
+        {% if cope.roof_type %}
+        <div class="flex justify-between gap-2">
+          <dt class="text-gray-400 shrink-0">Roof Type</dt>
+          <dd class="text-right">{{ cope.roof_type }}</dd>
+        </div>
+        {% endif %}
+        {% if cope.total_insurable_value %}
+        <div class="flex justify-between gap-2">
+          <dt class="text-gray-400 shrink-0">TIV</dt>
+          <dd class="text-right font-medium text-gray-800">{{ cope.total_insurable_value | currency }}</dd>
+        </div>
+        {% endif %}
+        {% if cope.notes %}
+        <div class="pt-1 border-t border-gray-100 mt-1">
+          <dt class="text-gray-400 mb-0.5">Notes</dt>
+          <dd class="text-gray-600">{{ cope.notes }}</dd>
+        </div>
+        {% endif %}
+      </dl>
+      <a href="/clients/{{ client.id }}?tab=risk" class="text-xs text-gray-400 hover:text-marsh mt-2 block">Edit COPE data ↗</a>
     </div>
     {% endif %}
 
