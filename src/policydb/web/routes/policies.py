@@ -675,6 +675,90 @@ def _build_checklist(conn, policy_uid: str) -> list[dict]:
     ]
 
 
+def _build_pulse_attention_items(
+    overdue_activities: list,
+    overdue_policy_fu: dict | None,
+    timeline: list[dict],
+    today: date,
+) -> list[dict]:
+    """Merge overdue follow-ups, unhealthy milestones, and waiting items
+    into a single sorted attention list for the Policy Pulse tab."""
+    items = []
+
+    # 1. Overdue follow-ups from activity_log
+    for row in overdue_activities:
+        r = dict(row) if not isinstance(row, dict) else row
+        items.append({
+            "type": "overdue",
+            "text": r.get("subject", "Follow-up"),
+            "days": r.get("days_overdue", 0),
+            "date": r.get("follow_up_date", ""),
+            "severity": 0,  # highest priority
+        })
+
+    # 2. Overdue policy-level follow-up
+    if overdue_policy_fu:
+        items.append({
+            "type": "overdue",
+            "text": overdue_policy_fu.get("subject", "Policy follow-up"),
+            "days": overdue_policy_fu.get("days_overdue", 0),
+            "date": overdue_policy_fu.get("follow_up_date", ""),
+            "severity": 0,
+        })
+
+    # 3. Unhealthy milestones (not completed, health != on_track)
+    _health_severity = {"critical": 1, "at_risk": 2, "compressed": 3, "drifting": 4}
+    for t in timeline:
+        if t.get("completed_date"):
+            continue
+        health = t.get("health", "on_track")
+        if health == "on_track":
+            continue
+        days_behind = 0
+        if t.get("projected_date") and t.get("ideal_date"):
+            try:
+                days_behind = (
+                    date.fromisoformat(t["projected_date"])
+                    - date.fromisoformat(t["ideal_date"])
+                ).days
+            except (ValueError, TypeError):
+                pass
+        items.append({
+            "type": "milestone",
+            "text": f"{t.get('milestone_name', 'Milestone')} milestone {health}",
+            "days": max(days_behind, 0),
+            "date": t.get("projected_date", ""),
+            "health": health,
+            "severity": _health_severity.get(health, 5),
+        })
+
+    # 4. Waiting-on items
+    for t in timeline:
+        if t.get("completed_date"):
+            continue
+        if t.get("accountability") != "waiting_external":
+            continue
+        days_waiting = 0
+        if t.get("projected_date"):
+            try:
+                days_waiting = (today - date.fromisoformat(t["projected_date"])).days
+                if days_waiting < 0:
+                    days_waiting = 0
+            except (ValueError, TypeError):
+                pass
+        items.append({
+            "type": "waiting",
+            "text": f"Waiting on {t.get('waiting_on', 'external')} for {t.get('milestone_name', '')}",
+            "days": days_waiting,
+            "date": t.get("projected_date", ""),
+            "severity": 6,
+        })
+
+    # Sort: severity first, then days descending within same severity
+    items.sort(key=lambda x: (x["severity"], -x["days"]))
+    return items
+
+
 def _attach_milestone_progress(conn, rows: list[dict]) -> list[dict]:
     """Enrich pipeline row dicts with milestone_done / milestone_total counts.
 
@@ -1721,6 +1805,125 @@ def policy_tab_workflow(request: Request, policy_uid: str, conn=Depends(get_db))
         "request_categories": cfg.get("request_categories", []),
         "program_policy": program_policy,
         "program_health": program_health,
+    })
+
+
+@router.get("/{policy_uid}/tab/pulse", response_class=HTMLResponse)
+def policy_tab_pulse(
+    request: Request,
+    policy_uid: str,
+    conn=Depends(get_db),
+):
+    """Policy Pulse tab — dense single-column health dashboard for renewal triage."""
+    policy_uid = policy_uid.upper()
+    p, client_info = _policy_base(conn, policy_uid)
+    if not p:
+        return HTMLResponse("Not found", status_code=404)
+    _today = date.today()
+
+    # Readiness score — needs milestone_done/milestone_total first
+    rows = [dict(p)]
+    _attach_milestone_progress(conn, rows)
+    _attach_readiness_score(conn, rows)
+    readiness = rows[0]
+
+    # Computed metrics
+    days_to_renewal = None
+    if p.get("expiration_date"):
+        try:
+            days_to_renewal = (date.fromisoformat(p["expiration_date"]) - _today).days
+        except (ValueError, TypeError):
+            pass
+
+    rate_change = None
+    if p.get("prior_premium") and p["prior_premium"] > 0 and p.get("premium"):
+        rate_change = round((p["premium"] - p["prior_premium"]) / p["prior_premium"], 4)
+
+    # Effort hours
+    effort = get_policy_total_hours(conn, p["id"])
+
+    # Overdue follow-ups from activity_log
+    overdue_activities = conn.execute(
+        """SELECT subject, follow_up_date,
+           CAST(julianday('now') - julianday(follow_up_date) AS INTEGER) AS days_overdue
+           FROM activity_log WHERE policy_id = ? AND follow_up_done = 0
+           AND follow_up_date IS NOT NULL AND follow_up_date < ?
+           ORDER BY follow_up_date""",
+        (p["id"], _today.isoformat()),
+    ).fetchall()
+
+    # Overdue policy-level follow-up
+    overdue_policy_fu = None
+    if p.get("follow_up_date") and p["follow_up_date"] < _today.isoformat():
+        overdue_policy_fu = {
+            "subject": "Policy follow-up",
+            "follow_up_date": p["follow_up_date"],
+            "days_overdue": (_today - date.fromisoformat(p["follow_up_date"])).days,
+        }
+
+    # Timeline + checklist
+    from policydb.timeline_engine import get_policy_timeline
+    timeline = get_policy_timeline(conn, policy_uid)
+    checklist = _build_checklist(conn, policy_uid)
+
+    # Attention items
+    attention_items = _build_pulse_attention_items(
+        overdue_activities, overdue_policy_fu, timeline, _today
+    )
+
+    # Contacts — canonical source is contact_policy_assignments
+    all_contacts = get_policy_contacts(conn, p["id"])
+    placement = next((c for c in all_contacts if c.get("is_placement_colleague")), None)
+    underwriter = next(
+        (c for c in all_contacts if (c.get("role") or "").lower() in ("underwriter", "uw")),
+        None,
+    )
+    # Fallback to text fields if no assignment
+    if not placement and p.get("placement_colleague"):
+        placement = {"name": p["placement_colleague"], "email": p.get("placement_colleague_email")}
+    if not underwriter and p.get("underwriter_name"):
+        underwriter = {"name": p["underwriter_name"], "email": p.get("underwriter_contact")}
+
+    # Recent activity (last 5)
+    recent = conn.execute(
+        """SELECT activity_type, subject, activity_date, duration_hours
+           FROM activity_log WHERE policy_id = ?
+           ORDER BY activity_date DESC, id DESC LIMIT 5""",
+        (p["id"],),
+    ).fetchall()
+
+    # Working notes
+    scratchpad = conn.execute(
+        "SELECT content, updated_at FROM policy_scratchpad WHERE policy_uid = ?",
+        (policy_uid,),
+    ).fetchone()
+
+    # Review info
+    days_since_review = None
+    if p.get("last_reviewed_at"):
+        try:
+            days_since_review = (_today - date.fromisoformat(p["last_reviewed_at"][:10])).days
+        except (ValueError, TypeError):
+            pass
+
+    return templates.TemplateResponse("policies/_tab_pulse.html", {
+        "request": request,
+        "policy": dict(p),
+        "client": client_info,
+        "readiness": readiness,
+        "days_to_renewal": days_to_renewal,
+        "rate_change": rate_change,
+        "effort": effort,
+        "attention_items": attention_items,
+        "timeline": timeline,
+        "checklist": checklist,
+        "placement": placement,
+        "underwriter": underwriter,
+        "recent": recent,
+        "scratchpad": dict(scratchpad) if scratchpad else None,
+        "activity_types": cfg.get("activity_types"),
+        "today": _today.isoformat(),
+        "days_since_review": days_since_review,
     })
 
 

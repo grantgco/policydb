@@ -20,6 +20,7 @@ from policydb.queries import (
     get_all_followups,
     get_followup_count_for_date,
     get_open_opportunities,
+    get_policy_total_hours,
     get_renewal_pipeline,
     get_suggested_followups,
     get_time_summary,
@@ -72,6 +73,7 @@ def activity_log(
     contact_id: int = Form(0),
     follow_up_date: str = Form(""),
     duration_hours: str = Form(""),
+    pulse_oob: str = Form(""),
     conn=Depends(get_db),
 ):
     def _float(v):
@@ -114,6 +116,52 @@ def activity_log(
         (cursor.lastrowid,),
     ).fetchone()
     a = dict(row)
+
+    if pulse_oob:
+        # Re-fetch pulse sections for OOB swap
+        from policydb.timeline_engine import get_policy_timeline
+        policy_uid_row = conn.execute(
+            "SELECT policy_uid FROM policies WHERE id = ?", (policy_id,)
+        ).fetchone()
+        if policy_uid_row:
+            _uid = policy_uid_row["policy_uid"]
+            _today = date.today()
+
+            # Recent activity
+            recent = conn.execute(
+                """SELECT activity_type, subject, activity_date, duration_hours
+                   FROM activity_log WHERE policy_id = ?
+                   ORDER BY activity_date DESC, id DESC LIMIT 5""",
+                (policy_id,),
+            ).fetchall()
+
+            # Effort hours
+            effort = get_policy_total_hours(conn, policy_id)
+
+            # Recompute attention items for OOB refresh of #pulse-needs-attention
+            overdue_activities = conn.execute(
+                """SELECT subject, follow_up_date,
+                   CAST(julianday('now') - julianday(follow_up_date) AS INTEGER) AS days_overdue
+                   FROM activity_log WHERE policy_id = ? AND follow_up_done = 0
+                   AND follow_up_date IS NOT NULL AND follow_up_date < ?
+                   ORDER BY follow_up_date""",
+                (policy_id, _today.isoformat()),
+            ).fetchall()
+
+            timeline = get_policy_timeline(conn, _uid)
+
+            from policydb.web.routes.policies import _build_pulse_attention_items
+            attention_items = _build_pulse_attention_items(
+                overdue_activities, None, timeline, _today
+            )
+
+            return templates.TemplateResponse("policies/pulse_oob.html", {
+                "request": request,
+                "recent": recent,
+                "effort": effort,
+                "attention_items": attention_items,
+            })
+
     resp = templates.TemplateResponse("activities/_activity_row.html", {
         "request": request,
         "a": a,
