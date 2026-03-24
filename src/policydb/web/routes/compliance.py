@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Form, Query, Request
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, Response
+from rapidfuzz import fuzz
 
 from policydb import config as cfg
 from policydb.compliance import (
@@ -21,10 +23,13 @@ from policydb.compliance import (
 )
 from policydb.llm_schemas import (
     COMPLIANCE_EXTRACTION_SCHEMA,
+    COPE_FIELDS,
     generate_extraction_prompt,
     generate_json_template,
     parse_llm_json,
 )
+
+logger = logging.getLogger("policydb.web.routes.compliance")
 from policydb.queries import get_client_by_id
 from policydb.utils import parse_currency_with_magnitude
 from policydb.web.app import get_db, templates
@@ -299,7 +304,7 @@ def ai_import_prompt(
         "json_template": json_template,
         "context_display": context_display,
         "parse_url": parse_url,
-        "import_target": "#review-mode-container",
+        "import_target": "#ai-review-container",
         "locations": data["locations"],
         "active_location_id": project_id or 0,
     })
@@ -315,8 +320,8 @@ def ai_import_parse(
     project_id: int | None = Query(None),
     project_id_form: str | None = Form(None, alias="project_id"),
 ):
-    """Parse JSON from LLM, create DB rows, return review mode."""
-    # Form body project_id takes precedence over query string (allows location selector override)
+    """Parse JSON from LLM and return diff review panel (no DB writes)."""
+    # Form body project_id takes precedence over query string
     if project_id_form is not None and project_id_form != "":
         project_id = int(project_id_form)
     elif project_id_form == "":
@@ -332,16 +337,274 @@ def ai_import_parse(
         )
         return HTMLResponse(error_html, status_code=422)
 
-    parsed = result["parsed"]
-    warnings = result.get("warnings", [])
+    try:
+        return _ai_import_build_diffs(request, conn, client_id, source_id, project_id, result)
+    except Exception:
+        logger.exception("Compliance AI import parse failed for client %d", client_id)
+        return HTMLResponse(
+            '<div class="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">'
+            'An error occurred processing the import. Check server logs for details.</div>',
+            status_code=500,
+        )
 
-    # --- Source ---
+
+# ── Field labels for diff display ────────────────────────────────────────────
+
+_SOURCE_FIELD_LABELS: dict[str, str] = {
+    "name": "Document / Source Name",
+    "counterparty": "Counterparty",
+    "clause_ref": "Clause / Section Reference",
+    "notes": "Notes",
+}
+
+_REQ_FIELD_LABELS: dict[str, str] = {
+    "coverage_line": "Coverage Line",
+    "required_limit": "Required Limit",
+    "max_deductible": "Maximum Deductible",
+    "deductible_type": "Deductible Type",
+    "required_endorsements": "Required Endorsements",
+    "notes": "Notes",
+}
+
+_COPE_LABELS: dict[str, str] = {f["key"]: f["label"] for f in COPE_FIELDS}
+
+_REQ_DIFF_FIELDS = [
+    "coverage_line", "required_limit", "max_deductible",
+    "deductible_type", "required_endorsements", "notes",
+]
+
+
+def _ai_import_build_diffs(
+    request: Request, conn, client_id: int,
+    source_id: int | None, project_id: int | None, result: dict,
+):
+    """Build diff data comparing extracted data vs existing, return review panel."""
+    parsed = result["parsed"]
+    warnings: list[str] = list(result.get("warnings", []))
+
+    # ── Source diffs ──────────────────────────────────────────────────────
+    src_parsed = parsed.get("source", {})
+    ai_source_diffs: list[dict] = []
+    existing_source: dict | None = None
+
     if source_id is not None:
-        # Use existing source
-        sid = source_id
+        row = conn.execute(
+            "SELECT * FROM requirement_sources WHERE id=?", (source_id,)
+        ).fetchone()
+        if row:
+            existing_source = dict(row)
+            for fkey in ("name", "counterparty", "clause_ref", "notes"):
+                ext_val = src_parsed.get(fkey)
+                if ext_val is None:
+                    continue
+                cur_val = existing_source.get(fkey)
+                cur_str = str(cur_val) if cur_val else ""
+                ext_str = str(ext_val) if ext_val else ""
+                if cur_str != ext_str:
+                    ai_source_diffs.append({
+                        "field": fkey,
+                        "label": _SOURCE_FIELD_LABELS.get(fkey, fkey),
+                        "current": cur_val,
+                        "extracted": ext_val,
+                        "is_fill": not cur_str,
+                    })
     else:
-        # Create new source from parsed data
-        src = parsed.get("source", {})
+        # New source — all fields are "fills"
+        for fkey in ("name", "counterparty", "clause_ref", "notes"):
+            ext_val = src_parsed.get(fkey)
+            if ext_val:
+                ai_source_diffs.append({
+                    "field": fkey,
+                    "label": _SOURCE_FIELD_LABELS.get(fkey, fkey),
+                    "current": None,
+                    "extracted": ext_val,
+                    "is_fill": True,
+                })
+
+    # ── Requirement matching ─────────────────────────────────────────────
+    extracted_reqs = parsed.get("requirements", [])
+    ai_requirement_data: list[dict] = []
+
+    # Load existing requirements for the source (if any)
+    existing_reqs: list[dict] = []
+    if source_id is not None:
+        existing_reqs = [dict(r) for r in conn.execute(
+            "SELECT * FROM coverage_requirements WHERE source_id=? ORDER BY id",
+            (source_id,),
+        ).fetchall()]
+
+    # Track which existing reqs have been matched to avoid double-matching
+    matched_existing_ids: set[int] = set()
+
+    for req_idx, ext_req in enumerate(extracted_reqs):
+        req_entry: dict = {
+            "index": req_idx,
+            "extracted": ext_req,
+            "match_type": "new",
+            "match_score": 0,
+            "existing": None,
+            "existing_id": None,
+            "diffs": [],
+        }
+
+        # Fuzzy match against existing requirements by coverage_line
+        ext_cov = (ext_req.get("coverage_line") or "").lower().strip()
+        if ext_cov and existing_reqs:
+            best_score = 0
+            best_match = None
+            for ereq in existing_reqs:
+                if ereq["id"] in matched_existing_ids:
+                    continue
+                cur_cov = (ereq.get("coverage_line") or "").lower().strip()
+                if not cur_cov:
+                    continue
+                score = fuzz.ratio(ext_cov, cur_cov)
+                if score > best_score and score >= 60:
+                    best_score = score
+                    best_match = ereq
+
+            if best_match:
+                matched_existing_ids.add(best_match["id"])
+                req_entry["match_type"] = "matched"
+                req_entry["match_score"] = int(best_score)
+                req_entry["existing"] = best_match
+                req_entry["existing_id"] = best_match["id"]
+
+                # Build field-level diffs
+                for fkey in _REQ_DIFF_FIELDS:
+                    ext_val = ext_req.get(fkey)
+                    if ext_val is None:
+                        continue
+                    cur_val = best_match.get(fkey)
+                    # Normalize endorsements for comparison
+                    if fkey == "required_endorsements":
+                        ext_str = json.dumps(ext_val) if isinstance(ext_val, list) else str(ext_val or "")
+                        try:
+                            cur_list = json.loads(cur_val) if isinstance(cur_val, str) else (cur_val or [])
+                        except (ValueError, TypeError):
+                            cur_list = []
+                        cur_str = json.dumps(cur_list)
+                    else:
+                        cur_str = str(cur_val) if cur_val is not None else ""
+                        ext_str = str(ext_val) if ext_val is not None else ""
+
+                    if cur_str != ext_str:
+                        req_entry["diffs"].append({
+                            "field": fkey,
+                            "label": _REQ_FIELD_LABELS.get(fkey, fkey),
+                            "current": cur_val,
+                            "extracted": ext_val,
+                            "is_fill": not cur_str or cur_str == "[]",
+                        })
+        else:
+            # New requirement — all non-empty fields are fills
+            for fkey in _REQ_DIFF_FIELDS:
+                ext_val = ext_req.get(fkey)
+                if ext_val is not None and ext_val != "" and ext_val != []:
+                    req_entry["diffs"].append({
+                        "field": fkey,
+                        "label": _REQ_FIELD_LABELS.get(fkey, fkey),
+                        "current": None,
+                        "extracted": ext_val,
+                        "is_fill": True,
+                    })
+
+        ai_requirement_data.append(req_entry)
+
+    # ── COPE diffs ───────────────────────────────────────────────────────
+    cope_parsed = parsed.get("cope", {})
+    ai_cope_diffs: list[dict] = []
+
+    if cope_parsed and project_id is None:
+        warnings.append(
+            "COPE data detected but no location selected — select a location "
+            "to review COPE changes."
+        )
+    elif cope_parsed and project_id is not None:
+        cope_row = conn.execute(
+            "SELECT * FROM cope_data WHERE project_id=?", (project_id,)
+        ).fetchone()
+        cope_current = dict(cope_row) if cope_row else {}
+        for fkey in [f["key"] for f in COPE_FIELDS]:
+            ext_val = cope_parsed.get(fkey)
+            if ext_val is None:
+                continue
+            cur_val = cope_current.get(fkey)
+            cur_str = str(cur_val) if cur_val is not None else ""
+            ext_str = str(ext_val) if ext_val is not None else ""
+            if cur_str != ext_str:
+                ai_cope_diffs.append({
+                    "field": fkey,
+                    "label": _COPE_LABELS.get(fkey, fkey),
+                    "current": cur_val,
+                    "extracted": ext_val,
+                    "is_fill": not cur_str,
+                })
+
+    # ── Render review panel ──────────────────────────────────────────────
+    response = templates.TemplateResponse("compliance/_ai_review_panel.html", {
+        "request": request,
+        "client_id": client_id,
+        "source_id": source_id,
+        "project_id": project_id,
+        "ai_source_diffs": ai_source_diffs,
+        "ai_requirement_data": ai_requirement_data,
+        "ai_cope_diffs": ai_cope_diffs,
+        "ai_parsed_json": json.dumps(parsed, default=str),
+        "is_new_source": source_id is None,
+        "existing_source_name": existing_source["name"] if existing_source else None,
+    })
+
+    # Build full body + OOB warnings
+    body_parts: list[bytes] = [response.body]
+
+    if warnings:
+        from html import escape
+        items = "".join(f"<li>{escape(w)}</li>" for w in warnings)
+        body_parts.append((
+            f'<div id="ai-import-warnings" hx-swap-oob="innerHTML">'
+            f'<div class="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">'
+            f'<p class="font-semibold mb-1">Warnings</p><ul class="list-disc ml-4">{items}</ul>'
+            f'</div></div>'
+        ).encode())
+
+    return HTMLResponse(content=b"".join(body_parts))
+
+
+# ── AI Import Apply Endpoints ─────────────────────────────────────────────────
+
+
+@router.post("/client/{client_id}/ai-import/apply-source")
+async def ai_import_apply_source(
+    client_id: int, request: Request, conn=Depends(get_db),
+):
+    """Create or update a requirement source from AI import."""
+    body = await request.json()
+    source_fields = body.get("source_fields", {})
+    source_id = body.get("source_id")
+    project_id = body.get("project_id")
+
+    if not source_fields:
+        return JSONResponse({"ok": False, "error": "No fields selected"}, status_code=400)
+
+    if source_id:
+        # Update existing source
+        sets = []
+        vals = []
+        for fkey in ("name", "counterparty", "clause_ref", "notes"):
+            if fkey in source_fields:
+                sets.append(f"{fkey} = ?")
+                vals.append(source_fields[fkey])
+        if sets:
+            vals.append(source_id)
+            conn.execute(
+                f"UPDATE requirement_sources SET {', '.join(sets)} WHERE id = ?",
+                vals,
+            )
+            conn.commit()
+        return JSONResponse({"ok": True, "source_id": source_id, "created": False})
+    else:
+        # Create new source
         cur = conn.execute(
             """INSERT INTO requirement_sources
                (client_id, project_id, name, counterparty, clause_ref, notes)
@@ -349,18 +612,57 @@ def ai_import_parse(
             (
                 client_id,
                 project_id,
-                src.get("name", "AI Import"),
-                src.get("counterparty", ""),
-                src.get("clause_ref", ""),
-                src.get("notes", ""),
+                source_fields.get("name", "AI Import"),
+                source_fields.get("counterparty", ""),
+                source_fields.get("clause_ref", ""),
+                source_fields.get("notes", ""),
             ),
         )
-        sid = cur.lastrowid
+        conn.commit()
+        return JSONResponse({"ok": True, "source_id": cur.lastrowid, "created": True})
 
-    # --- Requirements ---
-    for item in parsed.get("requirements", []):
-        endorsements = json.dumps(item.get("required_endorsements", []))
-        conn.execute(
+
+@router.post("/client/{client_id}/ai-import/apply-requirement")
+async def ai_import_apply_requirement(
+    client_id: int, request: Request, conn=Depends(get_db),
+):
+    """Create or update a coverage requirement from AI import."""
+    body = await request.json()
+    req_fields = body.get("requirement_fields", {})
+    existing_id = body.get("existing_id")
+    source_id = body.get("source_id")
+    project_id = body.get("project_id")
+    create_new = body.get("create_new", False)
+
+    if not req_fields:
+        return JSONResponse({"ok": False, "error": "No fields selected"}, status_code=400)
+
+    if existing_id and not create_new:
+        # Update existing requirement
+        sets = []
+        vals = []
+        for fkey in ("coverage_line", "required_limit", "max_deductible",
+                      "deductible_type", "required_endorsements", "notes"):
+            if fkey in req_fields:
+                val = req_fields[fkey]
+                if fkey == "required_endorsements" and isinstance(val, list):
+                    val = json.dumps(val)
+                sets.append(f"{fkey} = ?")
+                vals.append(val)
+        if sets:
+            vals.append(existing_id)
+            conn.execute(
+                f"UPDATE coverage_requirements SET {', '.join(sets)} WHERE id = ?",
+                vals,
+            )
+            conn.commit()
+        return JSONResponse({"ok": True, "requirement_id": existing_id, "created": False})
+    else:
+        # Create new requirement
+        endorsements = req_fields.get("required_endorsements", [])
+        if isinstance(endorsements, list):
+            endorsements = json.dumps(endorsements)
+        cur = conn.execute(
             """INSERT INTO coverage_requirements
                (client_id, project_id, source_id, coverage_line, required_limit,
                 max_deductible, deductible_type, required_endorsements,
@@ -369,108 +671,79 @@ def ai_import_parse(
             (
                 client_id,
                 project_id,
-                sid,
-                item.get("coverage_line", ""),
-                item.get("required_limit"),
-                item.get("max_deductible"),
-                item.get("deductible_type"),
+                source_id,
+                req_fields.get("coverage_line", ""),
+                req_fields.get("required_limit"),
+                req_fields.get("max_deductible"),
+                req_fields.get("deductible_type"),
                 endorsements,
-                item.get("notes"),
+                req_fields.get("notes"),
             ),
         )
+        conn.commit()
+        return JSONResponse({"ok": True, "requirement_id": cur.lastrowid, "created": True})
 
-    req_count = len(parsed.get("requirements", []))
 
-    # --- COPE ---
-    cope_skipped = False
-    cope = parsed.get("cope")
-    if cope and project_id is None:
-        cope_skipped = True
-        warnings.append("COPE data detected but no location selected — COPE data was not imported. Select a location first, then re-import.")
-    if cope and project_id is not None:
+@router.post("/client/{client_id}/ai-import/apply-cope")
+async def ai_import_apply_cope(
+    client_id: int, request: Request, conn=Depends(get_db),
+):
+    """Apply COPE data from AI import to a location."""
+    body = await request.json()
+    cope_fields = body.get("cope_fields", {})
+    project_id = body.get("project_id")
+
+    if not cope_fields or not project_id:
+        return JSONResponse(
+            {"ok": False, "error": "No fields or no location selected"},
+            status_code=400,
+        )
+
+    # Check if COPE row exists
+    existing = conn.execute(
+        "SELECT project_id FROM cope_data WHERE project_id = ?", (project_id,)
+    ).fetchone()
+
+    if existing:
+        # Update only the selected fields
+        sets = []
+        vals = []
+        for fkey in [f["key"] for f in COPE_FIELDS]:
+            if fkey in cope_fields:
+                sets.append(f"{fkey} = ?")
+                vals.append(cope_fields[fkey])
+        if sets:
+            vals.append(project_id)
+            conn.execute(
+                f"UPDATE cope_data SET {', '.join(sets)} WHERE project_id = ?",
+                vals,
+            )
+    else:
+        # Build full INSERT with only selected fields
+        cope_vals = {f["key"]: None for f in COPE_FIELDS}
+        cope_vals.update(cope_fields)
         conn.execute(
-            """INSERT OR REPLACE INTO cope_data
+            """INSERT INTO cope_data
                (project_id, construction_type, year_built, stories, sq_footage,
                 sprinklered, roof_type, occupancy_description, protection_class,
                 total_insurable_value)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 project_id,
-                cope.get("construction_type"),
-                cope.get("year_built"),
-                cope.get("stories"),
-                cope.get("sq_footage"),
-                cope.get("sprinklered"),
-                cope.get("roof_type"),
-                cope.get("occupancy_description"),
-                cope.get("protection_class"),
-                cope.get("total_insurable_value"),
+                cope_vals.get("construction_type"),
+                cope_vals.get("year_built"),
+                cope_vals.get("stories"),
+                cope_vals.get("sq_footage"),
+                cope_vals.get("sprinklered"),
+                cope_vals.get("roof_type"),
+                cope_vals.get("occupancy_description"),
+                cope_vals.get("protection_class"),
+                cope_vals.get("total_insurable_value"),
             ),
         )
 
     conn.commit()
-
-    # --- Build response: review mode with newly created rows ---
-    requirements = [dict(r) for r in conn.execute(
-        "SELECT * FROM coverage_requirements WHERE source_id=? ORDER BY id",
-        (sid,),
-    ).fetchall()]
-    for req in requirements:
-        try:
-            req["_endorsements_list"] = json.loads(req.get("required_endorsements") or "[]")
-        except (ValueError, TypeError):
-            req["_endorsements_list"] = []
-
-    # Get sources list for the review mode dropdown
-    sources = [dict(r) for r in conn.execute(
-        "SELECT * FROM requirement_sources WHERE client_id=? ORDER BY name",
-        (client_id,),
-    ).fetchall()]
-
-    # Get templates for "Apply Template" dropdown
-    tmpl_list = [dict(r) for r in conn.execute(
-        "SELECT id, name, description FROM requirement_templates ORDER BY name"
-    ).fetchall()]
-
-    # Build OOB success + warnings HTML
-    success_html = (
-        f'<div class="bg-green-50 border border-green-200 rounded-lg p-3 text-sm text-green-800 mb-3">'
-        f'<p class="font-semibold">Imported {req_count} requirement{"s" if req_count != 1 else ""}</p>'
-        f'</div>'
-    ) if req_count else ""
-
-    warnings_html = ""
-    if warnings:
-        items = "".join(f"<li>{w}</li>" for w in warnings)
-        warnings_html = (
-            f'<div id="ai-import-warnings" hx-swap-oob="innerHTML">'
-            f'<div class="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">'
-            f'<p class="font-semibold mb-1">Warnings</p><ul class="list-disc ml-4">{items}</ul>'
-            f'</div></div>'
-        )
-
-    response = templates.TemplateResponse("compliance/_review_mode.html", {
-        "request": request,
-        "client_id": client_id,
-        "sources": sources,
-        "selected_source_id": sid,
-        "requirements": requirements,
-        "templates": tmpl_list,
-        "policy_types": cfg.get("policy_types", []),
-        "deductible_types": cfg.get("deductible_types", []),
-        "endorsement_types": cfg.get("endorsement_types", []),
-    })
-
-    # Prepend success banner + append OOB warnings
-    if success_html or warnings_html:
-        body = response.body
-        if success_html:
-            body = success_html.encode() + body
-        if warnings_html:
-            body += warnings_html.encode()
-        response.body = body
-
-    return response
+    return JSONResponse({"ok": True})
 
 
 # ── Main page ─────────────────────────────────────────────────────────────────
