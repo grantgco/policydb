@@ -69,28 +69,10 @@
     <span class="text-xs text-green-700 font-medium">Activity logged successfully</span>
   </div>
 
-  {% set activity_limit = 10 %}
-  <ul class="divide-y divide-gray-50" id="activity-list">
-    {% for a in activities[:activity_limit] %}
-    {% include "activities/_activity_row.html" %}
-    {% else %}
-    <li class="px-5 py-8 text-center text-sm text-gray-400">No activity in the last 90 days.</li>
-    {% endfor %}
-  </ul>
-  {% if activities | length > activity_limit %}
-  <ul class="divide-y divide-gray-50 hidden" id="activity-list-more">
-    {% for a in activities[activity_limit:] %}
-    {% include "activities/_activity_row.html" %}
-    {% endfor %}
-  </ul>
-  <div class="px-5 py-3 border-t border-gray-100 text-center" id="show-more-activities">
-    <button type="button"
-      onclick="document.getElementById('activity-list-more').classList.remove('hidden'); this.parentElement.remove(); var list=document.getElementById('activity-list'); var more=document.getElementById('activity-list-more'); while(more.firstChild){list.appendChild(more.firstChild);} more.remove();"
-      class="text-xs text-marsh hover:underline font-medium">
-      Show all {{ activities | length }} activities ({{ activities | length - activity_limit }} more)
-    </button>
+  <div class="px-4 pb-3">
+    {% set activity_list_id = 'activity-list' %}
+    {% include "activities/_activity_sections.html" %}
   </div>
-  {% endif %}
 </div>
 
 <!-- Linked Accounts -->
@@ -113,19 +95,29 @@
     fetch('/activities/log', { method: 'POST', body: fd })
       .then(function(r) { return r.text(); })
       .then(function(html) {
-        var list = document.getElementById('activity-list');
-        if (list) {
-          var empty = list.querySelector('.text-center');
+        /* Insert new row into appropriate section based on follow-up date */
+        var fuDate = fd.get('follow_up_date');
+        var targetList;
+        if (fuDate) {
+          var today = new Date().toISOString().split('T')[0];
+          if (fuDate < today) {
+            targetList = document.getElementById('activity-list-overdue');
+          } else {
+            targetList = document.getElementById('activity-list-upcoming');
+          }
+        }
+        if (!targetList) targetList = document.getElementById('activity-list');
+        if (targetList) {
+          var empty = targetList.querySelector('.text-center');
           if (empty) empty.remove();
-          list.insertAdjacentHTML('afterbegin', html);
-          var newRow = list.firstElementChild;
+          targetList.insertAdjacentHTML('afterbegin', html);
+          var newRow = targetList.firstElementChild;
           if (newRow) {
             newRow.style.transition = 'background-color 0.4s ease';
             newRow.style.backgroundColor = '#d1fae5';
             if (typeof htmx !== 'undefined') htmx.process(newRow);
             setTimeout(function() { newRow.style.backgroundColor = ''; }, 1500);
           }
-          if (typeof reorderActivityList === 'function') reorderActivityList('activity-list');
         }
         form.reset();
         document.getElementById('log-form').classList.add('hidden');
@@ -137,60 +129,16 @@
   });
 })();
 
-/* Activity filter: All vs Open Follow-ups */
+/* Activity filter: All vs Open Follow-ups — section-level show/hide */
 (function() {
   var seg = document.getElementById('activity-filter-seg');
   if (!seg) return;
   seg.addEventListener('change', function(e) {
     var mode = e.target.value;
-    var lists = [document.getElementById('activity-list'), document.getElementById('activity-list-more')];
-    lists.forEach(function(ul) {
-      if (!ul) return;
-      ul.querySelectorAll('.activity-item').forEach(function(li) {
-        li.style.display = (mode === 'open' && li.dataset.hasFollowup !== '1') ? 'none' : '';
-      });
-      ul.querySelectorAll('.activity-item-form').forEach(function(li) {
-        if (mode === 'open') {
-          var parent = document.getElementById('activity-' + li.dataset.parentActivity);
-          li.style.display = (parent && parent.dataset.hasFollowup === '1') ? '' : 'none';
-        } else { li.style.display = ''; }
-      });
-    });
-    if (mode === 'open') {
-      var more = document.getElementById('activity-list-more');
-      var btn = document.getElementById('show-more-activities');
-      if (more && more.classList.contains('hidden')) {
-        more.classList.remove('hidden');
-        if (btn) btn.remove();
-        var list = document.getElementById('activity-list');
-        while (more.firstChild) { list.appendChild(more.firstChild); }
-        more.remove();
-      }
-    }
+    var historySection = document.getElementById('activity-list-history-section');
+    if (historySection) historySection.style.display = (mode === 'open') ? 'none' : '';
   });
 })();
-
-/* Re-sort activity list after snooze */
-function reorderActivityList(listId) {
-  var ul = document.getElementById(listId);
-  if (!ul) return;
-  var items = Array.from(ul.querySelectorAll('.activity-item'));
-  items.sort(function(a, b) {
-    var aFu = a.dataset.followupDate || '', bFu = b.dataset.followupDate || '';
-    if (aFu && !bFu) return -1;
-    if (!aFu && bFu) return 1;
-    if (aFu && bFu) return aFu < bFu ? -1 : (aFu > bFu ? 1 : 0);
-    var aDate = a.dataset.activityDate || '', bDate = b.dataset.activityDate || '';
-    if (aDate !== bDate) return bDate < aDate ? -1 : (bDate > aDate ? 1 : 0);
-    return (parseInt(b.dataset.activityId) || 0) - (parseInt(a.dataset.activityId) || 0);
-  });
-  items.forEach(function(li) {
-    ul.appendChild(li);
-    var aid = li.id.replace('activity-', '');
-    ul.querySelectorAll('.activity-item-form[data-parent-activity="' + aid + '"]').forEach(function(f) { ul.appendChild(f); });
-  });
-}
-document.body.addEventListener('reorderActivities', function() { reorderActivityList('activity-list'); });
 </script>
 
 </div>

@@ -78,6 +78,29 @@ def _get_program_summary(token: str) -> dict:
     return program_reconcile_summary(results + extras, carrier_map=carrier_map)
 
 
+def _board_context(request, token: str, results: list, extras: list, conn=None) -> dict:
+    """Build the shared template context for rendering _pairing_board.html."""
+    summary = summarize(results + extras)
+    all_clients = []
+    if conn is not None:
+        all_clients = [dict(c) for c in conn.execute(
+            "SELECT id, name FROM clients WHERE archived=0 ORDER BY name"
+        ).fetchall()]
+    return {
+        "request": request,
+        "results": results,
+        "extras": extras,
+        "token": token,
+        "summary": summary,
+        "today": date.today().isoformat(),
+        "field_display": _FIELD_DISPLAY,
+        "policy_types": cfg.get("policy_types", []),
+        "program_summary": _get_program_summary(token),
+        "program_candidates": _detect_program_candidates(results),
+        "all_clients": all_clients,
+    }
+
+
 def _render_counters(summary: dict) -> str:
     """Build OOB counter HTML matching the board-counters div in _pairing_board.html."""
     return (
@@ -102,6 +125,41 @@ def _render_counters(summary: dict) -> str:
         f'  <span class="text-xs text-gray-400">{summary["total"]} total rows</span>'
         '</div>'
     )
+
+
+def _detect_program_candidates(results: list) -> list[dict]:
+    """Detect groups of unmatched rows that look like a program (same client+type+dates, 2+ carriers).
+
+    Returns a list of dicts, each with:
+      client, type, effective_date, expiration_date, carriers (list), row_indices (list of int)
+    """
+    from collections import defaultdict
+    groups: dict[tuple, list[tuple[int, str]]] = defaultdict(list)
+    for i, r in enumerate(results):
+        if r.status not in ("UNMATCHED", "MISSING"):
+            continue
+        e = r.ext or {}
+        client = e.get("client_name", "")
+        ptype = e.get("policy_type", "")
+        eff = e.get("effective_date", "")
+        exp = e.get("expiration_date", "")
+        carrier = e.get("carrier", "")
+        if client and ptype and carrier:
+            key = (client, ptype, eff, exp)
+            groups[key].append((i, carrier))
+    candidates = []
+    for key, entries in groups.items():
+        unique_carriers = list(dict.fromkeys(c for _, c in entries))
+        if len(unique_carriers) >= 2:
+            candidates.append({
+                "client": key[0],
+                "type": key[1],
+                "effective_date": key[2],
+                "expiration_date": key[3],
+                "carriers": unique_carriers,
+                "row_indices": [idx for idx, _ in entries],
+            })
+    return candidates
 
 
 def _load_db_policies(conn, client_id: int, scope: str) -> list[dict]:
@@ -505,6 +563,7 @@ def reconcile_run_match(
     ctx["policy_types"] = cfg.get("policy_types", [])
     ctx["field_display"] = _FIELD_DISPLAY
     ctx["program_summary"] = program_reconcile_summary(all_results, carrier_map=_carrier_map)
+    ctx["program_candidates"] = _detect_program_candidates(board_results)
     return templates.TemplateResponse("reconcile/index.html", ctx)
 
 
@@ -881,19 +940,8 @@ def reconcile_confirm_all(request: Request, token: str = Form("")):
         if row.status == "PAIRED" and not row.confirmed and row.match_score >= 75:
             row.confirmed = True
             confirmed_count += 1
-    summary = summarize(results + extras)
-    # Re-render the full board content
-    return templates.TemplateResponse("reconcile/_pairing_board.html", {
-        "request": request,
-        "results": results,
-        "extras": extras,
-        "token": token,
-        "summary": summary,
-        "today": date.today().isoformat(),
-        "field_display": _FIELD_DISPLAY,
-        "policy_types": cfg.get("policy_types", []),
-        "program_summary": _get_program_summary(token),
-    })
+    return templates.TemplateResponse("reconcile/_pairing_board.html",
+                                      _board_context(request, token, results, extras))
 
 
 @router.post("/confirm-all-programs", response_class=HTMLResponse)
@@ -908,18 +956,8 @@ def reconcile_confirm_all_programs(request: Request, token: str = Form("")):
         if row.status == "PAIRED" and not row.confirmed and row.is_program_match:
             row.confirmed = True
             confirmed_count += 1
-    summary = summarize(results + extras)
-    return templates.TemplateResponse("reconcile/_pairing_board.html", {
-        "request": request,
-        "results": results,
-        "extras": extras,
-        "token": token,
-        "summary": summary,
-        "today": date.today().isoformat(),
-        "field_display": _FIELD_DISPLAY,
-        "policy_types": cfg.get("policy_types", []),
-        "program_summary": _get_program_summary(token),
-    })
+    return templates.TemplateResponse("reconcile/_pairing_board.html",
+                                      _board_context(request, token, results, extras))
 
 
 @router.post("/fill/{policy_uid}", response_class=HTMLResponse)
@@ -1658,20 +1696,390 @@ def reconcile_all(request: Request, token: str = Form(""), conn=Depends(get_db))
             f'</div>'
         )
 
-    summary = summarize(results + extras)
-    board_html = templates.TemplateResponse("reconcile/_pairing_board.html", {
-        "request": request,
-        "results": results,
-        "extras": extras,
-        "token": token,
-        "summary": summary,
-        "today": date.today().isoformat(),
-        "field_display": _FIELD_DISPLAY,
-        "policy_types": cfg.get("policy_types", []),
-        "program_summary": _get_program_summary(token),
-    }).body.decode()
+    board_html = templates.TemplateResponse("reconcile/_pairing_board.html",
+                                              _board_context(request, token, results, extras)).body.decode()
 
     return HTMLResponse(learn_banner + board_html)
+
+
+# ── Program Management Endpoints ─────────────────────────────────────────────
+
+
+@router.get("/program-group-form", response_class=HTMLResponse)
+def program_group_form(
+    request: Request,
+    token: str = "",
+    cand_idx: int = 0,
+    indices: str = "",
+    conn=Depends(get_db),
+):
+    """Render the inline form for creating a program from a detected candidate group or manual selection."""
+    cache = _BOARD_CACHE.get(token)
+    if not cache:
+        return HTMLResponse('<div class="text-xs text-red-500 p-2">Session expired.</div>')
+    results, extras, db_rows, ts = cache
+
+    # Build candidate from explicit indices (manual multi-select) or from auto-detected candidates
+    if indices:
+        idx_list = [int(i) for i in indices.split(",") if i.strip().isdigit()]
+        carriers = []
+        client_name = ""
+        ptype = ""
+        eff = ""
+        exp = ""
+        for i in idx_list:
+            if 0 <= i < len(results):
+                e = results[i].ext or {}
+                d = results[i].db or {}
+                carriers.append(e.get("carrier", "") or d.get("carrier", ""))
+                if not client_name:
+                    client_name = e.get("client_name", "") or d.get("client_name", "")
+                if not ptype:
+                    ptype = e.get("policy_type", "") or d.get("policy_type", "")
+                if not eff:
+                    eff = e.get("effective_date", "") or d.get("effective_date", "")
+                if not exp:
+                    exp = e.get("expiration_date", "") or d.get("expiration_date", "")
+        cand = {
+            "client": client_name,
+            "type": ptype,
+            "effective_date": eff,
+            "expiration_date": exp,
+            "carriers": [c for c in carriers if c],
+            "row_indices": idx_list,
+        }
+    else:
+        candidates = _detect_program_candidates(results)
+        if cand_idx < 0 or cand_idx >= len(candidates):
+            return HTMLResponse('<div class="text-xs text-red-500 p-2">Candidate not found.</div>')
+        cand = candidates[cand_idx]
+
+    matched_client = get_client_by_name(conn, cand["client"]) if cand["client"] else None
+    all_clients = [dict(c) for c in conn.execute(
+        "SELECT id, name FROM clients WHERE archived=0 ORDER BY name"
+    ).fetchall()]
+
+    return templates.TemplateResponse("reconcile/_program_group_form.html", {
+        "request": request,
+        "cand": cand,
+        "token": token,
+        "all_clients": all_clients,
+        "matched_client": dict(matched_client) if matched_client else None,
+        "policy_types": cfg.get("policy_types", []),
+        "cand_idx": cand_idx,
+    })
+
+
+@router.post("/create-program-group", response_class=HTMLResponse)
+def create_program_group(
+    request: Request,
+    token: str = Form(""),
+    row_indices: str = Form(""),
+    client_id: int = Form(...),
+    policy_type: str = Form(...),
+    effective_date: str = Form(...),
+    expiration_date: str = Form(...),
+    cand_idx: int = Form(0),
+    conn=Depends(get_db),
+):
+    """Create a program policy from a group of unmatched rows, adding each as a program_carriers row."""
+    from policydb.db import next_policy_uid
+
+    cache = _BOARD_CACHE.get(token)
+    if not cache:
+        return HTMLResponse('<div class="text-xs text-red-500 p-2">Session expired.</div>')
+    results, extras, db_rows, ts = cache
+
+    idx_list = [int(i) for i in row_indices.split(",") if i.strip().isdigit()]
+    if len(idx_list) < 2:
+        return HTMLResponse('<div class="text-xs text-red-500 p-2">Need at least 2 rows to form a program.</div>')
+
+    policy_type = normalize_coverage_type(policy_type)
+    uid = next_policy_uid(conn)
+    account_exec = cfg.get("default_account_exec", "Grant")
+
+    # Create the program policy
+    conn.execute(
+        """INSERT INTO policies
+           (policy_uid, client_id, policy_type, carrier, policy_number,
+            effective_date, expiration_date, premium, limit_amount,
+            account_exec, is_program)
+           VALUES (?,?,?,?,?,?,?,?,?,?,1)""",
+        (uid, client_id, policy_type, "", None,
+         effective_date, expiration_date, 0, 0, account_exec),
+    )
+    conn.commit()
+
+    pgm_row = conn.execute("SELECT id FROM policies WHERE policy_uid=?", (uid,)).fetchone()
+    pgm_id = pgm_row["id"]
+
+    # Insert each grouped row as a program_carriers entry
+    total_premium = 0.0
+    total_limit = 0.0
+    client_name = conn.execute("SELECT name FROM clients WHERE id=?", (client_id,)).fetchone()["name"]
+
+    for sort_order, idx in enumerate(idx_list):
+        if idx < 0 or idx >= len(results):
+            continue
+        row = results[idx]
+        e = row.ext or {}
+        d = row.db or {}
+
+        # Use ext data for carrier info; fall back to db data for already-paired rows
+        carrier = normalize_carrier(e.get("carrier", "") or d.get("carrier", ""))
+        policy_number = normalize_policy_number(e.get("policy_number", "") or d.get("policy_number", ""))
+        try:
+            premium = float(e.get("premium") or d.get("premium") or 0)
+        except (ValueError, TypeError):
+            premium = 0.0
+        try:
+            limit_amt = float(e.get("limit_amount") or d.get("limit_amount") or 0)
+        except (ValueError, TypeError):
+            limit_amt = 0.0
+
+        if carrier:
+            conn.execute(
+                """INSERT INTO program_carriers (program_id, carrier, policy_number, premium, limit_amount, sort_order)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (pgm_id, carrier, policy_number or None, premium, limit_amt, sort_order),
+            )
+        total_premium += premium
+        total_limit += limit_amt
+
+        # For already-paired rows with existing DB policies, link as children
+        if row.status == "PAIRED" and d.get("policy_uid"):
+            child = conn.execute(
+                "SELECT id FROM policies WHERE policy_uid=?", (d["policy_uid"],)
+            ).fetchone()
+            if child:
+                conn.execute(
+                    "UPDATE policies SET program_id=? WHERE id=?",
+                    (pgm_id, child["id"]),
+                )
+
+        # Mark board row as confirmed under this program
+        row.db = {
+            "policy_uid": uid,
+            "client_name": client_name,
+            "policy_type": policy_type,
+            "carrier": carrier,
+            "policy_number": policy_number,
+            "effective_date": effective_date,
+            "expiration_date": expiration_date,
+            "premium": premium,
+            "limit_amount": limit_amt,
+            "client_id": client_id,
+        }
+        row.status = "PAIRED"
+        row.match_score = 100.0
+        row.confidence = "high"
+        row.match_method = "created"
+        row.confirmed = True
+        row.is_program_match = True
+
+    # Update program totals
+    conn.execute(
+        "UPDATE policies SET premium=?, limit_amount=? WHERE id=?",
+        (total_premium or None, total_limit or None, pgm_id),
+    )
+    conn.commit()
+
+    # Re-render the full board
+    return templates.TemplateResponse("reconcile/_pairing_board.html",
+                                      _board_context(request, token, results, extras, conn))
+
+
+@router.get("/search-programs", response_class=HTMLResponse)
+def search_programs(
+    request: Request,
+    q: str = "",
+    idx: int = 0,
+    token: str = "",
+    client_name: str = "",
+    client_id: int = 0,
+    conn=Depends(get_db),
+):
+    """Search existing programs for 'Add to Program' action."""
+    # If no query, show auto-suggested programs for the row's client
+    conditions = ["p.archived = 0", "p.is_program = 1"]
+    params: list = []
+
+    if q and len(q) >= 2:
+        like = f"%{q}%"
+        conditions.append("(p.policy_type LIKE ? OR p.carrier LIKE ? OR c.name LIKE ?)")
+        params.extend([like, like, like])
+    elif client_id:
+        conditions.append("p.client_id = ?")
+        params.append(client_id)
+    elif client_name:
+        matched = get_client_by_name(conn, client_name)
+        if matched:
+            conditions.append("p.client_id = ?")
+            params.append(matched["id"])
+    else:
+        return HTMLResponse('<p class="text-xs text-gray-400 p-2">Type to search programs...</p>')
+
+    where = " AND ".join(conditions)
+    rows = conn.execute(f"""
+        SELECT p.id, p.policy_uid, c.name AS client_name, p.policy_type, p.carrier,
+               p.effective_date, p.expiration_date, p.premium,
+               (SELECT COUNT(*) FROM program_carriers pc WHERE pc.program_id = p.id) AS carrier_count
+        FROM policies p JOIN clients c ON p.client_id = c.id
+        WHERE {where}
+        ORDER BY c.name, p.policy_type LIMIT 10
+    """, params).fetchall()
+
+    # Build search input for refinement
+    search_input = (
+        f'<div class="mb-1">'
+        f'<input type="text" placeholder="Search programs..." value="{q or ""}"'
+        f' hx-get="/reconcile/search-programs"'
+        f' hx-trigger="keyup changed delay:300ms"'
+        f' hx-target="#pgm-search-{idx}"'
+        f' hx-swap="innerHTML"'
+        f' hx-include="this"'
+        f' name="q"'
+        f' hx-vals=\'{{"idx": "{idx}", "token": "{token}", "client_id": "{client_id}", "client_name": "{client_name}"}}\''
+        f' class="w-full text-xs border border-blue-200 rounded px-2 py-1 focus:border-blue-400 focus:outline-none"'
+        f' onclick="event.stopPropagation()">'
+        f'</div>'
+    )
+
+    if not rows:
+        return HTMLResponse(search_input + '<p class="text-xs text-gray-500 p-2">No programs found.</p>')
+
+    html = search_input + '<div class="space-y-1 max-h-48 overflow-y-auto p-2">'
+    for r in rows:
+        premium_str = f"${r['premium']:,.0f}" if r['premium'] else "—"
+        html += (
+            f'<div class="flex items-center justify-between text-xs bg-white border border-blue-200 rounded px-2 py-1.5 hover:bg-blue-50">'
+            f'<div class="min-w-0 flex-1">'
+            f'<span class="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded mr-1">PROGRAM</span>'
+            f'<span class="font-medium text-gray-800">{r["policy_type"]}</span>'
+            f' <span class="text-gray-400">&middot;</span> '
+            f'<span class="text-gray-500">{r["client_name"]}</span>'
+            f' <span class="text-gray-400">&middot;</span> '
+            f'<span class="text-gray-500">{r["carrier_count"]} carrier{"s" if r["carrier_count"] != 1 else ""}</span>'
+            f'<br><span class="text-gray-400">'
+            f'{r["effective_date"] or "—"} &rarr; {r["expiration_date"] or "—"} &middot; {premium_str}</span>'
+            f'</div>'
+            f'<button type="button" '
+            f'hx-post="/reconcile/add-to-program" '
+            f'hx-vals=\'{{"idx": "{idx}", "program_uid": "{r["policy_uid"]}", "token": "{token}"}}\' '
+            f'hx-target="#pair-{idx}" hx-swap="outerHTML" '
+            f'class="text-xs bg-blue-600 text-white px-2 py-0.5 rounded ml-2 flex-shrink-0">Add</button>'
+            f'</div>'
+        )
+    html += '</div>'
+    return HTMLResponse(html)
+
+
+@router.post("/add-to-program", response_class=HTMLResponse)
+def add_to_program(
+    request: Request,
+    idx: int = Form(0),
+    program_uid: str = Form(""),
+    token: str = Form(""),
+    conn=Depends(get_db),
+):
+    """Add an unmatched row as a new program_carriers entry on an existing program."""
+    cache = _BOARD_CACHE.get(token)
+    if not cache:
+        return HTMLResponse('<div class="text-xs text-red-500 p-2">Session expired.</div>')
+    results, extras, db_rows, ts = cache
+
+    if idx < 0 or idx >= len(results):
+        return HTMLResponse('<div class="text-xs text-red-500 p-2">Row not found.</div>')
+
+    row = results[idx]
+    e = row.ext or {}
+
+    # Look up the target program
+    pgm = conn.execute(
+        "SELECT id, policy_uid, policy_type, effective_date, expiration_date, client_id "
+        "FROM policies WHERE policy_uid=? AND is_program=1",
+        (program_uid,),
+    ).fetchone()
+    if not pgm:
+        return HTMLResponse('<div class="text-xs text-red-500 p-2">Program not found.</div>')
+
+    # Get current max sort_order
+    max_sort = conn.execute(
+        "SELECT COALESCE(MAX(sort_order), -1) FROM program_carriers WHERE program_id=?",
+        (pgm["id"],),
+    ).fetchone()[0]
+
+    carrier = normalize_carrier(e.get("carrier", "")) if e.get("carrier") else ""
+    policy_number = normalize_policy_number(e.get("policy_number", "")) if e.get("policy_number") else ""
+    try:
+        premium = float(e.get("premium", 0) or 0)
+    except (ValueError, TypeError):
+        premium = 0.0
+    try:
+        limit_amt = float(e.get("limit_amount", 0) or 0)
+    except (ValueError, TypeError):
+        limit_amt = 0.0
+
+    # Insert carrier row
+    conn.execute(
+        """INSERT INTO program_carriers (program_id, carrier, policy_number, premium, limit_amount, sort_order)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (pgm["id"], carrier, policy_number or None, premium, limit_amt, max_sort + 1),
+    )
+
+    # Update program totals
+    totals = conn.execute(
+        "SELECT SUM(premium) as tp, SUM(limit_amount) as tl FROM program_carriers WHERE program_id=?",
+        (pgm["id"],),
+    ).fetchone()
+    conn.execute(
+        "UPDATE policies SET premium=?, limit_amount=? WHERE id=?",
+        (totals["tp"] or None, totals["tl"] or None, pgm["id"]),
+    )
+    conn.commit()
+
+    client_name = conn.execute("SELECT name FROM clients WHERE id=?", (pgm["client_id"],)).fetchone()["name"]
+
+    # Mark board row as confirmed under this program
+    row.db = {
+        "policy_uid": program_uid,
+        "client_name": client_name,
+        "policy_type": pgm["policy_type"],
+        "carrier": carrier,
+        "policy_number": policy_number,
+        "effective_date": pgm["effective_date"],
+        "expiration_date": pgm["expiration_date"],
+        "premium": premium,
+        "limit_amount": limit_amt,
+        "client_id": pgm["client_id"],
+    }
+    row.status = "PAIRED"
+    row.match_score = 100.0
+    row.confidence = "high"
+    row.match_method = "created"
+    row.confirmed = True
+    row.is_program_match = True
+
+    summary = summarize(results + extras)
+    counter_html = _render_counters(summary)
+
+    created_html = (
+        f'<div class="pair-row flex items-center rounded-lg border border-blue-200 bg-blue-50 mb-2 px-4 py-3" data-status="confirmed" data-confirmed="true">'
+        f'<span class="text-blue-500 text-lg mr-3">&#10003;</span>'
+        f'<div class="flex-1 min-w-0">'
+        f'<span class="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded mr-1">ADDED TO PROGRAM</span>'
+        f' <span class="text-sm font-medium text-gray-800">{client_name}</span>'
+        f' <span class="text-xs text-gray-400 mx-1">&middot;</span>'
+        f' <span class="text-xs text-gray-600">{pgm["policy_type"]}</span>'
+        f' <span class="text-xs text-gray-400 mx-1">&middot;</span>'
+        f' <span class="text-xs text-gray-600">{carrier}</span>'
+        f' <span class="text-xs text-gray-400 mx-1">&middot;</span>'
+        f' <span class="text-xs text-gray-700 tabular-nums">${premium:,.0f}</span>'
+        f'</div>'
+        f'<a href="/policies/{program_uid}/edit" class="text-xs text-blue-500 hover:underline ml-3">{program_uid} &rarr;</a>'
+        f'</div>'
+    )
+    return HTMLResponse(f'<div id="pair-{idx}">{created_html}</div>' + counter_html)
 
 
 @router.get("/download/{token}")
