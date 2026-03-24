@@ -355,7 +355,7 @@
     <form hx-post="/activities/log"
           hx-target="#pulse-recent-activity"
           hx-swap="outerHTML"
-          hx-vals='{"_pulse_oob": "1"}'
+          hx-vals='{"pulse_oob": "1"}'
           hx-on::after-request="this.reset()">
       <input type="hidden" name="client_id" value="{{ client.id }}">
       <input type="hidden" name="policy_id" value="{{ policy.id }}">
