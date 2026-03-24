@@ -1,0 +1,73 @@
+{# OOB swap partial for Quick Log in Policy Pulse tab #}
+
+{# Primary target: Recent activity section replacement #}
+<div id="pulse-recent-activity" class="mb-4">
+  <div class="text-[10px] text-gray-500 font-bold tracking-wider mb-1.5">RECENT ACTIVITY</div>
+  {% if recent %}
+    <div class="flex flex-col gap-1">
+      {% for a in recent %}
+        <div class="bg-gray-800 rounded-md p-2 px-3 flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span class="text-[9px] font-semibold bg-gray-700 text-gray-300 rounded px-1.5 py-0.5">{{ a.activity_type or 'Note' }}</span>
+            <span class="text-sm text-gray-200 truncate max-w-[300px]">{{ a.subject }}</span>
+          </div>
+          <div class="text-[10px] text-gray-500 whitespace-nowrap">
+            {{ a.activity_date }}{% if a.duration_hours %} · {{ a.duration_hours | round(1) }}h{% endif %}
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="bg-gray-800 rounded-md p-2 px-3 text-xs text-gray-600 italic">No recent activity</div>
+  {% endif %}
+</div>
+
+{# OOB: Metrics effort update #}
+<div id="pulse-metrics-effort" hx-swap-oob="innerHTML">{{ effort | round(1) }}<span class="text-sm font-normal">h</span></div>
+
+{# OOB: Needs Attention section #}
+<div id="pulse-needs-attention" hx-swap-oob="outerHTML" class="mb-4">
+  <div class="text-[10px] text-gray-500 font-bold tracking-wider mb-1.5">NEEDS ATTENTION</div>
+  {% if attention_items %}
+    {% for item in attention_items %}
+      {% if item.type == 'overdue' %}
+        {% set border = 'border-l-red-500' %}
+        {% set badge_bg = 'bg-red-950' %}
+        {% set badge_text = 'text-red-300' %}
+        {% set badge_label = 'OVERDUE' %}
+        {% set text_color = 'text-red-300' %}
+        {% set context = item.days | string + ' days overdue' %}
+      {% elif item.type == 'milestone' %}
+        {% set health = item.get('health', 'drifting') %}
+        {% if health in ('critical', 'at_risk') %}
+          {% set border = 'border-l-red-500' %}
+          {% set badge_bg = 'bg-red-950' %}
+          {% set badge_text = 'text-red-300' %}
+        {% else %}
+          {% set border = 'border-l-amber-500' %}
+          {% set badge_bg = 'bg-amber-950' %}
+          {% set badge_text = 'text-amber-300' %}
+        {% endif %}
+        {% set badge_label = health | upper %}
+        {% set text_color = badge_text %}
+        {% set context = item.days | string + ' days behind ideal' if item.days else 'projected: ' + item.date %}
+      {% elif item.type == 'waiting' %}
+        {% set border = 'border-l-indigo-500' %}
+        {% set badge_bg = 'bg-indigo-950' %}
+        {% set badge_text = 'text-indigo-300' %}
+        {% set badge_label = 'WAITING' %}
+        {% set text_color = 'text-indigo-300' %}
+        {% set context = item.days | string + ' days' if item.days else '' %}
+      {% endif %}
+      <div class="bg-gray-800 rounded-md p-2 px-3 mb-1 flex items-center justify-between border-l-[3px] {{ border }}">
+        <div>
+          <div class="text-sm font-medium {{ text_color }}">{{ item.text }}</div>
+          <div class="text-[10px] text-gray-500">{{ context }}</div>
+        </div>
+        <span class="text-[9px] font-semibold {{ badge_bg }} {{ badge_text }} rounded-full px-2 py-0.5">{{ badge_label }}</span>
+      </div>
+    {% endfor %}
+  {% else %}
+    <div class="bg-emerald-900/30 rounded-md p-2 px-3 text-sm text-emerald-300">All clear — no items need attention</div>
+  {% endif %}
+</div>
