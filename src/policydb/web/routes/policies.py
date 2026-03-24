@@ -13,12 +13,15 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 
 from policydb import config as cfg
 from policydb.llm_schemas import (
+    COPE_FIELDS,
+    LOCATION_FIELDS,
     POLICY_EXTRACTION_SCHEMA,
     generate_extraction_prompt,
     generate_json_template,
     parse_llm_json,
 )
-from policydb.queries import get_all_policies, get_client_by_id, get_opportunity_by_uid, get_policy_by_uid, get_policy_total_hours, get_saved_notes, save_note, delete_saved_note, renew_policy, get_or_create_contact, assign_contact_to_policy, remove_contact_from_policy, set_placement_colleague, get_policy_contacts
+from policydb.queries import REVIEW_CYCLE_LABELS, get_all_policies, get_client_by_id, get_opportunity_by_uid, get_policy_by_uid, get_policy_total_hours, get_saved_notes, save_note, delete_saved_note, renew_policy, get_or_create_contact, assign_contact_to_policy, remove_contact_from_policy, set_placement_colleague, get_policy_contacts
+from rapidfuzz import fuzz
 from policydb.utils import round_duration, normalize_carrier, normalize_coverage_type, normalize_policy_number, format_city, format_state, format_zip
 from policydb.web.app import get_db, templates
 
@@ -1115,6 +1118,19 @@ def policy_ai_import_parse(
             status_code=422,
         )
 
+    try:
+        return _ai_import_parse_inner(request, conn, uid, result)
+    except Exception:
+        logger.exception("AI import parse failed for %s", uid)
+        return HTMLResponse(
+            '<div class="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">'
+            'An error occurred processing the import. Check server logs for details.</div>',
+            status_code=500,
+        )
+
+
+def _ai_import_parse_inner(request: Request, conn, uid: str, result: dict):
+    """Inner logic for AI import parse — separated to wrap in try/except."""
     policy_dict, client_info = _policy_base(conn, uid)
     if not policy_dict:
         return HTMLResponse("Not found", status_code=404)
@@ -1148,8 +1164,7 @@ def policy_ai_import_parse(
             )
 
     # ── Build policy-level diffs ──
-    from policydb.llm_schemas import POLICY_EXTRACTION_SCHEMA as _SCHEMA, LOCATION_FIELDS, COPE_FIELDS
-    _field_labels = {f["key"]: f["label"] for f in _SCHEMA["fields"]}
+    _field_labels = {f["key"]: f["label"] for f in POLICY_EXTRACTION_SCHEMA["fields"]}
     ai_policy_diffs: list[dict] = []
     for k, v in result["parsed"].items():
         if k == "locations" or v is None:
@@ -1170,8 +1185,6 @@ def policy_ai_import_parse(
     locations_parsed = result["parsed"].get("locations", [])
     ai_location_data: list[dict] = []
     if locations_parsed:
-        from rapidfuzz import fuzz
-
         _loc_labels = {f["key"]: f["label"] for f in LOCATION_FIELDS}
         _cope_labels = {f["key"]: f["label"] for f in COPE_FIELDS}
 
@@ -1298,7 +1311,7 @@ def policy_ai_import_parse(
             ai_location_data.append(loc_entry)
 
     # Build the same context as policy_tab_details
-    from policydb.queries import REVIEW_CYCLE_LABELS as _RCL
+    _RCL = REVIEW_CYCLE_LABELS
 
     # Tower structure
     _tower_layers: list[dict] = []
@@ -1370,7 +1383,14 @@ def policy_ai_import_parse(
         "ai_parsed_json": json.dumps(result["parsed"], default=str),
     })
 
-    # Append OOB import diff summary
+    # Build OOB fragments and combine with rendered template body.
+    # We must build the full body BEFORE returning so Content-Length is correct;
+    # mutating html.body after TemplateResponse sets Content-Length causes h11
+    # "Too much data for declared Content-Length" which the browser sees as
+    # "Failed to fetch".
+    body_parts: list[bytes] = [html.body]
+
+    # OOB import diff summary
     if import_changes:
         from html import escape
         diff_rows = "".join(
@@ -1381,7 +1401,7 @@ def policy_ai_import_parse(
             f'</tr>'
             for c in import_changes
         )
-        diff_html = (
+        body_parts.append((
             f'<div id="ai-import-diff" hx-swap-oob="innerHTML">'
             f'<div class="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-3">'
             f'<p class="text-xs font-semibold text-blue-800 mb-2">{len(import_changes)} field{"s" if len(import_changes) != 1 else ""} updated by import</p>'
@@ -1390,24 +1410,22 @@ def policy_ai_import_parse(
             f'<th class="px-3 py-1">Field</th><th class="px-3 py-1">Previous</th><th class="px-3 py-1">New Value</th>'
             f'</tr></thead><tbody>{diff_rows}</tbody></table>'
             f'</div></div>'
-        )
-        html.body += diff_html.encode()
+        ).encode())
 
-    # Append OOB warnings div if there are warnings
+    # OOB warnings
     if ai_warnings:
         warning_pills = "".join(
             f'<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs '
             f'font-medium bg-amber-100 text-amber-800">{w}</span>'
             for w in ai_warnings
         )
-        oob_html = (
+        body_parts.append((
             f'<div id="ai-import-warnings" hx-swap-oob="innerHTML">'
             f'<div class="flex flex-wrap gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">'
             f'{warning_pills}</div></div>'
-        )
-        html.body += oob_html.encode()
+        ).encode())
 
-    return html
+    return HTMLResponse(content=b"".join(body_parts))
 
 
 @router.post("/{policy_uid}/ai-import/apply-location")
