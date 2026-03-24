@@ -1,0 +1,75 @@
+{# Shared activity sections: Overdue Follow-ups, Upcoming Follow-ups, Activity History #}
+{# Expects: overdue_followups, upcoming_followups, history, activity_list_id (unique per page) #}
+
+{% set activity_list_id = activity_list_id | default('activity-list') %}
+
+{# ── Overdue Follow-ups ── #}
+{% if overdue_followups %}
+<div class="mb-3 fu-section" data-section="overdue" id="{{ activity_list_id }}-overdue-section">
+  <div class="border-l-4 border-red-500 bg-red-50 px-4 py-2.5 rounded-r-lg">
+    <div class="flex items-center gap-2 mb-2">
+      <span class="text-white text-[10px] font-semibold px-2 py-0.5 rounded-full bg-red-600">Overdue</span>
+      <span class="text-gray-400 text-[10px]">{{ overdue_followups | length }} follow-up{{ 's' if overdue_followups | length != 1 }} past due</span>
+    </div>
+    <ul class="divide-y divide-red-100" id="{{ activity_list_id }}-overdue">
+      {% for a in overdue_followups %}
+      {% include "activities/_activity_row.html" %}
+      {% endfor %}
+    </ul>
+  </div>
+</div>
+{% endif %}
+
+{# ── Upcoming Follow-ups ── #}
+{% if upcoming_followups %}
+<div class="mb-3 fu-section" data-section="upcoming" id="{{ activity_list_id }}-upcoming-section">
+  <div class="border-l-4 border-amber-500 bg-amber-50 px-4 py-2.5 rounded-r-lg">
+    <div class="flex items-center gap-2 mb-2">
+      <span class="text-white text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-600">Upcoming</span>
+      <span class="text-gray-400 text-[10px]">{{ upcoming_followups | length }} follow-up{{ 's' if upcoming_followups | length != 1 }} scheduled</span>
+    </div>
+    <ul class="divide-y divide-amber-100" id="{{ activity_list_id }}-upcoming">
+      {% for a in upcoming_followups %}
+      {% include "activities/_activity_row.html" %}
+      {% endfor %}
+    </ul>
+  </div>
+</div>
+{% endif %}
+
+{# ── Activity History ── #}
+{% set history_limit = 10 %}
+<div class="fu-section" data-section="history" id="{{ activity_list_id }}-history-section">
+  <div class="border-l-4 border-gray-300 bg-white px-4 py-2.5 rounded-r-lg">
+    <div class="flex items-center gap-2 mb-2">
+      <span class="text-gray-600 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-gray-200">History</span>
+      <span class="text-gray-400 text-[10px]">{{ history | length }} activit{{ 'ies' if history | length != 1 else 'y' }} in last 90 days</span>
+    </div>
+    <ul class="divide-y divide-gray-50" id="{{ activity_list_id }}">
+      {% for a in history[:history_limit] %}
+      {% include "activities/_activity_row.html" %}
+      {% else %}
+      <li class="py-3 text-xs text-gray-400 text-center">No activity history in the last 90 days.</li>
+      {% endfor %}
+    </ul>
+    {% if history | length > history_limit %}
+    <ul class="divide-y divide-gray-50 hidden" id="{{ activity_list_id }}-more">
+      {% for a in history[history_limit:] %}
+      {% include "activities/_activity_row.html" %}
+      {% endfor %}
+    </ul>
+    <div class="px-3 py-2 border-t border-gray-100 text-center" id="{{ activity_list_id }}-show-more">
+      <button type="button"
+        onclick="document.getElementById('{{ activity_list_id }}-more').classList.remove('hidden'); this.parentElement.remove(); var list=document.getElementById('{{ activity_list_id }}'); var more=document.getElementById('{{ activity_list_id }}-more'); while(more.firstChild){list.appendChild(more.firstChild);} more.remove();"
+        class="text-xs text-marsh hover:underline font-medium">
+        Show all {{ history | length }} activities ({{ history | length - history_limit }} more)
+      </button>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{# Empty state when no activities at all #}
+{% if not overdue_followups and not upcoming_followups and not history %}
+<div class="py-6 text-center text-sm text-gray-400">No activity in the last 90 days.</div>
+{% endif %}

@@ -1619,18 +1619,26 @@ def policy_tab_activity(request: Request, policy_uid: str, conn=Depends(get_db))
     if not policy_dict:
         return HTMLResponse("Not found", status_code=404)
 
+    _today_iso = date.today().isoformat()
     activities = [dict(r) for r in conn.execute(
         """SELECT a.*, c.name AS client_name, c.cn_number, p.policy_uid, p.project_id
            FROM activity_log a
            JOIN clients c ON a.client_id = c.id
            LEFT JOIN policies p ON a.policy_id = p.id
            WHERE a.policy_id = ? AND a.activity_date >= date('now', '-90 days')
-           ORDER BY
-             CASE WHEN a.follow_up_date IS NOT NULL AND (a.follow_up_done IS NULL OR a.follow_up_done = 0) THEN 0 ELSE 1 END,
-             CASE WHEN a.follow_up_date IS NOT NULL AND (a.follow_up_done IS NULL OR a.follow_up_done = 0) THEN a.follow_up_date END ASC,
-             a.activity_date DESC, a.id DESC""",
+           ORDER BY a.activity_date DESC, a.id DESC""",
         (policy_dict["id"],),
     ).fetchall()]
+    # Split into 3 groups: overdue follow-ups, upcoming follow-ups, history
+    overdue_followups = sorted(
+        [a for a in activities if a.get("follow_up_date") and not a.get("follow_up_done") and a["follow_up_date"] < _today_iso],
+        key=lambda a: a["follow_up_date"],
+    )
+    upcoming_followups = sorted(
+        [a for a in activities if a.get("follow_up_date") and not a.get("follow_up_done") and a["follow_up_date"] >= _today_iso],
+        key=lambda a: a["follow_up_date"],
+    )
+    history = [a for a in activities if not (a.get("follow_up_date") and not a.get("follow_up_done"))]
 
     all_contact_names = [r[0] for r in conn.execute(
         "SELECT DISTINCT name FROM contacts WHERE name IS NOT NULL AND name != '' ORDER BY name"
@@ -1658,6 +1666,9 @@ def policy_tab_activity(request: Request, policy_uid: str, conn=Depends(get_db))
         "request": request,
         "policy": policy_dict,
         "activities": activities,
+        "overdue_followups": overdue_followups,
+        "upcoming_followups": upcoming_followups,
+        "history": history,
         "activity_types": cfg.get("activity_types", ["Call", "Email", "Meeting", "Note", "Other"]),
         "all_contact_names": all_contact_names,
         "policy_total_hours": get_policy_total_hours(conn, policy_dict["id"]),
@@ -1922,6 +1933,8 @@ def policy_tab_pulse(
         "recent": recent,
         "scratchpad": dict(scratchpad) if scratchpad else None,
         "activity_types": cfg.get("activity_types"),
+        "dispositions": cfg.get("follow_up_dispositions", []),
+        "mailto_subject": _renew_mailto_subject(conn, policy_uid),
         "today": _today.isoformat(),
         "days_since_review": days_since_review,
     })
