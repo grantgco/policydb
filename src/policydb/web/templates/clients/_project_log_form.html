@@ -45,11 +45,11 @@
       </div>
       <div>
         <p class="text-xs text-gray-500 mb-0.5">Contact Person</p>
-        <input type="text" name="contact_person" list="proj-log-contacts-{{ project_id }}" autocomplete="off"
-          class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh">
-        <datalist id="proj-log-contacts-{{ project_id }}">
-          {% for c in contacts %}<option value="{{ c.name }}">{% endfor %}
-        </datalist>
+        <select name="contact_person"
+          class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh bg-white">
+          <option value="">— select contact —</option>
+          {% for c in contacts %}<option value="{{ c.name }}">{{ c.name }}</option>{% endfor %}
+        </select>
       </div>
       <div>
         <p class="text-xs text-gray-500 mb-0.5">Subject <span class="text-red-400">*</span></p>
