@@ -1055,6 +1055,15 @@ def init_db(path: Path | None = None) -> None:
             conn.executescript(sql)
             conn.commit()
 
+    if 76 not in applied:
+        sql = (_MIGRATIONS_DIR / "076_add_client_geocoding.sql").read_text()
+        conn.executescript(sql)
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (76, "Add latitude/longitude columns to clients for map geocoding cache"),
+        )
+        conn.commit()
+
     # Data hygiene: fix 'None' string corruption in text fields (runs every startup, fast no-op if clean)
     conn.execute("UPDATE clients SET cn_number = NULL WHERE cn_number = 'None'")
 

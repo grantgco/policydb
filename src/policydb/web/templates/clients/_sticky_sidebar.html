@@ -162,23 +162,32 @@
        class="text-xs text-marsh hover:underline mt-1 block">Open full map →</a>
     <script>
     (function() {
-      var addr = {{ client.address | tojson }};
       var container = document.getElementById('sidebar-map-container');
-      if (!addr || !container) return;
-      fetch('https://nominatim.openstreetmap.org/search?format=json&q=' + encodeURIComponent(addr) + '&limit=1')
+      if (!container) return;
+
+      function showMap(lat, lon) {
+        var d = 0.01;
+        var bbox = (lon - d) + ',' + (lat - d) + ',' + (lon + d) + ',' + (lat + d);
+        container.innerHTML = '<iframe src="https://www.openstreetmap.org/export/embed.html?bbox=' + bbox + '&layer=mapnik&marker=' + lat + ',' + lon + '" style="width:100%;height:120px;border:0;border-radius:6px" loading="lazy"></iframe>';
+      }
+
+      {% if client.latitude and client.longitude %}
+      showMap({{ client.latitude }}, {{ client.longitude }});
+      {% else %}
+      var addr = {{ client.address | tojson }};
+      if (!addr) return;
+      fetch('https://nominatim.openstreetmap.org/search?format=json&q=' + encodeURIComponent(addr) + '&limit=1&countrycodes=us,gb,ca')
         .then(function(r) { return r.json(); })
         .then(function(data) {
           if (data && data.length > 0) {
-            var lat = parseFloat(data[0].lat), lon = parseFloat(data[0].lon);
-            var d = 0.01;
-            var bbox = (lon - d) + ',' + (lat - d) + ',' + (lon + d) + ',' + (lat + d);
-            container.innerHTML = '<iframe src="https://www.openstreetmap.org/export/embed.html?bbox=' + bbox + '&layer=mapnik&marker=' + lat + ',' + lon + '" style="width:100%;height:120px;border:0;border-radius:6px" loading="lazy"></iframe>';
+            showMap(parseFloat(data[0].lat), parseFloat(data[0].lon));
           } else {
             container.innerHTML = '<span class="text-xs text-gray-400">Address not found on map</span>';
           }
         }).catch(function() {
           container.innerHTML = '<span class="text-xs text-gray-400">Map unavailable</span>';
         });
+      {% endif %}
     })();
     </script>
   </div>
