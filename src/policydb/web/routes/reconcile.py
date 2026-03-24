@@ -180,9 +180,13 @@ def _load_db_policies(conn, client_id: int, scope: str) -> list[dict]:
                    p.policy_number, p.effective_date, p.expiration_date,
                    p.premium, p.limit_amount, p.deductible, p.client_id,
                    p.first_named_insured,
-                   p.is_program, p.program_carriers, p.program_carrier_count
+                   p.is_program, p.program_carriers, p.program_carrier_count,
+                   pr.name AS location_name,
+                   prog.policy_uid AS program_uid
             FROM policies p
             JOIN clients c ON p.client_id = c.id
+            LEFT JOIN projects pr ON p.project_id = pr.id
+            LEFT JOIN policies prog ON p.program_id = prog.id
             WHERE {where}
             ORDER BY c.name, p.expiration_date""",
         params,

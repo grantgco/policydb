@@ -927,7 +927,8 @@ def build_reconcile_xlsx(results: list[ReconcileRow], run_date: str = "", filena
 
     def _extra_rows():
         cols = ["policy_uid", "client_name", "policy_type", "carrier", "policy_number",
-                "effective_date", "expiration_date", "premium", "limit_amount", "deductible"]
+                "effective_date", "expiration_date", "premium", "limit_amount", "deductible",
+                "location_name", "program_uid"]
         return [{c: (r.db or {}).get(c, "") for c in cols} for r in results if r.status == "EXTRA"]
 
     def _all_rows():
@@ -940,6 +941,8 @@ def build_reconcile_xlsx(results: list[ReconcileRow], run_date: str = "", filena
                 row[f"ext_{f}"] = (r.ext or {}).get(f, "")
                 row[f"db_{f}"] = (r.db or {}).get(f, "")
             row["db_policy_uid"] = r.db.get("policy_uid", "") if r.db else ""
+            row["db_location"] = r.db.get("location_name", "") if r.db else ""
+            row["db_program"] = r.db.get("program_uid", "") if r.db else ""
             rows.append(row)
         return rows
 
@@ -957,6 +960,8 @@ def _diff_dict(r: ReconcileRow) -> dict:
         "diff_fields": ", ".join(r.diff_fields),
         "match_score": round(r.match_score, 1),
         "db_policy_uid": (r.db or {}).get("policy_uid", ""),
+        "db_location": (r.db or {}).get("location_name", ""),
+        "db_program": (r.db or {}).get("program_uid", ""),
     }
     for f in COMPARE_FIELDS:
         row[f"ext_{f}"] = (r.ext or {}).get(f, "")
