@@ -36,43 +36,63 @@ def _attach_sqlite_log_handler():
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 
-# ── Request logging middleware ────────────────────────────────────────────────
+# ── Request logging middleware (pure ASGI — avoids BaseHTTPMiddleware) ────────
+# BaseHTTPMiddleware re-chunks response bodies which causes h11
+# "Too much data for declared Content-Length" on large TemplateResponse bodies.
+# A pure ASGI middleware passes the response through without buffering.
 
-@app.middleware("http")
-async def request_logging_middleware(request: Request, call_next):
-    path = request.url.path
-    # Skip static asset requests to reduce noise
-    if path.startswith("/static"):
-        return await call_next(request)
 
-    start = time.perf_counter()
-    response = await call_next(request)
-    duration_ms = round((time.perf_counter() - start) * 1000, 1)
+class _RequestLoggingMiddleware:
+    """Lightweight ASGI middleware for request logging.
 
-    method = request.method
-    status = response.status_code
+    Unlike @app.middleware("http") (which uses BaseHTTPMiddleware and
+    re-buffers response bodies), this passes responses through unmodified,
+    avoiding Content-Length mismatches with h11.
+    """
 
-    # Log level based on status code
-    if status >= 500:
-        _req_logger.error(
-            "%s %s → %d (%.1fms)",
-            method, path, status, duration_ms,
-            extra={"method": method, "path": path, "status_code": status, "duration_ms": duration_ms},
-        )
-    elif status >= 400:
-        _req_logger.warning(
-            "%s %s → %d (%.1fms)",
-            method, path, status, duration_ms,
-            extra={"method": method, "path": path, "status_code": status, "duration_ms": duration_ms},
-        )
-    else:
-        _req_logger.info(
-            "%s %s → %d (%.1fms)",
-            method, path, status, duration_ms,
-            extra={"method": method, "path": path, "status_code": status, "duration_ms": duration_ms},
-        )
+    def __init__(self, app):
+        self.app = app
 
-    return response
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+
+        path = scope.get("path", "")
+        if path.startswith("/static"):
+            return await self.app(scope, receive, send)
+
+        method = scope.get("method", "")
+        start = time.perf_counter()
+        status_code = 0
+
+        async def _send_wrapper(message):
+            nonlocal status_code
+            if message["type"] == "http.response.start":
+                status_code = message.get("status", 0)
+            await send(message)
+
+        try:
+            await self.app(scope, receive, _send_wrapper)
+        finally:
+            duration_ms = round((time.perf_counter() - start) * 1000, 1)
+            if status_code >= 500:
+                _req_logger.error(
+                    "%s %s → %d (%.1fms)", method, path, status_code, duration_ms,
+                    extra={"method": method, "path": path, "status_code": status_code, "duration_ms": duration_ms},
+                )
+            elif status_code >= 400:
+                _req_logger.warning(
+                    "%s %s → %d (%.1fms)", method, path, status_code, duration_ms,
+                    extra={"method": method, "path": path, "status_code": status_code, "duration_ms": duration_ms},
+                )
+            else:
+                _req_logger.info(
+                    "%s %s → %d (%.1fms)", method, path, status_code, duration_ms,
+                    extra={"method": method, "path": path, "status_code": status_code, "duration_ms": duration_ms},
+                )
+
+
+app.add_middleware(_RequestLoggingMiddleware)
 
 
 # ── Template filters ──────────────────────────────────────────────────────────
