@@ -80,7 +80,7 @@ def _output(content: str) -> None:
 # ─── ROOT GROUP ──────────────────────────────────────────────────────────────
 
 @click.group()
-@click.version_option("1.0.0", prog_name="policydb")
+@click.version_option("7.1.0", prog_name="policydb")
 def main():
     """PolicyDB — Insurance Book of Business Management."""
 
