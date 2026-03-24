@@ -675,6 +675,90 @@ def _build_checklist(conn, policy_uid: str) -> list[dict]:
     ]
 
 
+def _build_pulse_attention_items(
+    overdue_activities: list,
+    overdue_policy_fu: dict | None,
+    timeline: list[dict],
+    today: date,
+) -> list[dict]:
+    """Merge overdue follow-ups, unhealthy milestones, and waiting items
+    into a single sorted attention list for the Policy Pulse tab."""
+    items = []
+
+    # 1. Overdue follow-ups from activity_log
+    for row in overdue_activities:
+        r = dict(row) if not isinstance(row, dict) else row
+        items.append({
+            "type": "overdue",
+            "text": r.get("subject", "Follow-up"),
+            "days": r.get("days_overdue", 0),
+            "date": r.get("follow_up_date", ""),
+            "severity": 0,  # highest priority
+        })
+
+    # 2. Overdue policy-level follow-up
+    if overdue_policy_fu:
+        items.append({
+            "type": "overdue",
+            "text": overdue_policy_fu.get("subject", "Policy follow-up"),
+            "days": overdue_policy_fu.get("days_overdue", 0),
+            "date": overdue_policy_fu.get("follow_up_date", ""),
+            "severity": 0,
+        })
+
+    # 3. Unhealthy milestones (not completed, health != on_track)
+    _health_severity = {"critical": 1, "at_risk": 2, "compressed": 3, "drifting": 4}
+    for t in timeline:
+        if t.get("completed_date"):
+            continue
+        health = t.get("health", "on_track")
+        if health == "on_track":
+            continue
+        days_behind = 0
+        if t.get("projected_date") and t.get("ideal_date"):
+            try:
+                days_behind = (
+                    date.fromisoformat(t["projected_date"])
+                    - date.fromisoformat(t["ideal_date"])
+                ).days
+            except (ValueError, TypeError):
+                pass
+        items.append({
+            "type": "milestone",
+            "text": f"{t.get('milestone_name', 'Milestone')} milestone {health}",
+            "days": max(days_behind, 0),
+            "date": t.get("projected_date", ""),
+            "health": health,
+            "severity": _health_severity.get(health, 5),
+        })
+
+    # 4. Waiting-on items
+    for t in timeline:
+        if t.get("completed_date"):
+            continue
+        if t.get("accountability") != "waiting_external":
+            continue
+        days_waiting = 0
+        if t.get("projected_date"):
+            try:
+                days_waiting = (today - date.fromisoformat(t["projected_date"])).days
+                if days_waiting < 0:
+                    days_waiting = 0
+            except (ValueError, TypeError):
+                pass
+        items.append({
+            "type": "waiting",
+            "text": f"Waiting on {t.get('waiting_on', 'external')} for {t.get('milestone_name', '')}",
+            "days": days_waiting,
+            "date": t.get("projected_date", ""),
+            "severity": 6,
+        })
+
+    # Sort: severity first, then days descending within same severity
+    items.sort(key=lambda x: (x["severity"], -x["days"]))
+    return items
+
+
 def _attach_milestone_progress(conn, rows: list[dict]) -> list[dict]:
     """Enrich pipeline row dicts with milestone_done / milestone_total counts.
 
