@@ -113,7 +113,7 @@ def get_location_requirements(
     """
     sql = """
         SELECT cr.*, rs.name AS source_name, rs.counterparty, rs.clause_ref,
-               rs.project_id AS source_project_id
+               rs.project_id AS source_project_id, rs.notes AS source_notes
         FROM coverage_requirements cr
         LEFT JOIN requirement_sources rs ON cr.source_id = rs.id
         WHERE cr.client_id = ?

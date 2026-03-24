@@ -177,12 +177,19 @@ def _corporate_location_html(request: Request, conn: sqlite3.Connection, client_
 # ── XLSX Export ───────────────────────────────────────────────────────────────
 
 
+def _parse_location_ids(locations: str) -> list[int] | None:
+    """Parse comma-separated project IDs from query param, or None for all."""
+    ids = [int(x) for x in locations.split(",") if x.strip().isdigit()]
+    return ids or None
+
+
 @router.get("/client/{client_id}/export/xlsx")
-def export_xlsx(client_id: int, conn=Depends(get_db)):
+def export_xlsx(client_id: int, locations: str = Query(""), conn=Depends(get_db)):
     """Download the 5-sheet compliance workbook."""
     from policydb.exporter import export_compliance_xlsx
 
-    xlsx_bytes, filename = export_compliance_xlsx(conn, client_id)
+    project_ids = _parse_location_ids(locations)
+    xlsx_bytes, filename = export_compliance_xlsx(conn, client_id, project_ids=project_ids)
     return Response(
         content=xlsx_bytes,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -190,18 +197,19 @@ def export_xlsx(client_id: int, conn=Depends(get_db)):
     )
 
 
-# ── PDF Export ────────────────────────────────────────────────────────────────
+# ── Markdown Export ───────────────────────────────────────────────────────────
 
 
-@router.get("/client/{client_id}/export/pdf")
-def export_pdf(client_id: int, conn=Depends(get_db)):
-    """Download the compliance report as a professional PDF."""
-    from policydb.exporter import export_compliance_pdf
+@router.get("/client/{client_id}/export/md")
+def export_md(client_id: int, locations: str = Query(""), conn=Depends(get_db)):
+    """Download the compliance report as Markdown."""
+    from policydb.exporter import export_compliance_md
 
-    pdf_bytes, filename = export_compliance_pdf(conn, client_id)
+    project_ids = _parse_location_ids(locations)
+    md_text, filename = export_compliance_md(conn, client_id, project_ids=project_ids)
     return Response(
-        content=pdf_bytes,
-        media_type="application/pdf",
+        content=md_text.encode("utf-8"),
+        media_type="text/markdown; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
