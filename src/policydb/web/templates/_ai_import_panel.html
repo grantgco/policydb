@@ -297,8 +297,9 @@ function submitAiImport() {
             }
         });
     }).catch(function(err) {
-        errorDiv.textContent = 'Network error: ' + err.message;
+        errorDiv.textContent = 'Network error: ' + (err.message || err);
         errorDiv.style.display = '';
+        console.error('AI import fetch error:', err);
     });
 }
 
