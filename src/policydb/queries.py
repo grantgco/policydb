@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 from datetime import date, timedelta
 from typing import Optional
+
+logger = logging.getLogger("policydb.queries")
 
 from rapidfuzz import process, fuzz
 
@@ -1703,11 +1706,18 @@ def generate_mandated_activities(conn: sqlite3.Connection) -> int:
                 )
                 continue
 
-            # Skip dates too far in the future — don't schedule a meeting
-            # 10 months out for a just-renewed policy. Will be created on a
-            # future startup once the date is within the window.
+            # Skip dates too far in the future (safety net)
             max_horizon = cfg.get("mandated_activity_horizon_days", 180)
             if (target_date - today).days > max_horizon:
+                continue
+
+            # Respect prep_days: only fire when the prep window has opened.
+            # For a milestone at -90d with 14d prep, fire_date = target - 14.
+            # Activities with prep_days=0 fire when target_date <= today
+            # (handled by the past-date check above).
+            prep_days = rule.get("prep_days", 0)
+            fire_date = target_date - timedelta(days=prep_days) if prep_days else target_date
+            if fire_date > today:
                 continue
 
             # Render subject template
@@ -1749,6 +1759,11 @@ def generate_mandated_activities(conn: sqlite3.Connection) -> int:
             conn.execute(
                 "INSERT INTO mandated_activity_log (policy_uid, rule_name, activity_id, milestone_id) VALUES (?, ?, ?, ?)",
                 (p["policy_uid"], rule_name, activity_id, milestone_id),
+            )
+            logger.info(
+                "Mandated activity fired: %s / %s — target=%s fire_date=%s prep_days=%d",
+                p["policy_uid"], rule_name, target_date.isoformat(),
+                fire_date.isoformat(), prep_days,
             )
             created += 1
 
