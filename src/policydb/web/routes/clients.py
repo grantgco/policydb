@@ -10,7 +10,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from babel.dates import format_datetime as babel_format_datetime
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from policydb import config as cfg
 from policydb.utils import clean_email, format_fein, format_phone, normalize_client_name, format_city, format_state, format_zip
@@ -441,6 +441,9 @@ def client_tab_overview(request: Request, client_id: int, conn=Depends(get_db)):
         [a for a in activities if a.get("follow_up_date") and not a.get("follow_up_done") and a["follow_up_date"] >= _today_iso],
         key=lambda a: a["follow_up_date"],
     )
+    _week_cutoff = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
+    due_soon = [a for a in upcoming_followups if a["follow_up_date"] <= _week_cutoff]
+    later_followups = [a for a in upcoming_followups if a["follow_up_date"] > _week_cutoff]
     history = [a for a in activities if not (a.get("follow_up_date") and not a.get("follow_up_done"))]
 
     # Linked accounts
@@ -495,6 +498,8 @@ def client_tab_overview(request: Request, client_id: int, conn=Depends(get_db)):
         "activities": activities,
         "overdue_followups": overdue_followups,
         "upcoming_followups": upcoming_followups,
+        "due_soon": due_soon,
+        "later_followups": later_followups,
         "history": history,
         "activity_types": cfg.get("activity_types"),
         "dispositions": cfg.get("follow_up_dispositions", []),
