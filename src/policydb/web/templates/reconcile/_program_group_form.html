@@ -1,0 +1,81 @@
+{# _program_group_form.html — inline form to create a program from grouped rows #}
+{# Context: cand (dict with client, type, effective_date, expiration_date, carriers, row_indices),
+            token (str), all_clients (list), matched_client (dict or None),
+            policy_types (list), cand_idx (int) #}
+
+<div class="border border-blue-200 bg-white rounded-lg p-4 mt-2">
+  <p class="text-xs font-semibold text-blue-800 mb-3">Create Program — {{ cand.carriers | length }} carriers</p>
+
+  <form hx-post="/reconcile/create-program-group"
+        hx-target="#pairing-board"
+        hx-swap="innerHTML"
+        class="space-y-3">
+
+    <input type="hidden" name="token" value="{{ token }}">
+    <input type="hidden" name="row_indices" value="{{ cand.row_indices | join(',') }}">
+    <input type="hidden" name="cand_idx" value="{{ cand_idx }}">
+
+    <div class="grid grid-cols-2 gap-3">
+
+      <!-- Client -->
+      <div class="col-span-2">
+        <label class="text-xs text-gray-500 mb-0.5 block">Client <span class="text-red-400">*</span></label>
+        <select name="client_id" required
+          class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm bg-white focus:outline-none focus:ring-1 focus:ring-blue-500">
+          {% for c in all_clients %}
+          <option value="{{ c.id }}"
+            {% if matched_client and c.id == matched_client.id %}selected{% endif %}>
+            {{ c.name }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <!-- Policy Type -->
+      <div>
+        <label class="text-xs text-gray-500 mb-0.5 block">Policy Type <span class="text-red-400">*</span></label>
+        <select name="policy_type" required
+          class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm bg-white focus:outline-none focus:ring-1 focus:ring-blue-500">
+          {% for t in policy_types %}
+          <option {% if t == cand.type %}selected{% endif %}>{{ t }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <!-- Effective Date -->
+      <div>
+        <label class="text-xs text-gray-500 mb-0.5 block">Effective Date <span class="text-red-400">*</span></label>
+        <input name="effective_date" type="date" required value="{{ cand.effective_date }}"
+          class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500">
+      </div>
+
+      <!-- Expiration Date -->
+      <div>
+        <label class="text-xs text-gray-500 mb-0.5 block">Expiration Date <span class="text-red-400">*</span></label>
+        <input name="expiration_date" type="date" required value="{{ cand.expiration_date }}"
+          class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500">
+      </div>
+
+    </div>
+
+    <!-- Carrier summary (read-only) -->
+    <div>
+      <label class="text-xs text-gray-500 mb-1 block">Carriers to include</label>
+      <div class="flex flex-wrap gap-1.5">
+        {% for c in cand.carriers %}
+        <span class="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">{{ c }}</span>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="flex items-center gap-2 pt-1">
+      <button type="submit"
+        class="text-xs bg-blue-600 hover:bg-blue-700 text-white font-medium px-4 py-2 rounded-lg transition-colors">
+        Create Program ({{ cand.carriers | length }} carriers)
+      </button>
+      <button type="button"
+        onclick="this.closest('form').parentElement.innerHTML = ''"
+        class="text-xs text-gray-500 hover:text-gray-700 px-3 py-2">Cancel</button>
+    </div>
+  </form>
+</div>
