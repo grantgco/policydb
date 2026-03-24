@@ -913,6 +913,12 @@ def reconcile_manual_pair(
     row.fillable_fields = list(breakdown.fillable_fields)
     row.eff_delta_days = breakdown.eff_delta_days
     row.exp_delta_days = breakdown.exp_delta_days
+    row.ext_type_raw = breakdown.ext_type_raw
+    row.ext_type_normalized = breakdown.ext_type_normalized
+    row.coverage_alias_applied = breakdown.coverage_alias_applied
+    row.ext_carrier_raw = breakdown.ext_carrier_raw
+    row.ext_carrier_normalized = breakdown.ext_carrier_normalized
+    row.carrier_alias_applied = breakdown.carrier_alias_applied
 
     # Remove from extras if found there
     if extra_idx_to_remove is not None:
