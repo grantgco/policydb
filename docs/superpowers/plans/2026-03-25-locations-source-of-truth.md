@@ -198,7 +198,41 @@ git commit -m "refactor: remove locations table from Policies tab (moved to Over
 
 ---
 
-### Task 5: Policy Edit Page — Read-Only Exposure Address When Assigned
+### Task 5: Policy Edit Page — Location Pill in Header
+
+**Files:**
+- Modify: `src/policydb/web/templates/policies/edit.html:33-36`
+
+- [ ] **Step 1: Add location pill to the policy header subtitle line**
+
+On `edit.html:33-36`, the subtitle shows `policy_type · carrier` followed by the ref tag pill. When the policy is assigned to a location (`policy.project_id`), add a location pill with a 📍 emoji after the ref tag:
+
+```html
+  <p class="text-sm text-gray-500 mt-1">{{ policy.policy_type }} · {{ policy.carrier }}
+    <button type="button" onclick="copyRefTag(this, '{{ _ref }}')"
+      class="ml-2 text-xs font-mono text-gray-400 hover:text-marsh bg-gray-100 hover:bg-gray-200 px-1.5 py-0.5 rounded cursor-pointer transition-colors" title="Click to copy email ref tag">{{ _ref }}</button>
+    {% if policy.project_id %}
+    <a href="/clients/{{ policy.client_id }}/projects/{{ policy.project_id }}"
+       class="ml-2 inline-flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-marsh bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded-full transition-colors"
+       title="Assigned to location">📍 {{ policy.project_name }}</a>
+    {% endif %}
+  </p>
+```
+
+The pill links to the location detail page. Light blue background (`bg-blue-50`) distinguishes it from the gray ref tag pill.
+
+- [ ] **Step 2: Verify pill appears on assigned policies and is absent on unassigned**
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add src/policydb/web/templates/policies/edit.html
+git commit -m "feat: add location pill to policy edit header when assigned to a location"
+```
+
+---
+
+### Task 6: Policy Edit Page — Read-Only Exposure Address When Assigned
 
 **Files:**
 - Modify: `src/policydb/web/templates/policies/_tab_details.html:483-511`
@@ -265,7 +299,7 @@ git commit -m "feat: lock exposure address fields on policy edit when assigned t
 
 ---
 
-### Task 6: QA Testing All Affected Pages
+### Task 7: QA Testing All Affected Pages
 
 - [ ] **Step 1: Test location assignment cascade**
 Navigate to `/clients/1/locations`, drag an unassigned policy to a location. Verify the policy's exposure address fields updated in the database.
