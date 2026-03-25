@@ -652,24 +652,11 @@
   }
   AC_FIELDS.forEach(loadList);
 
-  /* ── Nominatim autocomplete for exposure address ── */
+  /* ── Google Places autocomplete for exposure address ── */
   (function() {
     var addrInput = document.getElementById('exposure-address-input');
     var addrDropdown = document.getElementById('exposure-address-suggestions');
     if (!addrInput || !addrDropdown) return;
-
-    var stateMap = {};
-    {% for abbr, name in us_states %}
-    stateMap[{{ name | tojson }}.toLowerCase()] = {{ abbr | tojson }};
-    {% endfor %}
-
-    function stateToAbbr(s) {
-      if (!s) return '';
-      var lower = s.trim().toLowerCase();
-      if (stateMap[lower]) return stateMap[lower];
-      var upper = s.trim().toUpperCase();
-      return upper.length === 2 ? upper : s.trim();
-    }
 
     var timer = null;
     addrInput.addEventListener('input', function() {
@@ -677,35 +664,36 @@
       var q = addrInput.value.trim();
       if (q.length < 4) { addrDropdown.classList.add('hidden'); return; }
       timer = setTimeout(function() {
-        fetch('https://nominatim.openstreetmap.org/search?format=json&q=' + encodeURIComponent(q) + '&limit=5&addressdetails=1&countrycodes=us,gb,ca')
+        fetch('/api/address/autocomplete?q=' + encodeURIComponent(q))
           .then(function(r) { return r.json(); })
           .then(function(data) {
-            if (!data || !data.length) { addrDropdown.classList.add('hidden'); return; }
+            var predictions = data.predictions || [];
+            if (!predictions.length) { addrDropdown.classList.add('hidden'); return; }
             addrDropdown.innerHTML = '';
-            data.forEach(function(item) {
+            predictions.forEach(function(p) {
               var div = document.createElement('div');
               div.className = 'px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 cursor-pointer border-b border-gray-50';
-              div.textContent = item.display_name;
+              div.textContent = p.description;
               div.addEventListener('mousedown', function(e) {
                 e.preventDefault();
-                var a = item.address || {};
-                var street = (a.house_number ? a.house_number + ' ' : '') + (a.road || '');
-                addrInput.value = street || item.display_name;
-                patchField('exposure_address', addrInput.value, addrInput);
-
-                var city = a.city || a.town || a.village || a.hamlet || '';
-                var cityEl = container.querySelector('[data-field="exposure_city"]');
-                if (cityEl && city) { cityEl.value = city; patchField('exposure_city', city, cityEl); }
-
-                var state = stateToAbbr(a.state || '');
-                var stateEl = container.querySelector('[data-field="exposure_state"]');
-                if (stateEl && state) { stateEl.value = state; patchField('exposure_state', state, stateEl); }
-
-                var zip = a.postcode || '';
-                var zipEl = container.querySelector('[data-field="exposure_zip"]');
-                if (zipEl && zip) { zipEl.value = zip; patchField('exposure_zip', zip, zipEl); }
-
                 addrDropdown.classList.add('hidden');
+
+                fetch('/api/address/details/' + encodeURIComponent(p.place_id))
+                  .then(function(r) { return r.json(); })
+                  .then(function(d) {
+                    if (d.error) return;
+                    addrInput.value = d.street || p.description;
+                    patchField('exposure_address', addrInput.value, addrInput);
+
+                    var cityEl = container.querySelector('[data-field="exposure_city"]');
+                    if (cityEl && d.city) { cityEl.value = d.city; patchField('exposure_city', d.city, cityEl); }
+
+                    var stateEl = container.querySelector('[data-field="exposure_state"]');
+                    if (stateEl && d.state) { stateEl.value = d.state; patchField('exposure_state', d.state, stateEl); }
+
+                    var zipEl = container.querySelector('[data-field="exposure_zip"]');
+                    if (zipEl && d.zip) { zipEl.value = d.zip; patchField('exposure_zip', d.zip, zipEl); }
+                  });
               });
               addrDropdown.appendChild(div);
             });

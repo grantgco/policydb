@@ -709,94 +709,88 @@ function confirmAction(btn, msg) {
 
 <script>
 (function () {
-  const STATE_CODES = {
-    "Alabama":"AL","Alaska":"AK","Arizona":"AZ","Arkansas":"AR","California":"CA",
-    "Colorado":"CO","Connecticut":"CT","Delaware":"DE","Florida":"FL","Georgia":"GA",
-    "Hawaii":"HI","Idaho":"ID","Illinois":"IL","Indiana":"IN","Iowa":"IA","Kansas":"KS",
-    "Kentucky":"KY","Louisiana":"LA","Maine":"ME","Maryland":"MD","Massachusetts":"MA",
-    "Michigan":"MI","Minnesota":"MN","Mississippi":"MS","Missouri":"MO","Montana":"MT",
-    "Nebraska":"NE","Nevada":"NV","New Hampshire":"NH","New Jersey":"NJ","New Mexico":"NM",
-    "New York":"NY","North Carolina":"NC","North Dakota":"ND","Ohio":"OH","Oklahoma":"OK",
-    "Oregon":"OR","Pennsylvania":"PA","Rhode Island":"RI","South Carolina":"SC",
-    "South Dakota":"SD","Tennessee":"TN","Texas":"TX","Utah":"UT","Vermont":"VT",
-    "Virginia":"VA","Washington":"WA","West Virginia":"WV","Wisconsin":"WI","Wyoming":"WY",
-    "District of Columbia":"DC"
-  };
-
   function attachAutocomplete(streetInput) {
     // Suppress browser/extension autocomplete
     streetInput.setAttribute('autocomplete', 'one-time-code');
     streetInput.setAttribute('data-1p-ignore', '');
     streetInput.setAttribute('data-lpignore', 'true');
 
-    const container = streetInput.closest('form') || streetInput.closest('[data-addr-scope]') || streetInput.parentElement.parentElement;
-    const cityEl  = container.querySelector('[name="exposure_city"],[name="city"]');
-    const stateEl = container.querySelector('[name="exposure_state"],[name="state"]');
-    const zipEl   = container.querySelector('[name="exposure_zip"],[name="zip"]');
-    const hasSiblings = cityEl || stateEl || zipEl;
+    var container = streetInput.closest('form') || streetInput.closest('[data-addr-scope]') || streetInput.parentElement.parentElement;
+    var cityEl  = container.querySelector('[name="exposure_city"],[name="city"]');
+    var stateEl = container.querySelector('[name="exposure_state"],[name="state"]');
+    var zipEl   = container.querySelector('[name="exposure_zip"],[name="zip"]');
+    var latEl   = container.querySelector('[name="latitude"]');
+    var lonEl   = container.querySelector('[name="longitude"]');
+    var hasSiblings = cityEl || stateEl || zipEl;
 
-    const wrap = streetInput.parentElement;
+    var wrap = streetInput.parentElement;
     wrap.style.position = 'relative';
-    const box = document.createElement('div');
+    var box = document.createElement('div');
     box.style.cssText = 'position:absolute;z-index:9999;top:100%;left:0;width:100%;display:none;';
     box.className = 'bg-white border border-gray-200 rounded-lg shadow-xl text-sm';
     wrap.appendChild(box);
 
-    let timer;
-    streetInput.addEventListener('input', () => {
+    var timer;
+    streetInput.addEventListener('input', function() {
       clearTimeout(timer);
-      const q = streetInput.value.trim();
+      // Clear lat/lng on manual typing
+      if (latEl) latEl.value = '';
+      if (lonEl) lonEl.value = '';
+      var q = streetInput.value.trim();
       if (q.length < 4) { box.style.display = 'none'; return; }
-      timer = setTimeout(() => {
-        fetch('https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&countrycodes=us&limit=6&q=' + encodeURIComponent(q), {
-          headers: { 'Accept': 'application/json' }
-        })
-          .then(r => r.json())
-          .then(results => {
+      timer = setTimeout(function() {
+        fetch('/api/address/autocomplete?q=' + encodeURIComponent(q))
+          .then(function(r) { return r.json(); })
+          .then(function(data) {
             box.innerHTML = '';
-            if (!results || !results.length) { box.style.display = 'none'; return; }
-            results.forEach(r => {
-              const a = r.address || {};
-              const num    = a.house_number || '';
-              const road   = a.road || '';
-              const street = num ? num + ' ' + road : road;
-              const city   = a.city || a.town || a.village || a.hamlet || '';
-              const state  = (a['ISO3166-2-lvl4'] || '').replace('US-', '') || STATE_CODES[a.state] || a.state || '';
-              const zip    = a.postcode || '';
-              const label  = [street, city, state, zip].filter(Boolean).join(', ');
-              if (!street && !city) return;
-              const item = document.createElement('div');
+            var predictions = data.predictions || [];
+            if (!predictions.length) { box.style.display = 'none'; return; }
+            predictions.forEach(function(p) {
+              var item = document.createElement('div');
               item.className = 'px-3 py-2 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-0';
-              item.textContent = label;
-              item.addEventListener('mousedown', e => {
+              item.textContent = p.description;
+              item.addEventListener('mousedown', function(e) {
                 e.preventDefault();
-                if (hasSiblings) {
-                  streetInput.value = street;
-                  if (cityEl)  { cityEl.value = city; cityEl.dispatchEvent(new Event('change', {bubbles: true})); }
-                  if (zipEl)   { zipEl.value = zip; zipEl.dispatchEvent(new Event('change', {bubbles: true})); }
-                  if (stateEl) {
-                    if (stateEl.tagName === 'SELECT') stateEl.value = state; else stateEl.value = state;
-                    stateEl.dispatchEvent(new Event('change', {bubbles: true}));
-                  }
-                } else {
-                  streetInput.value = label;
-                }
                 box.style.display = 'none';
-                streetInput.dispatchEvent(new Event('change', {bubbles: true}));
+                // Fetch place details to get parsed address components
+                fetch('/api/address/details/' + encodeURIComponent(p.place_id))
+                  .then(function(r) { return r.json(); })
+                  .then(function(d) {
+                    if (d.error) return;
+                    if (hasSiblings) {
+                      streetInput.value = d.street || '';
+                      if (cityEl)  { cityEl.value = d.city || ''; cityEl.dispatchEvent(new Event('change', {bubbles: true})); }
+                      if (stateEl) { stateEl.value = d.state || ''; stateEl.dispatchEvent(new Event('change', {bubbles: true})); }
+                      if (zipEl)   { zipEl.value = d.zip || ''; zipEl.dispatchEvent(new Event('change', {bubbles: true})); }
+                    } else {
+                      streetInput.value = d.formatted_address || p.description;
+                    }
+                    if (latEl && d.lat != null) latEl.value = d.lat;
+                    if (lonEl && d.lon != null) lonEl.value = d.lon;
+                    streetInput.dispatchEvent(new Event('change', {bubbles: true}));
+                  })
+                  .catch(function() {
+                    // Fallback: use the description as-is
+                    streetInput.value = p.description;
+                    streetInput.dispatchEvent(new Event('change', {bubbles: true}));
+                  });
               });
               box.appendChild(item);
             });
             if (box.childElementCount) box.style.display = 'block';
           })
-          .catch(() => { box.style.display = 'none'; });
+          .catch(function() { box.style.display = 'none'; });
       }, 500);
     });
 
-    streetInput.addEventListener('blur', () => setTimeout(() => { box.style.display = 'none'; }, 200));
+    streetInput.addEventListener('blur', function() { setTimeout(function() { box.style.display = 'none'; }, 200); });
   }
 
+  // Make attachAutocomplete available globally for inline scripts
+  window.attachAutocomplete = attachAutocomplete;
+
   function initAddressAutocomplete() {
-    document.querySelectorAll('input[name="exposure_address"], input[name="address"]').forEach(el => {
+    document.querySelectorAll('input[name="exposure_address"], input[name="address"]').forEach(function(el) {
       if (!el.dataset.addrInit) {
         el.dataset.addrInit = '1';
         attachAutocomplete(el);

@@ -119,6 +119,7 @@ SEARCH_INDEX = [
     {"label": "Readiness Score Weights", "tab": "readiness", "anchor": "section-readiness-weights"},
     {"label": "Carrier Aliases", "tab": "carriers", "anchor": "section-carrier-aliases"},
     {"label": "Email Subject Lines", "tab": "email-contacts", "anchor": "section-email-subjects"},
+    {"label": "Google Places API", "tab": "database", "anchor": "section-google-places"},
     {"label": "Report Logo", "tab": "database", "anchor": "section-report-logo"},
     {"label": "Database Health", "tab": "database", "anchor": "section-db-health"},
     {"label": "SQL Console", "tab": "database", "anchor": "section-sql-console"},
@@ -242,6 +243,8 @@ def _build_tab_context(tab: str, conn) -> dict:
         ctx["backup_dir"] = backup_dir
         ctx["sql_examples"] = _SQL_EXAMPLES
         ctx["db_tables"] = db_tables
+        ctx["google_places_api_key"] = cfg.get("google_places_api_key", "")
+        ctx["google_places_daily_limit"] = cfg.get("google_places_daily_limit", 1000)
 
     return ctx
 
@@ -491,6 +494,16 @@ def update_stale_threshold(request: Request, value: int = Form(...)):
     cfg.save_config(full)
     cfg.reload_config()
     return RedirectResponse("/settings", status_code=303)
+
+
+@router.post("/config/google-places")
+def update_google_places(request: Request, api_key: str = Form(""), daily_limit: int = Form(1000)):
+    full = dict(cfg.load_config())
+    full["google_places_api_key"] = api_key.strip()
+    full["google_places_daily_limit"] = max(1, min(daily_limit, 100000))
+    cfg.save_config(full)
+    cfg.reload_config()
+    return RedirectResponse("/settings?tab=database", status_code=303)
 
 
 @router.post("/readiness-weights", response_class=HTMLResponse)

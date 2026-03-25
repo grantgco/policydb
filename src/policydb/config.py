@@ -19,6 +19,8 @@ _DEFAULTS: dict[str, Any] = {
     "export_dir": str(Path.home() / ".policydb" / "exports"),
     "report_logo_path": str(Path.home() / ".policydb" / "logo.png"),
     "stale_threshold_days": 14,
+    "google_places_api_key": "",
+    "google_places_daily_limit": 1000,
     "default_hourly_rate": 150,
     "renewal_effort_multiplier": 1.5,
     "coverage_gap_rules": [
