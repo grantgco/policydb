@@ -13,6 +13,7 @@ from rapidfuzz import fuzz
 
 from policydb import config as cfg
 from policydb.compliance import (
+    compute_auto_status,
     get_client_compliance_data,
     get_linkable_policies,
     get_requirement_links,
@@ -46,6 +47,8 @@ _CELL_ALLOWED_FIELDS = {
     "compliance_status",
     "linked_policy_uid",
     "notes",
+    "source_id",
+    "project_id",
 }
 
 
@@ -902,6 +905,74 @@ def requirements_row_edit(
     )
 
 
+@router.get("/client/{client_id}/requirements/{req_id}/detail", response_class=HTMLResponse)
+def requirement_detail(
+    client_id: int,
+    req_id: int,
+    request: Request,
+    conn=Depends(get_db),
+):
+    """Return the slideover detail panel for a requirement."""
+    req = conn.execute(
+        "SELECT * FROM coverage_requirements WHERE id = ? AND client_id = ?",
+        (req_id, client_id),
+    ).fetchone()
+    if not req:
+        return HTMLResponse("Not found", status_code=404)
+
+    req_dict = dict(req)
+    try:
+        req_dict["_endorsements_list"] = json.loads(req_dict.get("required_endorsements") or "[]")
+    except (ValueError, TypeError):
+        req_dict["_endorsements_list"] = []
+
+    # Sources and locations for dropdowns
+    sources = [dict(r) for r in conn.execute(
+        "SELECT id, name, counterparty FROM requirement_sources WHERE client_id = ? ORDER BY name",
+        (client_id,),
+    ).fetchall()]
+    projects = [dict(r) for r in conn.execute(
+        "SELECT id, name FROM projects WHERE client_id = ? ORDER BY name",
+        (client_id,),
+    ).fetchall()]
+
+    # Policy links
+    links = get_requirement_links(conn, req_id)
+    linkable = get_linkable_policies(conn, client_id)
+
+    # Primary linked policy for comparison
+    primary_policy = None
+    for link in links:
+        if link.get("is_primary"):
+            primary_policy = conn.execute(
+                "SELECT policy_uid, policy_type, carrier, limit_amount, deductible, "
+                "expiration_date FROM policies WHERE policy_uid = ? AND archived = 0",
+                (link["policy_uid"],),
+            ).fetchone()
+            if primary_policy:
+                primary_policy = dict(primary_policy)
+            break
+
+    # Compute auto-status for display
+    auto_status = compute_auto_status(req_dict, primary_policy) if primary_policy else "Gap"
+
+    return templates.TemplateResponse("compliance/_requirement_slideover.html", {
+        "request": request,
+        "req": req_dict,
+        "client_id": client_id,
+        "sources": sources,
+        "projects": projects,
+        "links": links,
+        "linkable_policies": linkable,
+        "primary_policy": primary_policy,
+        "auto_status": auto_status,
+        "compliance_statuses": cfg.get("compliance_statuses", []),
+        "deductible_types": cfg.get("deductible_types", []),
+        "policy_types": cfg.get("policy_types", []),
+        "endorsement_types": cfg.get("endorsement_types", []),
+    })
+
+
 @router.post("/client/{client_id}/sources/{source_id}/delete", response_class=HTMLResponse)
 def sources_delete(
     client_id: int,
@@ -1323,6 +1394,17 @@ async def review_mode_cell(
     )
     conn.commit()
 
+    # Trigger auto-status recompute on limit/deductible field changes
+    if field in ("required_limit", "max_deductible"):
+        _recompute_auto_status(conn, req_id)
+
+    if field == "compliance_status" and value in ("Compliant", "Waived", "N/A"):
+        conn.execute(
+            "UPDATE coverage_requirements SET status_manual_override = 1 WHERE id = ?",
+            (req_id,),
+        )
+        conn.commit()
+
     return JSONResponse({"ok": True, "formatted": formatted})
 
 
@@ -1466,6 +1548,37 @@ async def cope_cell(
 # ── Policy Link Management ────────────────────────────────────────────────────
 
 
+def _recompute_auto_status(conn, req_id: int):
+    """Recompute auto-status for a requirement based on its primary linked policy."""
+    req = conn.execute(
+        "SELECT * FROM coverage_requirements WHERE id = ?", (req_id,)
+    ).fetchone()
+    if not req:
+        return
+    req_dict = dict(req)
+    status = req_dict.get("compliance_status") or "Needs Review"
+    override = req_dict.get("status_manual_override", 0)
+    if status in ("Waived", "N/A") and override:
+        return  # Preserve manual Waived/N/A
+
+    # Find primary linked policy
+    primary = conn.execute(
+        """SELECT p.limit_amount, p.deductible
+           FROM requirement_policy_links rpl
+           JOIN policies p ON p.policy_uid = rpl.policy_uid AND p.archived = 0
+           WHERE rpl.requirement_id = ? AND rpl.is_primary = 1""",
+        (req_id,),
+    ).fetchone()
+
+    new_status = compute_auto_status(req_dict, dict(primary) if primary else None)
+    if new_status != status:
+        conn.execute(
+            "UPDATE coverage_requirements SET compliance_status = ? WHERE id = ?",
+            (new_status, req_id),
+        )
+    conn.commit()
+
+
 @router.get("/client/{client_id}/requirements/{req_id}/links", response_class=HTMLResponse)
 def requirement_links(
     client_id: int,
@@ -1496,6 +1609,12 @@ def requirement_link_add(
 ):
     """Add a policy link to a requirement."""
     link_policy_to_requirement(conn, req_id, policy_uid.strip(), link_type.strip())
+    # Clear manual override and recompute auto-status
+    conn.execute(
+        "UPDATE coverage_requirements SET status_manual_override = 0 WHERE id = ?",
+        (req_id,),
+    )
+    _recompute_auto_status(conn, req_id)
     # Return updated links partial
     links = get_requirement_links(conn, req_id)
     linkable = get_linkable_policies(conn, client_id)
@@ -1522,6 +1641,12 @@ def requirement_link_remove(
 ):
     """Remove a policy link from a requirement."""
     unlink_policy_from_requirement(conn, req_id, link_id)
+    # Clear manual override and recompute auto-status
+    conn.execute(
+        "UPDATE coverage_requirements SET status_manual_override = 0 WHERE id = ?",
+        (req_id,),
+    )
+    _recompute_auto_status(conn, req_id)
     links = get_requirement_links(conn, req_id)
     linkable = get_linkable_policies(conn, client_id)
 
@@ -1547,6 +1672,12 @@ def requirement_link_set_primary(
 ):
     """Set a specific link as the primary for a requirement."""
     set_primary_link(conn, req_id, link_id)
+    # Clear manual override and recompute auto-status
+    conn.execute(
+        "UPDATE coverage_requirements SET status_manual_override = 0 WHERE id = ?",
+        (req_id,),
+    )
+    _recompute_auto_status(conn, req_id)
     links = get_requirement_links(conn, req_id)
     linkable = get_linkable_policies(conn, client_id)
 

@@ -1073,6 +1073,19 @@ def init_db(path: Path | None = None) -> None:
         )
         conn.commit()
 
+    if 78 not in applied:
+        # Idempotent: column may already exist from another worktree
+        _has_col = conn.execute(
+            "SELECT COUNT(*) FROM pragma_table_info('coverage_requirements') WHERE name='status_manual_override'"
+        ).fetchone()[0]
+        if not _has_col:
+            conn.executescript((_MIGRATIONS_DIR / "078_status_manual_override.sql").read_text())
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (78, "Add status_manual_override to coverage_requirements"),
+        )
+        conn.commit()
+
     if 79 not in applied:
         sql = (_MIGRATIONS_DIR / "079_import_match_memory.sql").read_text()
         conn.executescript(sql)
