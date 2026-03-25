@@ -535,6 +535,14 @@ def client_tab_overview(request: Request, client_id: int, conn=Depends(get_db)):
                ORDER BY cm.meeting_date DESC LIMIT 6""",
             (client_id,),
         ).fetchall()],
+        "locations": _get_project_locations(conn, client_id),
+        "unassigned_count": conn.execute(
+            """SELECT COUNT(*) FROM policies
+               WHERE client_id=? AND archived=0
+               AND (project_id IS NULL OR project_id=0)
+               AND (is_opportunity=0 OR is_opportunity IS NULL)""",
+            (client_id,),
+        ).fetchone()[0],
     })
 
 
@@ -4695,6 +4703,18 @@ def location_assign(
             "UPDATE policies SET project_id=?, project_name=? WHERE policy_uid=? AND client_id=?",
             (project_id, project["name"], policy_uid, client_id),
         )
+        loc = conn.execute(
+            "SELECT address, city, state, zip FROM projects WHERE id=?",
+            (project_id,),
+        ).fetchone()
+        if loc:
+            conn.execute(
+                """UPDATE policies SET exposure_address=?, exposure_city=?,
+                   exposure_state=?, exposure_zip=?
+                   WHERE policy_uid=? AND client_id=?""",
+                (loc["address"] or "", loc["city"] or "", loc["state"] or "", loc["zip"] or "",
+                 policy_uid, client_id),
+            )
         conn.commit()
     return HTMLResponse("", headers={"HX-Trigger": "locationChanged"})
 
@@ -4733,6 +4753,18 @@ def location_bulk_assign(
                AND (project_id IS NULL OR project_id=0)""",
             (project_id, project["name"], client_id, address),
         )
+        loc = conn.execute(
+            "SELECT address, city, state, zip FROM projects WHERE id=?",
+            (project_id,),
+        ).fetchone()
+        if loc:
+            conn.execute(
+                """UPDATE policies SET exposure_address=?, exposure_city=?,
+                   exposure_state=?, exposure_zip=?
+                   WHERE project_id=? AND client_id=? AND archived=0""",
+                (loc["address"] or "", loc["city"] or "", loc["state"] or "", loc["zip"] or "",
+                 project_id, client_id),
+            )
         conn.commit()
     return HTMLResponse("", headers={"HX-Trigger": "locationChanged"})
 
