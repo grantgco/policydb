@@ -47,10 +47,22 @@
 <!-- Program-specific fields -->
 <div class="card mb-4">
   <div class="px-5 py-3 border-b border-gray-100">
-    <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-1">
-      <span class="bg-blue-100 text-blue-700 text-xs font-bold px-1.5 py-0.5 rounded mr-1">PGM</span> Program Details
-    </span>
+    <div class="flex items-center justify-between">
+      <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-1">
+        <span class="bg-blue-100 text-blue-700 text-xs font-bold px-1.5 py-0.5 rounded mr-1">PGM</span> Program Details
+      </span>
+      <div class="flex items-center gap-2 no-print">
+        <button hx-get="/policies/{{ policy.policy_uid }}/program-merge-form"
+                hx-target="#program-merge-container" hx-swap="innerHTML"
+                class="text-xs text-blue-600 hover:text-blue-800 hover:underline">Merge Program</button>
+        <button hx-post="/policies/{{ policy.policy_uid }}/program-dissolve"
+                hx-target="#program-merge-container" hx-swap="innerHTML"
+                hx-confirm="Dissolve this program? All carriers will be removed and child policies will become standalone."
+                class="text-xs text-red-500 hover:text-red-700 hover:underline">Dissolve</button>
+      </div>
+    </div>
   </div>
+  <div id="program-merge-container"></div>
   <div class="p-5">
     {% include 'policies/_program_carriers_matrix.html' %}
     {# ── Linked Policies ── #}
