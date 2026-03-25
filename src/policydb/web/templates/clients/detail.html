@@ -77,6 +77,10 @@
 {# ── Floating Working Notes Panel ── #}
 {% include "clients/_working_notes_float.html" %}
 
+{# AI Import container — slideover panel loads here #}
+<div id="ai-import-container"></div>
+<div id="ai-bulk-import-results"></div>
+
 <script>
 document.addEventListener('DOMContentLoaded', function() {
   initTabs('client-tabs', 'client-tab-{{ client.id }}');
