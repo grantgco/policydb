@@ -1,5 +1,8 @@
 {# Single requirement display row — returned by row restore endpoint (cancel edit) #}
-<tr id="req-row-{{ req.id }}" class="border-b border-gray-50 group">
+{# Row color coding: status-based left border for quick compliance scan #}
+{% set _rs = (req.compliance_status or 'Needs Review') | lower %}
+{% set _rb = 'border-l-green-400' if _rs == 'compliant' else 'border-l-red-400' if _rs == 'gap' else 'border-l-amber-400' if _rs == 'partial' else 'border-l-blue-300' if _rs == 'needs review' else 'border-l-gray-300' %}
+<tr id="req-row-{{ req.id }}" class="border-b border-gray-50 group border-l-2 {{ _rb }}">
   <td class="py-2 w-48">{{ req.coverage_line }}</td>
   <td class="py-2 w-32">
     {% if req.required_limit is not none %}

@@ -367,21 +367,38 @@ def set_primary_link(conn, requirement_id: int, link_id: int) -> None:
     conn.commit()
 
 
-def get_linkable_policies(conn, client_id: int) -> list[dict]:
+def get_linkable_policies(conn, client_id: int, req_project_id: int | None = None) -> list[dict]:
     """Return all non-archived, non-opportunity policies for a client, grouped for UI display.
 
     Returns programs first (with nested children), then standalone policies.
+    When req_project_id is provided, each policy is tagged with _location_match
+    ('this', 'corporate', or 'other') and _project_name for display.
     """
     rows = conn.execute(
-        """SELECT policy_uid, policy_type, carrier, limit_amount, deductible,
-                  policy_number, is_program, program_id, effective_date, expiration_date
-           FROM policies
-           WHERE client_id=? AND archived=0
-             AND (is_opportunity=0 OR is_opportunity IS NULL)
-           ORDER BY is_program DESC, policy_type, carrier""",
+        """SELECT p.policy_uid, p.policy_type, p.carrier, p.limit_amount, p.deductible,
+                  p.policy_number, p.is_program, p.program_id, p.effective_date,
+                  p.expiration_date, p.project_id,
+                  pr.name AS _project_name
+           FROM policies p
+           LEFT JOIN projects pr ON p.project_id = pr.id
+           WHERE p.client_id=? AND p.archived=0
+             AND (p.is_opportunity=0 OR p.is_opportunity IS NULL)
+           ORDER BY p.is_program DESC, p.policy_type, p.carrier""",
         (client_id,),
     ).fetchall()
     policies = [dict(r) for r in rows]
+
+    # Tag each policy with location match info
+    for p in policies:
+        if req_project_id is not None:
+            if p.get("project_id") == req_project_id:
+                p["_location_match"] = "this"
+            elif not p.get("project_id"):
+                p["_location_match"] = "corporate"
+            else:
+                p["_location_match"] = "other"
+        else:
+            p["_location_match"] = None
 
     # Separate programs, children, and standalone
     programs = []
@@ -422,6 +439,11 @@ def get_linkable_policies(conn, client_id: int) -> list[dict]:
             (prog.get("_id"),),
         ).fetchall()
         prog["program_carrier_names"] = [r["carrier"] for r in carriers]
+
+    # Sort standalone: location-matched first, then corporate, then other
+    if req_project_id is not None:
+        sort_order = {"this": 0, "corporate": 1, "other": 2}
+        standalone.sort(key=lambda p: (sort_order.get(p.get("_location_match"), 2), p.get("policy_type", "")))
 
     return programs + standalone
 
