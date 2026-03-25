@@ -17,11 +17,18 @@
   </div>
   <div class="flex items-center gap-3">
     <h1 class="text-2xl font-bold text-gray-900">Edit Policy</h1>
-    <button hx-get="/policies/{{ policy.policy_uid }}/ai-import/prompt"
-            hx-target="#ai-import-container" hx-swap="innerHTML"
-            class="ml-auto px-3 py-1.5 text-xs font-medium rounded-lg border border-indigo-300 text-indigo-600 hover:bg-indigo-50 transition-colors no-print">
-      Import from AI
-    </button>
+    <div class="ml-auto flex items-center gap-2 no-print">
+      <button hx-get="/policies/{{ policy.policy_uid }}/provenance"
+              hx-target="#provenance-drawer" hx-swap="innerHTML"
+              class="px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 transition-colors">
+        Provenance
+      </button>
+      <button hx-get="/policies/{{ policy.policy_uid }}/ai-import/prompt"
+              hx-target="#ai-import-container" hx-swap="innerHTML"
+              class="px-3 py-1.5 text-xs font-medium rounded-lg border border-indigo-300 text-indigo-600 hover:bg-indigo-50 transition-colors">
+        Import from AI
+      </button>
+    </div>
   </div>
   <p class="text-sm text-gray-500 mt-1">{{ policy.policy_type }} · {{ policy.carrier }}
     <button type="button" onclick="copyRefTag(this, '{{ _ref }}')"
@@ -29,6 +36,9 @@
   </p>
   {% if policy.first_named_insured %}<p class="text-xs text-gray-400 mt-0.5">First Named Insured: <span class="text-gray-600 font-medium">{{ policy.first_named_insured }}</span></p>{% endif %}
 </div>
+
+{# ── Field Provenance drawer (loads via HTMX into this container) ── #}
+<div id="provenance-drawer" class="mb-4 no-print"></div>
 
 {# ── Alert banner: escalation + readiness + warnings ── #}
 {% if escalation_tier or overdue_followups or policy_warnings %}

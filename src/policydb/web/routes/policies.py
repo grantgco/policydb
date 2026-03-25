@@ -1043,6 +1043,130 @@ def _policy_base(conn, uid: str):
     return p, client_info
 
 
+# ── Field Provenance viewer ───────────────────────────────────────────────────
+
+
+@router.get("/{policy_uid}/provenance", response_class=HTMLResponse)
+def policy_provenance(request: Request, policy_uid: str, field: str = "", conn=Depends(get_db)):
+    """HTMX: return provenance timeline for a policy (or specific field)."""
+    uid = policy_uid.upper()
+    pol = conn.execute("SELECT id FROM policies WHERE policy_uid = ?", (uid,)).fetchone()
+    if not pol:
+        return HTMLResponse("Not found", status_code=404)
+    policy_id = pol["id"]
+
+    try:
+        from policydb.import_ledger import (
+            get_provenance_for_policy, get_provenance_for_field,
+            get_provenance_stats, get_conflict_fields,
+        )
+        if field:
+            entries = get_provenance_for_field(conn, policy_id, field)
+        else:
+            entries = get_provenance_for_policy(conn, policy_id)
+        stats = get_provenance_stats(conn, policy_id)
+        conflicts = get_conflict_fields(conn, policy_id)
+    except Exception:
+        entries = []
+        stats = {"total": 0, "fields_tracked": 0, "sources": 0, "conflicts": 0}
+        conflicts = []
+
+    _FIELD_LABELS = {
+        "policy_type": "Coverage Type", "carrier": "Carrier", "policy_number": "Policy #",
+        "effective_date": "Effective", "expiration_date": "Expiration",
+        "premium": "Premium", "limit_amount": "Limit", "deductible": "Deductible",
+        "project_name": "Location", "exposure_address": "Address",
+        "first_named_insured": "First Named Insured",
+        "placement_colleague": "Placement", "underwriter_name": "Underwriter",
+        "description": "Description",
+    }
+
+    parts = ['<div class="card p-4 space-y-3">']
+    parts.append('<div class="flex items-center justify-between mb-1">')
+    parts.append('<h3 class="text-sm font-semibold text-gray-700">Field Provenance</h3>')
+    parts.append(f'<button onclick="document.getElementById(\'provenance-drawer\').innerHTML=\'\'"'
+                 f' class="text-gray-400 hover:text-gray-600 text-xs">Close</button>')
+    parts.append('</div>')
+
+    # Stats bar
+    parts.append('<div class="flex items-center gap-3 text-xs">')
+    parts.append(f'<span class="text-gray-500">{stats["total"]} entries</span>')
+    parts.append(f'<span class="text-gray-500">{stats["fields_tracked"]} fields</span>')
+    parts.append(f'<span class="text-gray-500">{stats["sources"]} sources</span>')
+    if stats["conflicts"]:
+        parts.append(f'<span class="text-amber-600 font-medium">{stats["conflicts"]} conflicts</span>')
+    parts.append('</div>')
+
+    if not entries:
+        parts.append('<p class="text-sm text-gray-400 py-4">No import provenance recorded for this policy.</p>')
+        parts.append('</div>')
+        return HTMLResponse("\n".join(parts))
+
+    # Field filter pills
+    if not field:
+        tracked_fields = sorted(set(e["field_name"] for e in entries))
+        parts.append('<div class="flex flex-wrap gap-1.5">')
+        parts.append(f'<button hx-get="/policies/{uid}/provenance" hx-target="#provenance-drawer" '
+                     f'class="text-[10px] px-2 py-0.5 rounded-full bg-marsh text-white">All</button>')
+        for f in tracked_fields:
+            is_conflict = f in conflicts
+            cls = "bg-amber-100 text-amber-700 border border-amber-200" if is_conflict else "bg-gray-100 text-gray-600 hover:bg-gray-200"
+            label = _FIELD_LABELS.get(f, f.replace("_", " ").title())
+            parts.append(f'<button hx-get="/policies/{uid}/provenance?field={f}" hx-target="#provenance-drawer" '
+                         f'class="text-[10px] px-2 py-0.5 rounded-full {cls}">{label}</button>')
+        parts.append('</div>')
+    else:
+        label = _FIELD_LABELS.get(field, field.replace("_", " ").title())
+        parts.append(f'<div class="flex items-center gap-2">')
+        parts.append(f'<span class="text-xs font-medium text-gray-700">{label}</span>')
+        parts.append(f'<button hx-get="/policies/{uid}/provenance" hx-target="#provenance-drawer" '
+                     f'class="text-[10px] text-marsh hover:underline">Show all</button>')
+        parts.append('</div>')
+
+    # Timeline entries
+    parts.append('<div class="space-y-1.5">')
+    for e in entries[:30]:
+        ts = (e.get("applied_at") or "")[:16]
+        src = e.get("source_name") or "manual"
+        fname = _FIELD_LABELS.get(e["field_name"], e["field_name"])
+        val = e.get("value", "")
+        prior = e.get("prior_value", "")
+        is_conflict = e.get("was_conflict")
+
+        if is_conflict:
+            row_cls = "border-l-2 border-amber-400 pl-2"
+            badge = '<span class="text-[10px] px-1 py-0.5 rounded bg-amber-100 text-amber-600">conflict</span>'
+        else:
+            row_cls = "border-l-2 border-gray-200 pl-2"
+            badge = ""
+
+        parts.append(f'<div class="text-xs {row_cls} py-1">')
+        parts.append(f'<div class="flex items-center gap-2">')
+        parts.append(f'<span class="text-gray-400 tabular-nums">{ts}</span>')
+        parts.append(f'<span class="text-gray-600 font-medium">{fname}</span>')
+        parts.append(f'<span class="text-gray-400">via</span>')
+        parts.append(f'<span class="text-marsh font-medium">{src}</span>')
+        if e.get("as_of_date"):
+            parts.append(f'<span class="text-gray-400">(as of {e["as_of_date"]})</span>')
+        parts.append(badge)
+        parts.append('</div>')
+        if is_conflict and prior:
+            parts.append(f'<div class="mt-0.5 flex items-center gap-1">')
+            parts.append(f'<span class="text-red-400 line-through">{prior}</span>')
+            parts.append(f'<span class="text-gray-300">&rarr;</span>')
+            parts.append(f'<span class="text-green-600">{val}</span>')
+            parts.append('</div>')
+        else:
+            parts.append(f'<div class="mt-0.5 text-gray-700">{val}</div>')
+        parts.append('</div>')
+
+    if len(entries) > 30:
+        parts.append(f'<p class="text-xs text-gray-400">...and {len(entries) - 30} more</p>')
+    parts.append('</div></div>')
+
+    return HTMLResponse("\n".join(parts))
+
+
 # ── AI Import endpoints ──────────────────────────────────────────────────────
 
 
@@ -2572,6 +2696,182 @@ async def program_carrier_reorder(
     return JSONResponse({"ok": True})
 
 
+# ── Merge & Dissolve Programs ─────────────────────────────────────────────────
+
+
+@router.post("/{policy_uid}/program-merge", response_class=HTMLResponse)
+def program_merge(
+    request: Request,
+    policy_uid: str,
+    merge_from_uid: str = Form(""),
+    conn=Depends(get_db),
+):
+    """Merge another program INTO this one. Moves carrier rows and child policies."""
+    target_uid = policy_uid.upper()
+    source_uid = merge_from_uid.upper()
+
+    target = conn.execute(
+        "SELECT id, policy_type, client_id FROM policies WHERE policy_uid = ? AND is_program = 1",
+        (target_uid,),
+    ).fetchone()
+    source = conn.execute(
+        "SELECT id, policy_type FROM policies WHERE policy_uid = ? AND is_program = 1",
+        (source_uid,),
+    ).fetchone()
+
+    if not target or not source:
+        return HTMLResponse('<div class="text-xs text-red-500 p-2">Program not found.</div>')
+    if target["id"] == source["id"]:
+        return HTMLResponse('<div class="text-xs text-red-500 p-2">Cannot merge a program into itself.</div>')
+
+    # Get current max sort_order in target
+    max_sort = conn.execute(
+        "SELECT COALESCE(MAX(sort_order), 0) as m FROM program_carriers WHERE program_id = ?",
+        (target["id"],),
+    ).fetchone()["m"]
+
+    # Move carrier rows from source to target
+    source_carriers = conn.execute(
+        "SELECT id FROM program_carriers WHERE program_id = ?", (source["id"],)
+    ).fetchall()
+    for i, sc in enumerate(source_carriers):
+        conn.execute(
+            "UPDATE program_carriers SET program_id = ?, sort_order = ? WHERE id = ?",
+            (target["id"], max_sort + i + 1, sc["id"]),
+        )
+
+    # Move child policies from source to target
+    conn.execute(
+        "UPDATE policies SET program_id = ? WHERE program_id = ?",
+        (target["id"], source["id"]),
+    )
+
+    # Recalculate target totals
+    _update_program_totals(conn, target["id"])
+
+    # Archive the source program (now empty)
+    conn.execute(
+        "UPDATE policies SET archived = 1, is_program = 0 WHERE id = ?",
+        (source["id"],),
+    )
+    conn.commit()
+
+    carrier_count = conn.execute(
+        "SELECT COUNT(*) as c FROM program_carriers WHERE program_id = ?", (target["id"],)
+    ).fetchone()["c"]
+    logger.info("Merged program %s into %s (%d carriers total)", source_uid, target_uid, carrier_count)
+
+    return HTMLResponse(
+        f'<div class="text-xs text-green-600 p-2">'
+        f'Merged {source_uid} into {target_uid} — {carrier_count} carriers total. '
+        f'{source_uid} has been archived.</div>',
+        headers={"HX-Trigger": "policyChanged"},
+    )
+
+
+@router.post("/{policy_uid}/program-dissolve", response_class=HTMLResponse)
+def program_dissolve(
+    request: Request,
+    policy_uid: str,
+    conn=Depends(get_db),
+):
+    """Dissolve a program: unlink all child policies and delete carrier rows.
+    The parent program policy becomes a regular standalone policy."""
+    uid = policy_uid.upper()
+    program = conn.execute(
+        "SELECT id, policy_type, client_id FROM policies WHERE policy_uid = ? AND is_program = 1",
+        (uid,),
+    ).fetchone()
+    if not program:
+        return HTMLResponse('<div class="text-xs text-red-500 p-2">Program not found.</div>')
+
+    # Count what we're dissolving
+    carrier_count = conn.execute(
+        "SELECT COUNT(*) as c FROM program_carriers WHERE program_id = ?", (program["id"],)
+    ).fetchone()["c"]
+    child_count = conn.execute(
+        "SELECT COUNT(*) as c FROM policies WHERE program_id = ? AND archived = 0", (program["id"],)
+    ).fetchone()["c"]
+
+    # Unlink all child policies (set program_id = NULL)
+    conn.execute("UPDATE policies SET program_id = NULL WHERE program_id = ?", (program["id"],))
+
+    # Delete all carrier rows
+    conn.execute("DELETE FROM program_carriers WHERE program_id = ?", (program["id"],))
+
+    # Convert parent to non-program standalone
+    conn.execute(
+        "UPDATE policies SET is_program = 0, program_carrier_count = 0 WHERE id = ?",
+        (program["id"],),
+    )
+    conn.commit()
+
+    logger.info("Dissolved program %s: %d carriers removed, %d children unlinked", uid, carrier_count, child_count)
+
+    return HTMLResponse(
+        f'<div class="text-xs text-green-600 p-2">'
+        f'Program {uid} dissolved — {carrier_count} carriers removed, '
+        f'{child_count} child policies returned to standalone.</div>',
+        headers={"HX-Trigger": "policyChanged"},
+    )
+
+
+@router.get("/{policy_uid}/program-merge-form", response_class=HTMLResponse)
+def program_merge_form(
+    request: Request,
+    policy_uid: str,
+    conn=Depends(get_db),
+):
+    """Return a small form with a dropdown of other programs to merge from."""
+    uid = policy_uid.upper()
+    program = conn.execute(
+        "SELECT id, client_id, policy_type FROM policies WHERE policy_uid = ? AND is_program = 1",
+        (uid,),
+    ).fetchone()
+    if not program:
+        return HTMLResponse('<div class="text-xs text-red-500 p-2">Program not found.</div>')
+
+    # Find other programs for the same client
+    others = conn.execute(
+        """SELECT policy_uid, policy_type, carrier, premium
+           FROM policies
+           WHERE client_id = ? AND is_program = 1 AND archived = 0 AND policy_uid != ?
+           ORDER BY policy_type""",
+        (program["client_id"], uid),
+    ).fetchall()
+
+    if not others:
+        return HTMLResponse('<div class="text-xs text-gray-400 p-2">No other programs to merge.</div>')
+
+    options = ""
+    for o in others:
+        prem = f"${o['premium']:,.0f}" if o['premium'] else ""
+        options += f'<option value="{o["policy_uid"]}">{o["policy_uid"]} — {o["policy_type"]} ({o["carrier"] or "multiple"}) {prem}</option>'
+
+    return HTMLResponse(f'''
+    <div class="border border-blue-200 bg-blue-50 rounded-lg p-3 mt-2">
+      <p class="text-xs font-medium text-blue-800 mb-2">Merge another program into {uid}</p>
+      <form hx-post="/policies/{uid}/program-merge" hx-target="#merge-result" hx-swap="innerHTML" class="flex items-end gap-2">
+        <div class="flex-1">
+          <label class="text-xs text-gray-500 mb-0.5 block">Merge from:</label>
+          <select name="merge_from_uid" required
+            class="w-full border border-gray-300 rounded px-2 py-1.5 text-xs bg-white">
+            {options}
+          </select>
+        </div>
+        <button type="submit"
+          class="text-xs bg-blue-600 hover:bg-blue-700 text-white font-medium px-3 py-1.5 rounded transition-colors whitespace-nowrap"
+          onclick="return confirm('Merge selected program into {uid}? The source program will be archived.')">
+          Merge
+        </button>
+        <button type="button" onclick="this.closest('.border').remove()"
+          class="text-xs text-gray-500 hover:text-gray-700 px-2 py-1.5">Cancel</button>
+      </form>
+      <div id="merge-result" class="mt-2"></div>
+    </div>
+    ''')
+
+
 @router.post("/{policy_uid}/edit")
 def policy_edit_post(
     request: Request,
@@ -2841,7 +3141,7 @@ async def policy_cell_save(request: Request, policy_uid: str, conn=Depends(get_d
     date_fields = {
         "effective_date", "expiration_date", "follow_up_date", "target_effective_date",
     }
-    bool_fields = {"is_bor", "is_standalone"}
+    bool_fields = {"is_bor", "is_standalone", "needs_investigation"}
     text_fields = {
         "policy_number", "first_named_insured", "access_point", "description",
         "notes", "placement_notation", "exposure_address", "exposure_basis",

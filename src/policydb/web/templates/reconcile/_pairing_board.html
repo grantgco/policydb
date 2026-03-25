@@ -156,6 +156,59 @@
   {% endfor %}
 </div>
 
+{# ── Suggested Pairs (cross-match extras vs unmatched) ─────────────────────── #}
+{% if pairs %}
+<div id="suggested-pairs" class="mt-6 mb-6">
+  <div class="flex items-center gap-3 mb-3">
+    <h3 class="text-sm font-semibold text-amber-700">Suggested Matches ({{ pairs | length }})</h3>
+    <span class="text-xs text-gray-400">These "Not in Upload" rows may match unmatched upload rows — click to pair</span>
+  </div>
+  {% for p in pairs %}
+  {% set ext = p.missing.ext or {} %}
+  {% set db = p.extra.db or {} %}
+  <div id="suggested-{{ p.id }}" class="flex items-center rounded-lg border border-amber-200 bg-amber-50/30 mb-2 gap-2 px-3 py-2">
+    {# Upload side #}
+    <div class="flex-1 min-w-0">
+      <p class="text-[10px] font-semibold text-red-500 uppercase tracking-wide mb-0.5">Unmatched Upload</p>
+      <p class="text-sm font-medium text-gray-800 truncate">{{ ext.get('policy_type', '') or '—' }} · {{ ext.get('carrier', '') or '—' }}</p>
+      <p class="text-xs text-gray-500">{{ ext.get('effective_date', '') or '?' }} – {{ ext.get('expiration_date', '') or '?' }}
+        {% if ext.get('premium') %} · {{ ext.get('premium') | currency }}{% endif %}
+        {% if ext.get('policy_number') %} · {{ ext.get('policy_number') }}{% endif %}
+      </p>
+    </div>
+    {# Score badge #}
+    <div class="w-16 text-center shrink-0">
+      <span class="inline-flex items-center justify-center w-9 h-9 rounded-full text-xs font-bold text-white
+        {% if p.score >= 75 %}bg-green-600{% elif p.score >= 45 %}bg-amber-500{% else %}bg-gray-400{% endif %}">
+        {{ p.score | int }}
+      </span>
+    </div>
+    {# DB side #}
+    <div class="flex-1 min-w-0">
+      <p class="text-[10px] font-semibold text-purple-500 uppercase tracking-wide mb-0.5">In Coverage</p>
+      <p class="text-sm font-medium text-gray-800 truncate">{{ db.get('policy_type', '') or '—' }} · {{ db.get('carrier', '') or '—' }}</p>
+      <p class="text-xs text-gray-500">{{ db.get('effective_date', '') or '?' }} – {{ db.get('expiration_date', '') or '?' }}
+        {% if db.get('premium') %} · {{ db.get('premium') | currency }}{% endif %}
+        {% if db.get('policy_number') %} · {{ db.get('policy_number') }}{% endif %}
+        {% if db.get('policy_uid') %} · <span class="text-blue-500">{{ db.get('policy_uid') }}</span>{% endif %}
+      </p>
+    </div>
+    {# Action #}
+    <div class="shrink-0 no-print">
+      <button type="button"
+        hx-post="/reconcile/manual-pair"
+        hx-vals='{"idx": "{{ p.missing_idx | default(loop.index0) }}", "policy_uid": "{{ db.get('policy_uid', '') }}", "token": "{{ token }}"}'
+        hx-target="#suggested-{{ p.id }}"
+        hx-swap="outerHTML"
+        class="text-xs bg-amber-600 hover:bg-amber-700 text-white font-medium px-3 py-1.5 rounded-lg transition-colors">
+        Pair These
+      </button>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
 {# ── Extras pool ────────────────────────────────────────────────────────────── #}
 {% if extras %}
 <div id="extras-pool" class="mt-6">

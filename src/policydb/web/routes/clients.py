@@ -2519,6 +2519,77 @@ def client_note_delete(request: Request, client_id: int, note_id: int, conn=Depe
     )
 
 
+@router.get("/{client_id}/dedup")
+def dedup_page(request: Request, client_id: int, conn=Depends(get_db)):
+    """Client-level policy deduplication tool."""
+    from policydb.dedup import find_duplicate_candidates
+    client = get_client_by_id(conn, client_id)
+    if not client:
+        return HTMLResponse("Client not found", status_code=404)
+    candidates = find_duplicate_candidates(conn, client_id)
+    likely = [c for c in candidates if c["recommendation"] == "likely_duplicate"]
+    possible = [c for c in candidates if c["recommendation"] == "possible_duplicate"]
+    review = [c for c in candidates if c["recommendation"] == "different_policies"]
+    return templates.TemplateResponse("clients/dedup.html", {
+        "request": request,
+        "client": client,
+        "candidates": candidates,
+        "likely": likely,
+        "possible": possible,
+        "review": review,
+    })
+
+
+@router.post("/{client_id}/dedup/merge")
+def dedup_merge(
+    request: Request,
+    client_id: int,
+    keep_uid: str = Form(""),
+    archive_uid: str = Form(""),
+    cherry_pick: str = Form("{}"),
+    conn=Depends(get_db),
+):
+    """Merge two duplicate policies."""
+    import json
+    from policydb.dedup import merge_policies
+    try:
+        cherry_pick_dict = json.loads(cherry_pick)
+    except Exception:
+        cherry_pick_dict = {}
+    result = merge_policies(conn, keep_uid, archive_uid, cherry_pick_dict)
+    if result.get("ok"):
+        fields = result.get("fields_transferred", [])
+        field_count = len(fields)
+        s = "s" if field_count != 1 else ""
+        return HTMLResponse(f'''
+            <div id="pair-{keep_uid}-{archive_uid}" class="border border-green-200 bg-green-50 rounded-lg p-4 mb-3">
+                <div class="flex items-center gap-2">
+                    <span class="text-green-600 text-lg">&#10003;</span>
+                    <span class="text-sm font-medium text-green-800">
+                        Merged {archive_uid} into {keep_uid}. {field_count} field{s} transferred.
+                    </span>
+                </div>
+            </div>
+        ''')
+    return HTMLResponse(f'<div class="text-red-600 text-sm">{result.get("error", "Merge failed")}</div>')
+
+
+@router.post("/{client_id}/dedup/dismiss")
+def dedup_dismiss(
+    request: Request,
+    client_id: int,
+    uid_a: str = Form(""),
+    uid_b: str = Form(""),
+    conn=Depends(get_db),
+):
+    """Dismiss a pair as not duplicates."""
+    from policydb.dedup import dismiss_pair
+    dismiss_pair(conn, client_id, uid_a, uid_b)
+    return HTMLResponse(f'''
+        <div id="pair-{uid_a}-{uid_b}" class="hidden"></div>
+    ''')
+
+
 @router.get("/{client_id}/export/full")
 def export_full(client_id: int, conn=Depends(get_db)):
     """Full internal data export (XLSX) — all fields including internal notes."""
@@ -2533,6 +2604,23 @@ def export_full(client_id: int, conn=Depends(get_db)):
         content=content,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{safe}_full.xlsx"'},
+    )
+
+
+@router.get("/{client_id}/export/book-review")
+def export_book_review(client_id: int, conn=Depends(get_db)):
+    """Export multi-tab Client Book Review XLSX for team gap review."""
+    from fastapi.responses import Response
+    from policydb.exporter import export_book_review_xlsx
+    client = get_client_by_id(conn, client_id)
+    if not client:
+        return HTMLResponse("Client not found", status_code=404)
+    safe = client["name"].lower().replace(" ", "_")
+    content = export_book_review_xlsx(conn, client_id, client["name"])
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{safe}_book_review.xlsx"'},
     )
 
 
@@ -4672,3 +4760,322 @@ def location_create(
     )
     conn.commit()
     return HTMLResponse("", headers={"HX-Trigger": "locationChanged"})
+
+
+# ─── Bulk AI Import (policy data from messy spreadsheets) ────────────────────
+
+# In-memory cache for bulk import review → apply
+_BULK_IMPORT_CACHE: dict[str, tuple[list[dict], int, float]] = {}
+
+
+@router.get("/{client_id}/ai-bulk-import/prompt", response_class=HTMLResponse)
+def client_ai_bulk_import_prompt(request: Request, client_id: int, conn=Depends(get_db)):
+    """Generate the AI bulk import prompt pre-loaded with client context."""
+    from policydb.llm_schemas import generate_policy_bulk_prompt, POLICY_BULK_IMPORT_SCHEMA, generate_json_template
+
+    client_row = conn.execute("SELECT * FROM clients WHERE id = ?", (client_id,)).fetchone()
+    if not client_row:
+        return HTMLResponse("Client not found", status_code=404)
+    client = dict(client_row)
+
+    prompt_text = generate_policy_bulk_prompt(conn, client_id)
+    json_template = generate_json_template(POLICY_BULK_IMPORT_SCHEMA)
+
+    context_display = {"Client": client["name"]}
+    if client.get("industry_segment"):
+        context_display["Industry"] = client["industry_segment"]
+    pol_count = conn.execute(
+        "SELECT COUNT(*) as c FROM policies WHERE client_id = ? AND archived = 0", (client_id,)
+    ).fetchone()["c"]
+    loc_count = conn.execute(
+        "SELECT COUNT(*) as c FROM projects WHERE client_id = ? AND (project_type = 'Location' OR project_type IS NULL)", (client_id,)
+    ).fetchone()["c"]
+    context_display["Existing Policies"] = str(pol_count)
+    context_display["Known Locations"] = str(loc_count)
+
+    return templates.TemplateResponse("_ai_import_panel.html", {
+        "request": request,
+        "import_type": "bulk_policy",
+        "prompt_text": prompt_text,
+        "json_template": json_template,
+        "context_display": context_display,
+        "parse_url": f"/clients/{client_id}/ai-bulk-import/parse",
+        "import_target": "#ai-bulk-import-results",
+    })
+
+
+@router.post("/{client_id}/ai-bulk-import/parse", response_class=HTMLResponse)
+def client_ai_bulk_import_parse(
+    request: Request,
+    client_id: int,
+    json_text: str = Form(...),
+    conn=Depends(get_db),
+):
+    """Parse LLM JSON for bulk policy import. Returns review table."""
+    from policydb.llm_schemas import parse_policy_bulk_json
+    from policydb.utils import normalize_policy_number_for_matching
+
+    result = parse_policy_bulk_json(json_text)
+    if not result.get("ok"):
+        return HTMLResponse(
+            f'<div class="p-4 text-red-600 text-sm bg-red-50 rounded-lg">'
+            f'<strong>Parse error:</strong> {result.get("error", "Unknown error")}</div>'
+        )
+
+    policies = result["policies"]
+    warnings = result.get("warnings", [])
+
+    # Match extracted policies against existing DB policies
+    db_policies = conn.execute(
+        """SELECT p.id, p.policy_uid, p.policy_number, p.policy_type, p.carrier,
+                  p.effective_date, p.expiration_date, p.premium, p.limit_amount,
+                  p.deductible, p.project_id, p.project_name, p.is_program,
+                  c.name as client_name
+           FROM policies p JOIN clients c ON p.client_id = c.id
+           WHERE p.client_id = ? AND p.archived = 0""",
+        (client_id,),
+    ).fetchall()
+    db_by_polnum: dict[str, dict] = {}
+    for r in db_policies:
+        pn = normalize_policy_number_for_matching(r["policy_number"] or "")
+        if pn:
+            db_by_polnum[pn] = dict(r)
+
+    # Known locations for matching project_name
+    locations = conn.execute(
+        "SELECT id, name FROM projects WHERE client_id = ? AND (project_type = 'Location' OR project_type IS NULL)",
+        (client_id,),
+    ).fetchall()
+    loc_by_name: dict[str, int] = {r["name"].lower().strip(): r["id"] for r in locations if r["name"]}
+
+    enriched: list[dict] = []
+    for pol in policies:
+        entry = {
+            "data": pol,
+            "match": None,
+            "match_type": "new",
+            "location_id": None,
+            "location_name": None,
+            "has_layers": bool(pol.get("program_layers")),
+            "layer_count": len(pol.get("program_layers", [])),
+        }
+        pn = normalize_policy_number_for_matching(pol.get("policy_number") or "")
+        if pn and pn in db_by_polnum:
+            entry["match"] = db_by_polnum[pn]
+            entry["match_type"] = "update"
+
+        proj = (pol.get("project_name") or "").lower().strip()
+        if proj and proj in loc_by_name:
+            entry["location_id"] = loc_by_name[proj]
+            entry["location_name"] = pol.get("project_name")
+
+        enriched.append(entry)
+
+    # Cache for apply step
+    import time as _time
+    import uuid as _uuid
+    token = str(_uuid.uuid4())
+    _BULK_IMPORT_CACHE[token] = (enriched, client_id, _time.time())
+
+    new_count = sum(1 for e in enriched if e["match_type"] == "new")
+    update_count = sum(1 for e in enriched if e["match_type"] == "update")
+    program_count = sum(1 for e in enriched if e["has_layers"])
+    located_count = sum(1 for e in enriched if e["location_id"])
+
+    html_parts = ['<div class="space-y-4">']
+
+    # Summary badges
+    html_parts.append('<div class="flex flex-wrap gap-2 mb-4">')
+    html_parts.append(f'<span class="px-2.5 py-1 rounded-full text-xs font-medium bg-green-50 text-green-700">{new_count} New</span>')
+    html_parts.append(f'<span class="px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700">{update_count} Updates</span>')
+    if program_count:
+        html_parts.append(f'<span class="px-2.5 py-1 rounded-full text-xs font-medium bg-purple-50 text-purple-700">{program_count} Programs</span>')
+    html_parts.append(f'<span class="px-2.5 py-1 rounded-full text-xs font-medium bg-amber-50 text-amber-700">{located_count}/{len(enriched)} Located</span>')
+    html_parts.append('</div>')
+
+    if warnings:
+        html_parts.append('<div class="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700 mb-3">')
+        html_parts.append(f'<strong>{len(warnings)} warnings:</strong><ul class="mt-1 list-disc pl-4">')
+        for w in warnings[:10]:
+            html_parts.append(f'<li>{w}</li>')
+        if len(warnings) > 10:
+            html_parts.append(f'<li>...and {len(warnings) - 10} more</li>')
+        html_parts.append('</ul></div>')
+
+    html_parts.append('<div class="overflow-x-auto">')
+    html_parts.append('<table class="w-full text-xs">')
+    html_parts.append('<thead><tr class="border-b border-gray-200 text-gray-500 text-left">')
+    for h in ["Status", "Type", "Carrier", "Policy #", "Dates", "Premium", "Location", "Layers"]:
+        html_parts.append(f'<th class="py-2 px-2">{h}</th>')
+    html_parts.append('</tr></thead><tbody>')
+
+    for entry in enriched:
+        d = entry["data"]
+        status_cls = "text-green-700 bg-green-50" if entry["match_type"] == "new" else "text-blue-700 bg-blue-50"
+        status_label = "New" if entry["match_type"] == "new" else "Update"
+        eff = d.get("effective_date", "")
+        exp = d.get("expiration_date", "")
+        dates = f"{eff} → {exp}" if eff or exp else ""
+        premium = f"${d['premium']:,.0f}" if d.get("premium") else ""
+        loc = entry["location_name"] or d.get("project_name") or ""
+        loc_cls = "text-green-600" if entry["location_id"] else "text-gray-400"
+        layers = str(entry["layer_count"]) if entry["has_layers"] else ""
+
+        html_parts.append(f'<tr class="border-b border-gray-100 hover:bg-gray-50">')
+        html_parts.append(f'<td class="py-1.5 px-2"><span class="px-1.5 py-0.5 rounded text-[10px] font-medium {status_cls}">{status_label}</span></td>')
+        html_parts.append(f'<td class="py-1.5 px-2">{d.get("policy_type", "")}</td>')
+        html_parts.append(f'<td class="py-1.5 px-2">{d.get("carrier", "")}</td>')
+        html_parts.append(f'<td class="py-1.5 px-2 font-mono">{d.get("policy_number", "")}</td>')
+        html_parts.append(f'<td class="py-1.5 px-2">{dates}</td>')
+        html_parts.append(f'<td class="py-1.5 px-2">{premium}</td>')
+        html_parts.append(f'<td class="py-1.5 px-2 {loc_cls}">{loc}</td>')
+        html_parts.append(f'<td class="py-1.5 px-2 text-center">{layers}</td>')
+        html_parts.append('</tr>')
+
+    html_parts.append('</tbody></table></div>')
+
+    html_parts.append(f'''
+    <div class="flex items-center gap-3 pt-3 border-t border-gray-200">
+      <button hx-post="/clients/{client_id}/ai-bulk-import/apply"
+              hx-vals='{{"token": "{token}"}}'
+              hx-target="#ai-bulk-import-results"
+              hx-swap="innerHTML"
+              class="bg-marsh hover:bg-marsh-light text-white font-medium text-sm px-5 py-2 rounded-lg transition-colors">
+        Apply {len(enriched)} Policies
+      </button>
+      <span class="text-xs text-gray-400">{new_count} new + {update_count} updates</span>
+    </div>
+    ''')
+
+    html_parts.append('</div>')
+    return HTMLResponse("\n".join(html_parts))
+
+
+@router.post("/{client_id}/ai-bulk-import/apply", response_class=HTMLResponse)
+def client_ai_bulk_import_apply(
+    request: Request,
+    client_id: int,
+    token: str = Form(""),
+    conn=Depends(get_db),
+):
+    """Apply parsed bulk import: create new policies, update existing ones."""
+    cache = _BULK_IMPORT_CACHE.get(token)
+    if not cache:
+        return HTMLResponse('<div class="p-4 text-red-600 text-sm">Session expired — please re-parse.</div>')
+
+    enriched, cached_client_id, ts = cache
+    if cached_client_id != client_id:
+        return HTMLResponse('<div class="p-4 text-red-600 text-sm">Client mismatch.</div>')
+
+    created = 0
+    updated = 0
+    programs_created = 0
+    errors: list[str] = []
+
+    for entry in enriched:
+        d = entry["data"]
+        try:
+            if entry["match_type"] == "update" and entry["match"]:
+                db_pol = entry["match"]
+                updates = []
+                params = []
+                for field in ["policy_type", "carrier", "premium", "limit_amount", "deductible",
+                              "effective_date", "expiration_date", "description", "layer_position",
+                              "tower_group", "attachment_point", "first_named_insured",
+                              "underwriter_name", "placement_colleague", "exposure_address",
+                              "coverage_form", "notes"]:
+                    val = d.get(field)
+                    if val is not None and str(val).strip():
+                        updates.append(f"{field} = ?")
+                        params.append(val)
+                if entry["location_id"] and not db_pol.get("project_id"):
+                    updates.append("project_id = ?")
+                    params.append(entry["location_id"])
+                    pname = entry["location_name"] or d.get("project_name") or ""
+                    if pname:
+                        updates.append("project_name = ?")
+                        params.append(pname)
+
+                if updates:
+                    params.append(db_pol["id"])
+                    conn.execute(
+                        f"UPDATE policies SET {', '.join(updates)}, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                        params,
+                    )
+                    updated += 1
+            else:
+                from policydb.db import next_policy_uid
+                uid = next_policy_uid(conn)
+                conn.execute(
+                    """INSERT INTO policies (
+                        policy_uid, client_id, policy_type, carrier, policy_number,
+                        effective_date, expiration_date, premium, limit_amount, deductible,
+                        description, layer_position, tower_group, attachment_point,
+                        first_named_insured, underwriter_name, placement_colleague,
+                        exposure_address, coverage_form, notes, project_id, project_name,
+                        is_program, renewal_status
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Not Started')""",
+                    (
+                        uid, client_id,
+                        d.get("policy_type", ""), d.get("carrier", ""), d.get("policy_number", ""),
+                        d.get("effective_date"), d.get("expiration_date"),
+                        d.get("premium", 0) or 0, d.get("limit_amount", 0) or 0,
+                        d.get("deductible", 0) or 0,
+                        d.get("description", ""), d.get("layer_position", "Primary"),
+                        d.get("tower_group", ""), d.get("attachment_point"),
+                        d.get("first_named_insured", ""), d.get("underwriter_name", ""),
+                        d.get("placement_colleague", ""), d.get("exposure_address", ""),
+                        d.get("coverage_form", ""), d.get("notes", ""),
+                        entry["location_id"], entry.get("location_name") or d.get("project_name", ""),
+                        1 if d.get("program_layers") else 0,
+                    ),
+                )
+                created += 1
+
+                if d.get("program_layers"):
+                    pol_id = conn.execute("SELECT id FROM policies WHERE policy_uid = ?", (uid,)).fetchone()["id"]
+                    for j, layer in enumerate(d["program_layers"]):
+                        conn.execute(
+                            """INSERT INTO program_carriers (program_id, carrier, policy_number,
+                               premium, limit_amount, sort_order) VALUES (?, ?, ?, ?, ?, ?)""",
+                            (pol_id, layer.get("carrier", ""), layer.get("policy_number", ""),
+                             layer.get("premium", 0) or 0, layer.get("limit_amount", 0) or 0, j + 1),
+                        )
+                    programs_created += 1
+
+                if d.get("policy_number"):
+                    try:
+                        from policydb.match_memory import learn
+                        pol_id = conn.execute("SELECT id FROM policies WHERE policy_uid = ?", (uid,)).fetchone()["id"]
+                        learn(conn, pol_id, "LLM Import", d["policy_number"], "policy_number", "llm")
+                    except Exception:
+                        pass
+
+        except Exception as e:
+            errors.append(f"Row {entry['data'].get('_index', '?')}: {str(e)}")
+
+    conn.commit()
+    _BULK_IMPORT_CACHE.pop(token, None)
+
+    parts = ['<div class="p-4 space-y-3">']
+    parts.append('<div class="flex items-center gap-2">')
+    parts.append('<svg class="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>')
+    parts.append('<span class="text-sm font-medium text-gray-900">Import complete</span>')
+    parts.append('</div>')
+    parts.append('<div class="flex flex-wrap gap-2">')
+    if created:
+        parts.append(f'<span class="px-2.5 py-1 rounded-full text-xs font-medium bg-green-50 text-green-700">{created} created</span>')
+    if updated:
+        parts.append(f'<span class="px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700">{updated} updated</span>')
+    if programs_created:
+        parts.append(f'<span class="px-2.5 py-1 rounded-full text-xs font-medium bg-purple-50 text-purple-700">{programs_created} programs</span>')
+    parts.append('</div>')
+    if errors:
+        parts.append(f'<div class="p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700">')
+        parts.append(f'<strong>{len(errors)} errors:</strong><ul class="mt-1 list-disc pl-4">')
+        for e in errors[:5]:
+            parts.append(f'<li>{e}</li>')
+        parts.append('</ul></div>')
+    parts.append(f'<a href="/clients/{client_id}" class="text-sm text-marsh hover:underline">← Back to client</a>')
+    parts.append('</div>')
+    return HTMLResponse("\n".join(parts))

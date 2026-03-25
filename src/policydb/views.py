@@ -22,6 +22,7 @@ SELECT
     p.layer_position,
     p.tower_group,
     p.is_standalone,
+    p.needs_investigation,
     p.is_opportunity,
     p.opportunity_status,
     p.target_effective_date,
@@ -245,6 +246,7 @@ SELECT
     p.project_id,
     p.access_point,
     p.is_standalone,
+    p.needs_investigation,
     p.description,
     COALESCE(
         (SELECT co.email FROM contact_policy_assignments cpa
@@ -357,6 +359,7 @@ SELECT
     p.target_effective_date,
     p.is_opportunity,
     p.is_standalone,
+    p.needs_investigation,
     p.follow_up_date,
     CASE WHEN p.follow_up_date IS NOT NULL AND p.follow_up_date < date('now') THEN 1 ELSE 0 END AS followup_overdue,
     p.project_name,
