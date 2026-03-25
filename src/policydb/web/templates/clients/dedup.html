@@ -226,6 +226,14 @@ function dedupMerge(btn, clientId, uidA, uidB, keepSide) {
   }).then(function(resp) { return resp.text(); })
     .then(function(html) {
       card.outerHTML = html;
+      // Remove all other cards that reference the archived policy —
+      // it's been merged, so it can't be a duplicate of anything else
+      document.querySelectorAll('[id^="pair-"]').forEach(function(otherCard) {
+        if (otherCard.id.includes(archiveUid) && !otherCard.classList.contains('hidden')) {
+          otherCard.innerHTML = '<div class="px-4 py-2 text-xs text-gray-400 italic">Removed — ' + archiveUid + ' was merged above</div>';
+          otherCard.className = 'bg-gray-50 border border-gray-100 rounded-lg mb-3 opacity-50';
+        }
+      });
     })
     .catch(function() {
       btn.disabled = false;
