@@ -1140,6 +1140,15 @@ def init_db(path: Path | None = None) -> None:
         )
         conn.commit()
 
+    if 85 not in applied:
+        sql = (_MIGRATIONS_DIR / "085_backfill_location_addresses.sql").read_text()
+        conn.executescript(sql)
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (85, "Backfill policy exposure addresses from assigned locations"),
+        )
+        conn.commit()
+
     # Data hygiene: fix 'None' string corruption in text fields (runs every startup, fast no-op if clean)
     conn.execute("UPDATE clients SET cn_number = NULL WHERE cn_number = 'None'")
 
