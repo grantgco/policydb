@@ -1,5 +1,6 @@
 {# _program_group_banner.html — suggested program groups detected from unmatched rows #}
-{# Context: program_candidates (list of dicts with client, type, effective_date, expiration_date, carriers, row_indices),
+{# Context: program_candidates (list of dicts with client, type, effective_date, expiration_date,
+            carriers, row_indices, carrier_details, detection_method),
             token (str), all_clients (list) #}
 
 {% if program_candidates %}
@@ -9,6 +10,9 @@
     <div class="flex items-center justify-between">
       <div class="flex items-center gap-2 flex-1 min-w-0">
         <span class="text-xs font-semibold text-blue-800 uppercase tracking-wide whitespace-nowrap">Suggested Program</span>
+        {% if cand.detection_method is defined and cand.detection_method == 'shared_policy_prefix' %}
+        <span class="text-[10px] bg-blue-200 text-blue-700 px-1.5 py-0.5 rounded">shared prefix</span>
+        {% endif %}
         <span class="text-blue-300">&middot;</span>
         <span class="text-sm font-medium text-blue-900 truncate">{{ cand.client }}</span>
         <span class="text-blue-300">&middot;</span>
@@ -27,9 +31,18 @@
       </button>
     </div>
     <div class="flex flex-wrap gap-1.5 mt-2">
-      {% for c in cand.carriers %}
-      <span class="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">{{ c }}</span>
-      {% endfor %}
+      {% if cand.carrier_details is defined and cand.carrier_details %}
+        {% for cd in cand.carrier_details %}
+        <span class="inline-flex items-center gap-1 text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
+          {{ cd.carrier }}
+          {% if cd.premium %}<span class="text-blue-500">${{ "{:,.0f}".format(cd.premium | float) }}</span>{% endif %}
+        </span>
+        {% endfor %}
+      {% else %}
+        {% for c in cand.carriers %}
+        <span class="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">{{ c }}</span>
+        {% endfor %}
+      {% endif %}
     </div>
     <div id="pgm-cand-form-{{ loop.index0 }}" class="mt-2"></div>
   </div>

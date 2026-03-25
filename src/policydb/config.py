@@ -561,6 +561,14 @@ _DEFAULTS: dict[str, Any] = {
         "critical_notify": True,
         "critical_auto_draft": True,
     },
+    # Import source names for reconcile match memory
+    "import_source_names": [
+        "AMS Export",
+        "Carrier Statement",
+        "Manual Spreadsheet",
+        "Prior AE Handoff",
+        "Binder / Dec Page",
+    ],
     "carrier_aliases": {
         "Travelers": [
             "Travelers Insurance", "The Travelers Companies", "Travelers Indemnity",
