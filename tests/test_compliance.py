@@ -9,6 +9,7 @@ from policydb.compliance import (
     resolve_governing_requirements,
     suggest_policy_for_requirement,
     compute_compliance_summary,
+    compute_auto_status,
     get_risk_review_prompts,
     get_location_requirements,
     get_client_compliance_data,
@@ -688,3 +689,47 @@ def test_client_wide_source_inherited_everywhere():
     assert len(reqs_b) == 1
     assert reqs_a[0]["coverage_line"] == "Property"
     conn.close()
+
+
+# ── compute_auto_status ──────────────────────────────────────────────────────
+
+def test_auto_status_no_policy():
+    req = {"required_limit": 1000000, "max_deductible": 25000, "required_endorsements": "[]"}
+    assert compute_auto_status(req, None) == "Gap"
+
+
+def test_auto_status_limit_insufficient():
+    req = {"required_limit": 2000000, "max_deductible": None, "required_endorsements": "[]"}
+    policy = {"limit_amount": 1000000, "deductible": 0}
+    assert compute_auto_status(req, policy) == "Gap"
+
+
+def test_auto_status_deductible_exceeds():
+    req = {"required_limit": 1000000, "max_deductible": 10000, "required_endorsements": "[]"}
+    policy = {"limit_amount": 2000000, "deductible": 50000}
+    assert compute_auto_status(req, policy) == "Gap"
+
+
+def test_auto_status_compliant():
+    req = {"required_limit": 1000000, "max_deductible": 25000, "required_endorsements": "[]"}
+    policy = {"limit_amount": 2000000, "deductible": 10000}
+    assert compute_auto_status(req, policy) == "Compliant"
+
+
+def test_auto_status_compliant_no_deductible_requirement():
+    req = {"required_limit": 1000000, "max_deductible": None, "required_endorsements": "[]"}
+    policy = {"limit_amount": 1000000, "deductible": 50000}
+    assert compute_auto_status(req, policy) == "Compliant"
+
+
+def test_auto_status_partial_endorsements():
+    req = {"required_limit": 1000000, "max_deductible": None,
+           "required_endorsements": '["Additional Insured", "Waiver of Subrogation"]'}
+    policy = {"limit_amount": 2000000, "deductible": 0}
+    assert compute_auto_status(req, policy) == "Partial"
+
+
+def test_auto_status_compliant_empty_endorsements():
+    req = {"required_limit": 1000000, "max_deductible": None, "required_endorsements": "[]"}
+    policy = {"limit_amount": 1000000, "deductible": 0}
+    assert compute_auto_status(req, policy) == "Compliant"

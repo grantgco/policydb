@@ -1,0 +1,486 @@
+{# ── Requirement Detail Slideover ── #}
+{# Context: req, client_id, sources, projects, links, linkable_policies,
+            primary_policy, auto_status, compliance_statuses,
+            deductible_types, policy_types, endorsement_types #}
+
+{# Determine effective display status: manual override wins, else auto_status #}
+{% set effective_status = req.compliance_status if req.status_manual_override else auto_status %}
+
+{# ── Backdrop ── #}
+<div id="req-detail-backdrop"
+     class="fixed inset-0 bg-black/30 z-40"
+     onclick="closeRequirementDetail()"></div>
+
+{# ── Panel ── #}
+<div id="req-detail-panel"
+     class="fixed top-0 right-0 bottom-0 w-[520px] max-sm:w-full bg-white shadow-xl z-50 overflow-y-auto">
+
+  {# ── Section A: Status Banner ── #}
+  {% set status_lower = effective_status | lower if effective_status else 'gap' %}
+  {% if status_lower == 'compliant' %}
+    {% set banner_bg = 'bg-green-50' %}
+    {% set banner_border = 'border-green-200' %}
+    {% set banner_text = 'text-green-800' %}
+    {% set dot_bg = 'bg-green-500' %}
+  {% elif status_lower == 'partial' %}
+    {% set banner_bg = 'bg-amber-50' %}
+    {% set banner_border = 'border-amber-200' %}
+    {% set banner_text = 'text-amber-800' %}
+    {% set dot_bg = 'bg-amber-500' %}
+  {% elif status_lower == 'gap' %}
+    {% set banner_bg = 'bg-red-50' %}
+    {% set banner_border = 'border-red-200' %}
+    {% set banner_text = 'text-red-800' %}
+    {% set dot_bg = 'bg-red-500' %}
+  {% else %}
+    {% set banner_bg = 'bg-gray-50' %}
+    {% set banner_border = 'border-gray-200' %}
+    {% set banner_text = 'text-gray-600' %}
+    {% set dot_bg = 'bg-gray-400' %}
+  {% endif %}
+
+  <div class="{{ banner_bg }} {{ banner_border }} {{ banner_text }} border-b px-4 py-3 flex items-center justify-between">
+    <div class="flex items-center gap-2">
+      <span class="w-2 h-2 rounded-full {{ dot_bg }}"></span>
+      <span class="font-semibold text-sm">{{ effective_status or 'Gap' }}</span>
+      {% if req.status_manual_override %}
+        <span class="text-[10px] bg-white/60 px-1.5 py-0.5 rounded">manual override</span>
+      {% endif %}
+    </div>
+    <div class="flex items-center gap-2">
+      {% if status_lower == 'partial' %}
+        <button type="button"
+                class="text-xs bg-green-600 text-white px-2 py-1 rounded hover:bg-green-700 transition-colors"
+                onclick="confirmCompliant()">Confirm Compliant</button>
+      {% endif %}
+      <select class="text-xs border border-current/20 rounded px-1.5 py-1 bg-white/80 {{ banner_text }} cursor-pointer focus:outline-none focus:ring-1 focus:ring-marsh"
+              onchange="overrideStatus(this.value)">
+        <option value="">Override &#9662;</option>
+        {% for cs in compliance_statuses %}
+        <option value="{{ cs }}" {{ 'selected' if effective_status == cs else '' }}>{{ cs }}</option>
+        {% endfor %}
+      </select>
+    </div>
+  </div>
+
+  {# ── Section B: Header + Close ── #}
+  <div class="flex items-center justify-between p-4 border-b">
+    <h2 class="text-lg font-semibold text-gray-900 cursor-text min-w-[120px]"
+        contenteditable="true"
+        data-field="coverage_line"
+        onblur="saveReqCell(this, 'coverage_line')">{{ req.coverage_line or 'Untitled' }}</h2>
+    <button type="button" class="text-gray-400 hover:text-gray-600 text-xl leading-none ml-4"
+            onclick="closeRequirementDetail()">&times;</button>
+  </div>
+
+  {# ── Section C: Requirement Fields ── #}
+  <div class="p-4 space-y-4">
+    <div class="grid grid-cols-2 gap-4">
+      {# Required Limit #}
+      <div>
+        <label class="block text-[10px] text-gray-500 uppercase tracking-wider mb-1">Required Limit</label>
+        <div class="border border-gray-300 rounded px-2 py-1.5 text-sm text-gray-900 cursor-text min-h-[32px] focus:outline-none focus:ring-1 focus:ring-marsh focus:border-marsh"
+             contenteditable="true"
+             data-field="required_limit"
+             data-placeholder="e.g. 1m, 500k"
+             onblur="saveReqCell(this, 'required_limit')">{{ req.required_limit | currency if req.required_limit else '' }}</div>
+      </div>
+      {# Max Deductible #}
+      <div>
+        <label class="block text-[10px] text-gray-500 uppercase tracking-wider mb-1">Max Deductible</label>
+        <div class="border border-gray-300 rounded px-2 py-1.5 text-sm text-gray-900 cursor-text min-h-[32px] focus:outline-none focus:ring-1 focus:ring-marsh focus:border-marsh"
+             contenteditable="true"
+             data-field="max_deductible"
+             data-placeholder="e.g. 10k, 25000"
+             onblur="saveReqCell(this, 'max_deductible')">{{ req.max_deductible | currency if req.max_deductible else '' }}</div>
+      </div>
+      {# Deductible Type #}
+      <div>
+        <label class="block text-[10px] text-gray-500 uppercase tracking-wider mb-1">Deductible Type</label>
+        <select class="border border-gray-300 rounded px-2 py-1.5 text-sm text-gray-900 w-full focus:outline-none focus:ring-1 focus:ring-marsh focus:border-marsh"
+                onchange="saveReqCell(this, 'deductible_type')">
+          <option value="">--</option>
+          {% for dt in deductible_types %}
+          <option value="{{ dt }}" {{ 'selected' if req.deductible_type == dt else '' }}>{{ dt }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      {# Source #}
+      <div>
+        <label class="block text-[10px] text-gray-500 uppercase tracking-wider mb-1">Source</label>
+        <select class="border border-gray-300 rounded px-2 py-1.5 text-sm text-gray-900 w-full focus:outline-none focus:ring-1 focus:ring-marsh focus:border-marsh"
+                onchange="saveReqCell(this, 'source_id')">
+          <option value="">--</option>
+          {% for s in sources %}
+          <option value="{{ s.id }}" {{ 'selected' if req.source_id == s.id else '' }}>{{ s.name }}{% if s.counterparty %} ({{ s.counterparty }}){% endif %}</option>
+          {% endfor %}
+        </select>
+      </div>
+      {# Location #}
+      <div class="col-span-2">
+        <label class="block text-[10px] text-gray-500 uppercase tracking-wider mb-1">Location</label>
+        <select class="border border-gray-300 rounded px-2 py-1.5 text-sm text-gray-900 w-full focus:outline-none focus:ring-1 focus:ring-marsh focus:border-marsh"
+                onchange="saveReqCell(this, 'project_id')">
+          <option value="">All (Client-wide)</option>
+          {% for p in projects %}
+          <option value="{{ p.id }}" {{ 'selected' if req.project_id == p.id else '' }}>{{ p.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+  </div>
+
+  {# ── Section D: Endorsements ── #}
+  <div class="px-4 pb-4">
+    <label class="block text-[10px] text-gray-500 uppercase tracking-wider mb-2">Required Endorsements (click to toggle)</label>
+    <input type="hidden" id="req-endorse-json" value='{{ req.required_endorsements or "[]" }}'>
+    <div class="flex flex-wrap gap-1.5">
+      {% for et in endorsement_types %}
+        {% set is_active = et in (req._endorsements_list or []) %}
+        <button type="button"
+                class="text-xs px-2.5 py-1 rounded border cursor-pointer transition-colors
+                       {{ 'bg-green-100 text-green-700 border-green-300' if is_active else 'bg-gray-50 text-gray-400 border-gray-200 hover:bg-gray-100' }}"
+                onclick="toggleEndorsement(this, '{{ et }}')">{{ et }}</button>
+      {% endfor %}
+      {% if not endorsement_types %}
+        <span class="text-xs text-gray-400 italic">No endorsement types configured. Add them in Settings.</span>
+      {% endif %}
+    </div>
+  </div>
+
+  {# ── Section E: Policy Comparison ── #}
+  {% if status_lower == 'compliant' %}
+    {% set section_bg = 'bg-green-50' %}
+    {% set section_border = 'border-green-200' %}
+  {% elif status_lower == 'partial' %}
+    {% set section_bg = 'bg-amber-50' %}
+    {% set section_border = 'border-amber-200' %}
+  {% elif status_lower == 'gap' %}
+    {% set section_bg = 'bg-red-50' %}
+    {% set section_border = 'border-red-200' %}
+  {% else %}
+    {% set section_bg = 'bg-gray-50' %}
+    {% set section_border = 'border-gray-200' %}
+  {% endif %}
+
+  <div class="{{ section_bg }} border-t {{ section_border }} px-4 py-4">
+    <h3 class="text-xs text-gray-500 uppercase tracking-wider mb-3">Policy Comparison</h3>
+
+    {% if primary_policy %}
+      {# Primary policy header #}
+      <div class="flex items-center gap-2 mb-3">
+        <span class="font-mono text-sm text-gray-700 font-medium">{{ primary_policy.policy_uid }}</span>
+        <span class="text-xs text-gray-500">{{ primary_policy.carrier or '' }}</span>
+        {% if primary_policy.policy_type %}
+          <span class="text-xs bg-white/80 text-gray-600 px-1.5 py-0.5 rounded border border-gray-200">{{ primary_policy.policy_type }}</span>
+        {% endif %}
+        {% if primary_policy.expiration_date %}
+          <span class="text-xs text-gray-400 ml-auto">Exp: {{ primary_policy.expiration_date }}</span>
+        {% endif %}
+      </div>
+
+      {# Comparison cards #}
+      <div class="grid grid-cols-2 gap-3 mb-3">
+        {# Limit card #}
+        <div class="bg-white rounded-lg border border-gray-200 p-3">
+          <div class="text-[10px] text-gray-400 uppercase tracking-wider mb-1">Policy Limit</div>
+          <div class="text-sm font-semibold text-gray-900">{{ primary_policy.limit_amount | currency if primary_policy.limit_amount else 'Not set' }}</div>
+          {% if req.required_limit is not none and primary_policy.limit_amount is not none %}
+            {% if primary_policy.limit_amount >= req.required_limit %}
+              <div class="flex items-center gap-1 mt-1 text-xs text-green-700">
+                <span>&#10003;</span> Meets requirement ({{ req.required_limit | currency }})
+              </div>
+            {% else %}
+              <div class="flex items-center gap-1 mt-1 text-xs text-red-700">
+                <span>&#10007;</span> Below requirement ({{ req.required_limit | currency }})
+              </div>
+            {% endif %}
+          {% endif %}
+        </div>
+
+        {# Deductible card — only show if max_deductible is set #}
+        {% if req.max_deductible is not none %}
+        <div class="bg-white rounded-lg border border-gray-200 p-3">
+          <div class="text-[10px] text-gray-400 uppercase tracking-wider mb-1">Deductible</div>
+          <div class="text-sm font-semibold text-gray-900">{{ primary_policy.deductible | currency if primary_policy.deductible else 'Not set' }}</div>
+          {% if primary_policy.deductible is not none %}
+            {% if primary_policy.deductible <= req.max_deductible %}
+              <div class="flex items-center gap-1 mt-1 text-xs text-green-700">
+                <span>&#10003;</span> Within max ({{ req.max_deductible | currency }})
+              </div>
+            {% else %}
+              <div class="flex items-center gap-1 mt-1 text-xs text-red-700">
+                <span>&#10007;</span> Exceeds max ({{ req.max_deductible | currency }})
+              </div>
+            {% endif %}
+          {% endif %}
+        </div>
+        {% else %}
+        <div class="bg-white rounded-lg border border-gray-200 p-3">
+          <div class="text-[10px] text-gray-400 uppercase tracking-wider mb-1">Deductible</div>
+          <div class="text-sm font-semibold text-gray-900">{{ primary_policy.deductible | currency if primary_policy.deductible else 'Not set' }}</div>
+          <div class="text-xs text-gray-400 mt-1">No max deductible required</div>
+        </div>
+        {% endif %}
+      </div>
+
+      {# Endorsement warning #}
+      {% if req._endorsements_list %}
+      <div class="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3">
+        <div class="flex items-center gap-2 text-xs text-amber-700">
+          <span>&#9888;</span>
+          <span>Verify endorsements on policy document: {{ req._endorsements_list | join(', ') }}</span>
+        </div>
+      </div>
+      {% endif %}
+
+    {% else %}
+      {# No primary policy #}
+      <div class="bg-red-50 border border-red-200 rounded-lg px-4 py-3 mb-3">
+        <div class="text-sm text-red-700 font-medium mb-1">No policy covers this requirement</div>
+        <div class="text-xs text-red-600">Link a policy below to enable compliance comparison.</div>
+      </div>
+    {% endif %}
+
+    {# Also Linked section — non-primary links #}
+    {% set non_primary = [] %}
+    {% for link in links %}
+      {% if not link.is_primary %}
+        {% if non_primary.append(link) %}{% endif %}
+      {% endif %}
+    {% endfor %}
+
+    {% if non_primary %}
+    <div class="mb-3">
+      <div class="text-[10px] text-gray-500 uppercase tracking-wider mb-1.5">Also Linked</div>
+      <div class="space-y-1">
+        {% for link in non_primary %}
+        <div class="flex items-center gap-2 bg-white border border-gray-200 rounded px-2 py-1.5 text-xs group">
+          <button type="button" class="text-gray-300 hover:text-amber-500 transition-colors"
+                  title="Set as primary"
+                  onclick="setPrimaryLink({{ link.id }})">&#9734;</button>
+          <span class="font-mono text-gray-500">{{ link.policy_uid }}</span>
+          <span class="font-medium text-gray-700">{{ link.policy_type or '' }}</span>
+          {% if link.carrier %}
+            <span class="text-gray-400">&middot; {{ link.carrier }}</span>
+          {% endif %}
+          {% if link.link_type == 'program' %}
+            <span class="bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded text-[10px]">program</span>
+          {% elif link.link_type == 'child' %}
+            <span class="bg-purple-100 text-purple-600 px-1.5 py-0.5 rounded text-[10px]">child</span>
+          {% else %}
+            <span class="bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded text-[10px]">direct</span>
+          {% endif %}
+          <button type="button"
+                  class="ml-auto text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
+                  title="Remove link"
+                  onclick="removePolicyLink({{ link.id }})">&#10005;</button>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    {# + Link Policy — search dropdown #}
+    <div class="relative">
+      <label class="block text-[10px] text-gray-500 uppercase tracking-wider mb-1">+ Link Policy</label>
+      <input type="text" id="slideover-link-search"
+             placeholder="Search policies to link..."
+             class="border border-gray-300 rounded px-2 py-1.5 text-sm w-full focus:outline-none focus:ring-1 focus:ring-marsh focus:border-marsh bg-white"
+             autocomplete="off"
+             onfocus="document.getElementById('slideover-link-dropdown').classList.remove('hidden')"
+             oninput="(function(el){var dd=document.getElementById('slideover-link-dropdown');dd.classList.remove('hidden');var q=el.value.toLowerCase();dd.querySelectorAll('[data-search]').forEach(function(r){r.style.display=r.dataset.search.includes(q)?'':'none'})})(this)">
+      <div id="slideover-link-dropdown" class="hidden absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded shadow-lg max-h-48 overflow-y-auto">
+        {% for pol in linkable_policies %}
+        <button type="button"
+                data-search="{{ (pol.policy_uid + ' ' + (pol.policy_type or '') + ' ' + (pol.carrier or '')) | lower }}"
+                class="w-full text-left px-3 py-1.5 hover:bg-green-50 text-xs flex items-center gap-2 border-b border-gray-50"
+                onclick="addPolicyLink('{{ pol.policy_uid }}'); document.getElementById('slideover-link-dropdown').classList.add('hidden'); document.getElementById('slideover-link-search').value = '';">
+          <span class="font-mono text-gray-400">{{ pol.policy_uid }}</span>
+          <span class="font-medium">{{ pol.policy_type or '' }}</span>
+          {% if pol.carrier %}
+            <span class="text-gray-400">&middot; {{ pol.carrier }}</span>
+          {% endif %}
+          {% if pol.limit_amount %}
+            <span class="text-gray-400 ml-auto">{{ pol.limit_amount | currency_short }}</span>
+          {% endif %}
+        </button>
+        {% endfor %}
+        {% if not linkable_policies %}
+          <div class="px-3 py-2 text-xs text-gray-400 italic">No linkable policies found for this client.</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  {# ── Section F: Notes ── #}
+  <div class="p-4 border-t">
+    <label class="block text-[10px] text-gray-500 uppercase tracking-wider mb-1">Notes</label>
+    <div class="border border-gray-300 rounded px-3 py-2 text-sm text-gray-900 min-h-[60px] cursor-text focus:outline-none focus:ring-1 focus:ring-marsh focus:border-marsh"
+         contenteditable="true"
+         data-field="notes"
+         data-placeholder="Add notes..."
+         onblur="saveReqCell(this, 'notes')">{{ req.notes or '' }}</div>
+  </div>
+
+  {# ── Section G: Footer ── #}
+  <div class="p-4 border-t bg-gray-50 flex items-center justify-between">
+    <div class="text-xs text-gray-400">
+      {% if req.created_at %}Created {{ req.created_at }}{% endif %}
+      {% if req.created_at and req.updated_at %} &middot; {% endif %}
+      {% if req.updated_at %}Updated {{ req.updated_at }}{% endif %}
+    </div>
+    <button type="button"
+            class="text-xs text-red-500 hover:text-red-700 font-medium"
+            onclick="if(confirm('Delete this requirement?')){fetch('/compliance/client/{{ client_id }}/requirements/{{ req.id }}/delete',{method:'POST'}).then(function(){closeRequirementDetail()})}">Delete</button>
+  </div>
+
+</div>{# /panel #}
+
+{# ── Placeholder CSS for contenteditable ── #}
+<style>
+  #req-detail-panel [contenteditable][data-placeholder]:empty::before {
+    content: attr(data-placeholder);
+    color: #94a3b8;
+    font-style: italic;
+    pointer-events: none;
+  }
+  #req-detail-panel [contenteditable]:focus {
+    outline: none;
+  }
+</style>
+
+{# ── Script Block ── #}
+<script>
+/* ── Close panel + refresh parent ── */
+function closeRequirementDetail() {
+    var container = document.getElementById('requirement-slideover-container');
+    if (container) container.innerHTML = '';
+    /* Refresh the active location tab to update rows + summary */
+    var activeTab = document.querySelector('#location-tab-bar button.border-marsh');
+    if (activeTab) {
+        htmx.ajax('GET', activeTab.getAttribute('hx-get'), {target: '#location-tab-content', swap: 'innerHTML'});
+    }
+}
+
+/* ── Close on Escape ── */
+document.addEventListener('keydown', function _reqDetailEscHandler(e) {
+    if (e.key === 'Escape') {
+        var panel = document.getElementById('req-detail-panel');
+        if (panel) closeRequirementDetail();
+    }
+});
+
+/* ── Cell save helper ── */
+function saveReqCell(el, field) {
+    var value = el.value !== undefined ? el.value : el.textContent.trim();
+    fetch('/compliance/client/{{ client_id }}/review-mode/{{ req.id }}/cell', {
+        method: 'PATCH',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({field: field, value: value})
+    }).then(function(r) { return r.json(); }).then(function(d) {
+        if (d.ok) {
+            if (d.formatted !== undefined && el.value === undefined) {
+                el.textContent = d.formatted;
+            }
+            if (typeof flashCell === 'function') flashCell(el);
+        }
+    });
+}
+
+/* ── Endorsement toggle ── */
+function toggleEndorsement(btn, endorsement) {
+    var hid = document.getElementById('req-endorse-json');
+    var arr = JSON.parse(hid.value || '[]');
+    var idx = arr.indexOf(endorsement);
+    if (idx >= 0) {
+        arr.splice(idx, 1);
+        btn.className = btn.className.replace(/bg-green-100 text-green-700 border-green-300/g, 'bg-gray-50 text-gray-400 border-gray-200 hover:bg-gray-100');
+    } else {
+        arr.push(endorsement);
+        btn.className = btn.className.replace(/bg-gray-50 text-gray-400 border-gray-200 hover:bg-gray-100/g, 'bg-green-100 text-green-700 border-green-300');
+    }
+    hid.value = JSON.stringify(arr);
+    /* Immediately save */
+    fetch('/compliance/client/{{ client_id }}/review-mode/{{ req.id }}/cell', {
+        method: 'PATCH',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({field: 'required_endorsements', value: JSON.stringify(arr)})
+    }).then(function(r) { return r.json(); }).then(function(d) {
+        if (d.ok && typeof flashCell === 'function') flashCell(btn);
+    });
+}
+
+/* ── Confirm Compliant (Partial -> Compliant with manual override) ── */
+function confirmCompliant() {
+    fetch('/compliance/client/{{ client_id }}/review-mode/{{ req.id }}/cell', {
+        method: 'PATCH',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({field: 'compliance_status', value: 'Compliant'})
+    }).then(function() {
+        /* Re-fetch the slideover to update the banner */
+        htmx.ajax('GET', '/compliance/client/{{ client_id }}/requirements/{{ req.id }}/detail',
+                  {target: '#requirement-slideover-container', swap: 'innerHTML'});
+    });
+}
+
+/* ── Override status ── */
+function overrideStatus(value) {
+    if (!value) return;
+    fetch('/compliance/client/{{ client_id }}/review-mode/{{ req.id }}/cell', {
+        method: 'PATCH',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({field: 'compliance_status', value: value})
+    }).then(function() {
+        htmx.ajax('GET', '/compliance/client/{{ client_id }}/requirements/{{ req.id }}/detail',
+                  {target: '#requirement-slideover-container', swap: 'innerHTML'});
+    });
+}
+
+/* ── Add policy link ── */
+function addPolicyLink(policyUid) {
+    if (!policyUid) return;
+    var formData = new FormData();
+    formData.append('policy_uid', policyUid);
+    fetch('/compliance/client/{{ client_id }}/requirements/{{ req.id }}/links/add', {
+        method: 'POST',
+        body: formData
+    }).then(function() {
+        /* Discard HTML response; re-fetch whole slideover for auto-status */
+        htmx.ajax('GET', '/compliance/client/{{ client_id }}/requirements/{{ req.id }}/detail',
+                  {target: '#requirement-slideover-container', swap: 'innerHTML'});
+    });
+}
+
+/* ── Remove policy link ── */
+function removePolicyLink(linkId) {
+    fetch('/compliance/client/{{ client_id }}/requirements/{{ req.id }}/links/' + linkId + '/remove', {
+        method: 'POST'
+    }).then(function() {
+        htmx.ajax('GET', '/compliance/client/{{ client_id }}/requirements/{{ req.id }}/detail',
+                  {target: '#requirement-slideover-container', swap: 'innerHTML'});
+    });
+}
+
+/* ── Set primary link ── */
+function setPrimaryLink(linkId) {
+    fetch('/compliance/client/{{ client_id }}/requirements/{{ req.id }}/links/' + linkId + '/set-primary', {
+        method: 'POST'
+    }).then(function() {
+        htmx.ajax('GET', '/compliance/client/{{ client_id }}/requirements/{{ req.id }}/detail',
+                  {target: '#requirement-slideover-container', swap: 'innerHTML'});
+    });
+}
+
+/* ── Close link dropdown on outside click ── */
+(function() {
+    var dd = document.getElementById('slideover-link-dropdown');
+    if (!dd) return;
+    document.addEventListener('click', function(e) {
+        var search = document.getElementById('slideover-link-search');
+        if (!dd.contains(e.target) && e.target !== search) {
+            dd.classList.add('hidden');
+        }
+    });
+})();
+</script>
