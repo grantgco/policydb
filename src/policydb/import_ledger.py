@@ -1,8 +1,9 @@
-"""Import session lifecycle and source profile management.
+"""Import session lifecycle, source profile management, and field provenance.
 
 Tracks each import/reconcile run as a session with metadata (source, file,
 as-of date, outcome stats).  Source profiles remember column mappings so
-returning sources auto-map.
+returning sources auto-map.  Field provenance records which source set which
+value and when, with conflict detection via trust × recency scoring.
 """
 
 from __future__ import annotations
@@ -10,7 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, date as _date
 from sqlite3 import Connection
 
 logger = logging.getLogger(__name__)
@@ -201,3 +202,219 @@ def get_field_trust(conn: Connection, source_name: str) -> dict:
         return json.loads(profile.get("field_trust") or "{}")
     except (json.JSONDecodeError, TypeError):
         return {}
+
+
+# ── Field Provenance ──────────────────────────────────────────────────────────
+
+def record_provenance(
+    conn: Connection,
+    policy_id: int,
+    field_name: str,
+    value: str,
+    source_name: str = "",
+    source_session_id: int | None = None,
+    as_of_date: str = "",
+    prior_value: str = "",
+    was_conflict: bool = False,
+) -> int:
+    """Record a field provenance entry.  Returns the provenance row id."""
+    cur = conn.execute(
+        """INSERT INTO import_field_provenance
+           (policy_id, field_name, value, source_name, source_session_id,
+            as_of_date, prior_value, was_conflict)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (policy_id, field_name, str(value) if value is not None else "",
+         source_name, source_session_id,
+         as_of_date or None, str(prior_value) if prior_value else "",
+         1 if was_conflict else 0),
+    )
+    return cur.lastrowid
+
+
+def record_provenance_batch(
+    conn: Connection,
+    policy_id: int,
+    fields: dict[str, str],
+    source_name: str = "",
+    source_session_id: int | None = None,
+    as_of_date: str = "",
+    prior_values: dict[str, str] | None = None,
+) -> int:
+    """Record provenance for multiple fields at once.  Returns count recorded."""
+    prior_values = prior_values or {}
+    count = 0
+    for field_name, value in fields.items():
+        if value is None:
+            continue
+        prior = prior_values.get(field_name, "")
+        was_conflict = bool(prior and str(prior).strip() and str(prior).strip() != str(value).strip())
+        record_provenance(
+            conn, policy_id, field_name, value,
+            source_name=source_name, source_session_id=source_session_id,
+            as_of_date=as_of_date, prior_value=prior, was_conflict=was_conflict,
+        )
+        count += 1
+    return count
+
+
+def get_provenance_for_policy(conn: Connection, policy_id: int) -> list[dict]:
+    """Get all provenance entries for a policy, newest first."""
+    rows = conn.execute(
+        """SELECT p.*, s.file_name AS session_file
+           FROM import_field_provenance p
+           LEFT JOIN import_sessions s ON p.source_session_id = s.id
+           WHERE p.policy_id = ?
+           ORDER BY p.applied_at DESC""",
+        (policy_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_provenance_for_field(conn: Connection, policy_id: int, field_name: str) -> list[dict]:
+    """Get provenance history for a specific field on a policy."""
+    rows = conn.execute(
+        """SELECT p.*, s.file_name AS session_file
+           FROM import_field_provenance p
+           LEFT JOIN import_sessions s ON p.source_session_id = s.id
+           WHERE p.policy_id = ? AND p.field_name = ?
+           ORDER BY p.applied_at DESC""",
+        (policy_id, field_name),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_conflict_fields(conn: Connection, policy_id: int) -> list[str]:
+    """Get field names that have had conflicts (value overwritten from different source)."""
+    rows = conn.execute(
+        "SELECT DISTINCT field_name FROM import_field_provenance "
+        "WHERE policy_id = ? AND was_conflict = 1",
+        (policy_id,),
+    ).fetchall()
+    return [r["field_name"] for r in rows]
+
+
+def get_provenance_stats(conn: Connection, policy_id: int) -> dict:
+    """Get provenance statistics for a policy."""
+    row = conn.execute(
+        """SELECT COUNT(*) as total,
+                  COUNT(DISTINCT field_name) as fields_tracked,
+                  COUNT(DISTINCT source_name) as sources,
+                  SUM(CASE WHEN was_conflict = 1 THEN 1 ELSE 0 END) as conflicts
+           FROM import_field_provenance WHERE policy_id = ?""",
+        (policy_id,),
+    ).fetchone()
+    return dict(row) if row else {"total": 0, "fields_tracked": 0, "sources": 0, "conflicts": 0}
+
+
+# ── Conflict Resolution ──────────────────────────────────────────────────────
+
+def compute_effective_priority(
+    trust_weight: float,
+    as_of_date: str | None,
+    today: str | None = None,
+) -> float:
+    """Compute effective priority = trust_weight × recency_factor.
+
+    Recency factor decays from 1.0 (today) to 0.5 (1 year old) linearly.
+    Data with no as_of_date gets recency=0.7 (moderate penalty).
+    """
+    if not today:
+        today = _date.today().isoformat()
+    if not as_of_date:
+        return trust_weight * 0.7
+
+    try:
+        as_of = datetime.fromisoformat(as_of_date).date()
+        today_d = datetime.fromisoformat(today).date()
+        days_old = (today_d - as_of).days
+        if days_old < 0:
+            days_old = 0
+        # Linear decay: 1.0 at 0 days → 0.5 at 365 days, floor at 0.3
+        recency = max(0.3, 1.0 - (days_old / 730.0))
+        return trust_weight * recency
+    except (ValueError, TypeError):
+        return trust_weight * 0.7
+
+
+def check_conflict(
+    conn: Connection,
+    policy_id: int,
+    field_name: str,
+    new_value: str,
+    new_source_name: str,
+    new_as_of_date: str = "",
+) -> dict | None:
+    """Check if setting this field would conflict with existing provenance.
+
+    Returns None if no conflict (safe to apply), or a dict with:
+    {
+        "existing_value": str, "existing_source": str, "existing_as_of": str,
+        "existing_priority": float, "new_priority": float,
+        "recommendation": "apply" | "keep_existing" | "ask_user"
+    }
+    """
+    import policydb.config as _cfg
+
+    # Get the most recent provenance for this field from a DIFFERENT source
+    row = conn.execute(
+        """SELECT value, source_name, as_of_date
+           FROM import_field_provenance
+           WHERE policy_id = ? AND field_name = ? AND source_name != ?
+           ORDER BY applied_at DESC LIMIT 1""",
+        (policy_id, field_name, new_source_name),
+    ).fetchone()
+
+    if not row:
+        return None  # No prior from a different source — no conflict
+
+    existing_value = row["value"] or ""
+    existing_source = row["source_name"] or ""
+    existing_as_of = row["as_of_date"] or ""
+
+    # If values are the same, no real conflict
+    if existing_value.strip() == str(new_value).strip():
+        return None
+
+    # Get trust weights from config
+    trust_defaults = _cfg.get("field_trust_defaults", {})
+    new_trust = trust_defaults.get(new_source_name, {}).get(field_name, 50)
+    existing_trust = trust_defaults.get(existing_source, {}).get(field_name, 50)
+
+    # Also check profile-level trust overrides
+    new_profile = get_source_profile(conn, new_source_name)
+    if new_profile:
+        try:
+            profile_trust = json.loads(new_profile.get("field_trust") or "{}")
+            if field_name in profile_trust:
+                new_trust = profile_trust[field_name]
+        except Exception:
+            pass
+    existing_profile = get_source_profile(conn, existing_source)
+    if existing_profile:
+        try:
+            profile_trust = json.loads(existing_profile.get("field_trust") or "{}")
+            if field_name in profile_trust:
+                existing_trust = profile_trust[field_name]
+        except Exception:
+            pass
+
+    new_priority = compute_effective_priority(new_trust, new_as_of_date)
+    existing_priority = compute_effective_priority(existing_trust, existing_as_of)
+
+    # Determine recommendation
+    diff = new_priority - existing_priority
+    if diff > 10:
+        recommendation = "apply"
+    elif diff < -10:
+        recommendation = "keep_existing"
+    else:
+        recommendation = "ask_user"
+
+    return {
+        "existing_value": existing_value,
+        "existing_source": existing_source,
+        "existing_as_of": existing_as_of,
+        "existing_priority": round(existing_priority, 1),
+        "new_priority": round(new_priority, 1),
+        "recommendation": recommendation,
+    }

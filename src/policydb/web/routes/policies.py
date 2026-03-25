@@ -1043,6 +1043,125 @@ def _policy_base(conn, uid: str):
     return p, client_info
 
 
+# ── Field Provenance viewer ───────────────────────────────────────────────────
+
+
+@router.get("/{policy_uid}/provenance", response_class=HTMLResponse)
+def policy_provenance(request: Request, policy_uid: str, field: str = "", conn=Depends(get_db)):
+    """HTMX: return provenance timeline for a policy (or specific field)."""
+    uid = policy_uid.upper()
+    pol = conn.execute("SELECT id FROM policies WHERE policy_uid = ?", (uid,)).fetchone()
+    if not pol:
+        return HTMLResponse("Not found", status_code=404)
+    policy_id = pol["id"]
+
+    try:
+        from policydb.import_ledger import (
+            get_provenance_for_policy, get_provenance_for_field,
+            get_provenance_stats, get_conflict_fields,
+        )
+        if field:
+            entries = get_provenance_for_field(conn, policy_id, field)
+        else:
+            entries = get_provenance_for_policy(conn, policy_id)
+        stats = get_provenance_stats(conn, policy_id)
+        conflicts = get_conflict_fields(conn, policy_id)
+    except Exception:
+        entries = []
+        stats = {"total": 0, "fields_tracked": 0, "sources": 0, "conflicts": 0}
+        conflicts = []
+
+    _FIELD_LABELS = {
+        "policy_type": "Coverage Type", "carrier": "Carrier", "policy_number": "Policy #",
+        "effective_date": "Effective", "expiration_date": "Expiration",
+        "premium": "Premium", "limit_amount": "Limit", "deductible": "Deductible",
+        "project_name": "Location", "exposure_address": "Address",
+        "first_named_insured": "First Named Insured",
+        "placement_colleague": "Placement", "underwriter_name": "Underwriter",
+        "description": "Description",
+    }
+
+    parts = ['<div class="space-y-3">']
+
+    # Stats bar
+    parts.append('<div class="flex items-center gap-3 text-xs">')
+    parts.append(f'<span class="text-gray-500">{stats["total"]} entries</span>')
+    parts.append(f'<span class="text-gray-500">{stats["fields_tracked"]} fields</span>')
+    parts.append(f'<span class="text-gray-500">{stats["sources"]} sources</span>')
+    if stats["conflicts"]:
+        parts.append(f'<span class="text-amber-600 font-medium">{stats["conflicts"]} conflicts</span>')
+    parts.append('</div>')
+
+    if not entries:
+        parts.append('<p class="text-sm text-gray-400 py-4">No import provenance recorded for this policy.</p>')
+        parts.append('</div>')
+        return HTMLResponse("\n".join(parts))
+
+    # Field filter pills
+    if not field:
+        tracked_fields = sorted(set(e["field_name"] for e in entries))
+        parts.append('<div class="flex flex-wrap gap-1.5">')
+        parts.append(f'<button hx-get="/policies/{uid}/provenance" hx-target="#provenance-panel" '
+                     f'class="text-[10px] px-2 py-0.5 rounded-full bg-marsh text-white">All</button>')
+        for f in tracked_fields:
+            is_conflict = f in conflicts
+            cls = "bg-amber-100 text-amber-700 border border-amber-200" if is_conflict else "bg-gray-100 text-gray-600 hover:bg-gray-200"
+            label = _FIELD_LABELS.get(f, f.replace("_", " ").title())
+            parts.append(f'<button hx-get="/policies/{uid}/provenance?field={f}" hx-target="#provenance-panel" '
+                         f'class="text-[10px] px-2 py-0.5 rounded-full {cls}">{label}</button>')
+        parts.append('</div>')
+    else:
+        label = _FIELD_LABELS.get(field, field.replace("_", " ").title())
+        parts.append(f'<div class="flex items-center gap-2">')
+        parts.append(f'<span class="text-xs font-medium text-gray-700">{label}</span>')
+        parts.append(f'<button hx-get="/policies/{uid}/provenance" hx-target="#provenance-panel" '
+                     f'class="text-[10px] text-marsh hover:underline">Show all</button>')
+        parts.append('</div>')
+
+    # Timeline entries
+    parts.append('<div class="space-y-1.5">')
+    for e in entries[:30]:
+        ts = (e.get("applied_at") or "")[:16]
+        src = e.get("source_name") or "manual"
+        fname = _FIELD_LABELS.get(e["field_name"], e["field_name"])
+        val = e.get("value", "")
+        prior = e.get("prior_value", "")
+        is_conflict = e.get("was_conflict")
+
+        if is_conflict:
+            row_cls = "border-l-2 border-amber-400 pl-2"
+            badge = '<span class="text-[10px] px-1 py-0.5 rounded bg-amber-100 text-amber-600">conflict</span>'
+        else:
+            row_cls = "border-l-2 border-gray-200 pl-2"
+            badge = ""
+
+        parts.append(f'<div class="text-xs {row_cls} py-1">')
+        parts.append(f'<div class="flex items-center gap-2">')
+        parts.append(f'<span class="text-gray-400 tabular-nums">{ts}</span>')
+        parts.append(f'<span class="text-gray-600 font-medium">{fname}</span>')
+        parts.append(f'<span class="text-gray-400">via</span>')
+        parts.append(f'<span class="text-marsh font-medium">{src}</span>')
+        if e.get("as_of_date"):
+            parts.append(f'<span class="text-gray-400">(as of {e["as_of_date"]})</span>')
+        parts.append(badge)
+        parts.append('</div>')
+        if is_conflict and prior:
+            parts.append(f'<div class="mt-0.5 flex items-center gap-1">')
+            parts.append(f'<span class="text-red-400 line-through">{prior}</span>')
+            parts.append(f'<span class="text-gray-300">&rarr;</span>')
+            parts.append(f'<span class="text-green-600">{val}</span>')
+            parts.append('</div>')
+        else:
+            parts.append(f'<div class="mt-0.5 text-gray-700">{val}</div>')
+        parts.append('</div>')
+
+    if len(entries) > 30:
+        parts.append(f'<p class="text-xs text-gray-400">...and {len(entries) - 30} more</p>')
+    parts.append('</div></div>')
+
+    return HTMLResponse("\n".join(parts))
+
+
 # ── AI Import endpoints ──────────────────────────────────────────────────────
 
 
