@@ -39,6 +39,18 @@ Not every task needs a full brainstorm cycle. Use this to calibrate:
 | Parsing | **Humanize, Dateparser, RapidFuzz, Babel** — use these; do not write custom parsing code |
 | Phone formatting | `phonenumbers` library via `format_phone()` in `src/policydb/utils.py` |
 | Currency parsing | `parse_currency_with_magnitude()` in `src/policydb/utils.py` — supports shorthand like `1m`, `1.5M`, `500k`, `$2,000,000` |
+| Address autocomplete | **Google Places API** via backend proxy (`src/policydb/geocoder.py`) — all address fields use `/api/address/autocomplete` + `/api/address/details/{place_id}`. API key stored in config, never exposed client-side. Daily rate limit configurable in Settings. |
+| Geocoding | **Google Geocoding API** via `/api/address/geocode` — used for map display when cached lat/lng not available |
+
+### Address Autocomplete Rules
+
+**All address input fields** MUST use the Google Places API backend proxy — never call any geocoding API directly from the frontend.
+
+- **Standard inputs** (`input[name="address"]`, `input[name="exposure_address"]`): Handled automatically by `attachAutocomplete()` in `base.html`. No extra code needed.
+- **Contenteditable cells** (e.g., location board): Call `/api/address/autocomplete?q=...` on input, then `/api/address/details/{place_id}` on selection to get parsed `{street, city, state, zip, lat, lon}`.
+- **Map geocoding** (sidebar, project page): Call `/api/address/geocode?address=...` to get `{lat, lon}`. Cache results by PATCHing latitude/longitude back to the record.
+- **API key**: Stored in `config.yaml` as `google_places_api_key`, editable in Settings > Database & Admin.
+- **Rate limit**: `google_places_daily_limit` (default 1000) tracked in-memory, resets daily. Check `/api/address/usage` for current count.
 
 ### Theme Colors
 

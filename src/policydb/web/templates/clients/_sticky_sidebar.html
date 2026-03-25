@@ -157,9 +157,9 @@
     <div id="sidebar-map-container" style="width:100%;height:120px;border-radius:6px;background:#f3f4f6;display:flex;align-items:center;justify-content:center">
       <span class="text-xs text-gray-400">Loading map...</span>
     </div>
-    <a href="https://www.openstreetmap.org/search?query={{ client.address | urlencode }}"
+    <a href="https://www.google.com/maps/search/?api=1&query={{ client.address | urlencode }}"
        target="_blank" rel="noopener"
-       class="text-xs text-marsh hover:underline mt-1 block">Open full map →</a>
+       class="text-xs text-marsh hover:underline mt-1 block">Open in Google Maps →</a>
     <script>
     (function() {
       var container = document.getElementById('sidebar-map-container');
@@ -176,11 +176,22 @@
       {% else %}
       var addr = {{ client.address | tojson }};
       if (!addr) return;
-      fetch('https://nominatim.openstreetmap.org/search?format=json&q=' + encodeURIComponent(addr) + '&limit=1&countrycodes=us,gb,ca')
+      fetch('/api/address/geocode?address=' + encodeURIComponent(addr))
         .then(function(r) { return r.json(); })
         .then(function(data) {
-          if (data && data.length > 0) {
-            showMap(parseFloat(data[0].lat), parseFloat(data[0].lon));
+          if (data && data.lat != null && data.lon != null) {
+            showMap(data.lat, data.lon);
+            // Cache coordinates for next time
+            fetch('/clients/{{ client.id }}/field', {
+              method: 'PATCH',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({field: 'latitude', value: data.lat})
+            });
+            fetch('/clients/{{ client.id }}/field', {
+              method: 'PATCH',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({field: 'longitude', value: data.lon})
+            });
           } else {
             container.innerHTML = '<span class="text-xs text-gray-400">Address not found on map</span>';
           }

@@ -80,9 +80,9 @@
         <span class="text-xs text-gray-400">Loading map...</span>
       </div>
       {% set full_addr = [addr, city, state, zip_code] | select | join(', ') %}
-      <a href="https://www.openstreetmap.org/search?query={{ full_addr | urlencode }}"
+      <a href="https://www.google.com/maps/search/?api=1&query={{ full_addr | urlencode }}"
          target="_blank" rel="noopener"
-         class="text-xs text-marsh hover:underline mt-1 block">Open full map →</a>
+         class="text-xs text-marsh hover:underline mt-1 block">Open in Google Maps →</a>
       <script>
       (function() {
         var container = document.getElementById('project-map-container');
@@ -97,11 +97,22 @@
         {% else %}
         var addr = {{ full_addr | tojson }};
         if (!addr) { container.innerHTML = '<span class="text-xs text-gray-400">No address for map</span>'; return; }
-        fetch('https://nominatim.openstreetmap.org/search?format=json&q=' + encodeURIComponent(addr) + '&limit=1&countrycodes=us,gb,ca')
+        fetch('/api/address/geocode?address=' + encodeURIComponent(addr))
           .then(function(r) { return r.json(); })
           .then(function(data) {
-            if (data && data.length > 0) {
-              showMap(parseFloat(data[0].lat), parseFloat(data[0].lon));
+            if (data && data.lat != null && data.lon != null) {
+              showMap(data.lat, data.lon);
+              // Cache coordinates for next time
+              fetch('/clients/{{ client.id }}/projects/{{ project.id }}/field', {
+                method: 'PATCH',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({field: 'latitude', value: data.lat})
+              });
+              fetch('/clients/{{ client.id }}/projects/{{ project.id }}/field', {
+                method: 'PATCH',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({field: 'longitude', value: data.lon})
+              });
             } else {
               container.innerHTML = '<span class="text-xs text-gray-400">Address not found on map</span>';
             }
