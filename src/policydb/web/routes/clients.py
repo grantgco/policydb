@@ -697,6 +697,7 @@ def client_tab_policies(request: Request, client_id: int, conn=Depends(get_db)):
     ).fetchall()]
     _program_linked_ids = set()
     for pgm in programs:
+        _program_linked_ids.add(pgm["policy_uid"])
         pgm["carrier_rows"] = [dict(r) for r in conn.execute(
             "SELECT id, carrier, policy_number, premium, limit_amount FROM program_carriers WHERE program_id = ? ORDER BY sort_order",
             (pgm["id"],),
@@ -1071,6 +1072,7 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
     ).fetchall()]
     _program_linked_ids = set()
     for pgm in programs:
+        _program_linked_ids.add(pgm["policy_uid"])
         # Carrier rows from structured table
         pgm["carrier_rows"] = [dict(r) for r in conn.execute(
             """SELECT id, carrier, policy_number, premium, limit_amount
