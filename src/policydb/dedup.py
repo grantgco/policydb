@@ -421,10 +421,19 @@ def merge_policies(
                 (keep_uid, m["id"]),
             )
 
-    # 4. Move policy_contacts from archive to keep
+    # 4. Move policy_contacts from archive to keep (skip if already assigned)
     conn.execute(
-        "UPDATE contact_policy_assignments SET policy_id = ? WHERE policy_id = ?",
-        (keep_id, archive_id),
+        """UPDATE contact_policy_assignments SET policy_id = ?
+           WHERE policy_id = ?
+             AND contact_id NOT IN (
+               SELECT contact_id FROM contact_policy_assignments WHERE policy_id = ?
+             )""",
+        (keep_id, archive_id, keep_id),
+    )
+    # Clean up any remaining orphan assignments on the archive
+    conn.execute(
+        "DELETE FROM contact_policy_assignments WHERE policy_id = ?",
+        (archive_id,),
     )
 
     # 5. Transfer project_id if archive has one and keep doesn't
@@ -446,14 +455,15 @@ def merge_policies(
     cherry_desc = ", ".join(fields_transferred) if fields_transferred else "none"
     conn.execute(
         """
-        INSERT INTO activity_log (client_id, policy_id, activity_type, activity_date, details)
-        VALUES (?, ?, 'Note', ?, ?)
+        INSERT INTO activity_log (client_id, policy_id, activity_type, activity_date, subject, details)
+        VALUES (?, ?, 'Note', ?, ?, ?)
         """,
         (
             keep_row["client_id"],
             keep_id,
             today,
-            f"Merged duplicate {archive_uid} -- cherry-picked: {cherry_desc}",
+            f"Merged duplicate {archive_uid}",
+            f"Cherry-picked fields: {cherry_desc}",
         ),
     )
 
