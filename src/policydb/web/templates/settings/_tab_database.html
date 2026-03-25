@@ -1,4 +1,40 @@
 <div class="space-y-6">
+  {# Google Places API #}
+  <div class="card mb-6" id="section-google-places">
+    <div class="px-5 py-3 border-b border-gray-100">
+      <h3 class="text-sm font-semibold text-gray-700">Google Places API</h3>
+      <p class="text-xs text-gray-400">Powers address autocomplete and geocoding. Leave the key blank to disable.</p>
+    </div>
+    <div class="px-5 py-4">
+      <form method="post" action="/settings/config/google-places" class="space-y-3">
+        <div>
+          <label class="text-xs font-medium text-gray-600 block mb-0.5">API Key</label>
+          <input type="password" name="api_key" value="{{ google_places_api_key }}"
+                 class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:ring-marsh focus:border-marsh"
+                 placeholder="AIza...">
+        </div>
+        <div class="flex items-center gap-3">
+          <div>
+            <label class="text-xs font-medium text-gray-600 block mb-0.5">Daily request limit</label>
+            <input type="number" name="daily_limit" value="{{ google_places_daily_limit }}"
+                   min="1" max="100000" class="w-28 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-marsh focus:border-marsh">
+          </div>
+          <span class="text-xs text-gray-400 pt-4" id="places-usage-label"></span>
+        </div>
+        <button type="submit"
+                class="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-lg bg-marsh text-white hover:bg-marsh-light">
+          Save
+        </button>
+      </form>
+      <script>
+      fetch('/api/address/usage').then(function(r){return r.json()}).then(function(d){
+        var el = document.getElementById('places-usage-label');
+        if(el) el.textContent = 'Today: ' + d.count + ' / ' + d.limit + ' calls' + (d.has_key ? '' : ' (no key set)');
+      }).catch(function(){});
+      </script>
+    </div>
+  </div>
+
   {# Report Logo #}
   <div class="card mb-6" id="section-report-logo">
     <div class="px-5 py-3 border-b border-gray-100">
