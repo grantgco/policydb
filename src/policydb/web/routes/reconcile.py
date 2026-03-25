@@ -149,19 +149,42 @@ def _detect_program_candidates(results: list) -> list[dict]:
     from collections import defaultdict
 
     # ── Strategy 1: Same client + type + dates, 2+ carriers ──
+    # Use normalized coverage type so "General Liability" and "Commercial General Liability"
+    # are recognized as the same type and group into one program candidate.
+    from policydb.utils import normalize_coverage_type as _nct
+    from rapidfuzz import fuzz as _fuzz
+
     groups: dict[tuple, list[tuple[int, str, dict]]] = defaultdict(list)
     for i, r in enumerate(results):
         if r.status not in ("UNMATCHED", "MISSING"):
             continue
         e = r.ext or {}
         client = e.get("client_name", "")
-        ptype = e.get("policy_type", "")
+        ptype = _nct(e.get("policy_type", ""))  # normalize
         eff = e.get("effective_date", "")
         exp = e.get("expiration_date", "")
         carrier = e.get("carrier", "")
         if client and ptype and carrier:
             key = (client, ptype, eff, exp)
             groups[key].append((i, carrier, e))
+
+    # Merge groups with fuzzy-matching type names (e.g. "General Liability" vs "Comm General Liability")
+    merged_keys = list(groups.keys())
+    merge_map: dict[tuple, tuple] = {}  # maps secondary key → primary key
+    for ki in range(len(merged_keys)):
+        if merged_keys[ki] in merge_map:
+            continue
+        for kj in range(ki + 1, len(merged_keys)):
+            if merged_keys[kj] in merge_map:
+                continue
+            a_client, a_type, a_eff, a_exp = merged_keys[ki]
+            b_client, b_type, b_eff, b_exp = merged_keys[kj]
+            if a_client == b_client and a_eff == b_eff and a_exp == b_exp:
+                if _fuzz.WRatio(a_type, b_type) >= 80:
+                    merge_map[merged_keys[kj]] = merged_keys[ki]
+    # Apply merges
+    for secondary, primary in merge_map.items():
+        groups[primary].extend(groups.pop(secondary))
 
     candidates = []
     claimed_indices: set[int] = set()
@@ -754,7 +777,16 @@ def reconcile_run_match(
     ctx["results"] = all_results
     ctx["extras"] = extra_rows
     ctx["summary"] = summarize(all_results)
-    ctx["pairs"] = _find_likely_pairs(missing_rows, extra_rows)
+    # Build suggested pairs and annotate with board_results index for manual-pair
+    suggested_pairs = _find_likely_pairs(missing_rows, extra_rows)
+    # Map each unmatched ReconcileRow to its index in board_results
+    _unmatched_idx_map = {}
+    for bi, br in enumerate(board_results):
+        if br.status in ("MISSING", "UNMATCHED") and br.ext:
+            _unmatched_idx_map[id(br)] = bi
+    for sp in suggested_pairs:
+        sp["missing_idx"] = _unmatched_idx_map.get(id(sp["missing"]), -1)
+    ctx["pairs"] = suggested_pairs
     ctx["download_token"] = download_token
     ctx["today"] = date.today().isoformat()
     ctx["policy_types"] = cfg.get("policy_types", [])
