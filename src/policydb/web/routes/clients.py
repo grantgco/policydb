@@ -535,6 +535,14 @@ def client_tab_overview(request: Request, client_id: int, conn=Depends(get_db)):
                ORDER BY cm.meeting_date DESC LIMIT 6""",
             (client_id,),
         ).fetchall()],
+        "locations": _get_project_locations(conn, client_id),
+        "unassigned_count": conn.execute(
+            """SELECT COUNT(*) FROM policies
+               WHERE client_id=? AND archived=0
+               AND (project_id IS NULL OR project_id=0)
+               AND (is_opportunity=0 OR is_opportunity IS NULL)""",
+            (client_id,),
+        ).fetchone()[0],
     })
 
 
