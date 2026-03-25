@@ -120,6 +120,24 @@
 
     window.flashCell = flashCell;
 
+    /* ── Two-click confirmation for destructive actions ────────────────── */
+    window.confirmAction = function(btn, msg) {
+      if (btn.dataset.confirming === '1') {
+        btn.closest('form').submit();
+        return;
+      }
+      var orig = btn.textContent;
+      var origClass = btn.className;
+      btn.textContent = msg + ' Click again to confirm';
+      btn.dataset.confirming = '1';
+      btn.className = btn.className.replace(/border-\S+/g, 'border-gray-400').replace(/text-\S+/g, 'text-gray-800') + ' bg-gray-100 font-semibold';
+      setTimeout(function() {
+        btn.textContent = orig;
+        btn.className = origClass;
+        delete btn.dataset.confirming;
+      }, 3000);
+    };
+
     /* ── Tab Component ──────────────────────────────────────────────────── */
     window.initTabs = function(containerId, storageKey) {
       var container = document.getElementById(containerId);

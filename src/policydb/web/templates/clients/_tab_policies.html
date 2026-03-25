@@ -38,7 +38,7 @@
   {% set show_header = policy_groups | length > 1 or project_name %}
 
   {% if show_header %}
-  <details class="card mb-3 overflow-hidden" {% if group | length <= 8 %}open{% endif %}>
+  <details class="card mb-3 overflow-hidden" {% if not project_name or group | length <= 8 %}open{% endif %}>
     <summary class="px-4 py-2 bg-gray-50 border-b border-gray-200 cursor-pointer select-none list-none flex items-center gap-2 hover:bg-gray-100 transition-colors">
       <span class="text-xs text-gray-400 details-arrow">▶</span>
       {% set _proj_id = project_ids.get((project_name or '').lower().strip(), 0) if project_ids else 0 %}

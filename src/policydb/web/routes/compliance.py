@@ -911,6 +911,7 @@ def requirement_detail(
     req_id: int,
     request: Request,
     conn=Depends(get_db),
+    location_project_id: int | None = Query(None),
 ):
     """Return the slideover detail panel for a requirement."""
     req = conn.execute(
@@ -936,9 +937,12 @@ def requirement_detail(
         (client_id,),
     ).fetchall()]
 
+    # Use location context from viewing tab, falling back to requirement's own project_id
+    effective_pid = location_project_id or req_dict.get("project_id")
+
     # Policy links
     links = get_requirement_links(conn, req_id)
-    linkable = get_linkable_policies(conn, client_id)
+    linkable = get_linkable_policies(conn, client_id, req_project_id=effective_pid)
 
     # Primary linked policy for comparison
     primary_policy = None
@@ -964,6 +968,7 @@ def requirement_detail(
         "projects": projects,
         "links": links,
         "linkable_policies": linkable,
+        "location_project_id": effective_pid,
         "primary_policy": primary_policy,
         "auto_status": auto_status,
         "compliance_statuses": cfg.get("compliance_statuses", []),

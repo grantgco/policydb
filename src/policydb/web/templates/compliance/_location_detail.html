@@ -65,7 +65,18 @@
             {# Show all requirements from this source #}
             {% for r in reqs %}
               {% if (r.source_id or 0) == src_id %}
-              <tr id="req-row-{{ r.id }}" class="border-b border-gray-50 group">
+              {# Row color coding: status-based left border for quick compliance scan #}
+              {% set _rs = (r.compliance_status or 'Needs Review') | lower %}
+              {% set _line = r.coverage_line %}
+              {% set _is_overridden = false %}
+              {% if _line in gov %}
+                {% set _gov_req = gov[_line] %}
+                {% if not (_gov_req.source_name == r.source_name and _gov_req.required_limit == r.required_limit) %}
+                  {% set _is_overridden = true %}
+                {% endif %}
+              {% endif %}
+              {% set _rb = 'border-l-gray-200' if _is_overridden else 'border-l-green-400' if _rs == 'compliant' else 'border-l-red-400' if _rs == 'gap' else 'border-l-amber-400' if _rs == 'partial' else 'border-l-blue-300' if _rs == 'needs review' else 'border-l-gray-300' %}
+              <tr id="req-row-{{ r.id }}" class="border-b border-gray-50 group border-l-2 {{ _rb }}">
                 <td class="py-2 w-48">{{ r.coverage_line }}</td>
                 <td class="py-2 w-32">
                   {% if r.required_limit is not none %}
@@ -175,7 +186,7 @@
                 <td class="py-2 w-20 text-right no-print">
                   <span class="opacity-0 group-hover:opacity-100 transition-opacity">
                     <button class="text-marsh hover:text-green-800 text-xs mr-1"
-                            hx-get="/compliance/client/{{ client_id }}/requirements/{{ r.id }}/detail"
+                            hx-get="/compliance/client/{{ client_id }}/requirements/{{ r.id }}/detail?location_project_id={{ project.id }}"
                             hx-target="#requirement-slideover-container"
                             hx-swap="innerHTML">Edit</button>
                     <button class="text-red-400 hover:text-red-600 text-xs"
