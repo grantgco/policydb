@@ -281,7 +281,17 @@
     </div>
     {% endif %}
 
-    {# + Link Policy — search dropdown #}
+    {# + Link Policy — search dropdown with location grouping #}
+    {# Detect location context from _location_match tags #}
+    {% set ns = namespace(has_location_context=false, has_this=false, has_corporate=false, has_other=false, has_programs=false) %}
+    {% for pol in linkable_policies %}
+      {% if pol.get('_location_match') %}{% set ns.has_location_context = true %}{% endif %}
+      {% if pol.get('_location_match') == 'this' %}{% set ns.has_this = true %}{% endif %}
+      {% if pol.get('_location_match') == 'corporate' %}{% set ns.has_corporate = true %}{% endif %}
+      {% if pol.get('_location_match') == 'other' %}{% set ns.has_other = true %}{% endif %}
+      {% if pol.get('is_program') %}{% set ns.has_programs = true %}{% endif %}
+    {% endfor %}
+
     <div class="relative">
       <label class="block text-[10px] text-gray-500 uppercase tracking-wider mb-1">+ Link Policy</label>
       <input type="text" id="slideover-link-search"
@@ -289,23 +299,115 @@
              class="border border-gray-300 rounded px-2 py-1.5 text-sm w-full focus:outline-none focus:ring-1 focus:ring-marsh focus:border-marsh bg-white"
              autocomplete="off"
              onfocus="document.getElementById('slideover-link-dropdown').classList.remove('hidden')"
-             oninput="(function(el){var dd=document.getElementById('slideover-link-dropdown');dd.classList.remove('hidden');var q=el.value.toLowerCase();dd.querySelectorAll('[data-search]').forEach(function(r){r.style.display=r.dataset.search.includes(q)?'':'none'})})(this)">
+             oninput="(function(el){var dd=document.getElementById('slideover-link-dropdown');dd.classList.remove('hidden');var q=el.value.toLowerCase();dd.querySelectorAll('[data-search]').forEach(function(r){r.style.display=r.dataset.search.includes(q)?'':'none'});dd.querySelectorAll('[data-section-header]').forEach(function(h){var sec=h.nextElementSibling;var anyVisible=false;while(sec&&!sec.hasAttribute('data-section-header')){if(sec.style.display!=='none'&&sec.hasAttribute('data-search'))anyVisible=true;sec=sec.nextElementSibling}h.style.display=anyVisible||!q?'':'none'})})(this)">
       <div id="slideover-link-dropdown" class="hidden absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded shadow-lg max-h-48 overflow-y-auto">
+
+        {# ── Programs section ── #}
+        {% if ns.has_programs %}
+        <div data-section-header class="px-2 py-1 bg-gray-50 text-[10px] text-gray-400 uppercase tracking-wider font-semibold sticky top-0">Programs</div>
         {% for pol in linkable_policies %}
-        <button type="button"
-                data-search="{{ (pol.policy_uid + ' ' + (pol.policy_type or '') + ' ' + (pol.carrier or '')) | lower }}"
-                class="w-full text-left px-3 py-1.5 hover:bg-green-50 text-xs flex items-center gap-2 border-b border-gray-50"
-                onclick="addPolicyLink('{{ pol.policy_uid }}'); document.getElementById('slideover-link-dropdown').classList.add('hidden'); document.getElementById('slideover-link-search').value = '';">
-          <span class="font-mono text-gray-400">{{ pol.policy_uid }}</span>
-          <span class="font-medium">{{ pol.policy_type or '' }}</span>
-          {% if pol.carrier %}
-            <span class="text-gray-400">&middot; {{ pol.carrier }}</span>
+          {% if pol.get('is_program') %}
+          <button type="button"
+                  data-search="{{ (pol.policy_uid + ' ' + (pol.policy_type or '') + ' ' + (pol.carrier or '')) | lower }}"
+                  class="w-full text-left px-3 py-1.5 hover:bg-indigo-50 text-xs flex items-center gap-2 border-b border-gray-50"
+                  onclick="addPolicyLink('{{ pol.policy_uid }}'); document.getElementById('slideover-link-dropdown').classList.add('hidden'); document.getElementById('slideover-link-search').value = '';">
+            <span class="font-mono text-gray-400">{{ pol.policy_uid }}</span>
+            <span class="font-medium">{{ pol.policy_type or '' }}</span>
+            {% if pol.get('program_carrier_names') %}
+              <span class="text-gray-400">&middot; {{ pol.program_carrier_names | join(', ') }}</span>
+            {% elif pol.carrier %}
+              <span class="text-gray-400">&middot; {{ pol.carrier }}</span>
+            {% endif %}
+            <span class="bg-indigo-100 text-indigo-600 px-1 py-0.5 rounded text-[10px] ml-auto">program</span>
+          </button>
+          {% for child in pol.get('children', []) %}
+          <button type="button"
+                  data-search="{{ (child.policy_uid + ' ' + (child.policy_type or '') + ' ' + (child.carrier or '')) | lower }}"
+                  class="w-full text-left pl-8 pr-3 py-1 hover:bg-purple-50 text-xs flex items-center gap-2 border-b border-gray-50"
+                  onclick="addPolicyLink('{{ child.policy_uid }}'); document.getElementById('slideover-link-dropdown').classList.add('hidden'); document.getElementById('slideover-link-search').value = '';">
+            <span class="text-gray-300">&#8627;</span>
+            <span class="font-mono text-gray-400">{{ child.policy_uid }}</span>
+            <span>{{ child.policy_type or '' }}</span>
+            {% if child.carrier %}
+              <span class="text-gray-400">&middot; {{ child.carrier }}</span>
+            {% endif %}
+            <span class="bg-purple-100 text-purple-600 px-1 py-0.5 rounded text-[10px] ml-auto">child</span>
+          </button>
+          {% endfor %}
           {% endif %}
-          {% if pol.limit_amount %}
-            <span class="text-gray-400 ml-auto">{{ pol.limit_amount | currency_short }}</span>
-          {% endif %}
-        </button>
         {% endfor %}
+        {% endif %}
+
+        {% if ns.has_location_context %}
+          {# ── This Location + Corporate ── #}
+          {% if ns.has_this or ns.has_corporate %}
+          <div data-section-header class="px-2 py-1 bg-green-50 text-[10px] text-green-700 uppercase tracking-wider font-semibold sticky top-0 border-t border-green-100">&#9679; This Location</div>
+          {% for pol in linkable_policies %}
+            {% if not pol.get('is_program') and not pol.get('program_id') and pol.get('_location_match') == 'this' %}
+            <button type="button"
+                    data-search="{{ (pol.policy_uid + ' ' + (pol.policy_type or '') + ' ' + (pol.carrier or '')) | lower }}"
+                    class="w-full text-left px-3 py-1.5 hover:bg-green-50 text-xs flex items-center gap-2 border-b border-gray-50 border-l-2 border-l-green-400"
+                    onclick="addPolicyLink('{{ pol.policy_uid }}'); document.getElementById('slideover-link-dropdown').classList.add('hidden'); document.getElementById('slideover-link-search').value = '';">
+              <span class="font-mono text-gray-400">{{ pol.policy_uid }}</span>
+              <span class="font-medium text-gray-900">{{ pol.policy_type or '' }}</span>
+              {% if pol.carrier %}<span class="text-gray-400">&middot; {{ pol.carrier }}</span>{% endif %}
+              {% if pol.limit_amount %}<span class="text-gray-400 ml-auto">{{ pol.limit_amount | currency_short }}</span>{% endif %}
+              <span class="bg-green-100 text-green-700 px-1 py-0.5 rounded text-[10px]">location</span>
+            </button>
+            {% endif %}
+          {% endfor %}
+          {% for pol in linkable_policies %}
+            {% if not pol.get('is_program') and not pol.get('program_id') and pol.get('_location_match') == 'corporate' %}
+            <button type="button"
+                    data-search="{{ (pol.policy_uid + ' ' + (pol.policy_type or '') + ' ' + (pol.carrier or '')) | lower }}"
+                    class="w-full text-left px-3 py-1.5 hover:bg-green-50 text-xs flex items-center gap-2 border-b border-gray-50"
+                    onclick="addPolicyLink('{{ pol.policy_uid }}'); document.getElementById('slideover-link-dropdown').classList.add('hidden'); document.getElementById('slideover-link-search').value = '';">
+              <span class="font-mono text-gray-400">{{ pol.policy_uid }}</span>
+              <span class="font-medium text-gray-700">{{ pol.policy_type or '' }}</span>
+              {% if pol.carrier %}<span class="text-gray-400">&middot; {{ pol.carrier }}</span>{% endif %}
+              {% if pol.limit_amount %}<span class="text-gray-400 ml-auto">{{ pol.limit_amount | currency_short }}</span>{% endif %}
+            </button>
+            {% endif %}
+          {% endfor %}
+          {% endif %}
+
+          {# ── Other Locations ── #}
+          {% if ns.has_other %}
+          <div data-section-header class="px-2 py-1 bg-gray-100 text-[10px] text-gray-400 uppercase tracking-wider font-semibold sticky top-0 border-t border-gray-200">Other Locations</div>
+          {% for pol in linkable_policies %}
+            {% if not pol.get('is_program') and not pol.get('program_id') and pol.get('_location_match') == 'other' %}
+            <button type="button"
+                    data-search="{{ (pol.policy_uid + ' ' + (pol.policy_type or '') + ' ' + (pol.carrier or '') + ' ' + (pol.get('_project_name') or '')) | lower }}"
+                    class="w-full text-left px-3 py-1.5 hover:bg-gray-50 text-xs flex items-center gap-2 border-b border-gray-50 opacity-60"
+                    onclick="addPolicyLink('{{ pol.policy_uid }}'); document.getElementById('slideover-link-dropdown').classList.add('hidden'); document.getElementById('slideover-link-search').value = '';">
+              <span class="font-mono text-gray-400">{{ pol.policy_uid }}</span>
+              <span class="text-gray-500">{{ pol.policy_type or '' }}</span>
+              {% if pol.carrier %}<span class="text-gray-400">&middot; {{ pol.carrier }}</span>{% endif %}
+              {% if pol.get('_project_name') %}
+                <span class="text-gray-400 text-[10px] ml-auto truncate max-w-[120px]" title="{{ pol._project_name }}">@ {{ pol._project_name }}</span>
+              {% endif %}
+            </button>
+            {% endif %}
+          {% endfor %}
+          {% endif %}
+        {% else %}
+          {# ── No location context — flat list ── #}
+          <div data-section-header class="px-2 py-1 bg-gray-50 text-[10px] text-gray-400 uppercase tracking-wider font-semibold sticky top-0">Policies</div>
+          {% for pol in linkable_policies %}
+            {% if not pol.get('is_program') and not pol.get('program_id') %}
+            <button type="button"
+                    data-search="{{ (pol.policy_uid + ' ' + (pol.policy_type or '') + ' ' + (pol.carrier or '')) | lower }}"
+                    class="w-full text-left px-3 py-1.5 hover:bg-green-50 text-xs flex items-center gap-2 border-b border-gray-50"
+                    onclick="addPolicyLink('{{ pol.policy_uid }}'); document.getElementById('slideover-link-dropdown').classList.add('hidden'); document.getElementById('slideover-link-search').value = '';">
+              <span class="font-mono text-gray-400">{{ pol.policy_uid }}</span>
+              <span class="font-medium">{{ pol.policy_type or '' }}</span>
+              {% if pol.carrier %}<span class="text-gray-400">&middot; {{ pol.carrier }}</span>{% endif %}
+              {% if pol.limit_amount %}<span class="text-gray-400 ml-auto">{{ pol.limit_amount | currency_short }}</span>{% endif %}
+            </button>
+            {% endif %}
+          {% endfor %}
+        {% endif %}
+
         {% if not linkable_policies %}
           <div class="px-3 py-2 text-xs text-gray-400 italic">No linkable policies found for this client.</div>
         {% endif %}
