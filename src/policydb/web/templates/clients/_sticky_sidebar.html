@@ -68,11 +68,13 @@
          class="text-xs text-center bg-gray-50 hover:bg-gray-100 text-marsh rounded px-2 py-1.5 transition-colors">Export Schedule</a>
       <a href="/briefing/client/{{ client.id }}"
          class="text-xs text-center bg-gray-50 hover:bg-gray-100 text-marsh rounded px-2 py-1.5 transition-colors">View Briefing</a>
+      <a href="/clients/{{ client.id }}/export/book-review"
+         class="text-xs text-center bg-gray-50 hover:bg-gray-100 text-amber-700 rounded px-2 py-1.5 transition-colors">Book Review</a>
       <button type="button"
          hx-get="/clients/{{ client.id }}/ai-bulk-import/prompt"
          hx-target="#ai-import-container"
          hx-swap="innerHTML"
-         class="text-xs text-center bg-gray-50 hover:bg-gray-100 text-purple-700 rounded px-2 py-1.5 transition-colors col-span-2">AI Bulk Import</button>
+         class="text-xs text-center bg-gray-50 hover:bg-gray-100 text-purple-700 rounded px-2 py-1.5 transition-colors">AI Bulk Import</button>
     </div>
     <p class="text-[10px] text-gray-400 uppercase tracking-wide mt-2 mb-1">Quick CSV Exports</p>
     <div class="grid grid-cols-2 gap-1">

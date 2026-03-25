@@ -2696,6 +2696,182 @@ async def program_carrier_reorder(
     return JSONResponse({"ok": True})
 
 
+# ── Merge & Dissolve Programs ─────────────────────────────────────────────────
+
+
+@router.post("/{policy_uid}/program-merge", response_class=HTMLResponse)
+def program_merge(
+    request: Request,
+    policy_uid: str,
+    merge_from_uid: str = Form(""),
+    conn=Depends(get_db),
+):
+    """Merge another program INTO this one. Moves carrier rows and child policies."""
+    target_uid = policy_uid.upper()
+    source_uid = merge_from_uid.upper()
+
+    target = conn.execute(
+        "SELECT id, policy_type, client_id FROM policies WHERE policy_uid = ? AND is_program = 1",
+        (target_uid,),
+    ).fetchone()
+    source = conn.execute(
+        "SELECT id, policy_type FROM policies WHERE policy_uid = ? AND is_program = 1",
+        (source_uid,),
+    ).fetchone()
+
+    if not target or not source:
+        return HTMLResponse('<div class="text-xs text-red-500 p-2">Program not found.</div>')
+    if target["id"] == source["id"]:
+        return HTMLResponse('<div class="text-xs text-red-500 p-2">Cannot merge a program into itself.</div>')
+
+    # Get current max sort_order in target
+    max_sort = conn.execute(
+        "SELECT COALESCE(MAX(sort_order), 0) as m FROM program_carriers WHERE program_id = ?",
+        (target["id"],),
+    ).fetchone()["m"]
+
+    # Move carrier rows from source to target
+    source_carriers = conn.execute(
+        "SELECT id FROM program_carriers WHERE program_id = ?", (source["id"],)
+    ).fetchall()
+    for i, sc in enumerate(source_carriers):
+        conn.execute(
+            "UPDATE program_carriers SET program_id = ?, sort_order = ? WHERE id = ?",
+            (target["id"], max_sort + i + 1, sc["id"]),
+        )
+
+    # Move child policies from source to target
+    conn.execute(
+        "UPDATE policies SET program_id = ? WHERE program_id = ?",
+        (target["id"], source["id"]),
+    )
+
+    # Recalculate target totals
+    _update_program_totals(conn, target["id"])
+
+    # Archive the source program (now empty)
+    conn.execute(
+        "UPDATE policies SET archived = 1, is_program = 0 WHERE id = ?",
+        (source["id"],),
+    )
+    conn.commit()
+
+    carrier_count = conn.execute(
+        "SELECT COUNT(*) as c FROM program_carriers WHERE program_id = ?", (target["id"],)
+    ).fetchone()["c"]
+    logger.info("Merged program %s into %s (%d carriers total)", source_uid, target_uid, carrier_count)
+
+    return HTMLResponse(
+        f'<div class="text-xs text-green-600 p-2">'
+        f'Merged {source_uid} into {target_uid} — {carrier_count} carriers total. '
+        f'{source_uid} has been archived.</div>',
+        headers={"HX-Trigger": "policyChanged"},
+    )
+
+
+@router.post("/{policy_uid}/program-dissolve", response_class=HTMLResponse)
+def program_dissolve(
+    request: Request,
+    policy_uid: str,
+    conn=Depends(get_db),
+):
+    """Dissolve a program: unlink all child policies and delete carrier rows.
+    The parent program policy becomes a regular standalone policy."""
+    uid = policy_uid.upper()
+    program = conn.execute(
+        "SELECT id, policy_type, client_id FROM policies WHERE policy_uid = ? AND is_program = 1",
+        (uid,),
+    ).fetchone()
+    if not program:
+        return HTMLResponse('<div class="text-xs text-red-500 p-2">Program not found.</div>')
+
+    # Count what we're dissolving
+    carrier_count = conn.execute(
+        "SELECT COUNT(*) as c FROM program_carriers WHERE program_id = ?", (program["id"],)
+    ).fetchone()["c"]
+    child_count = conn.execute(
+        "SELECT COUNT(*) as c FROM policies WHERE program_id = ? AND archived = 0", (program["id"],)
+    ).fetchone()["c"]
+
+    # Unlink all child policies (set program_id = NULL)
+    conn.execute("UPDATE policies SET program_id = NULL WHERE program_id = ?", (program["id"],))
+
+    # Delete all carrier rows
+    conn.execute("DELETE FROM program_carriers WHERE program_id = ?", (program["id"],))
+
+    # Convert parent to non-program standalone
+    conn.execute(
+        "UPDATE policies SET is_program = 0, program_carrier_count = 0 WHERE id = ?",
+        (program["id"],),
+    )
+    conn.commit()
+
+    logger.info("Dissolved program %s: %d carriers removed, %d children unlinked", uid, carrier_count, child_count)
+
+    return HTMLResponse(
+        f'<div class="text-xs text-green-600 p-2">'
+        f'Program {uid} dissolved — {carrier_count} carriers removed, '
+        f'{child_count} child policies returned to standalone.</div>',
+        headers={"HX-Trigger": "policyChanged"},
+    )
+
+
+@router.get("/{policy_uid}/program-merge-form", response_class=HTMLResponse)
+def program_merge_form(
+    request: Request,
+    policy_uid: str,
+    conn=Depends(get_db),
+):
+    """Return a small form with a dropdown of other programs to merge from."""
+    uid = policy_uid.upper()
+    program = conn.execute(
+        "SELECT id, client_id, policy_type FROM policies WHERE policy_uid = ? AND is_program = 1",
+        (uid,),
+    ).fetchone()
+    if not program:
+        return HTMLResponse('<div class="text-xs text-red-500 p-2">Program not found.</div>')
+
+    # Find other programs for the same client
+    others = conn.execute(
+        """SELECT policy_uid, policy_type, carrier, premium
+           FROM policies
+           WHERE client_id = ? AND is_program = 1 AND archived = 0 AND policy_uid != ?
+           ORDER BY policy_type""",
+        (program["client_id"], uid),
+    ).fetchall()
+
+    if not others:
+        return HTMLResponse('<div class="text-xs text-gray-400 p-2">No other programs to merge.</div>')
+
+    options = ""
+    for o in others:
+        prem = f"${o['premium']:,.0f}" if o['premium'] else ""
+        options += f'<option value="{o["policy_uid"]}">{o["policy_uid"]} — {o["policy_type"]} ({o["carrier"] or "multiple"}) {prem}</option>'
+
+    return HTMLResponse(f'''
+    <div class="border border-blue-200 bg-blue-50 rounded-lg p-3 mt-2">
+      <p class="text-xs font-medium text-blue-800 mb-2">Merge another program into {uid}</p>
+      <form hx-post="/policies/{uid}/program-merge" hx-target="#merge-result" hx-swap="innerHTML" class="flex items-end gap-2">
+        <div class="flex-1">
+          <label class="text-xs text-gray-500 mb-0.5 block">Merge from:</label>
+          <select name="merge_from_uid" required
+            class="w-full border border-gray-300 rounded px-2 py-1.5 text-xs bg-white">
+            {options}
+          </select>
+        </div>
+        <button type="submit"
+          class="text-xs bg-blue-600 hover:bg-blue-700 text-white font-medium px-3 py-1.5 rounded transition-colors whitespace-nowrap"
+          onclick="return confirm('Merge selected program into {uid}? The source program will be archived.')">
+          Merge
+        </button>
+        <button type="button" onclick="this.closest('.border').remove()"
+          class="text-xs text-gray-500 hover:text-gray-700 px-2 py-1.5">Cancel</button>
+      </form>
+      <div id="merge-result" class="mt-2"></div>
+    </div>
+    ''')
+
+
 @router.post("/{policy_uid}/edit")
 def policy_edit_post(
     request: Request,
