@@ -1081,7 +1081,12 @@ def policy_provenance(request: Request, policy_uid: str, field: str = "", conn=D
         "description": "Description",
     }
 
-    parts = ['<div class="space-y-3">']
+    parts = ['<div class="card p-4 space-y-3">']
+    parts.append('<div class="flex items-center justify-between mb-1">')
+    parts.append('<h3 class="text-sm font-semibold text-gray-700">Field Provenance</h3>')
+    parts.append(f'<button onclick="document.getElementById(\'provenance-drawer\').innerHTML=\'\'"'
+                 f' class="text-gray-400 hover:text-gray-600 text-xs">Close</button>')
+    parts.append('</div>')
 
     # Stats bar
     parts.append('<div class="flex items-center gap-3 text-xs">')
@@ -1101,20 +1106,20 @@ def policy_provenance(request: Request, policy_uid: str, field: str = "", conn=D
     if not field:
         tracked_fields = sorted(set(e["field_name"] for e in entries))
         parts.append('<div class="flex flex-wrap gap-1.5">')
-        parts.append(f'<button hx-get="/policies/{uid}/provenance" hx-target="#provenance-panel" '
+        parts.append(f'<button hx-get="/policies/{uid}/provenance" hx-target="#provenance-drawer" '
                      f'class="text-[10px] px-2 py-0.5 rounded-full bg-marsh text-white">All</button>')
         for f in tracked_fields:
             is_conflict = f in conflicts
             cls = "bg-amber-100 text-amber-700 border border-amber-200" if is_conflict else "bg-gray-100 text-gray-600 hover:bg-gray-200"
             label = _FIELD_LABELS.get(f, f.replace("_", " ").title())
-            parts.append(f'<button hx-get="/policies/{uid}/provenance?field={f}" hx-target="#provenance-panel" '
+            parts.append(f'<button hx-get="/policies/{uid}/provenance?field={f}" hx-target="#provenance-drawer" '
                          f'class="text-[10px] px-2 py-0.5 rounded-full {cls}">{label}</button>')
         parts.append('</div>')
     else:
         label = _FIELD_LABELS.get(field, field.replace("_", " ").title())
         parts.append(f'<div class="flex items-center gap-2">')
         parts.append(f'<span class="text-xs font-medium text-gray-700">{label}</span>')
-        parts.append(f'<button hx-get="/policies/{uid}/provenance" hx-target="#provenance-panel" '
+        parts.append(f'<button hx-get="/policies/{uid}/provenance" hx-target="#provenance-drawer" '
                      f'class="text-[10px] text-marsh hover:underline">Show all</button>')
         parts.append('</div>')
 
