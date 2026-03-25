@@ -200,8 +200,47 @@ def compute_compliance_summary(governing: dict[str, dict]) -> dict:
         else:
             counts["needs_review"] += 1
 
-    pct = round(counts["compliant"] / total * 100) if total else 0
+    # Exclude Waived and N/A from the denominator — they don't represent
+    # active coverage needs, so they shouldn't drag down the percentage.
+    applicable = total - counts["waived"] - counts["na"]
+    pct = round(counts["compliant"] / applicable * 100) if applicable else (100 if total else 0)
     return {"total": total, **counts, "compliance_pct": pct}
+
+
+def compute_auto_status(requirement: dict, policy: dict | None) -> str:
+    """Auto-compute compliance status from requirement vs. linked policy.
+
+    Returns "Compliant", "Partial", or "Gap".
+    - No policy → Gap
+    - Policy limit < required limit → Gap
+    - Policy deductible > max deductible → Gap
+    - Limits pass but endorsements required → Partial
+    - Limits pass and no endorsements → Compliant
+    """
+    if policy is None:
+        return "Gap"
+
+    req_limit = float(requirement.get("required_limit") or 0)
+    pol_limit = float(policy.get("limit_amount") or 0)
+    if req_limit > 0 and pol_limit < req_limit:
+        return "Gap"
+
+    max_ded = requirement.get("max_deductible")
+    if max_ded is not None:
+        pol_ded = float(policy.get("deductible") or 0)
+        if pol_ded > float(max_ded):
+            return "Gap"
+
+    # Check endorsements
+    endorsements_raw = requirement.get("required_endorsements") or "[]"
+    try:
+        endorsements = json.loads(endorsements_raw) if isinstance(endorsements_raw, str) else endorsements_raw
+    except (ValueError, TypeError):
+        endorsements = []
+    if endorsements:
+        return "Partial"
+
+    return "Compliant"
 
 
 def get_requirement_links(conn, requirement_id: int) -> list[dict]:
@@ -462,6 +501,26 @@ def get_client_compliance_data(conn, client_id: int) -> dict:
                 )
                 if suggestion:
                     gov_req["suggested_policy"] = suggestion
+
+        # Auto-compute status for "Needs Review" governing requirements
+        for line, gov_req in gov.items():
+            status = (gov_req.get("compliance_status") or "Needs Review")
+            override = gov_req.get("status_manual_override", 0)
+            if status == "Needs Review" and not override and gov_req.get("linked_policy_uid"):
+                # Fetch primary linked policy data
+                pol = conn.execute(
+                    "SELECT limit_amount, deductible FROM policies WHERE policy_uid = ? AND archived = 0",
+                    (gov_req["linked_policy_uid"],),
+                ).fetchone()
+                if pol:
+                    new_status = compute_auto_status(gov_req, dict(pol))
+                    if new_status != status:
+                        conn.execute(
+                            "UPDATE coverage_requirements SET compliance_status = ? WHERE id = ?",
+                            (new_status, gov_req["id"]),
+                        )
+                        gov_req["compliance_status"] = new_status
+        conn.commit()
 
         summary = compute_compliance_summary(gov)
 

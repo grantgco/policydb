@@ -359,7 +359,7 @@ def init_db(path: Path | None = None) -> None:
 
     # Back up the database once before running any pending migrations.
     # This gives a clean restore point regardless of which migration fails.
-    _KNOWN_MIGRATIONS = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75}
+    _KNOWN_MIGRATIONS = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,78}
     if _KNOWN_MIGRATIONS - applied:
         _backup_db(conn, db_path)
 
@@ -1070,6 +1070,19 @@ def init_db(path: Path | None = None) -> None:
         conn.execute(
             "INSERT INTO schema_version (version, description) VALUES (?, ?)",
             (77, "Add latitude/longitude columns to projects for map geocoding cache"),
+        )
+        conn.commit()
+
+    if 78 not in applied:
+        # Idempotent: column may already exist from another worktree
+        _has_col = conn.execute(
+            "SELECT COUNT(*) FROM pragma_table_info('coverage_requirements') WHERE name='status_manual_override'"
+        ).fetchone()[0]
+        if not _has_col:
+            conn.executescript((_MIGRATIONS_DIR / "078_status_manual_override.sql").read_text())
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (78, "Add status_manual_override to coverage_requirements"),
         )
         conn.commit()
 
