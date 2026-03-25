@@ -175,9 +175,9 @@
                 <td class="py-2 w-20 text-right no-print">
                   <span class="opacity-0 group-hover:opacity-100 transition-opacity">
                     <button class="text-marsh hover:text-green-800 text-xs mr-1"
-                            hx-get="/compliance/client/{{ client_id }}/requirements/{{ r.id }}/row/edit"
-                            hx-target="#req-row-{{ r.id }}"
-                            hx-swap="outerHTML">Edit</button>
+                            hx-get="/compliance/client/{{ client_id }}/requirements/{{ r.id }}/detail"
+                            hx-target="#requirement-slideover-container"
+                            hx-swap="innerHTML">Edit</button>
                     <button class="text-red-400 hover:text-red-600 text-xs"
                             hx-post="/compliance/client/{{ client_id }}/requirements/{{ r.id }}/delete"
                             hx-target="#location-tab-content"
