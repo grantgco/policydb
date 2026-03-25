@@ -454,7 +454,7 @@ def _score_pair(
 
     # ── Text field diff tracking (no scoring weight, just diff detection) ────
     for tf in ("first_named_insured", "placement_colleague",
-               "underwriter_name", "exposure_address"):
+               "underwriter_name", "exposure_address", "project_name"):
         ext_val = str(ext.get(tf) or "").strip()
         db_val = str(db.get(tf) or "").strip()
         if ext_val and not db_val:
@@ -572,10 +572,20 @@ def _resolve_program_carrier(ext: dict, db: dict, ext_pn_norm: str) -> tuple[int
     return None, db
 
 
-def reconcile(ext_rows: list[dict], db_rows: list[dict], date_priority: bool = False, single_client: bool = False) -> list[ReconcileRow]:
+def reconcile(
+    ext_rows: list[dict],
+    db_rows: list[dict],
+    date_priority: bool = False,
+    single_client: bool = False,
+    conn=None,
+    source_name: str = "",
+) -> list[ReconcileRow]:
     """
-    Match ext_rows against db_rows using a 3-pass algorithm.
+    Match ext_rows against db_rows using a 4-pass algorithm.
 
+    Pass 0: Match memory lookup — if a source_name and conn are provided,
+            look up prior identity pairs so previously matched policies
+            auto-pair without scoring.
     Pass 1: Exact policy number match (normalized). Includes program carrier
             row policy numbers. Uses _score_pair() for full scoring.
     Pass 2: Scored match for remaining unmatched ext rows. Best match per ext
@@ -591,7 +601,9 @@ def reconcile(ext_rows: list[dict], db_rows: list[dict], date_priority: bool = F
     # Build DB indexes — use normalized policy numbers for flexible matching
     # Maps normalized policy number → (db_row, is_from_program_carrier)
     db_by_polnum: dict[str, dict] = {}
-    for db in db_rows:
+    db_by_id: dict[int, tuple[dict, int]] = {}  # policy_id → (db_row, index)
+    for idx, db in enumerate(db_rows):
+        db_by_id[db.get("id", 0)] = (db, idx)
         pn = normalize_policy_number_for_matching(db.get("policy_number") or "")
         if pn and pn not in db_by_polnum:
             db_by_polnum[pn] = db
@@ -615,6 +627,62 @@ def reconcile(ext_rows: list[dict], db_rows: list[dict], date_priority: bool = F
         """Remove db row from candidates unless it's a program (programs accept multiple matches)."""
         if db_idx not in _program_indices:
             db_unmatched.discard(db_idx)
+
+    # ── Pass 0: Match memory lookup ────────────────────────────────────────────
+    _memory_match_count = 0
+    if conn is not None and source_name:
+        try:
+            from policydb.match_memory import lookup_batch
+            # Build external keys from all ext rows (raw + normalized policy numbers)
+            ext_keys: dict[str, list[int]] = {}  # external_key → [ext_row_indices]
+            for i, ext in enumerate(ext_rows):
+                pn = (ext.get("policy_number") or "").strip()
+                if pn:
+                    ext_keys.setdefault(pn, []).append(i)
+                    norm = normalize_policy_number_for_matching(pn)
+                    if norm and norm != pn:
+                        ext_keys.setdefault(norm, []).append(i)
+
+            if ext_keys:
+                memory = lookup_batch(conn, source_name, list(ext_keys.keys()))
+                for ext_key, policy_id in memory.items():
+                    if policy_id not in db_by_id:
+                        continue
+                    db, db_idx = db_by_id[policy_id]
+                    if db_idx not in db_unmatched:
+                        continue
+                    for i in ext_keys.get(ext_key, []):
+                        if i in ext_matched:
+                            continue
+                        _claim_db(db_idx)
+                        ext_matched.add(i)
+                        ext = ext_rows[i]
+
+                        is_program = db_idx in _program_indices
+                        matched_cid, score_target = _resolve_program_carrier(ext, db,
+                            normalize_policy_number_for_matching(ext.get("policy_number") or ""))
+                        if matched_cid and score_target is not db:
+                            score_db = {**db, "carrier": score_target.get("carrier", ""),
+                                        "policy_number": score_target.get("policy_number", ""),
+                                        "premium": score_target.get("premium", 0),
+                                        "limit_amount": score_target.get("limit_amount", 0)}
+                        else:
+                            score_db = db
+                        breakdown = _score_pair(ext, score_db, single_client=single_client)
+                        row = _build_reconcile_row(ext, db, breakdown, "memory",
+                                                   is_program_match=is_program,
+                                                   matched_carrier_id=matched_cid)
+                        results.append(row)
+                        _memory_match_count += 1
+                        break  # one ext row per db match
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception("Match memory Pass 0 failed — falling through to scoring")
+
+    if _memory_match_count:
+        import logging
+        logging.getLogger(__name__).info("Pass 0 (match memory): %d auto-matches from source '%s'",
+                                         _memory_match_count, source_name)
 
     # ── Pass 1: Exact policy number match ──────────────────────────────────────
     for i, ext in enumerate(ext_rows):

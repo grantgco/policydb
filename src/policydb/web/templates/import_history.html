@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}Import History — Coverage{% endblock %}
+{% block content %}
+
+<div class="max-w-5xl mx-auto">
+  <h1 class="text-xl font-bold text-gray-900 mb-6">Import History</h1>
+
+  {# ── Source Profiles ── #}
+  {% if profiles %}
+  <div class="card p-4 mb-6">
+    <h2 class="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-3">Source Profiles</h2>
+    <div class="overflow-x-auto">
+      <table class="w-full text-xs">
+        <thead>
+          <tr class="border-b border-gray-200 text-gray-500 text-left">
+            <th class="py-2 px-2">Source</th>
+            <th class="py-2 px-2">Type</th>
+            <th class="py-2 px-2">Uses</th>
+            <th class="py-2 px-2">Last Used</th>
+            <th class="py-2 px-2">Column Mappings</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in profiles %}
+          <tr class="border-b border-gray-100 hover:bg-gray-50">
+            <td class="py-1.5 px-2 font-medium text-gray-800">{{ p.source_name }}</td>
+            <td class="py-1.5 px-2 text-gray-500">{{ p.source_type or '' }}</td>
+            <td class="py-1.5 px-2 tabular-nums">{{ p.use_count or 0 }}</td>
+            <td class="py-1.5 px-2 text-gray-500">{{ (p.last_used or '')[:10] }}</td>
+            <td class="py-1.5 px-2">
+              {% if p._map_count %}
+              <span class="text-green-600">{{ p._map_count }} fields mapped</span>
+              {% else %}
+              <span class="text-gray-400">None</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  {# ── Recent Sessions ── #}
+  <div class="card p-4">
+    <h2 class="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-3">Recent Sessions</h2>
+    {% if not sessions %}
+    <p class="text-sm text-gray-400">No import sessions yet. Upload a file via the <a href="/reconcile" class="text-marsh hover:underline">Reconcile</a> page to get started.</p>
+    {% else %}
+    <div class="overflow-x-auto">
+      <table class="w-full text-xs">
+        <thead>
+          <tr class="border-b border-gray-200 text-gray-500 text-left">
+            <th class="py-2 px-2">Date</th>
+            <th class="py-2 px-2">Source</th>
+            <th class="py-2 px-2">Client</th>
+            <th class="py-2 px-2">File</th>
+            <th class="py-2 px-2">Rows</th>
+            <th class="py-2 px-2">Matched</th>
+            <th class="py-2 px-2">Created</th>
+            <th class="py-2 px-2">Updated</th>
+            <th class="py-2 px-2">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for s in sessions %}
+          {% set status_cls = {'completed': 'text-green-700 bg-green-50', 'in_progress': 'text-blue-700 bg-blue-50', 'cancelled': 'text-gray-500 bg-gray-50'} %}
+          <tr class="border-b border-gray-100 hover:bg-gray-50">
+            <td class="py-1.5 px-2 tabular-nums text-gray-500">{{ (s.imported_at or '')[:16] }}</td>
+            <td class="py-1.5 px-2 font-medium text-gray-800">{{ s.source_name or '' }}</td>
+            <td class="py-1.5 px-2">{{ s.client_name or '' }}</td>
+            <td class="py-1.5 px-2 text-gray-500 truncate max-w-[150px]" title="{{ s.file_name or '' }}">{{ s.file_name or '' }}</td>
+            <td class="py-1.5 px-2 tabular-nums">{{ s.row_count or 0 }}</td>
+            <td class="py-1.5 px-2 tabular-nums">{{ s.matched_count or 0 }}</td>
+            <td class="py-1.5 px-2 tabular-nums">{{ s.created_count or 0 }}</td>
+            <td class="py-1.5 px-2 tabular-nums">{{ s.updated_count or 0 }}</td>
+            <td class="py-1.5 px-2">
+              <span class="px-1.5 py-0.5 rounded text-[10px] font-medium {{ status_cls.get(s.status, 'text-gray-500 bg-gray-50') }}">{{ s.status or '' }}</span>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{% endblock %}

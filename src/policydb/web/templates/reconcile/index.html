@@ -28,17 +28,39 @@
 <!-- Upload form -->
 <div class="card p-5 mb-5">
   <form action="/reconcile" method="post" enctype="multipart/form-data" class="space-y-4">
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+    <div class="grid grid-cols-1 md:grid-cols-5 gap-4">
 
       <!-- File -->
-      <div class="md:col-span-1">
+      <div>
         <label class="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">CSV File</label>
         <input type="file" name="file" id="reconcile-file-input" accept=".csv,.txt,.xlsx,.xls" required
           class="block w-full text-sm text-gray-700 border border-gray-300 rounded-lg px-3 py-2
                  file:mr-3 file:py-1 file:px-3 file:rounded file:border-0
                  file:text-xs file:font-medium file:bg-marsh file:text-white hover:file:bg-marsh-light
                  focus:outline-none focus:ring-2 focus:ring-marsh">
-        <p class="text-xs text-gray-400 mt-1">CSV or Excel — map your columns below after selecting.</p>
+        <p class="text-xs text-gray-400 mt-1">CSV or Excel — map columns below.</p>
+      </div>
+
+      <!-- Source name (for match memory) -->
+      <div>
+        <label class="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Data Source</label>
+        <input type="text" name="source_name" list="source-names-list" value="{{ selected_source_name or '' }}"
+          placeholder="e.g. AMS Export, Manual Sheet"
+          class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-marsh bg-white">
+        <datalist id="source-names-list">
+          {% for sn in source_names %}
+          <option value="{{ sn }}">
+          {% endfor %}
+        </datalist>
+        <p class="text-xs text-gray-400 mt-1">Helps remember matches · <a href="/import-history" class="text-marsh hover:underline">History</a></p>
+      </div>
+
+      <!-- As-of date -->
+      <div>
+        <label class="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Data As-Of</label>
+        <input type="date" name="as_of_date" value="{{ selected_as_of_date or '' }}"
+          class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-marsh bg-white">
+        <p class="text-xs text-gray-400 mt-1">When this data was current</p>
       </div>
 
       <!-- Client filter -->

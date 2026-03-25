@@ -45,8 +45,14 @@ _LAST_MISSING_TOKEN: str = ""  # most recent token for batch-create fallback
 _BOARD_CACHE: dict[str, tuple[list, list, list, float]] = {}
 
 # Pre-match validation cache: token → (parsed_rows, warnings, upload_params, timestamp)
-# upload_params stores client_id, scope, date_priority, filename so the match can run later
+# upload_params stores client_id, scope, date_priority, filename, source_name so the match can run later
 _PARSED_CACHE: dict[str, tuple[list[dict], list[str], dict, float]] = {}
+
+# Source name per board token (for match memory learning on confirm/create)
+_SOURCE_NAME_CACHE: dict[str, str] = {}
+
+# Import session ID per board token (for completing session with stats)
+_SESSION_ID_CACHE: dict[str, int] = {}
 
 def _cache_cleanup():
     """Remove cache entries older than 1 hour."""
@@ -128,37 +134,134 @@ def _render_counters(summary: dict) -> str:
 
 
 def _detect_program_candidates(results: list) -> list[dict]:
-    """Detect groups of unmatched rows that look like a program (same client+type+dates, 2+ carriers).
+    """Detect groups of unmatched rows that look like a program.
+
+    Detection strategies:
+    1. Same client + type + dates, 2+ different carriers (existing)
+    2. Tower pattern: same client + type, different limits suggesting layers
+    3. Shared policy number prefix (e.g. PROG-GL-001A, PROG-GL-001B)
 
     Returns a list of dicts, each with:
-      client, type, effective_date, expiration_date, carriers (list), row_indices (list of int)
+      client, type, effective_date, expiration_date, carriers (list),
+      row_indices (list of int), carrier_details (list of dicts with premium/limit/policy_number),
+      detection_method (str)
     """
     from collections import defaultdict
-    groups: dict[tuple, list[tuple[int, str]]] = defaultdict(list)
+
+    # ── Strategy 1: Same client + type + dates, 2+ carriers ──
+    # Use normalized coverage type so "General Liability" and "Commercial General Liability"
+    # are recognized as the same type and group into one program candidate.
+    from policydb.utils import normalize_coverage_type as _nct
+    from rapidfuzz import fuzz as _fuzz
+
+    groups: dict[tuple, list[tuple[int, str, dict]]] = defaultdict(list)
     for i, r in enumerate(results):
         if r.status not in ("UNMATCHED", "MISSING"):
             continue
         e = r.ext or {}
         client = e.get("client_name", "")
-        ptype = e.get("policy_type", "")
+        ptype = _nct(e.get("policy_type", ""))  # normalize
         eff = e.get("effective_date", "")
         exp = e.get("expiration_date", "")
         carrier = e.get("carrier", "")
         if client and ptype and carrier:
             key = (client, ptype, eff, exp)
-            groups[key].append((i, carrier))
+            groups[key].append((i, carrier, e))
+
+    # Merge groups with fuzzy-matching type names (e.g. "General Liability" vs "Comm General Liability")
+    merged_keys = list(groups.keys())
+    merge_map: dict[tuple, tuple] = {}  # maps secondary key → primary key
+    for ki in range(len(merged_keys)):
+        if merged_keys[ki] in merge_map:
+            continue
+        for kj in range(ki + 1, len(merged_keys)):
+            if merged_keys[kj] in merge_map:
+                continue
+            a_client, a_type, a_eff, a_exp = merged_keys[ki]
+            b_client, b_type, b_eff, b_exp = merged_keys[kj]
+            if a_client == b_client and a_eff == b_eff and a_exp == b_exp:
+                if _fuzz.WRatio(a_type, b_type) >= 80:
+                    merge_map[merged_keys[kj]] = merged_keys[ki]
+    # Apply merges
+    for secondary, primary in merge_map.items():
+        groups[primary].extend(groups.pop(secondary))
+
     candidates = []
+    claimed_indices: set[int] = set()
+
     for key, entries in groups.items():
-        unique_carriers = list(dict.fromkeys(c for _, c in entries))
+        unique_carriers = list(dict.fromkeys(c for _, c, _ in entries))
         if len(unique_carriers) >= 2:
+            indices = [idx for idx, _, _ in entries]
+            claimed_indices.update(indices)
             candidates.append({
                 "client": key[0],
                 "type": key[1],
                 "effective_date": key[2],
                 "expiration_date": key[3],
                 "carriers": unique_carriers,
-                "row_indices": [idx for idx, _ in entries],
+                "row_indices": indices,
+                "carrier_details": [
+                    {
+                        "carrier": c,
+                        "premium": e.get("premium", ""),
+                        "limit_amount": e.get("limit_amount", ""),
+                        "policy_number": e.get("policy_number", ""),
+                    }
+                    for _, c, e in entries
+                ],
+                "detection_method": "same_dates_multiple_carriers",
             })
+
+    # ── Strategy 2: Shared policy number prefix (3+ chars before final segment) ──
+    import re
+    prefix_groups: dict[tuple, list[tuple[int, str, dict]]] = defaultdict(list)
+    for i, r in enumerate(results):
+        if i in claimed_indices:
+            continue
+        if r.status not in ("UNMATCHED", "MISSING"):
+            continue
+        e = r.ext or {}
+        pn = (e.get("policy_number") or "").strip()
+        client = e.get("client_name", "")
+        ptype = e.get("policy_type", "")
+        carrier = e.get("carrier", "")
+        if pn and client and ptype:
+            # Extract prefix: everything before the last segment (letter, digit suffix)
+            # e.g. "PROG-GL-001A" → "PROG-GL-001", "TC-GL-2026-001" → "TC-GL-2026"
+            m = re.match(r'^(.{4,}?)[- ]?([A-Za-z]|\d{1,2})$', pn)
+            if m:
+                prefix = m.group(1).rstrip("-_ ")
+                key = (client, ptype, prefix)
+                prefix_groups[key].append((i, carrier, e))
+
+    for key, entries in prefix_groups.items():
+        if len(entries) >= 2:
+            indices = [idx for idx, _, _ in entries]
+            if any(idx in claimed_indices for idx in indices):
+                continue
+            claimed_indices.update(indices)
+            # Use dates from first entry
+            first_ext = entries[0][2]
+            candidates.append({
+                "client": key[0],
+                "type": key[1],
+                "effective_date": first_ext.get("effective_date", ""),
+                "expiration_date": first_ext.get("expiration_date", ""),
+                "carriers": list(dict.fromkeys(c for _, c, _ in entries)),
+                "row_indices": indices,
+                "carrier_details": [
+                    {
+                        "carrier": c,
+                        "premium": e.get("premium", ""),
+                        "limit_amount": e.get("limit_amount", ""),
+                        "policy_number": e.get("policy_number", ""),
+                    }
+                    for _, c, e in entries
+                ],
+                "detection_method": "shared_policy_prefix",
+            })
+
     return candidates
 
 
@@ -179,7 +282,8 @@ def _load_db_policies(conn, client_id: int, scope: str) -> list[dict]:
         f"""SELECT p.id, p.policy_uid, c.name AS client_name, p.policy_type, p.carrier,
                    p.policy_number, p.effective_date, p.expiration_date,
                    p.premium, p.limit_amount, p.deductible, p.client_id,
-                   p.first_named_insured,
+                   p.first_named_insured, p.placement_colleague, p.underwriter_name,
+                   p.exposure_address, p.project_name, p.project_id,
                    p.is_program, p.program_carriers, p.program_carrier_count,
                    pr.name AS location_name,
                    prog.policy_uid AS program_uid
@@ -191,7 +295,12 @@ def _load_db_policies(conn, client_id: int, scope: str) -> list[dict]:
             ORDER BY c.name, p.expiration_date""",
         params,
     ).fetchall()
-    return [dict(r) for r in rows]
+    result = [dict(r) for r in rows]
+    # Ensure project_name is populated from location join if not set directly
+    for r in result:
+        if not r.get("project_name") and r.get("location_name"):
+            r["project_name"] = r["location_name"]
+    return result
 
 
 @router.post("/preview-columns")
@@ -236,6 +345,17 @@ def reconcile_index(request: Request, conn=Depends(get_db)):
     all_clients = conn.execute(
         "SELECT id, name FROM clients WHERE archived=0 ORDER BY name"
     ).fetchall()
+    # Source names for match memory: config defaults + any learned sources
+    source_names = list(cfg.get("import_source_names", []))
+    try:
+        learned = conn.execute(
+            "SELECT DISTINCT source_name FROM import_match_memory ORDER BY source_name"
+        ).fetchall()
+        for r in learned:
+            if r["source_name"] not in source_names:
+                source_names.append(r["source_name"])
+    except Exception:
+        pass  # table may not exist yet during migration
     return templates.TemplateResponse("reconcile/index.html", {
         "request": request,
         "active": "reconcile",
@@ -247,6 +367,8 @@ def reconcile_index(request: Request, conn=Depends(get_db)):
         "errors": [],
         "selected_client_id": 0,
         "selected_scope": "active",
+        "selected_source_name": "",
+        "source_names": source_names,
         "filename": "",
         "run_date": "",
     })
@@ -328,17 +450,33 @@ async def reconcile_run(
     scope: str = Form("active"),
     column_mapping_json: str = Form(""),
     date_priority: str = Form(""),
+    source_name: str = Form(""),
+    as_of_date: str = Form(""),
     conn=Depends(get_db),
 ):
     all_clients = conn.execute(
         "SELECT id, name FROM clients WHERE archived=0 ORDER BY name"
     ).fetchall()
+    # Source names for match memory datalist
+    _source_names = list(cfg.get("import_source_names", []))
+    try:
+        _learned_sources = conn.execute(
+            "SELECT DISTINCT source_name FROM import_match_memory ORDER BY source_name"
+        ).fetchall()
+        for r in _learned_sources:
+            if r["source_name"] not in _source_names:
+                _source_names.append(r["source_name"])
+    except Exception:
+        pass
+
     ctx = {
         "request": request,
         "active": "reconcile",
         "all_clients": [dict(c) for c in all_clients],
         "selected_client_id": client_id,
         "selected_scope": scope,
+        "selected_source_name": source_name,
+        "source_names": _source_names,
         "filename": file.filename or "",
         "run_date": date.today().isoformat(),
         "results": None,
@@ -360,7 +498,32 @@ async def reconcile_run(
         ctx["errors"] = ["Uploaded file is empty."]
         return templates.TemplateResponse("reconcile/index.html", ctx)
 
+    # Check for duplicate file upload
+    dup_warning = ""
+    if source_name:
+        try:
+            from policydb.import_ledger import check_duplicate_file
+            dup = check_duplicate_file(conn, content, source_name)
+            if dup:
+                dup_date = dup.get("imported_at", "unknown")[:10]
+                dup_warning = f"This file was previously uploaded on {dup_date} ({dup.get('status', '')}). Re-processing."
+        except Exception:
+            pass
+
+    # Load saved column mapping from source profile if user didn't provide one
+    if not col_map and source_name:
+        try:
+            from policydb.import_ledger import get_saved_column_map
+            saved_map = get_saved_column_map(conn, source_name)
+            if saved_map:
+                col_map = saved_map
+                ctx["saved_column_map"] = saved_map
+        except Exception:
+            pass
+
     ext_rows, warnings = parse_uploaded_file(content, column_mapping=col_map or None, filename=file.filename or "")
+    if dup_warning:
+        warnings.insert(0, dup_warning)
     ctx["warnings"] = warnings
     ctx["column_mapping_json"] = column_mapping_json
 
@@ -377,6 +540,10 @@ async def reconcile_run(
         "date_priority": date_priority,
         "filename": file.filename or "",
         "column_mapping_json": column_mapping_json,
+        "source_name": source_name,
+        "as_of_date": as_of_date,
+        "file_content": content,  # kept for session creation in run-match
+        "column_map_used": col_map,  # actual mapping applied (may be from saved profile)
     }
     _PARSED_CACHE[token] = (ext_rows, warnings, upload_params, _time.time())
 
@@ -496,16 +663,31 @@ def reconcile_run_match(
     scope = upload_params.get("scope", "active")
     date_priority = upload_params.get("date_priority", "")
     filename = upload_params.get("filename", "")
+    source_name = upload_params.get("source_name", "")
 
     all_clients = conn.execute(
         "SELECT id, name FROM clients WHERE archived=0 ORDER BY name"
     ).fetchall()
+    # Source names for template datalist
+    _source_names = list(cfg.get("import_source_names", []))
+    try:
+        _learned_sources = conn.execute(
+            "SELECT DISTINCT source_name FROM import_match_memory ORDER BY source_name"
+        ).fetchall()
+        for r in _learned_sources:
+            if r["source_name"] not in _source_names:
+                _source_names.append(r["source_name"])
+    except Exception:
+        pass
+
     ctx = {
         "request": request,
         "active": "reconcile",
         "all_clients": [dict(c) for c in all_clients],
         "selected_client_id": client_id,
         "selected_scope": scope,
+        "selected_source_name": source_name,
+        "source_names": _source_names,
         "filename": filename,
         "run_date": date.today().isoformat(),
         "results": None,
@@ -530,7 +712,8 @@ def reconcile_run_match(
         if r.get("is_program"):
             r["_program_carrier_rows"] = _carrier_map.get(r["id"], [])
 
-    all_results = reconcile(ext_rows, db_rows, date_priority=bool(date_priority), single_client=bool(client_id))
+    all_results = reconcile(ext_rows, db_rows, date_priority=bool(date_priority),
+                            single_client=bool(client_id), conn=conn, source_name=source_name)
     logger.info("Reconcile match started for %d rows", len(ext_rows))
 
     missing_rows = [r for r in all_results if r.status in ("MISSING", "UNMATCHED")]
@@ -554,14 +737,56 @@ def reconcile_run_match(
     # Cache board state for interactive pairing operations
     _BOARD_CACHE[download_token] = (board_results, extra_rows, db_rows, _time.time())
 
-    # Clean up parsed cache — no longer needed
+    # Cache source name for match memory learning on confirm/create
+    if source_name:
+        _SOURCE_NAME_CACHE[download_token] = source_name
+
+    # Log match memory stats
+    memory_count = sum(1 for r in all_results if r.match_method == "memory")
+    if memory_count:
+        logger.info("Match memory: %d auto-matches from source '%s'", memory_count, source_name)
+
+    # Create import session and save source profile
+    session_id = None
+    if source_name:
+        try:
+            from policydb.import_ledger import create_session, save_source_profile
+            as_of_date = upload_params.get("as_of_date", "")
+            file_content = upload_params.get("file_content")
+            col_map_used = upload_params.get("column_map_used", {})
+
+            session_id = create_session(
+                conn, source_name=source_name, source_type="csv",
+                file_name=filename, file_content=file_content,
+                as_of_date=as_of_date, client_id=client_id if client_id else None,
+                column_mapping=col_map_used,
+            )
+            # Save/update source profile with column mapping
+            if col_map_used:
+                save_source_profile(conn, source_name, column_map=col_map_used)
+
+            # Store session_id in source name cache for later completion
+            _SESSION_ID_CACHE[download_token] = session_id
+        except Exception:
+            logger.exception("Failed to create import session")
+
+    # Clean up parsed cache — no longer needed (drop file_content to free memory)
     _PARSED_CACHE.pop(token, None)
 
     # Pass all results to index.html (it filters extras via selectattr in template)
     ctx["results"] = all_results
     ctx["extras"] = extra_rows
     ctx["summary"] = summarize(all_results)
-    ctx["pairs"] = _find_likely_pairs(missing_rows, extra_rows)
+    # Build suggested pairs and annotate with board_results index for manual-pair
+    suggested_pairs = _find_likely_pairs(missing_rows, extra_rows)
+    # Map each unmatched ReconcileRow to its index in board_results
+    _unmatched_idx_map = {}
+    for bi, br in enumerate(board_results):
+        if br.status in ("MISSING", "UNMATCHED") and br.ext:
+            _unmatched_idx_map[id(br)] = bi
+    for sp in suggested_pairs:
+        sp["missing_idx"] = _unmatched_idx_map.get(id(sp["missing"]), -1)
+    ctx["pairs"] = suggested_pairs
     ctx["download_token"] = download_token
     ctx["today"] = date.today().isoformat()
     ctx["policy_types"] = cfg.get("policy_types", [])
@@ -747,10 +972,11 @@ def _render_learn_toast(learned: list[str]) -> str:
 
 
 @router.post("/confirm/{idx}", response_class=HTMLResponse)
-def reconcile_confirm(request: Request, idx: int, token: str = Form("")):
+def reconcile_confirm(request: Request, idx: int, token: str = Form(""), conn=Depends(get_db)):
     """Mark a paired row as confirmed. Returns updated pair row + OOB counters.
 
     Auto-learns coverage/carrier aliases if the pair used normalization.
+    Auto-learns match memory if a source_name was provided.
     """
     cache = _BOARD_CACHE.get(token)
     if not cache:
@@ -764,6 +990,19 @@ def reconcile_confirm(request: Request, idx: int, token: str = Form("")):
     # Auto-learn aliases
     learned = _auto_learn_aliases(results[idx])
     toast_html = _render_learn_toast(learned)
+
+    # Auto-learn match memory (cross-source identity)
+    source_name = _SOURCE_NAME_CACHE.get(token, "")
+    row = results[idx]
+    if source_name and row.ext and row.db and row.db.get("id"):
+        try:
+            from policydb.match_memory import learn_from_reconcile_pair
+            count = learn_from_reconcile_pair(conn, row.db["id"], source_name, row.ext)
+            if count:
+                logger.info("Match memory: learned %d identities for policy_id=%d from '%s'",
+                            count, row.db["id"], source_name)
+        except Exception:
+            logger.exception("Match memory learning failed on confirm")
 
     summary = summarize(results + extras)
     row_html = templates.TemplateResponse("reconcile/_pair_row.html", {
@@ -924,6 +1163,15 @@ def reconcile_manual_pair(
     if extra_idx_to_remove is not None:
         extras.pop(extra_idx_to_remove)
 
+    # Auto-learn match memory for manual pairs (highest value — user explicitly paired these)
+    source_name = _SOURCE_NAME_CACHE.get(token, "")
+    if source_name and row.ext and target_db.get("id"):
+        try:
+            from policydb.match_memory import learn_from_reconcile_pair
+            learn_from_reconcile_pair(conn, target_db["id"], source_name, row.ext)
+        except Exception:
+            logger.exception("Match memory learning failed on manual-pair")
+
     # Return the updated pair row (the JS in _pairing_board.html handles extra removal client-side)
     summary = summarize(results + extras)
     pair_html = templates.TemplateResponse("reconcile/_pair_row.html", {
@@ -939,17 +1187,27 @@ def reconcile_manual_pair(
 
 
 @router.post("/confirm-all", response_class=HTMLResponse)
-def reconcile_confirm_all(request: Request, token: str = Form("")):
+def reconcile_confirm_all(request: Request, token: str = Form(""), conn=Depends(get_db)):
     """Confirm all high-confidence paired rows (score >= 75). Re-renders entire board."""
     cache = _BOARD_CACHE.get(token)
     if not cache:
         return HTMLResponse('<div class="text-xs text-red-500 p-2">Session expired. Please re-run reconciliation.</div>')
     results, extras, db_rows, ts = cache
+    source_name = _SOURCE_NAME_CACHE.get(token, "")
     confirmed_count = 0
     for row in results:
         if row.status == "PAIRED" and not row.confirmed and row.match_score >= 75:
             row.confirmed = True
             confirmed_count += 1
+            # Learn match memory
+            if source_name and row.ext and row.db and row.db.get("id"):
+                try:
+                    from policydb.match_memory import learn_from_reconcile_pair
+                    learn_from_reconcile_pair(conn, row.db["id"], source_name, row.ext)
+                except Exception:
+                    pass
+    if confirmed_count and source_name:
+        logger.info("Match memory: batch-learned from %d confirmed pairs (source='%s')", confirmed_count, source_name)
     return templates.TemplateResponse("reconcile/_pairing_board.html",
                                       _board_context(request, token, results, extras))
 
@@ -981,7 +1239,8 @@ async def reconcile_fill(
     form = await request.form()
 
     _CURRENCY = {"premium", "limit_amount", "deductible"}
-    _TEXT = {"carrier", "policy_number"}
+    _TEXT = {"carrier", "policy_number", "first_named_insured", "placement_colleague",
+             "underwriter_name", "exposure_address", "project_name"}
     _DATE = {"effective_date", "expiration_date"}
     _ALLOWED = _CURRENCY | _TEXT | _DATE
 
@@ -1007,12 +1266,75 @@ async def reconcile_fill(
             params.append(val)
             filled_names.append(field.replace("_", " ").title())
 
+    # If project_name is being set, try to auto-match to a known location
+    project_name_val = form.get("project_name", "").strip()
+    if project_name_val:
+        policy_row = conn.execute(
+            "SELECT client_id, project_id FROM policies WHERE policy_uid = ?",
+            (policy_uid.upper(),),
+        ).fetchone()
+        if policy_row and not policy_row["project_id"]:
+            loc = conn.execute(
+                "SELECT id FROM projects WHERE client_id = ? AND LOWER(name) = LOWER(?) "
+                "AND (project_type = 'Location' OR project_type IS NULL)",
+                (policy_row["client_id"], project_name_val),
+            ).fetchone()
+            if loc:
+                updates.append("project_id = ?")
+                params.append(loc["id"])
+                filled_names.append("Location Link")
+
     if updates:
+        # Get current values for provenance tracking before update
+        pol = conn.execute(
+            "SELECT id, " + ", ".join(f for f in _ALLOWED if form.get(f, "").strip()) +
+            " FROM policies WHERE policy_uid = ?",
+            (policy_uid.upper(),),
+        ).fetchone()
+        prior_values = dict(pol) if pol else {}
+        policy_id = prior_values.pop("id", None)
+
         params.append(policy_uid.upper())
         conn.execute(
             f"UPDATE policies SET {', '.join(updates)} WHERE policy_uid = ?",
             params,
         )
+
+        # Record provenance for each updated field
+        source_name = ""
+        session_id = None
+        as_of_date = ""
+        # Try to get source context from the form (passed via hidden fields)
+        _token = form.get("token", "")
+        if _token:
+            source_name = _SOURCE_NAME_CACHE.get(_token, "")
+            session_id = _SESSION_ID_CACHE.get(_token)
+            # as_of_date would come from the session
+            if session_id:
+                try:
+                    sess = conn.execute("SELECT as_of_date FROM import_sessions WHERE id = ?", (session_id,)).fetchone()
+                    if sess:
+                        as_of_date = sess["as_of_date"] or ""
+                except Exception:
+                    pass
+
+        if policy_id and source_name:
+            try:
+                from policydb.import_ledger import record_provenance
+                for field in _ALLOWED:
+                    val = form.get(field, "").strip()
+                    if not val:
+                        continue
+                    prior = str(prior_values.get(field, "") or "")
+                    was_conflict = bool(prior.strip() and prior.strip() != val.strip())
+                    record_provenance(
+                        conn, policy_id, field, val,
+                        source_name=source_name, source_session_id=session_id,
+                        as_of_date=as_of_date, prior_value=prior, was_conflict=was_conflict,
+                    )
+            except Exception:
+                logger.exception("Provenance recording failed on fill")
+
         conn.commit()
 
     label = ", ".join(filled_names) if filled_names else "No fields"
@@ -1138,19 +1460,30 @@ def reconcile_create(
         try: return float(v) if v else 0.0
         except (ValueError, TypeError): return 0.0
 
+    # Auto-match project_name to known location for project_id
+    project_id = None
+    if project_name:
+        loc = conn.execute(
+            "SELECT id FROM projects WHERE client_id = ? AND LOWER(name) = LOWER(?) "
+            "AND (project_type = 'Location' OR project_type IS NULL)",
+            (client_id, project_name.strip()),
+        ).fetchone()
+        if loc:
+            project_id = loc["id"]
+
     conn.execute(
         """INSERT INTO policies
            (policy_uid, client_id, policy_type, carrier, policy_number,
             effective_date, expiration_date, premium, limit_amount, deductible,
-            description, project_name, underwriter_name,
+            description, project_name, project_id, underwriter_name,
             commission_rate, account_exec,
             is_program)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (
             uid, client_id, policy_type, carrier, policy_number or None,
             effective_date, expiration_date, premium,
             _f(limit_amount), _f(deductible),
-            description or None, project_name or None,
+            description or None, project_name or None, project_id,
             underwriter_name or None,
             _f(commission_rate), account_exec,
             pgm,
@@ -1219,6 +1552,39 @@ def reconcile_create(
                     counter_html = _render_counters(summary)
             except (ValueError, IndexError):
                 pass
+
+    # Learn match memory + record provenance for the newly created policy
+    source_name = _SOURCE_NAME_CACHE.get(token, "")
+    new_pid = conn.execute("SELECT id FROM policies WHERE policy_uid = ?", (uid,)).fetchone()["id"]
+    if source_name and policy_number:
+        try:
+            from policydb.match_memory import learn
+            learn(conn, new_pid, source_name, policy_number, "policy_number", "reconcile")
+        except Exception:
+            logger.exception("Match memory learning failed on create")
+
+    if source_name and new_pid:
+        try:
+            from policydb.import_ledger import record_provenance_batch
+            session_id = _SESSION_ID_CACHE.get(token)
+            as_of_date = ""
+            if session_id:
+                sess = conn.execute("SELECT as_of_date FROM import_sessions WHERE id = ?", (session_id,)).fetchone()
+                if sess:
+                    as_of_date = sess["as_of_date"] or ""
+            created_fields = {
+                "policy_type": policy_type, "carrier": carrier, "policy_number": policy_number,
+                "effective_date": effective_date, "expiration_date": expiration_date,
+                "premium": str(premium), "description": description, "project_name": project_name,
+            }
+            created_fields = {k: v for k, v in created_fields.items() if v}
+            record_provenance_batch(
+                conn, new_pid, created_fields,
+                source_name=source_name, source_session_id=session_id, as_of_date=as_of_date,
+            )
+        except Exception:
+            logger.exception("Provenance recording failed on create")
+        conn.commit()
 
     created_html = (
         f'<div class="pair-row flex items-center rounded-lg border border-green-200 bg-green-50 mb-2 px-4 py-3" data-status="confirmed" data-confirmed="true">'
@@ -1424,6 +1790,7 @@ _FIELD_DISPLAY = {
     "placement_colleague": "Placement Colleague",
     "underwriter_name": "Underwriter",
     "exposure_address": "Address",
+    "project_name": "Location / Project",
 }
 
 
@@ -1733,6 +2100,7 @@ def program_group_form(
     if indices:
         idx_list = [int(i) for i in indices.split(",") if i.strip().isdigit()]
         carriers = []
+        carrier_details = []
         client_name = ""
         ptype = ""
         eff = ""
@@ -1741,7 +2109,14 @@ def program_group_form(
             if 0 <= i < len(results):
                 e = results[i].ext or {}
                 d = results[i].db or {}
-                carriers.append(e.get("carrier", "") or d.get("carrier", ""))
+                carrier = e.get("carrier", "") or d.get("carrier", "")
+                carriers.append(carrier)
+                carrier_details.append({
+                    "carrier": carrier,
+                    "premium": e.get("premium", "") or d.get("premium", ""),
+                    "limit_amount": e.get("limit_amount", "") or d.get("limit_amount", ""),
+                    "policy_number": e.get("policy_number", "") or d.get("policy_number", ""),
+                })
                 if not client_name:
                     client_name = e.get("client_name", "") or d.get("client_name", "")
                 if not ptype:
@@ -1757,6 +2132,8 @@ def program_group_form(
             "expiration_date": exp,
             "carriers": [c for c in carriers if c],
             "row_indices": idx_list,
+            "carrier_details": carrier_details,
+            "detection_method": "manual_selection",
         }
     else:
         candidates = _detect_program_candidates(results)
@@ -1892,7 +2269,24 @@ def create_program_group(
         "UPDATE policies SET premium=?, limit_amount=? WHERE id=?",
         (total_premium or None, total_limit or None, pgm_id),
     )
+
+    # Learn match memory for each carrier row's policy number
+    source_name = _SOURCE_NAME_CACHE.get(token, "")
+    if source_name:
+        for idx in idx_list:
+            if idx < 0 or idx >= len(results):
+                continue
+            e = results[idx].ext or {}
+            pn = (e.get("policy_number") or "").strip()
+            if pn:
+                try:
+                    from policydb.match_memory import learn
+                    learn(conn, pgm_id, source_name, pn, "policy_number", "reconcile")
+                except Exception:
+                    pass
+
     conn.commit()
+    logger.info("Created program %s with %d carriers (source='%s')", uid, len(idx_list), source_name)
 
     # Re-render the full board
     return templates.TemplateResponse("reconcile/_pairing_board.html",

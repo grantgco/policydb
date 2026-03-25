@@ -2482,3 +2482,499 @@ def save_export_bytes(content: bytes, filename: str) -> Path:
     out = exports_dir / filename
     out.write_bytes(content)
     return out
+
+
+# ── Client Book Review XLSX ──────────────────────────────────────────────────
+
+import re as _re
+
+_PLACEHOLDER_RE = _re.compile(
+    r"(?i)\b(tbd|tba|n/?a|pending|unknown|todo|xxx|placeholder|"
+    r"see above|per above|same as|to be advised|to be determined)\b"
+)
+
+# Required fields for completeness scoring (field_name, label, is_numeric)
+_COMPLETENESS_FIELDS = [
+    ("carrier", "Carrier", False),
+    ("policy_number", "Policy Number", False),
+    ("effective_date", "Effective Date", False),
+    ("expiration_date", "Expiration Date", False),
+    ("premium", "Premium", True),
+    ("limit_amount", "Limit", True),
+    ("first_named_insured", "First Named Insured", False),
+]
+
+
+def _is_placeholder(val: str) -> bool:
+    """Return True if value looks like a placeholder (TBD, N/A, etc.)."""
+    if not val or not isinstance(val, str):
+        return False
+    return bool(_PLACEHOLDER_RE.search(val))
+
+
+def _is_sketchy_short(val: str, field: str) -> bool:
+    """Return True if a text value is suspiciously short (1-2 chars) for name-like fields."""
+    if not val or not isinstance(val, str):
+        return False
+    name_fields = ("carrier", "first_named_insured", "placement_colleague", "underwriter_name")
+    if field in name_fields and 0 < len(val.strip()) <= 2:
+        return True
+    return False
+
+
+def _scan_sketchy_fields(policy: dict) -> list[tuple[str, str]]:
+    """Scan a policy dict for placeholder/sketchy values. Returns [(field_label, value), ...]."""
+    checks = [
+        ("carrier", "Carrier"),
+        ("policy_number", "Policy Number"),
+        ("first_named_insured", "First Named Insured"),
+        ("placement_colleague", "Placement Colleague"),
+        ("underwriter_name", "Underwriter"),
+        ("description", "Description"),
+        ("coverage_form", "Coverage Form"),
+    ]
+    sketchy = []
+    for field, label in checks:
+        val = (policy.get(field) or "").strip()
+        if not val:
+            continue  # empty is caught by missing-fields logic
+        if _is_placeholder(val) or _is_sketchy_short(val, field):
+            sketchy.append((label, val))
+    # Check $0 premium on non-program policies
+    prem = policy.get("premium")
+    if prem is not None and float(prem or 0) == 0 and not policy.get("is_program"):
+        sketchy.append(("Premium", "$0"))
+    return sketchy
+
+
+def _compute_completeness(policy: dict) -> int:
+    """Return 0-100 completeness score for a policy."""
+    if policy.get("is_program"):
+        return 100  # programs scored differently
+    total = len(_COMPLETENESS_FIELDS)
+    filled = 0
+    for field, _label, is_numeric in _COMPLETENESS_FIELDS:
+        val = policy.get(field)
+        if is_numeric:
+            if val is not None and float(val or 0) > 0:
+                filled += 1
+        else:
+            sval = (str(val) if val else "").strip()
+            if sval and not _is_placeholder(sval):
+                filled += 1
+    return round(filled / total * 100) if total else 100
+
+
+def export_book_review_xlsx(conn: sqlite3.Connection, client_id: int, client_name: str) -> bytes:
+    """Multi-tab XLSX workbook for team review of gaps and unknowns.
+
+    Tabs: Instructions, Summary, All Policies, Suspected Duplicates,
+    Unassigned Locations, Missing Fields, Program Review, Action Items.
+    Uses friendly column labels for external team members.
+    """
+    from datetime import date
+    from policydb.dedup import find_duplicate_candidates
+
+    # ── Query all active policies for client ──
+    policies = conn.execute(
+        """SELECT p.policy_uid, p.policy_type, p.carrier, p.policy_number,
+                  p.effective_date, p.expiration_date, p.premium, p.limit_amount,
+                  p.deductible, p.description, p.coverage_form, p.layer_position,
+                  p.tower_group, p.renewal_status, p.first_named_insured,
+                  p.placement_colleague, p.underwriter_name,
+                  p.exposure_address, p.project_name, p.project_id,
+                  p.is_program, p.program_id, p.is_opportunity,
+                  p.needs_investigation,
+                  pr.name AS location_name,
+                  prog.policy_uid AS parent_program_uid
+           FROM policies p
+           LEFT JOIN projects pr ON p.project_id = pr.id
+           LEFT JOIN policies prog ON p.program_id = prog.id
+           WHERE p.client_id = ? AND p.archived = 0
+             AND (p.is_opportunity = 0 OR p.is_opportunity IS NULL)
+           ORDER BY p.policy_type, p.carrier, p.effective_date""",
+        (client_id,),
+    ).fetchall()
+    policies = [dict(r) for r in policies]
+
+    # ── Query locations ──
+    locations = conn.execute(
+        "SELECT id, name, address, city, state FROM projects "
+        "WHERE client_id = ? AND (project_type = 'Location' OR project_type IS NULL) ORDER BY name",
+        (client_id,),
+    ).fetchall()
+    location_names = {r["id"]: r["name"] for r in locations}
+
+    # ── Query programs ──
+    programs = [p for p in policies if p.get("is_program")]
+    program_carriers = {}
+    if programs:
+        prog_ids = [p["policy_uid"] for p in programs]
+        for prog in programs:
+            pid = conn.execute("SELECT id FROM policies WHERE policy_uid = ?", (prog["policy_uid"],)).fetchone()
+            if pid:
+                carriers = conn.execute(
+                    "SELECT carrier, policy_number, premium, limit_amount, sort_order "
+                    "FROM program_carriers WHERE program_id = ? ORDER BY sort_order",
+                    (pid["id"],),
+                ).fetchall()
+                program_carriers[prog["policy_uid"]] = [dict(c) for c in carriers]
+
+    # ── Run dedup scan ──
+    dedup_candidates = find_duplicate_candidates(conn, client_id)
+
+    wb = Workbook()
+    wb.remove(wb.active)
+
+    # ════════════════════════════════════════════════════════════════════════
+    # TAB 1: INSTRUCTIONS
+    # ════════════════════════════════════════════════════════════════════════
+    instructions = [
+        {"#": 1, "Section": "HOW TO USE THIS WORKBOOK", "Details": ""},
+        {"#": "", "Section": "", "Details": "This workbook was exported from PolicyDB to help the team review and complete the book of business."},
+        {"#": "", "Section": "", "Details": "Each tab focuses on a different type of gap or issue. Work through them in order."},
+        {"#": "", "Section": "", "Details": ""},
+        {"#": 2, "Section": "TAB GUIDE", "Details": ""},
+        {"#": "", "Section": "Summary", "Details": "High-level stats and gap counts. Review first to understand scope."},
+        {"#": "", "Section": "All Policies", "Details": "Complete list. Use Has Location? / Has Carrier? / Has Policy# columns to spot gaps."},
+        {"#": "", "Section": "Suspected Duplicates", "Details": "Policies that may be the same record imported from two sources. CONFIRM: are these the same policy?"},
+        {"#": "", "Section": "Unassigned Locations", "Details": "Policies not assigned to a project/location. FIND: which project does each belong to?"},
+        {"#": "", "Section": "Missing Fields", "Details": "Policies missing key data OR containing placeholder text (TBD, N/A, etc.). FIND: real values from source documents."},
+        {"#": "", "Section": "Program Review", "Details": "Corporate programs — check carrier lists and identify unlinked policies."},
+        {"#": "", "Section": "Action Items", "Details": "Prioritized checklist of everything that needs attention. Work top-down."},
+        {"#": "", "Section": "", "Details": ""},
+        {"#": 3, "Section": "HOW TO REPORT BACK", "Details": ""},
+        {"#": "", "Section": "", "Details": "Fill in the 'Your Notes' column on the Action Items tab with what you find."},
+        {"#": "", "Section": "", "Details": "For suspected duplicates: write SAME or DIFFERENT in the Verdict column."},
+        {"#": "", "Section": "", "Details": "For missing fields: write the missing value directly in the Notes column."},
+        {"#": "", "Section": "", "Details": "Return the completed workbook and we will update PolicyDB."},
+    ]
+    _write_sheet(wb, "Instructions", instructions, col_widths={"#": 5, "Section": 30, "Details": 80})
+
+    # ════════════════════════════════════════════════════════════════════════
+    # TAB 2: SUMMARY
+    # ════════════════════════════════════════════════════════════════════════
+    total_policies = len([p for p in policies if not p.get("is_program")])
+    total_programs = len(programs)
+    total_premium = sum(float(p.get("premium") or 0) for p in policies if not p.get("is_program"))
+    unassigned = [p for p in policies if not p.get("project_id") and not p.get("is_program") and not p.get("program_id")]
+    missing_carrier = [p for p in policies if not (p.get("carrier") or "").strip()]
+    missing_premium = [p for p in policies if not p.get("premium") and not p.get("is_program")]
+    missing_polnum = [p for p in policies if not (p.get("policy_number") or "").strip()]
+    missing_dates = [p for p in policies if not p.get("effective_date") or not p.get("expiration_date")]
+
+    # Pre-compute sketchy data and completeness for all policies
+    policy_sketchy = {}  # policy_uid -> [(field_label, value), ...]
+    policy_completeness = {}  # policy_uid -> int 0-100
+    for p in policies:
+        policy_sketchy[p["policy_uid"]] = _scan_sketchy_fields(p)
+        policy_completeness[p["policy_uid"]] = _compute_completeness(p)
+
+    sketchy_count = sum(1 for v in policy_sketchy.values() if v)
+    non_prog = [p for p in policies if not p.get("is_program")]
+    avg_completeness = round(sum(policy_completeness[p["policy_uid"]] for p in non_prog) / len(non_prog)) if non_prog else 100
+
+    summary_rows = [
+        {"Item": "Client", "Value": client_name},
+        {"Item": "Report Date", "Value": date.today().isoformat()},
+        {"Item": "", "Value": ""},
+        {"Item": "Total Policies", "Value": total_policies},
+        {"Item": "Total Programs", "Value": total_programs},
+        {"Item": "Total Premium", "Value": total_premium},
+        {"Item": "Known Locations", "Value": len(locations)},
+        {"Item": "Average Data Completeness", "Value": f"{avg_completeness}%"},
+        {"Item": "", "Value": ""},
+        {"Item": "GAPS IDENTIFIED", "Value": ""},
+        {"Item": "Policies Without Location Assignment", "Value": len(unassigned)},
+        {"Item": "Policies Missing Carrier", "Value": len(missing_carrier)},
+        {"Item": "Policies Missing Premium", "Value": len(missing_premium)},
+        {"Item": "Policies Missing Policy Number", "Value": len(missing_polnum)},
+        {"Item": "Policies Missing Dates", "Value": len(missing_dates)},
+        {"Item": "Policies with Placeholder/TBD Data", "Value": sketchy_count},
+        {"Item": "Policies Flagged for Investigation", "Value": sum(1 for p in policies if p.get("needs_investigation"))},
+        {"Item": "Suspected Duplicates", "Value": len(dedup_candidates)},
+    ]
+    _write_sheet(wb, "Summary", summary_rows, col_widths={"Item": 40, "Value": 25})
+
+    # ════════════════════════════════════════════════════════════════════════
+    # TAB 2: ALL POLICIES
+    # ════════════════════════════════════════════════════════════════════════
+    all_rows = []
+    for p in policies:
+        location = p.get("location_name") or p.get("project_name") or ""
+        is_prog = "Yes" if p.get("is_program") else ""
+        parent = p.get("parent_program_uid") or ""
+        sketchy_here = policy_sketchy.get(p["policy_uid"], [])
+        completeness = policy_completeness.get(p["policy_uid"], 100)
+        all_rows.append({
+            "Policy ID": p["policy_uid"],
+            "Coverage Type": p.get("policy_type", ""),
+            "Carrier": p.get("carrier", ""),
+            "Policy Number": p.get("policy_number", ""),
+            "Effective Date": p.get("effective_date", ""),
+            "Expiration Date": p.get("expiration_date", ""),
+            "Premium": float(p.get("premium") or 0),
+            "Limit": float(p.get("limit_amount") or 0),
+            "Deductible": float(p.get("deductible") or 0),
+            "Location / Project": location,
+            "Layer": p.get("layer_position", ""),
+            "Renewal Status": p.get("renewal_status", ""),
+            "Program": is_prog,
+            "Parent Program": parent,
+            "First Named Insured": p.get("first_named_insured", ""),
+            "Placement Colleague": p.get("placement_colleague", ""),
+            "Underwriter": p.get("underwriter_name", ""),
+            "Description": p.get("description", ""),
+            "Data Completeness %": f"{completeness}%",
+            "Has Location?": "Yes" if p.get("project_id") else "NO",
+            "Has Carrier?": "Yes" if (p.get("carrier") or "").strip() else "NO",
+            "Has Policy #?": "Yes" if (p.get("policy_number") or "").strip() else "NO",
+            "Sketchy Data?": "YES" if sketchy_here else "",
+            "Needs Investigation?": "YES" if p.get("needs_investigation") else "",
+        })
+    _write_sheet(wb, "All Policies", all_rows)
+
+    # ════════════════════════════════════════════════════════════════════════
+    # TAB 4: SUSPECTED DUPLICATES
+    # ════════════════════════════════════════════════════════════════════════
+    dup_rows = []
+    for c in dedup_candidates:
+        a = c["policy_a"]
+        b = c["policy_b"]
+        signals = ", ".join(s.replace("~", " (fuzzy)") for s in c["match_signals"])
+        fills_a = ", ".join(c.get("fillable_a", []))
+        fills_b = ", ".join(c.get("fillable_b", []))
+
+        dup_rows.append({
+            "Score": c["score"],
+            "Confidence": c["recommendation"].replace("_", " ").title(),
+            "Policy A": a.get("policy_uid", ""),
+            "A — Type": a.get("policy_type", ""),
+            "A — Carrier": a.get("carrier", ""),
+            "A — Policy #": a.get("policy_number", ""),
+            "A — Dates": f"{a.get('effective_date', '')} – {a.get('expiration_date', '')}",
+            "A — Premium": float(a.get("premium") or 0),
+            "A — Location": a.get("project_name", "") or a.get("location_name", "") or "",
+            "Policy B": b.get("policy_uid", ""),
+            "B — Type": b.get("policy_type", ""),
+            "B — Carrier": b.get("carrier", ""),
+            "B — Policy #": b.get("policy_number", ""),
+            "B — Dates": f"{b.get('effective_date', '')} – {b.get('expiration_date', '')}",
+            "B — Premium": float(b.get("premium") or 0),
+            "B — Location": b.get("project_name", "") or b.get("location_name", "") or "",
+            "Match Signals": signals,
+            "A Has (B Missing)": fills_a,
+            "B Has (A Missing)": fills_b,
+            "Verdict (SAME/DIFFERENT)": "",
+            "Notes": "",
+        })
+
+    if not dup_rows:
+        dup_rows.append({
+            "Score": "", "Confidence": "", "Policy A": "", "A — Type": "",
+            "A — Carrier": "", "A — Policy #": "", "A — Dates": "",
+            "A — Premium": "", "A — Location": "",
+            "Policy B": "", "B — Type": "", "B — Carrier": "",
+            "B — Policy #": "", "B — Dates": "", "B — Premium": "",
+            "B — Location": "", "Match Signals": "",
+            "A Has (B Missing)": "", "B Has (A Missing)": "",
+            "Verdict (SAME/DIFFERENT)": "No suspected duplicates found",
+            "Notes": "",
+        })
+    _write_sheet(wb, "Suspected Duplicates", dup_rows)
+
+    # ════════════════════════════════════════════════════════════════════════
+    # TAB 5: UNASSIGNED LOCATIONS
+    # ════════════════════════════════════════════════════════════════════════
+    unassigned_rows = []
+    for p in unassigned:
+        unassigned_rows.append({
+            "Policy ID": p["policy_uid"],
+            "Coverage Type": p.get("policy_type", ""),
+            "Carrier": p.get("carrier", ""),
+            "Policy Number": p.get("policy_number", ""),
+            "Premium": float(p.get("premium") or 0),
+            "Effective Date": p.get("effective_date", ""),
+            "Expiration Date": p.get("expiration_date", ""),
+            "Address on File": p.get("exposure_address", ""),
+            "Notes": p.get("description", ""),
+            "Action Needed": "FIND which project/location this policy covers. If corporate-wide, write 'CORPORATE'.",
+        })
+    _write_sheet(wb, "Unassigned Locations", unassigned_rows)
+
+    # ════════════════════════════════════════════════════════════════════════
+    # TAB 4: MISSING FIELDS
+    # ════════════════════════════════════════════════════════════════════════
+    missing_rows = []
+    for p in policies:
+        if p.get("is_program"):
+            continue
+        missing = []
+        if not (p.get("carrier") or "").strip():
+            missing.append("Carrier")
+        if not p.get("premium"):
+            missing.append("Premium")
+        if not (p.get("policy_number") or "").strip():
+            missing.append("Policy Number")
+        if not p.get("effective_date"):
+            missing.append("Effective Date")
+        if not p.get("expiration_date"):
+            missing.append("Expiration Date")
+        if not p.get("limit_amount"):
+            missing.append("Limit")
+        if not (p.get("first_named_insured") or "").strip():
+            missing.append("First Named Insured")
+        if not (p.get("placement_colleague") or "").strip():
+            missing.append("Placement Colleague")
+        if not (p.get("underwriter_name") or "").strip():
+            missing.append("Underwriter")
+
+        sketchy = policy_sketchy.get(p["policy_uid"], [])
+        completeness = policy_completeness.get(p["policy_uid"], 100)
+
+        if missing or sketchy:
+            has_critical = any(f in missing for f in ["Carrier", "Premium", "Effective Date", "Expiration Date"])
+            issue_count = len(missing) + len(sketchy)
+            missing_rows.append({
+                "Policy ID": p["policy_uid"],
+                "Coverage Type": p.get("policy_type", ""),
+                "Carrier": p.get("carrier", ""),
+                "Data Completeness %": f"{completeness}%",
+                "Missing Fields": ", ".join(missing) if missing else "",
+                "Sketchy Fields": ", ".join(f"{lbl} = '{val}'" for lbl, val in sketchy) if sketchy else "",
+                "Total Issues": issue_count,
+                "Priority": "High" if has_critical or len(sketchy) >= 3 else "Medium",
+            })
+    missing_rows.sort(key=lambda r: (-r["Total Issues"], r["Coverage Type"]))
+    _write_sheet(wb, "Missing Fields", missing_rows)
+
+    # ════════════════════════════════════════════════════════════════════════
+    # TAB 5: PROGRAM REVIEW
+    # ════════════════════════════════════════════════════════════════════════
+    program_rows = []
+    for prog in programs:
+        carriers = program_carriers.get(prog["policy_uid"], [])
+        carrier_list = ", ".join(c["carrier"] for c in carriers) if carriers else prog.get("carrier", "")
+        carrier_count = len(carriers) if carriers else 0
+        total_prog_premium = sum(float(c.get("premium") or 0) for c in carriers) if carriers else float(prog.get("premium") or 0)
+
+        # Find child policies linked to this program
+        prog_db_id = conn.execute("SELECT id FROM policies WHERE policy_uid = ?", (prog["policy_uid"],)).fetchone()
+        child_count = 0
+        if prog_db_id:
+            child_count = conn.execute(
+                "SELECT COUNT(*) as c FROM policies WHERE program_id = ? AND archived = 0",
+                (prog_db_id["id"],),
+            ).fetchone()["c"]
+
+        # Check for standalone policies with same type that might belong
+        potential_members = [
+            p for p in policies
+            if not p.get("is_program")
+            and not p.get("program_id")
+            and p.get("policy_type") == prog.get("policy_type")
+            and p["policy_uid"] != prog["policy_uid"]
+        ]
+
+        program_rows.append({
+            "Program ID": prog["policy_uid"],
+            "Coverage Type": prog.get("policy_type", ""),
+            "Carriers": carrier_list,
+            "Carrier Count": carrier_count,
+            "Total Premium": total_prog_premium,
+            "Effective Date": prog.get("effective_date", ""),
+            "Expiration Date": prog.get("expiration_date", ""),
+            "Child Policies Linked": child_count,
+            "Potential Unlinked Policies": len(potential_members),
+            "Review Note": f"{len(potential_members)} standalone {prog.get('policy_type', '')} policies may belong to this program" if potential_members else "OK",
+        })
+    _write_sheet(wb, "Program Review", program_rows)
+
+    # ════════════════════════════════════════════════════════════════════════
+    # TAB 6: ACTION ITEMS
+    # ════════════════════════════════════════════════════════════════════════
+    actions = []
+    action_num = 0
+
+    # Dedup items first — highest priority
+    for c in dedup_candidates:
+        a = c["policy_a"]
+        b = c["policy_b"]
+        action_num += 1
+        actions.append({
+            "#": action_num,
+            "Priority": "High" if c["confidence"] == "high" else "Medium",
+            "Category": "Suspected Duplicate",
+            "Policy ID": f"{a.get('policy_uid', '')} vs {b.get('policy_uid', '')}",
+            "What To Do": f"CONFIRM: Are these the same policy? Score: {c['score']}. See Suspected Duplicates tab.",
+            "Context": f"{a.get('policy_type', '')} · {a.get('carrier', '')} · {a.get('effective_date', '')}",
+            "Your Notes": "",
+        })
+
+    for p in unassigned:
+        action_num += 1
+        actions.append({
+            "#": action_num,
+            "Priority": "Medium",
+            "Category": "Location Assignment",
+            "Policy ID": p["policy_uid"],
+            "What To Do": f"FIND which project/location this {p.get('policy_type', '')} ({p.get('carrier', '')}) covers. Write project name or 'CORPORATE'.",
+            "Context": p.get("exposure_address", "") or "No address on file",
+            "Your Notes": "",
+        })
+
+    for row in missing_rows:
+        if row["Priority"] == "High":
+            action_num += 1
+            parts = []
+            if row.get("Missing Fields"):
+                parts.append(f"MISSING: {row['Missing Fields']}")
+            if row.get("Sketchy Fields"):
+                parts.append(f"REPLACE: {row['Sketchy Fields']}")
+            actions.append({
+                "#": action_num,
+                "Priority": "High",
+                "Category": "Missing / Sketchy Data",
+                "Policy ID": row["Policy ID"],
+                "What To Do": ". ".join(parts) + ". Check AMS, carrier portal, or policy documents.",
+                "Context": f"{row['Coverage Type']} / {row.get('Carrier', '')}",
+                "Your Notes": "",
+            })
+
+    # Sketchy-only rows (have placeholder data but no missing critical fields)
+    for row in missing_rows:
+        if row["Priority"] != "High" and row.get("Sketchy Fields"):
+            action_num += 1
+            actions.append({
+                "#": action_num,
+                "Priority": "Medium",
+                "Category": "Placeholder Data",
+                "Policy ID": row["Policy ID"],
+                "What To Do": f"REPLACE placeholder values: {row['Sketchy Fields']}. Provide real data.",
+                "Context": f"{row['Coverage Type']} / {row.get('Carrier', '')}",
+                "Your Notes": "",
+            })
+
+    for prog_row in program_rows:
+        if prog_row["Potential Unlinked Policies"] > 0:
+            action_num += 1
+            actions.append({
+                "#": action_num,
+                "Priority": "Medium",
+                "Category": "Program Membership",
+                "Policy ID": prog_row["Program ID"],
+                "What To Do": f"VERIFY: {prog_row['Review Note']}. Should these standalone policies be part of this program?",
+                "Context": f"{prog_row['Carrier Count']} carriers, {prog_row['Child Policies Linked']} linked",
+                "Your Notes": "",
+            })
+
+    if not actions:
+        actions.append({
+            "#": 1, "Priority": "", "Category": "",
+            "Policy ID": "", "What To Do": "No action items — book looks complete!",
+            "Context": "", "Your Notes": "",
+        })
+
+    _write_sheet(wb, "Action Items", actions)
+
+    return _wb_to_bytes(wb)
