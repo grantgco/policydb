@@ -10,7 +10,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from babel.dates import format_datetime as babel_format_datetime
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from policydb import config as cfg
 from policydb.utils import clean_email, format_fein, format_phone, normalize_client_name, format_city, format_state, format_zip
@@ -94,6 +94,11 @@ def _sort_clients(clients, sort="name", dir="asc"):
         reverse=reverse,
     )
     return clients
+
+
+def _get_us_states():
+    from policydb.web.routes.policies import US_STATES
+    return US_STATES
 
 
 def _get_project_locations(conn, client_id: int) -> list[dict]:
@@ -355,6 +360,8 @@ def client_new_post(
     client_since: str = Form(""),
     preferred_contact_method: str = Form(""),
     referral_source: str = Form(""),
+    latitude: str = Form(""),
+    longitude: str = Form(""),
     conn=Depends(get_db),
 ):
     def _float(v):
@@ -402,21 +409,25 @@ def client_new_post(
                     "client_since": client_since,
                     "preferred_contact_method": preferred_contact_method,
                     "referral_source": referral_source,
+                    "latitude": latitude,
+                    "longitude": longitude,
                 },
             })
 
     cursor = conn.execute(
         """INSERT INTO clients (name, industry_segment, cn_number, is_prospect, primary_contact, contact_email,
            contact_phone, contact_mobile, address, notes, account_exec, broker_fee, business_description,
-           website, renewal_month, client_since, preferred_contact_method, referral_source)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+           website, renewal_month, client_since, preferred_contact_method, referral_source,
+           latitude, longitude)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (name, industry_segment, cn_number.strip() or None, 1 if is_prospect else 0,
          primary_contact or None, clean_email(contact_email) or None,
          format_phone(contact_phone) or None, format_phone(contact_mobile) or None,
          address or None, notes or None, account_exec,
          _float(broker_fee), business_description or None,
          website or None, _int(renewal_month), client_since or None,
-         preferred_contact_method or None, referral_source or None),
+         preferred_contact_method or None, referral_source or None,
+         _float(latitude), _float(longitude)),
     )
     conn.commit()
     logger.info("Client %d created: %s", cursor.lastrowid, name)
@@ -441,6 +452,9 @@ def client_tab_overview(request: Request, client_id: int, conn=Depends(get_db)):
         [a for a in activities if a.get("follow_up_date") and not a.get("follow_up_done") and a["follow_up_date"] >= _today_iso],
         key=lambda a: a["follow_up_date"],
     )
+    _week_cutoff = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
+    due_soon = [a for a in upcoming_followups if a["follow_up_date"] <= _week_cutoff]
+    later_followups = [a for a in upcoming_followups if a["follow_up_date"] > _week_cutoff]
     history = [a for a in activities if not (a.get("follow_up_date") and not a.get("follow_up_done"))]
 
     # Linked accounts
@@ -495,6 +509,8 @@ def client_tab_overview(request: Request, client_id: int, conn=Depends(get_db)):
         "activities": activities,
         "overdue_followups": overdue_followups,
         "upcoming_followups": upcoming_followups,
+        "due_soon": due_soon,
+        "later_followups": later_followups,
         "history": history,
         "activity_types": cfg.get("activity_types"),
         "dispositions": cfg.get("follow_up_dispositions", []),
@@ -730,6 +746,7 @@ def client_tab_policies(request: Request, client_id: int, conn=Depends(get_db)):
         "project_stages": cfg.get("project_stages", []),
         "project_types": cfg.get("project_types", []),
         "timeline_data": _build_timeline_data(_get_project_pipeline(conn, client_id)),
+        "us_states": _get_us_states(),
     })
 
 
@@ -2254,6 +2271,8 @@ def client_edit_post(
     referral_source: str = Form(""),
     fein: str = Form(""),
     hourly_rate: str = Form(""),
+    latitude: str = Form(""),
+    longitude: str = Form(""),
     conn=Depends(get_db),
 ):
     def _float(v):
@@ -2276,7 +2295,7 @@ def client_edit_post(
            contact_email=?, contact_phone=?, contact_mobile=?, address=?, notes=?,
            broker_fee=?, business_description=?,
            website=?, renewal_month=?, client_since=?, preferred_contact_method=?, referral_source=?,
-           fein=?, hourly_rate=?
+           fein=?, hourly_rate=?, latitude=?, longitude=?
            WHERE id=?""",
         (name, industry_segment, cn_number.strip() or None, 1 if is_prospect else 0,
          primary_contact or None, clean_email(contact_email) or None,
@@ -2286,6 +2305,7 @@ def client_edit_post(
          website or None, _int(renewal_month), client_since or None,
          preferred_contact_method or None, referral_source or None,
          format_fein(fein) or None, _float(hourly_rate),
+         _float(latitude), _float(longitude),
          client_id),
     )
     conn.commit()
@@ -2805,14 +2825,15 @@ def project_detail(
         (project_id,),
     ).fetchall()
     project = dict(project)
-    # Pull address from first policy that has one
-    for pol in policies:
-        if pol["exposure_address"] or pol["exposure_city"]:
-            project["exposure_address"] = pol["exposure_address"] or ""
-            project["exposure_city"] = pol["exposure_city"] or ""
-            project["exposure_state"] = pol["exposure_state"] or ""
-            project["exposure_zip"] = pol["exposure_zip"] or ""
-            break
+    # Pull address from first policy that has one (fallback when project has no own address)
+    if not project.get("address"):
+        for pol in policies:
+            if pol["exposure_address"] or pol["exposure_city"]:
+                project["exposure_address"] = pol["exposure_address"] or ""
+                project["exposure_city"] = pol["exposure_city"] or ""
+                project["exposure_state"] = pol["exposure_state"] or ""
+                project["exposure_zip"] = pol["exposure_zip"] or ""
+                break
     if project.get("updated_at"):
         try:
             dt = dateparser.parse(project["updated_at"])
@@ -2822,6 +2843,13 @@ def project_detail(
                 ).replace("AM", "am").replace("PM", "pm")
         except Exception:
             project["updated_at_fmt"] = project["updated_at"][:16]
+
+    # COPE data for this project/location
+    cope_row = conn.execute(
+        "SELECT * FROM cope_data WHERE project_id = ?", (project_id,)
+    ).fetchone()
+    cope = dict(cope_row) if cope_row else None
+
     return templates.TemplateResponse(
         "clients/project.html",
         {
@@ -2829,6 +2857,7 @@ def project_detail(
             "project": project,
             "client": dict(client),
             "policies": [dict(p) for p in policies],
+            "cope": cope,
         },
     )
 
@@ -4050,7 +4079,8 @@ async def project_pipeline_field(
 
     allowed = {"project_type", "status", "name", "project_value", "start_date",
                "target_completion", "insurance_needed_by", "scope_description",
-               "general_contractor", "owner_name", "address", "city", "state", "zip"}
+               "general_contractor", "owner_name", "address", "city", "state", "zip",
+               "latitude", "longitude"}
     if field not in allowed:
         return JSONResponse({"ok": False, "error": f"Invalid field: {field}"}, status_code=400)
 
@@ -4067,6 +4097,13 @@ async def project_pipeline_field(
         num = parse_currency_with_magnitude(value)
         conn.execute("UPDATE projects SET project_value = ? WHERE id = ?", (num, project_id))
         formatted = f"${num:,.0f}"
+    elif field in ("latitude", "longitude"):
+        try:
+            num = float(value) if str(value).strip() else None
+        except ValueError:
+            num = None
+        conn.execute(f"UPDATE projects SET {field} = ? WHERE id = ?", (num, project_id))
+        formatted = str(num) if num is not None else ""
     elif field in ("start_date", "target_completion", "insurance_needed_by"):
         conn.execute(f"UPDATE projects SET {field} = ? WHERE id = ?",
                      (value.strip() or None, project_id))
@@ -4619,12 +4656,19 @@ def location_create(
     city: str = Form(""),
     state: str = Form(""),
     zip: str = Form(""),
+    latitude: str = Form(""),
+    longitude: str = Form(""),
     conn=Depends(get_db),
 ):
     """Create a new location/project for a client."""
+    def _fl(v):
+        try:
+            return float(v) if str(v).strip() else None
+        except ValueError:
+            return None
     conn.execute(
-        "INSERT INTO projects (name, client_id, address, city, state, zip, project_type) VALUES (?, ?, ?, ?, ?, ?, 'Location')",
-        (name, client_id, address, city, state, zip),
+        "INSERT INTO projects (name, client_id, address, city, state, zip, latitude, longitude, project_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Location')",
+        (name, client_id, address, city, state, zip, _fl(latitude), _fl(longitude)),
     )
     conn.commit()
     return HTMLResponse("", headers={"HX-Trigger": "locationChanged"})

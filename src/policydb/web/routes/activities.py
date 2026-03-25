@@ -73,6 +73,7 @@ def activity_log(
     contact_id: int = Form(0),
     follow_up_date: str = Form(""),
     duration_hours: str = Form(""),
+    disposition: str = Form(""),
     pulse_oob: str = Form(""),
     conn=Depends(get_db),
 ):
@@ -91,19 +92,21 @@ def activity_log(
         if _row:
             _contact_id = _row["id"]
 
-    account_exec = cfg.get("default_account_exec", "Grant")
-    cursor = conn.execute(
-        """INSERT INTO activity_log
-           (activity_date, client_id, policy_id, activity_type, contact_person, contact_id, subject, details, follow_up_date, account_exec, duration_hours)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (date.today().isoformat(), client_id, policy_id or None, activity_type,
-         contact_person or None, _contact_id, subject, details or None,
-         follow_up_date or None, account_exec, round_duration(duration_hours)),
-    )
-
+    # Supersede old follow-ups BEFORE inserting the new one
     if follow_up_date and policy_id:
         from policydb.queries import supersede_followups
         supersede_followups(conn, policy_id, follow_up_date)
+
+    account_exec = cfg.get("default_account_exec", "Grant")
+    cursor = conn.execute(
+        """INSERT INTO activity_log
+           (activity_date, client_id, policy_id, activity_type, contact_person, contact_id, subject, details, follow_up_date, account_exec, duration_hours, disposition)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (date.today().isoformat(), client_id, policy_id or None, activity_type,
+         contact_person or None, _contact_id, subject, details or None,
+         follow_up_date or None, account_exec, round_duration(duration_hours),
+         disposition.strip() or None),
+    )
     conn.commit()
     logger.info("Activity created for client %d: %s", client_id, activity_type)
     # Return the new activity row as HTMX partial
@@ -436,6 +439,12 @@ def activity_followup(
             (disposition.strip(), activity_id),
         )
 
+    # Supersede old follow-ups BEFORE inserting the new one — otherwise the
+    # blanket UPDATE in supersede_followups marks the just-created activity as done.
+    if new_follow_up_date and original.get("policy_id"):
+        from policydb.queries import supersede_followups
+        supersede_followups(conn, original["policy_id"], new_follow_up_date)
+
     # Create new activity (re-diary)
     account_exec = cfg.get("default_account_exec", "Grant")
     dur = round_duration(duration_hours)
@@ -456,9 +465,6 @@ def activity_followup(
          subject, notes or None,
          new_follow_up_date or None, account_exec, dur),
     )
-    if new_follow_up_date and original.get("policy_id"):
-        from policydb.queries import supersede_followups
-        supersede_followups(conn, original["policy_id"], new_follow_up_date)
     conn.commit()
 
     # If this follow-up is for a policy with a disposition, update the timeline
@@ -630,6 +636,300 @@ def patch_activity_field(activity_id: int, request_body: dict = None, conn=Depen
     conn.execute(f"UPDATE activity_log SET {field} = ? WHERE id = ?", (value or None, activity_id))
     conn.commit()
     return JSONResponse({"ok": True, "formatted": formatted})
+
+
+# ── Disposition update (all source types) ────────────────────────────────────
+
+
+@router.post("/activities/update-disposition", response_class=HTMLResponse)
+def update_disposition(
+    request: Request,
+    composite_id: str = Form(...),
+    disposition: str = Form(...),
+    follow_up_date: str = Form(""),
+    note: str = Form(""),
+    context: str = Form(""),
+    conn=Depends(get_db),
+):
+    """Update disposition for any follow-up source type (activity/policy/client).
+
+    Accepts composite IDs like "activity-123", "policy-POL042", "client-5".
+    Source-aware: activities get updated in place, policy/client sources
+    auto-create an activity_log entry.
+    """
+    from policydb.queries import supersede_followups
+
+    disposition = disposition.strip()
+    note = note.strip()
+    follow_up_date = follow_up_date.strip()
+
+    # Parse composite ID
+    if "-" not in composite_id:
+        return HTMLResponse("Bad ID", status_code=400)
+    source, item_id = composite_id.split("-", 1)
+
+    # Resolve default_days from disposition config if no explicit date
+    if not follow_up_date:
+        dispositions = cfg.get("follow_up_dispositions", [])
+        default_days = 0
+        for d in dispositions:
+            if d.get("label", "").lower() == disposition.lower():
+                default_days = d.get("default_days", 0)
+                break
+        if default_days > 0:
+            follow_up_date = (date.today() + timedelta(days=default_days)).isoformat()
+
+    account_exec = cfg.get("default_account_exec", "Grant")
+
+    if source == "activity":
+        # UPDATE existing activity_log row — do NOT call supersede_followups
+        updates = ["disposition = ?"]
+        params: list = [disposition]
+        if follow_up_date:
+            updates.append("follow_up_date = ?")
+            params.append(follow_up_date)
+        if note:
+            updates.append(
+                "details = CASE WHEN details IS NOT NULL AND details != '' "
+                "THEN details || char(10) || ? ELSE ? END"
+            )
+            params.extend([note, note])
+        params.append(int(item_id))
+        conn.execute(
+            f"UPDATE activity_log SET {', '.join(updates)} WHERE id = ?", params
+        )
+
+        # Timeline re-sync if policy-linked
+        row = conn.execute(
+            "SELECT policy_id FROM activity_log WHERE id = ?", (int(item_id),)
+        ).fetchone()
+        if row and row["policy_id"]:
+            pol = conn.execute(
+                "SELECT policy_uid FROM policies WHERE id = ?", (row["policy_id"],)
+            ).fetchone()
+            if pol:
+                try:
+                    from policydb.timeline_engine import update_timeline_from_followup
+                    # Use subject as milestone hint
+                    act_row = conn.execute(
+                        "SELECT subject FROM activity_log WHERE id = ?", (int(item_id),)
+                    ).fetchone()
+                    milestone_name = (act_row["subject"] if act_row else "") or ""
+                    update_timeline_from_followup(
+                        conn, pol["policy_uid"], milestone_name,
+                        disposition, follow_up_date or None,
+                    )
+                except Exception:
+                    pass  # timeline table may not exist
+
+    elif source == "policy":
+        # Auto-create activity_log row, then supersede old follow-ups
+        # item_id may be policy_uid (string like "POL-003") or integer PK
+        if item_id.isdigit():
+            pol = conn.execute(
+                "SELECT id, client_id, policy_type FROM policies WHERE id = ?",
+                (int(item_id),),
+            ).fetchone()
+        else:
+            pol = conn.execute(
+                "SELECT id, client_id, policy_type FROM policies WHERE policy_uid = ?",
+                (item_id,),
+            ).fetchone()
+        if pol:
+            conn.execute(
+                """INSERT INTO activity_log
+                   (activity_date, client_id, policy_id, activity_type, subject,
+                    details, follow_up_date, disposition, account_exec)
+                   VALUES (?, ?, ?, 'Follow-up', ?, ?, ?, ?, ?)""",
+                (
+                    date.today().isoformat(), pol["client_id"], pol["id"],
+                    f"{disposition} — {pol['policy_type']}",
+                    note or None, follow_up_date or None,
+                    disposition, account_exec,
+                ),
+            )
+            if follow_up_date:
+                supersede_followups(conn, pol["id"], follow_up_date)
+            else:
+                # Clear policy follow-up if no new date
+                conn.execute(
+                    "UPDATE policies SET follow_up_date = NULL WHERE id = ?",
+                    (pol["id"],),
+                )
+
+    elif source == "client":
+        # Auto-create activity_log row, clear client.follow_up_date
+        client = conn.execute(
+            "SELECT id, name FROM clients WHERE id = ?", (int(item_id),)
+        ).fetchone()
+        if client:
+            conn.execute(
+                """INSERT INTO activity_log
+                   (activity_date, client_id, activity_type, subject,
+                    details, follow_up_date, disposition, account_exec)
+                   VALUES (?, ?, 'Follow-up', ?, ?, ?, ?, ?)""",
+                (
+                    date.today().isoformat(), client["id"],
+                    f"{disposition} — {client['name']}",
+                    note or None, follow_up_date or None,
+                    disposition, account_exec,
+                ),
+            )
+            conn.execute(
+                "UPDATE clients SET follow_up_date = NULL WHERE id = ?",
+                (int(item_id),),
+            )
+
+    conn.commit()
+    logger.info("Disposition updated: %s → %s", composite_id, disposition)
+    return HTMLResponse("OK")
+
+
+# ── Bulk action (multi-source) ───────────────────────────────────────────────
+
+
+@router.post("/activities/bulk-action", response_class=HTMLResponse)
+def bulk_action(
+    request: Request,
+    ids: str = Form(...),
+    action: str = Form(...),
+    disposition: str = Form(""),
+    snooze_days: int = Form(3),
+    note: str = Form(""),
+    conn=Depends(get_db),
+):
+    """Bulk action on selected follow-ups: set_disposition, snooze, mark_done.
+
+    Accepts comma-separated composite IDs (activity-123, policy-POL042, client-5).
+    """
+    from policydb.queries import supersede_followups
+
+    disposition = disposition.strip()
+    note = note.strip()
+    account_exec = cfg.get("default_account_exec", "Grant")
+    count = 0
+
+    for item in ids.split(","):
+        item = item.strip()
+        if not item or "-" not in item:
+            continue
+        source, item_id = item.split("-", 1)
+        count += 1
+
+        if action == "set_disposition":
+            # Resolve follow_up_date from disposition default_days
+            fu_date = ""
+            dispositions = cfg.get("follow_up_dispositions", [])
+            for d in dispositions:
+                if d.get("label", "").lower() == disposition.lower():
+                    dd = d.get("default_days", 0)
+                    if dd > 0:
+                        fu_date = (date.today() + timedelta(days=dd)).isoformat()
+                    break
+
+            if source == "activity":
+                updates = ["disposition = ?"]
+                params: list = [disposition]
+                if fu_date:
+                    updates.append("follow_up_date = ?")
+                    params.append(fu_date)
+                if note:
+                    updates.append(
+                        "details = CASE WHEN details IS NOT NULL AND details != '' "
+                        "THEN details || char(10) || ? ELSE ? END"
+                    )
+                    params.extend([note, note])
+                params.append(int(item_id))
+                conn.execute(
+                    f"UPDATE activity_log SET {', '.join(updates)} WHERE id = ?", params
+                )
+            elif source == "policy":
+                if item_id.isdigit():
+                    pol = conn.execute(
+                        "SELECT id, client_id, policy_type FROM policies WHERE id = ?",
+                        (int(item_id),),
+                    ).fetchone()
+                else:
+                    pol = conn.execute(
+                        "SELECT id, client_id, policy_type FROM policies WHERE policy_uid = ?",
+                        (item_id,),
+                    ).fetchone()
+                if pol:
+                    conn.execute(
+                        """INSERT INTO activity_log
+                           (activity_date, client_id, policy_id, activity_type, subject,
+                            details, follow_up_date, disposition, account_exec)
+                           VALUES (?, ?, ?, 'Follow-up', ?, ?, ?, ?, ?)""",
+                        (
+                            date.today().isoformat(), pol["client_id"], pol["id"],
+                            f"{disposition} — {pol['policy_type']}",
+                            note or None, fu_date or None,
+                            disposition, account_exec,
+                        ),
+                    )
+                    if fu_date:
+                        supersede_followups(conn, pol["id"], fu_date)
+            elif source == "client":
+                client = conn.execute(
+                    "SELECT id, name FROM clients WHERE id = ?", (int(item_id),)
+                ).fetchone()
+                if client:
+                    conn.execute(
+                        """INSERT INTO activity_log
+                           (activity_date, client_id, activity_type, subject,
+                            details, follow_up_date, disposition, account_exec)
+                           VALUES (?, ?, 'Follow-up', ?, ?, ?, ?, ?)""",
+                        (
+                            date.today().isoformat(), client["id"],
+                            f"{disposition} — {client['name']}",
+                            note or None, fu_date or None,
+                            disposition, account_exec,
+                        ),
+                    )
+
+        elif action == "snooze":
+            new_date = (date.today() + timedelta(days=snooze_days)).isoformat()
+            if source == "activity":
+                conn.execute(
+                    "UPDATE activity_log SET follow_up_date = ? WHERE id = ?",
+                    (new_date, int(item_id)),
+                )
+            elif source == "policy":
+                _pk = int(item_id) if item_id.isdigit() else None
+                if _pk:
+                    conn.execute("UPDATE policies SET follow_up_date = ? WHERE id = ?", (new_date, _pk))
+                else:
+                    conn.execute("UPDATE policies SET follow_up_date = ? WHERE policy_uid = ?", (new_date, item_id))
+            elif source == "client":
+                conn.execute(
+                    "UPDATE clients SET follow_up_date = ? WHERE id = ?",
+                    (new_date, int(item_id)),
+                )
+
+        elif action == "mark_done":
+            if source == "activity":
+                conn.execute(
+                    "UPDATE activity_log SET follow_up_done = 1 WHERE id = ?",
+                    (int(item_id),),
+                )
+                _auto_send_rfi_bundle(conn, int(item_id))
+            elif source == "policy":
+                _pk = int(item_id) if item_id.isdigit() else None
+                if _pk:
+                    conn.execute("UPDATE policies SET follow_up_date = NULL WHERE id = ?", (_pk,))
+                else:
+                    conn.execute("UPDATE policies SET follow_up_date = NULL WHERE policy_uid = ?", (item_id,))
+            elif source == "client":
+                conn.execute(
+                    "UPDATE clients SET follow_up_date = NULL WHERE id = ?",
+                    (int(item_id),),
+                )
+
+    conn.commit()
+    logger.info("Bulk action '%s' on %d items", action, count)
+    resp = HTMLResponse("OK")
+    resp.headers["HX-Trigger"] = '{"activityLogged": "' + f'{count} item(s) updated' + '"}'
+    return resp
 
 
 # ── Plan Week routes ─────────────────────────────────────────────────────────

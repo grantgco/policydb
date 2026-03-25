@@ -1064,6 +1064,15 @@ def init_db(path: Path | None = None) -> None:
         )
         conn.commit()
 
+    if 77 not in applied:
+        sql = (_MIGRATIONS_DIR / "077_add_project_geocoding.sql").read_text()
+        conn.executescript(sql)
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (77, "Add latitude/longitude columns to projects for map geocoding cache"),
+        )
+        conn.commit()
+
     if 78 not in applied:
         # Idempotent: column may already exist from another worktree
         _has_col = conn.execute(

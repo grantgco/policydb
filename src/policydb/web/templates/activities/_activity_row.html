@@ -18,6 +18,7 @@
 </li>
 {% else %}
 <li id="activity-{{ a.id }}" class="activity-item px-5 py-3 flex items-start justify-between gap-4" data-has-followup="{{ '1' if a.follow_up_date and not a.follow_up_done else '0' }}" data-followup-date="{{ a.follow_up_date if a.follow_up_date and not a.follow_up_done else '' }}" data-activity-date="{{ a.activity_date }}" data-activity-id="{{ a.id }}">
+  <input type="checkbox" class="bulk-check accent-[#003865] mr-1 flex-shrink-0 mt-1" value="activity-{{ a.id }}" onchange="updateBulkCount()">
   {% set _a_rfi_uid = a.subject.split('Send RFI: ')[1].split(' ', 1)[0] if a.subject and a.subject.startswith('Send RFI: ') else '' %}
   {% set _a_ref = build_ref_tag(cn_number=a.cn_number|default(''), client_id=a.client_id, policy_uid=a.policy_uid|default(''), project_id=a.project_id|default(0), activity_id=a.id, rfi_uid=_a_rfi_uid) %}
   <div class="flex-1 min-w-0">
@@ -26,12 +27,21 @@
       <button type="button" onclick="copyRefTag(this, '{{ _a_ref }}')"
         class="text-[10px] font-mono text-blue-500 bg-blue-50 px-2 py-0.5 rounded hover:bg-blue-100 cursor-pointer transition-colors" title="Click to copy ref tag">{{ _a_ref }}</button>
       <span class="text-xs font-medium bg-gray-100 text-gray-600 px-2 py-0.5 rounded">{{ a.activity_type }}</span>
-      {% if a.disposition %}
+      {% if a.follow_up_date and not a.follow_up_done %}
+        {% if a.disposition %}
+        <button type="button" onclick="toggleDispBar('act-{{ a.id }}')"
+          class="text-[10px] px-2 py-0.5 rounded-full border border-dashed border-gray-300 text-gray-500 hover:border-[#003865] hover:text-[#003865] cursor-pointer transition-colors no-print">{{ a.disposition }} &#9998;</button>
+        {% else %}
+        <button type="button" onclick="toggleDispBar('act-{{ a.id }}')"
+          class="text-[10px] px-2 py-0.5 rounded-full border border-dashed border-gray-300 text-gray-400 hover:border-[#003865] hover:text-[#003865] cursor-pointer transition-colors no-print">+ disposition</button>
+        {% endif %}
+      {% elif a.disposition %}
       <span class="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">{{ a.disposition }}</span>
       {% endif %}
       {% if a.thread_id %}
       <span class="text-[10px] text-blue-400 font-mono">COR-{{ a.thread_id }}</span>
       {% endif %}
+      {% if a.project_name %}<span class="text-[10px] bg-purple-50 text-purple-600 font-medium px-1.5 py-0.5 rounded inline-flex items-center gap-0.5"><span>&#128205;</span> {{ a.project_name }}</span>{% endif %}
       {% if a.policy_uid %}<a href="/policies/{{ a.policy_uid }}/edit" class="text-xs font-mono text-marsh hover:underline">{{ a.policy_uid }}</a>{% endif %}
       <span class="text-sm font-medium text-gray-800">{{ a.subject }}</span>
       {% if a.activity_type == 'Meeting' %}
@@ -82,6 +92,18 @@
   </div>
 </li>
 {% if a.follow_up_date and not a.follow_up_done %}
+{# ── Inline pill bar for quick disposition ── #}
+<li id="disp-bar-act-{{ a.id }}" class="hidden px-5 py-2 bg-gray-50 border-l-4 border-gray-200">
+  <div class="disp-pill-bar">
+    <div class="flex flex-wrap gap-1">
+      {% for d in dispositions %}
+      <button type="button"
+        onclick="quickSaveDisp(this, '{{ d.label }}', {{ d.default_days }}, 'act-{{ a.id }}', 'activity-{{ a.id }}', 'client')"
+        class="disp-pill-inline text-[10px] px-2 py-0.5 rounded border border-gray-200 text-gray-500 hover:border-[#003865] hover:text-[#003865] transition-colors cursor-pointer{% if a.disposition == d.label %} bg-[#003865] text-white{% endif %}">{{ d.label }}</button>
+      {% endfor %}
+    </div>
+  </div>
+</li>
 {# ── Unified Disposition Form ── #}
 <li id="disposition-form-{{ a.id }}" class="activity-item-form hidden px-5 py-3 bg-amber-50/50 border-l-4 border-amber-400" data-parent-activity="{{ a.id }}">
   <form hx-post="/activities/{{ a.id }}/followup"

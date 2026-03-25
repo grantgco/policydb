@@ -100,16 +100,23 @@
         <label class="field-label">Address</label>
         <input type="text" name="address" id="address-input" value="{{ client.address if client else '' }}" class="form-input w-full"
           data-1p-ignore data-lpignore="true" autocomplete="off" placeholder="Start typing an address...">
+        <input type="hidden" name="latitude" id="address-lat" value="{{ client.latitude if client and client.latitude else '' }}">
+        <input type="hidden" name="longitude" id="address-lon" value="{{ client.longitude if client and client.longitude else '' }}">
         <div id="address-suggestions" class="absolute left-0 right-0 top-full z-50 bg-white border border-gray-200 rounded-b-lg shadow-lg max-h-48 overflow-y-auto hidden"></div>
       </div>
       <script>
       (function() {
         var input = document.getElementById('address-input');
         var dropdown = document.getElementById('address-suggestions');
+        var latField = document.getElementById('address-lat');
+        var lonField = document.getElementById('address-lon');
         if (!input || !dropdown) return;
         var timer = null;
         input.addEventListener('input', function() {
           clearTimeout(timer);
+          // Clear stored coordinates when user types manually
+          if (latField) latField.value = '';
+          if (lonField) lonField.value = '';
           var q = input.value.trim();
           if (q.length < 4) { dropdown.classList.add('hidden'); return; }
           timer = setTimeout(function() {
@@ -125,7 +132,12 @@
                   div.addEventListener('mousedown', function(e) {
                     e.preventDefault();
                     input.value = item.display_name;
+                    if (latField) latField.value = item.lat || '';
+                    if (lonField) lonField.value = item.lon || '';
                     dropdown.classList.add('hidden');
+                    // Trigger autosave with updated lat/lng (use 'change' to avoid
+                    // re-triggering the autocomplete 'input' handler which clears lat/lng)
+                    input.dispatchEvent(new Event('change', { bubbles: true }));
                   });
                   dropdown.appendChild(div);
                 });
