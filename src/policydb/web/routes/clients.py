@@ -2536,6 +2536,23 @@ def export_full(client_id: int, conn=Depends(get_db)):
     )
 
 
+@router.get("/{client_id}/export/book-review")
+def export_book_review(client_id: int, conn=Depends(get_db)):
+    """Export multi-tab Client Book Review XLSX for team gap review."""
+    from fastapi.responses import Response
+    from policydb.exporter import export_book_review_xlsx
+    client = get_client_by_id(conn, client_id)
+    if not client:
+        return HTMLResponse("Client not found", status_code=404)
+    safe = client["name"].lower().replace(" ", "_")
+    content = export_book_review_xlsx(conn, client_id, client["name"])
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{safe}_book_review.xlsx"'},
+    )
+
+
 @router.get("/{client_id}/export/schedule")
 def export_schedule(client_id: int, fmt: str = "md", conn=Depends(get_db)):
     from fastapi.responses import Response
