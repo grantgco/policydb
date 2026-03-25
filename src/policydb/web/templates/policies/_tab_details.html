@@ -557,28 +557,6 @@
   </div>
 </div>
 
-<script>
-/* Inline two-click confirmation for destructive actions.
-   First click: button text changes to confirmation prompt.
-   Second click within 3s: submits the parent form.
-   Auto-reverts after 3s if not confirmed. */
-function confirmAction(btn, msg) {
-  if (btn.dataset.confirming === '1') {
-    btn.closest('form').submit();
-    return;
-  }
-  var orig = btn.textContent;
-  var origClass = btn.className;
-  btn.textContent = msg + ' Click again to confirm';
-  btn.dataset.confirming = '1';
-  btn.className = btn.className.replace(/border-\S+/g, 'border-gray-400').replace(/text-\S+/g, 'text-gray-800') + ' bg-gray-100 font-semibold';
-  setTimeout(function() {
-    btn.textContent = orig;
-    btn.className = origClass;
-    delete btn.dataset.confirming;
-  }, 3000);
-}
-</script>
 
 <!-- Datalists -->
 <datalist id="ac-carrier"></datalist>
