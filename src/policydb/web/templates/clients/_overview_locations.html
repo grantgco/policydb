@@ -1,0 +1,289 @@
+{# Locations section for Overview tab — contenteditable inline editing #}
+{% if not locations %}
+<div class="mt-4 mb-2 flex items-center justify-between no-print">
+  <span class="text-xs text-gray-400">No locations yet</span>
+  <div class="flex gap-2">
+    <a href="/clients/{{ client.id }}/locations"
+      class="text-xs text-marsh hover:underline">Organize →</a>
+    <button type="button" onclick="addLocation({{ client.id }})"
+      class="text-xs text-gray-400 border border-dashed border-gray-300 px-3 py-1 rounded hover:border-marsh hover:text-marsh transition-colors">+ Add Location</button>
+  </div>
+</div>
+{% endif %}
+{% if locations %}
+<details open class="card mt-4 overflow-hidden">
+  <summary class="px-4 py-2.5 bg-gray-50 border-b border-gray-100 cursor-pointer select-none list-none flex items-center gap-2 hover:bg-gray-100 transition-colors">
+    <span class="text-xs text-gray-400 details-arrow">&#9654;</span>
+    <span class="text-xs font-bold text-marsh uppercase tracking-wide">Locations</span>
+    <span class="text-xs text-gray-400">&middot; {{ locations | length }} location{{ 's' if locations | length != 1 }}</span>
+    <div class="ml-auto flex gap-2 items-center no-print">
+      <a href="/clients/{{ client.id }}/locations" onclick="event.stopPropagation()"
+        class="text-xs text-marsh hover:underline">Organize →</a>
+      <button type="button" onclick="event.stopPropagation(); addLocation({{ client.id }})"
+        class="text-xs text-gray-400 border border-dashed border-gray-300 px-2 py-0.5 rounded hover:border-marsh hover:text-marsh transition-colors">+ Add Location</button>
+    </div>
+  </summary>
+  <div class="overflow-x-auto">
+    <style>
+      .loc-cell[contenteditable][data-placeholder]:empty::before {
+        content: attr(data-placeholder);
+        color: #94a3b8;
+        font-style: italic;
+        pointer-events: none;
+      }
+      .loc-cell[contenteditable]:focus {
+        outline: none;
+        border-bottom: 2px solid #3b82f6;
+        background: rgba(59, 130, 246, 0.03);
+      }
+    </style>
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="border-b border-gray-100 text-left text-xs text-gray-400">
+          <th class="px-3 py-2 font-medium cursor-pointer hover:text-marsh" onclick="sortTable('ov-loc-tbody', 0, 'text', this)">Location <span class="sort-arrow"></span></th>
+          <th class="px-3 py-2 font-medium cursor-pointer hover:text-marsh" onclick="sortTable('ov-loc-tbody', 1, 'text', this)">Address <span class="sort-arrow"></span></th>
+          <th class="px-3 py-2 font-medium cursor-pointer hover:text-marsh" onclick="sortTable('ov-loc-tbody', 2, 'text', this)">City <span class="sort-arrow"></span></th>
+          <th class="px-3 py-2 font-medium w-16 cursor-pointer hover:text-marsh" onclick="sortTable('ov-loc-tbody', 3, 'text', this)">State <span class="sort-arrow"></span></th>
+          <th class="px-3 py-2 font-medium w-20">ZIP</th>
+          <th class="px-3 py-2 font-medium text-right cursor-pointer hover:text-marsh" onclick="sortTable('ov-loc-tbody', 5, 'currency', this)">Premium <span class="sort-arrow"></span></th>
+          <th class="px-3 py-2 font-medium text-center">Coverage</th>
+          <th class="px-3 py-2 font-medium w-8 no-print"></th>
+        </tr>
+      </thead>
+      <tbody id="ov-loc-tbody">
+        {% for loc in locations %}
+        <tr id="loc-row-{{ loc.id }}" class="border-b border-gray-50 hover:bg-gray-50 transition-colors">
+          <td class="px-3 py-2">
+            <div class="flex items-center gap-1.5">
+              <span contenteditable="true"
+                class="loc-cell outline-none font-medium text-gray-800"
+                data-field="name"
+                data-endpoint="/clients/{{ client.id }}/projects/{{ loc.id }}/field"
+                data-placeholder="Location name...">{{ loc.name or '' }}</span>
+              <a href="/clients/{{ client.id }}/projects/{{ loc.id }}"
+                class="text-gray-300 hover:text-marsh text-xs shrink-0" title="Open detail">&#8599;</a>
+            </div>
+          </td>
+          <td class="px-3 py-2">
+            <span contenteditable="true"
+              class="loc-cell outline-none text-gray-700"
+              data-field="address"
+              data-endpoint="/clients/{{ client.id }}/projects/{{ loc.id }}/field"
+              data-placeholder="address">{{ loc.address or '' }}</span>
+          </td>
+          <td class="px-3 py-2">
+            <span contenteditable="true"
+              class="loc-cell outline-none text-gray-700"
+              data-field="city"
+              data-endpoint="/clients/{{ client.id }}/projects/{{ loc.id }}/field"
+              data-placeholder="city">{{ loc.city or '' }}</span>
+          </td>
+          <td class="px-3 py-2">
+            <span contenteditable="true"
+              class="loc-cell outline-none text-gray-700"
+              data-field="state"
+              data-endpoint="/clients/{{ client.id }}/projects/{{ loc.id }}/field"
+              data-placeholder="ST">{{ loc.state or '' }}</span>
+          </td>
+          <td class="px-3 py-2">
+            <span contenteditable="true"
+              class="loc-cell outline-none text-gray-700"
+              data-field="zip"
+              data-endpoint="/clients/{{ client.id }}/projects/{{ loc.id }}/field"
+              data-placeholder="zip">{{ loc.zip or '' }}</span>
+          </td>
+          <td class="px-3 py-2 text-right tabular-nums text-gray-700">{% if loc.total_premium %}{{ loc.total_premium | currency }}{% else %}$0{% endif %}</td>
+          <td class="px-3 py-2 text-center">
+            {% if loc.total_coverages > 0 and loc.placed_coverages == loc.total_coverages %}
+            <span class="inline-block text-xs px-2 py-0.5 rounded-full bg-green-50 text-green-700 cursor-pointer hover:bg-green-100"
+              onclick="toggleLocCoverage({{ client.id }}, {{ loc.id }})"
+              title="Click to expand coverages">{{ loc.placed_coverages }}/{{ loc.total_coverages }}</span>
+            {% elif loc.total_coverages > 0 %}
+            <span class="inline-block text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 cursor-pointer hover:bg-amber-100"
+              onclick="toggleLocCoverage({{ client.id }}, {{ loc.id }})"
+              title="Click to expand coverages">{{ loc.placed_coverages }}/{{ loc.total_coverages }}</span>
+            {% else %}
+            <span class="text-xs text-gray-300">0</span>
+            {% endif %}
+          </td>
+          <td class="px-3 py-2 no-print">
+            <button type="button" onclick="locDeleteRow({{ client.id }}, {{ loc.id }})"
+              class="text-red-300 hover:text-red-500 text-xs">&#10005;</button>
+          </td>
+        </tr>
+        <tr id="loc-cov-{{ loc.id }}" class="hidden"></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if unassigned_count > 0 %}
+  <div class="mx-4 mb-3 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700 flex justify-between items-center">
+    <span>{{ unassigned_count }} polic{{ 'ies' if unassigned_count != 1 else 'y' }} not assigned to a location</span>
+    <a href="/clients/{{ client.id }}/locations" class="text-marsh font-medium hover:underline">Assign →</a>
+  </div>
+  {% endif %}
+</details>
+
+<div id="ov-loc-address-suggestions" class="fixed z-50 bg-white border border-gray-200 rounded-b-lg shadow-lg max-h-48 overflow-y-auto hidden" style="min-width:200px"></div>
+
+<script>
+(function() {
+  function flashCell(el) {
+    el.style.transition = 'background-color 0.3s ease';
+    el.style.backgroundColor = '#d1fae5';
+    setTimeout(function() { el.style.backgroundColor = ''; setTimeout(function() { el.style.transition = ''; }, 300); }, 800);
+  }
+
+  function patchLocField(endpoint, field, value) {
+    return fetch(endpoint, {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({field: field, value: value})
+    }).then(function(r) { return r.json(); });
+  }
+
+  /* ── Google Places autocomplete for location address cells ── */
+  var locAddrDropdown = document.getElementById('ov-loc-address-suggestions');
+  var locAddrTimer = null;
+  var locAddrActiveCell = null;
+
+  document.addEventListener('input', function(e) {
+    if (!e.target.matches('#ov-loc-tbody .loc-cell[data-field="address"]')) return;
+    locAddrActiveCell = e.target;
+    clearTimeout(locAddrTimer);
+    var q = e.target.textContent.trim();
+    if (q.length < 4) { locAddrDropdown.classList.add('hidden'); return; }
+    locAddrTimer = setTimeout(function() {
+      fetch('/api/address/autocomplete?q=' + encodeURIComponent(q))
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          var predictions = data.predictions || [];
+          if (!predictions.length) { locAddrDropdown.classList.add('hidden'); return; }
+          var rect = locAddrActiveCell.getBoundingClientRect();
+          locAddrDropdown.style.left = rect.left + 'px';
+          locAddrDropdown.style.top = rect.bottom + 'px';
+          locAddrDropdown.style.width = Math.max(rect.width, 300) + 'px';
+          locAddrDropdown.innerHTML = '';
+          predictions.forEach(function(p) {
+            var div = document.createElement('div');
+            div.className = 'px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 cursor-pointer border-b border-gray-50';
+            div.textContent = p.description;
+            div.addEventListener('mousedown', function(ev) {
+              ev.preventDefault();
+              if (!locAddrActiveCell) return;
+              var row = locAddrActiveCell.closest('tr');
+              if (!row) return;
+              var endpoint = locAddrActiveCell.dataset.endpoint;
+              locAddrDropdown.classList.add('hidden');
+
+              fetch('/api/address/details/' + encodeURIComponent(p.place_id))
+                .then(function(r) { return r.json(); })
+                .then(function(d) {
+                  if (d.error) return;
+                  var street = d.street || p.description;
+                  locAddrActiveCell.textContent = street;
+                  patchLocField(endpoint, 'address', street).then(function(r) {
+                    if (r.ok && r.formatted) { locAddrActiveCell.textContent = r.formatted; flashCell(locAddrActiveCell); }
+                  });
+
+                  var cityCell = row.querySelector('.loc-cell[data-field="city"]');
+                  if (cityCell && d.city) {
+                    cityCell.textContent = d.city;
+                    patchLocField(cityCell.dataset.endpoint, 'city', d.city).then(function(r) {
+                      if (r.ok && r.formatted) { cityCell.textContent = r.formatted; flashCell(cityCell); }
+                    });
+                  }
+
+                  var stateCell = row.querySelector('.loc-cell[data-field="state"]');
+                  if (stateCell && d.state) {
+                    stateCell.textContent = d.state;
+                    patchLocField(stateCell.dataset.endpoint, 'state', d.state).then(function(r) {
+                      if (r.ok && r.formatted) { stateCell.textContent = r.formatted; flashCell(stateCell); }
+                    });
+                  }
+
+                  var zipCell = row.querySelector('.loc-cell[data-field="zip"]');
+                  if (zipCell && d.zip) {
+                    zipCell.textContent = d.zip;
+                    patchLocField(zipCell.dataset.endpoint, 'zip', d.zip).then(function(r) {
+                      if (r.ok && r.formatted) { zipCell.textContent = r.formatted; flashCell(zipCell); }
+                    });
+                  }
+
+                  if (d.lat != null) patchLocField(endpoint, 'latitude', d.lat);
+                  if (d.lon != null) patchLocField(endpoint, 'longitude', d.lon);
+                });
+            });
+            locAddrDropdown.appendChild(div);
+          });
+          locAddrDropdown.classList.remove('hidden');
+        }).catch(function() { locAddrDropdown.classList.add('hidden'); });
+    }, 400);
+  }, true);
+
+  document.addEventListener('blur', function(e) {
+    if (e.target.matches('#ov-loc-tbody .loc-cell[data-field="address"]')) {
+      setTimeout(function() { locAddrDropdown.classList.add('hidden'); }, 200);
+    }
+  }, true);
+
+  // Blur-save for contenteditable cells (scoped to overview locations tbody)
+  document.addEventListener('blur', function(e) {
+    if (!e.target.matches('#ov-loc-tbody .loc-cell[contenteditable]')) return;
+    var raw = e.target.textContent.trim();
+    var endpoint = e.target.dataset.endpoint;
+    var field = e.target.dataset.field;
+    if (!endpoint || !field) return;
+    fetch(endpoint, {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({field: field, value: raw})
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.ok && data.formatted !== raw) {
+        e.target.textContent = data.formatted;
+        flashCell(e.target);
+      }
+    });
+  }, true);
+
+  window.toggleLocCoverage = function(clientId, projectId) {
+    var covId = 'loc-cov-detail-' + projectId;
+    var existing = document.getElementById(covId);
+    if (existing) { existing.remove(); return; }
+    fetch('/clients/' + clientId + '/projects/' + projectId + '/coverage')
+      .then(function(r) { return r.text(); })
+      .then(function(html) {
+        var row = document.getElementById('loc-row-' + projectId);
+        if (row) {
+          var tr = document.createElement('tr');
+          tr.id = covId;
+          tr.innerHTML = '<td colspan="8" class="px-4 py-2 bg-gray-50">' + html + '</td>';
+          row.insertAdjacentElement('afterend', tr);
+        }
+      });
+  };
+
+  window.addLocation = function(clientId) {
+    fetch('/clients/' + clientId + '/projects/location', {method: 'POST'})
+      .then(function() { window.location.reload(); });
+  };
+
+  window.locDeleteRow = function(clientId, projectId) {
+    if (!confirm('Delete this location? Policies will be moved to Corporate/Standalone.')) return;
+    fetch('/clients/' + clientId + '/projects/' + projectId + '/pipeline', {method: 'DELETE'})
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.ok) {
+          var row = document.getElementById('loc-row-' + projectId);
+          if (row) row.remove();
+          var cov = document.getElementById('loc-cov-' + projectId);
+          if (cov) cov.remove();
+        }
+      });
+  };
+})();
+</script>
+{% endif %}
