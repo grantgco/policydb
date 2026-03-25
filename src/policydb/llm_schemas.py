@@ -486,6 +486,366 @@ POLICY_EXTRACTION_SCHEMA: dict = {
 }
 
 # ---------------------------------------------------------------------------
+# Policy Bulk Import Schema — for cleaning messy spreadsheet data via LLM
+# ---------------------------------------------------------------------------
+# Uses the same field definitions as POLICY_EXTRACTION_SCHEMA but returns
+# an array of policies. The generate_policy_bulk_prompt() function adds
+# client-specific context (known locations, programs, carriers).
+
+POLICY_BULK_IMPORT_SCHEMA: dict = {
+    "name": "policy_bulk_import",
+    "version": 1,
+    "description": (
+        "Extract and normalize multiple policies from messy spreadsheet data, "
+        "prior AE notes, or unstructured policy lists. Return a JSON array "
+        "of policy objects."
+    ),
+    "context_fields": ["client_name", "industry"],
+    "is_array": True,  # signals that the LLM should return an array
+    "fields": POLICY_EXTRACTION_SCHEMA["fields"],  # reuse same field defs
+    "nested_groups": {
+        "program_layers": {
+            "type": "array",
+            "optional": True,
+            "description": (
+                "If this policy is part of a layered program (multiple carriers "
+                "stacking on the same coverage type with the same dates), list "
+                "each carrier/layer here instead of creating separate policy objects. "
+                "Use this when you see multiple carriers for the same coverage type "
+                "and effective/expiration dates."
+            ),
+            "fields": [
+                {
+                    "key": "carrier",
+                    "label": "Carrier",
+                    "type": "string",
+                    "required": True,
+                    "normalizer": "normalize_carrier",
+                    "config_values": "carriers",
+                    "config_mode": "prefer",
+                },
+                {
+                    "key": "layer_position",
+                    "label": "Layer Position",
+                    "type": "string",
+                    "required": False,
+                    "description": "Primary, 1st Excess, 2nd Excess, Umbrella, etc.",
+                },
+                {
+                    "key": "policy_number",
+                    "label": "Policy Number",
+                    "type": "string",
+                    "required": False,
+                    "normalizer": "normalize_policy_number",
+                },
+                {
+                    "key": "premium",
+                    "label": "Premium",
+                    "type": "number",
+                    "required": False,
+                    "normalizer": "parse_currency_with_magnitude",
+                },
+                {
+                    "key": "limit_amount",
+                    "label": "Limit",
+                    "type": "number",
+                    "required": False,
+                    "normalizer": "parse_currency_with_magnitude",
+                },
+                {
+                    "key": "attachment_point",
+                    "label": "Attachment Point",
+                    "type": "number",
+                    "required": False,
+                    "normalizer": "parse_currency_with_magnitude",
+                },
+                {
+                    "key": "participation_of",
+                    "label": "Participation %",
+                    "type": "number",
+                    "required": False,
+                    "description": "Co-insurance or participation percentage if a shared layer",
+                },
+            ],
+        },
+    },
+}
+
+
+def generate_policy_bulk_prompt(conn, client_id: int) -> str:
+    """Build a specialized prompt for bulk policy extraction from messy data.
+
+    Pre-loads client-specific context so the LLM normalizes to known values:
+    - Valid carriers and aliases
+    - Valid policy types
+    - Known locations/projects for this client
+    - Known programs for this client
+    """
+    import policydb.config as _cfg
+
+    # --- Client info ---
+    client = conn.execute(
+        "SELECT name, industry_segment FROM clients WHERE id = ?", (client_id,)
+    ).fetchone()
+    client_name = client["name"] if client else "Unknown"
+    industry = (client["industry_segment"] or "") if client else ""
+
+    # --- Known locations ---
+    locations = conn.execute(
+        "SELECT name, address, city, state FROM projects "
+        "WHERE client_id = ? AND (project_type = 'Location' OR project_type IS NULL) "
+        "ORDER BY name",
+        (client_id,),
+    ).fetchall()
+    loc_list = []
+    for loc in locations:
+        parts = [loc["name"]]
+        addr = ", ".join(filter(None, [loc["address"], loc["city"], loc["state"]]))
+        if addr:
+            parts.append(f"({addr})")
+        loc_list.append(" ".join(parts))
+
+    # --- Known programs ---
+    programs = conn.execute(
+        "SELECT policy_uid, policy_type, carrier FROM policies "
+        "WHERE client_id = ? AND is_program = 1 AND archived = 0 "
+        "ORDER BY policy_type",
+        (client_id,),
+    ).fetchall()
+    prog_list = [f"{p['policy_uid']}: {p['policy_type']} ({p['carrier'] or 'multiple carriers'})" for p in programs]
+
+    # --- Config lists ---
+    carriers = _cfg.get("carriers", [])
+    carrier_aliases = _cfg.get("carrier_aliases", {})
+    policy_types = _cfg.get("policy_types", [])
+    renewal_statuses = _cfg.get("renewal_statuses", [])
+
+    # --- Build prompt ---
+    parts: list[str] = []
+
+    parts.append(
+        "You are an insurance data analyst. I will provide raw, messy spreadsheet data "
+        "about insurance policies for a single client. Your job is to extract and normalize "
+        "this data into clean, structured JSON.\n"
+    )
+
+    parts.append("## Output Format\n")
+    parts.append(
+        "Return a JSON **array** of policy objects. Each policy should have the fields "
+        "listed below. Omit fields you cannot determine from the data.\n"
+    )
+
+    # Field instructions (reuse the schema's field definitions)
+    config_lists = {}
+    for field in POLICY_BULK_IMPORT_SCHEMA["fields"]:
+        ck = field.get("config_values")
+        if ck:
+            config_lists[ck] = _cfg.get(ck, [])
+    for _gname, gdef in POLICY_BULK_IMPORT_SCHEMA.get("nested_groups", {}).items():
+        for field in gdef.get("fields", []):
+            ck = field.get("config_values")
+            if ck:
+                config_lists[ck] = _cfg.get(ck, [])
+
+    parts.append("## Fields per Policy\n")
+    for f in POLICY_BULK_IMPORT_SCHEMA["fields"]:
+        parts.append(_build_field_instruction(f, config_lists))
+
+    # Program layers
+    parts.append("\n## Program Layers (optional)\n")
+    parts.append(
+        "If multiple rows share the same coverage type and effective/expiration dates "
+        "but have different carriers or limits, they are likely layers in a program. "
+        "Instead of creating separate policy objects, create ONE policy object with a "
+        '"program_layers" array containing each carrier/layer:\n'
+    )
+    for f in POLICY_BULK_IMPORT_SCHEMA["nested_groups"]["program_layers"]["fields"]:
+        parts.append(_build_field_instruction(f, config_lists))
+
+    # --- Client context ---
+    parts.append("\n## Client Context\n")
+    parts.append(f"- **Client Name**: {client_name}")
+    if industry:
+        parts.append(f"- **Industry**: {industry}")
+
+    if loc_list:
+        parts.append(f"\n### Known Locations ({len(loc_list)} total)")
+        parts.append("Match policies to these locations when possible. Use the exact name.")
+        for loc in loc_list:
+            parts.append(f"  - {loc}")
+
+    if prog_list:
+        parts.append(f"\n### Existing Programs ({len(prog_list)} total)")
+        parts.append("These programs already exist. If the data contains their carriers/layers, group them under program_layers.")
+        for p in prog_list:
+            parts.append(f"  - {p}")
+
+    # --- Carrier reference ---
+    parts.append("\n### Valid Carriers")
+    parts.append("Normalize carrier names to these canonical forms:")
+    for c in carriers:
+        aliases = carrier_aliases.get(c, [])
+        if aliases:
+            parts.append(f'  - **{c}** (also known as: {", ".join(aliases[:5])})')
+        else:
+            parts.append(f"  - **{c}**")
+
+    # --- Coverage type reference ---
+    parts.append("\n### Valid Coverage Types")
+    parts.append("Normalize coverage/LOB names to these canonical forms:")
+    for pt in policy_types:
+        parts.append(f"  - {pt}")
+
+    # --- Formatting rules ---
+    parts.append("\n## Formatting Rules\n")
+    parts.append("- Dates: YYYY-MM-DD format")
+    parts.append("- Currency: plain numbers, no $ signs or commas (e.g. 50000 not $50,000)")
+    parts.append("- If a value is unknown or missing, omit the field entirely")
+    parts.append('- For the `project_name` field, use the location name from the Known Locations list above')
+    parts.append('- If you cannot match a location, put the address or location info in `exposure_address`')
+    parts.append('- Preserve any original notes, comments, or unusual data in the `notes` field')
+
+    # --- JSON template ---
+    example_policy = {}
+    for f in POLICY_BULK_IMPORT_SCHEMA["fields"]:
+        if f.get("example"):
+            example_policy[f["key"]] = f["example"]
+    example_with_layers = dict(example_policy)
+    example_with_layers["program_layers"] = [
+        {"carrier": "Carrier A", "layer_position": "Primary", "premium": 25000,
+         "limit_amount": 1000000, "policy_number": "POL-001"},
+        {"carrier": "Carrier B", "layer_position": "1st Excess", "premium": 15000,
+         "limit_amount": 5000000, "attachment_point": 1000000, "policy_number": "POL-002"},
+    ]
+
+    parts.append("\n## JSON Template\n")
+    parts.append("Return ONLY valid JSON matching this structure (array of policies):")
+    template = json.dumps([example_policy, example_with_layers], indent=2)
+    parts.append(f"```json\n{template}\n```")
+
+    parts.append("\n---\n")
+    parts.append("**PASTE THE RAW SPREADSHEET DATA BELOW THIS LINE:**\n")
+
+    return "\n".join(parts)
+
+
+def parse_policy_bulk_json(raw_text: str) -> dict:
+    """Parse LLM JSON response for bulk policy import.
+
+    Expects a JSON array of policy objects. Normalizes each using
+    POLICY_BULK_IMPORT_SCHEMA field definitions.
+
+    Returns:
+        {"ok": True, "policies": [...], "warnings": [...], "count": N}
+        or {"ok": False, "error": "...", "raw_text": "..."}
+    """
+    if len(raw_text) > 1_000_000:
+        return {"ok": False, "error": "Input too large (max 1MB).", "raw_text": raw_text[:200]}
+
+    # Try code fences first, then raw JSON.
+    # _extract_json_str only finds {} objects, so we also look for [] arrays.
+    json_str = _extract_json_str(raw_text)
+
+    # If _extract_json_str returned a single object but the raw text has an array,
+    # try extracting the array directly
+    if json_str is None or (json_str.startswith("{") and "[" in raw_text):
+        # Try to find a JSON array in the text
+        for pattern in [_RE_JSON_CODE_FENCE, _RE_GENERIC_CODE_FENCE]:
+            m = pattern.search(raw_text)
+            if m:
+                candidate = m.group(1).strip()
+                if candidate.startswith("["):
+                    json_str = candidate
+                    break
+        if json_str is None or not json_str.startswith("["):
+            # Fallback: find outermost [ ... ] via bracket counting
+            start = raw_text.find("[")
+            if start != -1:
+                depth = 0
+                in_string = False
+                escape_next = False
+                for i in range(start, len(raw_text)):
+                    ch = raw_text[i]
+                    if escape_next:
+                        escape_next = False
+                        continue
+                    if ch == "\\":
+                        escape_next = True
+                        continue
+                    if ch == '"' and not escape_next:
+                        in_string = not in_string
+                        continue
+                    if in_string:
+                        continue
+                    if ch == "[":
+                        depth += 1
+                    elif ch == "]":
+                        depth -= 1
+                        if depth == 0:
+                            json_str = raw_text[start:i + 1]
+                            break
+
+    if json_str is None:
+        return {"ok": False, "error": "No JSON found in input.", "raw_text": raw_text}
+
+    try:
+        data = json.loads(json_str)
+    except json.JSONDecodeError as e:
+        return {"ok": False, "error": f"Invalid JSON: {e}", "raw_text": raw_text}
+
+    # Accept both array and single object
+    if isinstance(data, dict):
+        data = [data]
+    if not isinstance(data, list):
+        return {"ok": False, "error": "Expected a JSON array of policies.", "raw_text": raw_text}
+
+    fields = POLICY_BULK_IMPORT_SCHEMA["fields"]
+    layer_fields = POLICY_BULK_IMPORT_SCHEMA["nested_groups"]["program_layers"]["fields"]
+    all_warnings: list[str] = []
+    policies: list[dict] = []
+
+    for i, item in enumerate(data):
+        if not isinstance(item, dict):
+            all_warnings.append(f"Item [{i}] is not an object, skipping.")
+            continue
+
+        parsed, raw, warnings = _parse_flat_fields(item, fields)
+        for w in warnings:
+            all_warnings.append(f"Policy [{i}]: {w}")
+
+        # Parse program_layers if present
+        layers_data = item.get("program_layers")
+        if layers_data and isinstance(layers_data, list):
+            parsed_layers = []
+            for j, layer in enumerate(layers_data):
+                if not isinstance(layer, dict):
+                    all_warnings.append(f"Policy [{i}] layer [{j}] is not an object, skipping.")
+                    continue
+                lp, lr, lw = _parse_flat_fields(layer, layer_fields)
+                for w in lw:
+                    all_warnings.append(f"Policy [{i}] layer [{j}]: {w}")
+                if lp:
+                    parsed_layers.append(lp)
+            if parsed_layers:
+                parsed["program_layers"] = parsed_layers
+
+        if parsed:
+            parsed["_raw"] = raw
+            parsed["_index"] = i
+            policies.append(parsed)
+
+    if not policies:
+        return {"ok": False, "error": "No valid policies extracted from JSON.", "raw_text": raw_text}
+
+    return {
+        "ok": True,
+        "policies": policies,
+        "warnings": all_warnings,
+        "count": len(policies),
+    }
+
+
+# ---------------------------------------------------------------------------
 # Compliance Extraction Schema
 # ---------------------------------------------------------------------------
 

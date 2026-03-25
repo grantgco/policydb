@@ -1,5 +1,5 @@
 {# _program_group_form.html — inline form to create a program from grouped rows #}
-{# Context: cand (dict with client, type, effective_date, expiration_date, carriers, row_indices),
+{# Context: cand (dict with client, type, effective_date, expiration_date, carriers, row_indices, carrier_details),
             token (str), all_clients (list), matched_client (dict or None),
             policy_types (list), cand_idx (int) #}
 
@@ -58,14 +58,60 @@
 
     </div>
 
-    <!-- Carrier summary (read-only) -->
+    <!-- Carrier detail table -->
     <div>
-      <label class="text-xs text-gray-500 mb-1 block">Carriers to include</label>
+      <label class="text-xs text-gray-500 mb-1.5 block">Carriers to include</label>
+      {% if cand.carrier_details is defined and cand.carrier_details %}
+      <div class="overflow-x-auto">
+        <table class="w-full text-xs border border-gray-200 rounded-lg">
+          <thead>
+            <tr class="bg-gray-50 border-b border-gray-200 text-gray-500 text-left">
+              <th class="py-1.5 px-2">#</th>
+              <th class="py-1.5 px-2">Carrier</th>
+              <th class="py-1.5 px-2">Policy #</th>
+              <th class="py-1.5 px-2 text-right">Premium</th>
+              <th class="py-1.5 px-2 text-right">Limit</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for cd in cand.carrier_details %}
+            <tr class="border-b border-gray-100">
+              <td class="py-1 px-2 text-gray-400">{{ loop.index }}</td>
+              <td class="py-1 px-2 font-medium text-blue-700">{{ cd.carrier }}</td>
+              <td class="py-1 px-2 font-mono text-gray-600">{{ cd.policy_number or '—' }}</td>
+              <td class="py-1 px-2 text-right tabular-nums">
+                {% if cd.premium %}${{ "{:,.0f}".format(cd.premium | float) }}{% else %}—{% endif %}
+              </td>
+              <td class="py-1 px-2 text-right tabular-nums">
+                {% if cd.limit_amount %}${{ "{:,.0f}".format(cd.limit_amount | float) }}{% else %}—{% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+          <tfoot>
+            <tr class="bg-gray-50 border-t border-gray-200 font-medium">
+              <td class="py-1.5 px-2" colspan="3">Total</td>
+              <td class="py-1.5 px-2 text-right tabular-nums">
+                {% set ns = namespace(total_prem=0) %}
+                {% for cd in cand.carrier_details %}{% if cd.premium %}{% set ns.total_prem = ns.total_prem + (cd.premium | float) %}{% endif %}{% endfor %}
+                {% if ns.total_prem %}${{ "{:,.0f}".format(ns.total_prem) }}{% endif %}
+              </td>
+              <td class="py-1.5 px-2 text-right tabular-nums">
+                {% set ns2 = namespace(total_limit=0) %}
+                {% for cd in cand.carrier_details %}{% if cd.limit_amount %}{% set ns2.total_limit = ns2.total_limit + (cd.limit_amount | float) %}{% endif %}{% endfor %}
+                {% if ns2.total_limit %}${{ "{:,.0f}".format(ns2.total_limit) }}{% endif %}
+              </td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      {% else %}
       <div class="flex flex-wrap gap-1.5">
         {% for c in cand.carriers %}
         <span class="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">{{ c }}</span>
         {% endfor %}
       </div>
+      {% endif %}
     </div>
 
     <div class="flex items-center gap-2 pt-1">
