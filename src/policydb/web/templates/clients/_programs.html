@@ -22,12 +22,19 @@
       </thead>
       <tbody>
         {% for p in programs %}
-        <tr class="border-b border-gray-50 hover:bg-gray-50 transition-colors">
+        {% set pgm_idx = loop.index0 %}
+        {# ── Program header row (clickable to expand/collapse carriers) ── #}
+        <tr class="border-b border-gray-50 hover:bg-gray-50 transition-colors cursor-pointer"
+            onclick="var rows=document.querySelectorAll('.pgm-detail-{{pgm_idx}}');var arrow=this.querySelector('.pgm-arrow');if(rows.length){var hidden=rows[0].classList.contains('hidden');rows.forEach(function(r){r.classList.toggle('hidden')});if(arrow){arrow.textContent=hidden?'▾':'▸'}}">
           <td class="px-4 py-2.5">
-            <span class="bg-blue-100 text-blue-700 text-[10px] font-bold px-1.5 py-0.5 rounded">PGM</span>
+            <span class="inline-flex items-center gap-1">
+              <span class="bg-blue-100 text-blue-700 text-[10px] font-bold px-1.5 py-0.5 rounded">PGM</span>
+              <span class="pgm-arrow text-[10px] text-gray-400">▾</span>
+            </span>
           </td>
           <td class="px-4 py-2.5">
-            <a href="/policies/{{ p.policy_uid }}/edit" class="font-medium text-marsh hover:underline">{{ p.policy_type }}</a>
+            <a href="/policies/{{ p.policy_uid }}/edit" class="font-medium text-marsh hover:underline"
+               onclick="event.stopPropagation()">{{ p.policy_type }}</a>
           </td>
           <td class="px-4 py-2.5 text-gray-600">{{ p.carrier_rows[0].carrier if p.carrier_rows else (p.carrier or '—') }}</td>
           <td class="px-4 py-2.5 text-right font-medium text-gray-900 tabular-nums">{% if p.limit_amount %}{{ p.limit_amount | currency }}{% else %}&mdash;{% endif %}</td>
@@ -52,11 +59,11 @@
             {% endif %}
           </td>
         </tr>
-        {# Nested carrier rows from program_carriers table #}
+        {# ── Nested carrier rows (collapsible) ── #}
         {% for cr in p.carrier_rows %}
-        <tr class="border-b border-gray-50 bg-blue-50/30">
+        <tr class="pgm-detail-{{pgm_idx}} border-b border-gray-50 bg-blue-50/30">
           <td class="px-4 py-1.5 pl-8">
-            <span class="text-[9px] text-gray-300">{{ '└' if loop.last else '├' }}</span>
+            <span class="text-[9px] text-gray-300">{{ '└' if loop.last and not p.linked_policies else '├' }}</span>
           </td>
           <td class="px-4 py-1.5 text-xs text-gray-600">{{ cr.carrier }}</td>
           <td class="px-4 py-1.5 text-xs text-gray-400 font-mono">{{ cr.policy_number or '' }}</td>
@@ -67,15 +74,16 @@
           <td class="px-4 py-1.5"></td>
         </tr>
         {% endfor %}
-        {# Linked policies (legacy — still shown if any exist) #}
+        {# ── Linked policies ── #}
         {% if p.linked_policies %}
         {% for lp in p.linked_policies %}
-        <tr class="border-b border-gray-50 bg-gray-50/50">
+        <tr class="pgm-detail-{{pgm_idx}} border-b border-gray-50 bg-gray-50/50">
           <td class="px-4 py-1.5 pl-8">
-            <span class="text-[9px] text-gray-300">&rarr;</span>
+            <span class="text-[9px] text-gray-300">{{ '└' if loop.last else '├' }}</span>
           </td>
           <td class="px-4 py-1.5">
-            <a href="/policies/{{ lp.policy_uid }}/edit" class="text-xs text-marsh hover:underline">{{ lp.policy_type }}</a>
+            <a href="/policies/{{ lp.policy_uid }}/edit" class="text-xs text-marsh hover:underline"
+               onclick="event.stopPropagation()">{{ lp.policy_type }}</a>
           </td>
           <td class="px-4 py-1.5 text-xs text-gray-500">{{ lp.carrier or '—' }}</td>
           <td class="px-4 py-1.5 text-xs text-right text-gray-600 tabular-nums">{% if lp.limit_amount %}{{ lp.limit_amount | currency }}{% else %}&mdash;{% endif %}</td>
