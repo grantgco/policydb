@@ -19,8 +19,7 @@
     <h1 class="text-2xl font-bold text-gray-900">Edit Policy</h1>
     <div class="ml-auto flex items-center gap-2 no-print">
       <button hx-get="/policies/{{ policy.policy_uid }}/provenance"
-              hx-target="#provenance-panel" hx-swap="innerHTML"
-              onclick="document.getElementById('provenance-drawer').classList.toggle('hidden')"
+              hx-target="#provenance-drawer" hx-swap="innerHTML"
               class="px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 transition-colors">
         Provenance
       </button>
@@ -37,6 +36,9 @@
   </p>
   {% if policy.first_named_insured %}<p class="text-xs text-gray-400 mt-0.5">First Named Insured: <span class="text-gray-600 font-medium">{{ policy.first_named_insured }}</span></p>{% endif %}
 </div>
+
+{# ── Field Provenance drawer (loads via HTMX into this container) ── #}
+<div id="provenance-drawer" class="mb-4 no-print"></div>
 
 {# ── Alert banner: escalation + readiness + warnings ── #}
 {% if escalation_tier or overdue_followups or policy_warnings %}
@@ -104,18 +106,6 @@
 
 {# ── Floating Working Notes Panel ── #}
 {% include "policies/_working_notes_float.html" %}
-
-{# ── Field Provenance drawer ── #}
-<div id="provenance-drawer" class="hidden card p-4 mb-4">
-  <div class="flex items-center justify-between mb-3">
-    <h3 class="text-sm font-semibold text-gray-700">Field Provenance</h3>
-    <button onclick="document.getElementById('provenance-drawer').classList.add('hidden')"
-            class="text-gray-400 hover:text-gray-600 text-xs">Close</button>
-  </div>
-  <div id="provenance-panel">
-    <p class="text-xs text-gray-400">Click "Provenance" to load import history for this policy.</p>
-  </div>
-</div>
 
 {# ── AI Import: diff summary + warnings banner + slideover container ── #}
 <div id="ai-import-diff"></div>
