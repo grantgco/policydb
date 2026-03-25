@@ -90,7 +90,7 @@
             <option value="">— Select policy —</option>
             {% for lp in linkable_policies %}
             {% if not lp.policy_uid in (program_linked_policies | map(attribute='policy_uid') | list) %}
-            <option value="{{ lp.policy_uid }}">{{ lp.policy_uid }} — {{ lp.policy_type }} · {{ lp.carrier or 'No carrier' }}{% if lp.premium %} · {{ lp.premium | currency }}{% endif %}</option>
+            <option value="{{ lp.policy_uid }}">{{ lp.policy_uid }} — {{ lp.policy_type }} · {{ lp.carrier or 'No carrier' }}{% if lp.premium %} · {{ lp.premium | currency }}{% endif %}{% if lp.effective_date %} · Eff {{ lp.effective_date }}{% endif %}{% if lp.expiration_date %}–{{ lp.expiration_date }}{% endif %}</option>
             {% endif %}
             {% endfor %}
           </select>
@@ -465,10 +465,12 @@
     <div>
       <p class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-3">Primary Exposure Address / Location</p>
       <div class="grid grid-cols-1 sm:grid-cols-6 gap-4">
-        <div class="sm:col-span-6">
+        <div class="sm:col-span-6 relative">
           <label class="field-label">Street Address</label>
-          <input type="text" data-field="exposure_address" value="{{ policy.exposure_address or '' }}"
-            placeholder="123 Main St, Suite 100" class="form-input w-full">
+          <input type="text" data-field="exposure_address" id="exposure-address-input" value="{{ policy.exposure_address or '' }}"
+            placeholder="123 Main St, Suite 100" class="form-input w-full"
+            data-1p-ignore data-lpignore="true" autocomplete="off">
+          <div id="exposure-address-suggestions" class="absolute left-0 right-0 top-full z-50 bg-white border border-gray-200 rounded-b-lg shadow-lg max-h-48 overflow-y-auto hidden"></div>
         </div>
         <div class="sm:col-span-3">
           <label class="field-label">City</label>
@@ -532,9 +534,8 @@
 <!-- Renew action -->
 <div class="pt-4 border-t border-gray-200 flex items-center justify-between mb-4 no-print">
   <p class="text-xs text-gray-400">Ready to start the next term? This archives the current policy and opens the new term for editing.</p>
-  <form method="post" action="/policies/{{ policy.policy_uid }}/renew"
-        onsubmit="return confirm('Create renewal term for {{ policy.policy_uid }} ({{ policy.policy_type }})?\n\nThis will archive the current record and open the new term for editing.')">
-    <button type="submit"
+  <form id="form-renew" method="post" action="/policies/{{ policy.policy_uid }}/renew">
+    <button type="button" onclick="confirmAction(this, 'Renew this policy?')"
       class="border border-blue-500 text-blue-600 hover:bg-blue-500 hover:text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
       Renew Policy →
     </button>
@@ -545,18 +546,39 @@
 <div class="pt-4 border-t border-gray-200 flex items-center justify-between gap-4 no-print">
   <p class="text-xs text-gray-400">Entered in error? <strong>Archive</strong> hides from views (data preserved). <strong>Delete</strong> permanently removes all data.</p>
   <div class="flex gap-2 shrink-0">
-    <form method="post" action="/policies/{{ policy.policy_uid }}/archive"
-          onsubmit="return confirm('Archive {{ policy.policy_uid }} ({{ policy.policy_type }})?\n\nThis hides the policy from all views. Data is preserved.')">
-      <button type="submit"
+    <form id="form-archive" method="post" action="/policies/{{ policy.policy_uid }}/archive">
+      <button type="button" onclick="confirmAction(this, 'Archive this policy?')"
         class="border border-amber-300 text-amber-600 hover:bg-amber-50 text-xs font-medium px-4 py-2 rounded-lg transition-colors">Archive</button>
     </form>
-    <form method="post" action="/policies/{{ policy.policy_uid }}/delete"
-          onsubmit="return confirm('PERMANENTLY DELETE {{ policy.policy_uid }} ({{ policy.policy_type }})?\n\nThis cannot be undone. All related data (milestones, contacts, notes) will be removed.')">
-      <button type="submit"
+    <form id="form-delete" method="post" action="/policies/{{ policy.policy_uid }}/delete">
+      <button type="button" onclick="confirmAction(this, 'Permanently delete this policy?')"
         class="border border-red-300 text-red-500 hover:bg-red-50 text-xs font-medium px-4 py-2 rounded-lg transition-colors">Delete</button>
     </form>
   </div>
 </div>
+
+<script>
+/* Inline two-click confirmation for destructive actions.
+   First click: button text changes to confirmation prompt.
+   Second click within 3s: submits the parent form.
+   Auto-reverts after 3s if not confirmed. */
+function confirmAction(btn, msg) {
+  if (btn.dataset.confirming === '1') {
+    btn.closest('form').submit();
+    return;
+  }
+  var orig = btn.textContent;
+  var origClass = btn.className;
+  btn.textContent = msg + ' Click again to confirm';
+  btn.dataset.confirming = '1';
+  btn.className = btn.className.replace(/border-\S+/g, 'border-gray-400').replace(/text-\S+/g, 'text-gray-800') + ' bg-gray-100 font-semibold';
+  setTimeout(function() {
+    btn.textContent = orig;
+    btn.className = origClass;
+    delete btn.dataset.confirming;
+  }, 3000);
+}
+</script>
 
 <!-- Datalists -->
 <datalist id="ac-carrier"></datalist>
@@ -634,6 +656,72 @@
       });
   }
   AC_FIELDS.forEach(loadList);
+
+  /* ── Nominatim autocomplete for exposure address ── */
+  (function() {
+    var addrInput = document.getElementById('exposure-address-input');
+    var addrDropdown = document.getElementById('exposure-address-suggestions');
+    if (!addrInput || !addrDropdown) return;
+
+    var stateMap = {};
+    {% for abbr, name in us_states %}
+    stateMap[{{ name | tojson }}.toLowerCase()] = {{ abbr | tojson }};
+    {% endfor %}
+
+    function stateToAbbr(s) {
+      if (!s) return '';
+      var lower = s.trim().toLowerCase();
+      if (stateMap[lower]) return stateMap[lower];
+      var upper = s.trim().toUpperCase();
+      return upper.length === 2 ? upper : s.trim();
+    }
+
+    var timer = null;
+    addrInput.addEventListener('input', function() {
+      clearTimeout(timer);
+      var q = addrInput.value.trim();
+      if (q.length < 4) { addrDropdown.classList.add('hidden'); return; }
+      timer = setTimeout(function() {
+        fetch('https://nominatim.openstreetmap.org/search?format=json&q=' + encodeURIComponent(q) + '&limit=5&addressdetails=1&countrycodes=us,gb,ca')
+          .then(function(r) { return r.json(); })
+          .then(function(data) {
+            if (!data || !data.length) { addrDropdown.classList.add('hidden'); return; }
+            addrDropdown.innerHTML = '';
+            data.forEach(function(item) {
+              var div = document.createElement('div');
+              div.className = 'px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 cursor-pointer border-b border-gray-50';
+              div.textContent = item.display_name;
+              div.addEventListener('mousedown', function(e) {
+                e.preventDefault();
+                var a = item.address || {};
+                var street = (a.house_number ? a.house_number + ' ' : '') + (a.road || '');
+                addrInput.value = street || item.display_name;
+                patchField('exposure_address', addrInput.value, addrInput);
+
+                var city = a.city || a.town || a.village || a.hamlet || '';
+                var cityEl = container.querySelector('[data-field="exposure_city"]');
+                if (cityEl && city) { cityEl.value = city; patchField('exposure_city', city, cityEl); }
+
+                var state = stateToAbbr(a.state || '');
+                var stateEl = container.querySelector('[data-field="exposure_state"]');
+                if (stateEl && state) { stateEl.value = state; patchField('exposure_state', state, stateEl); }
+
+                var zip = a.postcode || '';
+                var zipEl = container.querySelector('[data-field="exposure_zip"]');
+                if (zipEl && zip) { zipEl.value = zip; patchField('exposure_zip', zip, zipEl); }
+
+                addrDropdown.classList.add('hidden');
+              });
+              addrDropdown.appendChild(div);
+            });
+            addrDropdown.classList.remove('hidden');
+          }).catch(function() { addrDropdown.classList.add('hidden'); });
+      }, 400);
+    });
+    addrInput.addEventListener('blur', function() {
+      setTimeout(function() { addrDropdown.classList.add('hidden'); }, 200);
+    });
+  })();
 
   /* ── Live layer notation preview ── */
   (function () {

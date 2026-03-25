@@ -6,7 +6,7 @@ import json
 import logging
 logger = logging.getLogger("policydb.web.routes.policies")
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
@@ -276,6 +276,11 @@ def policy_row_log_post(
         except ValueError:
             return None
 
+    # Supersede old follow-ups BEFORE inserting the new one
+    if follow_up_date:
+        from policydb.queries import supersede_followups
+        supersede_followups(conn, policy_id, follow_up_date)
+
     account_exec = cfg.get("default_account_exec", "Grant")
     conn.execute(
         """INSERT INTO activity_log
@@ -287,9 +292,6 @@ def policy_row_log_post(
             follow_up_date or None, account_exec, round_duration(duration_hours),
         ),
     )
-    if follow_up_date:
-        from policydb.queries import supersede_followups
-        supersede_followups(conn, policy_id, follow_up_date)
     conn.commit()
 
     uid = policy_uid.upper()
@@ -356,6 +358,11 @@ def policy_dash_log_post(
         except ValueError:
             return None
 
+    # Supersede old follow-ups BEFORE inserting the new one
+    if follow_up_date:
+        from policydb.queries import supersede_followups
+        supersede_followups(conn, policy_id, follow_up_date)
+
     account_exec = cfg.get("default_account_exec", "Grant")
     conn.execute(
         """INSERT INTO activity_log
@@ -367,9 +374,6 @@ def policy_dash_log_post(
             follow_up_date or None, account_exec, round_duration(duration_hours),
         ),
     )
-    if follow_up_date:
-        from policydb.queries import supersede_followups
-        supersede_followups(conn, policy_id, follow_up_date)
     conn.commit()
 
     uid = policy_uid.upper()
@@ -446,6 +450,11 @@ def policy_renew_log_post(
         except ValueError:
             return None
 
+    # Supersede old follow-ups BEFORE inserting the new one
+    if follow_up_date:
+        from policydb.queries import supersede_followups
+        supersede_followups(conn, policy_id, follow_up_date)
+
     account_exec = cfg.get("default_account_exec", "Grant")
     conn.execute(
         """INSERT INTO activity_log
@@ -457,9 +466,6 @@ def policy_renew_log_post(
             follow_up_date or None, account_exec, round_duration(duration_hours),
         ),
     )
-    if follow_up_date:
-        from policydb.queries import supersede_followups
-        supersede_followups(conn, policy_id, follow_up_date)
     conn.commit()
 
     uid = policy_uid.upper()
@@ -543,6 +549,11 @@ def opp_log_post(
             return float(v) if str(v).strip() else None
         except ValueError:
             return None
+    # Supersede old follow-ups BEFORE inserting the new one
+    if follow_up_date and policy_id:
+        from policydb.queries import supersede_followups
+        supersede_followups(conn, policy_id, follow_up_date)
+
     account_exec = cfg.get("default_account_exec", "Grant")
     conn.execute(
         """INSERT INTO activity_log
@@ -554,9 +565,6 @@ def opp_log_post(
             follow_up_date or None, account_exec, round_duration(duration_hours),
         ),
     )
-    if follow_up_date and policy_id:
-        from policydb.queries import supersede_followups
-        supersede_followups(conn, policy_id, follow_up_date)
     conn.commit()
     return _opp_row_response(request, policy_uid.upper(), conn)
 
@@ -1373,7 +1381,7 @@ def _ai_import_parse_inner(request: Request, conn, uid: str, result: dict):
             (merged["id"],),
         ).fetchall()] if merged.get("is_program") else [],
         "linkable_policies": [dict(r) for r in conn.execute(
-            """SELECT policy_uid, policy_type, carrier, premium
+            """SELECT policy_uid, policy_type, carrier, premium, effective_date, expiration_date
                FROM policies WHERE client_id = ? AND archived = 0
                  AND (is_program = 0 OR is_program IS NULL)
                  AND (is_opportunity = 0 OR is_opportunity IS NULL)
@@ -1624,7 +1632,7 @@ def policy_tab_details(request: Request, policy_uid: str, conn=Depends(get_db)):
             (policy_dict["id"],),
         ).fetchall()] if policy_dict.get("is_program") else [],
         "linkable_policies": [dict(r) for r in conn.execute(
-            """SELECT policy_uid, policy_type, carrier, premium
+            """SELECT policy_uid, policy_type, carrier, premium, effective_date, expiration_date
                FROM policies WHERE client_id = ? AND archived = 0
                  AND (is_program = 0 OR is_program IS NULL)
                  AND (is_opportunity = 0 OR is_opportunity IS NULL)
@@ -1668,6 +1676,9 @@ def policy_tab_activity(request: Request, policy_uid: str, conn=Depends(get_db))
         [a for a in activities if a.get("follow_up_date") and not a.get("follow_up_done") and a["follow_up_date"] >= _today_iso],
         key=lambda a: a["follow_up_date"],
     )
+    _week_cutoff = (date.today() + timedelta(days=7)).isoformat()
+    due_soon = [a for a in upcoming_followups if a["follow_up_date"] <= _week_cutoff]
+    later_followups = [a for a in upcoming_followups if a["follow_up_date"] > _week_cutoff]
     history = [a for a in activities if not (a.get("follow_up_date") and not a.get("follow_up_done"))]
 
     # Cross-reference: project-level activities for the same project
@@ -1731,6 +1742,8 @@ def policy_tab_activity(request: Request, policy_uid: str, conn=Depends(get_db))
         "activities": activities,
         "overdue_followups": overdue_followups,
         "upcoming_followups": upcoming_followups,
+        "due_soon": due_soon,
+        "later_followups": later_followups,
         "history": history,
         "activity_types": cfg.get("activity_types", ["Call", "Email", "Meeting", "Note", "Other"]),
         "all_contact_names": all_contact_names,
@@ -2280,7 +2293,7 @@ def policy_edit_form(request: Request, policy_uid: str, add_contact: str = "", c
             (policy_dict["id"],),
         ).fetchall()] if policy_dict.get("is_program") else [],
         "linkable_policies": [dict(r) for r in conn.execute(
-            """SELECT policy_uid, policy_type, carrier, premium
+            """SELECT policy_uid, policy_type, carrier, premium, effective_date, expiration_date
                FROM policies WHERE client_id = ? AND archived = 0
                  AND (is_program = 0 OR is_program IS NULL)
                  AND (is_opportunity = 0 OR is_opportunity IS NULL)
@@ -3478,6 +3491,7 @@ def policy_delete(policy_uid: str, conn=Depends(get_db)):
     client_id = policy["client_id"]
     pid = policy["id"]
     # Clean up related records (order matters for FK constraints)
+    conn.execute("DELETE FROM policy_timeline WHERE policy_uid = ?", (uid,))
     conn.execute("DELETE FROM mandated_activity_log WHERE policy_uid = ?", (uid,))
     conn.execute("DELETE FROM policy_milestones WHERE policy_uid = ?", (uid,))
     conn.execute("DELETE FROM policy_scratchpad WHERE policy_uid = ?", (uid,))

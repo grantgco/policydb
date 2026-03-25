@@ -97,6 +97,24 @@ def generate_policy_timelines(conn, policy_uid: str | None = None) -> None:
               AND effective_date IS NOT NULL
         """, (policy_uid,)).fetchall()
     else:
+        # Full regeneration: clean up stale uncompleted milestones before re-inserting.
+        # Preserve rows that the user has actively triaged (waiting_on set,
+        # accountability changed from default) and completed milestones.
+        conn.execute("""
+            DELETE FROM policy_timeline
+            WHERE completed_date IS NULL
+              AND (accountability IS NULL OR accountability = 'my_action')
+              AND (waiting_on IS NULL OR waiting_on = '')
+        """)
+        # Also remove milestones for policies whose expiration already passed
+        conn.execute("""
+            DELETE FROM policy_timeline
+            WHERE completed_date IS NULL
+              AND policy_uid IN (
+                  SELECT policy_uid FROM policies
+                  WHERE expiration_date < date('now', '-30 days')
+              )
+        """)
         rows = conn.execute("""
             SELECT policy_uid, effective_date, expiration_date,
                    milestone_profile, program_id, is_program

@@ -117,6 +117,8 @@ window.addLocation = function(clientId) {
   </div>
 </details>
 
+<div id="loc-address-suggestions" class="fixed z-50 bg-white border border-gray-200 rounded-b-lg shadow-lg max-h-48 overflow-y-auto hidden" style="min-width:200px"></div>
+
 <script>
 (function() {
   function flashCell(el) {
@@ -124,6 +126,112 @@ window.addLocation = function(clientId) {
     el.style.backgroundColor = '#d1fae5';
     setTimeout(function() { el.style.backgroundColor = ''; setTimeout(function() { el.style.transition = ''; }, 300); }, 800);
   }
+
+  function patchLocField(endpoint, field, value) {
+    return fetch(endpoint, {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({field: field, value: value})
+    }).then(function(r) { return r.json(); });
+  }
+
+  /* ── Nominatim autocomplete for location address cells ── */
+  var stateMap = {};
+  {% for abbr, name in us_states %}
+  stateMap[{{ name | tojson }}.toLowerCase()] = {{ abbr | tojson }};
+  {% endfor %}
+
+  function stateToAbbr(s) {
+    if (!s) return '';
+    var lower = s.trim().toLowerCase();
+    if (stateMap[lower]) return stateMap[lower];
+    var upper = s.trim().toUpperCase();
+    return upper.length === 2 ? upper : s.trim();
+  }
+
+  var locAddrDropdown = document.getElementById('loc-address-suggestions');
+  var locAddrTimer = null;
+  var locAddrActiveCell = null;
+
+  document.addEventListener('input', function(e) {
+    if (!e.target.matches('.loc-cell[data-field="address"]')) return;
+    locAddrActiveCell = e.target;
+    clearTimeout(locAddrTimer);
+    var q = e.target.textContent.trim();
+    if (q.length < 4) { locAddrDropdown.classList.add('hidden'); return; }
+    locAddrTimer = setTimeout(function() {
+      fetch('https://nominatim.openstreetmap.org/search?format=json&q=' + encodeURIComponent(q) + '&limit=5&addressdetails=1&countrycodes=us,gb,ca')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (!data || !data.length) { locAddrDropdown.classList.add('hidden'); return; }
+          var rect = locAddrActiveCell.getBoundingClientRect();
+          locAddrDropdown.style.left = rect.left + 'px';
+          locAddrDropdown.style.top = rect.bottom + 'px';
+          locAddrDropdown.style.width = Math.max(rect.width, 300) + 'px';
+          locAddrDropdown.innerHTML = '';
+          data.forEach(function(item) {
+            var div = document.createElement('div');
+            div.className = 'px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 cursor-pointer border-b border-gray-50';
+            div.textContent = item.display_name;
+            div.addEventListener('mousedown', function(ev) {
+              ev.preventDefault();
+              if (!locAddrActiveCell) return;
+              var row = locAddrActiveCell.closest('tr');
+              if (!row) return;
+              var a = item.address || {};
+              var street = (a.house_number ? a.house_number + ' ' : '') + (a.road || '');
+              var endpoint = locAddrActiveCell.dataset.endpoint;
+
+              locAddrActiveCell.textContent = street || item.display_name;
+              patchLocField(endpoint, 'address', locAddrActiveCell.textContent).then(function(d) {
+                if (d.ok && d.formatted) { locAddrActiveCell.textContent = d.formatted; flashCell(locAddrActiveCell); }
+              });
+
+              var cityCell = row.querySelector('.loc-cell[data-field="city"]');
+              var city = a.city || a.town || a.village || a.hamlet || '';
+              if (cityCell && city) {
+                cityCell.textContent = city;
+                patchLocField(cityCell.dataset.endpoint, 'city', city).then(function(d) {
+                  if (d.ok && d.formatted) { cityCell.textContent = d.formatted; flashCell(cityCell); }
+                });
+              }
+
+              var stateCell = row.querySelector('.loc-cell[data-field="state"]');
+              var state = stateToAbbr(a.state || '');
+              if (stateCell && state) {
+                stateCell.textContent = state;
+                patchLocField(stateCell.dataset.endpoint, 'state', state).then(function(d) {
+                  if (d.ok && d.formatted) { stateCell.textContent = d.formatted; flashCell(stateCell); }
+                });
+              }
+
+              var zipCell = row.querySelector('.loc-cell[data-field="zip"]');
+              var zip = a.postcode || '';
+              if (zipCell && zip) {
+                zipCell.textContent = zip;
+                patchLocField(zipCell.dataset.endpoint, 'zip', zip).then(function(d) {
+                  if (d.ok && d.formatted) { zipCell.textContent = d.formatted; flashCell(zipCell); }
+                });
+              }
+
+              // Save geocoded lat/lng to the project
+              if (item.lat) patchLocField(endpoint, 'latitude', item.lat);
+              if (item.lon) patchLocField(endpoint, 'longitude', item.lon);
+
+              locAddrDropdown.classList.add('hidden');
+            });
+            locAddrDropdown.appendChild(div);
+          });
+          locAddrDropdown.classList.remove('hidden');
+        }).catch(function() { locAddrDropdown.classList.add('hidden'); });
+    }, 400);
+  }, true);
+
+  document.addEventListener('blur', function(e) {
+    if (e.target.matches('.loc-cell[data-field="address"]')) {
+      setTimeout(function() { locAddrDropdown.classList.add('hidden'); }, 200);
+    }
+  }, true);
 
   // Blur-save for contenteditable cells
   document.addEventListener('blur', function(e) {

@@ -71,6 +71,8 @@
     .seg-control label:last-of-type { border-right: none; }
     .seg-control input:checked + label { background: #003865; color: #fff; }
     .seg-control input:focus-visible + label { box-shadow: inset 0 0 0 2px #0055a5; }
+    .bulk-check { display: none; }
+    body.bulk-mode .bulk-check { display: inline-block; }
     @media print {
       .no-print { display: none !important; }
       nav, [role="navigation"] { display: none !important; }
@@ -864,6 +866,79 @@ function copyRefTag(btn, tag) {
     if (countEl) countEl.textContent = detail.done + '/' + detail.total;
   });
 })();
+
+/* ── Disposition pill bar toggle (inline editing) ── */
+window.toggleDispBar = function(rowId) {
+  var bar = document.getElementById('disp-bar-' + rowId);
+  if (bar) bar.classList.toggle('hidden');
+};
+
+window.expandDispBar = function(rowId) {
+  var expand = document.getElementById('disp-expand-' + rowId);
+  if (expand) expand.classList.toggle('hidden');
+};
+
+/* ── Quick-save disposition (no expand, just pill click + auto-submit) ── */
+window.quickSaveDisp = function(btn, label, days, rowId, compositeId, context) {
+  var fd = new FormData();
+  fd.append('composite_id', compositeId);
+  fd.append('disposition', label);
+  fd.append('context', context || '');
+  fetch('/activities/update-disposition', { method: 'POST', body: fd })
+    .then(function() {
+      if (context === 'action_center') {
+        var target = document.getElementById('ac-tab-content');
+        if (target && typeof htmx !== 'undefined') {
+          htmx.ajax('GET', '/action-center/followups', {target: target, swap: 'innerHTML'});
+        } else {
+          window.location.reload();
+        }
+      } else {
+        window.location.reload();
+      }
+    });
+};
+
+/* ── Bulk mode ── */
+window.toggleBulkMode = function(btn) {
+  var active = document.body.classList.toggle('bulk-mode');
+  btn.textContent = active ? '\u2715 Exit Bulk' : '\u2610 Bulk Edit';
+  var bar = document.getElementById('bulk-action-bar');
+  if (bar) bar.style.display = active ? 'flex' : 'none';
+  if (!active) {
+    document.querySelectorAll('.bulk-check:checked').forEach(function(cb) { cb.checked = false; });
+    updateBulkCount();
+  }
+};
+
+window.updateBulkCount = function() {
+  var checked = document.querySelectorAll('.bulk-check:checked').length;
+  var countEl = document.getElementById('bulk-count');
+  if (countEl) countEl.textContent = checked + ' selected';
+  var bar = document.getElementById('bulk-action-bar');
+  if (bar && document.body.classList.contains('bulk-mode')) {
+    bar.style.display = checked > 0 ? 'flex' : 'none';
+  }
+};
+
+window.bulkAction = function(action, extraField, extraValue) {
+  var ids = [];
+  document.querySelectorAll('.bulk-check:checked').forEach(function(cb) {
+    ids.push(cb.value);
+  });
+  if (!ids.length) return;
+  var fd = new FormData();
+  fd.append('ids', ids.join(','));
+  fd.append('action', action);
+  fd.append('context', 'action_center');
+  if (extraField) fd.append(extraField, extraValue);
+  fetch('/activities/bulk-action', { method: 'POST', body: fd })
+    .then(function() { window.location.reload(); });
+};
+
+window.bulkSetDisposition = function(label) {
+  bulkAction('set_disposition', 'disposition', label);
+};
 </script>
 
 <!-- Keyboard shortcut: / to focus search -->
