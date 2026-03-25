@@ -51,6 +51,9 @@ _PARSED_CACHE: dict[str, tuple[list[dict], list[str], dict, float]] = {}
 # Source name per board token (for match memory learning on confirm/create)
 _SOURCE_NAME_CACHE: dict[str, str] = {}
 
+# Import session ID per board token (for completing session with stats)
+_SESSION_ID_CACHE: dict[str, int] = {}
+
 def _cache_cleanup():
     """Remove cache entries older than 1 hour."""
     cutoff = _time.time() - 3600
@@ -425,6 +428,7 @@ async def reconcile_run(
     column_mapping_json: str = Form(""),
     date_priority: str = Form(""),
     source_name: str = Form(""),
+    as_of_date: str = Form(""),
     conn=Depends(get_db),
 ):
     all_clients = conn.execute(
@@ -471,7 +475,32 @@ async def reconcile_run(
         ctx["errors"] = ["Uploaded file is empty."]
         return templates.TemplateResponse("reconcile/index.html", ctx)
 
+    # Check for duplicate file upload
+    dup_warning = ""
+    if source_name:
+        try:
+            from policydb.import_ledger import check_duplicate_file
+            dup = check_duplicate_file(conn, content, source_name)
+            if dup:
+                dup_date = dup.get("imported_at", "unknown")[:10]
+                dup_warning = f"This file was previously uploaded on {dup_date} ({dup.get('status', '')}). Re-processing."
+        except Exception:
+            pass
+
+    # Load saved column mapping from source profile if user didn't provide one
+    if not col_map and source_name:
+        try:
+            from policydb.import_ledger import get_saved_column_map
+            saved_map = get_saved_column_map(conn, source_name)
+            if saved_map:
+                col_map = saved_map
+                ctx["saved_column_map"] = saved_map
+        except Exception:
+            pass
+
     ext_rows, warnings = parse_uploaded_file(content, column_mapping=col_map or None, filename=file.filename or "")
+    if dup_warning:
+        warnings.insert(0, dup_warning)
     ctx["warnings"] = warnings
     ctx["column_mapping_json"] = column_mapping_json
 
@@ -489,6 +518,9 @@ async def reconcile_run(
         "filename": file.filename or "",
         "column_mapping_json": column_mapping_json,
         "source_name": source_name,
+        "as_of_date": as_of_date,
+        "file_content": content,  # kept for session creation in run-match
+        "column_map_used": col_map,  # actual mapping applied (may be from saved profile)
     }
     _PARSED_CACHE[token] = (ext_rows, warnings, upload_params, _time.time())
 
@@ -691,7 +723,31 @@ def reconcile_run_match(
     if memory_count:
         logger.info("Match memory: %d auto-matches from source '%s'", memory_count, source_name)
 
-    # Clean up parsed cache — no longer needed
+    # Create import session and save source profile
+    session_id = None
+    if source_name:
+        try:
+            from policydb.import_ledger import create_session, save_source_profile
+            as_of_date = upload_params.get("as_of_date", "")
+            file_content = upload_params.get("file_content")
+            col_map_used = upload_params.get("column_map_used", {})
+
+            session_id = create_session(
+                conn, source_name=source_name, source_type="csv",
+                file_name=filename, file_content=file_content,
+                as_of_date=as_of_date, client_id=client_id if client_id else None,
+                column_mapping=col_map_used,
+            )
+            # Save/update source profile with column mapping
+            if col_map_used:
+                save_source_profile(conn, source_name, column_map=col_map_used)
+
+            # Store session_id in source name cache for later completion
+            _SESSION_ID_CACHE[download_token] = session_id
+        except Exception:
+            logger.exception("Failed to create import session")
+
+    # Clean up parsed cache — no longer needed (drop file_content to free memory)
     _PARSED_CACHE.pop(token, None)
 
     # Pass all results to index.html (it filters extras via selectattr in template)
@@ -1197,11 +1253,56 @@ async def reconcile_fill(
                 filled_names.append("Location Link")
 
     if updates:
+        # Get current values for provenance tracking before update
+        pol = conn.execute(
+            "SELECT id, " + ", ".join(f for f in _ALLOWED if form.get(f, "").strip()) +
+            " FROM policies WHERE policy_uid = ?",
+            (policy_uid.upper(),),
+        ).fetchone()
+        prior_values = dict(pol) if pol else {}
+        policy_id = prior_values.pop("id", None)
+
         params.append(policy_uid.upper())
         conn.execute(
             f"UPDATE policies SET {', '.join(updates)} WHERE policy_uid = ?",
             params,
         )
+
+        # Record provenance for each updated field
+        source_name = ""
+        session_id = None
+        as_of_date = ""
+        # Try to get source context from the form (passed via hidden fields)
+        _token = form.get("token", "")
+        if _token:
+            source_name = _SOURCE_NAME_CACHE.get(_token, "")
+            session_id = _SESSION_ID_CACHE.get(_token)
+            # as_of_date would come from the session
+            if session_id:
+                try:
+                    sess = conn.execute("SELECT as_of_date FROM import_sessions WHERE id = ?", (session_id,)).fetchone()
+                    if sess:
+                        as_of_date = sess["as_of_date"] or ""
+                except Exception:
+                    pass
+
+        if policy_id and source_name:
+            try:
+                from policydb.import_ledger import record_provenance
+                for field in _ALLOWED:
+                    val = form.get(field, "").strip()
+                    if not val:
+                        continue
+                    prior = str(prior_values.get(field, "") or "")
+                    was_conflict = bool(prior.strip() and prior.strip() != val.strip())
+                    record_provenance(
+                        conn, policy_id, field, val,
+                        source_name=source_name, source_session_id=session_id,
+                        as_of_date=as_of_date, prior_value=prior, was_conflict=was_conflict,
+                    )
+            except Exception:
+                logger.exception("Provenance recording failed on fill")
+
         conn.commit()
 
     label = ", ".join(filled_names) if filled_names else "No fields"
@@ -1420,15 +1521,38 @@ def reconcile_create(
             except (ValueError, IndexError):
                 pass
 
-    # Learn match memory for the newly created policy
+    # Learn match memory + record provenance for the newly created policy
     source_name = _SOURCE_NAME_CACHE.get(token, "")
+    new_pid = conn.execute("SELECT id FROM policies WHERE policy_uid = ?", (uid,)).fetchone()["id"]
     if source_name and policy_number:
         try:
             from policydb.match_memory import learn
-            new_pid = conn.execute("SELECT id FROM policies WHERE policy_uid = ?", (uid,)).fetchone()["id"]
             learn(conn, new_pid, source_name, policy_number, "policy_number", "reconcile")
         except Exception:
             logger.exception("Match memory learning failed on create")
+
+    if source_name and new_pid:
+        try:
+            from policydb.import_ledger import record_provenance_batch
+            session_id = _SESSION_ID_CACHE.get(token)
+            as_of_date = ""
+            if session_id:
+                sess = conn.execute("SELECT as_of_date FROM import_sessions WHERE id = ?", (session_id,)).fetchone()
+                if sess:
+                    as_of_date = sess["as_of_date"] or ""
+            created_fields = {
+                "policy_type": policy_type, "carrier": carrier, "policy_number": policy_number,
+                "effective_date": effective_date, "expiration_date": expiration_date,
+                "premium": str(premium), "description": description, "project_name": project_name,
+            }
+            created_fields = {k: v for k, v in created_fields.items() if v}
+            record_provenance_batch(
+                conn, new_pid, created_fields,
+                source_name=source_name, source_session_id=session_id, as_of_date=as_of_date,
+            )
+        except Exception:
+            logger.exception("Provenance recording failed on create")
+        conn.commit()
 
     created_html = (
         f'<div class="pair-row flex items-center rounded-lg border border-green-200 bg-green-50 mb-2 px-4 py-3" data-status="confirmed" data-confirmed="true">'
