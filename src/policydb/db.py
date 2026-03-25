@@ -1131,6 +1131,15 @@ def init_db(path: Path | None = None) -> None:
         )
         conn.commit()
 
+    if 84 not in applied:
+        sql = (_MIGRATIONS_DIR / "084_needs_investigation.sql").read_text()
+        conn.executescript(sql)
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (84, "Add needs_investigation flag to policies"),
+        )
+        conn.commit()
+
     # Data hygiene: fix 'None' string corruption in text fields (runs every startup, fast no-op if clean)
     conn.execute("UPDATE clients SET cn_number = NULL WHERE cn_number = 'None'")
 

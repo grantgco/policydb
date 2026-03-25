@@ -2486,6 +2486,85 @@ def save_export_bytes(content: bytes, filename: str) -> Path:
 
 # ── Client Book Review XLSX ──────────────────────────────────────────────────
 
+import re as _re
+
+_PLACEHOLDER_RE = _re.compile(
+    r"(?i)\b(tbd|tba|n/?a|pending|unknown|todo|xxx|placeholder|"
+    r"see above|per above|same as|to be advised|to be determined)\b"
+)
+
+# Required fields for completeness scoring (field_name, label, is_numeric)
+_COMPLETENESS_FIELDS = [
+    ("carrier", "Carrier", False),
+    ("policy_number", "Policy Number", False),
+    ("effective_date", "Effective Date", False),
+    ("expiration_date", "Expiration Date", False),
+    ("premium", "Premium", True),
+    ("limit_amount", "Limit", True),
+    ("first_named_insured", "First Named Insured", False),
+]
+
+
+def _is_placeholder(val: str) -> bool:
+    """Return True if value looks like a placeholder (TBD, N/A, etc.)."""
+    if not val or not isinstance(val, str):
+        return False
+    return bool(_PLACEHOLDER_RE.search(val))
+
+
+def _is_sketchy_short(val: str, field: str) -> bool:
+    """Return True if a text value is suspiciously short (1-2 chars) for name-like fields."""
+    if not val or not isinstance(val, str):
+        return False
+    name_fields = ("carrier", "first_named_insured", "placement_colleague", "underwriter_name")
+    if field in name_fields and 0 < len(val.strip()) <= 2:
+        return True
+    return False
+
+
+def _scan_sketchy_fields(policy: dict) -> list[tuple[str, str]]:
+    """Scan a policy dict for placeholder/sketchy values. Returns [(field_label, value), ...]."""
+    checks = [
+        ("carrier", "Carrier"),
+        ("policy_number", "Policy Number"),
+        ("first_named_insured", "First Named Insured"),
+        ("placement_colleague", "Placement Colleague"),
+        ("underwriter_name", "Underwriter"),
+        ("description", "Description"),
+        ("coverage_form", "Coverage Form"),
+    ]
+    sketchy = []
+    for field, label in checks:
+        val = (policy.get(field) or "").strip()
+        if not val:
+            continue  # empty is caught by missing-fields logic
+        if _is_placeholder(val) or _is_sketchy_short(val, field):
+            sketchy.append((label, val))
+    # Check $0 premium on non-program policies
+    prem = policy.get("premium")
+    if prem is not None and float(prem or 0) == 0 and not policy.get("is_program"):
+        sketchy.append(("Premium", "$0"))
+    return sketchy
+
+
+def _compute_completeness(policy: dict) -> int:
+    """Return 0-100 completeness score for a policy."""
+    if policy.get("is_program"):
+        return 100  # programs scored differently
+    total = len(_COMPLETENESS_FIELDS)
+    filled = 0
+    for field, _label, is_numeric in _COMPLETENESS_FIELDS:
+        val = policy.get(field)
+        if is_numeric:
+            if val is not None and float(val or 0) > 0:
+                filled += 1
+        else:
+            sval = (str(val) if val else "").strip()
+            if sval and not _is_placeholder(sval):
+                filled += 1
+    return round(filled / total * 100) if total else 100
+
+
 def export_book_review_xlsx(conn: sqlite3.Connection, client_id: int, client_name: str) -> bytes:
     """Multi-tab XLSX workbook for team review of gaps and unknowns.
 
@@ -2505,6 +2584,7 @@ def export_book_review_xlsx(conn: sqlite3.Connection, client_id: int, client_nam
                   p.placement_colleague, p.underwriter_name,
                   p.exposure_address, p.project_name, p.project_id,
                   p.is_program, p.program_id, p.is_opportunity,
+                  p.needs_investigation,
                   pr.name AS location_name,
                   prog.policy_uid AS parent_program_uid
            FROM policies p
@@ -2559,7 +2639,7 @@ def export_book_review_xlsx(conn: sqlite3.Connection, client_id: int, client_nam
         {"#": "", "Section": "All Policies", "Details": "Complete list. Use Has Location? / Has Carrier? / Has Policy# columns to spot gaps."},
         {"#": "", "Section": "Suspected Duplicates", "Details": "Policies that may be the same record imported from two sources. CONFIRM: are these the same policy?"},
         {"#": "", "Section": "Unassigned Locations", "Details": "Policies not assigned to a project/location. FIND: which project does each belong to?"},
-        {"#": "", "Section": "Missing Fields", "Details": "Policies missing key data. FIND: policy numbers, carriers, premiums from source documents."},
+        {"#": "", "Section": "Missing Fields", "Details": "Policies missing key data OR containing placeholder text (TBD, N/A, etc.). FIND: real values from source documents."},
         {"#": "", "Section": "Program Review", "Details": "Corporate programs — check carrier lists and identify unlinked policies."},
         {"#": "", "Section": "Action Items", "Details": "Prioritized checklist of everything that needs attention. Work top-down."},
         {"#": "", "Section": "", "Details": ""},
@@ -2583,6 +2663,17 @@ def export_book_review_xlsx(conn: sqlite3.Connection, client_id: int, client_nam
     missing_polnum = [p for p in policies if not (p.get("policy_number") or "").strip()]
     missing_dates = [p for p in policies if not p.get("effective_date") or not p.get("expiration_date")]
 
+    # Pre-compute sketchy data and completeness for all policies
+    policy_sketchy = {}  # policy_uid -> [(field_label, value), ...]
+    policy_completeness = {}  # policy_uid -> int 0-100
+    for p in policies:
+        policy_sketchy[p["policy_uid"]] = _scan_sketchy_fields(p)
+        policy_completeness[p["policy_uid"]] = _compute_completeness(p)
+
+    sketchy_count = sum(1 for v in policy_sketchy.values() if v)
+    non_prog = [p for p in policies if not p.get("is_program")]
+    avg_completeness = round(sum(policy_completeness[p["policy_uid"]] for p in non_prog) / len(non_prog)) if non_prog else 100
+
     summary_rows = [
         {"Item": "Client", "Value": client_name},
         {"Item": "Report Date", "Value": date.today().isoformat()},
@@ -2591,6 +2682,7 @@ def export_book_review_xlsx(conn: sqlite3.Connection, client_id: int, client_nam
         {"Item": "Total Programs", "Value": total_programs},
         {"Item": "Total Premium", "Value": total_premium},
         {"Item": "Known Locations", "Value": len(locations)},
+        {"Item": "Average Data Completeness", "Value": f"{avg_completeness}%"},
         {"Item": "", "Value": ""},
         {"Item": "GAPS IDENTIFIED", "Value": ""},
         {"Item": "Policies Without Location Assignment", "Value": len(unassigned)},
@@ -2598,6 +2690,8 @@ def export_book_review_xlsx(conn: sqlite3.Connection, client_id: int, client_nam
         {"Item": "Policies Missing Premium", "Value": len(missing_premium)},
         {"Item": "Policies Missing Policy Number", "Value": len(missing_polnum)},
         {"Item": "Policies Missing Dates", "Value": len(missing_dates)},
+        {"Item": "Policies with Placeholder/TBD Data", "Value": sketchy_count},
+        {"Item": "Policies Flagged for Investigation", "Value": sum(1 for p in policies if p.get("needs_investigation"))},
         {"Item": "Suspected Duplicates", "Value": len(dedup_candidates)},
     ]
     _write_sheet(wb, "Summary", summary_rows, col_widths={"Item": 40, "Value": 25})
@@ -2610,6 +2704,8 @@ def export_book_review_xlsx(conn: sqlite3.Connection, client_id: int, client_nam
         location = p.get("location_name") or p.get("project_name") or ""
         is_prog = "Yes" if p.get("is_program") else ""
         parent = p.get("parent_program_uid") or ""
+        sketchy_here = policy_sketchy.get(p["policy_uid"], [])
+        completeness = policy_completeness.get(p["policy_uid"], 100)
         all_rows.append({
             "Policy ID": p["policy_uid"],
             "Coverage Type": p.get("policy_type", ""),
@@ -2629,9 +2725,12 @@ def export_book_review_xlsx(conn: sqlite3.Connection, client_id: int, client_nam
             "Placement Colleague": p.get("placement_colleague", ""),
             "Underwriter": p.get("underwriter_name", ""),
             "Description": p.get("description", ""),
+            "Data Completeness %": f"{completeness}%",
             "Has Location?": "Yes" if p.get("project_id") else "NO",
             "Has Carrier?": "Yes" if (p.get("carrier") or "").strip() else "NO",
             "Has Policy #?": "Yes" if (p.get("policy_number") or "").strip() else "NO",
+            "Sketchy Data?": "YES" if sketchy_here else "",
+            "Needs Investigation?": "YES" if p.get("needs_investigation") else "",
         })
     _write_sheet(wb, "All Policies", all_rows)
 
@@ -2730,16 +2829,23 @@ def export_book_review_xlsx(conn: sqlite3.Connection, client_id: int, client_nam
         if not (p.get("underwriter_name") or "").strip():
             missing.append("Underwriter")
 
-        if missing:
+        sketchy = policy_sketchy.get(p["policy_uid"], [])
+        completeness = policy_completeness.get(p["policy_uid"], 100)
+
+        if missing or sketchy:
+            has_critical = any(f in missing for f in ["Carrier", "Premium", "Effective Date", "Expiration Date"])
+            issue_count = len(missing) + len(sketchy)
             missing_rows.append({
                 "Policy ID": p["policy_uid"],
                 "Coverage Type": p.get("policy_type", ""),
                 "Carrier": p.get("carrier", ""),
-                "Missing Fields": ", ".join(missing),
-                "Count Missing": len(missing),
-                "Priority": "High" if any(f in missing for f in ["Carrier", "Premium", "Effective Date", "Expiration Date"]) else "Medium",
+                "Data Completeness %": f"{completeness}%",
+                "Missing Fields": ", ".join(missing) if missing else "",
+                "Sketchy Fields": ", ".join(f"{lbl} = '{val}'" for lbl, val in sketchy) if sketchy else "",
+                "Total Issues": issue_count,
+                "Priority": "High" if has_critical or len(sketchy) >= 3 else "Medium",
             })
-    missing_rows.sort(key=lambda r: (-r["Count Missing"], r["Coverage Type"]))
+    missing_rows.sort(key=lambda r: (-r["Total Issues"], r["Coverage Type"]))
     _write_sheet(wb, "Missing Fields", missing_rows)
 
     # ════════════════════════════════════════════════════════════════════════
@@ -2820,12 +2926,31 @@ def export_book_review_xlsx(conn: sqlite3.Connection, client_id: int, client_nam
     for row in missing_rows:
         if row["Priority"] == "High":
             action_num += 1
+            parts = []
+            if row.get("Missing Fields"):
+                parts.append(f"MISSING: {row['Missing Fields']}")
+            if row.get("Sketchy Fields"):
+                parts.append(f"REPLACE: {row['Sketchy Fields']}")
             actions.append({
                 "#": action_num,
                 "Priority": "High",
-                "Category": "Missing Data",
+                "Category": "Missing / Sketchy Data",
                 "Policy ID": row["Policy ID"],
-                "What To Do": f"FIND and provide: {row['Missing Fields']}. Check AMS, carrier portal, or policy documents.",
+                "What To Do": ". ".join(parts) + ". Check AMS, carrier portal, or policy documents.",
+                "Context": f"{row['Coverage Type']} / {row.get('Carrier', '')}",
+                "Your Notes": "",
+            })
+
+    # Sketchy-only rows (have placeholder data but no missing critical fields)
+    for row in missing_rows:
+        if row["Priority"] != "High" and row.get("Sketchy Fields"):
+            action_num += 1
+            actions.append({
+                "#": action_num,
+                "Priority": "Medium",
+                "Category": "Placeholder Data",
+                "Policy ID": row["Policy ID"],
+                "What To Do": f"REPLACE placeholder values: {row['Sketchy Fields']}. Provide real data.",
                 "Context": f"{row['Coverage Type']} / {row.get('Carrier', '')}",
                 "Your Notes": "",
             })
