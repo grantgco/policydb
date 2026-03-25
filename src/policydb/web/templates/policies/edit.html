@@ -17,11 +17,19 @@
   </div>
   <div class="flex items-center gap-3">
     <h1 class="text-2xl font-bold text-gray-900">Edit Policy</h1>
-    <button hx-get="/policies/{{ policy.policy_uid }}/ai-import/prompt"
-            hx-target="#ai-import-container" hx-swap="innerHTML"
-            class="ml-auto px-3 py-1.5 text-xs font-medium rounded-lg border border-indigo-300 text-indigo-600 hover:bg-indigo-50 transition-colors no-print">
-      Import from AI
-    </button>
+    <div class="ml-auto flex items-center gap-2 no-print">
+      <button hx-get="/policies/{{ policy.policy_uid }}/provenance"
+              hx-target="#provenance-panel" hx-swap="innerHTML"
+              onclick="document.getElementById('provenance-drawer').classList.toggle('hidden')"
+              class="px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 transition-colors">
+        Provenance
+      </button>
+      <button hx-get="/policies/{{ policy.policy_uid }}/ai-import/prompt"
+              hx-target="#ai-import-container" hx-swap="innerHTML"
+              class="px-3 py-1.5 text-xs font-medium rounded-lg border border-indigo-300 text-indigo-600 hover:bg-indigo-50 transition-colors">
+        Import from AI
+      </button>
+    </div>
   </div>
   <p class="text-sm text-gray-500 mt-1">{{ policy.policy_type }} · {{ policy.carrier }}
     <button type="button" onclick="copyRefTag(this, '{{ _ref }}')"
@@ -96,6 +104,18 @@
 
 {# ── Floating Working Notes Panel ── #}
 {% include "policies/_working_notes_float.html" %}
+
+{# ── Field Provenance drawer ── #}
+<div id="provenance-drawer" class="hidden card p-4 mb-4">
+  <div class="flex items-center justify-between mb-3">
+    <h3 class="text-sm font-semibold text-gray-700">Field Provenance</h3>
+    <button onclick="document.getElementById('provenance-drawer').classList.add('hidden')"
+            class="text-gray-400 hover:text-gray-600 text-xs">Close</button>
+  </div>
+  <div id="provenance-panel">
+    <p class="text-xs text-gray-400">Click "Provenance" to load import history for this policy.</p>
+  </div>
+</div>
 
 {# ── AI Import: diff summary + warnings banner + slideover container ── #}
 <div id="ai-import-diff"></div>

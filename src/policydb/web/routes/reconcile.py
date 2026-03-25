@@ -1253,11 +1253,56 @@ async def reconcile_fill(
                 filled_names.append("Location Link")
 
     if updates:
+        # Get current values for provenance tracking before update
+        pol = conn.execute(
+            "SELECT id, " + ", ".join(f for f in _ALLOWED if form.get(f, "").strip()) +
+            " FROM policies WHERE policy_uid = ?",
+            (policy_uid.upper(),),
+        ).fetchone()
+        prior_values = dict(pol) if pol else {}
+        policy_id = prior_values.pop("id", None)
+
         params.append(policy_uid.upper())
         conn.execute(
             f"UPDATE policies SET {', '.join(updates)} WHERE policy_uid = ?",
             params,
         )
+
+        # Record provenance for each updated field
+        source_name = ""
+        session_id = None
+        as_of_date = ""
+        # Try to get source context from the form (passed via hidden fields)
+        _token = form.get("token", "")
+        if _token:
+            source_name = _SOURCE_NAME_CACHE.get(_token, "")
+            session_id = _SESSION_ID_CACHE.get(_token)
+            # as_of_date would come from the session
+            if session_id:
+                try:
+                    sess = conn.execute("SELECT as_of_date FROM import_sessions WHERE id = ?", (session_id,)).fetchone()
+                    if sess:
+                        as_of_date = sess["as_of_date"] or ""
+                except Exception:
+                    pass
+
+        if policy_id and source_name:
+            try:
+                from policydb.import_ledger import record_provenance
+                for field in _ALLOWED:
+                    val = form.get(field, "").strip()
+                    if not val:
+                        continue
+                    prior = str(prior_values.get(field, "") or "")
+                    was_conflict = bool(prior.strip() and prior.strip() != val.strip())
+                    record_provenance(
+                        conn, policy_id, field, val,
+                        source_name=source_name, source_session_id=session_id,
+                        as_of_date=as_of_date, prior_value=prior, was_conflict=was_conflict,
+                    )
+            except Exception:
+                logger.exception("Provenance recording failed on fill")
+
         conn.commit()
 
     label = ", ".join(filled_names) if filled_names else "No fields"
@@ -1476,15 +1521,38 @@ def reconcile_create(
             except (ValueError, IndexError):
                 pass
 
-    # Learn match memory for the newly created policy
+    # Learn match memory + record provenance for the newly created policy
     source_name = _SOURCE_NAME_CACHE.get(token, "")
+    new_pid = conn.execute("SELECT id FROM policies WHERE policy_uid = ?", (uid,)).fetchone()["id"]
     if source_name and policy_number:
         try:
             from policydb.match_memory import learn
-            new_pid = conn.execute("SELECT id FROM policies WHERE policy_uid = ?", (uid,)).fetchone()["id"]
             learn(conn, new_pid, source_name, policy_number, "policy_number", "reconcile")
         except Exception:
             logger.exception("Match memory learning failed on create")
+
+    if source_name and new_pid:
+        try:
+            from policydb.import_ledger import record_provenance_batch
+            session_id = _SESSION_ID_CACHE.get(token)
+            as_of_date = ""
+            if session_id:
+                sess = conn.execute("SELECT as_of_date FROM import_sessions WHERE id = ?", (session_id,)).fetchone()
+                if sess:
+                    as_of_date = sess["as_of_date"] or ""
+            created_fields = {
+                "policy_type": policy_type, "carrier": carrier, "policy_number": policy_number,
+                "effective_date": effective_date, "expiration_date": expiration_date,
+                "premium": str(premium), "description": description, "project_name": project_name,
+            }
+            created_fields = {k: v for k, v in created_fields.items() if v}
+            record_provenance_batch(
+                conn, new_pid, created_fields,
+                source_name=source_name, source_session_id=session_id, as_of_date=as_of_date,
+            )
+        except Exception:
+            logger.exception("Provenance recording failed on create")
+        conn.commit()
 
     created_html = (
         f'<div class="pair-row flex items-center rounded-lg border border-green-200 bg-green-50 mb-2 px-4 py-3" data-status="confirmed" data-confirmed="true">'
