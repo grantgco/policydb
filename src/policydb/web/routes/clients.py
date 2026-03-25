@@ -2519,6 +2519,77 @@ def client_note_delete(request: Request, client_id: int, note_id: int, conn=Depe
     )
 
 
+@router.get("/{client_id}/dedup")
+def dedup_page(request: Request, client_id: int, conn=Depends(get_db)):
+    """Client-level policy deduplication tool."""
+    from policydb.dedup import find_duplicate_candidates
+    client = get_client_by_id(conn, client_id)
+    if not client:
+        return HTMLResponse("Client not found", status_code=404)
+    candidates = find_duplicate_candidates(conn, client_id)
+    likely = [c for c in candidates if c["recommendation"] == "likely_duplicate"]
+    possible = [c for c in candidates if c["recommendation"] == "possible_duplicate"]
+    review = [c for c in candidates if c["recommendation"] == "different_policies"]
+    return templates.TemplateResponse("clients/dedup.html", {
+        "request": request,
+        "client": client,
+        "candidates": candidates,
+        "likely": likely,
+        "possible": possible,
+        "review": review,
+    })
+
+
+@router.post("/{client_id}/dedup/merge")
+def dedup_merge(
+    request: Request,
+    client_id: int,
+    keep_uid: str = Form(""),
+    archive_uid: str = Form(""),
+    cherry_pick: str = Form("{}"),
+    conn=Depends(get_db),
+):
+    """Merge two duplicate policies."""
+    import json
+    from policydb.dedup import merge_policies
+    try:
+        cherry_pick_dict = json.loads(cherry_pick)
+    except Exception:
+        cherry_pick_dict = {}
+    result = merge_policies(conn, keep_uid, archive_uid, cherry_pick_dict)
+    if result.get("ok"):
+        fields = result.get("fields_transferred", [])
+        field_count = len(fields)
+        s = "s" if field_count != 1 else ""
+        return HTMLResponse(f'''
+            <div id="pair-{keep_uid}-{archive_uid}" class="border border-green-200 bg-green-50 rounded-lg p-4 mb-3">
+                <div class="flex items-center gap-2">
+                    <span class="text-green-600 text-lg">&#10003;</span>
+                    <span class="text-sm font-medium text-green-800">
+                        Merged {archive_uid} into {keep_uid}. {field_count} field{s} transferred.
+                    </span>
+                </div>
+            </div>
+        ''')
+    return HTMLResponse(f'<div class="text-red-600 text-sm">{result.get("error", "Merge failed")}</div>')
+
+
+@router.post("/{client_id}/dedup/dismiss")
+def dedup_dismiss(
+    request: Request,
+    client_id: int,
+    uid_a: str = Form(""),
+    uid_b: str = Form(""),
+    conn=Depends(get_db),
+):
+    """Dismiss a pair as not duplicates."""
+    from policydb.dedup import dismiss_pair
+    dismiss_pair(conn, client_id, uid_a, uid_b)
+    return HTMLResponse(f'''
+        <div id="pair-{uid_a}-{uid_b}" class="hidden"></div>
+    ''')
+
+
 @router.get("/{client_id}/export/full")
 def export_full(client_id: int, conn=Depends(get_db)):
     """Full internal data export (XLSX) — all fields including internal notes."""

@@ -1,0 +1,237 @@
+{% extends "base.html" %}
+{% block title %}Find Duplicates — {{ client.name }}{% endblock %}
+{% block content %}
+
+{# ── Header ── #}
+<div class="mb-4">
+  <div class="flex items-center gap-2 text-sm text-gray-400 mb-1">
+    <a href="/clients" class="hover:text-marsh">Clients</a>
+    <span>/</span>
+    <a href="/clients/{{ client.id }}" class="hover:text-marsh">{{ client.name }}</a>
+    <span>/</span>
+    <span class="text-gray-600">Find Duplicates</span>
+  </div>
+  <h1 class="text-2xl font-bold text-gray-900">Find Duplicates</h1>
+  <p class="text-sm text-gray-500 mt-1">
+    Review potential duplicate policies imported from multiple sources.
+    Merge the best fields from each or dismiss false matches.
+  </p>
+</div>
+
+{# ── Counter bar ── #}
+<div class="flex items-center gap-4 bg-white border border-gray-200 rounded-lg px-4 py-3 mb-6">
+  <span class="text-sm font-semibold text-gray-900">{{ candidates | length }} candidates</span>
+  {% if likely %}
+  <span class="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-green-50 text-green-700 border border-green-200">
+    {{ likely | length }} likely
+  </span>
+  {% endif %}
+  {% if possible %}
+  <span class="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
+    {{ possible | length }} possible
+  </span>
+  {% endif %}
+  {% if review %}
+  <span class="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">
+    {{ review | length }} review
+  </span>
+  {% endif %}
+  <div class="flex-1"></div>
+  <a href="/clients/{{ client.id }}" class="text-sm text-marsh hover:underline">&larr; Back to Client</a>
+</div>
+
+{% if not candidates %}
+<div class="bg-green-50 border border-green-200 rounded-lg p-8 text-center">
+  <p class="text-lg font-medium text-green-800">No duplicates found!</p>
+  <p class="text-sm text-green-600 mt-1">All policies for this client appear unique.</p>
+</div>
+{% endif %}
+
+{# ── Candidate Cards ── #}
+{% for c in candidates %}
+{% set a = c.policy_a %}
+{% set b = c.policy_b %}
+<div id="pair-{{ a.policy_uid }}-{{ b.policy_uid }}" class="bg-white border border-gray-200 rounded-lg mb-3 overflow-hidden">
+  {# Header with score #}
+  <div class="flex items-center gap-3 px-4 py-3 border-b border-gray-100
+    {% if c.confidence == 'high' %}bg-green-50{% elif c.confidence == 'medium' %}bg-amber-50{% else %}bg-gray-50{% endif %}">
+    <span class="inline-flex items-center justify-center w-10 h-10 rounded-full text-sm font-bold text-white
+      {% if c.confidence == 'high' %}bg-green-600{% elif c.confidence == 'medium' %}bg-amber-500{% else %}bg-gray-400{% endif %}">
+      {{ c.score }}
+    </span>
+    <div>
+      <span class="text-sm font-semibold
+        {% if c.confidence == 'high' %}text-green-800{% elif c.confidence == 'medium' %}text-amber-800{% else %}text-gray-700{% endif %}">
+        {% if c.recommendation == 'likely_duplicate' %}Likely Duplicate
+        {% elif c.recommendation == 'possible_duplicate' %}Possible Duplicate
+        {% else %}Review — May Be Different{% endif %}
+      </span>
+      <div class="flex items-center gap-1.5 mt-0.5">
+        {% for sig in c.match_signals %}
+        <span class="text-[10px] px-1.5 py-0.5 rounded bg-white border
+          {% if '~' in sig %}border-amber-200 text-amber-600{% else %}border-green-200 text-green-600{% endif %}">
+          &#10003; {{ sig | replace('~', '') }}
+        </span>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  {# Side-by-side comparison #}
+  <div class="grid grid-cols-2 gap-4 px-4 py-3">
+    <div>
+      <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">{{ a.policy_uid }}</p>
+      <p class="text-sm font-medium text-gray-900">{{ a.policy_type or '—' }} &middot; {{ a.carrier or '—' }}</p>
+      <p class="text-xs text-gray-500">{{ a.effective_date or '?' }} – {{ a.expiration_date or '?' }}</p>
+      <p class="text-xs text-gray-500">Premium: {{ (a.premium or 0) | currency }} &middot; Policy #: {{ a.policy_number or '—' }}</p>
+      <p class="text-xs text-gray-500">Location: {{ a.project_name or a.location_name or '—' }}</p>
+    </div>
+    <div>
+      <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">{{ b.policy_uid }}</p>
+      <p class="text-sm font-medium text-gray-900">{{ b.policy_type or '—' }} &middot; {{ b.carrier or '—' }}</p>
+      <p class="text-xs text-gray-500">{{ b.effective_date or '?' }} – {{ b.expiration_date or '?' }}</p>
+      <p class="text-xs text-gray-500">Premium: {{ (b.premium or 0) | currency }} &middot; Policy #: {{ b.policy_number or '—' }}</p>
+      <p class="text-xs text-gray-500">Location: {{ b.project_name or b.location_name or '—' }}</p>
+    </div>
+  </div>
+
+  {# Diff table with radio buttons #}
+  {% if c.diff_fields %}
+  <div class="px-4 pb-3">
+    <table class="w-full text-xs">
+      <thead>
+        <tr class="border-b border-gray-100">
+          <th class="text-left py-1 text-gray-500 font-medium w-32">Field</th>
+          <th class="text-left py-1 text-gray-500 font-medium">{{ a.policy_uid }}</th>
+          <th class="text-left py-1 text-gray-500 font-medium">{{ b.policy_uid }}</th>
+          <th class="text-center py-1 text-gray-500 font-medium w-24">Keep</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for d in c.diff_fields %}
+        <tr class="border-b border-gray-50" data-field="{{ d.field }}">
+          <td class="py-1.5 text-gray-600 font-medium">{{ d.label }}</td>
+          <td class="py-1.5 {% if d.val_a %}text-gray-900{% else %}text-gray-300 italic{% endif %}">
+            {{ d.val_a if d.val_a else '(empty)' }}
+          </td>
+          <td class="py-1.5 {% if d.val_b %}text-gray-900{% else %}text-gray-300 italic{% endif %}">
+            {{ d.val_b if d.val_b else '(empty)' }}
+          </td>
+          <td class="py-1.5 text-center">
+            {% if d.val_a == d.val_b %}
+            <span class="text-gray-400">same</span>
+            {% elif d.val_a and not d.val_b %}
+            <span class="text-green-600 text-[10px]">&larr; A</span>
+            {% elif d.val_b and not d.val_a %}
+            <span class="text-green-600 text-[10px]">B &rarr;</span>
+            {% else %}
+            <label class="inline-flex items-center gap-1 mr-2">
+              <input type="radio" name="pick_{{ a.policy_uid }}_{{ b.policy_uid }}_{{ d.field }}" value="a" checked class="text-marsh">
+              <span class="text-[10px]">A</span>
+            </label>
+            <label class="inline-flex items-center gap-1">
+              <input type="radio" name="pick_{{ a.policy_uid }}_{{ b.policy_uid }}_{{ d.field }}" value="b">
+              <span class="text-[10px]">B</span>
+            </label>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  {# Action buttons #}
+  <div class="flex items-center gap-2 px-4 py-3 bg-gray-50 border-t border-gray-100">
+    <button type="button"
+      onclick="dedupMerge(this, '{{ client.id }}', '{{ a.policy_uid }}', '{{ b.policy_uid }}', 'a')"
+      class="text-xs font-medium bg-marsh text-white px-3 py-1.5 rounded hover:bg-marsh/90 transition-colors">
+      Keep {{ a.policy_uid }} &larr; merge from B
+    </button>
+    <button type="button"
+      onclick="dedupMerge(this, '{{ client.id }}', '{{ a.policy_uid }}', '{{ b.policy_uid }}', 'b')"
+      class="text-xs font-medium bg-white border border-marsh text-marsh px-3 py-1.5 rounded hover:bg-gray-50 transition-colors">
+      Keep {{ b.policy_uid }} &larr; merge from A
+    </button>
+    <div class="flex-1"></div>
+    <button type="button"
+      hx-post="/clients/{{ client.id }}/dedup/dismiss"
+      hx-vals='{"uid_a": "{{ a.policy_uid }}", "uid_b": "{{ b.policy_uid }}"}'
+      hx-target="#pair-{{ a.policy_uid }}-{{ b.policy_uid }}"
+      hx-swap="outerHTML"
+      class="text-xs text-gray-400 hover:text-gray-600 px-3 py-1.5">
+      Not Duplicates
+    </button>
+  </div>
+</div>
+{% endfor %}
+
+<script>
+function dedupMerge(btn, clientId, uidA, uidB, keepSide) {
+  var keepUid = keepSide === 'a' ? uidA : uidB;
+  var archiveUid = keepSide === 'a' ? uidB : uidA;
+
+  // Build cherry_pick from radio buttons and auto-fill indicators
+  var cherryPick = {};
+  var card = btn.closest('[id^="pair-"]');
+
+  // For each diff field row, determine what to cherry-pick from the archive
+  card.querySelectorAll('table tbody tr[data-field]').forEach(function(row) {
+    var field = row.getAttribute('data-field');
+    var cells = row.querySelectorAll('td');
+    if (cells.length < 4) return;
+
+    var valA = cells[1].textContent.trim();
+    var valB = cells[2].textContent.trim();
+    var keepCell = cells[3];
+
+    if (valA === '(empty)') valA = '';
+    if (valB === '(empty)') valB = '';
+
+    // Auto-fill: if one side has data and the other doesn't, cherry-pick the data
+    if (!valA && valB) {
+      if (keepSide === 'a') {
+        cherryPick[field] = valB;
+      }
+    } else if (valA && !valB) {
+      if (keepSide === 'b') {
+        cherryPick[field] = valA;
+      }
+    } else {
+      // Both have data — use radio selection if present
+      var radio = keepCell.querySelector('input[type="radio"]:checked');
+      if (radio) {
+        var selectedSide = radio.value;
+        if (keepSide === 'a' && selectedSide === 'b') {
+          cherryPick[field] = valB;
+        } else if (keepSide === 'b' && selectedSide === 'a') {
+          cherryPick[field] = valA;
+        }
+      }
+    }
+  });
+
+  var formData = new FormData();
+  formData.append('keep_uid', keepUid);
+  formData.append('archive_uid', archiveUid);
+  formData.append('cherry_pick', JSON.stringify(cherryPick));
+
+  btn.disabled = true;
+  btn.textContent = 'Merging...';
+
+  fetch('/clients/' + clientId + '/dedup/merge', {
+    method: 'POST',
+    body: formData,
+  }).then(function(resp) { return resp.text(); })
+    .then(function(html) {
+      card.outerHTML = html;
+    })
+    .catch(function() {
+      btn.disabled = false;
+      btn.textContent = 'Merge failed — retry';
+    });
+}
+</script>
+
+{% endblock %}

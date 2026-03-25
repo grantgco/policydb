@@ -2489,11 +2489,12 @@ def save_export_bytes(content: bytes, filename: str) -> Path:
 def export_book_review_xlsx(conn: sqlite3.Connection, client_id: int, client_name: str) -> bytes:
     """Multi-tab XLSX workbook for team review of gaps and unknowns.
 
-    Tabs: Summary, All Policies, Unassigned Locations, Missing Fields,
-    Program Review, Action Items.
+    Tabs: Instructions, Summary, All Policies, Suspected Duplicates,
+    Unassigned Locations, Missing Fields, Program Review, Action Items.
     Uses friendly column labels for external team members.
     """
     from datetime import date
+    from policydb.dedup import find_duplicate_candidates
 
     # ── Query all active policies for client ──
     policies = conn.execute(
@@ -2539,11 +2540,39 @@ def export_book_review_xlsx(conn: sqlite3.Connection, client_id: int, client_nam
                 ).fetchall()
                 program_carriers[prog["policy_uid"]] = [dict(c) for c in carriers]
 
+    # ── Run dedup scan ──
+    dedup_candidates = find_duplicate_candidates(conn, client_id)
+
     wb = Workbook()
     wb.remove(wb.active)
 
     # ════════════════════════════════════════════════════════════════════════
-    # TAB 1: SUMMARY
+    # TAB 1: INSTRUCTIONS
+    # ════════════════════════════════════════════════════════════════════════
+    instructions = [
+        {"#": 1, "Section": "HOW TO USE THIS WORKBOOK", "Details": ""},
+        {"#": "", "Section": "", "Details": "This workbook was exported from PolicyDB to help the team review and complete the book of business."},
+        {"#": "", "Section": "", "Details": "Each tab focuses on a different type of gap or issue. Work through them in order."},
+        {"#": "", "Section": "", "Details": ""},
+        {"#": 2, "Section": "TAB GUIDE", "Details": ""},
+        {"#": "", "Section": "Summary", "Details": "High-level stats and gap counts. Review first to understand scope."},
+        {"#": "", "Section": "All Policies", "Details": "Complete list. Use Has Location? / Has Carrier? / Has Policy# columns to spot gaps."},
+        {"#": "", "Section": "Suspected Duplicates", "Details": "Policies that may be the same record imported from two sources. CONFIRM: are these the same policy?"},
+        {"#": "", "Section": "Unassigned Locations", "Details": "Policies not assigned to a project/location. FIND: which project does each belong to?"},
+        {"#": "", "Section": "Missing Fields", "Details": "Policies missing key data. FIND: policy numbers, carriers, premiums from source documents."},
+        {"#": "", "Section": "Program Review", "Details": "Corporate programs — check carrier lists and identify unlinked policies."},
+        {"#": "", "Section": "Action Items", "Details": "Prioritized checklist of everything that needs attention. Work top-down."},
+        {"#": "", "Section": "", "Details": ""},
+        {"#": 3, "Section": "HOW TO REPORT BACK", "Details": ""},
+        {"#": "", "Section": "", "Details": "Fill in the 'Your Notes' column on the Action Items tab with what you find."},
+        {"#": "", "Section": "", "Details": "For suspected duplicates: write SAME or DIFFERENT in the Verdict column."},
+        {"#": "", "Section": "", "Details": "For missing fields: write the missing value directly in the Notes column."},
+        {"#": "", "Section": "", "Details": "Return the completed workbook and we will update PolicyDB."},
+    ]
+    _write_sheet(wb, "Instructions", instructions, col_widths={"#": 5, "Section": 30, "Details": 80})
+
+    # ════════════════════════════════════════════════════════════════════════
+    # TAB 2: SUMMARY
     # ════════════════════════════════════════════════════════════════════════
     total_policies = len([p for p in policies if not p.get("is_program")])
     total_programs = len(programs)
@@ -2569,6 +2598,7 @@ def export_book_review_xlsx(conn: sqlite3.Connection, client_id: int, client_nam
         {"Item": "Policies Missing Premium", "Value": len(missing_premium)},
         {"Item": "Policies Missing Policy Number", "Value": len(missing_polnum)},
         {"Item": "Policies Missing Dates", "Value": len(missing_dates)},
+        {"Item": "Suspected Duplicates", "Value": len(dedup_candidates)},
     ]
     _write_sheet(wb, "Summary", summary_rows, col_widths={"Item": 40, "Value": 25})
 
@@ -2606,7 +2636,56 @@ def export_book_review_xlsx(conn: sqlite3.Connection, client_id: int, client_nam
     _write_sheet(wb, "All Policies", all_rows)
 
     # ════════════════════════════════════════════════════════════════════════
-    # TAB 3: UNASSIGNED LOCATIONS
+    # TAB 4: SUSPECTED DUPLICATES
+    # ════════════════════════════════════════════════════════════════════════
+    dup_rows = []
+    for c in dedup_candidates:
+        a = c["policy_a"]
+        b = c["policy_b"]
+        signals = ", ".join(s.replace("~", " (fuzzy)") for s in c["match_signals"])
+        fills_a = ", ".join(c.get("fillable_a", []))
+        fills_b = ", ".join(c.get("fillable_b", []))
+
+        dup_rows.append({
+            "Score": c["score"],
+            "Confidence": c["recommendation"].replace("_", " ").title(),
+            "Policy A": a.get("policy_uid", ""),
+            "A — Type": a.get("policy_type", ""),
+            "A — Carrier": a.get("carrier", ""),
+            "A — Policy #": a.get("policy_number", ""),
+            "A — Dates": f"{a.get('effective_date', '')} – {a.get('expiration_date', '')}",
+            "A — Premium": float(a.get("premium") or 0),
+            "A — Location": a.get("project_name", "") or a.get("location_name", "") or "",
+            "Policy B": b.get("policy_uid", ""),
+            "B — Type": b.get("policy_type", ""),
+            "B — Carrier": b.get("carrier", ""),
+            "B — Policy #": b.get("policy_number", ""),
+            "B — Dates": f"{b.get('effective_date', '')} – {b.get('expiration_date', '')}",
+            "B — Premium": float(b.get("premium") or 0),
+            "B — Location": b.get("project_name", "") or b.get("location_name", "") or "",
+            "Match Signals": signals,
+            "A Has (B Missing)": fills_a,
+            "B Has (A Missing)": fills_b,
+            "Verdict (SAME/DIFFERENT)": "",
+            "Notes": "",
+        })
+
+    if not dup_rows:
+        dup_rows.append({
+            "Score": "", "Confidence": "", "Policy A": "", "A — Type": "",
+            "A — Carrier": "", "A — Policy #": "", "A — Dates": "",
+            "A — Premium": "", "A — Location": "",
+            "Policy B": "", "B — Type": "", "B — Carrier": "",
+            "B — Policy #": "", "B — Dates": "", "B — Premium": "",
+            "B — Location": "", "Match Signals": "",
+            "A Has (B Missing)": "", "B Has (A Missing)": "",
+            "Verdict (SAME/DIFFERENT)": "No suspected duplicates found",
+            "Notes": "",
+        })
+    _write_sheet(wb, "Suspected Duplicates", dup_rows)
+
+    # ════════════════════════════════════════════════════════════════════════
+    # TAB 5: UNASSIGNED LOCATIONS
     # ════════════════════════════════════════════════════════════════════════
     unassigned_rows = []
     for p in unassigned:
@@ -2620,7 +2699,7 @@ def export_book_review_xlsx(conn: sqlite3.Connection, client_id: int, client_nam
             "Expiration Date": p.get("expiration_date", ""),
             "Address on File": p.get("exposure_address", ""),
             "Notes": p.get("description", ""),
-            "Action Needed": "Assign to a location or confirm as corporate-level",
+            "Action Needed": "FIND which project/location this policy covers. If corporate-wide, write 'CORPORATE'.",
         })
     _write_sheet(wb, "Unassigned Locations", unassigned_rows)
 
@@ -2711,6 +2790,21 @@ def export_book_review_xlsx(conn: sqlite3.Connection, client_id: int, client_nam
     actions = []
     action_num = 0
 
+    # Dedup items first — highest priority
+    for c in dedup_candidates:
+        a = c["policy_a"]
+        b = c["policy_b"]
+        action_num += 1
+        actions.append({
+            "#": action_num,
+            "Priority": "High" if c["confidence"] == "high" else "Medium",
+            "Category": "Suspected Duplicate",
+            "Policy ID": f"{a.get('policy_uid', '')} vs {b.get('policy_uid', '')}",
+            "What To Do": f"CONFIRM: Are these the same policy? Score: {c['score']}. See Suspected Duplicates tab.",
+            "Context": f"{a.get('policy_type', '')} · {a.get('carrier', '')} · {a.get('effective_date', '')}",
+            "Your Notes": "",
+        })
+
     for p in unassigned:
         action_num += 1
         actions.append({
@@ -2718,9 +2812,9 @@ def export_book_review_xlsx(conn: sqlite3.Connection, client_id: int, client_nam
             "Priority": "Medium",
             "Category": "Location Assignment",
             "Policy ID": p["policy_uid"],
-            "Description": f"Assign {p.get('policy_type', '')} ({p.get('carrier', '')}) to a location",
-            "Current Value": p.get("exposure_address", "") or "No address on file",
-            "Status": "Open",
+            "What To Do": f"FIND which project/location this {p.get('policy_type', '')} ({p.get('carrier', '')}) covers. Write project name or 'CORPORATE'.",
+            "Context": p.get("exposure_address", "") or "No address on file",
+            "Your Notes": "",
         })
 
     for row in missing_rows:
@@ -2731,9 +2825,9 @@ def export_book_review_xlsx(conn: sqlite3.Connection, client_id: int, client_nam
                 "Priority": "High",
                 "Category": "Missing Data",
                 "Policy ID": row["Policy ID"],
-                "Description": f"Complete missing: {row['Missing Fields']}",
-                "Current Value": f"{row['Coverage Type']} / {row.get('Carrier', '')}",
-                "Status": "Open",
+                "What To Do": f"FIND and provide: {row['Missing Fields']}. Check AMS, carrier portal, or policy documents.",
+                "Context": f"{row['Coverage Type']} / {row.get('Carrier', '')}",
+                "Your Notes": "",
             })
 
     for prog_row in program_rows:
@@ -2744,16 +2838,16 @@ def export_book_review_xlsx(conn: sqlite3.Connection, client_id: int, client_nam
                 "Priority": "Medium",
                 "Category": "Program Membership",
                 "Policy ID": prog_row["Program ID"],
-                "Description": prog_row["Review Note"],
-                "Current Value": f"{prog_row['Carrier Count']} carriers, {prog_row['Child Policies Linked']} linked",
-                "Status": "Open",
+                "What To Do": f"VERIFY: {prog_row['Review Note']}. Should these standalone policies be part of this program?",
+                "Context": f"{prog_row['Carrier Count']} carriers, {prog_row['Child Policies Linked']} linked",
+                "Your Notes": "",
             })
 
     if not actions:
         actions.append({
             "#": 1, "Priority": "", "Category": "",
-            "Policy ID": "", "Description": "No action items — book looks complete!",
-            "Current Value": "", "Status": "Complete",
+            "Policy ID": "", "What To Do": "No action items — book looks complete!",
+            "Context": "", "Your Notes": "",
         })
 
     _write_sheet(wb, "Action Items", actions)
