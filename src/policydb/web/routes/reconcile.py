@@ -51,6 +51,9 @@ _PARSED_CACHE: dict[str, tuple[list[dict], list[str], dict, float]] = {}
 # Source name per board token (for match memory learning on confirm/create)
 _SOURCE_NAME_CACHE: dict[str, str] = {}
 
+# Import session ID per board token (for completing session with stats)
+_SESSION_ID_CACHE: dict[str, int] = {}
+
 def _cache_cleanup():
     """Remove cache entries older than 1 hour."""
     cutoff = _time.time() - 3600
@@ -425,6 +428,7 @@ async def reconcile_run(
     column_mapping_json: str = Form(""),
     date_priority: str = Form(""),
     source_name: str = Form(""),
+    as_of_date: str = Form(""),
     conn=Depends(get_db),
 ):
     all_clients = conn.execute(
@@ -471,7 +475,32 @@ async def reconcile_run(
         ctx["errors"] = ["Uploaded file is empty."]
         return templates.TemplateResponse("reconcile/index.html", ctx)
 
+    # Check for duplicate file upload
+    dup_warning = ""
+    if source_name:
+        try:
+            from policydb.import_ledger import check_duplicate_file
+            dup = check_duplicate_file(conn, content, source_name)
+            if dup:
+                dup_date = dup.get("imported_at", "unknown")[:10]
+                dup_warning = f"This file was previously uploaded on {dup_date} ({dup.get('status', '')}). Re-processing."
+        except Exception:
+            pass
+
+    # Load saved column mapping from source profile if user didn't provide one
+    if not col_map and source_name:
+        try:
+            from policydb.import_ledger import get_saved_column_map
+            saved_map = get_saved_column_map(conn, source_name)
+            if saved_map:
+                col_map = saved_map
+                ctx["saved_column_map"] = saved_map
+        except Exception:
+            pass
+
     ext_rows, warnings = parse_uploaded_file(content, column_mapping=col_map or None, filename=file.filename or "")
+    if dup_warning:
+        warnings.insert(0, dup_warning)
     ctx["warnings"] = warnings
     ctx["column_mapping_json"] = column_mapping_json
 
@@ -489,6 +518,9 @@ async def reconcile_run(
         "filename": file.filename or "",
         "column_mapping_json": column_mapping_json,
         "source_name": source_name,
+        "as_of_date": as_of_date,
+        "file_content": content,  # kept for session creation in run-match
+        "column_map_used": col_map,  # actual mapping applied (may be from saved profile)
     }
     _PARSED_CACHE[token] = (ext_rows, warnings, upload_params, _time.time())
 
@@ -691,7 +723,31 @@ def reconcile_run_match(
     if memory_count:
         logger.info("Match memory: %d auto-matches from source '%s'", memory_count, source_name)
 
-    # Clean up parsed cache — no longer needed
+    # Create import session and save source profile
+    session_id = None
+    if source_name:
+        try:
+            from policydb.import_ledger import create_session, save_source_profile
+            as_of_date = upload_params.get("as_of_date", "")
+            file_content = upload_params.get("file_content")
+            col_map_used = upload_params.get("column_map_used", {})
+
+            session_id = create_session(
+                conn, source_name=source_name, source_type="csv",
+                file_name=filename, file_content=file_content,
+                as_of_date=as_of_date, client_id=client_id if client_id else None,
+                column_mapping=col_map_used,
+            )
+            # Save/update source profile with column mapping
+            if col_map_used:
+                save_source_profile(conn, source_name, column_map=col_map_used)
+
+            # Store session_id in source name cache for later completion
+            _SESSION_ID_CACHE[download_token] = session_id
+        except Exception:
+            logger.exception("Failed to create import session")
+
+    # Clean up parsed cache — no longer needed (drop file_content to free memory)
     _PARSED_CACHE.pop(token, None)
 
     # Pass all results to index.html (it filters extras via selectattr in template)

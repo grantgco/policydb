@@ -28,7 +28,7 @@
 <!-- Upload form -->
 <div class="card p-5 mb-5">
   <form action="/reconcile" method="post" enctype="multipart/form-data" class="space-y-4">
-    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+    <div class="grid grid-cols-1 md:grid-cols-5 gap-4">
 
       <!-- File -->
       <div>
@@ -52,7 +52,15 @@
           <option value="{{ sn }}">
           {% endfor %}
         </datalist>
-        <p class="text-xs text-gray-400 mt-1">Helps remember matches across imports</p>
+        <p class="text-xs text-gray-400 mt-1">Helps remember matches · <a href="/import-history" class="text-marsh hover:underline">History</a></p>
+      </div>
+
+      <!-- As-of date -->
+      <div>
+        <label class="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Data As-Of</label>
+        <input type="date" name="as_of_date" value="{{ selected_as_of_date or '' }}"
+          class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-marsh bg-white">
+        <p class="text-xs text-gray-400 mt-1">When this data was current</p>
       </div>
 
       <!-- Client filter -->
