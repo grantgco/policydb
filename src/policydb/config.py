@@ -569,6 +569,16 @@ _DEFAULTS: dict[str, Any] = {
         "Prior AE Handoff",
         "Binder / Dec Page",
     ],
+    # Per-source field trust weights (0-100). Higher = more authoritative for that field.
+    # Used in conflict resolution: effective_priority = trust_weight × recency_factor
+    "field_trust_defaults": {
+        "AMS Export": {"premium": 95, "policy_number": 95, "carrier": 90,
+                       "effective_date": 95, "expiration_date": 95, "project_name": 20},
+        "Manual Spreadsheet": {"project_name": 90, "exposure_address": 85,
+                               "layer_position": 80, "premium": 50},
+        "Carrier Statement": {"premium": 100, "policy_number": 100, "carrier": 100,
+                              "effective_date": 100, "expiration_date": 100},
+    },
     "carrier_aliases": {
         "Travelers": [
             "Travelers Insurance", "The Travelers Companies", "Travelers Indemnity",
