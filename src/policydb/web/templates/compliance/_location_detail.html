@@ -186,7 +186,7 @@
                 <td class="py-2 w-20 text-right no-print">
                   <span class="opacity-0 group-hover:opacity-100 transition-opacity">
                     <button class="text-marsh hover:text-green-800 text-xs mr-1"
-                            hx-get="/compliance/client/{{ client_id }}/requirements/{{ r.id }}/detail"
+                            hx-get="/compliance/client/{{ client_id }}/requirements/{{ r.id }}/detail?location_project_id={{ project.id }}"
                             hx-target="#requirement-slideover-container"
                             hx-swap="innerHTML">Edit</button>
                     <button class="text-red-400 hover:text-red-600 text-xs"
