@@ -2482,3 +2482,280 @@ def save_export_bytes(content: bytes, filename: str) -> Path:
     out = exports_dir / filename
     out.write_bytes(content)
     return out
+
+
+# ── Client Book Review XLSX ──────────────────────────────────────────────────
+
+def export_book_review_xlsx(conn: sqlite3.Connection, client_id: int, client_name: str) -> bytes:
+    """Multi-tab XLSX workbook for team review of gaps and unknowns.
+
+    Tabs: Summary, All Policies, Unassigned Locations, Missing Fields,
+    Program Review, Action Items.
+    Uses friendly column labels for external team members.
+    """
+    from datetime import date
+
+    # ── Query all active policies for client ──
+    policies = conn.execute(
+        """SELECT p.policy_uid, p.policy_type, p.carrier, p.policy_number,
+                  p.effective_date, p.expiration_date, p.premium, p.limit_amount,
+                  p.deductible, p.description, p.coverage_form, p.layer_position,
+                  p.tower_group, p.renewal_status, p.first_named_insured,
+                  p.placement_colleague, p.underwriter_name,
+                  p.exposure_address, p.project_name, p.project_id,
+                  p.is_program, p.program_id, p.is_opportunity,
+                  pr.name AS location_name,
+                  prog.policy_uid AS parent_program_uid
+           FROM policies p
+           LEFT JOIN projects pr ON p.project_id = pr.id
+           LEFT JOIN policies prog ON p.program_id = prog.id
+           WHERE p.client_id = ? AND p.archived = 0
+             AND (p.is_opportunity = 0 OR p.is_opportunity IS NULL)
+           ORDER BY p.policy_type, p.carrier, p.effective_date""",
+        (client_id,),
+    ).fetchall()
+    policies = [dict(r) for r in policies]
+
+    # ── Query locations ──
+    locations = conn.execute(
+        "SELECT id, name, address, city, state FROM projects "
+        "WHERE client_id = ? AND (project_type = 'Location' OR project_type IS NULL) ORDER BY name",
+        (client_id,),
+    ).fetchall()
+    location_names = {r["id"]: r["name"] for r in locations}
+
+    # ── Query programs ──
+    programs = [p for p in policies if p.get("is_program")]
+    program_carriers = {}
+    if programs:
+        prog_ids = [p["policy_uid"] for p in programs]
+        for prog in programs:
+            pid = conn.execute("SELECT id FROM policies WHERE policy_uid = ?", (prog["policy_uid"],)).fetchone()
+            if pid:
+                carriers = conn.execute(
+                    "SELECT carrier, policy_number, premium, limit_amount, sort_order "
+                    "FROM program_carriers WHERE program_id = ? ORDER BY sort_order",
+                    (pid["id"],),
+                ).fetchall()
+                program_carriers[prog["policy_uid"]] = [dict(c) for c in carriers]
+
+    wb = Workbook()
+    wb.remove(wb.active)
+
+    # ════════════════════════════════════════════════════════════════════════
+    # TAB 1: SUMMARY
+    # ════════════════════════════════════════════════════════════════════════
+    total_policies = len([p for p in policies if not p.get("is_program")])
+    total_programs = len(programs)
+    total_premium = sum(float(p.get("premium") or 0) for p in policies if not p.get("is_program"))
+    unassigned = [p for p in policies if not p.get("project_id") and not p.get("is_program") and not p.get("program_id")]
+    missing_carrier = [p for p in policies if not (p.get("carrier") or "").strip()]
+    missing_premium = [p for p in policies if not p.get("premium") and not p.get("is_program")]
+    missing_polnum = [p for p in policies if not (p.get("policy_number") or "").strip()]
+    missing_dates = [p for p in policies if not p.get("effective_date") or not p.get("expiration_date")]
+
+    summary_rows = [
+        {"Item": "Client", "Value": client_name},
+        {"Item": "Report Date", "Value": date.today().isoformat()},
+        {"Item": "", "Value": ""},
+        {"Item": "Total Policies", "Value": total_policies},
+        {"Item": "Total Programs", "Value": total_programs},
+        {"Item": "Total Premium", "Value": total_premium},
+        {"Item": "Known Locations", "Value": len(locations)},
+        {"Item": "", "Value": ""},
+        {"Item": "GAPS IDENTIFIED", "Value": ""},
+        {"Item": "Policies Without Location Assignment", "Value": len(unassigned)},
+        {"Item": "Policies Missing Carrier", "Value": len(missing_carrier)},
+        {"Item": "Policies Missing Premium", "Value": len(missing_premium)},
+        {"Item": "Policies Missing Policy Number", "Value": len(missing_polnum)},
+        {"Item": "Policies Missing Dates", "Value": len(missing_dates)},
+    ]
+    _write_sheet(wb, "Summary", summary_rows, col_widths={"Item": 40, "Value": 25})
+
+    # ════════════════════════════════════════════════════════════════════════
+    # TAB 2: ALL POLICIES
+    # ════════════════════════════════════════════════════════════════════════
+    all_rows = []
+    for p in policies:
+        location = p.get("location_name") or p.get("project_name") or ""
+        is_prog = "Yes" if p.get("is_program") else ""
+        parent = p.get("parent_program_uid") or ""
+        all_rows.append({
+            "Policy ID": p["policy_uid"],
+            "Coverage Type": p.get("policy_type", ""),
+            "Carrier": p.get("carrier", ""),
+            "Policy Number": p.get("policy_number", ""),
+            "Effective Date": p.get("effective_date", ""),
+            "Expiration Date": p.get("expiration_date", ""),
+            "Premium": float(p.get("premium") or 0),
+            "Limit": float(p.get("limit_amount") or 0),
+            "Deductible": float(p.get("deductible") or 0),
+            "Location / Project": location,
+            "Layer": p.get("layer_position", ""),
+            "Renewal Status": p.get("renewal_status", ""),
+            "Program": is_prog,
+            "Parent Program": parent,
+            "First Named Insured": p.get("first_named_insured", ""),
+            "Placement Colleague": p.get("placement_colleague", ""),
+            "Underwriter": p.get("underwriter_name", ""),
+            "Description": p.get("description", ""),
+            "Has Location?": "Yes" if p.get("project_id") else "NO",
+            "Has Carrier?": "Yes" if (p.get("carrier") or "").strip() else "NO",
+            "Has Policy #?": "Yes" if (p.get("policy_number") or "").strip() else "NO",
+        })
+    _write_sheet(wb, "All Policies", all_rows)
+
+    # ════════════════════════════════════════════════════════════════════════
+    # TAB 3: UNASSIGNED LOCATIONS
+    # ════════════════════════════════════════════════════════════════════════
+    unassigned_rows = []
+    for p in unassigned:
+        unassigned_rows.append({
+            "Policy ID": p["policy_uid"],
+            "Coverage Type": p.get("policy_type", ""),
+            "Carrier": p.get("carrier", ""),
+            "Policy Number": p.get("policy_number", ""),
+            "Premium": float(p.get("premium") or 0),
+            "Effective Date": p.get("effective_date", ""),
+            "Expiration Date": p.get("expiration_date", ""),
+            "Address on File": p.get("exposure_address", ""),
+            "Notes": p.get("description", ""),
+            "Action Needed": "Assign to a location or confirm as corporate-level",
+        })
+    _write_sheet(wb, "Unassigned Locations", unassigned_rows)
+
+    # ════════════════════════════════════════════════════════════════════════
+    # TAB 4: MISSING FIELDS
+    # ════════════════════════════════════════════════════════════════════════
+    missing_rows = []
+    for p in policies:
+        if p.get("is_program"):
+            continue
+        missing = []
+        if not (p.get("carrier") or "").strip():
+            missing.append("Carrier")
+        if not p.get("premium"):
+            missing.append("Premium")
+        if not (p.get("policy_number") or "").strip():
+            missing.append("Policy Number")
+        if not p.get("effective_date"):
+            missing.append("Effective Date")
+        if not p.get("expiration_date"):
+            missing.append("Expiration Date")
+        if not p.get("limit_amount"):
+            missing.append("Limit")
+        if not (p.get("first_named_insured") or "").strip():
+            missing.append("First Named Insured")
+        if not (p.get("placement_colleague") or "").strip():
+            missing.append("Placement Colleague")
+        if not (p.get("underwriter_name") or "").strip():
+            missing.append("Underwriter")
+
+        if missing:
+            missing_rows.append({
+                "Policy ID": p["policy_uid"],
+                "Coverage Type": p.get("policy_type", ""),
+                "Carrier": p.get("carrier", ""),
+                "Missing Fields": ", ".join(missing),
+                "Count Missing": len(missing),
+                "Priority": "High" if any(f in missing for f in ["Carrier", "Premium", "Effective Date", "Expiration Date"]) else "Medium",
+            })
+    missing_rows.sort(key=lambda r: (-r["Count Missing"], r["Coverage Type"]))
+    _write_sheet(wb, "Missing Fields", missing_rows)
+
+    # ════════════════════════════════════════════════════════════════════════
+    # TAB 5: PROGRAM REVIEW
+    # ════════════════════════════════════════════════════════════════════════
+    program_rows = []
+    for prog in programs:
+        carriers = program_carriers.get(prog["policy_uid"], [])
+        carrier_list = ", ".join(c["carrier"] for c in carriers) if carriers else prog.get("carrier", "")
+        carrier_count = len(carriers) if carriers else 0
+        total_prog_premium = sum(float(c.get("premium") or 0) for c in carriers) if carriers else float(prog.get("premium") or 0)
+
+        # Find child policies linked to this program
+        prog_db_id = conn.execute("SELECT id FROM policies WHERE policy_uid = ?", (prog["policy_uid"],)).fetchone()
+        child_count = 0
+        if prog_db_id:
+            child_count = conn.execute(
+                "SELECT COUNT(*) as c FROM policies WHERE program_id = ? AND archived = 0",
+                (prog_db_id["id"],),
+            ).fetchone()["c"]
+
+        # Check for standalone policies with same type that might belong
+        potential_members = [
+            p for p in policies
+            if not p.get("is_program")
+            and not p.get("program_id")
+            and p.get("policy_type") == prog.get("policy_type")
+            and p["policy_uid"] != prog["policy_uid"]
+        ]
+
+        program_rows.append({
+            "Program ID": prog["policy_uid"],
+            "Coverage Type": prog.get("policy_type", ""),
+            "Carriers": carrier_list,
+            "Carrier Count": carrier_count,
+            "Total Premium": total_prog_premium,
+            "Effective Date": prog.get("effective_date", ""),
+            "Expiration Date": prog.get("expiration_date", ""),
+            "Child Policies Linked": child_count,
+            "Potential Unlinked Policies": len(potential_members),
+            "Review Note": f"{len(potential_members)} standalone {prog.get('policy_type', '')} policies may belong to this program" if potential_members else "OK",
+        })
+    _write_sheet(wb, "Program Review", program_rows)
+
+    # ════════════════════════════════════════════════════════════════════════
+    # TAB 6: ACTION ITEMS
+    # ════════════════════════════════════════════════════════════════════════
+    actions = []
+    action_num = 0
+
+    for p in unassigned:
+        action_num += 1
+        actions.append({
+            "#": action_num,
+            "Priority": "Medium",
+            "Category": "Location Assignment",
+            "Policy ID": p["policy_uid"],
+            "Description": f"Assign {p.get('policy_type', '')} ({p.get('carrier', '')}) to a location",
+            "Current Value": p.get("exposure_address", "") or "No address on file",
+            "Status": "Open",
+        })
+
+    for row in missing_rows:
+        if row["Priority"] == "High":
+            action_num += 1
+            actions.append({
+                "#": action_num,
+                "Priority": "High",
+                "Category": "Missing Data",
+                "Policy ID": row["Policy ID"],
+                "Description": f"Complete missing: {row['Missing Fields']}",
+                "Current Value": f"{row['Coverage Type']} / {row.get('Carrier', '')}",
+                "Status": "Open",
+            })
+
+    for prog_row in program_rows:
+        if prog_row["Potential Unlinked Policies"] > 0:
+            action_num += 1
+            actions.append({
+                "#": action_num,
+                "Priority": "Medium",
+                "Category": "Program Membership",
+                "Policy ID": prog_row["Program ID"],
+                "Description": prog_row["Review Note"],
+                "Current Value": f"{prog_row['Carrier Count']} carriers, {prog_row['Child Policies Linked']} linked",
+                "Status": "Open",
+            })
+
+    if not actions:
+        actions.append({
+            "#": 1, "Priority": "", "Category": "",
+            "Policy ID": "", "Description": "No action items — book looks complete!",
+            "Current Value": "", "Status": "Complete",
+        })
+
+    _write_sheet(wb, "Action Items", actions)
+
+    return _wb_to_bytes(wb)
