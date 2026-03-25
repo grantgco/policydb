@@ -33,6 +33,11 @@
   <p class="text-sm text-gray-500 mt-1">{{ policy.policy_type }} · {{ policy.carrier }}
     <button type="button" onclick="copyRefTag(this, '{{ _ref }}')"
       class="ml-2 text-xs font-mono text-gray-400 hover:text-marsh bg-gray-100 hover:bg-gray-200 px-1.5 py-0.5 rounded cursor-pointer transition-colors" title="Click to copy email ref tag">{{ _ref }}</button>
+    {% if policy.project_id %}
+    <a href="/clients/{{ policy.client_id }}/projects/{{ policy.project_id }}"
+       class="ml-2 inline-flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-marsh bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded-full transition-colors"
+       title="Assigned to location">📍 {{ policy.project_name }}</a>
+    {% endif %}
   </p>
   {% if policy.first_named_insured %}<p class="text-xs text-gray-400 mt-0.5">First Named Insured: <span class="text-gray-600 font-medium">{{ policy.first_named_insured }}</span></p>{% endif %}
 </div>
