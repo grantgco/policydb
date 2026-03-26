@@ -1,0 +1,415 @@
+{# ── TCOR Breakdown Waterfall Chart Template ─────────────────────────────────
+   Provides both the chart display and the editor panel.
+   Used via {% include %} from charts/manual/editor.html.
+   Expects: Chart.js loaded, ManualChart namespace available.
+#}
+
+<!-- ═══ Chart Display ═══════════════════════════════════════════════════════ -->
+<div class="manual-chart-page">
+  <div class="manual-chart-wrap" style="display:flex;flex-direction:column;">
+
+    <!-- Header -->
+    <div style="margin-bottom:0.25rem;">
+      <h2 id="chart-title-display"
+          style="font-family:'Noto Serif',serif;font-size:1.6rem;color:#000F47;line-height:1.2;margin:0 0 0.3rem;">
+        Total Cost of Risk Breakdown &mdash; 2024
+      </h2>
+      <p id="chart-subtitle-display"
+         style="font-size:0.82rem;color:#7B7974;font-weight:400;letter-spacing:0.03em;margin:0;">
+        Placeholder values &mdash; update below
+      </p>
+    </div>
+
+    <!-- Total Callout -->
+    <div style="margin-bottom:1rem;">
+      <div style="font-size:0.8rem;color:#7B7974;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;">
+        Total Cost of Risk
+      </div>
+      <div id="total-display"
+           style="font-size:2.5rem;font-weight:700;color:#000F47;font-family:'Noto Serif',serif;">
+        $1.93M
+      </div>
+    </div>
+
+    <!-- Canvas -->
+    <div style="position:relative;flex:1;min-height:0;">
+      <canvas id="tcorChart"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ Editor Panel ════════════════════════════════════════════════════════ -->
+<div class="mc-editor" id="editor-panel">
+  <div class="mc-editor-title">Chart Editor</div>
+
+  <!-- Config Strip -->
+  <div class="config-strip">
+    <div class="config-field wide">
+      <span class="config-label">Year Label</span>
+      <input type="text" id="cfg-year" name="cfg-year" value="2024">
+    </div>
+    <button class="btn-mc sm" onclick="applyConfig()">Apply</button>
+  </div>
+
+  <!-- Categories -->
+  <div style="margin-bottom:1.25rem;">
+    <div class="section-head midnight">Categories</div>
+    <div id="category-rows">
+      <div class="input-row">
+        <div class="input-group" style="flex:2;">
+          <label>Category</label>
+          <input type="text" name="cat-label" value="Retained Losses">
+        </div>
+        <div class="input-group" style="flex:1;">
+          <label>Amount ($)</label>
+          <input type="number" name="cat-amount" value="450000" step="1000">
+        </div>
+        <div class="cat-color-dot" style="width:12px;height:12px;border-radius:50%;background:#CB7E03;margin-bottom:4px;flex-shrink:0;"></div>
+        <button class="btn-mc sm danger" onclick="removeCategory(this)">&times;</button>
+      </div>
+      <div class="input-row">
+        <div class="input-group" style="flex:2;">
+          <label>Category</label>
+          <input type="text" name="cat-label" value="Property">
+        </div>
+        <div class="input-group" style="flex:1;">
+          <label>Amount ($)</label>
+          <input type="number" name="cat-amount" value="500000" step="1000">
+        </div>
+        <div class="cat-color-dot" style="width:12px;height:12px;border-radius:50%;background:#82BAFF;margin-bottom:4px;flex-shrink:0;"></div>
+        <button class="btn-mc sm danger" onclick="removeCategory(this)">&times;</button>
+      </div>
+      <div class="input-row">
+        <div class="input-group" style="flex:2;">
+          <label>Category</label>
+          <input type="text" name="cat-label" value="GL">
+        </div>
+        <div class="input-group" style="flex:1;">
+          <label>Amount ($)</label>
+          <input type="number" name="cat-amount" value="350000" step="1000">
+        </div>
+        <div class="cat-color-dot" style="width:12px;height:12px;border-radius:50%;background:#82BAFF;margin-bottom:4px;flex-shrink:0;"></div>
+        <button class="btn-mc sm danger" onclick="removeCategory(this)">&times;</button>
+      </div>
+      <div class="input-row">
+        <div class="input-group" style="flex:2;">
+          <label>Category</label>
+          <input type="text" name="cat-label" value="Auto">
+        </div>
+        <div class="input-group" style="flex:1;">
+          <label>Amount ($)</label>
+          <input type="number" name="cat-amount" value="200000" step="1000">
+        </div>
+        <div class="cat-color-dot" style="width:12px;height:12px;border-radius:50%;background:#82BAFF;margin-bottom:4px;flex-shrink:0;"></div>
+        <button class="btn-mc sm danger" onclick="removeCategory(this)">&times;</button>
+      </div>
+      <div class="input-row">
+        <div class="input-group" style="flex:2;">
+          <label>Category</label>
+          <input type="text" name="cat-label" value="WC">
+        </div>
+        <div class="input-group" style="flex:1;">
+          <label>Amount ($)</label>
+          <input type="number" name="cat-amount" value="175000" step="1000">
+        </div>
+        <div class="cat-color-dot" style="width:12px;height:12px;border-radius:50%;background:#82BAFF;margin-bottom:4px;flex-shrink:0;"></div>
+        <button class="btn-mc sm danger" onclick="removeCategory(this)">&times;</button>
+      </div>
+      <div class="input-row">
+        <div class="input-group" style="flex:2;">
+          <label>Category</label>
+          <input type="text" name="cat-label" value="Umbrella">
+        </div>
+        <div class="input-group" style="flex:1;">
+          <label>Amount ($)</label>
+          <input type="number" name="cat-amount" value="125000" step="1000">
+        </div>
+        <div class="cat-color-dot" style="width:12px;height:12px;border-radius:50%;background:#82BAFF;margin-bottom:4px;flex-shrink:0;"></div>
+        <button class="btn-mc sm danger" onclick="removeCategory(this)">&times;</button>
+      </div>
+      <div class="input-row">
+        <div class="input-group" style="flex:2;">
+          <label>Category</label>
+          <input type="text" name="cat-label" value="Broker Fees">
+        </div>
+        <div class="input-group" style="flex:1;">
+          <label>Amount ($)</label>
+          <input type="number" name="cat-amount" value="75000" step="1000">
+        </div>
+        <div class="cat-color-dot" style="width:12px;height:12px;border-radius:50%;background:#B9B6B1;margin-bottom:4px;flex-shrink:0;"></div>
+        <button class="btn-mc sm danger" onclick="removeCategory(this)">&times;</button>
+      </div>
+      <div class="input-row">
+        <div class="input-group" style="flex:2;">
+          <label>Category</label>
+          <input type="text" name="cat-label" value="Risk Mgmt">
+        </div>
+        <div class="input-group" style="flex:1;">
+          <label>Amount ($)</label>
+          <input type="number" name="cat-amount" value="50000" step="1000">
+        </div>
+        <div class="cat-color-dot" style="width:12px;height:12px;border-radius:50%;background:#B9B6B1;margin-bottom:4px;flex-shrink:0;"></div>
+        <button class="btn-mc sm danger" onclick="removeCategory(this)">&times;</button>
+      </div>
+    </div>
+    <div style="margin-top:0.5rem;display:flex;gap:0.5rem;align-items:center;">
+      <button class="btn-mc sm outline" onclick="addCategory()">+ Add Category</button>
+      <span style="margin-left:auto;font-size:0.82rem;font-weight:600;color:#000F47;"
+            id="total-sum">TOTAL: $1,925,000</span>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div class="mc-editor-footer">
+    <div class="config-field wide">
+      <span class="config-label">Subtitle</span>
+      <input type="text" id="chart-subtitle" name="chart-subtitle"
+             value="Placeholder values — update below">
+    </div>
+    <button class="btn-mc" onclick="refreshCurrentChart()">Refresh Chart</button>
+  </div>
+</div>
+
+<!-- ═══ Script ══════════════════════════════════════════════════════════════ -->
+<script>
+(function () {
+
+  // ── Color Assignment ────────────────────────────────────────────────────
+  // Index 0: gold (retained losses)
+  // Index 1-5: blue (insurance lines)
+  // Index 6+: gray (admin/fees)
+  // TOTAL (appended last): midnight
+  function getBarColor(index, count) {
+    if (index === count) return '#000F47';  // TOTAL bar
+    if (index === 0) return '#CB7E03';      // Retained / gold
+    if (index <= 5) return '#82BAFF';       // Insurance lines / blue
+    return '#B9B6B1';                       // Admin / gray
+  }
+
+  // ── Update color dots in editor rows ──────────────────────────────────
+  function updateColorDots() {
+    var rows = document.querySelectorAll('#category-rows .input-row');
+    rows.forEach(function (row, i) {
+      var dot = row.querySelector('.cat-color-dot');
+      if (dot) dot.style.background = getBarColor(i, rows.length);
+    });
+  }
+
+  // ── Build Waterfall Data ──────────────────────────────────────────────
+  function buildWaterfallData(labels, values, colors) {
+    var spacers = [];
+    var segments = [];
+    var cumulative = 0;
+
+    for (var i = 0; i < values.length; i++) {
+      spacers.push(cumulative);
+      segments.push(values[i]);
+      cumulative += values[i];
+    }
+    // TOTAL bar
+    labels.push('TOTAL');
+    spacers.push(0);
+    segments.push(cumulative);
+    colors.push('#000F47');
+
+    return { labels: labels, spacers: spacers, segments: segments, colors: colors, total: cumulative };
+  }
+
+  // ── Value Label Plugin ────────────────────────────────────────────────
+  var waterfallLabelPlugin = {
+    id: 'waterfallLabels',
+    afterDraw: function (chart) {
+      var ctx = chart.ctx;
+      var meta = chart.getDatasetMeta(1); // segments dataset
+      if (!meta || !meta.data) return;
+      meta.data.forEach(function (bar, i) {
+        var val = chart.data.datasets[1].data[i];
+        ctx.save();
+        ctx.fillStyle = '#3D3C37';
+        ctx.font = "600 11px 'Noto Sans'";
+        ctx.textAlign = 'center';
+        ctx.fillText(ManualChart.fmtCurrency(val), bar.x, bar.y - 8);
+        ctx.restore();
+      });
+    }
+  };
+
+  // ── Read Categories from Editor ───────────────────────────────────────
+  function readCategories() {
+    var labelEls = document.querySelectorAll('#category-rows input[name="cat-label"]');
+    var amountEls = document.querySelectorAll('#category-rows input[name="cat-amount"]');
+    var labels = [];
+    var values = [];
+    var colors = [];
+    labelEls.forEach(function (el, i) {
+      labels.push(el.value || ('Category ' + (i + 1)));
+      values.push(parseFloat(amountEls[i].value) || 0);
+      colors.push(getBarColor(i, labelEls.length));
+    });
+    return { labels: labels, values: values, colors: colors };
+  }
+
+  // ── Update Total Display ──────────────────────────────────────────────
+  function updateTotal() {
+    var amountEls = document.querySelectorAll('#category-rows input[name="cat-amount"]');
+    var total = 0;
+    amountEls.forEach(function (el) {
+      total += parseFloat(el.value) || 0;
+    });
+    var sumEl = document.getElementById('total-sum');
+    if (sumEl) sumEl.textContent = 'TOTAL: ' + ManualChart.fmtCurrency(total);
+    return total;
+  }
+
+  // ── Apply Config ──────────────────────────────────────────────────────
+  window.applyConfig = function () {
+    var year = document.getElementById('cfg-year').value || '2024';
+    document.getElementById('chart-title-display').innerHTML =
+      'Total Cost of Risk Breakdown &mdash; ' + year;
+    refreshCurrentChart();
+  };
+
+  // ── Main Render ───────────────────────────────────────────────────────
+  window.refreshCurrentChart = function () {
+    // Read subtitle
+    var subtitle = document.getElementById('chart-subtitle').value || '';
+    document.getElementById('chart-subtitle-display').textContent = subtitle;
+
+    // Read categories
+    var cats = readCategories();
+    var wf = buildWaterfallData(cats.labels.slice(), cats.values.slice(), cats.colors.slice());
+
+    // Update total display
+    document.getElementById('total-display').textContent = ManualChart.fmtCurrency(wf.total);
+    updateTotal();
+
+    // Destroy old chart
+    if (currentChart) {
+      currentChart.destroy();
+      currentChart = null;
+    }
+
+    // Build chart
+    var ctx = document.getElementById('tcorChart').getContext('2d');
+    currentChart = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: wf.labels,
+        datasets: [
+          {
+            label: '_spacer',
+            data: wf.spacers,
+            backgroundColor: 'transparent',
+            borderWidth: 0,
+            hoverBackgroundColor: 'transparent',
+            hoverBorderWidth: 0,
+            stack: 'waterfall',
+            barPercentage: 0.6,
+            categoryPercentage: 0.7,
+          },
+          {
+            label: 'Amount',
+            data: wf.segments,
+            backgroundColor: wf.colors,
+            borderColor: wf.colors,
+            borderWidth: 0,
+            borderRadius: 2,
+            stack: 'waterfall',
+            barPercentage: 0.6,
+            categoryPercentage: 0.7,
+          }
+        ]
+      },
+      plugins: [waterfallLabelPlugin],
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        layout: {
+          padding: { top: 28, bottom: 4, left: 4, right: 4 }
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: '#000F47',
+            titleFont: { family: "'Noto Sans'", size: 12, weight: '600' },
+            bodyFont:  { family: "'Noto Sans'", size: 12 },
+            padding: 12,
+            cornerRadius: 4,
+            filter: function (tooltipItem) {
+              return tooltipItem.dataset.label !== '_spacer';
+            },
+            callbacks: {
+              label: function (ctx) {
+                return ' ' + ctx.label + ': ' + ManualChart.fmtCurrency(ctx.raw);
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            stacked: true,
+            grid: { display: false },
+            border: { color: '#B9B6B1' },
+            ticks: {
+              font: { family: "'Noto Sans'", size: 11, weight: '500' },
+              color: '#3D3C37',
+              maxRotation: 45,
+              minRotation: 0,
+            }
+          },
+          y: {
+            stacked: true,
+            beginAtZero: true,
+            grid: {
+              color: 'rgba(0, 0, 0, 0.06)',
+              drawBorder: false,
+            },
+            border: { display: false },
+            ticks: {
+              font: { family: "'Noto Sans'", size: 11 },
+              color: '#7B7974',
+              callback: function (value) {
+                return ManualChart.fmtCurrency(value);
+              }
+            }
+          }
+        }
+      }
+    });
+  };
+
+  // ── Add Category ──────────────────────────────────────────────────────
+  window.addCategory = function () {
+    var container = document.getElementById('category-rows');
+    var html =
+      '<div class="input-row">' +
+        '<div class="input-group" style="flex:2;">' +
+          '<label>Category</label>' +
+          '<input type="text" name="cat-label" value="">' +
+        '</div>' +
+        '<div class="input-group" style="flex:1;">' +
+          '<label>Amount ($)</label>' +
+          '<input type="number" name="cat-amount" value="0" step="1000">' +
+        '</div>' +
+        '<div class="cat-color-dot" style="width:12px;height:12px;border-radius:50%;background:#B9B6B1;margin-bottom:4px;flex-shrink:0;"></div>' +
+        '<button class="btn-mc sm danger" onclick="removeCategory(this)">&times;</button>' +
+      '</div>';
+    container.insertAdjacentHTML('beforeend', html);
+    updateColorDots();
+    updateTotal();
+  };
+
+  // ── Remove Category ───────────────────────────────────────────────────
+  window.removeCategory = function (btn) {
+    var row = btn.closest('.input-row');
+    if (row) row.remove();
+    updateColorDots();
+    updateTotal();
+    refreshCurrentChart();
+  };
+
+  // ── Bootstrap ─────────────────────────────────────────────────────────
+  requestAnimationFrame(() => refreshCurrentChart());
+
+})();
+</script>

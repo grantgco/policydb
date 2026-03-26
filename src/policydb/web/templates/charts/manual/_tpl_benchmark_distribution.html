@@ -1,0 +1,314 @@
+{# ── Benchmark Distribution Chart Template ─────────────────────────────────
+   Provides both the chart display and the editor panel.
+   Used via {% include %} from charts/manual/editor.html.
+   Expects: Chart.js loaded, ManualChart namespace available.
+#}
+
+<!-- ═══ Chart Display ═══════════════════════════════════════════════════════ -->
+<div class="manual-chart-page">
+  <div class="manual-chart-wrap">
+    <!-- Title -->
+    <div style="margin-bottom: 0.25rem;">
+      <div id="chart-title-display"
+           style="font-family: 'Noto Serif', serif; font-size: 1.35rem; font-weight: 700; color: #000F47;">
+        Total Program Limits ($M)
+      </div>
+      <div id="chart-subtitle-display"
+           style="font-size: 0.78rem; color: #7B7974; margin-top: 0.15rem;">
+        Peer benchmarking comparison
+      </div>
+    </div>
+
+    <!-- Big Stat Callout -->
+    <div style="margin-bottom: 1rem;">
+      <div style="font-size: 0.8rem; color: #7B7974; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">
+        Average
+      </div>
+      <div id="avg-display"
+           style="font-size: 2.5rem; font-weight: 700; color: #000F47; font-family: 'Noto Serif', serif;">
+        $32M
+      </div>
+    </div>
+
+    <!-- Chart Canvas -->
+    <div style="flex: 1; min-height: 0; position: relative;">
+      <canvas id="benchChart"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ Editor Panel ════════════════════════════════════════════════════════ -->
+<div class="mc-editor" id="editor-panel">
+  <div class="mc-editor-title">Chart Editor</div>
+
+  <!-- Config Strip -->
+  <div class="config-strip">
+    <div class="config-field wide">
+      <span class="config-label">Chart Title</span>
+      <input type="text" id="chart-title" name="chart-title" value="Total Program Limits ($M)">
+    </div>
+    <div class="config-field">
+      <span class="config-label">Value Unit Label</span>
+      <input type="text" id="unit-label" name="unit-label" value="$M">
+    </div>
+    <button class="btn-mc sm" onclick="refreshCurrentChart()">Apply</button>
+  </div>
+
+  <!-- Percentile Values -->
+  <div style="margin-bottom: 1.25rem;">
+    <div class="section-head midnight">Percentile Values</div>
+    <div id="percentile-rows">
+      <div class="input-row">
+        <div class="input-group" style="flex: 1;">
+          <label>Label</label>
+          <input type="text" name="pct-label" value="10th">
+        </div>
+        <div class="input-group" style="flex: 1;">
+          <label>Value</label>
+          <input type="number" name="pct-value" value="5" step="any">
+        </div>
+        <button class="btn-mc sm danger" onclick="removePercentileRow(this)" style="margin-bottom: 1px;">&times;</button>
+      </div>
+      <div class="input-row">
+        <div class="input-group" style="flex: 1;">
+          <label>Label</label>
+          <input type="text" name="pct-label" value="25th">
+        </div>
+        <div class="input-group" style="flex: 1;">
+          <label>Value</label>
+          <input type="number" name="pct-value" value="10" step="any">
+        </div>
+        <button class="btn-mc sm danger" onclick="removePercentileRow(this)" style="margin-bottom: 1px;">&times;</button>
+      </div>
+      <div class="input-row">
+        <div class="input-group" style="flex: 1;">
+          <label>Label</label>
+          <input type="text" name="pct-label" value="50th">
+        </div>
+        <div class="input-group" style="flex: 1;">
+          <label>Value</label>
+          <input type="number" name="pct-value" value="20" step="any">
+        </div>
+        <button class="btn-mc sm danger" onclick="removePercentileRow(this)" style="margin-bottom: 1px;">&times;</button>
+      </div>
+      <div class="input-row">
+        <div class="input-group" style="flex: 1;">
+          <label>Label</label>
+          <input type="text" name="pct-label" value="75th">
+        </div>
+        <div class="input-group" style="flex: 1;">
+          <label>Value</label>
+          <input type="number" name="pct-value" value="29" step="any">
+        </div>
+        <button class="btn-mc sm danger" onclick="removePercentileRow(this)" style="margin-bottom: 1px;">&times;</button>
+      </div>
+      <div class="input-row">
+        <div class="input-group" style="flex: 1;">
+          <label>Label</label>
+          <input type="text" name="pct-label" value="90th">
+        </div>
+        <div class="input-group" style="flex: 1;">
+          <label>Value</label>
+          <input type="number" name="pct-value" value="98" step="any">
+        </div>
+        <button class="btn-mc sm danger" onclick="removePercentileRow(this)" style="margin-bottom: 1px;">&times;</button>
+      </div>
+    </div>
+    <div style="margin-top: 0.5rem; display: flex; gap: 0.5rem;">
+      <button class="btn-mc sm outline" onclick="addPercentileRow()">+ Add Row</button>
+    </div>
+  </div>
+
+  <!-- Average Section -->
+  <div style="margin-bottom: 1.25rem;">
+    <div class="section-head gold">Average</div>
+    <div class="input-row">
+      <div class="input-group" style="flex: 1; max-width: 200px;">
+        <label>Average Value</label>
+        <input type="number" id="avg-value" name="avg-value" value="32" step="any"
+               style="border-color: #CB7E03; background: #FFF3DA;">
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div class="mc-editor-footer">
+    <div class="config-field wide">
+      <span class="config-label">Subtitle</span>
+      <input type="text" id="chart-subtitle" name="chart-subtitle" value="Peer benchmarking comparison">
+    </div>
+    <button class="btn-mc" onclick="refreshCurrentChart()">Refresh Chart</button>
+  </div>
+</div>
+
+<!-- ═══ Script ══════════════════════════════════════════════════════════════ -->
+<script>
+(function () {
+
+  // ── Chart.js Plugins ────────────────────────────────────────────────────
+
+  /** Dashed horizontal line at the average value */
+  const avgLinePlugin = {
+    id: 'avgLine',
+    afterDraw(chart) {
+      const avgVal = parseFloat(document.getElementById('avg-value').value) || 0;
+      if (!avgVal) return;
+      const ctx = chart.ctx;
+      const yScale = chart.scales.y;
+      const y = yScale.getPixelForValue(avgVal);
+      ctx.save();
+      ctx.setLineDash([6, 4]);
+      ctx.strokeStyle = '#CB7E03';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(chart.chartArea.left, y);
+      ctx.lineTo(chart.chartArea.right, y);
+      ctx.stroke();
+      // Label
+      ctx.setLineDash([]);
+      ctx.fillStyle = '#CB7E03';
+      ctx.font = "600 12px 'Noto Sans'";
+      ctx.textAlign = 'right';
+      ctx.fillText('Avg: ' + ManualChart.fmtCurrency(avgVal), chart.chartArea.right - 8, y - 8);
+      ctx.restore();
+    }
+  };
+
+  /** Data labels above each bar */
+  const dataLabelPlugin = {
+    id: 'barLabels',
+    afterDraw(chart) {
+      const ctx = chart.ctx;
+      chart.data.datasets.forEach((ds, di) => {
+        chart.getDatasetMeta(di).data.forEach((bar, i) => {
+          const val = ds.data[i];
+          ctx.save();
+          ctx.fillStyle = '#3D3C37';
+          ctx.font = "600 12px 'Noto Sans'";
+          ctx.textAlign = 'center';
+          ctx.fillText(val, bar.x, bar.y - 8);
+          ctx.restore();
+        });
+      });
+    }
+  };
+
+  // ── Render Function ─────────────────────────────────────────────────────
+
+  window.refreshCurrentChart = function () {
+    // Read title + subtitle
+    const title = document.getElementById('chart-title').value || 'Benchmark Distribution';
+    const subtitle = document.getElementById('chart-subtitle').value || '';
+    document.getElementById('chart-title-display').textContent = title;
+    document.getElementById('chart-subtitle-display').textContent = subtitle;
+
+    // Read percentile rows
+    const labelInputs = document.querySelectorAll('#percentile-rows input[name="pct-label"]');
+    const valueInputs = document.querySelectorAll('#percentile-rows input[name="pct-value"]');
+    const labels = [];
+    const values = [];
+    labelInputs.forEach((el, i) => {
+      labels.push(el.value || ('P' + (i + 1)));
+      values.push(parseFloat(valueInputs[i].value) || 0);
+    });
+
+    // Read average
+    const avgVal = parseFloat(document.getElementById('avg-value').value) || 0;
+    const unitLabel = document.getElementById('unit-label').value || '';
+
+    // Update big stat display
+    document.getElementById('avg-display').textContent = ManualChart.fmtCurrency(avgVal);
+
+    // Destroy old chart
+    if (currentChart) {
+      currentChart.destroy();
+      currentChart = null;
+    }
+
+    // Build chart
+    const ctx = document.getElementById('benchChart').getContext('2d');
+    currentChart = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: labels,
+        datasets: [{
+          label: 'Value',
+          data: values,
+          backgroundColor: '#B9B6B1',
+          borderColor: '#B9B6B1',
+          borderWidth: 0,
+          borderRadius: 3,
+          barPercentage: 0.6,
+          categoryPercentage: 0.7,
+        }]
+      },
+      plugins: [avgLinePlugin, dataLabelPlugin],
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        layout: {
+          padding: { top: 24, bottom: 4, left: 4, right: 4 }
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: { enabled: false },
+        },
+        scales: {
+          x: {
+            grid: { display: false },
+            ticks: {
+              font: { family: "'Noto Sans'", size: 12, weight: '500' },
+              color: '#3D3C37',
+            },
+            border: { color: '#B9B6B1' },
+          },
+          y: {
+            beginAtZero: true,
+            grid: {
+              color: 'rgba(0, 0, 0, 0.06)',
+              drawBorder: false,
+            },
+            ticks: {
+              font: { family: "'Noto Sans'", size: 11 },
+              color: '#7B7974',
+              callback: function (value) {
+                return value + (unitLabel ? ' ' + unitLabel : '');
+              },
+            },
+            border: { display: false },
+          },
+        },
+      },
+    });
+  };
+
+  // ── Row Management ──────────────────────────────────────────────────────
+
+  window.addPercentileRow = function () {
+    const container = document.getElementById('percentile-rows');
+    const count = container.querySelectorAll('.input-row').length;
+    const html = `
+      <div class="input-row">
+        <div class="input-group" style="flex: 1;">
+          <label>Label</label>
+          <input type="text" name="pct-label" value="">
+        </div>
+        <div class="input-group" style="flex: 1;">
+          <label>Value</label>
+          <input type="number" name="pct-value" value="0" step="any">
+        </div>
+        <button class="btn-mc sm danger" onclick="removePercentileRow(this)" style="margin-bottom: 1px;">&times;</button>
+      </div>`;
+    container.insertAdjacentHTML('beforeend', html);
+  };
+
+  window.removePercentileRow = function (btn) {
+    const row = btn.closest('.input-row');
+    if (row) row.remove();
+  };
+
+  // ── Bootstrap ───────────────────────────────────────────────────────────
+  requestAnimationFrame(() => refreshCurrentChart());
+
+})();
+</script>
