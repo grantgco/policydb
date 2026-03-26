@@ -4,6 +4,13 @@
     <span class="font-medium text-gray-800 text-sm">{{ e.exposure_type }}</span>
     {% if e.is_custom %}<span class="ml-1 text-[10px] text-purple-400 uppercase">custom</span>{% endif %}
   </td>
+  {# Denominator (Per) #}
+  <td class="px-3 py-2.5">
+    <div contenteditable="true"
+         class="matrix-cell-editable outline-none text-gray-600 text-xs rounded px-1 -mx-1 border border-dashed border-gray-200 text-center w-12"
+         data-field="denominator"
+         data-placeholder="1">{{ e.denominator or 1 }}</div>
+  </td>
   {# Policy (optional link) #}
   <td class="matrix-cell-combo px-3 py-2.5 cursor-pointer relative"
       data-field="policy_id"
@@ -52,12 +59,34 @@
          data-field="notes"
          data-placeholder="Notes...">{{ e.notes or '' }}</div>
   </td>
+  {# Primary Toggle #}
+  <td class="px-3 py-2.5 text-center">
+    {% if e.link_policy_uid %}
+    <button class="text-lg leading-none cursor-pointer no-print"
+            hx-patch="{{ exposure_url_prefix }}/exposures/{{ e.id }}/toggle-primary"
+            hx-vals='{"policy_uid": "{{ e.link_policy_uid }}"}'
+            hx-target="closest tr" hx-swap="outerHTML"
+            title="{{ 'Primary rating basis' if e.link_is_primary else 'Set as primary' }}">
+      {% if e.link_is_primary %}<span class="text-amber-400">&#9733;</span>{% else %}<span class="text-gray-300 hover:text-amber-300">&#9734;</span>{% endif %}
+    </button>
+    {% else %}<span class="text-gray-200 text-sm">&mdash;</span>{% endif %}
+  </td>
+  {# Rate (auto-calculated) #}
+  <td class="px-3 py-2.5 text-right" data-field="rate">
+    {% if e.link_rate is not none %}
+    <span class="text-xs font-semibold px-2 py-0.5 rounded
+      {% if e.link_is_primary %}bg-green-50 text-green-700{% else %}text-gray-400{% endif %}">
+      ${{ "{:,.2f}".format(e.link_rate) }}
+    </span>
+    {% elif e.link_policy_uid %}<span class="text-gray-300 text-xs">&mdash;</span>
+    {% else %}<span class="text-gray-200 text-xs"></span>{% endif %}
+  </td>
   {# Delete #}
   <td class="px-3 py-2.5 text-center">
     <button
       hx-delete="{{ exposure_url_prefix }}/exposures/{{ e.id }}"
       hx-target="closest tr" hx-swap="outerHTML"
       hx-confirm="Remove {{ e.exposure_type }}?"
-      class="text-xs text-gray-300 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity">✕</button>
+      class="text-xs text-gray-300 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity">&#10005;</button>
   </td>
 </tr>
