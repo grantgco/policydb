@@ -49,12 +49,28 @@
 <!-- Policy Team -->
 <div class="mb-4">{% include 'policies/_policy_team.html' %}</div>
 
-<!-- Compose Email -->
-<div class="mb-4 no-print">
+<!-- AI Contact Extraction Result -->
+<div id="ai-contacts-result" class="mb-4"></div>
+
+<!-- Action Buttons -->
+<div class="mb-4 flex flex-wrap gap-2 no-print">
   <button type="button"
     onclick="openComposeSlideover({context:'policy', policy_uid:'{{ policy.policy_uid }}', client_id:{{ policy.client_id }}})"
-    class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-marsh hover:text-white bg-white hover:bg-marsh border border-marsh/30 hover:border-marsh rounded-lg transition-colors no-print">
-    ✉ Compose Email
+    class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-marsh hover:text-white bg-white hover:bg-marsh border border-marsh/30 hover:border-marsh rounded-lg transition-colors">
+    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+    </svg>
+    Compose Email
+  </button>
+  <button type="button"
+    hx-get="/policies/{{ policy.policy_uid }}/ai-contacts/prompt"
+    hx-target="#ai-import-container"
+    hx-swap="innerHTML"
+    class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-indigo-600 hover:text-white bg-white hover:bg-indigo-600 border border-indigo-300 hover:border-indigo-600 rounded-lg transition-colors">
+    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
+    </svg>
+    Extract Contacts from Email
   </button>
 </div>
 
