@@ -803,3 +803,131 @@ def get_exposure_vs_premium_data(
         "exposure_growth": exposure_growth,
         "premium_growth": premium_growth,
     }
+
+
+# ---------------------------------------------------------------------------
+# 13. Executive Financial Summary  (bound program table by section)
+# ---------------------------------------------------------------------------
+
+def get_exec_financial_summary_data(
+    conn: sqlite3.Connection,
+    client_id: int,
+) -> dict:
+    """Executive Financial Summary — bound program premiums grouped by tower section.
+
+    Returns:
+    {
+        "sections": [
+            {
+                "title": "Casualty — Primary",
+                "rows": [
+                    {"line": "General Liability", "carrier": "Travelers",
+                     "expiring": 35000, "normalized": null, "renewal": 38000,
+                     "delta_dollars": 3000, "delta_pct": 8.6},
+                    ...
+                ],
+                "subtotal_expiring": 70000,
+                "subtotal_normalized": null,
+                "subtotal_renewal": 76000,
+                "subtotal_delta_dollars": 6000,
+                "subtotal_delta_pct": 8.6
+            },
+            ...
+        ],
+        "grand_total_expiring": float,
+        "grand_total_normalized": null,
+        "grand_total_renewal": float,
+        "grand_total_delta_dollars": float,
+        "grand_total_delta_pct": float | null
+    }
+    """
+    rows = conn.execute(
+        f"""
+        SELECT
+            p.policy_type,
+            p.carrier,
+            p.tower_group,
+            p.layer_position,
+            p.attachment_point,
+            p.limit_amount,
+            p.participation_of,
+            COALESCE(p.prior_premium, 0) AS prior_premium,
+            COALESCE(p.premium, 0)       AS premium
+        FROM policies p
+        WHERE p.client_id = ? AND {_ACTIVE_POLICY}
+          AND p.policy_type IS NOT NULL AND p.policy_type != ''
+        ORDER BY p.tower_group, p.layer_position, p.attachment_point
+        """,
+        (client_id,),
+    ).fetchall()
+
+    # Group into sections: {tower_group} — Primary / Excess
+    sections: dict[str, dict] = {}
+    for r in rows:
+        tg = r["tower_group"] or "General"
+        lp = (r["layer_position"] or "Primary").strip().lower()
+        att = r["attachment_point"] or 0
+        is_primary = lp == "primary" or (att == 0 and lp not in ("umbrella",))
+
+        section_label = "Primary" if is_primary else "Excess"
+        section_key = f"{tg}|{section_label}"
+        if section_key not in sections:
+            sections[section_key] = {"title": f"{tg} — {section_label}", "rows": []}
+
+        prior = r["prior_premium"] or 0
+        current = r["premium"] or 0
+        delta = current - prior
+        delta_pct = round((delta / prior) * 100, 1) if prior > 0 else None
+
+        # Build line description
+        if is_primary:
+            line = r["policy_type"] or "Unknown"
+        else:
+            line = _layer_notation(
+                r["limit_amount"], r["attachment_point"], r["participation_of"]
+            )
+            pt = r["policy_type"]
+            if pt:
+                line = f"{pt} — {line}"
+
+        sections[section_key]["rows"].append({
+            "line": line,
+            "carrier": r["carrier"] or "",
+            "expiring": prior,
+            "normalized": None,
+            "renewal": current,
+            "delta_dollars": delta,
+            "delta_pct": delta_pct,
+        })
+
+    # Calculate subtotals and assemble
+    result_sections = []
+    grand_exp = 0
+    grand_ren = 0
+    for key in sorted(sections.keys()):
+        section = sections[key]
+        sub_exp = sum(r["expiring"] for r in section["rows"])
+        sub_ren = sum(r["renewal"] for r in section["rows"])
+        sub_delta = sub_ren - sub_exp
+        section["subtotal_expiring"] = sub_exp
+        section["subtotal_normalized"] = None
+        section["subtotal_renewal"] = sub_ren
+        section["subtotal_delta_dollars"] = sub_delta
+        section["subtotal_delta_pct"] = (
+            round((sub_delta / sub_exp) * 100, 1) if sub_exp > 0 else None
+        )
+        grand_exp += sub_exp
+        grand_ren += sub_ren
+        result_sections.append(section)
+
+    grand_delta = grand_ren - grand_exp
+    return {
+        "sections": result_sections,
+        "grand_total_expiring": grand_exp,
+        "grand_total_normalized": None,
+        "grand_total_renewal": grand_ren,
+        "grand_total_delta_dollars": grand_delta,
+        "grand_total_delta_pct": (
+            round((grand_delta / grand_exp) * 100, 1) if grand_exp > 0 else None
+        ),
+    }
