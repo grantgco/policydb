@@ -25,8 +25,8 @@ Defined in `src/policydb/llm_schemas.py`. Extends the existing `CONTACT_EXTRACTI
 | Mobile Number | `mobile` | string | no | — | — | Cell/mobile phone |
 | Company / Organization | `organization` | string | no | — | — | Company name from sig or domain |
 | Job Title | `title` | string | no | — | — | Job title from signature |
-| Role | `role` | string | no | — | `contact_roles` (prefer) | Role relative to the client account |
-| Contact Type | `contact_type` | string | no | — | — | `client`, `internal`, or `external` — inferred by LLM |
+| Role | `role` | string | no | — | `contact_roles` (prefer), example: `"Underwriter"` | Role relative to the client account |
+| Contact Type | `contact_type` | string | no | — | Inline validation: `client`/`internal`/`external`, example: `"client"` | Inferred by LLM; invalid values default to `client` |
 
 ## Prompt Generation: `generate_contact_bulk_import_prompt(conn, client_id)`
 
@@ -34,7 +34,7 @@ Context-aware prompt that includes:
 
 1. **Client context** — client name, industry segment
 2. **Known carriers** — list of carriers on this account (so LLM tags carrier employees as `external`)
-3. **Brokerage name** — from `cfg.get("brokerage_name")` or similar config key (so LLM tags colleagues as `internal`)
+3. **Brokerage name** — from `cfg.get("brokerage_name")` (new config key, added to `_DEFAULTS` and Settings UI) — so LLM tags colleagues as `internal`
 4. **Existing contacts** — names already assigned to this client (so LLM can flag duplicates)
 5. **Contact roles** — from `cfg.get("contact_roles")`
 6. **Source flexibility instruction** — "The user may paste email signatures, a contact roster, meeting notes, distribution lists, or any text containing people and their contact details."
@@ -53,7 +53,8 @@ Follows the same pattern as `parse_contact_extraction_json()`:
 3. `json.loads()` → validate array
 4. Normalize each item via `_parse_flat_fields()` with schema field definitions
 5. Skip entries without a `name`
-6. Return `{"ok": True, "contacts": [...], "warnings": [...], "count": N}`
+6. Validate `contact_type` — if present and not in `{client, internal, external}`, default to `client` and add warning
+7. Return `{"ok": True, "contacts": [...], "warnings": [...], "count": N}`
 
 ## Routes (3 endpoints on clients router)
 
@@ -74,9 +75,9 @@ All in `src/policydb/web/routes/clients.py`.
 
 1. Call `parse_contact_bulk_import_json(json_text)`
 2. On error → return red error div (422)
-3. Fetch existing client contacts via `get_client_contacts(conn, client_id)`
+3. Fetch existing client contacts across **all three types** (`client`, `internal`, `external`) and merge name sets for complete dedup coverage
 4. Annotate each parsed contact:
-   - `already_assigned` — name matches existing client contact (case-insensitive)
+   - `already_assigned` — name matches any existing client contact across all types (case-insensitive)
    - `existing_contact` — name exists in global `contacts` table (may not be assigned to this client)
 5. Default `contact_type` to `"client"` if not provided by LLM
 6. Cache parsed contacts with UUID token in `_CLIENT_CONTACT_IMPORT_CACHE`
@@ -147,7 +148,9 @@ Styled consistently with the bulk policy import button on the client page.
 | `src/policydb/llm_schemas.py` | Add `CONTACT_BULK_IMPORT_SCHEMA`, `generate_contact_bulk_import_prompt()`, `parse_contact_bulk_import_json()` |
 | `src/policydb/web/routes/clients.py` | Add 3 routes: prompt, parse, apply. Add `_CLIENT_CONTACT_IMPORT_CACHE` dict. |
 | `src/policydb/web/templates/clients/_ai_contacts_review.html` | New review matrix template |
-| `src/policydb/web/templates/clients/_tab_contacts.html` | Add "AI Import" button + result div |
+| `src/policydb/web/templates/clients/_tab_contacts.html` | Add "AI Import" button + result div (add header row wrapper above existing includes) |
+| `src/policydb/config.py` | Add `brokerage_name` to `_DEFAULTS` (default: `""`) |
+| `src/policydb/web/routes/settings.py` | Add `brokerage_name` to Settings UI (text field, not list) |
 
 ## No Migration Needed
 
@@ -156,7 +159,7 @@ No schema changes — uses existing `contacts`, `contact_client_assignments` tab
 ## Config Dependencies
 
 - `contact_roles` — existing, used for role dropdown
-- `brokerage_name` — may need to add to `_DEFAULTS` if not already present (used for internal contact type inference)
+- `brokerage_name` — **new**, added to `_DEFAULTS` in `config.py` (default: `""`) and editable in Settings UI. Used for internal contact type inference.
 - `carriers` — existing, used for external contact type inference
 
 ## Edge Cases
@@ -166,3 +169,6 @@ No schema changes — uses existing `contacts`, `contact_client_assignments` tab
 - **All contacts already assigned** — all checkboxes disabled, apply button still works (no-op with 0 applied)
 - **Cache expiry** — token-based, same pattern as policy import. Stale token returns "Session expired" message.
 - **Phone/email normalization** — `format_phone()` and `clean_email()` applied in the apply step (same as manual contact add)
+- **Invalid contact_type from LLM** — if LLM returns a value other than `client`/`internal`/`external`, default to `client` with a warning
+- **Client-level only** — contacts imported here are assigned to the client, NOT automatically linked to any policy. Policy assignment is a separate step via the existing contact matrix.
+- **Cache cleanup** — stale cache entries (>30 min) purged opportunistically in the parse step
