@@ -199,6 +199,17 @@ class PolicyImporter:
         "company_name": "carrier",
         "writing_company": "carrier",
         "issuing_company": "carrier",
+        # Exposure fields
+        "exposure_basis": "exposure_basis",
+        "rating_basis": "exposure_basis",
+        "exposure_type": "exposure_basis",
+        "exposure_amount": "exposure_amount",
+        "exposure_value": "exposure_amount",
+        "exposure": "exposure_amount",
+        "exposure_denominator": "exposure_denominator",
+        "denominator": "exposure_denominator",
+        "per": "exposure_denominator",
+        "rating_unit": "exposure_denominator",
     }
 
     def __init__(self, conn: sqlite3.Connection):
