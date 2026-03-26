@@ -247,6 +247,7 @@ def _build_tab_context(tab: str, conn) -> dict:
         ctx["db_tables"] = db_tables
         ctx["google_places_api_key"] = cfg.get("google_places_api_key", "")
         ctx["google_places_daily_limit"] = cfg.get("google_places_daily_limit", 1000)
+        ctx["brokerage_name"] = cfg.get("brokerage_name", "")
 
     return ctx
 
@@ -503,6 +504,15 @@ def update_google_places(request: Request, api_key: str = Form(""), daily_limit:
     full = dict(cfg.load_config())
     full["google_places_api_key"] = api_key.strip()
     full["google_places_daily_limit"] = max(1, min(daily_limit, 100000))
+    cfg.save_config(full)
+    cfg.reload_config()
+    return RedirectResponse("/settings?tab=database", status_code=303)
+
+
+@router.post("/config/brokerage")
+def update_brokerage(request: Request, brokerage_name: str = Form("")):
+    full = dict(cfg.load_config())
+    full["brokerage_name"] = brokerage_name.strip()
     cfg.save_config(full)
     cfg.reload_config()
     return RedirectResponse("/settings?tab=database", status_code=303)
