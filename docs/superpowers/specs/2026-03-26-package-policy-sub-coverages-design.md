@@ -60,7 +60,7 @@ auto_sub_coverages:
 
 When a policy is created with a `policy_type` that has an entry in `auto_sub_coverages`, the listed sub-coverages are auto-inserted into `policy_sub_coverages`. The user can still add or remove sub-coverages manually afterward.
 
-Editable in the Settings UI.
+**Settings UI:** `auto_sub_coverages` is a dict-of-lists, which doesn't fit the existing `EDITABLE_LISTS` pattern (simple string lists). For now, this is **config-file-only** — editable in `~/.policydb/config.yaml` but not in the Settings UI. A custom Settings section for managing auto-sub-coverage mappings can be added later if the config grows beyond WC → EL.
 
 ### Coverage Alias Update
 
@@ -120,7 +120,7 @@ For each sub-coverage on a package policy, a **ghost/reference row** appears in 
 
 ### Query Logic
 
-The `v_schedule` view (or the Python query that builds the schedule) needs to:
+The schedule is built in Python (not a SQL view) so ghost row injection happens at the Python level:
 
 1. Select all policies as usual for their `policy_type` section.
 2. Additionally select policies that have a matching `coverage_type` in `policy_sub_coverages` — these become ghost rows in that section.
@@ -200,11 +200,21 @@ No automatic sub-coverage creation on import. The user tags sub-coverages manual
 
 ## Migration
 
-**Migration 072:** Creates `policy_sub_coverages` table with indexes and unique constraint.
+**Migration 090:** Creates `policy_sub_coverages` table with indexes and unique constraint.
 
 **Config defaults update:** Add "Business Owners Policy" and "Employers Liability" to `policy_types`. Add `auto_sub_coverages` with the WC → EL mapping.
 
 **Alias update:** Modify `_COVERAGE_ALIASES` in `utils.py`.
+
+---
+
+## Email Template Tokens
+
+Add a `{{sub_coverages}}` token to the policy context in `email_templates.py`:
+
+- **Value:** Comma-separated list of sub-coverage types (e.g., "General Liability, Property / Builders Risk, Inland Marine"). Empty string if no sub-coverages.
+- **Added to:** `policy_context()` function and `CONTEXT_TOKEN_GROUPS` under the Policy group.
+- **Use case:** Renewal recap emails, schedule summaries — anywhere the template needs to reference what a package policy covers.
 
 ---
 
