@@ -1,0 +1,63 @@
+<tr data-row-id="{{ e.id }}" class="matrix-row group hover:bg-gray-50/60 align-top">
+  {# Exposure Type #}
+  <td class="px-3 py-2.5">
+    <span class="font-medium text-gray-800 text-sm">{{ e.exposure_type }}</span>
+    {% if e.is_custom %}<span class="ml-1 text-[10px] text-purple-400 uppercase">custom</span>{% endif %}
+  </td>
+  {# Policy (optional link) #}
+  <td class="matrix-cell-combo px-3 py-2.5 cursor-pointer relative"
+      data-field="policy_id"
+      data-options='{{ policy_options | tojson }}'>
+    <span class="cell-display text-xs">
+      {% if e.policy_label %}
+      <span class="text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded">{{ e.policy_label }}</span>
+      {% else %}<span class="text-gray-300">&mdash;</span>{% endif %}
+    </span>
+  </td>
+  {# Prior Year (read-only) #}
+  <td class="px-3 py-2.5 text-right">
+    {% if e.prior_amount is not none %}
+    <span class="text-gray-400 text-xs">
+      {% if e.unit == 'currency' %}{{ "${:,.0f}".format(e.prior_amount) }}{% else %}{{ "{:,.0f}".format(e.prior_amount) }}{% endif %}
+    </span>
+    {% else %}<span class="text-gray-300 text-xs">&mdash;</span>{% endif %}
+  </td>
+  {# Current Year (editable) #}
+  <td class="px-3 py-2.5 text-right">
+    <div contenteditable="true"
+         class="matrix-cell-editable outline-none text-gray-800 text-sm font-semibold rounded px-1 -mx-1 border border-dashed border-blue-200 bg-blue-50/30"
+         data-field="amount"
+         data-placeholder="Enter value...">{% if e.amount is not none %}{% if e.unit == 'currency' %}{{ "${:,.0f}".format(e.amount) }}{% else %}{{ "{:,.0f}".format(e.amount) }}{% endif %}{% endif %}</div>
+  </td>
+  {# YoY Δ (auto-calculated) #}
+  <td class="px-3 py-2.5 text-center" data-field="yoy">
+    {% if e.amount is not none and e.prior_amount is not none and e.prior_amount != 0 %}
+      {% set pct = ((e.amount - e.prior_amount) / e.prior_amount * 100) %}
+      <span class="text-xs font-semibold {{ 'text-red-500' if pct > 0 else 'text-green-600' }}">
+        {{ "{:+.1f}%".format(pct) }}
+      </span>
+    {% else %}<span class="text-gray-300 text-xs">&mdash;</span>{% endif %}
+  </td>
+  {# Source Document #}
+  <td class="px-3 py-2.5">
+    <div contenteditable="true"
+         class="matrix-cell-editable outline-none text-gray-500 text-xs rounded px-1 -mx-1 border border-dashed border-gray-200"
+         data-field="source_document"
+         data-placeholder="Source doc...">{{ e.source_document or '' }}</div>
+  </td>
+  {# Notes #}
+  <td class="px-3 py-2.5">
+    <div contenteditable="true"
+         class="matrix-cell-editable outline-none text-gray-400 text-xs rounded px-1 -mx-1"
+         data-field="notes"
+         data-placeholder="Notes...">{{ e.notes or '' }}</div>
+  </td>
+  {# Delete #}
+  <td class="px-3 py-2.5 text-center">
+    <button
+      hx-delete="/clients/{{ client_id }}/exposures/{{ e.id }}"
+      hx-target="closest tr" hx-swap="outerHTML"
+      hx-confirm="Remove {{ e.exposure_type }}?"
+      class="text-xs text-gray-300 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity">✕</button>
+  </td>
+</tr>

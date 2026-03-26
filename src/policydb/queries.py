@@ -2160,3 +2160,108 @@ def spread_followups(
         })
 
     return proposals
+
+
+# ─── EXPOSURE QUERIES ────────────────────────────────────────────────────────
+
+def get_client_exposures(
+    conn: sqlite3.Connection,
+    client_id: int,
+    year: int,
+    project_id: Optional[int] = None,
+) -> list[dict]:
+    """Return exposures for a client/year with prior year values joined."""
+    if project_id is None:
+        rows = conn.execute(
+            """
+            SELECT e.*, prior.amount AS prior_amount
+            FROM client_exposures e
+            LEFT JOIN client_exposures prior
+                ON prior.client_id = e.client_id
+                AND prior.exposure_type = e.exposure_type
+                AND prior.year = e.year - 1
+                AND prior.project_id IS NULL
+            WHERE e.client_id = ? AND e.year = ? AND e.project_id IS NULL
+            ORDER BY e.is_custom, e.exposure_type
+            """,
+            (client_id, year),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            """
+            SELECT e.*, prior.amount AS prior_amount
+            FROM client_exposures e
+            LEFT JOIN client_exposures prior
+                ON prior.client_id = e.client_id
+                AND prior.project_id = e.project_id
+                AND prior.exposure_type = e.exposure_type
+                AND prior.year = e.year - 1
+            WHERE e.client_id = ? AND e.year = ? AND e.project_id = ?
+            ORDER BY e.is_custom, e.exposure_type
+            """,
+            (client_id, year, project_id),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_exposure_years(
+    conn: sqlite3.Connection,
+    client_id: int,
+    project_id: Optional[int] = None,
+) -> list[int]:
+    """Return distinct years with exposure data, sorted descending."""
+    if project_id is None:
+        rows = conn.execute(
+            "SELECT DISTINCT year FROM client_exposures WHERE client_id = ? AND project_id IS NULL ORDER BY year DESC",
+            (client_id,),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT DISTINCT year FROM client_exposures WHERE client_id = ? AND project_id = ? ORDER BY year DESC",
+            (client_id, project_id),
+        ).fetchall()
+    return [r["year"] for r in rows]
+
+
+def get_distinct_custom_exposure_types(conn: sqlite3.Connection) -> list[str]:
+    """Return distinct custom exposure types used across all clients."""
+    rows = conn.execute(
+        "SELECT DISTINCT exposure_type FROM client_exposures WHERE is_custom = 1 ORDER BY exposure_type"
+    ).fetchall()
+    return [r["exposure_type"] for r in rows]
+
+
+def get_exposure_observations(
+    conn: sqlite3.Connection,
+    client_id: int,
+    year: int,
+    project_id: Optional[int] = None,
+) -> list[dict]:
+    """Return YoY exposure changes sorted by absolute % change for observations panel."""
+    exposures = get_client_exposures(conn, client_id, year, project_id)
+    observations = []
+    for e in exposures:
+        current = e.get("amount")
+        prior = e.get("prior_amount")
+        if current is None or prior is None or prior == 0:
+            continue
+        pct_change = ((current - prior) / prior) * 100
+        observations.append({
+            "exposure_type": e["exposure_type"],
+            "current": current,
+            "prior": prior,
+            "pct_change": round(pct_change, 1),
+            "direction": "up" if pct_change > 0 else "down",
+            "unit": e["unit"],
+            "notes": e.get("notes") or "",
+        })
+    observations.sort(key=lambda o: abs(o["pct_change"]), reverse=True)
+    return observations
+
+
+def get_exposure_by_id(conn: sqlite3.Connection, exposure_id: int) -> Optional[dict]:
+    """Return a single exposure row by ID."""
+    row = conn.execute(
+        "SELECT * FROM client_exposures WHERE id = ?", (exposure_id,)
+    ).fetchone()
+    return dict(row) if row else None

@@ -55,6 +55,10 @@
           {% set contact_count = (contacts | length) + (team_contacts | length) + (external_contacts | length) %}
           {% if contact_count %}<span class="tab-badge">{{ contact_count }}</span>{% endif %}
         </button>
+        <button class="tab-btn" data-tab="exposures"
+          data-tab-url="/clients/{{ client.id }}/tab/exposures">
+          Exposures
+        </button>
         <button class="tab-btn" data-tab="risk"
           data-tab-url="/clients/{{ client.id }}/tab/risk">
           Risk &amp; Compliance

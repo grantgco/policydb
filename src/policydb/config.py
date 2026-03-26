@@ -145,6 +145,14 @@ _DEFAULTS: dict[str, Any] = {
         "Travelers",
         "Zurich",
     ],
+    "standard_exposure_types": {
+        "Payroll": "currency",
+        "Revenue": "currency",
+        "TIV": "currency",
+        "Vehicle Count": "number",
+        "Employee Count": "number",
+        "Square Footage": "number",
+    },
     "exposure_basis_options": [
         "Payroll",
         "Revenue",
