@@ -354,6 +354,20 @@ def policy_context(conn: sqlite3.Connection, policy_uid: str) -> dict:
         "protection_class": cope_data.get("protection_class", ""),
         "total_insurable_value": _fmt_currency(cope_data.get("total_insurable_value")),
     })
+
+    # Exposure/rate from linked exposures
+    from policydb.exposures import get_policy_exposures
+    exp_links = get_policy_exposures(conn, row.get("policy_uid", ""))
+    primary = next((e for e in exp_links if e["is_primary"]), None)
+    ctx["exposure_type"] = primary["exposure_type"] if primary else ""
+    ctx["exposure_amount"] = "${:,.0f}".format(primary["amount"]) if primary and primary["amount"] else ""
+    ctx["exposure_denominator"] = str(primary["denominator"]) if primary else ""
+    ctx["exposure_rate"] = "${:,.2f}".format(primary["rate"]) if primary and primary["rate"] is not None else ""
+    ctx["exposure_rate_label"] = (
+        f"${primary['rate']:,.2f} per ${primary['denominator']:,} of {primary['exposure_type'].lower()}"
+        if primary and primary["rate"] is not None else ""
+    )
+
     return ctx
 
 
@@ -693,6 +707,13 @@ CONTEXT_TOKEN_GROUPS: dict[str, list[tuple[str, list[tuple[str, str]]]]] = {
             ("premium", "Premium"),
             ("limit", "Limit"),
             ("deductible", "Deductible"),
+        ]),
+        ("Exposure", [
+            ("exposure_type", "Exposure Type"),
+            ("exposure_amount", "Exposure Amount"),
+            ("exposure_denominator", "Exposure Denominator"),
+            ("exposure_rate", "Exposure Rate"),
+            ("exposure_rate_label", "Rate Label (e.g. $0.50 per $100 of payroll)"),
         ]),
         ("Client", _CLIENT_GROUP),
         ("Contact", _CLIENT_CONTACT_GROUP),
