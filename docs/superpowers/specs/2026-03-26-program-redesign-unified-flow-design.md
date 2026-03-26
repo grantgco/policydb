@@ -34,6 +34,8 @@ Unify "program" as the single concept. Tower group = program name. One creation 
 | Program hub | Enhanced schematic page | Already has the matrices; just needs header metadata and assign-existing panel |
 | Client page display | Merge Corporate Programs + Tower Structure into one section | Eliminates duplicate UI showing the same data |
 | Quota share | Two patterns: program carriers (formal) + same attachment point (ad-hoc) | Both exist in practice |
+| Multi-line umbrella | Multi-column tower where umbrella spans underlying lines it covers | Matches how casualty programs actually work |
+| Sub-coverage participation | Package sub-coverage limits feed into tower as underlying layers | BOP GL limit participates in tower alongside standalone policies |
 | Limit sync | Schematic writes to policy records + tower position badge on policy detail | Single entry point, no double-entry |
 
 ---
@@ -145,7 +147,78 @@ ORDER BY policy_type
 - If multiple rows share an `attachment_point`, render them side-by-side with carrier names and participation percentages
 - Use gold/amber color tint for quota share layers to distinguish from sole-carrier layers
 
-### 2d. Limit Sync to Policy Records
+### 2d. Multi-Line Umbrella Towers & Sub-Coverage Participation
+
+A common program structure: a BOP has a GL sub-coverage with a $1M limit, an Auto Liability policy has its own $1M limit, and a $5M Umbrella sits over both. The tower must render this as a **multi-column visualization** where the umbrella spans the underlying lines it covers.
+
+#### Data Source: Sub-Coverage Limits
+
+The `policy_sub_coverages` table (from `nervous-jones` branch, migration 090–092) stores per-sub-coverage `limit_amount` and `deductible`. This means a BOP's GL sub-coverage has its own limit distinct from the parent BOP's aggregate limit. The schematic page reads these to build tower columns.
+
+**Sub-coverage → tower column mapping:**
+- When a package policy (BOP, WC/EL) is assigned to a program, its sub-coverages with `limit_amount` values become available as underlying tower columns
+- The user selects which sub-coverages participate as tower lines (not all are tower-relevant — e.g., Inland Marine from a BOP probably isn't under the umbrella)
+- Each participating sub-coverage renders as its own column in the tower with its `limit_amount` as the layer height
+
+#### Multi-Column Tower Visualization
+
+The tower preview shifts from a single-column stack to a multi-column layout when an umbrella or excess policy covers multiple underlying lines:
+
+```
+                         ┌──────────────────────────────────────┐
+                         │     Umbrella — $5M xs $1M            │
+                         │     National Indemnity                │
+                         ├──────────────────┬───────────────────┤
+ $1M ────────────────────┤  GL (from BOP)   │  Auto Liability   │
+                         │  $1M             │  $1M              │
+                         │  Acme Ins Co     │  Liberty Mutual   │
+                         └──────────────────┴───────────────────┘
+```
+
+**Key behaviors:**
+- The umbrella layer spans the full width of the columns it covers
+- Each underlying column shows the line of business, limit, and carrier
+- The attachment point of the umbrella aligns with the top of the underlying columns
+- Underlying columns can be standalone policies OR sub-coverages from package policies — they're visually identical in the tower
+
+#### Schematic Page: Line Selection
+
+**New UI element** in the schematic underlying section — "Tower Lines" selector:
+
+For each policy assigned to the program:
+- **Standalone policy** (e.g., Auto Liability): automatically a tower line, shown as a single entry
+- **Package policy** (e.g., BOP): expandable to show sub-coverages with limits. User checks which sub-coverages participate as tower lines.
+
+```
+Tower Lines:
+  ☑ Auto Liability — $1M (Liberty Mutual)           [standalone]
+  ▼ Business Owners Policy (Acme Ins Co)             [package]
+      ☑ General Liability — $1M
+      ☐ Property — $500K
+      ☐ Inland Marine — $100K
+```
+
+**"Covers" relationship on excess/umbrella rows:**
+- Each excess row in the schematic gets a "Covers" multi-select showing available tower lines
+- The umbrella's width in the tower preview = the columns it covers
+- Stored as a new junction: `program_tower_coverage` (see §4 Data Model Changes)
+
+#### Quota Share in Multi-Column Context
+
+Quota share layers at the same attachment point render at the same vertical level, spanning the same columns as the layer they share:
+
+```
+                         ┌──────────────────────────────────────┐
+                         │  QS Layer — Carrier A 60% / B 40%   │
+                         │  $10M xs $6M                         │
+                         ├──────────────────────────────────────┤
+                         │     Umbrella — $5M xs $1M            │
+                         ├──────────────────┬───────────────────┤
+                         │  GL — $1M        │  Auto — $1M       │
+                         └──────────────────┴───────────────────┘
+```
+
+### 2e. Limit Sync to Policy Records
 
 When any field is saved on the schematic page (underlying or excess), the PATCH endpoint already writes to the `policies` table. Additionally:
 
@@ -215,22 +288,59 @@ The "Program-Linked Policies" collapsed section (added earlier today) remains as
 
 ## 4. Data Model Changes
 
-### New Migration
+### New Migrations
 
 ```sql
--- Add layer_notation column for display
+-- Migration A: Add layer_notation column for display
 ALTER TABLE policies ADD COLUMN layer_notation TEXT;
+
+-- Migration B: Tower coverage junction (which excess covers which underlying lines)
+CREATE TABLE IF NOT EXISTS program_tower_coverage (
+    id                        INTEGER PRIMARY KEY AUTOINCREMENT,
+    excess_policy_id          INTEGER NOT NULL REFERENCES policies(id) ON DELETE CASCADE,
+    underlying_policy_id      INTEGER REFERENCES policies(id) ON DELETE CASCADE,
+    underlying_sub_coverage_id INTEGER REFERENCES policy_sub_coverages(id) ON DELETE CASCADE,
+    CHECK (underlying_policy_id IS NOT NULL OR underlying_sub_coverage_id IS NOT NULL)
+);
+CREATE INDEX IF NOT EXISTS idx_ptc_excess ON program_tower_coverage(excess_policy_id);
+CREATE INDEX IF NOT EXISTS idx_ptc_underlying ON program_tower_coverage(underlying_policy_id);
+CREATE INDEX IF NOT EXISTS idx_ptc_subcov ON program_tower_coverage(underlying_sub_coverage_id);
 ```
 
-### No Structural Changes to Program Model
+**Note:** `policy_sub_coverages` with `limit_amount`, `deductible`, and `notes` columns is already built on the `nervous-jones` branch (migrations 090–092). These must be merged first.
 
-The existing model is preserved:
+### New Junction Table: `program_tower_coverage`
+
+Tracks which excess/umbrella layers cover which underlying tower lines. This is the "Covers" relationship from §2d.
+
+```sql
+CREATE TABLE IF NOT EXISTS program_tower_coverage (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    excess_policy_id   INTEGER NOT NULL REFERENCES policies(id) ON DELETE CASCADE,
+    underlying_policy_id INTEGER REFERENCES policies(id) ON DELETE CASCADE,
+    underlying_sub_coverage_id INTEGER REFERENCES policy_sub_coverages(id) ON DELETE CASCADE,
+    CHECK (underlying_policy_id IS NOT NULL OR underlying_sub_coverage_id IS NOT NULL)
+);
+CREATE INDEX IF NOT EXISTS idx_ptc_excess ON program_tower_coverage(excess_policy_id);
+```
+
+- `excess_policy_id` — the umbrella/excess policy
+- `underlying_policy_id` — a standalone underlying policy (e.g., Auto Liability), OR
+- `underlying_sub_coverage_id` — a sub-coverage from a package policy (e.g., GL from BOP)
+- Exactly one of `underlying_policy_id` / `underlying_sub_coverage_id` must be set
+
+This lets the tower preview know which columns an umbrella spans.
+
+### Preserved Model
+
+The existing program model is preserved:
 - `is_program` flag on `policies` table
 - `tower_group` text field on `policies` table
 - `program_id` FK on `policies` table for parent-child links
 - `program_carriers` table for multi-carrier program layers
+- `policy_sub_coverages` table (from `nervous-jones` branch) for package sub-coverage limits
 
-The unification is purely at the **UI/UX level** — the underlying data model stays the same, but the UI presents it as a single "program" concept.
+The unification is primarily at the **UI/UX level** — the underlying data model stays the same, with the addition of `program_tower_coverage` for multi-column tower relationships and `layer_notation` for display caching.
 
 ---
 
@@ -240,10 +350,12 @@ The unification is purely at the **UI/UX level** — the underlying data model s
 
 | File | Purpose |
 |------|---------|
-| `migrations/090_layer_notation.sql` | Add `layer_notation` column |
+| `migrations/NNN_layer_notation.sql` | Add `layer_notation` column |
+| `migrations/NNN_program_tower_coverage.sql` | Tower coverage junction table |
 | `templates/clients/_programs.html` | Rewrite in-place to unified card layout with mini tower viz |
 | `templates/programs/_header.html` | Program header partial for schematic page |
 | `templates/programs/_unassigned_panel.html` | Unassigned policies panel |
+| `templates/programs/_tower_lines.html` | Tower line selector (sub-coverage participation checkboxes) |
 
 ### Modified Files
 
@@ -256,7 +368,8 @@ The unification is purely at the **UI/UX level** — the underlying data model s
 | `templates/policies/edit.html` | Add tower position badge when policy has tower_group |
 | `db.py` | Wire migration 090 |
 | `views.py` | Add `layer_notation` to relevant views |
-| `charts.py` | Fix `_layer_notation()` to use proper currency shorthand instead of `%g` |
+| `charts.py` | Fix `_layer_notation()` to use proper currency shorthand instead of `%g`; add multi-column tower rendering with sub-coverage columns |
+| `queries.py` | Add `get_tower_coverage_map()` for excess→underlying line relationships; leverage existing `get_sub_coverages_full_by_policy_id()` from `nervous-jones` |
 
 ---
 
@@ -284,6 +397,10 @@ These are incremental improvements, not blockers.
 | Quota share (ad-hoc) | Two excess rows at same `attachment_point` — tower preview groups them. Requires changes to `get_tower_data()` in `charts.py` to detect shared attachment points. |
 | Assign policy that already has a tower_group | Should not appear in unassigned list (filtered out by query). If moved between programs, use unassign first. |
 | Policy edited outside schematic | `layer_notation` column recalculated on policy edit save if limit/attachment fields change. |
+| Package policy with no sub-coverage limits | Sub-coverages without `limit_amount` are excluded from tower line selection. User must enter limits on the policy edit page or schematic first. |
+| Umbrella covers 0 lines | If no "Covers" selections are made, umbrella renders as a single-column layer above the first underlying line (backward-compatible with current single-column tower). |
+| Sub-coverage deleted while in tower | `ON DELETE CASCADE` on `program_tower_coverage.underlying_sub_coverage_id` removes the junction row. Tower preview re-renders without that column. |
+| Same sub-coverage type from different package policies | Each renders as its own column (e.g., "GL (BOP #1)" and "GL (BOP #2)") — carrier name disambiguates. |
 
 ---
 
@@ -296,4 +413,7 @@ These are incremental improvements, not blockers.
 5. **Limit sync:** Editing limit/attachment on schematic auto-populates `layer_notation`; policy detail page shows tower position badge
 6. **Client page:** Single "Programs" section with cards showing summary + mini tower viz; no separate Tower Structure section
 7. **Program-Linked Policies:** Collapsed section still shows individual policies belonging to programs
-8. **Backward compatibility:** Existing programs with `tower_group` values display correctly; no data migration needed beyond adding `layer_notation` column
+8. **Multi-line umbrella:** Assign BOP + Auto Liability to program → check GL sub-coverage as tower line → add Umbrella covering GL + Auto → tower preview shows umbrella spanning both columns
+9. **Sub-coverage limits:** BOP with GL sub-coverage showing $1M limit appears as its own column in the tower at the correct height
+10. **Tower line selector:** Package policies show expandable sub-coverage checkboxes; only sub-coverages with `limit_amount` are selectable
+11. **Backward compatibility:** Existing programs with `tower_group` values display correctly; single-column towers still work when no "Covers" relationships are defined
