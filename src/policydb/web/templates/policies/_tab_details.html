@@ -203,6 +203,34 @@
         </select>
       </div>
 
+      {# ── Sub-Coverages ── #}
+      <div class="sm:col-span-2 lg:col-span-3 mt-2" id="sub-coverages-section">
+        <label class="field-label">Sub-Coverages</label>
+        <div class="flex flex-wrap items-center gap-2 mt-1" id="sub-coverage-pills">
+          {% for sc in sub_coverages %}
+          <span class="inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm bg-blue-50 text-blue-700 border border-blue-200"
+                data-sub-id="{{ sc.id }}">
+            {{ sc.coverage_type }}
+            <button type="button" class="ml-1 text-blue-400 hover:text-red-500 no-print"
+                    onclick="removeSubCoverage('{{ policy.policy_uid }}', {{ sc.id }}, this.parentElement)"
+                    title="Remove">&times;</button>
+          </span>
+          {% endfor %}
+          <div class="relative no-print" id="add-sub-coverage-wrapper">
+            <input type="text" id="add-sub-coverage-input"
+                   class="border border-dashed border-gray-300 rounded-full px-3 py-1 text-sm w-48
+                          focus:border-marsh focus:ring-1 focus:ring-marsh focus:outline-none"
+                   placeholder="+ Add sub-coverage..."
+                   autocomplete="off"
+                   data-policy-uid="{{ policy.policy_uid }}"
+                   data-options='{{ policy_types | tojson }}' />
+            <div id="sub-coverage-dropdown"
+                 class="hidden absolute z-50 mt-1 w-64 max-h-48 overflow-y-auto bg-white border border-gray-200 rounded-lg shadow-lg">
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div>
         <label class="field-label">Carrier {% if not policy.is_opportunity %}<span class="text-red-400">*</span>{% endif %}</label>
         <input type="text" data-field="carrier" value="{{ policy.carrier or '' }}" class="form-input w-full"
@@ -813,6 +841,75 @@
     if (layerSel) layerSel.addEventListener('change', update);
     update();
   })();
+})();
+</script>
+
+<script>
+(function() {
+  var input = document.getElementById('add-sub-coverage-input');
+  var dropdown = document.getElementById('sub-coverage-dropdown');
+  if (!input || !dropdown) return;
+
+  var allTypes = JSON.parse(input.dataset.options || '[]');
+  var policyUid = input.dataset.policyUid;
+
+  function getExisting() {
+    return Array.from(document.querySelectorAll('#sub-coverage-pills [data-sub-id]'))
+      .map(function(el) { return el.textContent.trim().replace(/\u00d7$/, '').trim(); });
+  }
+
+  function renderDropdown(filter) {
+    var existing = getExisting();
+    var filtered = allTypes.filter(function(t) {
+      return !existing.includes(t) && t.toLowerCase().includes(filter.toLowerCase());
+    });
+    dropdown.innerHTML = filtered.map(function(t) {
+      return '<div class="px-3 py-2 hover:bg-blue-50 cursor-pointer text-sm" onclick="selectSubCoverage(this)"'
+        + ' data-value="' + t.replace(/"/g, '&quot;') + '">' + t + '</div>';
+    }).join('');
+    dropdown.classList.toggle('hidden', filtered.length === 0);
+  }
+
+  input.addEventListener('focus', function() { renderDropdown(input.value); });
+  input.addEventListener('input', function() { renderDropdown(input.value); });
+  input.addEventListener('blur', function() { setTimeout(function() { dropdown.classList.add('hidden'); }, 200); });
+
+  window.selectSubCoverage = function(el) {
+    var coverageType = el.dataset.value;
+    dropdown.classList.add('hidden');
+    input.value = '';
+    fetch('/policies/' + policyUid + '/sub-coverages', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({coverage_type: coverageType}),
+    }).then(function(resp) { return resp.json(); }).then(function(data) {
+      if (data.ok) { rebuildPills(data.sub_coverages); }
+    });
+  };
+
+  window.removeSubCoverage = function(uid, subId, pillEl) {
+    fetch('/policies/' + uid + '/sub-coverages/' + subId, {
+      method: 'DELETE',
+    }).then(function(resp) { return resp.json(); }).then(function(data) {
+      if (data.ok) { rebuildPills(data.sub_coverages); }
+    });
+  };
+
+  function rebuildPills(subs) {
+    var container = document.getElementById('sub-coverage-pills');
+    var wrapper = document.getElementById('add-sub-coverage-wrapper');
+    container.querySelectorAll('[data-sub-id]').forEach(function(el) { el.remove(); });
+    subs.forEach(function(sc) {
+      var pill = document.createElement('span');
+      pill.className = 'inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm bg-blue-50 text-blue-700 border border-blue-200';
+      pill.dataset.subId = sc.id;
+      pill.innerHTML = sc.coverage_type
+        + ' <button type="button" class="ml-1 text-blue-400 hover:text-red-500 no-print"'
+        + ' onclick="removeSubCoverage(\'' + policyUid + '\', ' + sc.id + ', this.parentElement)"'
+        + ' title="Remove">&times;</button>';
+      container.insertBefore(pill, wrapper);
+    });
+  }
 })();
 </script>
 

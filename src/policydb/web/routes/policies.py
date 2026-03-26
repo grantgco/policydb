@@ -1529,6 +1529,7 @@ def _ai_import_parse_inner(request: Request, conn, uid: str, result: dict):
         "opportunity_statuses": cfg.get("opportunity_statuses"),
         "tower_layers": _tower_layers,
         "cycle_labels": _RCL,
+        "sub_coverages": _get_sub_coverages(conn, merged["id"]),
         "program_linked_policies": [dict(r) for r in conn.execute(
             """SELECT policy_uid, policy_type, carrier, premium, effective_date, expiration_date
                FROM policies WHERE program_id = ? AND archived = 0 ORDER BY policy_type""",
@@ -2120,6 +2121,7 @@ def policy_tab_details(request: Request, policy_uid: str, conn=Depends(get_db)):
             _tower_layers.append(dict(tr) | {"ground_up": ground_up, "is_current": tr["policy_uid"] == uid})
 
     _exp_ctx = _exposure_card_context(conn, policy_dict)
+    sub_coverages = _get_sub_coverages(conn, policy_dict["id"])
 
     return templates.TemplateResponse("policies/_tab_details.html", {
         "request": request,
@@ -2132,6 +2134,7 @@ def policy_tab_details(request: Request, policy_uid: str, conn=Depends(get_db)):
         "opportunity_statuses": cfg.get("opportunity_statuses"),
         "tower_layers": _tower_layers,
         "cycle_labels": _RCL,
+        "sub_coverages": sub_coverages,
         **_exp_ctx,
         "program_linked_policies": [dict(r) for r in conn.execute(
             """SELECT policy_uid, policy_type, carrier, premium, effective_date, expiration_date
