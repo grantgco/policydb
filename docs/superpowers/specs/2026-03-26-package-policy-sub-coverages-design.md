@@ -14,7 +14,7 @@ PolicyDB models each policy as a single row with one `policy_type`. This breaks 
 
 These decisions were validated during brainstorming:
 
-1. **Sub-coverages are tags, not financial entities.** Premium, limits, and deductible stay at the parent policy level. Sub-coverages carry no per-line financials.
+1. **Sub-coverages carry their own limits and deductibles** but premium stays at the parent policy level (package premium is lumped together). Each sub-coverage has `limit_amount`, `deductible`, `coverage_form`, and `notes` fields. These financials carry into the schematic tower layers and schedule ghost rows.
 2. **Junction table approach** over JSON column or child rows. Follows the existing `program_carriers` pattern. Extensible if per-sub-line data is ever needed.
 3. **Any policy can have sub-coverages.** Not limited to a special "Package" type. WC gets EL. BOP gets GL + Property. A standalone GL has zero sub-coverage rows.
 4. **Manual entry is the primary flow.** Sub-coverages are selected from the existing `policy_types` config list on the policy edit page. The reconciler and importer don't auto-create sub-coverages.
@@ -31,10 +31,15 @@ These decisions were validated during brainstorming:
 
 ```sql
 CREATE TABLE IF NOT EXISTS policy_sub_coverages (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    policy_id INTEGER NOT NULL REFERENCES policies(id) ON DELETE CASCADE,
-    coverage_type TEXT NOT NULL,
-    sort_order INTEGER DEFAULT 0,
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    policy_id       INTEGER NOT NULL REFERENCES policies(id) ON DELETE CASCADE,
+    coverage_type   TEXT    NOT NULL,
+    sort_order      INTEGER DEFAULT 0,
+    limit_amount    REAL,
+    deductible      REAL,
+    coverage_form   TEXT DEFAULT '',
+    notes           TEXT DEFAULT '',
+    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(policy_id, coverage_type)
 );
 CREATE INDEX idx_sub_cov_policy ON policy_sub_coverages(policy_id);
@@ -43,6 +48,8 @@ CREATE INDEX idx_sub_cov_type ON policy_sub_coverages(coverage_type);
 
 - `coverage_type` values come from the `policy_types` config list.
 - `sort_order` controls display order within a policy's sub-coverage list.
+- `limit_amount` and `deductible` are per-sub-coverage financials (premium stays at parent level).
+- `notes` is a freeform text field for any additional context.
 - `UNIQUE(policy_id, coverage_type)` prevents duplicate sub-coverages on the same policy.
 
 ### Config Changes
@@ -81,18 +88,23 @@ In `utils.py` `_COVERAGE_ALIASES`, change BOP-related entries:
 
 A new **"Sub-Coverages"** section appears below the policy type field on the policy detail/edit page:
 
-- **Pill/tag input pattern** — consistent with existing UI standards (e.g., markets, coverages).
-- Each sub-coverage renders as a pill with an × to remove.
-- Combobox to add new sub-coverages, filtered from the `policy_types` config list.
+- **Row-based layout** — each sub-coverage is a card-style row with:
+  - Coverage type label (blue pill style)
+  - Inline editable Limit field
+  - Inline editable Deductible field
+  - Notes field (subtle underline input)
+  - × remove button
+- Combobox input below to add new sub-coverages, filtered from the `policy_types` config list.
 - Auto-generated sub-coverages (e.g., EL on WC) appear pre-populated but are removable.
-- Save on change via PATCH to a new endpoint — per-field pattern, no Save button.
+- Save on blur via PATCH — per-field pattern, no Save button. Green flash on save.
 
 ### API Endpoints
 
 ```
-GET  /policies/{uid}/sub-coverages          → list sub-coverages for a policy
-POST /policies/{uid}/sub-coverages          → add a sub-coverage (body: {coverage_type})
-DELETE /policies/{uid}/sub-coverages/{id}   → remove a sub-coverage
+GET    /policies/{uid}/sub-coverages          → list sub-coverages for a policy
+POST   /policies/{uid}/sub-coverages          → add a sub-coverage (body: {coverage_type})
+PATCH  /policies/{uid}/sub-coverages/{id}     → update financials (limit_amount, deductible, notes, coverage_form)
+DELETE /policies/{uid}/sub-coverages/{id}     → remove a sub-coverage
 ```
 
 Auto-generation fires on policy creation: when `policy_type` matches an `auto_sub_coverages` key, the mapped sub-coverages are inserted.
@@ -198,9 +210,23 @@ No automatic sub-coverage creation on import. The user tags sub-coverages manual
 
 ---
 
+## LLM Bulk Import
+
+The `POLICY_BULK_IMPORT_SCHEMA` in `llm_schemas.py` includes a `sub_coverages` nested group:
+
+- **Fields:** `coverage_type` (required), `limit_amount`, `deductible`, `notes`
+- **When to use:** LLM detects a package/bundled policy (BOP, WC/EL) and extracts sub-lines
+- **Processing:** `clients.py` bulk import endpoint inserts sub-coverages after creating the policy
+
+---
+
 ## Migration
 
 **Migration 090:** Creates `policy_sub_coverages` table with indexes and unique constraint.
+
+**Migration 091:** Adds `limit_amount`, `deductible`, `coverage_form` columns.
+
+**Migration 092:** Adds `notes` column.
 
 **Config defaults update:** Add "Business Owners Policy" and "Employers Liability" to `policy_types`. Add `auto_sub_coverages` with the WC → EL mapping.
 
