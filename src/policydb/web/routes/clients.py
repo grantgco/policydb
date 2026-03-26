@@ -4879,7 +4879,7 @@ def client_ai_bulk_import_prompt(request: Request, client_id: int, conn=Depends(
     json_template = generate_json_template(POLICY_BULK_IMPORT_SCHEMA)
 
     context_display = {"Client": client["name"]}
-    if client.get("industry_segment"):
+    if client["industry_segment"]:
         context_display["Industry"] = client["industry_segment"]
     pol_count = conn.execute(
         "SELECT COUNT(*) as c FROM policies WHERE client_id = ? AND archived = 0", (client_id,)
@@ -5234,7 +5234,7 @@ def client_ai_contact_import_prompt(
     json_template = json.dumps([example], indent=2)
 
     context_display = {"Client": client["name"]}
-    if client.get("industry_segment"):
+    if client["industry_segment"]:
         context_display["Industry"] = client["industry_segment"]
 
     return templates.TemplateResponse("_ai_import_panel.html", {
