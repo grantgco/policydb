@@ -1,0 +1,339 @@
+{# ── Claims Frequency vs. Severity — chart display + editor panel ──────────
+   Dual-axis mixed chart: bar (claim count) + line (avg claim cost).
+   Expects: Chart.js loaded, ManualChart namespace available.
+#}
+
+<!-- ═══ Chart Display ═══════════════════════════════════════════════════════ -->
+<div class="manual-chart-page">
+  <div class="manual-chart-wrap" style="display:flex;flex-direction:column;">
+
+    <!-- Header -->
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:1.25rem;gap:1rem;flex-wrap:wrap;">
+      <div>
+        <h2 id="chart-title-display" style="font-family:'Noto Serif',serif;font-size:1.6rem;color:#000F47;line-height:1.2;margin:0 0 0.3rem;">
+          Claims Frequency vs. Severity
+        </h2>
+        <p id="chart-subtitle-display" style="font-size:0.82rem;color:#7B7974;font-weight:400;letter-spacing:0.03em;margin:0;">
+          Placeholder values &mdash; update below
+        </p>
+      </div>
+    </div>
+
+    <!-- Legend -->
+    <div class="mc-legend" id="chart-legend">
+      <div class="mc-legend-item">
+        <div class="mc-legend-swatch" style="background:#000F47;height:10px;border-radius:2px;"></div> Claim Count
+      </div>
+      <div class="mc-legend-item">
+        <div class="mc-legend-swatch" style="background:#CB7E03;height:3px;"></div> Avg Claim Cost
+      </div>
+    </div>
+
+    <!-- Axis labels -->
+    <div class="axis-labels" id="chart-axis-labels">
+      <span class="axis-label" style="background:rgba(0,15,71,0.1);color:#000F47;">&larr; Claim Count</span>
+      <span class="axis-label" style="background:rgba(203,126,3,0.1);color:#CB7E03;">Avg Claim Cost &rarr;</span>
+    </div>
+
+    <!-- Canvas -->
+    <div style="position:relative;flex:1;min-height:0;">
+      <canvas id="fsChart"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ Editor Panel ════════════════════════════════════════════════════════ -->
+<div class="mc-editor" id="editor-panel">
+  <div class="mc-editor-title">Configure &amp; Edit Values</div>
+
+  <div class="display-options">
+    <span class="section-label">Display</span>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-title" name="show-title" checked onchange="applyDisplayOptions()">
+      <span class="toggle-track"></span><span class="toggle-label">Title</span>
+    </label>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-subtitle" name="show-subtitle" checked onchange="applyDisplayOptions()">
+      <span class="toggle-track"></span><span class="toggle-label">Subtitle</span>
+    </label>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-legend" name="show-legend" checked onchange="applyDisplayOptions()">
+      <span class="toggle-track"></span><span class="toggle-label">Legend</span>
+    </label>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-axis-labels" name="show-axis-labels" checked onchange="applyDisplayOptions()">
+      <span class="toggle-track"></span><span class="toggle-label">Axis Labels</span>
+    </label>
+  </div>
+
+  <!-- Config strip -->
+  <div class="config-strip">
+    <div class="config-field">
+      <div class="config-label">Start Year</div>
+      <input type="number" id="cfg-start" name="cfg-start" value="2019" min="1990" max="2099" step="1">
+    </div>
+    <div class="config-field">
+      <div class="config-label">Number of Years</div>
+      <select id="cfg-num" name="cfg-num">
+        <option value="3">3</option>
+        <option value="4">4</option>
+        <option value="5" selected>5</option>
+        <option value="6">6</option>
+        <option value="7">7</option>
+        <option value="8">8</option>
+      </select>
+    </div>
+    <button class="btn-mc" onclick="applyConfig()">Apply</button>
+  </div>
+
+  <!-- Claims Data -->
+  <div style="margin-bottom:1.1rem;">
+    <div class="section-head midnight">Claims Data</div>
+    <div class="mc-editor-grid" id="claims-inputs"></div>
+  </div>
+
+  <!-- Footer -->
+  <div class="mc-editor-footer">
+    <input type="text" id="val-subtitle" name="val-subtitle"
+           placeholder="Client name / subtitle"
+           value="Placeholder values — update below"
+           style="flex:1;min-width:200px;border:1px solid var(--mc-border);border-radius:3px;padding:0.4rem 0.6rem;font-family:'Noto Sans',sans-serif;font-size:0.83rem;color:var(--mc-text);background:var(--mc-bg);">
+    <button class="btn-mc" onclick="refreshCurrentChart()">Refresh Chart</button>
+  </div>
+</div>
+
+<!-- ═══ Script ══════════════════════════════════════════════════════════════ -->
+<script>
+(function () {
+  // ── State ────────────────────────────────────────────────────────────────
+  var chart = null;
+  var years = [];
+
+  // Seed data
+  var seedCounts   = { '2019': 24, '2020': 31, '2021': 18, '2022': 27, '2023': 22 };
+  var seedIncurred = { '2019': 480000, '2020': 620000, '2021': 360000, '2022': 540000, '2023': 440000 };
+
+  // ── Formatters ──────────────────────────────────────────────────────────
+  var fmtUSD = ManualChart.fmtCurrency;
+
+  function fmtCurrencyFull(n) {
+    if (n == null || isNaN(n)) return '$0';
+    return '$' + Math.round(n).toLocaleString('en-US');
+  }
+
+  // ── applyConfig ─────────────────────────────────────────────────────────
+  window.applyConfig = function () {
+    var start = parseInt(document.getElementById('cfg-start').value);
+    var num   = parseInt(document.getElementById('cfg-num').value);
+    years = [];
+    for (var i = 0; i < num; i++) years.push(String(start + i));
+
+    rebuildInputs();
+    refreshCurrentChart();
+  };
+
+  // ── Rebuild input grids ─────────────────────────────────────────────────
+  function rebuildInputs() {
+    var grid = document.getElementById('claims-inputs');
+
+    // Snapshot current values before clearing
+    var prevCounts = {}, prevIncurred = {};
+    years.forEach(function (y) {
+      var ci = document.getElementById('cc-' + y);
+      var ti = document.getElementById('ti-' + y);
+      if (ci) prevCounts[y]   = ci.value;
+      if (ti) prevIncurred[y] = ti.value;
+    });
+
+    grid.innerHTML = '';
+
+    years.forEach(function (y) {
+      var countVal    = prevCounts[y]   || seedCounts[y]   || '0';
+      var incurredVal = prevIncurred[y] || seedIncurred[y] || '0';
+
+      // Calculate avg for display
+      var cc = parseInt(countVal) || 0;
+      var ti = parseFloat(incurredVal) || 0;
+      var avg = cc > 0 ? Math.round(ti / cc) : 0;
+
+      var col = document.createElement('div');
+      col.className = 'input-group';
+      col.innerHTML =
+        '<label>' + y + '</label>' +
+        '<input type="number" id="cc-' + y + '" name="cc-' + y + '" value="' + countVal + '" step="1" placeholder="Claim Count" style="margin-bottom:0.3rem;">' +
+        '<input type="number" id="ti-' + y + '" name="ti-' + y + '" value="' + incurredVal + '" step="1000" placeholder="Total Incurred ($)">' +
+        '<div class="text-xs text-gray-400 mt-0.5" style="font-size:0.7rem;color:#7B7974;margin-top:0.2rem;">Avg: <span class="avg-display" id="avg-' + y + '">' + fmtCurrencyFull(avg) + '</span></div>';
+      grid.appendChild(col);
+
+      // Live update avg on input change
+      (function (yr) {
+        var ccInput = document.getElementById('cc-' + yr);
+        var tiInput = document.getElementById('ti-' + yr);
+        var avgSpan = document.getElementById('avg-' + yr);
+        function updateAvg() {
+          var c = parseInt(ccInput.value) || 0;
+          var t = parseFloat(tiInput.value) || 0;
+          var a = c > 0 ? Math.round(t / c) : 0;
+          avgSpan.textContent = fmtCurrencyFull(a);
+        }
+        ccInput.addEventListener('input', updateAvg);
+        tiInput.addEventListener('input', updateAvg);
+      })(y);
+    });
+  }
+
+  // ── Read values ─────────────────────────────────────────────────────────
+  function readValues() {
+    var counts   = [];
+    var incurred = [];
+    var avgCosts = [];
+    years.forEach(function (y) {
+      var cc = parseInt((document.getElementById('cc-' + y) || {}).value) || 0;
+      var ti = parseFloat((document.getElementById('ti-' + y) || {}).value) || 0;
+      var avg = cc > 0 ? Math.round(ti / cc) : 0;
+      counts.push(cc);
+      incurred.push(ti);
+      avgCosts.push(avg);
+    });
+    return { counts: counts, incurred: incurred, avgCosts: avgCosts };
+  }
+
+  // ── Display options ─────────────────────────────────────────────────────
+  window.applyDisplayOptions = function () {
+    ManualChart.applyToggle('show-title', 'chart-title-display');
+    ManualChart.applyToggle('show-subtitle', 'chart-subtitle-display');
+    ManualChart.applyToggle('show-legend', 'chart-legend');
+    ManualChart.applyToggle('show-axis-labels', 'chart-axis-labels');
+  };
+
+  // ── Main render ─────────────────────────────────────────────────────────
+  window.refreshCurrentChart = function () {
+    var v        = readValues();
+    var subtitle = document.getElementById('val-subtitle').value;
+
+    document.getElementById('chart-subtitle-display').textContent = subtitle || '';
+
+    var ctx = document.getElementById('fsChart').getContext('2d');
+    if (chart) chart.destroy();
+
+    chart = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: years,
+        datasets: [
+          {
+            label: 'Claim Count',
+            type: 'bar',
+            data: v.counts,
+            backgroundColor: '#000F47',
+            borderColor: '#000F47',
+            borderWidth: 0,
+            borderRadius: 4,
+            barPercentage: 0.55,
+            categoryPercentage: 0.7,
+            yAxisID: 'yCounts',
+            order: 2
+          },
+          {
+            label: 'Avg Claim Cost',
+            type: 'line',
+            data: v.avgCosts,
+            borderColor: '#CB7E03',
+            borderWidth: 2.5,
+            pointBackgroundColor: '#CB7E03',
+            pointBorderColor: '#ffffff',
+            pointBorderWidth: 2,
+            pointRadius: 5,
+            pointHoverRadius: 7,
+            tension: 0.3,
+            fill: false,
+            yAxisID: 'yCost',
+            order: 1
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: '#000F47',
+            titleFont: { family: 'Noto Sans', size: 12, weight: '600' },
+            bodyFont:  { family: 'Noto Sans', size: 12 },
+            padding: 12,
+            cornerRadius: 4,
+            callbacks: {
+              label: function (c) {
+                var idx = c.dataIndex;
+                if (c.dataset.label === 'Claim Count') {
+                  return [
+                    ' Claims: ' + v.counts[idx],
+                    ' Total Incurred: ' + fmtCurrencyFull(v.incurred[idx]),
+                    ' Avg Cost: ' + fmtCurrencyFull(v.avgCosts[idx])
+                  ];
+                }
+                // Hide the line dataset tooltip (already shown above)
+                return null;
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            grid: { display: false },
+            border: { display: false },
+            ticks: {
+              font: { family: 'Noto Sans', size: 13, weight: '500' },
+              color: '#4a5060'
+            }
+          },
+          yCounts: {
+            type: 'linear',
+            position: 'left',
+            beginAtZero: true,
+            grid: { color: '#e8e6de', lineWidth: 1 },
+            border: { display: false },
+            title: {
+              display: true,
+              text: 'Claim Count',
+              font: { family: 'Noto Sans', size: 11, weight: '600' },
+              color: '#000F47'
+            },
+            ticks: {
+              font: { family: 'Noto Sans', size: 11 },
+              color: '#000F47',
+              precision: 0
+            }
+          },
+          yCost: {
+            type: 'linear',
+            position: 'right',
+            beginAtZero: true,
+            grid: { display: false },
+            border: { display: false },
+            title: {
+              display: true,
+              text: 'Avg Claim Cost',
+              font: { family: 'Noto Sans', size: 11, weight: '600' },
+              color: '#CB7E03'
+            },
+            ticks: {
+              font: { family: 'Noto Sans', size: 11 },
+              color: '#CB7E03',
+              callback: function (v) { return fmtUSD(v); }
+            }
+          }
+        }
+      }
+    });
+
+    // Expose to editor.html for export
+    currentChart = chart;
+  };
+
+  // ── Bootstrap ─────────────────────────────────────────────────────────
+  setTimeout(() => applyConfig(), 50);
+})();
+</script>

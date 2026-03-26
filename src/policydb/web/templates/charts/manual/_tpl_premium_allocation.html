@@ -1,0 +1,314 @@
+{# Premium Allocation Doughnut Chart — display + editor partial #}
+
+<!-- ── Chart Display ─────────────────────────────────────────────────────── -->
+<div class="manual-chart-page">
+  <div class="manual-chart-wrap">
+    <h2 id="chart-title-display" style="font-family: 'Noto Serif', serif; font-size: 1.35rem; color: #000F47; margin: 0 0 0.25rem;">
+      Premium Allocation by Coverage Line
+    </h2>
+    <p id="chart-subtitle-display" style="font-family: 'Noto Sans', sans-serif; font-size: 0.82rem; color: #7B7974; margin: 0 0 1rem;">
+      Current policy year
+    </p>
+    <div style="position:relative;flex:1;min-height:0;">
+      <canvas id="doughnut-canvas"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- ── Editor Panel ──────────────────────────────────────────────────────── -->
+<div class="mc-editor no-print" id="editor-panel">
+  <div class="mc-editor-title">Chart Settings</div>
+
+  <div class="display-options">
+    <span class="section-label">Display</span>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-title" name="show-title" checked onchange="applyDisplayOptions()">
+      <span class="toggle-track"></span><span class="toggle-label">Title</span>
+    </label>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-subtitle" name="show-subtitle" checked onchange="applyDisplayOptions()">
+      <span class="toggle-track"></span><span class="toggle-label">Subtitle</span>
+    </label>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-center-text" name="show-center-text" checked onchange="refreshCurrentChart()">
+      <span class="toggle-track"></span><span class="toggle-label">Center Total</span>
+    </label>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-legend" name="show-legend" checked onchange="refreshCurrentChart()">
+      <span class="toggle-track"></span><span class="toggle-label">Legend</span>
+    </label>
+  </div>
+
+  <!-- Config strip: title + apply -->
+  <div class="config-strip">
+    <div class="config-field wide">
+      <span class="config-label">Chart Title</span>
+      <input type="text" id="chart-title" name="chart-title"
+             value="Premium Allocation by Coverage Line"
+             style="width: 280px;">
+    </div>
+    <button class="btn-mc sm" onclick="refreshCurrentChart()">Apply</button>
+  </div>
+
+  <!-- Categories section -->
+  <div class="section-head midnight" style="margin-top: 1.25rem;">Categories</div>
+  <div id="categories-grid">
+    <!-- Default 6 rows -->
+    <div class="input-row">
+      <div class="color-swatch" style="width:20px;height:20px;border-radius:3px;background:#000F47;flex-shrink:0;"></div>
+      <div class="input-group" style="flex:1;">
+        <label>Label</label>
+        <input type="text" name="cat-label" value="Property">
+      </div>
+      <div class="input-group" style="width:120px;">
+        <label>Amount ($)</label>
+        <input type="number" name="cat-amount" value="500000">
+      </div>
+      <button class="btn-mc danger sm" onclick="removeCategory(this)" style="margin-bottom:1px;">&times;</button>
+    </div>
+
+    <div class="input-row">
+      <div class="color-swatch" style="width:20px;height:20px;border-radius:3px;background:#2F7500;flex-shrink:0;"></div>
+      <div class="input-group" style="flex:1;">
+        <label>Label</label>
+        <input type="text" name="cat-label" value="GL">
+      </div>
+      <div class="input-group" style="width:120px;">
+        <label>Amount ($)</label>
+        <input type="number" name="cat-amount" value="350000">
+      </div>
+      <button class="btn-mc danger sm" onclick="removeCategory(this)" style="margin-bottom:1px;">&times;</button>
+    </div>
+
+    <div class="input-row">
+      <div class="color-swatch" style="width:20px;height:20px;border-radius:3px;background:#5E017F;flex-shrink:0;"></div>
+      <div class="input-group" style="flex:1;">
+        <label>Label</label>
+        <input type="text" name="cat-label" value="Auto">
+      </div>
+      <div class="input-group" style="width:120px;">
+        <label>Amount ($)</label>
+        <input type="number" name="cat-amount" value="200000">
+      </div>
+      <button class="btn-mc danger sm" onclick="removeCategory(this)" style="margin-bottom:1px;">&times;</button>
+    </div>
+
+    <div class="input-row">
+      <div class="color-swatch" style="width:20px;height:20px;border-radius:3px;background:#CB7E03;flex-shrink:0;"></div>
+      <div class="input-group" style="flex:1;">
+        <label>Label</label>
+        <input type="text" name="cat-label" value="WC">
+      </div>
+      <div class="input-group" style="width:120px;">
+        <label>Amount ($)</label>
+        <input type="number" name="cat-amount" value="175000">
+      </div>
+      <button class="btn-mc danger sm" onclick="removeCategory(this)" style="margin-bottom:1px;">&times;</button>
+    </div>
+
+    <div class="input-row">
+      <div class="color-swatch" style="width:20px;height:20px;border-radius:3px;background:#82BAFF;flex-shrink:0;"></div>
+      <div class="input-group" style="flex:1;">
+        <label>Label</label>
+        <input type="text" name="cat-label" value="Umbrella">
+      </div>
+      <div class="input-group" style="width:120px;">
+        <label>Amount ($)</label>
+        <input type="number" name="cat-amount" value="125000">
+      </div>
+      <button class="btn-mc danger sm" onclick="removeCategory(this)" style="margin-bottom:1px;">&times;</button>
+    </div>
+
+    <div class="input-row">
+      <div class="color-swatch" style="width:20px;height:20px;border-radius:3px;background:#6ABF30;flex-shrink:0;"></div>
+      <div class="input-group" style="flex:1;">
+        <label>Label</label>
+        <input type="text" name="cat-label" value="Other">
+      </div>
+      <div class="input-group" style="width:120px;">
+        <label>Amount ($)</label>
+        <input type="number" name="cat-amount" value="50000">
+      </div>
+      <button class="btn-mc danger sm" onclick="removeCategory(this)" style="margin-bottom:1px;">&times;</button>
+    </div>
+  </div>
+
+  <button class="btn-mc outline sm" style="margin-top: 0.5rem;" onclick="addCategory()">+ Add Category</button>
+
+  <!-- Footer: subtitle + refresh -->
+  <div class="mc-editor-footer">
+    <div class="config-field wide">
+      <span class="config-label">Subtitle</span>
+      <input type="text" id="chart-subtitle" name="chart-subtitle"
+             value="Current policy year" style="width: 260px;">
+    </div>
+    <button class="btn-mc" onclick="refreshCurrentChart()">Refresh Chart</button>
+  </div>
+</div>
+
+<!-- ── Script ────────────────────────────────────────────────────────────── -->
+<script>
+(function () {
+  var COLORS = ManualChart.DATA_COLORS;
+
+  // ── Center text plugin ──────────────────────────────────────────────
+  var centerTextPlugin = {
+    id: 'centerText',
+    afterDraw: function (chart) {
+      if (!ManualChart.isToggled('show-center-text')) return;
+      var ctx = chart.ctx;
+      var centerX = (chart.chartArea.left + chart.chartArea.right) / 2;
+      var centerY = (chart.chartArea.top + chart.chartArea.bottom) / 2;
+
+      // "Total Premium" label
+      ctx.save();
+      ctx.fillStyle = '#7B7974';
+      ctx.font = "500 12px 'Noto Sans'";
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText('Total Premium', centerX, centerY - 4);
+
+      // Total value
+      var total = chart.data.datasets[0].data.reduce(function (a, b) { return a + b; }, 0);
+      ctx.fillStyle = '#000F47';
+      ctx.font = "700 22px 'Noto Serif'";
+      ctx.textBaseline = 'top';
+      ctx.fillText(ManualChart.fmtCurrency(total), centerX, centerY + 4);
+      ctx.restore();
+    }
+  };
+
+  // ── Refresh / render chart ──────────────────────────────────────────
+  window.refreshCurrentChart = function () {
+    // Update title and subtitle displays
+    var titleVal = document.getElementById('chart-title').value || 'Premium Allocation';
+    var subtitleVal = document.getElementById('chart-subtitle').value || '';
+    document.getElementById('chart-title-display').textContent = titleVal;
+    document.getElementById('chart-subtitle-display').textContent = subtitleVal;
+
+    // Read category rows
+    var grid = document.getElementById('categories-grid');
+    var rows = grid.querySelectorAll('.input-row');
+    var labels = [];
+    var amounts = [];
+    var colors = [];
+
+    rows.forEach(function (row, i) {
+      var labelInput = row.querySelector('input[name="cat-label"]');
+      var amountInput = row.querySelector('input[name="cat-amount"]');
+      var lbl = labelInput ? labelInput.value.trim() : ('Category ' + (i + 1));
+      var amt = amountInput ? (parseFloat(amountInput.value) || 0) : 0;
+      labels.push(lbl);
+      amounts.push(amt);
+      colors.push(COLORS[i % COLORS.length]);
+    });
+
+    // Destroy existing chart
+    if (currentChart) {
+      currentChart.destroy();
+      currentChart = null;
+    }
+
+    var canvas = document.getElementById('doughnut-canvas');
+    var ctx = canvas.getContext('2d');
+
+    currentChart = new Chart(ctx, {
+      type: 'doughnut',
+      data: {
+        labels: labels,
+        datasets: [{
+          data: amounts,
+          backgroundColor: colors,
+          borderWidth: 1,
+          borderColor: '#ffffff'
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        cutout: '60%',
+        animation: false,
+        plugins: {
+          legend: {
+            display: ManualChart.isToggled('show-legend'),
+            position: 'right',
+            labels: {
+              font: {
+                family: "'Noto Sans', sans-serif",
+                size: 12,
+                weight: '500'
+              },
+              color: '#3D3C37',
+              padding: 14,
+              usePointStyle: true,
+              pointStyleWidth: 12
+            }
+          },
+          tooltip: {
+            callbacks: {
+              label: function (tooltipItem) {
+                var val = tooltipItem.raw || 0;
+                var total = tooltipItem.dataset.data.reduce(function (a, b) { return a + b; }, 0);
+                var pct = total > 0 ? ((val / total) * 100).toFixed(1) : '0.0';
+                return tooltipItem.label + ': ' + ManualChart.fmtCurrency(val) + ' (' + pct + '%)';
+              }
+            }
+          }
+        }
+      },
+      plugins: [centerTextPlugin]
+    });
+  };
+
+  // ── Display options ────────────────────────────────────────────────
+  window.applyDisplayOptions = function () {
+    ManualChart.applyToggle('show-title', 'chart-title-display');
+    ManualChart.applyToggle('show-subtitle', 'chart-subtitle-display');
+  };
+
+  // ── Add category row ────────────────────────────────────────────────
+  window.addCategory = function () {
+    var grid = document.getElementById('categories-grid');
+    var idx = grid.querySelectorAll('.input-row').length;
+    var color = COLORS[idx % COLORS.length];
+
+    var html =
+      '<div class="input-row">' +
+        '<div class="color-swatch" style="width:20px;height:20px;border-radius:3px;background:' + color + ';flex-shrink:0;"></div>' +
+        '<div class="input-group" style="flex:1;">' +
+          '<label>Label</label>' +
+          '<input type="text" name="cat-label" value="">' +
+        '</div>' +
+        '<div class="input-group" style="width:120px;">' +
+          '<label>Amount ($)</label>' +
+          '<input type="number" name="cat-amount" value="0">' +
+        '</div>' +
+        '<button class="btn-mc danger sm" onclick="removeCategory(this)" style="margin-bottom:1px;">&times;</button>' +
+      '</div>';
+
+    grid.insertAdjacentHTML('beforeend', html);
+    updateSwatchColors();
+  };
+
+  // ── Remove category row ─────────────────────────────────────────────
+  window.removeCategory = function (btn) {
+    var row = btn.closest('.input-row');
+    if (row) row.remove();
+    updateSwatchColors();
+    refreshCurrentChart();
+  };
+
+  // ── Re-index swatch colors after add/remove ─────────────────────────
+  function updateSwatchColors() {
+    var grid = document.getElementById('categories-grid');
+    var rows = grid.querySelectorAll('.input-row');
+    rows.forEach(function (row, i) {
+      var swatch = row.querySelector('.color-swatch');
+      if (swatch) swatch.style.background = COLORS[i % COLORS.length];
+    });
+  }
+
+  // ── Bootstrap chart on load ─────────────────────────────────────────
+  setTimeout(() => refreshCurrentChart(), 50);
+})();
+</script>

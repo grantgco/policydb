@@ -1,0 +1,389 @@
+<!-- ── Loss History Chart: Display + Editor ──────────────────────────────── -->
+
+<!-- 1. Chart Display -->
+<div class="manual-chart-page">
+  <div class="manual-chart-wrap">
+    <div id="chart-title-display" style="font-family: 'Noto Serif', serif; font-size: 1.35rem; font-weight: 700; color: var(--mc-midnight); margin-bottom: 0.15rem;">
+      Loss History
+    </div>
+    <div id="chart-subtitle-display" style="font-family: 'Noto Sans', sans-serif; font-size: 0.82rem; color: var(--mc-muted); margin-bottom: 1rem;"></div>
+
+    <!-- Legend -->
+    <div class="mc-legend" id="legend-display">
+      <div class="mc-legend-item">
+        <span class="mc-legend-swatch" style="background: #82BAFF; height: 10px; border-radius: 2px;"></span>
+        Incurred Losses
+      </div>
+      <div class="mc-legend-item">
+        <span class="mc-legend-swatch" style="background: #c8102e; height: 2px;"></span>
+        Loss Ratio
+      </div>
+      <div class="mc-legend-item" id="legend-threshold" style="display: none;">
+        <span class="mc-legend-swatch" style="background: #7B7974; border-top: 2px dashed #7B7974; height: 0;"></span>
+        Large Loss Threshold
+      </div>
+    </div>
+
+    <div style="position:relative;flex:1;min-height:0;">
+      <canvas id="lossChart"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- 2. Editor Panel -->
+<div class="mc-editor" id="editor-panel">
+  <div class="mc-editor-title">Chart Editor</div>
+
+  <!-- Display Options -->
+  <div class="display-options">
+    <span class="section-label">Display</span>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-title" name="show-title" checked onchange="applyDisplayOptions()">
+      <span class="toggle-track"></span><span class="toggle-label">Title</span>
+    </label>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-subtitle" name="show-subtitle" checked onchange="applyDisplayOptions()">
+      <span class="toggle-track"></span><span class="toggle-label">Subtitle</span>
+    </label>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-legend" name="show-legend" checked onchange="applyDisplayOptions()">
+      <span class="toggle-track"></span><span class="toggle-label">Legend</span>
+    </label>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-threshold" name="show-threshold" checked onchange="refreshCurrentChart()">
+      <span class="toggle-track"></span><span class="toggle-label">Threshold Line</span>
+    </label>
+  </div>
+
+  <!-- Config strip -->
+  <div class="config-strip">
+    <div class="config-field">
+      <span class="config-label">Start Year</span>
+      <input type="number" id="cfg-start-year" name="cfg-start-year" value="2020" min="1990" max="2099" step="1">
+    </div>
+    <div class="config-field">
+      <span class="config-label">Number of Years</span>
+      <select id="cfg-num-years" name="cfg-num-years">
+        <option value="3">3</option>
+        <option value="4">4</option>
+        <option value="5" selected>5</option>
+        <option value="6">6</option>
+        <option value="7">7</option>
+        <option value="8">8</option>
+      </select>
+    </div>
+    <div class="config-field wide">
+      <span class="config-label">Large Loss Threshold ($)</span>
+      <input type="number" id="cfg-threshold" name="cfg-threshold" placeholder="Optional" min="0" step="1000">
+    </div>
+    <button class="btn-mc sm" onclick="applyConfig()">Apply</button>
+  </div>
+
+  <!-- Per-Year Values -->
+  <div class="section-head midnight">Per-Year Values</div>
+  <div id="year-inputs"></div>
+
+  <!-- Footer -->
+  <div class="mc-editor-footer">
+    <div class="config-field" style="flex: 1;">
+      <span class="config-label">Subtitle</span>
+      <input type="text" id="cfg-subtitle" name="cfg-subtitle" placeholder="e.g. 5-Year Loss Development" style="width: 100%;">
+    </div>
+    <button class="btn-mc" onclick="refreshCurrentChart()">Refresh Chart</button>
+  </div>
+</div>
+
+<!-- 3. Script -->
+<script>
+(function () {
+  const SEED_INCURRED = [450000, 380000, 520000, 410000, 490000];
+  const SEED_EARNED   = [1200000, 1250000, 1300000, 1350000, 1400000];
+
+  // ── Build year input grids ──────────────────────────────────────────────
+  function applyConfigInner() {
+    const startYear = parseInt(document.getElementById('cfg-start-year').value) || 2020;
+    const numYears  = parseInt(document.getElementById('cfg-num-years').value) || 5;
+    const container = document.getElementById('year-inputs');
+    container.innerHTML = '';
+
+    for (let i = 0; i < numYears; i++) {
+      const year = startYear + i;
+      const seedInc = (i < SEED_INCURRED.length) ? SEED_INCURRED[i] : '';
+      const seedEar = (i < SEED_EARNED.length) ? SEED_EARNED[i] : '';
+
+      const row = document.createElement('div');
+      row.className = 'input-row';
+      row.style.cssText = 'display:grid; grid-template-columns:80px 1fr 1fr 120px; gap:0.6rem; align-items:end; margin-bottom:0.65rem;';
+
+      // Year label
+      const yearLabel = document.createElement('div');
+      yearLabel.style.cssText = "font-family:'Noto Serif',serif; font-weight:700; font-size:0.95rem; color:var(--mc-midnight); padding-bottom:0.38rem;";
+      yearLabel.textContent = year;
+
+      // Incurred
+      const incGroup = document.createElement('div');
+      incGroup.className = 'input-group';
+      incGroup.innerHTML =
+        '<label>Incurred Losses ($)</label>' +
+        '<input type="number" name="incurred" data-year="' + year + '" value="' + seedInc + '" min="0" step="1000" oninput="updateRatioDisplay(this)">';
+
+      // Earned
+      const earGroup = document.createElement('div');
+      earGroup.className = 'input-group';
+      earGroup.innerHTML =
+        '<label>Earned Premium ($)</label>' +
+        '<input type="number" name="earned" data-year="' + year + '" value="' + seedEar + '" min="0" step="1000" oninput="updateRatioDisplay(this)">';
+
+      // Loss ratio display
+      const ratioDiv = document.createElement('div');
+      ratioDiv.className = 'input-group';
+      ratioDiv.innerHTML =
+        '<label style="color:var(--mc-red); font-weight:600;">Loss Ratio</label>' +
+        '<div class="loss-ratio-display" data-year="' + year + '" style="font-family:\'Noto Sans\',sans-serif; font-size:0.88rem; font-weight:600; color:var(--mc-red); padding:0.38rem 0;">—</div>';
+
+      row.appendChild(yearLabel);
+      row.appendChild(incGroup);
+      row.appendChild(earGroup);
+      row.appendChild(ratioDiv);
+      container.appendChild(row);
+    }
+
+    // Compute initial ratios
+    updateAllRatios();
+  }
+
+  // ── Ratio helpers ──────────────────────────────────────────────────────
+  window.updateRatioDisplay = function (inputEl) {
+    const year = inputEl.dataset.year;
+    if (!year) { updateAllRatios(); return; }
+    const row = inputEl.closest('.input-row');
+    if (!row) return;
+    const incEl = row.querySelector('input[name="incurred"]');
+    const earEl = row.querySelector('input[name="earned"]');
+    const ratioEl = row.querySelector('.loss-ratio-display');
+    if (!incEl || !earEl || !ratioEl) return;
+    const inc = parseFloat(incEl.value) || 0;
+    const ear = parseFloat(earEl.value) || 0;
+    if (ear > 0) {
+      ratioEl.textContent = (inc / ear * 100).toFixed(1) + '%';
+    } else {
+      ratioEl.textContent = '\u2014';
+    }
+  };
+
+  function updateAllRatios() {
+    document.querySelectorAll('.loss-ratio-display').forEach(function (el) {
+      const year = el.dataset.year;
+      const row = el.closest('.input-row');
+      if (!row) return;
+      const inc = parseFloat(row.querySelector('input[name="incurred"]').value) || 0;
+      const ear = parseFloat(row.querySelector('input[name="earned"]').value) || 0;
+      if (ear > 0) {
+        el.textContent = (inc / ear * 100).toFixed(1) + '%';
+      } else {
+        el.textContent = '\u2014';
+      }
+    });
+  }
+
+  // ── Threshold plugin ────────────────────────────────────────────────────
+  const thresholdPlugin = {
+    id: 'threshold',
+    afterDraw: function (chart) {
+      if (!ManualChart.isToggled('show-threshold')) return;
+      const threshold = parseFloat(document.getElementById('cfg-threshold').value) || 0;
+      if (!threshold) return;
+      const ctx = chart.ctx;
+      const yScale = chart.scales.yLoss;
+      if (!yScale) return;
+      const y = yScale.getPixelForValue(threshold);
+      ctx.save();
+      ctx.setLineDash([6, 4]);
+      ctx.strokeStyle = '#7B7974';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(chart.chartArea.left, y);
+      ctx.lineTo(chart.chartArea.right, y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = '#7B7974';
+      ctx.font = "500 11px 'Noto Sans'";
+      ctx.textAlign = 'right';
+      ctx.fillText('Threshold: ' + ManualChart.fmtCurrency(threshold), chart.chartArea.right - 8, y - 6);
+      ctx.restore();
+    }
+  };
+
+  // ── Display Options ────────────────────────────────────────────────────
+  window.applyDisplayOptions = function () {
+    ManualChart.applyToggle('show-title', 'chart-title-display');
+    ManualChart.applyToggle('show-subtitle', 'chart-subtitle-display');
+    ManualChart.applyToggle('show-legend', 'legend-display');
+  };
+
+  // ── Render chart ────────────────────────────────────────────────────────
+  window.refreshCurrentChart = function () {
+    applyDisplayOptions();
+
+    // Update subtitle
+    const subtitle = document.getElementById('cfg-subtitle').value || '';
+    document.getElementById('chart-subtitle-display').textContent = subtitle;
+
+    // Collect year data
+    const labels   = [];
+    const incurred = [];
+    const ratios   = [];
+    const incInputs = document.querySelectorAll('#year-inputs input[name="incurred"]');
+    const earInputs = document.querySelectorAll('#year-inputs input[name="earned"]');
+
+    incInputs.forEach(function (el, i) {
+      const year = el.dataset.year;
+      labels.push(year);
+      const inc = parseFloat(el.value) || 0;
+      const ear = parseFloat(earInputs[i].value) || 0;
+      incurred.push(inc);
+      ratios.push(ear > 0 ? parseFloat((inc / ear * 100).toFixed(1)) : 0);
+    });
+
+    // Toggle threshold legend
+    const thresholdVal = parseFloat(document.getElementById('cfg-threshold').value) || 0;
+    document.getElementById('legend-threshold').style.display = thresholdVal ? 'flex' : 'none';
+
+    // Destroy existing chart
+    if (currentChart) {
+      currentChart.destroy();
+      currentChart = null;
+    }
+
+    const ctx = document.getElementById('lossChart').getContext('2d');
+
+    currentChart = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: labels,
+        datasets: [
+          {
+            label: 'Incurred Losses',
+            data: incurred,
+            backgroundColor: '#82BAFF',
+            borderColor: '#82BAFF',
+            borderWidth: 0,
+            borderRadius: 4,
+            yAxisID: 'yLoss',
+            order: 2
+          },
+          {
+            label: 'Loss Ratio',
+            type: 'line',
+            data: ratios,
+            borderColor: '#c8102e',
+            backgroundColor: '#c8102e',
+            borderWidth: 2.5,
+            pointBackgroundColor: '#c8102e',
+            pointBorderColor: '#fff',
+            pointBorderWidth: 2,
+            pointRadius: 5,
+            pointHoverRadius: 7,
+            tension: 0.3,
+            fill: false,
+            yAxisID: 'yRatio',
+            order: 1
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: {
+          mode: 'index',
+          intersect: false
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: '#000F47',
+            titleFont: { family: "'Noto Sans', sans-serif", size: 13, weight: '600' },
+            bodyFont: { family: "'Noto Sans', sans-serif", size: 12 },
+            padding: 12,
+            cornerRadius: 4,
+            callbacks: {
+              label: function (context) {
+                var idx = context.dataIndex;
+                var inc = incurred[idx];
+                var ear = parseFloat(earInputs[idx].value) || 0;
+                var ratio = ratios[idx];
+                if (context.dataset.label === 'Incurred Losses') {
+                  return 'Incurred: ' + ManualChart.fmtCurrency(inc);
+                }
+                if (context.dataset.label === 'Loss Ratio') {
+                  return [
+                    'Earned: ' + ManualChart.fmtCurrency(ear),
+                    'Loss Ratio: ' + ratio.toFixed(1) + '%'
+                  ];
+                }
+                return context.formattedValue;
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            grid: { display: false },
+            ticks: {
+              font: { family: "'Noto Sans', sans-serif", size: 12, weight: '500' },
+              color: '#3D3C37'
+            }
+          },
+          yLoss: {
+            type: 'linear',
+            position: 'left',
+            beginAtZero: true,
+            title: {
+              display: true,
+              text: 'Incurred Losses',
+              font: { family: "'Noto Sans', sans-serif", size: 11, weight: '600' },
+              color: '#7B7974'
+            },
+            ticks: {
+              font: { family: "'Noto Sans', sans-serif", size: 11 },
+              color: '#7B7974',
+              callback: function (val) { return ManualChart.fmtCurrency(val); }
+            },
+            grid: {
+              color: 'rgba(0, 0, 0, 0.06)'
+            }
+          },
+          yRatio: {
+            type: 'linear',
+            position: 'right',
+            min: 0,
+            max: 100,
+            title: {
+              display: true,
+              text: 'Loss Ratio %',
+              font: { family: "'Noto Sans', sans-serif", size: 11, weight: '600' },
+              color: '#7B7974'
+            },
+            ticks: {
+              font: { family: "'Noto Sans', sans-serif", size: 11 },
+              color: '#7B7974',
+              callback: function (val) { return val + '%'; }
+            },
+            grid: { display: false }
+          }
+        }
+      },
+      plugins: [thresholdPlugin]
+    });
+  };
+
+  // ── Expose applyConfig ──────────────────────────────────────────────────
+  window.applyConfig = function () {
+    applyConfigInner();
+    refreshCurrentChart();
+  };
+
+  // ── Bootstrap ───────────────────────────────────────────────────────────
+  setTimeout(() => { applyConfigInner(); refreshCurrentChart(); }, 50);
+})();
+</script>

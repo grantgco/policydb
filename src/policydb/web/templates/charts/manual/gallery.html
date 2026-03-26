@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% set active = "manual-charts" %}
+{% set page_title = "Manual Chart Library" %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto px-4 py-6">
+  <div class="mb-6">
+    <h1 class="text-2xl font-bold text-gray-900" style="font-family: 'Noto Serif', serif;">Manual Chart Library</h1>
+    <p class="text-sm text-gray-500 mt-1">Presentation-ready, editable chart templates with Marsh brand styling</p>
+  </div>
+
+  <!-- Chart Type Grid -->
+  <div class="gallery-grid mb-8">
+    {% for c in charts %}
+    <a href="/charts/manual/{{ c.id }}" class="gallery-card block no-underline">
+      <div class="gallery-card-icon">
+        {% if c.icon == 'chart-line' %}
+        <svg width="40" height="28" viewBox="0 0 40 28" fill="none" stroke="#000F47" stroke-width="2" stroke-linecap="round"><polyline points="2,24 10,16 18,20 26,8 38,4"/></svg>
+        {% elif c.icon == 'chart-pie' %}
+        <svg width="32" height="32" viewBox="0 0 32 32" fill="none" stroke="#000F47" stroke-width="2"><circle cx="16" cy="16" r="14"/><path d="M16,2 A14,14 0 0,1 30,16 L16,16 Z" fill="#CEECFF" stroke="#000F47"/></svg>
+        {% else %}
+        <svg width="40" height="28" viewBox="0 0 40 28" fill="none"><rect x="4" y="14" width="6" height="14" rx="1" fill="#CEECFF" stroke="#000F47" stroke-width="1.5"/><rect x="13" y="8" width="6" height="20" rx="1" fill="#CEECFF" stroke="#000F47" stroke-width="1.5"/><rect x="22" y="4" width="6" height="24" rx="1" fill="#CEECFF" stroke="#000F47" stroke-width="1.5"/><rect x="31" y="10" width="6" height="18" rx="1" fill="#CEECFF" stroke="#000F47" stroke-width="1.5"/></svg>
+        {% endif %}
+      </div>
+      <div class="gallery-card-body">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="category-badge
+            {% if c.category == 'financial' %}bg-blue-50 text-blue-700
+            {% elif c.category == 'loss' %}bg-red-50 text-red-700
+            {% elif c.category == 'tcor' %}bg-amber-50 text-amber-700
+            {% elif c.category == 'benchmarking' %}bg-purple-50 text-purple-700
+            {% elif c.category == 'rate' %}bg-green-50 text-green-700
+            {% endif %}">{{ c.category }}</span>
+        </div>
+        <h3>{{ c.title }}</h3>
+        <p>{{ c.description }}</p>
+      </div>
+    </a>
+    {% endfor %}
+  </div>
+
+  <!-- Recent Snapshots -->
+  {% if snapshots %}
+  <div class="mt-8">
+    <h2 class="text-lg font-semibold text-gray-900 mb-3">Recent Snapshots</h2>
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+      {% for s in snapshots %}
+      <a href="/charts/manual/{{ s.bare_type }}?snapshot_id={{ s.id }}" class="block p-3 bg-white border border-gray-200 rounded-lg hover:border-gray-400 transition-colors no-underline">
+        <div class="font-medium text-gray-900 text-sm">{{ s.name or 'Untitled' }}</div>
+        <div class="flex items-center gap-2 mt-1">
+          <span class="text-xs text-gray-500">{{ s.title }}</span>
+          <span class="text-xs text-gray-400">&middot;</span>
+          <span class="text-xs text-gray-400">{{ s.updated_at[:10] if s.updated_at else '' }}</span>
+        </div>
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+<link rel="stylesheet" href="/static/charts/manual.css">
+{% endblock %}

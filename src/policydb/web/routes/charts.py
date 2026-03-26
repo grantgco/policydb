@@ -35,6 +35,151 @@ _CHART_TITLE_MAP = {c["id"]: c["title"] for c in CHART_REGISTRY}
 _CHART_TYPE_MAP = {c["id"]: c["type"] for c in CHART_REGISTRY}
 
 
+# ── Manual Chart Library ──────────────────────────────────────────────────────
+
+MANUAL_CHART_REGISTRY = [
+    {"id": "rate_premium_baseline", "title": "Rate & Premium vs. Baseline",
+     "description": "Dual-axis line chart comparing rate and premium trends against a baseline year.",
+     "category": "financial", "icon": "chart-line"},
+    {"id": "benchmark_distribution", "title": "Benchmarking Distribution",
+     "description": "Percentile bars (10th/25th/50th/75th/90th) with average line overlay.",
+     "category": "benchmarking", "icon": "chart-bar"},
+    {"id": "loss_history", "title": "Loss History",
+     "description": "Incurred losses by year with loss ratio trend line overlay.",
+     "category": "loss", "icon": "chart-bar"},
+    {"id": "premium_allocation", "title": "Premium Allocation",
+     "description": "Donut chart showing premium distribution by coverage line.",
+     "category": "financial", "icon": "chart-pie"},
+    {"id": "rate_trend_line", "title": "Rate Trend by Line",
+     "description": "Multi-line chart tracking rate change % over years by coverage line.",
+     "category": "rate", "icon": "chart-line"},
+    {"id": "tcor_trend", "title": "Total Cost of Risk (Trend)",
+     "description": "Stacked bars: retained losses + premiums with TCOR trend line.",
+     "category": "tcor", "icon": "chart-bar"},
+    {"id": "tcor_breakdown", "title": "TCOR Breakdown (Single Year)",
+     "description": "Waterfall chart showing TCOR components for a single year.",
+     "category": "tcor", "icon": "chart-bar"},
+    {"id": "freq_severity", "title": "Claims Frequency vs. Severity",
+     "description": "Dual-axis: claim count bars + average claim cost line.",
+     "category": "loss", "icon": "chart-bar"},
+]
+
+_MANUAL_TITLE_MAP = {c["id"]: c["title"] for c in MANUAL_CHART_REGISTRY}
+
+
+# ── Manual Snapshot CRUD — MUST come BEFORE /manual/{chart_type} ──────────
+
+@router.get("/manual/snapshots/{chart_type}", response_class=JSONResponse)
+async def manual_list_snapshots(chart_type: str, conn=Depends(get_db)):
+    rows = conn.execute(
+        "SELECT id, name, updated_at FROM chart_snapshots "
+        "WHERE chart_type = ? AND client_id IS NULL ORDER BY updated_at DESC",
+        (f"manual_{chart_type}",),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+@router.get("/manual/snapshots/{chart_type}/{snapshot_id}", response_class=JSONResponse)
+async def manual_load_snapshot(chart_type: str, snapshot_id: int, conn=Depends(get_db)):
+    row = conn.execute(
+        "SELECT id, name, data, updated_at FROM chart_snapshots "
+        "WHERE id = ? AND chart_type = ? AND client_id IS NULL",
+        (snapshot_id, f"manual_{chart_type}"),
+    ).fetchone()
+    if not row:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    result = dict(row)
+    result["data"] = json.loads(result["data"])
+    return result
+
+
+@router.post("/manual/snapshots/{chart_type}", response_class=JSONResponse)
+async def manual_save_snapshot(request: Request, chart_type: str, conn=Depends(get_db)):
+    body = await request.json()
+    name = body.get("name", "").strip() or "Untitled"
+    data = body.get("data", {})
+    snapshot_id = body.get("id")
+
+    if snapshot_id:
+        conn.execute(
+            "UPDATE chart_snapshots SET name = ?, data = ?, updated_at = datetime('now') "
+            "WHERE id = ? AND chart_type = ? AND client_id IS NULL",
+            (name, json.dumps(data), snapshot_id, f"manual_{chart_type}"),
+        )
+        conn.commit()
+        return {"ok": True, "id": snapshot_id, "name": name}
+    else:
+        cur = conn.execute(
+            "INSERT INTO chart_snapshots (client_id, chart_type, name, data) VALUES (NULL, ?, ?, ?)",
+            (f"manual_{chart_type}", name, json.dumps(data)),
+        )
+        conn.commit()
+        return {"ok": True, "id": cur.lastrowid, "name": name}
+
+
+@router.delete("/manual/snapshots/{chart_type}/{snapshot_id}", response_class=JSONResponse)
+async def manual_delete_snapshot(chart_type: str, snapshot_id: int, conn=Depends(get_db)):
+    conn.execute(
+        "DELETE FROM chart_snapshots WHERE id = ? AND chart_type = ? AND client_id IS NULL",
+        (snapshot_id, f"manual_{chart_type}"),
+    )
+    conn.commit()
+    return {"ok": True}
+
+
+# ── Manual Gallery + Editor — AFTER snapshot routes, BEFORE /{client_id} ──
+
+@router.get("/manual", response_class=HTMLResponse)
+async def manual_gallery(request: Request, conn=Depends(get_db)):
+    """Manual chart library gallery."""
+    snapshots = conn.execute(
+        "SELECT id, chart_type, name, updated_at FROM chart_snapshots "
+        "WHERE chart_type LIKE 'manual_%' AND client_id IS NULL "
+        "ORDER BY updated_at DESC LIMIT 12"
+    ).fetchall()
+    snapshots = [dict(r) for r in snapshots]
+    for s in snapshots:
+        bare = s["chart_type"].replace("manual_", "", 1)
+        s["title"] = _MANUAL_TITLE_MAP.get(bare, bare)
+        s["bare_type"] = bare
+
+    return templates.TemplateResponse(
+        "charts/manual/gallery.html",
+        {"request": request, "charts": MANUAL_CHART_REGISTRY, "snapshots": snapshots},
+    )
+
+
+@router.get("/manual/{chart_type}", response_class=HTMLResponse)
+async def manual_editor(request: Request, chart_type: str, snapshot_id: Optional[int] = None, conn=Depends(get_db)):
+    """Manual chart editor page."""
+    chart_info = next((c for c in MANUAL_CHART_REGISTRY if c["id"] == chart_type), None)
+    if not chart_info:
+        return HTMLResponse("Chart type not found", status_code=404)
+
+    snapshot_data = None
+    snapshot_name = ""
+    if snapshot_id:
+        row = conn.execute(
+            "SELECT name, data FROM chart_snapshots WHERE id = ? AND chart_type = ?",
+            (snapshot_id, f"manual_{chart_type}"),
+        ).fetchone()
+        if row:
+            snapshot_data = json.loads(row["data"])
+            snapshot_name = row["name"]
+
+    return templates.TemplateResponse(
+        "charts/manual/editor.html",
+        {
+            "request": request,
+            "chart_type": chart_type,
+            "chart_info": chart_info,
+            "snapshot_data": snapshot_data,
+            "snapshot_id": snapshot_id,
+            "snapshot_name": snapshot_name,
+        },
+    )
+
+
 # ── Route 1: Client Selector ─────────────────────────────────────────────────
 
 @router.get("/", response_class=HTMLResponse)
