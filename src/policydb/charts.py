@@ -405,13 +405,14 @@ def get_tower_data(conn: sqlite3.Connection, client_id: int) -> list[dict]:
 
                 # Promote excess-type sub-coverages to the layers list
                 for sc in excess_subs:
+                    sc_att = sc.get("attachment_point") or 0
                     grp["layers"].append({
                         "policy_type": sc["coverage_type"],
                         "carrier": entry["carrier"],
                         "limit": sc["limit_amount"],
-                        "attachment_point": 0,
+                        "attachment_point": sc_att,
                         "participation_of": None,
-                        "notation": _layer_notation(sc["limit_amount"], 0, None),
+                        "notation": _layer_notation(sc["limit_amount"], sc_att, None),
                         "layer_position": "Umbrella" if "umbrella" in (sc["coverage_type"] or "").lower() else "Excess",
                         "is_umbrella": "umbrella" in (sc["coverage_type"] or "").lower(),
                         "premium": 0,

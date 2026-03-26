@@ -391,7 +391,7 @@ async def schematic_page(
                     "premium": 0,
                     "coverage_form": sc.get("coverage_form") or "",
                     "layer_position": "Umbrella" if "umbrella" in sc_type else "Excess",
-                    "attachment_point": 0,
+                    "attachment_point": sc.get("attachment_point") or 0,
                     "participation_of": None,
                     "schematic_column": None,
                     "is_program": 0,
