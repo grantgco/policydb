@@ -1952,6 +1952,15 @@ def policy_tab_details(request: Request, policy_uid: str, conn=Depends(get_db)):
                 ground_up = running
             _tower_layers.append(dict(tr) | {"ground_up": ground_up, "is_current": tr["policy_uid"] == uid})
 
+    from policydb.exposures import get_policy_exposures
+    exposure_links = get_policy_exposures(conn, uid)
+    for link in exposure_links:
+        if link.get("project_id"):
+            proj = conn.execute("SELECT name FROM projects WHERE id=?", (link["project_id"],)).fetchone()
+            link["project_name"] = proj["name"] if proj else None
+        else:
+            link["project_name"] = None
+
     return templates.TemplateResponse("policies/_tab_details.html", {
         "request": request,
         "policy": policy_dict,
@@ -1963,6 +1972,7 @@ def policy_tab_details(request: Request, policy_uid: str, conn=Depends(get_db)):
         "opportunity_statuses": cfg.get("opportunity_statuses"),
         "tower_layers": _tower_layers,
         "cycle_labels": _RCL,
+        "exposure_links": exposure_links,
         "program_linked_policies": [dict(r) for r in conn.execute(
             """SELECT policy_uid, policy_type, carrier, premium, effective_date, expiration_date
                FROM policies WHERE program_id = ? AND archived = 0 ORDER BY policy_type""",
