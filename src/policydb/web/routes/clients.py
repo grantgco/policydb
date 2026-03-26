@@ -38,6 +38,11 @@ from policydb.queries import (
     remove_client_from_group,
     update_linked_group,
     delete_linked_group,
+    get_client_exposures,
+    get_exposure_years,
+    get_distinct_custom_exposure_types,
+    get_exposure_observations,
+    get_exposure_by_id,
 )
 from policydb.web.app import get_db, templates
 
@@ -5113,3 +5118,239 @@ def client_ai_bulk_import_apply(
     parts.append(f'<a href="/clients/{client_id}" class="text-sm text-marsh hover:underline">← Back to client</a>')
     parts.append('</div>')
     return HTMLResponse("\n".join(parts))
+
+
+# ─── EXPOSURE TRACKING ───────────────────────────────────────────────────────
+
+def _exposure_tab_context(conn, client_id: int, year: int, project_id=None) -> dict:
+    """Build shared context for the exposures tab/matrix."""
+    from datetime import date as _date
+    current_year = _date.today().year
+    data_years = get_exposure_years(conn, client_id, project_id)
+    available_years = sorted(set(data_years + [current_year]), reverse=True)
+    if year not in available_years:
+        available_years = sorted(set(available_years + [year]), reverse=True)
+    exposures = get_client_exposures(conn, client_id, year, project_id)
+    observations = get_exposure_observations(conn, client_id, year, project_id)
+    prior_year_has_data = (year - 1) in data_years
+
+    # Build policy options for the combo dropdown
+    policies = [dict(p) for p in get_policies_for_client(conn, client_id)]
+    policy_options = [
+        {"value": str(p["id"]), "label": f"{p['policy_type']} — {p.get('carrier') or '?'}"}
+        for p in policies if not p.get("is_opportunity")
+    ]
+
+    # Annotate exposures with policy labels
+    policy_map = {str(p["id"]): f"{p['policy_type']} — {p.get('carrier') or '?'}" for p in policies}
+    for e in exposures:
+        e["policy_label"] = policy_map.get(str(e.get("policy_id"))) if e.get("policy_id") else None
+
+    return {
+        "client_id": client_id,
+        "project_id": project_id,
+        "selected_year": year,
+        "available_years": available_years,
+        "exposures": exposures,
+        "observations": observations,
+        "prior_year_has_data": prior_year_has_data,
+        "policy_options": policy_options,
+    }
+
+
+@router.get("/{client_id}/tab/exposures", response_class=HTMLResponse)
+def client_tab_exposures(request: Request, client_id: int, year: int = 0, conn=Depends(get_db)):
+    """Load exposures tab content (HTMX partial)."""
+    from datetime import date as _date
+    if year == 0:
+        year = _date.today().year
+    client = get_client_by_id(conn, client_id, include_archived=True)
+    if not client:
+        return HTMLResponse("Not found", status_code=404)
+    ctx = _exposure_tab_context(conn, client_id, year)
+    return templates.TemplateResponse("clients/_tab_exposures.html", {"request": request, **ctx})
+
+
+@router.get("/{client_id}/exposures/types", response_class=HTMLResponse)
+def exposure_types_dropdown(request: Request, client_id: int, year: int = 0, project_id: int = 0, conn=Depends(get_db)):
+    """Return dropdown HTML for the exposure type picker."""
+    from datetime import date as _date
+    if year == 0:
+        year = _date.today().year
+    proj = project_id if project_id else None
+    standard = cfg.get("standard_exposure_types", {})
+    custom_types = get_distinct_custom_exposure_types(conn)
+
+    # Find which types already exist for this client/year
+    existing = get_client_exposures(conn, client_id, year, proj)
+    existing_types = {e["exposure_type"] for e in existing}
+
+    parts = ['<div class="text-[10px] text-gray-400 uppercase tracking-wide px-3 py-1.5 border-b border-gray-100">Standard</div>']
+    for name, unit in standard.items():
+        disabled = "opacity-40 pointer-events-none" if name in existing_types else "hover:bg-gray-50 cursor-pointer"
+        parts.append(
+            f'<div class="px-3 py-2 text-sm {disabled}" '
+            f'hx-post="/clients/{client_id}/exposures/add-row" '
+            f'hx-vals=\'{{"exposure_type":"{name}","year":"{year}","is_custom":"0","unit":"{unit}"}}\' '
+            f'hx-target="#exposures-card" hx-swap="outerHTML">'
+            f'{name}</div>'
+        )
+    if custom_types:
+        parts.append('<div class="text-[10px] text-gray-400 uppercase tracking-wide px-3 py-1.5 border-t border-b border-gray-100">Previously Used</div>')
+        for ct in custom_types:
+            if ct in standard:
+                continue
+            disabled = "opacity-40 pointer-events-none" if ct in existing_types else "hover:bg-gray-50 cursor-pointer"
+            parts.append(
+                f'<div class="px-3 py-2 text-sm text-purple-600 {disabled}" '
+                f'hx-post="/clients/{client_id}/exposures/add-row" '
+                f'hx-vals=\'{{"exposure_type":"{ct}","year":"{year}","is_custom":"1","unit":"number"}}\' '
+                f'hx-target="#exposures-card" hx-swap="outerHTML">'
+                f'{ct}</div>'
+            )
+    parts.append(
+        '<div class="border-t border-gray-200 px-3 py-2 hover:bg-gray-50 cursor-pointer">'
+        f'<input type="text" id="custom-exposure-input" placeholder="Custom type name..." '
+        f'class="w-full text-sm border-0 outline-none bg-transparent" '
+        f'onkeydown="if(event.key===\'Enter\'){{var v=this.value.trim();if(v)htmx.ajax(\'POST\',\'/clients/{client_id}/exposures/add-row\','
+        f'{{values:{{exposure_type:v,year:\'{year}\',is_custom:\'1\',unit:\'number\'}},target:\'#exposures-card\',swap:\'outerHTML\'}});}}">'
+        '</div>'
+    )
+    return HTMLResponse("\n".join(parts))
+
+
+@router.post("/{client_id}/exposures/add-row", response_class=HTMLResponse)
+async def exposure_add_row(request: Request, client_id: int, conn=Depends(get_db)):
+    """Create a new exposure row and return refreshed matrix."""
+    form = await request.form()
+    exposure_type = form.get("exposure_type", "").strip()
+    year = int(form.get("year", 0))
+    is_custom = int(form.get("is_custom", 0))
+    unit = form.get("unit", "number")
+    if not exposure_type or not year:
+        return HTMLResponse("Missing fields", status_code=400)
+    try:
+        conn.execute(
+            "INSERT INTO client_exposures (client_id, exposure_type, is_custom, unit, year) VALUES (?, ?, ?, ?, ?)",
+            (client_id, exposure_type, is_custom, unit, year),
+        )
+        conn.commit()
+    except Exception:
+        pass  # UNIQUE violation = already exists, just refresh
+    ctx = _exposure_tab_context(conn, client_id, year)
+    return templates.TemplateResponse("clients/_exposure_matrix.html", {"request": request, **ctx})
+
+
+@router.patch("/{client_id}/exposures/{exposure_id}/cell")
+async def exposure_cell(request: Request, client_id: int, exposure_id: int, conn=Depends(get_db)):
+    """Save a single cell value for an exposure row."""
+    body = await request.json()
+    field, value = body.get("field", ""), body.get("value", "")
+    allowed = {"amount", "source_document", "notes", "policy_id"}
+    if field not in allowed:
+        return JSONResponse({"ok": False, "error": "Invalid field"}, status_code=400)
+
+    formatted = value.strip() if isinstance(value, str) else value
+
+    if field == "amount":
+        # Strip currency symbols and commas, parse to float
+        cleaned = str(formatted).replace("$", "").replace(",", "").strip()
+        if cleaned == "" or cleaned == "—":
+            conn.execute(
+                "UPDATE client_exposures SET amount=NULL, updated_at=CURRENT_TIMESTAMP WHERE id=? AND client_id=?",
+                (exposure_id, client_id),
+            )
+            conn.commit()
+            return JSONResponse({"ok": True, "formatted": "", "yoy": None, "yoy_direction": None})
+        try:
+            amount = float(cleaned)
+        except ValueError:
+            return JSONResponse({"ok": False, "error": "Invalid number"}, status_code=400)
+        conn.execute(
+            "UPDATE client_exposures SET amount=?, updated_at=CURRENT_TIMESTAMP WHERE id=? AND client_id=?",
+            (amount, exposure_id, client_id),
+        )
+        conn.commit()
+        # Format and calculate YoY
+        row = get_exposure_by_id(conn, exposure_id)
+        if row and row.get("unit") == "currency":
+            formatted = "${:,.0f}".format(amount)
+        else:
+            formatted = "{:,.0f}".format(amount)
+        # Calculate YoY
+        prior = conn.execute(
+            """SELECT amount FROM client_exposures
+               WHERE client_id=? AND exposure_type=? AND year=?
+               AND COALESCE(project_id,0)=COALESCE(?,0)""",
+            (client_id, row["exposure_type"], row["year"] - 1, row.get("project_id")),
+        ).fetchone()
+        yoy = None
+        yoy_direction = None
+        if prior and prior["amount"] and prior["amount"] != 0:
+            pct = ((amount - prior["amount"]) / prior["amount"]) * 100
+            yoy = "{:+.1f}%".format(pct)
+            yoy_direction = "up" if pct > 0 else "down"
+        return JSONResponse({"ok": True, "formatted": formatted, "yoy": yoy, "yoy_direction": yoy_direction})
+    elif field == "policy_id":
+        pid = int(formatted) if formatted and formatted != "—" else None
+        conn.execute(
+            "UPDATE client_exposures SET policy_id=?, updated_at=CURRENT_TIMESTAMP WHERE id=? AND client_id=?",
+            (pid, exposure_id, client_id),
+        )
+        conn.commit()
+        if pid:
+            p = conn.execute("SELECT policy_type, carrier FROM policies WHERE id=?", (pid,)).fetchone()
+            label = f"{p['policy_type']} — {p['carrier'] or '?'}" if p else ""
+        else:
+            label = ""
+        return JSONResponse({"ok": True, "formatted": label})
+    else:
+        conn.execute(
+            f"UPDATE client_exposures SET {field}=?, updated_at=CURRENT_TIMESTAMP WHERE id=? AND client_id=?",
+            (formatted or None, exposure_id, client_id),
+        )
+        conn.commit()
+        return JSONResponse({"ok": True, "formatted": formatted})
+
+
+@router.delete("/{client_id}/exposures/{exposure_id}", response_class=HTMLResponse)
+def exposure_delete(request: Request, client_id: int, exposure_id: int, conn=Depends(get_db)):
+    """Delete an exposure row."""
+    conn.execute("DELETE FROM client_exposures WHERE id=? AND client_id=?", (exposure_id, client_id))
+    conn.commit()
+    return HTMLResponse("")
+
+
+@router.post("/{client_id}/exposures/copy-forward", response_class=HTMLResponse)
+async def exposure_copy_forward(request: Request, client_id: int, conn=Depends(get_db)):
+    """Copy exposure types from one year to another (INSERT OR IGNORE)."""
+    form = await request.form()
+    from_year = int(form.get("from_year", 0))
+    to_year = int(form.get("to_year", 0))
+    if not from_year or not to_year:
+        return HTMLResponse("Missing year parameters", status_code=400)
+
+    source_rows = conn.execute(
+        "SELECT exposure_type, is_custom, unit, project_id FROM client_exposures WHERE client_id=? AND year=? AND project_id IS NULL",
+        (client_id, from_year),
+    ).fetchall()
+
+    if not source_rows:
+        ctx = _exposure_tab_context(conn, client_id, to_year)
+        return templates.TemplateResponse("clients/_exposure_matrix.html", {"request": request, **ctx})
+
+    copied = 0
+    for row in source_rows:
+        try:
+            conn.execute(
+                "INSERT OR IGNORE INTO client_exposures (client_id, exposure_type, is_custom, unit, year) VALUES (?, ?, ?, ?, ?)",
+                (client_id, row["exposure_type"], row["is_custom"], row["unit"], to_year),
+            )
+            if conn.execute("SELECT changes()").fetchone()[0] > 0:
+                copied += 1
+        except Exception:
+            pass
+    conn.commit()
+
+    ctx = _exposure_tab_context(conn, client_id, to_year)
+    return templates.TemplateResponse("clients/_exposure_matrix.html", {"request": request, **ctx})
