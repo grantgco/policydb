@@ -204,6 +204,9 @@ SELECT
     p.renewal_status,
     p.attachment_point,
     p.participation_of,
+    p.deductible,
+    p.coverage_form,
+    p.schematic_column,
     p.description,
     p.notes
 FROM policies p
