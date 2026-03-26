@@ -8,9 +8,9 @@
       {# Year selector #}
       <select id="exposure-year-select"
         class="text-xs border border-gray-200 rounded px-2 py-1 text-gray-600"
-        hx-get="{{ tab_reload_url }}"
-        hx-target="#exposures-card"
-        hx-swap="outerHTML"
+        hx-get="/clients/{{ client_id }}/tab/exposures"
+        hx-target="#tab-exposures-content"
+        hx-swap="innerHTML"
         name="year">
         {% for y in available_years %}
         <option value="{{ y }}" {{ 'selected' if y == selected_year }}>{{ y }}</option>
@@ -20,7 +20,7 @@
       {% if prior_year_has_data %}
       <button type="button"
         class="text-xs text-gray-500 hover:text-marsh font-medium border border-gray-200 rounded px-2 py-1"
-        hx-post="{{ exposure_url_prefix }}/exposures/copy-forward"
+        hx-post="/clients/{{ client_id }}/exposures/copy-forward"
         hx-vals='{"from_year": "{{ selected_year - 1 }}", "to_year": "{{ selected_year }}"}'
         hx-target="#exposures-card" hx-swap="outerHTML"
         hx-confirm="Copy exposure types from {{ selected_year - 1 }} to {{ selected_year }}?">
@@ -30,7 +30,7 @@
       {# Add button #}
       <div class="relative" id="exposure-add-wrapper">
         <button type="button" class="text-xs text-marsh hover:underline font-medium"
-          hx-get="{{ exposure_url_prefix }}/exposures/types?year={{ selected_year }}"
+          hx-get="/clients/{{ client_id }}/exposures/types?year={{ selected_year }}{% if project_id %}&project_id={{ project_id }}{% endif %}"
           hx-target="#exposure-type-dropdown" hx-swap="innerHTML"
           onclick="document.getElementById('exposure-type-dropdown').classList.toggle('hidden')">+ Add Exposure</button>
         <div id="exposure-type-dropdown" class="hidden absolute right-0 top-full mt-1 z-50 bg-white border border-gray-200 rounded-lg shadow-lg w-64 max-h-72 overflow-y-auto">
@@ -42,22 +42,19 @@
   <div class="overflow-x-auto">
     <table class="w-full text-sm table-fixed">
       <colgroup>
-        <col style="width:12%"><col style="width:5%"><col style="width:11%"><col style="width:10%">
-        <col style="width:10%"><col style="width:6%"><col style="width:14%">
-        <col style="width:14%"><col style="width:3%"><col style="width:7%"><col style="width:28px">
+        <col style="width:13%"><col style="width:12%"><col style="width:11%">
+        <col style="width:11%"><col style="width:7%"><col style="width:18%">
+        <col style="width:18%"><col style="width:28px">
       </colgroup>
       <thead>
         <tr class="text-left text-xs text-gray-400 uppercase tracking-wide border-b border-gray-100 bg-gray-50">
           <th class="px-3 py-2">Type</th>
-          <th class="px-3 py-2 text-center">Per</th>
           <th class="px-3 py-2">Policy</th>
           <th class="px-3 py-2 text-right">{{ selected_year - 1 }}</th>
           <th class="px-3 py-2 text-right text-blue-600">{{ selected_year }}</th>
           <th class="px-3 py-2 text-center">YoY</th>
           <th class="px-3 py-2">Source</th>
           <th class="px-3 py-2">Notes</th>
-          <th class="px-3 py-2 text-center">&#9733;</th>
-          <th class="px-3 py-2 text-right">Rate</th>
           <th class="px-3 py-2"></th>
         </tr>
       </thead>
@@ -65,7 +62,7 @@
         {% for e in exposures %}
         {% include "clients/_exposure_matrix_row.html" %}
         {% else %}
-        <tr id="exposures-empty-{{ client_id }}"><td colspan="11" class="px-4 py-6 text-center text-gray-400 text-xs">No exposures tracked yet.</td></tr>
+        <tr id="exposures-empty-{{ client_id }}"><td colspan="8" class="px-4 py-6 text-center text-gray-400 text-xs">No exposures tracked yet.</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -94,13 +91,12 @@
 <script>
 (function() {
   var CID = "{{ client_id }}";
-  var URL_PREFIX = {{ exposure_url_prefix | tojson }};
   window._exposuresMatrix = window.initMatrix({
     tbodyId: 'exposures-tbody-' + CID,
     idAttr: 'data-row-id',
     rowClass: 'matrix-row',
-    patchUrl: function(id) { return URL_PREFIX + '/exposures/' + id + '/cell'; },
-    addRowUrl: URL_PREFIX + '/exposures/add-row',
+    patchUrl: function(id) { return '/clients/' + CID + '/exposures/' + id + '/cell'; },
+    addRowUrl: '/clients/' + CID + '/exposures/add-row',
     emptyRowId: 'exposures-empty-' + CID,
     onSaved: function(rowEl, field, resp) {
       if (resp.yoy !== undefined) {
@@ -109,13 +105,6 @@
           yoyCell.innerHTML = resp.yoy
             ? '<span class="text-xs font-semibold ' + (resp.yoy_direction === 'up' ? 'text-red-500' : 'text-green-600') + '">' + resp.yoy + '</span>'
             : '<span class="text-gray-300 text-xs">&mdash;</span>';
-        }
-      }
-      if (resp.rate !== undefined && resp.rate !== null) {
-        var rateCell = rowEl.querySelector('[data-field="rate"]');
-        if (rateCell) {
-          var cls = resp.is_primary ? 'bg-green-50 text-green-700' : 'text-gray-400';
-          rateCell.innerHTML = '<span class="text-xs font-semibold px-2 py-0.5 rounded ' + cls + '">$' + parseFloat(resp.rate).toFixed(2) + '</span>';
         }
       }
     }
