@@ -2373,6 +2373,22 @@ def get_sub_coverages(conn, policy_id: int) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def get_sub_coverages_by_policy_id(conn, policy_ids: list[int]) -> dict[int, list[str]]:
+    """Return {policy_id: [coverage_type, ...]} for policies with sub-coverages."""
+    if not policy_ids:
+        return {}
+    placeholders = ",".join("?" * len(policy_ids))
+    rows = conn.execute(
+        f"SELECT policy_id, coverage_type FROM policy_sub_coverages "  # noqa: S608
+        f"WHERE policy_id IN ({placeholders}) ORDER BY sort_order, id",
+        policy_ids,
+    ).fetchall()
+    result: dict[int, list[str]] = {}
+    for r in rows:
+        result.setdefault(r["policy_id"], []).append(r["coverage_type"])
+    return result
+
+
 def auto_generate_sub_coverages(conn, policy_id: int, policy_type: str):
     """Insert auto-sub-coverages based on config mapping. Skips duplicates."""
     auto_map = cfg.get("auto_sub_coverages", {})
