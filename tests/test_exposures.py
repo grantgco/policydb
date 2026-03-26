@@ -57,10 +57,14 @@ def test_create_link_and_rate(conn):
     assert abs(link["rate"] - 0.50) < 0.001
 
 
-def test_duplicate_link_rejected(conn):
-    create_exposure_link(conn, "POL-001", 1)
-    with pytest.raises(Exception):
-        create_exposure_link(conn, "POL-001", 1)
+def test_duplicate_link_upserts(conn):
+    link1 = create_exposure_link(conn, "POL-001", 1, is_primary=False)
+    assert link1["is_primary"] == 0
+    # Second call updates instead of failing
+    link2 = create_exposure_link(conn, "POL-001", 1, is_primary=True)
+    assert link2["is_primary"] == 1
+    # Still only one link
+    assert len(get_policy_exposures(conn, "POL-001")) == 1
 
 
 def test_only_one_primary_per_policy(conn):

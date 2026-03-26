@@ -58,7 +58,7 @@
     {% endfor %}
 
     {# Context exposures #}
-    {% set context_links = exposure_links | selectattr('is_primary', 'falsy') | list %}
+    {% set context_links = exposure_links | rejectattr('is_primary') | list %}
     {% if context_links %}
     <div class="text-[10px] uppercase tracking-wide text-gray-400 mt-3 mb-1.5">Context Exposures</div>
     {% for link in context_links %}

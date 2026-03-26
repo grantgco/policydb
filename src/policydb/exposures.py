@@ -14,7 +14,8 @@ def _calc_rate(premium, amount, denominator):
 
 
 def create_exposure_link(conn, policy_uid, exposure_id, *, is_primary=False):
-    """Create a link between a policy and an exposure row. Returns the link dict."""
+    """Create a link between a policy and an exposure row. Returns the link dict.
+    If the link already exists, updates is_primary and recalculates rate."""
     if is_primary:
         # Clear any existing primary for this policy
         conn.execute(
@@ -30,11 +31,22 @@ def create_exposure_link(conn, policy_uid, exposure_id, *, is_primary=False):
         exp["denominator"] if exp else 1,
     )
     now = _utcnow()
-    conn.execute(
-        """INSERT INTO policy_exposure_links (policy_uid, exposure_id, is_primary, rate, rate_updated_at)
-           VALUES (?, ?, ?, ?, ?)""",
-        (policy_uid, exposure_id, 1 if is_primary else 0, rate, now if rate is not None else None),
-    )
+    existing = conn.execute(
+        "SELECT id FROM policy_exposure_links WHERE policy_uid=? AND exposure_id=?",
+        (policy_uid, exposure_id),
+    ).fetchone()
+    if existing:
+        conn.execute(
+            """UPDATE policy_exposure_links SET is_primary=?, rate=?, rate_updated_at=?
+               WHERE policy_uid=? AND exposure_id=?""",
+            (1 if is_primary else 0, rate, now if rate is not None else None, policy_uid, exposure_id),
+        )
+    else:
+        conn.execute(
+            """INSERT INTO policy_exposure_links (policy_uid, exposure_id, is_primary, rate, rate_updated_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            (policy_uid, exposure_id, 1 if is_primary else 0, rate, now if rate is not None else None),
+        )
     conn.commit()
     row = conn.execute(
         "SELECT * FROM policy_exposure_links WHERE policy_uid=? AND exposure_id=?",
