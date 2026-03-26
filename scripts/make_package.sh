@@ -56,9 +56,12 @@ esac
 
 if [ "$NEW_VERSION" != "$CURRENT_VERSION" ]; then
     # Update both version files
-    sed -i '' "s/__version__ = \".*\"/__version__ = \"${NEW_VERSION}\"/" src/policydb/__init__.py
+    sed -i '' "s/_FALLBACK_VERSION = \".*\"/_FALLBACK_VERSION = \"${NEW_VERSION}\"/" src/policydb/__init__.py
     sed -i '' "s/^version = \".*\"/version = \"${NEW_VERSION}\"/" pyproject.toml
-    echo "Bumped: v${CURRENT_VERSION} → v${NEW_VERSION}"
+    git add src/policydb/__init__.py pyproject.toml
+    git commit -m "chore: bump version to v${NEW_VERSION}"
+    git tag "v${NEW_VERSION}"
+    echo "Bumped: v${CURRENT_VERSION} → v${NEW_VERSION} (tagged)"
 fi
 
 SRC_VERSION=$(python -c "from policydb import __version__; print(__version__)")
