@@ -4435,7 +4435,7 @@ async def project_exposure_cell(request: Request, client_id: int, project_id: in
 @router.patch("/{client_id}/projects/{project_id}/exposures/{exposure_id}/toggle-primary")
 async def project_exposure_toggle_primary(request: Request, client_id: int, project_id: int, exposure_id: int, conn=Depends(get_db)):
     """Toggle primary status for a project-level policy-exposure link."""
-    return await exposure_toggle_primary(request, client_id, exposure_id, conn)
+    return await exposure_toggle_primary(request, client_id, exposure_id, conn, project_id=project_id)
 
 
 @router.delete("/{client_id}/projects/{project_id}/exposures/{exposure_id}", response_class=HTMLResponse)
@@ -5521,7 +5521,7 @@ def _render_exposure_row(request, conn, client_id, exposure_id, project_id=None)
 
 
 @router.patch("/{client_id}/exposures/{exposure_id}/toggle-primary")
-async def exposure_toggle_primary(request: Request, client_id: int, exposure_id: int, conn=Depends(get_db)):
+async def exposure_toggle_primary(request: Request, client_id: int, exposure_id: int, conn=Depends(get_db), project_id: int = None):
     """Toggle primary status for a policy-exposure link."""
     from policydb.exposures import set_primary_exposure
     body = await request.form()
@@ -5542,7 +5542,7 @@ async def exposure_toggle_primary(request: Request, client_id: int, exposure_id:
         conn.commit()
     else:
         set_primary_exposure(conn, policy_uid, exposure_id)
-    return _render_exposure_row(request, conn, client_id, exposure_id)
+    return _render_exposure_row(request, conn, client_id, exposure_id, project_id=project_id)
 
 
 @router.delete("/{client_id}/exposures/{exposure_id}", response_class=HTMLResponse)
