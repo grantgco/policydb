@@ -1207,8 +1207,12 @@ def init_db(path: Path | None = None) -> None:
         conn.commit()
 
     if 92 not in applied:
-        sql = (_MIGRATIONS_DIR / "092_sub_coverage_financials.sql").read_text()
-        conn.executescript(sql)
+        # Safe ALTER: skip columns that already exist (worktree crossover)
+        existing_cols = {r[1] for r in conn.execute("PRAGMA table_info(policy_sub_coverages)").fetchall()}
+        for col, typ, dflt in [("limit_amount", "REAL", None), ("deductible", "REAL", None), ("coverage_form", "TEXT", "''")]:
+            if col not in existing_cols:
+                dflt_clause = f" DEFAULT {dflt}" if dflt is not None else ""
+                conn.execute(f"ALTER TABLE policy_sub_coverages ADD COLUMN {col} {typ}{dflt_clause}")
         conn.execute(
             "INSERT INTO schema_version (version, description) VALUES (?, ?)",
             (92, "add limit_amount, deductible, coverage_form to policy_sub_coverages"),
@@ -1216,8 +1220,9 @@ def init_db(path: Path | None = None) -> None:
         conn.commit()
 
     if 93 not in applied:
-        sql = (_MIGRATIONS_DIR / "093_sub_coverage_notes.sql").read_text()
-        conn.executescript(sql)
+        existing_cols = {r[1] for r in conn.execute("PRAGMA table_info(policy_sub_coverages)").fetchall()}
+        if "notes" not in existing_cols:
+            conn.execute("ALTER TABLE policy_sub_coverages ADD COLUMN notes TEXT DEFAULT ''")
         conn.execute(
             "INSERT INTO schema_version (version, description) VALUES (?, ?)",
             (93, "add notes to policy_sub_coverages"),
