@@ -94,7 +94,7 @@ If premium is NULL/0 or exposure amount is NULL/0, rate is stored as `NULL`. Thi
 
 ### Recalc Function
 
-Located in `queries.py` (or a new `exposures.py` module):
+Located in a new `src/policydb/exposures.py` module (dedicated module for link CRUD, recalc, and find-or-create logic):
 
 ```python
 def recalc_exposure_rate(conn, *, link_id=None, policy_uid=None, exposure_id=None):
@@ -127,7 +127,7 @@ New columns added to the existing exposure matrix:
 | **Rate** | Auto-calculated display. Green badge for primary exposures, gray text for context exposures. |
 
 **Behavior:**
-- Selecting a policy in the combobox POSTs to create a `policy_exposure_links` row
+- Selecting a policy in the combobox POSTs to create a `policy_exposure_links` row (this is a behavioral change from the current combobox, which PATCHes `client_exposures.policy_id` directly — the save target switches from a column update to junction table insert/delete)
 - Changing the star toggles `is_primary` via PATCH
 - Rate recalculates and flashes green when premium or exposure amount changes
 
@@ -266,7 +266,7 @@ CSV import follows the same find-or-create flow as LLM import for routing exposu
 | `db.py` | Wire migration into `init_db()` |
 | `config.py` | Add `exposure_denominators` to `_DEFAULTS` |
 | `settings.py` | Add `exposure_denominators` to `EDITABLE_LISTS` |
-| `queries.py` (or new `exposures.py`) | `recalc_exposure_rate()`, link CRUD queries |
+| `exposures.py` (new module) | `recalc_exposure_rate()`, link CRUD, find-or-create queries |
 | `views.py` | Update `v_schedule`, `v_policy_status` to JOIN through links |
 | `routes/clients.py` | Exposure matrix endpoints: create/delete link, toggle primary, denominator PATCH |
 | `routes/policies.py` | Policy detail: exposure card partial, premium PATCH triggers recalc |
