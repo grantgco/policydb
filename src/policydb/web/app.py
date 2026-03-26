@@ -264,7 +264,7 @@ def get_db() -> Generator[sqlite3.Connection, None, None]:
 
 
 # ── Register routers ──────────────────────────────────────────────────────────
-from policydb.web.routes import dashboard, clients, policies, activities, settings, reconcile, templates as tpl_routes, contacts, review, briefing, meetings, inbox, ref_lookup, compliance, action_center, logs, compose, import_history, geocoder as geocoder_routes, charts as charts_routes  # noqa: E402
+from policydb.web.routes import dashboard, clients, policies, activities, settings, reconcile, templates as tpl_routes, contacts, review, briefing, meetings, inbox, ref_lookup, compliance, action_center, logs, compose, import_history, geocoder as geocoder_routes, charts as charts_routes, programs as programs_routes  # noqa: E402
 
 app.include_router(dashboard.router)
 app.include_router(clients.router)
@@ -286,6 +286,7 @@ app.include_router(import_history.router)
 app.include_router(compose.router)
 app.include_router(geocoder_routes.router)
 app.include_router(charts_routes.router)
+app.include_router(programs_routes.router)
 
 # Static files (charts JS/CSS assets)
 STATIC_DIR = Path(__file__).parent / "static"

@@ -1,0 +1,65 @@
+<div class="card">
+  <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+    <h2 class="font-semibold text-gray-900 text-sm">Excess Layers</h2>
+    <span class="text-xs text-gray-400">{{ excess | length }} layer{{ 's' if excess | length != 1 }}</span>
+  </div>
+
+  <style>
+    #excess-tbody td[contenteditable][data-placeholder]:empty::before {
+      content: attr(data-placeholder); color: #94a3b8; font-style: italic; pointer-events: none;
+    }
+    #excess-tbody td[contenteditable]:focus {
+      outline: none; border-bottom: 2px solid #003865; background: rgba(0,56,101,0.03);
+    }
+    #excess-tbody td.matrix-cell-combo { position: relative; }
+  </style>
+
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm" id="excess-table">
+      <thead>
+        <tr class="text-left text-xs text-gray-400 uppercase tracking-wide border-b border-gray-100 bg-gray-50">
+          <th class="px-2 py-2 font-medium w-8">#</th>
+          <th class="px-2 py-2 font-medium w-20">Type</th>
+          <th class="px-3 py-2 font-medium" style="min-width:120px">Carrier</th>
+          <th class="px-3 py-2 font-medium text-right" style="min-width:90px">Limit</th>
+          <th class="px-3 py-2 font-medium text-right" style="min-width:90px">Attachment</th>
+          <th class="px-3 py-2 font-medium text-right" style="min-width:90px">Part Of</th>
+          <th class="px-3 py-2 font-medium text-right" style="min-width:90px">Premium</th>
+          <th class="px-3 py-2 font-medium" style="min-width:80px">Policy #</th>
+          <th class="px-3 py-2 font-medium" style="min-width:130px">Notation</th>
+          <th class="px-2 py-2 font-medium w-8 no-print"></th>
+        </tr>
+      </thead>
+      <tbody id="excess-tbody" class="divide-y divide-gray-50">
+        {% for p in excess %}
+        {% set layer_num = loop.index %}
+        {% include "programs/_excess_row.html" %}
+        {% else %}
+        <tr id="excess-empty"><td colspan="10" class="px-4 py-8 text-center text-gray-400 text-xs">No excess layers yet.</td></tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr class="border-t border-gray-200">
+          <td colspan="10" class="px-3 py-2 flex gap-2">
+            {% if not has_umbrella %}
+            <button type="button"
+              class="no-print text-xs text-blue-500 border border-dashed border-blue-300 px-3 py-1.5 rounded hover:border-blue-500 hover:text-blue-700 transition-colors"
+              hx-post="/clients/{{ client_id }}/programs/{{ tower_group | urlencode }}/umbrella/add"
+              hx-target="#excess-tbody"
+              hx-swap="afterbegin">
+              + Add Umbrella
+            </button>
+            {% endif %}
+            <button type="button"
+              class="no-print text-xs text-gray-400 border border-dashed border-gray-300 px-3 py-1.5 rounded hover:border-marsh hover:text-marsh transition-colors"
+              hx-post="/clients/{{ client_id }}/programs/{{ tower_group | urlencode }}/excess/add"
+              hx-target="#excess-tbody"
+              hx-swap="beforeend">
+              + Add Excess Layer
+            </button>
+          </td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+</div>

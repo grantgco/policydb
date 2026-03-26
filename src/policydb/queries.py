@@ -2265,3 +2265,97 @@ def get_exposure_by_id(conn: sqlite3.Connection, exposure_id: int) -> Optional[d
         "SELECT * FROM client_exposures WHERE id = ?", (exposure_id,)
     ).fetchone()
     return dict(row) if row else None
+
+
+# ---------------------------------------------------------------------------
+# Schematic completeness
+# ---------------------------------------------------------------------------
+
+def get_schematic_completeness(
+    conn: sqlite3.Connection, client_id: int
+) -> list[dict]:
+    """Per-tower_group completeness scoring for schematic data.
+
+    Returns list of dicts:
+      {tower_group, underlying_count, excess_count, pct_complete, missing_fields}
+    """
+    rows = conn.execute(
+        """
+        SELECT id, tower_group, layer_position, policy_type, carrier,
+               deductible, limit_amount, attachment_point, is_program
+        FROM policies
+        WHERE client_id = ? AND tower_group IS NOT NULL AND tower_group != ''
+          AND archived = 0 AND (is_opportunity = 0 OR is_opportunity IS NULL)
+        """,
+        (client_id,),
+    ).fetchall()
+
+    groups: dict[str, list[dict]] = {}
+    for r in rows:
+        tg = r["tower_group"]
+        groups.setdefault(tg, []).append(dict(r))
+
+    result = []
+    for tg, policies in sorted(groups.items()):
+        filled = 0
+        total = 0
+        missing: list[str] = []
+        u_count = 0
+        x_count = 0
+
+        for p in policies:
+            lp = (p.get("layer_position") or "Primary").strip().lower()
+            is_umb = "umbrella" in lp
+
+            if lp == "primary" or (not is_umb and (p.get("attachment_point") or 0) == 0 and lp not in ("excess",)):
+                # Underlying: check policy_type, carrier, deductible
+                u_count += 1
+                checks = [
+                    ("policy_type", bool(p.get("policy_type"))),
+                    ("carrier", bool(p.get("carrier"))),
+                    ("deductible", bool(p.get("deductible") and str(p.get("deductible")) != "0")),
+                ]
+                for label, ok in checks:
+                    total += 1
+                    if ok:
+                        filled += 1
+                    else:
+                        missing.append(f"{p.get('policy_type') or 'Line'}: {label}")
+            elif is_umb:
+                # Umbrella: check carrier, limit
+                x_count += 1
+                checks = [
+                    ("carrier", bool(p.get("carrier"))),
+                    ("limit", bool(p.get("limit_amount") and p["limit_amount"] > 0)),
+                ]
+                for label, ok in checks:
+                    total += 1
+                    if ok:
+                        filled += 1
+                    else:
+                        missing.append(f"Umbrella: {label}")
+            else:
+                # Excess: check carrier, limit, attachment_point
+                x_count += 1
+                checks = [
+                    ("carrier", bool(p.get("carrier"))),
+                    ("limit", bool(p.get("limit_amount") and p["limit_amount"] > 0)),
+                    ("attachment_point", bool(p.get("attachment_point") and p["attachment_point"] > 0)),
+                ]
+                for label, ok in checks:
+                    total += 1
+                    if ok:
+                        filled += 1
+                    else:
+                        missing.append(f"Layer: {label}")
+
+        pct = round(filled / total * 100) if total > 0 else 0
+        result.append({
+            "tower_group": tg,
+            "underlying_count": u_count,
+            "excess_count": x_count,
+            "pct_complete": pct,
+            "missing_fields": missing,
+        })
+
+    return result

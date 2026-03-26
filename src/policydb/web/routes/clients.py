@@ -740,11 +740,17 @@ def client_tab_policies(request: Request, client_id: int, conn=Depends(get_db)):
                 "exposure_zip": p.get("exposure_zip") or "",
             }
 
+    from policydb.queries import get_schematic_completeness
+    schematic_completeness = get_schematic_completeness(conn, client_id)
+    # Build lookup by tower_group for template badge rendering
+    completeness_by_tg = {c["tower_group"]: c for c in schematic_completeness}
+
     return templates.TemplateResponse("clients/_tab_policies.html", {
         "request": request,
         "client": dict(client),
         "policy_groups": policy_groups,
         "tower_visuals": tower_visuals,
+        "completeness_by_tg": completeness_by_tg,
         "renewal_statuses": cfg.get("renewal_statuses"),
         "programs": programs,
         "program_linked_uids": _program_linked_ids,
@@ -5070,7 +5076,8 @@ def client_ai_bulk_import_apply(
                 params = []
                 for field in ["policy_type", "carrier", "premium", "limit_amount", "deductible",
                               "effective_date", "expiration_date", "description", "layer_position",
-                              "tower_group", "attachment_point", "first_named_insured",
+                              "tower_group", "attachment_point", "participation_of",
+                              "first_named_insured",
                               "underwriter_name", "placement_colleague", "exposure_address",
                               "coverage_form", "notes"]:
                     val = d.get(field)
@@ -5100,10 +5107,10 @@ def client_ai_bulk_import_apply(
                         policy_uid, client_id, policy_type, carrier, policy_number,
                         effective_date, expiration_date, premium, limit_amount, deductible,
                         description, layer_position, tower_group, attachment_point,
-                        first_named_insured, underwriter_name, placement_colleague,
-                        exposure_address, coverage_form, notes, project_id, project_name,
-                        is_program, renewal_status
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Not Started')""",
+                        participation_of, first_named_insured, underwriter_name,
+                        placement_colleague, exposure_address, coverage_form, notes,
+                        project_id, project_name, is_program, renewal_status
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Not Started')""",
                     (
                         uid, client_id,
                         d.get("policy_type", ""), d.get("carrier", ""), d.get("policy_number", ""),
@@ -5112,6 +5119,7 @@ def client_ai_bulk_import_apply(
                         d.get("deductible", 0) or 0,
                         d.get("description", ""), d.get("layer_position", "Primary"),
                         d.get("tower_group", ""), d.get("attachment_point"),
+                        d.get("participation_of"),
                         d.get("first_named_insured", ""), d.get("underwriter_name", ""),
                         d.get("placement_colleague", ""), d.get("exposure_address", ""),
                         d.get("coverage_form", ""), d.get("notes", ""),
