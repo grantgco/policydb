@@ -149,3 +149,40 @@ def test_auto_generate_idempotent(db):
         "SELECT * FROM policy_sub_coverages WHERE policy_id = ?", (pid,)
     ).fetchall()
     assert len(rows) == 1
+
+
+def test_sub_coverages_email_token(db):
+    """policy_context returns comma-separated sub-coverages token."""
+    db.execute("INSERT INTO clients (id, name, industry_segment) VALUES (1, 'Test Client', '')")
+    db.execute(
+        "INSERT INTO policies (policy_uid, client_id, policy_type) "
+        "VALUES ('POL-TOK', 1, 'Business Owners Policy')"
+    )
+    pid = db.execute("SELECT id FROM policies WHERE policy_uid='POL-TOK'").fetchone()[0]
+    db.execute(
+        "INSERT INTO policy_sub_coverages (policy_id, coverage_type, sort_order) VALUES (?, ?, ?)",
+        (pid, "General Liability", 0),
+    )
+    db.execute(
+        "INSERT INTO policy_sub_coverages (policy_id, coverage_type, sort_order) VALUES (?, ?, ?)",
+        (pid, "Property / Builders Risk", 1),
+    )
+    db.commit()
+
+    from policydb.email_templates import policy_context
+    tokens = policy_context(db, "POL-TOK")
+    assert tokens["sub_coverages"] == "General Liability, Property / Builders Risk"
+
+
+def test_sub_coverages_token_empty_when_none(db):
+    """policy_context returns empty string when no sub-coverages."""
+    db.execute("INSERT OR IGNORE INTO clients (id, name, industry_segment) VALUES (2, 'Another Client', '')")
+    db.execute(
+        "INSERT INTO policies (policy_uid, client_id, policy_type) "
+        "VALUES ('POL-NONE', 2, 'General Liability')"
+    )
+    db.commit()
+
+    from policydb.email_templates import policy_context
+    tokens = policy_context(db, "POL-NONE")
+    assert tokens["sub_coverages"] == ""
