@@ -1,11 +1,40 @@
-{# Exposure card — read-only summary of linked exposures on policy detail page #}
+{# Exposure card — interactive exposure selector on policy detail page #}
+<div id="exposure-card-wrapper">
 <div class="card p-4 mt-4">
-  <h3 class="font-semibold text-gray-900 text-sm mb-3">Rating Basis</h3>
+  <div class="flex items-center justify-between mb-3">
+    <h3 class="font-semibold text-gray-900 text-sm">Rating Basis</h3>
+    {% if available_exposures %}
+    <div class="relative" id="add-exposure-wrapper">
+      <button type="button" class="text-xs text-marsh hover:underline font-medium no-print"
+        onclick="var dd=this.nextElementSibling; dd.classList.toggle('hidden'); if(!dd.classList.contains('hidden')){var self=this; var close=function(e){if(!dd.contains(e.target)&&e.target!==self){dd.classList.add('hidden'); document.removeEventListener('click',close)}}; setTimeout(function(){document.addEventListener('click',close)},0)}">+ Link Exposure</button>
+      <div class="hidden absolute right-0 top-full mt-1 z-50 bg-white border border-gray-200 rounded-lg shadow-lg w-72 max-h-48 overflow-y-auto">
+        {% for exp in available_exposures %}
+        <button class="w-full text-left px-3 py-2 hover:bg-gray-50 text-sm border-b border-gray-50 last:border-b-0"
+          hx-post="/policies/{{ policy_uid }}/exposure-link"
+          hx-vals='{"exposure_id": "{{ exp.id }}", "is_primary": "{{ 1 if not exposure_links else 0 }}"}'
+          hx-target="#exposure-card-wrapper" hx-swap="outerHTML">
+          <span class="font-medium text-gray-900">{{ exp.exposure_type }}</span>
+          <span class="text-xs text-gray-400 ml-1">
+            {% if exp.amount %}{% if exp.unit == 'currency' %}${{ "{:,.0f}".format(exp.amount) }}{% else %}{{ "{:,.0f}".format(exp.amount) }}{% endif %} · {% endif %}per {{ exp.denominator }}
+          </span>
+        </button>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
   {% if exposure_links %}
+    {# Primary exposures #}
     {% for link in exposure_links %}
     {% if link.is_primary %}
     <div class="flex items-center gap-3 p-3 bg-green-50 border border-green-200 rounded-lg mb-2">
-      <span class="text-amber-400 text-lg">★</span>
+      <button class="text-lg leading-none cursor-pointer no-print flex-shrink-0"
+        hx-patch="/policies/{{ policy_uid }}/exposure-link/{{ link.exposure_id }}/toggle-primary"
+        hx-target="#exposure-card-wrapper" hx-swap="outerHTML"
+        title="Remove primary status">
+        <span class="text-amber-400">★</span>
+      </button>
       <div class="flex-1 min-w-0">
         <div class="font-semibold text-gray-900 text-sm">{{ link.exposure_type }}</div>
         <div class="text-xs text-gray-500">{{ link.project_name or 'Corporate' }} · {{ link.year }} · per {{ link.denominator }}</div>
@@ -19,16 +48,27 @@
         <div class="text-gray-400 text-xs">No rate</div>
         {% endif %}
       </div>
+      <button class="text-xs text-gray-300 hover:text-red-400 no-print ml-1 flex-shrink-0"
+        hx-delete="/policies/{{ policy_uid }}/exposure-link/{{ link.exposure_id }}"
+        hx-target="#exposure-card-wrapper" hx-swap="outerHTML"
+        hx-confirm="Remove {{ link.exposure_type }} link?"
+        title="Remove link">✕</button>
     </div>
     {% endif %}
     {% endfor %}
+
     {# Context exposures #}
     {% set context_links = exposure_links | selectattr('is_primary', 'falsy') | list %}
     {% if context_links %}
     <div class="text-[10px] uppercase tracking-wide text-gray-400 mt-3 mb-1.5">Context Exposures</div>
     {% for link in context_links %}
     <div class="flex items-center gap-3 p-2.5 bg-gray-50 border border-gray-100 rounded-lg mb-1.5">
-      <span class="text-gray-300 text-sm">☆</span>
+      <button class="text-sm leading-none cursor-pointer no-print flex-shrink-0"
+        hx-patch="/policies/{{ policy_uid }}/exposure-link/{{ link.exposure_id }}/toggle-primary"
+        hx-target="#exposure-card-wrapper" hx-swap="outerHTML"
+        title="Set as primary">
+        <span class="text-gray-300 hover:text-amber-300">☆</span>
+      </button>
       <div class="flex-1 min-w-0">
         <div class="font-medium text-gray-600 text-sm">{{ link.exposure_type }}</div>
         <div class="text-xs text-gray-400">{{ link.project_name or 'Corporate' }} · {{ link.year }}</div>
@@ -39,6 +79,11 @@
         <div class="font-medium text-gray-500">${{ "{:,.2f}".format(link.rate) }}</div>
         {% endif %}
       </div>
+      <button class="text-xs text-gray-300 hover:text-red-400 no-print ml-1 flex-shrink-0"
+        hx-delete="/policies/{{ policy_uid }}/exposure-link/{{ link.exposure_id }}"
+        hx-target="#exposure-card-wrapper" hx-swap="outerHTML"
+        hx-confirm="Remove {{ link.exposure_type }} link?"
+        title="Remove link">✕</button>
     </div>
     {% endfor %}
     {% endif %}
@@ -48,4 +93,5 @@
     <div class="text-xs text-amber-500 mt-1">Link exposures in the client's Exposures tab</div>
   </div>
   {% endif %}
+</div>
 </div>
