@@ -1,0 +1,137 @@
+{# Activity Timeline — Vertical timeline of recent activities #}
+{% from "charts/_chart_base.html" import chart_frame %}
+{% call(area_id) chart_frame("Activity Timeline", "Recent activity log") %}
+<div id="{{ area_id }}" style="width:100%;height:100%"></div>
+<script>
+window.render_activity_timeline = function() {
+  var data = window.chartData_activity_timeline;
+  var containerId = '{{ area_id }}';
+  var container = document.getElementById(containerId);
+  if (!data || !data.length) {
+    container.innerHTML = '<div class="chart-empty">No activities recorded</div>';
+    return;
+  }
+
+  // Activity type color map
+  var typeColors = {
+    'Call': '#2563eb',
+    'Email': '#0891b2',
+    'Meeting': '#7c3aed',
+    'Note': '#9ca3af',
+    'Renewal': '#d97706',
+    'Endorsement': '#059669',
+    'Claim': '#dc2626',
+    'Follow-up': '#db2777'
+  };
+  function getTypeColor(t) { return typeColors[t] || '#64748b'; }
+
+  // Limit to ~15 items to fit 16:9
+  var items = data.slice(0, 15);
+
+  var chart = createChartSvg(containerId, {
+    margin: {top: 10, right: 200, bottom: 10, left: 110}
+  });
+  var g = chart.g, w = chart.width, h = chart.height;
+
+  var rowH = Math.min(28, h / items.length);
+  var totalH = rowH * items.length;
+  var startY = (h - totalH) / 2;
+
+  // Vertical spine line
+  var spineX = 0;
+  g.append('line')
+    .attr('x1', spineX).attr('y1', startY)
+    .attr('x2', spineX).attr('y2', startY + totalH)
+    .attr('stroke', '#e5e7eb').attr('stroke-width', 2);
+
+  items.forEach(function(item, i) {
+    var y = startY + i * rowH + rowH / 2;
+    var color = getTypeColor(item.activity_type);
+
+    // Date label on left
+    var dateStr = '';
+    if (item.date) {
+      var d = new Date(item.date);
+      dateStr = d.toLocaleDateString('en-US', {month: 'short', day: 'numeric'});
+    }
+    g.append('text')
+      .attr('x', spineX - 12)
+      .attr('y', y + 4)
+      .attr('text-anchor', 'end')
+      .attr('class', 'chart-axis')
+      .style('font-size', '10px')
+      .text(dateStr);
+
+    // Dot on spine
+    g.append('circle')
+      .attr('cx', spineX)
+      .attr('cy', y)
+      .attr('r', 5)
+      .attr('fill', color)
+      .attr('stroke', '#fff')
+      .attr('stroke-width', 1.5);
+
+    // Horizontal connector
+    g.append('line')
+      .attr('x1', spineX + 5).attr('y1', y)
+      .attr('x2', spineX + 20).attr('y2', y)
+      .attr('stroke', color).attr('stroke-width', 1.5);
+
+    // Activity type badge
+    var badgeW = 56, badgeH = 16;
+    var badgeX = spineX + 24;
+    g.append('rect')
+      .attr('x', badgeX)
+      .attr('y', y - badgeH / 2)
+      .attr('width', badgeW)
+      .attr('height', badgeH)
+      .attr('rx', 3)
+      .attr('fill', color)
+      .attr('opacity', 0.15);
+    g.append('text')
+      .attr('x', badgeX + badgeW / 2)
+      .attr('y', y + 4)
+      .attr('text-anchor', 'middle')
+      .style('font-size', '9px')
+      .style('font-weight', '600')
+      .attr('fill', color)
+      .text(item.activity_type || 'Note');
+
+    // Subject text
+    var subjectX = badgeX + badgeW + 10;
+    var maxSubjectLen = 40;
+    var subject = item.subject || '';
+    if (subject.length > maxSubjectLen) subject = subject.substring(0, maxSubjectLen) + '\u2026';
+    g.append('text')
+      .attr('x', subjectX)
+      .attr('y', y + 4)
+      .attr('text-anchor', 'start')
+      .style('font-size', '11px')
+      .attr('fill', '#374151')
+      .text(subject);
+
+    // Contacted name (smaller, gray)
+    if (item.contacted) {
+      g.append('text')
+        .attr('x', subjectX)
+        .attr('y', y + 16)
+        .attr('text-anchor', 'start')
+        .style('font-size', '9px')
+        .attr('fill', '#9ca3af')
+        .text(item.contacted);
+    }
+  });
+
+  // Legend in bottom right
+  var legendTypes = [];
+  var seen = {};
+  items.forEach(function(item) {
+    var t = item.activity_type || 'Note';
+    if (!seen[t]) { seen[t] = true; legendTypes.push({color: getTypeColor(t), label: t}); }
+  });
+  if (legendTypes.length > 1) {
+    addLegend(g, legendTypes.slice(0, 6), w - 140, h - legendTypes.length * 18, {direction: 'vertical'});
+  }
+};
+</script>
+{% endcall %}

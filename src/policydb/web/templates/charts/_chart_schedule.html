@@ -1,0 +1,55 @@
+{# Schedule of Insurance — HTML Table Chart
+   Data: chartData_schedule = {rows: [{line, carrier, policy_number, effective, expiration, limit, deductible, premium, form}], total_premium, policy_count}
+#}
+{% from "charts/_chart_base.html" import chart_frame %}
+
+{% call(area_id) chart_frame("Schedule of Insurance", "Active policies overview") %}
+<div id="{{ area_id }}" style="overflow-y:auto; flex:1;">
+  <script>
+  window.render_schedule = function() {
+    var data = chartData_schedule;
+    var el = document.getElementById('{{ area_id }}');
+    if (!data || !data.rows || data.rows.length === 0) {
+      el.innerHTML = '<div class="chart-empty">No active policies found</div>';
+      return;
+    }
+    var html = '<table class="chart-table">';
+    html += '<thead><tr>'
+      + '<th>Line of Business</th>'
+      + '<th>Carrier</th>'
+      + '<th>Policy #</th>'
+      + '<th>Effective</th>'
+      + '<th>Expiration</th>'
+      + '<th style="text-align:right">Limit</th>'
+      + '<th style="text-align:right">Deductible</th>'
+      + '<th style="text-align:right">Premium</th>'
+      + '<th>Form</th>'
+      + '</tr></thead><tbody>';
+    data.rows.forEach(function(r) {
+      html += '<tr>'
+        + '<td style="font-weight:600">' + (r.line || '\u2014') + '</td>'
+        + '<td>' + (r.carrier || '\u2014') + '</td>'
+        + '<td>' + (r.policy_number || '\u2014') + '</td>'
+        + '<td>' + (r.effective || '\u2014') + '</td>'
+        + '<td>' + (r.expiration || '\u2014') + '</td>'
+        + '<td style="text-align:right">' + (r.limit != null ? formatCurrency(r.limit) : '\u2014') + '</td>'
+        + '<td style="text-align:right">' + (r.deductible != null ? formatCurrency(r.deductible) : '\u2014') + '</td>'
+        + '<td style="text-align:right">' + (r.premium != null ? formatCurrencyFull(r.premium) : '\u2014') + '</td>'
+        + '<td>' + (r.form || '\u2014') + '</td>'
+        + '</tr>';
+    });
+    html += '</tbody>';
+    html += '<tfoot><tr>'
+      + '<td colspan="7" style="text-align:right">'
+        + data.policy_count + ' polic' + (data.policy_count === 1 ? 'y' : 'ies')
+        + ' &middot; Total Premium'
+      + '</td>'
+      + '<td style="text-align:right">' + formatCurrencyFull(data.total_premium) + '</td>'
+      + '<td></td>'
+      + '</tr></tfoot>';
+    html += '</table>';
+    el.innerHTML = html;
+  };
+  </script>
+</div>
+{% endcall %}
