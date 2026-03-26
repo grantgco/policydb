@@ -75,7 +75,7 @@ if [ -d .git ] || [ -f .git ]; then
     git pull --ff-only 2>/dev/null || echo "  (pull skipped — may need manual merge)"
 fi
 
-SRC_VERSION=$(grep '__version__' src/policydb/__init__.py | sed 's/.*"\(.*\)".*/\1/')
+SRC_VERSION=$(grep '_FALLBACK_VERSION' src/policydb/__init__.py | sed 's/.*"\(.*\)".*/\1/')
 echo "  Version: v${SRC_VERSION}"
 
 PY=$(find_python) || {
