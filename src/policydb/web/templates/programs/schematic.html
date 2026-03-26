@@ -59,14 +59,12 @@
     </div>
   </div>
 
-  {# Two-column matrices #}
-  <div class="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
-    <div>
-      {% include "programs/_underlying_matrix.html" %}
-    </div>
-    <div>
-      {% include "programs/_excess_matrix.html" %}
-    </div>
+  {# Stacked matrices — full width for more editing room #}
+  <div class="mb-6">
+    {% include "programs/_underlying_matrix.html" %}
+  </div>
+  <div class="mb-6">
+    {% include "programs/_excess_matrix.html" %}
   </div>
 
   {# ── Unassigned Policies Panel ── #}
