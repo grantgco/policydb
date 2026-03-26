@@ -17,7 +17,7 @@
 **Files:**
 - Modify: `src/policydb/config.py` (add to `_DEFAULTS` dict around line 12)
 - Modify: `src/policydb/web/routes/settings.py` (add save endpoint + expose in context)
-- Modify: `src/policydb/web/templates/settings.html` (add input field in Database & Admin tab)
+- Modify: `src/policydb/web/templates/settings/_tab_database.html` (add input field in Database & Admin tab)
 
 - [ ] **Step 1: Add `brokerage_name` to `_DEFAULTS` in `config.py`**
 
@@ -51,7 +51,7 @@ def update_brokerage(request: Request, brokerage_name: str = Form("")):
 
 - [ ] **Step 4: Add input field in settings template**
 
-In `src/policydb/web/templates/settings.html`, in the Database & Admin tab section near the Google Places API key field, add a "Brokerage Name" text input:
+In `src/policydb/web/templates/settings/_tab_database.html`, near the Google Places API key form, add a "Brokerage Name" text input:
 
 ```html
 <form method="post" action="/settings/config/brokerage" class="space-y-2">
@@ -73,7 +73,7 @@ Start server, navigate to Settings → Database & Admin tab. Verify "Brokerage N
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/policydb/config.py src/policydb/web/routes/settings.py src/policydb/web/templates/settings.html
+git add src/policydb/config.py src/policydb/web/routes/settings.py src/policydb/web/templates/settings/_tab_database.html
 git commit -m "feat: add brokerage_name config key for AI contact import"
 ```
 
@@ -477,9 +477,11 @@ git commit -m "feat: add parse_contact_bulk_import_json() with contact_type vali
 
 - [ ] **Step 1: Add imports at top of clients.py**
 
-At the top of `src/policydb/web/routes/clients.py`, add to the existing `llm_schemas` imports:
+At the top of `src/policydb/web/routes/clients.py`, ensure `import json` is present (add if missing), then add to the existing `llm_schemas` imports:
 
 ```python
+import json  # add if not already imported
+
 from policydb.llm_schemas import (
     # ... existing imports ...
     CONTACT_BULK_IMPORT_SCHEMA,
@@ -493,7 +495,7 @@ from policydb.llm_schemas import (
 Near the existing `_BULK_IMPORT_CACHE` dict in `clients.py`, add:
 
 ```python
-_CLIENT_CONTACT_IMPORT_CACHE: dict[str, tuple] = {}
+_CLIENT_CONTACT_IMPORT_CACHE: dict[str, tuple[list[dict], int, float]] = {}
 ```
 
 - [ ] **Step 3: Add prompt route**
@@ -656,21 +658,18 @@ async def client_ai_contact_import_apply(
         contact_type = form.get(f"type_{i}", contact.get("contact_type", "client"))
 
         try:
-            # Normalize phone/email
+            # Normalize phone/email (both return plain strings)
             email = contact.get("email")
             if email:
-                result = clean_email(email)
-                email = result.get("formatted", email) if isinstance(result, dict) else email
+                email = clean_email(email)
 
             phone = contact.get("phone")
             if phone:
-                result = format_phone(phone)
-                phone = result.get("formatted", phone) if isinstance(result, dict) else phone
+                phone = format_phone(phone)
 
             mobile = contact.get("mobile")
             if mobile:
-                result = format_phone(mobile)
-                mobile = result.get("formatted", mobile) if isinstance(result, dict) else mobile
+                mobile = format_phone(mobile)
 
             cid = get_or_create_contact(
                 conn,
@@ -733,11 +732,10 @@ async def client_ai_contact_import_apply(
         for e in errors:
             parts.append(f"<p>{e}</p>")
         parts.append("</div>")
-    parts.append(
-        '<p class="text-xs text-gray-500 mt-1">Reload the Contacts tab to see updated list.</p>'
-    )
     parts.append("</div>")
-    return HTMLResponse("\n".join(parts))
+    response = HTMLResponse("\n".join(parts))
+    response.headers["HX-Trigger"] = "refreshContacts"
+    return response
 ```
 
 - [ ] **Step 6: Verify imports exist**
@@ -779,8 +777,9 @@ Create `src/policydb/web/templates/clients/_ai_contacts_review.html` based on `p
     <span class="px-2.5 py-1 rounded-full text-xs font-medium bg-indigo-50 text-indigo-700">
       {{ contacts | length }} contact{{ 's' if contacts | length != 1 else '' }} extracted
     </span>
-    {% set new_count = contacts | selectattr('already_assigned', 'equalto', false) | selectattr('existing_contact', 'none') | list | length %}
-    {% set exists_count = contacts | selectattr('already_assigned', 'equalto', false) | rejectattr('existing_contact', 'none') | list | length %}
+    {% set not_assigned = contacts | selectattr('already_assigned', 'equalto', false) | list %}
+    {% set new_count = not_assigned | rejectattr('existing_contact') | list | length %}
+    {% set exists_count = not_assigned | selectattr('existing_contact') | list | length %}
     {% set assigned_count = contacts | selectattr('already_assigned', 'equalto', true) | list | length %}
     {% if new_count %}
     <span class="px-2.5 py-1 rounded-full text-xs font-medium bg-green-50 text-green-700">
@@ -929,7 +928,7 @@ Replace the contents of `_tab_contacts.html` with:
   <h3 class="text-sm font-semibold text-gray-700">Contacts</h3>
   <button type="button"
     hx-get="/clients/{{ client.id }}/ai-contact-import/prompt"
-    hx-target="#ai-contact-import-result"
+    hx-target="#ai-import-container"
     hx-swap="innerHTML"
     class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg transition-colors">
     <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
