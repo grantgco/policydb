@@ -1560,16 +1560,19 @@ def get_linked_group_overview(
         if r["policy_type"]:
             matrix[r["policy_type"]][r["client_id"]].append(r["carrier"] or "")
 
-    # Also include sub-coverage entries in the matrix
-    sub_rows = conn.execute(
-        f"SELECT sc.coverage_type AS policy_type, p.client_id, p.carrier "
-        f"FROM policy_sub_coverages sc "
-        f"JOIN policies p ON p.id = sc.policy_id "
-        f"WHERE p.client_id IN ({placeholders}) "
-        f"  AND p.archived = 0 "
-        f"  AND (p.is_opportunity = 0 OR p.is_opportunity IS NULL)",
-        member_ids,
-    ).fetchall()
+    # Also include sub-coverage entries in the matrix (guard for pre-migration DBs)
+    try:
+        sub_rows = conn.execute(
+            f"SELECT sc.coverage_type AS policy_type, p.client_id, p.carrier "
+            f"FROM policy_sub_coverages sc "
+            f"JOIN policies p ON p.id = sc.policy_id "
+            f"WHERE p.client_id IN ({placeholders}) "
+            f"  AND p.archived = 0 "
+            f"  AND (p.is_opportunity = 0 OR p.is_opportunity IS NULL)",
+            member_ids,
+        ).fetchall()
+    except Exception:
+        sub_rows = []
     for r in sub_rows:
         if r["policy_type"]:
             carrier = (r["carrier"] or "") + " [Pkg]"
@@ -2380,28 +2383,34 @@ def get_schematic_completeness(
 
 def get_sub_coverages(conn, policy_id: int) -> list[dict]:
     """Return sub-coverages for a policy, ordered by sort_order."""
-    rows = conn.execute(
-        "SELECT id, coverage_type, sort_order "
-        "FROM policy_sub_coverages WHERE policy_id = ? ORDER BY sort_order, id",
-        (policy_id,),
-    ).fetchall()
-    return [dict(r) for r in rows]
+    try:
+        rows = conn.execute(
+            "SELECT id, coverage_type, sort_order "
+            "FROM policy_sub_coverages WHERE policy_id = ? ORDER BY sort_order, id",
+            (policy_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
 
 
 def get_sub_coverages_by_policy_id(conn, policy_ids: list[int]) -> dict[int, list[str]]:
     """Return {policy_id: [coverage_type, ...]} for policies with sub-coverages."""
     if not policy_ids:
         return {}
-    placeholders = ",".join("?" * len(policy_ids))
-    rows = conn.execute(
-        f"SELECT policy_id, coverage_type FROM policy_sub_coverages "  # noqa: S608
-        f"WHERE policy_id IN ({placeholders}) ORDER BY sort_order, id",
-        policy_ids,
-    ).fetchall()
-    result: dict[int, list[str]] = {}
-    for r in rows:
-        result.setdefault(r["policy_id"], []).append(r["coverage_type"])
-    return result
+    try:
+        placeholders = ",".join("?" * len(policy_ids))
+        rows = conn.execute(
+            f"SELECT policy_id, coverage_type FROM policy_sub_coverages "  # noqa: S608
+            f"WHERE policy_id IN ({placeholders}) ORDER BY sort_order, id",
+            policy_ids,
+        ).fetchall()
+        result: dict[int, list[str]] = {}
+        for r in rows:
+            result.setdefault(r["policy_id"], []).append(r["coverage_type"])
+        return result
+    except Exception:
+        return {}
 
 
 def auto_generate_sub_coverages(conn, policy_id: int, policy_type: str):

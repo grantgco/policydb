@@ -407,13 +407,16 @@ def policy_context(conn: sqlite3.Connection, policy_uid: str) -> dict:
         if k not in ctx or not ctx[k]:
             ctx[k] = v
 
-    # Sub-coverages
-    sub_rows = conn.execute(
-        "SELECT coverage_type FROM policy_sub_coverages "
-        "WHERE policy_id = ? ORDER BY sort_order, id",
-        (row["id"],),
-    ).fetchall()
-    ctx["sub_coverages"] = ", ".join(r["coverage_type"] for r in sub_rows) if sub_rows else ""
+    # Sub-coverages (table may not exist on older DBs before migration 090)
+    try:
+        sub_rows = conn.execute(
+            "SELECT coverage_type FROM policy_sub_coverages "
+            "WHERE policy_id = ? ORDER BY sort_order, id",
+            (row["id"],),
+        ).fetchall()
+        ctx["sub_coverages"] = ", ".join(r["coverage_type"] for r in sub_rows) if sub_rows else ""
+    except Exception:
+        ctx["sub_coverages"] = ""
 
     # Exposure/rate from linked exposures
     from policydb.exposures import get_policy_exposures
