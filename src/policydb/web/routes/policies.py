@@ -1956,6 +1956,125 @@ async def policy_ai_contacts_apply(
     return HTMLResponse("\n".join(parts))
 
 
+def _exposure_card_context(conn, policy):
+    """Build template context for the exposure card partial."""
+    from policydb.exposures import get_policy_exposures
+
+    uid = policy["policy_uid"]
+    exposure_links = get_policy_exposures(conn, uid)
+    for link in exposure_links:
+        if link.get("project_id"):
+            proj = conn.execute("SELECT name FROM projects WHERE id=?", (link["project_id"],)).fetchone()
+            link["project_name"] = proj["name"] if proj else None
+        else:
+            link["project_name"] = None
+
+    # Available exposures for the combobox (scoped to policy's client + project + year)
+    eff_date = policy.get("effective_date") or ""
+    year = int(eff_date[:4]) if eff_date and len(eff_date) >= 4 else None
+    project_id = policy.get("project_id")
+    client_id = policy["client_id"]
+
+    already_linked = {link["exposure_id"] for link in exposure_links}
+
+    if year:
+        available = conn.execute(
+            """SELECT ce.id, ce.exposure_type, ce.amount, ce.denominator, ce.year, ce.unit,
+                      ce.project_id
+               FROM client_exposures ce
+               WHERE ce.client_id = ? AND ce.year = ?
+               AND COALESCE(ce.project_id, 0) = COALESCE(?, 0)
+               ORDER BY ce.exposure_type""",
+            (client_id, year, project_id),
+        ).fetchall()
+        available = [dict(r) for r in available if r["id"] not in already_linked]
+    else:
+        available = []
+
+    return {
+        "exposure_links": exposure_links,
+        "available_exposures": available,
+        "policy_uid": uid,
+    }
+
+
+def _render_exposure_card(request, conn, uid):
+    """Re-render the exposure card partial for HTMX swap."""
+    from policydb.queries import get_policy_by_uid
+
+    policy = get_policy_by_uid(conn, uid)
+    if not policy:
+        return HTMLResponse("Not found", status_code=404)
+    policy_dict = dict(policy)
+    ctx = _exposure_card_context(conn, policy_dict)
+    ctx["request"] = request
+    return templates.TemplateResponse("policies/_exposure_card.html", ctx)
+
+
+@router.post("/{policy_uid}/exposure-link", response_class=HTMLResponse)
+def policy_add_exposure_link(
+    request: Request,
+    policy_uid: str,
+    exposure_id: int = Form(...),
+    is_primary: int = Form(0),
+    conn=Depends(get_db),
+):
+    """Link an exposure to this policy."""
+    uid = policy_uid.upper()
+    from policydb.exposures import create_exposure_link
+
+    create_exposure_link(conn, uid, exposure_id, is_primary=bool(is_primary))
+    return _render_exposure_card(request, conn, uid)
+
+
+@router.delete("/{policy_uid}/exposure-link/{exposure_id}", response_class=HTMLResponse)
+def policy_remove_exposure_link(
+    request: Request,
+    policy_uid: str,
+    exposure_id: int,
+    conn=Depends(get_db),
+):
+    """Remove an exposure link."""
+    uid = policy_uid.upper()
+    from policydb.exposures import delete_exposure_link
+
+    delete_exposure_link(conn, uid, exposure_id)
+    return _render_exposure_card(request, conn, uid)
+
+
+@router.patch("/{policy_uid}/exposure-link/{exposure_id}/toggle-primary", response_class=HTMLResponse)
+def policy_toggle_exposure_primary(
+    request: Request,
+    policy_uid: str,
+    exposure_id: int,
+    conn=Depends(get_db),
+):
+    """Toggle primary status for an exposure link."""
+    uid = policy_uid.upper()
+    # Check current state
+    row = conn.execute(
+        "SELECT is_primary FROM policy_exposure_links WHERE policy_uid=? AND exposure_id=?",
+        (uid, exposure_id),
+    ).fetchone()
+    if not row:
+        return HTMLResponse("Link not found", status_code=404)
+
+    if row["is_primary"]:
+        # Unset primary
+        conn.execute(
+            "UPDATE policy_exposure_links SET is_primary=0 WHERE policy_uid=? AND exposure_id=?",
+            (uid, exposure_id),
+        )
+        conn.commit()
+    else:
+        # Set as primary (clears others)
+        from policydb.exposures import set_primary_exposure
+
+        set_primary_exposure(conn, uid, exposure_id)
+
+    return _render_exposure_card(request, conn, uid)
+
+
 @router.get("/{policy_uid}/tab/details", response_class=HTMLResponse)
 def policy_tab_details(request: Request, policy_uid: str, conn=Depends(get_db)):
     uid = policy_uid.upper()
@@ -2000,14 +2119,7 @@ def policy_tab_details(request: Request, policy_uid: str, conn=Depends(get_db)):
                 ground_up = running
             _tower_layers.append(dict(tr) | {"ground_up": ground_up, "is_current": tr["policy_uid"] == uid})
 
-    from policydb.exposures import get_policy_exposures
-    exposure_links = get_policy_exposures(conn, uid)
-    for link in exposure_links:
-        if link.get("project_id"):
-            proj = conn.execute("SELECT name FROM projects WHERE id=?", (link["project_id"],)).fetchone()
-            link["project_name"] = proj["name"] if proj else None
-        else:
-            link["project_name"] = None
+    _exp_ctx = _exposure_card_context(conn, policy_dict)
 
     return templates.TemplateResponse("policies/_tab_details.html", {
         "request": request,
@@ -2020,7 +2132,7 @@ def policy_tab_details(request: Request, policy_uid: str, conn=Depends(get_db)):
         "opportunity_statuses": cfg.get("opportunity_statuses"),
         "tower_layers": _tower_layers,
         "cycle_labels": _RCL,
-        "exposure_links": exposure_links,
+        **_exp_ctx,
         "program_linked_policies": [dict(r) for r in conn.execute(
             """SELECT policy_uid, policy_type, carrier, premium, effective_date, expiration_date
                FROM policies WHERE program_id = ? AND archived = 0 ORDER BY policy_type""",
