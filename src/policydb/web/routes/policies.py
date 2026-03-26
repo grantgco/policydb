@@ -23,7 +23,7 @@ from policydb.llm_schemas import (
     parse_contact_extraction_json,
     parse_llm_json,
 )
-from policydb.queries import REVIEW_CYCLE_LABELS, get_all_policies, get_client_by_id, get_opportunity_by_uid, get_policy_by_uid, get_policy_total_hours, get_saved_notes, save_note, delete_saved_note, renew_policy, get_or_create_contact, assign_contact_to_policy, remove_contact_from_policy, set_placement_colleague, get_policy_contacts
+from policydb.queries import REVIEW_CYCLE_LABELS, get_all_policies, get_client_by_id, get_opportunity_by_uid, get_policy_by_uid, get_policy_total_hours, get_saved_notes, save_note, delete_saved_note, renew_policy, get_or_create_contact, assign_contact_to_policy, remove_contact_from_policy, set_placement_colleague, get_policy_contacts, get_sub_coverages as _get_sub_coverages, auto_generate_sub_coverages as _auto_generate_sub_coverages
 from rapidfuzz import fuzz
 from policydb.utils import round_duration, normalize_carrier, normalize_coverage_type, normalize_policy_number, format_city, format_state, format_zip
 from policydb.web.app import get_db, templates
@@ -4282,6 +4282,51 @@ def policy_note_delete(request: Request, policy_uid: str, note_id: int, conn=Dep
     )
 
 
+@router.get("/{uid}/sub-coverages")
+async def get_sub_coverages_endpoint(uid: str, conn=Depends(get_db)):
+    row = conn.execute("SELECT id FROM policies WHERE policy_uid = ?", (uid,)).fetchone()
+    if not row:
+        raise HTTPException(404)
+    return _get_sub_coverages(conn, row["id"])
+
+
+@router.post("/{uid}/sub-coverages")
+async def add_sub_coverage(uid: str, request: Request, conn=Depends(get_db)):
+    row = conn.execute("SELECT id FROM policies WHERE policy_uid = ?", (uid,)).fetchone()
+    if not row:
+        raise HTTPException(404)
+    body = await request.json()
+    coverage_type = body.get("coverage_type", "").strip()
+    if not coverage_type:
+        return JSONResponse({"ok": False, "error": "coverage_type required"}, 400)
+    max_sort = conn.execute(
+        "SELECT COALESCE(MAX(sort_order), -1) FROM policy_sub_coverages WHERE policy_id = ?",
+        (row["id"],),
+    ).fetchone()[0]
+    conn.execute(
+        "INSERT OR IGNORE INTO policy_sub_coverages (policy_id, coverage_type, sort_order) "
+        "VALUES (?, ?, ?)",
+        (row["id"], coverage_type, max_sort + 1),
+    )
+    conn.commit()
+    subs = _get_sub_coverages(conn, row["id"])
+    return {"ok": True, "sub_coverages": subs}
+
+
+@router.delete("/{uid}/sub-coverages/{sub_id}")
+async def remove_sub_coverage(uid: str, sub_id: int, conn=Depends(get_db)):
+    row = conn.execute("SELECT id FROM policies WHERE policy_uid = ?", (uid,)).fetchone()
+    if not row:
+        raise HTTPException(404)
+    conn.execute(
+        "DELETE FROM policy_sub_coverages WHERE id = ? AND policy_id = ?",
+        (sub_id, row["id"]),
+    )
+    conn.commit()
+    subs = _get_sub_coverages(conn, row["id"])
+    return {"ok": True, "sub_coverages": subs}
+
+
 @router.get("/new", response_class=HTMLResponse)
 def policy_new_form(request: Request, client: int = 0, opp: int = 0, conn=Depends(get_db)):
     client_row = get_client_by_id(conn, client) if client else None
@@ -4421,5 +4466,6 @@ def policy_new_post(
             assign_contact_to_policy(conn, _uw_cid, _pid, role="Underwriter")
         if project_name:
             _sync_project_id(conn, _pid, client_id, project_name)
+        _auto_generate_sub_coverages(conn, _pid, policy_type)
         conn.commit()
     return RedirectResponse(f"/policies/{uid}/edit", status_code=303)

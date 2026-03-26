@@ -2359,3 +2359,29 @@ def get_schematic_completeness(
         })
 
     return result
+
+
+# ─── SUB-COVERAGE HELPERS ────────────────────────────────────────────────────
+
+def get_sub_coverages(conn, policy_id: int) -> list[dict]:
+    """Return sub-coverages for a policy, ordered by sort_order."""
+    rows = conn.execute(
+        "SELECT id, coverage_type, sort_order "
+        "FROM policy_sub_coverages WHERE policy_id = ? ORDER BY sort_order, id",
+        (policy_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def auto_generate_sub_coverages(conn, policy_id: int, policy_type: str):
+    """Insert auto-sub-coverages based on config mapping. Skips duplicates."""
+    auto_map = cfg.get("auto_sub_coverages", {})
+    sub_types = auto_map.get(policy_type, [])
+    for i, ctype in enumerate(sub_types):
+        conn.execute(
+            "INSERT OR IGNORE INTO policy_sub_coverages (policy_id, coverage_type, sort_order) "
+            "VALUES (?, ?, ?)",
+            (policy_id, ctype, i),
+        )
+    if sub_types:
+        conn.commit()

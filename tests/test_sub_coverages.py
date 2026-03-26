@@ -97,3 +97,55 @@ def test_property_aliases_unchanged():
     """Property aliases still normalize correctly (regression check)."""
     assert normalize_coverage_type("commercial property") == "Property / Builders Risk"
     assert normalize_coverage_type("building") == "Property / Builders Risk"
+
+
+def test_auto_generate_wc_creates_el(db):
+    """Creating a WC policy auto-inserts Employers Liability sub-coverage."""
+    db.execute(
+        "INSERT INTO policies (policy_uid, client_id, policy_type) "
+        "VALUES ('POL-WC', 0, 'Workers Compensation')"
+    )
+    pid = db.execute("SELECT id FROM policies WHERE policy_uid='POL-WC'").fetchone()[0]
+
+    from policydb.queries import auto_generate_sub_coverages
+    auto_generate_sub_coverages(db, pid, "Workers Compensation")
+
+    rows = db.execute(
+        "SELECT coverage_type FROM policy_sub_coverages WHERE policy_id = ?", (pid,)
+    ).fetchall()
+    assert [r[0] for r in rows] == ["Employers Liability"]
+
+
+def test_auto_generate_no_op_for_gl(db):
+    """GL has no auto-sub-coverages configured."""
+    db.execute(
+        "INSERT INTO policies (policy_uid, client_id, policy_type) "
+        "VALUES ('POL-GL', 0, 'General Liability')"
+    )
+    pid = db.execute("SELECT id FROM policies WHERE policy_uid='POL-GL'").fetchone()[0]
+
+    from policydb.queries import auto_generate_sub_coverages
+    auto_generate_sub_coverages(db, pid, "General Liability")
+
+    rows = db.execute(
+        "SELECT * FROM policy_sub_coverages WHERE policy_id = ?", (pid,)
+    ).fetchall()
+    assert len(rows) == 0
+
+
+def test_auto_generate_idempotent(db):
+    """Calling auto-generate twice doesn't create duplicates."""
+    db.execute(
+        "INSERT INTO policies (policy_uid, client_id, policy_type) "
+        "VALUES ('POL-WC2', 0, 'Workers Compensation')"
+    )
+    pid = db.execute("SELECT id FROM policies WHERE policy_uid='POL-WC2'").fetchone()[0]
+
+    from policydb.queries import auto_generate_sub_coverages
+    auto_generate_sub_coverages(db, pid, "Workers Compensation")
+    auto_generate_sub_coverages(db, pid, "Workers Compensation")
+
+    rows = db.execute(
+        "SELECT * FROM policy_sub_coverages WHERE policy_id = ?", (pid,)
+    ).fetchall()
+    assert len(rows) == 1
