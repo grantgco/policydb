@@ -347,18 +347,21 @@ async def schematic_page(
     ).fetchall()
     policies = [dict(r) for r in rows]
 
-    # Attach sub-coverage metadata to package policies
+    # Attach sub-coverage metadata (full dicts with limits) to package policies
     all_ids = [p["id"] for p in policies]
     sub_cov_map = get_sub_coverages_by_policy_id(conn, all_ids)
+    sub_cov_full_map = get_sub_coverages_full_by_policy_id(conn, all_ids)
     for p in policies:
         subs = sub_cov_map.get(p["id"], [])
         if subs:
             p["is_package_ghost"] = True
             p["package_parent_type"] = p.get("policy_type") or ""
             p["sub_coverages"] = subs
+            p["sub_coverages_full"] = sub_cov_full_map.get(p["id"], [])
         else:
             p["is_package_ghost"] = False
             p["sub_coverages"] = []
+            p["sub_coverages_full"] = []
 
     # Split into underlying (Primary) and excess (Umbrella + Excess)
     underlying = []
@@ -369,6 +372,37 @@ async def schematic_page(
             underlying.append(p)
         else:
             excess.append(p)
+
+    # Promote umbrella/excess sub-coverages from underlying packages to excess list
+    _EXCESS_SC_KEYWORDS = ("umbrella", "excess")
+    for p in underlying:
+        for sc in p.get("sub_coverages_full", []):
+            sc_type = (sc.get("coverage_type") or "").lower()
+            if any(kw in sc_type for kw in _EXCESS_SC_KEYWORDS) and sc.get("limit_amount"):
+                # Create a synthetic excess row from the sub-coverage
+                excess.append({
+                    "id": p["id"],  # same policy id for PATCH routing
+                    "policy_uid": p["policy_uid"],
+                    "policy_type": sc["coverage_type"],
+                    "carrier": p.get("carrier") or "",
+                    "policy_number": p.get("policy_number") or "",
+                    "limit_amount": sc["limit_amount"],
+                    "deductible": sc.get("deductible") or 0,
+                    "premium": 0,
+                    "coverage_form": sc.get("coverage_form") or "",
+                    "layer_position": "Umbrella" if "umbrella" in sc_type else "Excess",
+                    "attachment_point": 0,
+                    "participation_of": None,
+                    "schematic_column": None,
+                    "is_program": 0,
+                    "tower_group": p.get("tower_group") or "",
+                    "is_package_ghost": True,
+                    "package_parent_type": p.get("policy_type") or "",
+                    "sub_coverages": [],
+                    "sub_coverages_full": [],
+                    "_from_sub_coverage": True,
+                    "_sub_coverage_id": sc["id"],
+                })
 
     # Sort underlying by schematic_column, excess by attachment_point
     underlying.sort(key=lambda p: p.get("schematic_column") or 999)
