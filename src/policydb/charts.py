@@ -222,6 +222,7 @@ def get_tower_data(conn: sqlite3.Connection, client_id: int) -> list[dict]:
                 "column": r["schematic_column"],
             })
         else:
+            is_umb = lp in ("umbrella", "umbrella liability") or "umbrella" in lp
             layer = {
                 "policy_type": r["policy_type"] or "",
                 "carrier": r["carrier"] or "",
@@ -232,6 +233,7 @@ def get_tower_data(conn: sqlite3.Connection, client_id: int) -> list[dict]:
                     r["limit_amount"], r["attachment_point"], r["participation_of"]
                 ),
                 "layer_position": r["layer_position"] or "",
+                "is_umbrella": is_umb,
                 "premium": r["premium"] or 0,
                 "form_type": r["coverage_form"] or "",
                 "participants": [],
