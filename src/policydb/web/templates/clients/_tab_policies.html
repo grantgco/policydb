@@ -126,7 +126,19 @@
       <table class="w-full text-sm">
         <thead>{{ col_headers }}</thead>
         <tbody>
-          {% for p in group %}{% if p.policy_uid not in program_linked_uids %}{% include "policies/_policy_row.html" %}{% endif %}{% endfor %}
+          {% for p in group %}{% if p.policy_uid not in program_linked_uids %}{% include "policies/_policy_row.html" %}{% if p.sub_coverages %}{% for sc in p.sub_coverages %}
+          <tr class="bg-gray-50/50 border-t border-gray-50">
+            <td class="px-3 py-1 pl-8 text-[10px] text-gray-300">└</td>
+            <td class="px-3 py-1 text-xs text-gray-500">{{ sc.coverage_type }}{% if sc.coverage_form %} <span class="text-gray-400">({{ sc.coverage_form }})</span>{% endif %}</td>
+            <td class="px-3 py-1"></td>
+            <td class="px-3 py-1"></td>
+            <td class="px-3 py-1"></td>
+            <td class="px-3 py-1 hidden xl:table-cell"></td>
+            <td class="px-3 py-1 text-right text-xs text-gray-400 tabular-nums hidden xl:table-cell">{{ sc.limit_amount | currency_short if sc.limit_amount else '' }}</td>
+            <td class="px-3 py-1"></td>
+            <td class="px-3 py-1"></td>
+          </tr>
+          {% endfor %}{% endif %}{% endif %}{% endfor %}
         </tbody>
       </table>
     </div>
@@ -137,7 +149,19 @@
       <table class="w-full text-sm">
         <thead>{{ col_headers }}</thead>
         <tbody>
-          {% for p in group %}{% if p.policy_uid not in program_linked_uids %}{% include "policies/_policy_row.html" %}{% endif %}{% endfor %}
+          {% for p in group %}{% if p.policy_uid not in program_linked_uids %}{% include "policies/_policy_row.html" %}{% if p.sub_coverages %}{% for sc in p.sub_coverages %}
+          <tr class="bg-gray-50/50 border-t border-gray-50">
+            <td class="px-3 py-1 pl-8 text-[10px] text-gray-300">└</td>
+            <td class="px-3 py-1 text-xs text-gray-500">{{ sc.coverage_type }}{% if sc.coverage_form %} <span class="text-gray-400">({{ sc.coverage_form }})</span>{% endif %}</td>
+            <td class="px-3 py-1"></td>
+            <td class="px-3 py-1"></td>
+            <td class="px-3 py-1"></td>
+            <td class="px-3 py-1 hidden xl:table-cell"></td>
+            <td class="px-3 py-1 text-right text-xs text-gray-400 tabular-nums hidden xl:table-cell">{{ sc.limit_amount | currency_short if sc.limit_amount else '' }}</td>
+            <td class="px-3 py-1"></td>
+            <td class="px-3 py-1"></td>
+          </tr>
+          {% endfor %}{% endif %}{% endif %}{% endfor %}
         </tbody>
       </table>
     </div>
@@ -162,7 +186,19 @@
         <thead>{{ col_headers }}</thead>
         <tbody>
           {% for _, group in policy_groups %}
-          {% for p in group %}{% if p.policy_uid in program_linked_uids %}{% include "policies/_policy_row.html" %}{% endif %}{% endfor %}
+          {% for p in group %}{% if p.policy_uid in program_linked_uids %}{% include "policies/_policy_row.html" %}{% if p.sub_coverages %}{% for sc in p.sub_coverages %}
+          <tr class="bg-gray-50/50 border-t border-gray-50">
+            <td class="px-3 py-1 pl-8 text-[10px] text-gray-300">└</td>
+            <td class="px-3 py-1 text-xs text-gray-500">{{ sc.coverage_type }}{% if sc.coverage_form %} <span class="text-gray-400">({{ sc.coverage_form }})</span>{% endif %}</td>
+            <td class="px-3 py-1"></td>
+            <td class="px-3 py-1"></td>
+            <td class="px-3 py-1"></td>
+            <td class="px-3 py-1 hidden xl:table-cell"></td>
+            <td class="px-3 py-1 text-right text-xs text-gray-400 tabular-nums hidden xl:table-cell">{{ sc.limit_amount | currency_short if sc.limit_amount else '' }}</td>
+            <td class="px-3 py-1"></td>
+            <td class="px-3 py-1"></td>
+          </tr>
+          {% endfor %}{% endif %}{% endif %}{% endfor %}
           {% endfor %}
         </tbody>
       </table>
