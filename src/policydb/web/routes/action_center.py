@@ -738,20 +738,26 @@ def set_disposition(
 
 # ── Activity Review ──────────────────────────────────────────────────────────
 
-# Track last scan date in memory (resets on server restart)
-_last_scan_date: str | None = None
+# Track last backfill completion (resets on server restart)
+_backfill_done: bool = False
 
 
 def _activity_review_ctx(conn, scan_date: str = "") -> dict:
     """Build context for the Activity Review tab."""
-    global _last_scan_date
+    global _backfill_done
     today = date.today().isoformat()
     target_date = scan_date or today
 
-    # Auto-scan for today if we haven't yet
-    if _last_scan_date != today and not scan_date:
+    if not scan_date:
+        # Always scan today (picks up new work since last visit)
         scan_for_unlogged_sessions(conn, today, today)
-        _last_scan_date = today
+
+        # On first visit after server start, also backfill last 7 days
+        if not _backfill_done:
+            lookback = (date.today() - timedelta(days=7)).isoformat()
+            yesterday = (date.today() - timedelta(days=1)).isoformat()
+            scan_for_unlogged_sessions(conn, lookback, yesterday)
+            _backfill_done = True
 
     suggestions = get_pending_suggestions(conn)
     activity_types = cfg.get("activity_types", [])
@@ -781,10 +787,8 @@ def ac_activity_review_scan(
     conn=Depends(get_db),
 ):
     """Run activity review scan for a specific date."""
-    global _last_scan_date
     target = scan_date or date.today().isoformat()
     scan_for_unlogged_sessions(conn, target, target)
-    _last_scan_date = target
 
     ctx = _activity_review_ctx(conn, scan_date=target)
     ctx["request"] = request

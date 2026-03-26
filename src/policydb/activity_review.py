@@ -7,7 +7,6 @@ them to the suggested_activities table for user review.
 
 from __future__ import annotations
 
-import json
 import logging
 import math
 import sqlite3
@@ -199,22 +198,14 @@ def _has_covering_activity(
 ) -> bool:
     """Check if an activity_log entry exists covering this session window.
 
-    Uses ±30 minute tolerance on the activity_date matching the session date.
+    An activity covers a session if it was created within ±30 minutes of
+    the session window. A same-date activity alone is NOT sufficient —
+    the user may have logged a 9am call but done separate policy work at 3pm.
     """
-    rows = conn.execute(
-        """SELECT activity_date, created_at FROM activity_log
-           WHERE client_id = ? AND activity_date = ?
-           AND follow_up_done = 0""",
-        (client_id, session_date),
-    ).fetchall()
-
-    if rows:
-        return True
-
-    # Also check if any activity was created within the session window (±30 min)
     window_start = (session_start - timedelta(minutes=30)).isoformat()
     window_end = (session_end + timedelta(minutes=30)).isoformat()
 
+    # Check if any activity was created within the session window (±30 min)
     count = conn.execute(
         """SELECT COUNT(*) FROM activity_log
            WHERE client_id = ?
@@ -319,7 +310,7 @@ def scan_for_unlogged_sessions(
 
             # INSERT OR IGNORE (unique constraint on client_id + session_start)
             try:
-                conn.execute(
+                cursor = conn.execute(
                     """INSERT OR IGNORE INTO suggested_activities
                        (client_id, session_date, session_start, session_end,
                         estimated_duration_hours, tables_touched, change_count,
@@ -340,7 +331,7 @@ def scan_for_unlogged_sessions(
                         dismiss_expires,
                     ),
                 )
-                if conn.total_changes:
+                if cursor.rowcount > 0:
                     created += 1
             except Exception as e:
                 logger.warning("Failed to insert suggested activity: %s", e)
@@ -358,7 +349,8 @@ def get_pending_review_count(conn: sqlite3.Connection) -> int:
         return conn.execute(
             "SELECT COUNT(*) FROM suggested_activities WHERE status = 'pending'"
         ).fetchone()[0]
-    except Exception:
+    except Exception as e:
+        logger.warning("Failed to get pending review count: %s", e)
         return 0
 
 
@@ -372,14 +364,10 @@ def get_pending_suggestions(conn: sqlite3.Connection) -> list[dict]:
                WHERE sa.status = 'pending'
                ORDER BY sa.session_start DESC"""
         ).fetchall()
-        cols = [d[0] for d in conn.execute(
-            """SELECT sa.*, c.name as client_name
-               FROM suggested_activities sa
-               JOIN clients c ON c.id = sa.client_id
-               LIMIT 0"""
-        ).description]
-        return [dict(zip(cols, r)) for r in rows]
-    except Exception:
+        # sqlite3.Row supports dict() conversion directly
+        return [dict(r) for r in rows]
+    except Exception as e:
+        logger.warning("Failed to get pending suggestions: %s", e)
         return []
 
 
@@ -390,7 +378,7 @@ def expire_dismissed_suggestions(conn: sqlite3.Connection) -> int:
     """
     try:
         now = datetime.now().isoformat()
-        conn.execute(
+        cursor = conn.execute(
             """UPDATE suggested_activities
                SET status = 'pending', dismissed_at = NULL, dismiss_expires_at = NULL
                WHERE status = 'dismissed'
@@ -398,10 +386,11 @@ def expire_dismissed_suggestions(conn: sqlite3.Connection) -> int:
                  AND dismiss_expires_at < ?""",
             (now,),
         )
-        count = conn.total_changes
-        if count:
+        count = cursor.rowcount
+        if count > 0:
             conn.commit()
             logger.info("Activity review: %d expired dismissals reset to pending", count)
         return count
-    except Exception:
+    except Exception as e:
+        logger.warning("Failed to expire dismissed suggestions: %s", e)
         return 0
