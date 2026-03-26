@@ -11,6 +11,7 @@ from policydb.db import CONFIG_PATH
 
 _DEFAULTS: dict[str, Any] = {
     "default_account_exec": "Grant",
+    "brokerage_name": "",
     "renewal_windows": {
         "urgent": 90,
         "warning": 120,
