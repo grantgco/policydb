@@ -23,6 +23,7 @@ from policydb.queries import (
     get_client_total_hours,
     get_or_create_contact,
     assign_contact_to_client,
+    assign_contact_to_policy,
     remove_contact_from_client,
     set_primary_contact,
     get_linked_group_for_client,
@@ -5099,6 +5100,17 @@ def client_ai_bulk_import_apply(
                         params,
                     )
                     updated += 1
+                # Create contact records for underwriter and placement colleague
+                _upd_pol_id = db_pol["id"]
+                _pc_name = (d.get("placement_colleague") or "").strip()
+                if _pc_name:
+                    _pc_cid = get_or_create_contact(conn, _pc_name)
+                    assign_contact_to_policy(conn, _pc_cid, _upd_pol_id, is_placement_colleague=1)
+                _uw_name = (d.get("underwriter_name") or "").strip()
+                if _uw_name:
+                    _uw_email = (d.get("underwriter_contact") or "").strip() or None
+                    _uw_cid = get_or_create_contact(conn, _uw_name, email=_uw_email)
+                    assign_contact_to_policy(conn, _uw_cid, _upd_pol_id, role="Underwriter")
             else:
                 from policydb.db import next_policy_uid
                 uid = next_policy_uid(conn)
@@ -5129,13 +5141,26 @@ def client_ai_bulk_import_apply(
                 )
                 created += 1
 
+                # Fetch policy ID once for all post-insert operations
+                _new_pol_id = conn.execute("SELECT id FROM policies WHERE policy_uid = ?", (uid,)).fetchone()["id"]
+
+                # Create contact records for underwriter and placement colleague
+                _pc_name = (d.get("placement_colleague") or "").strip()
+                if _pc_name:
+                    _pc_cid = get_or_create_contact(conn, _pc_name)
+                    assign_contact_to_policy(conn, _pc_cid, _new_pol_id, is_placement_colleague=1)
+                _uw_name = (d.get("underwriter_name") or "").strip()
+                if _uw_name:
+                    _uw_email = (d.get("underwriter_contact") or "").strip() or None
+                    _uw_cid = get_or_create_contact(conn, _uw_name, email=_uw_email)
+                    assign_contact_to_policy(conn, _uw_cid, _new_pol_id, role="Underwriter")
+
                 if d.get("program_layers"):
-                    pol_id = conn.execute("SELECT id FROM policies WHERE policy_uid = ?", (uid,)).fetchone()["id"]
                     for j, layer in enumerate(d["program_layers"]):
                         conn.execute(
                             """INSERT INTO program_carriers (program_id, carrier, policy_number,
                                premium, limit_amount, sort_order) VALUES (?, ?, ?, ?, ?, ?)""",
-                            (pol_id, layer.get("carrier", ""), layer.get("policy_number", ""),
+                            (_new_pol_id, layer.get("carrier", ""), layer.get("policy_number", ""),
                              layer.get("premium", 0) or 0, layer.get("limit_amount", 0) or 0, j + 1),
                         )
                     programs_created += 1
@@ -5143,8 +5168,7 @@ def client_ai_bulk_import_apply(
                 if d.get("policy_number"):
                     try:
                         from policydb.match_memory import learn
-                        pol_id = conn.execute("SELECT id FROM policies WHERE policy_uid = ?", (uid,)).fetchone()["id"]
-                        learn(conn, pol_id, "LLM Import", d["policy_number"], "policy_number", "llm")
+                        learn(conn, _new_pol_id, "LLM Import", d["policy_number"], "policy_number", "llm")
                     except Exception:
                         pass
 
