@@ -1,255 +1,334 @@
-{# Tower / Layer Diagram — Insurance program schematic with stacked layers and co-insurance splits #}
+{# Tower / Layer Diagram — Marsh-style program schematic
+   Data: array of tower groups, each with underlying[] and layers[]
+   Supports both combined (all towers) and separate (single tower) rendering
+#}
 {% from "charts/_chart_base.html" import chart_frame %}
 {% call(area_id) chart_frame("Program Structure", "Tower / layer diagram") %}
 <div id="{{ area_id }}" style="width:100%;height:100%"></div>
 <script>
-window.render_tower = function() {
-  var data = window.chartData_tower;
-  var containerId = '{{ area_id }}';
-  var container = document.getElementById(containerId);
-  if (!data || !data.length) {
-    container.innerHTML = '<div class="chart-empty">No tower/layer structures &mdash; all policies are standalone</div>';
-    return;
-  }
+(function() {
+  // Find chart ID from parent .chart-page element to support tower_0, tower_1, etc.
+  var areaEl = document.getElementById('{{ area_id }}');
+  var pageEl = areaEl ? areaEl.closest('.chart-page') : null;
+  var chartId = pageEl ? pageEl.dataset.chart : 'tower';
+  var renderName = 'render_' + chartId;
 
-  var chart = createChartSvg(containerId, {
-    margin: {top: 35, right: 20, bottom: 20, left: 20}
-  });
-  var g = chart.g, w = chart.width, h = chart.height;
-
-  var numTowers = data.length;
-  var towerGap = 24;
-  var towerW = (w - (numTowers - 1) * towerGap) / numTowers;
-  towerW = Math.min(towerW, 280); // Cap width for readability
-  var totalUsedW = numTowers * towerW + (numTowers - 1) * towerGap;
-  var startX = (w - totalUsedW) / 2;
-
-  // Color shades per layer position (bottom=lightest, top=darkest)
-  var layerShades = ['#dbeafe','#bfdbfe','#93c5fd','#60a5fa','#3b82f6','#2563eb','#1d4ed8','#1e40af','#1e3a8a'];
-
-  // Helper: format limit for display
-  function fmtLimit(val) {
-    if (val == null) return '';
-    if (typeof val === 'string') return val;
-    return formatCurrency(val);
-  }
-
-  // Helper: truncate text
-  function trunc(str, max) {
-    if (!str) return '';
-    return str.length > max ? str.substring(0, max - 1) + '\u2026' : str;
-  }
-
-  // Helper: calculate text color for contrast
-  function textColor(bgIndex) {
-    return bgIndex >= 4 ? '#fff' : '#1e3a8a';
-  }
-
-  data.forEach(function(tower, tIdx) {
-    var tx = startX + tIdx * (towerW + towerGap);
-    var layers = tower.layers || [];
-    if (!layers.length) return;
-
-    // Tower group title
-    g.append('text')
-      .attr('x', tx + towerW / 2)
-      .attr('y', -12)
-      .attr('text-anchor', 'middle')
-      .style('font-size', '12px')
-      .style('font-weight', '700')
-      .attr('fill', '#1f2937')
-      .text(trunc(tower.tower_group, 28));
-
-    // Calculate layer heights
-    // Use log scale for proportional sizing when limits vary widely
-    var limits = layers.map(function(l) { return l.limit || 0; });
-    var maxLimit = d3.max(limits) || 1;
-    var minLimit = d3.min(limits.filter(function(v) { return v > 0; })) || maxLimit;
-    var ratio = maxLimit / minLimit;
-
-    var layerGap = 2;
-    var sirH = 28; // Space for SIR/deductible at bottom
-    var availH = h - sirH - (layers.length - 1) * layerGap;
-    var minLayerH = 36; // Minimum height for text readability
-
-    // Compute heights — use log scale if ratio > 10, otherwise proportional
-    var useLog = ratio > 10;
-    var rawHeights = layers.map(function(l) {
-      var lim = l.limit || minLimit;
-      return useLog ? Math.log10(lim + 1) : lim;
-    });
-    var sumRaw = d3.sum(rawHeights) || 1;
-    var layerHeights = rawHeights.map(function(rh) {
-      return Math.max(minLayerH, (rh / sumRaw) * availH);
-    });
-    // Normalize to fit available height
-    var sumH = d3.sum(layerHeights);
-    if (sumH > availH) {
-      var scale = availH / sumH;
-      layerHeights = layerHeights.map(function(lh) { return Math.max(minLayerH, lh * scale); });
+  window[renderName] = function() {
+    var data = window['chartData_' + chartId];
+    var container = document.getElementById('{{ area_id }}');
+    if (!data || !data.length) {
+      container.innerHTML = '<div class="chart-empty">No tower/layer structures &mdash; all policies are standalone</div>';
+      return;
     }
 
-    // Stack from bottom up
-    var curY = h - sirH;
-    layers.forEach(function(layer, lIdx) {
-      var lH = layerHeights[lIdx];
-      curY -= lH;
-      if (lIdx > 0) curY -= layerGap;
+    var chart = createChartSvg('{{ area_id }}', {
+      margin: {top: 10, right: 10, bottom: 10, left: 10}
+    });
+    var g = chart.g, W = chart.width, H = chart.height;
 
-      var shadeIdx = Math.min(lIdx, layerShades.length - 1);
-      var bgColor = layerShades[shadeIdx];
-      var fgColor = textColor(shadeIdx);
+    // ── Color palette ──
+    var C = {
+      label:      '#f8fafc',
+      labelBorder:'#cbd5e1',
+      deductible: '#64748b',
+      dedText:    '#ffffff',
+      primary:    '#dbeafe',
+      primaryBd:  '#93c5fd',
+      umbrella:   '#60a5fa',
+      umbrellaTx: '#1e3a8a',
+      exBase:     '#bfdbfe',
+      exDark:     '#1e40af',
+      split:      '#ffffff',
+      titleColor: '#1e293b',
+      textDark:   '#1e3a8a',
+      textLight:  '#ffffff',
+      textMuted:  '#64748b',
+      premColor:  '#475569',
+    };
 
-      var participants = layer.participants || [];
-      var hasParticipants = participants.length > 1;
+    // ── Sizing constants ──
+    var LABEL_H  = 28;   // line label row at bottom
+    var DED_H    = 26;   // deductible block
+    var PRIM_H   = 42;   // primary carrier block
+    var MIN_LYR_H= 44;   // minimum excess layer height
+    var COL_GAP  = 1;    // gap between columns
+    var LYR_GAP  = 1;    // gap between layers
+    var TWR_GAP  = 28;   // gap between separate tower groups
+    var TITLE_H  = 18;   // tower group title height
 
-      if (hasParticipants) {
-        // Split horizontally for co-insured layers
-        var pGap = 2;
-        var totalPGap = (participants.length - 1) * pGap;
-        var pW = (towerW - totalPGap) / participants.length;
-        var px = tx;
+    function fmtLimit(v) {
+      if (v == null || v === 0) return '';
+      if (typeof v === 'string') return v;
+      var abs = Math.abs(v);
+      if (abs >= 1e6) return '$' + (v/1e6).toFixed(v%1e6===0?0:1) + 'M';
+      if (abs >= 1e3) return '$' + (v/1e3).toFixed(0) + 'K';
+      return '$' + v.toLocaleString();
+    }
+    function fmtDed(v) {
+      if (!v || v === 0) return '';
+      return fmtLimit(v) + ' Ded';
+    }
+    function trunc(s, max) {
+      if (!s) return '';
+      return s.length > max ? s.substring(0, max-1) + '\u2026' : s;
+    }
 
-        participants.forEach(function(p, pIdx) {
-          // Each participant slice
-          g.append('rect')
-            .attr('x', px)
-            .attr('y', curY)
-            .attr('width', pW)
-            .attr('height', lH)
-            .attr('rx', 3)
-            .attr('fill', bgColor)
-            .attr('stroke', '#fff')
-            .attr('stroke-width', 1);
+    // ── Compute tower widths ──
+    var totalCols = 0;
+    data.forEach(function(t) { totalCols += Math.max(t.underlying.length, 1); });
+    var totalTwrGaps = (data.length - 1) * TWR_GAP;
+    var totalColGaps = data.reduce(function(s, t) { return s + Math.max(t.underlying.length - 1, 0) * COL_GAP; }, 0);
+    var availW = W - totalTwrGaps - totalColGaps;
+    var colW = Math.min(Math.floor(availW / Math.max(totalCols, 1)), 200);
 
-          // Carrier name (truncated)
-          var carrierName = trunc(p.carrier || '', 14);
-          g.append('text')
-            .attr('x', px + pW / 2)
-            .attr('y', curY + lH / 2 - 4)
-            .attr('text-anchor', 'middle')
-            .style('font-size', '9px')
-            .style('font-weight', '600')
-            .attr('fill', fgColor)
-            .text(carrierName);
+    // Fixed bottom zones
+    var bottomH = LABEL_H + DED_H + PRIM_H;
+    var topReserve = TITLE_H + 4;
+    var excessAvailH = H - bottomH - topReserve;
 
-          // Limit / participation note
-          var pNote = p.participation_note || fmtLimit(p.limit);
-          if (pNote) {
-            g.append('text')
-              .attr('x', px + pW / 2)
-              .attr('y', curY + lH / 2 + 8)
-              .attr('text-anchor', 'middle')
-              .style('font-size', '8px')
-              .attr('fill', fgColor)
-              .attr('opacity', 0.8)
-              .text(trunc(pNote, 16));
-          }
+    // ── Render each tower group ──
+    var curX = 0;
 
-          px += pW + pGap;
-        });
-      } else {
-        // Single carrier layer
+    data.forEach(function(tower, tIdx) {
+      var numCols = Math.max(tower.underlying.length, 1);
+      var towerW = numCols * colW + (numCols - 1) * COL_GAP;
+      var layers = tower.layers || [];
+
+      // Tower group title
+      g.append('text')
+        .attr('x', curX + towerW / 2)
+        .attr('y', 12)
+        .attr('text-anchor', 'middle')
+        .style('font-size', '11px')
+        .style('font-weight', '700')
+        .attr('fill', C.titleColor)
+        .text(trunc(tower.tower_group, 30));
+
+      // ── Bottom section: labels + deductibles + primaries ──
+      var baseY = H;
+
+      // Row 1 (very bottom): Line labels
+      baseY -= LABEL_H;
+      tower.underlying.forEach(function(u, ci) {
+        var cx = curX + ci * (colW + COL_GAP);
+        // Label background
         g.append('rect')
-          .attr('x', tx)
-          .attr('y', curY)
-          .attr('width', towerW)
-          .attr('height', lH)
-          .attr('rx', 3)
-          .attr('fill', bgColor)
-          .attr('stroke', '#fff')
-          .attr('stroke-width', 1);
-
-        // Carrier name — centered, line 1
-        var carrier = layer.carrier || (participants[0] && participants[0].carrier) || '';
-        g.append('text')
-          .attr('x', tx + towerW / 2)
-          .attr('y', curY + lH / 2 - 6)
-          .attr('text-anchor', 'middle')
-          .style('font-size', '10px')
-          .style('font-weight', '600')
-          .attr('fill', fgColor)
-          .text(trunc(carrier, 24));
-
-        // Limit line — line 2
-        var limitStr = fmtLimit(layer.limit);
-        g.append('text')
-          .attr('x', tx + towerW / 2)
-          .attr('y', curY + lH / 2 + 6)
-          .attr('text-anchor', 'middle')
-          .style('font-size', '9px')
-          .attr('fill', fgColor)
-          .attr('opacity', 0.85)
-          .text(limitStr);
-
-        // Attachment point notation — line 3 (if excess layer)
-        if (layer.attachment_point && lIdx > 0) {
-          var attachStr = fmtLimit(layer.limit) + ' xs ' + fmtLimit(layer.attachment_point);
+          .attr('x', cx).attr('y', baseY)
+          .attr('width', colW).attr('height', LABEL_H)
+          .attr('fill', C.label)
+          .attr('stroke', C.labelBorder)
+          .attr('stroke-width', 0.5);
+        // Label text (line 1: policy type)
+        var lines = trunc(u.label, 18).split(/\s*\/\s*/);
+        if (lines.length === 1) {
           g.append('text')
-            .attr('x', tx + towerW / 2)
-            .attr('y', curY + lH / 2 + 17)
+            .attr('x', cx + colW/2).attr('y', baseY + LABEL_H/2 + 4)
             .attr('text-anchor', 'middle')
-            .style('font-size', '8px')
-            .style('font-style', 'italic')
-            .attr('fill', fgColor)
-            .attr('opacity', 0.7)
-            .text(trunc(attachStr, 30));
-        }
-
-        // Form type badge (small, top-right corner)
-        if (layer.form_type) {
+            .style('font-size', '8px').style('font-weight', '600')
+            .attr('fill', C.textMuted)
+            .text(trunc(u.label, 20));
+        } else {
           g.append('text')
-            .attr('x', tx + towerW - 6)
-            .attr('y', curY + 11)
+            .attr('x', cx + colW/2).attr('y', baseY + 10)
+            .attr('text-anchor', 'middle')
+            .style('font-size', '8px').style('font-weight', '600')
+            .attr('fill', C.textMuted)
+            .text(trunc(lines[0], 18));
+          g.append('text')
+            .attr('x', cx + colW/2).attr('y', baseY + 20)
+            .attr('text-anchor', 'middle')
+            .style('font-size', '8px').style('font-weight', '600')
+            .attr('fill', C.textMuted)
+            .text(trunc(lines[1], 18));
+        }
+      });
+
+      // Row 2: Deductible/SIR blocks
+      baseY -= DED_H;
+      tower.underlying.forEach(function(u, ci) {
+        var cx = curX + ci * (colW + COL_GAP);
+        var hasDed = u.deductible && u.deductible > 0;
+        g.append('rect')
+          .attr('x', cx).attr('y', baseY)
+          .attr('width', colW).attr('height', DED_H)
+          .attr('fill', hasDed ? C.deductible : '#e2e8f0')
+          .attr('stroke', '#475569')
+          .attr('stroke-width', 0.5);
+        if (hasDed) {
+          g.append('text')
+            .attr('x', cx + colW/2).attr('y', baseY + DED_H/2 + 4)
+            .attr('text-anchor', 'middle')
+            .style('font-size', '8px').style('font-weight', '600')
+            .attr('fill', C.dedText)
+            .text(fmtDed(u.deductible));
+        }
+      });
+
+      // Row 3: Primary carrier blocks
+      baseY -= PRIM_H;
+      tower.underlying.forEach(function(u, ci) {
+        var cx = curX + ci * (colW + COL_GAP);
+        g.append('rect')
+          .attr('x', cx).attr('y', baseY)
+          .attr('width', colW).attr('height', PRIM_H)
+          .attr('fill', C.primary)
+          .attr('stroke', C.primaryBd)
+          .attr('stroke-width', 0.5);
+        // Carrier name
+        g.append('text')
+          .attr('x', cx + colW/2).attr('y', baseY + 14)
+          .attr('text-anchor', 'middle')
+          .style('font-size', '9px').style('font-weight', '600')
+          .attr('fill', C.textDark)
+          .text(trunc(u.carrier, 18));
+        // Limit
+        g.append('text')
+          .attr('x', cx + colW/2).attr('y', baseY + 26)
+          .attr('text-anchor', 'middle')
+          .style('font-size', '8px')
+          .attr('fill', C.textDark)
+          .attr('opacity', 0.8)
+          .text(fmtLimit(u.limit));
+        // Premium (small, bottom-right)
+        if (u.premium) {
+          g.append('text')
+            .attr('x', cx + colW - 4).attr('y', baseY + PRIM_H - 4)
             .attr('text-anchor', 'end')
             .style('font-size', '7px')
-            .style('font-weight', '600')
-            .attr('fill', fgColor)
-            .attr('opacity', 0.6)
-            .text(layer.form_type);
+            .attr('fill', C.premColor)
+            .text(fmtLimit(u.premium));
         }
+      });
 
-        // Premium (small, bottom-right corner)
-        if (layer.premium) {
-          g.append('text')
-            .attr('x', tx + towerW - 6)
-            .attr('y', curY + lH - 5)
-            .attr('text-anchor', 'end')
-            .style('font-size', '8px')
-            .attr('fill', fgColor)
-            .attr('opacity', 0.6)
-            .text(fmtLimit(layer.premium));
-        }
+      // ── Excess layers: stack from bottom to top ──
+      var excessBottom = baseY;  // top of primary row = bottom of excess stack
+      if (!layers.length) {
+        curX += towerW + TWR_GAP;
+        return;
       }
-    });
 
-    // SIR / Deductible block at very bottom
-    var firstLayer = layers[0];
-    var dedText = '';
-    if (firstLayer.deductible) {
-      dedText = 'SIR: ' + fmtLimit(firstLayer.deductible);
-    }
-    if (dedText) {
-      var dedY = h - sirH + 4;
-      g.append('rect')
-        .attr('x', tx)
-        .attr('y', dedY)
-        .attr('width', towerW)
-        .attr('height', sirH - 6)
-        .attr('rx', 3)
-        .attr('fill', '#f3f4f6')
-        .attr('stroke', '#d1d5db')
-        .attr('stroke-width', 1);
-      g.append('text')
-        .attr('x', tx + towerW / 2)
-        .attr('y', dedY + (sirH - 6) / 2 + 4)
-        .attr('text-anchor', 'middle')
-        .style('font-size', '9px')
-        .style('font-weight', '600')
-        .attr('fill', '#6b7280')
-        .text(dedText);
-    }
-  });
-};
+      // Compute layer heights — distribute available space
+      var numLayers = layers.length;
+      var totalGaps = (numLayers - 1) * LYR_GAP;
+      var perLayer = Math.max(MIN_LYR_H, Math.floor((excessAvailH - totalGaps) / numLayers));
+      // Cap so they don't overflow
+      var totalLayersH = numLayers * perLayer + totalGaps;
+      if (totalLayersH > excessAvailH) {
+        perLayer = Math.max(36, Math.floor((excessAvailH - totalGaps) / numLayers));
+      }
+
+      var layerY = excessBottom;
+
+      layers.forEach(function(layer, lIdx) {
+        layerY -= perLayer;
+        if (lIdx > 0) layerY -= LYR_GAP;
+
+        var shadeT = numLayers > 1 ? lIdx / (numLayers - 1) : 0;
+        // Interpolate color from light to dark
+        var r1=191, g1=219, b1=254;  // #bfdbfe
+        var r2=30, g2=64, b2=175;    // #1e40af
+        var cr = Math.round(r1 + (r2-r1)*shadeT);
+        var cg = Math.round(g1 + (g2-g1)*shadeT);
+        var cb = Math.round(b1 + (b2-b1)*shadeT);
+        var bgColor = 'rgb('+cr+','+cg+','+cb+')';
+        var fgColor = shadeT > 0.45 ? C.textLight : C.textDark;
+
+        // Check if umbrella (special shade)
+        var lp = (layer.layer_position || '').toLowerCase();
+        if (lp === 'umbrella' || lp.indexOf('umbrella') >= 0) {
+          bgColor = C.umbrella;
+          fgColor = C.umbrellaTx;
+        }
+
+        var participants = layer.participants || [];
+        var hasParticipants = participants.length > 1;
+
+        if (hasParticipants) {
+          // Co-insured: split horizontally
+          var pGap = 1;
+          var totalPGap = (participants.length - 1) * pGap;
+          var pW = (towerW - totalPGap) / participants.length;
+
+          participants.forEach(function(p, pIdx) {
+            var px = curX + pIdx * (pW + pGap);
+            g.append('rect')
+              .attr('x', px).attr('y', layerY)
+              .attr('width', pW).attr('height', perLayer)
+              .attr('fill', bgColor)
+              .attr('stroke', C.split)
+              .attr('stroke-width', 1);
+            // Line 1: policy type
+            g.append('text')
+              .attr('x', px + pW/2).attr('y', layerY + 12)
+              .attr('text-anchor', 'middle')
+              .style('font-size', '7px')
+              .attr('fill', fgColor).attr('opacity', 0.7)
+              .text(trunc(layer.policy_type, 18));
+            // Line 2: carrier name (bold)
+            g.append('text')
+              .attr('x', px + pW/2).attr('y', layerY + 22)
+              .attr('text-anchor', 'middle')
+              .style('font-size', '9px').style('font-weight', '700')
+              .attr('fill', fgColor)
+              .text(trunc(p.carrier, 16));
+            // Line 3: notation
+            var pNotation = p.notation || fmtLimit(p.limit);
+            if (pNotation && perLayer >= 40) {
+              g.append('text')
+                .attr('x', px + pW/2).attr('y', layerY + 33)
+                .attr('text-anchor', 'middle')
+                .style('font-size', '7px').style('font-style', 'italic')
+                .attr('fill', fgColor).attr('opacity', 0.8)
+                .text(trunc(pNotation, 22));
+            }
+          });
+        } else {
+          // Single carrier — full span
+          g.append('rect')
+            .attr('x', curX).attr('y', layerY)
+            .attr('width', towerW).attr('height', perLayer)
+            .attr('fill', bgColor)
+            .attr('stroke', C.split)
+            .attr('stroke-width', 0.5);
+          // Line 1: policy type
+          g.append('text')
+            .attr('x', curX + towerW/2).attr('y', layerY + 12)
+            .attr('text-anchor', 'middle')
+            .style('font-size', '8px')
+            .attr('fill', fgColor).attr('opacity', 0.7)
+            .text(trunc(layer.policy_type, 30));
+          // Line 2: carrier (bold)
+          var carrierName = layer.carrier || (participants[0] ? participants[0].carrier : '');
+          g.append('text')
+            .attr('x', curX + towerW/2).attr('y', layerY + 23)
+            .attr('text-anchor', 'middle')
+            .style('font-size', '10px').style('font-weight', '700')
+            .attr('fill', fgColor)
+            .text(trunc(carrierName, 28));
+          // Line 3: notation
+          if (layer.notation && perLayer >= 40) {
+            g.append('text')
+              .attr('x', curX + towerW/2).attr('y', layerY + 35)
+              .attr('text-anchor', 'middle')
+              .style('font-size', '8px').style('font-style', 'italic')
+              .attr('fill', fgColor).attr('opacity', 0.8)
+              .text(trunc(layer.notation, 32));
+          }
+          // Premium (small, right)
+          if (layer.premium && perLayer >= 40) {
+            g.append('text')
+              .attr('x', curX + towerW - 4).attr('y', layerY + perLayer - 4)
+              .attr('text-anchor', 'end')
+              .style('font-size', '7px')
+              .attr('fill', fgColor).attr('opacity', 0.6)
+              .text(fmtLimit(layer.premium));
+          }
+        }
+      });
+
+      curX += towerW + TWR_GAP;
+    });
+  };
+})();
 </script>
 {% endcall %}

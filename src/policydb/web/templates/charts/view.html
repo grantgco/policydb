@@ -45,7 +45,8 @@
            data-chart-title="{{ chart_titles[chart_id] }}"
            style="display: none;">
         <script>var chartData_{{ chart_id }} = {{ chart_data[chart_id] | tojson }};</script>
-        {% include "charts/_chart_" ~ chart_id ~ ".html" %}
+        {% set template_id = chart_id.split('_')[0] if chart_id.startswith('tower_') else chart_id %}
+        {% include "charts/_chart_" ~ template_id ~ ".html" %}
       </div>
       {% endfor %}
     </div>

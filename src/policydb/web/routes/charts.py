@@ -139,10 +139,12 @@ async def deck_view(
         "exposure_vs_premium": get_exposure_vs_premium_data,
     }
 
+    # Handle tower layout preference
+    tower_layout = form.get("tower__layout", "combined")
+
     chart_data = {}
     for chart_id in selected_charts:
         if chart_id == "market_conditions":
-            # Parse market conditions form arrays
             lines = form.getlist("market__line[]")
             avg_pcts = form.getlist("market__avg_pct[]")
             notes = form.getlist("market__notes[]")
@@ -156,8 +158,6 @@ async def deck_view(
                     pct = 0
                 note = notes[i] if i < len(notes) else ""
                 market_rows.append({"line": line, "avg_pct": pct, "notes": note})
-
-            # Get actual rate change data for this client and merge
             actuals = get_rate_change_data(conn, client_id)
             actual_map = {a["policy_type"]: a["pct_change"] for a in actuals}
             combined_lines = []
@@ -172,8 +172,25 @@ async def deck_view(
         elif chart_id in DATA_FUNCTIONS:
             chart_data[chart_id] = DATA_FUNCTIONS[chart_id](conn, client_id)
 
+    # If tower layout is "separate", expand into one chart per tower_group
+    if tower_layout == "separate" and "tower" in chart_data and chart_data["tower"]:
+        tower_groups = chart_data.pop("tower")
+        tower_insert_idx = selected_charts.index("tower")
+        selected_charts = [c for c in selected_charts if c != "tower"]
+        for i, tg in enumerate(tower_groups):
+            tid = f"tower_{i}"
+            selected_charts.insert(tower_insert_idx + i, tid)
+            chart_data[tid] = [tg]  # single tower_group wrapped in list
+
     chart_titles = {cid: _CHART_TITLE_MAP.get(cid, cid) for cid in selected_charts}
     chart_types = {cid: _CHART_TYPE_MAP.get(cid, "html") for cid in selected_charts}
+    # Override titles/types for expanded tower entries
+    for cid in selected_charts:
+        if cid.startswith("tower_") and cid not in chart_titles:
+            idx = int(cid.split("_")[1])
+            tg_name = chart_data[cid][0]["tower_group"] if chart_data.get(cid) else f"Tower {idx+1}"
+            chart_titles[cid] = f"Tower: {tg_name}"
+            chart_types[cid] = "d3"
 
     return templates.TemplateResponse(
         "charts/view.html",

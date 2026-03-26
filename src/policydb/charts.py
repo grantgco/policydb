@@ -100,33 +100,54 @@ def get_schedule_data(conn: sqlite3.Connection, client_id: int) -> dict:
 # 3. Tower / Layer Diagram
 # ---------------------------------------------------------------------------
 
-def get_tower_data(conn: sqlite3.Connection, client_id: int) -> list[dict]:
-    """Tower/layer diagram data for program schematic.
+def _layer_notation(limit, attachment_point, participation_of):
+    """Generate insurance tower notation: $5M x $10M, $10M po $30M x $70M."""
+    def _fmt(val):
+        if val is None or val == 0:
+            return "$0"
+        v = abs(val)
+        if v >= 1_000_000:
+            s = f"${v / 1_000_000:g}M"
+        elif v >= 1_000:
+            s = f"${v / 1_000:g}K"
+        else:
+            s = f"${v:,.0f}"
+        return s
 
-    Returns grouped structure:
+    lim_str = _fmt(limit)
+    att = attachment_point or 0
+
+    if participation_of and participation_of > 0:
+        return f"{lim_str} po {_fmt(participation_of)} x {_fmt(att)}"
+    if att > 0:
+        return f"{lim_str} x {_fmt(att)}"
+    if att == 0 and limit:
+        return f"{lim_str} x Primary"
+    return lim_str
+
+
+def get_tower_data(conn: sqlite3.Connection, client_id: int) -> list[dict]:
+    """Tower/layer diagram data for Marsh-style program schematic.
+
+    Returns grouped structure with underlying lines and excess layers separated:
     [
         {
             "tower_group": "Casualty",
+            "underlying": [
+                {"label": "General Liability", "carrier": "Travelers",
+                 "deductible": 2000000, "limit": 2000000, "premium": 35000, "column": 1},
+                ...
+            ],
             "layers": [
-                {
-                    "policy_type": "Umbrella",
-                    "carrier": "Hartford",
-                    "limit": 5000000,
-                    "attachment_point": 1000000,
-                    "premium": 25000,
-                    "layer_position": "1st Excess",
-                    "participation_of": null,
-                    "participants": [
-                        {"carrier": "Zurich", "limit": 2500000, "premium": 12000}
-                    ]
-                },
+                {"policy_type": "Umbrella", "carrier": "Berkshire Hathaway",
+                 "limit": 10000000, "attachment_point": 0,
+                 "notation": "$10M x Primary", "premium": 50000,
+                 "participants": [], "form_type": null},
                 ...
             ]
         },
         ...
     ]
-
-    Uses v_tower view + program_carriers table.
     """
     rows = conn.execute(
         f"""
@@ -137,8 +158,7 @@ def get_tower_data(conn: sqlite3.Connection, client_id: int) -> list[dict]:
         (client_id,),
     ).fetchall()
 
-    # Build a lookup of program_carriers keyed by program_id (policy id)
-    # We need the policy id, which isn't on v_tower. Query separately.
+    # Build program_carriers lookup (same as before)
     program_rows = conn.execute(
         """
         SELECT p.id AS policy_id, p.tower_group, p.attachment_point,
@@ -175,44 +195,75 @@ def get_tower_data(conn: sqlite3.Connection, client_id: int) -> list[dict]:
                 "policy_number": r["policy_number"] or "",
             })
 
-    # Map (tower_group, attachment_point, layer_position) -> program_id for
-    # joining participants back to v_tower rows.
     program_key_to_id: dict[tuple, int] = {}
     for r in program_rows:
         key = (r["tower_group"], r["attachment_point"], r["layer_position"])
         program_key_to_id[key] = r["policy_id"]
 
-    # Group layers by tower_group
-    groups: dict[str, list[dict]] = {}
+    # Group by tower_group, splitting into underlying (primary) and excess layers
+    groups: dict[str, dict] = {}
     for r in rows:
         tg = r["tower_group"] or "Ungrouped"
-        layer = {
-            "policy_type": r["policy_type"],
-            "carrier": r["carrier"],
-            "limit": r["limit_amount"] or 0,
-            "attachment_point": r["attachment_point"] or 0,
-            "premium": r["premium"] or 0,
-            "layer_position": r["layer_position"] or "Primary",
-            "participation_of": r["participation_of"],
-            "placement_colleague": r["placement_colleague"],
-            "renewal_status": r["renewal_status"],
-            "description": r["description"],
-            "participants": [],
-        }
+        if tg not in groups:
+            groups[tg] = {"underlying": [], "layers": []}
 
-        # Attach co-insured participants for program layers
-        key = (r["tower_group"], r["attachment_point"], r["layer_position"])
-        pid = program_key_to_id.get(key)
-        if pid and pid in participants_by_program:
-            layer["participants"] = participants_by_program[pid]
+        lp = (r["layer_position"] or "Primary").strip().lower()
+        att = r["attachment_point"] or 0
+        is_primary = lp == "primary" or (att == 0 and lp not in ("umbrella",))
 
-        groups.setdefault(tg, []).append(layer)
+        if is_primary:
+            groups[tg]["underlying"].append({
+                "label": r["policy_type"] or "Unknown",
+                "carrier": r["carrier"] or "",
+                "deductible": r["deductible"] or 0,
+                "limit": r["limit_amount"] or 0,
+                "premium": r["premium"] or 0,
+                "form_type": r["coverage_form"] or "",
+                "column": r["schematic_column"],
+            })
+        else:
+            layer = {
+                "policy_type": r["policy_type"] or "",
+                "carrier": r["carrier"] or "",
+                "limit": r["limit_amount"] or 0,
+                "attachment_point": att,
+                "participation_of": r["participation_of"],
+                "notation": _layer_notation(
+                    r["limit_amount"], r["attachment_point"], r["participation_of"]
+                ),
+                "layer_position": r["layer_position"] or "",
+                "premium": r["premium"] or 0,
+                "form_type": r["coverage_form"] or "",
+                "participants": [],
+            }
+            # Attach co-insured participants for program layers
+            key = (r["tower_group"], r["attachment_point"], r["layer_position"])
+            pid = program_key_to_id.get(key)
+            if pid and pid in participants_by_program:
+                plist = participants_by_program[pid]
+                for p in plist:
+                    p["notation"] = _layer_notation(
+                        p["limit"], r["attachment_point"], r["participation_of"]
+                    )
+                layer["participants"] = plist
+            groups[tg]["layers"].append(layer)
 
-    # Sort layers within each group by attachment_point ascending
+    # Sort and assemble result
     result = []
     for tg in sorted(groups.keys()):
-        layers = sorted(groups[tg], key=lambda l: l["attachment_point"])
-        result.append({"tower_group": tg, "layers": layers})
+        g = groups[tg]
+        # Sort underlying by schematic_column (fallback: alphabetical)
+        underlying = sorted(
+            g["underlying"],
+            key=lambda u: (u["column"] if u["column"] is not None else 999, u["label"]),
+        )
+        # Sort excess layers by attachment_point ascending (bottom-to-top)
+        layers = sorted(g["layers"], key=lambda l: l["attachment_point"])
+        result.append({
+            "tower_group": tg,
+            "underlying": underlying,
+            "layers": layers,
+        })
     return result
 
 
