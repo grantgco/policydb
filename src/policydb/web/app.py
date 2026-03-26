@@ -22,6 +22,24 @@ TEMPLATES_DIR = Path(__file__).parent / "templates"
 app = FastAPI(title="PolicyDB", docs_url=None, redoc_url=None)
 
 
+# ── Starlette 1.0 compatibility shim ────────────────────────────────────────
+# Starlette 1.0 changed TemplateResponse(name, context) → TemplateResponse(request, name, context).
+# This wrapper detects the old calling convention (first arg is a string template name)
+# and adapts it to the new signature, so all 250+ existing call sites keep working.
+
+class _CompatTemplates(Jinja2Templates):
+    def TemplateResponse(self, name_or_request, name_or_context=None, context=None, **kwargs):
+        if isinstance(name_or_request, str):
+            # Old-style: TemplateResponse("template.html", {"request": request, ...})
+            name = name_or_request
+            ctx = name_or_context if isinstance(name_or_context, dict) else (context or {})
+            request = ctx.get("request")
+            return super().TemplateResponse(request=request, name=name, context=ctx, **kwargs)
+        else:
+            # New-style: TemplateResponse(request, "template.html", context)
+            return super().TemplateResponse(name_or_request, name_or_context, context, **kwargs)
+
+
 @app.on_event("startup")
 def _attach_sqlite_log_handler():
     """Attach the SQLite logging handler after the app starts.
@@ -34,7 +52,7 @@ def _attach_sqlite_log_handler():
         setup_sqlite_handler()
     except Exception:
         pass  # Never block app startup
-templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+templates = _CompatTemplates(directory=str(TEMPLATES_DIR))
 
 
 # ── Request logging middleware (pure ASGI — avoids BaseHTTPMiddleware) ────────
