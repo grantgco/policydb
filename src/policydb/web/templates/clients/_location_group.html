@@ -36,7 +36,7 @@
     ondrop="this.classList.remove('bg-green-50', 'ring-2', 'ring-green-300', 'ring-inset'); handleLocationDrop(this, event, {{ location.id }}, {{ client_id }});">
 
     {% for p in location.policies %}
-      {% with policy=p, assigned=True %}
+      {% with policy=p, assigned=True, location_has_exposures=location.has_exposures %}
         {% include "clients/_location_policy_row.html" %}
       {% endwith %}
     {% else %}
