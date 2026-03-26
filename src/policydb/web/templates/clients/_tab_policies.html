@@ -9,10 +9,59 @@
   <div class="flex items-center justify-between mb-3">
     <h2 class="font-semibold text-gray-900 text-lg">Policies</h2>
     <div class="flex gap-3 no-print">
+      <button type="button" onclick="toggleNewProgramForm()" class="text-xs text-marsh hover:underline">+ New Program</button>
       <a href="/policies/new?client={{ client.id }}&opp=1" class="text-xs text-amber-600 hover:underline">+ Opportunity</a>
       <a href="/policies/new?client={{ client.id }}" class="text-xs text-marsh hover:underline">+ Add Policy</a>
     </div>
   </div>
+  {# ── Inline New Program Form ── #}
+  <div id="new-program-form" class="hidden mb-4 card p-4">
+    <div class="flex items-end gap-3">
+      <div class="flex-1">
+        <label class="text-xs text-gray-500 mb-1 block">Program Name</label>
+        <input id="new-program-name" type="text" placeholder="e.g., Casualty, Property, D&O..."
+               class="w-full text-sm border border-gray-300 rounded px-3 py-1.5 focus:border-marsh focus:ring-1 focus:ring-marsh/20">
+      </div>
+      <div class="w-48">
+        <label class="text-xs text-gray-500 mb-1 block">Primary Line (optional)</label>
+        <input id="new-program-lob" type="text" placeholder="Line of business"
+               list="new-program-lob-list"
+               class="w-full text-sm border border-gray-300 rounded px-3 py-1.5 focus:border-marsh focus:ring-1 focus:ring-marsh/20">
+        <datalist id="new-program-lob-list">
+          {% for pt in policy_types %}<option value="{{ pt }}">{% endfor %}
+        </datalist>
+      </div>
+      <button type="button" onclick="createProgram()"
+              class="px-4 py-1.5 text-sm font-medium text-white bg-marsh rounded hover:bg-marsh/90">Create &amp; Open &rarr;</button>
+      <button type="button" onclick="toggleNewProgramForm()"
+              class="px-3 py-1.5 text-sm text-gray-400 hover:text-gray-600">Cancel</button>
+    </div>
+  </div>
+  <script>
+  function toggleNewProgramForm() {
+    var form = document.getElementById('new-program-form');
+    form.classList.toggle('hidden');
+    if (!form.classList.contains('hidden')) {
+      document.getElementById('new-program-name').focus();
+    }
+  }
+  function createProgram() {
+    var name = document.getElementById('new-program-name').value.trim();
+    var lob = document.getElementById('new-program-lob').value.trim();
+    if (!name) { showToast('Program name is required', 'error'); return; }
+    fetch('/clients/{{ client.id }}/programs/new', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name: name, lob: lob})
+    }).then(function(r) { return r.json(); }).then(function(resp) {
+      if (resp.ok && resp.redirect) {
+        window.location.href = resp.redirect;
+      } else {
+        showToast(resp.error || 'Failed to create program', 'error');
+      }
+    });
+  }
+  </script>
 
   {% set col_headers %}
   <tr class="border-b border-gray-100 text-left text-xs text-gray-500 uppercase tracking-wide bg-gray-50">
@@ -122,104 +171,6 @@
   {% endif %}
   {% endif %}
 </div>
-
-{# ── Tower Structure ── #}
-{% if tower_visuals %}
-<div class="card mb-6">
-  <div class="px-5 py-4 border-b border-gray-100">
-    <h2 class="font-semibold text-gray-900">Tower Structure</h2>
-  </div>
-  {% for project_name, tgs in tower_visuals.items() %}
-  <div class="{% if not loop.last %}border-b border-gray-200{% endif %}">
-    <div class="px-5 py-2 bg-gray-50 border-b border-gray-100">
-      <p class="text-xs font-bold text-gray-500 uppercase tracking-wide">{{ project_name }}</p>
-    </div>
-    {% for tower_name, tower in tgs.items() %}
-    <div class="px-5 py-4 {% if not loop.last %}border-b border-gray-100{% endif %}">
-      <div class="flex items-center justify-between mb-3 ml-1">
-        <div class="flex items-center gap-2">
-          <p class="text-xs font-semibold text-gray-400 uppercase tracking-wide">{{ tower_name }}</p>
-          {% set comp = completeness_by_tg.get(tower_name) if completeness_by_tg is defined else None %}
-          {% if comp %}
-          <span class="text-[10px] px-1.5 py-0.5 rounded-full font-medium
-            {% if comp.pct_complete >= 80 %}bg-green-100 text-green-700
-            {% elif comp.pct_complete >= 50 %}bg-amber-100 text-amber-700
-            {% else %}bg-gray-100 text-gray-500{% endif %}">{{ comp.pct_complete }}%</span>
-          {% endif %}
-        </div>
-        <a href="/clients/{{ client.id }}/programs/{{ tower_name | urlencode }}"
-           class="text-xs text-marsh hover:underline no-print">Edit Program &rarr;</a>
-      </div>
-      {% set layer_colors = [
-        'rgba(5,150,105,0.14)', 'rgba(59,130,246,0.13)',
-        'rgba(99,102,241,0.11)', 'rgba(139,92,246,0.09)',
-        'rgba(148,163,184,0.08)'
-      ] %}
-      <div class="relative pt-3 pb-1">
-        <div class="flex flex-col-reverse rounded-lg overflow-visible border border-gray-200"
-             style="min-height: {{ [tower.layers | length * 72, 240] | max }}px;">
-          {% for vl in tower.layers %}
-          {% set lc = layer_colors[loop.index0] if loop.index0 < layer_colors | length else layer_colors[-1] %}
-          <div class="relative group" style="flex: {{ vl.flex }} 0 44px;">
-            <div class="absolute inset-0 {% if loop.first %}rounded-b-lg{% endif %} {% if loop.last %}rounded-t-lg{% endif %}"
-                 style="background: {{ lc }};"></div>
-            {% if not loop.last %}<div class="absolute inset-x-0 top-0 h-px bg-gray-200/70 z-10"></div>{% endif %}
-            <div class="relative z-10 flex items-stretch h-full">
-              {% for c in vl.carriers %}
-              <div class="flex items-center px-3 gap-2 min-w-0 {% if not loop.first %}border-l border-gray-200/50{% endif %}"
-                   style="width: {{ c.fill_pct }}%;">
-                <div class="min-w-0 flex-1 py-1.5">
-                  <div class="flex items-center gap-1.5 flex-wrap">
-                    <span class="text-xs font-semibold text-gray-700">{{ c.carrier }}</span>
-                    <a href="/policies/{{ c.policy_uid }}/edit" class="text-[10px] font-mono text-marsh hover:underline shrink-0">{{ c.policy_uid }}</a>
-                  </div>
-                  <p class="text-[11px] font-mono text-gray-500 mt-0.5 truncate">{{ c.notation }}</p>
-                </div>
-                <div class="text-right shrink-0">
-                  <span class="text-[10px] text-gray-400 tabular-nums block">{{ c.premium | currency }}</span>
-                  {% if vl.is_shared %}
-                  <span class="text-[10px] text-gray-400 tabular-nums">{{ c.fill_pct | round(0) | int }}%</span>
-                  {% endif %}
-                </div>
-              </div>
-              {% endfor %}
-              {% if vl.open_pct > 0 %}
-              <div class="flex items-center justify-center border-l border-dashed border-gray-300/70"
-                   style="width: {{ vl.open_pct }}%; background: repeating-linear-gradient(45deg, transparent, transparent 3px, rgba(0,0,0,0.04) 3px, rgba(0,0,0,0.04) 6px);">
-                <div class="text-center px-1">
-                  <span class="text-[10px] text-gray-400 italic block">Open</span>
-                  <span class="text-[10px] font-mono text-gray-400">
-                    {% if vl.open_amount >= 1000000 %}${{ "{:,.0f}".format(vl.open_amount / 1000000) }}M{% else %}${{ "{:,.0f}".format(vl.open_amount) }}{% endif %}
-                  </span>
-                </div>
-              </div>
-              {% endif %}
-            </div>
-            <div class="absolute -top-px right-3 -translate-y-1/2 z-20">
-              <span class="text-[9px] font-mono text-gray-500 bg-white px-1.5 py-px rounded border border-gray-200 shadow-sm tabular-nums whitespace-nowrap">
-                {% if vl.ground_up >= 1000000 %}${{ "{:,.0f}".format(vl.ground_up / 1000000) }}M{% else %}${{ "{:,.0f}".format(vl.ground_up) }}{% endif %}
-              </span>
-            </div>
-          </div>
-          {% endfor %}
-        </div>
-        <div class="flex justify-end mr-3 -mt-0.5">
-          <span class="text-[9px] font-mono text-gray-400">$0</span>
-        </div>
-      </div>
-      <div class="flex items-center gap-1.5 mt-2 ml-1 text-xs text-gray-400">
-        <span class="font-semibold text-gray-600 tabular-nums">
-          {% if tower.total_ground_up >= 1000000 %}${{ "{:,.0f}".format(tower.total_ground_up / 1000000) }}M{% else %}${{ "{:,.0f}".format(tower.total_ground_up) }}{% endif %}
-        </span> program limit
-        · {{ tower.total_premium | currency }} total premium
-        · {{ tower.carrier_count }} carrier{{ 's' if tower.carrier_count != 1 else '' }}
-      </div>
-    </div>
-    {% endfor %}
-  </div>
-  {% endfor %}
-</div>
-{% endif %}
 
 {# ── Project Pipeline ── #}
 <div id="pipeline-section">
