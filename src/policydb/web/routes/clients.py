@@ -5353,30 +5353,35 @@ async def client_ai_contact_import_apply(
         if not form.get(f"select_{i}"):
             continue
 
+        # Read form overrides (user may have edited in review step)
+        name = form.get(f"name_{i}", contact.get("name", "")).strip()
+        email = form.get(f"email_{i}", contact.get("email", "")).strip()
+        phone = form.get(f"phone_{i}", contact.get("phone", "")).strip()
+        mobile = form.get(f"mobile_{i}", contact.get("mobile", "")).strip()
+        org = form.get(f"org_{i}", contact.get("organization", "")).strip()
+        title = form.get(f"title_{i}", contact.get("title", "")).strip()
         role = form.get(f"role_{i}", contact.get("role", ""))
         contact_type = form.get(f"type_{i}", contact.get("contact_type", "client"))
 
+        if not name:
+            continue
+
         try:
             # Normalize phone/email (both return plain strings)
-            email = contact.get("email")
             if email:
                 email = clean_email(email)
-
-            phone = contact.get("phone")
             if phone:
                 phone = format_phone(phone)
-
-            mobile = contact.get("mobile")
             if mobile:
                 mobile = format_phone(mobile)
 
             cid = get_or_create_contact(
                 conn,
-                contact["name"],
-                email=email,
-                phone=phone,
-                mobile=mobile,
-                organization=contact.get("organization"),
+                name,
+                email=email or None,
+                phone=phone or None,
+                mobile=mobile or None,
+                organization=org or None,
             )
 
             assign_contact_to_client(
@@ -5385,7 +5390,7 @@ async def client_ai_contact_import_apply(
                 client_id,
                 contact_type=contact_type,
                 role=role,
-                title=contact.get("title", ""),
+                title=title,
             )
 
             if contact.get("existing_contact"):
@@ -5393,7 +5398,7 @@ async def client_ai_contact_import_apply(
             else:
                 created += 1
         except Exception as e:
-            errors.append(f"{contact['name']}: {e}")
+            errors.append(f"{name}: {e}")
 
     conn.commit()
     _CLIENT_CONTACT_IMPORT_CACHE.pop(token, None)
