@@ -47,7 +47,6 @@
       textLt:     '#fff',    textMut:    '#64748b',
       premC:      '#475569', border:     '#94a3b8',
       pkgBadge:   '#7c3aed',
-      statutory:  '#fef3c7', statutoryBd: '#f59e0b',
     };
 
     // ── Layout constants ──
@@ -150,9 +149,11 @@
         var cx = curX + ci * colW;
         g.append('rect').attr('x', cx).attr('y', baseY).attr('width', colW).attr('height', LABEL_H)
           .attr('fill', C.label).attr('stroke', C.labelBd).attr('stroke-width', 0.5);
+        // Scale label length based on column width
+        var maxChars = Math.max(12, Math.floor(colW / 6));
         g.append('text').attr('x', cx + colW/2).attr('y', baseY + LABEL_H/2 + 4)
           .attr('text-anchor', 'middle').style('font-size', '8px').style('font-weight', '600')
-          .attr('fill', C.textMut).text(tr(u.label, 18));
+          .attr('fill', C.textMut).text(tr(u.label, maxChars));
       });
 
       // Deductible row
@@ -170,39 +171,61 @@
       });
 
       // ── Primary blocks — positioned by dollar value on Y-axis ──
+      // Find tallest non-statutory primary for WC sizing reference
+      var maxNonStatTopY = towerBottom;
+      under.forEach(function(u) {
+        if (!u.is_statutory) {
+          var top = valToY(u.limit || 0);
+          if (top < maxNonStatTopY) maxNonStatTopY = top;
+        }
+      });
+
       under.forEach(function(u, ci) {
         var cx = curX + ci * colW;
         var lim = u.limit || 0;
+        var ARROW_H = 12; // height reserved for upward arrows on statutory
 
         var blockBottom = towerBottom; // all primaries start at $0
         var blockTop;
         if (u.is_statutory) {
-          // Statutory (WC): always extends to the top of the chart
-          blockTop = towerTop;
+          // Statutory (WC): slightly taller than tallest non-statutory + arrows at top
+          blockTop = maxNonStatTopY - 30; // 30px taller than tallest peer
+          if (blockTop > towerBottom - MIN_BLOCK_H) blockTop = towerBottom - MIN_BLOCK_H - 30;
         } else {
           blockTop = valToY(lim);
-          // Ensure minimum visible height
           if (blockBottom - blockTop < MIN_BLOCK_H) blockTop = blockBottom - MIN_BLOCK_H;
         }
         var pH = blockBottom - blockTop;
 
-        // Colors
-        var fill = u.is_statutory ? C.statutory : C.primary;
-        var stroke = u.is_statutory ? C.statutoryBd : C.primaryBd;
-
+        // Same blue color for all primaries including statutory
         g.append('rect').attr('x', cx).attr('y', blockTop).attr('width', colW).attr('height', pH)
-          .attr('fill', fill).attr('stroke', stroke).attr('stroke-width', 0.5);
+          .attr('fill', C.primary).attr('stroke', C.primaryBd).attr('stroke-width', 0.5);
+
+        // Statutory: upward arrows at top indicating "continues"
+        if (u.is_statutory) {
+          var arrowMidX = cx + colW / 2;
+          var arrowY = blockTop + 3;
+          // Three small upward chevrons
+          [-colW*0.2, 0, colW*0.2].forEach(function(offset) {
+            var ax = arrowMidX + offset;
+            g.append('path')
+              .attr('d', 'M' + (ax-5) + ',' + (arrowY+6) + ' L' + ax + ',' + arrowY + ' L' + (ax+5) + ',' + (arrowY+6))
+              .attr('fill', 'none').attr('stroke', C.primaryBd).attr('stroke-width', 1.5)
+              .attr('stroke-linecap', 'round');
+          });
+        }
 
         // Carrier
-        g.append('text').attr('x', cx + colW/2).attr('y', blockTop + pH/2 - 3)
+        var textY = u.is_statutory ? blockTop + ARROW_H + pH/2 - ARROW_H/2 - 3 : blockTop + pH/2 - 3;
+        g.append('text').attr('x', cx + colW/2).attr('y', textY)
           .attr('text-anchor', 'middle').style('font-size', '9px').style('font-weight', '600')
           .attr('fill', C.textDk).text(tr(u.carrier, 16));
 
         // Limit or "Statutory"
         if (u.is_statutory) {
-          g.append('text').attr('x', cx + colW/2).attr('y', blockTop + pH/2 + 9)
-            .attr('text-anchor', 'middle').style('font-size', '9px').style('font-weight', '700')
-            .attr('fill', '#92400e').text('Statutory');
+          g.append('text').attr('x', cx + colW/2).attr('y', textY + 12)
+            .attr('text-anchor', 'middle').style('font-size', '8px').style('font-weight', '600')
+            .attr('fill', C.textDk).attr('opacity', 0.7).text('Statutory');
         } else {
           g.append('text').attr('x', cx + colW/2).attr('y', blockTop + pH/2 + 9)
             .attr('text-anchor', 'middle').style('font-size', '8px')
@@ -211,7 +234,7 @@
 
         // Package badge ("via BOP", "via WC")
         if (u.is_package && u.package_parent_type) {
-          g.append('text').attr('x', cx + colW - 3).attr('y', blockTop + 9)
+          g.append('text').attr('x', cx + colW - 3).attr('y', blockTop + (u.is_statutory ? ARROW_H + 3 : 9))
             .attr('text-anchor', 'end').style('font-size', '6px').style('font-style', 'italic')
             .attr('fill', C.pkgBadge).text('via ' + tr(u.package_parent_type, 12));
         }
