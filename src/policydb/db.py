@@ -359,7 +359,7 @@ def init_db(path: Path | None = None) -> None:
 
     # Back up the database once before running any pending migrations.
     # This gives a clean restore point regardless of which migration fails.
-    _KNOWN_MIGRATIONS = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87}
+    _KNOWN_MIGRATIONS = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,89}
     if _KNOWN_MIGRATIONS - applied:
         _backup_db(conn, db_path)
 
@@ -1164,6 +1164,15 @@ def init_db(path: Path | None = None) -> None:
         conn.execute(
             "INSERT INTO schema_version (version, description) VALUES (?, ?)",
             (87, "Add schematic_column to policies for tower chart positioning"),
+        )
+        conn.commit()
+
+    if 89 not in applied:
+        sql = (_MIGRATIONS_DIR / "089_policy_exposure_links.sql").read_text()
+        conn.executescript(sql)
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (89, "Add policy_exposure_links table and denominator column to client_exposures"),
         )
         conn.commit()
 
