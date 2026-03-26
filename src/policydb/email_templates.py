@@ -357,7 +357,7 @@ def policy_context(conn: sqlite3.Connection, policy_uid: str) -> dict:
 
     # Exposure/rate from linked exposures
     from policydb.exposures import get_policy_exposures
-    exp_links = get_policy_exposures(conn, row.get("policy_uid", ""))
+    exp_links = get_policy_exposures(conn, row["policy_uid"] if "policy_uid" in row.keys() else "")
     primary = next((e for e in exp_links if e["is_primary"]), None)
     ctx["exposure_type"] = primary["exposure_type"] if primary else ""
     ctx["exposure_amount"] = "${:,.0f}".format(primary["amount"]) if primary and primary["amount"] else ""
