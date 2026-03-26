@@ -1300,6 +1300,33 @@ def _ai_import_parse_inner(request: Request, conn, uid: str, result: dict):
                 f"client record has {client_fein['fein']}"
             )
 
+    # ── Route exposure data through client_exposures → policy_exposure_links ──
+    exposure_basis = result["parsed"].get("exposure_basis")
+    exposure_amount = result["parsed"].get("exposure_amount")
+    exposure_denom = result["parsed"].get("exposure_denominator", 1) or 1
+    if exposure_basis and exposure_amount:
+        from policydb.exposures import find_or_create_exposure, create_exposure_link
+        eff_date = result["parsed"].get("effective_date") or policy_dict.get("effective_date", "")
+        year = int(eff_date[:4]) if eff_date and len(eff_date) >= 4 else datetime.now().year
+        client_id = policy_dict["client_id"]
+        project_id = policy_dict.get("project_id")
+        exp_id = find_or_create_exposure(
+            conn,
+            client_id=client_id,
+            project_id=project_id,
+            exposure_type=exposure_basis,
+            year=year,
+            amount=float(exposure_amount),
+            denominator=int(exposure_denom),
+        )
+        # Check for existing link
+        existing = conn.execute(
+            "SELECT id FROM policy_exposure_links WHERE policy_uid=? AND exposure_id=?",
+            (policy_dict["policy_uid"], exp_id),
+        ).fetchone()
+        if not existing:
+            create_exposure_link(conn, policy_dict["policy_uid"], exp_id, is_primary=True)
+
     # ── Build policy-level diffs ──
     _field_labels = {f["key"]: f["label"] for f in POLICY_EXTRACTION_SCHEMA["fields"]}
     ai_policy_diffs: list[dict] = []
@@ -1952,6 +1979,15 @@ def policy_tab_details(request: Request, policy_uid: str, conn=Depends(get_db)):
                 ground_up = running
             _tower_layers.append(dict(tr) | {"ground_up": ground_up, "is_current": tr["policy_uid"] == uid})
 
+    from policydb.exposures import get_policy_exposures
+    exposure_links = get_policy_exposures(conn, uid)
+    for link in exposure_links:
+        if link.get("project_id"):
+            proj = conn.execute("SELECT name FROM projects WHERE id=?", (link["project_id"],)).fetchone()
+            link["project_name"] = proj["name"] if proj else None
+        else:
+            link["project_name"] = None
+
     return templates.TemplateResponse("policies/_tab_details.html", {
         "request": request,
         "policy": policy_dict,
@@ -1963,6 +1999,7 @@ def policy_tab_details(request: Request, policy_uid: str, conn=Depends(get_db)):
         "opportunity_statuses": cfg.get("opportunity_statuses"),
         "tower_layers": _tower_layers,
         "cycle_labels": _RCL,
+        "exposure_links": exposure_links,
         "program_linked_policies": [dict(r) for r in conn.execute(
             """SELECT policy_uid, policy_type, carrier, premium, effective_date, expiration_date
                FROM policies WHERE program_id = ? AND archived = 0 ORDER BY policy_type""",
@@ -3466,6 +3503,11 @@ async def policy_cell_save(request: Request, policy_uid: str, conn=Depends(get_d
         if _regen and _regen["milestone_profile"]:
             from policydb.timeline_engine import generate_policy_timelines
             generate_policy_timelines(conn, policy_uid=uid)
+
+    # Recalc exposure rates when premium changes
+    if field == "premium":
+        from policydb.exposures import recalc_exposure_rate
+        recalc_exposure_rate(conn, policy_uid=uid)
 
     return JSONResponse({"ok": True, "formatted": formatted})
 

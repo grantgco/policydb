@@ -4432,6 +4432,12 @@ async def project_exposure_cell(request: Request, client_id: int, project_id: in
     return await exposure_cell(request, client_id, exposure_id, conn)
 
 
+@router.patch("/{client_id}/projects/{project_id}/exposures/{exposure_id}/toggle-primary")
+async def project_exposure_toggle_primary(request: Request, client_id: int, project_id: int, exposure_id: int, conn=Depends(get_db)):
+    """Toggle primary status for a project-level policy-exposure link."""
+    return await exposure_toggle_primary(request, client_id, exposure_id, conn, project_id=project_id)
+
+
 @router.delete("/{client_id}/projects/{project_id}/exposures/{exposure_id}", response_class=HTMLResponse)
 def project_exposure_delete(request: Request, client_id: int, project_id: int, exposure_id: int, conn=Depends(get_db)):
     """Delete a project-level exposure row."""
@@ -4692,6 +4698,13 @@ def client_locations(request: Request, client_id: int, conn=Depends(get_db)):
         ORDER BY policy_type
     """, (client_id,)).fetchall()]
 
+    # Annotate each policy with whether it has any exposure links
+    for p in policies:
+        p["has_exposure_link"] = conn.execute(
+            "SELECT 1 FROM policy_exposure_links WHERE policy_uid=? LIMIT 1",
+            (p["policy_uid"],),
+        ).fetchone() is not None
+
     # Group by project assignment
     unassigned = [p for p in policies if not p.get("project_name")]
 
@@ -4714,6 +4727,10 @@ def client_locations(request: Request, client_id: int, conn=Depends(get_db)):
     for i, proj in enumerate(projects):
         proj_policies = [p for p in policies if p.get("project_id") == proj["id"]]
         bg, text, light = colors[i % len(colors)]
+        has_exposures = conn.execute(
+            "SELECT 1 FROM client_exposures WHERE project_id=? LIMIT 1",
+            (proj["id"],),
+        ).fetchone() is not None
         locations.append({
             "id": proj["id"], "name": proj["name"],
             "address": " ".join(filter(None, [
@@ -4723,6 +4740,7 @@ def client_locations(request: Request, client_id: int, conn=Depends(get_db)):
             "policies": proj_policies,
             "total_premium": sum(p.get("premium") or 0 for p in proj_policies),
             "color_bg": bg, "color_text": text, "color_light": light,
+            "has_exposures": has_exposures,
         })
 
     # Smart suggestions: group unassigned by shared exposure_address
@@ -5223,10 +5241,24 @@ def _exposure_tab_context(conn, client_id: int, year: int, project_id=None) -> d
         for p in policies if not p.get("is_opportunity")
     ]
 
-    # Annotate exposures with policy labels
+    # Annotate exposures with policy labels and link data
     policy_map = {str(p["id"]): f"{p['policy_type']} — {p.get('carrier') or '?'}" for p in policies}
     for e in exposures:
         e["policy_label"] = policy_map.get(str(e.get("policy_id"))) if e.get("policy_id") else None
+        # Attach junction-table link data (rate, primary, linked policy)
+        link = conn.execute(
+            """SELECT pel.rate, pel.is_primary, pel.policy_uid, p.policy_type, p.carrier
+               FROM policy_exposure_links pel
+               JOIN policies p ON p.policy_uid = pel.policy_uid
+               WHERE pel.exposure_id=?
+               ORDER BY pel.is_primary DESC LIMIT 1""",
+            (e["id"],),
+        ).fetchone()
+        e["link_rate"] = link["rate"] if link else None
+        e["link_is_primary"] = link["is_primary"] if link else None
+        e["link_policy_uid"] = link["policy_uid"] if link else None
+
+    denom_options = cfg.get("exposure_denominators", [1, 100, 1000])
 
     # Build URL prefix for template links (corporate vs project-level)
     if project_id:
@@ -5245,6 +5277,7 @@ def _exposure_tab_context(conn, client_id: int, year: int, project_id=None) -> d
         "observations": observations,
         "prior_year_has_data": prior_year_has_data,
         "policy_options": policy_options,
+        "denom_options": denom_options,
         "exposure_url_prefix": exposure_url_prefix,
         "tab_reload_url": tab_reload_url,
     }
@@ -5348,7 +5381,7 @@ async def exposure_cell(request: Request, client_id: int, exposure_id: int, conn
     """Save a single cell value for an exposure row."""
     body = await request.json()
     field, value = body.get("field", ""), body.get("value", "")
-    allowed = {"amount", "source_document", "notes", "policy_id"}
+    allowed = {"amount", "source_document", "notes", "policy_id", "denominator"}
     if field not in allowed:
         return JSONResponse({"ok": False, "error": "Invalid field"}, status_code=400)
 
@@ -5373,6 +5406,8 @@ async def exposure_cell(request: Request, client_id: int, exposure_id: int, conn
             (amount, exposure_id, client_id),
         )
         conn.commit()
+        from policydb.exposures import recalc_exposure_rate
+        recalc_exposure_rate(conn, exposure_id=exposure_id)
         # Format and calculate YoY
         row = get_exposure_by_id(conn, exposure_id)
         if row and row.get("unit") == "currency":
@@ -5392,20 +5427,56 @@ async def exposure_cell(request: Request, client_id: int, exposure_id: int, conn
             pct = ((amount - prior["amount"]) / prior["amount"]) * 100
             yoy = "{:+.1f}%".format(pct)
             yoy_direction = "up" if pct > 0 else "down"
-        return JSONResponse({"ok": True, "formatted": formatted, "yoy": yoy, "yoy_direction": yoy_direction})
-    elif field == "policy_id":
-        pid = int(formatted) if formatted and formatted != "—" else None
+        # Include rate data in response
+        link = conn.execute(
+            "SELECT rate, is_primary FROM policy_exposure_links WHERE exposure_id=?",
+            (exposure_id,),
+        ).fetchone()
+        resp = {"ok": True, "formatted": formatted, "yoy": yoy, "yoy_direction": yoy_direction}
+        if link:
+            resp["rate"] = link["rate"]
+            resp["is_primary"] = link["is_primary"]
+        return JSONResponse(resp)
+    elif field == "denominator":
+        denom = int(formatted) if formatted and formatted not in ("", "—") else 1
+        if denom <= 0:
+            denom = 1
         conn.execute(
-            "UPDATE client_exposures SET policy_id=?, updated_at=CURRENT_TIMESTAMP WHERE id=? AND client_id=?",
-            (pid, exposure_id, client_id),
+            "UPDATE client_exposures SET denominator=?, updated_at=CURRENT_TIMESTAMP WHERE id=? AND client_id=?",
+            (denom, exposure_id, client_id),
         )
         conn.commit()
+        from policydb.exposures import recalc_exposure_rate
+        recalc_exposure_rate(conn, exposure_id=exposure_id)
+        link = conn.execute(
+            "SELECT rate, is_primary FROM policy_exposure_links WHERE exposure_id=?",
+            (exposure_id,),
+        ).fetchone()
+        return JSONResponse({
+            "ok": True, "formatted": str(denom),
+            "rate": link["rate"] if link else None,
+            "is_primary": link["is_primary"] if link else None,
+        })
+    elif field == "policy_id":
+        from policydb.exposures import create_exposure_link, delete_exposure_link
+        old_link = conn.execute(
+            "SELECT policy_uid FROM policy_exposure_links WHERE exposure_id=?",
+            (exposure_id,),
+        ).fetchone()
+        pid = int(formatted) if formatted and formatted not in ("", "—", "0") else None
+        if old_link:
+            delete_exposure_link(conn, old_link["policy_uid"], exposure_id)
         if pid:
-            p = conn.execute("SELECT policy_type, carrier FROM policies WHERE id=?", (pid,)).fetchone()
-            label = f"{p['policy_type']} — {p['carrier'] or '?'}" if p else ""
-        else:
-            label = ""
-        return JSONResponse({"ok": True, "formatted": label})
+            pol = conn.execute("SELECT policy_uid, policy_type, carrier FROM policies WHERE id=?", (pid,)).fetchone()
+            if pol:
+                link = create_exposure_link(conn, pol["policy_uid"], exposure_id, is_primary=True)
+                label = f"{pol['policy_type']} — {pol['carrier'] or '?'}"
+                return JSONResponse({
+                    "ok": True, "formatted": label,
+                    "rate": link.get("rate"),
+                    "is_primary": link.get("is_primary"),
+                })
+        return JSONResponse({"ok": True, "formatted": ""})
     else:
         conn.execute(
             f"UPDATE client_exposures SET {field}=?, updated_at=CURRENT_TIMESTAMP WHERE id=? AND client_id=?",
@@ -5413,6 +5484,77 @@ async def exposure_cell(request: Request, client_id: int, exposure_id: int, conn
         )
         conn.commit()
         return JSONResponse({"ok": True, "formatted": formatted})
+
+
+def _render_exposure_row(request, conn, client_id, exposure_id, project_id=None):
+    """Render a single exposure matrix row partial."""
+    e = dict(conn.execute("SELECT * FROM client_exposures WHERE id=?", (exposure_id,)).fetchone())
+    # Attach policy label
+    policies = [dict(p) for p in get_policies_for_client(conn, client_id)]
+    policy_map = {str(p["id"]): f"{p['policy_type']} — {p.get('carrier') or '?'}" for p in policies}
+    e["policy_label"] = policy_map.get(str(e.get("policy_id"))) if e.get("policy_id") else None
+    # Attach link data
+    link = conn.execute(
+        """SELECT pel.rate, pel.is_primary, pel.policy_uid, p.policy_type, p.carrier
+           FROM policy_exposure_links pel
+           JOIN policies p ON p.policy_uid = pel.policy_uid
+           WHERE pel.exposure_id=?
+           ORDER BY pel.is_primary DESC LIMIT 1""",
+        (exposure_id,),
+    ).fetchone()
+    e["link_rate"] = link["rate"] if link else None
+    e["link_is_primary"] = link["is_primary"] if link else None
+    e["link_policy_uid"] = link["policy_uid"] if link else None
+    # Attach prior year amount
+    prior = conn.execute(
+        """SELECT amount FROM client_exposures
+           WHERE client_id=? AND exposure_type=? AND year=?
+           AND COALESCE(project_id,0)=COALESCE(?,0)""",
+        (client_id, e["exposure_type"], e["year"] - 1, e.get("project_id")),
+    ).fetchone()
+    e["prior_amount"] = prior["amount"] if prior else None
+    # Build context
+    policy_options = [
+        {"value": str(p["id"]), "label": f"{p['policy_type']} — {p.get('carrier') or '?'}"}
+        for p in policies if not p.get("is_opportunity")
+    ]
+    if project_id:
+        exposure_url_prefix = f"/clients/{client_id}/projects/{project_id}"
+    else:
+        exposure_url_prefix = f"/clients/{client_id}"
+    denom_options = cfg.get("exposure_denominators", [1, 100, 1000])
+    return templates.TemplateResponse("clients/_exposure_matrix_row.html", {
+        "request": request, "e": e,
+        "policy_options": policy_options,
+        "denom_options": denom_options,
+        "exposure_url_prefix": exposure_url_prefix,
+        "client_id": client_id,
+    })
+
+
+@router.patch("/{client_id}/exposures/{exposure_id}/toggle-primary")
+async def exposure_toggle_primary(request: Request, client_id: int, exposure_id: int, conn=Depends(get_db), project_id: int = None):
+    """Toggle primary status for a policy-exposure link."""
+    from policydb.exposures import set_primary_exposure
+    body = await request.form()
+    policy_uid = body.get("policy_uid", "")
+    if not policy_uid:
+        return HTMLResponse("")
+    link = conn.execute(
+        "SELECT is_primary FROM policy_exposure_links WHERE policy_uid=? AND exposure_id=?",
+        (policy_uid, exposure_id),
+    ).fetchone()
+    if not link:
+        return HTMLResponse("")
+    if link["is_primary"]:
+        conn.execute(
+            "UPDATE policy_exposure_links SET is_primary=0 WHERE policy_uid=? AND exposure_id=?",
+            (policy_uid, exposure_id),
+        )
+        conn.commit()
+    else:
+        set_primary_exposure(conn, policy_uid, exposure_id)
+    return _render_exposure_row(request, conn, client_id, exposure_id, project_id=project_id)
 
 
 @router.delete("/{client_id}/exposures/{exposure_id}", response_class=HTMLResponse)
