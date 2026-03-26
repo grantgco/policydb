@@ -190,14 +190,22 @@ def compose_panel(
                 ctx.update(tl_ctx)
         except Exception:
             pass
-        # Resolve client_id from policy if not provided
-        if not client_id:
-            p_row = conn.execute(
-                "SELECT client_id FROM policies WHERE policy_uid=?",
-                (policy_uid.upper(),),
-            ).fetchone()
-            if p_row:
-                client_id = p_row["client_id"]
+        # Overlay location aggregate tokens if policy linked to a project
+        _pol_row = conn.execute(
+            "SELECT client_id, project_name FROM policies WHERE policy_uid=?",
+            (policy_uid.upper(),),
+        ).fetchone()
+        if _pol_row:
+            if not client_id:
+                client_id = _pol_row["client_id"]
+            if _pol_row["project_name"]:
+                try:
+                    loc_ctx = location_context(conn, _pol_row["client_id"], _pol_row["project_name"])
+                    for k, v in loc_ctx.items():
+                        if k not in ctx or not ctx[k]:
+                            ctx[k] = v
+                except Exception:
+                    pass
     elif project_name and client_id:
         ctx = location_context(conn, client_id, project_name)
     elif client_id:
@@ -400,6 +408,19 @@ def compose_render(
                 ctx.update(tl_ctx)
         except Exception:
             pass
+        # Overlay location aggregate tokens if policy linked to a project
+        _pol_row = conn.execute(
+            "SELECT client_id, project_name FROM policies WHERE policy_uid=?",
+            (policy_uid.upper(),),
+        ).fetchone()
+        if _pol_row and _pol_row["project_name"]:
+            try:
+                loc_ctx = location_context(conn, _pol_row["client_id"], _pol_row["project_name"])
+                for k, v in loc_ctx.items():
+                    if k not in ctx or not ctx[k]:
+                        ctx[k] = v
+            except Exception:
+                pass
     elif project_name and client_id:
         ctx = location_context(conn, client_id, project_name)
     elif client_id:
