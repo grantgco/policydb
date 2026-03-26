@@ -4698,6 +4698,13 @@ def client_locations(request: Request, client_id: int, conn=Depends(get_db)):
         ORDER BY policy_type
     """, (client_id,)).fetchall()]
 
+    # Annotate each policy with whether it has any exposure links
+    for p in policies:
+        p["has_exposure_link"] = conn.execute(
+            "SELECT 1 FROM policy_exposure_links WHERE policy_uid=? LIMIT 1",
+            (p["policy_uid"],),
+        ).fetchone() is not None
+
     # Group by project assignment
     unassigned = [p for p in policies if not p.get("project_name")]
 
@@ -4720,6 +4727,10 @@ def client_locations(request: Request, client_id: int, conn=Depends(get_db)):
     for i, proj in enumerate(projects):
         proj_policies = [p for p in policies if p.get("project_id") == proj["id"]]
         bg, text, light = colors[i % len(colors)]
+        has_exposures = conn.execute(
+            "SELECT 1 FROM client_exposures WHERE project_id=? LIMIT 1",
+            (proj["id"],),
+        ).fetchone() is not None
         locations.append({
             "id": proj["id"], "name": proj["name"],
             "address": " ".join(filter(None, [
@@ -4729,6 +4740,7 @@ def client_locations(request: Request, client_id: int, conn=Depends(get_db)):
             "policies": proj_policies,
             "total_premium": sum(p.get("premium") or 0 for p in proj_policies),
             "color_bg": bg, "color_text": text, "color_light": light,
+            "has_exposures": has_exposures,
         })
 
     # Smart suggestions: group unassigned by shared exposure_address

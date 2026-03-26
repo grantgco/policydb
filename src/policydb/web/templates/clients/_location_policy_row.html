@@ -14,7 +14,12 @@
 
   {# ── Policy data ── #}
   <div class="flex-1 px-2 py-2 min-w-0 flex flex-wrap items-center gap-x-3 gap-y-0.5">
-    <span class="text-sm font-medium text-gray-800 truncate">{{ policy.policy_type or '—' }}</span>
+    <span class="inline-flex items-center gap-1">
+      <span class="text-sm font-medium text-gray-800 truncate">{{ policy.policy_type or '—' }}</span>
+      {% if not policy.has_exposure_link and location_has_exposures %}
+      <span class="inline-block w-2 h-2 rounded-full bg-amber-400 shrink-0" title="No exposure linked"></span>
+      {% endif %}
+    </span>
     <span class="text-xs text-gray-500 truncate">{{ policy.carrier or '—' }}</span>
     {% if policy.policy_number %}
     <span class="text-xs text-gray-400 font-mono">{{ policy.policy_number }}</span>
