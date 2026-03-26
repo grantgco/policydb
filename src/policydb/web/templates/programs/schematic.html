@@ -262,56 +262,60 @@
   window.deleteExcessRow = function(btn, pid) {
     if (!confirm('Remove this layer?')) return;
     var row = btn.closest('tr');
+    // Also remove the covers-row beneath it
+    var coversRow = row.nextElementSibling;
     fetch('/clients/{{ client_id }}/programs/{{ tower_group | urlencode }}/excess/' + pid, {
       method: 'DELETE'
     }).then(function(r) { return r.text(); }).then(function() {
+      if (coversRow && coversRow.classList.contains('covers-row')) coversRow.remove();
       row.remove();
       document.body.dispatchEvent(new CustomEvent('tower-updated'));
     });
   };
 
-  // Toggle coverage mapping (which underlying lines an umbrella/excess covers)
-  window.toggleCoverage = function(btn) {
-    var excessId = btn.dataset.excessId;
-    var underlyingId = btn.dataset.underlyingId;
-    var isCovered = btn.dataset.covered === 'true';
-    var ptcId = btn.dataset.ptcId;
-    var baseUrl = '/clients/{{ client_id }}/programs/{{ tower_group | urlencode }}/coverage-map';
-
-    if (isCovered && ptcId) {
-      // Remove coverage
-      fetch(baseUrl + '/' + ptcId, { method: 'DELETE' })
-        .then(function(r) { return r.json(); })
-        .then(function(data) {
-          if (data.ok) {
-            btn.dataset.covered = 'false';
-            btn.dataset.ptcId = '';
-            btn.className = btn.className.replace(/bg-blue-100 border-blue-300 text-blue-700 font-semibold/g,
-              'bg-gray-50 border-gray-200 text-gray-400 hover:border-blue-300 hover:text-blue-500');
-            document.body.dispatchEvent(new CustomEvent('tower-updated'));
-          }
-        });
-    } else {
-      // Add coverage
-      fetch(baseUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          excess_policy_id: parseInt(excessId),
-          underlying_policy_id: parseInt(underlyingId),
-        })
+  // Coverage map: add/remove which underlying lines an excess covers
+  window.addCoverage = function(excessId, policyId, subCovId) {
+    fetch('/clients/{{ client_id }}/programs/{{ tower_group | urlencode }}/coverage-map', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        excess_policy_id: excessId,
+        underlying_policy_id: policyId,
+        underlying_sub_coverage_id: subCovId
       })
-        .then(function(r) { return r.json(); })
-        .then(function(data) {
-          if (data.ok) {
-            btn.dataset.covered = 'true';
-            btn.className = btn.className.replace(/bg-gray-50 border-gray-200 text-gray-400 hover:border-blue-300 hover:text-blue-500/g,
-              'bg-blue-100 border-blue-300 text-blue-700 font-semibold');
-            document.body.dispatchEvent(new CustomEvent('tower-updated'));
-          }
-        });
-    }
+    }).then(function(r) { return r.json(); }).then(function(resp) {
+      if (resp.ok) {
+        document.body.dispatchEvent(new CustomEvent('tower-updated'));
+        window.location.reload();
+      }
+    });
   };
+
+  window.removeCoverage = function(excessId, ptcId) {
+    fetch('/clients/{{ client_id }}/programs/{{ tower_group | urlencode }}/coverage-map/' + ptcId, {
+      method: 'DELETE'
+    }).then(function(r) { return r.json(); }).then(function(resp) {
+      if (resp.ok) {
+        document.body.dispatchEvent(new CustomEvent('tower-updated'));
+        window.location.reload();
+      }
+    });
+  };
+
+  window.toggleCoverageDropdown = function(btn, excessId) {
+    var dd = btn.nextElementSibling;
+    document.querySelectorAll('.covers-dropdown').forEach(function(d) {
+      if (d !== dd) d.classList.add('hidden');
+    });
+    dd.classList.toggle('hidden');
+  };
+
+  // Close dropdowns on click outside
+  document.addEventListener('click', function(e) {
+    if (!e.target.closest('.covers-dropdown') && !e.target.closest('[onclick*="toggleCoverageDropdown"]')) {
+      document.querySelectorAll('.covers-dropdown').forEach(function(d) { d.classList.add('hidden'); });
+    }
+  });
 })();
 </script>
 {% endblock %}

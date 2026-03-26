@@ -169,9 +169,11 @@ def _layer_notation(limit, attachment_point, participation_of):
             return "$0"
         v = abs(val)
         if v >= 1_000_000:
-            s = f"${v / 1_000_000:g}M"
+            m = v / 1_000_000
+            s = f"${m:.1f}M" if m != int(m) else f"${int(m)}M"
         elif v >= 1_000:
-            s = f"${v / 1_000:g}K"
+            k = v / 1_000
+            s = f"${k:.1f}K" if k != int(k) else f"${int(k)}K"
         else:
             s = f"${v:,.0f}"
         return s
@@ -309,8 +311,7 @@ def get_tower_data(conn: sqlite3.Connection, client_id: int) -> list[dict]:
     except Exception:
         pass  # Table may not exist on older DBs
 
-    # Also build a policy_id lookup from v_tower rows for coverage_map matching
-    # v_tower doesn't have policy id directly, so map via (tower_group, policy_type, carrier, policy_number)
+    # Build policy_id lookup from tower rows for coverage_map matching
     tower_policy_id_lookup: dict[tuple, int] = {}
     for r in tower_policy_rows:
         key = (r["tower_group"], r["policy_type"], r["carrier"], r["policy_number"])
