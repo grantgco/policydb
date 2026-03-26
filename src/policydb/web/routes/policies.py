@@ -3467,6 +3467,11 @@ async def policy_cell_save(request: Request, policy_uid: str, conn=Depends(get_d
             from policydb.timeline_engine import generate_policy_timelines
             generate_policy_timelines(conn, policy_uid=uid)
 
+    # Recalc exposure rates when premium changes
+    if field == "premium":
+        from policydb.exposures import recalc_exposure_rate
+        recalc_exposure_rate(conn, policy_uid=uid)
+
     return JSONResponse({"ok": True, "formatted": formatted})
 
 

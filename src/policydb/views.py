@@ -172,12 +172,15 @@ SELECT
     p.coverage_form AS "Form",
     p.layer_position AS "Layer",
     p.project_name AS "Project",
-    p.exposure_basis AS "Exposure Basis",
-    p.exposure_amount AS "Exposure Amount",
-    p.exposure_unit AS "Exposure Unit",
+    COALESCE(ce.exposure_type || ' /' || ce.denominator, p.exposure_basis) AS "Exposure Basis",
+    COALESCE(ce.amount, p.exposure_amount) AS "Exposure Amount",
+    COALESCE('per ' || ce.denominator, p.exposure_unit) AS "Exposure Unit",
+    pel.rate AS "Rate",
     p.description AS "Comments"
 FROM policies p
 JOIN clients c ON p.client_id = c.id
+LEFT JOIN policy_exposure_links pel ON pel.policy_uid = p.policy_uid AND pel.is_primary = 1
+LEFT JOIN client_exposures ce ON ce.id = pel.exposure_id
 WHERE p.archived = 0
   AND (p.is_opportunity = 0 OR p.is_opportunity IS NULL)
 ORDER BY c.name, p.policy_type, p.layer_position
