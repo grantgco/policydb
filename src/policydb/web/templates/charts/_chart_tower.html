@@ -1,0 +1,255 @@
+{# Tower / Layer Diagram — Insurance program schematic with stacked layers and co-insurance splits #}
+{% from "charts/_chart_base.html" import chart_frame %}
+{% call(area_id) chart_frame("Program Structure", "Tower / layer diagram") %}
+<div id="{{ area_id }}" style="width:100%;height:100%"></div>
+<script>
+window.render_tower = function() {
+  var data = window.chartData_tower;
+  var containerId = '{{ area_id }}';
+  var container = document.getElementById(containerId);
+  if (!data || !data.length) {
+    container.innerHTML = '<div class="chart-empty">No tower/layer structures &mdash; all policies are standalone</div>';
+    return;
+  }
+
+  var chart = createChartSvg(containerId, {
+    margin: {top: 35, right: 20, bottom: 20, left: 20}
+  });
+  var g = chart.g, w = chart.width, h = chart.height;
+
+  var numTowers = data.length;
+  var towerGap = 24;
+  var towerW = (w - (numTowers - 1) * towerGap) / numTowers;
+  towerW = Math.min(towerW, 280); // Cap width for readability
+  var totalUsedW = numTowers * towerW + (numTowers - 1) * towerGap;
+  var startX = (w - totalUsedW) / 2;
+
+  // Color shades per layer position (bottom=lightest, top=darkest)
+  var layerShades = ['#dbeafe','#bfdbfe','#93c5fd','#60a5fa','#3b82f6','#2563eb','#1d4ed8','#1e40af','#1e3a8a'];
+
+  // Helper: format limit for display
+  function fmtLimit(val) {
+    if (val == null) return '';
+    if (typeof val === 'string') return val;
+    return formatCurrency(val);
+  }
+
+  // Helper: truncate text
+  function trunc(str, max) {
+    if (!str) return '';
+    return str.length > max ? str.substring(0, max - 1) + '\u2026' : str;
+  }
+
+  // Helper: calculate text color for contrast
+  function textColor(bgIndex) {
+    return bgIndex >= 4 ? '#fff' : '#1e3a8a';
+  }
+
+  data.forEach(function(tower, tIdx) {
+    var tx = startX + tIdx * (towerW + towerGap);
+    var layers = tower.layers || [];
+    if (!layers.length) return;
+
+    // Tower group title
+    g.append('text')
+      .attr('x', tx + towerW / 2)
+      .attr('y', -12)
+      .attr('text-anchor', 'middle')
+      .style('font-size', '12px')
+      .style('font-weight', '700')
+      .attr('fill', '#1f2937')
+      .text(trunc(tower.tower_group, 28));
+
+    // Calculate layer heights
+    // Use log scale for proportional sizing when limits vary widely
+    var limits = layers.map(function(l) { return l.limit || 0; });
+    var maxLimit = d3.max(limits) || 1;
+    var minLimit = d3.min(limits.filter(function(v) { return v > 0; })) || maxLimit;
+    var ratio = maxLimit / minLimit;
+
+    var layerGap = 2;
+    var sirH = 28; // Space for SIR/deductible at bottom
+    var availH = h - sirH - (layers.length - 1) * layerGap;
+    var minLayerH = 36; // Minimum height for text readability
+
+    // Compute heights — use log scale if ratio > 10, otherwise proportional
+    var useLog = ratio > 10;
+    var rawHeights = layers.map(function(l) {
+      var lim = l.limit || minLimit;
+      return useLog ? Math.log10(lim + 1) : lim;
+    });
+    var sumRaw = d3.sum(rawHeights) || 1;
+    var layerHeights = rawHeights.map(function(rh) {
+      return Math.max(minLayerH, (rh / sumRaw) * availH);
+    });
+    // Normalize to fit available height
+    var sumH = d3.sum(layerHeights);
+    if (sumH > availH) {
+      var scale = availH / sumH;
+      layerHeights = layerHeights.map(function(lh) { return Math.max(minLayerH, lh * scale); });
+    }
+
+    // Stack from bottom up
+    var curY = h - sirH;
+    layers.forEach(function(layer, lIdx) {
+      var lH = layerHeights[lIdx];
+      curY -= lH;
+      if (lIdx > 0) curY -= layerGap;
+
+      var shadeIdx = Math.min(lIdx, layerShades.length - 1);
+      var bgColor = layerShades[shadeIdx];
+      var fgColor = textColor(shadeIdx);
+
+      var participants = layer.participants || [];
+      var hasParticipants = participants.length > 1;
+
+      if (hasParticipants) {
+        // Split horizontally for co-insured layers
+        var pGap = 2;
+        var totalPGap = (participants.length - 1) * pGap;
+        var pW = (towerW - totalPGap) / participants.length;
+        var px = tx;
+
+        participants.forEach(function(p, pIdx) {
+          // Each participant slice
+          g.append('rect')
+            .attr('x', px)
+            .attr('y', curY)
+            .attr('width', pW)
+            .attr('height', lH)
+            .attr('rx', 3)
+            .attr('fill', bgColor)
+            .attr('stroke', '#fff')
+            .attr('stroke-width', 1);
+
+          // Carrier name (truncated)
+          var carrierName = trunc(p.carrier || '', 14);
+          g.append('text')
+            .attr('x', px + pW / 2)
+            .attr('y', curY + lH / 2 - 4)
+            .attr('text-anchor', 'middle')
+            .style('font-size', '9px')
+            .style('font-weight', '600')
+            .attr('fill', fgColor)
+            .text(carrierName);
+
+          // Limit / participation note
+          var pNote = p.participation_note || fmtLimit(p.limit);
+          if (pNote) {
+            g.append('text')
+              .attr('x', px + pW / 2)
+              .attr('y', curY + lH / 2 + 8)
+              .attr('text-anchor', 'middle')
+              .style('font-size', '8px')
+              .attr('fill', fgColor)
+              .attr('opacity', 0.8)
+              .text(trunc(pNote, 16));
+          }
+
+          px += pW + pGap;
+        });
+      } else {
+        // Single carrier layer
+        g.append('rect')
+          .attr('x', tx)
+          .attr('y', curY)
+          .attr('width', towerW)
+          .attr('height', lH)
+          .attr('rx', 3)
+          .attr('fill', bgColor)
+          .attr('stroke', '#fff')
+          .attr('stroke-width', 1);
+
+        // Carrier name — centered, line 1
+        var carrier = layer.carrier || (participants[0] && participants[0].carrier) || '';
+        g.append('text')
+          .attr('x', tx + towerW / 2)
+          .attr('y', curY + lH / 2 - 6)
+          .attr('text-anchor', 'middle')
+          .style('font-size', '10px')
+          .style('font-weight', '600')
+          .attr('fill', fgColor)
+          .text(trunc(carrier, 24));
+
+        // Limit line — line 2
+        var limitStr = fmtLimit(layer.limit);
+        g.append('text')
+          .attr('x', tx + towerW / 2)
+          .attr('y', curY + lH / 2 + 6)
+          .attr('text-anchor', 'middle')
+          .style('font-size', '9px')
+          .attr('fill', fgColor)
+          .attr('opacity', 0.85)
+          .text(limitStr);
+
+        // Attachment point notation — line 3 (if excess layer)
+        if (layer.attachment_point && lIdx > 0) {
+          var attachStr = fmtLimit(layer.limit) + ' xs ' + fmtLimit(layer.attachment_point);
+          g.append('text')
+            .attr('x', tx + towerW / 2)
+            .attr('y', curY + lH / 2 + 17)
+            .attr('text-anchor', 'middle')
+            .style('font-size', '8px')
+            .style('font-style', 'italic')
+            .attr('fill', fgColor)
+            .attr('opacity', 0.7)
+            .text(trunc(attachStr, 30));
+        }
+
+        // Form type badge (small, top-right corner)
+        if (layer.form_type) {
+          g.append('text')
+            .attr('x', tx + towerW - 6)
+            .attr('y', curY + 11)
+            .attr('text-anchor', 'end')
+            .style('font-size', '7px')
+            .style('font-weight', '600')
+            .attr('fill', fgColor)
+            .attr('opacity', 0.6)
+            .text(layer.form_type);
+        }
+
+        // Premium (small, bottom-right corner)
+        if (layer.premium) {
+          g.append('text')
+            .attr('x', tx + towerW - 6)
+            .attr('y', curY + lH - 5)
+            .attr('text-anchor', 'end')
+            .style('font-size', '8px')
+            .attr('fill', fgColor)
+            .attr('opacity', 0.6)
+            .text(fmtLimit(layer.premium));
+        }
+      }
+    });
+
+    // SIR / Deductible block at very bottom
+    var firstLayer = layers[0];
+    var dedText = '';
+    if (firstLayer.deductible) {
+      dedText = 'SIR: ' + fmtLimit(firstLayer.deductible);
+    }
+    if (dedText) {
+      var dedY = h - sirH + 4;
+      g.append('rect')
+        .attr('x', tx)
+        .attr('y', dedY)
+        .attr('width', towerW)
+        .attr('height', sirH - 6)
+        .attr('rx', 3)
+        .attr('fill', '#f3f4f6')
+        .attr('stroke', '#d1d5db')
+        .attr('stroke-width', 1);
+      g.append('text')
+        .attr('x', tx + towerW / 2)
+        .attr('y', dedY + (sirH - 6) / 2 + 4)
+        .attr('text-anchor', 'middle')
+        .style('font-size', '9px')
+        .style('font-weight', '600')
+        .attr('fill', '#6b7280')
+        .text(dedText);
+    }
+  });
+};
+</script>
+{% endcall %}

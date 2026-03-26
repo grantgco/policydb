@@ -1,0 +1,61 @@
+/* ── Chart Deck Builder — Styles ─────────────────────────────────── */
+
+/* Chart page container — 16:9 aspect ratio */
+.chart-page {
+  width: 960px;
+  height: 540px;
+  background: #fff;
+  position: relative;
+  overflow: hidden;
+  margin: 0 auto;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  border-radius: 4px;
+}
+
+/* Chart title area */
+.chart-title { font-size: 20px; font-weight: 700; color: #1f2937; margin-bottom: 4px; }
+.chart-subtitle { font-size: 12px; color: #9ca3af; margin-bottom: 16px; }
+
+/* Chart content area (inside the 16:9 container) */
+.chart-content { padding: 32px; height: 100%; box-sizing: border-box; display: flex; flex-direction: column; }
+
+/* Empty state */
+.chart-empty { display: flex; align-items: center; justify-content: center; height: 100%; color: #9ca3af; font-size: 14px; }
+
+/* Sidebar navigation for paginated view */
+.chart-sidebar { width: 220px; border-right: 1px solid #e5e7eb; overflow-y: auto; }
+.chart-nav-item { padding: 10px 16px; font-size: 13px; color: #6b7280; cursor: pointer; border-left: 3px solid transparent; }
+.chart-nav-item:hover { background: #f9fafb; }
+.chart-nav-item.active { background: #eff6ff; color: #1d4ed8; border-left-color: #2563eb; font-weight: 600; }
+
+/* Export button */
+.chart-export-btn { position: absolute; top: 12px; right: 12px; z-index: 10; }
+
+/* Table charts */
+.chart-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.chart-table th { text-align: left; padding: 8px 12px; background: #f8fafc; border-bottom: 2px solid #e2e8f0; font-weight: 600; color: #475569; text-transform: uppercase; font-size: 10px; letter-spacing: 0.05em; }
+.chart-table td { padding: 8px 12px; border-bottom: 1px solid #f1f5f9; color: #334155; }
+.chart-table tr:hover td { background: #f8fafc; }
+.chart-table .changed { background: #fef3c7; }
+.chart-table tfoot td { font-weight: 700; border-top: 2px solid #e2e8f0; background: #f8fafc; }
+
+/* D3 chart styles */
+.chart-axis text { font-size: 11px; fill: #6b7280; }
+.chart-axis line, .chart-axis path { stroke: #e5e7eb; }
+.chart-grid line { stroke: #f3f4f6; stroke-dasharray: 2,2; }
+.chart-legend-item { font-size: 11px; fill: #374151; }
+
+/* Observation cards */
+.obs-card { padding: 12px 16px; border-radius: 6px; margin-bottom: 8px; display: flex; align-items: baseline; gap: 8px; }
+.obs-card.severe { background: #fef2f2; border-left: 3px solid #ef4444; }
+.obs-card.high { background: #fff7ed; border-left: 3px solid #f97316; }
+.obs-card.moderate { background: #eff6ff; border-left: 3px solid #3b82f6; }
+.obs-card.low { background: #f0fdf4; border-left: 3px solid #22c55e; }
+
+/* Deck configurator grid */
+.deck-chart-card { border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px; transition: all 0.15s; }
+.deck-chart-card:has(input:checked) { border-color: #3b82f6; background: #eff6ff; }
+.deck-chart-card label { cursor: pointer; }
+
+/* Print safety */
+@media print { .no-print { display: none !important; } }

@@ -1,0 +1,87 @@
+{# Carrier Breakdown — D3 Donut Chart
+   Data: chartData_carrier_breakdown = [{carrier, premium, pct}]
+#}
+{% from "charts/_chart_base.html" import chart_frame %}
+
+{% call(area_id) chart_frame("Carrier Breakdown", "Premium distribution by carrier") %}
+<div id="{{ area_id }}" style="flex:1; display:flex; align-items:center; justify-content:center;"></div>
+<script>
+window.render_carrier_breakdown = function() {
+  var data = chartData_carrier_breakdown;
+  var el = document.getElementById('{{ area_id }}');
+  if (!data || data.length === 0) {
+    el.innerHTML = '<div class="chart-empty">No carrier data available</div>';
+    return;
+  }
+
+  var containerW = el.clientWidth || 896;
+  var containerH = el.clientHeight || 380;
+  var donutCenterX = containerW * 0.35;
+  var donutCenterY = containerH / 2;
+  var outerRadius = Math.min(donutCenterX, donutCenterY) - 20;
+  if (outerRadius > 160) outerRadius = 160;
+  var innerRadius = outerRadius * 0.625;
+
+  // Clear
+  d3.select('#{{ area_id }}').select('svg').remove();
+
+  var svg = d3.select('#{{ area_id }}')
+    .append('svg')
+    .attr('width', containerW)
+    .attr('height', containerH)
+    .attr('xmlns', 'http://www.w3.org/2000/svg');
+
+  // Donut
+  var pie = d3.pie().value(function(d) { return d.premium; }).sort(null);
+  var arc = d3.arc().innerRadius(innerRadius).outerRadius(outerRadius);
+  var labelArc = d3.arc().innerRadius(outerRadius + 8).outerRadius(outerRadius + 8);
+
+  var g = svg.append('g')
+    .attr('transform', 'translate(' + donutCenterX + ',' + donutCenterY + ')');
+
+  var arcs = g.selectAll('.arc')
+    .data(pie(data))
+    .enter().append('g')
+    .attr('class', 'arc');
+
+  arcs.append('path')
+    .attr('d', arc)
+    .attr('fill', function(d, i) { return ChartColors.get(i); })
+    .attr('stroke', '#fff')
+    .attr('stroke-width', 2);
+
+  // Center total
+  var total = d3.sum(data, function(d) { return d.premium; });
+  g.append('text')
+    .attr('text-anchor', 'middle')
+    .attr('dy', '-0.2em')
+    .attr('style', 'font-size:10px; fill:#9ca3af;')
+    .text('Total Premium');
+  g.append('text')
+    .attr('text-anchor', 'middle')
+    .attr('dy', '1.1em')
+    .attr('style', 'font-size:18px; font-weight:700; fill:#1f2937;')
+    .text(formatCurrency(total));
+
+  // Right-side legend
+  var legendX = containerW * 0.6;
+  var legendStartY = Math.max(20, donutCenterY - (data.length * 28) / 2);
+
+  data.forEach(function(d, i) {
+    var ly = legendStartY + i * 28;
+    var row = svg.append('g').attr('transform', 'translate(' + legendX + ',' + ly + ')');
+    row.append('rect')
+      .attr('width', 14).attr('height', 14).attr('rx', 3)
+      .attr('fill', ChartColors.get(i));
+    row.append('text')
+      .attr('x', 22).attr('y', 11)
+      .attr('style', 'font-size:12px; fill:#374151; font-weight:500;')
+      .text(d.carrier || 'Unknown');
+    row.append('text')
+      .attr('x', 22).attr('y', 26)
+      .attr('style', 'font-size:11px; fill:#9ca3af;')
+      .text(formatCurrencyFull(d.premium) + '  (' + (d.pct != null ? d.pct.toFixed(1) : '?') + '%)');
+  });
+};
+</script>
+{% endcall %}

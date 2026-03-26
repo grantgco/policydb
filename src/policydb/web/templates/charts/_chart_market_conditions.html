@@ -1,0 +1,164 @@
+{# Market Conditions — Grouped bar chart: market average vs client actual rate change #}
+{% from "charts/_chart_base.html" import chart_frame %}
+{% call(area_id) chart_frame("Market Conditions", "Client rate change vs market benchmark") %}
+<div id="{{ area_id }}" style="width:100%;height:100%"></div>
+<script>
+window.render_market_conditions = function() {
+  var raw = window.chartData_market_conditions;
+  var containerId = '{{ area_id }}';
+  var container = document.getElementById(containerId);
+  if (!raw || !raw.lines || !raw.lines.length) {
+    container.innerHTML = '<div class="chart-empty">No market conditions data &mdash; add benchmark data in deck configuration</div>';
+    return;
+  }
+
+  var lines = raw.lines;
+
+  // Reserve extra bottom space for notes
+  var hasNotes = lines.some(function(d) { return d.notes; });
+  var bottomMargin = hasNotes ? 90 : 55;
+
+  var chart = createChartSvg(containerId, {
+    margin: {top: 30, right: 30, bottom: bottomMargin, left: 60}
+  });
+  var g = chart.g, w = chart.width, h = chart.height;
+
+  // Scales
+  var labels = lines.map(function(d) { return d.line; });
+  var xScale = d3.scaleBand()
+    .domain(labels)
+    .range([0, w])
+    .padding(0.3);
+
+  // Find y range — include both positive and negative
+  var allPcts = [];
+  lines.forEach(function(d) {
+    if (d.market_avg_pct != null) allPcts.push(d.market_avg_pct);
+    if (d.actual_pct != null) allPcts.push(d.actual_pct);
+  });
+  var yMin = d3.min(allPcts) || 0;
+  var yMax = d3.max(allPcts) || 1;
+  var yPad = Math.max((yMax - yMin) * 0.15, 1);
+  var yScale = d3.scaleLinear()
+    .domain([Math.min(0, yMin - yPad), yMax + yPad])
+    .range([h, 0])
+    .nice();
+
+  // Grid lines
+  g.append('g')
+    .attr('class', 'chart-grid')
+    .call(d3.axisLeft(yScale).tickSize(-w).tickFormat(''))
+    .select('.domain').remove();
+
+  // Zero baseline
+  var zeroY = yScale(0);
+  g.append('line')
+    .attr('x1', 0).attr('x2', w)
+    .attr('y1', zeroY).attr('y2', zeroY)
+    .attr('stroke', '#374151')
+    .attr('stroke-width', 1);
+
+  // X axis
+  var xAxis = g.append('g')
+    .attr('class', 'chart-axis')
+    .attr('transform', 'translate(0,' + h + ')')
+    .call(d3.axisBottom(xScale));
+
+  // Truncate long x-axis labels
+  xAxis.selectAll('text')
+    .each(function() {
+      var txt = this.textContent;
+      if (txt.length > 16) this.textContent = txt.substring(0, 14) + '\u2026';
+    })
+    .style('text-anchor', 'end')
+    .attr('dx', '-0.5em')
+    .attr('dy', '0.5em')
+    .attr('transform', 'rotate(-25)');
+
+  // Y axis
+  g.append('g')
+    .attr('class', 'chart-axis')
+    .call(d3.axisLeft(yScale).ticks(6).tickFormat(function(v) { return v.toFixed(1) + '%'; }));
+
+  // Bars
+  var barGroupW = xScale.bandwidth();
+  var barW = barGroupW / 2 - 2;
+
+  lines.forEach(function(d) {
+    var x0 = xScale(d.line);
+
+    // Market average bar (gray)
+    if (d.market_avg_pct != null) {
+      var mTop = d.market_avg_pct >= 0 ? yScale(d.market_avg_pct) : zeroY;
+      var mH = Math.abs(yScale(d.market_avg_pct) - zeroY);
+      g.append('rect')
+        .attr('x', x0)
+        .attr('y', mTop)
+        .attr('width', barW)
+        .attr('height', Math.max(mH, 1))
+        .attr('rx', 2)
+        .attr('fill', ChartColors.prior);
+
+      // Value label on market bar
+      g.append('text')
+        .attr('x', x0 + barW / 2)
+        .attr('y', d.market_avg_pct >= 0 ? mTop - 4 : mTop + mH + 12)
+        .attr('text-anchor', 'middle')
+        .style('font-size', '9px')
+        .attr('fill', '#6b7280')
+        .text(formatPercent(d.market_avg_pct));
+    }
+
+    // Actual bar — green if better than market, red if worse
+    if (d.actual_pct != null) {
+      var isBetter = false;
+      if (d.market_avg_pct != null) {
+        // "Better" means client got a lower increase (or bigger decrease)
+        isBetter = d.actual_pct < d.market_avg_pct;
+      }
+      var barColor = isBetter ? ChartColors.decrease : (d.market_avg_pct != null ? ChartColors.increase : ChartColors.current);
+
+      var aTop = d.actual_pct >= 0 ? yScale(d.actual_pct) : zeroY;
+      var aH = Math.abs(yScale(d.actual_pct) - zeroY);
+      g.append('rect')
+        .attr('x', x0 + barW + 4)
+        .attr('y', aTop)
+        .attr('width', barW)
+        .attr('height', Math.max(aH, 1))
+        .attr('rx', 2)
+        .attr('fill', barColor);
+
+      // Value label on actual bar
+      g.append('text')
+        .attr('x', x0 + barW + 4 + barW / 2)
+        .attr('y', d.actual_pct >= 0 ? aTop - 4 : aTop + aH + 12)
+        .attr('text-anchor', 'middle')
+        .style('font-size', '9px')
+        .style('font-weight', '600')
+        .attr('fill', barColor)
+        .text(formatPercent(d.actual_pct));
+    }
+
+    // Notes text below the group
+    if (d.notes && hasNotes) {
+      g.append('text')
+        .attr('x', x0 + barGroupW / 2)
+        .attr('y', h + 48)
+        .attr('text-anchor', 'middle')
+        .style('font-size', '9px')
+        .style('font-style', 'italic')
+        .attr('fill', '#9ca3af')
+        .text(d.notes.length > 30 ? d.notes.substring(0, 28) + '\u2026' : d.notes);
+    }
+  });
+
+  // Legend
+  var legendY = h + (hasNotes ? 62 : 34);
+  addLegend(g, [
+    {color: ChartColors.prior, label: 'Market Average'},
+    {color: ChartColors.decrease, label: 'Client (Better)'},
+    {color: ChartColors.increase, label: 'Client (Worse)'}
+  ], w / 2 - 180, legendY, {direction: 'horizontal', itemWidth: 130});
+};
+</script>
+{% endcall %}

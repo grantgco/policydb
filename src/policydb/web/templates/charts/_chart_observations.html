@@ -1,0 +1,68 @@
+{# Key Observations (Exposure) — HTML Cards Chart
+   Data: chartData_observations = [{exposure_type, pct_change, direction, notes, prior_amount, current_amount}]
+#}
+{% from "charts/_chart_base.html" import chart_frame %}
+
+{% call(area_id) chart_frame("Key Observations", "Year-over-year exposure changes") %}
+<div id="{{ area_id }}" style="overflow-y:auto; flex:1;">
+  <script>
+  window.render_observations = function() {
+    var data = chartData_observations;
+    var el = document.getElementById('{{ area_id }}');
+    if (!data || data.length === 0) {
+      el.innerHTML = '<div class="chart-empty">No prior year exposure data for comparison</div>';
+      return;
+    }
+
+    function severity(pct) {
+      var abs = Math.abs(pct);
+      if (abs > 15) return 'severe';
+      if (abs > 8) return 'high';
+      if (abs > 5) return 'moderate';
+      return 'low';
+    }
+    function arrow(dir) {
+      if (dir === 'up') return '<span style="color:#dc2626; font-weight:700; font-size:16px;">\u2191</span>';
+      if (dir === 'down') return '<span style="color:#059669; font-weight:700; font-size:16px;">\u2193</span>';
+      return '<span style="color:#9ca3af; font-size:16px;">\u2192</span>';
+    }
+
+    var html = '<div style="display:flex; flex-direction:column; gap:6px;">';
+    data.forEach(function(r) {
+      var sev = severity(r.pct_change);
+      html += '<div class="obs-card ' + sev + '">';
+      html += arrow(r.direction);
+      html += '<div style="flex:1;">'
+        + '<span style="font-weight:600; font-size:13px; color:#1f2937;">' + (r.exposure_type || 'Unknown') + '</span>';
+      // Amounts line
+      if (r.prior_amount != null || r.current_amount != null) {
+        html += '<span style="font-size:11px; color:#6b7280; margin-left:8px;">'
+          + (r.prior_amount != null ? formatCurrency(r.prior_amount) : '?')
+          + ' \u2192 '
+          + (r.current_amount != null ? formatCurrency(r.current_amount) : '?')
+          + '</span>';
+      }
+      if (r.notes) {
+        html += '<div style="font-size:11px; color:#6b7280; margin-top:2px;">' + r.notes + '</div>';
+      }
+      html += '</div>';
+      html += '<div style="font-weight:700; font-size:14px; white-space:nowrap; color:'
+        + (r.pct_change > 0 ? '#dc2626' : r.pct_change < 0 ? '#059669' : '#6b7280')
+        + ';">' + formatPercent(r.pct_change) + '</div>';
+      html += '</div>';
+    });
+    html += '</div>';
+
+    // Legend
+    html += '<div style="margin-top:10px; display:flex; gap:16px; font-size:10px; color:#9ca3af;">'
+      + '<span><span style="display:inline-block;width:8px;height:8px;background:#ef4444;border-radius:1px;margin-right:3px;"></span>Severe (&gt;15%)</span>'
+      + '<span><span style="display:inline-block;width:8px;height:8px;background:#f97316;border-radius:1px;margin-right:3px;"></span>High (&gt;8%)</span>'
+      + '<span><span style="display:inline-block;width:8px;height:8px;background:#3b82f6;border-radius:1px;margin-right:3px;"></span>Moderate (&gt;5%)</span>'
+      + '<span><span style="display:inline-block;width:8px;height:8px;background:#22c55e;border-radius:1px;margin-right:3px;"></span>Low (\u22645%)</span>'
+      + '</div>';
+
+    el.innerHTML = html;
+  };
+  </script>
+</div>
+{% endcall %}

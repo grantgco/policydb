@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}{{ client.name }} &mdash; Renewal Recap{% endblock %}
+{% block main_width %}max-w-[1200px]{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="/static/charts/charts.css">
+
+{# Header #}
+<div class="flex items-center justify-between mb-4 no-print">
+  <div>
+    <h1 class="text-lg font-bold text-gray-900">{{ client.name }}</h1>
+    <p class="text-xs text-gray-500">Renewal Recap &mdash; {{ selected_charts | length }} chart{{ 's' if selected_charts | length != 1 }}</p>
+  </div>
+  <div class="flex items-center gap-3">
+    <span id="export-status" class="text-xs text-gray-400"></span>
+    <button onclick="exportAllToZip({{ selected_charts | tojson }}, '{{ client.name | e }}')"
+      class="bg-marsh text-white rounded-lg px-4 py-2 text-sm font-semibold hover:bg-marsh/90 transition-colors">
+      Export All as ZIP
+    </button>
+    <a href="/charts/{{ client.id }}/deck" class="text-sm text-gray-500 hover:text-gray-700">&larr; Reconfigure</a>
+  </div>
+</div>
+
+{# Main Layout: sidebar + chart area #}
+<div class="flex border border-gray-200 rounded-xl bg-white overflow-hidden" style="height: 600px;">
+
+  {# Sidebar Nav #}
+  <div class="chart-sidebar no-print flex-shrink-0">
+    {% for chart_id in selected_charts %}
+    <div class="chart-nav-item" onclick="ChartNav.show({{ loop.index0 }})">
+      <span class="text-xs text-gray-400 mr-1.5">{{ loop.index }}.</span>
+      {{ chart_titles[chart_id] }}
+    </div>
+    {% endfor %}
+  </div>
+
+  {# Chart Display Area #}
+  <div class="flex-1 flex flex-col overflow-hidden">
+    {# Chart Pages #}
+    <div class="flex-1 flex items-center justify-center overflow-auto p-6" id="chart-display-area">
+      {% for chart_id in selected_charts %}
+      <div class="chart-page"
+           id="chart-{{ chart_id }}"
+           data-chart="{{ chart_id }}"
+           data-chart-type="{{ chart_types[chart_id] }}"
+           data-chart-title="{{ chart_titles[chart_id] }}"
+           style="display: none;">
+        <script>var chartData_{{ chart_id }} = {{ chart_data[chart_id] | tojson }};</script>
+        {% include "charts/_chart_" ~ chart_id ~ ".html" %}
+      </div>
+      {% endfor %}
+    </div>
+
+    {# Bottom Pagination Controls #}
+    <div class="flex items-center justify-center gap-4 px-6 py-3 border-t border-gray-200 bg-gray-50 no-print">
+      <button id="chart-prev" onclick="ChartNav.prev()"
+        class="text-sm text-gray-600 hover:text-gray-900 disabled:opacity-30 disabled:cursor-not-allowed px-3 py-1 rounded hover:bg-gray-100 transition-colors">
+        &larr; Previous
+      </button>
+      <span id="chart-counter" class="text-xs text-gray-500 font-medium tabular-nums">1 / {{ selected_charts | length }}</span>
+      <button id="chart-next" onclick="ChartNav.next()"
+        class="text-sm text-gray-600 hover:text-gray-900 disabled:opacity-30 disabled:cursor-not-allowed px-3 py-1 rounded hover:bg-gray-100 transition-colors">
+        Next &rarr;
+      </button>
+    </div>
+  </div>
+</div>
+
+{# Keyboard shortcut hint #}
+<p class="text-center text-xs text-gray-400 mt-3 no-print">Use &larr; &rarr; arrow keys to navigate</p>
+
+{# Library scripts #}
+<script src="/static/charts/d3.v7.min.js"></script>
+<script src="/static/charts/html2canvas.min.js"></script>
+<script src="/static/charts/jszip.min.js"></script>
+<script src="/static/charts/charts.js"></script>
+<script src="/static/charts/export.js"></script>
+
+{# Initialize navigation #}
+<script>
+  ChartNav.init({{ selected_charts | tojson }});
+</script>
+{% endblock %}

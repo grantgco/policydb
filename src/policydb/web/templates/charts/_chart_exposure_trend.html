@@ -1,0 +1,128 @@
+{# Exposure Trend — Multi-line chart showing exposure values over time #}
+{% from "charts/_chart_base.html" import chart_frame %}
+{% call(area_id) chart_frame("Exposure Trend", "Exposure values by type over time") %}
+<div id="{{ area_id }}" style="width:100%;height:100%"></div>
+<script>
+window.render_exposure_trend = function() {
+  var raw = window.chartData_exposure_trend;
+  var containerId = '{{ area_id }}';
+  var container = document.getElementById(containerId);
+  if (!raw || !raw.series || !raw.series.length) {
+    container.innerHTML = '<div class="chart-empty">No exposure data available</div>';
+    return;
+  }
+
+  var series = raw.series;
+  var years = raw.years || [];
+  if (!years.length) {
+    container.innerHTML = '<div class="chart-empty">No exposure data available</div>';
+    return;
+  }
+
+  var chart = createChartSvg(containerId, {
+    margin: {top: 20, right: 40, bottom: 60, left: 70}
+  });
+  var g = chart.g, w = chart.width, h = chart.height;
+
+  // X scale — years
+  var xScale = d3.scalePoint()
+    .domain(years.map(String))
+    .range([0, w])
+    .padding(0.3);
+
+  // Y scale — find global min/max across all series
+  var allVals = [];
+  series.forEach(function(s) {
+    s.data.forEach(function(d) { if (d.amount != null) allVals.push(d.amount); });
+  });
+  var yMin = d3.min(allVals) || 0;
+  var yMax = d3.max(allVals) || 1;
+  var yPad = (yMax - yMin) * 0.1 || 1;
+  var yScale = d3.scaleLinear()
+    .domain([Math.max(0, yMin - yPad), yMax + yPad])
+    .range([h, 0])
+    .nice();
+
+  // Check if any series uses currency units
+  var hasCurrency = series.some(function(s) {
+    return s.unit && (s.unit.toLowerCase().indexOf('$') >= 0 || s.unit.toLowerCase() === 'currency' || s.unit.toLowerCase() === 'dollars');
+  });
+
+  // Determine y-axis format based on data
+  function yFormat(v) {
+    if (hasCurrency || yMax >= 10000) return formatCurrency(v);
+    return formatNumber(v);
+  }
+
+  // Grid lines
+  g.append('g')
+    .attr('class', 'chart-grid')
+    .call(d3.axisLeft(yScale).tickSize(-w).tickFormat(''))
+    .select('.domain').remove();
+
+  // X axis
+  g.append('g')
+    .attr('class', 'chart-axis')
+    .attr('transform', 'translate(0,' + h + ')')
+    .call(d3.axisBottom(xScale));
+
+  // Y axis
+  g.append('g')
+    .attr('class', 'chart-axis')
+    .call(d3.axisLeft(yScale).ticks(6).tickFormat(yFormat));
+
+  // Line generator
+  var line = d3.line()
+    .defined(function(d) { return d.amount != null; })
+    .x(function(d) { return xScale(String(d.year)); })
+    .y(function(d) { return yScale(d.amount); })
+    .curve(d3.curveMonotoneX);
+
+  // Draw each series
+  var legendItems = [];
+  series.forEach(function(s, i) {
+    var color = ChartColors.get(i);
+    legendItems.push({color: color, label: s.type + (s.unit ? ' (' + s.unit + ')' : '')});
+
+    // Line path
+    g.append('path')
+      .datum(s.data)
+      .attr('fill', 'none')
+      .attr('stroke', color)
+      .attr('stroke-width', 2.5)
+      .attr('d', line);
+
+    // Dots at data points
+    g.selectAll('.dot-' + i)
+      .data(s.data.filter(function(d) { return d.amount != null; }))
+      .join('circle')
+      .attr('cx', function(d) { return xScale(String(d.year)); })
+      .attr('cy', function(d) { return yScale(d.amount); })
+      .attr('r', 4)
+      .attr('fill', color)
+      .attr('stroke', '#fff')
+      .attr('stroke-width', 1.5);
+
+    // Value labels on last point
+    var lastPt = null;
+    for (var j = s.data.length - 1; j >= 0; j--) {
+      if (s.data[j].amount != null) { lastPt = s.data[j]; break; }
+    }
+    if (lastPt) {
+      g.append('text')
+        .attr('x', xScale(String(lastPt.year)) + 8)
+        .attr('y', yScale(lastPt.amount) + 4)
+        .style('font-size', '10px')
+        .style('font-weight', '600')
+        .attr('fill', color)
+        .text(yFormat(lastPt.amount));
+    }
+  });
+
+  // Legend below chart
+  var legendW = Math.min(140, w / legendItems.length);
+  var legendX = (w - legendItems.length * legendW) / 2;
+  addLegend(g, legendItems, legendX, h + 32, {direction: 'horizontal', itemWidth: legendW});
+};
+</script>
+{% endcall %}
