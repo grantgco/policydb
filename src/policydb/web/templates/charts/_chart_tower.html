@@ -177,8 +177,8 @@
         var blockBottom = towerBottom; // all primaries start at $0
         var blockTop;
         if (u.is_statutory) {
-          // Statutory (WC): fixed tall block, doesn't use dollar scale
-          blockTop = blockBottom - Math.max(towerH * 0.35, MIN_BLOCK_H);
+          // Statutory (WC): always extends to the top of the chart
+          blockTop = towerTop;
         } else {
           blockTop = valToY(lim);
           // Ensure minimum visible height
@@ -242,42 +242,32 @@
         var umbTopY = valToY(umbTopVal);
         if (umbBottomY - umbTopY < MIN_BLOCK_H) umbTopY = umbBottomY - MIN_BLOCK_H;
 
-        // Draw umbrella — either full width or per covered column
-        if (hasSelective) {
-          under.forEach(function(u, ci) {
-            if (covTypes.indexOf(u.label) === -1) return;
-            var cx = curX + ci * colW;
-            // Umbrella drops to top of this column's primary
-            var primLim = u.is_statutory ? 0 : (u.limit || 0);
-            var colPrimTopY = u.is_statutory ? (towerBottom - towerH * 0.35) : valToY(primLim);
-            var umbColBottom = Math.min(umbBottomY, colPrimTopY);
-            var umbH = umbColBottom - umbTopY;
-            if (umbH > 0) {
-              g.append('rect').attr('x', cx).attr('y', umbTopY).attr('width', colW).attr('height', umbH)
-                .attr('fill', C.umbrella).attr('stroke', C.split).attr('stroke-width', 0.5);
-            }
-          });
-        } else {
-          // Full width umbrella
-          under.forEach(function(u, ci) {
-            var cx = curX + ci * colW;
-            var primLim = u.is_statutory ? 0 : (u.limit || 0);
-            var colPrimTopY = u.is_statutory ? (towerBottom - towerH * 0.35) : valToY(primLim);
-            var umbColBottom = Math.min(umbBottomY, colPrimTopY);
-            var umbH = umbColBottom - umbTopY;
-            if (umbH > 0) {
-              g.append('rect').attr('x', cx).attr('y', umbTopY).attr('width', colW).attr('height', umbH)
-                .attr('fill', C.umbrella).attr('stroke', C.split).attr('stroke-width', 0.5);
-            }
-          });
-        }
+        // Draw umbrella per column — NEVER over statutory (WC) columns
+        under.forEach(function(u, ci) {
+          // Skip statutory columns — umbrella never covers WC
+          if (u.is_statutory) return;
+          // Skip if selective coverage and this column isn't covered
+          if (hasSelective && covTypes.indexOf(u.label) === -1) return;
 
-        // Umbrella label
+          var cx = curX + ci * colW;
+          var primLim = u.limit || 0;
+          var colPrimTopY = valToY(primLim);
+          var umbColBottom = Math.min(umbBottomY, colPrimTopY);
+          var umbH = umbColBottom - umbTopY;
+          if (umbH > 0) {
+            g.append('rect').attr('x', cx).attr('y', umbTopY).attr('width', colW).attr('height', umbH)
+              .attr('fill', C.umbrella).attr('stroke', C.split).attr('stroke-width', 0.5);
+          }
+        });
+
+        // Umbrella label — centered across non-statutory covered columns
         var labelCenterX = curX + towerW / 2;
-        if (hasSelective) {
+        {
           var covIndices = [];
           under.forEach(function(u, ci) {
-            if (covTypes.indexOf(u.label) !== -1) covIndices.push(ci);
+            if (u.is_statutory) return; // never include WC in umbrella span
+            if (hasSelective && covTypes.indexOf(u.label) === -1) return;
+            covIndices.push(ci);
           });
           if (covIndices.length > 0) {
             var minCi = d3.min(covIndices);
