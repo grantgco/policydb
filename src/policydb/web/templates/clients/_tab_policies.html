@@ -36,9 +36,15 @@
   {% set exposure_state   = addr.get('exposure_state', '') %}
   {% set exposure_zip     = addr.get('exposure_zip', '') %}
   {% set show_header = policy_groups | length > 1 or project_name %}
+  {# Count non-program policies in this group #}
+  {% set ns = namespace(standalone=0, linked=0) %}
+  {% for p in group %}
+    {% if p.policy_uid not in program_linked_uids %}{% set ns.standalone = ns.standalone + 1 %}{% else %}{% set ns.linked = ns.linked + 1 %}{% endif %}
+  {% endfor %}
 
+  {% if ns.standalone > 0 %}
   {% if show_header %}
-  <details class="card mb-3 overflow-hidden" {% if not project_name or group | length <= 8 %}open{% endif %}>
+  <details class="card mb-3 overflow-hidden" {% if not project_name or ns.standalone <= 8 %}open{% endif %}>
     <summary class="px-4 py-2 bg-gray-50 border-b border-gray-200 cursor-pointer select-none list-none flex items-center gap-2 hover:bg-gray-100 transition-colors">
       <span class="text-xs text-gray-400 details-arrow">▶</span>
       {% set _proj_id = project_ids.get((project_name or '').lower().strip(), 0) if project_ids else 0 %}
@@ -55,7 +61,7 @@
       <button type="button" onclick="event.stopPropagation(); copyRefTag(this, '{{ build_ref_tag(cn_number=client.cn_number|default(''), client_id=client.id, project_id=_proj_id) }}')"
         class="text-xs font-mono text-gray-300 hover:text-marsh" title="Copy location ref tag">L{{ _proj_id }}</button>
       {% endif %}
-      <span class="text-xs text-gray-400">· {{ group | length }} polic{{ 'y' if group | length == 1 else 'ies' }}</span>
+      <span class="text-xs text-gray-400">· {{ ns.standalone }} polic{{ 'y' if ns.standalone == 1 else 'ies' }}</span>
       <a href="/clients/{{ client.id }}/export/project?project={{ project_name | urlencode }}"
          onclick="event.stopPropagation()" class="text-gray-300 hover:text-marsh text-xs no-print" title="Export location XLSX">&#8615;</a>
       {% if exposure_address or exposure_city %}
@@ -88,7 +94,33 @@
     </div>
   </div>
   {% endif %}
+  {% endif %}
   {% endfor %}
+
+  {# ── Program-Linked Policies (collapsed by default) ── #}
+  {% if program_linked_uids %}
+  {% set ns_pgm = namespace(count=0) %}
+  {% for _, group in policy_groups %}{% for p in group %}{% if p.policy_uid in program_linked_uids %}{% set ns_pgm.count = ns_pgm.count + 1 %}{% endif %}{% endfor %}{% endfor %}
+  {% if ns_pgm.count > 0 %}
+  <details class="card mb-3 overflow-hidden">
+    <summary class="px-4 py-2 bg-blue-50/50 border-b border-blue-100 cursor-pointer select-none list-none flex items-center gap-2 hover:bg-blue-50 transition-colors">
+      <span class="text-xs text-blue-400 details-arrow">▶</span>
+      <span class="text-xs font-semibold text-blue-600 uppercase tracking-wide">Program-Linked Policies</span>
+      <span class="text-xs text-gray-400">· {{ ns_pgm.count }} polic{{ 'y' if ns_pgm.count == 1 else 'ies' }} managed under programs</span>
+    </summary>
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead>{{ col_headers }}</thead>
+        <tbody>
+          {% for _, group in policy_groups %}
+          {% for p in group %}{% if p.policy_uid in program_linked_uids %}{% include "policies/_policy_row.html" %}{% endif %}{% endfor %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </details>
+  {% endif %}
+  {% endif %}
 </div>
 
 {# ── Tower Structure ── #}
