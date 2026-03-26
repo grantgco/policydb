@@ -24,6 +24,31 @@
   <td class="px-3 py-2 text-sm text-gray-800 matrix-cell-editable"
       data-field="policy_number" data-placeholder="policy #" contenteditable="true">{{ p.policy_number or '' }}</td>
   <td class="px-3 py-2 text-xs text-gray-500 italic" data-field="notation">{{ p.notation or '' }}</td>
+  <td class="px-3 py-2" data-field="covers">
+    {% set ns = namespace(covered_map={}) %}
+    {% for cl in p.covered_lines | default([]) %}
+      {% set _ = ns.covered_map.update({cl.covered_label: cl.ptc_id}) %}
+    {% endfor %}
+    <div class="flex flex-wrap gap-1">
+      {% for line in available_lines | default([]) %}
+      {% set ptc_id = ns.covered_map.get(line.label, '') %}
+      {% set is_covered = ptc_id != '' %}
+      <button type="button"
+        class="text-[10px] px-1.5 py-0.5 rounded-full border transition-colors
+               {{ 'bg-blue-100 border-blue-300 text-blue-700 font-semibold' if is_covered else 'bg-gray-50 border-gray-200 text-gray-400 hover:border-blue-300 hover:text-blue-500' }}"
+        data-excess-id="{{ p.id }}"
+        data-underlying-id="{{ line.policy_id }}"
+        data-covered="{{ 'true' if is_covered else 'false' }}"
+        data-ptc-id="{{ ptc_id }}"
+        onclick="toggleCoverage(this)">
+        {{ line.label[:12] }}
+      </button>
+      {% endfor %}
+      {% if not available_lines %}
+      <span class="text-[10px] text-gray-300 italic">no lines</span>
+      {% endif %}
+    </div>
+  </td>
   <td class="px-2 py-2 no-print">
     <button type="button" onclick="deleteExcessRow(this, {{ p.id }})"
             class="text-red-300 hover:text-red-500 text-xs">&#10005;</button>

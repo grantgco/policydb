@@ -11,7 +11,7 @@ import sqlite3
 from datetime import date, timedelta
 from typing import Optional
 
-from policydb.queries import get_client_exposures, get_exposure_observations, get_sub_coverages_by_policy_id
+from policydb.queries import get_client_exposures, get_exposure_observations, get_sub_coverages_by_policy_id, get_sub_coverages_full_by_policy_id
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -262,7 +262,7 @@ def get_tower_data(conn: sqlite3.Connection, client_id: int) -> list[dict]:
         key = (r["tower_group"], r["attachment_point"], r["layer_position"])
         program_key_to_id[key] = r["policy_id"]
 
-    # Build sub-coverage lookup for package policy detection
+    # Build sub-coverage lookup (full dicts with limit_amount, deductible)
     tower_policy_rows = conn.execute(
         """
         SELECT p.id, p.tower_group, p.policy_type, p.carrier, p.policy_number
@@ -275,11 +275,11 @@ def get_tower_data(conn: sqlite3.Connection, client_id: int) -> list[dict]:
         (client_id,),
     ).fetchall()
     tower_policy_ids = [r["id"] for r in tower_policy_rows]
-    sub_cov_map = get_sub_coverages_by_policy_id(conn, tower_policy_ids)
+    sub_cov_full_map = get_sub_coverages_full_by_policy_id(conn, tower_policy_ids)
     # Map (tower_group, policy_type, carrier, policy_number) -> sub-coverage info
     package_lookup: dict[tuple, dict] = {}
     for r in tower_policy_rows:
-        subs = sub_cov_map.get(r["id"], [])
+        subs = sub_cov_full_map.get(r["id"], [])
         if subs:
             key = (r["tower_group"], r["policy_type"], r["carrier"], r["policy_number"])
             package_lookup[key] = {
@@ -288,7 +288,36 @@ def get_tower_data(conn: sqlite3.Connection, client_id: int) -> list[dict]:
                 "sub_coverages": subs,
             }
 
+    # Build program_tower_coverage lookup: excess_policy_id -> [covered_labels]
+    coverage_map: dict[int, list[str]] = {}
+    try:
+        ptc_rows = conn.execute(
+            """
+            SELECT ptc.excess_policy_id,
+                   COALESCE(up.policy_type, sc.coverage_type) AS covered_label
+            FROM program_tower_coverage ptc
+            LEFT JOIN policies up ON ptc.underlying_policy_id = up.id
+            LEFT JOIN policy_sub_coverages sc ON ptc.underlying_sub_coverage_id = sc.id
+            WHERE ptc.excess_policy_id IN (
+                SELECT id FROM policies WHERE client_id = ? AND archived = 0
+            )
+            """,
+            (client_id,),
+        ).fetchall()
+        for r in ptc_rows:
+            coverage_map.setdefault(r["excess_policy_id"], []).append(r["covered_label"])
+    except Exception:
+        pass  # Table may not exist on older DBs
+
+    # Also build a policy_id lookup from v_tower rows for coverage_map matching
+    # v_tower doesn't have policy id directly, so map via (tower_group, policy_type, carrier, policy_number)
+    tower_policy_id_lookup: dict[tuple, int] = {}
+    for r in tower_policy_rows:
+        key = (r["tower_group"], r["policy_type"], r["carrier"], r["policy_number"])
+        tower_policy_id_lookup[key] = r["id"]
+
     # Group by tower_group, splitting into underlying (primary) and excess layers
+    _WC_KEYWORDS = ("workers comp", "workers' comp")
     groups: dict[str, dict] = {}
     for r in rows:
         tg = r["tower_group"] or "Ungrouped"
@@ -302,8 +331,11 @@ def get_tower_data(conn: sqlite3.Connection, client_id: int) -> list[dict]:
         # Check if this policy is a package
         pkg_key = (r["tower_group"], r["policy_type"], r["carrier"], r["policy_number"])
         pkg_info = package_lookup.get(pkg_key)
+        policy_id = tower_policy_id_lookup.get(pkg_key)
 
         if is_primary:
+            pt_lower = (r["policy_type"] or "").lower()
+            is_statutory = any(kw in pt_lower for kw in _WC_KEYWORDS)
             entry = {
                 "label": r["policy_type"] or "Unknown",
                 "carrier": r["carrier"] or "",
@@ -312,10 +344,12 @@ def get_tower_data(conn: sqlite3.Connection, client_id: int) -> list[dict]:
                 "premium": r["premium"] or 0,
                 "form_type": r["coverage_form"] or "",
                 "column": r["schematic_column"],
+                "is_statutory": is_statutory,
             }
             if pkg_info:
                 entry["is_package"] = True
                 entry["package_parent_type"] = pkg_info["package_parent_type"]
+                entry["_sub_coverages"] = pkg_info["sub_coverages"]
             groups[tg]["underlying"].append(entry)
         else:
             is_umb = lp in ("umbrella", "umbrella liability") or "umbrella" in lp
@@ -333,6 +367,7 @@ def get_tower_data(conn: sqlite3.Connection, client_id: int) -> list[dict]:
                 "premium": r["premium"] or 0,
                 "form_type": r["coverage_form"] or "",
                 "participants": [],
+                "covered_types": coverage_map.get(policy_id, []) if policy_id else [],
             }
             if pkg_info:
                 layer["is_package"] = True
@@ -348,6 +383,59 @@ def get_tower_data(conn: sqlite3.Connection, client_id: int) -> list[dict]:
                     )
                 layer["participants"] = plist
             groups[tg]["layers"].append(layer)
+
+    # --- Post-process: explode package sub-coverages into individual columns ---
+    for tg, grp in groups.items():
+        expanded = []
+        for entry in grp["underlying"]:
+            subs = entry.pop("_sub_coverages", None)
+            if subs:
+                subs_with_limits = [s for s in subs if s.get("limit_amount")]
+                if entry.get("is_statutory"):
+                    # WC: keep statutory column, add EL as separate column
+                    el_subs = [s for s in subs if "employer" in (s.get("coverage_type") or "").lower()]
+                    expanded.append(entry)  # WC statutory column stays
+                    for el in el_subs:
+                        if el.get("limit_amount"):
+                            expanded.append({
+                                "label": el["coverage_type"],
+                                "carrier": entry["carrier"],
+                                "deductible": el.get("deductible") or 0,
+                                "limit": el["limit_amount"],
+                                "premium": 0,
+                                "form_type": el.get("coverage_form") or "",
+                                "column": None,
+                                "is_package": True,
+                                "package_parent_type": entry["label"],
+                                "is_statutory": False,
+                            })
+                elif subs_with_limits:
+                    # Non-WC package (BOP, etc.): replace parent with sub-cov columns
+                    for sc in subs_with_limits:
+                        expanded.append({
+                            "label": sc["coverage_type"],
+                            "carrier": entry["carrier"],
+                            "deductible": sc.get("deductible") or entry.get("deductible", 0),
+                            "limit": sc["limit_amount"],
+                            "premium": 0,  # avoid double-counting
+                            "form_type": sc.get("coverage_form") or "",
+                            "column": None,
+                            "is_package": True,
+                            "package_parent_type": entry["label"],
+                            "is_statutory": False,
+                        })
+                else:
+                    # Sub-coverages exist but none have limits — keep parent as-is
+                    expanded.append(entry)
+            else:
+                expanded.append(entry)
+        grp["underlying"] = expanded
+
+    # --- Smart rename: suppress "Ungrouped" for simple placements ---
+    if len(groups) == 1 and "Ungrouped" in groups:
+        groups[""] = groups.pop("Ungrouped")
+    elif "Ungrouped" in groups and len(groups) > 1:
+        groups["Other Lines"] = groups.pop("Ungrouped")
 
     # Sort and assemble result
     result = []

@@ -27,6 +27,7 @@
           <th class="px-3 py-2 font-medium text-right" style="min-width:90px">Premium</th>
           <th class="px-3 py-2 font-medium" style="min-width:80px">Policy #</th>
           <th class="px-3 py-2 font-medium" style="min-width:130px">Notation</th>
+          <th class="px-3 py-2 font-medium" style="min-width:120px">Covers</th>
           <th class="px-2 py-2 font-medium w-8 no-print"></th>
         </tr>
       </thead>
@@ -35,12 +36,12 @@
         {% set layer_num = loop.index %}
         {% include "programs/_excess_row.html" %}
         {% else %}
-        <tr id="excess-empty"><td colspan="10" class="px-4 py-8 text-center text-gray-400 text-xs">No excess layers yet.</td></tr>
+        <tr id="excess-empty"><td colspan="11" class="px-4 py-8 text-center text-gray-400 text-xs">No excess layers yet.</td></tr>
         {% endfor %}
       </tbody>
       <tfoot>
         <tr class="border-t border-gray-200">
-          <td colspan="10" class="px-3 py-2 flex gap-2">
+          <td colspan="11" class="px-3 py-2 flex gap-2">
             {% if not has_umbrella %}
             <button type="button"
               class="no-print text-xs text-blue-500 border border-dashed border-blue-300 px-3 py-1.5 rounded hover:border-blue-500 hover:text-blue-700 transition-colors"
