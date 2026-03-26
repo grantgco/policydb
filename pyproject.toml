@@ -42,4 +42,5 @@ policydb = [
     "migrations/*.sql",
     "web/templates/**/*.html",
     "web/templates/*.html",
+    "web/static/**/*",
 ]
