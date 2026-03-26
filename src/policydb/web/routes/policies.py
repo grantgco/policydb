@@ -4336,12 +4336,12 @@ async def patch_sub_coverage(uid: str, sub_id: int, request: Request, conn=Depen
     if not row:
         raise HTTPException(404)
     body = await request.json()
-    allowed = {"limit_amount", "deductible", "coverage_form", "notes"}
+    allowed = {"limit_amount", "deductible", "attachment_point", "coverage_form", "notes"}
     updates = {k: v for k, v in body.items() if k in allowed}
     if not updates:
         return {"ok": False, "error": "no valid fields"}
     # Parse currency values
-    for fld in ("limit_amount", "deductible"):
+    for fld in ("limit_amount", "deductible", "attachment_point"):
         if fld in updates and updates[fld] is not None:
             from policydb.utils import parse_currency_with_magnitude
             parsed = parse_currency_with_magnitude(str(updates[fld]))
