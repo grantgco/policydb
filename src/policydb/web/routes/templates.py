@@ -67,6 +67,24 @@ def template_create(
     return RedirectResponse("/templates", status_code=303)
 
 
+@router.get("/{template_id}/card", response_class=HTMLResponse)
+def template_card(request: Request, template_id: int, conn=Depends(get_db)):
+    """Return just the card partial for a single template (used by Cancel)."""
+    row = conn.execute(
+        "SELECT * FROM email_templates WHERE id=?", (template_id,)
+    ).fetchone()
+    if not row:
+        return HTMLResponse("", status_code=404)
+    return templates.TemplateResponse("templates/_template_card.html", {
+        "request": request,
+        "t": dict(row),
+        "context_labels": _CONTEXT_LABELS,
+        "context_tokens": CONTEXT_TOKENS,
+        "context_token_groups": CONTEXT_TOKEN_GROUPS,
+        "context_tokens_json": _CONTEXT_TOKENS_JSON,
+    })
+
+
 @router.get("/{template_id}/edit", response_class=HTMLResponse)
 def template_edit_form(request: Request, template_id: int, conn=Depends(get_db)):
     row = conn.execute(
