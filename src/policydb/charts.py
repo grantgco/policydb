@@ -169,9 +169,11 @@ def _layer_notation(limit, attachment_point, participation_of):
             return "$0"
         v = abs(val)
         if v >= 1_000_000:
-            s = f"${v / 1_000_000:g}M"
+            m = v / 1_000_000
+            s = f"${m:.1f}M" if m != int(m) else f"${int(m)}M"
         elif v >= 1_000:
-            s = f"${v / 1_000:g}K"
+            k = v / 1_000
+            s = f"${k:.1f}K" if k != int(k) else f"${int(k)}K"
         else:
             s = f"${v:,.0f}"
         return s
@@ -309,8 +311,7 @@ def get_tower_data(conn: sqlite3.Connection, client_id: int) -> list[dict]:
     except Exception:
         pass  # Table may not exist on older DBs
 
-    # Also build a policy_id lookup from v_tower rows for coverage_map matching
-    # v_tower doesn't have policy id directly, so map via (tower_group, policy_type, carrier, policy_number)
+    # Build policy_id lookup from tower rows for coverage_map matching
     tower_policy_id_lookup: dict[tuple, int] = {}
     for r in tower_policy_rows:
         key = (r["tower_group"], r["policy_type"], r["carrier"], r["policy_number"])
@@ -385,15 +386,45 @@ def get_tower_data(conn: sqlite3.Connection, client_id: int) -> list[dict]:
             groups[tg]["layers"].append(layer)
 
     # --- Post-process: explode package sub-coverages into individual columns ---
+    # Sub-coverage types that should be placed as excess/umbrella layers, not underlying columns
+    _EXCESS_SUB_COV_KEYWORDS = ("umbrella", "excess")
+
+    def _is_excess_sub_cov(cov_type: str) -> bool:
+        ct = (cov_type or "").lower()
+        return any(kw in ct for kw in _EXCESS_SUB_COV_KEYWORDS)
+
     for tg, grp in groups.items():
         expanded = []
         for entry in grp["underlying"]:
             subs = entry.pop("_sub_coverages", None)
             if subs:
                 subs_with_limits = [s for s in subs if s.get("limit_amount")]
+                # Separate excess-type sub-coverages from underlying-type
+                excess_subs = [s for s in subs_with_limits if _is_excess_sub_cov(s.get("coverage_type", ""))]
+                underlying_subs = [s for s in subs_with_limits if not _is_excess_sub_cov(s.get("coverage_type", ""))]
+
+                # Promote excess-type sub-coverages to the layers list
+                for sc in excess_subs:
+                    grp["layers"].append({
+                        "policy_type": sc["coverage_type"],
+                        "carrier": entry["carrier"],
+                        "limit": sc["limit_amount"],
+                        "attachment_point": 0,
+                        "participation_of": None,
+                        "notation": _layer_notation(sc["limit_amount"], 0, None),
+                        "layer_position": "Umbrella" if "umbrella" in (sc["coverage_type"] or "").lower() else "Excess",
+                        "is_umbrella": "umbrella" in (sc["coverage_type"] or "").lower(),
+                        "premium": 0,
+                        "form_type": sc.get("coverage_form") or "",
+                        "participants": [],
+                        "covered_types": [],
+                        "is_package": True,
+                        "package_parent_type": entry["label"],
+                    })
+
                 if entry.get("is_statutory"):
                     # WC: keep statutory column, add EL as separate column
-                    el_subs = [s for s in subs if "employer" in (s.get("coverage_type") or "").lower()]
+                    el_subs = [s for s in underlying_subs if "employer" in (s.get("coverage_type") or "").lower()]
                     expanded.append(entry)  # WC statutory column stays
                     for el in el_subs:
                         if el.get("limit_amount"):
@@ -409,9 +440,9 @@ def get_tower_data(conn: sqlite3.Connection, client_id: int) -> list[dict]:
                                 "package_parent_type": entry["label"],
                                 "is_statutory": False,
                             })
-                elif subs_with_limits:
+                elif underlying_subs:
                     # Non-WC package (BOP, etc.): replace parent with sub-cov columns
-                    for sc in subs_with_limits:
+                    for sc in underlying_subs:
                         expanded.append({
                             "label": sc["coverage_type"],
                             "carrier": entry["carrier"],
@@ -424,8 +455,11 @@ def get_tower_data(conn: sqlite3.Connection, client_id: int) -> list[dict]:
                             "package_parent_type": entry["label"],
                             "is_statutory": False,
                         })
-                else:
+                elif not excess_subs:
                     # Sub-coverages exist but none have limits — keep parent as-is
+                    expanded.append(entry)
+                else:
+                    # Only excess subs had limits — keep parent for the underlying slot
                     expanded.append(entry)
             else:
                 expanded.append(entry)

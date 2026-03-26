@@ -54,3 +54,29 @@
             class="text-red-300 hover:text-red-500 text-xs">&#10005;</button>
   </td>
 </tr>
+{# ── Covers selector row ── #}
+{% if available_lines is defined and available_lines %}
+<tr class="covers-row bg-gray-50/50" data-excess-id="{{ p.id }}">
+  <td colspan="2" class="px-2 py-1 text-right text-[10px] text-gray-400">Covers</td>
+  <td colspan="8" class="px-2 py-1">
+    <div class="flex items-center gap-1 flex-wrap">
+      {% for cl in p.covered_lines or [] %}
+      <span class="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 text-blue-700 rounded text-[10px] font-medium">
+        {{ cl.covered_label }}
+        <button type="button" onclick="removeCoverage({{ p.id }}, {{ cl.ptc_id }})" class="text-blue-400 hover:text-red-500 ml-0.5">&times;</button>
+      </span>
+      {% endfor %}
+      <div class="relative inline-block">
+        <button type="button" onclick="toggleCoverageDropdown(this, {{ p.id }})"
+                class="text-[10px] text-marsh hover:text-marsh/80 font-medium px-1">+ add</button>
+        <div class="covers-dropdown hidden absolute z-20 mt-1 left-0 bg-white border border-gray-200 rounded shadow-lg py-1 min-w-[160px]">
+          {% for al in available_lines %}
+          <button type="button" onclick="addCoverage({{ p.id }}, {{ al.policy_id }}, null)"
+                  class="block w-full text-left px-3 py-1 text-xs text-gray-700 hover:bg-gray-50">{{ al.label }}</button>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </td>
+</tr>
+{% endif %}
