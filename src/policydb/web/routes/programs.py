@@ -516,12 +516,37 @@ async def schematic_page(
         p["covered_lines"] = coverage_map_by_excess.get(p["id"], [])
 
     # Build list of available underlying labels for "Covers" selector
+    # Includes standalone policies AND exploded sub-coverages from packages
     available_lines = []
+    _EXCESS_SC_KW = ("umbrella", "excess")
     for p in underlying:
-        available_lines.append({
-            "policy_id": p["id"],
-            "label": p.get("policy_type") or "Unknown",
-        })
+        subs_full = p.get("sub_coverages_full", [])
+        subs_with_limits = [s for s in subs_full if s.get("limit_amount")]
+        # Filter out umbrella/excess sub-coverages (those are in the excess panel)
+        underlying_subs = [s for s in subs_with_limits
+                           if not any(kw in (s.get("coverage_type") or "").lower() for kw in _EXCESS_SC_KW)]
+
+        if underlying_subs:
+            # Package: show each sub-coverage as a selectable line
+            # Also include the parent policy itself (e.g., WC statutory)
+            available_lines.append({
+                "policy_id": p["id"],
+                "sub_coverage_id": None,
+                "label": p.get("policy_type") or "Unknown",
+            })
+            for sc in underlying_subs:
+                available_lines.append({
+                    "policy_id": p["id"],
+                    "sub_coverage_id": sc["id"],
+                    "label": sc["coverage_type"],
+                })
+        else:
+            # Standalone policy
+            available_lines.append({
+                "policy_id": p["id"],
+                "sub_coverage_id": None,
+                "label": p.get("policy_type") or "Unknown",
+            })
 
     # Config lists
     policy_types = cfg.get("policy_types", [])
