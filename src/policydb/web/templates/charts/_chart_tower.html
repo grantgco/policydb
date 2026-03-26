@@ -3,7 +3,8 @@
    Excess layers span full width above umbrella top.
    Data: array of tower groups, each with underlying[] and layers[]
    Features: WC statutory bar, sub-coverage column explosion, selective umbrella,
-             Y-axis annotations, package badge, smart Ungrouped rename
+             Y-axis annotations, package badge, smart Ungrouped rename,
+             unified Y-axis scale (all blocks positioned by dollar value)
 #}
 {% from "charts/_chart_base.html" import chart_frame %}
 {% if tower_incomplete is defined and tower_incomplete %}
@@ -51,9 +52,7 @@
 
     // ── Layout constants ──
     var LABEL_H = 26, DED_H = 24, TWR_GAP = 24, TITLE_H = 16;
-    var MIN_PRIM_H = 28, MAX_PRIM_H = 60, STATUTORY_H = MAX_PRIM_H + 20;
-    var UMB_LABEL_H = 20;
-    var MIN_LAYER_H = 40;
+    var MIN_BLOCK_H = 24; // minimum pixel height for any layer block
 
     function fmtL(v) {
       if (v == null || v === 0) return '';
@@ -64,24 +63,40 @@
     }
     function tr(s, m) { return !s ? '' : s.length > m ? s.substring(0,m-1)+'\u2026' : s; }
 
-    // ── Collect all non-statutory limits for Y-axis reference marks ──
-    var allLimits = [];
+    // ── Compute the global maximum dollar value across all tower groups ──
+    var globalMaxVal = 0;
     data.forEach(function(t) {
-      (t.underlying || []).forEach(function(u) {
-        if (!u.is_statutory && u.limit) allLimits.push(u.limit);
-      });
+      // Top of tallest excess layer in this group
       (t.layers || []).forEach(function(l) {
         var top = (l.attachment_point || 0) + (l.limit || 0);
-        if (top) allLimits.push(top);
+        if (top > globalMaxVal) globalMaxVal = top;
+      });
+      // Also consider umbrella top (attachment=0 + limit)
+      // And underlying limits (in case no excess exists)
+      (t.underlying || []).forEach(function(u) {
+        if (!u.is_statutory && u.limit > globalMaxVal) globalMaxVal = u.limit;
       });
     });
-    var maxLimitVal = d3.max(allLimits) || 1;
+    if (globalMaxVal === 0) globalMaxVal = 1000000; // fallback
+
     // Round up to a nice number for Y-axis
     var niceMax;
-    if (maxLimitVal >= 5e6) niceMax = Math.ceil(maxLimitVal / 5e6) * 5e6;
-    else if (maxLimitVal >= 1e6) niceMax = Math.ceil(maxLimitVal / 1e6) * 1e6;
-    else if (maxLimitVal >= 100e3) niceMax = Math.ceil(maxLimitVal / 500e3) * 500e3;
-    else niceMax = Math.ceil(maxLimitVal / 100e3) * 100e3;
+    if (globalMaxVal >= 5e6) niceMax = Math.ceil(globalMaxVal / 5e6) * 5e6;
+    else if (globalMaxVal >= 1e6) niceMax = Math.ceil(globalMaxVal / 1e6) * 1e6;
+    else if (globalMaxVal >= 100e3) niceMax = Math.ceil(globalMaxVal / 500e3) * 500e3;
+    else niceMax = Math.ceil(globalMaxVal / 100e3) * 100e3;
+
+    // ── Unified Y-axis: map dollar values to pixel positions ──
+    // The "tower zone" is the area between the title and the label/deductible rows
+    var towerBottom = H - LABEL_H - DED_H; // bottom of tower blocks (above labels+ded)
+    var towerTop = TITLE_H + 8;             // top of tower blocks (below title)
+    var towerH = towerBottom - towerTop;
+
+    // valToY: maps a dollar value (0..niceMax) to a pixel Y coordinate
+    // $0 = towerBottom, $niceMax = towerTop
+    function valToY(dollarVal) {
+      return towerBottom - (dollarVal / niceMax) * towerH;
+    }
 
     // ── Compute column widths ──
     var totalCols = 0;
@@ -90,22 +105,16 @@
     var colW = Math.min(Math.floor((W - totalTwrGaps) / Math.max(totalCols, 1)), 180);
 
     // ── Y-axis reference marks ──
-    var axisZoneBottom = H - LABEL_H - DED_H;          // bottom of primary blocks
-    var axisZoneTop = TITLE_H + 8;                       // top available space
-    var axisZoneH = axisZoneBottom - axisZoneTop;
     var tickCount = 4;
     for (var ti = 0; ti <= tickCount; ti++) {
       var tickVal = (niceMax / tickCount) * ti;
-      // Map tick value to vertical position (proportional within axis zone)
-      var tickY = axisZoneBottom - (tickVal / niceMax) * axisZoneH;
-      if (tickY < axisZoneTop - 5) continue;
-      // Grid line
+      var tickY = valToY(tickVal);
+      if (tickY < towerTop - 5) continue;
       g.append('line')
         .attr('x1', 0).attr('x2', W)
         .attr('y1', tickY).attr('y2', tickY)
         .attr('stroke', '#e2e8f0').attr('stroke-dasharray', '4 2')
         .attr('stroke-width', 0.5);
-      // Tick label
       g.append('text')
         .attr('x', -5).attr('y', tickY + 3)
         .attr('text-anchor', 'end')
@@ -132,7 +141,7 @@
           .text(tr(tower.tower_group, 28));
       }
 
-      // ── Bottom section: labels + deductibles + primary (variable height) ──
+      // ── Bottom section: labels + deductibles ──
       var baseY = H;
 
       // Labels row
@@ -160,101 +169,110 @@
         }
       });
 
-      // Primary blocks — variable height proportional to limit
-      // Exclude statutory from proportional scaling
-      var nonStatLimits = under.filter(function(u) { return !u.is_statutory; })
-                               .map(function(u) { return u.limit || 0; });
-      var maxLim = d3.max(nonStatLimits) || 1;
-
-      var primHeights = under.map(function(u) {
-        if (u.is_statutory) return STATUTORY_H;
-        var lim = u.limit || 0;
-        if (maxLim === 0) return MIN_PRIM_H;
-        var h = MIN_PRIM_H + (MAX_PRIM_H - MIN_PRIM_H) * (lim / maxLim);
-        return Math.round(h);
-      });
-
-      var maxPrimH = d3.max(primHeights) || MAX_PRIM_H;
-      var primTopY = baseY; // top of deductible row = bottom of primary zone
-
-      // Draw primary blocks (varying heights, flush bottom with deductible row)
+      // ── Primary blocks — positioned by dollar value on Y-axis ──
       under.forEach(function(u, ci) {
         var cx = curX + ci * colW;
-        var pH = primHeights[ci];
-        var py = primTopY - pH;
+        var lim = u.limit || 0;
 
-        // Statutory columns get amber tint
+        var blockBottom = towerBottom; // all primaries start at $0
+        var blockTop;
+        if (u.is_statutory) {
+          // Statutory (WC): fixed tall block, doesn't use dollar scale
+          blockTop = blockBottom - Math.max(towerH * 0.35, MIN_BLOCK_H);
+        } else {
+          blockTop = valToY(lim);
+          // Ensure minimum visible height
+          if (blockBottom - blockTop < MIN_BLOCK_H) blockTop = blockBottom - MIN_BLOCK_H;
+        }
+        var pH = blockBottom - blockTop;
+
+        // Colors
         var fill = u.is_statutory ? C.statutory : C.primary;
         var stroke = u.is_statutory ? C.statutoryBd : C.primaryBd;
 
-        g.append('rect').attr('x', cx).attr('y', py).attr('width', colW).attr('height', pH)
+        g.append('rect').attr('x', cx).attr('y', blockTop).attr('width', colW).attr('height', pH)
           .attr('fill', fill).attr('stroke', stroke).attr('stroke-width', 0.5);
 
         // Carrier
-        g.append('text').attr('x', cx + colW/2).attr('y', py + pH/2 - 3)
+        g.append('text').attr('x', cx + colW/2).attr('y', blockTop + pH/2 - 3)
           .attr('text-anchor', 'middle').style('font-size', '9px').style('font-weight', '600')
           .attr('fill', C.textDk).text(tr(u.carrier, 16));
 
         // Limit or "Statutory"
         if (u.is_statutory) {
-          g.append('text').attr('x', cx + colW/2).attr('y', py + pH/2 + 9)
+          g.append('text').attr('x', cx + colW/2).attr('y', blockTop + pH/2 + 9)
             .attr('text-anchor', 'middle').style('font-size', '9px').style('font-weight', '700')
             .attr('fill', '#92400e').text('Statutory');
         } else {
-          g.append('text').attr('x', cx + colW/2).attr('y', py + pH/2 + 9)
+          g.append('text').attr('x', cx + colW/2).attr('y', blockTop + pH/2 + 9)
             .attr('text-anchor', 'middle').style('font-size', '8px')
             .attr('fill', C.textDk).attr('opacity', 0.8).text(fmtL(u.limit));
         }
 
         // Package badge ("via BOP", "via WC")
         if (u.is_package && u.package_parent_type) {
-          g.append('text').attr('x', cx + colW - 3).attr('y', py + 9)
+          g.append('text').attr('x', cx + colW - 3).attr('y', blockTop + 9)
             .attr('text-anchor', 'end').style('font-size', '6px').style('font-style', 'italic')
             .attr('fill', C.pkgBadge).text('via ' + tr(u.package_parent_type, 12));
         }
 
         // Premium (skip for package sub-cov columns — they show 0)
         if (u.premium && !u.is_package) {
-          g.append('text').attr('x', cx + colW - 3).attr('y', py + pH - 3)
+          g.append('text').attr('x', cx + colW - 3).attr('y', blockTop + pH - 3)
             .attr('text-anchor', 'end').style('font-size', '7px')
             .attr('fill', C.premC).text(fmtL(u.premium));
         }
       });
 
-      // ── Umbrella + Excess layers ──
+      // ── Umbrella + Excess layers — positioned by attachment_point on Y-axis ──
       var umbrellaLayers = layers.filter(function(l) { return l.is_umbrella; });
       var excessLayers = layers.filter(function(l) { return !l.is_umbrella; });
       excessLayers.sort(function(a, b) { return (a.attachment_point || 0) - (b.attachment_point || 0); });
 
-      var umbrellaBaseY = primTopY - maxPrimH;
-
       if (umbrellaLayers.length > 0) {
         var umbLayer = umbrellaLayers[0];
-        var umbLabelH = 22;
         var covTypes = umbLayer.covered_types || [];
         var hasSelective = covTypes.length > 0;
 
-        // Draw umbrella per-column (stepped bottom, uniform top)
-        under.forEach(function(u, ci) {
-          // Selective umbrella: skip columns not covered
-          if (hasSelective && covTypes.indexOf(u.label) === -1) return;
+        var umbAtt = umbLayer.attachment_point || 0;
+        var umbLim = umbLayer.limit || 0;
+        var umbTopVal = umbAtt + umbLim;
 
-          var cx = curX + ci * colW;
-          var primH = primHeights[ci];
-          var colPrimTop = primTopY - primH;
-          var umbBottom = colPrimTop;
-          var umbTop = umbrellaBaseY - umbLabelH;
-          var umbH = umbBottom - umbTop;
+        var umbBottomY = valToY(umbAtt);
+        var umbTopY = valToY(umbTopVal);
+        if (umbBottomY - umbTopY < MIN_BLOCK_H) umbTopY = umbBottomY - MIN_BLOCK_H;
 
-          if (umbH > 0) {
-            g.append('rect').attr('x', cx).attr('y', umbTop).attr('width', colW).attr('height', umbH)
-              .attr('fill', C.umbrella).attr('stroke', C.split).attr('stroke-width', 0.5);
-          }
-        });
+        // Draw umbrella — either full width or per covered column
+        if (hasSelective) {
+          under.forEach(function(u, ci) {
+            if (covTypes.indexOf(u.label) === -1) return;
+            var cx = curX + ci * colW;
+            // Umbrella drops to top of this column's primary
+            var primLim = u.is_statutory ? 0 : (u.limit || 0);
+            var colPrimTopY = u.is_statutory ? (towerBottom - towerH * 0.35) : valToY(primLim);
+            var umbColBottom = Math.min(umbBottomY, colPrimTopY);
+            var umbH = umbColBottom - umbTopY;
+            if (umbH > 0) {
+              g.append('rect').attr('x', cx).attr('y', umbTopY).attr('width', colW).attr('height', umbH)
+                .attr('fill', C.umbrella).attr('stroke', C.split).attr('stroke-width', 0.5);
+            }
+          });
+        } else {
+          // Full width umbrella
+          under.forEach(function(u, ci) {
+            var cx = curX + ci * colW;
+            var primLim = u.is_statutory ? 0 : (u.limit || 0);
+            var colPrimTopY = u.is_statutory ? (towerBottom - towerH * 0.35) : valToY(primLim);
+            var umbColBottom = Math.min(umbBottomY, colPrimTopY);
+            var umbH = umbColBottom - umbTopY;
+            if (umbH > 0) {
+              g.append('rect').attr('x', cx).attr('y', umbTopY).attr('width', colW).attr('height', umbH)
+                .attr('fill', C.umbrella).attr('stroke', C.split).attr('stroke-width', 0.5);
+            }
+          });
+        }
 
-        // Umbrella label — centered across covered columns width
-        var umbTopY = umbrellaBaseY - umbLabelH;
-        // Calculate label center based on covered columns
+        // Umbrella label
         var labelCenterX = curX + towerW / 2;
         if (hasSelective) {
           var covIndices = [];
@@ -267,84 +285,75 @@
             labelCenterX = curX + (minCi * colW) + ((maxCi - minCi + 1) * colW) / 2;
           }
         }
-
-        g.append('text').attr('x', labelCenterX).attr('y', umbTopY + 10)
+        var umbMidY = (umbTopY + umbBottomY) / 2;
+        g.append('text').attr('x', labelCenterX).attr('y', umbMidY - 2)
           .attr('text-anchor', 'middle').style('font-size', '9px').style('font-weight', '700')
           .attr('fill', C.textLt).text(tr(umbLayer.policy_type, 20));
-        g.append('text').attr('x', labelCenterX).attr('y', umbTopY + 20)
+        g.append('text').attr('x', labelCenterX).attr('y', umbMidY + 9)
           .attr('text-anchor', 'middle').style('font-size', '8px')
           .attr('fill', C.textLt).attr('opacity', 0.9)
           .text(tr(umbLayer.carrier, 20) + '  ' + (umbLayer.notation || fmtL(umbLayer.limit)));
-
-        umbrellaBaseY = umbTopY;
       }
 
-      // ── Excess layers above umbrella ──
-      if (excessLayers.length > 0) {
-        var exAvail = umbrellaBaseY - TITLE_H - 8;
+      // ── Excess layers — each positioned by its attachment_point and limit ──
+      excessLayers.forEach(function(layer, lIdx) {
+        var att = layer.attachment_point || 0;
+        var lim = layer.limit || 0;
+        var layerBottom = valToY(att);
+        var layerTop = valToY(att + lim);
+        if (layerBottom - layerTop < MIN_BLOCK_H) layerTop = layerBottom - MIN_BLOCK_H;
+        var layerH = layerBottom - layerTop;
+
+        // Color gradient: lighter at bottom, darker at top
         var numEx = excessLayers.length;
-        var exGap = 1;
-        var totalExGaps = (numEx - 1) * exGap;
-        var perEx = Math.max(MIN_LAYER_H, Math.floor((exAvail - totalExGaps) / numEx));
-        if (numEx * perEx + totalExGaps > exAvail) {
-          perEx = Math.max(32, Math.floor((exAvail - totalExGaps) / numEx));
-        }
+        var t = numEx > 1 ? lIdx / (numEx - 1) : 0;
+        var r1=191,g1=219,b1=254, r2=30,g2=64,b2=175;
+        var cr=Math.round(r1+(r2-r1)*t), cg=Math.round(g1+(g2-g1)*t), cb=Math.round(b1+(b2-b1)*t);
+        var bg = 'rgb('+cr+','+cg+','+cb+')';
+        var fg = t > 0.45 ? C.textLt : C.textDk;
 
-        var layerY = umbrellaBaseY;
+        var parts = layer.participants || [];
+        var hasParts = parts.length > 1;
 
-        excessLayers.forEach(function(layer, lIdx) {
-          layerY -= perEx;
-          if (lIdx > 0) layerY -= exGap;
-
-          var t = numEx > 1 ? lIdx / (numEx - 1) : 0;
-          var r1=191,g1=219,b1=254, r2=30,g2=64,b2=175;
-          var cr=Math.round(r1+(r2-r1)*t), cg=Math.round(g1+(g2-g1)*t), cb=Math.round(b1+(b2-b1)*t);
-          var bg = 'rgb('+cr+','+cg+','+cb+')';
-          var fg = t > 0.45 ? C.textLt : C.textDk;
-
-          var parts = layer.participants || [];
-          var hasParts = parts.length > 1;
-
-          if (hasParts) {
-            var pW = towerW / parts.length;
-            parts.forEach(function(p, pi) {
-              var px = curX + pi * pW;
-              g.append('rect').attr('x', px).attr('y', layerY).attr('width', pW).attr('height', perEx)
-                .attr('fill', bg).attr('stroke', C.split).attr('stroke-width', 1);
-              g.append('text').attr('x', px + pW/2).attr('y', layerY + 11)
-                .attr('text-anchor', 'middle').style('font-size', '7px')
-                .attr('fill', fg).attr('opacity', 0.7).text(tr(layer.policy_type, 16));
-              g.append('text').attr('x', px + pW/2).attr('y', layerY + 21)
-                .attr('text-anchor', 'middle').style('font-size', '9px').style('font-weight', '700')
-                .attr('fill', fg).text(tr(p.carrier, 14));
-              if (p.notation && perEx >= 36) {
-                g.append('text').attr('x', px + pW/2).attr('y', layerY + 31)
-                  .attr('text-anchor', 'middle').style('font-size', '7px').style('font-style', 'italic')
-                  .attr('fill', fg).attr('opacity', 0.8).text(tr(p.notation, 20));
-              }
-            });
-          } else {
-            g.append('rect').attr('x', curX).attr('y', layerY).attr('width', towerW).attr('height', perEx)
-              .attr('fill', bg).attr('stroke', C.split).attr('stroke-width', 0.5);
-            g.append('text').attr('x', curX + towerW/2).attr('y', layerY + 11)
-              .attr('text-anchor', 'middle').style('font-size', '8px')
-              .attr('fill', fg).attr('opacity', 0.7).text(tr(layer.policy_type, 28));
-            g.append('text').attr('x', curX + towerW/2).attr('y', layerY + 22)
-              .attr('text-anchor', 'middle').style('font-size', '10px').style('font-weight', '700')
-              .attr('fill', fg).text(tr(layer.carrier || (parts[0]?parts[0].carrier:''), 24));
-            if (layer.notation && perEx >= 38) {
-              g.append('text').attr('x', curX + towerW/2).attr('y', layerY + 33)
-                .attr('text-anchor', 'middle').style('font-size', '8px').style('font-style', 'italic')
-                .attr('fill', fg).attr('opacity', 0.8).text(tr(layer.notation, 30));
+        if (hasParts) {
+          var pW = towerW / parts.length;
+          parts.forEach(function(p, pi) {
+            var px = curX + pi * pW;
+            g.append('rect').attr('x', px).attr('y', layerTop).attr('width', pW).attr('height', layerH)
+              .attr('fill', bg).attr('stroke', C.split).attr('stroke-width', 1);
+            g.append('text').attr('x', px + pW/2).attr('y', layerTop + 11)
+              .attr('text-anchor', 'middle').style('font-size', '7px')
+              .attr('fill', fg).attr('opacity', 0.7).text(tr(layer.policy_type, 16));
+            g.append('text').attr('x', px + pW/2).attr('y', layerTop + 21)
+              .attr('text-anchor', 'middle').style('font-size', '9px').style('font-weight', '700')
+              .attr('fill', fg).text(tr(p.carrier, 14));
+            if (p.notation && layerH >= 36) {
+              g.append('text').attr('x', px + pW/2).attr('y', layerTop + 31)
+                .attr('text-anchor', 'middle').style('font-size', '7px').style('font-style', 'italic')
+                .attr('fill', fg).attr('opacity', 0.8).text(tr(p.notation, 20));
             }
-            if (layer.premium && perEx >= 38) {
-              g.append('text').attr('x', curX + towerW - 4).attr('y', layerY + perEx - 4)
-                .attr('text-anchor', 'end').style('font-size', '7px')
-                .attr('fill', fg).attr('opacity', 0.6).text(fmtL(layer.premium));
-            }
+          });
+        } else {
+          g.append('rect').attr('x', curX).attr('y', layerTop).attr('width', towerW).attr('height', layerH)
+            .attr('fill', bg).attr('stroke', C.split).attr('stroke-width', 0.5);
+          g.append('text').attr('x', curX + towerW/2).attr('y', layerTop + 11)
+            .attr('text-anchor', 'middle').style('font-size', '8px')
+            .attr('fill', fg).attr('opacity', 0.7).text(tr(layer.policy_type, 28));
+          g.append('text').attr('x', curX + towerW/2).attr('y', layerTop + 22)
+            .attr('text-anchor', 'middle').style('font-size', '10px').style('font-weight', '700')
+            .attr('fill', fg).text(tr(layer.carrier || (parts[0]?parts[0].carrier:''), 24));
+          if (layer.notation && layerH >= 38) {
+            g.append('text').attr('x', curX + towerW/2).attr('y', layerTop + 33)
+              .attr('text-anchor', 'middle').style('font-size', '8px').style('font-style', 'italic')
+              .attr('fill', fg).attr('opacity', 0.8).text(tr(layer.notation, 30));
           }
-        });
-      }
+          if (layer.premium && layerH >= 38) {
+            g.append('text').attr('x', curX + towerW - 4).attr('y', layerTop + layerH - 4)
+              .attr('text-anchor', 'end').style('font-size', '7px')
+              .attr('fill', fg).attr('opacity', 0.6).text(fmtL(layer.premium));
+          }
+        }
+      });
 
       curX += towerW + TWR_GAP;
     });
