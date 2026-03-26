@@ -69,6 +69,7 @@ TAB_LISTS: dict[str, dict[str, str]] = {
         "endorsement_types": "Required Endorsement Types",
         "exposure_basis_options": "Exposure Basis Options",
         "exposure_unit_options": "Exposure Unit Options",
+        "exposure_denominators": "Exposure Denominators",
     },
     "property-risk": {
         "construction_types": "Construction Types (ISO)",

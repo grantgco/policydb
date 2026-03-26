@@ -1167,6 +1167,7 @@ def init_db(path: Path | None = None) -> None:
         )
         conn.commit()
 
+    # Note: migration 088 was skipped (numbered 089 per plan); gap is harmless
     if 89 not in applied:
         sql = (_MIGRATIONS_DIR / "089_policy_exposure_links.sql").read_text()
         conn.executescript(sql)
