@@ -46,6 +46,7 @@ EDITABLE_LISTS: dict[str, str] = {
     "carriers": "Carriers",
     "exposure_basis_options": "Exposure Basis Options",
     "exposure_unit_options": "Exposure Unit Options",
+    "exposure_denominators": "Exposure Denominators",
     "contact_roles": "Contact Roles",
     "request_categories": "Request Categories",
 }
