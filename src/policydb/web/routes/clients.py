@@ -705,7 +705,7 @@ def client_tab_policies(request: Request, client_id: int, conn=Depends(get_db)):
     # Programs
     programs = [dict(r) for r in conn.execute(
         """SELECT id, policy_uid, policy_type, carrier, effective_date, expiration_date,
-                  premium, limit_amount, renewal_status
+                  premium, limit_amount, renewal_status, tower_group
            FROM policies WHERE client_id = ? AND archived = 0 AND is_program = 1 ORDER BY policy_type""",
         (client_id,),
     ).fetchall()]
