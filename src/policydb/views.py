@@ -211,7 +211,8 @@ SELECT
     p.coverage_form,
     p.schematic_column,
     p.description,
-    p.notes
+    p.notes,
+    p.layer_notation
 FROM policies p
 JOIN clients c ON p.client_id = c.id
 WHERE p.archived = 0
