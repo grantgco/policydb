@@ -1,4 +1,23 @@
 <div class="space-y-6">
+  {# Brokerage Name #}
+  <div class="card mb-6" id="section-brokerage-name">
+    <div class="px-5 py-3 border-b border-gray-100">
+      <h3 class="text-sm font-semibold text-gray-700">Brokerage Name</h3>
+      <p class="text-xs text-gray-400">Used for AI contact import to identify internal team members.</p>
+    </div>
+    <div class="px-5 py-4">
+      <form method="post" action="/settings/config/brokerage" class="space-y-2">
+        <div class="flex gap-2">
+          <input type="text" name="brokerage_name" value="{{ brokerage_name }}"
+                 class="flex-1 rounded-lg border border-gray-300 text-sm px-3 py-1.5 focus:ring-marsh focus:border-marsh"
+                 placeholder="e.g. Marsh McLennan">
+          <button type="submit"
+                  class="px-3 py-1.5 bg-marsh text-white text-sm rounded-lg hover:bg-marsh-light">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   {# Google Places API #}
   <div class="card mb-6" id="section-google-places">
     <div class="px-5 py-3 border-b border-gray-100">

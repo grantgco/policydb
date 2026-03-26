@@ -1,29 +1,36 @@
-{# AI Contact Extraction Review Panel — shows extracted contacts with checkboxes for import.
+{# AI Contact Bulk Import Review Panel — shows extracted contacts with checkboxes for import.
    Context variables:
-     policy        — policy dict
-     contacts      — list of extracted contact dicts (name, email, phone, mobile, org, title, role, already_assigned, existing_contact)
+     client        — client dict
+     contacts      — list of extracted contact dicts (name, email, phone, mobile, org, title, role, contact_type, already_assigned, existing_contact)
      warnings      — list of warning strings
      token         — cache token for apply step
-     policy_uid    — policy UID string
+     client_id     — client ID int
      contact_roles — list of role options from config
 #}
-<div id="ai-contacts-result" class="space-y-4">
+<div id="ai-contact-import-result" class="space-y-4">
 
   {# Summary badges #}
-  <div class="flex items-center gap-3">
+  <div class="flex items-center gap-3 flex-wrap">
     <span class="px-2.5 py-1 rounded-full text-xs font-medium bg-indigo-50 text-indigo-700">
       {{ contacts | length }} contact{{ 's' if contacts | length != 1 else '' }} extracted
     </span>
-    {% set new_count = contacts | selectattr('already_assigned', 'equalto', false) | list | length %}
-    {% set existing_count = contacts | length - new_count %}
+    {% set not_assigned = contacts | selectattr('already_assigned', 'equalto', false) | list %}
+    {% set new_count = not_assigned | rejectattr('existing_contact') | list | length %}
+    {% set exists_count = not_assigned | selectattr('existing_contact') | list | length %}
+    {% set assigned_count = contacts | selectattr('already_assigned', 'equalto', true) | list | length %}
     {% if new_count %}
     <span class="px-2.5 py-1 rounded-full text-xs font-medium bg-green-50 text-green-700">
       {{ new_count }} new
     </span>
     {% endif %}
-    {% if existing_count %}
+    {% if exists_count %}
+    <span class="px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700">
+      {{ exists_count }} exists globally
+    </span>
+    {% endif %}
+    {% if assigned_count %}
     <span class="px-2.5 py-1 rounded-full text-xs font-medium bg-amber-50 text-amber-700">
-      {{ existing_count }} already assigned
+      {{ assigned_count }} already assigned
     </span>
     {% endif %}
   </div>
@@ -41,7 +48,7 @@
   {# Contact list form #}
   <form id="ai-contacts-apply-form">
     <input type="hidden" name="token" value="{{ token }}">
-    <div class="border border-gray-200 rounded-lg overflow-hidden">
+    <div class="border border-gray-200 rounded-lg overflow-x-auto">
       <table class="w-full text-sm">
         <thead>
           <tr class="text-left text-xs text-gray-400 uppercase tracking-wide bg-gray-50 border-b border-gray-200">
@@ -56,6 +63,7 @@
             <th class="px-3 py-2">Org</th>
             <th class="px-3 py-2">Title</th>
             <th class="px-3 py-2">Role</th>
+            <th class="px-3 py-2">Type</th>
             <th class="px-3 py-2 w-16">Status</th>
           </tr>
         </thead>
@@ -105,10 +113,17 @@
                 {% for r in contact_roles %}
                 <option value="{{ r }}" {% if c.role and c.role == r %}selected{% endif %}>{{ r }}</option>
                 {% endfor %}
-                {# Include the LLM-inferred role if not in config list #}
                 {% if c.role and c.role not in contact_roles %}
                 <option value="{{ c.role }}" selected>{{ c.role }}</option>
                 {% endif %}
+              </select>
+            </td>
+            <td class="px-3 py-2">
+              <select name="type_{{ loop.index0 }}"
+                      class="w-full rounded border-gray-200 text-xs py-1 px-2 focus:ring-marsh focus:border-marsh">
+                <option value="client" {% if c.contact_type == 'client' %}selected{% endif %}>Client</option>
+                <option value="internal" {% if c.contact_type == 'internal' %}selected{% endif %}>Internal</option>
+                <option value="external" {% if c.contact_type == 'external' %}selected{% endif %}>External</option>
               </select>
             </td>
             <td class="px-3 py-2">
@@ -131,8 +146,8 @@
         Uncheck contacts you don't want to import. Already-assigned contacts are skipped.
       </p>
       <button type="submit"
-              hx-post="/policies/{{ policy_uid }}/ai-contacts/apply"
-              hx-target="#ai-contacts-result"
+              hx-post="/clients/{{ client_id }}/ai-contact-import/apply"
+              hx-target="#ai-contact-import-result"
               hx-swap="innerHTML"
               hx-include="#ai-contacts-apply-form"
               class="px-4 py-2 bg-marsh text-white text-sm font-medium rounded-lg hover:bg-marsh-light transition-colors">

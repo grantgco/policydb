@@ -4880,6 +4880,7 @@ def location_create(
 
 # In-memory cache for bulk import review → apply
 _BULK_IMPORT_CACHE: dict[str, tuple[list[dict], int, float]] = {}
+_CLIENT_CONTACT_IMPORT_CACHE: dict[str, tuple[list[dict], int, float]] = {}
 
 
 @router.get("/{client_id}/ai-bulk-import/prompt", response_class=HTMLResponse)
@@ -4896,7 +4897,7 @@ def client_ai_bulk_import_prompt(request: Request, client_id: int, conn=Depends(
     json_template = generate_json_template(POLICY_BULK_IMPORT_SCHEMA)
 
     context_display = {"Client": client["name"]}
-    if client.get("industry_segment"):
+    if client["industry_segment"]:
         context_display["Industry"] = client["industry_segment"]
     pol_count = conn.execute(
         "SELECT COUNT(*) as c FROM policies WHERE client_id = ? AND archived = 0", (client_id,)
@@ -5218,6 +5219,245 @@ def client_ai_bulk_import_apply(
     parts.append(f'<a href="/clients/{client_id}" class="text-sm text-marsh hover:underline">← Back to client</a>')
     parts.append('</div>')
     return HTMLResponse("\n".join(parts))
+
+
+# ---------------------------------------------------------------------------
+# AI Contact Import — client-level bulk contact import
+# ---------------------------------------------------------------------------
+
+@router.get("/{client_id}/ai-contact-import/prompt", response_class=HTMLResponse)
+def client_ai_contact_import_prompt(
+    request: Request, client_id: int, conn=Depends(get_db)
+):
+    """Return the AI import panel with contact bulk import prompt."""
+    import json
+    from policydb.llm_schemas import (
+        CONTACT_BULK_IMPORT_SCHEMA,
+        generate_contact_bulk_import_prompt,
+    )
+
+    client = conn.execute(
+        "SELECT * FROM clients WHERE id = ?", (client_id,)
+    ).fetchone()
+    if not client:
+        return HTMLResponse("Client not found", status_code=404)
+
+    prompt_text = generate_contact_bulk_import_prompt(conn, client_id)
+
+    # Build JSON template from schema examples
+    example = {}
+    for f in CONTACT_BULK_IMPORT_SCHEMA["fields"]:
+        if f.get("example"):
+            example[f["key"]] = f["example"]
+    json_template = json.dumps([example], indent=2)
+
+    context_display = {"Client": client["name"]}
+    if client["industry_segment"]:
+        context_display["Industry"] = client["industry_segment"]
+
+    return templates.TemplateResponse("_ai_import_panel.html", {
+        "request": request,
+        "import_type": "client_contacts",
+        "prompt_text": prompt_text,
+        "json_template": json_template,
+        "context_display": context_display,
+        "parse_url": f"/clients/{client_id}/ai-contact-import/parse",
+        "import_target": "#ai-contact-import-result",
+    })
+
+
+@router.post("/{client_id}/ai-contact-import/parse", response_class=HTMLResponse)
+def client_ai_contact_import_parse(
+    request: Request,
+    client_id: int,
+    json_text: str = Form(...),
+    conn=Depends(get_db),
+):
+    """Parse LLM contact JSON and return review panel."""
+    import time
+    import uuid
+    from policydb.llm_schemas import parse_contact_bulk_import_json
+
+    result = parse_contact_bulk_import_json(json_text)
+    if not result["ok"]:
+        return HTMLResponse(
+            f'<div class="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">'
+            f'{result["error"]}</div>',
+            status_code=422,
+        )
+
+    client = conn.execute(
+        "SELECT * FROM clients WHERE id = ?", (client_id,)
+    ).fetchone()
+    contacts = result["contacts"]
+    warnings = result.get("warnings", [])
+
+    # Fetch ALL existing client contacts across all types for dedup
+    existing_names: set[str] = set()
+    for ctype in ("client", "internal", "external"):
+        rows = get_client_contacts(conn, client_id, contact_type=ctype)
+        for r in rows:
+            if r.get("name"):
+                existing_names.add(r["name"].lower().strip())
+
+    # Annotate contacts
+    for contact in contacts:
+        name_lower = contact["name"].lower().strip()
+        contact["already_assigned"] = name_lower in existing_names
+
+        existing = conn.execute(
+            "SELECT id, email, phone, organization FROM contacts "
+            "WHERE LOWER(TRIM(name)) = LOWER(TRIM(?))",
+            (contact["name"],),
+        ).fetchone()
+        contact["existing_contact"] = dict(existing) if existing else None
+
+        # Default contact_type
+        if not contact.get("contact_type"):
+            contact["contact_type"] = "client"
+
+    # Cache for apply step
+    token = str(uuid.uuid4())
+    _CLIENT_CONTACT_IMPORT_CACHE[token] = (
+        contacts,
+        client_id,
+        time.time(),
+    )
+
+    # Purge stale cache entries (>30 min)
+    now = time.time()
+    stale = [k for k, v in _CLIENT_CONTACT_IMPORT_CACHE.items() if now - v[2] > 1800]
+    for k in stale:
+        _CLIENT_CONTACT_IMPORT_CACHE.pop(k, None)
+
+    return templates.TemplateResponse("clients/_ai_contacts_review.html", {
+        "request": request,
+        "client": dict(client),
+        "contacts": contacts,
+        "warnings": warnings,
+        "token": token,
+        "client_id": client_id,
+        "contact_roles": cfg.get("contact_roles", []),
+    })
+
+
+@router.post("/{client_id}/ai-contact-import/apply", response_class=HTMLResponse)
+async def client_ai_contact_import_apply(
+    request: Request,
+    client_id: int,
+    conn=Depends(get_db),
+):
+    """Apply selected contacts from AI import to the client."""
+    form = await request.form()
+    token = form.get("token", "")
+
+    cache = _CLIENT_CONTACT_IMPORT_CACHE.get(token)
+    if not cache:
+        return HTMLResponse(
+            '<div class="p-4 text-red-600 text-sm">Session expired — please re-parse.</div>'
+        )
+
+    contacts, cached_client_id, ts = cache
+    if cached_client_id != client_id:
+        return HTMLResponse(
+            '<div class="p-4 text-red-600 text-sm">Client mismatch.</div>'
+        )
+
+    created = 0
+    updated = 0
+    errors: list[str] = []
+
+    for i, contact in enumerate(contacts):
+        if not form.get(f"select_{i}"):
+            continue
+
+        # Read form overrides (user may have edited in review step)
+        name = form.get(f"name_{i}", contact.get("name", "")).strip()
+        email = form.get(f"email_{i}", contact.get("email", "")).strip()
+        phone = form.get(f"phone_{i}", contact.get("phone", "")).strip()
+        mobile = form.get(f"mobile_{i}", contact.get("mobile", "")).strip()
+        org = form.get(f"org_{i}", contact.get("organization", "")).strip()
+        title = form.get(f"title_{i}", contact.get("title", "")).strip()
+        role = form.get(f"role_{i}", contact.get("role", ""))
+        contact_type = form.get(f"type_{i}", contact.get("contact_type", "client"))
+
+        if not name:
+            continue
+
+        try:
+            # Normalize phone/email (both return plain strings)
+            if email:
+                email = clean_email(email)
+            if phone:
+                phone = format_phone(phone)
+            if mobile:
+                mobile = format_phone(mobile)
+
+            cid = get_or_create_contact(
+                conn,
+                name,
+                email=email or None,
+                phone=phone or None,
+                mobile=mobile or None,
+                organization=org or None,
+            )
+
+            assign_contact_to_client(
+                conn,
+                cid,
+                client_id,
+                contact_type=contact_type,
+                role=role,
+                title=title,
+            )
+
+            if contact.get("existing_contact"):
+                updated += 1
+            else:
+                created += 1
+        except Exception as e:
+            errors.append(f"{name}: {e}")
+
+    conn.commit()
+    _CLIENT_CONTACT_IMPORT_CACHE.pop(token, None)
+
+    total = created + updated
+    parts = [
+        '<div class="p-4 space-y-3">',
+        '<div class="flex items-center gap-2">',
+        '<svg class="w-5 h-5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">',
+        '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>',
+        "</svg>",
+        f'<span class="text-sm font-medium text-gray-900">'
+        f'{total} contact{"s" if total != 1 else ""} imported</span>',
+        "</div>",
+        '<div class="flex gap-2">',
+    ]
+    if created:
+        parts.append(
+            f'<span class="px-2 py-0.5 rounded-full text-xs bg-green-50 text-green-700">'
+            f"{created} created</span>"
+        )
+    if updated:
+        parts.append(
+            f'<span class="px-2 py-0.5 rounded-full text-xs bg-blue-50 text-blue-700">'
+            f"{updated} updated</span>"
+        )
+    if errors:
+        parts.append(
+            f'<span class="px-2 py-0.5 rounded-full text-xs bg-red-50 text-red-700">'
+            f"{len(errors)} error(s)</span>"
+        )
+    parts.append("</div>")
+    if errors:
+        parts.append('<div class="text-xs text-red-600 mt-1">')
+        for e in errors:
+            parts.append(f"<p>{e}</p>")
+        parts.append("</div>")
+    parts.append("</div>")
+    response = HTMLResponse("\n".join(parts))
+    response.headers["HX-Trigger"] = "refreshContacts"
+    return response
 
 
 # ─── EXPOSURE TRACKING ───────────────────────────────────────────────────────
