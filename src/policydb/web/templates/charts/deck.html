@@ -35,6 +35,7 @@
         "activity_timeline": "Vertical timeline of recent activities and touchpoints",
         "market_conditions": "Manual benchmark data vs your client's rates",
         "premium_history": "Multi-line trend of premiums across renewal cycles",
+        "exec_summary": "Bound program financials: expiring vs renewal by section",
         "coverage_comparison": "Side-by-side prior vs current term comparison",
         "exposure_trend": "Multi-line trend of exposure values by type over years",
         "normalized_premium": "Premium per $M of exposure for benchmarking",
@@ -46,12 +47,13 @@
       {% for chart in charts %}
       {% set is_market = chart.id == "market_conditions" %}
       {% set is_tower = chart.id == "tower" %}
-      <label class="deck-chart-card {{ 'col-span-2' if is_market }}" {{ 'id=market-card' if is_market }}>
+      {% set is_exec = chart.id == "exec_summary" %}
+      <label class="deck-chart-card {{ 'col-span-2' if is_market or is_exec }}" {{ 'id=market-card' if is_market }}>
         <div class="flex items-start gap-3">
           <input type="checkbox" name="selected_charts[]" value="{{ chart.id }}"
             {{ 'checked' if chart.category == 'core' }}
             class="mt-1 text-marsh focus:ring-marsh rounded"
-            {% if is_market %}id="market-check"{% elif is_tower %}id="tower-check"{% endif %}>
+            {% if is_market %}id="market-check"{% elif is_tower %}id="tower-check"{% elif is_exec %}id="exec-check"{% endif %}>
           <div class="flex-1">
             <div class="text-sm font-semibold text-gray-800">{{ chart.title }}</div>
             <div class="text-xs text-gray-500 mt-0.5">{{ chart_descriptions.get(chart.id, '') }}</div>
@@ -116,6 +118,121 @@
         <button type="button" onclick="addMarketRow()" class="text-xs text-blue-600 hover:text-blue-800 mt-1">+ Add row</button>
       </div>
       {% endif %}
+
+      {% if is_exec %}
+      {# Executive Financial Summary inline config — pre-populated from policy data, editable #}
+      <div class="col-span-2 border border-gray-200 rounded-lg p-4 bg-gray-50 hidden" id="exec-config">
+        {# Snapshot save/load bar #}
+        <div class="flex items-center gap-2 mb-3 pb-3 border-b border-gray-200">
+          <select id="exec-snapshot-select" class="text-xs border border-gray-300 rounded px-2 py-1 text-gray-700 focus:ring-marsh min-w-[160px]">
+            <option value="">Fresh from policies</option>
+          </select>
+          <button type="button" onclick="loadExecSnapshot()" id="exec-load-btn"
+            class="text-xs text-blue-600 hover:text-blue-800 disabled:text-gray-300 disabled:cursor-not-allowed" disabled>Load</button>
+          <div class="flex-1"></div>
+          <span id="exec-snapshot-status" class="text-xs text-gray-400"></span>
+          <button type="button" onclick="saveExecSnapshot(false)"
+            class="text-xs bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-1 rounded transition-colors">Save</button>
+          <button type="button" onclick="saveExecSnapshot(true)"
+            class="text-xs bg-marsh text-white px-3 py-1 rounded hover:bg-marsh/90 transition-colors">Save As&hellip;</button>
+          <button type="button" onclick="deleteExecSnapshot()" id="exec-delete-btn"
+            class="text-xs text-red-500 hover:text-red-700 disabled:text-gray-300 disabled:cursor-not-allowed" disabled>&times;</button>
+        </div>
+        <div class="flex items-center justify-between mb-3">
+          <div class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Financial Summary Data</div>
+          <span class="text-xs text-gray-400">Pre-populated from policies &mdash; edit as needed</span>
+        </div>
+        <table class="w-full text-xs" id="exec-rows-table" style="table-layout:fixed">
+          <colgroup>
+            <col style="width:18%">
+            <col style="width:22%">
+            <col style="width:14%">
+            <col style="width:13%">
+            <col style="width:13%">
+            <col style="width:13%">
+            <col style="width:28px">
+          </colgroup>
+          <thead>
+            <tr class="text-gray-500">
+              <th class="text-left pb-2 font-medium">Section</th>
+              <th class="text-left pb-2 font-medium">Line / Layer</th>
+              <th class="text-left pb-2 font-medium">Carrier</th>
+              <th class="text-right pb-2 font-medium">Expiring $</th>
+              <th class="text-right pb-2 font-medium">Normalized $</th>
+              <th class="text-right pb-2 font-medium">Renewal $</th>
+              <th class="pb-2" style="width:28px"></th>
+            </tr>
+          </thead>
+          <tbody id="exec-rows-body">
+            {% for section in exec_summary_data.sections %}
+            {% for row in section.rows %}
+            <tr class="exec-row">
+              <td class="pr-2 pb-2">
+                <input type="text" name="exec__section[]" value="{{ section.title }}"
+                  class="w-full border border-gray-300 rounded px-2 py-1 text-xs text-gray-800 focus:ring-marsh">
+              </td>
+              <td class="pr-2 pb-2">
+                <input type="text" name="exec__line[]" value="{{ row.line }}"
+                  class="w-full border border-gray-300 rounded px-2 py-1 text-xs text-gray-800 focus:ring-marsh">
+              </td>
+              <td class="pr-2 pb-2">
+                <input type="text" name="exec__carrier[]" value="{{ row.carrier }}"
+                  class="w-full border border-gray-300 rounded px-2 py-1 text-xs text-gray-800 focus:ring-marsh">
+              </td>
+              <td class="pr-2 pb-2">
+                <input type="text" name="exec__expiring[]" value="{{ row.expiring | int if row.expiring else '' }}"
+                  class="w-full border border-gray-300 rounded px-2 py-1 text-xs text-gray-800 text-right focus:ring-marsh">
+              </td>
+              <td class="pr-2 pb-2">
+                <input type="text" name="exec__normalized[]" value="{{ row.normalized | int if row.normalized else '' }}"
+                  placeholder="Optional" class="w-full border border-gray-300 rounded px-2 py-1 text-xs text-gray-400 text-right focus:ring-marsh">
+              </td>
+              <td class="pr-2 pb-2">
+                <input type="text" name="exec__renewal[]" value="{{ row.renewal | int if row.renewal else '' }}"
+                  class="w-full border border-gray-300 rounded px-2 py-1 text-xs text-gray-800 text-right focus:ring-marsh">
+              </td>
+              <td class="pb-2 text-center">
+                <button type="button" onclick="removeExecRow(this)" class="text-gray-400 hover:text-red-500 text-sm">&times;</button>
+              </td>
+            </tr>
+            {% endfor %}
+            {% endfor %}
+            {% if not exec_summary_data.sections %}
+            <tr class="exec-row">
+              <td class="pr-2 pb-2">
+                <input type="text" name="exec__section[]" placeholder="e.g. Casualty — Primary"
+                  class="w-full border border-gray-300 rounded px-2 py-1 text-xs text-gray-800 focus:ring-marsh">
+              </td>
+              <td class="pr-2 pb-2">
+                <input type="text" name="exec__line[]" placeholder="Line or layer"
+                  class="w-full border border-gray-300 rounded px-2 py-1 text-xs text-gray-800 focus:ring-marsh">
+              </td>
+              <td class="pr-2 pb-2">
+                <input type="text" name="exec__carrier[]" placeholder="Carrier"
+                  class="w-full border border-gray-300 rounded px-2 py-1 text-xs text-gray-800 focus:ring-marsh">
+              </td>
+              <td class="pr-2 pb-2">
+                <input type="text" name="exec__expiring[]" placeholder="0"
+                  class="w-full border border-gray-300 rounded px-2 py-1 text-xs text-gray-800 text-right focus:ring-marsh">
+              </td>
+              <td class="pr-2 pb-2">
+                <input type="text" name="exec__normalized[]" placeholder="Optional"
+                  class="w-full border border-gray-300 rounded px-2 py-1 text-xs text-gray-400 text-right focus:ring-marsh">
+              </td>
+              <td class="pr-2 pb-2">
+                <input type="text" name="exec__renewal[]" placeholder="0"
+                  class="w-full border border-gray-300 rounded px-2 py-1 text-xs text-gray-800 text-right focus:ring-marsh">
+              </td>
+              <td class="pb-2 text-center">
+                <button type="button" onclick="removeExecRow(this)" class="text-gray-400 hover:text-red-500 text-sm">&times;</button>
+              </td>
+            </tr>
+            {% endif %}
+          </tbody>
+        </table>
+        <button type="button" onclick="addExecRow()" class="text-xs text-blue-600 hover:text-blue-800 mt-1">+ Add row</button>
+      </div>
+      {% endif %}
       {% endfor %}
     </div>
 
@@ -160,6 +277,15 @@
     if (towerCheck.checked) towerConfig.classList.remove('hidden');
   }
 
+  var execCheck = document.getElementById('exec-check');
+  var execConfig = document.getElementById('exec-config');
+  if (execCheck && execConfig) {
+    execCheck.addEventListener('change', function() {
+      execConfig.classList.toggle('hidden', !execCheck.checked);
+    });
+    if (execCheck.checked) execConfig.classList.remove('hidden');
+  }
+
   form.addEventListener('change', function(e) {
     if (e.target.name === 'selected_charts[]') updateCount();
   });
@@ -195,5 +321,167 @@ function removeMarketRow(btn) {
     row.querySelector('select').selectedIndex = 0;
   }
 }
+
+function addExecRow() {
+  var tbody = document.getElementById('exec-rows-body');
+  var firstRow = tbody.querySelector('.exec-row');
+  if (!firstRow) return;
+  var clone = firstRow.cloneNode(true);
+  clone.querySelectorAll('input').forEach(function(inp) { inp.value = ''; });
+  tbody.appendChild(clone);
+}
+
+function removeExecRow(btn) {
+  var row = btn.closest('tr.exec-row');
+  var tbody = document.getElementById('exec-rows-body');
+  if (tbody.querySelectorAll('.exec-row').length > 1) {
+    row.remove();
+  } else {
+    row.querySelectorAll('input').forEach(function(inp) { inp.value = ''; });
+  }
+}
+
+// ── Exec Summary Snapshot Management ──────────────────────────────────────
+var _execClientId = {{ client.id }};
+var _execCurrentSnapshotId = null;
+
+function _execCollectRows() {
+  var rows = [];
+  document.querySelectorAll('#exec-rows-body .exec-row').forEach(function(tr) {
+    var inputs = tr.querySelectorAll('input');
+    if (inputs.length < 6) return;
+    var line = inputs[1].value.trim();
+    if (!line) return;
+    rows.push({
+      section: inputs[0].value.trim(),
+      line: line,
+      carrier: inputs[2].value.trim(),
+      expiring: inputs[3].value.trim(),
+      normalized: inputs[4].value.trim(),
+      renewal: inputs[5].value.trim()
+    });
+  });
+  return rows;
+}
+
+function _execPopulateRows(rows) {
+  var tbody = document.getElementById('exec-rows-body');
+  tbody.innerHTML = '';
+  if (!rows || rows.length === 0) rows = [{section:'',line:'',carrier:'',expiring:'',normalized:'',renewal:''}];
+  rows.forEach(function(r) {
+    var tr = document.createElement('tr');
+    tr.className = 'exec-row';
+    tr.innerHTML = '<td class="pr-2 pb-2"><input type="text" name="exec__section[]" value="' + (r.section||'') + '" class="w-full border border-gray-300 rounded px-2 py-1 text-xs text-gray-800 focus:ring-marsh"></td>'
+      + '<td class="pr-2 pb-2"><input type="text" name="exec__line[]" value="' + (r.line||'') + '" class="w-full border border-gray-300 rounded px-2 py-1 text-xs text-gray-800 focus:ring-marsh"></td>'
+      + '<td class="pr-2 pb-2"><input type="text" name="exec__carrier[]" value="' + (r.carrier||'') + '" class="w-full border border-gray-300 rounded px-2 py-1 text-xs text-gray-800 focus:ring-marsh"></td>'
+      + '<td class="pr-2 pb-2"><input type="text" name="exec__expiring[]" value="' + (r.expiring||'') + '" class="w-full border border-gray-300 rounded px-2 py-1 text-xs text-gray-800 text-right focus:ring-marsh"></td>'
+      + '<td class="pr-2 pb-2"><input type="text" name="exec__normalized[]" value="' + (r.normalized||'') + '" placeholder="Optional" class="w-full border border-gray-300 rounded px-2 py-1 text-xs text-gray-400 text-right focus:ring-marsh"></td>'
+      + '<td class="pr-2 pb-2"><input type="text" name="exec__renewal[]" value="' + (r.renewal||'') + '" class="w-full border border-gray-300 rounded px-2 py-1 text-xs text-gray-800 text-right focus:ring-marsh"></td>'
+      + '<td class="pb-2 text-center"><button type="button" onclick="removeExecRow(this)" class="text-gray-400 hover:text-red-500 text-sm">&times;</button></td>';
+    tbody.appendChild(tr);
+  });
+}
+
+function _execSetStatus(msg) {
+  var el = document.getElementById('exec-snapshot-status');
+  if (el) { el.textContent = msg; setTimeout(function(){ el.textContent = ''; }, 3000); }
+}
+
+function _execRefreshSnapshotList() {
+  fetch('/charts/' + _execClientId + '/snapshots/exec_summary')
+    .then(function(r) { return r.json(); })
+    .then(function(list) {
+      var sel = document.getElementById('exec-snapshot-select');
+      var current = _execCurrentSnapshotId;
+      sel.innerHTML = '<option value="">Fresh from policies</option>';
+      list.forEach(function(s) {
+        var opt = document.createElement('option');
+        opt.value = s.id;
+        opt.textContent = s.name + ' (' + s.updated_at.substring(0,10) + ')';
+        if (s.id === current) opt.selected = true;
+        sel.appendChild(opt);
+      });
+      _execUpdateButtons();
+    });
+}
+
+function _execUpdateButtons() {
+  var sel = document.getElementById('exec-snapshot-select');
+  var hasSelection = sel.value !== '';
+  document.getElementById('exec-load-btn').disabled = !hasSelection;
+  document.getElementById('exec-delete-btn').disabled = !hasSelection;
+}
+
+function loadExecSnapshot() {
+  var sel = document.getElementById('exec-snapshot-select');
+  var sid = sel.value;
+  if (!sid) return;
+  fetch('/charts/' + _execClientId + '/snapshots/exec_summary/' + sid)
+    .then(function(r) { return r.json(); })
+    .then(function(snap) {
+      _execCurrentSnapshotId = snap.id;
+      _execPopulateRows(snap.data.rows || []);
+      _execSetStatus('Loaded: ' + snap.name);
+      _execUpdateButtons();
+    });
+}
+
+function saveExecSnapshot(saveAs) {
+  var rows = _execCollectRows();
+  if (rows.length === 0) { _execSetStatus('No data to save'); return; }
+
+  var name;
+  if (saveAs || !_execCurrentSnapshotId) {
+    name = prompt('Snapshot name:', '');
+    if (name === null) return;
+    if (!name.trim()) { _execSetStatus('Name required'); return; }
+    _execCurrentSnapshotId = null; // force new
+  }
+
+  var body = { data: { rows: rows } };
+  if (_execCurrentSnapshotId) body.id = _execCurrentSnapshotId;
+  if (name) body.name = name.trim();
+  else {
+    // Get name from currently selected option
+    var sel = document.getElementById('exec-snapshot-select');
+    var opt = sel.options[sel.selectedIndex];
+    body.name = opt && opt.value ? opt.textContent.split(' (')[0] : 'Untitled';
+  }
+
+  fetch('/charts/' + _execClientId + '/snapshots/exec_summary', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(res) {
+    if (res.ok) {
+      _execCurrentSnapshotId = res.id;
+      _execSetStatus('Saved: ' + res.name);
+      _execRefreshSnapshotList();
+    }
+  });
+}
+
+function deleteExecSnapshot() {
+  var sel = document.getElementById('exec-snapshot-select');
+  var sid = sel.value;
+  if (!sid) return;
+  var name = sel.options[sel.selectedIndex].textContent.split(' (')[0];
+  if (!confirm('Delete snapshot "' + name + '"?')) return;
+  fetch('/charts/' + _execClientId + '/snapshots/exec_summary/' + sid, { method: 'DELETE' })
+    .then(function(r) { return r.json(); })
+    .then(function(res) {
+      if (res.ok) {
+        _execCurrentSnapshotId = null;
+        _execSetStatus('Deleted');
+        _execRefreshSnapshotList();
+      }
+    });
+}
+
+// On page load, fetch existing snapshots
+document.getElementById('exec-snapshot-select').addEventListener('change', _execUpdateButtons);
+_execRefreshSnapshotList();
 </script>
 {% endblock %}
