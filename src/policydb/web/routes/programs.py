@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from urllib.parse import unquote
+from urllib.parse import quote, unquote
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -12,7 +12,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 import policydb.config as cfg
 from policydb.charts import _layer_notation, get_tower_data
 from policydb.db import next_policy_uid
-from policydb.queries import get_sub_coverages_by_policy_id
+from policydb.queries import get_sub_coverages_by_policy_id, get_sub_coverages_full_by_policy_id
 from policydb.utils import parse_currency_with_magnitude
 from policydb.web.app import get_db, templates
 
@@ -54,6 +54,229 @@ def _parse_and_format_currency(raw: str) -> tuple[float | None, str | None, str 
     if val is None:
         return None, None, f"Could not parse currency value: {raw}"
     return val, _fmt_currency(val), None
+
+
+# ---------------------------------------------------------------------------
+# Create new program (literal route before parameterized)
+# ---------------------------------------------------------------------------
+
+@router.post("/clients/{client_id}/programs/new")
+async def create_program(
+    request: Request,
+    client_id: int,
+    conn: sqlite3.Connection = Depends(get_db),
+):
+    body = await request.json()
+    name = (body.get("name") or "").strip()
+    lob = (body.get("lob") or "").strip()
+
+    if not name:
+        return JSONResponse({"ok": False, "error": "Program name is required"}, status_code=400)
+
+    # Check for duplicate tower_group name on this client
+    existing = conn.execute(
+        "SELECT id FROM policies WHERE client_id = ? AND tower_group = ? AND archived = 0 LIMIT 1",
+        (client_id, name),
+    ).fetchone()
+    if existing:
+        return JSONResponse({"ok": False, "error": f"Program '{name}' already exists"}, status_code=409)
+
+    uid = next_policy_uid(conn)
+    policy_type = lob if lob else name
+
+    conn.execute(
+        """
+        INSERT INTO policies (
+            policy_uid, client_id, is_program, tower_group, policy_type,
+            layer_position, first_named_insured, description, notes
+        ) VALUES (?, ?, 1, ?, ?, 'Primary', '', '', '')
+        """,
+        (uid, client_id, name, policy_type),
+    )
+    conn.commit()
+    logger.info("Created program '%s' (%s) for client %d", name, uid, client_id)
+
+    redirect_url = f"/clients/{client_id}/programs/{quote(name, safe='')}"
+    return JSONResponse({"ok": True, "redirect": redirect_url})
+
+
+# ---------------------------------------------------------------------------
+# Rename program
+# ---------------------------------------------------------------------------
+
+@router.patch("/clients/{client_id}/programs/{tower_group}/rename")
+async def rename_program(
+    request: Request,
+    client_id: int,
+    tower_group: str,
+    conn: sqlite3.Connection = Depends(get_db),
+):
+    tg = unquote(tower_group)
+    body = await request.json()
+    new_name = (body.get("name") or "").strip()
+
+    if not new_name:
+        return JSONResponse({"ok": False, "error": "Name is required"}, status_code=400)
+    if new_name == tg:
+        return JSONResponse({"ok": True, "redirect": None})
+
+    # Check for duplicate
+    existing = conn.execute(
+        "SELECT id FROM policies WHERE client_id = ? AND tower_group = ? AND archived = 0 LIMIT 1",
+        (client_id, new_name),
+    ).fetchone()
+    if existing:
+        return JSONResponse({"ok": False, "error": f"Program '{new_name}' already exists"}, status_code=409)
+
+    conn.execute(
+        "UPDATE policies SET tower_group = ? WHERE client_id = ? AND tower_group = ? AND archived = 0",
+        (new_name, client_id, tg),
+    )
+    conn.commit()
+    logger.info("Renamed program '%s' → '%s' for client %d", tg, new_name, client_id)
+
+    redirect_url = f"/clients/{client_id}/programs/{quote(new_name, safe='')}"
+    return JSONResponse({"ok": True, "redirect": redirect_url})
+
+
+# ---------------------------------------------------------------------------
+# Program header PATCH (term dates, status)
+# ---------------------------------------------------------------------------
+
+@router.patch("/clients/{client_id}/programs/{tower_group}/header")
+async def patch_program_header(
+    request: Request,
+    client_id: int,
+    tower_group: str,
+    conn: sqlite3.Connection = Depends(get_db),
+):
+    tg = unquote(tower_group)
+    body = await request.json()
+    field = body.get("field", "")
+    value = body.get("value", "")
+
+    allowed = {"effective_date", "expiration_date", "renewal_status"}
+    if field not in allowed:
+        return JSONResponse({"ok": False, "error": f"Field '{field}' not allowed"}, status_code=400)
+
+    # Update the program policy (is_program=1)
+    conn.execute(
+        f"UPDATE policies SET {field} = ? WHERE client_id = ? AND tower_group = ? AND is_program = 1 AND archived = 0",
+        (value, client_id, tg),
+    )
+    conn.commit()
+    return JSONResponse({"ok": True, "formatted": value})
+
+
+# ---------------------------------------------------------------------------
+# Assign / Unassign existing policy to program
+# ---------------------------------------------------------------------------
+
+@router.post("/clients/{client_id}/programs/{tower_group}/assign/{policy_uid}")
+async def assign_to_program(
+    request: Request,
+    client_id: int,
+    tower_group: str,
+    policy_uid: str,
+    conn: sqlite3.Connection = Depends(get_db),
+):
+    tg = unquote(tower_group)
+
+    # Get the program policy id for FK link
+    program_row = conn.execute(
+        "SELECT id FROM policies WHERE client_id = ? AND tower_group = ? AND is_program = 1 AND archived = 0 LIMIT 1",
+        (client_id, tg),
+    ).fetchone()
+    program_id = program_row["id"] if program_row else None
+
+    # Get next schematic column
+    col_row = conn.execute(
+        """SELECT COALESCE(MAX(schematic_column), 0) + 1 AS next_col
+        FROM policies WHERE client_id = ? AND tower_group = ? AND layer_position = 'Primary' AND archived = 0""",
+        (client_id, tg),
+    ).fetchone()
+    next_col = col_row["next_col"] if col_row else 1
+
+    conn.execute(
+        """UPDATE policies SET tower_group = ?, program_id = ?, layer_position = 'Primary',
+           schematic_column = ? WHERE client_id = ? AND policy_uid = ? AND archived = 0""",
+        (tg, program_id, next_col, client_id, policy_uid),
+    )
+    conn.commit()
+    logger.info("Assigned %s to program '%s'", policy_uid, tg)
+
+    return JSONResponse({"ok": True})
+
+
+@router.post("/clients/{client_id}/programs/{tower_group}/unassign/{policy_uid}")
+async def unassign_from_program(
+    request: Request,
+    client_id: int,
+    tower_group: str,
+    policy_uid: str,
+    conn: sqlite3.Connection = Depends(get_db),
+):
+    conn.execute(
+        """UPDATE policies SET tower_group = NULL, program_id = NULL,
+           layer_position = NULL, schematic_column = NULL
+           WHERE client_id = ? AND policy_uid = ? AND archived = 0""",
+        (client_id, policy_uid),
+    )
+    # Also clean up tower coverage references
+    pol = conn.execute("SELECT id FROM policies WHERE policy_uid = ?", (policy_uid,)).fetchone()
+    if pol:
+        conn.execute("DELETE FROM program_tower_coverage WHERE underlying_policy_id = ?", (pol["id"],))
+        conn.execute("DELETE FROM program_tower_coverage WHERE excess_policy_id = ?", (pol["id"],))
+    conn.commit()
+    logger.info("Unassigned %s from program '%s'", policy_uid, unquote(tower_group))
+
+    return JSONResponse({"ok": True})
+
+
+# ---------------------------------------------------------------------------
+# Tower coverage (which excess covers which underlying lines)
+# ---------------------------------------------------------------------------
+
+@router.get("/clients/{client_id}/programs/{tower_group}/tower-coverage/{excess_policy_id}")
+async def get_tower_coverage(
+    client_id: int,
+    tower_group: str,
+    excess_policy_id: int,
+    conn: sqlite3.Connection = Depends(get_db),
+):
+    rows = conn.execute(
+        "SELECT id, underlying_policy_id, underlying_sub_coverage_id FROM program_tower_coverage WHERE excess_policy_id = ?",
+        (excess_policy_id,),
+    ).fetchall()
+    return JSONResponse({"items": [dict(r) for r in rows]})
+
+
+@router.put("/clients/{client_id}/programs/{tower_group}/tower-coverage/{excess_policy_id}")
+async def set_tower_coverage(
+    request: Request,
+    client_id: int,
+    tower_group: str,
+    excess_policy_id: int,
+    conn: sqlite3.Connection = Depends(get_db),
+):
+    """Replace all coverage mappings for an excess policy.
+
+    Body: {"covers": [{"policy_id": 123} | {"sub_coverage_id": 456}, ...]}
+    """
+    body = await request.json()
+    covers = body.get("covers", [])
+
+    conn.execute("DELETE FROM program_tower_coverage WHERE excess_policy_id = ?", (excess_policy_id,))
+    for c in covers:
+        pol_id = c.get("policy_id")
+        sc_id = c.get("sub_coverage_id")
+        if pol_id or sc_id:
+            conn.execute(
+                "INSERT INTO program_tower_coverage (excess_policy_id, underlying_policy_id, underlying_sub_coverage_id) VALUES (?, ?, ?)",
+                (excess_policy_id, pol_id, sc_id),
+            )
+    conn.commit()
+    return JSONResponse({"ok": True})
 
 
 # ---------------------------------------------------------------------------
@@ -146,16 +369,58 @@ async def schematic_page(
         )
         p["program_carriers"] = carriers_by_program.get(p["id"], [])
 
-    # Client name
+    # Client info
     client_row = conn.execute(
-        "SELECT name FROM clients WHERE id = ?", (client_id,)
+        "SELECT id, name, cn_number FROM clients WHERE id = ?", (client_id,)
     ).fetchone()
     client_name = client_row["name"] if client_row else "Unknown"
 
+    # Program policy (is_program=1) for header metadata
+    program_policy = None
+    for p in policies:
+        if p.get("is_program"):
+            program_policy = p
+            break
+
+    # Program header data
+    if program_policy:
+        pgm_full = conn.execute(
+            """SELECT effective_date, expiration_date, renewal_status, premium
+            FROM policies WHERE id = ?""",
+            (program_policy["id"],),
+        ).fetchone()
+        if pgm_full:
+            program_policy.update(dict(pgm_full))
+
+    # Total premium / limit across all rows
+    total_premium = sum(p.get("premium") or 0 for p in policies)
+    total_limit = sum(p.get("limit_amount") or 0 for p in policies)
+
+    # Unassigned policies for this client (no tower_group, no program_id)
+    unassigned_rows = conn.execute(
+        """SELECT policy_uid, policy_type, carrier, premium, limit_amount, id
+        FROM policies
+        WHERE client_id = ? AND archived = 0
+          AND (is_opportunity = 0 OR is_opportunity IS NULL)
+          AND is_program = 0
+          AND (tower_group IS NULL OR tower_group = '')
+          AND program_id IS NULL
+        ORDER BY policy_type""",
+        (client_id,),
+    ).fetchall()
+    unassigned = [dict(r) for r in unassigned_rows]
+
+    # Sub-coverages with limits for tower line selection
+    all_policy_ids = [p["id"] for p in underlying]
+    sub_cov_full_map = get_sub_coverages_full_by_policy_id(conn, all_policy_ids) if all_policy_ids else {}
+    for p in underlying:
+        p["sub_coverages_full"] = sub_cov_full_map.get(p["id"], [])
+
     # Config lists
     policy_types = cfg.get("policy_types", [])
-    carriers = cfg.get("carriers", [])
+    carriers_list = cfg.get("carriers", [])
     coverage_forms = cfg.get("coverage_forms", [])
+    renewal_statuses = cfg.get("renewal_statuses", [])
 
     # Check if umbrella exists
     has_umbrella = any(
@@ -208,9 +473,14 @@ async def schematic_page(
             "excess": excess,
             "has_umbrella": has_umbrella,
             "policy_types": policy_types,
-            "carriers": carriers,
+            "carriers": carriers_list,
             "coverage_forms": coverage_forms,
             "available_lines": available_lines,
+            "program_policy": program_policy,
+            "total_premium": total_premium,
+            "total_limit": total_limit,
+            "unassigned": unassigned,
+            "renewal_statuses": renewal_statuses,
         },
     )
 
@@ -304,7 +574,7 @@ async def patch_excess_cell(
     )
     conn.commit()
 
-    # Compute notation from current row state
+    # Compute notation from current row state and cache it
     row = conn.execute(
         "SELECT limit_amount, attachment_point, participation_of "
         "FROM policies WHERE id = ?",
@@ -315,6 +585,11 @@ async def patch_excess_cell(
         notation = _layer_notation(
             row["limit_amount"], row["attachment_point"], row["participation_of"]
         )
+        conn.execute(
+            "UPDATE policies SET layer_notation = ? WHERE id = ?",
+            (notation, policy_id),
+        )
+        conn.commit()
 
     return JSONResponse({
         "ok": True,

@@ -8,13 +8,55 @@
     <span>/</span>
     <a href="/clients/{{ client_id }}?tab=policies" class="hover:text-marsh">{{ client_name }}</a>
     <span>/</span>
-    <span class="text-gray-600">{{ tower_group }}</span>
+    <span class="text-gray-600">Programs</span>
+    <span>/</span>
+    <span class="text-gray-600 font-medium">{{ tower_group }}</span>
   </div>
 
-  <div class="flex items-center justify-between mb-6">
-    <h1 class="text-lg font-bold text-gray-900">{{ tower_group }} Program</h1>
-    <a href="/clients/{{ client_id }}?tab=policies"
-       class="text-xs text-marsh hover:underline">&larr; Back to Policies</a>
+  {# ── Program Header ── #}
+  <div class="card mb-6">
+    <div class="px-5 py-4 flex flex-wrap items-center justify-between gap-4">
+      <div class="flex items-center gap-3">
+        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-marsh/10 text-marsh uppercase tracking-wide">PGM</span>
+        <h1 id="program-name" class="text-lg font-bold text-gray-900 cursor-pointer hover:bg-gray-50 px-1 rounded"
+            contenteditable="true" spellcheck="false"
+            data-original="{{ tower_group }}">{{ tower_group }}</h1>
+        <span class="text-gray-400">—</span>
+        <span class="text-sm text-gray-500">{{ client_name }}</span>
+      </div>
+      <a href="/clients/{{ client_id }}?tab=policies"
+         class="text-xs text-marsh hover:underline no-print">&larr; Back to Client</a>
+    </div>
+    <div class="px-5 pb-4 flex flex-wrap items-center gap-6 text-sm">
+      {% if program_policy %}
+      <div class="flex items-center gap-1.5">
+        <span class="text-gray-400 text-xs">Term:</span>
+        <input type="date" value="{{ program_policy.effective_date or '' }}"
+               class="border-0 border-b border-gray-200 text-sm text-gray-700 bg-transparent px-1 py-0.5 focus:border-marsh focus:ring-0"
+               onchange="patchHeader('effective_date', this.value)">
+        <span class="text-gray-300">–</span>
+        <input type="date" value="{{ program_policy.expiration_date or '' }}"
+               class="border-0 border-b border-gray-200 text-sm text-gray-700 bg-transparent px-1 py-0.5 focus:border-marsh focus:ring-0"
+               onchange="patchHeader('expiration_date', this.value)">
+      </div>
+      <div class="flex items-center gap-1.5">
+        <span class="text-gray-400 text-xs">Status:</span>
+        <select class="border-0 border-b border-gray-200 text-sm text-gray-700 bg-transparent px-1 py-0.5 focus:border-marsh focus:ring-0"
+                onchange="patchHeader('renewal_status', this.value)">
+          <option value="">—</option>
+          {% for s in renewal_statuses %}<option value="{{ s }}" {{ 'selected' if program_policy.renewal_status == s }}>{{ s }}</option>{% endfor %}
+        </select>
+      </div>
+      {% endif %}
+      <div class="flex items-center gap-1.5">
+        <span class="text-gray-400 text-xs">Total Premium:</span>
+        <span class="font-medium text-gray-700">{{ total_premium | currency }}</span>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <span class="text-gray-400 text-xs">Total Limit:</span>
+        <span class="font-medium text-gray-700">{{ total_limit | currency }}</span>
+      </div>
+    </div>
   </div>
 
   {# Two-column matrices #}
@@ -26,6 +68,43 @@
       {% include "programs/_excess_matrix.html" %}
     </div>
   </div>
+
+  {# ── Unassigned Policies Panel ── #}
+  {% if unassigned %}
+  <div class="card mb-6">
+    <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+      <h2 class="font-semibold text-gray-900 text-sm">Unassigned Policies
+        <span class="text-gray-400 font-normal">({{ unassigned | length }})</span>
+      </h2>
+      <span class="text-xs text-gray-400">Click + to add to this program</span>
+    </div>
+    <div id="unassigned-panel" class="p-4 flex flex-wrap gap-3">
+      {% for u in unassigned %}
+      <div id="unassigned-{{ u.policy_uid }}" class="flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-lg border border-gray-200 text-sm">
+        <div>
+          <span class="font-medium text-gray-700">{{ u.policy_type or 'Unknown' }}</span>
+          {% if u.carrier %}<span class="text-gray-400 text-xs ml-1">{{ u.carrier }}</span>{% endif %}
+          {% if u.premium %}<span class="text-gray-400 text-xs ml-1">· {{ u.premium | currency_short }}</span>{% endif %}
+        </div>
+        <button type="button" onclick="assignPolicy('{{ u.policy_uid }}')"
+                class="ml-1 text-marsh hover:text-marsh/80 font-bold text-base leading-none" title="Assign to program">+</button>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {# ── Tower Lines Selector ── #}
+  {% set tower_lines = [] %}
+  {% for p in underlying %}
+    {% set subs = p.get('sub_coverages_full', []) %}
+    {% set has_limit_subs = subs | selectattr('limit_amount') | list %}
+    {% if has_limit_subs %}
+    {# Package policy — show sub-coverages #}
+    {% else %}
+    {# Standalone policy — single tower line #}
+    {% endif %}
+  {% endfor %}
 
   {# Live schematic preview #}
   <div class="card">
@@ -108,6 +187,65 @@
     }
     dragRow = null;
   });
+
+  // Program header PATCH
+  window.patchHeader = function(field, value) {
+    fetch('/clients/{{ client_id }}/programs/{{ tower_group | urlencode }}/header', {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({field: field, value: value})
+    }).then(function(r) { return r.json(); }).then(function(resp) {
+      if (resp.ok) showToast('Saved');
+    });
+  };
+
+  // Program name rename on blur
+  var nameEl = document.getElementById('program-name');
+  if (nameEl) {
+    nameEl.addEventListener('blur', function() {
+      var newName = this.textContent.trim();
+      var original = this.dataset.original;
+      if (!newName || newName === original) {
+        this.textContent = original;
+        return;
+      }
+      fetch('/clients/{{ client_id }}/programs/{{ tower_group | urlencode }}/rename', {
+        method: 'PATCH',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name: newName})
+      }).then(function(r) { return r.json(); }).then(function(resp) {
+        if (resp.ok && resp.redirect) {
+          window.location.href = resp.redirect;
+        } else if (!resp.ok) {
+          showToast(resp.error || 'Rename failed', 'error');
+          nameEl.textContent = original;
+        }
+      });
+    });
+    nameEl.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') { e.preventDefault(); this.blur(); }
+    });
+  }
+
+  // Assign policy to program
+  window.assignPolicy = function(uid) {
+    fetch('/clients/{{ client_id }}/programs/{{ tower_group | urlencode }}/assign/' + uid, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'}
+    }).then(function(r) { return r.json(); }).then(function(resp) {
+      if (resp.ok) {
+        var el = document.getElementById('unassigned-' + uid);
+        if (el) el.remove();
+        // Check if panel is empty
+        var panel = document.getElementById('unassigned-panel');
+        if (panel && panel.children.length === 0) {
+          panel.closest('.card').remove();
+        }
+        showToast('Assigned to program');
+        window.location.reload();
+      }
+    });
+  };
 
   // Delete handlers
   window.deleteUnderlyingRow = function(btn, pid) {

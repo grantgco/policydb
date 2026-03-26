@@ -566,6 +566,13 @@ def client_tab_policies(request: Request, client_id: int, conn=Depends(get_db)):
     from policydb.web.routes.policies import _attach_milestone_progress, _attach_readiness_score
     policies = _attach_readiness_score(conn, _attach_milestone_progress(conn, policies))
 
+    # Attach sub-coverages for ghost row display on package policies
+    from policydb.queries import get_sub_coverages_full_by_policy_id
+    _pol_ids = [p["id"] for p in policies if p.get("id")]
+    _sub_cov_map = get_sub_coverages_full_by_policy_id(conn, _pol_ids) if _pol_ids else {}
+    for p in policies:
+        p["sub_coverages"] = _sub_cov_map.get(p["id"], [])
+
     # Attach team contacts to opportunities
     if opportunities:
         opp_ids = [o["id"] for o in opportunities]
@@ -766,6 +773,7 @@ def client_tab_policies(request: Request, client_id: int, conn=Depends(get_db)):
         "location_projects": _get_project_locations(conn, client_id),
         "project_stages": cfg.get("project_stages", []),
         "project_types": cfg.get("project_types", []),
+        "policy_types": cfg.get("policy_types", []),
         "timeline_data": _build_timeline_data(_get_project_pipeline(conn, client_id)),
         "us_states": _get_us_states(),
     })

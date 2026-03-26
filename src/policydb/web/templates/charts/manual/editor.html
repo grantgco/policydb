@@ -6,6 +6,7 @@
 <link rel="stylesheet" href="/static/charts/manual.css">
 <link href="https://fonts.googleapis.com/css2?family=Noto+Serif:wght@400;700&family=Noto+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <script src="/static/charts/chart.min.js"></script>
+<script src="/static/charts/html2canvas.min.js"></script>
 <script src="/static/charts/manual.js"></script>
 
 <div class="max-w-5xl mx-auto px-4 py-6">
@@ -46,7 +47,7 @@
 
 <script>
   const CHART_TYPE = '{{ chart_type }}';
-  let currentChart = null;  // Set by each template's render function
+  var currentChart = null;  // Set by each template's render function (var so templates' <script> blocks share the same binding)
 
   // ── Snapshot functions ──────────────────────────────────────────────────
   async function refreshSnapshotList() {
@@ -113,11 +114,84 @@
   }
 
   function exportChart(e) {
-    if (currentChart) {
-      ManualChart.showExportMenu(currentChart, CHART_TYPE + '.png', e.target);
-    } else {
+    var chartPage = document.querySelector('.manual-chart-page');
+    if (!chartPage) {
       ManualChart.toast('No chart to export', 'error');
+      return;
     }
+    // Show size picker menu
+    var old = document.getElementById('mc-export-menu');
+    if (old) { old.remove(); return; }
+
+    var menu = document.createElement('div');
+    menu.id = 'mc-export-menu';
+    menu.style.cssText = 'position:absolute;right:0;top:100%;margin-top:4px;background:#fff;border:1px solid #B9B6B1;border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,0.1);z-index:100;min-width:180px;';
+
+    var sizes = ManualChart.EXPORT_SIZES;
+    Object.keys(sizes).forEach(function (key) {
+      var preset = sizes[key];
+      var btn = document.createElement('button');
+      btn.textContent = preset.label;
+      btn.style.cssText = 'display:block;width:100%;text-align:left;padding:8px 14px;border:none;background:none;font-family:"Noto Sans",sans-serif;font-size:13px;color:#3D3C37;cursor:pointer;';
+      btn.onmouseover = function () { btn.style.background = '#F7F3EE'; };
+      btn.onmouseout = function () { btn.style.background = 'none'; };
+      btn.onclick = function () {
+        menu.remove();
+        exportChartAtSize(chartPage, key, preset);
+      };
+      menu.appendChild(btn);
+    });
+
+    var wrapper = e.target.parentElement;
+    wrapper.style.position = 'relative';
+    wrapper.appendChild(menu);
+    setTimeout(function () {
+      document.addEventListener('click', function handler(ev) {
+        if (!menu.contains(ev.target) && ev.target !== e.target) {
+          menu.remove();
+          document.removeEventListener('click', handler);
+        }
+      });
+    }, 10);
+  }
+
+  function exportChartAtSize(chartPage, sizeKey, preset) {
+    // Clone the chart page, strip no-print elements
+    var clone = chartPage.cloneNode(true);
+    clone.querySelectorAll('.no-print, .chart-export-btn').forEach(function (el) { el.remove(); });
+
+    // Scale factor: render at preset size (chart page is 960x540 native)
+    var scale = (preset.w / 960) * 2;  // 2x for retina
+
+    var container = document.createElement('div');
+    container.style.cssText = 'position:fixed;left:-9999px;top:0;width:960px;height:540px;background:white;';
+    document.body.appendChild(container);
+    container.appendChild(clone);
+
+    html2canvas(container, {
+      width: 960,
+      height: 540,
+      scale: scale,
+      backgroundColor: '#ffffff',
+      useCORS: true,
+      logging: false
+    }).then(function (canvas) {
+      document.body.removeChild(container);
+      canvas.toBlob(function (blob) {
+        var a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        var sizeLabel = sizeKey === 'large' ? '' : '_' + sizeKey;
+        a.download = CHART_TYPE + sizeLabel + '.png';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(a.href);
+        ManualChart.toast('PNG exported', 'success');
+      }, 'image/png');
+    }).catch(function (err) {
+      document.body.removeChild(container);
+      ManualChart.toast('Export failed: ' + err.message, 'error');
+    });
   }
 
   // Load snapshots list on page load
