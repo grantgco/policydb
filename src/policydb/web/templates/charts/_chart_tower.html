@@ -35,18 +35,19 @@
     });
     var g = chart.g, W = chart.width, H = chart.height;
 
-    // ── Colors ──
+    // ── Marsh Brand Colors ──
     var C = {
-      label:      '#f1f5f9', labelBd:    '#cbd5e1',
-      ded:        '#64748b', dedTx:      '#fff',
-      primary:    '#dbeafe', primaryBd:  '#93c5fd',
-      umbrella:   '#3b82f6', umbrellaTx: '#fff',
-      exBase:     '#bfdbfe', exDark:     '#1e40af',
+      label:      '#F7F3EE', labelBd:    '#B9B6B1',   // Neutral 250 / 500
+      ded:        '#3D3C37', dedTx:      '#fff',       // Neutral 1000
+      primary:    '#CEECFF', primaryBd:  '#000F47',    // Sky Blue 250 / Midnight Blue 1000
+      umbrella:   '#000F47', umbrellaTx: '#fff',       // Midnight Blue 1000
+      exBase:     '#CEECFF', exDark:     '#000F47',    // Sky Blue 250 → Midnight Blue gradient
       split:      '#fff',
-      titleC:     '#1e293b', textDk:     '#1e3a8a',
-      textLt:     '#fff',    textMut:    '#64748b',
-      premC:      '#475569', border:     '#94a3b8',
-      pkgBadge:   '#7c3aed',
+      titleC:     '#000F47', textDk:     '#3D3C37',    // Midnight Blue / Neutral 1000
+      textLt:     '#fff',    textMut:    '#7B7974',    // Neutral 750
+      premC:      '#7B7974', border:     '#B9B6B1',    // Neutral 750 / 500
+      pkgBadge:   '#5E017F',                           // Purple 1000
+      active:     '#0B4BFF',                           // Blue 750 (active accent)
     };
 
     // ── Layout constants ──
@@ -135,7 +136,7 @@
         g.append('text')
           .attr('x', curX + towerW/2).attr('y', 11)
           .attr('text-anchor', 'middle')
-          .style('font-size', '11px').style('font-weight', '700')
+          .style('font-size', '11px').style('font-weight', '700').style('font-family', 'Noto Serif, serif')
           .attr('fill', C.titleC)
           .text(tr(tower.tower_group, 28));
       }
@@ -320,10 +321,11 @@
         // Color gradient: lighter at bottom, darker at top
         var numEx = excessLayers.length;
         var t = numEx > 1 ? lIdx / (numEx - 1) : 0;
-        var r1=191,g1=219,b1=254, r2=30,g2=64,b2=175;
+        // Marsh gradient: Sky Blue 250 (#CEECFF) → Midnight Blue (#000F47)
+        var r1=206,g1=236,b1=255, r2=0,g2=15,b2=71;
         var cr=Math.round(r1+(r2-r1)*t), cg=Math.round(g1+(g2-g1)*t), cb=Math.round(b1+(b2-b1)*t);
         var bg = 'rgb('+cr+','+cg+','+cb+')';
-        var fg = t > 0.45 ? C.textLt : C.textDk;
+        var fg = t > 0.35 ? C.textLt : C.textDk;
 
         var parts = layer.participants || [];
         var hasParts = parts.length > 1;
