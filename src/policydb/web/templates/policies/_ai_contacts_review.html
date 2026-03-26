@@ -68,11 +68,36 @@
                      {% if not c.already_assigned %}checked{% endif %}
                      {% if c.already_assigned %}disabled{% endif %}>
             </td>
-            <td class="px-3 py-2 font-medium text-gray-900">{{ c.name }}</td>
-            <td class="px-3 py-2 text-gray-600">{{ c.email or '' }}</td>
-            <td class="px-3 py-2 text-gray-600">{{ c.phone or '' }}{% if c.mobile %}<br><span class="text-xs text-gray-400">Cell: {{ c.mobile }}</span>{% endif %}</td>
-            <td class="px-3 py-2 text-gray-600">{{ c.organization or '' }}</td>
-            <td class="px-3 py-2 text-gray-500 text-xs">{{ c.title or '' }}</td>
+            <td class="px-3 py-2">
+              <input type="text" name="name_{{ loop.index0 }}" value="{{ c.name }}"
+                     class="w-full border-0 bg-transparent text-sm font-medium text-gray-900 focus:ring-1 focus:ring-marsh focus:bg-white rounded px-1 py-0.5"
+                     {% if c.already_assigned %}readonly tabindex="-1"{% endif %}>
+            </td>
+            <td class="px-3 py-2">
+              <input type="text" name="email_{{ loop.index0 }}" value="{{ c.email or '' }}"
+                     class="w-full border-0 bg-transparent text-xs text-gray-600 focus:ring-1 focus:ring-marsh focus:bg-white rounded px-1 py-0.5"
+                     {% if c.already_assigned %}readonly tabindex="-1"{% endif %}>
+            </td>
+            <td class="px-3 py-2 space-y-0.5">
+              <input type="text" name="phone_{{ loop.index0 }}" value="{{ c.phone or '' }}"
+                     class="w-full border-0 bg-transparent text-xs text-gray-600 focus:ring-1 focus:ring-marsh focus:bg-white rounded px-1 py-0.5"
+                     placeholder="Phone"
+                     {% if c.already_assigned %}readonly tabindex="-1"{% endif %}>
+              <input type="text" name="mobile_{{ loop.index0 }}" value="{{ c.mobile or '' }}"
+                     class="w-full border-0 bg-transparent text-xs text-gray-400 focus:ring-1 focus:ring-marsh focus:bg-white rounded px-1 py-0.5"
+                     placeholder="Mobile"
+                     {% if c.already_assigned %}readonly tabindex="-1"{% endif %}>
+            </td>
+            <td class="px-3 py-2">
+              <input type="text" name="org_{{ loop.index0 }}" value="{{ c.organization or '' }}"
+                     class="w-full border-0 bg-transparent text-xs text-gray-600 focus:ring-1 focus:ring-marsh focus:bg-white rounded px-1 py-0.5"
+                     {% if c.already_assigned %}readonly tabindex="-1"{% endif %}>
+            </td>
+            <td class="px-3 py-2">
+              <input type="text" name="title_{{ loop.index0 }}" value="{{ c.title or '' }}"
+                     class="w-full border-0 bg-transparent text-xs text-gray-500 focus:ring-1 focus:ring-marsh focus:bg-white rounded px-1 py-0.5"
+                     {% if c.already_assigned %}readonly tabindex="-1"{% endif %}>
+            </td>
             <td class="px-3 py-2">
               <select name="role_{{ loop.index0 }}"
                       class="w-full rounded border-gray-200 text-xs py-1 px-2 focus:ring-marsh focus:border-marsh">

@@ -1833,19 +1833,40 @@ async def policy_ai_contacts_apply(
     skipped = 0
     errors: list[str] = []
 
+    from policydb.utils import clean_email, format_phone
+
     # Collect selected indices from form checkboxes (name="select_{i}")
     for i, contact in enumerate(contacts):
         if not form.get(f"select_{i}"):
             continue
+        # Read form overrides (user may have edited in review step)
+        name = form.get(f"name_{i}", contact.get("name", "")).strip()
+        email = form.get(f"email_{i}", contact.get("email", "")).strip()
+        phone = form.get(f"phone_{i}", contact.get("phone", "")).strip()
+        mobile = form.get(f"mobile_{i}", contact.get("mobile", "")).strip()
+        org = form.get(f"org_{i}", contact.get("organization", "")).strip()
+        title = form.get(f"title_{i}", contact.get("title", "")).strip()
         role = form.get(f"role_{i}", contact.get("role", ""))
+
+        if not name:
+            continue
+
         try:
+            # Normalize phone/email
+            if email:
+                email = clean_email(email)
+            if phone:
+                phone = format_phone(phone)
+            if mobile:
+                mobile = format_phone(mobile)
+
             cid = get_or_create_contact(
                 conn,
-                contact["name"],
-                email=contact.get("email"),
-                phone=contact.get("phone"),
-                mobile=contact.get("mobile"),
-                organization=contact.get("organization"),
+                name,
+                email=email or None,
+                phone=phone or None,
+                mobile=mobile or None,
+                organization=org or None,
             )
 
             is_pc = 1 if role == "Placement Colleague" else 0
@@ -1854,7 +1875,7 @@ async def policy_ai_contacts_apply(
                 cid,
                 policy_id,
                 role=role,
-                title=contact.get("title", ""),
+                title=title,
                 is_placement_colleague=is_pc,
             )
 
@@ -1863,7 +1884,7 @@ async def policy_ai_contacts_apply(
             else:
                 created += 1
         except Exception as e:
-            errors.append(f"{contact['name']}: {e}")
+            errors.append(f"{name}: {e}")
 
     conn.commit()
     _CONTACT_IMPORT_CACHE.pop(token, None)
