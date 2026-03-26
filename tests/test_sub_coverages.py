@@ -63,3 +63,20 @@ def test_sub_coverages_cascade_delete(db):
         "SELECT * FROM policy_sub_coverages WHERE policy_id = ?", (pid,)
     ).fetchall()
     assert len(rows) == 0
+
+
+from policydb.config import _DEFAULTS
+import policydb.config as cfg
+
+
+def test_config_has_bop_policy_type():
+    """Business Owners Policy and Employers Liability are in the default policy_types list."""
+    types = _DEFAULTS["policy_types"]
+    assert "Business Owners Policy" in types
+    assert "Employers Liability" in types
+
+
+def test_config_has_auto_sub_coverages():
+    """auto_sub_coverages default maps WC to EL."""
+    auto = _DEFAULTS["auto_sub_coverages"]
+    assert auto.get("Workers Compensation") == ["Employers Liability"]
