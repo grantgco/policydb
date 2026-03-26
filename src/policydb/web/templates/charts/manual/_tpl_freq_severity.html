@@ -10,17 +10,17 @@
     <!-- Header -->
     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:1.25rem;gap:1rem;flex-wrap:wrap;">
       <div>
-        <h2 style="font-family:'Noto Serif',serif;font-size:1.6rem;color:#000F47;line-height:1.2;margin:0 0 0.3rem;">
+        <h2 id="chart-title-display" style="font-family:'Noto Serif',serif;font-size:1.6rem;color:#000F47;line-height:1.2;margin:0 0 0.3rem;">
           Claims Frequency vs. Severity
         </h2>
-        <p id="chart-subtitle" style="font-size:0.82rem;color:#7B7974;font-weight:400;letter-spacing:0.03em;margin:0;">
+        <p id="chart-subtitle-display" style="font-size:0.82rem;color:#7B7974;font-weight:400;letter-spacing:0.03em;margin:0;">
           Placeholder values &mdash; update below
         </p>
       </div>
     </div>
 
     <!-- Legend -->
-    <div class="mc-legend">
+    <div class="mc-legend" id="chart-legend">
       <div class="mc-legend-item">
         <div class="mc-legend-swatch" style="background:#000F47;height:10px;border-radius:2px;"></div> Claim Count
       </div>
@@ -30,7 +30,7 @@
     </div>
 
     <!-- Axis labels -->
-    <div class="axis-labels">
+    <div class="axis-labels" id="chart-axis-labels">
       <span class="axis-label" style="background:rgba(0,15,71,0.1);color:#000F47;">&larr; Claim Count</span>
       <span class="axis-label" style="background:rgba(203,126,3,0.1);color:#CB7E03;">Avg Claim Cost &rarr;</span>
     </div>
@@ -45,6 +45,26 @@
 <!-- ═══ Editor Panel ════════════════════════════════════════════════════════ -->
 <div class="mc-editor" id="editor-panel">
   <div class="mc-editor-title">Configure &amp; Edit Values</div>
+
+  <div class="display-options">
+    <span class="section-label">Display</span>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-title" name="show-title" checked onchange="applyDisplayOptions()">
+      <span class="toggle-track"></span><span class="toggle-label">Title</span>
+    </label>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-subtitle" name="show-subtitle" checked onchange="applyDisplayOptions()">
+      <span class="toggle-track"></span><span class="toggle-label">Subtitle</span>
+    </label>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-legend" name="show-legend" checked onchange="applyDisplayOptions()">
+      <span class="toggle-track"></span><span class="toggle-label">Legend</span>
+    </label>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-axis-labels" name="show-axis-labels" checked onchange="applyDisplayOptions()">
+      <span class="toggle-track"></span><span class="toggle-label">Axis Labels</span>
+    </label>
+  </div>
 
   <!-- Config strip -->
   <div class="config-strip">
@@ -178,12 +198,20 @@
     return { counts: counts, incurred: incurred, avgCosts: avgCosts };
   }
 
+  // ── Display options ─────────────────────────────────────────────────────
+  window.applyDisplayOptions = function () {
+    ManualChart.applyToggle('show-title', 'chart-title-display');
+    ManualChart.applyToggle('show-subtitle', 'chart-subtitle-display');
+    ManualChart.applyToggle('show-legend', 'chart-legend');
+    ManualChart.applyToggle('show-axis-labels', 'chart-axis-labels');
+  };
+
   // ── Main render ─────────────────────────────────────────────────────────
   window.refreshCurrentChart = function () {
     var v        = readValues();
     var subtitle = document.getElementById('val-subtitle').value;
 
-    document.getElementById('chart-subtitle').textContent = subtitle || '';
+    document.getElementById('chart-subtitle-display').textContent = subtitle || '';
 
     var ctx = document.getElementById('fsChart').getContext('2d');
     if (chart) chart.destroy();
@@ -306,6 +334,6 @@
   };
 
   // ── Bootstrap ─────────────────────────────────────────────────────────
-  requestAnimationFrame(() => applyConfig());
+  setTimeout(() => applyConfig(), 50);
 })();
 </script>

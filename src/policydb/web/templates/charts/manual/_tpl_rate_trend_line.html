@@ -7,10 +7,10 @@
     <!-- Header -->
     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:1.25rem;gap:1rem;flex-wrap:wrap;">
       <div>
-        <h2 style="font-family:'Noto Serif',serif;font-size:1.6rem;color:#000F47;line-height:1.2;margin:0 0 0.3rem;">
+        <h2 id="chart-title-display" style="font-family:'Noto Serif',serif;font-size:1.6rem;color:#000F47;line-height:1.2;margin:0 0 0.3rem;">
           Rate Trend by Line
         </h2>
-        <p id="chart-subtitle" style="font-size:0.82rem;color:#7B7974;font-weight:400;letter-spacing:0.03em;margin:0;">
+        <p id="chart-subtitle-display" style="font-size:0.82rem;color:#7B7974;font-weight:400;letter-spacing:0.03em;margin:0;">
           Year-over-year rate change by coverage line
         </p>
       </div>
@@ -29,6 +29,26 @@
 <!-- ── Editor Panel ──────────────────────────────────────────────────────── -->
 <div class="mc-editor" id="editor-panel">
   <div class="mc-editor-title">Configure &amp; Edit Values</div>
+
+  <div class="display-options">
+    <span class="section-label">Display</span>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-title" name="show-title" checked onchange="applyDisplayOptions()">
+      <span class="toggle-track"></span><span class="toggle-label">Title</span>
+    </label>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-subtitle" name="show-subtitle" checked onchange="applyDisplayOptions()">
+      <span class="toggle-track"></span><span class="toggle-label">Subtitle</span>
+    </label>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-legend" name="show-legend" checked onchange="applyDisplayOptions()">
+      <span class="toggle-track"></span><span class="toggle-label">Legend</span>
+    </label>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-zero-line" name="show-zero-line" checked onchange="refreshCurrentChart()">
+      <span class="toggle-track"></span><span class="toggle-label">Zero Line</span>
+    </label>
+  </div>
 
   <!-- Config strip -->
   <div class="config-strip">
@@ -88,6 +108,7 @@
   var zeroLinePlugin = {
     id: 'zeroLine',
     afterDraw: function (chart) {
+      if (!ManualChart.isToggled('show-zero-line')) return;
       var yScale = chart.scales.y;
       if (!yScale) return;
       var y = yScale.getPixelForValue(0);
@@ -226,12 +247,19 @@
     legendEl.innerHTML = html;
   }
 
+  // ── Display options ────────────────────────────────────────────────────
+  window.applyDisplayOptions = function () {
+    ManualChart.applyToggle('show-title', 'chart-title-display');
+    ManualChart.applyToggle('show-subtitle', 'chart-subtitle-display');
+    ManualChart.applyToggle('show-legend', 'chart-legend');
+  };
+
   // ── Main render ───────────────────────────────────────────────────────
   window.refreshCurrentChart = function () {
     var lines    = collectLines();
     var subtitle = document.getElementById('val-subtitle').value;
 
-    document.getElementById('chart-subtitle').textContent = subtitle || '';
+    document.getElementById('chart-subtitle-display').textContent = subtitle || '';
     buildLegend(lines);
 
     // Build datasets
@@ -316,6 +344,6 @@
   };
 
   // ── Bootstrap ─────────────────────────────────────────────────────────
-  requestAnimationFrame(() => applyConfig());
+  setTimeout(() => applyConfig(), 50);
 })();
 </script>

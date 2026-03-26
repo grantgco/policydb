@@ -141,6 +141,47 @@ ManualChart.removeRow = function (btn) {
 };
 
 // ---------------------------------------------------------------------------
+// 3b. Display Toggle Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Create a display toggle HTML string.
+ * @param {string} id    — unique ID for the checkbox
+ * @param {string} label — visible label text
+ * @param {boolean} [checked=true] — initial state
+ * @returns {string} HTML for a toggle control
+ */
+ManualChart.toggleHtml = function (id, label, checked) {
+  var c = (checked !== false) ? ' checked' : '';
+  return '<label class="display-toggle">' +
+    '<input type="checkbox" id="' + id + '" name="' + id + '"' + c + '>' +
+    '<span class="toggle-track"></span>' +
+    '<span class="toggle-label">' + label + '</span>' +
+    '</label>';
+};
+
+/**
+ * Read a display toggle's state.
+ * @param {string} id — checkbox ID
+ * @returns {boolean}
+ */
+ManualChart.isToggled = function (id) {
+  var el = document.getElementById(id);
+  return el ? el.checked : true;
+};
+
+/**
+ * Set visibility of a DOM element based on a toggle.
+ * @param {string} toggleId — checkbox ID
+ * @param {string} targetId — element to show/hide
+ */
+ManualChart.applyToggle = function (toggleId, targetId) {
+  var visible = ManualChart.isToggled(toggleId);
+  var el = document.getElementById(targetId);
+  if (el) el.style.display = visible ? '' : 'none';
+};
+
+// ---------------------------------------------------------------------------
 // 4. State Collection / Population
 // ---------------------------------------------------------------------------
 

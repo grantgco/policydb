@@ -20,7 +20,7 @@
     </div>
 
     <!-- Big Stat Callout -->
-    <div style="margin-bottom: 1rem;">
+    <div id="stat-callout" style="margin-bottom: 1rem;">
       <div style="font-size: 0.8rem; color: #7B7974; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">
         Average
       </div>
@@ -40,6 +40,31 @@
 <!-- ═══ Editor Panel ════════════════════════════════════════════════════════ -->
 <div class="mc-editor" id="editor-panel">
   <div class="mc-editor-title">Chart Editor</div>
+
+  <!-- Display Options -->
+  <div class="display-options">
+    <span class="section-label">Display</span>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-title" name="show-title" checked onchange="applyDisplayOptions(); refreshCurrentChart()">
+      <span class="toggle-track"></span><span class="toggle-label">Title</span>
+    </label>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-subtitle" name="show-subtitle" checked onchange="applyDisplayOptions()">
+      <span class="toggle-track"></span><span class="toggle-label">Subtitle</span>
+    </label>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-stat" name="show-stat" checked onchange="applyDisplayOptions()">
+      <span class="toggle-track"></span><span class="toggle-label">Avg Callout</span>
+    </label>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-avg-line" name="show-avg-line" checked onchange="refreshCurrentChart()">
+      <span class="toggle-track"></span><span class="toggle-label">Avg Line</span>
+    </label>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-data-labels" name="show-data-labels" checked onchange="refreshCurrentChart()">
+      <span class="toggle-track"></span><span class="toggle-label">Data Labels</span>
+    </label>
+  </div>
 
   <!-- Config Strip -->
   <div class="config-strip">
@@ -151,6 +176,7 @@
   const avgLinePlugin = {
     id: 'avgLine',
     afterDraw(chart) {
+      if (!ManualChart.isToggled('show-avg-line')) return;
       const avgVal = parseFloat(document.getElementById('avg-value').value) || 0;
       if (!avgVal) return;
       const ctx = chart.ctx;
@@ -178,6 +204,7 @@
   const dataLabelPlugin = {
     id: 'barLabels',
     afterDraw(chart) {
+      if (!ManualChart.isToggled('show-data-labels')) return;
       const ctx = chart.ctx;
       chart.data.datasets.forEach((ds, di) => {
         chart.getDatasetMeta(di).data.forEach((bar, i) => {
@@ -193,9 +220,19 @@
     }
   };
 
+  // ── Display Options ────────────────────────────────────────────────────
+
+  window.applyDisplayOptions = function () {
+    ManualChart.applyToggle('show-title', 'chart-title-display');
+    ManualChart.applyToggle('show-subtitle', 'chart-subtitle-display');
+    ManualChart.applyToggle('show-stat', 'stat-callout');
+  };
+
   // ── Render Function ─────────────────────────────────────────────────────
 
   window.refreshCurrentChart = function () {
+    applyDisplayOptions();
+
     // Read title + subtitle
     const title = document.getElementById('chart-title').value || 'Benchmark Distribution';
     const subtitle = document.getElementById('chart-subtitle').value || '';
@@ -308,7 +345,7 @@
   };
 
   // ── Bootstrap ───────────────────────────────────────────────────────────
-  requestAnimationFrame(() => refreshCurrentChart());
+  setTimeout(() => refreshCurrentChart(), 50);
 
 })();
 </script>

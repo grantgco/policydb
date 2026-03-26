@@ -3,13 +3,13 @@
 <!-- Chart Display -->
 <div class="manual-chart-page">
   <div class="manual-chart-wrap">
-    <h2 id="chart-title" style="font-family:'Noto Serif',serif; font-size:1.25rem; color:var(--mc-midnight); margin:0 0 0.25rem;">
+    <h2 id="chart-title-display" style="font-family:'Noto Serif',serif; font-size:1.25rem; color:var(--mc-midnight); margin:0 0 0.25rem;">
       Total Cost of Risk &mdash; 5 Year Trend
     </h2>
-    <p id="chart-subtitle" style="font-family:'Noto Sans',sans-serif; font-size:0.78rem; color:var(--mc-muted); margin:0 0 0.75rem;">
+    <p id="chart-subtitle-display" style="font-family:'Noto Sans',sans-serif; font-size:0.78rem; color:var(--mc-muted); margin:0 0 0.75rem;">
     </p>
 
-    <div class="mc-legend">
+    <div class="mc-legend" id="chart-legend">
       <span class="mc-legend-item">
         <span class="mc-legend-swatch" style="background:var(--mc-midnight); height:10px; border-radius:2px;"></span>
         Insurance Premium
@@ -33,6 +33,22 @@
 <!-- Editor Panel -->
 <div class="mc-editor" id="editor-panel">
   <div class="mc-editor-title">Chart Data</div>
+
+  <div class="display-options">
+    <span class="section-label">Display</span>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-title" name="show-title" checked onchange="applyDisplayOptions()">
+      <span class="toggle-track"></span><span class="toggle-label">Title</span>
+    </label>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-subtitle" name="show-subtitle" checked onchange="applyDisplayOptions()">
+      <span class="toggle-track"></span><span class="toggle-label">Subtitle</span>
+    </label>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-legend" name="show-legend" checked onchange="applyDisplayOptions()">
+      <span class="toggle-track"></span><span class="toggle-label">Legend</span>
+    </label>
+  </div>
 
   <!-- Config Strip -->
   <div class="config-strip">
@@ -136,6 +152,13 @@
     refreshCurrentChart();
   };
 
+  /** Display options toggles */
+  window.applyDisplayOptions = function () {
+    ManualChart.applyToggle('show-title', 'chart-title-display');
+    ManualChart.applyToggle('show-subtitle', 'chart-subtitle-display');
+    ManualChart.applyToggle('show-legend', 'chart-legend');
+  };
+
   /** Read inputs, compute TCOR, build/update chart */
   window.refreshCurrentChart = function () {
     var startYear = parseInt(document.getElementById('cfg-start-year').value) || 2020;
@@ -179,10 +202,10 @@
 
     // Update subtitle
     var subtitleText = document.getElementById('cfg-subtitle').value || '';
-    document.getElementById('chart-subtitle').textContent = subtitleText;
+    document.getElementById('chart-subtitle-display').textContent = subtitleText;
 
     // Update title with year count
-    document.getElementById('chart-title').innerHTML =
+    document.getElementById('chart-title-display').innerHTML =
       'Total Cost of Risk &mdash; ' + numYears + ' Year Trend';
 
     // Destroy previous chart
@@ -279,6 +302,6 @@
   };
 
   // Bootstrap on load
-  requestAnimationFrame(() => applyConfig());
+  setTimeout(() => applyConfig(), 50);
 })();
 </script>

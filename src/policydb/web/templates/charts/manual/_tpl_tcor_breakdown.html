@@ -21,7 +21,7 @@
     </div>
 
     <!-- Total Callout -->
-    <div style="margin-bottom:1rem;">
+    <div id="stat-callout" style="margin-bottom:1rem;">
       <div style="font-size:0.8rem;color:#7B7974;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;">
         Total Cost of Risk
       </div>
@@ -41,6 +41,27 @@
 <!-- ═══ Editor Panel ════════════════════════════════════════════════════════ -->
 <div class="mc-editor" id="editor-panel">
   <div class="mc-editor-title">Chart Editor</div>
+
+  <!-- Display Options -->
+  <div class="display-options">
+    <span class="section-label">Display</span>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-title" name="show-title" checked onchange="applyDisplayOptions()">
+      <span class="toggle-track"></span><span class="toggle-label">Title</span>
+    </label>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-subtitle" name="show-subtitle" checked onchange="applyDisplayOptions()">
+      <span class="toggle-track"></span><span class="toggle-label">Subtitle</span>
+    </label>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-stat" name="show-stat" checked onchange="applyDisplayOptions()">
+      <span class="toggle-track"></span><span class="toggle-label">Total Callout</span>
+    </label>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-data-labels" name="show-data-labels" checked onchange="refreshCurrentChart()">
+      <span class="toggle-track"></span><span class="toggle-label">Bar Labels</span>
+    </label>
+  </div>
 
   <!-- Config Strip -->
   <div class="config-strip">
@@ -219,6 +240,7 @@
   var waterfallLabelPlugin = {
     id: 'waterfallLabels',
     afterDraw: function (chart) {
+      if (!ManualChart.isToggled('show-data-labels')) return;
       var ctx = chart.ctx;
       var meta = chart.getDatasetMeta(1); // segments dataset
       if (!meta || !meta.data) return;
@@ -269,8 +291,17 @@
     refreshCurrentChart();
   };
 
+  // ── Display Options ──────────────────────────────────────────────────
+  window.applyDisplayOptions = function () {
+    ManualChart.applyToggle('show-title', 'chart-title-display');
+    ManualChart.applyToggle('show-subtitle', 'chart-subtitle-display');
+    ManualChart.applyToggle('show-stat', 'stat-callout');
+  };
+
   // ── Main Render ───────────────────────────────────────────────────────
   window.refreshCurrentChart = function () {
+    applyDisplayOptions();
+
     // Read subtitle
     var subtitle = document.getElementById('chart-subtitle').value || '';
     document.getElementById('chart-subtitle-display').textContent = subtitle;
@@ -409,7 +440,7 @@
   };
 
   // ── Bootstrap ─────────────────────────────────────────────────────────
-  requestAnimationFrame(() => refreshCurrentChart());
+  setTimeout(() => refreshCurrentChart(), 50);
 
 })();
 </script>

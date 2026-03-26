@@ -486,7 +486,78 @@
   color: white;
 }
 
-/* ── 14. Print / Export ──────────────────────────────────────────────────── */
+/* ── 14. Display Options Toggle Strip ────────────────────────────────────── */
+
+.display-options {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.65rem 1rem;
+  background: var(--mc-bg);
+  border: 1px solid var(--mc-border);
+  border-radius: 3px;
+  margin-bottom: 1.25rem;
+  flex-wrap: wrap;
+}
+
+.display-options .section-label {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--mc-muted);
+  font-weight: 600;
+  margin-right: 0.25rem;
+}
+
+.display-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.display-toggle input[type="checkbox"] {
+  display: none;
+}
+
+.display-toggle .toggle-track {
+  width: 28px;
+  height: 16px;
+  border-radius: 8px;
+  background: var(--mc-border);
+  position: relative;
+  transition: background 0.15s;
+  flex-shrink: 0;
+}
+
+.display-toggle input:checked + .toggle-track {
+  background: var(--mc-midnight);
+}
+
+.display-toggle .toggle-track::after {
+  content: '';
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: white;
+  top: 2px;
+  left: 2px;
+  transition: transform 0.15s;
+}
+
+.display-toggle input:checked + .toggle-track::after {
+  transform: translateX(12px);
+}
+
+.display-toggle .toggle-label {
+  font-size: 0.72rem;
+  color: var(--mc-text);
+  font-weight: 500;
+}
+
+/* ── 15. Print / Export ──────────────────────────────────────────────────── */
 
 @media print {
   .mc-editor,

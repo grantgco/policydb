@@ -19,6 +19,26 @@
 <div class="mc-editor no-print" id="editor-panel">
   <div class="mc-editor-title">Chart Settings</div>
 
+  <div class="display-options">
+    <span class="section-label">Display</span>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-title" name="show-title" checked onchange="applyDisplayOptions()">
+      <span class="toggle-track"></span><span class="toggle-label">Title</span>
+    </label>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-subtitle" name="show-subtitle" checked onchange="applyDisplayOptions()">
+      <span class="toggle-track"></span><span class="toggle-label">Subtitle</span>
+    </label>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-center-text" name="show-center-text" checked onchange="refreshCurrentChart()">
+      <span class="toggle-track"></span><span class="toggle-label">Center Total</span>
+    </label>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-legend" name="show-legend" checked onchange="refreshCurrentChart()">
+      <span class="toggle-track"></span><span class="toggle-label">Legend</span>
+    </label>
+  </div>
+
   <!-- Config strip: title + apply -->
   <div class="config-strip">
     <div class="config-field wide">
@@ -135,6 +155,7 @@
   var centerTextPlugin = {
     id: 'centerText',
     afterDraw: function (chart) {
+      if (!ManualChart.isToggled('show-center-text')) return;
       var ctx = chart.ctx;
       var centerX = (chart.chartArea.left + chart.chartArea.right) / 2;
       var centerY = (chart.chartArea.top + chart.chartArea.bottom) / 2;
@@ -209,6 +230,7 @@
         animation: false,
         plugins: {
           legend: {
+            display: ManualChart.isToggled('show-legend'),
             position: 'right',
             labels: {
               font: {
@@ -236,6 +258,12 @@
       },
       plugins: [centerTextPlugin]
     });
+  };
+
+  // ── Display options ────────────────────────────────────────────────
+  window.applyDisplayOptions = function () {
+    ManualChart.applyToggle('show-title', 'chart-title-display');
+    ManualChart.applyToggle('show-subtitle', 'chart-subtitle-display');
   };
 
   // ── Add category row ────────────────────────────────────────────────
@@ -281,6 +309,6 @@
   }
 
   // ── Bootstrap chart on load ─────────────────────────────────────────
-  requestAnimationFrame(() => refreshCurrentChart());
+  setTimeout(() => refreshCurrentChart(), 50);
 })();
 </script>
