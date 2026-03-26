@@ -1,23 +1,26 @@
 {% set is_umb = p.layer_position and 'umbrella' in p.layer_position.lower() %}
-<tr data-row-id="{{ p.id }}" class="matrix-row hover:bg-gray-50 transition-colors {{ 'bg-blue-50' if is_umb }}">
+{% set is_pkg = p.is_package_ghost is defined and p.is_package_ghost %}
+<tr data-row-id="{{ p.id }}" class="matrix-row hover:bg-gray-50 transition-colors {{ 'bg-blue-50' if is_umb and not is_pkg }}{{ ' border-l-2 border-l-indigo-400' if is_pkg }}">
   <td class="px-2 py-2 text-xs text-gray-400 font-mono">{{ layer_num }}</td>
   <td class="px-2 py-2">
-    {% if is_umb %}
+    {% if is_pkg %}
+    <span class="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600">PKG</span>
+    {% elif is_umb %}
     <span class="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">UMB</span>
     {% else %}
     <span class="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">XS</span>
     {% endif %}
   </td>
   <td class="px-3 py-2 text-sm text-gray-800 matrix-cell-editable"
-      data-field="carrier" data-placeholder="carrier" contenteditable="true">{{ p.carrier or '' }}</td>
+      data-field="carrier" data-placeholder="carrier" contenteditable="true">{{ p.carrier or '' }}{% if is_pkg %}<div class="text-[10px] text-indigo-500 italic" contenteditable="false">via {{ p.package_parent_type }}</div>{% endif %}</td>
   <td class="px-3 py-2 text-sm text-gray-800 text-right tabular-nums matrix-cell-editable"
       data-field="limit_amount" data-placeholder="$0" contenteditable="true">{% if p.limit_amount %}${{ '{:,.0f}'.format(p.limit_amount) }}{% endif %}</td>
   <td class="px-3 py-2 text-sm text-gray-800 text-right tabular-nums matrix-cell-editable"
       data-field="attachment_point" data-placeholder="$0" contenteditable="true">{% if p.attachment_point %}${{ '{:,.0f}'.format(p.attachment_point) }}{% endif %}</td>
   <td class="px-3 py-2 text-sm text-gray-800 text-right tabular-nums matrix-cell-editable"
       data-field="participation_of" data-placeholder="—" contenteditable="true">{% if p.participation_of %}${{ '{:,.0f}'.format(p.participation_of) }}{% endif %}</td>
-  <td class="px-3 py-2 text-sm text-gray-800 text-right tabular-nums matrix-cell-editable"
-      data-field="premium" data-placeholder="$0" contenteditable="true">{% if p.premium %}${{ '{:,.0f}'.format(p.premium) }}{% endif %}</td>
+  <td class="px-3 py-2 text-sm text-right tabular-nums matrix-cell-editable {{ 'text-gray-400 italic' if is_pkg else 'text-gray-800' }}"
+      data-field="premium" data-placeholder="$0" contenteditable="true">{% if is_pkg %}pkg premium{% elif p.premium %}${{ '{:,.0f}'.format(p.premium) }}{% endif %}</td>
   <td class="px-3 py-2 text-sm text-gray-800 matrix-cell-editable"
       data-field="policy_number" data-placeholder="policy #" contenteditable="true">{{ p.policy_number or '' }}</td>
   <td class="px-3 py-2 text-xs text-gray-500 italic" data-field="notation">{{ p.notation or '' }}</td>

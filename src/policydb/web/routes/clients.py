@@ -4973,6 +4973,8 @@ def client_ai_bulk_import_parse(
             "location_name": None,
             "has_layers": bool(pol.get("program_layers")),
             "layer_count": len(pol.get("program_layers", [])),
+            "has_sub_coverages": bool(pol.get("sub_coverages")),
+            "sub_coverage_count": len(pol.get("sub_coverages", [])),
         }
         pn = normalize_policy_number_for_matching(pol.get("policy_number") or "")
         if pn and pn in db_by_polnum:
@@ -5183,6 +5185,18 @@ def client_ai_bulk_import_apply(
                              layer.get("premium", 0) or 0, layer.get("limit_amount", 0) or 0, j + 1),
                         )
                     programs_created += 1
+
+                # Insert sub-coverages if present
+                if d.get("sub_coverages"):
+                    for j, sc in enumerate(d["sub_coverages"]):
+                        conn.execute(
+                            """INSERT OR IGNORE INTO policy_sub_coverages
+                               (policy_id, coverage_type, limit_amount, deductible, notes, sort_order)
+                               VALUES (?, ?, ?, ?, ?, ?)""",
+                            (_new_pol_id, sc.get("coverage_type", ""),
+                             sc.get("limit_amount"), sc.get("deductible"),
+                             sc.get("notes", ""), j),
+                        )
 
                 if d.get("policy_number"):
                     try:

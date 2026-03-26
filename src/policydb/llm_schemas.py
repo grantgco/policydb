@@ -593,6 +593,50 @@ POLICY_BULK_IMPORT_SCHEMA: dict = {
                 },
             ],
         },
+        "sub_coverages": {
+            "type": "array",
+            "optional": True,
+            "description": (
+                "If this policy is a package or bundled policy (e.g., BOP, Business "
+                "Owners Policy) that covers multiple lines of business under one policy "
+                "number, list each sub-coverage here. Also use for Workers Compensation "
+                "policies to include an Employers Liability sub-coverage. Each sub-coverage "
+                "can have its own limit and deductible."
+            ),
+            "fields": [
+                {
+                    "key": "coverage_type",
+                    "label": "Coverage Type",
+                    "type": "string",
+                    "required": True,
+                    "description": "The sub-line coverage type (e.g., General Liability, Property)",
+                    "config_values": "policy_types",
+                    "config_mode": "prefer",
+                    "normalizer": "normalize_coverage_type",
+                },
+                {
+                    "key": "limit_amount",
+                    "label": "Limit",
+                    "type": "number",
+                    "required": False,
+                    "normalizer": "parse_currency_with_magnitude",
+                },
+                {
+                    "key": "deductible",
+                    "label": "Deductible",
+                    "type": "number",
+                    "required": False,
+                    "normalizer": "parse_currency_with_magnitude",
+                },
+                {
+                    "key": "notes",
+                    "label": "Notes",
+                    "type": "string",
+                    "required": False,
+                    "description": "Any additional notes about this sub-coverage",
+                },
+            ],
+        },
     },
 }
 

@@ -61,7 +61,12 @@ _DEFAULTS: dict[str, Any] = {
         "Builders Risk (Standalone)",
         "Equipment Breakdown",
         "Crime / Fidelity",
+        "Business Owners Policy",
+        "Employers Liability",
     ],
+    "auto_sub_coverages": {
+        "Workers Compensation": ["Employers Liability"],
+    },
     "industry_segments": [
         "Real Estate Development",
         "Digital Infrastructure",

@@ -37,6 +37,7 @@
     titleC: '#1e293b', textDk: '#1e3a8a',
     textLt: '#fff', textMut: '#64748b',
     premC: '#475569', border: '#94a3b8',
+    pkgBd: '#818cf8', pkgBg: '#eef2ff', pkgText: '#4f46e5',
   };
 
   var LABEL_H = 26, DED_H = 24, TWR_GAP = 24, TITLE_H = 16;
@@ -108,15 +109,29 @@
       var cx = curX + ci * colW;
       var pH = primHeights[ci];
       var py = primTopY - pH;
+      var isPkg = u.is_package;
       g.append('rect').attr('x', cx).attr('y', py).attr('width', colW).attr('height', pH)
-        .attr('fill', C.primary).attr('stroke', C.primaryBd).attr('stroke-width', 0.5);
+        .attr('fill', isPkg ? C.pkgBg : C.primary)
+        .attr('stroke', isPkg ? C.pkgBd : C.primaryBd)
+        .attr('stroke-width', isPkg ? 1.5 : 0.5);
       g.append('text').attr('x', cx + colW/2).attr('y', py + pH/2 - 3)
         .attr('text-anchor', 'middle').style('font-size', '9px').style('font-weight', '600')
-        .attr('fill', C.textDk).text(tr(u.carrier, 16));
+        .attr('fill', isPkg ? C.pkgText : C.textDk).text(tr(u.carrier, 16));
       g.append('text').attr('x', cx + colW/2).attr('y', py + pH/2 + 9)
         .attr('text-anchor', 'middle').style('font-size', '8px')
-        .attr('fill', C.textDk).attr('opacity', 0.8).text(fmtL(u.limit));
-      if (u.premium) {
+        .attr('fill', isPkg ? C.pkgText : C.textDk).attr('opacity', 0.8).text(fmtL(u.limit));
+      if (isPkg) {
+        // Package badge in top-right
+        g.append('text').attr('x', cx + colW - 3).attr('y', py + 9)
+          .attr('text-anchor', 'end').style('font-size', '6px').style('font-weight', '700')
+          .attr('fill', C.pkgText).text('PKG');
+        // "pkg premium" instead of dollar amount
+        if (pH >= 36) {
+          g.append('text').attr('x', cx + colW - 3).attr('y', py + pH - 3)
+            .attr('text-anchor', 'end').style('font-size', '7px').style('font-style', 'italic')
+            .attr('fill', C.pkgText).attr('opacity', 0.6).text('pkg premium');
+        }
+      } else if (u.premium) {
         g.append('text').attr('x', cx + colW - 3).attr('y', py + pH - 3)
           .attr('text-anchor', 'end').style('font-size', '7px')
           .attr('fill', C.premC).text(fmtL(u.premium));
@@ -131,7 +146,11 @@
 
     if (umbrellaLayers.length > 0) {
       var umbLayer = umbrellaLayers[0];
-      var umbLabelH = 22;
+      var isUmbPkg = umbLayer.is_package;
+      var umbLabelH = isUmbPkg ? 28 : 22;
+      var umbFill = isUmbPkg ? C.pkgBg : C.umbrella;
+      var umbStroke = isUmbPkg ? C.pkgBd : C.split;
+      var umbFg = isUmbPkg ? C.pkgText : C.textLt;
       under.forEach(function(u, ci) {
         var cx = curX + ci * colW;
         var primH = primHeights[ci];
@@ -141,17 +160,30 @@
         var umbH = umbBottom - umbTop;
         if (umbH > 0) {
           g.append('rect').attr('x', cx).attr('y', umbTop).attr('width', colW).attr('height', umbH)
-            .attr('fill', C.umbrella).attr('stroke', C.split).attr('stroke-width', 0.5);
+            .attr('fill', umbFill).attr('stroke', umbStroke).attr('stroke-width', isUmbPkg ? 1.5 : 0.5);
         }
       });
       var umbTopY = umbrellaBaseY - umbLabelH;
+      if (isUmbPkg) {
+        // Package badge
+        g.append('text').attr('x', curX + towerW - 4).attr('y', umbTopY + 9)
+          .attr('text-anchor', 'end').style('font-size', '6px').style('font-weight', '700')
+          .attr('fill', C.pkgText).text('Package');
+      }
       g.append('text').attr('x', curX + towerW/2).attr('y', umbTopY + 10)
         .attr('text-anchor', 'middle').style('font-size', '9px').style('font-weight', '700')
-        .attr('fill', C.textLt).text(tr(umbLayer.policy_type, 20));
-      g.append('text').attr('x', curX + towerW/2).attr('y', umbTopY + 20)
-        .attr('text-anchor', 'middle').style('font-size', '8px')
-        .attr('fill', C.textLt).attr('opacity', 0.9)
-        .text(tr(umbLayer.carrier, 20) + '  ' + (umbLayer.notation || fmtL(umbLayer.limit)));
+        .attr('fill', umbFg).text(tr(umbLayer.policy_type, 20));
+      if (isUmbPkg && umbLayer.package_parent_type) {
+        g.append('text').attr('x', curX + towerW/2).attr('y', umbTopY + 20)
+          .attr('text-anchor', 'middle').style('font-size', '7px').style('font-style', 'italic')
+          .attr('fill', umbFg).attr('opacity', 0.7)
+          .text('via ' + tr(umbLayer.package_parent_type, 22));
+      } else {
+        g.append('text').attr('x', curX + towerW/2).attr('y', umbTopY + 20)
+          .attr('text-anchor', 'middle').style('font-size', '8px')
+          .attr('fill', umbFg).attr('opacity', 0.9)
+          .text(tr(umbLayer.carrier, 20) + '  ' + (umbLayer.notation || fmtL(umbLayer.limit)));
+      }
       umbrellaBaseY = umbTopY;
     }
 
@@ -196,23 +228,43 @@
             }
           });
         } else {
+          var isLayerPkg = layer.is_package;
+          var layerBg = isLayerPkg ? C.pkgBg : bg;
+          var layerBd = isLayerPkg ? C.pkgBd : C.split;
+          var layerFg = isLayerPkg ? C.pkgText : fg;
           g.append('rect').attr('x', curX).attr('y', layerY).attr('width', towerW).attr('height', perEx)
-            .attr('fill', bg).attr('stroke', C.split).attr('stroke-width', 0.5);
+            .attr('fill', layerBg).attr('stroke', layerBd).attr('stroke-width', isLayerPkg ? 1.5 : 0.5);
+          if (isLayerPkg) {
+            // Package badge in top-right corner
+            g.append('text').attr('x', curX + towerW - 4).attr('y', layerY + 9)
+              .attr('text-anchor', 'end').style('font-size', '6px').style('font-weight', '700')
+              .attr('fill', C.pkgText).text('Package');
+          }
           g.append('text').attr('x', curX + towerW/2).attr('y', layerY + 11)
             .attr('text-anchor', 'middle').style('font-size', '8px')
-            .attr('fill', fg).attr('opacity', 0.7).text(tr(layer.policy_type, 28));
+            .attr('fill', layerFg).attr('opacity', 0.7).text(tr(layer.policy_type, 28));
           g.append('text').attr('x', curX + towerW/2).attr('y', layerY + 22)
             .attr('text-anchor', 'middle').style('font-size', '10px').style('font-weight', '700')
-            .attr('fill', fg).text(tr(layer.carrier || (parts[0]?parts[0].carrier:''), 24));
-          if (layer.notation && perEx >= 38) {
+            .attr('fill', layerFg).text(tr(layer.carrier || (parts[0]?parts[0].carrier:''), 24));
+          if (isLayerPkg && layer.package_parent_type && perEx >= 38) {
+            // "via {parent_type}" subtitle
+            g.append('text').attr('x', curX + towerW/2).attr('y', layerY + 33)
+              .attr('text-anchor', 'middle').style('font-size', '7px').style('font-style', 'italic')
+              .attr('fill', layerFg).attr('opacity', 0.7).text('via ' + tr(layer.package_parent_type, 26));
+          } else if (layer.notation && perEx >= 38) {
             g.append('text').attr('x', curX + towerW/2).attr('y', layerY + 33)
               .attr('text-anchor', 'middle').style('font-size', '8px').style('font-style', 'italic')
-              .attr('fill', fg).attr('opacity', 0.8).text(tr(layer.notation, 30));
+              .attr('fill', layerFg).attr('opacity', 0.8).text(tr(layer.notation, 30));
           }
-          if (layer.premium && perEx >= 38) {
+          if (isLayerPkg && perEx >= 38) {
+            // "pkg premium" in italic instead of dollar amount
+            g.append('text').attr('x', curX + towerW - 4).attr('y', layerY + perEx - 4)
+              .attr('text-anchor', 'end').style('font-size', '7px').style('font-style', 'italic')
+              .attr('fill', layerFg).attr('opacity', 0.6).text('pkg premium');
+          } else if (layer.premium && perEx >= 38) {
             g.append('text').attr('x', curX + towerW - 4).attr('y', layerY + perEx - 4)
               .attr('text-anchor', 'end').style('font-size', '7px')
-              .attr('fill', fg).attr('opacity', 0.6).text(fmtL(layer.premium));
+              .attr('fill', layerFg).attr('opacity', 0.6).text(fmtL(layer.premium));
           }
         }
       });
