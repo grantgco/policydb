@@ -1,5 +1,23 @@
-{# Client Contacts Tab — all contact panels + compose email #}
+{# Client Contacts Tab — all contact panels + compose email + AI import #}
 <div id="tab-contacts-content">
+
+{# Header with AI Import #}
+<div class="flex items-center justify-between mb-4 no-print">
+  <h3 class="text-sm font-semibold text-gray-700">Contacts</h3>
+  <button type="button"
+    hx-get="/clients/{{ client.id }}/ai-contact-import/prompt"
+    hx-target="#ai-import-container"
+    hx-swap="innerHTML"
+    class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg transition-colors">
+    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
+    </svg>
+    AI Import
+  </button>
+</div>
+
+{# AI Import result area #}
+<div id="ai-contact-import-result" class="mb-4"></div>
 
 {% include "clients/_contacts.html" %}
 {% include "clients/_team_contacts.html" %}
