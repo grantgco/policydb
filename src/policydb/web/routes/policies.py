@@ -4336,7 +4336,7 @@ async def patch_sub_coverage(uid: str, sub_id: int, request: Request, conn=Depen
     if not row:
         raise HTTPException(404)
     body = await request.json()
-    allowed = {"limit_amount", "deductible", "coverage_form"}
+    allowed = {"limit_amount", "deductible", "coverage_form", "notes"}
     updates = {k: v for k, v in body.items() if k in allowed}
     if not updates:
         return {"ok": False, "error": "no valid fields"}

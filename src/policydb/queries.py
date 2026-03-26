@@ -2385,7 +2385,7 @@ def get_sub_coverages(conn, policy_id: int) -> list[dict]:
     """Return sub-coverages for a policy, ordered by sort_order."""
     try:
         rows = conn.execute(
-            "SELECT id, coverage_type, sort_order, limit_amount, deductible, coverage_form "
+            "SELECT id, coverage_type, sort_order, limit_amount, deductible, coverage_form, notes "
             "FROM policy_sub_coverages WHERE policy_id = ? ORDER BY sort_order, id",
             (policy_id,),
         ).fetchall()
@@ -2420,7 +2420,7 @@ def get_sub_coverages_full_by_policy_id(conn, policy_ids: list[int]) -> dict[int
     try:
         placeholders = ",".join("?" * len(policy_ids))
         rows = conn.execute(
-            f"SELECT id, policy_id, coverage_type, sort_order, limit_amount, deductible, coverage_form "  # noqa: S608
+            f"SELECT id, policy_id, coverage_type, sort_order, limit_amount, deductible, coverage_form, notes "  # noqa: S608
             f"FROM policy_sub_coverages WHERE policy_id IN ({placeholders}) ORDER BY sort_order, id",
             policy_ids,
         ).fetchall()

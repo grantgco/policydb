@@ -208,25 +208,33 @@
         <label class="field-label">Sub-Coverages</label>
         <div class="mt-1 space-y-2" id="sub-coverage-rows">
           {% for sc in sub_coverages %}
-          <div class="flex items-center gap-3 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2" data-sub-id="{{ sc.id }}">
-            <span class="text-sm font-medium text-blue-700 min-w-[160px]">{{ sc.coverage_type }}</span>
-            <div class="flex items-center gap-1">
-              <span class="text-xs text-gray-500">Limit</span>
-              <input type="text" value="{{ sc.limit_amount | currency if sc.limit_amount else '' }}"
-                     class="border border-gray-300 rounded px-2 py-1 text-sm w-28 focus:border-marsh focus:ring-1 focus:ring-marsh"
-                     placeholder="—"
-                     onblur="patchSubCov('{{ policy.policy_uid }}', {{ sc.id }}, 'limit_amount', this.value)" />
+          <div class="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2" data-sub-id="{{ sc.id }}">
+            <div class="flex items-center gap-3">
+              <span class="text-sm font-medium text-blue-700 min-w-[160px]">{{ sc.coverage_type }}</span>
+              <div class="flex items-center gap-1">
+                <span class="text-xs text-gray-500">Limit</span>
+                <input type="text" value="{{ sc.limit_amount | currency if sc.limit_amount else '' }}"
+                       class="border border-gray-300 rounded px-2 py-1 text-sm w-28 focus:border-marsh focus:ring-1 focus:ring-marsh"
+                       placeholder="—"
+                       onblur="patchSubCov('{{ policy.policy_uid }}', {{ sc.id }}, 'limit_amount', this.value)" />
+              </div>
+              <div class="flex items-center gap-1">
+                <span class="text-xs text-gray-500">Ded.</span>
+                <input type="text" value="{{ sc.deductible | currency if sc.deductible else '' }}"
+                       class="border border-gray-300 rounded px-2 py-1 text-sm w-28 focus:border-marsh focus:ring-1 focus:ring-marsh"
+                       placeholder="—"
+                       onblur="patchSubCov('{{ policy.policy_uid }}', {{ sc.id }}, 'deductible', this.value)" />
+              </div>
+              <button type="button" class="ml-auto text-gray-400 hover:text-red-500 no-print"
+                      onclick="removeSubCoverage('{{ policy.policy_uid }}', {{ sc.id }})"
+                      title="Remove">&times;</button>
             </div>
-            <div class="flex items-center gap-1">
-              <span class="text-xs text-gray-500">Ded.</span>
-              <input type="text" value="{{ sc.deductible | currency if sc.deductible else '' }}"
-                     class="border border-gray-300 rounded px-2 py-1 text-sm w-28 focus:border-marsh focus:ring-1 focus:ring-marsh"
-                     placeholder="—"
-                     onblur="patchSubCov('{{ policy.policy_uid }}', {{ sc.id }}, 'deductible', this.value)" />
+            <div class="mt-1">
+              <input type="text" value="{{ sc.notes or '' }}"
+                     class="border-0 border-b border-gray-200 bg-transparent px-0 py-0.5 text-xs text-gray-500 w-full focus:border-marsh focus:ring-0 focus:outline-none"
+                     placeholder="Notes..."
+                     onblur="patchSubCov('{{ policy.policy_uid }}', {{ sc.id }}, 'notes', this.value)" />
             </div>
-            <button type="button" class="ml-auto text-gray-400 hover:text-red-500 no-print"
-                    onclick="removeSubCoverage('{{ policy.policy_uid }}', {{ sc.id }})"
-                    title="Remove">&times;</button>
           </div>
           {% endfor %}
         </div>
@@ -940,9 +948,10 @@
     container.querySelectorAll('[data-sub-id]').forEach(function(el) { el.remove(); });
     subs.forEach(function(sc) {
       var row = document.createElement('div');
-      row.className = 'flex items-center gap-3 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2';
+      row.className = 'bg-blue-50 border border-blue-200 rounded-lg px-3 py-2';
       row.dataset.subId = sc.id;
-      row.innerHTML = '<span class="text-sm font-medium text-blue-700 min-w-[160px]">' + sc.coverage_type + '</span>'
+      row.innerHTML = '<div class="flex items-center gap-3">'
+        + '<span class="text-sm font-medium text-blue-700 min-w-[160px]">' + sc.coverage_type + '</span>'
         + '<div class="flex items-center gap-1"><span class="text-xs text-gray-500">Limit</span>'
         + '<input type="text" value="' + fmtCurrency(sc.limit_amount) + '"'
         + ' class="border border-gray-300 rounded px-2 py-1 text-sm w-28 focus:border-marsh focus:ring-1 focus:ring-marsh"'
@@ -955,7 +964,11 @@
         + ' onblur="patchSubCov(\'' + policyUid + '\', ' + sc.id + ', \'deductible\', this.value)" /></div>'
         + '<button type="button" class="ml-auto text-gray-400 hover:text-red-500 no-print"'
         + ' onclick="removeSubCoverage(\'' + policyUid + '\', ' + sc.id + ')"'
-        + ' title="Remove">&times;</button>';
+        + ' title="Remove">&times;</button></div>'
+        + '<div class="mt-1"><input type="text" value="' + (sc.notes || '') + '"'
+        + ' class="border-0 border-b border-gray-200 bg-transparent px-0 py-0.5 text-xs text-gray-500 w-full focus:border-marsh focus:ring-0 focus:outline-none"'
+        + ' placeholder="Notes..."'
+        + ' onblur="patchSubCov(\'' + policyUid + '\', ' + sc.id + ', \'notes\', this.value)" /></div>';
       container.appendChild(row);
     });
   }
