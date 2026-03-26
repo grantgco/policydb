@@ -290,4 +290,5 @@ app.include_router(programs_routes.router)
 
 # Static files (charts JS/CSS assets)
 STATIC_DIR = Path(__file__).parent / "static"
-app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+if STATIC_DIR.is_dir():
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
