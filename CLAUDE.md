@@ -169,8 +169,29 @@ Each route module is in `src/policydb/web/routes/`. Routers registered in `src/p
 | templates.py | /templates | Email template CRUD + compose panel |
 | reconcile.py | /reconcile | Statement reconciliation |
 | inbox.py | /inbox/* | Inbox capture, process, scratchpad process (redirects /inbox → Action Center) |
+| charts.py | /charts | Chart Deck Builder (data-driven, D3) + Manual Chart Library (Chart.js) |
 
 **Note:** `/inbox`, `/followups`, and `/activities` all redirect to `/action-center?tab=...`. The Action Center is the primary UI for daily work management.
+
+### Manual Chart Library
+
+Self-contained chart templates at `/charts/manual` for presentations. Uses **Chart.js** (not D3). Each chart is fully editable with display toggles, exports as PNG (S/M/L sizes), and persists via `chart_snapshots` table.
+
+**Current charts (8):** `rate_premium_baseline`, `benchmark_distribution`, `loss_history`, `premium_allocation`, `rate_trend_line`, `tcor_trend`, `tcor_breakdown`, `freq_severity`
+
+**Adding a new chart type — only 2 files:**
+1. Add entry to `MANUAL_CHART_REGISTRY` in `routes/charts.py`
+2. Create `templates/charts/manual/_tpl_{chart_id}.html`
+
+No routes, migrations, or Python data functions needed. See memory file `project_manual_chart_library.md` for the full template pattern.
+
+**Key rules:**
+- Canvas wrapper: always `<div style="position:relative;flex:1;min-height:0;">`
+- Bootstrap: always `setTimeout(() => ..., 50)` — never synchronous
+- Must expose `window.refreshCurrentChart` and set `currentChart = chart`
+- All inputs need `name` attributes for snapshot save/load
+- Manual routes MUST be registered BEFORE `/{client_id}` routes (FastAPI literal-first)
+- Use `ManualChart.COLORS` and `ManualChart.DATA_COLORS` — Marsh palette only
 
 ### HTMX Row Edit Pattern
 Every pipeline/table view has three endpoint variants per row:
