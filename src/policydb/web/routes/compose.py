@@ -384,7 +384,7 @@ def compose_render(
     if not tpl:
         return JSONResponse({"subject": "", "body": ""}, status_code=404)
 
-    # Build rendering context
+    # Build rendering context — priority must match compose_panel()
     ctx: dict = {}
     if mode == "rfi_notify" and bundle_id:
         try:
@@ -392,8 +392,6 @@ def compose_render(
             ctx = rfi_notify_context(conn, bundle_id)
         except ImportError:
             ctx = {}
-    elif project_name and client_id:
-        ctx = location_context(conn, client_id, project_name)
     elif policy_uid:
         ctx = policy_context(conn, policy_uid)
         try:
@@ -402,6 +400,8 @@ def compose_render(
                 ctx.update(tl_ctx)
         except Exception:
             pass
+    elif project_name and client_id:
+        ctx = location_context(conn, client_id, project_name)
     elif client_id:
         ctx = client_context(conn, client_id)
 

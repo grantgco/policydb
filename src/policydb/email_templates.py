@@ -19,10 +19,17 @@ def _cycle_label(cycle: str | None) -> str:
 
 
 def render_tokens(template_text: str, context: dict) -> str:
-    """Replace {{token}} placeholders. Missing/None values render as empty string."""
+    """Replace {{token}} placeholders. Missing/None values render as empty string.
+
+    Any remaining {{...}} placeholders not found in context are stripped to avoid
+    raw tokens appearing in composed emails.
+    """
+    import re
     for key, value in context.items():
         placeholder = "{{" + key + "}}"
         template_text = template_text.replace(placeholder, str(value) if value else "")
+    # Strip any remaining unreplaced {{token}} placeholders
+    template_text = re.sub(r"\{\{[^}]+\}\}", "", template_text)
     return template_text
 
 
