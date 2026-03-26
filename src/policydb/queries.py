@@ -2385,7 +2385,7 @@ def get_sub_coverages(conn, policy_id: int) -> list[dict]:
     """Return sub-coverages for a policy, ordered by sort_order."""
     try:
         rows = conn.execute(
-            "SELECT id, coverage_type, sort_order "
+            "SELECT id, coverage_type, sort_order, limit_amount, deductible, coverage_form "
             "FROM policy_sub_coverages WHERE policy_id = ? ORDER BY sort_order, id",
             (policy_id,),
         ).fetchall()
@@ -2408,6 +2408,25 @@ def get_sub_coverages_by_policy_id(conn, policy_ids: list[int]) -> dict[int, lis
         result: dict[int, list[str]] = {}
         for r in rows:
             result.setdefault(r["policy_id"], []).append(r["coverage_type"])
+        return result
+    except Exception:
+        return {}
+
+
+def get_sub_coverages_full_by_policy_id(conn, policy_ids: list[int]) -> dict[int, list[dict]]:
+    """Return {policy_id: [{coverage_type, limit_amount, deductible, ...}, ...]}."""
+    if not policy_ids:
+        return {}
+    try:
+        placeholders = ",".join("?" * len(policy_ids))
+        rows = conn.execute(
+            f"SELECT id, policy_id, coverage_type, sort_order, limit_amount, deductible, coverage_form "  # noqa: S608
+            f"FROM policy_sub_coverages WHERE policy_id IN ({placeholders}) ORDER BY sort_order, id",
+            policy_ids,
+        ).fetchall()
+        result: dict[int, list[dict]] = {}
+        for r in rows:
+            result.setdefault(r["policy_id"], []).append(dict(r))
         return result
     except Exception:
         return {}

@@ -4330,6 +4330,33 @@ async def remove_sub_coverage(uid: str, sub_id: int, conn=Depends(get_db)):
     return {"ok": True, "sub_coverages": subs}
 
 
+@router.patch("/{uid}/sub-coverages/{sub_id}")
+async def patch_sub_coverage(uid: str, sub_id: int, request: Request, conn=Depends(get_db)):
+    row = conn.execute("SELECT id FROM policies WHERE policy_uid = ?", (uid,)).fetchone()
+    if not row:
+        raise HTTPException(404)
+    body = await request.json()
+    allowed = {"limit_amount", "deductible", "coverage_form"}
+    updates = {k: v for k, v in body.items() if k in allowed}
+    if not updates:
+        return {"ok": False, "error": "no valid fields"}
+    # Parse currency values
+    for fld in ("limit_amount", "deductible"):
+        if fld in updates and updates[fld] is not None:
+            from policydb.utils import parse_currency_with_magnitude
+            parsed = parse_currency_with_magnitude(str(updates[fld]))
+            updates[fld] = parsed if parsed is not None else None
+    set_clause = ", ".join(f"{k} = ?" for k in updates)
+    vals = list(updates.values()) + [sub_id, row["id"]]
+    conn.execute(
+        f"UPDATE policy_sub_coverages SET {set_clause} WHERE id = ? AND policy_id = ?",
+        vals,
+    )
+    conn.commit()
+    subs = _get_sub_coverages(conn, row["id"])
+    return {"ok": True, "sub_coverages": subs}
+
+
 @router.get("/new", response_class=HTMLResponse)
 def policy_new_form(request: Request, client: int = 0, opp: int = 0, conn=Depends(get_db)):
     client_row = get_client_by_id(conn, client) if client else None
