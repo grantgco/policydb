@@ -12,6 +12,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 import policydb.config as cfg
 from policydb.charts import _layer_notation, get_tower_data
 from policydb.db import next_policy_uid
+from policydb.queries import get_sub_coverages_by_policy_id
 from policydb.utils import parse_currency_with_magnitude
 from policydb.web.app import get_db, templates
 
@@ -19,6 +20,9 @@ logger = logging.getLogger("policydb.programs")
 router = APIRouter(tags=["programs"])
 
 _CURRENCY_FIELDS = {"limit_amount", "deductible", "premium", "attachment_point", "participation_of"}
+
+# Sub-coverage types that count as umbrella/excess for tower participation
+_TOWER_ELIGIBLE_SUB_COVERAGES = {"umbrella", "excess", "umbrella / excess", "umbrella liability", "excess liability"}
 
 _UNDERLYING_ALLOWED = {
     "policy_type", "carrier", "limit_amount", "deductible",
@@ -85,6 +89,19 @@ async def schematic_page(
         (client_id, tg),
     ).fetchall()
     policies = [dict(r) for r in rows]
+
+    # Attach sub-coverage metadata to package policies
+    all_ids = [p["id"] for p in policies]
+    sub_cov_map = get_sub_coverages_by_policy_id(conn, all_ids)
+    for p in policies:
+        subs = sub_cov_map.get(p["id"], [])
+        if subs:
+            p["is_package_ghost"] = True
+            p["package_parent_type"] = p.get("policy_type") or ""
+            p["sub_coverages"] = subs
+        else:
+            p["is_package_ghost"] = False
+            p["sub_coverages"] = []
 
     # Split into underlying (Primary) and excess (Umbrella + Excess)
     underlying = []

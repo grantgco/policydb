@@ -23,7 +23,7 @@ from policydb.llm_schemas import (
     parse_contact_extraction_json,
     parse_llm_json,
 )
-from policydb.queries import REVIEW_CYCLE_LABELS, get_all_policies, get_client_by_id, get_opportunity_by_uid, get_policy_by_uid, get_policy_total_hours, get_saved_notes, save_note, delete_saved_note, renew_policy, get_or_create_contact, assign_contact_to_policy, remove_contact_from_policy, set_placement_colleague, get_policy_contacts
+from policydb.queries import REVIEW_CYCLE_LABELS, get_all_policies, get_client_by_id, get_opportunity_by_uid, get_policy_by_uid, get_policy_total_hours, get_saved_notes, save_note, delete_saved_note, renew_policy, get_or_create_contact, assign_contact_to_policy, remove_contact_from_policy, set_placement_colleague, get_policy_contacts, get_sub_coverages as _get_sub_coverages, auto_generate_sub_coverages as _auto_generate_sub_coverages
 from rapidfuzz import fuzz
 from policydb.utils import round_duration, normalize_carrier, normalize_coverage_type, normalize_policy_number, format_city, format_state, format_zip
 from policydb.web.app import get_db, templates
@@ -1529,6 +1529,7 @@ def _ai_import_parse_inner(request: Request, conn, uid: str, result: dict):
         "opportunity_statuses": cfg.get("opportunity_statuses"),
         "tower_layers": _tower_layers,
         "cycle_labels": _RCL,
+        "sub_coverages": _get_sub_coverages(conn, merged["id"]),
         "program_linked_policies": [dict(r) for r in conn.execute(
             """SELECT policy_uid, policy_type, carrier, premium, effective_date, expiration_date
                FROM policies WHERE program_id = ? AND archived = 0 ORDER BY policy_type""",
@@ -2120,6 +2121,7 @@ def policy_tab_details(request: Request, policy_uid: str, conn=Depends(get_db)):
             _tower_layers.append(dict(tr) | {"ground_up": ground_up, "is_current": tr["policy_uid"] == uid})
 
     _exp_ctx = _exposure_card_context(conn, policy_dict)
+    sub_coverages = _get_sub_coverages(conn, policy_dict["id"])
 
     return templates.TemplateResponse("policies/_tab_details.html", {
         "request": request,
@@ -2132,6 +2134,7 @@ def policy_tab_details(request: Request, policy_uid: str, conn=Depends(get_db)):
         "opportunity_statuses": cfg.get("opportunity_statuses"),
         "tower_layers": _tower_layers,
         "cycle_labels": _RCL,
+        "sub_coverages": sub_coverages,
         **_exp_ctx,
         "program_linked_policies": [dict(r) for r in conn.execute(
             """SELECT policy_uid, policy_type, carrier, premium, effective_date, expiration_date
@@ -4282,6 +4285,78 @@ def policy_note_delete(request: Request, policy_uid: str, note_id: int, conn=Dep
     )
 
 
+@router.get("/{uid}/sub-coverages")
+async def get_sub_coverages_endpoint(uid: str, conn=Depends(get_db)):
+    row = conn.execute("SELECT id FROM policies WHERE policy_uid = ?", (uid,)).fetchone()
+    if not row:
+        raise HTTPException(404)
+    return _get_sub_coverages(conn, row["id"])
+
+
+@router.post("/{uid}/sub-coverages")
+async def add_sub_coverage(uid: str, request: Request, conn=Depends(get_db)):
+    row = conn.execute("SELECT id FROM policies WHERE policy_uid = ?", (uid,)).fetchone()
+    if not row:
+        raise HTTPException(404)
+    body = await request.json()
+    coverage_type = body.get("coverage_type", "").strip()
+    if not coverage_type:
+        return JSONResponse({"ok": False, "error": "coverage_type required"}, 400)
+    max_sort = conn.execute(
+        "SELECT COALESCE(MAX(sort_order), -1) FROM policy_sub_coverages WHERE policy_id = ?",
+        (row["id"],),
+    ).fetchone()[0]
+    conn.execute(
+        "INSERT OR IGNORE INTO policy_sub_coverages (policy_id, coverage_type, sort_order) "
+        "VALUES (?, ?, ?)",
+        (row["id"], coverage_type, max_sort + 1),
+    )
+    conn.commit()
+    subs = _get_sub_coverages(conn, row["id"])
+    return {"ok": True, "sub_coverages": subs}
+
+
+@router.delete("/{uid}/sub-coverages/{sub_id}")
+async def remove_sub_coverage(uid: str, sub_id: int, conn=Depends(get_db)):
+    row = conn.execute("SELECT id FROM policies WHERE policy_uid = ?", (uid,)).fetchone()
+    if not row:
+        raise HTTPException(404)
+    conn.execute(
+        "DELETE FROM policy_sub_coverages WHERE id = ? AND policy_id = ?",
+        (sub_id, row["id"]),
+    )
+    conn.commit()
+    subs = _get_sub_coverages(conn, row["id"])
+    return {"ok": True, "sub_coverages": subs}
+
+
+@router.patch("/{uid}/sub-coverages/{sub_id}")
+async def patch_sub_coverage(uid: str, sub_id: int, request: Request, conn=Depends(get_db)):
+    row = conn.execute("SELECT id FROM policies WHERE policy_uid = ?", (uid,)).fetchone()
+    if not row:
+        raise HTTPException(404)
+    body = await request.json()
+    allowed = {"limit_amount", "deductible", "coverage_form", "notes"}
+    updates = {k: v for k, v in body.items() if k in allowed}
+    if not updates:
+        return {"ok": False, "error": "no valid fields"}
+    # Parse currency values
+    for fld in ("limit_amount", "deductible"):
+        if fld in updates and updates[fld] is not None:
+            from policydb.utils import parse_currency_with_magnitude
+            parsed = parse_currency_with_magnitude(str(updates[fld]))
+            updates[fld] = parsed if parsed is not None else None
+    set_clause = ", ".join(f"{k} = ?" for k in updates)
+    vals = list(updates.values()) + [sub_id, row["id"]]
+    conn.execute(
+        f"UPDATE policy_sub_coverages SET {set_clause} WHERE id = ? AND policy_id = ?",
+        vals,
+    )
+    conn.commit()
+    subs = _get_sub_coverages(conn, row["id"])
+    return {"ok": True, "sub_coverages": subs}
+
+
 @router.get("/new", response_class=HTMLResponse)
 def policy_new_form(request: Request, client: int = 0, opp: int = 0, conn=Depends(get_db)):
     client_row = get_client_by_id(conn, client) if client else None
@@ -4421,5 +4496,6 @@ def policy_new_post(
             assign_contact_to_policy(conn, _uw_cid, _pid, role="Underwriter")
         if project_name:
             _sync_project_id(conn, _pid, client_id, project_name)
+        _auto_generate_sub_coverages(conn, _pid, policy_type)
         conn.commit()
     return RedirectResponse(f"/policies/{uid}/edit", status_code=303)

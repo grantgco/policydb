@@ -203,6 +203,55 @@
         </select>
       </div>
 
+      {# ── Sub-Coverages ── #}
+      <div class="sm:col-span-2 lg:col-span-3 mt-2" id="sub-coverages-section">
+        <label class="field-label">Sub-Coverages</label>
+        <div class="mt-1 space-y-2" id="sub-coverage-rows">
+          {% for sc in sub_coverages %}
+          <div class="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2" data-sub-id="{{ sc.id }}">
+            <div class="flex items-center gap-3">
+              <span class="text-sm font-medium text-blue-700 min-w-[160px]">{{ sc.coverage_type }}</span>
+              <div class="flex items-center gap-1">
+                <span class="text-xs text-gray-500">Limit</span>
+                <input type="text" value="{{ sc.limit_amount | currency if sc.limit_amount else '' }}"
+                       class="border border-gray-300 rounded px-2 py-1 text-sm w-28 focus:border-marsh focus:ring-1 focus:ring-marsh"
+                       placeholder="—"
+                       onblur="patchSubCov('{{ policy.policy_uid }}', {{ sc.id }}, 'limit_amount', this.value)" />
+              </div>
+              <div class="flex items-center gap-1">
+                <span class="text-xs text-gray-500">Ded.</span>
+                <input type="text" value="{{ sc.deductible | currency if sc.deductible else '' }}"
+                       class="border border-gray-300 rounded px-2 py-1 text-sm w-28 focus:border-marsh focus:ring-1 focus:ring-marsh"
+                       placeholder="—"
+                       onblur="patchSubCov('{{ policy.policy_uid }}', {{ sc.id }}, 'deductible', this.value)" />
+              </div>
+              <button type="button" class="ml-auto text-gray-400 hover:text-red-500 no-print"
+                      onclick="removeSubCoverage('{{ policy.policy_uid }}', {{ sc.id }})"
+                      title="Remove">&times;</button>
+            </div>
+            <div class="mt-1">
+              <input type="text" value="{{ sc.notes or '' }}"
+                     class="border-0 border-b border-gray-200 bg-transparent px-0 py-0.5 text-xs text-gray-500 w-full focus:border-marsh focus:ring-0 focus:outline-none"
+                     placeholder="Notes..."
+                     onblur="patchSubCov('{{ policy.policy_uid }}', {{ sc.id }}, 'notes', this.value)" />
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+        <div class="relative no-print mt-2" id="add-sub-coverage-wrapper">
+          <input type="text" id="add-sub-coverage-input"
+                 class="border border-dashed border-gray-300 rounded-full px-3 py-1 text-sm w-48
+                        focus:border-marsh focus:ring-1 focus:ring-marsh focus:outline-none"
+                 placeholder="+ Add sub-coverage..."
+                 autocomplete="off"
+                 data-policy-uid="{{ policy.policy_uid }}"
+                 data-options='{{ policy_types | tojson }}' />
+          <div id="sub-coverage-dropdown"
+               class="hidden absolute z-50 mt-1 w-64 max-h-48 overflow-y-auto bg-white border border-gray-200 rounded-lg shadow-lg">
+          </div>
+        </div>
+      </div>
+
       <div>
         <label class="field-label">Carrier {% if not policy.is_opportunity %}<span class="text-red-400">*</span>{% endif %}</label>
         <input type="text" data-field="carrier" value="{{ policy.carrier or '' }}" class="form-input w-full"
@@ -813,6 +862,116 @@
     if (layerSel) layerSel.addEventListener('change', update);
     update();
   })();
+})();
+</script>
+
+<script>
+(function() {
+  var input = document.getElementById('add-sub-coverage-input');
+  var dropdown = document.getElementById('sub-coverage-dropdown');
+  if (!input || !dropdown) return;
+
+  var allTypes = JSON.parse(input.dataset.options || '[]');
+  var policyUid = input.dataset.policyUid;
+
+  function getExisting() {
+    return Array.from(document.querySelectorAll('#sub-coverage-rows [data-sub-id]'))
+      .map(function(el) { return el.querySelector('.text-blue-700').textContent.trim(); });
+  }
+
+  function renderDropdown(filter) {
+    var existing = getExisting();
+    var filtered = allTypes.filter(function(t) {
+      return !existing.includes(t) && t.toLowerCase().includes(filter.toLowerCase());
+    });
+    dropdown.innerHTML = filtered.map(function(t) {
+      return '<div class="px-3 py-2 hover:bg-blue-50 cursor-pointer text-sm" onclick="selectSubCoverage(this)"'
+        + ' data-value="' + t.replace(/"/g, '&quot;') + '">' + t + '</div>';
+    }).join('');
+    dropdown.classList.toggle('hidden', filtered.length === 0);
+  }
+
+  input.addEventListener('focus', function() { renderDropdown(input.value); });
+  input.addEventListener('input', function() { renderDropdown(input.value); });
+  input.addEventListener('blur', function() { setTimeout(function() { dropdown.classList.add('hidden'); }, 200); });
+
+  window.selectSubCoverage = function(el) {
+    var coverageType = el.dataset.value;
+    dropdown.classList.add('hidden');
+    input.value = '';
+    fetch('/policies/' + policyUid + '/sub-coverages', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({coverage_type: coverageType}),
+    }).then(function(resp) { return resp.json(); }).then(function(data) {
+      if (data.ok) { rebuildRows(data.sub_coverages); }
+    });
+  };
+
+  window.removeSubCoverage = function(uid, subId) {
+    fetch('/policies/' + uid + '/sub-coverages/' + subId, {
+      method: 'DELETE',
+    }).then(function(resp) { return resp.json(); }).then(function(data) {
+      if (data.ok) { rebuildRows(data.sub_coverages); }
+    });
+  };
+
+  window.patchSubCov = function(uid, subId, field, value) {
+    var body = {};
+    body[field] = value;
+    fetch('/policies/' + uid + '/sub-coverages/' + subId, {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body),
+    }).then(function(resp) { return resp.json(); }).then(function(data) {
+      if (data.ok) {
+        /* flash the input green briefly */
+        var row = document.querySelector('[data-sub-id="' + subId + '"]');
+        if (row) {
+          row.style.transition = 'background 0.3s';
+          row.style.background = '#dcfce7';
+          setTimeout(function() { row.style.background = ''; }, 800);
+        }
+      }
+    });
+  };
+
+  function fmtCurrency(val) {
+    if (!val && val !== 0) return '';
+    var n = parseFloat(val);
+    if (isNaN(n)) return '';
+    return '$' + n.toLocaleString('en-US', {minimumFractionDigits: 0, maximumFractionDigits: 0});
+  }
+
+  function rebuildRows(subs) {
+    var container = document.getElementById('sub-coverage-rows');
+    container.querySelectorAll('[data-sub-id]').forEach(function(el) { el.remove(); });
+    subs.forEach(function(sc) {
+      var row = document.createElement('div');
+      row.className = 'bg-blue-50 border border-blue-200 rounded-lg px-3 py-2';
+      row.dataset.subId = sc.id;
+      row.innerHTML = '<div class="flex items-center gap-3">'
+        + '<span class="text-sm font-medium text-blue-700 min-w-[160px]">' + sc.coverage_type + '</span>'
+        + '<div class="flex items-center gap-1"><span class="text-xs text-gray-500">Limit</span>'
+        + '<input type="text" value="' + fmtCurrency(sc.limit_amount) + '"'
+        + ' class="border border-gray-300 rounded px-2 py-1 text-sm w-28 focus:border-marsh focus:ring-1 focus:ring-marsh"'
+        + ' placeholder="\u2014"'
+        + ' onblur="patchSubCov(\'' + policyUid + '\', ' + sc.id + ', \'limit_amount\', this.value)" /></div>'
+        + '<div class="flex items-center gap-1"><span class="text-xs text-gray-500">Ded.</span>'
+        + '<input type="text" value="' + fmtCurrency(sc.deductible) + '"'
+        + ' class="border border-gray-300 rounded px-2 py-1 text-sm w-28 focus:border-marsh focus:ring-1 focus:ring-marsh"'
+        + ' placeholder="\u2014"'
+        + ' onblur="patchSubCov(\'' + policyUid + '\', ' + sc.id + ', \'deductible\', this.value)" /></div>'
+        + '<button type="button" class="ml-auto text-gray-400 hover:text-red-500 no-print"'
+        + ' onclick="removeSubCoverage(\'' + policyUid + '\', ' + sc.id + ')"'
+        + ' title="Remove">&times;</button></div>'
+        + '<div class="mt-1"><input type="text" value="' + (sc.notes || '') + '"'
+        + ' class="border-0 border-b border-gray-200 bg-transparent px-0 py-0.5 text-xs text-gray-500 w-full focus:border-marsh focus:ring-0 focus:outline-none"'
+        + ' placeholder="Notes..."'
+        + ' onblur="patchSubCov(\'' + policyUid + '\', ' + sc.id + ', \'notes\', this.value)" /></div>';
+      container.appendChild(row);
+    });
+  }
 })();
 </script>
 

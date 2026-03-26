@@ -407,6 +407,17 @@ def policy_context(conn: sqlite3.Connection, policy_uid: str) -> dict:
         if k not in ctx or not ctx[k]:
             ctx[k] = v
 
+    # Sub-coverages (table may not exist on older DBs before migration 090)
+    try:
+        sub_rows = conn.execute(
+            "SELECT coverage_type FROM policy_sub_coverages "
+            "WHERE policy_id = ? ORDER BY sort_order, id",
+            (row["id"],),
+        ).fetchall()
+        ctx["sub_coverages"] = ", ".join(r["coverage_type"] for r in sub_rows) if sub_rows else ""
+    except Exception:
+        ctx["sub_coverages"] = ""
+
     # Exposure/rate from linked exposures
     from policydb.exposures import get_policy_exposures
     exp_links = get_policy_exposures(conn, row["policy_uid"] if "policy_uid" in row.keys() else "")
@@ -733,6 +744,7 @@ CONTEXT_TOKEN_GROUPS: dict[str, list[tuple[str, list[tuple[str, str]]]]] = {
     "policy": [
         ("Policy", [
             ("policy_type", "Policy Type"),
+            ("sub_coverages", "Sub-Coverages"),
             ("carrier", "Carrier"),
             ("policy_uid", "Policy ID"),
             ("policy_number", "Policy Number"),

@@ -1,5 +1,9 @@
 {# Schedule of Insurance — HTML Table Chart
-   Data: chartData_schedule = {rows: [{line, carrier, policy_number, effective, expiration, limit, deductible, premium, form}], total_premium, policy_count}
+   Data: chartData_schedule = {
+     rows: [{line, carrier, policy_number, effective, expiration, limit, deductible, premium, form, is_ghost, is_package, package_parent_type}],
+     total_premium, policy_count,
+     package_policies: [{policy_type, carrier, policy_number, sub_coverages: [str]}]
+   }
 #}
 {% from "charts/_chart_base.html" import chart_frame %}
 
@@ -13,7 +17,32 @@
       el.innerHTML = '<div class="chart-empty">No active policies found</div>';
       return;
     }
-    var html = '<table class="chart-table">';
+    var html = '';
+
+    /* ── Package Policies summary (if any) ── */
+    if (data.package_policies && data.package_policies.length > 0) {
+      html += '<div style="margin-bottom:16px; padding:12px 16px; background:#f9fafb; border:1px solid #e5e7eb; border-radius:8px;">';
+      html += '<div style="font-size:12px; font-weight:600; color:#374151; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:8px;">Package Policies</div>';
+      data.package_policies.forEach(function(pkg) {
+        html += '<div style="display:flex; align-items:center; gap:8px; margin-bottom:6px; flex-wrap:wrap;">';
+        html += '<span style="font-weight:600; font-size:13px; color:#1f2937;">' + (pkg.policy_type || '') + '</span>';
+        if (pkg.carrier) {
+          html += '<span style="font-size:12px; color:#6b7280;">' + pkg.carrier + '</span>';
+        }
+        if (pkg.policy_number) {
+          html += '<span style="font-size:11px; color:#9ca3af; font-family:monospace;">#' + pkg.policy_number + '</span>';
+        }
+        html += '<span style="font-size:10px; color:#4f46e5; background:#eef2ff; padding:2px 6px; border-radius:9999px; font-weight:500;">Package</span>';
+        (pkg.sub_coverages || []).forEach(function(sc) {
+          html += '<span style="font-size:10px; color:#1d4ed8; background:#eff6ff; padding:2px 8px; border-radius:9999px;">' + sc + '</span>';
+        });
+        html += '</div>';
+      });
+      html += '</div>';
+    }
+
+    /* ── Schedule table ── */
+    html += '<table class="chart-table">';
     html += '<thead><tr>'
       + '<th>Line of Business</th>'
       + '<th>Carrier</th>'
@@ -26,17 +55,41 @@
       + '<th>Form</th>'
       + '</tr></thead><tbody>';
     data.rows.forEach(function(r) {
-      html += '<tr>'
-        + '<td style="font-weight:600">' + (r.line || '\u2014') + '</td>'
-        + '<td>' + (r.carrier || '\u2014') + '</td>'
-        + '<td>' + (r.policy_number || '\u2014') + '</td>'
-        + '<td>' + (r.effective || '\u2014') + '</td>'
-        + '<td>' + (r.expiration || '\u2014') + '</td>'
-        + '<td style="text-align:right">' + (r.limit != null ? formatCurrency(r.limit) : '\u2014') + '</td>'
-        + '<td style="text-align:right">' + (r.deductible != null ? formatCurrency(r.deductible) : '\u2014') + '</td>'
-        + '<td style="text-align:right">' + (r.premium != null ? formatCurrencyFull(r.premium) : '\u2014') + '</td>'
-        + '<td>' + (r.form || '\u2014') + '</td>'
-        + '</tr>';
+      if (r.is_ghost) {
+        /* Ghost row: lighter, italic, Package badge, no premium */
+        html += '<tr style="color:#9ca3af; font-style:italic;">'
+          + '<td style="padding-left:24px;">'
+            + '<span style="font-size:10px; color:#4f46e5; background:#eef2ff; padding:1px 6px; border-radius:9999px; font-weight:500; font-style:normal; margin-right:6px;">Package</span>'
+            + (r.line || '\u2014')
+          + '</td>'
+          + '<td>' + (r.carrier || '\u2014') + '</td>'
+          + '<td>' + (r.policy_number || '\u2014') + '</td>'
+          + '<td>' + (r.effective || '\u2014') + '</td>'
+          + '<td>' + (r.expiration || '\u2014') + '</td>'
+          + '<td style="text-align:right">\u2014</td>'
+          + '<td style="text-align:right">\u2014</td>'
+          + '<td style="text-align:right">\u2014</td>'
+          + '<td>\u2014</td>'
+          + '</tr>';
+      } else {
+        /* Normal row — with optional Package indicator for parent policies */
+        var lineCell = '<td style="font-weight:600">' + (r.line || '\u2014');
+        if (r.is_package) {
+          lineCell += ' <span style="font-size:10px; color:#4f46e5; background:#eef2ff; padding:1px 6px; border-radius:9999px; font-weight:500;">Package</span>';
+        }
+        lineCell += '</td>';
+        html += '<tr>'
+          + lineCell
+          + '<td>' + (r.carrier || '\u2014') + '</td>'
+          + '<td>' + (r.policy_number || '\u2014') + '</td>'
+          + '<td>' + (r.effective || '\u2014') + '</td>'
+          + '<td>' + (r.expiration || '\u2014') + '</td>'
+          + '<td style="text-align:right">' + (r.limit != null ? formatCurrency(r.limit) : '\u2014') + '</td>'
+          + '<td style="text-align:right">' + (r.deductible != null ? formatCurrency(r.deductible) : '\u2014') + '</td>'
+          + '<td style="text-align:right">' + (r.premium != null ? formatCurrencyFull(r.premium) : '\u2014') + '</td>'
+          + '<td>' + (r.form || '\u2014') + '</td>'
+          + '</tr>';
+      }
     });
     html += '</tbody>';
     html += '<tfoot><tr>'
