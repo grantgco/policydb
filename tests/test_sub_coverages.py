@@ -80,3 +80,20 @@ def test_config_has_auto_sub_coverages():
     """auto_sub_coverages default maps WC to EL."""
     auto = _DEFAULTS["auto_sub_coverages"]
     assert auto.get("Workers Compensation") == ["Employers Liability"]
+
+
+from policydb.utils import normalize_coverage_type
+
+
+def test_bop_normalizes_to_business_owners():
+    """BOP variants normalize to Business Owners Policy, not Property."""
+    assert normalize_coverage_type("BOP") == "Business Owners Policy"
+    assert normalize_coverage_type("bop policy") == "Business Owners Policy"
+    assert normalize_coverage_type("businessowners") == "Business Owners Policy"
+    assert normalize_coverage_type("Business Owners Policy") == "Business Owners Policy"
+
+
+def test_property_aliases_unchanged():
+    """Property aliases still normalize correctly (regression check)."""
+    assert normalize_coverage_type("commercial property") == "Property / Builders Risk"
+    assert normalize_coverage_type("building") == "Property / Builders Risk"

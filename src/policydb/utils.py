@@ -156,7 +156,7 @@ _COVERAGE_ALIASES: dict[str, str] = {
     # ── Property / Builders Risk ─────────────────────────────────────────────
     # All these map to the combined canonical "Property / Builders Risk"
     "prop": "Property / Builders Risk",
-    "bop": "Property / Builders Risk",
+    "bop": "Business Owners Policy",
     "commercial property": "Property / Builders Risk",
     "building": "Property / Builders Risk",
     "property": "Property / Builders Risk",
@@ -311,9 +311,9 @@ _COVERAGE_ALIASES: dict[str, str] = {
     "commercial package": "Property / Builders Risk",
     "commercial package policy": "Property / Builders Risk",
     "monoline property": "Property / Builders Risk",
-    "businessowners": "Property / Builders Risk",
-    "businessowners policy": "Property / Builders Risk",
-    "business owners policy": "Property / Builders Risk",
+    "businessowners": "Business Owners Policy",
+    "businessowners policy": "Business Owners Policy",
+    "business owners policy": "Business Owners Policy",
 
     # ── Additional Excess/Umbrella variants ──────────────────────────────────
     "xs": "Umbrella / Excess",
@@ -331,7 +331,7 @@ _COVERAGE_ALIASES: dict[str, str] = {
     "ho3": "Homeowners",
 
     # ── Additional aliases for common AMS export variants ──────────────────
-    "bop policy": "Property / Builders Risk",
+    "bop policy": "Business Owners Policy",
     "management liability": "Directors & Officers",
     "network security & privacy": "Cyber / Tech E&O",
     "network security and privacy": "Cyber / Tech E&O",
