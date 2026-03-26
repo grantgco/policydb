@@ -13,11 +13,14 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 
 from policydb import config as cfg
 from policydb.llm_schemas import (
+    CONTACT_EXTRACTION_SCHEMA,
     COPE_FIELDS,
     LOCATION_FIELDS,
     POLICY_EXTRACTION_SCHEMA,
+    generate_contact_extraction_prompt,
     generate_extraction_prompt,
     generate_json_template,
+    parse_contact_extraction_json,
     parse_llm_json,
 )
 from policydb.queries import REVIEW_CYCLE_LABELS, get_all_policies, get_client_by_id, get_opportunity_by_uid, get_policy_by_uid, get_policy_total_hours, get_saved_notes, save_note, delete_saved_note, renew_policy, get_or_create_contact, assign_contact_to_policy, remove_contact_from_policy, set_placement_colleague, get_policy_contacts
@@ -1693,6 +1696,216 @@ async def policy_ai_import_apply_location(
             loc_name = loc_row["name"] or loc_name
 
     return JSONResponse({"ok": True, "location_name": loc_name, "created": created, "project_id": project_id})
+
+
+# ── AI Contact Extraction (email chain → policy contacts) ──
+
+_CONTACT_IMPORT_CACHE: dict[str, tuple] = {}
+
+
+@router.get("/{policy_uid}/ai-contacts/prompt", response_class=HTMLResponse)
+def policy_ai_contacts_prompt(request: Request, policy_uid: str, conn=Depends(get_db)):
+    """Return the AI import slideover panel with contact extraction prompt."""
+    uid = policy_uid.upper()
+    policy_dict, client_info = _policy_base(conn, uid)
+    if not policy_dict:
+        return HTMLResponse("Not found", status_code=404)
+
+    prompt_text = generate_contact_extraction_prompt(conn, uid)
+
+    # Build JSON template for the "Copy Template" button
+    example = {}
+    for f in CONTACT_EXTRACTION_SCHEMA["fields"]:
+        if f.get("example"):
+            example[f["key"]] = f["example"]
+    json_template = json.dumps([example], indent=2)
+
+    context_display = {"Client": client_info["name"]}
+    if policy_dict.get("carrier"):
+        context_display["Carrier"] = policy_dict["carrier"]
+    if policy_dict.get("policy_type"):
+        context_display["Coverage"] = policy_dict["policy_type"]
+
+    return templates.TemplateResponse("_ai_import_panel.html", {
+        "request": request,
+        "import_type": "contacts",
+        "prompt_text": prompt_text,
+        "json_template": json_template,
+        "context_display": context_display,
+        "parse_url": f"/policies/{uid}/ai-contacts/parse",
+        "import_target": "#ai-contacts-result",
+    })
+
+
+@router.post("/{policy_uid}/ai-contacts/parse", response_class=HTMLResponse)
+def policy_ai_contacts_parse(
+    request: Request,
+    policy_uid: str,
+    json_text: str = Form(...),
+    conn=Depends(get_db),
+):
+    """Parse LLM contact extraction JSON and return review panel."""
+    uid = policy_uid.upper()
+    result = parse_contact_extraction_json(json_text)
+
+    if not result["ok"]:
+        return HTMLResponse(
+            f'<div class="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">'
+            f'{result["error"]}</div>',
+            status_code=422,
+        )
+
+    policy_dict, client_info = _policy_base(conn, uid)
+    if not policy_dict:
+        return HTMLResponse("Not found", status_code=404)
+
+    contacts = result["contacts"]
+    warnings = result.get("warnings", [])
+
+    # Check for existing contacts to show dedup info
+    existing_policy_contacts = get_policy_contacts(conn, policy_dict["id"])
+    existing_names = {
+        c["name"].lower().strip()
+        for c in existing_policy_contacts
+        if c.get("name")
+    }
+
+    for contact in contacts:
+        contact["already_assigned"] = (
+            contact["name"].lower().strip() in existing_names
+        )
+        # Check if contact exists in global contacts table
+        existing = conn.execute(
+            "SELECT id, email, phone, organization FROM contacts "
+            "WHERE LOWER(TRIM(name)) = LOWER(TRIM(?))",
+            (contact["name"],),
+        ).fetchone()
+        contact["existing_contact"] = dict(existing) if existing else None
+
+    # Cache for apply step
+    import time as _time
+    import uuid as _uuid
+
+    token = str(_uuid.uuid4())
+    _CONTACT_IMPORT_CACHE[token] = (
+        contacts,
+        uid,
+        policy_dict["id"],
+        _time.time(),
+    )
+
+    return templates.TemplateResponse("policies/_ai_contacts_review.html", {
+        "request": request,
+        "policy": policy_dict,
+        "contacts": contacts,
+        "warnings": warnings,
+        "token": token,
+        "policy_uid": uid,
+        "contact_roles": cfg.get("contact_roles", []),
+    })
+
+
+@router.post("/{policy_uid}/ai-contacts/apply", response_class=HTMLResponse)
+async def policy_ai_contacts_apply(
+    request: Request,
+    policy_uid: str,
+    conn=Depends(get_db),
+):
+    """Apply selected contacts from AI extraction to the policy."""
+    uid = policy_uid.upper()
+    form = await request.form()
+    token = form.get("token", "")
+
+    cache = _CONTACT_IMPORT_CACHE.get(token)
+    if not cache:
+        return HTMLResponse(
+            '<div class="p-4 text-red-600 text-sm">Session expired — please re-parse.</div>'
+        )
+
+    contacts, cached_uid, policy_id, ts = cache
+    if cached_uid != uid:
+        return HTMLResponse(
+            '<div class="p-4 text-red-600 text-sm">Policy mismatch.</div>'
+        )
+
+    created = 0
+    updated = 0
+    skipped = 0
+    errors: list[str] = []
+
+    # Collect selected indices from form checkboxes (name="select_{i}")
+    for i, contact in enumerate(contacts):
+        if not form.get(f"select_{i}"):
+            continue
+        role = form.get(f"role_{i}", contact.get("role", ""))
+        try:
+            cid = get_or_create_contact(
+                conn,
+                contact["name"],
+                email=contact.get("email"),
+                phone=contact.get("phone"),
+                mobile=contact.get("mobile"),
+                organization=contact.get("organization"),
+            )
+
+            is_pc = 1 if role == "Placement Colleague" else 0
+            assign_contact_to_policy(
+                conn,
+                cid,
+                policy_id,
+                role=role,
+                title=contact.get("title", ""),
+                is_placement_colleague=is_pc,
+            )
+
+            if contact.get("existing_contact"):
+                updated += 1
+            else:
+                created += 1
+        except Exception as e:
+            errors.append(f"{contact['name']}: {e}")
+
+    conn.commit()
+    _CONTACT_IMPORT_CACHE.pop(token, None)
+
+    # Return success HTML
+    total = created + updated
+    parts = ['<div class="p-4 space-y-3">']
+    parts.append('<div class="flex items-center gap-2">')
+    parts.append(
+        '<svg class="w-5 h-5 text-green-600" fill="none" stroke="currentColor" '
+        'viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" '
+        'stroke-width="2" d="M5 13l4 4L19 7"/></svg>'
+    )
+    parts.append(
+        f'<span class="text-sm font-medium text-gray-900">'
+        f'{total} contact{"s" if total != 1 else ""} imported</span>'
+    )
+    parts.append("</div>")
+    parts.append('<div class="flex flex-wrap gap-2">')
+    if created:
+        parts.append(
+            f'<span class="px-2.5 py-1 rounded-full text-xs font-medium '
+            f'bg-green-50 text-green-700">{created} new</span>'
+        )
+    if updated:
+        parts.append(
+            f'<span class="px-2.5 py-1 rounded-full text-xs font-medium '
+            f'bg-blue-50 text-blue-700">{updated} updated</span>'
+        )
+    parts.append("</div>")
+    if errors:
+        parts.append(
+            '<div class="p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700">'
+        )
+        for e in errors:
+            parts.append(f"<div>{e}</div>")
+        parts.append("</div>")
+    parts.append(
+        '<p class="text-xs text-gray-500">Reload the Contacts tab to see updated team.</p>'
+    )
+    parts.append("</div>")
+    return HTMLResponse("\n".join(parts))
 
 
 @router.get("/{policy_uid}/tab/details", response_class=HTMLResponse)

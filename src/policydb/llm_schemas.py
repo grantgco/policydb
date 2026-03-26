@@ -1456,3 +1456,284 @@ def parse_llm_json(raw_text: str, schema: dict) -> dict:
         }
 
     return {"ok": True, "parsed": parsed, "warnings": warnings, "raw": raw}
+
+
+# ---------------------------------------------------------------------------
+# Contact Extraction Schema — email chain → policy contact list
+# ---------------------------------------------------------------------------
+
+CONTACT_EXTRACTION_SCHEMA: dict = {
+    "name": "contact_extraction",
+    "version": 1,
+    "description": (
+        "Extract contacts from an email chain, distribution list, "
+        "or correspondence thread related to an insurance policy"
+    ),
+    "is_array": True,
+    "fields": [
+        {
+            "key": "name",
+            "label": "Full Name",
+            "type": "string",
+            "required": True,
+            "description": "Full name of the person (first and last name)",
+            "example": "Jane Smith",
+        },
+        {
+            "key": "email",
+            "label": "Email Address",
+            "type": "string",
+            "required": False,
+            "description": "Email address (from headers, cc/bcc, or signature block)",
+            "example": "jane.smith@carrier.com",
+        },
+        {
+            "key": "phone",
+            "label": "Phone Number",
+            "type": "string",
+            "required": False,
+            "description": "Office or direct phone number from signature block",
+            "example": "(555) 123-4567",
+        },
+        {
+            "key": "mobile",
+            "label": "Mobile Number",
+            "type": "string",
+            "required": False,
+            "description": "Cell/mobile number from signature block",
+            "example": "(555) 987-6543",
+        },
+        {
+            "key": "organization",
+            "label": "Company / Organization",
+            "type": "string",
+            "required": False,
+            "description": (
+                "Company or organization name from signature block or email domain. "
+                "For carrier employees, use the carrier name."
+            ),
+            "example": "Travelers Insurance",
+        },
+        {
+            "key": "title",
+            "label": "Job Title",
+            "type": "string",
+            "required": False,
+            "description": "Job title or role from signature block",
+            "example": "Senior Underwriter",
+        },
+        {
+            "key": "role",
+            "label": "Policy Role",
+            "type": "string",
+            "required": False,
+            "description": (
+                "The person's role relative to this insurance policy. "
+                "Infer from context: carrier employees are likely Underwriters, "
+                "brokerage colleagues are Placement Colleagues or Brokers, "
+                "client employees are client contacts."
+            ),
+            "config_values": "contact_roles",
+            "config_mode": "prefer",
+            "example": "Underwriter",
+        },
+    ],
+}
+
+
+def generate_contact_extraction_prompt(conn, policy_uid: str) -> str:
+    """Build a prompt for extracting contacts from an email chain."""
+    import policydb.config as _cfg
+
+    policy = conn.execute(
+        "SELECT p.*, c.name AS client_name, c.industry_segment "
+        "FROM policies p JOIN clients c ON p.client_id = c.id "
+        "WHERE p.policy_uid = ?",
+        (policy_uid,),
+    ).fetchone()
+
+    client_name = policy["client_name"] if policy else "Unknown"
+    carrier = (policy["carrier"] or "") if policy else ""
+    policy_type = (policy["policy_type"] or "") if policy else ""
+
+    contact_roles = _cfg.get("contact_roles", [])
+    config_lists = {"contact_roles": contact_roles}
+
+    parts: list[str] = []
+
+    parts.append(
+        "You are an insurance operations analyst. I will provide an email chain "
+        "or correspondence thread related to an insurance policy. Your job is to "
+        "extract all people mentioned (senders, recipients, cc'd, referenced in "
+        "signature blocks) and return their contact information as structured JSON.\n"
+    )
+
+    parts.append("## Output Format\n")
+    parts.append(
+        "Return a JSON **array** of contact objects. Each contact should have "
+        "the fields listed below. Omit fields you cannot determine.\n"
+    )
+
+    parts.append("## Fields per Contact\n")
+    for f in CONTACT_EXTRACTION_SCHEMA["fields"]:
+        parts.append(_build_field_instruction(f, config_lists))
+
+    parts.append("\n## Policy Context\n")
+    parts.append(f"- **Client**: {client_name}")
+    if carrier:
+        parts.append(f"- **Carrier**: {carrier}")
+    if policy_type:
+        parts.append(f"- **Coverage**: {policy_type}")
+
+    parts.append("\n## Extraction Rules\n")
+    parts.append("- Extract contacts from email headers (From, To, CC, BCC)")
+    parts.append("- Extract contact details from email signature blocks")
+    parts.append("- Do NOT include generic/no-reply email addresses")
+    parts.append(
+        "- If the same person appears multiple times, merge into one entry "
+        "with the most complete information"
+    )
+    if carrier:
+        parts.append(
+            f"- For the role field, infer from context. People from "
+            f"'{carrier}' are likely Underwriters or Claims contacts."
+        )
+    parts.append(
+        "- Brokerage colleagues are likely 'Placement Colleague' or 'Broker'"
+    )
+    parts.append(
+        "- People from the client organization are likely client contacts"
+    )
+
+    # JSON template
+    example = {}
+    for f in CONTACT_EXTRACTION_SCHEMA["fields"]:
+        if f.get("example"):
+            example[f["key"]] = f["example"]
+    parts.append("\n## JSON Template\n")
+    parts.append(
+        "Return ONLY valid JSON matching this structure (array of contacts):"
+    )
+    template = json.dumps([example], indent=2)
+    parts.append(f"```json\n{template}\n```")
+
+    parts.append("\n---\n")
+    parts.append("**PASTE THE EMAIL CHAIN BELOW THIS LINE:**\n")
+
+    return "\n".join(parts)
+
+
+def parse_contact_extraction_json(raw_text: str) -> dict:
+    """Parse LLM JSON response for contact extraction.
+
+    Expects a JSON array of contact objects. Normalizes each using
+    CONTACT_EXTRACTION_SCHEMA field definitions.
+
+    Returns:
+        {"ok": True, "contacts": [...], "warnings": [...], "count": N}
+        or {"ok": False, "error": "...", "raw_text": "..."}
+    """
+    if len(raw_text) > _MAX_INPUT_BYTES:
+        return {
+            "ok": False,
+            "error": "Input too large (max 500KB).",
+            "raw_text": raw_text[:200],
+        }
+
+    # Try code fences first, then raw JSON — same strategy as bulk import
+    json_str = _extract_json_str(raw_text)
+
+    # _extract_json_str only finds {} objects; also look for [] arrays
+    if json_str is None or (json_str.startswith("{") and "[" in raw_text):
+        for pattern in [_RE_JSON_CODE_FENCE, _RE_GENERIC_CODE_FENCE]:
+            m = pattern.search(raw_text)
+            if m:
+                candidate = m.group(1).strip()
+                if candidate.startswith("["):
+                    json_str = candidate
+                    break
+        if json_str is None or not json_str.startswith("["):
+            start = raw_text.find("[")
+            if start != -1:
+                depth = 0
+                in_string = False
+                escape_next = False
+                for i in range(start, len(raw_text)):
+                    ch = raw_text[i]
+                    if escape_next:
+                        escape_next = False
+                        continue
+                    if ch == "\\":
+                        escape_next = True
+                        continue
+                    if ch == '"' and not escape_next:
+                        in_string = not in_string
+                        continue
+                    if in_string:
+                        continue
+                    if ch == "[":
+                        depth += 1
+                    elif ch == "]":
+                        depth -= 1
+                        if depth == 0:
+                            json_str = raw_text[start : i + 1]
+                            break
+
+    if json_str is None:
+        return {
+            "ok": False,
+            "error": "No JSON found in input.",
+            "raw_text": raw_text,
+        }
+
+    try:
+        data = json.loads(json_str)
+    except json.JSONDecodeError as e:
+        return {
+            "ok": False,
+            "error": f"Invalid JSON: {e}",
+            "raw_text": raw_text,
+        }
+
+    if isinstance(data, dict):
+        data = [data]
+    if not isinstance(data, list):
+        return {
+            "ok": False,
+            "error": "Expected a JSON array of contacts.",
+            "raw_text": raw_text,
+        }
+
+    fields = CONTACT_EXTRACTION_SCHEMA["fields"]
+    all_warnings: list[str] = []
+    contacts: list[dict] = []
+
+    for i, item in enumerate(data):
+        if not isinstance(item, dict):
+            all_warnings.append(f"Item [{i}] is not an object, skipping.")
+            continue
+
+        parsed, _raw, warnings = _parse_flat_fields(item, fields)
+        for w in warnings:
+            all_warnings.append(f"Contact [{i}]: {w}")
+
+        if not parsed.get("name"):
+            all_warnings.append(f"Contact [{i}]: Missing name, skipping.")
+            continue
+
+        parsed["_index"] = i
+        contacts.append(parsed)
+
+    if not contacts:
+        return {
+            "ok": False,
+            "error": "No valid contacts extracted from JSON.",
+            "raw_text": raw_text,
+        }
+
+    return {
+        "ok": True,
+        "contacts": contacts,
+        "warnings": all_warnings,
+        "count": len(contacts),
+    }
