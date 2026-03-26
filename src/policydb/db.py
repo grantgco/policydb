@@ -1229,6 +1229,15 @@ def init_db(path: Path | None = None) -> None:
         )
         conn.commit()
 
+    if 94 not in applied:
+        sql = (_MIGRATIONS_DIR / "094_program_tower_coverage.sql").read_text()
+        conn.executescript(sql)
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (94, "program_tower_coverage junction for selective umbrella/excess coverage"),
+        )
+        conn.commit()
+
     # Data hygiene: fix 'None' string corruption in text fields (runs every startup, fast no-op if clean)
     conn.execute("UPDATE clients SET cn_number = NULL WHERE cn_number = 'None'")
 
