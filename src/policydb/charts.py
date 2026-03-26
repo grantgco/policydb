@@ -262,6 +262,32 @@ def get_tower_data(conn: sqlite3.Connection, client_id: int) -> list[dict]:
         key = (r["tower_group"], r["attachment_point"], r["layer_position"])
         program_key_to_id[key] = r["policy_id"]
 
+    # Build sub-coverage lookup for package policy detection
+    tower_policy_rows = conn.execute(
+        """
+        SELECT p.id, p.tower_group, p.policy_type, p.carrier, p.policy_number
+        FROM policies p
+        WHERE p.client_id = ?
+          AND p.tower_group IS NOT NULL
+          AND p.archived = 0
+          AND (p.is_opportunity = 0 OR p.is_opportunity IS NULL)
+        """,
+        (client_id,),
+    ).fetchall()
+    tower_policy_ids = [r["id"] for r in tower_policy_rows]
+    sub_cov_map = get_sub_coverages_by_policy_id(conn, tower_policy_ids)
+    # Map (tower_group, policy_type, carrier, policy_number) -> sub-coverage info
+    package_lookup: dict[tuple, dict] = {}
+    for r in tower_policy_rows:
+        subs = sub_cov_map.get(r["id"], [])
+        if subs:
+            key = (r["tower_group"], r["policy_type"], r["carrier"], r["policy_number"])
+            package_lookup[key] = {
+                "is_package": True,
+                "package_parent_type": r["policy_type"] or "",
+                "sub_coverages": subs,
+            }
+
     # Group by tower_group, splitting into underlying (primary) and excess layers
     groups: dict[str, dict] = {}
     for r in rows:
@@ -273,8 +299,12 @@ def get_tower_data(conn: sqlite3.Connection, client_id: int) -> list[dict]:
         att = r["attachment_point"] or 0
         is_primary = lp == "primary" or (att == 0 and lp not in ("umbrella",))
 
+        # Check if this policy is a package
+        pkg_key = (r["tower_group"], r["policy_type"], r["carrier"], r["policy_number"])
+        pkg_info = package_lookup.get(pkg_key)
+
         if is_primary:
-            groups[tg]["underlying"].append({
+            entry = {
                 "label": r["policy_type"] or "Unknown",
                 "carrier": r["carrier"] or "",
                 "deductible": r["deductible"] or 0,
@@ -282,7 +312,11 @@ def get_tower_data(conn: sqlite3.Connection, client_id: int) -> list[dict]:
                 "premium": r["premium"] or 0,
                 "form_type": r["coverage_form"] or "",
                 "column": r["schematic_column"],
-            })
+            }
+            if pkg_info:
+                entry["is_package"] = True
+                entry["package_parent_type"] = pkg_info["package_parent_type"]
+            groups[tg]["underlying"].append(entry)
         else:
             is_umb = lp in ("umbrella", "umbrella liability") or "umbrella" in lp
             layer = {
@@ -300,6 +334,9 @@ def get_tower_data(conn: sqlite3.Connection, client_id: int) -> list[dict]:
                 "form_type": r["coverage_form"] or "",
                 "participants": [],
             }
+            if pkg_info:
+                layer["is_package"] = True
+                layer["package_parent_type"] = pkg_info["package_parent_type"]
             # Attach co-insured participants for program layers
             key = (r["tower_group"], r["attachment_point"], r["layer_position"])
             pid = program_key_to_id.get(key)

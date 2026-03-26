@@ -1,8 +1,9 @@
-<tr data-row-id="{{ p.id }}" class="matrix-row hover:bg-gray-50 transition-colors">
+{% set is_pkg = p.is_package_ghost is defined and p.is_package_ghost %}
+<tr data-row-id="{{ p.id }}" class="matrix-row hover:bg-gray-50 transition-colors {{ 'border-l-2 border-l-indigo-400' if is_pkg }}">
   <td class="px-2 py-2 text-gray-400 cursor-grab no-print underlying-drag" draggable="true">&#x2807;</td>
   <td class="px-3 py-2 text-sm text-gray-800 matrix-cell-combo relative"
       data-field="policy_type" data-placeholder="select line"
-      data-options='{{ policy_types | tojson }}' contenteditable="true">{{ p.policy_type or '' }}</td>
+      data-options='{{ policy_types | tojson }}' contenteditable="true">{{ p.policy_type or '' }}{% if is_pkg %}<span class="ml-1.5 inline-flex items-center text-[9px] font-semibold px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600 no-print" contenteditable="false">Package</span>{% endif %}</td>
   <td class="px-3 py-2 text-sm text-gray-800 matrix-cell-combo relative"
       data-field="carrier" data-placeholder="carrier"
       data-options='{{ carriers | tojson }}' contenteditable="true">{{ p.carrier or '' }}</td>
@@ -10,8 +11,8 @@
       data-field="limit_amount" data-placeholder="$0" contenteditable="true">{% if p.limit_amount %}${{ '{:,.0f}'.format(p.limit_amount) }}{% endif %}</td>
   <td class="px-3 py-2 text-sm text-gray-800 text-right tabular-nums matrix-cell-editable"
       data-field="deductible" data-placeholder="$0" contenteditable="true">{% if p.deductible and p.deductible != '0' %}${{ '{:,.0f}'.format(p.deductible | float) }}{% endif %}</td>
-  <td class="px-3 py-2 text-sm text-gray-800 text-right tabular-nums matrix-cell-editable"
-      data-field="premium" data-placeholder="$0" contenteditable="true">{% if p.premium %}${{ '{:,.0f}'.format(p.premium) }}{% endif %}</td>
+  <td class="px-3 py-2 text-sm text-right tabular-nums matrix-cell-editable {{ 'text-gray-400 italic' if is_pkg else 'text-gray-800' }}"
+      data-field="premium" data-placeholder="$0" contenteditable="true">{% if is_pkg %}pkg premium{% elif p.premium %}${{ '{:,.0f}'.format(p.premium) }}{% endif %}</td>
   <td class="px-3 py-2 text-sm text-gray-800 matrix-cell-editable"
       data-field="policy_number" data-placeholder="policy #" contenteditable="true">{{ p.policy_number or '' }}</td>
   <td class="px-3 py-2 text-sm text-gray-800 matrix-cell-combo relative"
