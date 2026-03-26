@@ -1609,7 +1609,8 @@ def _create_views(conn: sqlite3.Connection) -> None:
 def next_policy_uid(conn: sqlite3.Connection) -> str:
     """Generate next POL-NNN uid."""
     row = conn.execute(
-        "SELECT policy_uid FROM policies ORDER BY id DESC LIMIT 1"
+        "SELECT policy_uid FROM policies WHERE policy_uid LIKE 'POL-%' "
+        "ORDER BY CAST(SUBSTR(policy_uid, 5) AS INTEGER) DESC LIMIT 1"
     ).fetchone()
     if row is None:
         return "POL-001"

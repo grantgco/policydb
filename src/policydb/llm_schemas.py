@@ -457,6 +457,19 @@ POLICY_EXTRACTION_SCHEMA: dict = {
             "example": "1000000",
         },
         {
+            "key": "participation_of",
+            "label": "Participation Of / Part Of",
+            "type": "number",
+            "required": False,
+            "description": (
+                "Total layer limit when multiple carriers share a layer. "
+                "For example, '$10M part of $30M' means participation_of is 30000000. "
+                "Leave blank for sole-carrier layers."
+            ),
+            "normalizer": "parse_currency_with_magnitude",
+            "example": "30000000",
+        },
+        {
             "key": "notes",
             "label": "Additional Notes",
             "type": "string",
@@ -561,10 +574,14 @@ POLICY_BULK_IMPORT_SCHEMA: dict = {
                 },
                 {
                     "key": "participation_of",
-                    "label": "Participation %",
+                    "label": "Participation Of / Part Of",
                     "type": "number",
                     "required": False,
-                    "description": "Co-insurance or participation percentage if a shared layer",
+                    "description": (
+                        "Total layer limit when multiple carriers share a layer. "
+                        "For example, '$10M part of $30M' means participation_of is 30000000."
+                    ),
+                    "normalizer": "parse_currency_with_magnitude",
                 },
             ],
         },

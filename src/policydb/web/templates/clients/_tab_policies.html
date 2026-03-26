@@ -104,7 +104,20 @@
     </div>
     {% for tower_name, tower in tgs.items() %}
     <div class="px-5 py-4 {% if not loop.last %}border-b border-gray-100{% endif %}">
-      <p class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3 ml-1">{{ tower_name }}</p>
+      <div class="flex items-center justify-between mb-3 ml-1">
+        <div class="flex items-center gap-2">
+          <p class="text-xs font-semibold text-gray-400 uppercase tracking-wide">{{ tower_name }}</p>
+          {% set comp = completeness_by_tg.get(tower_name) if completeness_by_tg is defined else None %}
+          {% if comp %}
+          <span class="text-[10px] px-1.5 py-0.5 rounded-full font-medium
+            {% if comp.pct_complete >= 80 %}bg-green-100 text-green-700
+            {% elif comp.pct_complete >= 50 %}bg-amber-100 text-amber-700
+            {% else %}bg-gray-100 text-gray-500{% endif %}">{{ comp.pct_complete }}%</span>
+          {% endif %}
+        </div>
+        <a href="/clients/{{ client.id }}/programs/{{ tower_name | urlencode }}"
+           class="text-xs text-marsh hover:underline no-print">Edit Program &rarr;</a>
+      </div>
       {% set layer_colors = [
         'rgba(5,150,105,0.14)', 'rgba(59,130,246,0.13)',
         'rgba(99,102,241,0.11)', 'rgba(139,92,246,0.09)',
