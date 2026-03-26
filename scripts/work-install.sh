@@ -92,10 +92,10 @@ if [ ! -d "$VENV" ]; then
     "$PY" -m venv "$VENV"
 fi
 
-# Install from source (not editable — clean production install)
+# Install from source (editable — picks up code changes without reinstalling)
 "$VENV/bin/pip" install --quiet --upgrade pip
-echo "  Installing from source..."
-"$VENV/bin/pip" install --quiet "$PROJECT_ROOT"
+echo "  Installing from source (editable)..."
+"$VENV/bin/pip" install --quiet -e "$PROJECT_ROOT"
 
 # Verify
 INSTALLED_VER=$("$VENV/bin/pip" show policydb 2>/dev/null | grep "^Version:" | awk '{print $2}')
