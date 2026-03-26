@@ -49,13 +49,18 @@
             {{ p.effective_date }} &ndash; {{ p.expiration_date }}
             {% else %}&mdash;{% endif %}
           </td>
-          <td class="px-4 py-2.5">
+          <td class="px-4 py-2.5 flex items-center gap-2">
             {% if p.renewal_status %}
             <span class="text-xs px-2 py-0.5 rounded
               {% if p.renewal_status == 'Bound' %}bg-green-50 text-green-700
               {% elif p.renewal_status == 'In Progress' %}bg-blue-50 text-blue-700
               {% elif p.renewal_status == 'Pending Bind' %}bg-amber-50 text-amber-700
               {% else %}bg-gray-100 text-gray-600{% endif %}">{{ p.renewal_status }}</span>
+            {% endif %}
+            {% if p.tower_group %}
+            <a href="/clients/{{ p.client_id or client.id }}/programs/{{ p.tower_group | urlencode }}"
+               onclick="event.stopPropagation()"
+               class="text-[10px] text-marsh hover:underline whitespace-nowrap no-print">Edit Program &rarr;</a>
             {% endif %}
           </td>
         </tr>
@@ -71,7 +76,10 @@
           <td class="px-4 py-1.5 text-xs text-right text-gray-600 tabular-nums">{% if cr.premium %}{{ cr.premium | currency }}{% else %}&mdash;{% endif %}</td>
           <td class="px-4 py-1.5"></td>
           <td class="px-4 py-1.5"></td>
-          <td class="px-4 py-1.5"></td>
+          <td class="px-4 py-1.5">
+            <a href="/policies/{{ p.policy_uid }}/edit" onclick="event.stopPropagation()"
+               class="text-[10px] text-gray-400 hover:text-marsh no-print" title="Edit program carriers">Edit&nbsp;&#8599;</a>
+          </td>
         </tr>
         {% endfor %}
         {# ── Linked policies ── #}
@@ -90,7 +98,10 @@
           <td class="px-4 py-1.5 text-xs text-right text-gray-600 tabular-nums">{% if lp.premium %}{{ lp.premium | currency }}{% else %}&mdash;{% endif %}</td>
           <td class="px-4 py-1.5"></td>
           <td class="px-4 py-1.5 text-[10px] text-gray-400">{{ lp.effective_date or '' }}</td>
-          <td class="px-4 py-1.5"></td>
+          <td class="px-4 py-1.5">
+            <a href="/policies/{{ lp.policy_uid }}/edit" onclick="event.stopPropagation()"
+               class="text-[10px] text-gray-400 hover:text-marsh no-print" title="Edit policy">Edit&nbsp;&#8599;</a>
+          </td>
         </tr>
         {% endfor %}
         {% endif %}

@@ -705,7 +705,7 @@ def client_tab_policies(request: Request, client_id: int, conn=Depends(get_db)):
     # Programs
     programs = [dict(r) for r in conn.execute(
         """SELECT id, policy_uid, policy_type, carrier, effective_date, expiration_date,
-                  premium, limit_amount, renewal_status
+                  premium, limit_amount, renewal_status, tower_group
            FROM policies WHERE client_id = ? AND archived = 0 AND is_program = 1 ORDER BY policy_type""",
         (client_id,),
     ).fetchall()]
@@ -5481,7 +5481,9 @@ def _exposure_tab_context(conn, client_id: int, year: int, project_id=None) -> d
     from datetime import date as _date
     current_year = _date.today().year
     data_years = get_exposure_years(conn, client_id, project_id)
-    available_years = sorted(set(data_years + [current_year]), reverse=True)
+    # Include last 10 years so users can enter historical exposure data
+    historical_range = list(range(current_year, current_year - 11, -1))
+    available_years = sorted(set(data_years + historical_range), reverse=True)
     if year not in available_years:
         available_years = sorted(set(available_years + [year]), reverse=True)
     exposures = get_client_exposures(conn, client_id, year, project_id)

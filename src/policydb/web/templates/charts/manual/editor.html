@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% set active = "manual-charts" %}
+{% set page_title = chart_info.title %}
+
+{% block content %}
+<link rel="stylesheet" href="/static/charts/manual.css">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif:wght@400;700&family=Noto+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<script src="/static/charts/chart.min.js"></script>
+<script src="/static/charts/manual.js"></script>
+
+<div class="max-w-5xl mx-auto px-4 py-6">
+  <!-- Header -->
+  <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
+    <div>
+      <div class="flex items-center gap-2 text-sm text-gray-500 mb-1">
+        <a href="/charts/manual" class="hover:text-gray-700 no-underline">&larr; Chart Library</a>
+      </div>
+      <h1 class="text-xl font-bold text-gray-900" style="font-family: 'Noto Serif', serif;">{{ chart_info.title }}</h1>
+    </div>
+    <div class="flex items-center gap-2 no-print">
+      <button class="btn-mc outline sm" onclick="document.getElementById('snapshot-panel').classList.toggle('hidden')">
+        Snapshots
+      </button>
+      <button class="btn-mc" onclick="exportChart(event)" id="export-btn">
+        Export PNG &#9662;
+      </button>
+    </div>
+  </div>
+
+  <!-- Snapshot Bar (hidden by default) -->
+  <div id="snapshot-panel" class="snapshot-bar no-print {% if not snapshot_id %}hidden{% endif %}">
+    <select id="snapshot-select" class="text-sm">
+      <option value="">-- Select snapshot --</option>
+    </select>
+    <button class="btn-mc sm outline" onclick="doLoadSnapshot()">Load</button>
+    <span class="text-gray-300">|</span>
+    <input type="text" id="snapshot-name" placeholder="Snapshot name" value="{{ snapshot_name or '' }}" class="text-sm">
+    <input type="hidden" id="snapshot-id" value="{{ snapshot_id or '' }}">
+    <button class="btn-mc sm" onclick="doSaveSnapshot()">Save</button>
+    <button class="btn-mc sm danger" onclick="doDeleteSnapshot()">Delete</button>
+  </div>
+
+  <!-- Chart + Editor: each _tpl_*.html provides both the chart display and editor panel -->
+  {% include "charts/manual/_tpl_" ~ chart_type ~ ".html" %}
+</div>
+
+<script>
+  const CHART_TYPE = '{{ chart_type }}';
+  let currentChart = null;  // Set by each template's render function
+
+  // ── Snapshot functions ──────────────────────────────────────────────────
+  async function refreshSnapshotList() {
+    await ManualChart.updateSnapshotDropdown(
+      document.getElementById('snapshot-select'), CHART_TYPE
+    );
+  }
+
+  async function doSaveSnapshot() {
+    const name = document.getElementById('snapshot-name').value.trim() || 'Untitled';
+    // Collect from all editor inputs (both in chart-wrap and editor-panel areas)
+    const container = document.querySelector('.max-w-5xl');
+    const data = ManualChart.collectAll(container);
+    const existingId = document.getElementById('snapshot-id').value;
+
+    try {
+      // saveSnapshot(chartType, name, data) — we pass id inside data if updating
+      const payload = { name, data };
+      if (existingId) payload.id = parseInt(existingId);
+
+      const r = await fetch('/charts/manual/snapshots/' + CHART_TYPE, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const result = await r.json();
+      if (result && result.ok) {
+        document.getElementById('snapshot-id').value = result.id;
+        ManualChart.toast('Snapshot saved', 'success');
+        refreshSnapshotList();
+      } else {
+        ManualChart.toast('Save failed', 'error');
+      }
+    } catch (e) {
+      ManualChart.toast('Save failed: ' + e.message, 'error');
+    }
+  }
+
+  async function doLoadSnapshot() {
+    const sel = document.getElementById('snapshot-select');
+    const id = sel.value;
+    if (!id) return;
+    const result = await ManualChart.loadSnapshot(CHART_TYPE, parseInt(id));
+    if (result && result.data) {
+      const editorEl = document.getElementById('editor-panel');
+      ManualChart.populateAll(editorEl, result.data);
+      document.getElementById('snapshot-id').value = result.id;
+      document.getElementById('snapshot-name').value = result.name || '';
+      // Trigger chart refresh (each template defines this)
+      if (typeof refreshCurrentChart === 'function') refreshCurrentChart();
+      ManualChart.toast('Snapshot loaded', 'success');
+    }
+  }
+
+  async function doDeleteSnapshot() {
+    const id = document.getElementById('snapshot-id').value;
+    if (!id) return;
+    if (!confirm('Delete this snapshot?')) return;
+    await ManualChart.deleteSnapshot(CHART_TYPE, parseInt(id));
+    document.getElementById('snapshot-id').value = '';
+    document.getElementById('snapshot-name').value = '';
+    ManualChart.toast('Snapshot deleted', 'success');
+    refreshSnapshotList();
+  }
+
+  function exportChart(e) {
+    if (currentChart) {
+      ManualChart.showExportMenu(currentChart, CHART_TYPE + '.png', e.target);
+    } else {
+      ManualChart.toast('No chart to export', 'error');
+    }
+  }
+
+  // Load snapshots list on page load
+  refreshSnapshotList();
+
+  // If snapshot data was passed, auto-populate after template init
+  {% if snapshot_data %}
+  document.addEventListener('DOMContentLoaded', function() {
+    setTimeout(function() {
+      const data = {{ snapshot_data | tojson }};
+      const editorEl = document.getElementById('editor-panel');
+      ManualChart.populateAll(editorEl, data);
+      if (typeof refreshCurrentChart === 'function') refreshCurrentChart();
+    }, 100);
+  });
+  {% endif %}
+</script>
+{% endblock %}
