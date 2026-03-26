@@ -28,6 +28,7 @@ CHART_REGISTRY = [
     {"id": "normalized_premium", "title": "Normalized Premium", "category": "exposure", "type": "d3"},
     {"id": "observations", "title": "Key Observations", "category": "exposure", "type": "html"},
     {"id": "exposure_vs_premium", "title": "Exposure vs Premium", "category": "exposure", "type": "d3"},
+    {"id": "exec_summary", "title": "Executive Financial Summary", "category": "exec", "type": "html"},
 ]
 
 _CHART_TITLE_MAP = {c["id"]: c["title"] for c in CHART_REGISTRY}
@@ -74,6 +75,10 @@ async def deck_configurator(
     ).fetchall()
     policy_types = [r["policy_type"] for r in rows]
 
+    # Pre-fetch exec summary data for configurator pre-population
+    from policydb.charts import get_exec_financial_summary_data
+    exec_summary_data = get_exec_financial_summary_data(conn, client_id)
+
     return templates.TemplateResponse(
         "charts/deck.html",
         {
@@ -82,6 +87,7 @@ async def deck_configurator(
             "charts": CHART_REGISTRY,
             "deck_type": type,
             "policy_types": policy_types,
+            "exec_summary_data": exec_summary_data,
         },
     )
 
@@ -122,6 +128,7 @@ async def deck_view(
         get_normalized_premium_data,
         get_exposure_observations_data,
         get_exposure_vs_premium_data,
+        get_exec_financial_summary_data,
     )
 
     DATA_FUNCTIONS = {
@@ -144,7 +151,92 @@ async def deck_view(
 
     chart_data = {}
     for chart_id in selected_charts:
-        if chart_id == "market_conditions":
+        if chart_id == "exec_summary":
+            # Check for manual override rows from configurator
+            exec_sections = form.getlist("exec__section[]")
+            exec_lines = form.getlist("exec__line[]")
+            exec_carriers = form.getlist("exec__carrier[]")
+            exec_expiring = form.getlist("exec__expiring[]")
+            exec_normalized = form.getlist("exec__normalized[]")
+            exec_renewal = form.getlist("exec__renewal[]")
+
+            has_manual = any(l.strip() for l in exec_lines)
+            if has_manual:
+                # Parse manual rows into sections
+                section_map: dict[str, list] = {}
+                for i, line in enumerate(exec_lines):
+                    if not line.strip():
+                        continue
+                    sec = exec_sections[i] if i < len(exec_sections) else "General"
+                    carrier = exec_carriers[i] if i < len(exec_carriers) else ""
+                    try:
+                        exp = float(exec_expiring[i]) if i < len(exec_expiring) and exec_expiring[i] else 0
+                    except ValueError:
+                        exp = 0
+                    try:
+                        norm = float(exec_normalized[i]) if i < len(exec_normalized) and exec_normalized[i] else None
+                    except ValueError:
+                        norm = None
+                    try:
+                        ren = float(exec_renewal[i]) if i < len(exec_renewal) and exec_renewal[i] else 0
+                    except ValueError:
+                        ren = 0
+                    delta = ren - exp
+                    delta_pct = round((delta / exp) * 100, 1) if exp > 0 else None
+                    section_map.setdefault(sec, []).append({
+                        "line": line.strip(),
+                        "carrier": carrier.strip(),
+                        "expiring": exp,
+                        "normalized": norm,
+                        "renewal": ren,
+                        "delta_dollars": delta,
+                        "delta_pct": delta_pct,
+                    })
+                # Build sections with subtotals
+                sections = []
+                grand_exp = grand_norm = grand_ren = 0
+                has_any_norm = False
+                for sec_title in dict.fromkeys(
+                    exec_sections[i] for i in range(len(exec_lines)) if i < len(exec_sections)
+                ):
+                    if sec_title not in section_map:
+                        continue
+                    sec_rows = section_map[sec_title]
+                    sub_exp = sum(r["expiring"] for r in sec_rows)
+                    sub_ren = sum(r["renewal"] for r in sec_rows)
+                    norms = [r["normalized"] for r in sec_rows if r["normalized"] is not None]
+                    sub_norm = sum(norms) if norms else None
+                    sub_delta = sub_ren - sub_exp
+                    if sub_norm is not None:
+                        has_any_norm = True
+                    sections.append({
+                        "title": sec_title,
+                        "rows": sec_rows,
+                        "subtotal_expiring": sub_exp,
+                        "subtotal_normalized": sub_norm,
+                        "subtotal_renewal": sub_ren,
+                        "subtotal_delta_dollars": sub_delta,
+                        "subtotal_delta_pct": round((sub_delta / sub_exp) * 100, 1) if sub_exp > 0 else None,
+                    })
+                    grand_exp += sub_exp
+                    grand_ren += sub_ren
+                    if sub_norm is not None:
+                        grand_norm += sub_norm
+
+                grand_delta = grand_ren - grand_exp
+                chart_data["exec_summary"] = {
+                    "sections": sections,
+                    "grand_total_expiring": grand_exp,
+                    "grand_total_normalized": grand_norm if has_any_norm else None,
+                    "grand_total_renewal": grand_ren,
+                    "grand_total_delta_dollars": grand_delta,
+                    "grand_total_delta_pct": round((grand_delta / grand_exp) * 100, 1) if grand_exp > 0 else None,
+                }
+            else:
+                # Auto-populate from DB
+                chart_data["exec_summary"] = get_exec_financial_summary_data(conn, client_id)
+            continue
+        elif chart_id == "market_conditions":
             lines = form.getlist("market__line[]")
             avg_pcts = form.getlist("market__avg_pct[]")
             notes = form.getlist("market__notes[]")
@@ -215,3 +307,88 @@ async def deck_view(
             "tower_incomplete": tower_incomplete,
         },
     )
+
+
+# ── Chart Snapshots CRUD ────────────────────────────────────────────────────
+
+@router.get("/{client_id}/snapshots/{chart_type}", response_class=JSONResponse)
+async def list_snapshots(
+    client_id: int,
+    chart_type: str,
+    conn=Depends(get_db),
+):
+    """List saved snapshots for a client + chart type."""
+    rows = conn.execute(
+        "SELECT id, name, updated_at FROM chart_snapshots "
+        "WHERE client_id = ? AND chart_type = ? ORDER BY updated_at DESC",
+        (client_id, chart_type),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+@router.get("/{client_id}/snapshots/{chart_type}/{snapshot_id}", response_class=JSONResponse)
+async def load_snapshot(
+    client_id: int,
+    chart_type: str,
+    snapshot_id: int,
+    conn=Depends(get_db),
+):
+    """Load a single snapshot's data."""
+    row = conn.execute(
+        "SELECT id, name, data, updated_at FROM chart_snapshots "
+        "WHERE id = ? AND client_id = ? AND chart_type = ?",
+        (snapshot_id, client_id, chart_type),
+    ).fetchone()
+    if not row:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    result = dict(row)
+    result["data"] = json.loads(result["data"])
+    return result
+
+
+@router.post("/{client_id}/snapshots/{chart_type}", response_class=JSONResponse)
+async def save_snapshot(
+    request: Request,
+    client_id: int,
+    chart_type: str,
+    conn=Depends(get_db),
+):
+    """Save or update a chart snapshot."""
+    body = await request.json()
+    name = body.get("name", "").strip() or "Untitled"
+    data = body.get("data", {})
+    snapshot_id = body.get("id")
+
+    if snapshot_id:
+        # Update existing
+        conn.execute(
+            "UPDATE chart_snapshots SET name = ?, data = ?, updated_at = datetime('now') "
+            "WHERE id = ? AND client_id = ? AND chart_type = ?",
+            (name, json.dumps(data), snapshot_id, client_id, chart_type),
+        )
+        conn.commit()
+        return {"ok": True, "id": snapshot_id, "name": name}
+    else:
+        # Insert new
+        cur = conn.execute(
+            "INSERT INTO chart_snapshots (client_id, chart_type, name, data) VALUES (?, ?, ?, ?)",
+            (client_id, chart_type, name, json.dumps(data)),
+        )
+        conn.commit()
+        return {"ok": True, "id": cur.lastrowid, "name": name}
+
+
+@router.delete("/{client_id}/snapshots/{chart_type}/{snapshot_id}", response_class=JSONResponse)
+async def delete_snapshot(
+    client_id: int,
+    chart_type: str,
+    snapshot_id: int,
+    conn=Depends(get_db),
+):
+    """Delete a chart snapshot."""
+    conn.execute(
+        "DELETE FROM chart_snapshots WHERE id = ? AND client_id = ? AND chart_type = ?",
+        (snapshot_id, client_id, chart_type),
+    )
+    conn.commit()
+    return {"ok": True}

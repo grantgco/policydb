@@ -1,0 +1,125 @@
+{# Executive Financial Summary — HTML Table Chart
+   Data: chartData_exec_summary = {
+     sections: [{title, rows: [{line, carrier, expiring, normalized, renewal, delta_dollars, delta_pct}],
+                  subtotal_expiring, subtotal_normalized, subtotal_renewal, subtotal_delta_dollars, subtotal_delta_pct}],
+     grand_total_expiring, grand_total_normalized, grand_total_renewal, grand_total_delta_dollars, grand_total_delta_pct
+   }
+#}
+{% from "charts/_chart_base.html" import chart_frame %}
+
+{% call(area_id) chart_frame("Executive Financial Summary", "Bound Program — Premium Analysis") %}
+<div id="{{ area_id }}" style="overflow:auto; flex:1;">
+  <script>
+  window.render_exec_summary = function() {
+    var data = chartData_exec_summary;
+    var el = document.getElementById('{{ area_id }}');
+    if (!data || !data.sections || data.sections.length === 0) {
+      el.innerHTML = '<div class="chart-empty">No financial summary data available</div>';
+      return;
+    }
+
+    // Detect if any row has a normalized value
+    var hasNorm = false;
+    data.sections.forEach(function(s) {
+      if (s.subtotal_normalized != null) hasNorm = true;
+      s.rows.forEach(function(r) { if (r.normalized != null) hasNorm = true; });
+    });
+
+    var normColSpan = hasNorm ? 1 : 0;
+    var totalCols = 6 + normColSpan; // line, carrier, expiring, [normalized], renewal, delta$, delta%
+
+    function fmtDollar(v) {
+      if (v == null) return '\u2014';
+      return '$' + Math.round(v).toLocaleString();
+    }
+    function fmtDelta(v) {
+      if (v == null) return '\u2014';
+      var sign = v >= 0 ? '+' : '';
+      return sign + '$' + Math.round(Math.abs(v)).toLocaleString();
+    }
+    function fmtPct(v) {
+      if (v == null) return '\u2014';
+      var sign = v >= 0 ? '+' : '';
+      return sign + v.toFixed(1) + '%';
+    }
+    function deltaColor(v) {
+      if (v == null || v === 0) return '';
+      return v > 0 ? 'color:#dc2626' : 'color:#059669';
+    }
+
+    var html = '<table class="chart-table" style="font-size:12px;min-width:700px">';
+
+    // Header row
+    html += '<thead><tr style="border-bottom:2px solid #003865">'
+      + '<th style="text-align:left;padding:6px 8px;color:#003865">Line / Layer</th>'
+      + '<th style="text-align:left;padding:6px 8px;color:#003865">Carrier</th>'
+      + '<th style="text-align:right;padding:6px 8px;color:#003865;white-space:nowrap">Expiring</th>';
+    if (hasNorm) {
+      html += '<th style="text-align:right;padding:6px 8px;color:#003865;white-space:nowrap">Normalized</th>';
+    }
+    html += '<th style="text-align:right;padding:6px 8px;color:#003865;white-space:nowrap">Renewal</th>'
+      + '<th style="text-align:right;padding:6px 8px;color:#003865;white-space:nowrap">\u0394$</th>'
+      + '<th style="text-align:right;padding:6px 8px;color:#003865;white-space:nowrap">\u0394%</th>'
+      + '</tr></thead><tbody>';
+
+    data.sections.forEach(function(section, si) {
+      // Section header row
+      html += '<tr><td colspan="' + totalCols + '" style="padding:10px 8px 4px;font-weight:700;font-size:11px;'
+        + 'color:#003865;text-transform:uppercase;letter-spacing:0.05em;border-bottom:1px solid #e5e7eb">'
+        + section.title + '</td></tr>';
+
+      // Data rows
+      section.rows.forEach(function(r) {
+        html += '<tr>'
+          + '<td style="padding:5px 8px;font-weight:500">' + (r.line || '\u2014') + '</td>'
+          + '<td style="padding:5px 8px;color:#6b7280">' + (r.carrier || '\u2014') + '</td>'
+          + '<td style="padding:5px 8px;text-align:right;white-space:nowrap">' + fmtDollar(r.expiring) + '</td>';
+        if (hasNorm) {
+          html += '<td style="padding:5px 8px;text-align:right;white-space:nowrap;color:#9ca3af">'
+            + (r.normalized != null ? fmtDollar(r.normalized) : '\u2014') + '</td>';
+        }
+        html += '<td style="padding:5px 8px;text-align:right;white-space:nowrap;font-weight:600">' + fmtDollar(r.renewal) + '</td>'
+          + '<td style="padding:5px 8px;text-align:right;white-space:nowrap;' + deltaColor(r.delta_dollars) + '">' + fmtDelta(r.delta_dollars) + '</td>'
+          + '<td style="padding:5px 8px;text-align:right;white-space:nowrap;' + deltaColor(r.delta_pct) + '">' + fmtPct(r.delta_pct) + '</td>'
+          + '</tr>';
+      });
+
+      // Section subtotal row
+      html += '<tr style="border-top:1px solid #d1d5db;background:#f9fafb">'
+        + '<td colspan="2" style="padding:5px 8px;font-weight:600;font-size:11px;text-align:right">Subtotal</td>'
+        + '<td style="padding:5px 8px;text-align:right;font-weight:600">' + fmtDollar(section.subtotal_expiring) + '</td>';
+      if (hasNorm) {
+        html += '<td style="padding:5px 8px;text-align:right;font-weight:600;color:#9ca3af">'
+          + (section.subtotal_normalized != null ? fmtDollar(section.subtotal_normalized) : '\u2014') + '</td>';
+      }
+      html += '<td style="padding:5px 8px;text-align:right;font-weight:600">' + fmtDollar(section.subtotal_renewal) + '</td>'
+        + '<td style="padding:5px 8px;text-align:right;font-weight:600;' + deltaColor(section.subtotal_delta_dollars) + '">'
+          + fmtDelta(section.subtotal_delta_dollars) + '</td>'
+        + '<td style="padding:5px 8px;text-align:right;font-weight:600;' + deltaColor(section.subtotal_delta_pct) + '">'
+          + fmtPct(section.subtotal_delta_pct) + '</td>'
+        + '</tr>';
+    });
+
+    html += '</tbody>';
+
+    // Grand total footer
+    html += '<tfoot><tr style="border-top:2px solid #003865;background:#f0f4f8">'
+      + '<td colspan="2" style="padding:8px;font-weight:700;text-align:right;color:#003865">TOTAL PROGRAM</td>'
+      + '<td style="padding:8px;text-align:right;font-weight:700;color:#003865">' + fmtDollar(data.grand_total_expiring) + '</td>';
+    if (hasNorm) {
+      html += '<td style="padding:8px;text-align:right;font-weight:700;color:#9ca3af">'
+        + (data.grand_total_normalized != null ? fmtDollar(data.grand_total_normalized) : '\u2014') + '</td>';
+    }
+    html += '<td style="padding:8px;text-align:right;font-weight:700;color:#003865">' + fmtDollar(data.grand_total_renewal) + '</td>'
+      + '<td style="padding:8px;text-align:right;font-weight:700;' + deltaColor(data.grand_total_delta_dollars) + '">'
+        + fmtDelta(data.grand_total_delta_dollars) + '</td>'
+      + '<td style="padding:8px;text-align:right;font-weight:700;' + deltaColor(data.grand_total_delta_pct) + '">'
+        + fmtPct(data.grand_total_delta_pct) + '</td>'
+      + '</tr></tfoot>';
+
+    html += '</table>';
+    el.innerHTML = html;
+  };
+  </script>
+</div>
+{% endcall %}
