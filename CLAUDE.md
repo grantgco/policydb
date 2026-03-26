@@ -221,17 +221,20 @@ Opportunities have optional dates/carrier; the "Convert to Policy" flow sets rea
 
 ### Token Rendering
 - **Module:** `src/policydb/email_templates.py`
-- `render_tokens(template_text, context_dict)` — replaces `{{token}}` placeholders
-- `policy_context(conn, policy_uid)` — builds token dict for policy context
+- `render_tokens(template_text, context_dict)` — replaces `{{token}}` placeholders; strips remaining unreplaced `{{...}}` tags
+- `policy_context(conn, policy_uid)` — builds token dict for policy context (includes client, COPE, and project tokens)
 - `client_context(conn, client_id)` — builds token dict for client context
+- `location_context(conn, client_id, project_name)` — builds token dict for location/project context (aggregates policies at location)
 - `followup_context(row_dict)` — builds token dict for follow-up rows
 - `timeline_context(conn, policy_uid)` — builds token dict for timeline data (drift, blocking reason, milestones)
-- `CONTEXT_TOKENS` — dict of `{context: [(key, label), ...]}` pairs used to build pill toolbars
+- **Shared helpers:** `_client_tokens()` (client fields), `_project_tokens()` (project/location fields), `_build_policy_list_tokens()` (policy list aggregation)
+- `CONTEXT_TOKEN_GROUPS` — grouped token definitions for UI pill toolbars; `CONTEXT_TOKENS` auto-derives from it
 
 ### Critical Rule: New Fields → Add to Tokens
-**Every time a new field is added to policies, clients, or related tables, it must also be added to:**
-1. The relevant `*_context()` function in `email_templates.py`
-2. The `CONTEXT_TOKENS` dict in the same file (under the correct context key)
+**Every time a new field is added to policies, clients, projects, or related tables, it must also be added to:**
+1. The relevant `*_context()` function or `_*_tokens()` helper in `email_templates.py`
+2. The `CONTEXT_TOKEN_GROUPS` dict in the same file (under the correct context and group)
+3. For projects table changes: update `_project_tokens()` helper which feeds both `location_context()` and `policy_context()`
 
 This makes the field available as a clickable token pill in the template builder at `/templates`.
 

@@ -214,6 +214,44 @@ def _build_compliance_tokens(conn: sqlite3.Connection, client_id: int) -> dict:
         }
 
 
+def _project_tokens(conn: sqlite3.Connection, project_id: int) -> dict:
+    """Build token dict from a projects row.
+
+    Reusable by location_context() and policy_context().  All keys use the
+    ``location_`` prefix to avoid collision with ``address`` in _client_tokens.
+    """
+    if not project_id:
+        return {}
+    row = conn.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+    if not row:
+        return {}
+    row = dict(row)
+    # Build full address from components
+    addr = row.get("address") or ""
+    city = row.get("city") or ""
+    state_zip = " ".join(filter(None, [row.get("state") or "", row.get("zip") or ""]))
+    full_parts = [p for p in [addr, city, state_zip] if p]
+    full_address = ", ".join(full_parts)
+    return {
+        "location_name": row.get("name") or "",
+        "location_description": row.get("notes") or "",
+        "location_type": row.get("project_type") or "",
+        "location_status": row.get("status") or "",
+        "location_value": _fmt_currency(row.get("project_value")),
+        "location_start_date": _fmt_date(row.get("start_date")),
+        "location_target_completion": _fmt_date(row.get("target_completion")),
+        "location_insurance_needed_by": _fmt_date(row.get("insurance_needed_by")),
+        "location_scope": row.get("scope_description") or "",
+        "location_general_contractor": row.get("general_contractor") or "",
+        "location_owner": row.get("owner_name") or "",
+        "location_address": addr,
+        "location_city": city,
+        "location_state": row.get("state") or "",
+        "location_zip": row.get("zip") or "",
+        "location_full_address": full_address,
+    }
+
+
 def _client_tokens(conn: sqlite3.Connection, client_id: int, row) -> dict:
     """Build the shared client-field token dict used by policy, client, and location contexts."""
     primary_name, primary_email = _resolve_primary_contact(
@@ -321,6 +359,9 @@ def policy_context(conn: sqlite3.Connection, policy_uid: str) -> dict:
         if _cope_row:
             cope_data = dict(_cope_row)
 
+    # Project/location fields from linked project
+    proj_tokens = _project_tokens(conn, row["project_id"]) if row["project_id"] else {}
+
     ctx.update({
         "policy_type": row["policy_type"] or "",
         "carrier": row["carrier"] or "",
@@ -361,6 +402,10 @@ def policy_context(conn: sqlite3.Connection, policy_uid: str) -> dict:
         "protection_class": cope_data.get("protection_class", ""),
         "total_insurable_value": _fmt_currency(cope_data.get("total_insurable_value")),
     })
+    # Overlay project tokens — fill gaps only so policy fields take precedence
+    for k, v in proj_tokens.items():
+        if k not in ctx or not ctx[k]:
+            ctx[k] = v
     return ctx
 
 
@@ -437,17 +482,17 @@ def location_context(conn: sqlite3.Connection, client_id: int, project_name: str
     pc_names = sorted({r["name"] for r in pc_rows if r["name"]})
     pc_emails = sorted({r["email"] for r in pc_rows if r["email"]})
 
-    # Location description/notes from the projects table
+    # Full project fields from the projects table
     proj_row = conn.execute(
-        "SELECT id, notes FROM projects WHERE client_id=? AND LOWER(TRIM(name))=LOWER(TRIM(?)) LIMIT 1",
+        "SELECT id FROM projects WHERE client_id=? AND LOWER(TRIM(name))=LOWER(TRIM(?)) LIMIT 1",
         (client_id, project_name),
     ).fetchone()
-    location_description = (proj_row["notes"] if proj_row else "") or ""
     location_project_id = proj_row["id"] if proj_row else 0
+    proj_tokens = _project_tokens(conn, location_project_id) if location_project_id else {}
 
+    ctx.update(proj_tokens)
     ctx.update({
-        "location_name": project_name or "",
-        "location_description": location_description,
+        "location_name": project_name or proj_tokens.get("location_name", ""),
         "policy_count": str(len(policies)),
         "policy_types": ", ".join(policy_types),
         "carriers": ", ".join(carriers),
@@ -706,6 +751,20 @@ CONTEXT_TOKEN_GROUPS: dict[str, list[tuple[str, list[tuple[str, str]]]]] = {
         ("Location", [
             ("location_name", "Location / Project"),
             ("location_description", "Location Description"),
+            ("location_type", "Location Type"),
+            ("location_status", "Location Status"),
+            ("location_value", "Project Value"),
+            ("location_start_date", "Start Date"),
+            ("location_target_completion", "Target Completion"),
+            ("location_insurance_needed_by", "Insurance Needed By"),
+            ("location_scope", "Scope Description"),
+            ("location_general_contractor", "General Contractor"),
+            ("location_owner", "Owner Name"),
+            ("location_address", "Location Address"),
+            ("location_city", "Location City"),
+            ("location_state", "Location State"),
+            ("location_zip", "Location ZIP"),
+            ("location_full_address", "Full Location Address"),
             ("policy_count", "# of Policies"),
             ("total_premium", "Total Premium (sum)"),
             ("team_names", "Team Names (list)"),
