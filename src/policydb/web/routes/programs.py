@@ -416,23 +416,6 @@ async def schematic_page(
     for p in underlying:
         p["sub_coverages_full"] = sub_cov_full_map.get(p["id"], [])
 
-    # Tower coverage map: which excess covers which underlying lines
-    excess_ids = [p["id"] for p in excess]
-    tower_coverage_map: dict[int, list[dict]] = {}
-    if excess_ids:
-        placeholders = ",".join("?" * len(excess_ids))
-        tc_rows = conn.execute(
-            f"SELECT excess_policy_id, underlying_policy_id, underlying_sub_coverage_id "
-            f"FROM program_tower_coverage WHERE excess_policy_id IN ({placeholders})",
-            excess_ids,
-        ).fetchall()
-        for tc in tc_rows:
-            tc_dict = dict(tc)
-            tower_coverage_map.setdefault(tc_dict["excess_policy_id"], []).append(tc_dict)
-
-    for p in excess:
-        p["covers"] = tower_coverage_map.get(p["id"], [])
-
     # Config lists
     policy_types = cfg.get("policy_types", [])
     carriers_list = cfg.get("carriers", [])
@@ -444,6 +427,40 @@ async def schematic_page(
         p.get("layer_position") and "umbrella" in p["layer_position"].lower()
         for p in excess
     )
+
+    # Build coverage map: which excess/umbrella covers which underlying lines
+    coverage_map_by_excess: dict[int, list[dict]] = {}
+    try:
+        ptc_rows = conn.execute(
+            """
+            SELECT ptc.id AS ptc_id, ptc.excess_policy_id,
+                   ptc.underlying_policy_id, ptc.underlying_sub_coverage_id,
+                   COALESCE(up.policy_type, sc.coverage_type) AS covered_label
+            FROM program_tower_coverage ptc
+            LEFT JOIN policies up ON ptc.underlying_policy_id = up.id
+            LEFT JOIN policy_sub_coverages sc ON ptc.underlying_sub_coverage_id = sc.id
+            WHERE ptc.excess_policy_id IN ({})
+            """.format(",".join("?" * len([p["id"] for p in excess])) or "0"),
+            [p["id"] for p in excess],
+        ).fetchall()
+        for r in ptc_rows:
+            eid = r["excess_policy_id"]
+            coverage_map_by_excess.setdefault(eid, []).append({
+                "ptc_id": r["ptc_id"],
+                "covered_label": r["covered_label"],
+            })
+    except Exception:
+        pass  # Table may not exist on older DBs
+    for p in excess:
+        p["covered_lines"] = coverage_map_by_excess.get(p["id"], [])
+
+    # Build list of available underlying labels for "Covers" checkboxes
+    available_lines = []
+    for p in underlying:
+        available_lines.append({
+            "policy_id": p["id"],
+            "label": p.get("policy_type") or "Unknown",
+        })
 
     return templates.TemplateResponse(
         "programs/schematic.html",
@@ -458,6 +475,7 @@ async def schematic_page(
             "policy_types": policy_types,
             "carriers": carriers_list,
             "coverage_forms": coverage_forms,
+            "available_lines": available_lines,
             "program_policy": program_policy,
             "total_premium": total_premium,
             "total_limit": total_limit,
@@ -578,6 +596,47 @@ async def patch_excess_cell(
         "formatted": display_value,
         "notation": notation,
     })
+
+
+# ---------------------------------------------------------------------------
+# Coverage Map (which umbrella/excess covers which underlying lines)
+# ---------------------------------------------------------------------------
+
+@router.post("/clients/{client_id}/programs/{tower_group}/coverage-map")
+async def add_coverage_mapping(
+    request: Request,
+    client_id: int,
+    tower_group: str,
+    conn: sqlite3.Connection = Depends(get_db),
+):
+    body = await request.json()
+    excess_policy_id = body.get("excess_policy_id")
+    underlying_policy_id = body.get("underlying_policy_id")
+    underlying_sub_coverage_id = body.get("underlying_sub_coverage_id")
+
+    if not excess_policy_id or (not underlying_policy_id and not underlying_sub_coverage_id):
+        return JSONResponse({"ok": False, "error": "Missing required fields"}, status_code=400)
+
+    conn.execute(
+        """INSERT OR IGNORE INTO program_tower_coverage
+           (excess_policy_id, underlying_policy_id, underlying_sub_coverage_id)
+           VALUES (?, ?, ?)""",
+        (excess_policy_id, underlying_policy_id or None, underlying_sub_coverage_id or None),
+    )
+    conn.commit()
+    return JSONResponse({"ok": True})
+
+
+@router.delete("/clients/{client_id}/programs/{tower_group}/coverage-map/{ptc_id}")
+async def remove_coverage_mapping(
+    client_id: int,
+    tower_group: str,
+    ptc_id: int,
+    conn: sqlite3.Connection = Depends(get_db),
+):
+    conn.execute("DELETE FROM program_tower_coverage WHERE id = ?", (ptc_id,))
+    conn.commit()
+    return JSONResponse({"ok": True})
 
 
 # ---------------------------------------------------------------------------

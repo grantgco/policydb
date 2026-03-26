@@ -2,6 +2,8 @@
    Underlying lines as flush columns. Umbrella drops to fill gaps.
    Excess layers span full width above umbrella top.
    Data: array of tower groups, each with underlying[] and layers[]
+   Features: WC statutory bar, sub-coverage column explosion, selective umbrella,
+             Y-axis annotations, package badge, smart Ungrouped rename
 #}
 {% from "charts/_chart_base.html" import chart_frame %}
 {% if tower_incomplete is defined and tower_incomplete %}
@@ -28,7 +30,7 @@
     }
 
     var chart = createChartSvg('{{ area_id }}', {
-      margin: {top: 10, right: 10, bottom: 10, left: 10}
+      margin: {top: 10, right: 10, bottom: 10, left: 55}
     });
     var g = chart.g, W = chart.width, H = chart.height;
 
@@ -43,12 +45,14 @@
       titleC:     '#1e293b', textDk:     '#1e3a8a',
       textLt:     '#fff',    textMut:    '#64748b',
       premC:      '#475569', border:     '#94a3b8',
+      pkgBadge:   '#7c3aed',
+      statutory:  '#fef3c7', statutoryBd: '#f59e0b',
     };
 
     // ── Layout constants ──
     var LABEL_H = 26, DED_H = 24, TWR_GAP = 24, TITLE_H = 16;
-    var MIN_PRIM_H = 28, MAX_PRIM_H = 60;
-    var UMB_LABEL_H = 20; // height reserved for umbrella text label area
+    var MIN_PRIM_H = 28, MAX_PRIM_H = 60, STATUTORY_H = MAX_PRIM_H + 20;
+    var UMB_LABEL_H = 20;
     var MIN_LAYER_H = 40;
 
     function fmtL(v) {
@@ -60,11 +64,54 @@
     }
     function tr(s, m) { return !s ? '' : s.length > m ? s.substring(0,m-1)+'\u2026' : s; }
 
+    // ── Collect all non-statutory limits for Y-axis reference marks ──
+    var allLimits = [];
+    data.forEach(function(t) {
+      (t.underlying || []).forEach(function(u) {
+        if (!u.is_statutory && u.limit) allLimits.push(u.limit);
+      });
+      (t.layers || []).forEach(function(l) {
+        var top = (l.attachment_point || 0) + (l.limit || 0);
+        if (top) allLimits.push(top);
+      });
+    });
+    var maxLimitVal = d3.max(allLimits) || 1;
+    // Round up to a nice number for Y-axis
+    var niceMax;
+    if (maxLimitVal >= 5e6) niceMax = Math.ceil(maxLimitVal / 5e6) * 5e6;
+    else if (maxLimitVal >= 1e6) niceMax = Math.ceil(maxLimitVal / 1e6) * 1e6;
+    else if (maxLimitVal >= 100e3) niceMax = Math.ceil(maxLimitVal / 500e3) * 500e3;
+    else niceMax = Math.ceil(maxLimitVal / 100e3) * 100e3;
+
     // ── Compute column widths ──
     var totalCols = 0;
     data.forEach(function(t) { totalCols += Math.max(t.underlying.length, 1); });
     var totalTwrGaps = Math.max(0, (data.length - 1)) * TWR_GAP;
     var colW = Math.min(Math.floor((W - totalTwrGaps) / Math.max(totalCols, 1)), 180);
+
+    // ── Y-axis reference marks ──
+    var axisZoneBottom = H - LABEL_H - DED_H;          // bottom of primary blocks
+    var axisZoneTop = TITLE_H + 8;                       // top available space
+    var axisZoneH = axisZoneBottom - axisZoneTop;
+    var tickCount = 4;
+    for (var ti = 0; ti <= tickCount; ti++) {
+      var tickVal = (niceMax / tickCount) * ti;
+      // Map tick value to vertical position (proportional within axis zone)
+      var tickY = axisZoneBottom - (tickVal / niceMax) * axisZoneH;
+      if (tickY < axisZoneTop - 5) continue;
+      // Grid line
+      g.append('line')
+        .attr('x1', 0).attr('x2', W)
+        .attr('y1', tickY).attr('y2', tickY)
+        .attr('stroke', '#e2e8f0').attr('stroke-dasharray', '4 2')
+        .attr('stroke-width', 0.5);
+      // Tick label
+      g.append('text')
+        .attr('x', -5).attr('y', tickY + 3)
+        .attr('text-anchor', 'end')
+        .style('font-size', '8px').attr('fill', '#94a3b8')
+        .text(fmtL(tickVal));
+    }
 
     // ── Render each tower group ──
     var curX = 0;
@@ -75,13 +122,15 @@
       var numCols = Math.max(under.length, 1);
       var towerW = numCols * colW;
 
-      // Title
-      g.append('text')
-        .attr('x', curX + towerW/2).attr('y', 11)
-        .attr('text-anchor', 'middle')
-        .style('font-size', '11px').style('font-weight', '700')
-        .attr('fill', C.titleC)
-        .text(tr(tower.tower_group, 28));
+      // Title — skip if empty (Ungrouped suppressed)
+      if (tower.tower_group) {
+        g.append('text')
+          .attr('x', curX + towerW/2).attr('y', 11)
+          .attr('text-anchor', 'middle')
+          .style('font-size', '11px').style('font-weight', '700')
+          .attr('fill', C.titleC)
+          .text(tr(tower.tower_group, 28));
+      }
 
       // ── Bottom section: labels + deductibles + primary (variable height) ──
       var baseY = H;
@@ -112,11 +161,13 @@
       });
 
       // Primary blocks — variable height proportional to limit
-      var limits = under.map(function(u) { return u.limit || 0; });
-      var maxLim = d3.max(limits) || 1;
+      // Exclude statutory from proportional scaling
+      var nonStatLimits = under.filter(function(u) { return !u.is_statutory; })
+                               .map(function(u) { return u.limit || 0; });
+      var maxLim = d3.max(nonStatLimits) || 1;
 
-      // Scale: tallest primary gets MAX_PRIM_H, others proportional (min MIN_PRIM_H)
       var primHeights = under.map(function(u) {
+        if (u.is_statutory) return STATUTORY_H;
         var lim = u.limit || 0;
         if (maxLim === 0) return MIN_PRIM_H;
         var h = MIN_PRIM_H + (MAX_PRIM_H - MIN_PRIM_H) * (lim / maxLim);
@@ -132,18 +183,38 @@
         var pH = primHeights[ci];
         var py = primTopY - pH;
 
+        // Statutory columns get amber tint
+        var fill = u.is_statutory ? C.statutory : C.primary;
+        var stroke = u.is_statutory ? C.statutoryBd : C.primaryBd;
+
         g.append('rect').attr('x', cx).attr('y', py).attr('width', colW).attr('height', pH)
-          .attr('fill', C.primary).attr('stroke', C.primaryBd).attr('stroke-width', 0.5);
+          .attr('fill', fill).attr('stroke', stroke).attr('stroke-width', 0.5);
+
         // Carrier
         g.append('text').attr('x', cx + colW/2).attr('y', py + pH/2 - 3)
           .attr('text-anchor', 'middle').style('font-size', '9px').style('font-weight', '600')
           .attr('fill', C.textDk).text(tr(u.carrier, 16));
-        // Limit
-        g.append('text').attr('x', cx + colW/2).attr('y', py + pH/2 + 9)
-          .attr('text-anchor', 'middle').style('font-size', '8px')
-          .attr('fill', C.textDk).attr('opacity', 0.8).text(fmtL(u.limit));
-        // Premium
-        if (u.premium) {
+
+        // Limit or "Statutory"
+        if (u.is_statutory) {
+          g.append('text').attr('x', cx + colW/2).attr('y', py + pH/2 + 9)
+            .attr('text-anchor', 'middle').style('font-size', '9px').style('font-weight', '700')
+            .attr('fill', '#92400e').text('Statutory');
+        } else {
+          g.append('text').attr('x', cx + colW/2).attr('y', py + pH/2 + 9)
+            .attr('text-anchor', 'middle').style('font-size', '8px')
+            .attr('fill', C.textDk).attr('opacity', 0.8).text(fmtL(u.limit));
+        }
+
+        // Package badge ("via BOP", "via WC")
+        if (u.is_package && u.package_parent_type) {
+          g.append('text').attr('x', cx + colW - 3).attr('y', py + 9)
+            .attr('text-anchor', 'end').style('font-size', '6px').style('font-style', 'italic')
+            .attr('fill', C.pkgBadge).text('via ' + tr(u.package_parent_type, 12));
+        }
+
+        // Premium (skip for package sub-cov columns — they show 0)
+        if (u.premium && !u.is_package) {
           g.append('text').attr('x', cx + colW - 3).attr('y', py + pH - 3)
             .attr('text-anchor', 'end').style('font-size', '7px')
             .attr('fill', C.premC).text(fmtL(u.premium));
@@ -151,30 +222,27 @@
       });
 
       // ── Umbrella + Excess layers ──
-      // The umbrella "drops to fill gaps" — its bottom per column is the top of that column's primary.
-      // Its top is uniform: top-of-tallest-primary + umbrella limit (scaled).
-      // Excess layers sit flat above the umbrella top.
-
-      // Separate umbrella from excess
       var umbrellaLayers = layers.filter(function(l) { return l.is_umbrella; });
       var excessLayers = layers.filter(function(l) { return !l.is_umbrella; });
-
-      // Sort excess by attachment_point ascending
       excessLayers.sort(function(a, b) { return (a.attachment_point || 0) - (b.attachment_point || 0); });
 
-      // Umbrella top = top of tallest primary
       var umbrellaBaseY = primTopY - maxPrimH;
 
       if (umbrellaLayers.length > 0) {
-        var umbLayer = umbrellaLayers[0]; // typically one umbrella per tower
-        var umbLabelH = 22; // reserved for the umbrella label text in the tallest column
+        var umbLayer = umbrellaLayers[0];
+        var umbLabelH = 22;
+        var covTypes = umbLayer.covered_types || [];
+        var hasSelective = covTypes.length > 0;
 
         // Draw umbrella per-column (stepped bottom, uniform top)
         under.forEach(function(u, ci) {
+          // Selective umbrella: skip columns not covered
+          if (hasSelective && covTypes.indexOf(u.label) === -1) return;
+
           var cx = curX + ci * colW;
           var primH = primHeights[ci];
-          var colPrimTop = primTopY - primH; // top of this column's primary
-          var umbBottom = colPrimTop;         // umbrella drops to here
+          var colPrimTop = primTopY - primH;
+          var umbBottom = colPrimTop;
           var umbTop = umbrellaBaseY - umbLabelH;
           var umbH = umbBottom - umbTop;
 
@@ -184,17 +252,31 @@
           }
         });
 
-        // Umbrella label — centered across the full tower width, at the top of the umbrella zone
+        // Umbrella label — centered across covered columns width
         var umbTopY = umbrellaBaseY - umbLabelH;
-        g.append('text').attr('x', curX + towerW/2).attr('y', umbTopY + 10)
+        // Calculate label center based on covered columns
+        var labelCenterX = curX + towerW / 2;
+        if (hasSelective) {
+          var covIndices = [];
+          under.forEach(function(u, ci) {
+            if (covTypes.indexOf(u.label) !== -1) covIndices.push(ci);
+          });
+          if (covIndices.length > 0) {
+            var minCi = d3.min(covIndices);
+            var maxCi = d3.max(covIndices);
+            labelCenterX = curX + (minCi * colW) + ((maxCi - minCi + 1) * colW) / 2;
+          }
+        }
+
+        g.append('text').attr('x', labelCenterX).attr('y', umbTopY + 10)
           .attr('text-anchor', 'middle').style('font-size', '9px').style('font-weight', '700')
           .attr('fill', C.textLt).text(tr(umbLayer.policy_type, 20));
-        g.append('text').attr('x', curX + towerW/2).attr('y', umbTopY + 20)
+        g.append('text').attr('x', labelCenterX).attr('y', umbTopY + 20)
           .attr('text-anchor', 'middle').style('font-size', '8px')
           .attr('fill', C.textLt).attr('opacity', 0.9)
           .text(tr(umbLayer.carrier, 20) + '  ' + (umbLayer.notation || fmtL(umbLayer.limit)));
 
-        umbrellaBaseY = umbTopY; // excess starts above umbrella label
+        umbrellaBaseY = umbTopY;
       }
 
       // ── Excess layers above umbrella ──
@@ -204,7 +286,6 @@
         var exGap = 1;
         var totalExGaps = (numEx - 1) * exGap;
         var perEx = Math.max(MIN_LAYER_H, Math.floor((exAvail - totalExGaps) / numEx));
-        // Cap so they don't overflow
         if (numEx * perEx + totalExGaps > exAvail) {
           perEx = Math.max(32, Math.floor((exAvail - totalExGaps) / numEx));
         }
@@ -215,7 +296,6 @@
           layerY -= perEx;
           if (lIdx > 0) layerY -= exGap;
 
-          // Color gradient
           var t = numEx > 1 ? lIdx / (numEx - 1) : 0;
           var r1=191,g1=219,b1=254, r2=30,g2=64,b2=175;
           var cr=Math.round(r1+(r2-r1)*t), cg=Math.round(g1+(g2-g1)*t), cb=Math.round(b1+(b2-b1)*t);
