@@ -1,0 +1,307 @@
+{# ── Total Cost of Risk Trend — stacked bars + line ──────────────────────── #}
+
+<!-- Chart Display -->
+<div class="manual-chart-page">
+  <div class="manual-chart-wrap">
+    <h2 id="chart-title-display" style="font-family:'Noto Serif',serif; font-size:1.25rem; color:var(--mc-midnight); margin:0 0 0.25rem;">
+      Total Cost of Risk &mdash; 5 Year Trend
+    </h2>
+    <p id="chart-subtitle-display" style="font-family:'Noto Sans',sans-serif; font-size:0.78rem; color:var(--mc-muted); margin:0 0 0.75rem;">
+    </p>
+
+    <div class="mc-legend" id="chart-legend">
+      <span class="mc-legend-item">
+        <span class="mc-legend-swatch" style="background:var(--mc-midnight); height:10px; border-radius:2px;"></span>
+        Insurance Premium
+      </span>
+      <span class="mc-legend-item">
+        <span class="mc-legend-swatch" style="background:var(--mc-gold); height:10px; border-radius:2px;"></span>
+        Retained Losses
+      </span>
+      <span class="mc-legend-item">
+        <span class="mc-legend-swatch" style="background:var(--mc-red); height:3px;"></span>
+        TCOR
+      </span>
+    </div>
+
+    <div style="position:relative;flex:1;min-height:0;">
+      <canvas id="tcor-canvas"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- Editor Panel -->
+<div class="mc-editor" id="editor-panel">
+  <div class="mc-editor-title">Chart Data</div>
+
+  <div class="display-options">
+    <span class="section-label">Display</span>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-title" name="show-title" checked onchange="applyDisplayOptions()">
+      <span class="toggle-track"></span><span class="toggle-label">Title</span>
+    </label>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-subtitle" name="show-subtitle" checked onchange="applyDisplayOptions()">
+      <span class="toggle-track"></span><span class="toggle-label">Subtitle</span>
+    </label>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-legend" name="show-legend" checked onchange="applyDisplayOptions()">
+      <span class="toggle-track"></span><span class="toggle-label">Legend</span>
+    </label>
+  </div>
+
+  <!-- Config Strip -->
+  <div class="config-strip">
+    <div class="config-field">
+      <span class="config-label">Start Year</span>
+      <input type="number" id="cfg-start-year" name="cfg-start-year" value="2020" min="1990" max="2099">
+    </div>
+    <div class="config-field">
+      <span class="config-label">Number of Years</span>
+      <select id="cfg-num-years" name="cfg-num-years">
+        <option value="3">3</option>
+        <option value="4">4</option>
+        <option value="5" selected>5</option>
+        <option value="6">6</option>
+        <option value="7">7</option>
+        <option value="8">8</option>
+      </select>
+    </div>
+    <button class="btn-mc sm" onclick="applyConfig()">Apply</button>
+  </div>
+
+  <!-- Insurance Premium -->
+  <div class="section-head midnight" style="margin-top:0.75rem;">Insurance Premium ($)</div>
+  <div class="mc-editor-grid" id="grid-premium">
+    <!-- populated by applyConfig -->
+  </div>
+
+  <!-- Retained Losses -->
+  <div class="section-head gold" style="margin-top:1.25rem;">Retained Losses ($)</div>
+  <div class="mc-editor-grid" id="grid-retained">
+    <!-- populated by applyConfig -->
+  </div>
+
+  <!-- TCOR Summary -->
+  <div class="section-head red" style="margin-top:1.25rem;">TCOR (Auto-Calculated)</div>
+  <div class="mt-3 flex gap-4 flex-wrap" id="tcor-summary">
+    <!-- Populated by JS: per-year TCOR totals -->
+  </div>
+
+  <!-- Footer -->
+  <div class="mc-editor-footer">
+    <div class="config-field wide">
+      <span class="config-label">Subtitle</span>
+      <input type="text" id="cfg-subtitle" name="cfg-subtitle" placeholder="Optional subtitle text" style="width:280px;">
+    </div>
+    <button class="btn-mc" onclick="refreshCurrentChart()">Refresh Chart</button>
+  </div>
+</div>
+
+<script>
+(function () {
+  var SEED_PREMIUM  = [1200000, 1350000, 1400000, 1500000, 1450000];
+  var SEED_RETAINED = [450000,  380000,  520000,  410000,  490000];
+
+  /** Build year input grids based on config */
+  window.applyConfig = function () {
+    var startYear = parseInt(document.getElementById('cfg-start-year').value) || 2020;
+    var numYears  = parseInt(document.getElementById('cfg-num-years').value)  || 5;
+
+    var gridPremium  = document.getElementById('grid-premium');
+    var gridRetained = document.getElementById('grid-retained');
+
+    // Collect existing values before rebuilding
+    var existPremium  = [];
+    var existRetained = [];
+    gridPremium.querySelectorAll('input').forEach(function (el) {
+      existPremium.push(el.value);
+    });
+    gridRetained.querySelectorAll('input').forEach(function (el) {
+      existRetained.push(el.value);
+    });
+
+    gridPremium.innerHTML  = '';
+    gridRetained.innerHTML = '';
+
+    for (var i = 0; i < numYears; i++) {
+      var year = startYear + i;
+
+      // Determine default value: existing > seed > empty
+      var pVal = (existPremium[i] !== undefined && existPremium[i] !== '')
+        ? existPremium[i]
+        : (SEED_PREMIUM[i] !== undefined ? SEED_PREMIUM[i] : '');
+      var rVal = (existRetained[i] !== undefined && existRetained[i] !== '')
+        ? existRetained[i]
+        : (SEED_RETAINED[i] !== undefined ? SEED_RETAINED[i] : '');
+
+      gridPremium.insertAdjacentHTML('beforeend',
+        '<div class="input-group">' +
+          '<label>' + year + '</label>' +
+          '<input type="number" name="premium" value="' + pVal + '" step="1000" placeholder="0">' +
+        '</div>'
+      );
+      gridRetained.insertAdjacentHTML('beforeend',
+        '<div class="input-group">' +
+          '<label>' + year + '</label>' +
+          '<input type="number" name="retained" value="' + rVal + '" step="1000" placeholder="0">' +
+        '</div>'
+      );
+    }
+
+    refreshCurrentChart();
+  };
+
+  /** Display options toggles */
+  window.applyDisplayOptions = function () {
+    ManualChart.applyToggle('show-title', 'chart-title-display');
+    ManualChart.applyToggle('show-subtitle', 'chart-subtitle-display');
+    ManualChart.applyToggle('show-legend', 'chart-legend');
+  };
+
+  /** Read inputs, compute TCOR, build/update chart */
+  window.refreshCurrentChart = function () {
+    var startYear = parseInt(document.getElementById('cfg-start-year').value) || 2020;
+    var numYears  = parseInt(document.getElementById('cfg-num-years').value)  || 5;
+
+    // Gather values
+    var premiums  = [];
+    var retained  = [];
+    var tcor      = [];
+    var labels    = [];
+
+    document.querySelectorAll('#grid-premium input').forEach(function (el, i) {
+      premiums.push(parseFloat(el.value) || 0);
+    });
+    document.querySelectorAll('#grid-retained input').forEach(function (el, i) {
+      retained.push(parseFloat(el.value) || 0);
+    });
+
+    for (var i = 0; i < numYears; i++) {
+      labels.push(String(startYear + i));
+      var p = premiums[i] || 0;
+      var r = retained[i] || 0;
+      tcor.push(p + r);
+    }
+
+    // Update TCOR summary
+    var summaryEl = document.getElementById('tcor-summary');
+    var summaryHtml = '';
+    for (var j = 0; j < labels.length; j++) {
+      summaryHtml +=
+        '<div style="text-align:center;">' +
+          '<div style="font-size:0.68rem; color:var(--mc-muted); font-weight:600; text-transform:uppercase;">' +
+            labels[j] +
+          '</div>' +
+          '<div style="font-size:0.92rem; font-weight:600; color:var(--mc-red);">' +
+            ManualChart.fmtCurrency(tcor[j]) +
+          '</div>' +
+        '</div>';
+    }
+    summaryEl.innerHTML = summaryHtml;
+
+    // Update subtitle
+    var subtitleText = document.getElementById('cfg-subtitle').value || '';
+    document.getElementById('chart-subtitle-display').textContent = subtitleText;
+
+    // Update title with year count
+    document.getElementById('chart-title-display').innerHTML =
+      'Total Cost of Risk &mdash; ' + numYears + ' Year Trend';
+
+    // Destroy previous chart
+    if (currentChart) {
+      currentChart.destroy();
+      currentChart = null;
+    }
+
+    var ctx = document.getElementById('tcor-canvas').getContext('2d');
+
+    currentChart = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: labels,
+        datasets: [
+          {
+            type: 'bar',
+            label: 'Insurance Premium',
+            data: premiums,
+            backgroundColor: ManualChart.COLORS.midnight,
+            stack: 'tcor',
+            borderRadius: { topLeft: 0, topRight: 0, bottomLeft: 2, bottomRight: 2 },
+            borderSkipped: 'top',
+            order: 2
+          },
+          {
+            type: 'bar',
+            label: 'Retained Losses',
+            data: retained,
+            backgroundColor: ManualChart.COLORS.gold1000,
+            stack: 'tcor',
+            borderRadius: { topLeft: 2, topRight: 2, bottomLeft: 0, bottomRight: 0 },
+            borderSkipped: 'bottom',
+            order: 1
+          },
+          {
+            type: 'line',
+            label: 'TCOR',
+            data: tcor,
+            borderColor: ManualChart.COLORS.red,
+            backgroundColor: ManualChart.COLORS.red,
+            borderWidth: 2.5,
+            pointRadius: 4,
+            pointBackgroundColor: ManualChart.COLORS.red,
+            pointBorderColor: '#fff',
+            pointBorderWidth: 2,
+            tension: 0.25,
+            fill: false,
+            order: 0
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: {
+          mode: 'index',
+          intersect: false
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: function (ctx) {
+                return ctx.dataset.label + ': ' + ManualChart.fmtCurrency(ctx.raw);
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            stacked: true,
+            grid: { display: false },
+            ticks: {
+              font: { family: "'Noto Sans', sans-serif", size: 12, weight: '500' },
+              color: ManualChart.COLORS.neutral750
+            }
+          },
+          y: {
+            stacked: true,
+            beginAtZero: true,
+            ticks: {
+              callback: function (v) { return ManualChart.fmtCurrency(v); },
+              font: { family: "'Noto Sans', sans-serif", size: 11 },
+              color: ManualChart.COLORS.neutral750
+            },
+            grid: {
+              color: 'rgba(0,0,0,0.06)'
+            }
+          }
+        }
+      }
+    });
+  };
+
+  // Bootstrap on load
+  setTimeout(() => applyConfig(), 50);
+})();
+</script>

@@ -1,0 +1,349 @@
+{# Rate Trend by Line — multi-line chart display + editor panel #}
+
+<!-- ── Chart Display ─────────────────────────────────────────────────────── -->
+<div class="manual-chart-page">
+  <div class="manual-chart-wrap" style="display:flex;flex-direction:column;">
+
+    <!-- Header -->
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:1.25rem;gap:1rem;flex-wrap:wrap;">
+      <div>
+        <h2 id="chart-title-display" style="font-family:'Noto Serif',serif;font-size:1.6rem;color:#000F47;line-height:1.2;margin:0 0 0.3rem;">
+          Rate Trend by Line
+        </h2>
+        <p id="chart-subtitle-display" style="font-size:0.82rem;color:#7B7974;font-weight:400;letter-spacing:0.03em;margin:0;">
+          Year-over-year rate change by coverage line
+        </p>
+      </div>
+    </div>
+
+    <!-- Dynamic legend -->
+    <div class="mc-legend" id="chart-legend"></div>
+
+    <!-- Canvas -->
+    <div style="position:relative;flex:1;min-height:0;">
+      <canvas id="rtlChart"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- ── Editor Panel ──────────────────────────────────────────────────────── -->
+<div class="mc-editor" id="editor-panel">
+  <div class="mc-editor-title">Configure &amp; Edit Values</div>
+
+  <div class="display-options">
+    <span class="section-label">Display</span>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-title" name="show-title" checked onchange="applyDisplayOptions()">
+      <span class="toggle-track"></span><span class="toggle-label">Title</span>
+    </label>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-subtitle" name="show-subtitle" checked onchange="applyDisplayOptions()">
+      <span class="toggle-track"></span><span class="toggle-label">Subtitle</span>
+    </label>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-legend" name="show-legend" checked onchange="applyDisplayOptions()">
+      <span class="toggle-track"></span><span class="toggle-label">Legend</span>
+    </label>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-zero-line" name="show-zero-line" checked onchange="refreshCurrentChart()">
+      <span class="toggle-track"></span><span class="toggle-label">Zero Line</span>
+    </label>
+  </div>
+
+  <!-- Config strip -->
+  <div class="config-strip">
+    <div class="config-field">
+      <div class="config-label">Start Year</div>
+      <input type="number" id="cfg-start" name="cfg-start" value="2020" min="1990" max="2099" step="1">
+    </div>
+    <div class="config-field">
+      <div class="config-label">Number of Years</div>
+      <select id="cfg-num" name="cfg-num">
+        <option value="3">3</option>
+        <option value="4">4</option>
+        <option value="5" selected>5</option>
+        <option value="6">6</option>
+        <option value="7">7</option>
+        <option value="8">8</option>
+      </select>
+    </div>
+    <button class="btn-mc" onclick="applyConfig()">Apply</button>
+  </div>
+
+  <!-- Lines section -->
+  <div style="margin-bottom:1.1rem;">
+    <div class="section-head midnight">Lines</div>
+    <div id="lines-container"></div>
+    <button class="btn-mc outline sm" style="margin-top:0.5rem;" onclick="addLine()">+ Add Line</button>
+  </div>
+
+  <!-- Footer -->
+  <div class="mc-editor-footer">
+    <input type="text" id="val-subtitle" name="val-subtitle"
+           placeholder="Subtitle text"
+           value="Year-over-year rate change by coverage line"
+           style="flex:1;min-width:200px;border:1px solid var(--mc-border);border-radius:3px;padding:0.4rem 0.6rem;font-family:'Noto Sans',sans-serif;font-size:0.83rem;color:var(--mc-text);background:var(--mc-bg);">
+    <button class="btn-mc" onclick="refreshCurrentChart()">Refresh Chart</button>
+  </div>
+</div>
+
+<!-- ── Script ─────────────────────────────────────────────────────────────── -->
+<script>
+(function () {
+  // ── State ───────────────────────────────────────────────────────────────
+  var chart = null;
+  var years = [];
+
+  var COLORS = ManualChart.DATA_COLORS;
+
+  // Seed lines: name + per-year values keyed by year
+  var seedLines = [
+    { name: 'Property', values: { '2020': 8.5, '2021': 12.0, '2022': 6.5, '2023': 3.2, '2024': -1.5 } },
+    { name: 'GL',       values: { '2020': 3.0, '2021': 5.5,  '2022': 4.0, '2023': 2.8, '2024': 1.5 } },
+    { name: 'Auto',     values: { '2020': 6.0, '2021': 9.0,  '2022': 7.5, '2023': 5.0, '2024': 3.0 } },
+    { name: 'WC',       values: { '2020': -2.0, '2021': 1.5, '2022': 0.5, '2023': -0.8, '2024': -1.2 } }
+  ];
+
+  // ── Zero-line plugin ──────────────────────────────────────────────────
+  var zeroLinePlugin = {
+    id: 'zeroLine',
+    afterDraw: function (chart) {
+      if (!ManualChart.isToggled('show-zero-line')) return;
+      var yScale = chart.scales.y;
+      if (!yScale) return;
+      var y = yScale.getPixelForValue(0);
+      var ctx = chart.ctx;
+      ctx.save();
+      ctx.setLineDash([4, 3]);
+      ctx.strokeStyle = '#B9B6B1';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(chart.chartArea.left, y);
+      ctx.lineTo(chart.chartArea.right, y);
+      ctx.stroke();
+      ctx.restore();
+    }
+  };
+
+  // ── Build a single line row HTML ──────────────────────────────────────
+  function lineRowHTML(idx, name, values) {
+    var color = COLORS[idx % COLORS.length];
+    var html = '<div class="line-row" style="display:flex;align-items:flex-end;gap:0.5rem;margin-bottom:0.65rem;flex-wrap:wrap;">';
+    // Color swatch
+    html += '<div style="width:20px;height:20px;border-radius:4px;background:' + color + ';flex-shrink:0;margin-bottom:0.35rem;"></div>';
+    // Line name
+    html += '<div class="config-field" style="min-width:120px;">';
+    if (idx === 0) html += '<div class="config-label">Line Name</div>';
+    html += '<input type="text" class="line-name" value="' + (name || '') + '" style="width:120px;">';
+    html += '</div>';
+    // Per-year values
+    years.forEach(function (y) {
+      var val = (values && values[y] != null) ? values[y] : 0;
+      html += '<div class="config-field">';
+      if (idx === 0) html += '<div class="config-label">' + y + ' (%)</div>';
+      html += '<input type="number" class="line-val" data-year="' + y + '" value="' + val + '" step="0.1" style="width:75px;">';
+      html += '</div>';
+    });
+    // Remove button
+    html += '<button class="btn-mc sm danger" style="margin-bottom:0.05rem;" onclick="removeLine(this)">Remove</button>';
+    html += '</div>';
+    return html;
+  }
+
+  // ── Apply config: rebuild years + line grids ──────────────────────────
+  window.applyConfig = function () {
+    var start = parseInt(document.getElementById('cfg-start').value);
+    var num   = parseInt(document.getElementById('cfg-num').value);
+    var newYears = [];
+    for (var i = 0; i < num; i++) newYears.push(String(start + i));
+
+    // Collect existing line data before rebuild
+    var existing = collectLines();
+    years = newYears;
+
+    var container = document.getElementById('lines-container');
+
+    // If no existing lines, use seed data
+    if (existing.length === 0) {
+      existing = seedLines;
+    }
+
+    container.innerHTML = '';
+    existing.forEach(function (line, idx) {
+      // Preserve values that overlap with new year range
+      var preserved = {};
+      years.forEach(function (y) {
+        if (line.values && line.values[y] != null) {
+          preserved[y] = line.values[y];
+        } else {
+          preserved[y] = 0;
+        }
+      });
+      container.insertAdjacentHTML('beforeend', lineRowHTML(idx, line.name, preserved));
+    });
+
+    refreshCurrentChart();
+  };
+
+  // ── Collect line data from DOM ────────────────────────────────────────
+  function collectLines() {
+    var rows = document.querySelectorAll('#lines-container .line-row');
+    var lines = [];
+    rows.forEach(function (row) {
+      var nameInput = row.querySelector('.line-name');
+      var name = nameInput ? nameInput.value : '';
+      var values = {};
+      var valInputs = row.querySelectorAll('.line-val');
+      valInputs.forEach(function (inp) {
+        var y = inp.getAttribute('data-year');
+        values[y] = parseFloat(inp.value) || 0;
+      });
+      lines.push({ name: name, values: values });
+    });
+    return lines;
+  }
+
+  // ── Add a new line ────────────────────────────────────────────────────
+  window.addLine = function () {
+    var container = document.getElementById('lines-container');
+    var idx = container.querySelectorAll('.line-row').length;
+    var emptyVals = {};
+    years.forEach(function (y) { emptyVals[y] = 0; });
+    container.insertAdjacentHTML('beforeend', lineRowHTML(idx, '', emptyVals));
+    // Update color swatches for all rows
+    updateSwatches();
+  };
+
+  // ── Remove a line ─────────────────────────────────────────────────────
+  window.removeLine = function (btn) {
+    var row = btn.closest('.line-row');
+    if (row) row.remove();
+    updateSwatches();
+  };
+
+  // ── Update color swatches to match current order ──────────────────────
+  function updateSwatches() {
+    var rows = document.querySelectorAll('#lines-container .line-row');
+    rows.forEach(function (row, idx) {
+      var swatch = row.querySelector('div[style*="border-radius:4px"]');
+      if (swatch) swatch.style.background = COLORS[idx % COLORS.length];
+    });
+  }
+
+  // ── Build dynamic legend ──────────────────────────────────────────────
+  function buildLegend(lines) {
+    var legendEl = document.getElementById('chart-legend');
+    var html = '';
+    lines.forEach(function (line, idx) {
+      var color = COLORS[idx % COLORS.length];
+      html += '<div class="mc-legend-item">';
+      html += '<div class="mc-legend-swatch" style="background:' + color + ';height:3px;"></div> ' + (line.name || 'Line ' + (idx + 1));
+      html += '</div>';
+    });
+    // Zero-line legend entry
+    html += '<div class="mc-legend-item">';
+    html += '<div class="mc-legend-swatch" style="background:transparent;border-top:2px dashed #B9B6B1;"></div> 0% Reference';
+    html += '</div>';
+    legendEl.innerHTML = html;
+  }
+
+  // ── Display options ────────────────────────────────────────────────────
+  window.applyDisplayOptions = function () {
+    ManualChart.applyToggle('show-title', 'chart-title-display');
+    ManualChart.applyToggle('show-subtitle', 'chart-subtitle-display');
+    ManualChart.applyToggle('show-legend', 'chart-legend');
+  };
+
+  // ── Main render ───────────────────────────────────────────────────────
+  window.refreshCurrentChart = function () {
+    var lines    = collectLines();
+    var subtitle = document.getElementById('val-subtitle').value;
+
+    document.getElementById('chart-subtitle-display').textContent = subtitle || '';
+    buildLegend(lines);
+
+    // Build datasets
+    var datasets = [];
+    lines.forEach(function (line, idx) {
+      var color = COLORS[idx % COLORS.length];
+      var data = years.map(function (y) {
+        return (line.values && line.values[y] != null) ? line.values[y] : 0;
+      });
+      datasets.push({
+        label: line.name || ('Line ' + (idx + 1)),
+        data: data,
+        borderColor: color,
+        backgroundColor: color,
+        borderWidth: 2.5,
+        pointBackgroundColor: color,
+        pointBorderColor: '#fff',
+        pointBorderWidth: 2,
+        pointRadius: 5,
+        pointHoverRadius: 7,
+        tension: 0.3,
+        fill: false
+      });
+    });
+
+    var ctx = document.getElementById('rtlChart').getContext('2d');
+    if (chart) chart.destroy();
+
+    chart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: years,
+        datasets: datasets
+      },
+      plugins: [zeroLinePlugin],
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: '#000F47',
+            titleFont: { family: 'Noto Sans', size: 12, weight: '600' },
+            bodyFont:  { family: 'Noto Sans', size: 12 },
+            padding: 12,
+            cornerRadius: 4,
+            callbacks: {
+              label: function (c) {
+                return ' ' + c.dataset.label + ': ' + ManualChart.fmtPct(c.raw);
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            grid: { display: false },
+            border: { display: false },
+            ticks: {
+              font: { family: 'Noto Sans', size: 13, weight: '500' },
+              color: '#4a5060'
+            }
+          },
+          y: {
+            grid: { color: '#e8e6de', lineWidth: 1 },
+            border: { display: false },
+            ticks: {
+              font: { family: 'Noto Sans', size: 11 },
+              color: '#3D3C37',
+              callback: function (v) {
+                var sign = v >= 0 ? '+' : '';
+                return sign + Number(v).toFixed(1) + '%';
+              }
+            }
+          }
+        }
+      }
+    });
+
+    // Expose to editor.html for export
+    currentChart = chart;
+  };
+
+  // ── Bootstrap ─────────────────────────────────────────────────────────
+  setTimeout(() => applyConfig(), 50);
+})();
+</script>
