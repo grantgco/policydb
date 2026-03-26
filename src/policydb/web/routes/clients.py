@@ -5467,7 +5467,9 @@ def _exposure_tab_context(conn, client_id: int, year: int, project_id=None) -> d
     from datetime import date as _date
     current_year = _date.today().year
     data_years = get_exposure_years(conn, client_id, project_id)
-    available_years = sorted(set(data_years + [current_year]), reverse=True)
+    # Include last 10 years so users can enter historical exposure data
+    historical_range = list(range(current_year, current_year - 11, -1))
+    available_years = sorted(set(data_years + historical_range), reverse=True)
     if year not in available_years:
         available_years = sorted(set(available_years + [year]), reverse=True)
     exposures = get_client_exposures(conn, client_id, year, project_id)
