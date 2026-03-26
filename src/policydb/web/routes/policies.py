@@ -1300,6 +1300,33 @@ def _ai_import_parse_inner(request: Request, conn, uid: str, result: dict):
                 f"client record has {client_fein['fein']}"
             )
 
+    # ── Route exposure data through client_exposures → policy_exposure_links ──
+    exposure_basis = result["parsed"].get("exposure_basis")
+    exposure_amount = result["parsed"].get("exposure_amount")
+    exposure_denom = result["parsed"].get("exposure_denominator", 1) or 1
+    if exposure_basis and exposure_amount:
+        from policydb.exposures import find_or_create_exposure, create_exposure_link
+        eff_date = result["parsed"].get("effective_date") or policy_dict.get("effective_date", "")
+        year = int(eff_date[:4]) if eff_date and len(eff_date) >= 4 else datetime.now().year
+        client_id = policy_dict["client_id"]
+        project_id = policy_dict.get("project_id")
+        exp_id = find_or_create_exposure(
+            conn,
+            client_id=client_id,
+            project_id=project_id,
+            exposure_type=exposure_basis,
+            year=year,
+            amount=float(exposure_amount),
+            denominator=int(exposure_denom),
+        )
+        # Check for existing link
+        existing = conn.execute(
+            "SELECT id FROM policy_exposure_links WHERE policy_uid=? AND exposure_id=?",
+            (policy_dict["policy_uid"], exp_id),
+        ).fetchone()
+        if not existing:
+            create_exposure_link(conn, policy_dict["policy_uid"], exp_id, is_primary=True)
+
     # ── Build policy-level diffs ──
     _field_labels = {f["key"]: f["label"] for f in POLICY_EXTRACTION_SCHEMA["fields"]}
     ai_policy_diffs: list[dict] = []
