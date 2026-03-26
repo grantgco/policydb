@@ -1560,6 +1560,21 @@ def get_linked_group_overview(
         if r["policy_type"]:
             matrix[r["policy_type"]][r["client_id"]].append(r["carrier"] or "")
 
+    # Also include sub-coverage entries in the matrix
+    sub_rows = conn.execute(
+        f"SELECT sc.coverage_type AS policy_type, p.client_id, p.carrier "
+        f"FROM policy_sub_coverages sc "
+        f"JOIN policies p ON p.id = sc.policy_id "
+        f"WHERE p.client_id IN ({placeholders}) "
+        f"  AND p.archived = 0 "
+        f"  AND (p.is_opportunity = 0 OR p.is_opportunity IS NULL)",
+        member_ids,
+    ).fetchall()
+    for r in sub_rows:
+        if r["policy_type"]:
+            carrier = (r["carrier"] or "") + " [Pkg]"
+            matrix[r["policy_type"]][r["client_id"]].append(carrier)
+
     members = [dict(s) for s in summaries]
 
     return {
