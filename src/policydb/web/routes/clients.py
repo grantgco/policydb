@@ -740,11 +740,17 @@ def client_tab_policies(request: Request, client_id: int, conn=Depends(get_db)):
                 "exposure_zip": p.get("exposure_zip") or "",
             }
 
+    from policydb.queries import get_schematic_completeness
+    schematic_completeness = get_schematic_completeness(conn, client_id)
+    # Build lookup by tower_group for template badge rendering
+    completeness_by_tg = {c["tower_group"]: c for c in schematic_completeness}
+
     return templates.TemplateResponse("clients/_tab_policies.html", {
         "request": request,
         "client": dict(client),
         "policy_groups": policy_groups,
         "tower_visuals": tower_visuals,
+        "completeness_by_tg": completeness_by_tg,
         "renewal_statuses": cfg.get("renewal_statuses"),
         "programs": programs,
         "program_linked_uids": _program_linked_ids,
@@ -4390,6 +4396,56 @@ def project_pipeline_delete(
     return JSONResponse({"ok": True})
 
 
+# ── Project-Level Exposure Routes ──────────────────────────────────────────────
+
+
+@router.get("/{client_id}/projects/{project_id}/exposures", response_class=HTMLResponse)
+def project_exposures(request: Request, client_id: int, project_id: int, year: int = 0, conn=Depends(get_db)):
+    """Load project-level exposure matrix (HTMX partial)."""
+    from datetime import date as _date
+    if year == 0:
+        year = _date.today().year
+    ctx = _exposure_tab_context(conn, client_id, year, project_id)
+    return templates.TemplateResponse("clients/_exposure_matrix.html", {"request": request, **ctx})
+
+
+@router.get("/{client_id}/projects/{project_id}/exposures/types", response_class=HTMLResponse)
+def project_exposure_types_dropdown(request: Request, client_id: int, project_id: int, year: int = 0, conn=Depends(get_db)):
+    """Return dropdown HTML for the project exposure type picker."""
+    from datetime import date as _date
+    if year == 0:
+        year = _date.today().year
+    return HTMLResponse(_build_exposure_types_dropdown(client_id, year, project_id, conn))
+
+
+@router.post("/{client_id}/projects/{project_id}/exposures/add-row", response_class=HTMLResponse)
+async def project_exposure_add_row(request: Request, client_id: int, project_id: int, conn=Depends(get_db)):
+    """Create a new project-level exposure row."""
+    form = await request.form()
+    return _exposure_add_row_handler(request, client_id, form, conn, project_id)
+
+
+@router.patch("/{client_id}/projects/{project_id}/exposures/{exposure_id}/cell")
+async def project_exposure_cell(request: Request, client_id: int, project_id: int, exposure_id: int, conn=Depends(get_db)):
+    """Save a single cell value for a project-level exposure row."""
+    return await exposure_cell(request, client_id, exposure_id, conn)
+
+
+@router.delete("/{client_id}/projects/{project_id}/exposures/{exposure_id}", response_class=HTMLResponse)
+def project_exposure_delete(request: Request, client_id: int, project_id: int, exposure_id: int, conn=Depends(get_db)):
+    """Delete a project-level exposure row."""
+    conn.execute("DELETE FROM client_exposures WHERE id=? AND client_id=?", (exposure_id, client_id))
+    conn.commit()
+    return HTMLResponse("")
+
+
+@router.post("/{client_id}/projects/{project_id}/exposures/copy-forward", response_class=HTMLResponse)
+async def project_exposure_copy_forward(request: Request, client_id: int, project_id: int, conn=Depends(get_db)):
+    """Copy project-level exposure types from one year to another."""
+    form = await request.form()
+    return _exposure_copy_forward_handler(request, client_id, form, conn, project_id)
+
+
 @router.get("/{client_id}/projects/pipeline/export")
 def project_pipeline_export(
     client_id: int,
@@ -5020,7 +5076,8 @@ def client_ai_bulk_import_apply(
                 params = []
                 for field in ["policy_type", "carrier", "premium", "limit_amount", "deductible",
                               "effective_date", "expiration_date", "description", "layer_position",
-                              "tower_group", "attachment_point", "first_named_insured",
+                              "tower_group", "attachment_point", "participation_of",
+                              "first_named_insured",
                               "underwriter_name", "placement_colleague", "exposure_address",
                               "coverage_form", "notes"]:
                     val = d.get(field)
@@ -5050,10 +5107,10 @@ def client_ai_bulk_import_apply(
                         policy_uid, client_id, policy_type, carrier, policy_number,
                         effective_date, expiration_date, premium, limit_amount, deductible,
                         description, layer_position, tower_group, attachment_point,
-                        first_named_insured, underwriter_name, placement_colleague,
-                        exposure_address, coverage_form, notes, project_id, project_name,
-                        is_program, renewal_status
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Not Started')""",
+                        participation_of, first_named_insured, underwriter_name,
+                        placement_colleague, exposure_address, coverage_form, notes,
+                        project_id, project_name, is_program, renewal_status
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Not Started')""",
                     (
                         uid, client_id,
                         d.get("policy_type", ""), d.get("carrier", ""), d.get("policy_number", ""),
@@ -5062,6 +5119,7 @@ def client_ai_bulk_import_apply(
                         d.get("deductible", 0) or 0,
                         d.get("description", ""), d.get("layer_position", "Primary"),
                         d.get("tower_group", ""), d.get("attachment_point"),
+                        d.get("participation_of"),
                         d.get("first_named_insured", ""), d.get("underwriter_name", ""),
                         d.get("placement_colleague", ""), d.get("exposure_address", ""),
                         d.get("coverage_form", ""), d.get("notes", ""),
@@ -5146,6 +5204,14 @@ def _exposure_tab_context(conn, client_id: int, year: int, project_id=None) -> d
     for e in exposures:
         e["policy_label"] = policy_map.get(str(e.get("policy_id"))) if e.get("policy_id") else None
 
+    # Build URL prefix for template links (corporate vs project-level)
+    if project_id:
+        exposure_url_prefix = f"/clients/{client_id}/projects/{project_id}"
+        tab_reload_url = f"/clients/{client_id}/projects/{project_id}/exposures"
+    else:
+        exposure_url_prefix = f"/clients/{client_id}"
+        tab_reload_url = f"/clients/{client_id}/tab/exposures"
+
     return {
         "client_id": client_id,
         "project_id": project_id,
@@ -5155,6 +5221,8 @@ def _exposure_tab_context(conn, client_id: int, year: int, project_id=None) -> d
         "observations": observations,
         "prior_year_has_data": prior_year_has_data,
         "policy_options": policy_options,
+        "exposure_url_prefix": exposure_url_prefix,
+        "tab_reload_url": tab_reload_url,
     }
 
 
@@ -5171,18 +5239,13 @@ def client_tab_exposures(request: Request, client_id: int, year: int = 0, conn=D
     return templates.TemplateResponse("clients/_tab_exposures.html", {"request": request, **ctx})
 
 
-@router.get("/{client_id}/exposures/types", response_class=HTMLResponse)
-def exposure_types_dropdown(request: Request, client_id: int, year: int = 0, project_id: int = 0, conn=Depends(get_db)):
-    """Return dropdown HTML for the exposure type picker."""
-    from datetime import date as _date
-    if year == 0:
-        year = _date.today().year
-    proj = project_id if project_id else None
+def _build_exposure_types_dropdown(client_id: int, year: int, project_id, conn) -> str:
+    """Build the exposure type picker dropdown HTML (shared by client + project routes)."""
+    url_prefix = f"/clients/{client_id}/projects/{project_id}" if project_id else f"/clients/{client_id}"
     standard = cfg.get("standard_exposure_types", {})
     custom_types = get_distinct_custom_exposure_types(conn)
 
-    # Find which types already exist for this client/year
-    existing = get_client_exposures(conn, client_id, year, proj)
+    existing = get_client_exposures(conn, client_id, year, project_id)
     existing_types = {e["exposure_type"] for e in existing}
 
     parts = ['<div class="text-[10px] text-gray-400 uppercase tracking-wide px-3 py-1.5 border-b border-gray-100">Standard</div>']
@@ -5190,7 +5253,7 @@ def exposure_types_dropdown(request: Request, client_id: int, year: int = 0, pro
         disabled = "opacity-40 pointer-events-none" if name in existing_types else "hover:bg-gray-50 cursor-pointer"
         parts.append(
             f'<div class="px-3 py-2 text-sm {disabled}" '
-            f'hx-post="/clients/{client_id}/exposures/add-row" '
+            f'hx-post="{url_prefix}/exposures/add-row" '
             f'hx-vals=\'{{"exposure_type":"{name}","year":"{year}","is_custom":"0","unit":"{unit}"}}\' '
             f'hx-target="#exposures-card" hx-swap="outerHTML">'
             f'{name}</div>'
@@ -5203,7 +5266,7 @@ def exposure_types_dropdown(request: Request, client_id: int, year: int = 0, pro
             disabled = "opacity-40 pointer-events-none" if ct in existing_types else "hover:bg-gray-50 cursor-pointer"
             parts.append(
                 f'<div class="px-3 py-2 text-sm text-purple-600 {disabled}" '
-                f'hx-post="/clients/{client_id}/exposures/add-row" '
+                f'hx-post="{url_prefix}/exposures/add-row" '
                 f'hx-vals=\'{{"exposure_type":"{ct}","year":"{year}","is_custom":"1","unit":"number"}}\' '
                 f'hx-target="#exposures-card" hx-swap="outerHTML">'
                 f'{ct}</div>'
@@ -5212,17 +5275,25 @@ def exposure_types_dropdown(request: Request, client_id: int, year: int = 0, pro
         '<div class="border-t border-gray-200 px-3 py-2 hover:bg-gray-50 cursor-pointer">'
         f'<input type="text" id="custom-exposure-input" placeholder="Custom type name..." '
         f'class="w-full text-sm border-0 outline-none bg-transparent" '
-        f'onkeydown="if(event.key===\'Enter\'){{var v=this.value.trim();if(v)htmx.ajax(\'POST\',\'/clients/{client_id}/exposures/add-row\','
-        f'{{values:{{exposure_type:v,year:\'{year}\',is_custom:\'1\',unit:\'number\'}},target:\'#exposures-card\',swap:\'outerHTML\'}});}}">'
+        f"onkeydown=\"if(event.key==='Enter'){{var v=this.value.trim();if(v)htmx.ajax('POST','{url_prefix}/exposures/add-row',"
+        f"{{values:{{exposure_type:v,year:'{year}',is_custom:'1',unit:'number'}},target:'#exposures-card',swap:'outerHTML'}});}}\">"
         '</div>'
     )
-    return HTMLResponse("\n".join(parts))
+    return "\n".join(parts)
 
 
-@router.post("/{client_id}/exposures/add-row", response_class=HTMLResponse)
-async def exposure_add_row(request: Request, client_id: int, conn=Depends(get_db)):
-    """Create a new exposure row and return refreshed matrix."""
-    form = await request.form()
+@router.get("/{client_id}/exposures/types", response_class=HTMLResponse)
+def exposure_types_dropdown(request: Request, client_id: int, year: int = 0, project_id: int = 0, conn=Depends(get_db)):
+    """Return dropdown HTML for the exposure type picker."""
+    from datetime import date as _date
+    if year == 0:
+        year = _date.today().year
+    proj = project_id if project_id else None
+    return HTMLResponse(_build_exposure_types_dropdown(client_id, year, proj, conn))
+
+
+def _exposure_add_row_handler(request, client_id, form, conn, project_id=None):
+    """Shared handler for adding an exposure row (corporate + project)."""
     exposure_type = form.get("exposure_type", "").strip()
     year = int(form.get("year", 0))
     is_custom = int(form.get("is_custom", 0))
@@ -5231,14 +5302,21 @@ async def exposure_add_row(request: Request, client_id: int, conn=Depends(get_db
         return HTMLResponse("Missing fields", status_code=400)
     try:
         conn.execute(
-            "INSERT INTO client_exposures (client_id, exposure_type, is_custom, unit, year) VALUES (?, ?, ?, ?, ?)",
-            (client_id, exposure_type, is_custom, unit, year),
+            "INSERT INTO client_exposures (client_id, project_id, exposure_type, is_custom, unit, year) VALUES (?, ?, ?, ?, ?, ?)",
+            (client_id, project_id, exposure_type, is_custom, unit, year),
         )
         conn.commit()
     except Exception:
         pass  # UNIQUE violation = already exists, just refresh
-    ctx = _exposure_tab_context(conn, client_id, year)
+    ctx = _exposure_tab_context(conn, client_id, year, project_id)
     return templates.TemplateResponse("clients/_exposure_matrix.html", {"request": request, **ctx})
+
+
+@router.post("/{client_id}/exposures/add-row", response_class=HTMLResponse)
+async def exposure_add_row(request: Request, client_id: int, conn=Depends(get_db)):
+    """Create a new exposure row and return refreshed matrix."""
+    form = await request.form()
+    return _exposure_add_row_handler(request, client_id, form, conn)
 
 
 @router.patch("/{client_id}/exposures/{exposure_id}/cell")
@@ -5321,36 +5399,44 @@ def exposure_delete(request: Request, client_id: int, exposure_id: int, conn=Dep
     return HTMLResponse("")
 
 
-@router.post("/{client_id}/exposures/copy-forward", response_class=HTMLResponse)
-async def exposure_copy_forward(request: Request, client_id: int, conn=Depends(get_db)):
-    """Copy exposure types from one year to another (INSERT OR IGNORE)."""
-    form = await request.form()
+def _exposure_copy_forward_handler(request, client_id, form, conn, project_id=None):
+    """Shared handler for copy-forward (corporate + project)."""
     from_year = int(form.get("from_year", 0))
     to_year = int(form.get("to_year", 0))
     if not from_year or not to_year:
         return HTMLResponse("Missing year parameters", status_code=400)
 
-    source_rows = conn.execute(
-        "SELECT exposure_type, is_custom, unit, project_id FROM client_exposures WHERE client_id=? AND year=? AND project_id IS NULL",
-        (client_id, from_year),
-    ).fetchall()
+    if project_id:
+        source_rows = conn.execute(
+            "SELECT exposure_type, is_custom, unit FROM client_exposures WHERE client_id=? AND year=? AND project_id=?",
+            (client_id, from_year, project_id),
+        ).fetchall()
+    else:
+        source_rows = conn.execute(
+            "SELECT exposure_type, is_custom, unit FROM client_exposures WHERE client_id=? AND year=? AND project_id IS NULL",
+            (client_id, from_year),
+        ).fetchall()
 
     if not source_rows:
-        ctx = _exposure_tab_context(conn, client_id, to_year)
+        ctx = _exposure_tab_context(conn, client_id, to_year, project_id)
         return templates.TemplateResponse("clients/_exposure_matrix.html", {"request": request, **ctx})
 
-    copied = 0
     for row in source_rows:
         try:
             conn.execute(
-                "INSERT OR IGNORE INTO client_exposures (client_id, exposure_type, is_custom, unit, year) VALUES (?, ?, ?, ?, ?)",
-                (client_id, row["exposure_type"], row["is_custom"], row["unit"], to_year),
+                "INSERT OR IGNORE INTO client_exposures (client_id, project_id, exposure_type, is_custom, unit, year) VALUES (?, ?, ?, ?, ?, ?)",
+                (client_id, project_id, row["exposure_type"], row["is_custom"], row["unit"], to_year),
             )
-            if conn.execute("SELECT changes()").fetchone()[0] > 0:
-                copied += 1
         except Exception:
             pass
     conn.commit()
 
-    ctx = _exposure_tab_context(conn, client_id, to_year)
+    ctx = _exposure_tab_context(conn, client_id, to_year, project_id)
     return templates.TemplateResponse("clients/_exposure_matrix.html", {"request": request, **ctx})
+
+
+@router.post("/{client_id}/exposures/copy-forward", response_class=HTMLResponse)
+async def exposure_copy_forward(request: Request, client_id: int, conn=Depends(get_db)):
+    """Copy exposure types from one year to another (INSERT OR IGNORE)."""
+    form = await request.form()
+    return _exposure_copy_forward_handler(request, client_id, form, conn)

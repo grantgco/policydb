@@ -8,9 +8,9 @@
       {# Year selector #}
       <select id="exposure-year-select"
         class="text-xs border border-gray-200 rounded px-2 py-1 text-gray-600"
-        hx-get="/clients/{{ client_id }}/tab/exposures"
-        hx-target="#tab-exposures-content"
-        hx-swap="innerHTML"
+        hx-get="{{ tab_reload_url }}"
+        hx-target="#exposures-card"
+        hx-swap="outerHTML"
         name="year">
         {% for y in available_years %}
         <option value="{{ y }}" {{ 'selected' if y == selected_year }}>{{ y }}</option>
@@ -20,7 +20,7 @@
       {% if prior_year_has_data %}
       <button type="button"
         class="text-xs text-gray-500 hover:text-marsh font-medium border border-gray-200 rounded px-2 py-1"
-        hx-post="/clients/{{ client_id }}/exposures/copy-forward"
+        hx-post="{{ exposure_url_prefix }}/exposures/copy-forward"
         hx-vals='{"from_year": "{{ selected_year - 1 }}", "to_year": "{{ selected_year }}"}'
         hx-target="#exposures-card" hx-swap="outerHTML"
         hx-confirm="Copy exposure types from {{ selected_year - 1 }} to {{ selected_year }}?">
@@ -30,7 +30,7 @@
       {# Add button #}
       <div class="relative" id="exposure-add-wrapper">
         <button type="button" class="text-xs text-marsh hover:underline font-medium"
-          hx-get="/clients/{{ client_id }}/exposures/types?year={{ selected_year }}{% if project_id %}&project_id={{ project_id }}{% endif %}"
+          hx-get="{{ exposure_url_prefix }}/exposures/types?year={{ selected_year }}"
           hx-target="#exposure-type-dropdown" hx-swap="innerHTML"
           onclick="document.getElementById('exposure-type-dropdown').classList.toggle('hidden')">+ Add Exposure</button>
         <div id="exposure-type-dropdown" class="hidden absolute right-0 top-full mt-1 z-50 bg-white border border-gray-200 rounded-lg shadow-lg w-64 max-h-72 overflow-y-auto">
@@ -91,12 +91,13 @@
 <script>
 (function() {
   var CID = "{{ client_id }}";
+  var URL_PREFIX = {{ exposure_url_prefix | tojson }};
   window._exposuresMatrix = window.initMatrix({
     tbodyId: 'exposures-tbody-' + CID,
     idAttr: 'data-row-id',
     rowClass: 'matrix-row',
-    patchUrl: function(id) { return '/clients/' + CID + '/exposures/' + id + '/cell'; },
-    addRowUrl: '/clients/' + CID + '/exposures/add-row',
+    patchUrl: function(id) { return URL_PREFIX + '/exposures/' + id + '/cell'; },
+    addRowUrl: URL_PREFIX + '/exposures/add-row',
     emptyRowId: 'exposures-empty-' + CID,
     onSaved: function(rowEl, field, resp) {
       if (resp.yoy !== undefined) {

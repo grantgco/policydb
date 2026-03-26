@@ -1,0 +1,24 @@
+<tr data-row-id="{{ p.id }}" class="matrix-row hover:bg-gray-50 transition-colors">
+  <td class="px-2 py-2 text-gray-400 cursor-grab no-print underlying-drag" draggable="true">&#x2807;</td>
+  <td class="px-3 py-2 text-sm text-gray-800 matrix-cell-combo relative"
+      data-field="policy_type" data-placeholder="select line"
+      data-options='{{ policy_types | tojson }}' contenteditable="true">{{ p.policy_type or '' }}</td>
+  <td class="px-3 py-2 text-sm text-gray-800 matrix-cell-combo relative"
+      data-field="carrier" data-placeholder="carrier"
+      data-options='{{ carriers | tojson }}' contenteditable="true">{{ p.carrier or '' }}</td>
+  <td class="px-3 py-2 text-sm text-gray-800 text-right tabular-nums matrix-cell-editable"
+      data-field="limit_amount" data-placeholder="$0" contenteditable="true">{% if p.limit_amount %}${{ '{:,.0f}'.format(p.limit_amount) }}{% endif %}</td>
+  <td class="px-3 py-2 text-sm text-gray-800 text-right tabular-nums matrix-cell-editable"
+      data-field="deductible" data-placeholder="$0" contenteditable="true">{% if p.deductible and p.deductible != '0' %}${{ '{:,.0f}'.format(p.deductible | float) }}{% endif %}</td>
+  <td class="px-3 py-2 text-sm text-gray-800 text-right tabular-nums matrix-cell-editable"
+      data-field="premium" data-placeholder="$0" contenteditable="true">{% if p.premium %}${{ '{:,.0f}'.format(p.premium) }}{% endif %}</td>
+  <td class="px-3 py-2 text-sm text-gray-800 matrix-cell-editable"
+      data-field="policy_number" data-placeholder="policy #" contenteditable="true">{{ p.policy_number or '' }}</td>
+  <td class="px-3 py-2 text-sm text-gray-800 matrix-cell-combo relative"
+      data-field="coverage_form" data-placeholder="form"
+      data-options='{{ coverage_forms | tojson }}' contenteditable="true">{{ p.coverage_form or '' }}</td>
+  <td class="px-2 py-2 no-print">
+    <button type="button" onclick="deleteUnderlyingRow(this, {{ p.id }})"
+            class="text-red-300 hover:text-red-500 text-xs">&#10005;</button>
+  </td>
+</tr>

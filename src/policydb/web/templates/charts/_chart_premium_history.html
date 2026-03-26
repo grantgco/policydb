@@ -1,0 +1,145 @@
+{# Premium History Trend — D3 Multi-line Chart
+   Data: chartData_premium_history = {series: [{policy_type, data: [{term, premium}]}], terms: ["2022-01-01", ...]}
+#}
+{% from "charts/_chart_base.html" import chart_frame %}
+
+{% call(area_id) chart_frame("Premium History", "Multi-year trend by line of business") %}
+<div id="{{ area_id }}" style="flex:1;"></div>
+<script>
+window.render_premium_history = function() {
+  var raw = chartData_premium_history;
+  var containerId = '{{ area_id }}';
+  var el = document.getElementById(containerId);
+  if (!raw || !raw.series || raw.series.length === 0 || !raw.terms || raw.terms.length === 0) {
+    el.innerHTML = '<div class="chart-empty">No historical premium data available</div>';
+    return;
+  }
+
+  var series = raw.series;
+  var terms = raw.terms;
+
+  // Legend height reservation
+  var legendRows = Math.ceil(series.length / 4);
+  var legendH = legendRows * 22 + 10;
+  var margin = {top: 20, right: 30, bottom: 30 + legendH, left: 80};
+  var chart = createChartSvg(containerId, {margin: margin});
+  var g = chart.g, w = chart.width, h = chart.height;
+
+  // Parse term dates
+  var parseDate = d3.timeParse('%Y-%m-%d');
+  var termDates = terms.map(function(t) { return parseDate(t) || new Date(t); });
+
+  // Scales
+  var x = d3.scaleTime()
+    .domain(d3.extent(termDates))
+    .range([0, w]);
+
+  var allValues = [];
+  series.forEach(function(s) {
+    s.data.forEach(function(d) { if (d.premium != null) allValues.push(d.premium); });
+  });
+  var yMax = d3.max(allValues) || 0;
+
+  var y = d3.scaleLinear()
+    .domain([0, yMax * 1.1])
+    .range([h, 0]);
+
+  // Grid
+  g.append('g')
+    .attr('class', 'chart-grid')
+    .call(d3.axisLeft(y).tickSize(-w).tickFormat(''))
+    .select('.domain').remove();
+
+  // X axis
+  var tickCount = Math.min(terms.length, 8);
+  g.append('g')
+    .attr('class', 'chart-axis')
+    .attr('transform', 'translate(0,' + h + ')')
+    .call(d3.axisBottom(x).ticks(tickCount).tickFormat(d3.timeFormat('%b %Y')))
+    .select('.domain').attr('stroke', '#e5e7eb');
+
+  // Y axis
+  g.append('g')
+    .attr('class', 'chart-axis')
+    .call(d3.axisLeft(y).ticks(6).tickFormat(function(d) { return formatCurrency(d); }))
+    .select('.domain').remove();
+
+  // Line generator
+  var line = d3.line()
+    .defined(function(d) { return d.premium != null; })
+    .x(function(d) {
+      var dt = parseDate(d.term) || new Date(d.term);
+      return x(dt);
+    })
+    .y(function(d) { return y(d.premium); })
+    .curve(d3.curveMonotoneX);
+
+  // Draw each series
+  series.forEach(function(s, i) {
+    var color = ChartColors.get(i);
+
+    // Line
+    g.append('path')
+      .datum(s.data.filter(function(d) { return d.premium != null; }))
+      .attr('fill', 'none')
+      .attr('stroke', color)
+      .attr('stroke-width', 2.5)
+      .attr('d', line);
+
+    // Dots
+    g.selectAll('.dot-' + i)
+      .data(s.data.filter(function(d) { return d.premium != null; }))
+      .enter().append('circle')
+      .attr('cx', function(d) {
+        var dt = parseDate(d.term) || new Date(d.term);
+        return x(dt);
+      })
+      .attr('cy', function(d) { return y(d.premium); })
+      .attr('r', 4)
+      .attr('fill', '#fff')
+      .attr('stroke', color)
+      .attr('stroke-width', 2);
+
+    // Value labels on last point
+    var lastPt = null;
+    for (var j = s.data.length - 1; j >= 0; j--) {
+      if (s.data[j].premium != null) { lastPt = s.data[j]; break; }
+    }
+    if (lastPt) {
+      var lx = x(parseDate(lastPt.term) || new Date(lastPt.term));
+      var ly = y(lastPt.premium);
+      g.append('text')
+        .attr('x', lx + 8)
+        .attr('y', ly)
+        .attr('dy', '0.35em')
+        .attr('style', 'font-size:9px; fill:' + color + '; font-weight:600;')
+        .text(formatCurrency(lastPt.premium));
+    }
+  });
+
+  // Legend below chart
+  var legendItems = series.map(function(s, i) {
+    return {color: ChartColors.get(i), label: s.policy_type};
+  });
+  var itemWidth = Math.max(140, Math.floor(w / 4));
+  var legendY = h + 30;
+  legendItems.forEach(function(item, i) {
+    var col = i % 4;
+    var row = Math.floor(i / 4);
+    var lx = col * itemWidth;
+    var ly = legendY + row * 22;
+    var lg = g.append('g').attr('transform', 'translate(' + lx + ',' + ly + ')');
+    lg.append('line')
+      .attr('x1', 0).attr('y1', 6).attr('x2', 16).attr('y2', 6)
+      .attr('stroke', item.color).attr('stroke-width', 2.5);
+    lg.append('circle')
+      .attr('cx', 8).attr('cy', 6).attr('r', 3)
+      .attr('fill', '#fff').attr('stroke', item.color).attr('stroke-width', 2);
+    lg.append('text')
+      .attr('x', 22).attr('y', 10)
+      .attr('class', 'chart-legend-item')
+      .text(item.label);
+  });
+};
+</script>
+{% endcall %}

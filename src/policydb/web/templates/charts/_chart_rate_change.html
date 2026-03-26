@@ -1,0 +1,115 @@
+{# Rate Change Summary — D3 Horizontal Diverging Bar Chart
+   Data: chartData_rate_change = [{policy_type, pct_change, premium, prior_premium}]
+#}
+{% from "charts/_chart_base.html" import chart_frame %}
+
+{% call(area_id) chart_frame("Rate Change Summary", "Percentage change by line of business") %}
+<div id="{{ area_id }}" style="flex:1;"></div>
+<script>
+window.render_rate_change = function() {
+  var data = chartData_rate_change;
+  var containerId = '{{ area_id }}';
+  var el = document.getElementById(containerId);
+  if (!data || data.length === 0) {
+    el.innerHTML = '<div class="chart-empty">No rate change data available</div>';
+    return;
+  }
+
+  // Sort by pct_change descending (largest increases on top)
+  data = data.slice().sort(function(a, b) { return (b.pct_change || 0) - (a.pct_change || 0); });
+
+  var labelWidth = 160;
+  var margin = {top: 10, right: 80, bottom: 30, left: labelWidth};
+  var chart = createChartSvg(containerId, {margin: margin});
+  var g = chart.g, w = chart.width, h = chart.height;
+
+  // Scales
+  var maxAbs = d3.max(data, function(d) { return Math.abs(d.pct_change || 0); });
+  maxAbs = Math.max(maxAbs, 1); // Minimum range of 1%
+  var xExtent = maxAbs * 1.3;
+
+  var x = d3.scaleLinear()
+    .domain([-xExtent, xExtent])
+    .range([0, w]);
+
+  var y = d3.scaleBand()
+    .domain(data.map(function(d) { return d.policy_type; }))
+    .range([0, h])
+    .padding(0.25);
+
+  // Grid lines
+  g.append('g')
+    .attr('class', 'chart-grid')
+    .attr('transform', 'translate(0,' + h + ')')
+    .call(d3.axisBottom(x).tickSize(-h).tickFormat(''))
+    .select('.domain').remove();
+
+  // Zero line
+  g.append('line')
+    .attr('x1', x(0)).attr('x2', x(0))
+    .attr('y1', 0).attr('y2', h)
+    .attr('stroke', '#94a3b8')
+    .attr('stroke-width', 1.5);
+
+  // Y axis (labels)
+  g.append('g')
+    .attr('class', 'chart-axis')
+    .call(d3.axisLeft(y).tickSize(0))
+    .select('.domain').remove();
+
+  g.selectAll('.chart-axis text')
+    .attr('style', 'font-size:11px; fill:#374151;');
+
+  // X axis
+  g.append('g')
+    .attr('class', 'chart-axis')
+    .attr('transform', 'translate(0,' + h + ')')
+    .call(d3.axisBottom(x).ticks(7).tickFormat(function(d) { return (d >= 0 ? '+' : '') + d.toFixed(0) + '%'; }))
+    .select('.domain').attr('stroke', '#e5e7eb');
+
+  // Bars
+  g.selectAll('.rate-bar')
+    .data(data)
+    .enter().append('rect')
+    .attr('class', 'rate-bar')
+    .attr('x', function(d) {
+      var v = d.pct_change || 0;
+      return v >= 0 ? x(0) : x(v);
+    })
+    .attr('y', function(d) { return y(d.policy_type); })
+    .attr('width', function(d) {
+      var v = d.pct_change || 0;
+      return Math.abs(x(v) - x(0));
+    })
+    .attr('height', y.bandwidth())
+    .attr('fill', function(d) {
+      return (d.pct_change || 0) >= 0 ? ChartColors.increase : ChartColors.decrease;
+    })
+    .attr('rx', 3);
+
+  // Labels at bar ends
+  g.selectAll('.rate-label')
+    .data(data)
+    .enter().append('text')
+    .attr('class', 'rate-label')
+    .attr('x', function(d) {
+      var v = d.pct_change || 0;
+      return v >= 0 ? x(v) + 6 : x(v) - 6;
+    })
+    .attr('y', function(d) { return y(d.policy_type) + y.bandwidth() / 2; })
+    .attr('dy', '0.35em')
+    .attr('text-anchor', function(d) { return (d.pct_change || 0) >= 0 ? 'start' : 'end'; })
+    .attr('style', function(d) {
+      var color = (d.pct_change || 0) >= 0 ? '#dc2626' : '#059669';
+      return 'font-size:11px; font-weight:600; fill:' + color + ';';
+    })
+    .text(function(d) { return formatPercent(d.pct_change); });
+
+  // Legend
+  addLegend(g, [
+    {color: ChartColors.increase, label: 'Rate Increase'},
+    {color: ChartColors.decrease, label: 'Rate Decrease'}
+  ], w / 2 - 120, -5);
+};
+</script>
+{% endcall %}

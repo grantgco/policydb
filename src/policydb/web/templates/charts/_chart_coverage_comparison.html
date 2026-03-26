@@ -1,0 +1,66 @@
+{# Coverage Comparison Grid — HTML Table Chart
+   Data: chartData_coverage_comparison = [{policy_type, current: {carrier, limit, deductible, premium, form}, prior: {carrier, limit, deductible, premium, form}, changes: ["carrier", "premium"]}]
+#}
+{% from "charts/_chart_base.html" import chart_frame %}
+
+{% call(area_id) chart_frame("Coverage Comparison", "Prior vs Current Term") %}
+<div id="{{ area_id }}" style="overflow-y:auto; flex:1;">
+  <script>
+  window.render_coverage_comparison = function() {
+    var data = chartData_coverage_comparison;
+    var el = document.getElementById('{{ area_id }}');
+    if (!data || data.length === 0) {
+      el.innerHTML = '<div class="chart-empty">No prior term data available for comparison</div>';
+      return;
+    }
+
+    function cls(row, field) {
+      return row.changes && row.changes.indexOf(field) !== -1 ? ' class="changed"' : '';
+    }
+    function fmtVal(obj, field) {
+      if (!obj) return '\u2014';
+      var v = obj[field];
+      if (v == null) return '\u2014';
+      if (field === 'premium' || field === 'limit' || field === 'deductible') return formatCurrencyFull(v);
+      return v;
+    }
+
+    var html = '<table class="chart-table">';
+    html += '<thead>'
+      + '<tr>'
+      + '<th rowspan="2" style="vertical-align:bottom; border-right:2px solid #e2e8f0">Line of Business</th>'
+      + '<th colspan="4" style="text-align:center; border-right:2px solid #e2e8f0; border-bottom:none; color:#9ca3af">Prior Term</th>'
+      + '<th colspan="4" style="text-align:center; border-bottom:none; color:#003865">Current Term</th>'
+      + '</tr>'
+      + '<tr>'
+      + '<th>Carrier</th><th style="text-align:right">Limit</th><th style="text-align:right">Ded</th><th style="text-align:right; border-right:2px solid #e2e8f0">Premium</th>'
+      + '<th>Carrier</th><th style="text-align:right">Limit</th><th style="text-align:right">Ded</th><th style="text-align:right">Premium</th>'
+      + '</tr>'
+      + '</thead><tbody>';
+
+    data.forEach(function(r) {
+      html += '<tr>'
+        + '<td style="font-weight:600; border-right:2px solid #e2e8f0">' + (r.policy_type || '\u2014') + '</td>'
+        // Prior columns
+        + '<td>' + fmtVal(r.prior, 'carrier') + '</td>'
+        + '<td style="text-align:right">' + fmtVal(r.prior, 'limit') + '</td>'
+        + '<td style="text-align:right">' + fmtVal(r.prior, 'deductible') + '</td>'
+        + '<td style="text-align:right; border-right:2px solid #e2e8f0">' + fmtVal(r.prior, 'premium') + '</td>'
+        // Current columns — highlight changes
+        + '<td' + cls(r, 'carrier') + '>' + fmtVal(r.current, 'carrier') + '</td>'
+        + '<td' + cls(r, 'limit') + ' style="text-align:right">' + fmtVal(r.current, 'limit') + '</td>'
+        + '<td' + cls(r, 'deductible') + ' style="text-align:right">' + fmtVal(r.current, 'deductible') + '</td>'
+        + '<td' + cls(r, 'premium') + ' style="text-align:right">' + fmtVal(r.current, 'premium') + '</td>'
+        + '</tr>';
+    });
+
+    html += '</tbody></table>';
+    html += '<div style="margin-top:8px; display:flex; align-items:center; gap:6px; font-size:10px; color:#9ca3af;">'
+      + '<span style="display:inline-block;width:12px;height:12px;background:#fef3c7;border:1px solid #fcd34d;border-radius:2px;"></span>'
+      + 'Changed from prior term'
+      + '</div>';
+    el.innerHTML = html;
+  };
+  </script>
+</div>
+{% endcall %}

@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Chart Deck Builder{% endblock %}
+{% block content %}
+<div class="max-w-2xl mx-auto mt-8">
+  <h1 class="text-2xl font-bold text-gray-900 mb-1">Chart Deck Builder</h1>
+  <p class="text-sm text-gray-500 mb-6">Generate presentation-quality charts for client meetings.</p>
+
+  <div class="card p-6">
+    <form action="" method="get" id="deck-start-form">
+      <div class="mb-5">
+        <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Select Client</label>
+        <select name="client_id" id="chart-client-select" required
+          class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-800 focus:ring-marsh focus:border-marsh">
+          <option value="">Choose a client...</option>
+          {% for c in clients %}
+          <option value="{{ c.id }}">{{ c.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="mb-5">
+        <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Deck Type</label>
+        <div class="flex gap-3">
+          <label class="deck-chart-card flex items-center gap-3 px-4 py-3 flex-1 cursor-pointer">
+            <input type="radio" name="type" value="renewal-recap" checked class="text-marsh focus:ring-marsh">
+            <div>
+              <span class="text-sm font-semibold text-gray-800">Renewal Recap</span>
+              <p class="text-xs text-gray-500">13 charts for placement review</p>
+            </div>
+          </label>
+        </div>
+      </div>
+
+      <button type="submit" id="deck-start-btn" disabled
+        class="w-full bg-marsh text-white rounded-lg px-4 py-2.5 text-sm font-semibold hover:bg-marsh/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+        Configure Deck &rarr;
+      </button>
+    </form>
+  </div>
+</div>
+
+<link rel="stylesheet" href="/static/charts/charts.css">
+
+<script>
+(function() {
+  var sel = document.getElementById('chart-client-select');
+  var btn = document.getElementById('deck-start-btn');
+  var form = document.getElementById('deck-start-form');
+
+  sel.addEventListener('change', function() {
+    btn.disabled = !sel.value;
+    if (sel.value) {
+      form.action = '/charts/' + sel.value + '/deck';
+    }
+  });
+})();
+</script>
+{% endblock %}

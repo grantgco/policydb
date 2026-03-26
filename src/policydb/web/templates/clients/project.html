@@ -37,6 +37,14 @@
         class="w-full text-sm text-gray-800 bg-transparent resize-none focus:outline-none">{{ project.notes or '' }}</textarea>
     </div>
 
+    {# ── Project Exposures ── #}
+    <div class="mt-6" id="project-exposures-section"
+         hx-get="/clients/{{ client.id }}/projects/{{ project.id }}/exposures"
+         hx-trigger="load"
+         hx-swap="innerHTML">
+      <div class="text-center py-6 text-gray-300 text-xs">Loading exposures...</div>
+    </div>
+
   </div>
 
   {# ── Right sidebar ── #}

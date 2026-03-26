@@ -1,0 +1,225 @@
+{% if not tower_data or tower_data | length == 0 %}
+<div class="flex items-center justify-center h-64 text-gray-400 text-sm">
+  Add underlying lines and excess layers to see the schematic preview.
+</div>
+{% else %}
+<div id="tower-preview-area" style="width:100%;height:420px;"></div>
+<script>
+(function() {
+  var data = {{ tower_data | tojson }};
+  if (!data || !data.length) return;
+
+  var container = document.getElementById('tower-preview-area');
+  if (!container) return;
+
+  // Use createChartSvg if available, otherwise manual
+  var rect = container.getBoundingClientRect();
+  var W = rect.width || 800;
+  var H = 400;
+  var margin = {top: 10, right: 10, bottom: 10, left: 10};
+
+  container.innerHTML = '';
+  var svg = d3.select(container).append('svg')
+    .attr('width', W).attr('height', H)
+    .attr('viewBox', '0 0 ' + W + ' ' + H);
+  var g = svg.append('g').attr('transform', 'translate(' + margin.left + ',' + margin.top + ')');
+  W -= margin.left + margin.right;
+  H -= margin.top + margin.bottom;
+
+  // ── Colors ──
+  var C = {
+    label: '#f1f5f9', labelBd: '#cbd5e1',
+    ded: '#64748b', dedTx: '#fff',
+    primary: '#dbeafe', primaryBd: '#93c5fd',
+    umbrella: '#3b82f6', umbrellaTx: '#fff',
+    exBase: '#bfdbfe', exDark: '#1e40af',
+    split: '#fff',
+    titleC: '#1e293b', textDk: '#1e3a8a',
+    textLt: '#fff', textMut: '#64748b',
+    premC: '#475569', border: '#94a3b8',
+  };
+
+  var LABEL_H = 26, DED_H = 24, TWR_GAP = 24, TITLE_H = 16;
+  var MIN_PRIM_H = 28, MAX_PRIM_H = 60;
+  var MIN_LAYER_H = 40;
+
+  function fmtL(v) {
+    if (v == null || v === 0) return '';
+    var a = Math.abs(v);
+    if (a >= 1e6) return '$' + (v/1e6).toFixed(v%1e6===0?0:1) + 'M';
+    if (a >= 1e3) return '$' + (v/1e3).toFixed(0) + 'K';
+    return '$' + v.toLocaleString();
+  }
+  function tr(s, m) { return !s ? '' : s.length > m ? s.substring(0,m-1)+'\u2026' : s; }
+
+  var totalCols = 0;
+  data.forEach(function(t) { totalCols += Math.max(t.underlying.length, 1); });
+  var totalTwrGaps = Math.max(0, (data.length - 1)) * TWR_GAP;
+  var colW = Math.min(Math.floor((W - totalTwrGaps) / Math.max(totalCols, 1)), 180);
+
+  var curX = 0;
+
+  data.forEach(function(tower, tIdx) {
+    var under = tower.underlying || [];
+    var layers = tower.layers || [];
+    var numCols = Math.max(under.length, 1);
+    var towerW = numCols * colW;
+
+    g.append('text').attr('x', curX + towerW/2).attr('y', 11)
+      .attr('text-anchor', 'middle').style('font-size', '11px').style('font-weight', '700')
+      .attr('fill', C.titleC).text(tr(tower.tower_group, 28));
+
+    var baseY = H;
+
+    baseY -= LABEL_H;
+    under.forEach(function(u, ci) {
+      var cx = curX + ci * colW;
+      g.append('rect').attr('x', cx).attr('y', baseY).attr('width', colW).attr('height', LABEL_H)
+        .attr('fill', C.label).attr('stroke', C.labelBd).attr('stroke-width', 0.5);
+      g.append('text').attr('x', cx + colW/2).attr('y', baseY + LABEL_H/2 + 4)
+        .attr('text-anchor', 'middle').style('font-size', '8px').style('font-weight', '600')
+        .attr('fill', C.textMut).text(tr(u.label, 18));
+    });
+
+    baseY -= DED_H;
+    under.forEach(function(u, ci) {
+      var cx = curX + ci * colW;
+      var hasDed = u.deductible > 0;
+      g.append('rect').attr('x', cx).attr('y', baseY).attr('width', colW).attr('height', DED_H)
+        .attr('fill', hasDed ? C.ded : '#e2e8f0').attr('stroke', C.border).attr('stroke-width', 0.5);
+      if (hasDed) {
+        g.append('text').attr('x', cx + colW/2).attr('y', baseY + DED_H/2 + 4)
+          .attr('text-anchor', 'middle').style('font-size', '8px').style('font-weight', '600')
+          .attr('fill', C.dedTx).text(fmtL(u.deductible) + ' Ded');
+      }
+    });
+
+    var limits = under.map(function(u) { return u.limit || 0; });
+    var maxLim = d3.max(limits) || 1;
+    var primHeights = under.map(function(u) {
+      var lim = u.limit || 0;
+      if (maxLim === 0) return MIN_PRIM_H;
+      return Math.round(MIN_PRIM_H + (MAX_PRIM_H - MIN_PRIM_H) * (lim / maxLim));
+    });
+    var maxPrimH = d3.max(primHeights) || MAX_PRIM_H;
+    var primTopY = baseY;
+
+    under.forEach(function(u, ci) {
+      var cx = curX + ci * colW;
+      var pH = primHeights[ci];
+      var py = primTopY - pH;
+      g.append('rect').attr('x', cx).attr('y', py).attr('width', colW).attr('height', pH)
+        .attr('fill', C.primary).attr('stroke', C.primaryBd).attr('stroke-width', 0.5);
+      g.append('text').attr('x', cx + colW/2).attr('y', py + pH/2 - 3)
+        .attr('text-anchor', 'middle').style('font-size', '9px').style('font-weight', '600')
+        .attr('fill', C.textDk).text(tr(u.carrier, 16));
+      g.append('text').attr('x', cx + colW/2).attr('y', py + pH/2 + 9)
+        .attr('text-anchor', 'middle').style('font-size', '8px')
+        .attr('fill', C.textDk).attr('opacity', 0.8).text(fmtL(u.limit));
+      if (u.premium) {
+        g.append('text').attr('x', cx + colW - 3).attr('y', py + pH - 3)
+          .attr('text-anchor', 'end').style('font-size', '7px')
+          .attr('fill', C.premC).text(fmtL(u.premium));
+      }
+    });
+
+    var umbrellaLayers = layers.filter(function(l) { return l.is_umbrella; });
+    var excessLayers = layers.filter(function(l) { return !l.is_umbrella; });
+    excessLayers.sort(function(a, b) { return (a.attachment_point || 0) - (b.attachment_point || 0); });
+
+    var umbrellaBaseY = primTopY - maxPrimH;
+
+    if (umbrellaLayers.length > 0) {
+      var umbLayer = umbrellaLayers[0];
+      var umbLabelH = 22;
+      under.forEach(function(u, ci) {
+        var cx = curX + ci * colW;
+        var primH = primHeights[ci];
+        var colPrimTop = primTopY - primH;
+        var umbBottom = colPrimTop;
+        var umbTop = umbrellaBaseY - umbLabelH;
+        var umbH = umbBottom - umbTop;
+        if (umbH > 0) {
+          g.append('rect').attr('x', cx).attr('y', umbTop).attr('width', colW).attr('height', umbH)
+            .attr('fill', C.umbrella).attr('stroke', C.split).attr('stroke-width', 0.5);
+        }
+      });
+      var umbTopY = umbrellaBaseY - umbLabelH;
+      g.append('text').attr('x', curX + towerW/2).attr('y', umbTopY + 10)
+        .attr('text-anchor', 'middle').style('font-size', '9px').style('font-weight', '700')
+        .attr('fill', C.textLt).text(tr(umbLayer.policy_type, 20));
+      g.append('text').attr('x', curX + towerW/2).attr('y', umbTopY + 20)
+        .attr('text-anchor', 'middle').style('font-size', '8px')
+        .attr('fill', C.textLt).attr('opacity', 0.9)
+        .text(tr(umbLayer.carrier, 20) + '  ' + (umbLayer.notation || fmtL(umbLayer.limit)));
+      umbrellaBaseY = umbTopY;
+    }
+
+    if (excessLayers.length > 0) {
+      var exAvail = umbrellaBaseY - TITLE_H - 8;
+      var numEx = excessLayers.length;
+      var exGap = 1;
+      var totalExGaps = (numEx - 1) * exGap;
+      var perEx = Math.max(MIN_LAYER_H, Math.floor((exAvail - totalExGaps) / numEx));
+      if (numEx * perEx + totalExGaps > exAvail) {
+        perEx = Math.max(32, Math.floor((exAvail - totalExGaps) / numEx));
+      }
+      var layerY = umbrellaBaseY;
+      excessLayers.forEach(function(layer, lIdx) {
+        layerY -= perEx;
+        if (lIdx > 0) layerY -= exGap;
+        var t = numEx > 1 ? lIdx / (numEx - 1) : 0;
+        var r1=191,g1=219,b1=254, r2=30,g2=64,b2=175;
+        var cr=Math.round(r1+(r2-r1)*t), cg=Math.round(g1+(g2-g1)*t), cb=Math.round(b1+(b2-b1)*t);
+        var bg = 'rgb('+cr+','+cg+','+cb+')';
+        var fg = t > 0.45 ? C.textLt : C.textDk;
+
+        var parts = layer.participants || [];
+        var hasParts = parts.length > 1;
+
+        if (hasParts) {
+          var pW = towerW / parts.length;
+          parts.forEach(function(p, pi) {
+            var px = curX + pi * pW;
+            g.append('rect').attr('x', px).attr('y', layerY).attr('width', pW).attr('height', perEx)
+              .attr('fill', bg).attr('stroke', C.split).attr('stroke-width', 1);
+            g.append('text').attr('x', px + pW/2).attr('y', layerY + 11)
+              .attr('text-anchor', 'middle').style('font-size', '7px')
+              .attr('fill', fg).attr('opacity', 0.7).text(tr(layer.policy_type, 16));
+            g.append('text').attr('x', px + pW/2).attr('y', layerY + 21)
+              .attr('text-anchor', 'middle').style('font-size', '9px').style('font-weight', '700')
+              .attr('fill', fg).text(tr(p.carrier, 14));
+            if (p.notation && perEx >= 36) {
+              g.append('text').attr('x', px + pW/2).attr('y', layerY + 31)
+                .attr('text-anchor', 'middle').style('font-size', '7px').style('font-style', 'italic')
+                .attr('fill', fg).attr('opacity', 0.8).text(tr(p.notation, 20));
+            }
+          });
+        } else {
+          g.append('rect').attr('x', curX).attr('y', layerY).attr('width', towerW).attr('height', perEx)
+            .attr('fill', bg).attr('stroke', C.split).attr('stroke-width', 0.5);
+          g.append('text').attr('x', curX + towerW/2).attr('y', layerY + 11)
+            .attr('text-anchor', 'middle').style('font-size', '8px')
+            .attr('fill', fg).attr('opacity', 0.7).text(tr(layer.policy_type, 28));
+          g.append('text').attr('x', curX + towerW/2).attr('y', layerY + 22)
+            .attr('text-anchor', 'middle').style('font-size', '10px').style('font-weight', '700')
+            .attr('fill', fg).text(tr(layer.carrier || (parts[0]?parts[0].carrier:''), 24));
+          if (layer.notation && perEx >= 38) {
+            g.append('text').attr('x', curX + towerW/2).attr('y', layerY + 33)
+              .attr('text-anchor', 'middle').style('font-size', '8px').style('font-style', 'italic')
+              .attr('fill', fg).attr('opacity', 0.8).text(tr(layer.notation, 30));
+          }
+          if (layer.premium && perEx >= 38) {
+            g.append('text').attr('x', curX + towerW - 4).attr('y', layerY + perEx - 4)
+              .attr('text-anchor', 'end').style('font-size', '7px')
+              .attr('fill', fg).attr('opacity', 0.6).text(fmtL(layer.premium));
+          }
+        }
+      });
+    }
+
+    curX += towerW + TWR_GAP;
+  });
+})();
+</script>
+{% endif %}

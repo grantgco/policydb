@@ -1,0 +1,184 @@
+{# Exposure vs Premium — Dual-axis line chart comparing growth rates #}
+{% from "charts/_chart_base.html" import chart_frame %}
+{% call(area_id) chart_frame("Exposure vs Premium Growth", "Year-over-year growth comparison") %}
+<div id="{{ area_id }}" style="width:100%;height:100%"></div>
+<script>
+window.render_exposure_vs_premium = function() {
+  var raw = window.chartData_exposure_vs_premium;
+  var containerId = '{{ area_id }}';
+  var container = document.getElementById(containerId);
+  if (!raw || !raw.years || raw.years.length < 2) {
+    container.innerHTML = '<div class="chart-empty">Need at least 2 years of data for growth comparison</div>';
+    return;
+  }
+
+  var years = raw.years;
+  var expGrowth = raw.exposure_growth || [];
+  var premGrowth = raw.premium_growth || [];
+
+  // Filter to years that have at least one non-null value
+  var validYears = [];
+  var validExp = [];
+  var validPrem = [];
+  years.forEach(function(yr, i) {
+    if (expGrowth[i] != null || premGrowth[i] != null) {
+      validYears.push(yr);
+      validExp.push(expGrowth[i]);
+      validPrem.push(premGrowth[i]);
+    }
+  });
+
+  if (!validYears.length) {
+    container.innerHTML = '<div class="chart-empty">No growth data available</div>';
+    return;
+  }
+
+  var chart = createChartSvg(containerId, {
+    margin: {top: 20, right: 65, bottom: 55, left: 65}
+  });
+  var g = chart.g, w = chart.width, h = chart.height;
+
+  // X scale
+  var xScale = d3.scalePoint()
+    .domain(validYears.map(String))
+    .range([0, w])
+    .padding(0.3);
+
+  // Compute separate Y scales for each series
+  var expVals = validExp.filter(function(v) { return v != null; });
+  var premVals = validPrem.filter(function(v) { return v != null; });
+
+  function buildScale(vals) {
+    if (!vals.length) return d3.scaleLinear().domain([-5, 5]).range([h, 0]);
+    var mn = d3.min(vals);
+    var mx = d3.max(vals);
+    var pad = Math.max((mx - mn) * 0.15, 1);
+    return d3.scaleLinear()
+      .domain([mn - pad, mx + pad])
+      .range([h, 0])
+      .nice();
+  }
+
+  var yLeft = buildScale(expVals);
+  var yRight = buildScale(premVals);
+
+  var colorExp = '#2563eb';   // Blue for exposure
+  var colorPrem = '#d97706';  // Amber/orange for premium
+
+  // Grid lines (based on left axis)
+  g.append('g')
+    .attr('class', 'chart-grid')
+    .call(d3.axisLeft(yLeft).tickSize(-w).tickFormat(''))
+    .select('.domain').remove();
+
+  // Zero line
+  if (yLeft.domain()[0] < 0 && yLeft.domain()[1] > 0) {
+    g.append('line')
+      .attr('x1', 0).attr('x2', w)
+      .attr('y1', yLeft(0)).attr('y2', yLeft(0))
+      .attr('stroke', '#9ca3af')
+      .attr('stroke-width', 1)
+      .attr('stroke-dasharray', '4,3');
+  }
+
+  // X axis
+  g.append('g')
+    .attr('class', 'chart-axis')
+    .attr('transform', 'translate(0,' + h + ')')
+    .call(d3.axisBottom(xScale));
+
+  // Left Y axis — exposure growth
+  var leftAxis = g.append('g')
+    .attr('class', 'chart-axis')
+    .call(d3.axisLeft(yLeft).ticks(6).tickFormat(function(v) { return v.toFixed(1) + '%'; }));
+
+  leftAxis.append('text')
+    .attr('transform', 'rotate(-90)')
+    .attr('x', -h / 2)
+    .attr('y', -50)
+    .attr('text-anchor', 'middle')
+    .style('font-size', '10px')
+    .style('font-weight', '600')
+    .attr('fill', colorExp)
+    .text('Exposure Growth %');
+
+  // Right Y axis — premium growth
+  var rightAxis = g.append('g')
+    .attr('class', 'chart-axis')
+    .attr('transform', 'translate(' + w + ',0)')
+    .call(d3.axisRight(yRight).ticks(6).tickFormat(function(v) { return v.toFixed(1) + '%'; }));
+
+  rightAxis.append('text')
+    .attr('transform', 'rotate(90)')
+    .attr('x', h / 2)
+    .attr('y', -50)
+    .attr('text-anchor', 'middle')
+    .style('font-size', '10px')
+    .style('font-weight', '600')
+    .attr('fill', colorPrem)
+    .text('Premium Growth %');
+
+  // Line generators
+  var expLine = d3.line()
+    .defined(function(d, i) { return validExp[i] != null; })
+    .x(function(d, i) { return xScale(String(validYears[i])); })
+    .y(function(d, i) { return yLeft(validExp[i]); })
+    .curve(d3.curveMonotoneX);
+
+  var premLine = d3.line()
+    .defined(function(d, i) { return validPrem[i] != null; })
+    .x(function(d, i) { return xScale(String(validYears[i])); })
+    .y(function(d, i) { return yRight(validPrem[i]); })
+    .curve(d3.curveMonotoneX);
+
+  // Draw exposure line
+  g.append('path')
+    .datum(validYears)
+    .attr('fill', 'none')
+    .attr('stroke', colorExp)
+    .attr('stroke-width', 2.5)
+    .attr('d', expLine);
+
+  // Exposure dots
+  validYears.forEach(function(yr, i) {
+    if (validExp[i] != null) {
+      g.append('circle')
+        .attr('cx', xScale(String(yr)))
+        .attr('cy', yLeft(validExp[i]))
+        .attr('r', 4)
+        .attr('fill', colorExp)
+        .attr('stroke', '#fff')
+        .attr('stroke-width', 1.5);
+    }
+  });
+
+  // Draw premium line
+  g.append('path')
+    .datum(validYears)
+    .attr('fill', 'none')
+    .attr('stroke', colorPrem)
+    .attr('stroke-width', 2.5)
+    .attr('stroke-dasharray', '6,3')
+    .attr('d', premLine);
+
+  // Premium dots
+  validYears.forEach(function(yr, i) {
+    if (validPrem[i] != null) {
+      g.append('circle')
+        .attr('cx', xScale(String(yr)))
+        .attr('cy', yRight(validPrem[i]))
+        .attr('r', 4)
+        .attr('fill', colorPrem)
+        .attr('stroke', '#fff')
+        .attr('stroke-width', 1.5);
+    }
+  });
+
+  // Legend
+  addLegend(g, [
+    {color: colorExp, label: 'Exposure Growth'},
+    {color: colorPrem, label: 'Premium Growth'}
+  ], w / 2 - 120, h + 34, {direction: 'horizontal', itemWidth: 140});
+};
+</script>
+{% endcall %}
