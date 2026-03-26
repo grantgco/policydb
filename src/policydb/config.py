@@ -172,6 +172,7 @@ _DEFAULTS: dict[str, Any] = {
         "Per $1M Contract",
         "Flat",
     ],
+    "exposure_denominators": [1, 100, 1000],
     "renewal_milestones": [
         "Submission Sent",
         "Loss Runs Received",

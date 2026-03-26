@@ -429,6 +429,14 @@ POLICY_EXTRACTION_SCHEMA: dict = {
             "example": "12500000",
         },
         {
+            "key": "exposure_denominator",
+            "label": "Exposure Denominator",
+            "type": "number",
+            "required": False,
+            "description": "Rating unit denominator — the 'per X' value. For example, if the rate is 'per $100 of payroll', the denominator is 100. Common values: 1, 100, 1000.",
+            "example": "100",
+        },
+        {
             "key": "project_name",
             "label": "Location / Project Name",
             "type": "string",

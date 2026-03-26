@@ -72,6 +72,47 @@ The app uses a **light theme** throughout. Key conventions:
 
 **Rule:** Never use dark-theme classes (`bg-gray-800`, `bg-gray-900`, `text-gray-100`, `text-blue-400`, `text-emerald-400`, `border-gray-600/700`) in new UI. The Policy Pulse tab was converted to light theme — all new sections should follow the light `card` pattern.
 
+### Marsh Brand Guide (Charts & Deliverables)
+
+All charts, deck slides, and client-facing exports MUST use the official Marsh color palette and typography.
+
+**Typography:**
+- **Noto Serif** — headings, chart titles, section headers
+- **Noto Sans** — body text, data labels, axis labels, table content
+
+**Core Colors:**
+
+| Token | HEX | Role |
+|-------|-----|------|
+| Midnight Blue (1000) | `#000F47` | Core brand blue, primary heading/border color |
+| Sky Blue (250) | `#CEECFF` | Light blue backgrounds, highlights |
+| White | `#FFFFFF` | Chart backgrounds |
+
+**Warm Neutrals:**
+
+| Token | HEX | Use |
+|-------|-----|-----|
+| Neutral 1000 | `#3D3C37` | Dark text, labels |
+| Neutral 750 | `#7B7974` | Secondary text |
+| Neutral 500 | `#B9B6B1` | Borders, dividers |
+| Neutral 250 | `#F7F3EE` | Light backgrounds, subtotal rows |
+
+**Active Accent:** `#0B4BFF` (Blue 750) — interactive highlights, links, attention
+
+**Data Color Order** (use in this sequence for multi-series charts):
+
+| Priority | Color | 1000 | 750 | 500 | 250 |
+|----------|-------|------|-----|-----|-----|
+| 1st (Workhorse) | Blue | `#000F47` | — | `#82BAFF` | `#CEECFF` |
+| 2nd | Green | `#2F7500` | `#6ABF30` | `#B0DC92` | `#DFECD7` |
+| 3rd | Purple | `#5E017F` | `#8F20DE` | `#DEB1FF` | `#F5E8FF` |
+| 4th | Gold | `#CB7E03` | `#FFBF00` | `#FFD98A` | `#FFF3DA` |
+
+**Rules:**
+- Additional tint stacks (500, 250) are for complex data sets and accessibility
+- Each tint stack goes from dark (1000) to light (250) — use 1000 for fills, 250 for backgrounds
+- The app's current `#003865` (marsh Tailwind color) is the UI brand color; `#000F47` (Midnight Blue) is the official Marsh deliverable color
+
 ### Currency & Phone Rules
 
 **Currency:** Every money field MUST use `parse_currency_with_magnitude()` from `utils.py` (supports `1m`, `500k`, `$2,000,000`). Never use raw `float()`. For display: `{{ value | currency }}` or `{{ value | currency_short }}`. Never use Python `%g` (produces scientific notation).
