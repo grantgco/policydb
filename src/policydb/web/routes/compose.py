@@ -231,12 +231,11 @@ def compose_panel(
         if not primary_to:
             primary_to = {"name": "", "email": to_email, "role": "", "badge": "", "source": "manual"}
     elif mode != "rfi_notify":
-        # Default: first CLIENT badge contact, or first contact overall
+        # Default: first CLIENT badge contact only — never default to
+        # placement colleagues or underwriters in the To field
         client_contacts = [r for r in recipients if r["badge"] == "CLIENT"]
         if client_contacts:
             primary_to = client_contacts[0]
-        elif recipients:
-            primary_to = recipients[0]
 
     # ── Pre-fill subject from config template ────────────────────────────
     if mode == "rfi_notify":
