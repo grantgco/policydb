@@ -55,7 +55,7 @@
   {# Delete #}
   <td class="px-3 py-2.5 text-center">
     <button
-      hx-delete="/clients/{{ client_id }}/exposures/{{ e.id }}"
+      hx-delete="{{ exposure_url_prefix }}/exposures/{{ e.id }}"
       hx-target="closest tr" hx-swap="outerHTML"
       hx-confirm="Remove {{ e.exposure_type }}?"
       class="text-xs text-gray-300 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity">✕</button>

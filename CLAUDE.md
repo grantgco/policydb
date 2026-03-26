@@ -448,3 +448,5 @@ This is not optional — UI changes without visual verification have repeatedly 
 **20. SQLite handler attaches in uvicorn worker**, not CLI process. Must use `@app.on_event("startup")` in `app.py`.
 
 **21. Child loggers propagate automatically** — only configure handlers on root `policydb` logger.
+
+**22. Kill existing servers before testing:** When starting `pdb serve` or uvicorn for testing, first kill any existing server on port 8000: `lsof -ti:8000 | xargs kill -9 2>/dev/null`.

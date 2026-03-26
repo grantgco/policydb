@@ -1,0 +1,35 @@
+{#
+  Chart Base Macro — provides the 16:9 container layout with title, subtitle, and export button.
+
+  Usage in a chart partial (e.g. _chart_premium_comparison.html):
+
+    {% from "charts/_chart_base.html" import chart_frame %}
+    {% call(area_id) chart_frame("Premium Comparison", "Prior vs Current Term") %}
+      <div id="{{ area_id }}"></div>
+    {% endcall %}
+
+  The macro:
+  - Renders the chart-content wrapper with padding
+  - Adds title + subtitle header row
+  - Adds a "Save PNG" export button (no-print)
+  - Yields a unique area_id that the caller can use for their D3 container or table
+  - The caller block receives `area_id` as a variable
+#}
+
+{% macro chart_frame(title, subtitle="") %}
+<div class="chart-content">
+  <div class="flex items-start justify-between mb-4">
+    <div>
+      <div class="chart-title">{{ title }}</div>
+      {% if subtitle %}<div class="chart-subtitle">{{ subtitle }}</div>{% endif %}
+    </div>
+    <button class="chart-export-btn no-print text-xs bg-gray-100 hover:bg-gray-200 text-gray-600 px-3 py-1.5 rounded-lg transition-colors"
+      onclick="var p=this.closest('.chart-page'); exportChartToPng(p.dataset.chart, p.dataset.chartTitle+'.png')">
+      Save PNG &darr;
+    </button>
+  </div>
+  <div class="flex-1 relative" style="min-height:0">
+    {{ caller(title.lower().replace(' ', '_').replace('/', '_') + '_area') }}
+  </div>
+</div>
+{% endmacro %}

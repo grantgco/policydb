@@ -359,7 +359,7 @@ def init_db(path: Path | None = None) -> None:
 
     # Back up the database once before running any pending migrations.
     # This gives a clean restore point regardless of which migration fails.
-    _KNOWN_MIGRATIONS = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86}
+    _KNOWN_MIGRATIONS = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87}
     if _KNOWN_MIGRATIONS - applied:
         _backup_db(conn, db_path)
 
@@ -1158,6 +1158,15 @@ def init_db(path: Path | None = None) -> None:
         )
         conn.commit()
 
+    if 87 not in applied:
+        sql = (_MIGRATIONS_DIR / "087_schematic_column.sql").read_text()
+        conn.executescript(sql)
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (87, "Add schematic_column to policies for tower chart positioning"),
+        )
+        conn.commit()
+
     # Data hygiene: fix 'None' string corruption in text fields (runs every startup, fast no-op if clean)
     conn.execute("UPDATE clients SET cn_number = NULL WHERE cn_number = 'None'")
 
@@ -1600,7 +1609,8 @@ def _create_views(conn: sqlite3.Connection) -> None:
 def next_policy_uid(conn: sqlite3.Connection) -> str:
     """Generate next POL-NNN uid."""
     row = conn.execute(
-        "SELECT policy_uid FROM policies ORDER BY id DESC LIMIT 1"
+        "SELECT policy_uid FROM policies WHERE policy_uid LIKE 'POL-%' "
+        "ORDER BY CAST(SUBSTR(policy_uid, 5) AS INTEGER) DESC LIMIT 1"
     ).fetchone()
     if row is None:
         return "POL-001"

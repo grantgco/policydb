@@ -1,0 +1,115 @@
+{# Premium Comparison — D3 Grouped Bar Chart
+   Data: chartData_premium_comparison = [{policy_type, prior_premium, premium}]
+#}
+{% from "charts/_chart_base.html" import chart_frame %}
+
+{% call(area_id) chart_frame("Premium Comparison", "Prior vs Current Term by Line") %}
+<div id="{{ area_id }}" style="flex:1;"></div>
+<script>
+window.render_premium_comparison = function() {
+  var data = chartData_premium_comparison;
+  var containerId = '{{ area_id }}';
+  var el = document.getElementById(containerId);
+  if (!data || data.length === 0) {
+    el.innerHTML = '<div class="chart-empty">No premium data available</div>';
+    return;
+  }
+
+  var margin = {top: 20, right: 30, bottom: 60, left: 80};
+  var chart = createChartSvg(containerId, {margin: margin});
+  var g = chart.g, w = chart.width, h = chart.height;
+
+  // Scales
+  var x0 = d3.scaleBand()
+    .domain(data.map(function(d) { return d.policy_type; }))
+    .range([0, w])
+    .padding(0.3);
+
+  var x1 = d3.scaleBand()
+    .domain(['prior', 'current'])
+    .range([0, x0.bandwidth()])
+    .padding(0.08);
+
+  var maxVal = d3.max(data, function(d) {
+    return Math.max(d.prior_premium || 0, d.premium || 0);
+  });
+  var y = d3.scaleLinear()
+    .domain([0, maxVal * 1.15])
+    .range([h, 0]);
+
+  // Grid lines
+  g.append('g')
+    .attr('class', 'chart-grid')
+    .call(d3.axisLeft(y).tickSize(-w).tickFormat(''))
+    .select('.domain').remove();
+
+  // X axis
+  g.append('g')
+    .attr('class', 'chart-axis')
+    .attr('transform', 'translate(0,' + h + ')')
+    .call(d3.axisBottom(x0).tickSize(0))
+    .select('.domain').attr('stroke', '#e5e7eb');
+
+  // Rotate labels if many items
+  if (data.length > 5) {
+    g.selectAll('.chart-axis text')
+      .attr('transform', 'rotate(-25)')
+      .attr('text-anchor', 'end')
+      .attr('dx', '-0.5em')
+      .attr('dy', '0.5em');
+  }
+
+  // Y axis
+  g.append('g')
+    .attr('class', 'chart-axis')
+    .call(d3.axisLeft(y).ticks(6).tickFormat(function(d) { return formatCurrency(d); }))
+    .select('.domain').remove();
+
+  // Bars
+  var groups = g.selectAll('.bar-group')
+    .data(data)
+    .enter().append('g')
+    .attr('transform', function(d) { return 'translate(' + x0(d.policy_type) + ',0)'; });
+
+  // Prior bar
+  groups.append('rect')
+    .attr('x', x1('prior'))
+    .attr('y', function(d) { return y(d.prior_premium || 0); })
+    .attr('width', x1.bandwidth())
+    .attr('height', function(d) { return h - y(d.prior_premium || 0); })
+    .attr('fill', ChartColors.prior)
+    .attr('rx', 2);
+
+  // Prior label
+  groups.append('text')
+    .attr('x', x1('prior') + x1.bandwidth() / 2)
+    .attr('y', function(d) { return y(d.prior_premium || 0) - 4; })
+    .attr('text-anchor', 'middle')
+    .attr('style', 'font-size:9px; fill:#9ca3af;')
+    .text(function(d) { return d.prior_premium ? formatCurrency(d.prior_premium) : ''; });
+
+  // Current bar
+  groups.append('rect')
+    .attr('x', x1('current'))
+    .attr('y', function(d) { return y(d.premium || 0); })
+    .attr('width', x1.bandwidth())
+    .attr('height', function(d) { return h - y(d.premium || 0); })
+    .attr('fill', ChartColors.current)
+    .attr('rx', 2);
+
+  // Current label
+  groups.append('text')
+    .attr('x', x1('current') + x1.bandwidth() / 2)
+    .attr('y', function(d) { return y(d.premium || 0) - 4; })
+    .attr('text-anchor', 'middle')
+    .attr('style', 'font-size:9px; fill:#003865; font-weight:600;')
+    .text(function(d) { return d.premium ? formatCurrency(d.premium) : ''; });
+
+  // Legend
+  addLegend(g, [
+    {color: ChartColors.prior, label: 'Prior Term'},
+    {color: ChartColors.current, label: 'Current Term'}
+  ], w / 2 - 120, h + 40);
+};
+</script>
+{% endcall %}

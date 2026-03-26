@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block title %}{{ tower_group }} — {{ client_name }}{% endblock %}
+{% block content %}
+<div class="max-w-[1600px] mx-auto px-4 py-4">
+  {# Breadcrumb #}
+  <div class="flex items-center gap-2 text-xs text-gray-400 mb-4">
+    <a href="/clients" class="hover:text-marsh">Clients</a>
+    <span>/</span>
+    <a href="/clients/{{ client_id }}?tab=policies" class="hover:text-marsh">{{ client_name }}</a>
+    <span>/</span>
+    <span class="text-gray-600">{{ tower_group }}</span>
+  </div>
+
+  <div class="flex items-center justify-between mb-6">
+    <h1 class="text-lg font-bold text-gray-900">{{ tower_group }} Program</h1>
+    <a href="/clients/{{ client_id }}?tab=policies"
+       class="text-xs text-marsh hover:underline">&larr; Back to Policies</a>
+  </div>
+
+  {# Two-column matrices #}
+  <div class="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
+    <div>
+      {% include "programs/_underlying_matrix.html" %}
+    </div>
+    <div>
+      {% include "programs/_excess_matrix.html" %}
+    </div>
+  </div>
+
+  {# Live schematic preview #}
+  <div class="card">
+    <div class="px-5 py-3 border-b border-gray-100">
+      <h2 class="font-semibold text-gray-900 text-sm">Schematic Preview</h2>
+    </div>
+    <div id="schematic-preview" class="p-4"
+         hx-get="/clients/{{ client_id }}/programs/{{ tower_group | urlencode }}/preview"
+         hx-trigger="tower-updated from:body, load"
+         hx-swap="innerHTML"
+         hx-sync="this:replace"
+         style="min-height: 400px;">
+      <div class="flex items-center justify-center h-64 text-gray-400 text-sm">Loading preview...</div>
+    </div>
+  </div>
+</div>
+
+<script src="/static/charts/d3.v7.min.js"></script>
+<script src="/static/charts/charts.js"></script>
+<script>
+(function() {
+  // Underlying matrix
+  window._underlyingMatrix = window.initMatrix({
+    tbodyId: 'underlying-tbody',
+    idAttr: 'data-row-id',
+    rowClass: 'matrix-row',
+    patchUrl: function(id) { return '/clients/{{ client_id }}/programs/{{ tower_group | urlencode }}/underlying/' + id + '/cell'; },
+    addRowUrl: '/clients/{{ client_id }}/programs/{{ tower_group | urlencode }}/underlying/add',
+    emptyRowId: 'underlying-empty',
+    onSaved: function(rowEl, field, resp) {
+      document.body.dispatchEvent(new CustomEvent('tower-updated'));
+    }
+  });
+
+  // Excess matrix
+  window._excessMatrix = window.initMatrix({
+    tbodyId: 'excess-tbody',
+    idAttr: 'data-row-id',
+    rowClass: 'matrix-row',
+    patchUrl: function(id) { return '/clients/{{ client_id }}/programs/{{ tower_group | urlencode }}/excess/' + id + '/cell'; },
+    addRowUrl: '/clients/{{ client_id }}/programs/{{ tower_group | urlencode }}/excess/add',
+    emptyRowId: 'excess-empty',
+    onSaved: function(rowEl, field, resp) {
+      // Update notation cell if returned
+      if (resp.notation !== undefined) {
+        var notCell = rowEl.querySelector('[data-field="notation"]');
+        if (notCell) notCell.textContent = resp.notation || '';
+      }
+      document.body.dispatchEvent(new CustomEvent('tower-updated'));
+    }
+  });
+
+  // Drag-to-reorder for underlying
+  var dragRow = null;
+  document.addEventListener('dragstart', function(e) {
+    if (e.target.closest && e.target.closest('.underlying-drag')) {
+      dragRow = e.target.closest('tr');
+    }
+  });
+  document.addEventListener('dragover', function(e) {
+    if (dragRow && e.target.closest('#underlying-tbody tr')) e.preventDefault();
+  });
+  document.addEventListener('drop', function(e) {
+    if (!dragRow) return;
+    e.preventDefault();
+    var target = e.target.closest('#underlying-tbody tr');
+    if (target && target !== dragRow) {
+      var tbody = document.getElementById('underlying-tbody');
+      tbody.insertBefore(dragRow, target);
+      var order = Array.from(tbody.querySelectorAll('tr[data-row-id]')).map(function(tr) {
+        return parseInt(tr.dataset.rowId);
+      });
+      fetch('/clients/{{ client_id }}/programs/{{ tower_group | urlencode }}/underlying/reorder', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({order: order})
+      }).then(function() {
+        document.body.dispatchEvent(new CustomEvent('tower-updated'));
+      });
+    }
+    dragRow = null;
+  });
+
+  // Delete handlers
+  window.deleteUnderlyingRow = function(btn, pid) {
+    if (!confirm('Remove this underlying line?')) return;
+    var row = btn.closest('tr');
+    fetch('/clients/{{ client_id }}/programs/{{ tower_group | urlencode }}/underlying/' + pid, {
+      method: 'DELETE'
+    }).then(function(r) { return r.text(); }).then(function() {
+      row.remove();
+      document.body.dispatchEvent(new CustomEvent('tower-updated'));
+    });
+  };
+
+  window.deleteExcessRow = function(btn, pid) {
+    if (!confirm('Remove this layer?')) return;
+    var row = btn.closest('tr');
+    fetch('/clients/{{ client_id }}/programs/{{ tower_group | urlencode }}/excess/' + pid, {
+      method: 'DELETE'
+    }).then(function(r) { return r.text(); }).then(function() {
+      row.remove();
+      document.body.dispatchEvent(new CustomEvent('tower-updated'));
+    });
+  };
+})();
+</script>
+{% endblock %}
