@@ -55,7 +55,7 @@ def run_seed(conn: sqlite3.Connection) -> None:
     # Helper to insert and return uid
     def add_policy(client_name, policy_type, carrier, pol_number, eff, exp, premium,
                    limit_amount=None, deductible=None, description=None, coverage_form=None,
-                   layer_position="Primary", tower_group=None, is_standalone=0,
+                   layer_position="Primary", is_standalone=0,
                    colleague=None, uw_name=None, uw_contact=None,
                    renewal_status="Not Started", commission_rate=None, prior_premium=None,
                    notes=None):
@@ -64,13 +64,13 @@ def run_seed(conn: sqlite3.Connection) -> None:
             """INSERT INTO policies
                (policy_uid, client_id, policy_type, carrier, policy_number,
                 effective_date, expiration_date, premium, limit_amount, deductible,
-                description, coverage_form, layer_position, tower_group, is_standalone,
+                description, coverage_form, layer_position, is_standalone,
                 underwriter_name, underwriter_contact,
                 renewal_status, commission_rate, prior_premium, account_exec, notes)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (uid, client_ids[client_name], policy_type, carrier, pol_number,
              eff, exp, premium, limit_amount, deductible, description, coverage_form,
-             layer_position, tower_group, is_standalone,
+             layer_position, is_standalone,
              uw_name, uw_contact,
              renewal_status, commission_rate, prior_premium, account_exec, notes),
         )

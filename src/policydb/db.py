@@ -360,7 +360,7 @@ def init_db(path: Path | None = None) -> None:
     # Back up the database once before running any pending migrations.
     # This gives a clean restore point regardless of which migration fails.
 
-    _KNOWN_MIGRATIONS = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100,101}
+    _KNOWN_MIGRATIONS = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100,101,102}
 
     if _KNOWN_MIGRATIONS - applied:
         _backup_db(conn, db_path)
@@ -1419,6 +1419,16 @@ def init_db(path: Path | None = None) -> None:
         conn.commit()
         logger.info("Migration 101: Phase 4 program cutover complete")
 
+    if 102 not in applied:
+        sql = (_MIGRATIONS_DIR / "102_drop_program_carriers.sql").read_text()
+        conn.executescript(sql)
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (102, "Drop program_carriers table"),
+        )
+        conn.commit()
+        logger.info("Migration 102: dropped program_carriers table")
+
     # Data hygiene: fix 'None' string corruption in text fields (runs every startup, fast no-op if clean)
     conn.execute("UPDATE clients SET cn_number = NULL WHERE cn_number = 'None'")
 
@@ -1464,14 +1474,6 @@ def init_db(path: Path | None = None) -> None:
             if n != r["carrier"]:
                 conn.execute("UPDATE policies SET carrier = ? WHERE id = ?", (n, r["id"]))
                 _carrier_changed += 1
-        try:
-            for r in conn.execute("SELECT id, carrier FROM program_carriers WHERE carrier IS NOT NULL AND carrier != ''").fetchall():
-                n = normalize_carrier(r["carrier"])
-                if n != r["carrier"]:
-                    conn.execute("UPDATE program_carriers SET carrier = ? WHERE id = ?", (n, r["id"]))
-                    _carrier_changed += 1
-        except Exception:
-            pass  # Table may have been dropped (migration 102); block removed in Task 9
         if _carrier_changed:
             conn.commit()
             logger.info("Normalized %d carrier names", _carrier_changed)

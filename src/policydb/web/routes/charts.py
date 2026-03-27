@@ -425,7 +425,7 @@ async def deck_view(
     for cid in selected_charts:
         if cid.startswith("tower_") and cid not in chart_titles:
             idx = int(cid.split("_")[1])
-            tg_name = chart_data[cid][0]["tower_group"] if chart_data.get(cid) else f"Tower {idx+1}"
+            tg_name = chart_data[cid][0].get("program_name", chart_data[cid][0].get("tower_group", "")) if chart_data.get(cid) else f"Tower {idx+1}"
             chart_titles[cid] = f"Tower: {tg_name}"
             chart_types[cid] = "d3"
 

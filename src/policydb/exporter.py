@@ -1023,8 +1023,7 @@ def export_full_xlsx(conn: sqlite3.Connection, client_id: int, client_name: str)
                   exposure_basis, exposure_amount, exposure_unit,
                   exposure_address, exposure_city, exposure_state, exposure_zip,
                   notes, account_exec, urgency, days_to_renewal,
-                  first_named_insured, access_point,
-                  is_program, program_carriers, program_carrier_count
+                  first_named_insured, access_point
            FROM v_policy_status WHERE client_id = ?
            ORDER BY project_name, policy_type, layer_position""",
         (client_id,),
@@ -2542,15 +2541,13 @@ def _scan_sketchy_fields(policy: dict) -> list[tuple[str, str]]:
             sketchy.append((label, val))
     # Check $0 premium on non-program policies
     prem = policy.get("premium")
-    if prem is not None and float(prem or 0) == 0 and not policy.get("is_program"):
+    if prem is not None and float(prem or 0) == 0 and not policy.get("program_id"):
         sketchy.append(("Premium", "$0"))
     return sketchy
 
 
 def _compute_completeness(policy: dict) -> int:
     """Return 0-100 completeness score for a policy."""
-    if policy.get("is_program"):
-        return 100  # programs scored differently
     total = len(_COMPLETENESS_FIELDS)
     filled = 0
     for field, _label, is_numeric in _COMPLETENESS_FIELDS:
@@ -2583,13 +2580,13 @@ def export_book_review_xlsx(conn: sqlite3.Connection, client_id: int, client_nam
                   p.tower_group, p.renewal_status, p.first_named_insured,
                   p.placement_colleague, p.underwriter_name,
                   p.exposure_address, p.project_name, p.project_id,
-                  p.is_program, p.program_id, p.is_opportunity,
+                  p.program_id, p.is_opportunity,
                   p.needs_investigation,
                   pr.name AS location_name,
-                  prog.policy_uid AS parent_program_uid
+                  pgm.name AS parent_program_name
            FROM policies p
            LEFT JOIN projects pr ON p.project_id = pr.id
-           LEFT JOIN policies prog ON p.program_id = prog.id
+           LEFT JOIN programs pgm ON p.program_id = pgm.id
            WHERE p.client_id = ? AND p.archived = 0
              AND (p.is_opportunity = 0 OR p.is_opportunity IS NULL)
            ORDER BY p.policy_type, p.carrier, p.effective_date""",
@@ -2605,20 +2602,20 @@ def export_book_review_xlsx(conn: sqlite3.Connection, client_id: int, client_nam
     ).fetchall()
     location_names = {r["id"]: r["name"] for r in locations}
 
-    # ── Query programs ──
-    programs = [p for p in policies if p.get("is_program")]
-    program_carriers = {}
-    if programs:
-        prog_ids = [p["policy_uid"] for p in programs]
-        for prog in programs:
-            pid = conn.execute("SELECT id FROM policies WHERE policy_uid = ?", (prog["policy_uid"],)).fetchone()
-            if pid:
-                carriers = conn.execute(
-                    "SELECT carrier, policy_number, premium, limit_amount, sort_order "
-                    "FROM program_carriers WHERE program_id = ? ORDER BY sort_order",
-                    (pid["id"],),
-                ).fetchall()
-                program_carriers[prog["policy_uid"]] = [dict(c) for c in carriers]
+    # ── Query programs from standalone programs table ──
+    programs_db = conn.execute(
+        "SELECT id, name, policy_type, effective_date, expiration_date FROM programs WHERE client_id = ? AND archived = 0 ORDER BY name",
+        (client_id,),
+    ).fetchall()
+    programs_db = [dict(r) for r in programs_db]
+    # Build carrier list per program from child policies
+    program_child_carriers: dict[int, list[dict]] = {}
+    for pgm in programs_db:
+        children = conn.execute(
+            "SELECT DISTINCT carrier, policy_number, premium, limit_amount FROM policies WHERE program_id = ? AND archived = 0 ORDER BY carrier",
+            (pgm["id"],),
+        ).fetchall()
+        program_child_carriers[pgm["id"]] = [dict(c) for c in children]
 
     # ── Run dedup scan ──
     dedup_candidates = find_duplicate_candidates(conn, client_id)
@@ -2654,12 +2651,12 @@ def export_book_review_xlsx(conn: sqlite3.Connection, client_id: int, client_nam
     # ════════════════════════════════════════════════════════════════════════
     # TAB 2: SUMMARY
     # ════════════════════════════════════════════════════════════════════════
-    total_policies = len([p for p in policies if not p.get("is_program")])
-    total_programs = len(programs)
-    total_premium = sum(float(p.get("premium") or 0) for p in policies if not p.get("is_program"))
-    unassigned = [p for p in policies if not p.get("project_id") and not p.get("is_program") and not p.get("program_id")]
+    total_policies = len(policies)
+    total_programs = len(programs_db)
+    total_premium = sum(float(p.get("premium") or 0) for p in policies)
+    unassigned = [p for p in policies if not p.get("project_id") and not p.get("program_id")]
     missing_carrier = [p for p in policies if not (p.get("carrier") or "").strip()]
-    missing_premium = [p for p in policies if not p.get("premium") and not p.get("is_program")]
+    missing_premium = [p for p in policies if not p.get("premium")]
     missing_polnum = [p for p in policies if not (p.get("policy_number") or "").strip()]
     missing_dates = [p for p in policies if not p.get("effective_date") or not p.get("expiration_date")]
 
@@ -2671,8 +2668,7 @@ def export_book_review_xlsx(conn: sqlite3.Connection, client_id: int, client_nam
         policy_completeness[p["policy_uid"]] = _compute_completeness(p)
 
     sketchy_count = sum(1 for v in policy_sketchy.values() if v)
-    non_prog = [p for p in policies if not p.get("is_program")]
-    avg_completeness = round(sum(policy_completeness[p["policy_uid"]] for p in non_prog) / len(non_prog)) if non_prog else 100
+    avg_completeness = round(sum(policy_completeness[p["policy_uid"]] for p in policies) / len(policies)) if policies else 100
 
     summary_rows = [
         {"Item": "Client", "Value": client_name},
@@ -2702,8 +2698,7 @@ def export_book_review_xlsx(conn: sqlite3.Connection, client_id: int, client_nam
     all_rows = []
     for p in policies:
         location = p.get("location_name") or p.get("project_name") or ""
-        is_prog = "Yes" if p.get("is_program") else ""
-        parent = p.get("parent_program_uid") or ""
+        parent = p.get("parent_program_name") or ""
         sketchy_here = policy_sketchy.get(p["policy_uid"], [])
         completeness = policy_completeness.get(p["policy_uid"], 100)
         all_rows.append({
@@ -2719,8 +2714,7 @@ def export_book_review_xlsx(conn: sqlite3.Connection, client_id: int, client_nam
             "Location / Project": location,
             "Layer": p.get("layer_position", ""),
             "Renewal Status": p.get("renewal_status", ""),
-            "Program": is_prog,
-            "Parent Program": parent,
+            "Program": parent,
             "First Named Insured": p.get("first_named_insured", ""),
             "Placement Colleague": p.get("placement_colleague", ""),
             "Underwriter": p.get("underwriter_name", ""),
@@ -2807,8 +2801,6 @@ def export_book_review_xlsx(conn: sqlite3.Connection, client_id: int, client_nam
     # ════════════════════════════════════════════════════════════════════════
     missing_rows = []
     for p in policies:
-        if p.get("is_program"):
-            continue
         missing = []
         if not (p.get("carrier") or "").strip():
             missing.append("Carrier")
@@ -2852,41 +2844,35 @@ def export_book_review_xlsx(conn: sqlite3.Connection, client_id: int, client_nam
     # TAB 5: PROGRAM REVIEW
     # ════════════════════════════════════════════════════════════════════════
     program_rows = []
-    for prog in programs:
-        carriers = program_carriers.get(prog["policy_uid"], [])
-        carrier_list = ", ".join(c["carrier"] for c in carriers) if carriers else prog.get("carrier", "")
-        carrier_count = len(carriers) if carriers else 0
-        total_prog_premium = sum(float(c.get("premium") or 0) for c in carriers) if carriers else float(prog.get("premium") or 0)
+    for pgm in programs_db:
+        children = program_child_carriers.get(pgm["id"], [])
+        carrier_list = ", ".join(c["carrier"] for c in children if c.get("carrier")) or ""
+        carrier_count = len([c for c in children if c.get("carrier")])
+        total_prog_premium = sum(float(c.get("premium") or 0) for c in children)
 
-        # Find child policies linked to this program
-        prog_db_id = conn.execute("SELECT id FROM policies WHERE policy_uid = ?", (prog["policy_uid"],)).fetchone()
-        child_count = 0
-        if prog_db_id:
-            child_count = conn.execute(
-                "SELECT COUNT(*) as c FROM policies WHERE program_id = ? AND archived = 0",
-                (prog_db_id["id"],),
-            ).fetchone()["c"]
+        child_count = conn.execute(
+            "SELECT COUNT(*) as c FROM policies WHERE program_id = ? AND archived = 0",
+            (pgm["id"],),
+        ).fetchone()["c"]
 
         # Check for standalone policies with same type that might belong
         potential_members = [
             p for p in policies
-            if not p.get("is_program")
-            and not p.get("program_id")
-            and p.get("policy_type") == prog.get("policy_type")
-            and p["policy_uid"] != prog["policy_uid"]
+            if not p.get("program_id")
+            and p.get("policy_type") == pgm.get("policy_type")
         ]
 
         program_rows.append({
-            "Program ID": prog["policy_uid"],
-            "Coverage Type": prog.get("policy_type", ""),
+            "Program": pgm.get("name", ""),
+            "Coverage Type": pgm.get("policy_type", ""),
             "Carriers": carrier_list,
             "Carrier Count": carrier_count,
             "Total Premium": total_prog_premium,
-            "Effective Date": prog.get("effective_date", ""),
-            "Expiration Date": prog.get("expiration_date", ""),
+            "Effective Date": pgm.get("effective_date", ""),
+            "Expiration Date": pgm.get("expiration_date", ""),
             "Child Policies Linked": child_count,
             "Potential Unlinked Policies": len(potential_members),
-            "Review Note": f"{len(potential_members)} standalone {prog.get('policy_type', '')} policies may belong to this program" if potential_members else "OK",
+            "Review Note": f"{len(potential_members)} standalone {pgm.get('policy_type', '')} policies may belong to this program" if potential_members else "OK",
         })
     _write_sheet(wb, "Program Review", program_rows)
 
