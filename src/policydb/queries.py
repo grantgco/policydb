@@ -2510,15 +2510,18 @@ def get_programs_for_client(conn: sqlite3.Connection, client_id: int) -> list[di
     return programs
 
 
-def get_unassigned_policies(conn: sqlite3.Connection, client_id: int) -> list[dict]:
-    """Return active policies not assigned to any program."""
+def get_unassigned_policies(conn: sqlite3.Connection, client_id: int, exclude_program_id: int | None = None) -> list[dict]:
+    """Return active policies not assigned to any program (or assigned to archived/missing programs)."""
     rows = conn.execute(
-        """SELECT policy_uid, policy_type, carrier, premium, limit_amount
-           FROM policies
-           WHERE client_id = ? AND archived = 0
-             AND (is_opportunity = 0 OR is_opportunity IS NULL)
-             AND program_id IS NULL
-           ORDER BY policy_type""",
+        """SELECT p.policy_uid, p.policy_type, p.carrier, p.premium, p.limit_amount, p.program_id
+           FROM policies p
+           WHERE p.client_id = ? AND p.archived = 0
+             AND (p.is_opportunity = 0 OR p.is_opportunity IS NULL)
+             AND (
+                 p.program_id IS NULL
+                 OR NOT EXISTS (SELECT 1 FROM programs pg WHERE pg.id = p.program_id AND pg.archived = 0)
+             )
+           ORDER BY p.policy_type""",
         (client_id,),
     ).fetchall()
     return [dict(r) for r in rows]
