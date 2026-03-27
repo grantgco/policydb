@@ -710,3 +710,33 @@ def test_v_tower_uses_program_id():
     """v_tower should group by program_id, not tower_group."""
     from policydb.views import V_TOWER
     assert "program_id" in V_TOWER or "programs" in V_TOWER
+
+
+# ─── Task 3: Query Function Signature Tests ──────────────────────────────
+
+
+def test_get_program_child_policies_by_id():
+    """get_program_child_policies should accept program_id (int), not name."""
+    from policydb.queries import get_program_child_policies
+    import inspect
+    sig = inspect.signature(get_program_child_policies)
+    params = list(sig.parameters.keys())
+    assert "program_id" in params
+    assert "program_name" not in params
+
+
+def test_get_program_aggregates_by_id():
+    """get_program_aggregates should accept program_id (int)."""
+    from policydb.queries import get_program_aggregates
+    import inspect
+    sig = inspect.signature(get_program_aggregates)
+    params = list(sig.parameters.keys())
+    assert "program_id" in params
+
+
+def test_get_unassigned_no_is_program():
+    """get_unassigned_policies should not check is_program."""
+    from policydb.queries import get_unassigned_policies
+    import inspect
+    source = inspect.getsource(get_unassigned_policies)
+    assert "is_program" not in source
