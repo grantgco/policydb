@@ -544,6 +544,106 @@ def _risk_alerts_ctx(conn) -> dict:
     return {"risk_alerts": alerts}
 
 
+# ── Issues context ───────────────────────────────────────────────────────────
+
+
+def _issues_ctx(conn, q: str = "", client_id: int = 0) -> dict:
+    """Build issues tab context — open and recently resolved issues."""
+    today = date.today().isoformat()
+    rows = conn.execute("""
+        SELECT a.id, a.issue_uid, a.subject, a.details, a.client_id, a.policy_id,
+               a.program_id, a.issue_status, a.issue_severity, a.issue_sla_days,
+               a.resolution_type, a.resolution_notes, a.root_cause_category,
+               a.resolved_date, a.activity_date, a.created_at,
+               c.name AS client_name,
+               p.policy_uid, p.policy_type, p.carrier,
+               (SELECT COUNT(*) FROM activity_log sub
+                WHERE sub.issue_id = a.id) AS activity_count,
+               (SELECT MAX(sub.activity_date) FROM activity_log sub
+                WHERE sub.issue_id = a.id) AS last_activity_date,
+               julianday(?) - julianday(a.activity_date) AS days_open
+        FROM activity_log a
+        LEFT JOIN clients c ON c.id = a.client_id
+        LEFT JOIN policies p ON p.id = a.policy_id
+        WHERE a.item_kind = 'issue'
+          AND a.issue_id IS NULL
+        ORDER BY
+          CASE a.issue_severity
+            WHEN 'Critical' THEN 0
+            WHEN 'High' THEN 1
+            WHEN 'Normal' THEN 2
+            WHEN 'Low' THEN 3
+            ELSE 4
+          END,
+          a.activity_date ASC
+    """, (today,)).fetchall()
+    issues = [dict(r) for r in rows]
+
+    # Apply filters
+    if client_id:
+        issues = [i for i in issues if i.get("client_id") == client_id]
+    if q:
+        q_lower = q.lower()
+        issues = [i for i in issues if
+                  q_lower in (i.get("subject") or "").lower() or
+                  q_lower in (i.get("client_name") or "").lower() or
+                  q_lower in (i.get("details") or "").lower()]
+
+    # Bucket into sections
+    severities = cfg.get("issue_severities", [])
+    sla_map = {s["label"]: s.get("sla_days", 7) for s in severities}
+
+    critical_overdue = []
+    active = []
+    waiting = []
+    recently_resolved = []
+
+    for issue in issues:
+        status = issue.get("issue_status") or "Open"
+        severity = issue.get("issue_severity") or "Normal"
+        days_open = issue.get("days_open") or 0
+        sla = issue.get("issue_sla_days") or sla_map.get(severity, 7)
+        issue["sla_days"] = sla
+        issue["over_sla"] = days_open > sla
+
+        if status in ("Resolved", "Closed"):
+            # Only show recently resolved (last 7 days)
+            if issue.get("resolved_date"):
+                from dateutil.parser import parse as dparse
+                try:
+                    days_since = (date.today() - dparse(issue["resolved_date"]).date()).days
+                    if days_since <= 7:
+                        recently_resolved.append(issue)
+                except Exception:
+                    pass
+        elif severity == "Critical" or issue["over_sla"]:
+            critical_overdue.append(issue)
+        elif status == "Waiting":
+            waiting.append(issue)
+        else:
+            active.append(issue)
+
+    open_count = len(critical_overdue) + len(active) + len(waiting)
+
+    # All clients for filter dropdown
+    all_clients = [dict(r) for r in conn.execute(
+        "SELECT id, name FROM clients WHERE archived=0 ORDER BY name"
+    ).fetchall()]
+
+    return {
+        "critical_overdue": critical_overdue,
+        "active_issues": active,
+        "waiting_issues": waiting,
+        "recently_resolved": recently_resolved,
+        "open_issues_count": open_count,
+        "all_clients": all_clients,
+        "q": q,
+        "client_id": client_id,
+        "issue_severities": cfg.get("issue_severities", []),
+        "issue_lifecycle_states": cfg.get("issue_lifecycle_states", []),
+    }
+
+
 # ── Main page ────────────────────────────────────────────────────────────────
 
 
@@ -562,6 +662,8 @@ def action_center_page(request: Request, tab: str = "", conn=Depends(get_db)):
         tab_ctx = _activities_ctx(conn)
     elif initial_tab == "scratchpads":
         tab_ctx = _scratchpads_ctx(conn)
+    elif initial_tab == "issues":
+        tab_ctx = _issues_ctx(conn)
     elif initial_tab == "activity-review":
         tab_ctx = _activity_review_ctx(conn)
     # Always compute scratchpad count for tab badge
@@ -588,6 +690,14 @@ def action_center_page(request: Request, tab: str = "", conn=Depends(get_db)):
     )
     nudge_due_count = len(tab_ctx.get("nudge_due", []))
     review_pending_count = get_pending_review_count(conn)
+    # Issues count for tab badge (skip if already computed)
+    if "open_issues_count" in tab_ctx:
+        issues_count = tab_ctx["open_issues_count"]
+    else:
+        issues_count = conn.execute(
+            "SELECT COUNT(*) FROM activity_log WHERE item_kind='issue' AND issue_id IS NULL "
+            "AND (issue_status IS NULL OR issue_status NOT IN ('Resolved','Closed'))"
+        ).fetchone()[0]
     ctx = {
         "request": request,
         "active": "action-center",
@@ -596,6 +706,7 @@ def action_center_page(request: Request, tab: str = "", conn=Depends(get_db)):
         "act_now_count": act_now_count,
         "nudge_due_count": nudge_due_count,
         "review_pending_count": review_pending_count,
+        "issues_count": issues_count,
         **sidebar,
         **tab_ctx,
         **health_ctx,
@@ -652,6 +763,18 @@ def ac_scratchpads(request: Request, conn=Depends(get_db)):
     ctx = _scratchpads_ctx(conn)
     ctx["request"] = request
     return templates.TemplateResponse("action_center/_scratchpads.html", ctx)
+
+
+@router.get("/action-center/issues", response_class=HTMLResponse)
+def ac_issues(
+    request: Request,
+    q: str = "",
+    client_id: int = 0,
+    conn=Depends(get_db),
+):
+    ctx = _issues_ctx(conn, q=q, client_id=client_id)
+    ctx["request"] = request
+    return templates.TemplateResponse("action_center/_issues.html", ctx)
 
 
 @router.get("/action-center/sidebar", response_class=HTMLResponse)
