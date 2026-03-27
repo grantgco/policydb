@@ -161,13 +161,13 @@ def policy_mark_reviewed(
     mark_reviewed(conn, "policy", uid, review_cycle or None)
 
     # Cascade review to child policies if this is a program
-    prog_row = conn.execute(
-        "SELECT id, is_program FROM policies WHERE policy_uid = ?", (uid,)
+    program = conn.execute(
+        "SELECT id FROM programs WHERE program_uid = ?", (uid,)
     ).fetchone()
-    if prog_row and prog_row["is_program"]:
+    if program:
         conn.execute(
             "UPDATE policies SET last_reviewed_at = CURRENT_TIMESTAMP WHERE program_id = ?",
-            (prog_row["id"],),
+            (program["id"],),
         )
         conn.commit()
 

@@ -713,35 +713,9 @@ def client_tab_policies(request: Request, client_id: int, conn=Depends(get_db)):
     from policydb.queries import get_programs_for_client
     programs_v2 = get_programs_for_client(conn, client_id)
 
-    # Legacy programs (is_program=1 policy rows)
-    programs = [dict(r) for r in conn.execute(
-        """SELECT id, policy_uid, policy_type, carrier, effective_date, expiration_date,
-                  premium, limit_amount, renewal_status, tower_group
-           FROM policies WHERE client_id = ? AND archived = 0 AND is_program = 1 ORDER BY policy_type""",
-        (client_id,),
-    ).fetchall()]
-
-    # Dedup: hide legacy programs that have been migrated to programs table
-    _migrated_names = {p["name"] for p in programs_v2}
-    programs = [p for p in programs
-                if (p.get("tower_group") or p.get("policy_type")) not in _migrated_names]
-
+    # Legacy programs removed — programs now come from standalone programs table (programs_v2)
+    programs = []
     _program_linked_ids = set()
-    for pgm in programs:
-        _program_linked_ids.add(pgm["policy_uid"])
-        pgm["carrier_rows"] = [dict(r) for r in conn.execute(
-            "SELECT id, carrier, policy_number, premium, limit_amount FROM program_carriers WHERE program_id = ? ORDER BY sort_order",
-            (pgm["id"],),
-        ).fetchall()]
-        pgm["program_carrier_count"] = len(pgm["carrier_rows"])
-        linked = [dict(r) for r in conn.execute(
-            """SELECT policy_uid, policy_type, carrier, premium, limit_amount, effective_date, expiration_date
-               FROM policies WHERE program_id = ? AND archived = 0 ORDER BY policy_type""",
-            (pgm["id"],),
-        ).fetchall()]
-        pgm["linked_policies"] = linked
-        for lp in linked:
-            _program_linked_ids.add(lp["policy_uid"])
 
     # Project notes & addresses
     notes_rows = conn.execute("SELECT id, LOWER(TRIM(name)) AS key, name, notes FROM projects WHERE client_id = ?", (client_id,)).fetchall()
@@ -1101,35 +1075,9 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
         (client_id,),
     ).fetchall()]
 
-    # Corporate programs (is_program=1) with linked policies
-    programs = [dict(r) for r in conn.execute(
-        """SELECT id, policy_uid, policy_type, carrier, effective_date, expiration_date,
-                  premium, limit_amount, renewal_status
-           FROM policies WHERE client_id = ? AND archived = 0 AND is_program = 1
-           ORDER BY policy_type""",
-        (client_id,),
-    ).fetchall()]
+    # Legacy programs removed — programs now come from standalone programs table
+    programs = []
     _program_linked_ids = set()
-    for pgm in programs:
-        _program_linked_ids.add(pgm["policy_uid"])
-        # Carrier rows from structured table
-        pgm["carrier_rows"] = [dict(r) for r in conn.execute(
-            """SELECT id, carrier, policy_number, premium, limit_amount
-               FROM program_carriers WHERE program_id = ? ORDER BY sort_order""",
-            (pgm["id"],),
-        ).fetchall()]
-        pgm["program_carrier_count"] = len(pgm["carrier_rows"])
-        # Still load linked policies (existing feature)
-        linked = [dict(r) for r in conn.execute(
-            """SELECT policy_uid, policy_type, carrier, premium, limit_amount,
-                      effective_date, expiration_date
-               FROM policies WHERE program_id = ? AND archived = 0
-               ORDER BY policy_type""",
-            (pgm["id"],),
-        ).fetchall()]
-        pgm["linked_policies"] = linked
-        for lp in linked:
-            _program_linked_ids.add(lp["policy_uid"])
 
     # Load project notes keyed by normalized project name (from projects table)
     notes_rows = conn.execute(
@@ -1326,11 +1274,9 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
 
     # ── Sidebar enrichment data ────────────────────────────────────────────
     # Renewal calendar: policy count per expiration month
-    # Renewal calendar: programs count their carrier_count, regular policies count as 1
     _rm_rows = conn.execute(
         """SELECT CAST(strftime('%m', expiration_date) AS INTEGER) AS month,
-                  SUM(CASE WHEN is_program = 1 AND (SELECT COUNT(*) FROM program_carriers WHERE program_id = p.id) > 0
-                           THEN (SELECT COUNT(*) FROM program_carriers WHERE program_id = p.id) ELSE 1 END) AS cnt
+                  COUNT(*) AS cnt
            FROM policies p
            WHERE client_id = ? AND archived = 0
              AND (is_opportunity = 0 OR is_opportunity IS NULL)
@@ -2765,7 +2711,7 @@ def export_policies_csv(client_id: int, conn=Depends(get_db)):
         return HTMLResponse("Not found", status_code=404)
     rows = [dict(r) for r in conn.execute(
         """SELECT COALESCE(project_name, 'Corporate / Standalone') AS project_location,
-                  CASE WHEN is_program = 1 THEN policy_type || ' [PROGRAM]' ELSE policy_type END AS policy_type,
+                  policy_type,
                   carrier, policy_number, effective_date, expiration_date,
                   premium, limit_amount, deductible, renewal_status, coverage_form,
                   layer_position, description
@@ -4963,7 +4909,7 @@ def client_ai_bulk_import_parse(
     db_policies = conn.execute(
         """SELECT p.id, p.policy_uid, p.policy_number, p.policy_type, p.carrier,
                   p.effective_date, p.expiration_date, p.premium, p.limit_amount,
-                  p.deductible, p.project_id, p.project_name, p.is_program,
+                  p.deductible, p.project_id, p.project_name,
                   c.name as client_name
            FROM policies p JOIN clients c ON p.client_id = c.id
            WHERE p.client_id = ? AND p.archived = 0""",
@@ -5161,8 +5107,8 @@ def client_ai_bulk_import_apply(
                         description, layer_position, tower_group, attachment_point,
                         participation_of, first_named_insured, underwriter_name,
                         placement_colleague, exposure_address, coverage_form, notes,
-                        project_id, project_name, is_program, renewal_status
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Not Started')""",
+                        project_id, project_name, renewal_status
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Not Started')""",
                     (
                         uid, client_id,
                         d.get("policy_type", ""), d.get("carrier", ""), d.get("policy_number", ""),
@@ -5176,7 +5122,6 @@ def client_ai_bulk_import_apply(
                         d.get("placement_colleague", ""), d.get("exposure_address", ""),
                         d.get("coverage_form", ""), d.get("notes", ""),
                         entry["location_id"], entry.get("location_name") or d.get("project_name", ""),
-                        1 if d.get("program_layers") else 0,
                     ),
                 )
                 created += 1
@@ -5194,16 +5139,6 @@ def client_ai_bulk_import_apply(
                     _uw_email = (d.get("underwriter_contact") or "").strip() or None
                     _uw_cid = get_or_create_contact(conn, _uw_name, email=_uw_email)
                     assign_contact_to_policy(conn, _uw_cid, _new_pol_id, role="Underwriter")
-
-                if d.get("program_layers"):
-                    for j, layer in enumerate(d["program_layers"]):
-                        conn.execute(
-                            """INSERT INTO program_carriers (program_id, carrier, policy_number,
-                               premium, limit_amount, sort_order) VALUES (?, ?, ?, ?, ?, ?)""",
-                            (_new_pol_id, layer.get("carrier", ""), layer.get("policy_number", ""),
-                             layer.get("premium", 0) or 0, layer.get("limit_amount", 0) or 0, j + 1),
-                        )
-                    programs_created += 1
 
                 # Insert sub-coverages if present
                 if d.get("sub_coverages"):
