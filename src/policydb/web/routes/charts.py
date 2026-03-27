@@ -62,9 +62,45 @@ MANUAL_CHART_REGISTRY = [
     {"id": "freq_severity", "title": "Claims Frequency vs. Severity",
      "description": "Dual-axis: claim count bars + average claim cost line.",
      "category": "loss", "icon": "chart-bar"},
+    {"id": "quote_comparison", "title": "Quote Comparison",
+     "description": "Bubble chart (rate vs TIV) with ranked quote detail table for carrier comparison.",
+     "category": "financial", "icon": "chart-scatter"},
+    # ── Visual Builders ──
+    {"id": "timeline_builder", "title": "Timeline Builder",
+     "description": "Multi-step process timeline with horizontal, vertical, or phase layouts.",
+     "category": "builder", "icon": "timeline"},
+    {"id": "callout_stat", "title": "Big Stat / KPI",
+     "description": "Large metric callout with direction arrow, label, and context.",
+     "category": "card", "icon": "stat"},
+    {"id": "callout_coverage", "title": "Coverage Card",
+     "description": "Coverage line summary with limit, deductible, premium, and key terms.",
+     "category": "card", "icon": "card"},
+    {"id": "callout_carrier", "title": "Carrier Tile",
+     "description": "Carrier summary with rating, participation, premium, and notes.",
+     "category": "card", "icon": "card"},
+    {"id": "callout_milestone", "title": "Milestone Card",
+     "description": "Single milestone with date, status badge, description, and progress bar.",
+     "category": "card", "icon": "timeline"},
+    {"id": "callout_narrative", "title": "Narrative Card",
+     "description": "Market update or analysis narrative with callout quote block.",
+     "category": "card", "icon": "card"},
 ]
 
 _MANUAL_TITLE_MAP = {c["id"]: c["title"] for c in MANUAL_CHART_REGISTRY}
+
+
+# ── Client Search (for snapshot tagging) — MUST come BEFORE parameterized routes ──
+
+@router.get("/api/client-search", response_class=JSONResponse)
+async def chart_client_search(q: str = "", conn=Depends(get_db)):
+    """Search clients by name for snapshot tagging."""
+    if not q or len(q) < 2:
+        return []
+    rows = conn.execute(
+        "SELECT id, name FROM clients WHERE archived = 0 AND name LIKE ? ORDER BY name LIMIT 10",
+        (f"%{q}%",),
+    ).fetchall()
+    return [{"id": r["id"], "name": r["name"]} for r in rows]
 
 
 # ── Manual Snapshot CRUD — MUST come BEFORE /manual/{chart_type} ──────────
@@ -72,8 +108,9 @@ _MANUAL_TITLE_MAP = {c["id"]: c["title"] for c in MANUAL_CHART_REGISTRY}
 @router.get("/manual/snapshots/{chart_type}", response_class=JSONResponse)
 async def manual_list_snapshots(chart_type: str, conn=Depends(get_db)):
     rows = conn.execute(
-        "SELECT id, name, updated_at FROM chart_snapshots "
-        "WHERE chart_type = ? AND client_id IS NULL ORDER BY updated_at DESC",
+        "SELECT s.id, s.name, s.updated_at, s.client_id, c.name as client_name "
+        "FROM chart_snapshots s LEFT JOIN clients c ON s.client_id = c.id "
+        "WHERE s.chart_type = ? ORDER BY s.updated_at DESC",
         (f"manual_{chart_type}",),
     ).fetchall()
     return [dict(r) for r in rows]
@@ -82,8 +119,9 @@ async def manual_list_snapshots(chart_type: str, conn=Depends(get_db)):
 @router.get("/manual/snapshots/{chart_type}/{snapshot_id}", response_class=JSONResponse)
 async def manual_load_snapshot(chart_type: str, snapshot_id: int, conn=Depends(get_db)):
     row = conn.execute(
-        "SELECT id, name, data, updated_at FROM chart_snapshots "
-        "WHERE id = ? AND chart_type = ? AND client_id IS NULL",
+        "SELECT s.id, s.name, s.data, s.updated_at, s.client_id, c.name as client_name "
+        "FROM chart_snapshots s LEFT JOIN clients c ON s.client_id = c.id "
+        "WHERE s.id = ? AND s.chart_type = ?",
         (snapshot_id, f"manual_{chart_type}"),
     ).fetchone()
     if not row:
@@ -100,18 +138,20 @@ async def manual_save_snapshot(request: Request, chart_type: str, conn=Depends(g
     data = body.get("data", {})
     snapshot_id = body.get("id")
 
+    client_id = body.get("client_id") or None  # convert empty string/0 to None
+
     if snapshot_id:
         conn.execute(
-            "UPDATE chart_snapshots SET name = ?, data = ?, updated_at = datetime('now') "
-            "WHERE id = ? AND chart_type = ? AND client_id IS NULL",
-            (name, json.dumps(data), snapshot_id, f"manual_{chart_type}"),
+            "UPDATE chart_snapshots SET name = ?, data = ?, client_id = ?, updated_at = datetime('now') "
+            "WHERE id = ? AND chart_type = ?",
+            (name, json.dumps(data), client_id, snapshot_id, f"manual_{chart_type}"),
         )
         conn.commit()
         return {"ok": True, "id": snapshot_id, "name": name}
     else:
         cur = conn.execute(
-            "INSERT INTO chart_snapshots (client_id, chart_type, name, data) VALUES (NULL, ?, ?, ?)",
-            (f"manual_{chart_type}", name, json.dumps(data)),
+            "INSERT INTO chart_snapshots (client_id, chart_type, name, data) VALUES (?, ?, ?, ?)",
+            (client_id, f"manual_{chart_type}", name, json.dumps(data)),
         )
         conn.commit()
         return {"ok": True, "id": cur.lastrowid, "name": name}
@@ -120,7 +160,7 @@ async def manual_save_snapshot(request: Request, chart_type: str, conn=Depends(g
 @router.delete("/manual/snapshots/{chart_type}/{snapshot_id}", response_class=JSONResponse)
 async def manual_delete_snapshot(chart_type: str, snapshot_id: int, conn=Depends(get_db)):
     conn.execute(
-        "DELETE FROM chart_snapshots WHERE id = ? AND chart_type = ? AND client_id IS NULL",
+        "DELETE FROM chart_snapshots WHERE id = ? AND chart_type = ?",
         (snapshot_id, f"manual_{chart_type}"),
     )
     conn.commit()
@@ -133,9 +173,10 @@ async def manual_delete_snapshot(chart_type: str, snapshot_id: int, conn=Depends
 async def manual_gallery(request: Request, conn=Depends(get_db)):
     """Manual chart library gallery."""
     snapshots = conn.execute(
-        "SELECT id, chart_type, name, updated_at FROM chart_snapshots "
-        "WHERE chart_type LIKE 'manual_%' AND client_id IS NULL "
-        "ORDER BY updated_at DESC LIMIT 12"
+        "SELECT s.id, s.chart_type, s.name, s.updated_at, s.client_id, c.name as client_name "
+        "FROM chart_snapshots s LEFT JOIN clients c ON s.client_id = c.id "
+        "WHERE s.chart_type LIKE 'manual_%' "
+        "ORDER BY s.updated_at DESC LIMIT 12"
     ).fetchall()
     snapshots = [dict(r) for r in snapshots]
     for s in snapshots:
@@ -143,9 +184,12 @@ async def manual_gallery(request: Request, conn=Depends(get_db)):
         s["title"] = _MANUAL_TITLE_MAP.get(bare, bare)
         s["bare_type"] = bare
 
+    charts_list = [c for c in MANUAL_CHART_REGISTRY if c["category"] not in ("builder", "card")]
+    builders_list = [c for c in MANUAL_CHART_REGISTRY if c["category"] in ("builder", "card")]
+
     return templates.TemplateResponse(
         "charts/manual/gallery.html",
-        {"request": request, "charts": MANUAL_CHART_REGISTRY, "snapshots": snapshots},
+        {"request": request, "charts": charts_list, "builders": builders_list, "snapshots": snapshots},
     )
 
 
