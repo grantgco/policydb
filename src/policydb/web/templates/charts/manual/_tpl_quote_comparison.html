@@ -20,7 +20,7 @@
     </div>
 
     <!-- Legend (circles, built dynamically) -->
-    <div class="mc-legend" id="chart-legend" style="margin-bottom:0.35rem;"></div>
+    <div id="chart-legend" style="display:flex;flex-direction:row;gap:18px;margin-bottom:5px;flex-wrap:wrap;"></div>
 
     <!-- Bubble Chart -->
     <div id="chart-bubble-wrap" style="position:relative;height:220px;min-height:0;">
@@ -29,16 +29,16 @@
 
     <!-- Quote Detail Table -->
     <div id="chart-table-wrap" style="margin-top:0.35rem;overflow:auto;flex:1;min-height:0;">
-      <table id="qc-table" style="width:100%;border-collapse:collapse;font-family:'Noto Sans',sans-serif;font-size:0.7rem;color:var(--mc-text,#3D3C37);">
+      <table id="qc-table" style="width:100%;border-collapse:collapse;font-family:'Noto Sans',sans-serif;font-size:11px;color:#3D3C37;">
         <thead>
-          <tr style="border-bottom:2px solid var(--mc-midnight,#000F47);">
-            <th style="padding:0.4rem 0.6rem;text-align:left;font-size:0.62rem;text-transform:uppercase;letter-spacing:0.07em;color:var(--mc-muted,#7B7974);font-weight:600;white-space:nowrap;">Carrier</th>
-            <th style="padding:0.4rem 0.6rem;text-align:right;font-size:0.62rem;text-transform:uppercase;letter-spacing:0.07em;color:var(--mc-muted,#7B7974);font-weight:600;white-space:nowrap;">TIV</th>
-            <th style="padding:0.4rem 0.6rem;text-align:right;font-size:0.62rem;text-transform:uppercase;letter-spacing:0.07em;color:var(--mc-muted,#7B7974);font-weight:600;white-space:nowrap;">Applied Rate</th>
-            <th style="padding:0.4rem 0.6rem;text-align:right;font-size:0.62rem;text-transform:uppercase;letter-spacing:0.07em;color:var(--mc-muted,#7B7974);font-weight:600;white-space:nowrap;">Premium</th>
-            <th style="padding:0.4rem 0.6rem;text-align:right;font-size:0.62rem;text-transform:uppercase;letter-spacing:0.07em;color:var(--mc-muted,#7B7974);font-weight:600;white-space:nowrap;">Rate Rank</th>
-            <th style="padding:0.4rem 0.6rem;text-align:right;font-size:0.62rem;text-transform:uppercase;letter-spacing:0.07em;color:var(--mc-muted,#7B7974);font-weight:600;white-space:nowrap;">Prem Rank</th>
-            <th style="padding:0.4rem 0.6rem;text-align:right;font-size:0.62rem;text-transform:uppercase;letter-spacing:0.07em;color:var(--mc-muted,#7B7974);font-weight:600;white-space:nowrap;">vs. Lowest</th>
+          <tr style="border-bottom:2px solid #000F47;">
+            <th style="padding:6px 9px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:0.07em;color:#7B7974;font-weight:600;white-space:nowrap;">Carrier</th>
+            <th style="padding:6px 9px;text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:0.07em;color:#7B7974;font-weight:600;white-space:nowrap;">TIV</th>
+            <th style="padding:6px 9px;text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:0.07em;color:#7B7974;font-weight:600;white-space:nowrap;">Applied Rate</th>
+            <th style="padding:6px 9px;text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:0.07em;color:#7B7974;font-weight:600;white-space:nowrap;">Premium</th>
+            <th style="padding:6px 9px;text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:0.07em;color:#7B7974;font-weight:600;white-space:nowrap;">Rate Rank</th>
+            <th style="padding:6px 9px;text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:0.07em;color:#7B7974;font-weight:600;white-space:nowrap;">Prem Rank</th>
+            <th style="padding:6px 9px;text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:0.07em;color:#7B7974;font-weight:600;white-space:nowrap;">vs. Lowest</th>
           </tr>
         </thead>
         <tbody id="qc-tbody"></tbody>
@@ -46,7 +46,7 @@
     </div>
 
     <!-- Note -->
-    <div id="chart-note" style="font-size:0.62rem;color:#7B7974;margin-top:0.35rem;text-align:center;">
+    <div id="chart-note" style="font-size:10px;color:#7B7974;margin-top:5px;text-align:center;font-family:'Noto Sans',sans-serif;">
       Bubble size = premium. Lower-left carriers are cheaper in both dimensions.
     </div>
   </div>
@@ -170,15 +170,15 @@
   }
 
   function rankBadge(rank) {
-    // Marsh palette: green1000 for best, midnight for 2nd, gold1000 for 3rd, red for rest
+    // Solid hex backgrounds for html2canvas compatibility (rgba renders poorly)
     var styles = {
-      1: { bg: 'rgba(47,117,0,0.12)',  color: MC.green1000 },
-      2: { bg: 'rgba(0,15,71,0.10)',   color: MC.midnight },
-      3: { bg: 'rgba(203,126,3,0.10)', color: MC.gold1000 },
+      1: { bg: '#DFECD7', color: MC.green1000 },
+      2: { bg: '#E2E4ED', color: MC.midnight },
+      3: { bg: '#FFF3DA', color: MC.gold1000 },
     };
-    var s = styles[rank] || { bg: 'rgba(200,16,46,0.10)', color: MC.red };
+    var s = styles[rank] || { bg: '#FCE4E6', color: MC.red };
     var label = rank === 1 ? '1st' : rank === 2 ? '2nd' : rank === 3 ? '3rd' : '#' + rank;
-    return '<span style="display:inline-block;padding:0.1rem 0.45rem;border-radius:99px;font-size:0.62rem;font-weight:600;letter-spacing:0.03em;background:' + s.bg + ';color:' + s.color + ';">' + label + '</span>';
+    return '<span style="display:inline-block;padding:2px 7px;border-radius:99px;font-size:10px;font-weight:600;letter-spacing:0.03em;background:' + s.bg + ';color:' + s.color + ';font-family:\'Noto Sans\',sans-serif;">' + label + '</span>';
   }
 
   // ── Read carriers from editor inputs ───────────────────────────────────
@@ -248,7 +248,10 @@
     ManualChart.applyToggle('show-title',    'chart-title-display');
     ManualChart.applyToggle('show-subtitle', 'chart-subtitle-display');
     ManualChart.applyToggle('show-chart',    'chart-bubble-wrap');
-    ManualChart.applyToggle('show-legend',   'chart-legend');
+    // Legend needs flex, not block — applyToggle resets to '' which is block
+    var legendOn = ManualChart.isToggled('show-legend');
+    var legendEl = document.getElementById('chart-legend');
+    if (legendEl) legendEl.style.display = legendOn ? 'flex' : 'none';
     ManualChart.applyToggle('show-table',    'chart-table-wrap');
     ManualChart.applyToggle('show-note',     'chart-note');
   };
@@ -294,9 +297,9 @@
     legendEl.innerHTML = '';
     carriers.forEach(function (c, i) {
       var item = document.createElement('div');
-      item.className = 'mc-legend-item';
+      item.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:12px;color:#7B7974;font-family:"Noto Sans",sans-serif;';
       item.innerHTML =
-        '<div class="mc-legend-swatch" style="width:10px;height:10px;border-radius:50%;background:' + C[i % C.length] + ';"></div> ' + c.name;
+        '<div style="width:10px;height:10px;border-radius:50%;background:' + C[i % C.length] + ';flex-shrink:0;"></div>' + c.name;
       legendEl.appendChild(item);
     });
 
@@ -440,22 +443,22 @@
         diffColor = MC.red;
       }
 
-      // Winner row gets green highlight background
-      var rowBg = isLowest ? 'background:rgba(47,117,0,0.06);' : '';
+      // Winner row gets green highlight background (solid hex for export)
+      var rowBg = isLowest ? 'background:#F2F8EF;' : '';
 
       var tr = document.createElement('tr');
       tr.style.cssText = 'border-bottom:1px solid #e8e6de;' + rowBg;
       tr.innerHTML =
-        '<td style="padding:0.4rem 0.6rem;vertical-align:middle;white-space:nowrap;' + (isLowest ? 'font-weight:600;' : '') + '">' +
-          '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' + C[i % C.length] + ';margin-right:0.4rem;vertical-align:middle;"></span>' +
+        '<td style="padding:6px 9px;vertical-align:middle;white-space:nowrap;' + (isLowest ? 'font-weight:600;' : '') + '">' +
+          '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' + C[i % C.length] + ';margin-right:6px;vertical-align:middle;"></span>' +
           c.name +
         '</td>' +
-        '<td style="padding:0.4rem 0.6rem;text-align:right;font-variant-numeric:tabular-nums;">' + fmtUSD(c.tiv) + '</td>' +
-        '<td style="padding:0.4rem 0.6rem;text-align:right;font-variant-numeric:tabular-nums;">' + fmtRate(ar) + '</td>' +
-        '<td style="padding:0.4rem 0.6rem;text-align:right;font-weight:600;color:' + MC.midnight + ';font-variant-numeric:tabular-nums;">' + fmtUSDFull(p) + '</td>' +
-        '<td style="padding:0.4rem 0.6rem;text-align:right;">' + rankBadge(rateRanks[i]) + '</td>' +
-        '<td style="padding:0.4rem 0.6rem;text-align:right;">' + rankBadge(premRanks[i]) + '</td>' +
-        '<td style="padding:0.4rem 0.6rem;text-align:right;font-size:0.66rem;font-weight:' + (isLowest ? '600' : '400') + ';color:' + diffColor + ';">' + diffStr + '</td>';
+        '<td style="padding:6px 9px;text-align:right;">' + fmtUSD(c.tiv) + '</td>' +
+        '<td style="padding:6px 9px;text-align:right;">' + fmtRate(ar) + '</td>' +
+        '<td style="padding:6px 9px;text-align:right;font-weight:600;color:' + MC.midnight + ';">' + fmtUSDFull(p) + '</td>' +
+        '<td style="padding:6px 9px;text-align:right;">' + rankBadge(rateRanks[i]) + '</td>' +
+        '<td style="padding:6px 9px;text-align:right;">' + rankBadge(premRanks[i]) + '</td>' +
+        '<td style="padding:6px 9px;text-align:right;font-size:10px;font-weight:' + (isLowest ? '600' : '400') + ';color:' + diffColor + ';">' + diffStr + '</td>';
       tbody.appendChild(tr);
     });
   }
