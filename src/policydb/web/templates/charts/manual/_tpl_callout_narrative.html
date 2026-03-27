@@ -1,0 +1,202 @@
+{# ── Callout — Narrative Card ─────────────────────────────────────────────
+   Market update or analysis narrative with optional callout quote block.
+   Expects: ManualChart namespace available (manual.js loaded).
+#}
+
+<!-- ═══ Chart Display ═══════════════════════════════════════════════════════ -->
+<div class="manual-chart-page-auto" style="display:flex;justify-content:center;padding:2rem;">
+  <div id="narr-card-container" style="width:520px;"></div>
+</div>
+
+<!-- ═══ Editor Panel ════════════════════════════════════════════════════════ -->
+<div class="mc-editor" id="editor-panel">
+  <div class="mc-editor-title">Configure Narrative Card</div>
+
+  <!-- Display toggles -->
+  <div class="display-options">
+    <span class="section-label">Display</span>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-tag" name="show-tag" checked onchange="refreshCurrentChart()">
+      <span class="toggle-track"></span><span class="toggle-label">Tag</span>
+    </label>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-callout" name="show-callout" checked onchange="refreshCurrentChart()">
+      <span class="toggle-track"></span><span class="toggle-label">Callout</span>
+    </label>
+  </div>
+
+  <!-- Content -->
+  <div style="margin-top:0.75rem;">
+    <div class="section-head midnight">Content</div>
+
+    <div style="display:flex;flex-direction:column;gap:0.6rem;">
+      <!-- Tag -->
+      <div class="input-group">
+        <label>Tag / Category</label>
+        <input type="text" id="val-tag" name="val-tag"
+               value="Market Update"
+               oninput="refreshCurrentChart()"
+               style="border:1px solid var(--mc-border);border-radius:3px;padding:0.38rem 0.6rem;font-family:'Noto Sans',sans-serif;font-size:0.83rem;color:var(--mc-text);background:var(--mc-bg);width:100%;">
+      </div>
+
+      <!-- Title -->
+      <div class="input-group">
+        <label>Title</label>
+        <input type="text" id="val-title" name="val-title"
+               value="Property Market Conditions Remain Favorable for Renewals"
+               oninput="refreshCurrentChart()"
+               style="border:1px solid var(--mc-border);border-radius:3px;padding:0.38rem 0.6rem;font-family:'Noto Sans',sans-serif;font-size:0.83rem;color:var(--mc-text);background:var(--mc-bg);width:100%;">
+      </div>
+
+      <!-- Body Text -->
+      <div class="input-group">
+        <label>Body Text</label>
+        <textarea id="val-text" name="val-text"
+                  oninput="refreshCurrentChart()"
+                  rows="5"
+                  style="border:1px solid var(--mc-border);border-radius:3px;padding:0.38rem 0.6rem;font-family:'Noto Sans',sans-serif;font-size:0.83rem;color:var(--mc-text);background:var(--mc-bg);width:100%;resize:vertical;min-height:100px;">The commercial property market continues to show signs of stabilization heading into the second half of 2025. Rate increases are moderating, particularly for accounts with strong loss histories and completed risk improvement programs. Underwriters remain selective on CAT-exposed risks, but the competitive dynamic among markets is improving negotiating leverage for well-prepared insureds.</textarea>
+      </div>
+
+      <!-- Callout Quote -->
+      <div class="input-group">
+        <label>Callout Quote (leave blank to hide)</label>
+        <textarea id="val-callout" name="val-callout"
+                  oninput="refreshCurrentChart()"
+                  rows="2"
+                  style="border:1px solid var(--mc-border);border-radius:3px;padding:0.38rem 0.6rem;font-family:'Noto Sans',sans-serif;font-size:0.83rem;color:var(--mc-text);background:var(--mc-bg);width:100%;resize:vertical;">Accounts with completed risk improvements are seeing 5–15% rate reductions in the current market.</textarea>
+      </div>
+    </div>
+  </div>
+
+  <!-- Style -->
+  <div style="margin-top:1rem;">
+    <div class="section-head midnight">Style</div>
+
+    <!-- Accent color swatches -->
+    <div class="input-group" style="margin-bottom:0.6rem;">
+      <label>Accent Color</label>
+      <input type="hidden" id="cfg-accent-color" name="cfg-accent-color" value="#000F47">
+      <div id="color-swatches" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:0.25rem;"></div>
+    </div>
+
+    <!-- Card width -->
+    <div class="input-group">
+      <label>Card Width</label>
+      <select id="cfg-card-width" name="cfg-card-width"
+              onchange="refreshCurrentChart()"
+              style="border:1px solid var(--mc-border);border-radius:3px;padding:0.38rem 0.55rem;font-family:'Noto Sans',sans-serif;font-size:0.83rem;color:var(--mc-text);background:white;width:140px;">
+        <option value="400">400 px</option>
+        <option value="520" selected>520 px</option>
+        <option value="680">680 px</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div class="mc-editor-footer">
+    <button class="btn-mc" onclick="refreshCurrentChart()">Refresh Card</button>
+  </div>
+</div>
+
+<!-- ═══ Script ══════════════════════════════════════════════════════════════ -->
+<script>
+(function () {
+  var MC = ManualChart.COLORS;
+  var C  = ManualChart.DATA_COLORS;
+
+  // ── Defaults ────────────────────────────────────────────────────────────
+  var defaults = {
+    tag:         'Market Update',
+    title:       'Property Market Conditions Remain Favorable for Renewals',
+    text:        'The commercial property market continues to show signs of stabilization heading into the second half of 2025.',
+    callout:     'Accounts with completed risk improvements are seeing 5\u201315% rate reductions in the current market.',
+    accentColor: MC.midnight,
+    cardWidth:   520,
+  };
+
+  // ── Helpers ─────────────────────────────────────────────────────────────
+  function esc(s) {
+    var d = document.createElement('div');
+    d.textContent = s || '';
+    return d.innerHTML;
+  }
+
+  // ── Accent Color Swatches ──────────────────────────────────────────────
+  function buildSwatches() {
+    var container = document.getElementById('color-swatches');
+    var current = document.getElementById('cfg-accent-color').value || defaults.accentColor;
+    container.innerHTML = '';
+    C.forEach(function (color) {
+      var sw = document.createElement('div');
+      sw.style.cssText = 'width:22px;height:22px;border-radius:3px;cursor:pointer;border:2px solid ' +
+        (color === current ? MC.midnight : 'transparent') + ';background:' + color + ';transition:transform 0.1s;';
+      sw.onmouseover = function () { sw.style.transform = 'scale(1.15)'; };
+      sw.onmouseout  = function () { sw.style.transform = ''; };
+      sw.onclick = function () {
+        document.getElementById('cfg-accent-color').value = color;
+        buildSwatches();
+        refreshCurrentChart();
+      };
+      container.appendChild(sw);
+    });
+  }
+
+  // ── Build Card HTML ────────────────────────────────────────────────────
+  function buildCard() {
+    var tag         = document.getElementById('val-tag').value;
+    var title       = document.getElementById('val-title').value;
+    var text        = document.getElementById('val-text').value;
+    var callout     = document.getElementById('val-callout').value;
+    var accentColor = document.getElementById('cfg-accent-color').value || defaults.accentColor;
+
+    var showTag     = ManualChart.isToggled('show-tag');
+    var showCallout = ManualChart.isToggled('show-callout');
+
+    var tagBg = accentColor + '18';
+
+    var html =
+      '<div style="background:#fff;border:1px solid ' + MC.neutral500 + ';border-radius:4px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.06);">' +
+        /* 5px accent bar at top */
+        '<div style="height:5px;background:' + accentColor + ';"></div>' +
+        /* Body */
+        '<div style="padding:1.75rem 2rem;">' +
+          /* Tag badge */
+          (showTag && tag ?
+            '<div style="display:inline-block;font-family:\'Noto Sans\',sans-serif;font-size:0.65rem;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;padding:0.2rem 0.6rem;border-radius:3px;margin-bottom:0.8rem;background:' + tagBg + ';color:' + accentColor + ';">' + esc(tag) + '</div>'
+            : '') +
+          /* Title */
+          (title ?
+            '<div style="font-family:\'Noto Serif\',serif;font-size:1.3rem;color:' + MC.midnight + ';line-height:1.25;margin-bottom:0.75rem;">' + esc(title) + '</div>'
+            : '') +
+          /* Body text */
+          (text ?
+            '<div style="font-family:\'Noto Sans\',sans-serif;font-size:0.85rem;color:' + MC.neutral750 + ';line-height:1.75;">' + esc(text) + '</div>'
+            : '') +
+          /* Callout quote block */
+          (showCallout && callout ?
+            '<div style="margin-top:1.1rem;border-left:3px solid ' + accentColor + ';border-radius:0 3px 3px 0;background:' + accentColor + '0d;padding:0.85rem 1rem;">' +
+              '<div style="font-family:\'Noto Sans\',sans-serif;font-size:0.82rem;font-weight:600;color:' + MC.midnight + ';line-height:1.5;">' + esc(callout) + '</div>' +
+            '</div>'
+            : '') +
+        '</div>' +
+      '</div>';
+
+    return html;
+  }
+
+  // ── refreshCurrentChart — main render entry point ──────────────────────
+  window.refreshCurrentChart = function () {
+    var container = document.getElementById('narr-card-container');
+    var cardWidth = parseInt(document.getElementById('cfg-card-width').value, 10) || defaults.cardWidth;
+
+    container.style.width = cardWidth + 'px';
+    container.innerHTML = buildCard();
+  };
+
+  // ── Bootstrap ──────────────────────────────────────────────────────────
+  setTimeout(function () {
+    buildSwatches();
+    refreshCurrentChart();
+  }, 50);
+})();
+</script>
