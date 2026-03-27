@@ -559,6 +559,8 @@ def _issues_ctx(conn, q: str = "", client_id: int = 0) -> dict:
                p.policy_uid, p.policy_type, p.carrier,
                (SELECT COUNT(*) FROM activity_log sub
                 WHERE sub.issue_id = a.id) AS activity_count,
+               (SELECT COALESCE(SUM(sub.duration_hours), 0) FROM activity_log sub
+                WHERE sub.issue_id = a.id AND sub.duration_hours IS NOT NULL) AS total_hours,
                (SELECT MAX(sub.activity_date) FROM activity_log sub
                 WHERE sub.issue_id = a.id) AS last_activity_date,
                julianday(?) - julianday(a.activity_date) AS days_open

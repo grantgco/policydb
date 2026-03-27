@@ -9,6 +9,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 import policydb.config as cfg
 from policydb.db import generate_issue_uid
+from policydb.utils import round_duration
 from policydb.web.app import get_db, templates
 
 router = APIRouter()
@@ -165,7 +166,14 @@ def issue_detail(
     issue = conn.execute("""
         SELECT a.*, c.name AS client_name,
                p.policy_uid, p.policy_type, p.carrier, p.expiration_date,
-               julianday(date('now')) - julianday(a.activity_date) AS days_open
+               CASE WHEN a.resolved_date IS NOT NULL
+                    THEN julianday(a.resolved_date) - julianday(a.activity_date)
+                    ELSE julianday(date('now')) - julianday(a.activity_date)
+               END AS days_open,
+               CASE WHEN a.resolved_date IS NOT NULL
+                    THEN julianday(a.resolved_date) - julianday(a.activity_date)
+                    ELSE NULL
+               END AS time_to_resolve
         FROM activity_log a
         LEFT JOIN clients c ON c.id = a.client_id
         LEFT JOIN policies p ON p.id = a.policy_id
@@ -187,6 +195,9 @@ def issue_detail(
         ORDER BY a.activity_date DESC, a.created_at DESC
     """, (issue_id,)).fetchall()]
 
+    # Compute total hours across all linked activities
+    total_hours = sum(a.get("duration_hours") or 0 for a in activities)
+
     # SLA info
     severities = cfg.get("issue_severities", [])
     sla_map = {s["label"]: s.get("sla_days", 7) for s in severities}
@@ -199,11 +210,13 @@ def issue_detail(
         "active": "action-center",
         "issue": issue,
         "activities": activities,
+        "total_hours": round(total_hours, 1),
         "issue_lifecycle_states": cfg.get("issue_lifecycle_states", []),
         "issue_severities": cfg.get("issue_severities", []),
         "issue_resolution_types": cfg.get("issue_resolution_types", []),
         "issue_root_cause_categories": cfg.get("issue_root_cause_categories", []),
         "activity_types": cfg.get("activity_types", []),
+        "follow_up_dispositions": cfg.get("follow_up_dispositions", []),
     }
     return templates.TemplateResponse("issues/detail.html", ctx)
 
@@ -220,6 +233,7 @@ def log_issue_activity(
     details: str = Form(""),
     follow_up_date: str = Form(""),
     disposition: str = Form(""),
+    duration_hours: str = Form(""),
     conn=Depends(get_db),
 ):
     """Log an activity linked to an issue."""
@@ -247,8 +261,8 @@ def log_issue_activity(
         INSERT INTO activity_log (
             activity_date, client_id, policy_id, activity_type, subject, details,
             follow_up_date, disposition, issue_id, item_kind, program_id,
-            created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'followup', ?, CURRENT_TIMESTAMP)
+            duration_hours, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'followup', ?, ?, CURRENT_TIMESTAMP)
     """, (
         today,
         issue["client_id"],
@@ -260,6 +274,7 @@ def log_issue_activity(
         disposition or None,
         issue_id,
         issue["program_id"],
+        round_duration(duration_hours),
     ))
     conn.commit()
 

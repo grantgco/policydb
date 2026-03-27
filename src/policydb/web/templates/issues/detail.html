@@ -64,7 +64,9 @@
       <div class="card p-4">
         <div class="flex items-center justify-between mb-3">
           <h2 class="text-sm font-semibold text-gray-900">Activity Timeline</h2>
-          <span class="text-xs text-gray-400">{{ activities|length }} activities</span>
+          <span class="text-xs text-gray-400">
+            {{ activities|length }} activities{% if total_hours %} &middot; {{ total_hours }}h{% endif %}
+          </span>
         </div>
 
         {% if activities %}
@@ -85,6 +87,9 @@
                 {% endif %}
                 {% if act.follow_up_date %}
                   <span>Follow-up: {{ act.follow_up_date }}</span>
+                {% endif %}
+                {% if act.duration_hours %}
+                  <span class="font-medium text-gray-600">{{ act.duration_hours }}h</span>
                 {% endif %}
                 {% if act.contact_name %}
                   <span>with {{ act.contact_name }}</span>
@@ -113,15 +118,18 @@
             </div>
             <textarea name="details" placeholder="Details (optional)" rows="2"
                       class="w-full rounded border-gray-300 text-sm px-3 py-1.5"></textarea>
-            <div class="flex gap-2">
+            <div class="flex gap-2 items-center">
               <select name="disposition" class="rounded border-gray-300 text-sm px-2 py-1.5">
                 <option value="">No disposition</option>
-                {% for d in (follow_up_dispositions if follow_up_dispositions is defined else []) %}
+                {% for d in follow_up_dispositions %}
                 <option value="{{ d.label if d is mapping else d }}">{{ d.label if d is mapping else d }}</option>
                 {% endfor %}
               </select>
               <input type="date" name="follow_up_date"
                      class="rounded border-gray-300 text-sm px-2 py-1.5">
+              <input type="number" name="duration_hours" step="0.1" min="0"
+                     placeholder="hrs" class="w-16 rounded border-gray-300 text-sm px-2 py-1.5"
+                     title="Duration (hours)">
               <button type="submit"
                       class="text-sm bg-marsh text-white rounded px-4 py-1.5 hover:bg-marsh-light">
                 Log
@@ -207,8 +215,11 @@
           <div><dt class="text-gray-500 inline">Type:</dt> <dd class="inline text-gray-800">{{ issue.resolution_type }}</dd></div>
           <div><dt class="text-gray-500 inline">Root Cause:</dt> <dd class="inline text-gray-800">{{ issue.root_cause_category }}</dd></div>
           <div><dt class="text-gray-500 inline">Resolved:</dt> <dd class="inline text-gray-800">{{ issue.resolved_date }}</dd></div>
-          {% if issue.days_open %}
-          <div><dt class="text-gray-500 inline">Time to Resolve:</dt> <dd class="inline text-gray-800">{{ issue.days_open|int }}d</dd></div>
+          {% if issue.time_to_resolve is not none %}
+          <div><dt class="text-gray-500 inline">Time to Resolve:</dt> <dd class="inline text-gray-800">{{ issue.time_to_resolve|int }}d</dd></div>
+          {% endif %}
+          {% if total_hours %}
+          <div><dt class="text-gray-500 inline">Total Effort:</dt> <dd class="inline text-gray-800">{{ total_hours }}h</dd></div>
           {% endif %}
         </dl>
         {% if issue.resolution_notes %}
