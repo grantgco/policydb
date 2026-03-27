@@ -128,6 +128,38 @@ _DEFAULTS: dict[str, Any] = {
         {"label": "Meeting Scheduled", "default_days": 0, "accountability": "scheduled"},
         {"label": "Escalated", "default_days": 3, "accountability": "my_action"},
     ],
+    # ── Issue tracking ──────────────────────────────────────────────
+    "issue_lifecycle_states": [
+        "Open",
+        "Investigating",
+        "Waiting",
+        "Resolved",
+        "Closed",
+    ],
+    "issue_severities": [
+        {"label": "Critical", "sla_days": 1, "color": "red"},
+        {"label": "High", "sla_days": 3, "color": "amber"},
+        {"label": "Normal", "sla_days": 7, "color": "blue"},
+        {"label": "Low", "sla_days": 14, "color": "gray"},
+    ],
+    "issue_resolution_types": [
+        "Completed",
+        "Escalated",
+        "Withdrawn",
+        "Workaround",
+        "Duplicate",
+    ],
+    "issue_root_cause_categories": [
+        "Carrier Error",
+        "Client Request",
+        "Coverage Gap",
+        "Billing",
+        "Documentation",
+        "Compliance",
+        "Other",
+    ],
+    "renewal_issue_window_days": 120,
+    "renewal_issue_health_threshold": "at_risk",
     "carriers": [
         "AIG",
         "Berkley One",
