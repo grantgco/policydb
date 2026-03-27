@@ -170,16 +170,18 @@ def program_tab_schematic(
         p["is_package_ghost"] = bool(subs)
 
     # Promote umbrella/excess sub-coverages from underlying packages to excess
+    # Note: promote even if limit_amount is not yet set — the ghost row should appear
+    # so users can see the sub-coverage in the schematic and fill in details later
     _EXCESS_SC_KEYWORDS = ("umbrella", "excess")
     for p in list(underlying):
         for sc in p.get("sub_coverages_full", []):
             sc_type = (sc.get("coverage_type") or "").lower()
-            if any(kw in sc_type for kw in _EXCESS_SC_KEYWORDS) and sc.get("limit_amount"):
+            if any(kw in sc_type for kw in _EXCESS_SC_KEYWORDS):
                 excess.append({
                     "id": p["id"], "policy_uid": p["policy_uid"],
                     "policy_type": sc["coverage_type"], "carrier": p.get("carrier") or "",
                     "policy_number": p.get("policy_number") or "",
-                    "limit_amount": sc["limit_amount"], "deductible": sc.get("deductible") or 0,
+                    "limit_amount": sc.get("limit_amount") or 0, "deductible": sc.get("deductible") or 0,
                     "premium": 0, "coverage_form": sc.get("coverage_form") or "",
                     "layer_position": "Umbrella" if "umbrella" in sc_type else "Excess",
                     "attachment_point": sc.get("attachment_point") or 0,
