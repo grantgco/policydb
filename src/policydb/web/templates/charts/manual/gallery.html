@@ -10,6 +10,7 @@
   </div>
 
   <!-- Chart Type Grid -->
+  <h2 class="text-lg font-semibold text-gray-900 mb-3">Charts</h2>
   <div class="gallery-grid mb-8">
     {% for c in charts %}
     <a href="/charts/manual/{{ c.id }}" class="gallery-card block no-underline">
@@ -18,6 +19,21 @@
         <svg width="40" height="28" viewBox="0 0 40 28" fill="none" stroke="#000F47" stroke-width="2" stroke-linecap="round"><polyline points="2,24 10,16 18,20 26,8 38,4"/></svg>
         {% elif c.icon == 'chart-pie' %}
         <svg width="32" height="32" viewBox="0 0 32 32" fill="none" stroke="#000F47" stroke-width="2"><circle cx="16" cy="16" r="14"/><path d="M16,2 A14,14 0 0,1 30,16 L16,16 Z" fill="#CEECFF" stroke="#000F47"/></svg>
+        {% elif c.icon == 'timeline' %}
+        <svg width="40" height="28" viewBox="0 0 40 28" fill="none" stroke="#000F47" stroke-width="2">
+          <line x1="6" y1="14" x2="34" y2="14"/>
+          <circle cx="6" cy="14" r="4" fill="#CEECFF"/><circle cx="20" cy="14" r="4" fill="#CEECFF"/><circle cx="34" cy="14" r="4" fill="#CEECFF"/>
+        </svg>
+        {% elif c.icon == 'stat' %}
+        <svg width="32" height="28" viewBox="0 0 32 28" fill="none">
+          <text x="4" y="22" font-family="Noto Serif,serif" font-size="22" font-weight="700" fill="#000F47">42</text>
+          <path d="M26 8 L26 18 M22 14 L26 18 L30 14" stroke="#2F7500" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        {% elif c.icon == 'card' %}
+        <svg width="36" height="28" viewBox="0 0 36 28" fill="none">
+          <rect x="2" y="2" width="32" height="24" rx="3" fill="#CEECFF" stroke="#000F47" stroke-width="1.5"/>
+          <rect x="2" y="2" width="32" height="8" rx="3" fill="#000F47"/>
+        </svg>
         {% else %}
         <svg width="40" height="28" viewBox="0 0 40 28" fill="none"><rect x="4" y="14" width="6" height="14" rx="1" fill="#CEECFF" stroke="#000F47" stroke-width="1.5"/><rect x="13" y="8" width="6" height="20" rx="1" fill="#CEECFF" stroke="#000F47" stroke-width="1.5"/><rect x="22" y="4" width="6" height="24" rx="1" fill="#CEECFF" stroke="#000F47" stroke-width="1.5"/><rect x="31" y="10" width="6" height="18" rx="1" fill="#CEECFF" stroke="#000F47" stroke-width="1.5"/></svg>
         {% endif %}
@@ -30,6 +46,8 @@
             {% elif c.category == 'tcor' %}bg-amber-50 text-amber-700
             {% elif c.category == 'benchmarking' %}bg-purple-50 text-purple-700
             {% elif c.category == 'rate' %}bg-green-50 text-green-700
+            {% elif c.category == 'builder' %}bg-teal-50 text-teal-700
+            {% elif c.category == 'card' %}bg-purple-50 text-purple-700
             {% endif %}">{{ c.category }}</span>
         </div>
         <h3>{{ c.title }}</h3>
@@ -38,6 +56,47 @@
     </a>
     {% endfor %}
   </div>
+
+  <!-- Visual Builders Grid -->
+  {% if builders %}
+  <h2 class="text-lg font-semibold text-gray-900 mb-3">Visual Builders</h2>
+  <div class="gallery-grid mb-8">
+    {% for c in builders %}
+    <a href="/charts/manual/{{ c.id }}" class="gallery-card block no-underline">
+      <div class="gallery-card-icon">
+        {% if c.icon == 'timeline' %}
+        <svg width="40" height="28" viewBox="0 0 40 28" fill="none" stroke="#000F47" stroke-width="2">
+          <line x1="6" y1="14" x2="34" y2="14"/>
+          <circle cx="6" cy="14" r="4" fill="#CEECFF"/><circle cx="20" cy="14" r="4" fill="#CEECFF"/><circle cx="34" cy="14" r="4" fill="#CEECFF"/>
+        </svg>
+        {% elif c.icon == 'stat' %}
+        <svg width="32" height="28" viewBox="0 0 32 28" fill="none">
+          <text x="4" y="22" font-family="Noto Serif,serif" font-size="22" font-weight="700" fill="#000F47">42</text>
+          <path d="M26 8 L26 18 M22 14 L26 18 L30 14" stroke="#2F7500" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        {% elif c.icon == 'card' %}
+        <svg width="36" height="28" viewBox="0 0 36 28" fill="none">
+          <rect x="2" y="2" width="32" height="24" rx="3" fill="#CEECFF" stroke="#000F47" stroke-width="1.5"/>
+          <rect x="2" y="2" width="32" height="8" rx="3" fill="#000F47"/>
+        </svg>
+        {% else %}
+        <svg width="40" height="28" viewBox="0 0 40 28" fill="none"><rect x="4" y="14" width="6" height="14" rx="1" fill="#CEECFF" stroke="#000F47" stroke-width="1.5"/><rect x="13" y="8" width="6" height="20" rx="1" fill="#CEECFF" stroke="#000F47" stroke-width="1.5"/><rect x="22" y="4" width="6" height="24" rx="1" fill="#CEECFF" stroke="#000F47" stroke-width="1.5"/><rect x="31" y="10" width="6" height="18" rx="1" fill="#CEECFF" stroke="#000F47" stroke-width="1.5"/></svg>
+        {% endif %}
+      </div>
+      <div class="gallery-card-body">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="category-badge
+            {% if c.category == 'builder' %}bg-teal-50 text-teal-700
+            {% elif c.category == 'card' %}bg-purple-50 text-purple-700
+            {% endif %}">{{ c.category }}</span>
+        </div>
+        <h3>{{ c.title }}</h3>
+        <p>{{ c.description }}</p>
+      </div>
+    </a>
+    {% endfor %}
+  </div>
+  {% endif %}
 
   <!-- Recent Snapshots -->
   {% if snapshots %}
@@ -51,6 +110,9 @@
           <span class="text-xs text-gray-500">{{ s.title }}</span>
           <span class="text-xs text-gray-400">&middot;</span>
           <span class="text-xs text-gray-400">{{ s.updated_at[:10] if s.updated_at else '' }}</span>
+          {% if s.client_name %}
+          <span class="text-xs bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded">{{ s.client_name }}</span>
+          {% endif %}
         </div>
       </a>
       {% endfor %}
