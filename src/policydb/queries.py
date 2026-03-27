@@ -2385,7 +2385,9 @@ def get_sub_coverages(conn, policy_id: int) -> list[dict]:
     """Return sub-coverages for a policy, ordered by sort_order."""
     try:
         rows = conn.execute(
-            "SELECT id, coverage_type, sort_order, limit_amount, deductible, coverage_form, notes, attachment_point "
+            "SELECT id, coverage_type, sort_order, limit_amount, deductible, "
+            "coverage_form, notes, attachment_point, premium, carrier, "
+            "policy_number, participation_of, layer_position, description "
             "FROM policy_sub_coverages WHERE policy_id = ? ORDER BY sort_order, id",
             (policy_id,),
         ).fetchall()
@@ -2420,7 +2422,9 @@ def get_sub_coverages_full_by_policy_id(conn, policy_ids: list[int]) -> dict[int
     try:
         placeholders = ",".join("?" * len(policy_ids))
         rows = conn.execute(
-            f"SELECT id, policy_id, coverage_type, sort_order, limit_amount, deductible, coverage_form, notes, attachment_point "  # noqa: S608
+            f"SELECT id, policy_id, coverage_type, sort_order, limit_amount, deductible, "  # noqa: S608
+            f"coverage_form, notes, attachment_point, premium, carrier, "
+            f"policy_number, participation_of, layer_position, description "
             f"FROM policy_sub_coverages WHERE policy_id IN ({placeholders}) ORDER BY sort_order, id",
             policy_ids,
         ).fetchall()
@@ -2444,3 +2448,132 @@ def auto_generate_sub_coverages(conn, policy_id: int, policy_type: str):
         )
     if sub_types:
         conn.commit()
+
+
+# ─── PROGRAM QUERIES (v2 — standalone programs table) ────────────────────────
+
+
+def get_program_by_uid(conn: sqlite3.Connection, program_uid: str) -> dict | None:
+    """Return a program dict by its UID, or None if not found."""
+    row = conn.execute(
+        "SELECT * FROM programs WHERE program_uid = ?", (program_uid,)
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def get_program_child_policies(
+    conn: sqlite3.Connection, program_name: str, client_id: int
+) -> list[dict]:
+    """Return child policies for a program (matched by tower_group = program.name)."""
+    rows = conn.execute(
+        """SELECT p.id, p.policy_uid, p.policy_type, p.carrier, p.policy_number,
+                  p.premium, p.limit_amount, p.deductible, p.layer_position,
+                  p.renewal_status, p.effective_date, p.expiration_date,
+                  p.attachment_point, p.participation_of, p.coverage_form
+           FROM policies p
+           WHERE p.tower_group = ? AND p.client_id = ?
+             AND (p.is_program = 0 OR p.is_program IS NULL)
+             AND p.archived = 0
+             AND (p.is_opportunity = 0 OR p.is_opportunity IS NULL)
+           ORDER BY p.layer_position, p.policy_type""",
+        (program_name, client_id),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_program_aggregates(
+    conn: sqlite3.Connection, program_name: str, client_id: int
+) -> dict:
+    """Compute aggregate stats for a program from its child policies."""
+    row = conn.execute(
+        """SELECT
+             COUNT(*) AS policy_count,
+             COUNT(DISTINCT carrier) AS carrier_count,
+             COALESCE(SUM(premium), 0) AS total_premium,
+             COALESCE(MAX(limit_amount), 0) AS max_limit
+           FROM policies
+           WHERE tower_group = ? AND client_id = ?
+             AND (is_program = 0 OR is_program IS NULL)
+             AND archived = 0
+             AND (is_opportunity = 0 OR is_opportunity IS NULL)""",
+        (program_name, client_id),
+    ).fetchone()
+    return dict(row) if row else {
+        "policy_count": 0, "carrier_count": 0, "total_premium": 0, "max_limit": 0
+    }
+
+
+def get_programs_for_client(conn: sqlite3.Connection, client_id: int) -> list[dict]:
+    """Return all programs (from new programs table) for a client."""
+    rows = conn.execute(
+        """SELECT * FROM programs
+           WHERE client_id = ? AND archived = 0
+           ORDER BY name""",
+        (client_id,),
+    ).fetchall()
+    programs = []
+    for r in rows:
+        pgm = dict(r)
+        agg = get_program_aggregates(conn, pgm["name"], client_id)
+        pgm.update(agg)
+        programs.append(pgm)
+    return programs
+
+
+def get_unassigned_policies(
+    conn: sqlite3.Connection, client_id: int
+) -> list[dict]:
+    """Return active policies not assigned to any program."""
+    rows = conn.execute(
+        """SELECT policy_uid, policy_type, carrier, premium, limit_amount
+           FROM policies
+           WHERE client_id = ? AND archived = 0
+             AND (is_opportunity = 0 OR is_opportunity IS NULL)
+             AND (is_program = 0 OR is_program IS NULL)
+             AND (tower_group IS NULL OR tower_group = '')
+             AND program_id IS NULL
+           ORDER BY policy_type""",
+        (client_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_program_timeline_milestones(
+    conn: sqlite3.Connection, program_name: str, client_id: int
+) -> list[dict]:
+    """Return timeline milestones for all child policies of a program."""
+    try:
+        rows = conn.execute(
+            """SELECT pt.policy_uid, pt.milestone_name, pt.ideal_date,
+                      pt.projected_date, pt.completed_date, pt.health,
+                      pt.accountability, pt.waiting_on,
+                      p.policy_type, p.carrier
+               FROM policy_timeline pt
+               JOIN policies p ON p.policy_uid = pt.policy_uid
+               WHERE p.tower_group = ? AND p.client_id = ?
+                 AND (p.is_program = 0 OR p.is_program IS NULL)
+               ORDER BY pt.ideal_date""",
+            (program_name, client_id),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+
+
+def get_program_activities(
+    conn: sqlite3.Connection, program_name: str, client_id: int, limit: int = 50
+) -> list[dict]:
+    """Return recent activities from all child policies of a program."""
+    rows = conn.execute(
+        """SELECT a.id, a.activity_type, a.description, a.contact_name,
+                  a.created_at, a.follow_up_date, a.disposition,
+                  p.policy_type, p.carrier, p.policy_uid
+           FROM activity_log a
+           JOIN policies p ON p.id = a.policy_id
+           WHERE p.tower_group = ? AND p.client_id = ?
+             AND (p.is_program = 0 OR p.is_program IS NULL)
+           ORDER BY a.created_at DESC
+           LIMIT ?""",
+        (program_name, client_id, limit),
+    ).fetchall()
+    return [dict(r) for r in rows]

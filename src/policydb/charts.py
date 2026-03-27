@@ -11,6 +11,7 @@ import sqlite3
 from datetime import date, timedelta
 from typing import Optional
 
+from policydb.ghost_rows import inject_schedule_ghost_rows
 from policydb.queries import get_client_exposures, get_exposure_observations, get_sub_coverages_by_policy_id, get_sub_coverages_full_by_policy_id
 
 # ---------------------------------------------------------------------------
@@ -65,7 +66,8 @@ def get_schedule_data(conn: sqlite3.Connection, client_id: int) -> dict:
     Returns: {"rows": [...], "total_premium": float, "policy_count": int,
               "package_policies": [...]}
     Uses v_schedule view filtered by client_name subquery.
-    Ghost rows are injected at the Python level — v_schedule and exporters are NOT affected.
+    Ghost rows are injected via the universal ghost_rows utility at the Python
+    level — v_schedule and exporters are NOT affected.
     """
     rows = conn.execute(
         f"""
@@ -76,82 +78,33 @@ def get_schedule_data(conn: sqlite3.Connection, client_id: int) -> dict:
         (client_id,),
     ).fetchall()
 
-    # Fetch policy id/type/number for sub-coverage lookup
-    policy_rows = conn.execute(
-        f"""SELECT id, policy_type, policy_number, carrier
-            FROM policies p
-            WHERE p.client_id = ? AND {_ACTIVE_POLICY}""",
-        (client_id,),
-    ).fetchall()
-    policy_ids = [r["id"] for r in policy_rows]
-
-    # Build lookup: policy_number -> policy row (for matching to v_schedule rows)
-    pnum_to_policy = {}
-    for pr in policy_rows:
-        if pr["policy_number"]:
-            pnum_to_policy[pr["policy_number"]] = dict(pr)
-
-    # Batch-fetch sub-coverages
-    sub_cov_map = get_sub_coverages_by_policy_id(conn, policy_ids)
-
-    # Build set of package policy_ids (those with sub-coverages)
-    package_policy_ids = set(sub_cov_map.keys())
-
-    # Build package_policies list for the Package Policies header section
-    package_policies = []
-    for pr in policy_rows:
-        if pr["id"] in package_policy_ids:
-            package_policies.append({
-                "policy_type": pr["policy_type"],
-                "carrier": pr["carrier"],
-                "policy_number": pr["policy_number"],
-                "sub_coverages": sub_cov_map[pr["id"]],
-            })
-
     # Normalize v_schedule column names to lowercase/underscored keys for templates
     row_dicts = []
     for r in _rows_to_dicts(rows):
-        pnum = r.get("Policy Number")
-        matched_policy = pnum_to_policy.get(pnum) if pnum else None
-        is_package = bool(matched_policy and matched_policy["id"] in package_policy_ids)
-
         row_dicts.append({
             "line": r.get("Line of Business"),
             "carrier": r.get("Carrier"),
-            "policy_number": pnum,
+            "policy_number": r.get("Policy Number"),
             "effective": r.get("Effective"),
             "expiration": r.get("Expiration"),
             "limit": r.get("Limit"),
             "deductible": r.get("Deductible"),
             "premium": r.get("Premium"),
             "form": r.get("Form"),
-            "is_package": is_package,
+            "is_package": False,
             "is_ghost": False,
         })
 
-        # Inject ghost rows for each sub-coverage type
-        if is_package:
-            for sub_type in sub_cov_map[matched_policy["id"]]:
-                row_dicts.append({
-                    "line": sub_type,
-                    "carrier": r.get("Carrier"),
-                    "policy_number": pnum,
-                    "effective": r.get("Effective"),
-                    "expiration": r.get("Expiration"),
-                    "limit": None,
-                    "deductible": None,
-                    "premium": None,
-                    "form": None,
-                    "is_ghost": True,
-                    "is_package": False,
-                    "package_parent_type": r.get("Line of Business"),
-                })
+    # Inject enriched ghost rows via universal ghost row utility
+    enriched_rows, package_policies = inject_schedule_ghost_rows(
+        row_dicts, conn, client_id
+    )
 
     # Total premium excludes ghost rows (avoid double-counting)
-    total_premium = sum(r.get("premium") or 0 for r in row_dicts if not r.get("is_ghost"))
-    real_row_count = sum(1 for r in row_dicts if not r.get("is_ghost"))
+    total_premium = sum(r.get("premium") or 0 for r in enriched_rows if not r.get("is_ghost"))
+    real_row_count = sum(1 for r in enriched_rows if not r.get("is_ghost"))
     return {
-        "rows": row_dicts,
+        "rows": enriched_rows,
         "total_premium": total_premium,
         "policy_count": real_row_count,
         "package_policies": package_policies,
