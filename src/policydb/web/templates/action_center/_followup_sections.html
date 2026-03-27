@@ -5,7 +5,7 @@
    ══════════════════════════════════════════════════════════════════ #}
 {% macro fu_row(item, bg_class, border_class, dot_color, date_class, section_tag) %}
 {% set row_id = "ac-fu-" ~ item.source ~ "-" ~ item.id %}
-<div class="fu-row {{ bg_class }} rounded-lg {{ border_class }} hover:border-gray-300 transition-colors" data-status="{{ section_tag }}" id="{{ row_id }}">
+<div class="fu-row {{ bg_class }} rounded-lg {{ border_class }} hover:border-gray-300 transition-colors" data-status="{{ section_tag }}" data-exp="{{ item.expiration_date or '' }}" id="{{ row_id }}">
   <div class="flex items-center gap-3 px-4 py-3">
     <input type="checkbox" class="bulk-check accent-[#003865] mr-1" value="{{ item.source }}-{{ item.id }}" onchange="updateBulkCount()">
     {# Color dot — diamond for milestones, circle for regular #}
@@ -79,6 +79,13 @@
     {# Date / info column #}
     <div class="text-right flex-shrink-0">
       <div class="text-xs font-medium {{ date_class }}">{{ item.follow_up_date }}</div>
+      {% if item.days_fu_to_expiry is defined and item.days_fu_to_expiry is not none %}
+        {% if item.days_fu_to_expiry <= 0 %}
+        <div class="text-[10px] font-medium bg-red-100 text-red-700 px-1.5 py-0.5 rounded inline-block mt-0.5">Past expiry</div>
+        {% elif item.days_fu_to_expiry <= 3 %}
+        <div class="text-[10px] font-medium bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded inline-block mt-0.5">Exp in {{ item.days_fu_to_expiry }}d</div>
+        {% endif %}
+      {% endif %}
       {% if item.days_overdue is defined and item.days_overdue > 0 %}
       <div class="text-[10px] font-medium
         {% if item.days_overdue >= 15 %}text-red-600{% elif item.days_overdue >= 4 %}text-orange-500{% else %}text-amber-500{% endif %}">
@@ -149,11 +156,13 @@
             <div class="text-[9px] text-gray-400">Follow-up date</div>
             <div class="flex gap-1 items-center">
               <input type="date" name="follow_up_date" id="disp-date-{{ row_id }}" value="{{ item.follow_up_date }}"
-                class="text-xs border border-gray-200 rounded px-2 py-1 focus:ring-1 focus:ring-[#003865]">
-              <button type="button" onclick="var d=new Date();d.setDate(d.getDate()+1);document.getElementById('disp-date-{{ row_id }}').value=d.toISOString().split('T')[0]" class="text-[9px] border border-gray-200 rounded px-1 py-0.5 text-gray-400 hover:text-[#003865]">+1d</button>
-              <button type="button" onclick="var d=new Date();d.setDate(d.getDate()+3);document.getElementById('disp-date-{{ row_id }}').value=d.toISOString().split('T')[0]" class="text-[9px] border border-gray-200 rounded px-1 py-0.5 text-gray-400 hover:text-[#003865]">+3d</button>
-              <button type="button" onclick="var d=new Date();d.setDate(d.getDate()+7);document.getElementById('disp-date-{{ row_id }}').value=d.toISOString().split('T')[0]" class="text-[9px] border border-gray-200 rounded px-1 py-0.5 text-gray-400 hover:text-[#003865]">+7d</button>
+                class="text-xs border border-gray-200 rounded px-2 py-1 focus:ring-1 focus:ring-[#003865]"
+                onchange="checkDateVsExpiry(this, '{{ row_id }}', 'disp-cap-{{ row_id }}')">
+              <button type="button" onclick="setDispBarDate('disp-date-{{ row_id }}', 1, '{{ row_id }}')" class="text-[9px] border border-gray-200 rounded px-1 py-0.5 text-gray-400 hover:text-[#003865]">+1d</button>
+              <button type="button" onclick="setDispBarDate('disp-date-{{ row_id }}', 3, '{{ row_id }}')" class="text-[9px] border border-gray-200 rounded px-1 py-0.5 text-gray-400 hover:text-[#003865]">+3d</button>
+              <button type="button" onclick="setDispBarDate('disp-date-{{ row_id }}', 7, '{{ row_id }}')" class="text-[9px] border border-gray-200 rounded px-1 py-0.5 text-gray-400 hover:text-[#003865]">+7d</button>
             </div>
+            <span id="disp-cap-{{ row_id }}" class="text-[10px] text-amber-600 hidden"></span>
           </div>
           <div class="flex-1 min-w-32">
             <div class="text-[9px] text-gray-400">Note</div>
@@ -217,8 +226,10 @@
             <button type="button" onclick="setAcFuDate('{{ row_id }}', 7)" class="text-[10px] text-gray-400 hover:text-[#003865] border border-gray-200 hover:border-[#003865] rounded px-1.5 py-0.5 transition-colors">+7d</button>
             <button type="button" onclick="setAcFuDate('{{ row_id }}', 14)" class="text-[10px] text-gray-400 hover:text-[#003865] border border-gray-200 hover:border-[#003865] rounded px-1.5 py-0.5 transition-colors">+14d</button>
             <input type="date" name="new_follow_up_date" id="ac-fu-date-{{ row_id }}"
-              class="text-xs border border-gray-200 rounded px-2 py-1 focus:ring-1 focus:ring-[#003865]">
+              class="text-xs border border-gray-200 rounded px-2 py-1 focus:ring-1 focus:ring-[#003865]"
+              onchange="checkDateVsExpiry(this, '{{ row_id }}', 'ac-fu-cap-{{ row_id }}')">
           </div>
+          <span id="ac-fu-cap-{{ row_id }}" class="text-[10px] text-amber-600 hidden"></span>
         </div>
 
         {# Save / Cancel #}
@@ -241,7 +252,7 @@
    ══════════════════════════════════════════════════════════════════ #}
 {% macro triage_row(item) %}
 {% set row_id = "ac-fu-" ~ item.source ~ "-" ~ item.id %}
-<div class="fu-row bg-gray-50 rounded-lg border border-dashed border-gray-300 hover:border-gray-400 transition-colors" data-status="triage" id="{{ row_id }}">
+<div class="fu-row bg-gray-50 rounded-lg border border-dashed border-gray-300 hover:border-gray-400 transition-colors" data-status="triage" data-exp="{{ item.expiration_date or '' }}" id="{{ row_id }}">
   <div class="flex items-center gap-3 px-4 py-3">
     <input type="checkbox" class="bulk-check accent-[#003865] mr-1" value="{{ item.source }}-{{ item.id }}" onchange="updateBulkCount()">
     {# Color dot — gray open circle #}
@@ -305,11 +316,13 @@
             <div class="text-[9px] text-gray-400">Follow-up date</div>
             <div class="flex gap-1 items-center">
               <input type="date" name="follow_up_date" id="disp-date-{{ row_id }}" value="{{ item.follow_up_date }}"
-                class="text-xs border border-gray-200 rounded px-2 py-1 focus:ring-1 focus:ring-[#003865]">
-              <button type="button" onclick="var d=new Date();d.setDate(d.getDate()+1);document.getElementById('disp-date-{{ row_id }}').value=d.toISOString().split('T')[0]" class="text-[9px] border border-gray-200 rounded px-1 py-0.5 text-gray-400 hover:text-[#003865]">+1d</button>
-              <button type="button" onclick="var d=new Date();d.setDate(d.getDate()+3);document.getElementById('disp-date-{{ row_id }}').value=d.toISOString().split('T')[0]" class="text-[9px] border border-gray-200 rounded px-1 py-0.5 text-gray-400 hover:text-[#003865]">+3d</button>
-              <button type="button" onclick="var d=new Date();d.setDate(d.getDate()+7);document.getElementById('disp-date-{{ row_id }}').value=d.toISOString().split('T')[0]" class="text-[9px] border border-gray-200 rounded px-1 py-0.5 text-gray-400 hover:text-[#003865]">+7d</button>
+                class="text-xs border border-gray-200 rounded px-2 py-1 focus:ring-1 focus:ring-[#003865]"
+                onchange="checkDateVsExpiry(this, '{{ row_id }}', 'disp-cap-{{ row_id }}')">
+              <button type="button" onclick="setDispBarDate('disp-date-{{ row_id }}', 1, '{{ row_id }}')" class="text-[9px] border border-gray-200 rounded px-1 py-0.5 text-gray-400 hover:text-[#003865]">+1d</button>
+              <button type="button" onclick="setDispBarDate('disp-date-{{ row_id }}', 3, '{{ row_id }}')" class="text-[9px] border border-gray-200 rounded px-1 py-0.5 text-gray-400 hover:text-[#003865]">+3d</button>
+              <button type="button" onclick="setDispBarDate('disp-date-{{ row_id }}', 7, '{{ row_id }}')" class="text-[9px] border border-gray-200 rounded px-1 py-0.5 text-gray-400 hover:text-[#003865]">+7d</button>
             </div>
+            <span id="disp-cap-{{ row_id }}" class="text-[10px] text-amber-600 hidden"></span>
           </div>
           <div class="flex-1 min-w-32">
             <div class="text-[9px] text-gray-400">Note</div>
@@ -349,6 +362,9 @@
     <div class="flex items-center gap-2 mb-2">
       <span class="text-white text-xs font-semibold px-2.5 py-0.5 rounded-full bg-red-700">Stale</span>
       <span class="text-gray-400 text-xs">{{ stale | length }} item{{ 's' if stale | length != 1 }} — {{ cfg.get('stale_threshold_days', 14) if cfg is defined else 14 }}+ days overdue</span>
+      {% if stale | length >= 5 %}
+      <a href="/followups/plan?catchup=1" class="ml-auto text-[10px] bg-red-100 text-red-700 px-2.5 py-1 rounded-full hover:bg-red-200 transition-colors font-medium no-print">Plan Catch-Up &rarr;</a>
+      {% endif %}
     </div>
     <div class="space-y-1">
       {% for item in stale %}
@@ -368,6 +384,9 @@
     <div class="flex items-center gap-2 mb-2">
       <span class="text-white text-xs font-semibold px-2.5 py-0.5 rounded-full bg-amber-700">Overdue</span>
       <span class="text-gray-400 text-xs">{{ overdue_bucket | length }} item{{ 's' if overdue_bucket | length != 1 }} overdue</span>
+      {% if overdue_bucket | length >= 5 %}
+      <a href="/followups/plan?catchup=1" class="ml-auto text-[10px] bg-amber-100 text-amber-700 px-2.5 py-1 rounded-full hover:bg-amber-200 transition-colors font-medium no-print">Plan Catch-Up &rarr;</a>
+      {% endif %}
     </div>
     <div class="space-y-1">
       {% for item in overdue_bucket %}

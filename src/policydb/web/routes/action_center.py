@@ -203,6 +203,17 @@ def _followups_ctx(conn, window: int, activity_type: str, q: str,
             item["days_overdue"] = (today - d).days
         except (ValueError, TypeError):
             item["days_overdue"] = 0
+        # Compute days from follow-up date to expiration for proximity warnings
+        exp_val = item.get("expiration_date") or ""
+        if exp_val and fu_date_val:
+            try:
+                exp_d = date.fromisoformat(exp_val[:10])
+                fu_d = date.fromisoformat(fu_date_val[:10])
+                item["days_fu_to_expiry"] = (exp_d - fu_d).days
+            except (ValueError, TypeError):
+                item["days_fu_to_expiry"] = None
+        else:
+            item["days_fu_to_expiry"] = None
         # Mark future my_action items in watching with "my turn" badge
         if bucket == "watching":
             disp = (item.get("disposition") or "").lower()
@@ -363,6 +374,7 @@ def _followups_ctx(conn, window: int, activity_type: str, q: str,
         "activity_types": cfg.get("activity_types", []),
         "renewal_statuses": cfg.get("renewal_statuses", []),
         "dispositions": cfg.get("follow_up_dispositions", []),
+        "followup_expiration_buffer_days": cfg.get("followup_expiration_buffer_days", 3),
     }
 
 

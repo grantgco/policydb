@@ -30,7 +30,56 @@
   </div>
 </div>
 
-<div class="grid grid-cols-5 gap-3" id="plan-grid">
+{% if overdue_backlog %}
+{# ── Catch-Up Summary ── #}
+<div class="bg-amber-50 border border-amber-200 rounded-lg px-4 py-2 mb-4 flex items-center gap-3" id="catchup-banner">
+  <span class="text-sm text-amber-700 font-medium">{{ overdue_backlog | length }} overdue item{{ 's' if overdue_backlog | length != 1 }}</span>
+  <span class="text-xs text-amber-600">Drag items into the week or use Spread to distribute them automatically</span>
+</div>
+{% endif %}
+
+<div class="grid {% if overdue_backlog %}grid-cols-6{% else %}grid-cols-5{% endif %} gap-3" id="plan-grid">
+  {% if overdue_backlog %}
+  {# ── Overdue Backlog Column ── #}
+  <div class="card overflow-hidden border-red-200" data-date="backlog"
+    ondragover="event.preventDefault();this.classList.add('ring-2','ring-red-400')"
+    ondragleave="this.classList.remove('ring-2','ring-red-400')"
+    ondrop="handleDrop(event, '');this.classList.remove('ring-2','ring-red-400')">
+    <div class="px-3 py-2 border-b border-red-100 bg-red-50 flex items-center justify-between">
+      <span class="text-xs font-bold text-red-700">Overdue</span>
+      <span class="text-xs font-mono text-red-600 font-bold" id="count-backlog">{{ overdue_backlog | length }}</span>
+    </div>
+    <div class="p-2 space-y-1 min-h-[200px] max-h-[60vh] overflow-y-auto" id="items-backlog">
+      {% for item in overdue_backlog %}
+      <div class="rounded border px-2 py-1.5 text-xs
+        {% if item.pinned %}border-red-200 bg-red-50/30{% else %}border-amber-200 bg-amber-50/30 hover:border-amber-300{% endif %}"
+        id="card-{{ item.composite_id }}"
+        data-composite-id="{{ item.composite_id }}"
+        {% if not item.pinned %}draggable="true" ondragstart="handleDragStart(event, '{{ item.composite_id }}')"{% endif %}>
+        <div class="flex items-start gap-1.5">
+          {% if item.pinned %}
+          <span class="text-red-400 text-[10px] mt-0.5" title="Pinned — expiring soon">&#128274;</span>
+          {% else %}
+          <span class="text-amber-400 cursor-grab text-[10px] mt-0.5" title="Drag to a day">&#9776;</span>
+          {% endif %}
+          <div class="flex-1 min-w-0">
+            <p class="font-medium text-gray-800 truncate text-[11px]">{{ item.subject }}</p>
+            <p class="text-gray-400 truncate">{{ item.client_name }}{% if item.policy_type %} · {{ item.policy_type }}{% endif %}</p>
+            <div class="flex gap-2 mt-0.5">
+              <span class="text-[10px] text-red-600">{{ item.days_overdue }}d overdue</span>
+              {% if item.days_to_renewal is not none %}
+              <span class="text-[10px] {% if item.days_to_renewal <= 3 %}text-red-600 font-medium{% elif item.days_to_renewal <= 7 %}text-amber-600{% else %}text-gray-400{% endif %}">
+                {% if item.days_to_renewal <= 0 %}Expired{% else %}Exp {{ item.days_to_renewal }}d{% endif %}
+              </span>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
   {% for col in columns %}
   <div class="card overflow-hidden" data-date="{{ col.date }}"
     ondragover="event.preventDefault();this.classList.add('ring-2','ring-marsh')"
@@ -83,6 +132,8 @@
             </div>
             {% if item.pinned and item.days_to_renewal is not none %}
             <p class="text-red-500 text-[10px]">{{ item.days_to_renewal }}d to renewal</p>
+            {% elif item.days_to_renewal is not none and item.days_to_renewal <= 7 %}
+            <p class="text-[10px] {% if item.days_to_renewal <= 0 %}text-red-600 font-medium{% elif item.days_to_renewal <= 3 %}text-amber-600 font-medium{% else %}text-amber-500{% endif %}">{% if item.days_to_renewal <= 0 %}Expired{% else %}Exp in {{ item.days_to_renewal }}d{% endif %}</p>
             {% endif %}
             {% if item.milestone_name %}
             <p class="text-[10px] text-gray-400 truncate">{{ item.milestone_name }}</p>
@@ -176,7 +227,9 @@ function runSpread() {
       }
     });
     updateCounts();
-    document.getElementById('spread-msg').textContent = data.count + ' item(s) would be moved';
+    var msg = data.count + ' item(s) would be moved';
+    if (data.from_backlog > 0) msg += ' (' + data.from_backlog + ' from overdue backlog)';
+    document.getElementById('spread-msg').textContent = msg;
     document.getElementById('spread-preview').classList.remove('hidden');
   });
 }
