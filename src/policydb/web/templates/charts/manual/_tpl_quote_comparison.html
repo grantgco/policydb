@@ -23,7 +23,7 @@
     <div class="mc-legend" id="chart-legend" style="margin-bottom:0.35rem;"></div>
 
     <!-- Bubble Chart -->
-    <div style="position:relative;height:220px;min-height:0;">
+    <div id="chart-bubble-wrap" style="position:relative;height:220px;min-height:0;">
       <canvas id="qcBubbleChart"></canvas>
     </div>
 
@@ -65,6 +65,10 @@
     <label class="display-toggle">
       <input type="checkbox" id="show-subtitle" name="show-subtitle" checked onchange="applyDisplayOptions()">
       <span class="toggle-track"></span><span class="toggle-label">Subtitle</span>
+    </label>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-chart" name="show-chart" checked onchange="applyDisplayOptions()">
+      <span class="toggle-track"></span><span class="toggle-label">Chart</span>
     </label>
     <label class="display-toggle">
       <input type="checkbox" id="show-legend" name="show-legend" checked onchange="applyDisplayOptions()">
@@ -243,6 +247,7 @@
   window.applyDisplayOptions = function () {
     ManualChart.applyToggle('show-title',    'chart-title-display');
     ManualChart.applyToggle('show-subtitle', 'chart-subtitle-display');
+    ManualChart.applyToggle('show-chart',    'chart-bubble-wrap');
     ManualChart.applyToggle('show-legend',   'chart-legend');
     ManualChart.applyToggle('show-table',    'chart-table-wrap');
     ManualChart.applyToggle('show-note',     'chart-note');
