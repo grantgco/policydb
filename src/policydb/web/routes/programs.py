@@ -118,7 +118,7 @@ def program_detail(
     if not client:
         return HTMLResponse("Client not found", status_code=404)
 
-    agg = get_program_aggregates(conn, program["name"], program["client_id"])
+    agg = get_program_aggregates(conn, program["id"])
     renewal_statuses = cfg.get("renewal_statuses", [])
 
     return templates.TemplateResponse("programs/detail.html", {
@@ -142,7 +142,7 @@ def program_tab_overview(
     if not program:
         return HTMLResponse("Not found", status_code=404)
 
-    children = get_program_child_policies(conn, program["name"], program["client_id"])
+    children = get_program_child_policies(conn, program["id"])
 
     # Attach sub-coverage info for ghost rows
     child_ids = [c["id"] for c in children]
@@ -151,7 +151,7 @@ def program_tab_overview(
         child["sub_coverages"] = sub_cov_map.get(child["id"], [])
 
     unassigned = get_unassigned_policies(conn, program["client_id"])
-    agg = get_program_aggregates(conn, program["name"], program["client_id"])
+    agg = get_program_aggregates(conn, program["id"])
 
     return templates.TemplateResponse("programs/_tab_overview.html", {
         "request": request,
@@ -174,27 +174,22 @@ def program_tab_schematic(
     if not program:
         return HTMLResponse("Not found", status_code=404)
 
-    # Reuse the existing schematic page's data loading logic
-    # by importing and calling the internal function
-    from policydb.web.routes.programs import schematic_page
-
-    # Build a fake request with the right path params to reuse schematic_page data
-    # Instead, load data directly here
-    tg = program["name"]
     client_id = program["client_id"]
+    program_id = program["id"]
+    tg = program["name"]  # kept for template context (tower_group display label)
 
-    # Query policies in this tower group
+    # Query child policies via program_id FK
     rows = conn.execute(
         """SELECT p.id, p.policy_uid, p.policy_type, p.carrier, p.policy_number,
                   p.limit_amount, p.deductible, p.premium, p.coverage_form,
                   p.layer_position, p.attachment_point, p.participation_of,
                   p.schematic_column, p.is_program, p.tower_group
            FROM policies p
-           WHERE p.tower_group = ? AND p.client_id = ?
+           WHERE p.program_id = ?
              AND p.archived = 0
              AND (p.is_opportunity = 0 OR p.is_opportunity IS NULL)
            ORDER BY p.layer_position, p.schematic_column, p.policy_type""",
-        (tg, client_id),
+        (program_id,),
     ).fetchall()
     policies = [dict(r) for r in rows]
 
@@ -258,8 +253,8 @@ def program_tab_schematic(
     # Available tower lines for coverage selector
     tower_lines = conn.execute(
         "SELECT * FROM program_tower_lines WHERE program_policy_id IN "
-        "(SELECT id FROM policies WHERE tower_group = ? AND client_id = ? AND is_program = 1)",
-        (tg, client_id),
+        "(SELECT id FROM policies WHERE program_id = ?)",
+        (program_id,),
     ).fetchall()
     available_lines = [dict(tl) for tl in tower_lines]
 
@@ -309,7 +304,7 @@ def program_tab_timeline(
     if not program:
         return HTMLResponse("Not found", status_code=404)
 
-    milestones = get_program_timeline_milestones(conn, program["name"], program["client_id"])
+    milestones = get_program_timeline_milestones(conn, program["id"])
 
     return templates.TemplateResponse("programs/_tab_timeline.html", {
         "request": request,
@@ -329,7 +324,7 @@ def program_tab_activity(
     if not program:
         return HTMLResponse("Not found", status_code=404)
 
-    activities = get_program_activities(conn, program["name"], program["client_id"])
+    activities = get_program_activities(conn, program["id"])
 
     return templates.TemplateResponse("programs/_tab_activity.html", {
         "request": request,

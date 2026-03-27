@@ -2461,42 +2461,34 @@ def get_program_by_uid(conn: sqlite3.Connection, program_uid: str) -> dict | Non
     return dict(row) if row else None
 
 
-def get_program_child_policies(
-    conn: sqlite3.Connection, program_name: str, client_id: int
-) -> list[dict]:
-    """Return child policies for a program (matched by tower_group = program.name)."""
+def get_program_child_policies(conn: sqlite3.Connection, program_id: int) -> list[dict]:
+    """Return child policies for a program via program_id FK."""
     rows = conn.execute(
         """SELECT p.id, p.policy_uid, p.policy_type, p.carrier, p.policy_number,
                   p.premium, p.limit_amount, p.deductible, p.layer_position,
                   p.renewal_status, p.effective_date, p.expiration_date,
                   p.attachment_point, p.participation_of, p.coverage_form
            FROM policies p
-           WHERE p.tower_group = ? AND p.client_id = ?
-             AND (p.is_program = 0 OR p.is_program IS NULL)
+           WHERE p.program_id = ?
              AND p.archived = 0
              AND (p.is_opportunity = 0 OR p.is_opportunity IS NULL)
            ORDER BY p.layer_position, p.policy_type""",
-        (program_name, client_id),
+        (program_id,),
     ).fetchall()
     return [dict(r) for r in rows]
 
 
-def get_program_aggregates(
-    conn: sqlite3.Connection, program_name: str, client_id: int
-) -> dict:
+def get_program_aggregates(conn: sqlite3.Connection, program_id: int) -> dict:
     """Compute aggregate stats for a program from its child policies."""
     row = conn.execute(
-        """SELECT
-             COUNT(*) AS policy_count,
-             COUNT(DISTINCT carrier) AS carrier_count,
-             COALESCE(SUM(premium), 0) AS total_premium,
-             COALESCE(MAX(limit_amount), 0) AS max_limit
+        """SELECT COUNT(*) AS policy_count,
+                  COUNT(DISTINCT carrier) AS carrier_count,
+                  COALESCE(SUM(premium), 0) AS total_premium,
+                  COALESCE(MAX(limit_amount), 0) AS max_limit
            FROM policies
-           WHERE tower_group = ? AND client_id = ?
-             AND (is_program = 0 OR is_program IS NULL)
-             AND archived = 0
+           WHERE program_id = ? AND archived = 0
              AND (is_opportunity = 0 OR is_opportunity IS NULL)""",
-        (program_name, client_id),
+        (program_id,),
     ).fetchone()
     return dict(row) if row else {
         "policy_count": 0, "carrier_count": 0, "total_premium": 0, "max_limit": 0
@@ -2504,33 +2496,27 @@ def get_program_aggregates(
 
 
 def get_programs_for_client(conn: sqlite3.Connection, client_id: int) -> list[dict]:
-    """Return all programs (from new programs table) for a client."""
+    """Return all programs for a client with aggregated stats."""
     rows = conn.execute(
-        """SELECT * FROM programs
-           WHERE client_id = ? AND archived = 0
-           ORDER BY name""",
+        "SELECT * FROM programs WHERE client_id = ? AND archived = 0 ORDER BY name",
         (client_id,),
     ).fetchall()
     programs = []
     for r in rows:
         pgm = dict(r)
-        agg = get_program_aggregates(conn, pgm["name"], client_id)
+        agg = get_program_aggregates(conn, pgm["id"])
         pgm.update(agg)
         programs.append(pgm)
     return programs
 
 
-def get_unassigned_policies(
-    conn: sqlite3.Connection, client_id: int
-) -> list[dict]:
+def get_unassigned_policies(conn: sqlite3.Connection, client_id: int) -> list[dict]:
     """Return active policies not assigned to any program."""
     rows = conn.execute(
         """SELECT policy_uid, policy_type, carrier, premium, limit_amount
            FROM policies
            WHERE client_id = ? AND archived = 0
              AND (is_opportunity = 0 OR is_opportunity IS NULL)
-             AND (is_program = 0 OR is_program IS NULL)
-             AND (tower_group IS NULL OR tower_group = '')
              AND program_id IS NULL
            ORDER BY policy_type""",
         (client_id,),
@@ -2538,9 +2524,7 @@ def get_unassigned_policies(
     return [dict(r) for r in rows]
 
 
-def get_program_timeline_milestones(
-    conn: sqlite3.Connection, program_name: str, client_id: int
-) -> list[dict]:
+def get_program_timeline_milestones(conn: sqlite3.Connection, program_id: int) -> list[dict]:
     """Return timeline milestones for all child policies of a program."""
     try:
         rows = conn.execute(
@@ -2550,19 +2534,16 @@ def get_program_timeline_milestones(
                       p.policy_type, p.carrier
                FROM policy_timeline pt
                JOIN policies p ON p.policy_uid = pt.policy_uid
-               WHERE p.tower_group = ? AND p.client_id = ?
-                 AND (p.is_program = 0 OR p.is_program IS NULL)
+               WHERE p.program_id = ?
                ORDER BY pt.ideal_date""",
-            (program_name, client_id),
+            (program_id,),
         ).fetchall()
         return [dict(r) for r in rows]
     except Exception:
         return []
 
 
-def get_program_activities(
-    conn: sqlite3.Connection, program_name: str, client_id: int, limit: int = 50
-) -> list[dict]:
+def get_program_activities(conn: sqlite3.Connection, program_id: int, limit: int = 50) -> list[dict]:
     """Return recent activities from all child policies of a program."""
     rows = conn.execute(
         """SELECT a.id, a.activity_type, a.description, a.contact_name,
@@ -2570,10 +2551,9 @@ def get_program_activities(
                   p.policy_type, p.carrier, p.policy_uid
            FROM activity_log a
            JOIN policies p ON p.id = a.policy_id
-           WHERE p.tower_group = ? AND p.client_id = ?
-             AND (p.is_program = 0 OR p.is_program IS NULL)
+           WHERE p.program_id = ?
            ORDER BY a.created_at DESC
            LIMIT ?""",
-        (program_name, client_id, limit),
+        (program_id, limit),
     ).fetchall()
     return [dict(r) for r in rows]
