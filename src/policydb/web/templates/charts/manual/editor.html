@@ -22,6 +22,9 @@
       <button class="btn-mc outline sm" onclick="document.getElementById('snapshot-panel').classList.toggle('hidden')">
         Snapshots
       </button>
+      <button class="btn-mc outline sm" onclick="copyToClipboard()">
+        Copy
+      </button>
       <button class="btn-mc" onclick="exportChart(event)" id="export-btn">
         Export PNG &#9662;
       </button>
@@ -176,13 +179,31 @@
     }, 10);
   }
 
-  function exportChartAtSize(chartPage, sizeKey, preset) {
-    // Clone the chart page, strip no-print elements
+  // ── Canvas-to-img helper (html2canvas can't render <canvas>) ──────────
+  function convertCanvasesToImages(sourceEl, cloneEl) {
+    var origCanvases = sourceEl.querySelectorAll('canvas');
+    var cloneCanvases = cloneEl.querySelectorAll('canvas');
+    for (var i = 0; i < origCanvases.length; i++) {
+      if (i < cloneCanvases.length) {
+        var img = document.createElement('img');
+        img.src = origCanvases[i].toDataURL('image/png');
+        img.style.width = origCanvases[i].offsetWidth + 'px';
+        img.style.height = origCanvases[i].offsetHeight + 'px';
+        cloneCanvases[i].parentNode.replaceChild(img, cloneCanvases[i]);
+      }
+    }
+  }
+
+  function prepareClone(chartPage) {
     var clone = chartPage.cloneNode(true);
     clone.querySelectorAll('.no-print, .chart-export-btn').forEach(function (el) { el.remove(); });
+    convertCanvasesToImages(chartPage, clone);
+    return clone;
+  }
 
-    // Scale factor: render at preset size (chart page is 960x540 native)
-    var scale = (preset.w / 960) * 2;  // 2x for retina
+  function exportChartAtSize(chartPage, sizeKey, preset) {
+    var clone = prepareClone(chartPage);
+    var scale = (preset.w / 960) * 2;
 
     var container = document.createElement('div');
     container.style.cssText = 'position:fixed;left:-9999px;top:0;width:960px;height:540px;background:white;';
@@ -190,12 +211,8 @@
     container.appendChild(clone);
 
     html2canvas(container, {
-      width: 960,
-      height: 540,
-      scale: scale,
-      backgroundColor: '#ffffff',
-      useCORS: true,
-      logging: false
+      width: 960, height: 540, scale: scale,
+      backgroundColor: '#ffffff', useCORS: true, logging: false
     }).then(function (canvas) {
       document.body.removeChild(container);
       canvas.toBlob(function (blob) {
@@ -216,18 +233,18 @@
   }
 
   function exportAutoHeight(chartPage) {
-    var clone = chartPage.cloneNode(true);
-    clone.querySelectorAll('.no-print, .chart-export-btn').forEach(function(el) { el.remove(); });
+    var clone = prepareClone(chartPage);
     var nativeW = chartPage.offsetWidth;
     var nativeH = chartPage.offsetHeight;
+
     var container = document.createElement('div');
     container.style.cssText = 'position:fixed;left:-9999px;top:0;width:' + nativeW + 'px;height:' + nativeH + 'px;background:white;';
     document.body.appendChild(container);
     container.appendChild(clone);
+
     html2canvas(container, {
-      width: nativeW, height: nativeH,
-      scale: 2, backgroundColor: '#ffffff',
-      useCORS: true, logging: false
+      width: nativeW, height: nativeH, scale: 2,
+      backgroundColor: '#ffffff', useCORS: true, logging: false
     }).then(function(canvas) {
       document.body.removeChild(container);
       canvas.toBlob(function(blob) {
@@ -243,6 +260,45 @@
     }).catch(function(err) {
       document.body.removeChild(container);
       ManualChart.toast('Export failed: ' + err.message, 'error');
+    });
+  }
+
+  // ── Copy to clipboard ───────────────────────────────────────────────────
+  function copyToClipboard() {
+    var chartPage = document.querySelector('.manual-chart-page')
+                 || document.querySelector('.manual-chart-page-auto');
+    if (!chartPage) { ManualChart.toast('Nothing to copy', 'error'); return; }
+
+    var clone = prepareClone(chartPage);
+    var w = chartPage.offsetWidth;
+    var h = chartPage.offsetHeight;
+
+    var container = document.createElement('div');
+    container.style.cssText = 'position:fixed;left:-9999px;top:0;width:' + w + 'px;height:' + h + 'px;background:white;';
+    document.body.appendChild(container);
+    container.appendChild(clone);
+
+    html2canvas(container, {
+      width: w, height: h, scale: 2,
+      backgroundColor: '#ffffff', useCORS: true, logging: false
+    }).then(function(canvas) {
+      document.body.removeChild(container);
+      canvas.toBlob(function(blob) {
+        if (navigator.clipboard && navigator.clipboard.write) {
+          navigator.clipboard.write([
+            new ClipboardItem({ 'image/png': blob })
+          ]).then(function() {
+            ManualChart.toast('Copied to clipboard', 'success');
+          }).catch(function() {
+            ManualChart.toast('Copy failed — try Export PNG instead', 'error');
+          });
+        } else {
+          ManualChart.toast('Clipboard API not available — use Export PNG', 'error');
+        }
+      }, 'image/png');
+    }).catch(function(err) {
+      document.body.removeChild(container);
+      ManualChart.toast('Copy failed: ' + err.message, 'error');
     });
   }
 
