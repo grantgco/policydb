@@ -21,9 +21,13 @@ Phase 4 cuts over: remove all legacy program references from Python code, drop `
 |-----------|-------------|-----------|-------------|
 | `is_program` | 21 | 7 | reconciler.py (~15), exporter.py (~10), policies.py (~10), programs.py (~15) |
 | `program_carriers` | 12 | 1 | policies.py CRUD (~12), reconcile.py (~12), exporter.py (4), views.py (3) |
-| `tower_group` | 19 | 9 | charts.py (~15), programs.py (3), schematic templates (5) |
+| `tower_group` | 19 | 9 | charts.py (~15), routes/charts.py (~5), programs.py (3), schematic templates (5) |
+| `program_tower_lines` | 2 | 0 | programs.py (~8), charts.py (1) |
+| `program_tower_coverage` | 2 | 0 | programs.py (~8), charts.py (1) |
 
 **Baseline tests:** 281 passed, 2 pre-existing failures (compliance pct + LLM schema — unrelated to programs).
+
+**Note on `program_tower_lines` and `program_tower_coverage`:** These tables store schematic tower data (which excess layers cover which underlying lines). Their `program_policy_id` FK currently points to `policies.id` (the `is_program=1` row). This FK must be repointed to `programs.id` in the migration.
 
 ---
 
@@ -41,10 +45,10 @@ Execute in dependency order. Each layer builds on the previous.
 
 | Step | Layer | What changes |
 |------|-------|-------------|
-| 1 | Migration | Set `program_id` FK on children, convert carrier rows to policies, archive `is_program=1` rows, drop `program_carriers` |
+| 1 | Migration | Set `program_id` FK on children, convert carrier rows to policies, repoint `program_tower_lines` FK, archive `is_program=1` rows, drop `program_carriers` |
 | 2 | Views | Rebuild all views to reference `programs` table instead of `is_program` flag |
 | 3 | Core modules | `queries.py`, `timeline_engine.py`, `email_templates.py`, `compliance.py`, `charts.py`, `dedup.py`, `llm_schemas.py`, `analysis.py`, `display.py`, `models.py`, `importer.py` |
-| 4 | Routes | All route files: `clients.py`, `policies.py`, `programs.py`, `review.py`, `reconcile.py`, `meetings.py` |
+| 4 | Routes | All route files: `clients.py`, `policies.py`, `programs.py`, `review.py`, `reconcile.py`, `meetings.py`, `charts.py` (route) |
 | 5 | Templates | Remove `is_program` conditionals, `tower_group` inputs, carrier matrix includes |
 | 6 | Reconciler | Simplify program matching to use child policies directly |
 | 7 | Cleanup | Drop table migration, delete dead tests/templates, seed/CLI updates |
@@ -68,12 +72,15 @@ SET program_id = (
     WHERE pg.client_id = policies.client_id
       AND pg.name = policies.tower_group
       AND pg.archived = 0
+    LIMIT 1
 )
 WHERE tower_group IS NOT NULL AND tower_group != ''
   AND (is_program = 0 OR is_program IS NULL)
   AND program_id IS NULL
   AND archived = 0;
 ```
+
+**Safety note:** `LIMIT 1` guards against the edge case where two active programs share a name for the same client (the uniqueness constraint only exists in the v2 creation path, not for Phase 3 migrated data).
 
 **Step B: Convert `program_carriers` rows to child policies**
 
@@ -93,7 +100,29 @@ Python migration logic (in `init_db()`):
 #   4. Record mapping for audit trail
 ```
 
-**Step C: Archive `is_program=1` policy rows**
+**Step C: Repoint `program_tower_lines` FK to `programs` table**
+
+The `program_tower_lines` table has `program_policy_id` referencing `policies(id)` (the `is_program=1` row). Add a new column pointing to `programs(id)` and populate it:
+
+```sql
+ALTER TABLE program_tower_lines ADD COLUMN program_id INTEGER REFERENCES programs(id) ON DELETE CASCADE;
+
+UPDATE program_tower_lines
+SET program_id = (
+    SELECT pg.id FROM programs pg
+    JOIN policies p ON p.client_id = pg.client_id
+      AND (p.tower_group = pg.name OR p.policy_type = pg.name)
+    WHERE p.id = program_tower_lines.program_policy_id
+      AND pg.archived = 0
+    LIMIT 1
+);
+```
+
+After code migration, all queries use `program_id` instead of `program_policy_id`. The old column is left in schema but ignored.
+
+**Note on `program_tower_coverage`:** This table links excess policies to underlying policies/sub-coverages via `excess_policy_id` and `underlying_policy_id` — both reference `policies(id)` directly. Since child policies remain in the `policies` table (they are NOT deleted or archived), these FKs remain valid. No migration needed for this table. Code references are updated in Layer 3 (charts.py) and Layer 4 (programs.py routes) to use `program_id` for scoping queries.
+
+**Step D: Archive `is_program=1` policy rows**
 
 ```sql
 UPDATE policies SET archived = 1
@@ -102,7 +131,7 @@ WHERE is_program = 1;
 
 Don't delete — preserves audit trail and rollback option.
 
-**Step D: Verify integrity**
+**Step E: Verify integrity**
 
 After migration, assert:
 - Every non-archived policy with `tower_group` matching a program name has `program_id` set
@@ -143,10 +172,22 @@ All views updated in `src/policydb/views.py`:
 - **Remove:** Carrier concat from `program_carriers` table
 - **Result:** Programs don't appear as schedule rows. Child policies appear with their own carrier. Ghost rows handled at Python level.
 
+### `v_tower`
+
+- **Replace:** `p.tower_group` grouping in SELECT and ORDER BY
+- **With:** `p.program_id` FK grouping, JOIN to `programs.name` for display label
+- ORDER BY: `programs.name, COALESCE(p.attachment_point, 0) ASC`
+
 ### `v_renewal_pipeline`
 
 - **Replace:** `AND (p.is_program = 0 OR p.is_program IS NULL)`
-- **With:** `AND p.program_id IS NULL` — only standalone policies in pipeline (child policies managed at program level)
+- **With:** `AND p.program_id IS NULL` — only standalone policies in pipeline
+
+**Behavioral change:** Previously, child policies (with `tower_group` set but `is_program=0`) appeared in the renewal pipeline. Now they are excluded — renewals for program children are managed via the program detail page. This is intentional: the program's timeline drives renewal workflow, not individual child policy dates. Programs themselves get their own pipeline entries via a separate query against the `programs` table at the route level.
+
+### `v_overdue_followups` / `v_review_clients`
+
+- **No changes needed.** `v_overdue_followups` joins `activity_log` to `policies` without any `is_program` filter. `v_review_clients` depends on `v_client_summary` (which is updated above) — verified no transitive impact.
 
 ### `v_review_queue`
 
@@ -253,9 +294,9 @@ async def redirect_legacy_program(client_id: int, tower_group: str, ...):
 
 - **Remove:** Legacy `FROM policies WHERE is_program = 1` query
 - **Remove:** Corporate programs section querying `is_program=1` + `program_carriers`
-- **Remove:** `program_carriers` INSERT during import/merge
+- **Remove:** `program_carriers` INSERT during import/merge (line 5201)
 - Programs section comes from `get_programs_for_client()` exclusively
-- Renewal month summary: replace `is_program` carrier count with programs table subquery
+- Renewal month summary (line 1329-1334): remove correlated subquery against `program_carriers` table for carrier count. Replace with `(SELECT COUNT(DISTINCT carrier) FROM policies WHERE program_id = ...)` or remove the program carrier count from the calendar entirely since programs are tracked separately
 
 ### `review.py`
 
@@ -269,6 +310,13 @@ async def redirect_legacy_program(client_id: int, tower_group: str, ...):
 ### `meetings.py`
 
 - Replace `CASE WHEN is_program = 1 THEN 'Program'` with LEFT JOIN to `programs` via `program_id`
+
+### `routes/charts.py`
+
+- Replace `tower_group` references in tower layout expansion (lines 412-439)
+- `tower.tower_group` display key becomes `tower.program_name`
+- `chart_data` tower grouping uses `program_id` instead of `tower_group`
+- `program_tower_coverage` scoping queries: use `program_id` instead of `program_policy_id` (after migration repoints the FK)
 
 ### Other routes (`action_center.py`, `activities.py`, `dashboard.py`)
 
@@ -336,7 +384,9 @@ Import row → match against child policies directly (1:1, same as any policy)
 
 ### Scoring preservation guarantee
 
-`_score_pair()` is **completely unchanged** — same weights, same fields, same tiers. Child policies carry the same carrier/premium/limit/policy_number data that the old carrier overlays provided, so scores are identical.
+`_score_pair()` is **completely unchanged** — same weights, same fields, same tiers. Child policies carry the same carrier/premium/limit/policy_number data that the old carrier overlays provided, so scores are identical in the common case.
+
+**Edge case:** In the old model, the overlay inherited `effective_date`/`expiration_date` from the program parent. In the new model, child policies have their own dates (set from the program during migration). If a child policy's dates were independently updated after migration, its date score component could diverge from what the old overlay would have produced. This is acceptable — the child policy's own dates are more accurate than the program parent's dates for matching purposes.
 
 ### Code deleted from `reconciler.py`
 
@@ -426,10 +476,10 @@ Wired in `init_db()` after all code paths are updated.
 
 | Metric | Count |
 |--------|-------|
-| New migrations | 2 (101: data migration, 102: drop table) |
+| New migrations | 2 (101: data migration + FK repoint, 102: drop table) |
 | Files deleted | 2 templates + 1 test file |
 | Files with major rewrites | 5 (views.py, queries.py, reconciler.py, programs.py, exporter.py) |
-| Files with moderate edits | 8 (policies.py, clients.py, charts.py, compliance.py, email_templates.py, reconcile.py route, plus templates) |
+| Files with moderate edits | 9 (policies.py, clients.py, charts.py, routes/charts.py, compliance.py, email_templates.py, reconcile.py route, plus templates) |
 | Files with minor edits | ~12 (single-line removals of is_program references) |
 | Lines removed (estimated) | ~600 (v1 routes, carrier CRUD, overlay scoring, dead templates) |
 | Lines added (estimated) | ~150 (migration, simplified reconciler summary, redirects) |
@@ -480,6 +530,7 @@ After all layers complete: schedule, tower, client detail, reconcile, export, im
 | `routes/review.py` | 4 | Programs table lookup |
 | `routes/reconcile.py` | 4,6 | Remove carrier INSERTs, program creation rewrite |
 | `routes/meetings.py` | 4 | Replace `is_program` label |
+| `routes/charts.py` | 4 | Replace `tower_group` in tower layout expansion |
 | `reconciler.py` | 6 | Remove overlay scoring, simplify to 1:1 |
 | `exporter.py` | 7 | Rewrite program export |
 | `seed.py` | 7 | Remove `tower_group` usage |
@@ -501,7 +552,7 @@ After all layers complete: schedule, tower, client detail, reconcile, export, im
 | `programs/_excess_matrix.html` | 5 | URL pattern update |
 | `programs/_schematic_preview.html` | 5 | Label update |
 | `charts/_chart_tower.html` | 5 | Label update |
-| `clients/_programs.html` | 5 | Link pattern update |
+| `clients/_programs.html` | 5 | Remove entire legacy programs section + update links to `/programs/{{ pgm.program_uid }}` |
 
 ### Files deleted (3)
 
