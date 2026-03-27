@@ -60,9 +60,9 @@ ManualChart.fmtCurrency = function (n) {
   var abs = Math.abs(n);
   var str;
   if (abs >= 1e6) {
-    str = '$' + (abs / 1e6).toFixed(2).replace(/\.?0+$/, '') + 'M';
+    str = '$' + (abs / 1e6).toFixed(2).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '') + 'M';
   } else if (abs >= 1e3) {
-    str = '$' + (abs / 1e3).toFixed(0).replace(/\.?0+$/, '') + 'K';
+    str = '$' + Math.round(abs / 1e3) + 'K';
   } else {
     str = '$' + abs.toLocaleString('en-US', { maximumFractionDigits: 0 });
   }
