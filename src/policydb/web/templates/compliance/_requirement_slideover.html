@@ -289,7 +289,7 @@
       {% if pol.get('_location_match') == 'this' %}{% set ns.has_this = true %}{% endif %}
       {% if pol.get('_location_match') == 'corporate' %}{% set ns.has_corporate = true %}{% endif %}
       {% if pol.get('_location_match') == 'other' %}{% set ns.has_other = true %}{% endif %}
-      {% if pol.get('is_program') %}{% set ns.has_programs = true %}{% endif %}
+      {% if pol.get('children') is not none %}{% set ns.has_programs = true %}{% endif %}
     {% endfor %}
 
     <div class="relative">
@@ -306,7 +306,7 @@
         {% if ns.has_programs %}
         <div data-section-header class="px-2 py-1 bg-gray-50 text-[10px] text-gray-400 uppercase tracking-wider font-semibold sticky top-0">Programs</div>
         {% for pol in linkable_policies %}
-          {% if pol.get('is_program') %}
+          {% if pol.get('children') is not none %}
           <button type="button"
                   data-search="{{ (pol.policy_uid + ' ' + (pol.policy_type or '') + ' ' + (pol.carrier or '')) | lower }}"
                   class="w-full text-left px-3 py-1.5 hover:bg-indigo-50 text-xs flex items-center gap-2 border-b border-gray-50"
@@ -343,7 +343,7 @@
           {% if ns.has_this or ns.has_corporate %}
           <div data-section-header class="px-2 py-1 bg-green-50 text-[10px] text-green-700 uppercase tracking-wider font-semibold sticky top-0 border-t border-green-100">&#9679; This Location</div>
           {% for pol in linkable_policies %}
-            {% if not pol.get('is_program') and not pol.get('program_id') and pol.get('_location_match') == 'this' %}
+            {% if not pol.get('children') is not none and not pol.get('program_id') and pol.get('_location_match') == 'this' %}
             <button type="button"
                     data-search="{{ (pol.policy_uid + ' ' + (pol.policy_type or '') + ' ' + (pol.carrier or '')) | lower }}"
                     class="w-full text-left px-3 py-1.5 hover:bg-green-50 text-xs flex items-center gap-2 border-b border-gray-50 border-l-2 border-l-green-400"
@@ -357,7 +357,7 @@
             {% endif %}
           {% endfor %}
           {% for pol in linkable_policies %}
-            {% if not pol.get('is_program') and not pol.get('program_id') and pol.get('_location_match') == 'corporate' %}
+            {% if not pol.get('children') is not none and not pol.get('program_id') and pol.get('_location_match') == 'corporate' %}
             <button type="button"
                     data-search="{{ (pol.policy_uid + ' ' + (pol.policy_type or '') + ' ' + (pol.carrier or '')) | lower }}"
                     class="w-full text-left px-3 py-1.5 hover:bg-green-50 text-xs flex items-center gap-2 border-b border-gray-50"
@@ -375,7 +375,7 @@
           {% if ns.has_other %}
           <div data-section-header class="px-2 py-1 bg-gray-100 text-[10px] text-gray-400 uppercase tracking-wider font-semibold sticky top-0 border-t border-gray-200">Other Locations</div>
           {% for pol in linkable_policies %}
-            {% if not pol.get('is_program') and not pol.get('program_id') and pol.get('_location_match') == 'other' %}
+            {% if not pol.get('children') is not none and not pol.get('program_id') and pol.get('_location_match') == 'other' %}
             <button type="button"
                     data-search="{{ (pol.policy_uid + ' ' + (pol.policy_type or '') + ' ' + (pol.carrier or '') + ' ' + (pol.get('_project_name') or '')) | lower }}"
                     class="w-full text-left px-3 py-1.5 hover:bg-gray-50 text-xs flex items-center gap-2 border-b border-gray-50 opacity-60"
@@ -394,7 +394,7 @@
           {# ── No location context — flat list ── #}
           <div data-section-header class="px-2 py-1 bg-gray-50 text-[10px] text-gray-400 uppercase tracking-wider font-semibold sticky top-0">Policies</div>
           {% for pol in linkable_policies %}
-            {% if not pol.get('is_program') and not pol.get('program_id') %}
+            {% if not pol.get('children') is not none and not pol.get('program_id') %}
             <button type="button"
                     data-search="{{ (pol.policy_uid + ' ' + (pol.policy_type or '') + ' ' + (pol.carrier or '')) | lower }}"
                     class="w-full text-left px-3 py-1.5 hover:bg-green-50 text-xs flex items-center gap-2 border-b border-gray-50"

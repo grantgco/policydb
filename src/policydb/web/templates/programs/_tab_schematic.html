@@ -43,7 +43,7 @@
     <h2 class="font-semibold text-gray-900 text-sm">Schematic Preview</h2>
   </div>
   <div id="schematic-preview" class="p-4"
-       hx-get="/clients/{{ client_id }}/programs/{{ tower_group | urlencode }}/preview"
+       hx-get="/programs/{{ program_uid }}/preview"
        hx-trigger="tower-updated from:body, load"
        hx-swap="innerHTML"
        hx-sync="this:replace"
@@ -56,7 +56,7 @@
 <script src="/static/charts/charts.js"></script>
 <script>
 (function() {
-  var _base = '/clients/{{ client_id }}/programs/{{ tower_group | urlencode }}';
+  var _base = '/programs/{{ program_uid }}';
 
   // Underlying matrix
   window._underlyingMatrix = window.initMatrix({
