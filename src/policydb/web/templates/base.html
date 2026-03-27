@@ -503,7 +503,7 @@
 
             <!-- Tools dropdown -->
             <div class="relative" onmouseenter="openNavDrop(this)" onmouseleave="closeNavDrop(this)">
-              <button class="nav-link flex items-center gap-1 {% if active in ['briefing','reconcile','templates','settings','ref-lookup','review','meetings','charts','manual-charts'] %}bg-marsh-light border-b-2 border-[#c8a96e]{% endif %}">
+              <button class="nav-link flex items-center gap-1 {% if active in ['briefing','reconcile','templates','settings','ref-lookup','review','meetings','charts','manual-charts','exports'] %}bg-marsh-light border-b-2 border-[#c8a96e]{% endif %}">
                 Tools
                 <svg class="w-3 h-3 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
               </button>
@@ -518,6 +518,7 @@
                 <a href="/settings" class="block px-4 py-1.5 text-sm text-gray-700 hover:bg-gray-100 {% if active == 'settings' %}font-semibold text-marsh{% endif %}">Settings</a>
                 <a href="/logs" class="block px-4 py-1.5 text-sm text-gray-700 hover:bg-gray-100 {% if active == 'logs' %}font-semibold text-marsh{% endif %}">Logs</a>
                 <a href="/ref-lookup" class="block px-4 py-1.5 text-sm text-gray-700 hover:bg-gray-100 {% if active == 'ref-lookup' %}font-semibold text-marsh{% endif %}">Ref Lookup</a>
+                <a href="/exports" class="block px-4 py-1.5 text-sm text-gray-700 hover:bg-gray-100 {% if active == 'exports' %}font-semibold text-marsh{% endif %}">Data Export</a>
               </div>
             </div>
 
