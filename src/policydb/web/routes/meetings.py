@@ -540,7 +540,7 @@ def meeting_detail(
     contacts = _get_client_contacts(conn, m["client_id"])
     client_policies = [dict(r) for r in conn.execute(
         """SELECT policy_uid, policy_type, carrier, project_name,
-                  CASE WHEN is_program = 1 THEN 'Program' ELSE '' END AS program_label
+                  CASE WHEN p.program_id IS NOT NULL THEN 'In Program' ELSE '' END AS program_label
            FROM policies
            WHERE client_id = ? AND archived = 0 ORDER BY project_name, policy_type""",
         (m["client_id"],),
