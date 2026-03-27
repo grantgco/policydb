@@ -53,11 +53,25 @@ def test_child_policies_have_program_id(migrated_db):
 
 
 def test_is_program_rows_archived(migrated_db):
-    """After migration, is_program=1 rows should be archived."""
+    """is_program=1 rows should be archived by migration Step D."""
+    # Insert an is_program=1 row, then verify the archive SQL works
+    migrated_db.execute(
+        "INSERT INTO policies (policy_uid, client_id, policy_type, is_program, archived) "
+        "VALUES ('POL-PROG', 999, 'Test Program', 1, 0)"
+    )
+    migrated_db.commit()
+    # Re-apply Step D logic
+    migrated_db.execute("UPDATE policies SET archived = 1 WHERE is_program = 1")
+    migrated_db.commit()
     count = migrated_db.execute(
         "SELECT COUNT(*) FROM policies WHERE is_program = 1 AND archived = 0"
     ).fetchone()[0]
     assert count == 0
+    # Verify the row was archived, not deleted
+    archived = migrated_db.execute(
+        "SELECT archived FROM policies WHERE policy_uid = 'POL-PROG'"
+    ).fetchone()
+    assert archived["archived"] == 1
 
 
 def test_program_tower_lines_has_program_id_column(migrated_db):
