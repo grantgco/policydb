@@ -270,8 +270,9 @@
     if (!chartPage) { ManualChart.toast('Nothing to copy', 'error'); return; }
 
     var clone = prepareClone(chartPage);
-    var w = chartPage.offsetWidth;
-    var h = chartPage.offsetHeight;
+    var isFixed = chartPage.classList.contains('manual-chart-page');
+    var w = isFixed ? 960 : chartPage.offsetWidth;
+    var h = isFixed ? 540 : chartPage.offsetHeight;
 
     var container = document.createElement('div');
     container.style.cssText = 'position:fixed;left:-9999px;top:0;width:' + w + 'px;height:' + h + 'px;background:white;';
