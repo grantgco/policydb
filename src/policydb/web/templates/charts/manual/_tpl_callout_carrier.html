@@ -1,0 +1,259 @@
+{# -- Callout -- Carrier Tile --------------------------------------------------
+   Carrier summary card with AM Best rating, participation, premium, and notes.
+   Expects: ManualChart namespace available (manual.js loaded).
+#}
+
+<!-- === Chart Display ======================================================= -->
+<div class="manual-chart-page-auto" style="display:flex;justify-content:center;padding:2rem;">
+  <div id="carrier-card-container" style="width:520px;"></div>
+</div>
+
+<!-- === Editor Panel ======================================================== -->
+<div class="mc-editor" id="editor-panel">
+  <div class="mc-editor-title">Configure Carrier Tile</div>
+
+  <!-- Display toggles -->
+  <div class="display-options">
+    <span class="section-label">Display</span>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-header" name="show-header" checked onchange="refreshCurrentChart()">
+      <span class="toggle-track"></span><span class="toggle-label">Header</span>
+    </label>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-notes" name="show-notes" checked onchange="refreshCurrentChart()">
+      <span class="toggle-track"></span><span class="toggle-label">Notes</span>
+    </label>
+  </div>
+
+  <!-- Content -->
+  <div style="margin-top:0.75rem;">
+    <div class="section-head midnight">Content</div>
+
+    <div style="display:flex;flex-direction:column;gap:0.6rem;">
+      <!-- Carrier Name -->
+      <div class="input-group">
+        <label>Carrier Name</label>
+        <input type="text" id="val-carrier-name" name="val-carrier-name"
+               value="Everest National"
+               oninput="refreshCurrentChart()"
+               style="border:1px solid var(--mc-border);border-radius:3px;padding:0.38rem 0.6rem;font-family:'Noto Sans',sans-serif;font-size:0.83rem;color:var(--mc-text);background:var(--mc-bg);width:100%;">
+      </div>
+
+      <!-- AM Best Rating -->
+      <div class="input-group">
+        <label>AM Best Rating</label>
+        <input type="text" id="val-rating" name="val-rating"
+               value="A+ XV"
+               oninput="refreshCurrentChart()"
+               style="border:1px solid var(--mc-border);border-radius:3px;padding:0.38rem 0.6rem;font-family:'Noto Sans',sans-serif;font-size:0.83rem;color:var(--mc-text);background:var(--mc-bg);width:100%;">
+      </div>
+
+      <!-- Lines Written -->
+      <div class="input-group">
+        <label>Lines Written</label>
+        <input type="text" id="val-lines" name="val-lines"
+               value="Property &middot; General Liability"
+               oninput="refreshCurrentChart()"
+               style="border:1px solid var(--mc-border);border-radius:3px;padding:0.38rem 0.6rem;font-family:'Noto Sans',sans-serif;font-size:0.83rem;color:var(--mc-text);background:var(--mc-bg);width:100%;">
+      </div>
+
+      <!-- Total Premium + Participation on same row -->
+      <div style="display:flex;gap:0.6rem;">
+        <div class="input-group" style="flex:1;">
+          <label>Total Premium</label>
+          <input type="text" id="val-premium" name="val-premium"
+                 value="$875,000"
+                 oninput="refreshCurrentChart()"
+                 style="border:1px solid var(--mc-border);border-radius:3px;padding:0.38rem 0.6rem;font-family:'Noto Sans',sans-serif;font-size:0.83rem;color:var(--mc-text);background:var(--mc-bg);width:100%;">
+        </div>
+        <div class="input-group" style="flex:1;">
+          <label>Participation</label>
+          <input type="text" id="val-participation" name="val-participation"
+                 value="40% of $250M"
+                 oninput="refreshCurrentChart()"
+                 style="border:1px solid var(--mc-border);border-radius:3px;padding:0.38rem 0.6rem;font-family:'Noto Sans',sans-serif;font-size:0.83rem;color:var(--mc-text);background:var(--mc-bg);width:100%;">
+        </div>
+      </div>
+
+      <!-- Retention / SIR -->
+      <div class="input-group">
+        <label>Retention / SIR</label>
+        <input type="text" id="val-retention" name="val-retention"
+               value="$500,000 SIR"
+               oninput="refreshCurrentChart()"
+               style="border:1px solid var(--mc-border);border-radius:3px;padding:0.38rem 0.6rem;font-family:'Noto Sans',sans-serif;font-size:0.83rem;color:var(--mc-text);background:var(--mc-bg);width:100%;">
+      </div>
+
+      <!-- Notes -->
+      <div class="input-group">
+        <label>Notes</label>
+        <textarea id="val-notes" name="val-notes"
+                  oninput="refreshCurrentChart()"
+                  rows="3"
+                  style="border:1px solid var(--mc-border);border-radius:3px;padding:0.38rem 0.6rem;font-family:'Noto Sans',sans-serif;font-size:0.83rem;color:var(--mc-text);background:var(--mc-bg);width:100%;resize:vertical;">Lead market. Favorable rate movement driven by loss history and risk improvements made in 2024.</textarea>
+      </div>
+    </div>
+  </div>
+
+  <!-- Style -->
+  <div style="margin-top:1rem;">
+    <div class="section-head midnight">Style</div>
+
+    <!-- Accent color swatches -->
+    <div class="input-group" style="margin-bottom:0.6rem;">
+      <label>Header Color</label>
+      <input type="hidden" id="cfg-accent-color" name="cfg-accent-color" value="#000F47">
+      <div id="color-swatches" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:0.25rem;"></div>
+    </div>
+
+    <!-- Card width -->
+    <div class="input-group">
+      <label>Card Width</label>
+      <select id="cfg-card-width" name="cfg-card-width"
+              onchange="refreshCurrentChart()"
+              style="border:1px solid var(--mc-border);border-radius:3px;padding:0.38rem 0.55rem;font-family:'Noto Sans',sans-serif;font-size:0.83rem;color:var(--mc-text);background:white;width:140px;">
+        <option value="400">400 px</option>
+        <option value="520" selected>520 px</option>
+        <option value="680">680 px</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div class="mc-editor-footer">
+    <button class="btn-mc" onclick="refreshCurrentChart()">Refresh Card</button>
+  </div>
+</div>
+
+<!-- === Script ============================================================== -->
+<script>
+(function () {
+  var MC = ManualChart.COLORS;
+  var C  = ManualChart.DATA_COLORS;
+
+  // -- Defaults ---------------------------------------------------------------
+  var defaults = {
+    carrierName: 'Everest National',
+    rating:      'A+ XV',
+    lines:       'Property \u00b7 General Liability',
+    premium:     '$875,000',
+    participation: '40% of $250M',
+    retention:   '$500,000 SIR',
+    notes:       'Lead market. Favorable rate movement driven by loss history and risk improvements made in 2024.',
+    accentColor: MC.midnight,
+    cardWidth:   520,
+  };
+
+  // -- Helpers ----------------------------------------------------------------
+  function esc(s) {
+    var d = document.createElement('div');
+    d.textContent = s || '';
+    return d.innerHTML;
+  }
+
+  // -- Accent Color Swatches --------------------------------------------------
+  function buildSwatches() {
+    var container = document.getElementById('color-swatches');
+    var current = document.getElementById('cfg-accent-color').value || defaults.accentColor;
+    container.innerHTML = '';
+    C.forEach(function (color) {
+      var sw = document.createElement('div');
+      sw.style.cssText = 'width:22px;height:22px;border-radius:3px;cursor:pointer;border:2px solid ' +
+        (color === current ? MC.midnight : 'transparent') + ';background:' + color + ';transition:transform 0.1s;';
+      sw.onmouseover = function () { sw.style.transform = 'scale(1.15)'; };
+      sw.onmouseout  = function () { sw.style.transform = ''; };
+      sw.onclick = function () {
+        document.getElementById('cfg-accent-color').value = color;
+        buildSwatches();
+        refreshCurrentChart();
+      };
+      container.appendChild(sw);
+    });
+  }
+
+  // -- Build Card HTML --------------------------------------------------------
+  function buildCard() {
+    var carrierName   = document.getElementById('val-carrier-name').value;
+    var rating        = document.getElementById('val-rating').value;
+    var lines         = document.getElementById('val-lines').value;
+    var premium       = document.getElementById('val-premium').value;
+    var participation = document.getElementById('val-participation').value;
+    var retention     = document.getElementById('val-retention').value;
+    var notes         = document.getElementById('val-notes').value;
+    var accentColor   = document.getElementById('cfg-accent-color').value || defaults.accentColor;
+
+    var showHeader = ManualChart.isToggled('show-header');
+    var showNotes  = ManualChart.isToggled('show-notes');
+
+    var html = '<div style="display:grid;grid-template-rows:auto 1fr;min-height:200px;background:#fff;border:1px solid ' + MC.neutral500 + ';border-radius:4px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.06);">';
+
+    // Header
+    if (showHeader) {
+      html += '<div style="padding:1.4rem 1.5rem 1.2rem;background:' + accentColor + ';">';
+      html += '<div style="font-family:\'Noto Serif\',serif;font-size:1.5rem;color:#fff;line-height:1.1;margin-bottom:0.4rem;">' + esc(carrierName) + '</div>';
+      html += '<div style="display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap;">';
+      if (rating) {
+        html += '<div style="font-family:\'Noto Sans\',sans-serif;font-size:0.72rem;font-weight:700;letter-spacing:0.06em;background:rgba(255,255,255,0.22);color:#fff;padding:0.22rem 0.6rem;border-radius:3px;">AM Best: ' + esc(rating) + '</div>';
+      }
+      if (lines) {
+        html += '<div style="font-family:\'Noto Sans\',sans-serif;font-size:0.7rem;font-weight:500;color:rgba(255,255,255,0.75);">' + esc(lines) + '</div>';
+      }
+      html += '</div>';
+      html += '</div>';
+    }
+
+    // Body
+    html += '<div style="padding:1.25rem 1.5rem;">';
+
+    // Stats grid (2x2, up to 3 cells)
+    var hasStats = premium || participation || retention;
+    if (hasStats) {
+      html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:0.9rem 1.5rem;margin-bottom:' + (showNotes && notes ? '1rem' : '0') + ';">';
+      if (premium) {
+        html += '<div>';
+        html += '<div style="font-family:\'Noto Sans\',sans-serif;font-size:0.63rem;text-transform:uppercase;letter-spacing:0.08em;color:' + MC.neutral750 + ';font-weight:600;margin-bottom:0.15rem;">Total Premium</div>';
+        html += '<div style="font-family:\'Noto Sans\',sans-serif;font-size:1rem;font-weight:600;color:' + MC.midnight + ';">' + esc(premium) + '</div>';
+        html += '</div>';
+      }
+      if (participation) {
+        html += '<div>';
+        html += '<div style="font-family:\'Noto Sans\',sans-serif;font-size:0.63rem;text-transform:uppercase;letter-spacing:0.08em;color:' + MC.neutral750 + ';font-weight:600;margin-bottom:0.15rem;">Participation</div>';
+        html += '<div style="font-family:\'Noto Sans\',sans-serif;font-size:1rem;font-weight:600;color:' + MC.midnight + ';">' + esc(participation) + '</div>';
+        html += '</div>';
+      }
+      if (retention) {
+        html += '<div>';
+        html += '<div style="font-family:\'Noto Sans\',sans-serif;font-size:0.63rem;text-transform:uppercase;letter-spacing:0.08em;color:' + MC.neutral750 + ';font-weight:600;margin-bottom:0.15rem;">Retention / SIR</div>';
+        html += '<div style="font-family:\'Noto Sans\',sans-serif;font-size:1rem;font-weight:600;color:' + MC.midnight + ';">' + esc(retention) + '</div>';
+        html += '</div>';
+      }
+      html += '</div>';
+    }
+
+    // Notes
+    if (showNotes && notes) {
+      html += '<div style="font-family:\'Noto Sans\',sans-serif;font-size:0.79rem;color:' + MC.neutral750 + ';line-height:1.6;border-top:1px solid ' + MC.neutral500 + ';padding-top:0.9rem;">' + esc(notes) + '</div>';
+    }
+
+    html += '</div>'; // close body
+    html += '</div>'; // close card
+
+    return html;
+  }
+
+  // -- refreshCurrentChart -- main render entry point -------------------------
+  window.refreshCurrentChart = function () {
+    var container = document.getElementById('carrier-card-container');
+    var cardWidth = parseInt(document.getElementById('cfg-card-width').value, 10) || defaults.cardWidth;
+
+    container.style.width = cardWidth + 'px';
+    container.innerHTML = buildCard();
+  };
+
+  // -- Bootstrap --------------------------------------------------------------
+  setTimeout(function () {
+    buildSwatches();
+    refreshCurrentChart();
+  }, 50);
+})();
+</script>

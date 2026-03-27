@@ -29,6 +29,17 @@
   flex-direction: column;
 }
 
+.manual-chart-page-auto {
+  max-width: 960px;
+  background: var(--mc-surface);
+  margin: 0 auto;
+  border: 1px solid var(--mc-border);
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+  position: relative;
+}
+
 .manual-chart-wrap {
   position: relative;
   width: 100%;

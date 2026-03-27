@@ -1,0 +1,995 @@
+{# ── Timeline Builder ──────────────────────────────────────────────────────
+   Multi-step process timeline with horizontal, vertical, or phase layouts.
+   Expects: ManualChart namespace available (manual.js loaded).
+#}
+
+<!-- ═══ Scoped Styles ══════════════════════════════════════════════════════ -->
+<style>
+/* ── Timeline Canvas (preview card) ─────────────────────────────────────── */
+#timeline-canvas {
+  background: white;
+  border-radius: 4px;
+  box-shadow: 0 4px 32px rgba(0,0,0,0.13), 0 1px 4px rgba(0,0,0,0.07);
+  overflow: hidden;
+  font-family: 'Noto Sans', sans-serif;
+  width: 900px;
+  max-width: 100%;
+}
+
+/* ── Canvas header ── */
+.tl-header {
+  padding: 1.5rem 2rem 1.25rem;
+  border-bottom: 1px solid #e8e6e0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.tl-eyebrow {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #7B7974;
+  font-weight: 600;
+  margin-bottom: 0.2rem;
+}
+.tl-title {
+  font-family: 'Noto Serif', serif;
+  font-size: 1.45rem;
+  color: #000F47;
+  line-height: 1.2;
+}
+.tl-subtitle {
+  font-size: 0.78rem;
+  color: #7B7974;
+  margin-top: 0.25rem;
+}
+.tl-header-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+.tl-progress-label {
+  font-size: 0.67rem;
+  color: #7B7974;
+  font-weight: 500;
+  text-align: right;
+}
+.tl-progress-bar {
+  width: 140px;
+  height: 5px;
+  background: #e8e6e0;
+  border-radius: 3px;
+  overflow: hidden;
+}
+.tl-progress-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s;
+}
+
+/* ── HORIZONTAL LAYOUT ── */
+.tl-body-h {
+  padding: 1.75rem 2rem 2rem;
+  overflow-x: auto;
+}
+.tl-track-h {
+  display: flex;
+  align-items: flex-start;
+  gap: 0;
+  position: relative;
+  min-width: 0;
+}
+.tl-step-h {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  min-width: 100px;
+}
+/* connector line between steps */
+.tl-step-h::before {
+  content: '';
+  position: absolute;
+  top: 14px;
+  left: calc(-50% + 14px);
+  right: calc(50% + 14px);
+  height: 2px;
+  background: #e0ddd6;
+  z-index: 0;
+}
+.tl-step-h:first-child::before { display: none; }
+.tl-step-h.done::before { background: var(--step-color, #000F47); }
+
+.tl-dot-h {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.68rem; font-weight: 700; color: white;
+  position: relative; z-index: 1;
+  flex-shrink: 0;
+  box-shadow: 0 0 0 3px white;
+}
+.tl-step-h.status-complete .tl-dot-h { background: #16a34a; }
+.tl-step-h.status-active   .tl-dot-h { background: var(--step-color, #0B4BFF); box-shadow: 0 0 0 3px white, 0 0 0 5px var(--step-color, #0B4BFF); }
+.tl-step-h.status-upcoming .tl-dot-h { background: #d1d5db; color: #6b7280; }
+.tl-step-h.status-overdue  .tl-dot-h { background: #ef4444; }
+.tl-step-h.status-complete .tl-dot-h::after { content: '\2713'; }
+
+.tl-label-h {
+  margin-top: 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #000F47;
+  text-align: center;
+  line-height: 1.3;
+  padding: 0 0.25rem;
+}
+.tl-date-h {
+  margin-top: 0.25rem;
+  font-size: 0.68rem;
+  color: #7B7974;
+  text-align: center;
+  font-weight: 500;
+}
+.tl-desc-h {
+  margin-top: 0.4rem;
+  font-size: 0.7rem;
+  color: #6b7280;
+  text-align: center;
+  line-height: 1.5;
+  padding: 0 0.25rem;
+}
+.tl-owner-h {
+  margin-top: 0.3rem;
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: #7B7974;
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* ── VERTICAL LAYOUT ── */
+.tl-body-v { padding: 1.5rem 2rem 2rem; }
+.tl-step-v {
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  gap: 0 1.25rem;
+  position: relative;
+  padding-bottom: 1.5rem;
+}
+.tl-step-v:last-child { padding-bottom: 0; }
+.tl-step-v::before {
+  content: '';
+  position: absolute;
+  top: 28px;
+  left: 13px;
+  bottom: 0;
+  width: 2px;
+  background: #e0ddd6;
+  z-index: 0;
+}
+.tl-step-v:last-child::before { display: none; }
+.tl-step-v.done::before { background: var(--step-color, #000F47); }
+
+.tl-dot-v {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.7rem; font-weight: 700; color: white;
+  position: relative; z-index: 1;
+  flex-shrink: 0;
+  align-self: flex-start;
+}
+.tl-step-v.status-complete .tl-dot-v { background: #16a34a; }
+.tl-step-v.status-complete .tl-dot-v::after { content: '\2713'; }
+.tl-step-v.status-active   .tl-dot-v { background: var(--step-color, #0B4BFF); box-shadow: 0 0 0 3px white, 0 0 0 5px var(--step-color, #0B4BFF); }
+.tl-step-v.status-upcoming .tl-dot-v { background: #d1d5db; color: #6b7280; }
+.tl-step-v.status-overdue  .tl-dot-v { background: #ef4444; }
+
+.tl-label-v {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #000F47;
+  line-height: 1.3;
+  padding-top: 0.25rem;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+.tl-status-badge {
+  font-size: 0.63rem;
+  font-weight: 600;
+  padding: 0.15rem 0.5rem;
+  border-radius: 99px;
+  white-space: nowrap;
+}
+.badge-complete { background:#dcfce7; color:#15803d; }
+.badge-active   { background:#dbeafe; color:#1d4ed8; }
+.badge-upcoming { background:#f3f4f6; color:#374151; }
+.badge-overdue  { background:#fee2e2; color:#b91c1c; }
+
+.tl-date-v {
+  font-size: 0.72rem;
+  color: #7B7974;
+  font-weight: 500;
+  margin-top: 0.15rem;
+}
+.tl-desc-v {
+  font-size: 0.8rem;
+  color: #6b7280;
+  line-height: 1.6;
+  margin-top: 0.3rem;
+}
+.tl-owner-v {
+  font-size: 0.67rem;
+  font-weight: 600;
+  color: #7B7974;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-top: 0.3rem;
+}
+
+/* ── PHASE layout (grouped horizontal) ── */
+.tl-phases { padding: 1.5rem 2rem 2rem; display: flex; flex-direction: column; gap: 1.5rem; }
+.tl-phase-label {
+  font-size: 0.63rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  padding: 0.25rem 0.65rem;
+  border-radius: 3px;
+  display: inline-block;
+  margin-bottom: 0.9rem;
+}
+.tl-phase-steps {
+  display: flex;
+  align-items: flex-start;
+  gap: 0;
+  position: relative;
+}
+
+/* ── Canvas footer ── */
+.tl-footer {
+  padding: 0.85rem 2rem;
+  border-top: 1px solid #e8e6e0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+.tl-footer-note {
+  font-size: 0.72rem;
+  color: #7B7974;
+  font-style: italic;
+  flex: 1;
+}
+.tl-legend {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+.tl-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.67rem;
+  color: #7B7974;
+  font-weight: 500;
+}
+.legend-dot {
+  width: 10px; height: 10px; border-radius: 50%;
+}
+
+/* ── Step editor cards ─────────────────────────────────────────────────── */
+.tl-steps-editor { display: flex; flex-direction: column; gap: 0.6rem; margin-bottom: 0.75rem; }
+.tl-step-card {
+  border: 1px solid var(--mc-border, #B9B6B1);
+  border-radius: 4px;
+  background: var(--mc-bg, #F7F3EE);
+  overflow: hidden;
+}
+.tl-step-card-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.55rem 0.65rem;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.12s;
+}
+.tl-step-card-header:hover { background: #eeecea; }
+.tl-step-num {
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.68rem; font-weight: 700;
+  color: white;
+  flex-shrink: 0;
+}
+.tl-step-card-title {
+  flex: 1;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #000F47;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tl-step-card-status {
+  font-size: 0.65rem;
+  font-weight: 600;
+  padding: 0.15rem 0.45rem;
+  border-radius: 99px;
+  white-space: nowrap;
+}
+.tl-step-controls { display: flex; gap: 0.2rem; }
+.tl-step-ctrl-btn {
+  background: none; border: none; cursor: pointer;
+  color: #7B7974; font-size: 0.8rem; padding: 0.15rem 0.25rem;
+  border-radius: 2px; line-height: 1; transition: color 0.1s;
+}
+.tl-step-ctrl-btn:hover { color: #000F47; }
+.tl-step-ctrl-btn.del:hover { color: #c8102e; }
+
+.tl-step-card-body {
+  padding: 0.75rem 0.65rem 0.65rem;
+  border-top: 1px solid var(--mc-border, #B9B6B1);
+  display: none;
+  flex-direction: column;
+  gap: 0.5rem;
+  background: white;
+}
+.tl-step-card-body.open { display: flex; }
+
+/* Status mini-pills in step editor */
+.tl-status-row { display: flex; gap: 0.35rem; flex-wrap: wrap; }
+.tl-sp {
+  padding: 0.2rem 0.55rem;
+  font-size: 0.68rem; font-weight: 600;
+  border-radius: 99px; border: 1.5px solid var(--mc-border, #B9B6B1);
+  background: var(--mc-bg, #F7F3EE); color: #7B7974;
+  cursor: pointer; font-family: 'Noto Sans', sans-serif;
+  transition: all 0.12s;
+}
+.tl-sp.s-complete  { background:#dcfce7; border-color:#16a34a; color:#15803d; }
+.tl-sp.s-active    { background:#dbeafe; border-color:#3b82f6; color:#1d4ed8; }
+.tl-sp.s-upcoming  { background:#f3f4f6; border-color:#9ca3af; color:#374151; }
+.tl-sp.s-overdue   { background:#fee2e2; border-color:#ef4444; color:#b91c1c; }
+
+.tl-btn-add-step {
+  width: 100%;
+  padding: 0.5rem;
+  background: none;
+  border: 1.5px dashed #0B4BFF;
+  border-radius: 3px;
+  color: #0B4BFF;
+  font-family: 'Noto Sans', sans-serif;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.tl-btn-add-step:hover { background: rgba(11,75,255,0.05); }
+
+/* Layout segmented control */
+.tl-layout-seg { display: flex; gap: 0; border: 1.5px solid var(--mc-border, #B9B6B1); border-radius: 4px; overflow: hidden; }
+.tl-layout-btn {
+  flex: 1;
+  padding: 0.35rem 0.6rem;
+  font-family: 'Noto Sans', sans-serif;
+  font-size: 0.75rem;
+  font-weight: 500;
+  border: none;
+  background: transparent;
+  color: #7B7974;
+  cursor: pointer;
+  transition: all 0.15s;
+  border-right: 1.5px solid var(--mc-border, #B9B6B1);
+  white-space: nowrap;
+  text-align: center;
+}
+.tl-layout-btn:last-child { border-right: none; }
+.tl-layout-btn.active { background: rgba(0,15,71,0.08); color: #000F47; font-weight: 600; }
+
+/* Step editor inner fields */
+.tl-fg { display: flex; flex-direction: column; gap: 0.22rem; }
+.tl-fg label { font-size: 0.7rem; color: #7B7974; font-weight: 500; }
+.tl-fg input, .tl-fg textarea {
+  border: 1px solid var(--mc-border, #B9B6B1);
+  border-radius: 3px;
+  padding: 0.38rem 0.55rem;
+  font-family: 'Noto Sans', sans-serif;
+  font-size: 0.82rem;
+  color: #3D3C37;
+  background: var(--mc-bg, #F7F3EE);
+  width: 100%;
+}
+.tl-fg input:focus, .tl-fg textarea:focus {
+  outline: none; border-color: #000F47; background: white;
+}
+.tl-fg textarea { resize: vertical; min-height: 52px; line-height: 1.5; }
+</style>
+
+<!-- ═══ Chart Display ══════════════════════════════════════════════════════ -->
+<div class="manual-chart-page-auto" style="display:flex;justify-content:center;padding:2rem;">
+  <div id="timeline-canvas"></div>
+</div>
+
+<!-- ═══ Editor Panel ═══════════════════════════════════════════════════════ -->
+<div class="mc-editor" id="editor-panel">
+  <div class="mc-editor-title">Configure Timeline</div>
+
+  <!-- Display toggles -->
+  <div class="display-options">
+    <span class="section-label">Display</span>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-title" name="show-title" checked onchange="refreshCurrentChart()">
+      <span class="toggle-track"></span><span class="toggle-label">Title</span>
+    </label>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-subtitle" name="show-subtitle" checked onchange="refreshCurrentChart()">
+      <span class="toggle-track"></span><span class="toggle-label">Subtitle</span>
+    </label>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-progress" name="show-progress" checked onchange="refreshCurrentChart()">
+      <span class="toggle-track"></span><span class="toggle-label">Progress</span>
+    </label>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-footer" name="show-footer" checked onchange="refreshCurrentChart()">
+      <span class="toggle-track"></span><span class="toggle-label">Footer</span>
+    </label>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-legend" name="show-legend" checked onchange="refreshCurrentChart()">
+      <span class="toggle-track"></span><span class="toggle-label">Legend</span>
+    </label>
+  </div>
+
+  <!-- Settings -->
+  <div style="margin-top:0.75rem;">
+    <div class="section-head midnight">Settings</div>
+    <div style="display:flex;flex-direction:column;gap:0.6rem;">
+
+      <!-- Eyebrow -->
+      <div class="input-group">
+        <label>Eyebrow</label>
+        <input type="text" id="val-eyebrow" name="val-eyebrow"
+               value="2025&ndash;2026 Renewal Program"
+               oninput="refreshCurrentChart()"
+               style="border:1px solid var(--mc-border);border-radius:3px;padding:0.38rem 0.6rem;font-family:'Noto Sans',sans-serif;font-size:0.83rem;color:var(--mc-text);background:var(--mc-bg);width:100%;">
+      </div>
+
+      <!-- Title -->
+      <div class="input-group">
+        <label>Title</label>
+        <input type="text" id="val-title" name="val-title"
+               value="Property &amp; Casualty Renewal Timeline"
+               oninput="refreshCurrentChart()"
+               style="border:1px solid var(--mc-border);border-radius:3px;padding:0.38rem 0.6rem;font-family:'Noto Sans',sans-serif;font-size:0.83rem;color:var(--mc-text);background:var(--mc-bg);width:100%;">
+      </div>
+
+      <!-- Subtitle -->
+      <div class="input-group">
+        <label>Subtitle</label>
+        <input type="text" id="val-subtitle" name="val-subtitle"
+               value="Effective July 1, 2026"
+               oninput="refreshCurrentChart()"
+               style="border:1px solid var(--mc-border);border-radius:3px;padding:0.38rem 0.6rem;font-family:'Noto Sans',sans-serif;font-size:0.83rem;color:var(--mc-text);background:var(--mc-bg);width:100%;">
+      </div>
+
+      <!-- Footer Note -->
+      <div class="input-group">
+        <label>Footer Note</label>
+        <input type="text" id="val-footer" name="val-footer"
+               value="Dates subject to underwriter availability. Owner assignments TBD."
+               oninput="refreshCurrentChart()"
+               style="border:1px solid var(--mc-border);border-radius:3px;padding:0.38rem 0.6rem;font-family:'Noto Sans',sans-serif;font-size:0.83rem;color:var(--mc-text);background:var(--mc-bg);width:100%;">
+      </div>
+
+      <!-- Accent color -->
+      <div class="input-group">
+        <label>Accent Color</label>
+        <input type="hidden" id="cfg-accent-color" name="cfg-accent-color" value="#000F47">
+        <div id="color-swatches" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:0.25rem;"></div>
+      </div>
+
+      <!-- Canvas Width -->
+      <div class="input-group">
+        <label>Canvas Width</label>
+        <select id="cfg-canvas-width" name="cfg-canvas-width"
+                onchange="refreshCurrentChart()"
+                style="border:1px solid var(--mc-border);border-radius:3px;padding:0.38rem 0.55rem;font-family:'Noto Sans',sans-serif;font-size:0.83rem;color:var(--mc-text);background:white;width:180px;">
+          <option value="700">Narrow &mdash; 700px</option>
+          <option value="900" selected>Standard &mdash; 900px</option>
+          <option value="1100">Wide &mdash; 1100px</option>
+          <option value="1300">Extra Wide &mdash; 1300px</option>
+        </select>
+      </div>
+
+      <!-- Layout Mode -->
+      <div class="input-group">
+        <label>Layout Mode</label>
+        <input type="hidden" id="cfg-layout" name="cfg-layout" value="horizontal">
+        <div class="tl-layout-seg" id="layout-btns">
+          <button type="button" class="tl-layout-btn active" data-l="horizontal">&#10230; Horizontal</button>
+          <button type="button" class="tl-layout-btn" data-l="vertical">&#8595; Vertical</button>
+          <button type="button" class="tl-layout-btn" data-l="phases">&#9643; Phases</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Steps -->
+  <div style="margin-top:1rem;">
+    <div class="section-head midnight">Steps</div>
+    <div class="tl-steps-editor" id="steps-editor"></div>
+    <button type="button" class="tl-btn-add-step" id="btn-add-step">+ Add Step</button>
+  </div>
+
+  <!-- Hidden state textarea for snapshot persistence -->
+  <textarea name="tl-state" id="tl-state" style="display:none"></textarea>
+
+  <!-- Footer -->
+  <div class="mc-editor-footer">
+    <button class="btn-mc" onclick="refreshCurrentChart()">Refresh Chart</button>
+  </div>
+</div>
+
+<!-- ═══ Script ═════════════════════════════════════════════════════════════ -->
+<script>
+(function () {
+  var MC = ManualChart.COLORS;
+  var C  = ManualChart.DATA_COLORS;
+
+  // ── Status metadata ────────────────────────────────────────────────────
+  var STATUS_META = {
+    complete: { label: 'Complete', badgeCls: 'badge-complete' },
+    active:   { label: 'Active',   badgeCls: 'badge-active'   },
+    upcoming: { label: 'Upcoming', badgeCls: 'badge-upcoming' },
+    overdue:  { label: 'Overdue',  badgeCls: 'badge-overdue'  },
+  };
+
+  // ── Default steps ─────────────────────────────────────────────────────
+  var steps = [
+    { id: 1, title: 'Renewal Strategy Meeting',    date: '90 days out',   desc: 'Align on coverage needs, risk appetite, and renewal goals. Review loss history.', owner: 'Account Team', status: 'complete', phase: 'Strategy' },
+    { id: 2, title: 'Exposure Data Collection',    date: '75 days out',   desc: 'Compile updated SOVs, payroll, revenue, fleet schedules, and other underwriting data.', owner: 'Client / Broker', status: 'complete', phase: 'Strategy' },
+    { id: 3, title: 'Marketing Submission',        date: '60 days out',   desc: 'Prepare and submit to target markets. Include loss runs, risk narrative, and improvement letter.', owner: 'Placement Team', status: 'complete', phase: 'Marketing' },
+    { id: 4, title: 'Underwriter Meetings',        date: '45 days out',   desc: 'Carrier meetings and site tours if applicable. Reinforce narrative and address questions.', owner: 'Account Team', status: 'active', phase: 'Marketing' },
+    { id: 5, title: 'Quotes Due',                  date: '30 days out',   desc: 'All markets provide firm terms. Begin comparison analysis and coverage review.', owner: 'Placement Team', status: 'upcoming', phase: 'Binding' },
+    { id: 6, title: 'Bind Order Issued',           date: '10 days out',   desc: 'Client selects program and authorizes binding. Confirm with all carriers.', owner: 'Client', status: 'upcoming', phase: 'Binding' },
+    { id: 7, title: 'Effective Date',              date: 'July 1, 2026',  desc: 'Coverage attaches. Certificates and binders issued within 3 business days.', owner: 'Account Team', status: 'upcoming', phase: 'Issuance' },
+    { id: 8, title: 'Policy Delivery',             date: 'Aug 1, 2026',   desc: 'Final policies reviewed, checked, and delivered to client with coverage summary.', owner: 'Account Team', status: 'upcoming', phase: 'Issuance' },
+  ];
+  var nextId = 9;
+  var openStep = null;
+
+  // ── Helpers ────────────────────────────────────────────────────────────
+  function esc(s) {
+    var d = document.createElement('div');
+    d.textContent = s || '';
+    return d.innerHTML;
+  }
+
+  function completedCount() { return steps.filter(function(s){ return s.status === 'complete'; }).length; }
+  function progressPct() {
+    if (!steps.length) return 0;
+    return Math.round(completedCount() / steps.length * 100);
+  }
+
+  // ── Accent Color Swatches ─────────────────────────────────────────────
+  function buildSwatches() {
+    var container = document.getElementById('color-swatches');
+    var current = document.getElementById('cfg-accent-color').value || MC.midnight;
+    container.innerHTML = '';
+    // Use DATA_COLORS plus red and teal as swatch options
+    var swatchColors = C.concat([MC.red, MC.teal]);
+    // De-duplicate
+    var seen = {};
+    swatchColors.forEach(function(color) {
+      if (seen[color]) return;
+      seen[color] = true;
+      var sw = document.createElement('div');
+      sw.style.cssText = 'width:22px;height:22px;border-radius:3px;cursor:pointer;border:2px solid ' +
+        (color === current ? MC.midnight : 'transparent') + ';background:' + color + ';transition:transform 0.1s;';
+      sw.onmouseover = function () { sw.style.transform = 'scale(1.15)'; };
+      sw.onmouseout  = function () { sw.style.transform = ''; };
+      sw.onclick = function () {
+        document.getElementById('cfg-accent-color').value = color;
+        buildSwatches();
+        refreshCurrentChart();
+      };
+      container.appendChild(sw);
+    });
+  }
+
+  // ── Layout buttons ────────────────────────────────────────────────────
+  function initLayoutButtons() {
+    var btns = document.querySelectorAll('#layout-btns .tl-layout-btn');
+    btns.forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var lay = btn.getAttribute('data-l');
+        document.getElementById('cfg-layout').value = lay;
+        btns.forEach(function(b) { b.classList.toggle('active', b.getAttribute('data-l') === lay); });
+        refreshCurrentChart();
+      });
+    });
+  }
+
+  // ── Step Editor ───────────────────────────────────────────────────────
+  function buildStepEditor() {
+    var container = document.getElementById('steps-editor');
+    var layout = document.getElementById('cfg-layout').value || 'horizontal';
+    var accentColor = document.getElementById('cfg-accent-color').value || MC.midnight;
+    container.innerHTML = '';
+
+    steps.forEach(function(s, i) {
+      var sm = STATUS_META[s.status] || STATUS_META.upcoming;
+      var numBg = s.status === 'complete' ? '#16a34a' : s.status === 'overdue' ? '#ef4444' : s.status === 'active' ? accentColor : '#d1d5db';
+
+      var div = document.createElement('div');
+      div.className = 'tl-step-card';
+
+      var phaseField = '';
+      if (layout === 'phases') {
+        phaseField =
+          '<div class="tl-fg">' +
+            '<label>Phase</label>' +
+            '<input value="' + esc(s.phase) + '" data-step-id="' + s.id + '" data-step-field="phase">' +
+          '</div>';
+      }
+
+      div.innerHTML =
+        '<div class="tl-step-card-header" data-toggle-id="' + s.id + '">' +
+          '<div class="tl-step-num" style="background:' + numBg + '">' + (i + 1) + '</div>' +
+          '<div class="tl-step-card-title">' + (esc(s.title) || 'Untitled Step') + '</div>' +
+          '<div class="tl-step-card-status ' + sm.badgeCls + '">' + sm.label + '</div>' +
+          '<div class="tl-step-controls">' +
+            '<button type="button" class="tl-step-ctrl-btn" data-move-id="' + s.id + '" data-move-dir="-1" title="Move up">&uarr;</button>' +
+            '<button type="button" class="tl-step-ctrl-btn" data-move-id="' + s.id + '" data-move-dir="1" title="Move down">&darr;</button>' +
+            '<button type="button" class="tl-step-ctrl-btn del" data-del-id="' + s.id + '" title="Delete">&times;</button>' +
+          '</div>' +
+        '</div>' +
+        '<div class="tl-step-card-body' + (openStep === s.id ? ' open' : '') + '" id="sbody-' + s.id + '">' +
+          '<div class="tl-fg">' +
+            '<label>Step Title</label>' +
+            '<input value="' + esc(s.title) + '" data-step-id="' + s.id + '" data-step-field="title">' +
+          '</div>' +
+          '<div class="tl-fg">' +
+            '<label>Date / Timeframe</label>' +
+            '<input value="' + esc(s.date) + '" data-step-id="' + s.id + '" data-step-field="date">' +
+          '</div>' +
+          '<div class="tl-fg">' +
+            '<label>Description</label>' +
+            '<textarea data-step-id="' + s.id + '" data-step-field="desc">' + esc(s.desc) + '</textarea>' +
+          '</div>' +
+          '<div class="tl-fg">' +
+            '<label>Owner / Responsible Party</label>' +
+            '<input value="' + esc(s.owner) + '" data-step-id="' + s.id + '" data-step-field="owner">' +
+          '</div>' +
+          phaseField +
+          '<div class="tl-fg">' +
+            '<label>Status</label>' +
+            '<div class="tl-status-row">' +
+              ['complete','active','upcoming','overdue'].map(function(st) {
+                return '<button type="button" class="tl-sp' + (s.status === st ? ' s-' + st : '') + '" data-status-id="' + s.id + '" data-status-val="' + st + '">' + STATUS_META[st].label + '</button>';
+              }).join('') +
+            '</div>' +
+          '</div>' +
+        '</div>';
+
+      container.appendChild(div);
+    });
+
+    // Attach event listeners (delegation-friendly approach)
+    attachStepEditorEvents(container);
+  }
+
+  function attachStepEditorEvents(container) {
+    // Header toggle
+    container.querySelectorAll('.tl-step-card-header').forEach(function(hdr) {
+      hdr.addEventListener('click', function(e) {
+        // Ignore clicks on control buttons
+        if (e.target.closest('.tl-step-controls')) return;
+        var id = parseInt(hdr.getAttribute('data-toggle-id'));
+        openStep = openStep === id ? null : id;
+        buildStepEditor();
+      });
+    });
+
+    // Move buttons
+    container.querySelectorAll('[data-move-id]').forEach(function(btn) {
+      btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        var id = parseInt(btn.getAttribute('data-move-id'));
+        var dir = parseInt(btn.getAttribute('data-move-dir'));
+        var i = steps.findIndex(function(s) { return s.id === id; });
+        var j = i + dir;
+        if (j < 0 || j >= steps.length) return;
+        var tmp = steps[i]; steps[i] = steps[j]; steps[j] = tmp;
+        serializeState();
+        buildStepEditor();
+        buildCanvas();
+      });
+    });
+
+    // Delete buttons
+    container.querySelectorAll('[data-del-id]').forEach(function(btn) {
+      btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        var id = parseInt(btn.getAttribute('data-del-id'));
+        steps = steps.filter(function(s) { return s.id !== id; });
+        if (openStep === id) openStep = null;
+        serializeState();
+        buildStepEditor();
+        buildCanvas();
+      });
+    });
+
+    // Status pills
+    container.querySelectorAll('[data-status-id]').forEach(function(pill) {
+      pill.addEventListener('click', function() {
+        var id = parseInt(pill.getAttribute('data-status-id'));
+        var val = pill.getAttribute('data-status-val');
+        var s = steps.find(function(st) { return st.id === id; });
+        if (s) { s.status = val; }
+        serializeState();
+        buildStepEditor();
+        buildCanvas();
+      });
+    });
+
+    // Field inputs (title, date, desc, owner, phase)
+    container.querySelectorAll('[data-step-id][data-step-field]').forEach(function(input) {
+      input.addEventListener('input', function() {
+        var id = parseInt(input.getAttribute('data-step-id'));
+        var field = input.getAttribute('data-step-field');
+        var s = steps.find(function(st) { return st.id === id; });
+        if (s) {
+          s[field] = input.value;
+          serializeState();
+          buildCanvas();
+        }
+      });
+    });
+  }
+
+  // ── Add Step ──────────────────────────────────────────────────────────
+  function addStep() {
+    var layout = document.getElementById('cfg-layout').value || 'horizontal';
+    var newStep = {
+      id: nextId++,
+      title: 'New Step',
+      date: '',
+      desc: '',
+      owner: '',
+      status: 'upcoming',
+      phase: steps.length ? steps[steps.length - 1].phase : 'Phase 1',
+    };
+    steps.push(newStep);
+    openStep = newStep.id;
+    serializeState();
+    buildStepEditor();
+    buildCanvas();
+    // Scroll editor to bottom
+    var editorPanel = document.getElementById('editor-panel');
+    setTimeout(function() { editorPanel.scrollTop = editorPanel.scrollHeight; }, 50);
+  }
+
+  // ── Serialize/Deserialize ─────────────────────────────────────────────
+  function serializeState() {
+    var el = document.getElementById('tl-state');
+    if (el) {
+      el.value = JSON.stringify({ steps: steps, nextId: nextId });
+    }
+  }
+
+  function deserializeState() {
+    var el = document.getElementById('tl-state');
+    if (el && el.value) {
+      try {
+        var saved = JSON.parse(el.value);
+        if (saved.steps && saved.steps.length) {
+          steps = saved.steps;
+          nextId = saved.nextId || steps.length + 1;
+          return true;
+        }
+      } catch(e) {}
+    }
+    return false;
+  }
+
+  // ── Build Canvas (preview) ────────────────────────────────────────────
+  function buildCanvas() {
+    var eyebrow = document.getElementById('val-eyebrow').value || '';
+    var title   = document.getElementById('val-title').value   || '';
+    var subtitle = document.getElementById('val-subtitle').value || '';
+    var footer  = document.getElementById('val-footer').value  || '';
+    var accentColor = document.getElementById('cfg-accent-color').value || MC.midnight;
+    var layout  = document.getElementById('cfg-layout').value || 'horizontal';
+    var canvasWidth = parseInt(document.getElementById('cfg-canvas-width').value, 10) || 900;
+    var pct = progressPct();
+
+    var canvas = document.getElementById('timeline-canvas');
+    canvas.style.width = canvasWidth + 'px';
+
+    var showTitle    = ManualChart.isToggled('show-title');
+    var showSubtitle = ManualChart.isToggled('show-subtitle');
+    var showProgress = ManualChart.isToggled('show-progress');
+    var showFooter   = ManualChart.isToggled('show-footer');
+    var showLegend   = ManualChart.isToggled('show-legend');
+
+    var body = layout === 'horizontal' ? buildHorizontal(accentColor)
+             : layout === 'vertical'   ? buildVertical(accentColor)
+             : buildPhases(accentColor);
+
+    canvas.innerHTML =
+      buildHeader(eyebrow, title, subtitle, pct, accentColor, showTitle, showSubtitle, showProgress) +
+      body +
+      buildFooter(footer, accentColor, showFooter, showLegend);
+  }
+
+  function buildHeader(eyebrow, title, subtitle, pct, accentColor, showTitle, showSubtitle, showProgress) {
+    var done  = completedCount();
+    var total = steps.length;
+
+    var leftHTML = '';
+    if (eyebrow) leftHTML += '<div class="tl-eyebrow">' + esc(eyebrow) + '</div>';
+    if (showTitle && title) leftHTML += '<div class="tl-title">' + esc(title) + '</div>';
+    if (showSubtitle && subtitle) leftHTML += '<div class="tl-subtitle">' + esc(subtitle) + '</div>';
+
+    var rightHTML = '';
+    if (showProgress) {
+      rightHTML =
+        '<div class="tl-header-right">' +
+          '<div class="tl-progress-label">' + done + ' of ' + total + ' steps complete</div>' +
+          '<div class="tl-progress-bar">' +
+            '<div class="tl-progress-fill" style="width:' + pct + '%;background:' + accentColor + '"></div>' +
+          '</div>' +
+        '</div>';
+    }
+
+    // Hide header entirely if nothing to show
+    if (!leftHTML && !rightHTML) return '';
+
+    return '<div class="tl-header">' +
+      '<div class="tl-header-left">' + leftHTML + '</div>' +
+      rightHTML +
+    '</div>';
+  }
+
+  function buildFooter(note, accentColor, showFooter, showLegend) {
+    var noteHTML = showFooter && note ? '<div class="tl-footer-note">' + esc(note) + '</div>' : '<div></div>';
+    var legendHTML = '';
+    if (showLegend) {
+      legendHTML =
+        '<div class="tl-legend">' +
+          '<div class="tl-legend-item"><div class="legend-dot" style="background:#16a34a"></div> Complete</div>' +
+          '<div class="tl-legend-item"><div class="legend-dot" style="background:' + accentColor + '"></div> Active</div>' +
+          '<div class="tl-legend-item"><div class="legend-dot" style="background:#d1d5db"></div> Upcoming</div>' +
+          '<div class="tl-legend-item"><div class="legend-dot" style="background:#ef4444"></div> Overdue</div>' +
+        '</div>';
+    }
+    if (!showFooter && !showLegend) return '';
+    return '<div class="tl-footer">' + noteHTML + legendHTML + '</div>';
+  }
+
+  // ── Horizontal Layout ─────────────────────────────────────────────────
+  function buildHorizontal(accentColor) {
+    var stepHTML = steps.map(function(s, i) {
+      var isDone = s.status === 'complete' || s.status === 'active';
+      return '<div class="tl-step-h status-' + s.status + (isDone && i > 0 ? ' done' : '') + '"' +
+             ' style="--step-color:' + accentColor + '">' +
+          '<div class="tl-dot-h">' + (s.status !== 'complete' ? (i + 1) : '') + '</div>' +
+          '<div class="tl-label-h">' + esc(s.title) + '</div>' +
+          (s.date  ? '<div class="tl-date-h">' + esc(s.date) + '</div>' : '') +
+          (s.desc  ? '<div class="tl-desc-h">' + esc(s.desc) + '</div>' : '') +
+          (s.owner ? '<div class="tl-owner-h">' + esc(s.owner) + '</div>' : '') +
+        '</div>';
+    }).join('');
+    return '<div class="tl-body-h"><div class="tl-track-h">' + stepHTML + '</div></div>';
+  }
+
+  // ── Vertical Layout ───────────────────────────────────────────────────
+  function buildVertical(accentColor) {
+    var stepHTML = steps.map(function(s, i) {
+      var isDone = s.status === 'complete';
+      var sm = STATUS_META[s.status] || STATUS_META.upcoming;
+      return '<div class="tl-step-v status-' + s.status + (isDone ? ' done' : '') + '"' +
+             ' style="--step-color:' + accentColor + '">' +
+          '<div class="tl-dot-v">' + (s.status !== 'complete' ? (i + 1) : '') + '</div>' +
+          '<div class="tl-content-v">' +
+            '<div class="tl-label-v">' +
+              esc(s.title) +
+              ' <span class="tl-status-badge ' + sm.badgeCls + '">' + sm.label + '</span>' +
+            '</div>' +
+            (s.date  ? '<div class="tl-date-v">' + esc(s.date) + '</div>' : '') +
+            (s.desc  ? '<div class="tl-desc-v">' + esc(s.desc) + '</div>' : '') +
+            (s.owner ? '<div class="tl-owner-v">Owner: ' + esc(s.owner) + '</div>' : '') +
+          '</div>' +
+        '</div>';
+    }).join('');
+    return '<div class="tl-body-v">' + stepHTML + '</div>';
+  }
+
+  // ── Phases Layout ─────────────────────────────────────────────────────
+  function buildPhases(accentColor) {
+    // Group steps by phase, preserving order
+    var phaseMap = [];
+    var phaseIndex = {};
+    steps.forEach(function(s, i) {
+      var ph = s.phase || 'Ungrouped';
+      if (phaseIndex[ph] === undefined) {
+        phaseIndex[ph] = phaseMap.length;
+        phaseMap.push({ phase: ph, items: [] });
+      }
+      phaseMap[phaseIndex[ph]].items.push({ s: s, i: i });
+    });
+
+    var globalIdx = 0;
+    var phaseHTML = phaseMap.map(function(group) {
+      var tagBg = accentColor + '18';
+      var stepsH = group.items.map(function(item) {
+        var s = item.s;
+        var idx = globalIdx++;
+        var isDone = s.status === 'complete' || s.status === 'active';
+        return '<div class="tl-step-h status-' + s.status + (isDone && idx > 0 ? ' done' : '') + '"' +
+               ' style="--step-color:' + accentColor + '; flex: 1; min-width:90px">' +
+            '<div class="tl-dot-h">' + (s.status !== 'complete' ? (idx + 1) : '') + '</div>' +
+            '<div class="tl-label-h">' + esc(s.title) + '</div>' +
+            (s.date  ? '<div class="tl-date-h">' + esc(s.date) + '</div>' : '') +
+            (s.desc  ? '<div class="tl-desc-h">' + esc(s.desc) + '</div>' : '') +
+            (s.owner ? '<div class="tl-owner-h">' + esc(s.owner) + '</div>' : '') +
+          '</div>';
+      }).join('');
+
+      return '<div class="tl-phase-block">' +
+        '<div class="tl-phase-label" style="background:' + tagBg + ';color:' + accentColor + '">' + esc(group.phase) + '</div>' +
+        '<div class="tl-phase-steps">' + stepsH + '</div>' +
+      '</div>';
+    }).join('');
+
+    return '<div class="tl-phases">' + phaseHTML + '</div>';
+  }
+
+  // ── refreshCurrentChart — main render entry point ─────────────────────
+  window.refreshCurrentChart = function () {
+    // On snapshot load, check tl-state first if editor is empty
+    var hasEditorCards = document.querySelectorAll('#steps-editor .tl-step-card').length > 0;
+    var stateEl = document.getElementById('tl-state');
+
+    if (stateEl && stateEl.value && !hasEditorCards) {
+      deserializeState();
+    }
+
+    // Sync layout buttons to hidden input value
+    var currentLayout = document.getElementById('cfg-layout').value || 'horizontal';
+    document.querySelectorAll('#layout-btns .tl-layout-btn').forEach(function(b) {
+      b.classList.toggle('active', b.getAttribute('data-l') === currentLayout);
+    });
+
+    serializeState();
+    buildSwatches();
+    buildStepEditor();
+    buildCanvas();
+  };
+
+  // ── Add Step button ───────────────────────────────────────────────────
+  document.getElementById('btn-add-step').addEventListener('click', addStep);
+
+  // ── Bootstrap ─────────────────────────────────────────────────────────
+  setTimeout(function () {
+    initLayoutButtons();
+    buildSwatches();
+    serializeState();
+    buildStepEditor();
+    buildCanvas();
+  }, 50);
+})();
+</script>
