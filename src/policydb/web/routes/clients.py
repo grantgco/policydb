@@ -709,13 +709,23 @@ def client_tab_policies(request: Request, client_id: int, conn=Depends(get_db)):
         (client_id,),
     ).fetchall()]
 
-    # Programs
+    # Programs v2 (from standalone programs table)
+    from policydb.queries import get_programs_for_client
+    programs_v2 = get_programs_for_client(conn, client_id)
+
+    # Legacy programs (is_program=1 policy rows)
     programs = [dict(r) for r in conn.execute(
         """SELECT id, policy_uid, policy_type, carrier, effective_date, expiration_date,
                   premium, limit_amount, renewal_status, tower_group
            FROM policies WHERE client_id = ? AND archived = 0 AND is_program = 1 ORDER BY policy_type""",
         (client_id,),
     ).fetchall()]
+
+    # Dedup: hide legacy programs that have been migrated to programs table
+    _migrated_names = {p["name"] for p in programs_v2}
+    programs = [p for p in programs
+                if (p.get("tower_group") or p.get("policy_type")) not in _migrated_names]
+
     _program_linked_ids = set()
     for pgm in programs:
         _program_linked_ids.add(pgm["policy_uid"])
@@ -761,6 +771,7 @@ def client_tab_policies(request: Request, client_id: int, conn=Depends(get_db)):
         "completeness_by_tg": completeness_by_tg,
         "renewal_statuses": cfg.get("renewal_statuses"),
         "programs": programs,
+        "programs_v2": programs_v2,
         "program_linked_uids": _program_linked_ids,
         "archived_policies": archived_policies,
         "project_notes": project_notes,

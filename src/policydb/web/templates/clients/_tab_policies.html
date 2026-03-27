@@ -49,7 +49,7 @@
     var name = document.getElementById('new-program-name').value.trim();
     var lob = document.getElementById('new-program-lob').value.trim();
     if (!name) { showToast('Program name is required', 'error'); return; }
-    fetch('/clients/{{ client.id }}/programs/new', {
+    fetch('/clients/{{ client.id }}/programs/create', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({name: name, lob: lob})

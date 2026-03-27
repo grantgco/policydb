@@ -1,0 +1,145 @@
+{# Program Overview Tab — child policies, assign/unassign #}
+
+{# ── Summary Stats ── #}
+<div class="flex items-center gap-4 text-sm text-gray-500 mb-4">
+  <span><strong class="text-gray-700">{{ aggregates.policy_count }}</strong> policies</span>
+  <span><strong class="text-gray-700">{{ aggregates.carrier_count }}</strong> carriers</span>
+  <span><strong class="text-gray-700">{{ aggregates.total_premium | currency }}</strong> total premium</span>
+</div>
+
+{# ── Child Policies Table ── #}
+<div class="card mb-4">
+  <div class="px-4 py-2.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
+    <span class="text-xs font-bold text-marsh uppercase tracking-wide">Child Policies</span>
+    <span class="text-xs text-gray-400">{{ children | length }} assigned</span>
+  </div>
+  {% if children %}
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="border-b border-gray-100 text-left text-xs text-gray-400">
+          <th class="px-4 py-2 font-medium">Policy</th>
+          <th class="px-4 py-2 font-medium">Type</th>
+          <th class="px-4 py-2 font-medium">Carrier</th>
+          <th class="px-4 py-2 font-medium text-right">Premium</th>
+          <th class="px-4 py-2 font-medium text-right">Limit</th>
+          <th class="px-4 py-2 font-medium">Layer</th>
+          <th class="px-4 py-2 font-medium">Status</th>
+          <th class="px-4 py-2 font-medium no-print"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for child in children %}
+        <tr class="border-b border-gray-50 hover:bg-gray-50 transition-colors">
+          <td class="px-4 py-2.5">
+            <a href="/policies/{{ child.policy_uid }}/edit" class="text-marsh hover:underline font-medium text-xs">{{ child.policy_uid }}</a>
+          </td>
+          <td class="px-4 py-2.5 text-gray-600">{{ child.policy_type }}</td>
+          <td class="px-4 py-2.5 text-gray-600">{{ child.carrier }}</td>
+          <td class="px-4 py-2.5 text-right font-medium text-gray-900 tabular-nums">{{ child.premium | currency }}</td>
+          <td class="px-4 py-2.5 text-right text-gray-600 tabular-nums">{{ child.limit_amount | currency_short }}</td>
+          <td class="px-4 py-2.5">
+            {% if child.layer_position == 'Umbrella' %}
+              <span class="text-xs px-2 py-0.5 rounded bg-blue-50 text-blue-700">Umbrella</span>
+            {% elif child.layer_position == 'Excess' %}
+              <span class="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-600">Excess</span>
+            {% else %}
+              <span class="text-xs text-gray-400">Primary</span>
+            {% endif %}
+          </td>
+          <td class="px-4 py-2.5">
+            <span class="text-xs px-2 py-0.5 rounded
+              {% if child.renewal_status == 'Bound' %}bg-green-50 text-green-700
+              {% elif child.renewal_status == 'In Progress' %}bg-blue-50 text-blue-700
+              {% else %}bg-gray-100 text-gray-600{% endif %}">{{ child.renewal_status or '—' }}</span>
+          </td>
+          <td class="px-4 py-2.5 no-print">
+            <button type="button"
+              class="text-xs text-red-400 hover:text-red-600"
+              onclick="unassignPolicy('{{ child.policy_uid }}')"
+              title="Remove from program">&times;</button>
+          </td>
+        </tr>
+        {# Ghost rows for sub-coverages #}
+        {% for sc in child.sub_coverages %}
+        <tr class="border-b border-gray-50" style="color:#9ca3af; font-style:italic;">
+          <td class="px-4 py-1.5 pl-8">
+            <span class="text-[9px] text-gray-300">└</span>
+          </td>
+          <td class="px-4 py-1.5 text-xs">
+            <span class="text-[10px] text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded-full font-medium mr-1" style="font-style:normal;">Package</span>
+            {{ sc.coverage_type }}
+          </td>
+          <td class="px-4 py-1.5 text-xs">{{ sc.carrier or child.carrier }}</td>
+          <td class="px-4 py-1.5 text-right text-xs tabular-nums">{{ sc.premium | currency if sc.premium else '—' }}</td>
+          <td class="px-4 py-1.5 text-right text-xs tabular-nums">{{ sc.limit_amount | currency_short if sc.limit_amount else '—' }}</td>
+          <td class="px-4 py-1.5 text-xs">{{ sc.layer_position or '—' }}</td>
+          <td colspan="2"></td>
+        </tr>
+        {% endfor %}
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr class="border-t border-gray-200">
+          <td colspan="3" class="px-4 py-2 text-xs font-semibold text-gray-500">Totals</td>
+          <td class="px-4 py-2 text-right text-xs font-semibold text-gray-700 tabular-nums">{{ aggregates.total_premium | currency }}</td>
+          <td colspan="4"></td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+  {% else %}
+  <div class="px-4 py-8 text-center text-sm text-gray-400">
+    No policies assigned yet. Use the button below to assign existing policies.
+  </div>
+  {% endif %}
+</div>
+
+{# ── Assign Policy Panel ── #}
+{% if unassigned %}
+<div class="card mb-4">
+  <div class="px-4 py-2.5 bg-gray-50 border-b border-gray-100">
+    <span class="text-xs font-bold text-marsh uppercase tracking-wide">Assign Policy</span>
+  </div>
+  <div class="p-4">
+    <div class="flex flex-wrap gap-2">
+      {% for pol in unassigned %}
+      <button type="button"
+        class="inline-flex items-center gap-1.5 text-xs border border-gray-200 rounded-lg px-3 py-1.5 text-gray-600 hover:border-marsh hover:text-marsh transition-colors"
+        onclick="assignPolicy('{{ pol.policy_uid }}')">
+        <span class="text-green-500">+</span>
+        {{ pol.policy_type }}
+        {% if pol.carrier %}<span class="text-gray-400">· {{ pol.carrier }}</span>{% endif %}
+        {% if pol.premium %}<span class="text-gray-400">· {{ pol.premium | currency_short }}</span>{% endif %}
+      </button>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<script>
+function assignPolicy(policyUid) {
+  fetch('/programs/{{ program.program_uid }}/assign/' + policyUid, {method: 'POST'})
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.ok) {
+        // Reload overview tab
+        htmx.ajax('GET', '/programs/{{ program.program_uid }}/tab/overview',
+                   {target: '.tab-content', swap: 'innerHTML'});
+      }
+    });
+}
+
+function unassignPolicy(policyUid) {
+  if (!confirm('Remove this policy from the program?')) return;
+  fetch('/programs/{{ program.program_uid }}/unassign/' + policyUid, {method: 'POST'})
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.ok) {
+        htmx.ajax('GET', '/programs/{{ program.program_uid }}/tab/overview',
+                   {target: '.tab-content', swap: 'innerHTML'});
+      }
+    });
+}
+</script>

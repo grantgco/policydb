@@ -350,6 +350,22 @@ def policy_context(conn: sqlite3.Connection, policy_uid: str) -> dict:
         ctx["program_carriers"] = ""
         ctx["program_carrier_count"] = ""
 
+    # Program info (from standalone programs table, Phase 2 will populate fully)
+    ctx["program_name"] = ""
+    ctx["program_uid"] = ""
+    try:
+        _program_id = row["program_id"]
+        if _program_id:
+            pgm_row = conn.execute(
+                "SELECT program_uid, name FROM programs WHERE id = ?",
+                (_program_id,),
+            ).fetchone()
+            if pgm_row:
+                ctx["program_name"] = pgm_row["name"] or ""
+                ctx["program_uid"] = pgm_row["program_uid"] or ""
+    except (KeyError, Exception):
+        pass  # program_id column or programs table may not exist on older DBs
+
     # COPE data from linked location
     cope_data: dict = {}
     if row["project_id"]:
@@ -759,6 +775,10 @@ CONTEXT_TOKEN_GROUPS: dict[str, list[tuple[str, list[tuple[str, str]]]]] = {
             ("renewal_status", "Renewal Status"),
             ("program_carriers", "Program Carriers"),
             ("program_carrier_count", "Program Carrier Count"),
+        ]),
+        ("Program", [
+            ("program_name", "Program Name"),
+            ("program_uid", "Program ID"),
         ]),
         ("Dates", [
             ("effective_date", "Effective Date"),

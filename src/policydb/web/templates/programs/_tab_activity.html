@@ -1,0 +1,45 @@
+{# Program Activity Tab — recent activities from child policies #}
+
+{% if activities %}
+<div class="card">
+  <div class="px-4 py-2.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
+    <span class="text-xs font-bold text-marsh uppercase tracking-wide">Recent Activity</span>
+    <span class="text-xs text-gray-400">{{ activities | length }} entries</span>
+  </div>
+  <div class="divide-y divide-gray-50">
+    {% for a in activities %}
+    <div class="px-4 py-3 hover:bg-gray-50 transition-colors">
+      <div class="flex items-center justify-between mb-1">
+        <div class="flex items-center gap-2">
+          {% if a.activity_type %}
+          <span class="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-600">{{ a.activity_type }}</span>
+          {% endif %}
+          <a href="/policies/{{ a.policy_uid }}/edit" class="text-xs text-marsh hover:underline">{{ a.policy_uid }}</a>
+          <span class="text-xs text-gray-400">{{ a.policy_type }}{% if a.carrier %} · {{ a.carrier }}{% endif %}</span>
+        </div>
+        <span class="text-xs text-gray-400 tabular-nums">{{ a.created_at[:10] if a.created_at else '' }}</span>
+      </div>
+      {% if a.description %}
+      <p class="text-sm text-gray-700 ml-0">{{ a.description | truncate(200) }}</p>
+      {% endif %}
+      {% if a.contact_name %}
+      <p class="text-xs text-gray-400 mt-1">Contact: {{ a.contact_name }}</p>
+      {% endif %}
+      {% if a.follow_up_date %}
+      <p class="text-xs mt-1">
+        <span class="text-amber-600">Follow-up: {{ a.follow_up_date }}</span>
+        {% if a.disposition %}<span class="text-gray-400 ml-1">· {{ a.disposition }}</span>{% endif %}
+      </p>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% else %}
+<div class="card">
+  <div class="px-4 py-12 text-center">
+    <div class="text-gray-400 text-sm mb-2">No activities yet</div>
+    <p class="text-xs text-gray-300">Activities will appear here as you log notes, calls, and follow-ups on child policies.</p>
+  </div>
+</div>
+{% endif %}
