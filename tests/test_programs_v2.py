@@ -668,3 +668,45 @@ def test_uniqueness_constraint(db):
         db.execute(
             "INSERT INTO programs (program_uid, client_id, name) VALUES ('PGM-UQ2', 93, 'TestProgram')"
         )
+
+
+# ─── View SQL String Tests (Phase 4 Task 2) ─────────────────────────────
+
+
+def test_v_policy_status_no_program_carriers_subquery():
+    """v_policy_status should not reference program_carriers table."""
+    from policydb.views import V_POLICY_STATUS
+    assert "program_carriers" not in V_POLICY_STATUS
+
+
+def test_v_policy_status_has_program_id():
+    """v_policy_status should include program_id and program_name via JOIN."""
+    from policydb.views import V_POLICY_STATUS
+    assert "program_id" in V_POLICY_STATUS
+    assert "programs" in V_POLICY_STATUS  # JOIN to programs table
+
+
+def test_v_client_summary_programs_from_table():
+    """v_client_summary should count programs from programs table, not is_program."""
+    from policydb.views import V_CLIENT_SUMMARY
+    assert "is_program" not in V_CLIENT_SUMMARY
+
+
+def test_v_schedule_no_is_program():
+    """v_schedule should not reference is_program or program_carriers."""
+    from policydb.views import V_SCHEDULE
+    assert "is_program" not in V_SCHEDULE
+    assert "program_carriers" not in V_SCHEDULE
+
+
+def test_v_renewal_pipeline_excludes_children():
+    """v_renewal_pipeline should exclude child policies via program_id IS NULL."""
+    from policydb.views import V_RENEWAL_PIPELINE
+    assert "program_id IS NULL" in V_RENEWAL_PIPELINE
+    assert "is_program" not in V_RENEWAL_PIPELINE
+
+
+def test_v_tower_uses_program_id():
+    """v_tower should group by program_id, not tower_group."""
+    from policydb.views import V_TOWER
+    assert "program_id" in V_TOWER or "programs" in V_TOWER
