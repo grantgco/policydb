@@ -360,7 +360,7 @@ def init_db(path: Path | None = None) -> None:
     # Back up the database once before running any pending migrations.
     # This gives a clean restore point regardless of which migration fails.
 
-    _KNOWN_MIGRATIONS = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100}
+    _KNOWN_MIGRATIONS = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100,101,102}
 
     if _KNOWN_MIGRATIONS - applied:
         _backup_db(conn, db_path)
@@ -1338,6 +1338,87 @@ def init_db(path: Path | None = None) -> None:
         )
         conn.commit()
 
+    if 101 not in applied:
+        # Step 0: Structural SQL
+        sql = (_MIGRATIONS_DIR / "101_phase4_program_cutover.sql").read_text()
+        conn.executescript(sql)
+
+        # Step A: Link child policies to programs via FK
+        conn.execute("""
+            UPDATE policies
+            SET program_id = (
+                SELECT pg.id FROM programs pg
+                WHERE pg.client_id = policies.client_id
+                  AND pg.name = policies.tower_group
+                  AND pg.archived = 0
+                LIMIT 1
+            )
+            WHERE tower_group IS NOT NULL AND tower_group != ''
+              AND (is_program = 0 OR is_program IS NULL)
+              AND program_id IS NULL
+              AND archived = 0
+        """)
+
+        # Step B: Convert program_carriers rows to child policies
+        carrier_rows = conn.execute("""
+            SELECT pc.id, pc.carrier, pc.policy_number, pc.premium, pc.limit_amount,
+                   pc.sort_order, pc.program_id AS old_program_policy_id,
+                   p.client_id, p.policy_type, p.effective_date, p.expiration_date,
+                   p.layer_position, p.tower_group, p.renewal_status,
+                   p.account_exec, p.project_id
+            FROM program_carriers pc
+            JOIN policies p ON p.id = pc.program_id
+            WHERE p.is_program = 1
+        """).fetchall()
+
+        for cr in carrier_rows:
+            # Find the programs table entry
+            pgm = conn.execute(
+                "SELECT id FROM programs WHERE client_id = ? AND name = ? AND archived = 0 LIMIT 1",
+                (cr["client_id"], (cr["tower_group"] or cr["policy_type"] or "").strip()),
+            ).fetchone()
+            if not pgm:
+                continue  # Skip orphaned carrier rows
+
+            uid = next_policy_uid(conn)
+            conn.execute("""
+                INSERT INTO policies (
+                    policy_uid, client_id, policy_type, carrier, policy_number,
+                    premium, limit_amount, layer_position, effective_date,
+                    expiration_date, renewal_status, account_exec, project_id,
+                    program_id, tower_group, is_program, archived, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, CURRENT_TIMESTAMP)
+            """, (
+                uid, cr["client_id"], cr["policy_type"], cr["carrier"],
+                cr["policy_number"], cr["premium"], cr["limit_amount"],
+                cr["layer_position"], cr["effective_date"], cr["expiration_date"],
+                cr["renewal_status"] or "Not Started", cr["account_exec"] or "",
+                cr["project_id"], pgm["id"], cr["tower_group"],
+            ))
+
+        # Step C: Repoint program_tower_lines FK
+        conn.execute("""
+            UPDATE program_tower_lines
+            SET program_id = (
+                SELECT pg.id FROM programs pg
+                JOIN policies p ON p.client_id = pg.client_id
+                  AND (p.tower_group = pg.name OR p.policy_type = pg.name)
+                WHERE p.id = program_tower_lines.program_policy_id
+                  AND pg.archived = 0
+                LIMIT 1
+            )
+        """)
+
+        # Step D: Archive is_program=1 policy rows
+        conn.execute("UPDATE policies SET archived = 1 WHERE is_program = 1")
+
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (101, "Phase 4: link children, convert carriers, archive is_program rows"),
+        )
+        conn.commit()
+        logger.info("Migration 101: Phase 4 program cutover complete")
+
     # Data hygiene: fix 'None' string corruption in text fields (runs every startup, fast no-op if clean)
     conn.execute("UPDATE clients SET cn_number = NULL WHERE cn_number = 'None'")
 
@@ -1383,11 +1464,14 @@ def init_db(path: Path | None = None) -> None:
             if n != r["carrier"]:
                 conn.execute("UPDATE policies SET carrier = ? WHERE id = ?", (n, r["id"]))
                 _carrier_changed += 1
-        for r in conn.execute("SELECT id, carrier FROM program_carriers WHERE carrier IS NOT NULL AND carrier != ''").fetchall():
-            n = normalize_carrier(r["carrier"])
-            if n != r["carrier"]:
-                conn.execute("UPDATE program_carriers SET carrier = ? WHERE id = ?", (n, r["id"]))
-                _carrier_changed += 1
+        try:
+            for r in conn.execute("SELECT id, carrier FROM program_carriers WHERE carrier IS NOT NULL AND carrier != ''").fetchall():
+                n = normalize_carrier(r["carrier"])
+                if n != r["carrier"]:
+                    conn.execute("UPDATE program_carriers SET carrier = ? WHERE id = ?", (n, r["id"]))
+                    _carrier_changed += 1
+        except Exception:
+            pass  # Table may have been dropped (migration 102); block removed in Task 9
         if _carrier_changed:
             conn.commit()
             logger.info("Normalized %d carrier names", _carrier_changed)
