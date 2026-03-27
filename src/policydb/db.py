@@ -838,8 +838,12 @@ def init_db(path: Path | None = None) -> None:
         conn.commit()
 
     if 53 not in applied:
-        sql = (_MIGRATIONS_DIR / "053_add_program_id.sql").read_text()
-        conn.executescript(sql)
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(policies)").fetchall()}
+        if "program_id" not in cols:
+            sql = (_MIGRATIONS_DIR / "053_add_program_id.sql").read_text()
+            conn.executescript(sql)
+        else:
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_policies_program_id ON policies(program_id)")
         conn.execute(
             "INSERT INTO schema_version (version, description) VALUES (?, ?)",
             (53, "Add program_id FK to policies for program linkage"),
@@ -1339,9 +1343,11 @@ def init_db(path: Path | None = None) -> None:
         conn.commit()
 
     if 101 not in applied:
-        # Step 0: Structural SQL
-        sql = (_MIGRATIONS_DIR / "101_phase4_program_cutover.sql").read_text()
-        conn.executescript(sql)
+        # Step 0: Structural SQL — only if column doesn't already exist
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(program_tower_lines)").fetchall()}
+        if "program_id" not in cols:
+            sql = (_MIGRATIONS_DIR / "101_phase4_program_cutover.sql").read_text()
+            conn.executescript(sql)
 
         # Step A: Link child policies to programs via FK
         conn.execute("""
