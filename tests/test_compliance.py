@@ -387,6 +387,22 @@ def _make_db() -> sqlite3.Connection:
             name      TEXT,
             address   TEXT
         );
+        CREATE TABLE programs (
+            id              INTEGER PRIMARY KEY,
+            program_uid     TEXT,
+            client_id       INTEGER,
+            name            TEXT,
+            archived        INTEGER DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS requirement_policy_links (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            requirement_id  INTEGER NOT NULL,
+            policy_uid      TEXT NOT NULL,
+            link_type       TEXT NOT NULL DEFAULT 'direct',
+            is_primary      INTEGER NOT NULL DEFAULT 0,
+            notes           TEXT,
+            created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
         CREATE TABLE policies (
             policy_uid    TEXT PRIMARY KEY,
             client_id     INTEGER,
@@ -396,7 +412,11 @@ def _make_db() -> sqlite3.Connection:
             deductible    REAL,
             project_id    INTEGER,
             archived      INTEGER DEFAULT 0,
-            policy_number TEXT
+            policy_number TEXT,
+            program_id    INTEGER,
+            expiration_date DATE,
+            is_program    INTEGER DEFAULT 0,
+            is_opportunity INTEGER DEFAULT 0
         );
         CREATE TABLE client_risks (
             id        INTEGER PRIMARY KEY,
