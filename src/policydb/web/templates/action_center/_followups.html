@@ -11,6 +11,74 @@
 {% set suggested_count = suggested | length %}
 {% set total_action = triage_count + today_b_count + overdue_b_count + stale_count %}
 
+{# ── New Follow-up Form (toggled by sidebar button) ── #}
+<div id="ac-new-followup" style="display:none" class="mb-4 bg-green-50 border border-green-200 rounded-lg p-4">
+  <div class="flex items-center justify-between mb-3">
+    <span class="text-xs font-semibold text-gray-700 uppercase tracking-wide">New Follow-up</span>
+    <button type="button" onclick="document.getElementById('ac-new-followup').style.display='none'"
+      class="text-gray-400 hover:text-gray-600 text-sm">&times;</button>
+  </div>
+  <form hx-post="/activities/log" hx-swap="none"
+        hx-on::after-request="if(event.detail.successful){this.reset();document.getElementById('ac-new-followup').style.display='none';htmx.ajax('GET','/action-center/followups',{target:'#ac-tab-content'});htmx.ajax('GET','/action-center/sidebar',{target:'#action-center-sidebar'})}">
+    <div class="grid grid-cols-2 gap-3 mb-3">
+      {# Client #}
+      <div>
+        <label class="block text-[10px] text-gray-500 uppercase mb-1">Client *</label>
+        <select name="client_id" required
+          class="w-full text-xs border border-gray-200 rounded px-2 py-1.5 bg-white focus:ring-1 focus:ring-marsh">
+          <option value="">Select client...</option>
+          {% for c in all_clients %}
+          <option value="{{ c.id }}">{{ c.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      {# Type #}
+      <div>
+        <label class="block text-[10px] text-gray-500 uppercase mb-1">Type</label>
+        <select name="activity_type"
+          class="w-full text-xs border border-gray-200 rounded px-2 py-1.5 bg-white focus:ring-1 focus:ring-marsh">
+          {% for t in activity_types %}
+          <option value="{{ t }}" {{ 'selected' if t == 'Follow-up' or t == 'Note' }}>{{ t }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      {# Subject #}
+      <div>
+        <label class="block text-[10px] text-gray-500 uppercase mb-1">Subject *</label>
+        <input type="text" name="subject" required placeholder="Follow up on..."
+          class="w-full text-xs border border-gray-200 rounded px-2 py-1.5 bg-white focus:ring-1 focus:ring-marsh placeholder-gray-300">
+      </div>
+      {# Follow-up Date #}
+      <div>
+        <label class="block text-[10px] text-gray-500 uppercase mb-1">Follow-up Date *</label>
+        <input type="date" name="follow_up_date" required
+          class="w-full text-xs border border-gray-200 rounded px-2 py-1.5 bg-white focus:ring-1 focus:ring-marsh">
+      </div>
+    </div>
+    {# Quick date pills #}
+    <div class="flex gap-1.5 mb-3">
+      <button type="button" onclick="setQuickFuDate(this.form, 1)" class="text-[10px] bg-white border border-gray-200 text-gray-600 px-2 py-1 rounded hover:border-gray-400">Tomorrow</button>
+      <button type="button" onclick="setQuickFuDate(this.form, 3)" class="text-[10px] bg-white border border-gray-200 text-gray-600 px-2 py-1 rounded hover:border-gray-400">+3d</button>
+      <button type="button" onclick="setQuickFuDate(this.form, 7)" class="text-[10px] bg-white border border-gray-200 text-gray-600 px-2 py-1 rounded hover:border-gray-400">+1wk</button>
+      <button type="button" onclick="setQuickFuDate(this.form, 14)" class="text-[10px] bg-white border border-gray-200 text-gray-600 px-2 py-1 rounded hover:border-gray-400">+2wk</button>
+      <button type="button" onclick="setQuickFuDate(this.form, 30)" class="text-[10px] bg-white border border-gray-200 text-gray-600 px-2 py-1 rounded hover:border-gray-400">+30d</button>
+    </div>
+    <div class="flex justify-end gap-2">
+      <button type="button" onclick="document.getElementById('ac-new-followup').style.display='none'"
+        class="text-xs text-gray-500 px-3 py-1.5 rounded border border-gray-200 hover:bg-gray-50">Cancel</button>
+      <button type="submit"
+        class="text-xs bg-marsh text-white px-4 py-1.5 rounded font-medium hover:bg-marsh-light transition-colors">Create Follow-up</button>
+    </div>
+  </form>
+</div>
+<script>
+function setQuickFuDate(form, days) {
+  var d = new Date();
+  d.setDate(d.getDate() + days);
+  form.querySelector('input[name="follow_up_date"]').value = d.toISOString().split('T')[0];
+}
+</script>
+
 {# ══════════════════════════════════════════════════════════════════
    FILTER BAR
    ══════════════════════════════════════════════════════════════════ #}

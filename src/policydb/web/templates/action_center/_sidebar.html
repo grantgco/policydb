@@ -30,11 +30,11 @@
 <div class="mb-5">
   <p class="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-2">Quick Actions</p>
   <div class="flex flex-col gap-1">
-    <button onclick="document.querySelector('[data-tab=activities]').click();setTimeout(function(){var f=document.getElementById('ac-quick-log');if(f)f.style.display='block'},300)"
+    <button onclick="document.querySelector('[data-tab=activities]').click();setTimeout(function(){var f=document.getElementById('ac-quick-log');if(f){f.style.display='block';var s=f.querySelector('select[name=client_id]');if(s)s.focus()}},400)"
             class="text-left text-[11px] bg-marsh text-white px-3 py-1.5 rounded hover:bg-marsh-light transition-colors">
       + Log Activity
     </button>
-    <button onclick="document.querySelector('[data-tab=followups]').click()"
+    <button onclick="document.querySelector('[data-tab=followups]').click();setTimeout(function(){var f=document.getElementById('ac-new-followup');if(f){f.style.display='block';var s=f.querySelector('select[name=client_id]');if(s)s.focus()}},400)"
             class="text-left text-[11px] bg-white text-gray-700 border border-gray-300 px-3 py-1.5 rounded hover:bg-gray-50 transition-colors">
       + New Follow-up
     </button>
