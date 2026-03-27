@@ -70,9 +70,6 @@ class ReconcileRow:
     ext_carrier_normalized: str = ""
     carrier_alias_applied: bool = False
 
-    # Program support
-    is_program_match: bool = False
-    matched_carrier_id: int | None = None
 
 
 # ─── FILE PARSING ─────────────────────────────────────────────────────────────
@@ -495,19 +492,7 @@ def find_candidates(ext_row: dict, db_rows: list[dict], limit: int = 8, single_c
 
     for db in db_rows:
         breakdown = _score_pair(ext_row, db, single_client=single_client)
-
-        # Also try scoring against program carrier rows for better program matching
-        best_total = breakdown.total
-        if db.get("is_program") and db.get("_program_carrier_rows"):
-            for pc in db["_program_carrier_rows"]:
-                # Build a pseudo-db dict with carrier-level fields overlaid on program
-                pc_db = {**db, "carrier": pc.get("carrier", ""), "policy_number": pc.get("policy_number", ""),
-                         "premium": pc.get("premium", 0), "limit_amount": pc.get("limit_amount", 0)}
-                pc_breakdown = _score_pair(ext_row, pc_db, single_client=single_client)
-                if pc_breakdown.total > best_total:
-                    best_total = pc_breakdown.total
-
-        scored.append((db, round(best_total, 1)))
+        scored.append((db, round(breakdown.total, 1)))
 
     scored.sort(key=lambda x: x[1], reverse=True)
     return scored[:limit]
@@ -516,8 +501,7 @@ def find_candidates(ext_row: dict, db_rows: list[dict], limit: int = 8, single_c
 # ─── MAIN RECONCILE ───────────────────────────────────────────────────────────
 
 def _build_reconcile_row(ext: dict, db: dict, breakdown: ScoreBreakdown,
-                         match_method: str, is_program_match: bool = False,
-                         matched_carrier_id: int | None = None) -> ReconcileRow:
+                         match_method: str) -> ReconcileRow:
     """Create a PAIRED ReconcileRow from a ScoreBreakdown."""
     return ReconcileRow(
         ext=ext, db=db, status="PAIRED",
@@ -540,36 +524,8 @@ def _build_reconcile_row(ext: dict, db: dict, breakdown: ScoreBreakdown,
         ext_carrier_raw=breakdown.ext_carrier_raw,
         ext_carrier_normalized=breakdown.ext_carrier_normalized,
         carrier_alias_applied=breakdown.carrier_alias_applied,
-        is_program_match=is_program_match,
-        matched_carrier_id=matched_carrier_id,
     )
 
-
-def _resolve_program_carrier(ext: dict, db: dict, ext_pn_norm: str) -> tuple[int | None, dict]:
-    """Find the matching program carrier row for an ext row.
-
-    Returns (matched_carrier_id, score_target_db) where score_target_db is the
-    carrier row dict to score against (or the program itself if no carrier matched).
-    """
-    if not db.get("is_program") or not db.get("_program_carrier_rows"):
-        return None, db
-
-    ext_carrier = ext.get("carrier", "")
-
-    # First try matching by policy number (strongest signal)
-    if ext_pn_norm:
-        for pc in db["_program_carrier_rows"]:
-            pc_pn = normalize_policy_number_for_matching(pc.get("policy_number") or "")
-            if pc_pn and ext_pn_norm == pc_pn:
-                return pc.get("id"), pc
-
-    # Fall back to carrier name fuzzy match
-    if ext_carrier:
-        for pc in db["_program_carrier_rows"]:
-            if fuzz.WRatio(ext_carrier, pc.get("carrier", "")) >= 70:
-                return pc.get("id"), pc
-
-    return None, db
 
 
 def reconcile(
@@ -586,12 +542,11 @@ def reconcile(
     Pass 0: Match memory lookup — if a source_name and conn are provided,
             look up prior identity pairs so previously matched policies
             auto-pair without scoring.
-    Pass 1: Exact policy number match (normalized). Includes program carrier
-            row policy numbers. Uses _score_pair() for full scoring.
+    Pass 1: Exact policy number match (normalized). Uses _score_pair()
+            for full scoring.
     Pass 2: Scored match for remaining unmatched ext rows. Best match per ext
-            row with score >= 45. Programs stay in candidate pool.
+            row with score >= 45. Each DB row can only match once (1:1).
     Pass 3: Remaining ext rows → UNMATCHED, remaining DB rows → EXTRA.
-            Programs with at least one match are NOT marked EXTRA.
 
     Sort order: Unconfirmed PAIRED sorted by amber (45-74) ascending first,
     then green (75+) ascending, then UNMATCHED, then confirmed, then EXTRA.
@@ -599,7 +554,6 @@ def reconcile(
     results: list[ReconcileRow] = []
 
     # Build DB indexes — use normalized policy numbers for flexible matching
-    # Maps normalized policy number → (db_row, is_from_program_carrier)
     db_by_polnum: dict[str, dict] = {}
     db_by_id: dict[int, tuple[dict, int]] = {}  # policy_id → (db_row, index)
     for idx, db in enumerate(db_rows):
@@ -607,26 +561,9 @@ def reconcile(
         pn = normalize_policy_number_for_matching(db.get("policy_number") or "")
         if pn and pn not in db_by_polnum:
             db_by_polnum[pn] = db
-        # Also index program carrier row policy numbers → parent program
-        if db.get("is_program") and db.get("_program_carrier_rows"):
-            for pc in db["_program_carrier_rows"]:
-                pc_pn = normalize_policy_number_for_matching(pc.get("policy_number") or "")
-                if pc_pn and pc_pn not in db_by_polnum:
-                    db_by_polnum[pc_pn] = db  # maps to the parent program
 
     db_unmatched: set[int] = set(range(len(db_rows)))
     ext_matched: set[int] = set()
-
-    # Track which db rows are programs (allow multiple matches)
-    _program_indices: set[int] = set()
-    for idx, db in enumerate(db_rows):
-        if db.get("is_program"):
-            _program_indices.add(idx)
-
-    def _claim_db(db_idx: int) -> None:
-        """Remove db row from candidates unless it's a program (programs accept multiple matches)."""
-        if db_idx not in _program_indices:
-            db_unmatched.discard(db_idx)
 
     # ── Pass 0: Match memory lookup ────────────────────────────────────────────
     _memory_match_count = 0
@@ -654,24 +591,12 @@ def reconcile(
                     for i in ext_keys.get(ext_key, []):
                         if i in ext_matched:
                             continue
-                        _claim_db(db_idx)
+                        db_unmatched.discard(db_idx)
                         ext_matched.add(i)
                         ext = ext_rows[i]
 
-                        is_program = db_idx in _program_indices
-                        matched_cid, score_target = _resolve_program_carrier(ext, db,
-                            normalize_policy_number_for_matching(ext.get("policy_number") or ""))
-                        if matched_cid and score_target is not db:
-                            score_db = {**db, "carrier": score_target.get("carrier", ""),
-                                        "policy_number": score_target.get("policy_number", ""),
-                                        "premium": score_target.get("premium", 0),
-                                        "limit_amount": score_target.get("limit_amount", 0)}
-                        else:
-                            score_db = db
-                        breakdown = _score_pair(ext, score_db, single_client=single_client)
-                        row = _build_reconcile_row(ext, db, breakdown, "memory",
-                                                   is_program_match=is_program,
-                                                   matched_carrier_id=matched_cid)
+                        breakdown = _score_pair(ext, db, single_client=single_client)
+                        row = _build_reconcile_row(ext, db, breakdown, "memory")
                         results.append(row)
                         _memory_match_count += 1
                         break  # one ext row per db match
@@ -695,26 +620,11 @@ def reconcile(
         db_idx = db_rows.index(db)
         if db_idx not in db_unmatched:
             continue  # already claimed — send to Pass 2
-        _claim_db(db_idx)
+        db_unmatched.discard(db_idx)
         ext_matched.add(i)
 
-        is_program = db_idx in _program_indices
-        matched_cid, score_target = _resolve_program_carrier(ext, db, ext_pn)
-
-        # Score against the best target (carrier row for programs, or the policy itself)
-        # Build a merged dict for scoring: program-level dates/client with carrier-level fields
-        if matched_cid and score_target is not db:
-            score_db = {**db, "carrier": score_target.get("carrier", ""),
-                        "policy_number": score_target.get("policy_number", ""),
-                        "premium": score_target.get("premium", 0),
-                        "limit_amount": score_target.get("limit_amount", 0)}
-        else:
-            score_db = db
-
-        breakdown = _score_pair(ext, score_db, single_client=single_client)
-        row = _build_reconcile_row(ext, db, breakdown, "policy_number",
-                                   is_program_match=is_program,
-                                   matched_carrier_id=matched_cid)
+        breakdown = _score_pair(ext, db, single_client=single_client)
+        row = _build_reconcile_row(ext, db, breakdown, "policy_number")
         results.append(row)
 
     # ── Pass 2: Scored match for remaining unmatched ext rows ─────────────────
@@ -726,47 +636,21 @@ def reconcile(
         best_db_idx = -1
         best_breakdown = None
         best_score = 0.0
-        best_matched_cid = None
-        best_is_program = False
 
         for db_idx in list(db_unmatched):
             db = db_rows[db_idx]
-            is_program = db_idx in _program_indices
-
-            # Score against the policy itself
             breakdown = _score_pair(ext, db, single_client=single_client)
-            score = breakdown.total
 
-            # For programs, also try scoring against each carrier row and take the best
-            pc_matched_cid = None
-            if is_program and db.get("_program_carrier_rows"):
-                ext_carrier = ext.get("carrier", "")
-                ext_pn = normalize_policy_number_for_matching(ext.get("policy_number") or "")
-                for pc in db["_program_carrier_rows"]:
-                    pc_db = {**db, "carrier": pc.get("carrier", ""),
-                             "policy_number": pc.get("policy_number", ""),
-                             "premium": pc.get("premium", 0),
-                             "limit_amount": pc.get("limit_amount", 0)}
-                    pc_breakdown = _score_pair(ext, pc_db, single_client=single_client)
-                    if pc_breakdown.total > score:
-                        score = pc_breakdown.total
-                        breakdown = pc_breakdown
-                        pc_matched_cid = pc.get("id")
-
-            if score > best_score:
-                best_score = score
+            if breakdown.total > best_score:
+                best_score = breakdown.total
                 best_db = db
                 best_db_idx = db_idx
                 best_breakdown = breakdown
-                best_matched_cid = pc_matched_cid
-                best_is_program = is_program
 
         if best_db is not None and best_score >= 45:
-            _claim_db(best_db_idx)
+            db_unmatched.discard(best_db_idx)
             ext_matched.add(i)
-            row = _build_reconcile_row(ext, best_db, best_breakdown, "scored",
-                                       is_program_match=best_is_program,
-                                       matched_carrier_id=best_matched_cid)
+            row = _build_reconcile_row(ext, best_db, best_breakdown, "scored")
             results.append(row)
 
     # ── Pass 3: Unmatched / Extra ─────────────────────────────────────────────
@@ -784,11 +668,8 @@ def reconcile(
         )
         results.append(row)
 
-    # Remaining DB rows → EXTRA (programs with at least one match are excluded)
-    _program_matched_indices = {db_rows.index(r.db) for r in results if r.is_program_match and r.db is not None}
+    # Remaining DB rows → EXTRA
     for idx in sorted(db_unmatched):
-        if idx in _program_matched_indices:
-            continue  # program got matches, not truly "extra"
         results.append(ReconcileRow(ext=None, db=db_rows[idx], status="EXTRA", match_score=0.0))
 
     # Sort: unconfirmed PAIRED amber (45-74) ascending, then green (75+) ascending,
@@ -816,63 +697,23 @@ def reconcile(
     return results
 
 
-def program_reconcile_summary(results: list[ReconcileRow], carrier_map: dict | None = None) -> dict[str, dict]:
-    """Build per-program reconciliation summary from results.
-
-    Args:
-        results: List of ReconcileRow from reconcile()
-        carrier_map: {program_id: [carrier_row_dicts]} for per-carrier detail
-
-    Returns: {policy_uid: {total_premium, matched_premium, matched_count, carrier_count,
-                           fully_reconciled, carrier_detail, new_carriers}}
-    """
-    carrier_map = carrier_map or {}
-    summaries: dict[str, dict] = {}
+def program_reconcile_summary(results: list[ReconcileRow]) -> dict[int, dict]:
+    """Group reconcile results by program for summary display."""
+    by_program: dict[int, dict] = {}
     for r in results:
-        if not r.is_program_match or r.db is None:
-            continue
-        uid = r.db.get("policy_uid", "")
-        pid = r.db.get("id")
-        if uid not in summaries:
-            db_carriers = carrier_map.get(pid, [])
-            summaries[uid] = {
-                "policy_type": r.db.get("policy_type", ""),
-                "total_premium": float(r.db.get("premium") or 0),
-                "carrier_count": len(db_carriers),
-                "matched_premium": 0.0,
-                "matched_count": 0,
-                "carrier_detail": [],
-                "new_carriers": [],
-                "_matched_carrier_ids": set(),
-            }
-        ext_prem = float(r.ext.get("premium") or 0) if r.ext else 0
-        summaries[uid]["matched_premium"] += ext_prem
-        summaries[uid]["matched_count"] += 1
-        if r.matched_carrier_id:
-            summaries[uid]["_matched_carrier_ids"].add(r.matched_carrier_id)
-            db_carrier = next((c for c in carrier_map.get(pid, []) if c["id"] == r.matched_carrier_id), None)
-            db_prem = float(db_carrier["premium"]) if db_carrier else 0
-            status = "MATCH" if abs(ext_prem - db_prem) <= db_prem * 0.01 else "DIFF"
-            summaries[uid]["carrier_detail"].append({
-                "carrier_id": r.matched_carrier_id,
-                "carrier": r.ext.get("carrier", "") if r.ext else "",
-                "db_premium": db_prem,
-                "ext_premium": ext_prem,
-                "status": status,
-            })
-        else:
-            summaries[uid]["new_carriers"].append({
-                "carrier": r.ext.get("carrier", "") if r.ext else "",
-                "policy_number": r.ext.get("policy_number", "") if r.ext else "",
-                "premium": ext_prem,
-                "limit_amount": float(r.ext.get("limit_amount") or 0) if r.ext else 0,
-            })
-
-    for uid, s in summaries.items():
-        total = s["total_premium"]
-        s["fully_reconciled"] = s["matched_premium"] >= total * 0.95 if total > 0 else s["matched_count"] > 0
-        del s["_matched_carrier_ids"]
-    return summaries
+        if r.db and r.db.get("program_id"):
+            pid = r.db["program_id"]
+            if pid not in by_program:
+                by_program[pid] = {
+                    "matched": 0, "total_premium": 0.0, "children": [],
+                }
+            if r.status == "PAIRED":
+                by_program[pid]["matched"] += 1
+                by_program[pid]["total_premium"] += float(
+                    r.ext.get("premium") or 0
+                ) if r.ext else 0
+            by_program[pid]["children"].append(r)
+    return by_program
 
 
 # ─── CROSS-PAIR SCORING ───────────────────────────────────────────────────────
