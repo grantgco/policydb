@@ -117,6 +117,7 @@ SEARCH_INDEX = [
     {"label": "Timeline Engine", "tab": "workflow", "anchor": "section-timeline-engine"},
     {"label": "Follow-Up Dispositions", "tab": "workflow", "anchor": "section-dispositions"},
     {"label": "Follow-Up Urgency Tiers", "tab": "workflow", "anchor": "section-stale-threshold"},
+    {"label": "Expiration Buffer", "tab": "workflow", "anchor": "section-expiration-buffer"},
     {"label": "Alert & Readiness Thresholds", "tab": "readiness", "anchor": "section-thresholds"},
     {"label": "Readiness Score Weights", "tab": "readiness", "anchor": "section-readiness-weights"},
     {"label": "Carrier Aliases", "tab": "carriers", "anchor": "section-carrier-aliases"},
@@ -152,6 +153,7 @@ def _build_tab_context(tab: str, conn) -> dict:
         ctx["renewal_statuses"] = cfg.get("renewal_statuses", [])
         ctx["renewal_milestones"] = cfg.get("renewal_milestones", [])
         ctx["stale_threshold_days"] = cfg.get("stale_threshold_days", 14)
+        ctx["followup_expiration_buffer_days"] = cfg.get("followup_expiration_buffer_days", 3)
         # activity_types needed by mandated activities editor
         if "lists" not in ctx:
             ctx["lists"] = {}
@@ -494,6 +496,15 @@ def save_thresholds(
 def update_stale_threshold(request: Request, value: int = Form(...)):
     full = dict(cfg.load_config())
     full["stale_threshold_days"] = max(1, min(value, 90))
+    cfg.save_config(full)
+    cfg.reload_config()
+    return RedirectResponse("/settings", status_code=303)
+
+
+@router.post("/config/expiration-buffer")
+def update_expiration_buffer(request: Request, value: int = Form(...)):
+    full = dict(cfg.load_config())
+    full["followup_expiration_buffer_days"] = max(1, min(value, 30))
     cfg.save_config(full)
     cfg.reload_config()
     return RedirectResponse("/settings", status_code=303)

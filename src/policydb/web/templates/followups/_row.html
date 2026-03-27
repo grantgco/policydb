@@ -3,7 +3,7 @@
 {% set mailto_subject = r.get('mailto_subject') or ('Re: ' ~ r.client_name ~ ' — ' ~ r.subject) %}
 {% set _rfi_uid = r.subject.split('Send RFI: ')[1].split(' ', 1)[0] if r.subject and r.subject.startswith('Send RFI: ') else '' %}
 {% set _ref_tag = build_ref_tag(cn_number=r.get('cn_number', ''), client_id=r.client_id, policy_uid=r.policy_uid|default(''), project_id=r.get('project_id', 0), activity_id=r.id, rfi_uid=_rfi_uid) %}
-<tr class="hover:bg-{{ 'red' if is_overdue else 'amber' }}-50/40" id="{{ row_id }}">
+<tr class="hover:bg-{{ 'red' if is_overdue else 'amber' }}-50/40" id="{{ row_id }}" data-exp="{{ r.get('expiration_date', '') }}">
   <td class="px-3 py-3 w-8 no-print">
     <input type="checkbox" class="followup-check rounded border-gray-300" value="{{ r.source }}-{{ r.id }}"
       onchange="updateBulkBar()">
@@ -351,22 +351,36 @@ function toggleDispositionForm(rowId) {
   });
 }
 
+function _capFuDate(rawDateStr, expDateStr, bufferDays) {
+  if (!expDateStr || !rawDateStr) return rawDateStr;
+  var today = new Date(); today.setHours(0,0,0,0);
+  var exp = new Date(expDateStr + 'T00:00:00');
+  var cap = new Date(exp); cap.setDate(cap.getDate() - bufferDays);
+  if (cap < today) cap = today;
+  var calc = new Date(rawDateStr + 'T00:00:00');
+  return calc > cap ? cap.toISOString().split('T')[0] : rawDateStr;
+}
+function _getRowExp(elId) {
+  var el = document.getElementById(elId);
+  if (!el) return '';
+  var tr = el.closest('tr[data-exp]');
+  return tr ? tr.getAttribute('data-exp') || '' : '';
+}
+
 function selectDisp(btn, label, days, rowId) {
-  // Deselect siblings, select this one
   btn.closest('.flex-wrap').querySelectorAll('.disp-pill').forEach(function(p) {
     p.classList.remove('bg-marsh', 'text-white', 'border-marsh');
     p.classList.add('border-gray-200', 'text-gray-500');
   });
   btn.classList.add('bg-marsh', 'text-white', 'border-marsh');
   btn.classList.remove('border-gray-200', 'text-gray-500');
-  // Set hidden input
   document.getElementById('disp-val-' + rowId).value = label;
-  // Auto-fill date
   var dateInput = document.getElementById('rediary-date-' + rowId);
   if (days > 0 && dateInput) {
     var d = new Date();
     d.setDate(d.getDate() + days);
-    dateInput.value = d.toISOString().split('T')[0];
+    var raw = d.toISOString().split('T')[0];
+    dateInput.value = _capFuDate(raw, _getRowExp(rowId), 3);
   }
 }
 
@@ -375,7 +389,8 @@ function setRediaryDays(rowId, days) {
   if (dateInput) {
     var d = new Date();
     d.setDate(d.getDate() + days);
-    dateInput.value = d.toISOString().split('T')[0];
+    var raw = d.toISOString().split('T')[0];
+    dateInput.value = _capFuDate(raw, _getRowExp(rowId), 3);
   }
 }
 
@@ -395,13 +410,19 @@ function markDoneOnly(btn, activityId, rowId) {
 function setFuDateRow(actId, days) {
   var d = new Date(); d.setDate(d.getDate() + days);
   var el = document.getElementById('fu-date-row-' + actId);
-  if (el) el.value = d.toISOString().slice(0, 10);
+  if (el) {
+    var raw = d.toISOString().slice(0, 10);
+    el.value = _capFuDate(raw, _getRowExp('fu-date-row-' + actId), 3);
+  }
 }
 
 function setFuDateRowById(elId, days) {
   var d = new Date(); d.setDate(d.getDate() + days);
   var el = document.getElementById(elId);
-  if (el) el.value = d.toISOString().slice(0, 10);
+  if (el) {
+    var raw = d.toISOString().slice(0, 10);
+    el.value = _capFuDate(raw, _getRowExp(elId), 3);
+  }
 }
 
 function toggleActivityEdit(rowId, activityId) {

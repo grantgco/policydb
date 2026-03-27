@@ -322,6 +322,53 @@ function toggleTriageDisp(rowId) {
   if (panel) panel.classList.toggle('hidden');
 }
 
+/* ── Expiration buffer (from config) ── */
+var FU_EXP_BUFFER = {{ followup_expiration_buffer_days | default(3) }};
+
+/* ── Cap follow-up date against policy expiration ── */
+function capFollowupDate(rawDateStr, expDateStr, bufferDays) {
+  if (!expDateStr || !rawDateStr) return { date: rawDateStr, compressed: false };
+  var today = new Date(); today.setHours(0,0,0,0);
+  var exp = new Date(expDateStr + 'T00:00:00');
+  var cap = new Date(exp);
+  cap.setDate(cap.getDate() - bufferDays);
+  if (cap < today) cap = today;
+  var calc = new Date(rawDateStr + 'T00:00:00');
+  if (calc > cap) {
+    return { date: cap.toISOString().split('T')[0], compressed: true };
+  }
+  return { date: rawDateStr, compressed: false };
+}
+
+/* ── Get expiration_date from row's data-exp attribute ── */
+function getRowExp(rowId) {
+  var row = document.getElementById(rowId);
+  if (!row) return '';
+  return row.closest('.fu-row') ? row.closest('.fu-row').getAttribute('data-exp') || '' : row.getAttribute('data-exp') || '';
+}
+
+/* ── Show/hide compression indicator near a date input ── */
+function showCapIndicator(rowId, compressed, expDate) {
+  var indicator = document.getElementById('ac-fu-cap-' + rowId);
+  if (!indicator) return;
+  if (compressed && expDate) {
+    indicator.textContent = 'Capped \u2014 expires ' + expDate;
+    indicator.classList.remove('hidden');
+  } else {
+    indicator.classList.add('hidden');
+  }
+  var dateInput = document.getElementById('ac-fu-date-' + rowId);
+  if (dateInput) {
+    if (compressed) {
+      dateInput.classList.add('border-amber-400');
+      dateInput.classList.remove('border-gray-200');
+    } else {
+      dateInput.classList.remove('border-amber-400');
+      dateInput.classList.add('border-gray-200');
+    }
+  }
+}
+
 /* ── Disposition pill selection ── */
 function selectAcDisp(btn, label, days, rowId) {
   btn.closest('.flex-wrap').querySelectorAll('.ac-disp-pill').forEach(function(p) {
@@ -331,24 +378,80 @@ function selectAcDisp(btn, label, days, rowId) {
   btn.classList.add('bg-[#003865]', 'text-white', 'border-[#003865]');
   btn.classList.remove('border-gray-200', 'text-gray-500');
   document.getElementById('ac-disp-val-' + rowId).value = label;
-  // Auto-fill date from disposition default_days
   if (days > 0) {
     var dateInput = document.getElementById('ac-fu-date-' + rowId);
     if (dateInput) {
       var d = new Date();
       d.setDate(d.getDate() + days);
-      dateInput.value = d.toISOString().split('T')[0];
+      var rawDate = d.toISOString().split('T')[0];
+      var expDate = getRowExp(rowId);
+      var result = capFollowupDate(rawDate, expDate, FU_EXP_BUFFER);
+      dateInput.value = result.date;
+      showCapIndicator(rowId, result.compressed, expDate);
     }
   }
 }
 
-/* ── Set follow-up date shortcut ── */
+/* ── Set follow-up date shortcut (with expiration cap) ── */
 function setAcFuDate(rowId, days) {
   var dateInput = document.getElementById('ac-fu-date-' + rowId);
   if (dateInput) {
     var d = new Date();
     d.setDate(d.getDate() + days);
-    dateInput.value = d.toISOString().split('T')[0];
+    var rawDate = d.toISOString().split('T')[0];
+    var expDate = getRowExp(rowId);
+    var result = capFollowupDate(rawDate, expDate, FU_EXP_BUFFER);
+    dateInput.value = result.date;
+    showCapIndicator(rowId, result.compressed, expDate);
+  }
+}
+
+/* ── Set disposition bar date shortcut (with expiration cap) ── */
+function setDispBarDate(inputId, days, rowId) {
+  var dateInput = document.getElementById(inputId);
+  if (dateInput) {
+    var d = new Date();
+    d.setDate(d.getDate() + days);
+    var rawDate = d.toISOString().split('T')[0];
+    var expDate = getRowExp(rowId);
+    var result = capFollowupDate(rawDate, expDate, FU_EXP_BUFFER);
+    dateInput.value = result.date;
+    var indicator = document.getElementById('disp-cap-' + rowId);
+    if (indicator) {
+      if (result.compressed && expDate) {
+        indicator.textContent = 'Capped \u2014 expires ' + expDate;
+        indicator.classList.remove('hidden');
+      } else {
+        indicator.classList.add('hidden');
+      }
+    }
+    if (result.compressed) {
+      dateInput.classList.add('border-amber-400');
+      dateInput.classList.remove('border-gray-200');
+    } else {
+      dateInput.classList.remove('border-amber-400');
+      dateInput.classList.add('border-gray-200');
+    }
+  }
+}
+
+/* ── Manual date entry warning (change event) ── */
+function checkDateVsExpiry(dateInput, rowId, capSpanId) {
+  var expDate = getRowExp(rowId);
+  if (!expDate || !dateInput.value) return;
+  var indicator = document.getElementById(capSpanId);
+  if (!indicator) return;
+  var entered = new Date(dateInput.value + 'T00:00:00');
+  var exp = new Date(expDate + 'T00:00:00');
+  if (entered >= exp) {
+    indicator.textContent = 'Past policy expiration';
+    indicator.classList.remove('hidden');
+    dateInput.classList.add('border-amber-400');
+    dateInput.classList.remove('border-gray-200');
+  } else {
+    indicator.classList.add('hidden');
+    dateInput.classList.remove('border-amber-400');
+    dateInput.classList.add('border-gray-200');
   }
 }
 </script>

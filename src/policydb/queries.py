@@ -2106,6 +2106,81 @@ def get_week_followups(
     return items
 
 
+def get_overdue_for_plan_week(
+    conn: sqlite3.Connection, week_start: str, pin_days: int = 14
+) -> list[dict]:
+    """Return all overdue follow-ups (before week_start) for Plan Week backlog.
+
+    Sorted by expiration urgency (closest expiration first).
+    Items near expiration are marked as pinned (can't be pushed later).
+    """
+    from datetime import date
+
+    # Cut-off: anything with follow_up_date < week_start
+    cutoff = week_start
+
+    rows = conn.execute("""
+        SELECT 'activity' AS source, a.id, a.subject, a.follow_up_date,
+               a.activity_type, a.client_id, a.policy_id,
+               c.name AS client_name,
+               p.policy_type, p.carrier, p.expiration_date, p.renewal_status,
+               CAST(julianday(p.expiration_date) - julianday('now') AS INTEGER) AS days_to_renewal,
+               p.policy_uid, a.disposition
+        FROM activity_log a
+        JOIN clients c ON a.client_id = c.id
+        LEFT JOIN policies p ON a.policy_id = p.id
+        WHERE a.follow_up_done = 0 AND a.follow_up_date IS NOT NULL
+          AND a.follow_up_date < ?
+
+        UNION ALL
+
+        SELECT 'policy' AS source, p.id, ('Renewal: ' || p.policy_type) AS subject,
+               p.follow_up_date, 'Policy Reminder' AS activity_type,
+               p.client_id, p.id AS policy_id,
+               c.name AS client_name,
+               p.policy_type, p.carrier, p.expiration_date, p.renewal_status,
+               CAST(julianday(p.expiration_date) - julianday('now') AS INTEGER) AS days_to_renewal,
+               p.policy_uid, NULL AS disposition
+        FROM policies p
+        JOIN clients c ON p.client_id = c.id
+        WHERE p.follow_up_date IS NOT NULL
+          AND p.follow_up_date < ?
+          AND p.archived = 0
+          AND (p.is_opportunity = 0 OR p.is_opportunity IS NULL)
+          AND NOT EXISTS (
+              SELECT 1 FROM activity_log a2
+              WHERE a2.policy_id = p.id AND a2.follow_up_done = 0
+              AND a2.follow_up_date IS NOT NULL
+              AND a2.follow_up_date <= p.follow_up_date
+          )
+
+        ORDER BY 4 ASC
+    """, (cutoff, cutoff)).fetchall()
+
+    disp_map = {
+        d["label"]: d.get("accountability", "my_action")
+        for d in cfg.get("follow_up_dispositions", [])
+    }
+
+    items = []
+    today = date.today()
+    for r in rows:
+        d = dict(r)
+        dtr = d.get("days_to_renewal")
+        d["pinned"] = bool(dtr is not None and dtr <= pin_days)
+        d["accountability"] = disp_map.get(d.get("disposition") or "", "my_action")
+        d["composite_id"] = f"{d['source']}-{d['id']}"
+        try:
+            fu = date.fromisoformat(d["follow_up_date"])
+            d["days_overdue"] = (today - fu).days
+        except (ValueError, TypeError):
+            d["days_overdue"] = 0
+        items.append(d)
+    # Sort by expiration urgency (closest expiration first), then follow_up_date
+    items.sort(key=lambda i: (i.get("expiration_date") or "9999-12-31", i.get("follow_up_date") or ""))
+    return items
+
+
 def _weighted_load(day_items: list[dict]) -> float:
     """Calculate weighted load for a day's follow-ups.
 
@@ -2121,7 +2196,8 @@ def _weighted_load(day_items: list[dict]) -> float:
 
 
 def spread_followups(
-    items: list[dict], daily_target: int, week_days: list[str]
+    items: list[dict], daily_target: int, week_days: list[str],
+    overdue_items: list[dict] | None = None, buffer_days: int = 3,
 ) -> list[dict]:
     """Compute proposed redistribution of follow-ups across the week.
 
@@ -2129,11 +2205,17 @@ def spread_followups(
     Only moves non-pinned items from days exceeding daily_target (weighted load).
     Fills lightest days first using weighted client-aware load.
 
+    If overdue_items is provided, non-pinned overdue items are also distributed
+    into the week with expiration-aware priority (closest expiration -> earliest day).
+
     Weighting: first item per client = 1.0, additional same-client items = 0.25.
-    This means 5 follow-ups for one client ≈ 2.0 weighted load, while 5 follow-ups
+    This means 5 follow-ups for one client = 2.0 weighted load, while 5 follow-ups
     across 5 clients = 5.0 weighted load.
     """
     from collections import defaultdict
+    from datetime import date, timedelta
+
+    from policydb.utils import cap_followup_date
 
     # Group by date
     by_date: dict[str, list[dict]] = defaultdict(list)
@@ -2164,8 +2246,42 @@ def spread_followups(
                 by_date[d].remove(item)
                 movable_pool.append(item)
 
+    # Add overdue non-pinned items to the movable pool
+    overdue_movable: list[dict] = []
+    if overdue_items:
+        for item in overdue_items:
+            if not item.get("pinned"):
+                overdue_movable.append(item)
+
+    # Sort overdue by expiration urgency — closest expiration first
+    overdue_movable.sort(key=lambda i: i.get("expiration_date") or "9999-12-31")
+
     # Assign each movable item to the lightest day (by weighted load)
     proposals: list[dict] = []
+
+    # First: distribute overdue items (higher priority)
+    for item in overdue_movable:
+        # Find lightest day, but respect expiration cap
+        exp_date = item.get("expiration_date") or ""
+        eligible_days = week_days[:]
+        if exp_date:
+            cap_date, _ = cap_followup_date(week_days[-1], exp_date, buffer_days)
+            eligible_days = [d for d in week_days if d <= cap_date]
+        if not eligible_days:
+            eligible_days = [week_days[0]]  # Force to Monday if all days past cap
+
+        lightest_day = min(eligible_days, key=lambda d: _weighted_load(by_date[d]))
+        by_date[lightest_day].append(item)
+        proposals.append({
+            "composite_id": item["composite_id"],
+            "old_date": item.get("follow_up_date", ""),
+            "new_date": lightest_day,
+            "subject": item.get("subject", ""),
+            "client_name": item.get("client_name", ""),
+            "from_backlog": True,
+        })
+
+    # Then: redistribute overloaded week items
     for item in movable_pool:
         lightest_day = min(week_days, key=lambda d: _weighted_load(by_date[d]))
         by_date[lightest_day].append(item)

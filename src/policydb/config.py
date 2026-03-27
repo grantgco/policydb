@@ -114,6 +114,7 @@ _DEFAULTS: dict[str, Any] = {
         "Annual Review",
     ],
     "activity_cluster_days": 7,
+    "followup_expiration_buffer_days": 3,
     "follow_up_dispositions": [
         {"label": "Left VM", "default_days": 3, "accountability": "waiting_external"},
         {"label": "No Answer", "default_days": 1, "accountability": "my_action"},
