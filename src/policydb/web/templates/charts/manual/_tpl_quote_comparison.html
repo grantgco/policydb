@@ -83,15 +83,26 @@
   <!-- Hidden state for snapshot compatibility -->
   <textarea id="qc-state" name="qc-state" style="display:none;"></textarea>
 
-  <!-- Carrier row header -->
+  <!-- Rate Basis -->
   <div style="margin-top:0.75rem;">
+    <div class="section-head midnight">Settings</div>
+    <div style="display:flex;align-items:center;gap:0.65rem;margin-bottom:0.75rem;">
+      <label style="font-size:0.72rem;color:#7B7974;font-weight:500;white-space:nowrap;">Rate per $</label>
+      <input type="number" id="cfg-rate-basis" name="cfg-rate-basis" value="100" min="1" step="1"
+             style="width:100px;border:1px solid var(--mc-border);border-radius:3px;padding:0.38rem 0.5rem;font-family:'Noto Sans',sans-serif;font-size:0.82rem;color:var(--mc-text);background:var(--mc-bg);">
+      <span style="font-size:0.7rem;color:#7B7974;">TIV (e.g. 1, 100, 1000)</span>
+    </div>
+  </div>
+
+  <!-- Carrier row header -->
+  <div>
     <div class="section-head midnight">Carrier Quotes</div>
-    <div style="display:grid;grid-template-columns:14px 1.6fr 1.3fr 0.7fr 0.7fr auto auto;gap:0.5rem;margin-bottom:0.3rem;padding:0 0.1rem;">
+    <div id="carrier-col-header" style="display:grid;grid-template-columns:14px 1.6fr 1.3fr 0.7fr 0.7fr auto auto;gap:0.5rem;margin-bottom:0.3rem;padding:0 0.1rem;">
       <div></div>
       <div class="col-label" style="font-size:0.65rem;text-transform:uppercase;letter-spacing:0.06em;color:#7B7974;font-weight:600;">Carrier</div>
       <div class="col-label" style="font-size:0.65rem;text-transform:uppercase;letter-spacing:0.06em;color:#7B7974;font-weight:600;">TIV ($)</div>
       <div class="col-label" style="font-size:0.65rem;text-transform:uppercase;letter-spacing:0.06em;color:#7B7974;font-weight:600;">Factor</div>
-      <div class="col-label" style="font-size:0.65rem;text-transform:uppercase;letter-spacing:0.06em;color:#7B7974;font-weight:600;">Rate/$100</div>
+      <div class="col-label" id="rate-col-label" style="font-size:0.65rem;text-transform:uppercase;letter-spacing:0.06em;color:#7B7974;font-weight:600;">Rate/$100</div>
       <div class="col-label" style="font-size:0.65rem;text-transform:uppercase;letter-spacing:0.06em;color:#7B7974;font-weight:600;min-width:70px;text-align:right;">Premium</div>
       <div></div>
     </div>
@@ -137,7 +148,10 @@
   ];
 
   // ── Helpers ────────────────────────────────────────────────────────────
-  function premium(c)     { return (c.tiv / 100) * (c.factor * c.rate); }
+  function getRateBasis() {
+    return parseFloat(document.getElementById('cfg-rate-basis').value) || 100;
+  }
+  function premium(c)     { return (c.tiv / getRateBasis()) * (c.factor * c.rate); }
   function appliedRate(c) { return c.factor * c.rate; }
   function fmtRate(n)     { return Number(n).toFixed(4); }
 
@@ -204,7 +218,7 @@
           var tiv    = parseFloat(row.querySelector('.qc-tiv').value)    || 0;
           var factor = parseFloat(row.querySelector('.qc-factor').value) || 1;
           var rate   = parseFloat(row.querySelector('.qc-rate').value)   || 0;
-          var p      = (tiv / 100) * (factor * rate);
+          var p      = (tiv / getRateBasis()) * (factor * rate);
           row.querySelector('.qc-computed').textContent = fmtUSD(p);
         });
       });
@@ -333,7 +347,7 @@
                 return [
                   ' TIV: ' + fmtUSD(c.tiv),
                   ' Factor: ' + c.factor.toFixed(2) + '\u00d7  |  Base Rate: ' + fmtRate(c.rate),
-                  ' Applied Rate: ' + fmtRate(appliedRate(c)) + ' / $100',
+                  ' Applied Rate: ' + fmtRate(appliedRate(c)) + ' / $' + getRateBasis(),
                   ' Premium: ' + fmtUSDFull(p),
                 ];
               }
@@ -364,7 +378,7 @@
             max: rateMax + ratePad,
             title: {
               display: true,
-              text: 'Applied Rate (per $100 TIV)',
+              text: 'Applied Rate (per $' + getRateBasis() + ' TIV)',
               font: { family: 'Noto Sans', size: 10, weight: '500' },
               color: '#7B7974',
               padding: { bottom: 4 }
@@ -465,6 +479,11 @@
     var subtitle = document.getElementById('val-subtitle').value;
     document.getElementById('chart-title-display').textContent = title || 'Quote Comparison';
     document.getElementById('chart-subtitle-display').textContent = subtitle || '';
+
+    // Update rate basis label in editor
+    var basis = getRateBasis();
+    var rateLabel = document.getElementById('rate-col-label');
+    if (rateLabel) rateLabel.textContent = 'Rate/$' + basis;
 
     // Serialize state for snapshot save
     serializeState();
