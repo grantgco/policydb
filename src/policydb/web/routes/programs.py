@@ -9,8 +9,9 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 import policydb.config as cfg
-from policydb.charts import _layer_notation
-from policydb.db import next_program_uid
+from policydb.charts import _layer_notation, get_tower_data
+from policydb.db import next_program_uid, next_policy_uid
+from policydb.utils import parse_currency_with_magnitude
 from policydb.queries import (
     get_sub_coverages_by_policy_id, get_sub_coverages_full_by_policy_id,
     get_program_by_uid, get_program_child_policies, get_program_aggregates,
@@ -388,6 +389,235 @@ def unassign_from_program_v2(
 
     return JSONResponse({"ok": True})
 
+
+# ---------------------------------------------------------------------------
+# Schematic CRUD — cell patch, add/delete rows, reorder, preview, coverage map
+# ---------------------------------------------------------------------------
+
+_CURRENCY_FIELDS = {"limit_amount", "deductible", "premium", "attachment_point", "participation_of"}
+_UNDERLYING_ALLOWED = {"policy_type", "carrier", "policy_number", "limit_amount",
+                       "deductible", "premium", "coverage_form"}
+_EXCESS_ALLOWED = {"policy_type", "carrier", "policy_number", "limit_amount",
+                   "attachment_point", "participation_of", "premium", "coverage_form", "layer_position"}
+
+
+def _parse_and_format_currency(raw: str):
+    """Parse currency input, return (db_value, formatted, error)."""
+    if not raw or not str(raw).strip():
+        return 0, "$0", None
+    val = parse_currency_with_magnitude(str(raw).strip())
+    if val is None:
+        return None, None, f"Could not parse '{raw}'"
+    formatted = f"${val:,.0f}" if val == int(val) else f"${val:,.2f}"
+    return val, formatted, None
+
+
+def _get_program_or_404(conn, program_uid: str):
+    pgm = get_program_by_uid(conn, program_uid)
+    if not pgm:
+        raise HTTPException(status_code=404, detail="Program not found")
+    return pgm
+
+
+@router.patch("/programs/{program_uid}/underlying/{policy_id}/cell")
+async def patch_underlying_cell_v2(request: Request, program_uid: str, policy_id: int,
+                                   conn: sqlite3.Connection = Depends(get_db)):
+    pgm = _get_program_or_404(conn, program_uid)
+    body = await request.json()
+    field, value = body.get("field", ""), body.get("value", "")
+    if field not in _UNDERLYING_ALLOWED:
+        return JSONResponse({"ok": False, "error": f"Field '{field}' not allowed"}, status_code=400)
+    if field in _CURRENCY_FIELDS:
+        val, formatted, err = _parse_and_format_currency(value)
+        if err:
+            return JSONResponse({"ok": False, "error": err}, status_code=400)
+        db_value, display_value = val, formatted
+    else:
+        db_value = display_value = str(value).strip() if value else ""
+    conn.execute(f"UPDATE policies SET {field} = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                 (db_value, policy_id))
+    conn.commit()
+    return JSONResponse({"ok": True, "formatted": display_value})
+
+
+@router.patch("/programs/{program_uid}/excess/{policy_id}/cell")
+async def patch_excess_cell_v2(request: Request, program_uid: str, policy_id: int,
+                               conn: sqlite3.Connection = Depends(get_db)):
+    pgm = _get_program_or_404(conn, program_uid)
+    body = await request.json()
+    field, value = body.get("field", ""), body.get("value", "")
+    if field not in _EXCESS_ALLOWED:
+        return JSONResponse({"ok": False, "error": f"Field '{field}' not allowed"}, status_code=400)
+    if field in _CURRENCY_FIELDS:
+        val, formatted, err = _parse_and_format_currency(value)
+        if err:
+            return JSONResponse({"ok": False, "error": err}, status_code=400)
+        db_value, display_value = val, formatted
+    else:
+        db_value = display_value = str(value).strip() if value else ""
+    conn.execute(f"UPDATE policies SET {field} = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                 (db_value, policy_id))
+    conn.commit()
+    row = conn.execute("SELECT limit_amount, attachment_point, participation_of FROM policies WHERE id = ?",
+                       (policy_id,)).fetchone()
+    notation = _layer_notation(row["limit_amount"], row["attachment_point"], row["participation_of"]) if row else ""
+    return JSONResponse({"ok": True, "formatted": display_value, "notation": notation})
+
+
+@router.post("/programs/{program_uid}/underlying/add", response_class=HTMLResponse)
+async def add_underlying_v2(request: Request, program_uid: str,
+                            conn: sqlite3.Connection = Depends(get_db)):
+    pgm = _get_program_or_404(conn, program_uid)
+    col_row = conn.execute(
+        "SELECT COALESCE(MAX(schematic_column), 0) + 1 AS next_col FROM policies "
+        "WHERE program_id = ? AND layer_position = 'Primary' AND archived = 0",
+        (pgm["id"],)).fetchone()
+    uid = next_policy_uid(conn)
+    conn.execute(
+        """INSERT INTO policies (policy_uid, client_id, program_id, tower_group, layer_position,
+           schematic_column, policy_type, carrier, policy_number, limit_amount, deductible,
+           premium, coverage_form, first_named_insured, description, notes)
+           VALUES (?, ?, ?, ?, 'Primary', ?, '', '', '', 0, 0, 0, '', '', '', '')""",
+        (uid, pgm["client_id"], pgm["id"], pgm["name"], col_row["next_col"]))
+    conn.commit()
+    new_row = conn.execute("SELECT * FROM policies WHERE policy_uid = ?", (uid,)).fetchone()
+    return templates.TemplateResponse("programs/_underlying_row.html", {
+        "request": request, "p": dict(new_row), "client_id": pgm["client_id"],
+        "tower_group": pgm["name"], "program_uid": program_uid,
+        "policy_types": cfg.get("policy_types", []), "carriers": cfg.get("carriers", []),
+        "coverage_forms": cfg.get("coverage_forms", []),
+    })
+
+
+@router.post("/programs/{program_uid}/excess/add", response_class=HTMLResponse)
+async def add_excess_v2(request: Request, program_uid: str,
+                        conn: sqlite3.Connection = Depends(get_db)):
+    pgm = _get_program_or_404(conn, program_uid)
+    att_row = conn.execute(
+        """SELECT COALESCE(MAX(COALESCE(attachment_point, 0) + COALESCE(participation_of, limit_amount, 0)), 0) AS next_att
+           FROM policies WHERE program_id = ? AND layer_position != 'Primary'
+           AND (layer_position IS NULL OR layer_position NOT LIKE '%%mbrella%%') AND archived = 0""",
+        (pgm["id"],)).fetchone()
+    uid = next_policy_uid(conn)
+    conn.execute(
+        """INSERT INTO policies (policy_uid, client_id, program_id, tower_group, layer_position, policy_type,
+           attachment_point, limit_amount, carrier, policy_number, premium, coverage_form,
+           first_named_insured, description, notes)
+           VALUES (?, ?, ?, ?, 'Excess', 'Excess Liability', ?, 0, '', '', 0, '', '', '', '')""",
+        (uid, pgm["client_id"], pgm["id"], pgm["name"], att_row["next_att"]))
+    conn.commit()
+    new_row = conn.execute("SELECT * FROM policies WHERE policy_uid = ?", (uid,)).fetchone()
+    row_dict = dict(new_row)
+    row_dict["notation"] = _layer_notation(row_dict.get("limit_amount"), row_dict.get("attachment_point"),
+                                           row_dict.get("participation_of"))
+    return templates.TemplateResponse("programs/_excess_row.html", {
+        "request": request, "p": row_dict, "layer_num": "—",
+        "client_id": pgm["client_id"], "tower_group": pgm["name"], "program_uid": program_uid,
+        "carriers": cfg.get("carriers", []), "coverage_forms": cfg.get("coverage_forms", []),
+    })
+
+
+@router.post("/programs/{program_uid}/umbrella/add", response_class=HTMLResponse)
+async def add_umbrella_v2(request: Request, program_uid: str,
+                          conn: sqlite3.Connection = Depends(get_db)):
+    pgm = _get_program_or_404(conn, program_uid)
+    existing = conn.execute(
+        "SELECT id FROM policies WHERE program_id = ? AND layer_position LIKE '%%mbrella%%' AND archived = 0 LIMIT 1",
+        (pgm["id"],)).fetchone()
+    if existing:
+        return JSONResponse({"ok": False, "error": "Umbrella already exists"}, status_code=409)
+    uid = next_policy_uid(conn)
+    conn.execute(
+        """INSERT INTO policies (policy_uid, client_id, program_id, tower_group, layer_position, policy_type,
+           attachment_point, limit_amount, carrier, policy_number, premium, coverage_form,
+           first_named_insured, description, notes)
+           VALUES (?, ?, ?, ?, 'Umbrella', 'Umbrella Liability', 0, 0, '', '', 0, '', '', '', '')""",
+        (uid, pgm["client_id"], pgm["id"], pgm["name"]))
+    conn.commit()
+    new_row = conn.execute("SELECT * FROM policies WHERE policy_uid = ?", (uid,)).fetchone()
+    row_dict = dict(new_row)
+    row_dict["notation"] = _layer_notation(row_dict.get("limit_amount"), row_dict.get("attachment_point"),
+                                           row_dict.get("participation_of"))
+    return templates.TemplateResponse("programs/_excess_row.html", {
+        "request": request, "p": row_dict, "layer_num": "—",
+        "client_id": pgm["client_id"], "tower_group": pgm["name"], "program_uid": program_uid,
+        "carriers": cfg.get("carriers", []), "coverage_forms": cfg.get("coverage_forms", []),
+    })
+
+
+@router.post("/programs/{program_uid}/underlying/reorder")
+async def reorder_underlying_v2(request: Request, program_uid: str,
+                                conn: sqlite3.Connection = Depends(get_db)):
+    pgm = _get_program_or_404(conn, program_uid)
+    body = await request.json()
+    for i, pid in enumerate(body.get("order", [])):
+        conn.execute("UPDATE policies SET schematic_column = ? WHERE id = ?", (i + 1, int(pid)))
+    conn.commit()
+    return JSONResponse({"ok": True})
+
+
+@router.delete("/programs/{program_uid}/underlying/{policy_id}", response_class=HTMLResponse)
+async def delete_underlying_v2(request: Request, program_uid: str, policy_id: int,
+                               conn: sqlite3.Connection = Depends(get_db)):
+    pgm = _get_program_or_404(conn, program_uid)
+    conn.execute("DELETE FROM policies WHERE id = ?", (policy_id,))
+    remaining = conn.execute(
+        "SELECT id FROM policies WHERE program_id = ? AND layer_position = 'Primary' AND archived = 0 ORDER BY schematic_column",
+        (pgm["id"],)).fetchall()
+    for i, row in enumerate(remaining):
+        conn.execute("UPDATE policies SET schematic_column = ? WHERE id = ?", (i + 1, row["id"]))
+    conn.commit()
+    return HTMLResponse("")
+
+
+@router.delete("/programs/{program_uid}/excess/{policy_id}", response_class=HTMLResponse)
+async def delete_excess_v2(request: Request, program_uid: str, policy_id: int,
+                           conn: sqlite3.Connection = Depends(get_db)):
+    _get_program_or_404(conn, program_uid)
+    conn.execute("DELETE FROM program_tower_coverage WHERE excess_policy_id = ?", (policy_id,))
+    conn.execute("DELETE FROM program_tower_lines WHERE source_policy_id = ?", (policy_id,))
+    conn.execute("DELETE FROM policies WHERE id = ?", (policy_id,))
+    conn.commit()
+    return HTMLResponse("")
+
+
+@router.get("/programs/{program_uid}/preview", response_class=HTMLResponse)
+async def schematic_preview_v2(request: Request, program_uid: str,
+                               conn: sqlite3.Connection = Depends(get_db)):
+    pgm = _get_program_or_404(conn, program_uid)
+    all_data = get_tower_data(conn, pgm["client_id"])
+    tower_data = [t for t in all_data if t.get("program_name") == pgm["name"]
+                  or t.get("tower_group") == pgm["name"]]
+    return templates.TemplateResponse("programs/_schematic_preview.html", {
+        "request": request, "tower_data": tower_data,
+        "client_id": pgm["client_id"], "tower_group": pgm["name"],
+    })
+
+
+@router.post("/programs/{program_uid}/coverage-map")
+async def add_coverage_mapping_v2(request: Request, program_uid: str,
+                                  conn: sqlite3.Connection = Depends(get_db)):
+    _get_program_or_404(conn, program_uid)
+    body = await request.json()
+    excess_id = body.get("excess_policy_id")
+    underlying_id = body.get("underlying_policy_id")
+    sub_cov_id = body.get("underlying_sub_coverage_id")
+    if not excess_id or (not underlying_id and not sub_cov_id):
+        return JSONResponse({"ok": False, "error": "Missing required fields"}, status_code=400)
+    conn.execute(
+        "INSERT OR IGNORE INTO program_tower_coverage (excess_policy_id, underlying_policy_id, underlying_sub_coverage_id) VALUES (?, ?, ?)",
+        (excess_id, underlying_id or None, sub_cov_id or None))
+    conn.commit()
+    return JSONResponse({"ok": True})
+
+
+@router.delete("/programs/{program_uid}/coverage-map/{ptc_id}")
+async def remove_coverage_mapping_v2(program_uid: str, ptc_id: int,
+                                     conn: sqlite3.Connection = Depends(get_db)):
+    _get_program_or_404(conn, program_uid)
+    conn.execute("DELETE FROM program_tower_coverage WHERE id = ?", (ptc_id,))
+    conn.commit()
+    return JSONResponse({"ok": True})
 
 
 # ---------------------------------------------------------------------------
