@@ -50,10 +50,11 @@
     {% if days > sla %}<span class="text-red-400">(SLA {{ sla }}d)</span>{% endif %}
   </span>
 
-  {# Activity count #}
-  {% if issue.activity_count %}
+  {# Activity count + hours #}
+  {% if issue.activity_count or issue.total_hours %}
   <span class="text-xs text-gray-400" title="Linked activities">
-    {{ issue.activity_count }} act
+    {% if issue.activity_count %}{{ issue.activity_count }} act{% endif %}
+    {% if issue.total_hours %}&middot; {{ issue.total_hours|round(1) }}h{% endif %}
   </span>
   {% endif %}
 
