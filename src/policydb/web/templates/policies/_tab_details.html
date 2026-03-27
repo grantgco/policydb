@@ -43,79 +43,6 @@
 </div>
 {% endif %}
 
-{% if policy.is_program %}
-<!-- Program-specific fields -->
-<div class="card mb-4">
-  <div class="px-5 py-3 border-b border-gray-100">
-    <div class="flex items-center justify-between">
-      <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-1">
-        <span class="bg-blue-100 text-blue-700 text-xs font-bold px-1.5 py-0.5 rounded mr-1">PGM</span> Program Details
-      </span>
-      <div class="flex items-center gap-2 no-print">
-        <button hx-get="/policies/{{ policy.policy_uid }}/program-merge-form"
-                hx-target="#program-merge-container" hx-swap="innerHTML"
-                class="text-xs text-blue-600 hover:text-blue-800 hover:underline">Merge Program</button>
-        <button hx-post="/policies/{{ policy.policy_uid }}/program-dissolve"
-                hx-target="#program-merge-container" hx-swap="innerHTML"
-                hx-confirm="Dissolve this program? All carriers will be removed and child policies will become standalone."
-                class="text-xs text-red-500 hover:text-red-700 hover:underline">Dissolve</button>
-      </div>
-    </div>
-  </div>
-  <div id="program-merge-container"></div>
-  <div class="p-5">
-    {% include 'policies/_program_carriers_matrix.html' %}
-    {# ── Linked Policies ── #}
-    <div class="mt-4 border-t border-gray-100 pt-4">
-      <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Linked Policies</p>
-      <table class="w-full text-sm mb-3">
-        <thead><tr class="text-left text-xs text-gray-400 border-b border-gray-100">
-          <th class="px-3 py-1.5">UID</th><th class="px-3 py-1.5">Type</th><th class="px-3 py-1.5">Carrier</th>
-          <th class="px-3 py-1.5 text-right">Premium</th><th class="px-3 py-1.5"></th>
-        </tr></thead>
-        <tbody id="program-linked-list">
-          {% if program_linked_policies %}
-          {% for lp in program_linked_policies %}
-          <tr class="border-b border-gray-50">
-            <td class="px-3 py-1.5 text-xs"><a href="/policies/{{ lp.policy_uid }}/edit" class="text-marsh hover:underline">{{ lp.policy_uid }}</a></td>
-            <td class="px-3 py-1.5 text-xs text-gray-700">{{ lp.policy_type }}</td>
-            <td class="px-3 py-1.5 text-xs text-gray-500">{{ lp.carrier or '—' }}</td>
-            <td class="px-3 py-1.5 text-xs text-right">{% if lp.premium %}{{ lp.premium | currency }}{% else %}—{% endif %}</td>
-            <td class="px-3 py-1.5 text-xs">
-              <button type="button" hx-post="/policies/{{ policy.policy_uid }}/program-link"
-                hx-vals='{"unlink_uid": "{{ lp.policy_uid }}"}'
-                hx-target="#program-linked-list" hx-swap="innerHTML"
-                class="text-red-400 hover:text-red-600 text-xs no-print">Unlink</button>
-            </td>
-          </tr>
-          {% endfor %}
-          {% else %}
-          <tr><td colspan="5" class="px-3 py-3 text-xs text-gray-400 text-center italic">No policies linked yet</td></tr>
-          {% endif %}
-        </tbody>
-      </table>
-      {% if linkable_policies %}
-      <div class="flex items-end gap-2 no-print">
-        <div class="flex-1">
-          <label class="text-xs text-gray-500 mb-0.5 block">Link a policy to this program</label>
-          <select id="program-link-select" class="form-select w-full text-xs">
-            <option value="">— Select policy —</option>
-            {% for lp in linkable_policies %}
-            {% if not lp.policy_uid in (program_linked_policies | map(attribute='policy_uid') | list) %}
-            <option value="{{ lp.policy_uid }}">{{ lp.policy_uid }} — {{ lp.policy_type }} · {{ lp.carrier or 'No carrier' }}{% if lp.premium %} · {{ lp.premium | currency }}{% endif %}{% if lp.effective_date %} · Eff {{ lp.effective_date }}{% endif %}{% if lp.expiration_date %}–{{ lp.expiration_date }}{% endif %}</option>
-            {% endif %}
-            {% endfor %}
-          </select>
-        </div>
-        <button type="button" onclick="var sel=document.getElementById('program-link-select');if(sel.value){htmx.ajax('POST','/policies/{{ policy.policy_uid }}/program-link',{target:'#program-linked-list',swap:'innerHTML',values:{link_uid:sel.value}});sel.value='';}"
-          class="text-xs bg-marsh text-white px-3 py-1.5 rounded hover:bg-marsh-light transition-colors">+ Link</button>
-      </div>
-      {% endif %}
-    </div>
-  </div>
-</div>
-{% endif %}
-
 <!-- ── Placement & Renewal ── -->
 <div class="card mb-4">
   <div class="px-5 py-3 border-b border-gray-100">
@@ -411,12 +338,6 @@
       </div>
 
       <div>
-        <label class="field-label">Tower Group</label>
-        <input type="text" data-field="tower_group" value="{{ policy.tower_group or '' }}" placeholder="e.g. GL Tower" class="form-input w-full"
-          list="ac-tower_group" autocomplete="off">
-      </div>
-
-      <div>
         <label class="field-label">Attachment Point ($)</label>
         <input type="text" id="attachment_point" class="form-input w-full currency-input" autocomplete="off"
           value="{% if policy.attachment_point %}{{ '${:,.0f}'.format(policy.attachment_point | float) }}{% endif %}"
@@ -667,7 +588,6 @@
 <datalist id="ac-exposure_city"></datalist>
 <datalist id="ac-access_point"></datalist>
 <datalist id="ac-first_named_insured"></datalist>
-<datalist id="ac-tower_group"></datalist>
 
 <script>
 (function () {
@@ -721,8 +641,8 @@
   });
 
   /* ── Autocomplete loading ── */
-  var AC_FIELDS = ["carrier", "exposure_basis", "exposure_unit", "project_name", "exposure_city", "access_point", "first_named_insured", "tower_group"];
-  var CLIENT_SCOPED = ["project_name", "exposure_city", "tower_group"];
+  var AC_FIELDS = ["carrier", "exposure_basis", "exposure_unit", "project_name", "exposure_city", "access_point", "first_named_insured"];
+  var CLIENT_SCOPED = ["project_name", "exposure_city"];
 
   function loadList(field) {
     var clientParam = CLIENT_SCOPED.indexOf(field) !== -1 && CLIENT_ID ? '&client_id=' + CLIENT_ID : '';
