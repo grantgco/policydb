@@ -339,6 +339,8 @@ def init_db(path: Path | None = None) -> None:
             DROP VIEW IF EXISTS v_tower;
             DROP VIEW IF EXISTS v_renewal_pipeline;
             DROP VIEW IF EXISTS v_overdue_followups;
+            DROP VIEW IF EXISTS v_review_queue;
+            DROP VIEW IF EXISTS v_review_clients;
             ALTER TABLE policies_new RENAME TO policies;
             CREATE TRIGGER IF NOT EXISTS policies_updated_at
             AFTER UPDATE ON policies
@@ -1343,6 +1345,10 @@ def init_db(path: Path | None = None) -> None:
         conn.commit()
 
     if 101 not in applied:
+        # Disable FK checks — policies.program_id FK still references policies(id)
+        # from migration 053 but we're writing programs(id) values into it now.
+        conn.execute("PRAGMA foreign_keys = OFF")
+
         # Step 0: Structural SQL — only if column doesn't already exist
         cols = {r["name"] for r in conn.execute("PRAGMA table_info(program_tower_lines)").fetchall()}
         if "program_id" not in cols:
@@ -1423,6 +1429,9 @@ def init_db(path: Path | None = None) -> None:
             (101, "Phase 4: link children, convert carriers, archive is_program rows"),
         )
         conn.commit()
+
+        # Re-enable FK checks
+        conn.execute("PRAGMA foreign_keys = ON")
         logger.info("Migration 101: Phase 4 program cutover complete")
 
     if 102 not in applied:
@@ -1434,6 +1443,17 @@ def init_db(path: Path | None = None) -> None:
         )
         conn.commit()
         logger.info("Migration 102: dropped program_carriers table")
+
+    if 103 not in applied:
+        sql = (_MIGRATIONS_DIR / "103_repoint_program_id_fk.sql").read_text()
+        conn.executescript(sql)
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (103, "Repoint policies.program_id FK from policies(id) to programs(id)"),
+        )
+        conn.commit()
+        logger.info("Migration 103: repointed policies.program_id FK to programs(id)")
 
     # Data hygiene: fix 'None' string corruption in text fields (runs every startup, fast no-op if clean)
     conn.execute("UPDATE clients SET cn_number = NULL WHERE cn_number = 'None'")
