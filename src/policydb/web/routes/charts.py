@@ -202,14 +202,20 @@ async def manual_editor(request: Request, chart_type: str, snapshot_id: Optional
 
     snapshot_data = None
     snapshot_name = ""
+    snapshot_client_id = ""
+    snapshot_client_name = ""
     if snapshot_id:
         row = conn.execute(
-            "SELECT name, data FROM chart_snapshots WHERE id = ? AND chart_type = ?",
+            "SELECT s.name, s.data, s.client_id, c.name as client_name "
+            "FROM chart_snapshots s LEFT JOIN clients c ON s.client_id = c.id "
+            "WHERE s.id = ? AND s.chart_type = ?",
             (snapshot_id, f"manual_{chart_type}"),
         ).fetchone()
         if row:
             snapshot_data = json.loads(row["data"])
             snapshot_name = row["name"]
+            snapshot_client_id = row["client_id"] or ""
+            snapshot_client_name = row["client_name"] or ""
 
     return templates.TemplateResponse(
         "charts/manual/editor.html",
@@ -220,6 +226,8 @@ async def manual_editor(request: Request, chart_type: str, snapshot_id: Optional
             "snapshot_data": snapshot_data,
             "snapshot_id": snapshot_id,
             "snapshot_name": snapshot_name,
+            "snapshot_client_id": snapshot_client_id,
+            "snapshot_client_name": snapshot_client_name,
         },
     )
 
