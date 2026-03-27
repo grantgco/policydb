@@ -627,7 +627,7 @@ Expected: FAIL (still references program_carriers)
 
 Remove `is_program` from SELECT columns (around lines 91 and 120). The `program_id IS NOT NULL → skip` logic stays.
 
-- [ ] **Step 2: Update email_templates.py**
+- [ ] **Step 4: Update email_templates.py**
 
 Remove the `if row["is_program"]: query program_carriers` branch (around line 342). Replace with:
 
@@ -649,32 +649,32 @@ if row.get("program_id"):
         ctx["program_carrier_count"] = str(len(carrier_rows))
 ```
 
-- [ ] **Step 3: Update compliance.py**
+- [ ] **Step 5: Update compliance.py**
 
 Replace all `p.get("is_program")` checks with `p.get("program_id")` checks (or look up from programs table). Replace `program_carriers` table queries with child policy queries. Replace sort `ORDER BY p.is_program DESC` with `ORDER BY (CASE WHEN p.program_id IS NOT NULL THEN 0 ELSE 1 END), p.policy_type`.
 
-- [ ] **Step 4: Update dedup.py**
+- [ ] **Step 6: Update dedup.py**
 
 Remove the guard at line 127: `if a.get("is_program") and b.get("is_program"): return None`. Programs are in a separate table now and won't appear in dedup candidates.
 
-- [ ] **Step 5: Update llm_schemas.py**
+- [ ] **Step 7: Update llm_schemas.py**
 
 Replace `WHERE client_id = ? AND is_program = 1` with a query against `programs` table.
 
-- [ ] **Step 6: Update analysis.py and display.py**
+- [ ] **Step 8: Update analysis.py and display.py**
 
 Replace `tower_group` grouping with `program_id` FK. In `group_by_tower()`: use `r.get("program_id")` or `r.get("program_name")` instead of `r["tower_group"]`. In `get_standalones()`: filter by `not p.get("program_id")`.
 
-- [ ] **Step 7: Update models.py**
+- [ ] **Step 9: Update models.py**
 
 Remove `tower_group` from the Policy pydantic model, or mark as `Optional[str] = None` with a deprecation comment.
 
-- [ ] **Step 8: Run full test suite**
+- [ ] **Step 10: Run full test suite**
 
 Run: `pytest tests/ -q --ignore=tests/test_compliance.py --ignore=tests/test_llm_schemas.py`
 Expected: PASS
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 11: Commit**
 
 ```bash
 git add src/policydb/timeline_engine.py src/policydb/email_templates.py src/policydb/compliance.py src/policydb/dedup.py src/policydb/llm_schemas.py src/policydb/analysis.py src/policydb/display.py src/policydb/models.py
