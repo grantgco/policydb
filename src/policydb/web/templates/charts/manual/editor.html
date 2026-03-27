@@ -197,6 +197,10 @@
   function prepareClone(chartPage) {
     var clone = chartPage.cloneNode(true);
     clone.querySelectorAll('.no-print, .chart-export-btn').forEach(function (el) { el.remove(); });
+    // Strip border/shadow/radius so export is clean white
+    clone.style.border = 'none';
+    clone.style.boxShadow = 'none';
+    clone.style.borderRadius = '0';
     convertCanvasesToImages(chartPage, clone);
     return clone;
   }
