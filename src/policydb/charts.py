@@ -360,21 +360,22 @@ def get_tower_data(conn: sqlite3.Connection, client_id: int) -> list[dict]:
         for entry in grp["underlying"]:
             subs = entry.pop("_sub_coverages", None)
             if subs:
-                subs_with_limits = [s for s in subs if s.get("limit_amount")]
                 # Separate excess-type sub-coverages from underlying-type
-                excess_subs = [s for s in subs_with_limits if _is_excess_sub_cov(s.get("coverage_type", ""))]
+                excess_subs = [s for s in subs if _is_excess_sub_cov(s.get("coverage_type", ""))]
+                subs_with_limits = [s for s in subs if s.get("limit_amount")]
                 underlying_subs = [s for s in subs_with_limits if not _is_excess_sub_cov(s.get("coverage_type", ""))]
 
-                # Promote excess-type sub-coverages to the layers list
+                # Promote excess-type sub-coverages to the layers list (even without limit)
                 for sc in excess_subs:
+                    sc_lim = sc.get("limit_amount") or 0
                     sc_att = sc.get("attachment_point") or 0
                     grp["layers"].append({
                         "policy_type": sc["coverage_type"],
                         "carrier": entry["carrier"],
-                        "limit": sc["limit_amount"],
+                        "limit": sc_lim,
                         "attachment_point": sc_att,
                         "participation_of": None,
-                        "notation": _layer_notation(sc["limit_amount"], sc_att, None),
+                        "notation": _layer_notation(sc_lim, sc_att, None) if sc_lim else "",
                         "layer_position": "Umbrella" if "umbrella" in (sc["coverage_type"] or "").lower() else "Excess",
                         "is_umbrella": "umbrella" in (sc["coverage_type"] or "").lower(),
                         "premium": 0,
