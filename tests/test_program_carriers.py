@@ -116,19 +116,16 @@ def test_v_schedule_uses_policy_carrier_directly(tmp_db):
 from policydb.reconciler import ReconcileRow, reconcile
 
 
-def test_reconciler_program_carrier_match_with_policy_number():
-    """Reconciler should match import rows to program carrier entries using policy number."""
+def test_reconciler_child_policy_direct_match():
+    """Child policies (with program_id) should match 1:1 like any other policy."""
     db_rows = [{
-        "id": 1, "policy_uid": "PGM-001", "client_name": "Acme Corp",
-        "policy_type": "Property Program", "carrier": "AIG",
+        "id": 10, "policy_uid": "POL-010", "client_name": "Acme Corp",
+        "policy_type": "Property", "carrier": "AIG",
         "effective_date": "2025-04-01", "expiration_date": "2026-04-01",
-        "premium": 500000, "limit_amount": 10000000, "policy_number": "",
-        "is_program": 1, "program_carriers": None, "program_carrier_count": 0,
+        "premium": 200000, "limit_amount": 5000000, "policy_number": "POL-4481",
+        "is_program": 0, "program_carriers": "", "program_carrier_count": 0,
         "first_named_insured": "", "deductible": 0,
-        "_program_carrier_rows": [
-            {"id": 10, "carrier": "AIG", "policy_number": "POL-4481", "premium": 200000, "limit_amount": 5000000},
-            {"id": 11, "carrier": "Chubb", "policy_number": "CHB-889", "premium": 300000, "limit_amount": 5000000},
-        ],
+        "program_id": 1,
     }]
     ext_rows = [{
         "client_name": "Acme Corp", "policy_type": "Property",
@@ -139,33 +136,12 @@ def test_reconciler_program_carrier_match_with_policy_number():
     }]
     results = reconcile(ext_rows, db_rows)
     matches = [r for r in results if r.status == "PAIRED"]
-    assert len(matches) >= 1
-    assert matches[0].is_program_match is True
-    assert matches[0].matched_carrier_id == 10
+    assert len(matches) == 1
+    assert matches[0].db["program_id"] == 1
 
 
-def test_reconciler_program_carrier_no_match():
-    """Carrier not in program_carrier_rows should still match the program
-    (carrier is a scoring factor, not a hard gate) but without carrier bonus."""
-    db_rows = [{
-        "id": 1, "policy_uid": "PGM-002", "client_name": "Beta Inc",
-        "policy_type": "Casualty Program", "carrier": "Zurich",
-        "effective_date": "2025-01-01", "expiration_date": "2026-01-01",
-        "premium": 100000, "limit_amount": 5000000, "policy_number": "",
-        "is_program": 1, "program_carriers": None, "program_carrier_count": 0,
-        "first_named_insured": "", "deductible": 0,
-        "_program_carrier_rows": [
-            {"id": 20, "carrier": "Zurich", "policy_number": "ZNA-001", "premium": 100000, "limit_amount": 5000000},
-        ],
-    }]
-    ext_rows = [{
-        "client_name": "Beta Inc", "policy_type": "Casualty",
-        "carrier": "Hartford", "policy_number": "HFD-999",
-        "effective_date": "2025-01-01", "expiration_date": "2026-01-01",
-        "premium": 50000, "limit_amount": 2000000, "deductible": 0,
-        "first_named_insured": "",
-    }]
-    results = reconcile(ext_rows, db_rows)
-    # Should match the program (on client + dates) — carrier is a scoring factor, not a gate
-    matched = [r for r in results if r.status == "PAIRED"]
-    assert len(matched) >= 1
+def test_reconciler_no_program_overlay_fields():
+    """ReconcileRow should not have is_program_match or matched_carrier_id fields."""
+    fields = list(ReconcileRow.__dataclass_fields__)
+    assert "is_program_match" not in fields
+    assert "matched_carrier_id" not in fields

@@ -40,7 +40,7 @@
     <h3 class="text-xs font-semibold text-blue-800 uppercase tracking-wide">Program Reconciliation</h3>
     {# Count unconfirmed program rows #}
     {% set ns = namespace(unconfirmed_pgm=0) %}
-    {% for r in results if r.is_program_match and r.status == 'PAIRED' and not r.confirmed %}
+    {% for r in results if r.db and r.db.get('program_id') and r.status == 'PAIRED' and not r.confirmed %}
       {% set ns.unconfirmed_pgm = ns.unconfirmed_pgm + 1 %}
     {% endfor %}
     {% if ns.unconfirmed_pgm > 0 %}

@@ -70,59 +70,6 @@ def test_scored_match_without_polnum():
     assert paired[0].match_method == "scored"
 
 
-def test_program_carrier_polnum_match():
-    """Program carrier rows should be matched by policy number in Pass 1."""
-    db_rows = [{
-        "id": 1, "policy_uid": "PGM-001", "client_name": "Acme Corp",
-        "policy_type": "Property Program", "carrier": "AIG",
-        "effective_date": "2025-04-01", "expiration_date": "2026-04-01",
-        "premium": 500000, "limit_amount": 10000000, "policy_number": "",
-        "is_program": 1, "program_carriers": None, "program_carrier_count": 0,
-        "first_named_insured": "", "deductible": 0,
-        "_program_carrier_rows": [
-            {"id": 10, "carrier": "AIG", "policy_number": "POL-4481", "premium": 200000, "limit_amount": 5000000},
-            {"id": 11, "carrier": "Chubb", "policy_number": "CHB-889", "premium": 300000, "limit_amount": 5000000},
-        ],
-    }]
-    ext_rows = [{
-        "client_name": "Acme Corp", "policy_type": "Property",
-        "carrier": "AIG", "policy_number": "POL-4481",
-        "effective_date": "2025-04-01", "expiration_date": "2026-04-01",
-        "premium": 200000, "limit_amount": 5000000, "deductible": 0,
-        "first_named_insured": "",
-    }]
-    results = reconcile(ext_rows, db_rows)
-    paired = [r for r in results if r.status == "PAIRED"]
-    assert len(paired) >= 1
-    assert paired[0].is_program_match is True
-    assert paired[0].matched_carrier_id == 10
-
-
-def test_program_not_marked_extra_when_matched():
-    """Programs with at least one match should NOT appear as EXTRA."""
-    db_rows = [{
-        "id": 1, "policy_uid": "PGM-001", "client_name": "Acme Corp",
-        "policy_type": "Property Program", "carrier": "AIG",
-        "effective_date": "2025-04-01", "expiration_date": "2026-04-01",
-        "premium": 500000, "limit_amount": 10000000, "policy_number": "",
-        "is_program": 1, "program_carriers": None, "program_carrier_count": 0,
-        "first_named_insured": "", "deductible": 0,
-        "_program_carrier_rows": [
-            {"id": 10, "carrier": "AIG", "policy_number": "POL-4481", "premium": 200000, "limit_amount": 5000000},
-        ],
-    }]
-    ext_rows = [{
-        "client_name": "Acme Corp", "policy_type": "Property",
-        "carrier": "AIG", "policy_number": "POL-4481",
-        "effective_date": "2025-04-01", "expiration_date": "2026-04-01",
-        "premium": 200000, "limit_amount": 5000000, "deductible": 0,
-        "first_named_insured": "",
-    }]
-    results = reconcile(ext_rows, db_rows)
-    extra = [r for r in results if r.status == "EXTRA"]
-    assert len(extra) == 0
-
-
 def test_sort_order_amber_before_green():
     """Amber (45-74) results should sort before green (75+) for unconfirmed pairs."""
     # Create two ext rows that will match with different scores
@@ -149,32 +96,27 @@ def test_sort_order_amber_before_green():
         assert paired[0].match_score <= paired[1].match_score
 
 
-def test_multiple_ext_rows_match_program():
-    """Multiple ext rows can match a single program (programs stay in candidate pool)."""
-    db_rows = [{
-        "id": 1, "policy_uid": "PGM-001", "client_name": "Acme Corp",
-        "policy_type": "Property Program", "carrier": "AIG",
-        "effective_date": "2025-04-01", "expiration_date": "2026-04-01",
-        "premium": 500000, "limit_amount": 10000000, "policy_number": "",
-        "is_program": 1, "program_carriers": None, "program_carrier_count": 0,
-        "first_named_insured": "", "deductible": 0,
-        "_program_carrier_rows": [
-            {"id": 10, "carrier": "AIG", "policy_number": "POL-4481", "premium": 200000, "limit_amount": 5000000},
-            {"id": 11, "carrier": "Chubb", "policy_number": "CHB-889", "premium": 300000, "limit_amount": 5000000},
-        ],
-    }]
-    ext_rows = [
-        {"client_name": "Acme Corp", "policy_type": "Property", "carrier": "AIG",
-         "policy_number": "POL-4481", "effective_date": "2025-04-01",
-         "expiration_date": "2026-04-01", "premium": 200000, "limit_amount": 5000000,
-         "deductible": 0, "first_named_insured": ""},
-        {"client_name": "Acme Corp", "policy_type": "Property", "carrier": "Chubb",
-         "policy_number": "CHB-889", "effective_date": "2025-04-01",
-         "expiration_date": "2026-04-01", "premium": 300000, "limit_amount": 5000000,
-         "deductible": 0, "first_named_insured": ""},
-    ]
-    results = reconcile(ext_rows, db_rows)
+def test_reconcile_no_program_overlay():
+    """Reconciler should not use _program_carrier_rows overlay."""
+    from policydb.reconciler import ReconcileRow
+    fields = [f for f in ReconcileRow.__dataclass_fields__]
+    assert "is_program_match" not in fields
+    assert "matched_carrier_id" not in fields
+
+
+def test_reconcile_child_policy_matches_directly():
+    """Child policies with program_id should match 1:1 like any policy."""
+    ext_rows = [{"client_name": "Acme Corp", "carrier": "AIG", "premium": 100000,
+                 "policy_number": "ABC-123", "policy_type": "GL",
+                 "effective_date": "2026-04-01", "expiration_date": "2027-04-01",
+                 "limit_amount": 0, "deductible": 0, "first_named_insured": ""}]
+    db_rows = [{"id": 1, "carrier": "AIG", "premium": 100000,
+                "policy_number": "ABC-123", "policy_type": "General Liability",
+                "effective_date": "2026-04-01", "expiration_date": "2027-04-01",
+                "program_id": 5, "policy_uid": "POL-001", "client_name": "Acme Corp",
+                "limit_amount": 0, "deductible": 0, "first_named_insured": "",
+                "is_program": 0, "program_carriers": "", "program_carrier_count": 0}]
+    results = reconcile(ext_rows, db_rows, single_client=True)
     paired = [r for r in results if r.status == "PAIRED"]
-    assert len(paired) == 2
-    # Both should be program matches
-    assert all(r.is_program_match for r in paired)
+    assert len(paired) == 1
+    assert paired[0].db["program_id"] == 5
