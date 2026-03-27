@@ -81,7 +81,9 @@
 {# ── Tab Bar + Content ── #}
 <div id="policy-tabs">
   <div class="tab-bar">
-    <button class="tab-btn active" data-tab="details"
+    <button class="tab-btn active" data-tab="pulse"
+      data-tab-url="/policies/{{ policy.policy_uid }}/tab/pulse">Pulse</button>
+    <button class="tab-btn" data-tab="details"
       data-tab-url="/policies/{{ policy.policy_uid }}/tab/details">Details</button>
     <button class="tab-btn" data-tab="activity"
       data-tab-url="/policies/{{ policy.policy_uid }}/tab/activity">
@@ -101,8 +103,6 @@
       {% set total = checklist | length %}
       {% if total %}<span class="tab-badge">{{ done }}/{{ total }}</span>{% endif %}
     </button>
-    <button class="tab-btn" data-tab="pulse"
-      data-tab-url="/policies/{{ policy.policy_uid }}/tab/pulse">Pulse</button>
   </div>
   <div class="tab-content" id="ai-import-target">
     <div class="py-4 text-sm text-gray-400 text-center">Loading…</div>
