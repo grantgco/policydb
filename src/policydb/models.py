@@ -51,7 +51,7 @@ class Policy:
     description: Optional[str] = None
     coverage_form: Optional[str] = None
     layer_position: Optional[str] = "Primary"
-    tower_group: Optional[str] = None
+    tower_group: Optional[str] = None  # deprecated — use program_id
     is_standalone: int = 0
     placement_colleague: Optional[str] = None
     placement_colleague_email: Optional[str] = None
