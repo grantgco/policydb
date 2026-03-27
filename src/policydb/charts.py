@@ -283,7 +283,7 @@ def get_tower_data(conn: sqlite3.Connection, client_id: int) -> list[dict]:
     _WC_KEYWORDS = ("workers comp", "workers' comp")
     groups: dict[str, dict] = {}
     for r in rows:
-        tg = r.get("program_name") or r["tower_group"] or "Ungrouped"
+        tg = r["program_name"] or r["tower_group"] or "Ungrouped"
         if tg not in groups:
             groups[tg] = {"underlying": [], "layers": []}
 
