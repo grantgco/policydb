@@ -311,7 +311,7 @@ def policy_context(conn: sqlite3.Connection, policy_uid: str) -> dict:
                   p.effective_date, p.expiration_date, p.premium, p.limit_amount,
                   p.deductible, p.project_name, p.project_id, p.renewal_status, p.account_exec,
                   p.access_point, p.last_reviewed_at, p.review_cycle,
-                  p.first_named_insured, p.is_program,
+                  p.first_named_insured, p.program_id,
                   c.id AS client_id, c.name AS client_name, c.industry_segment AS industry,
                   c.primary_contact, c.contact_email,
                   c.cn_number, c.address, c.business_description, c.notes,
@@ -338,33 +338,25 @@ def policy_context(conn: sqlite3.Connection, policy_uid: str) -> dict:
     pc_name = _pc_row["name"] if _pc_row else ""
     pc_email = _pc_row["email"] if _pc_row else ""
     pc_phone = _pc_row["phone"] if _pc_row else ""
-    # Program carrier info (from program_carriers table)
-    if row["is_program"]:
-        carrier_rows = conn.execute(
-            "SELECT carrier FROM program_carriers WHERE program_id = ? ORDER BY sort_order",
-            (row["id"],),
-        ).fetchall()
-        ctx["program_carriers"] = ", ".join(r["carrier"] for r in carrier_rows)
-        ctx["program_carrier_count"] = str(len(carrier_rows))
-    else:
-        ctx["program_carriers"] = ""
-        ctx["program_carrier_count"] = ""
-
-    # Program info (from standalone programs table, Phase 2 will populate fully)
+    # Program tokens — derive from programs table if policy has program_id
     ctx["program_name"] = ""
     ctx["program_uid"] = ""
-    try:
-        _program_id = row["program_id"]
-        if _program_id:
-            pgm_row = conn.execute(
-                "SELECT program_uid, name FROM programs WHERE id = ?",
-                (_program_id,),
-            ).fetchone()
-            if pgm_row:
-                ctx["program_name"] = pgm_row["name"] or ""
-                ctx["program_uid"] = pgm_row["program_uid"] or ""
-    except (KeyError, Exception):
-        pass  # program_id column or programs table may not exist on older DBs
+    ctx["program_carriers"] = ""
+    ctx["program_carrier_count"] = ""
+    if row["program_id"]:
+        pgm_row = conn.execute(
+            "SELECT program_uid, name FROM programs WHERE id = ?",
+            (row["program_id"],),
+        ).fetchone()
+        if pgm_row:
+            ctx["program_name"] = pgm_row["name"] or ""
+            ctx["program_uid"] = pgm_row["program_uid"] or ""
+            carrier_rows = conn.execute(
+                "SELECT DISTINCT carrier FROM policies WHERE program_id = ? AND carrier IS NOT NULL AND carrier != '' AND archived = 0",
+                (row["program_id"],),
+            ).fetchall()
+            ctx["program_carriers"] = ", ".join(r["carrier"] for r in carrier_rows)
+            ctx["program_carrier_count"] = str(len(carrier_rows))
 
     # COPE data from linked location
     cope_data: dict = {}

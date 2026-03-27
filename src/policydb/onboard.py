@@ -96,20 +96,18 @@ def _interactive_policy_entry(conn: sqlite3.Connection, client_id: int) -> int:
                 limit = click.prompt("  Policy limit (0 if none)", type=float, default=0.0)
                 description = click.prompt("  Description (client-facing)", default="", show_default=False)
                 layer = click.prompt("  Layer position", default="Primary")
-                tower = click.prompt("  Tower group (optional)", default="", show_default=False)
                 pol_number = click.prompt("  Policy number (optional)", default="", show_default=False)
                 colleague = click.prompt("  Placement colleague (optional)", default="", show_default=False)
 
                 conn.execute(
                     """UPDATE policies SET
                        limit_amount = ?, description = ?, layer_position = ?,
-                       tower_group = ?, policy_number = ?
+                       policy_number = ?
                        WHERE policy_uid = ?""",
                     (
                         limit or None,
                         description or None,
                         layer or "Primary",
-                        tower or None,
                         pol_number or None,
                         uid,
                     ),

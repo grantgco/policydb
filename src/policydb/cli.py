@@ -417,7 +417,6 @@ def policy_add(client_name):
         description = click.prompt("Description (client-facing)", default="", show_default=False)
         coverage_form = click.prompt("Coverage form (Occurrence/Claims-Made/etc.)", default="", show_default=False)
         layer_position = click.prompt("Layer position", default="Primary")
-        tower_group = click.prompt("Tower group (optional)", default="", show_default=False)
         is_standalone = click.confirm("Is this a standalone policy?", default=False)
         colleague = click.prompt("Placement colleague (optional)", default="", show_default=False)
         uw_name = click.prompt("Underwriter name (optional)", default="", show_default=False)
@@ -434,7 +433,7 @@ def policy_add(client_name):
     else:
         limit_amount = deductible = commission_rate = exposure_amount = 0.0
         description = coverage_form = layer_position = "Primary"
-        tower_group = colleague = uw_name = exposure_basis = exposure_unit = notes = ""
+        colleague = uw_name = exposure_basis = exposure_unit = notes = ""
         is_standalone = False
         status = "Not Started"
 
@@ -442,15 +441,15 @@ def policy_add(client_name):
         """INSERT INTO policies
            (policy_uid, client_id, policy_type, carrier, policy_number,
             effective_date, expiration_date, premium, limit_amount, deductible,
-            description, coverage_form, layer_position, tower_group, is_standalone,
+            description, coverage_form, layer_position, is_standalone,
             underwriter_name, renewal_status, commission_rate,
             exposure_basis, exposure_amount, exposure_unit, account_exec, notes)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             uid, client["id"], pol_type, carrier, policy_number or None,
             eff, exp, premium, limit_amount or None, deductible or None,
             description or None, coverage_form or None, layer_position or "Primary",
-            tower_group or None, 1 if is_standalone else 0,
+            1 if is_standalone else 0,
             uw_name or None, status, commission_rate or None,
             exposure_basis or None, exposure_amount or None, exposure_unit or None,
             account_exec, notes or None,
@@ -507,7 +506,6 @@ def policy_show(policy_uid, fmt):
         ("Deductible", fmt_currency(row["deductible"]) if row["deductible"] else "—"),
         ("Coverage Form", row["coverage_form"] or "—"),
         ("Layer", row["layer_position"] or "Primary"),
-        ("Tower Group", row["tower_group"] or "—"),
         ("Standalone", "Yes" if row["is_standalone"] else "No"),
         ("Description", row["description"] or "—"),
         ("Renewal Status", row["renewal_status"]),
@@ -547,7 +545,6 @@ def policy_edit(policy_uid):
         ("description", "Description", row["description"] or ""),
         ("coverage_form", "Coverage form", row["coverage_form"] or ""),
         ("layer_position", "Layer position", row["layer_position"] or "Primary"),
-        ("tower_group", "Tower group", row["tower_group"] or ""),
         ("placement_colleague", "Placement colleague", row["placement_colleague"] or ""),
         ("underwriter_name", "Underwriter name", row["underwriter_name"] or ""),
         ("renewal_status", "Renewal status", row["renewal_status"]),

@@ -71,9 +71,9 @@ def test_coverage_gap_re_without_eo(conn):
 
 def test_detect_towers():
     policies = [
-        {"tower_group": "GL Tower", "policy_type": "GL", "carrier": "Zurich"},
-        {"tower_group": "GL Tower", "policy_type": "Umbrella", "carrier": "Swiss Re"},
-        {"tower_group": None, "policy_type": "Cyber", "carrier": "Coalition"},
+        {"program_id": 1, "program_name": "GL Tower", "policy_type": "GL", "carrier": "Zurich"},
+        {"program_id": 1, "program_name": "GL Tower", "policy_type": "Umbrella", "carrier": "Swiss Re"},
+        {"program_id": None, "program_name": None, "policy_type": "Cyber", "carrier": "Coalition"},
     ]
     towers = detect_towers(policies)
     assert "GL Tower" in towers
@@ -82,9 +82,9 @@ def test_detect_towers():
 
 def test_detect_standalones():
     policies = [
-        {"tower_group": "GL Tower", "policy_type": "GL"},
-        {"tower_group": None, "policy_type": "Cyber"},
-        {"tower_group": None, "policy_type": "Crime"},
+        {"program_id": 1, "program_name": "GL Tower", "policy_type": "GL"},
+        {"program_id": None, "policy_type": "Cyber"},
+        {"program_id": None, "policy_type": "Crime"},
     ]
     standalones = detect_standalones(policies)
     assert len(standalones) == 2
@@ -92,8 +92,8 @@ def test_detect_standalones():
 
 def test_find_duplicate_policy_numbers():
     policies = [
-        {"policy_number": "GL-001", "policy_type": "GL", "carrier": "Zurich", "client_id": 1, "tower_group": None},
-        {"policy_number": "GL-001", "policy_type": "GL", "carrier": "Zurich", "client_id": 1, "tower_group": None},
+        {"policy_number": "GL-001", "policy_type": "GL", "carrier": "Zurich", "client_id": 1, "program_id": None},
+        {"policy_number": "GL-001", "policy_type": "GL", "carrier": "Zurich", "client_id": 1, "program_id": None},
     ]
     dupes = find_duplicate_policies(policies)
     assert len(dupes) >= 1

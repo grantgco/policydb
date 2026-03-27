@@ -1530,24 +1530,9 @@ def _ai_import_parse_inner(request: Request, conn, uid: str, result: dict):
         "tower_layers": _tower_layers,
         "cycle_labels": _RCL,
         "sub_coverages": _get_sub_coverages(conn, merged["id"]),
-        "program_linked_policies": [dict(r) for r in conn.execute(
-            """SELECT policy_uid, policy_type, carrier, premium, effective_date, expiration_date
-               FROM policies WHERE program_id = ? AND archived = 0 ORDER BY policy_type""",
-            (merged["id"],),
-        ).fetchall()] if merged.get("is_program") else [],
-        "linkable_policies": [dict(r) for r in conn.execute(
-            """SELECT policy_uid, policy_type, carrier, premium, effective_date, expiration_date
-               FROM policies WHERE client_id = ? AND archived = 0
-                 AND (is_program = 0 OR is_program IS NULL)
-                 AND (is_opportunity = 0 OR is_opportunity IS NULL)
-                 AND (program_id IS NULL OR program_id = ?)
-               ORDER BY policy_type""",
-            (merged["client_id"], merged["id"]),
-        ).fetchall()] if merged.get("is_program") else [],
-        "program_carrier_rows": [dict(r) for r in conn.execute(
-            "SELECT * FROM program_carriers WHERE program_id = ? ORDER BY sort_order",
-            (merged["id"],),
-        ).fetchall()] if merged.get("is_program") else [],
+        "program_linked_policies": [],
+        "linkable_policies": [],
+        "program_carrier_rows": [],
         "ai_warnings": ai_warnings,
         "ai_policy_diffs": ai_policy_diffs,
         "ai_location_data": ai_location_data,
@@ -2136,24 +2121,9 @@ def policy_tab_details(request: Request, policy_uid: str, conn=Depends(get_db)):
         "cycle_labels": _RCL,
         "sub_coverages": sub_coverages,
         **_exp_ctx,
-        "program_linked_policies": [dict(r) for r in conn.execute(
-            """SELECT policy_uid, policy_type, carrier, premium, effective_date, expiration_date
-               FROM policies WHERE program_id = ? AND archived = 0 ORDER BY policy_type""",
-            (policy_dict["id"],),
-        ).fetchall()] if policy_dict.get("is_program") else [],
-        "linkable_policies": [dict(r) for r in conn.execute(
-            """SELECT policy_uid, policy_type, carrier, premium, effective_date, expiration_date
-               FROM policies WHERE client_id = ? AND archived = 0
-                 AND (is_program = 0 OR is_program IS NULL)
-                 AND (is_opportunity = 0 OR is_opportunity IS NULL)
-                 AND (program_id IS NULL OR program_id = ?)
-               ORDER BY policy_type""",
-            (policy_dict["client_id"], policy_dict["id"]),
-        ).fetchall()] if policy_dict.get("is_program") else [],
-        "program_carrier_rows": [dict(r) for r in conn.execute(
-            "SELECT * FROM program_carriers WHERE program_id = ? ORDER BY sort_order",
-            (policy_dict["id"],),
-        ).fetchall()] if policy_dict.get("is_program") else [],
+        "program_linked_policies": [],
+        "linkable_policies": [],
+        "program_carrier_rows": [],
     })
 
 
@@ -2797,24 +2767,9 @@ def policy_edit_form(request: Request, policy_uid: str, add_contact: str = "", c
         "correspondence_threads": _correspondence_threads,
         "tower_layers": _tower_layers,
         "request_categories": cfg.get("request_categories", []),
-        "program_linked_policies": [dict(r) for r in conn.execute(
-            """SELECT policy_uid, policy_type, carrier, premium, effective_date, expiration_date
-               FROM policies WHERE program_id = ? AND archived = 0 ORDER BY policy_type""",
-            (policy_dict["id"],),
-        ).fetchall()] if policy_dict.get("is_program") else [],
-        "linkable_policies": [dict(r) for r in conn.execute(
-            """SELECT policy_uid, policy_type, carrier, premium, effective_date, expiration_date
-               FROM policies WHERE client_id = ? AND archived = 0
-                 AND (is_program = 0 OR is_program IS NULL)
-                 AND (is_opportunity = 0 OR is_opportunity IS NULL)
-                 AND (program_id IS NULL OR program_id = ?)
-               ORDER BY policy_type""",
-            (policy_dict["client_id"], policy_dict["id"]),
-        ).fetchall()] if policy_dict.get("is_program") else [],
-        "program_carrier_rows": [dict(r) for r in conn.execute(
-            "SELECT * FROM program_carriers WHERE program_id = ? ORDER BY sort_order",
-            (policy_dict["id"],),
-        ).fetchall()] if policy_dict.get("is_program") else [],
+        "program_linked_policies": [],
+        "linkable_policies": [],
+        "program_carrier_rows": [],
         "program_policy": _program_policy,
         "program_health": _program_health,
     })
@@ -2830,7 +2785,7 @@ def program_link_policy(
 ):
     """Link or unlink a policy to/from a program."""
     program = conn.execute(
-        "SELECT id FROM policies WHERE policy_uid = ? AND is_program = 1",
+        "SELECT id FROM programs WHERE program_uid = ?",
         (policy_uid.upper(),),
     ).fetchone()
     if not program:
@@ -2874,388 +2829,8 @@ def program_link_policy(
     return HTMLResponse(rows_html)
 
 
-def _format_money(value) -> str:
-    """Format a numeric value as $N,NNN (no decimals)."""
-    try:
-        return f"${float(value):,.0f}"
-    except (TypeError, ValueError):
-        return ""
 
 
-def _parse_money(raw: str):
-    """Strip $ and , then convert to float. Returns None on failure."""
-    try:
-        return float(raw.replace("$", "").replace(",", "").strip())
-    except (ValueError, AttributeError):
-        return None
-
-
-def _update_program_totals(conn, program_id: int) -> dict:
-    """Recompute and save the parent policy's premium + limit_amount from carrier rows."""
-    rows = conn.execute(
-        "SELECT premium, limit_amount FROM program_carriers WHERE program_id = ?",
-        (program_id,),
-    ).fetchall()
-    total_premium = sum(r["premium"] for r in rows if r["premium"] is not None)
-    total_limit = sum(r["limit_amount"] for r in rows if r["limit_amount"] is not None)
-    conn.execute(
-        "UPDATE policies SET premium = ?, limit_amount = ? WHERE id = ?",
-        (total_premium or None, total_limit or None, program_id),
-    )
-    return {
-        "premium": _format_money(total_premium) if total_premium else "",
-        "limit_amount": _format_money(total_limit) if total_limit else "",
-    }
-
-
-@router.patch("/{policy_uid}/program-carrier/{carrier_id}")
-async def program_carrier_patch(
-    request: Request,
-    policy_uid: str,
-    carrier_id: int,
-    conn=Depends(get_db),
-):
-    """Update a single cell of a program_carriers row."""
-    import json as _json
-    body = await request.body()
-    try:
-        data = _json.loads(body)
-    except Exception:
-        return JSONResponse({"ok": False, "error": "Invalid JSON"}, status_code=400)
-
-    field = data.get("field", "")
-    value = data.get("value", "")
-
-    allowed_fields = {"carrier", "policy_number", "premium", "limit_amount"}
-    if field not in allowed_fields:
-        return JSONResponse({"ok": False, "error": "Unknown field"}, status_code=400)
-
-    program = conn.execute(
-        "SELECT id FROM policies WHERE policy_uid = ? AND is_program = 1",
-        (policy_uid.upper(),),
-    ).fetchone()
-    if not program:
-        return JSONResponse({"ok": False, "error": "Program not found"}, status_code=404)
-
-    row = conn.execute(
-        "SELECT id FROM program_carriers WHERE id = ? AND program_id = ?",
-        (carrier_id, program["id"]),
-    ).fetchone()
-    if not row:
-        return JSONResponse({"ok": False, "error": "Carrier row not found"}, status_code=404)
-
-    formatted = value
-    if field in ("premium", "limit_amount"):
-        parsed = _parse_money(str(value))
-        conn.execute(
-            f"UPDATE program_carriers SET {field} = ? WHERE id = ?",
-            (parsed, carrier_id),
-        )
-        formatted = _format_money(parsed) if parsed is not None else ""
-    else:
-        conn.execute(
-            f"UPDATE program_carriers SET {field} = ? WHERE id = ?",
-            (value or None, carrier_id),
-        )
-
-    totals = _update_program_totals(conn, program["id"])
-    conn.commit()
-    return JSONResponse({"ok": True, "formatted": formatted, "totals": totals})
-
-
-@router.post("/{policy_uid}/program-carrier", response_class=HTMLResponse)
-def program_carrier_add(
-    request: Request,
-    policy_uid: str,
-    conn=Depends(get_db),
-):
-    """Add a blank carrier row to a program and return its <tr> HTML."""
-    program = conn.execute(
-        "SELECT id FROM policies WHERE policy_uid = ? AND is_program = 1",
-        (policy_uid.upper(),),
-    ).fetchone()
-    if not program:
-        return JSONResponse({"ok": False, "error": "Program not found"}, status_code=404)
-
-    max_order = conn.execute(
-        "SELECT COALESCE(MAX(sort_order), 0) FROM program_carriers WHERE program_id = ?",
-        (program["id"],),
-    ).fetchone()[0]
-    cur = conn.execute(
-        "INSERT INTO program_carriers (program_id, carrier, policy_number, premium, limit_amount, sort_order) VALUES (?, NULL, NULL, NULL, NULL, ?)",
-        (program["id"], max_order + 1),
-    )
-    conn.commit()
-    new_id = cur.lastrowid
-    uid = policy_uid.upper()
-    endpoint_base = f"/policies/{uid}/program-carrier/{new_id}"
-
-    html = f'''<tr class="border-b border-gray-100 carrier-row" data-id="{new_id}" draggable="true">
-  <td class="px-2 py-1 text-gray-300 cursor-grab carrier-drag-handle" title="Drag to reorder">&#x2807;</td>
-  <td class="px-2 py-1 text-xs text-gray-700 carrier-cell"
-      contenteditable="true"
-      data-field="carrier"
-      data-id="{new_id}"
-      data-placeholder="Carrier"
-      data-endpoint="{endpoint_base}"></td>
-  <td class="px-2 py-1 text-xs text-gray-500 carrier-cell"
-      contenteditable="true"
-      data-field="policy_number"
-      data-id="{new_id}"
-      data-placeholder="Policy #"
-      data-endpoint="{endpoint_base}"></td>
-  <td class="px-2 py-1 text-xs text-right tabular-nums carrier-cell"
-      contenteditable="true"
-      data-field="premium"
-      data-id="{new_id}"
-      data-placeholder="$0"
-      data-endpoint="{endpoint_base}"></td>
-  <td class="px-2 py-1 text-xs text-right tabular-nums carrier-cell"
-      contenteditable="true"
-      data-field="limit_amount"
-      data-id="{new_id}"
-      data-placeholder="$0"
-      data-endpoint="{endpoint_base}"></td>
-  <td class="px-2 py-1 text-center">
-    <button type="button"
-            class="text-red-300 hover:text-red-600 text-xs carrier-delete no-print"
-            data-id="{new_id}"
-            data-endpoint="/policies/{uid}/program-carrier/{new_id}"
-            title="Remove row">&#x2715;</button>
-  </td>
-</tr>'''
-    return HTMLResponse(html)
-
-
-@router.delete("/{policy_uid}/program-carrier/{carrier_id}")
-def program_carrier_delete(
-    request: Request,
-    policy_uid: str,
-    carrier_id: int,
-    conn=Depends(get_db),
-):
-    """Delete a carrier row and update the parent policy totals."""
-    program = conn.execute(
-        "SELECT id FROM policies WHERE policy_uid = ? AND is_program = 1",
-        (policy_uid.upper(),),
-    ).fetchone()
-    if not program:
-        return JSONResponse({"ok": False, "error": "Program not found"}, status_code=404)
-
-    conn.execute(
-        "DELETE FROM program_carriers WHERE id = ? AND program_id = ?",
-        (carrier_id, program["id"]),
-    )
-    totals = _update_program_totals(conn, program["id"])
-    conn.commit()
-    return JSONResponse({"ok": True, "totals": totals})
-
-
-@router.post("/{policy_uid}/program-carrier/reorder")
-async def program_carrier_reorder(
-    request: Request,
-    policy_uid: str,
-    conn=Depends(get_db),
-):
-    """Reorder carrier rows by accepting a list of IDs in desired order."""
-    import json as _json
-    body = await request.body()
-    try:
-        data = _json.loads(body)
-    except Exception:
-        return JSONResponse({"ok": False, "error": "Invalid JSON"}, status_code=400)
-
-    order = data.get("order", [])
-    program = conn.execute(
-        "SELECT id FROM policies WHERE policy_uid = ? AND is_program = 1",
-        (policy_uid.upper(),),
-    ).fetchone()
-    if not program:
-        return JSONResponse({"ok": False, "error": "Program not found"}, status_code=404)
-
-    for idx, row_id in enumerate(order):
-        conn.execute(
-            "UPDATE program_carriers SET sort_order = ? WHERE id = ? AND program_id = ?",
-            (idx + 1, row_id, program["id"]),
-        )
-    conn.commit()
-    return JSONResponse({"ok": True})
-
-
-# ── Merge & Dissolve Programs ─────────────────────────────────────────────────
-
-
-@router.post("/{policy_uid}/program-merge", response_class=HTMLResponse)
-def program_merge(
-    request: Request,
-    policy_uid: str,
-    merge_from_uid: str = Form(""),
-    conn=Depends(get_db),
-):
-    """Merge another program INTO this one. Moves carrier rows and child policies."""
-    target_uid = policy_uid.upper()
-    source_uid = merge_from_uid.upper()
-
-    target = conn.execute(
-        "SELECT id, policy_type, client_id FROM policies WHERE policy_uid = ? AND is_program = 1",
-        (target_uid,),
-    ).fetchone()
-    source = conn.execute(
-        "SELECT id, policy_type FROM policies WHERE policy_uid = ? AND is_program = 1",
-        (source_uid,),
-    ).fetchone()
-
-    if not target or not source:
-        return HTMLResponse('<div class="text-xs text-red-500 p-2">Program not found.</div>')
-    if target["id"] == source["id"]:
-        return HTMLResponse('<div class="text-xs text-red-500 p-2">Cannot merge a program into itself.</div>')
-
-    # Get current max sort_order in target
-    max_sort = conn.execute(
-        "SELECT COALESCE(MAX(sort_order), 0) as m FROM program_carriers WHERE program_id = ?",
-        (target["id"],),
-    ).fetchone()["m"]
-
-    # Move carrier rows from source to target
-    source_carriers = conn.execute(
-        "SELECT id FROM program_carriers WHERE program_id = ?", (source["id"],)
-    ).fetchall()
-    for i, sc in enumerate(source_carriers):
-        conn.execute(
-            "UPDATE program_carriers SET program_id = ?, sort_order = ? WHERE id = ?",
-            (target["id"], max_sort + i + 1, sc["id"]),
-        )
-
-    # Move child policies from source to target
-    conn.execute(
-        "UPDATE policies SET program_id = ? WHERE program_id = ?",
-        (target["id"], source["id"]),
-    )
-
-    # Recalculate target totals
-    _update_program_totals(conn, target["id"])
-
-    # Archive the source program (now empty)
-    conn.execute(
-        "UPDATE policies SET archived = 1, is_program = 0 WHERE id = ?",
-        (source["id"],),
-    )
-    conn.commit()
-
-    carrier_count = conn.execute(
-        "SELECT COUNT(*) as c FROM program_carriers WHERE program_id = ?", (target["id"],)
-    ).fetchone()["c"]
-    logger.info("Merged program %s into %s (%d carriers total)", source_uid, target_uid, carrier_count)
-
-    return HTMLResponse(
-        f'<div class="text-xs text-green-600 p-2">'
-        f'Merged {source_uid} into {target_uid} — {carrier_count} carriers total. '
-        f'{source_uid} has been archived.</div>',
-        headers={"HX-Trigger": "policyChanged"},
-    )
-
-
-@router.post("/{policy_uid}/program-dissolve", response_class=HTMLResponse)
-def program_dissolve(
-    request: Request,
-    policy_uid: str,
-    conn=Depends(get_db),
-):
-    """Dissolve a program: unlink all child policies and delete carrier rows.
-    The parent program policy becomes a regular standalone policy."""
-    uid = policy_uid.upper()
-    program = conn.execute(
-        "SELECT id, policy_type, client_id FROM policies WHERE policy_uid = ? AND is_program = 1",
-        (uid,),
-    ).fetchone()
-    if not program:
-        return HTMLResponse('<div class="text-xs text-red-500 p-2">Program not found.</div>')
-
-    # Count what we're dissolving
-    carrier_count = conn.execute(
-        "SELECT COUNT(*) as c FROM program_carriers WHERE program_id = ?", (program["id"],)
-    ).fetchone()["c"]
-    child_count = conn.execute(
-        "SELECT COUNT(*) as c FROM policies WHERE program_id = ? AND archived = 0", (program["id"],)
-    ).fetchone()["c"]
-
-    # Unlink all child policies (set program_id = NULL)
-    conn.execute("UPDATE policies SET program_id = NULL WHERE program_id = ?", (program["id"],))
-
-    # Delete all carrier rows
-    conn.execute("DELETE FROM program_carriers WHERE program_id = ?", (program["id"],))
-
-    # Convert parent to non-program standalone
-    conn.execute(
-        "UPDATE policies SET is_program = 0, program_carrier_count = 0 WHERE id = ?",
-        (program["id"],),
-    )
-    conn.commit()
-
-    logger.info("Dissolved program %s: %d carriers removed, %d children unlinked", uid, carrier_count, child_count)
-
-    return HTMLResponse(
-        f'<div class="text-xs text-green-600 p-2">'
-        f'Program {uid} dissolved — {carrier_count} carriers removed, '
-        f'{child_count} child policies returned to standalone.</div>',
-        headers={"HX-Trigger": "policyChanged"},
-    )
-
-
-@router.get("/{policy_uid}/program-merge-form", response_class=HTMLResponse)
-def program_merge_form(
-    request: Request,
-    policy_uid: str,
-    conn=Depends(get_db),
-):
-    """Return a small form with a dropdown of other programs to merge from."""
-    uid = policy_uid.upper()
-    program = conn.execute(
-        "SELECT id, client_id, policy_type FROM policies WHERE policy_uid = ? AND is_program = 1",
-        (uid,),
-    ).fetchone()
-    if not program:
-        return HTMLResponse('<div class="text-xs text-red-500 p-2">Program not found.</div>')
-
-    # Find other programs for the same client
-    others = conn.execute(
-        """SELECT policy_uid, policy_type, carrier, premium
-           FROM policies
-           WHERE client_id = ? AND is_program = 1 AND archived = 0 AND policy_uid != ?
-           ORDER BY policy_type""",
-        (program["client_id"], uid),
-    ).fetchall()
-
-    if not others:
-        return HTMLResponse('<div class="text-xs text-gray-400 p-2">No other programs to merge.</div>')
-
-    options = ""
-    for o in others:
-        prem = f"${o['premium']:,.0f}" if o['premium'] else ""
-        options += f'<option value="{o["policy_uid"]}">{o["policy_uid"]} — {o["policy_type"]} ({o["carrier"] or "multiple"}) {prem}</option>'
-
-    return HTMLResponse(f'''
-    <div class="border border-blue-200 bg-blue-50 rounded-lg p-3 mt-2">
-      <p class="text-xs font-medium text-blue-800 mb-2">Merge another program into {uid}</p>
-      <form hx-post="/policies/{uid}/program-merge" hx-target="#merge-result" hx-swap="innerHTML" class="flex items-end gap-2">
-        <div class="flex-1">
-          <label class="text-xs text-gray-500 mb-0.5 block">Merge from:</label>
-          <select name="merge_from_uid" required
-            class="w-full border border-gray-300 rounded px-2 py-1.5 text-xs bg-white">
-            {options}
-          </select>
-        </div>
-        <button type="submit"
-          class="text-xs bg-blue-600 hover:bg-blue-700 text-white font-medium px-3 py-1.5 rounded transition-colors whitespace-nowrap"
-          onclick="return confirm('Merge selected program into {uid}? The source program will be archived.')">
-          Merge
-        </button>
-        <button type="button" onclick="this.closest('.border').remove()"
-          class="text-xs text-gray-500 hover:text-gray-700 px-2 py-1.5">Cancel</button>
-      </form>
-      <div id="merge-result" class="mt-2"></div>
-    </div>
-    ''')
 
 
 @router.post("/{policy_uid}/edit")
@@ -3297,7 +2872,6 @@ def policy_edit_post(
     participation_of: str = Form(""),
     first_named_insured: str = Form(""),
     access_point: str = Form(""),
-    is_program: str = Form("0"),
     conn=Depends(get_db),
 ):
     def _float(v: str):
@@ -3316,7 +2890,6 @@ def policy_edit_post(
 
     old_row = dict(conn.execute("SELECT * FROM policies WHERE policy_uid=?", (uid,)).fetchone())
     opp = 1 if is_opportunity == "1" else 0
-    pgm = 1 if is_program == "1" else 0
     policy_type = normalize_coverage_type(policy_type)
     carrier = normalize_carrier(carrier) if carrier else ""
     policy_number = normalize_policy_number(policy_number) if policy_number else ""
@@ -3335,8 +2908,7 @@ def policy_edit_post(
            project_name=?, exposure_basis=?, exposure_amount=?, exposure_unit=?,
            exposure_address=?, exposure_city=?, exposure_state=?, exposure_zip=?,
            follow_up_date=?, attachment_point=?, participation_of=?,
-           first_named_insured=?, access_point=?,
-           is_program=?
+           first_named_insured=?, access_point=?
            WHERE policy_uid=?""",
         (
             policy_type, carrier or None, policy_number or None,
@@ -3355,7 +2927,6 @@ def policy_edit_post(
             follow_up_date or None,
             _float(attachment_point), _float(participation_of),
             first_named_insured or None, access_point or None,
-            pgm,
             uid,
         ),
     )
@@ -4422,7 +3993,6 @@ def policy_new_post(
     participation_of: str = Form(""),
     first_named_insured: str = Form(""),
     access_point: str = Form(""),
-    is_program: str = Form("0"),
     conn=Depends(get_db),
 ):
     from policydb.db import next_policy_uid
@@ -4437,7 +4007,6 @@ def policy_new_post(
     uid = next_policy_uid(conn)
     account_exec = cfg.get("default_account_exec", "Grant")
     opp = 1 if is_opportunity == "1" else 0
-    pgm = 1 if is_program == "1" else 0
     policy_type = normalize_coverage_type(policy_type)
     carrier = normalize_carrier(carrier) if carrier else ""
     policy_number = normalize_policy_number(policy_number) if policy_number else ""
@@ -4460,9 +4029,8 @@ def policy_new_post(
             exposure_basis, exposure_amount, exposure_unit,
             exposure_address, exposure_city, exposure_state, exposure_zip,
             commission_rate, prior_premium, notes, follow_up_date,
-            attachment_point, participation_of, first_named_insured, access_point,
-            is_program)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            attachment_point, participation_of, first_named_insured, access_point)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (uid, client_id, policy_type, carrier or None, policy_number or None,
          effective_date or None, expiration_date or None, _float(premium) or 0,
          _float(limit_amount), _float(deductible),
@@ -4480,8 +4048,7 @@ def policy_new_post(
          _float(commission_rate), _float(prior_premium), notes or None,
          follow_up_date or None,
          _float(attachment_point), _float(participation_of),
-         first_named_insured or None, access_point or None,
-         pgm),
+         first_named_insured or None, access_point or None),
     )
     conn.commit()
     logger.info("Policy %s created for client %d", uid, client_id)

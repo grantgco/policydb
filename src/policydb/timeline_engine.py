@@ -88,7 +88,7 @@ def generate_policy_timelines(conn, policy_uid: str | None = None) -> None:
         conn.execute("DELETE FROM policy_timeline WHERE policy_uid = ?", (policy_uid,))
         rows = conn.execute("""
             SELECT policy_uid, effective_date, expiration_date,
-                   milestone_profile, program_id, is_program
+                   milestone_profile, program_id
             FROM policies
             WHERE policy_uid = ?
               AND (is_opportunity = 0 OR is_opportunity IS NULL)
@@ -117,7 +117,7 @@ def generate_policy_timelines(conn, policy_uid: str | None = None) -> None:
         """)
         rows = conn.execute("""
             SELECT policy_uid, effective_date, expiration_date,
-                   milestone_profile, program_id, is_program
+                   milestone_profile, program_id
             FROM policies
             WHERE (is_opportunity = 0 OR is_opportunity IS NULL)
               AND (archived = 0 OR archived IS NULL)
