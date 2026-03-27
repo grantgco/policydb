@@ -155,11 +155,9 @@ def program_tab_schematic(
     ).fetchall()
     policies = [dict(r) for r in rows]
 
-    # Split underlying vs excess
-    underlying = [p for p in policies if (p.get("layer_position") or "Primary") == "Primary"
-                  and not p.get("is_program")]
-    excess = [p for p in policies if (p.get("layer_position") or "") in ("Umbrella", "Excess")
-              and not p.get("is_program")]
+    # Split underlying vs excess (is_program filter removed — programs are standalone now)
+    underlying = [p for p in policies if (p.get("layer_position") or "Primary") == "Primary"]
+    excess = [p for p in policies if (p.get("layer_position") or "") in ("Umbrella", "Excess")]
 
     # Attach sub-coverage data
     all_ids = [p["id"] for p in policies]
