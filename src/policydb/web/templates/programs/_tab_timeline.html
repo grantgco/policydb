@@ -1,0 +1,79 @@
+{# Program Timeline Tab — milestones from child policies #}
+
+{% if milestones %}
+<div class="card">
+  <div class="px-4 py-2.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
+    <span class="text-xs font-bold text-marsh uppercase tracking-wide">Timeline Milestones</span>
+    <span class="text-xs text-gray-400">{{ milestones | length }} milestones</span>
+  </div>
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="border-b border-gray-100 text-left text-xs text-gray-400">
+          <th class="px-4 py-2 font-medium">Milestone</th>
+          <th class="px-4 py-2 font-medium">Policy</th>
+          <th class="px-4 py-2 font-medium">Ideal Date</th>
+          <th class="px-4 py-2 font-medium">Projected</th>
+          <th class="px-4 py-2 font-medium">Health</th>
+          <th class="px-4 py-2 font-medium">Accountability</th>
+          <th class="px-4 py-2 font-medium">Completed</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for m in milestones %}
+        <tr class="border-b border-gray-50 hover:bg-gray-50 transition-colors
+          {% if m.completed_date %}opacity-50{% endif %}">
+          <td class="px-4 py-2.5 font-medium text-gray-900">{{ m.milestone_name }}</td>
+          <td class="px-4 py-2.5">
+            <a href="/policies/{{ m.policy_uid }}/edit" class="text-marsh hover:underline text-xs">{{ m.policy_uid }}</a>
+            <span class="text-xs text-gray-400 ml-1">{{ m.policy_type }}</span>
+          </td>
+          <td class="px-4 py-2.5 text-gray-600 tabular-nums">{{ m.ideal_date }}</td>
+          <td class="px-4 py-2.5 text-gray-600 tabular-nums">{{ m.projected_date }}</td>
+          <td class="px-4 py-2.5">
+            {% if m.health == 'on_track' %}
+              <span class="text-xs px-2 py-0.5 rounded bg-green-50 text-green-700">On Track</span>
+            {% elif m.health == 'drifting' %}
+              <span class="text-xs px-2 py-0.5 rounded bg-amber-50 text-amber-700">Drifting</span>
+            {% elif m.health == 'compressed' %}
+              <span class="text-xs px-2 py-0.5 rounded bg-orange-50 text-orange-700">Compressed</span>
+            {% elif m.health == 'at_risk' %}
+              <span class="text-xs px-2 py-0.5 rounded bg-red-50 text-red-700">At Risk</span>
+            {% elif m.health == 'critical' %}
+              <span class="text-xs px-2 py-0.5 rounded bg-red-100 text-red-800 font-semibold">Critical</span>
+            {% else %}
+              <span class="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-600">{{ m.health or '—' }}</span>
+            {% endif %}
+          </td>
+          <td class="px-4 py-2.5">
+            {% if m.accountability == 'my_action' %}
+              <span class="text-xs text-blue-600">My Action</span>
+            {% elif m.accountability == 'waiting_external' %}
+              <span class="text-xs text-amber-600">Waiting{% if m.waiting_on %}: {{ m.waiting_on }}{% endif %}</span>
+            {% elif m.accountability == 'scheduled' %}
+              <span class="text-xs text-green-600">Scheduled</span>
+            {% else %}
+              <span class="text-xs text-gray-400">{{ m.accountability or '—' }}</span>
+            {% endif %}
+          </td>
+          <td class="px-4 py-2.5 text-gray-500 tabular-nums">
+            {% if m.completed_date %}
+              <span class="text-green-600">✓ {{ m.completed_date }}</span>
+            {% else %}
+              —
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% else %}
+<div class="card">
+  <div class="px-4 py-12 text-center">
+    <div class="text-gray-400 text-sm mb-2">No timeline milestones yet</div>
+    <p class="text-xs text-gray-300">Milestones are generated when child policies have milestone profiles assigned. Configure profiles in Settings.</p>
+  </div>
+</div>
+{% endif %}
