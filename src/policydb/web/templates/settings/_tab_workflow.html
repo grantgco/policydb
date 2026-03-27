@@ -25,6 +25,19 @@
     </form>
   </div>
 
+  {# Expiration Buffer #}
+  <div class="card p-5" id="section-expiration-buffer">
+    <h2 class="font-semibold text-gray-900 text-sm mb-1">Follow-Up Expiration Buffer</h2>
+    <p class="text-xs text-gray-400 mb-3">When a disposition auto-calculates a follow-up date, cap it this many days before policy expiration. Prevents follow-ups from landing on or after the expiration date.</p>
+    <form method="post" action="/settings/config/expiration-buffer" class="flex items-center gap-3">
+      <label class="text-sm font-medium text-gray-700 whitespace-nowrap">Buffer (days before expiration)</label>
+      <input type="number" name="value" value="{{ followup_expiration_buffer_days }}"
+             min="1" max="30" class="w-20 rounded border-gray-300 text-sm px-2 py-1">
+      <button type="submit" class="text-sm text-blue-600 hover:underline">Save</button>
+      <span class="text-xs text-gray-400">e.g. 3 = follow-up capped 3 days before expiration</span>
+    </form>
+  </div>
+
   {# Simple lists #}
   <div class="border-t border-gray-200 pt-6 mt-2">
     <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-4">Dropdown Lists</p>

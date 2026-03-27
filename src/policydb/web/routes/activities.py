@@ -13,7 +13,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from policydb import config as cfg
 from policydb.email_templates import followup_context, render_tokens
-from policydb.utils import round_duration
+from policydb.utils import cap_followup_date, round_duration
 from policydb.queries import (
     get_activities,
     get_activity_by_id,
@@ -28,6 +28,29 @@ from policydb.queries import (
 from policydb.web.app import get_db, templates
 
 router = APIRouter()
+
+
+def _lookup_expiration(conn, source: str, item_id: str) -> str | None:
+    """Look up expiration_date for a follow-up item by source type and ID."""
+    if source == "activity":
+        row = conn.execute(
+            "SELECT p.expiration_date FROM activity_log a "
+            "JOIN policies p ON a.policy_id = p.id "
+            "WHERE a.id = ?", (int(item_id),)
+        ).fetchone()
+        return row["expiration_date"] if row else None
+    elif source == "policy":
+        if item_id.isdigit():
+            row = conn.execute(
+                "SELECT expiration_date FROM policies WHERE id = ?", (int(item_id),)
+            ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT expiration_date FROM policies WHERE policy_uid = ?", (item_id,)
+            ).fetchone()
+        return row["expiration_date"] if row else None
+    # client/project sources have no expiration
+    return None
 
 
 def _auto_send_rfi_bundle(conn, activity_id: int, *, abandoned: bool = False) -> None:
@@ -535,9 +558,26 @@ def activity_followup(
 
 @router.post("/activities/{activity_id}/snooze", response_class=HTMLResponse)
 def activity_snooze(request: Request, activity_id: int, days: int = 7, conn=Depends(get_db)):
+    # Compute new date in Python so we can cap against expiration
+    row = conn.execute(
+        "SELECT follow_up_date, policy_id FROM activity_log WHERE id=?", (activity_id,)
+    ).fetchone()
+    if row and row["follow_up_date"]:
+        try:
+            old_date = date.fromisoformat(row["follow_up_date"])
+        except (ValueError, TypeError):
+            old_date = date.today()
+    else:
+        old_date = date.today()
+    new_date = (old_date + timedelta(days=days)).isoformat()
+    # Cap against policy expiration
+    exp_date = _lookup_expiration(conn, "activity", str(activity_id))
+    if exp_date:
+        buffer = cfg.get("followup_expiration_buffer_days", 3)
+        new_date, _ = cap_followup_date(new_date, exp_date, buffer)
     conn.execute(
-        "UPDATE activity_log SET follow_up_date = date(follow_up_date, ?) WHERE id=?",
-        (f"+{days} days", activity_id),
+        "UPDATE activity_log SET follow_up_date = ? WHERE id=?",
+        (new_date, activity_id),
     )
     conn.commit()
     # If called from activity list context, return activity row
@@ -669,6 +709,7 @@ def update_disposition(
     source, item_id = composite_id.split("-", 1)
 
     # Resolve default_days from disposition config if no explicit date
+    auto_calculated = False
     if not follow_up_date:
         dispositions = cfg.get("follow_up_dispositions", [])
         default_days = 0
@@ -678,6 +719,14 @@ def update_disposition(
                 break
         if default_days > 0:
             follow_up_date = (date.today() + timedelta(days=default_days)).isoformat()
+            auto_calculated = True
+
+    # Cap auto-calculated dates against policy expiration
+    if auto_calculated and follow_up_date:
+        exp_date = _lookup_expiration(conn, source, item_id)
+        if exp_date:
+            buffer = cfg.get("followup_expiration_buffer_days", 3)
+            follow_up_date, _ = cap_followup_date(follow_up_date, exp_date, buffer)
 
     account_exec = cfg.get("default_account_exec", "Grant")
 
@@ -827,6 +876,13 @@ def bulk_action(
                         fu_date = (date.today() + timedelta(days=dd)).isoformat()
                     break
 
+            # Cap auto-calculated date against policy expiration
+            if fu_date:
+                exp_date = _lookup_expiration(conn, source, item_id)
+                if exp_date:
+                    buffer = cfg.get("followup_expiration_buffer_days", 3)
+                    fu_date, _ = cap_followup_date(fu_date, exp_date, buffer)
+
             if source == "activity":
                 updates = ["disposition = ?"]
                 params: list = [disposition]
@@ -889,6 +945,11 @@ def bulk_action(
 
         elif action == "snooze":
             new_date = (date.today() + timedelta(days=snooze_days)).isoformat()
+            # Cap against policy expiration
+            exp_date = _lookup_expiration(conn, source, item_id)
+            if exp_date:
+                buffer = cfg.get("followup_expiration_buffer_days", 3)
+                new_date, _ = cap_followup_date(new_date, exp_date, buffer)
             if source == "activity":
                 conn.execute(
                     "UPDATE activity_log SET follow_up_date = ? WHERE id = ?",
@@ -936,10 +997,10 @@ def bulk_action(
 
 
 @router.get("/followups/plan", response_class=HTMLResponse)
-def followups_plan(request: Request, week_start: str = "", conn=Depends(get_db)):
+def followups_plan(request: Request, week_start: str = "", catchup: int = 0, conn=Depends(get_db)):
     """Plan Week view — visualize and rebalance follow-up workload."""
     from datetime import date, timedelta
-    from policydb.queries import get_week_followups
+    from policydb.queries import get_week_followups, get_overdue_for_plan_week
     from collections import defaultdict
 
     # Default to current week's Monday
@@ -978,6 +1039,9 @@ def followups_plan(request: Request, week_start: str = "", conn=Depends(get_db))
             "pinned_count": sum(1 for i in day_items if i.get("pinned")),
         })
 
+    # Overdue backlog — items with follow_up_date before this Monday
+    overdue_backlog = get_overdue_for_plan_week(conn, mon.isoformat(), pin_days)
+
     prev_week = (mon - timedelta(days=7)).isoformat()
     next_week = (mon + timedelta(days=7)).isoformat()
     this_monday = (today - timedelta(days=today.weekday())).isoformat()
@@ -993,22 +1057,26 @@ def followups_plan(request: Request, week_start: str = "", conn=Depends(get_db))
         "this_monday": this_monday,
         "daily_target": target,
         "total_items": len(items),
+        "overdue_backlog": overdue_backlog,
+        "catchup": catchup,
     })
 
 
 @router.post("/followups/plan/spread", response_class=HTMLResponse)
 def followups_spread(request: Request, week_start: str = Form(...), conn=Depends(get_db)):
-    """Compute and return proposed spread for the week."""
+    """Compute and return proposed spread for the week (including overdue backlog)."""
     from datetime import date, timedelta
-    from policydb.queries import get_week_followups, spread_followups
+    from policydb.queries import get_week_followups, get_overdue_for_plan_week, spread_followups
 
     mon = date.fromisoformat(week_start)
     week_days = [(mon + timedelta(days=i)).isoformat() for i in range(5)]
     pin_days = cfg.get("pin_renewal_days", 14)
     target = cfg.get("daily_followup_target", 5)
+    buffer = cfg.get("followup_expiration_buffer_days", 3)
 
     items = get_week_followups(conn, week_start, pin_days)
-    proposals = spread_followups(items, target, week_days)
+    overdue = get_overdue_for_plan_week(conn, week_start, pin_days)
+    proposals = spread_followups(items, target, week_days, overdue_items=overdue, buffer_days=buffer)
 
     if not proposals:
         return HTMLResponse("", headers={
@@ -1016,9 +1084,11 @@ def followups_spread(request: Request, week_start: str = Form(...), conn=Depends
         })
 
     # Return proposals as JSON for the JS to preview
+    from_backlog = sum(1 for p in proposals if p.get("from_backlog"))
     return JSONResponse({
         "proposals": proposals,
         "count": len(proposals),
+        "from_backlog": from_backlog,
     })
 
 

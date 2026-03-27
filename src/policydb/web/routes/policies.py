@@ -25,7 +25,7 @@ from policydb.llm_schemas import (
 )
 from policydb.queries import REVIEW_CYCLE_LABELS, get_all_policies, get_client_by_id, get_opportunity_by_uid, get_policy_by_uid, get_policy_total_hours, get_saved_notes, save_note, delete_saved_note, renew_policy, get_or_create_contact, assign_contact_to_policy, remove_contact_from_policy, set_placement_colleague, get_policy_contacts, get_sub_coverages as _get_sub_coverages, auto_generate_sub_coverages as _auto_generate_sub_coverages
 from rapidfuzz import fuzz
-from policydb.utils import round_duration, normalize_carrier, normalize_coverage_type, normalize_policy_number, format_city, format_state, format_zip
+from policydb.utils import cap_followup_date, round_duration, normalize_carrier, normalize_coverage_type, normalize_policy_number, format_city, format_state, format_zip
 from policydb.web.app import get_db, templates
 
 router = APIRouter(prefix="/policies")
@@ -3611,11 +3611,27 @@ def policy_snooze_followup(
     request: Request, policy_uid: str, days: int = 7, conn=Depends(get_db)
 ):
     """Reschedule a policy follow-up by +N days; returns updated row partial."""
-    from datetime import date as _date
+    from datetime import date as _date, timedelta as _td
     uid = policy_uid.upper()
+    # Compute in Python so we can cap against expiration
+    pol = conn.execute(
+        "SELECT follow_up_date, expiration_date FROM policies WHERE policy_uid=?", (uid,)
+    ).fetchone()
+    if pol and pol["follow_up_date"]:
+        try:
+            old_date = _date.fromisoformat(pol["follow_up_date"])
+        except (ValueError, TypeError):
+            old_date = _date.today()
+    else:
+        old_date = _date.today()
+    new_date = (old_date + _td(days=days)).isoformat()
+    # Cap against expiration
+    if pol and pol["expiration_date"]:
+        buffer = cfg.get("followup_expiration_buffer_days", 3)
+        new_date, _ = cap_followup_date(new_date, pol["expiration_date"], buffer)
     conn.execute(
-        "UPDATE policies SET follow_up_date = date(follow_up_date, ?) WHERE policy_uid=?",
-        (f"+{days} days", uid),
+        "UPDATE policies SET follow_up_date = ? WHERE policy_uid=?",
+        (new_date, uid),
     )
     conn.commit()
     row = conn.execute(
@@ -3682,14 +3698,14 @@ def policy_followup_form(request: Request, policy_uid: str):
     uid = policy_uid.upper()
     return HTMLResponse(
         f'<form hx-post="/policies/{uid}/set-followup"'
-        f' hx-target="#suggested-actions-{uid}" hx-swap="innerHTML"'
+        f' hx-target="#sug-actions-{uid}" hx-swap="innerHTML"'
         f' class="flex gap-1.5 items-center">'
         f'<input type="date" name="follow_up_date" required'
         f' class="border border-gray-300 rounded px-2 py-1 text-xs focus:ring-1 focus:ring-marsh focus:outline-none">'
         f'<button type="submit" class="text-xs bg-marsh text-white px-2 py-1 rounded hover:bg-marsh-light">Set</button>'
         f'<button type="button"'
         f' hx-get="/policies/{uid}/followup-form-cancel"'
-        f' hx-target="#suggested-actions-{uid}" hx-swap="innerHTML"'
+        f' hx-target="#sug-actions-{uid}" hx-swap="innerHTML"'
         f' class="text-xs text-gray-400 hover:underline px-1">✕</button>'
         f'</form>'
     )
@@ -3702,7 +3718,7 @@ def policy_followup_form_cancel(request: Request, policy_uid: str):
     return HTMLResponse(
         f'<div class="flex gap-1.5 items-center">'
         f'<button hx-get="/policies/{uid}/followup-form"'
-        f' hx-target="#suggested-actions-{uid}" hx-swap="innerHTML"'
+        f' hx-target="#sug-actions-{uid}" hx-swap="innerHTML"'
         f' class="text-xs border border-marsh text-marsh bg-white hover:bg-marsh hover:text-white px-2 py-1 rounded transition-colors">'
         f'Schedule Follow-Up</button>'
         f'<a href="/policies/{uid}/edit" class="text-xs text-gray-400 hover:text-marsh hover:underline">Edit →</a>'
