@@ -888,3 +888,38 @@ def csv_response(rows: list[dict], filename: str, columns: list[str] | None = No
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+# ─── FOLLOW-UP DATE CAPPING ─────────────────────────────────────────────────
+
+
+def cap_followup_date(
+    calculated_date: str,
+    expiration_date: str | None,
+    buffer_days: int = 3,
+) -> tuple[str, bool]:
+    """Cap a follow-up date so it doesn't land on or after policy expiration.
+
+    Returns (capped_date_iso, was_compressed).
+    If expiration_date is None/empty, returns (calculated_date, False).
+    If policy already expired or expires within buffer, caps to today.
+    """
+    from datetime import date as _date, timedelta
+
+    if not expiration_date or not calculated_date:
+        return (calculated_date, False)
+
+    try:
+        calc = _date.fromisoformat(calculated_date)
+        exp = _date.fromisoformat(expiration_date)
+    except (ValueError, TypeError):
+        return (calculated_date, False)
+
+    today = _date.today()
+    cap = exp - timedelta(days=buffer_days)
+    if cap < today:
+        cap = today
+
+    if calc > cap:
+        return (cap.isoformat(), True)
+    return (calculated_date, False)
