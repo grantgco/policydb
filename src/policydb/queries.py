@@ -2549,7 +2549,7 @@ def get_program_timeline_milestones(conn: sqlite3.Connection, program_id: int) -
 def get_program_activities(conn: sqlite3.Connection, program_id: int, limit: int = 50) -> list[dict]:
     """Return recent activities from all child policies of a program."""
     rows = conn.execute(
-        """SELECT a.id, a.activity_type, a.description, a.contact_name,
+        """SELECT a.id, a.activity_type, a.subject, a.details, a.contact_person,
                   a.created_at, a.follow_up_date, a.disposition,
                   p.policy_type, p.carrier, p.policy_uid
            FROM activity_log a

@@ -19,11 +19,14 @@
         </div>
         <span class="text-xs text-gray-400 tabular-nums">{{ a.created_at[:10] if a.created_at else '' }}</span>
       </div>
-      {% if a.description %}
-      <p class="text-sm text-gray-700 ml-0">{{ a.description | truncate(200) }}</p>
+      {% if a.subject %}
+      <p class="text-sm text-gray-700 ml-0 font-medium">{{ a.subject }}</p>
       {% endif %}
-      {% if a.contact_name %}
-      <p class="text-xs text-gray-400 mt-1">Contact: {{ a.contact_name }}</p>
+      {% if a.details %}
+      <p class="text-sm text-gray-500 ml-0">{{ a.details | truncate(200) }}</p>
+      {% endif %}
+      {% if a.contact_person %}
+      <p class="text-xs text-gray-400 mt-1">Contact: {{ a.contact_person }}</p>
       {% endif %}
       {% if a.follow_up_date %}
       <p class="text-xs mt-1">
