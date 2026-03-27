@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% block title %}{{ program.name }} — {{ client.name }}{% endblock %}
+{% block content %}
+
+{# ── Breadcrumb ── #}
+<div class="flex items-center gap-2 text-xs text-gray-400 mb-4">
+  <a href="/clients" class="hover:text-marsh">Clients</a>
+  <span>/</span>
+  <a href="/clients/{{ client.id }}?tab=policies" class="hover:text-marsh">{{ client.name }}</a>
+  <span>/</span>
+  <span class="text-gray-600">Programs</span>
+  <span>/</span>
+  <span class="text-gray-600 font-medium">{{ program.name }}</span>
+</div>
+
+{# ── Header ── #}
+<div class="card mb-4">
+  <div class="px-5 py-4">
+    <div class="flex flex-wrap items-center justify-between gap-4 mb-3">
+      <div class="flex items-center gap-3">
+        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-marsh/10 text-marsh uppercase tracking-wide">PGM</span>
+        <span class="text-xs text-gray-400 font-mono">{{ program.program_uid }}</span>
+        <h1 id="program-name" class="text-lg font-bold text-gray-900 cursor-pointer hover:bg-gray-50 px-1 rounded"
+            contenteditable="true" spellcheck="false"
+            data-original="{{ program.name }}">{{ program.name }}</h1>
+        <span class="text-gray-400">—</span>
+        <a href="/clients/{{ client.id }}" class="text-sm text-marsh hover:underline">{{ client.name }}</a>
+      </div>
+      <a href="/clients/{{ client.id }}?tab=policies"
+         class="text-xs text-marsh hover:underline no-print">&larr; Back to Client</a>
+    </div>
+    <div class="flex flex-wrap items-center gap-6 text-sm">
+      <div class="flex items-center gap-1.5">
+        <span class="text-gray-400 text-xs">Term:</span>
+        <input type="date" value="{{ program.effective_date or '' }}"
+               class="border-0 border-b border-gray-200 text-sm text-gray-700 bg-transparent px-1 py-0.5 focus:border-marsh focus:ring-0"
+               onchange="patchProgramHeader('effective_date', this.value)">
+        <span class="text-gray-300">–</span>
+        <input type="date" value="{{ program.expiration_date or '' }}"
+               class="border-0 border-b border-gray-200 text-sm text-gray-700 bg-transparent px-1 py-0.5 focus:border-marsh focus:ring-0"
+               onchange="patchProgramHeader('expiration_date', this.value)">
+      </div>
+      <div class="flex items-center gap-1.5">
+        <span class="text-gray-400 text-xs">Status:</span>
+        <select class="border-0 border-b border-gray-200 text-sm text-gray-700 bg-transparent px-1 py-0.5 focus:border-marsh focus:ring-0"
+                onchange="patchProgramHeader('renewal_status', this.value)">
+          <option value="">—</option>
+          {% for s in renewal_statuses %}<option value="{{ s }}" {{ 'selected' if program.renewal_status == s }}>{{ s }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="flex items-center gap-4 text-xs text-gray-500">
+        <span><strong class="text-gray-700">{{ aggregates.policy_count }}</strong> policies</span>
+        <span><strong class="text-gray-700">{{ aggregates.carrier_count }}</strong> carriers</span>
+        <span><strong class="text-gray-700">{{ aggregates.total_premium | currency }}</strong> premium</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ── Tabs ── #}
+<div id="program-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" data-tab="overview"
+      data-tab-url="/programs/{{ program.program_uid }}/tab/overview">Overview</button>
+    <button class="tab-btn" data-tab="schematic"
+      data-tab-url="/programs/{{ program.program_uid }}/tab/schematic">Schematic</button>
+    <button class="tab-btn" data-tab="timeline"
+      data-tab-url="/programs/{{ program.program_uid }}/tab/timeline">Timeline</button>
+    <button class="tab-btn" data-tab="activity"
+      data-tab-url="/programs/{{ program.program_uid }}/tab/activity">Activity</button>
+  </div>
+  <div class="tab-content">
+    <div class="py-4 text-sm text-gray-400 text-center">Loading…</div>
+  </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  initTabs('program-tabs', 'program-tab-{{ program.program_uid }}');
+
+  // Program name rename on blur
+  var nameEl = document.getElementById('program-name');
+  if (nameEl) {
+    nameEl.addEventListener('blur', function() {
+      var newName = this.textContent.trim();
+      var orig = this.dataset.original;
+      if (newName && newName !== orig) {
+        patchProgramHeader('name', newName);
+        this.dataset.original = newName;
+      } else {
+        this.textContent = orig;
+      }
+    });
+    nameEl.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') { e.preventDefault(); this.blur(); }
+    });
+  }
+});
+
+function patchProgramHeader(field, value) {
+  fetch('/programs/{{ program.program_uid }}/header', {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({[field]: value})
+  }).then(function(r) { return r.json(); }).then(function(data) {
+    if (data.ok) {
+      // If name changed, redirect to show updated breadcrumb
+      if (field === 'name' && data.formatted) {
+        window.location.reload();
+      }
+    }
+  });
+}
+</script>
+
+{% endblock %}

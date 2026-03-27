@@ -13,6 +13,14 @@
     <span class="text-gray-600 font-medium">{{ tower_group }}</span>
   </div>
 
+  {% if migrated_program_uid %}
+  <div class="bg-blue-50 border border-blue-200 rounded-lg px-4 py-2.5 mb-4 flex items-center justify-between no-print">
+    <p class="text-sm text-blue-700">This program is now available in the new program detail page.</p>
+    <a href="/programs/{{ migrated_program_uid }}"
+       class="text-sm font-medium text-blue-700 hover:text-blue-900 underline">Open {{ migrated_program_uid }} &rarr;</a>
+  </div>
+  {% endif %}
+
   {# ── Program Header ── #}
   <div class="card mb-6">
     <div class="px-5 py-4 flex flex-wrap items-center justify-between gap-4">
@@ -59,134 +67,12 @@
     </div>
   </div>
 
-  {# Stacked matrices — full width for more editing room #}
-  <div class="mb-6">
-    {% include "programs/_underlying_matrix.html" %}
-  </div>
-  <div class="mb-6">
-    {% include "programs/_excess_matrix.html" %}
-  </div>
-
-  {# ── Unassigned Policies Panel ── #}
-  {% if unassigned %}
-  <div class="card mb-6">
-    <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
-      <h2 class="font-semibold text-gray-900 text-sm">Unassigned Policies
-        <span class="text-gray-400 font-normal">({{ unassigned | length }})</span>
-      </h2>
-      <span class="text-xs text-gray-400">Click + to add to this program</span>
-    </div>
-    <div id="unassigned-panel" class="p-4 flex flex-wrap gap-3">
-      {% for u in unassigned %}
-      <div id="unassigned-{{ u.policy_uid }}" class="flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-lg border border-gray-200 text-sm">
-        <div>
-          <span class="font-medium text-gray-700">{{ u.policy_type or 'Unknown' }}</span>
-          {% if u.carrier %}<span class="text-gray-400 text-xs ml-1">{{ u.carrier }}</span>{% endif %}
-          {% if u.premium %}<span class="text-gray-400 text-xs ml-1">· {{ u.premium | currency_short }}</span>{% endif %}
-        </div>
-        <button type="button" onclick="assignPolicy('{{ u.policy_uid }}')"
-                class="ml-1 text-marsh hover:text-marsh/80 font-bold text-base leading-none" title="Assign to program">+</button>
-      </div>
-      {% endfor %}
-    </div>
-  </div>
-  {% endif %}
-
-  {# ── Tower Lines Selector ── #}
-  {% set tower_lines = [] %}
-  {% for p in underlying %}
-    {% set subs = p.get('sub_coverages_full', []) %}
-    {% set has_limit_subs = subs | selectattr('limit_amount') | list %}
-    {% if has_limit_subs %}
-    {# Package policy — show sub-coverages #}
-    {% else %}
-    {# Standalone policy — single tower line #}
-    {% endif %}
-  {% endfor %}
-
-  {# Live schematic preview #}
-  <div class="card">
-    <div class="px-5 py-3 border-b border-gray-100">
-      <h2 class="font-semibold text-gray-900 text-sm">Schematic Preview</h2>
-    </div>
-    <div id="schematic-preview" class="p-4"
-         hx-get="/clients/{{ client_id }}/programs/{{ tower_group | urlencode }}/preview"
-         hx-trigger="tower-updated from:body, load"
-         hx-swap="innerHTML"
-         hx-sync="this:replace"
-         style="min-height: 400px;">
-      <div class="flex items-center justify-center h-64 text-gray-400 text-sm">Loading preview...</div>
-    </div>
-  </div>
+  {# Schematic content — shared partial used by both standalone page and program detail tab #}
+  {% include "programs/_tab_schematic.html" %}
 </div>
 
-<script src="/static/charts/d3.v7.min.js"></script>
-<script src="/static/charts/charts.js"></script>
+{# Standalone page header PATCH + rename (not needed when inside program detail tab) #}
 <script>
-(function() {
-  // Underlying matrix
-  window._underlyingMatrix = window.initMatrix({
-    tbodyId: 'underlying-tbody',
-    idAttr: 'data-row-id',
-    rowClass: 'matrix-row',
-    patchUrl: function(id) { return '/clients/{{ client_id }}/programs/{{ tower_group | urlencode }}/underlying/' + id + '/cell'; },
-    addRowUrl: '/clients/{{ client_id }}/programs/{{ tower_group | urlencode }}/underlying/add',
-    emptyRowId: 'underlying-empty',
-    onSaved: function(rowEl, field, resp) {
-      document.body.dispatchEvent(new CustomEvent('tower-updated'));
-    }
-  });
-
-  // Excess matrix
-  window._excessMatrix = window.initMatrix({
-    tbodyId: 'excess-tbody',
-    idAttr: 'data-row-id',
-    rowClass: 'matrix-row',
-    patchUrl: function(id) { return '/clients/{{ client_id }}/programs/{{ tower_group | urlencode }}/excess/' + id + '/cell'; },
-    addRowUrl: '/clients/{{ client_id }}/programs/{{ tower_group | urlencode }}/excess/add',
-    emptyRowId: 'excess-empty',
-    onSaved: function(rowEl, field, resp) {
-      // Update notation cell if returned
-      if (resp.notation !== undefined) {
-        var notCell = rowEl.querySelector('[data-field="notation"]');
-        if (notCell) notCell.textContent = resp.notation || '';
-      }
-      document.body.dispatchEvent(new CustomEvent('tower-updated'));
-    }
-  });
-
-  // Drag-to-reorder for underlying
-  var dragRow = null;
-  document.addEventListener('dragstart', function(e) {
-    if (e.target.closest && e.target.closest('.underlying-drag')) {
-      dragRow = e.target.closest('tr');
-    }
-  });
-  document.addEventListener('dragover', function(e) {
-    if (dragRow && e.target.closest('#underlying-tbody tr')) e.preventDefault();
-  });
-  document.addEventListener('drop', function(e) {
-    if (!dragRow) return;
-    e.preventDefault();
-    var target = e.target.closest('#underlying-tbody tr');
-    if (target && target !== dragRow) {
-      var tbody = document.getElementById('underlying-tbody');
-      tbody.insertBefore(dragRow, target);
-      var order = Array.from(tbody.querySelectorAll('tr[data-row-id]')).map(function(tr) {
-        return parseInt(tr.dataset.rowId);
-      });
-      fetch('/clients/{{ client_id }}/programs/{{ tower_group | urlencode }}/underlying/reorder', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({order: order})
-      }).then(function() {
-        document.body.dispatchEvent(new CustomEvent('tower-updated'));
-      });
-    }
-    dragRow = null;
-  });
-
-  // Program header PATCH
   window.patchHeader = function(field, value) {
     fetch('/clients/{{ client_id }}/programs/{{ tower_group | urlencode }}/header', {
       method: 'PATCH',
@@ -197,154 +83,24 @@
     });
   };
 
-  // Program name rename on blur
   var nameEl = document.getElementById('program-name');
   if (nameEl) {
     nameEl.addEventListener('blur', function() {
       var newName = this.textContent.trim();
       var original = this.dataset.original;
-      if (!newName || newName === original) {
-        this.textContent = original;
-        return;
-      }
+      if (!newName || newName === original) { this.textContent = original; return; }
       fetch('/clients/{{ client_id }}/programs/{{ tower_group | urlencode }}/rename', {
         method: 'PATCH',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({name: newName})
       }).then(function(r) { return r.json(); }).then(function(resp) {
-        if (resp.ok && resp.redirect) {
-          window.location.href = resp.redirect;
-        } else if (!resp.ok) {
-          showToast(resp.error || 'Rename failed', 'error');
-          nameEl.textContent = original;
-        }
+        if (resp.ok && resp.redirect) { window.location.href = resp.redirect; }
+        else if (!resp.ok) { showToast(resp.error || 'Rename failed', 'error'); nameEl.textContent = original; }
       });
     });
     nameEl.addEventListener('keydown', function(e) {
       if (e.key === 'Enter') { e.preventDefault(); this.blur(); }
     });
   }
-
-  // Assign policy to program
-  window.assignPolicy = function(uid) {
-    fetch('/clients/{{ client_id }}/programs/{{ tower_group | urlencode }}/assign/' + uid, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'}
-    }).then(function(r) { return r.json(); }).then(function(resp) {
-      if (resp.ok) {
-        var el = document.getElementById('unassigned-' + uid);
-        if (el) el.remove();
-        // Check if panel is empty
-        var panel = document.getElementById('unassigned-panel');
-        if (panel && panel.children.length === 0) {
-          panel.closest('.card').remove();
-        }
-        showToast('Assigned to program');
-        window.location.reload();
-      }
-    });
-  };
-
-  // Delete handlers
-  window.deleteUnderlyingRow = function(btn, pid) {
-    if (!confirm('Remove this underlying line?')) return;
-    var row = btn.closest('tr');
-    fetch('/clients/{{ client_id }}/programs/{{ tower_group | urlencode }}/underlying/' + pid, {
-      method: 'DELETE'
-    }).then(function(r) { return r.text(); }).then(function() {
-      row.remove();
-      document.body.dispatchEvent(new CustomEvent('tower-updated'));
-    });
-  };
-
-  window.deleteExcessRow = function(btn, pid) {
-    if (!confirm('Remove this layer?')) return;
-    var row = btn.closest('tr');
-    // Also remove the covers-row beneath it
-    var coversRow = row.nextElementSibling;
-    fetch('/clients/{{ client_id }}/programs/{{ tower_group | urlencode }}/excess/' + pid, {
-      method: 'DELETE'
-    }).then(function(r) { return r.text(); }).then(function() {
-      if (coversRow && coversRow.classList.contains('covers-row')) coversRow.remove();
-      row.remove();
-      document.body.dispatchEvent(new CustomEvent('tower-updated'));
-    });
-  };
-
-  // Coverage map: add/remove which underlying lines an excess covers
-  window.addCoverage = function(excessId, policyId, subCovId) {
-    fetch('/clients/{{ client_id }}/programs/{{ tower_group | urlencode }}/coverage-map', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        excess_policy_id: excessId,
-        underlying_policy_id: policyId,
-        underlying_sub_coverage_id: subCovId
-      })
-    }).then(function(r) { return r.json(); }).then(function(resp) {
-      if (resp.ok) {
-        document.body.dispatchEvent(new CustomEvent('tower-updated'));
-        window.location.reload();
-      }
-    });
-  };
-
-  window.removeCoverage = function(excessId, ptcId) {
-    fetch('/clients/{{ client_id }}/programs/{{ tower_group | urlencode }}/coverage-map/' + ptcId, {
-      method: 'DELETE'
-    }).then(function(r) { return r.json(); }).then(function(resp) {
-      if (resp.ok) {
-        document.body.dispatchEvent(new CustomEvent('tower-updated'));
-        window.location.reload();
-      }
-    });
-  };
-
-  // Toggle coverage pill: single click to add/remove a coverage mapping
-  window.toggleCoverage = function(btn) {
-    var excessId = btn.dataset.excessId;
-    var underlyingId = btn.dataset.underlyingId;
-    var subCovId = btn.dataset.subCoverageId || null;
-    var isCovered = btn.dataset.covered === 'true';
-    var ptcId = btn.dataset.ptcId;
-    var baseUrl = '/clients/{{ client_id }}/programs/{{ tower_group | urlencode }}/coverage-map';
-
-    if (isCovered && ptcId) {
-      // Remove coverage
-      fetch(baseUrl + '/' + ptcId, { method: 'DELETE' })
-        .then(function(r) { return r.json(); })
-        .then(function(data) {
-          if (data.ok) {
-            btn.dataset.covered = 'false';
-            btn.dataset.ptcId = '';
-            btn.className = btn.className.replace(/bg-blue-100 border-blue-300 text-blue-700 font-semibold/g,
-              'bg-gray-50 border-gray-200 text-gray-400 hover:border-blue-300 hover:text-blue-500');
-            document.body.dispatchEvent(new CustomEvent('tower-updated'));
-          }
-        });
-    } else {
-      // Add coverage
-      var body = {
-        excess_policy_id: parseInt(excessId),
-        underlying_policy_id: parseInt(underlyingId)
-      };
-      if (subCovId) body.underlying_sub_coverage_id = parseInt(subCovId);
-      fetch(baseUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      })
-        .then(function(r) { return r.json(); })
-        .then(function(data) {
-          if (data.ok) {
-            btn.dataset.covered = 'true';
-            btn.className = btn.className.replace(/bg-gray-50 border-gray-200 text-gray-400 hover:border-blue-300 hover:text-blue-500/g,
-              'bg-blue-100 border-blue-300 text-blue-700 font-semibold');
-            document.body.dispatchEvent(new CustomEvent('tower-updated'));
-          }
-        });
-    }
-  };
-})();
 </script>
 {% endblock %}

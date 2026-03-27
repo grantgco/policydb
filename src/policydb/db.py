@@ -360,7 +360,7 @@ def init_db(path: Path | None = None) -> None:
     # Back up the database once before running any pending migrations.
     # This gives a clean restore point regardless of which migration fails.
 
-    _KNOWN_MIGRATIONS = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97}
+    _KNOWN_MIGRATIONS = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100}
 
     if _KNOWN_MIGRATIONS - applied:
         _backup_db(conn, db_path)
@@ -1267,6 +1267,77 @@ def init_db(path: Path | None = None) -> None:
         )
         conn.commit()
 
+    if 98 not in applied:
+        sql = (_MIGRATIONS_DIR / "098_programs_table.sql").read_text()
+        conn.executescript(sql)
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (98, "standalone programs table"),
+        )
+        conn.commit()
+
+    if 99 not in applied:
+        existing_cols = {r[1] for r in conn.execute("PRAGMA table_info(policy_sub_coverages)").fetchall()}
+        new_cols = {
+            "premium": "REAL",
+            "carrier": "TEXT",
+            "policy_number": "TEXT",
+            "participation_of": "REAL",
+            "layer_position": "TEXT",
+            "description": "TEXT DEFAULT ''",
+        }
+        for col_name, col_type in new_cols.items():
+            if col_name not in existing_cols:
+                conn.execute(f"ALTER TABLE policy_sub_coverages ADD COLUMN {col_name} {col_type}")
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (99, "add override fields to policy_sub_coverages for ghost rows"),
+        )
+        conn.commit()
+
+    if 100 not in applied:
+        # Step A: Add partial unique index on (client_id, name) for active programs
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_programs_client_name_active "
+            "ON programs(client_id, name) WHERE archived = 0"
+        )
+        # Step B: Migrate is_program=1 policy rows → programs table (parallel copy)
+        # is_program=1 rows are NOT modified or removed — all existing code keeps working
+        program_policies = conn.execute(
+            """SELECT id, client_id, tower_group, policy_type, effective_date,
+                      expiration_date, renewal_status, notes, account_exec,
+                      milestone_profile, created_at
+               FROM policies WHERE is_program = 1 AND archived = 0"""
+        ).fetchall()
+        for pp in program_policies:
+            # Name: prefer tower_group, fall back to policy_type, last-resort fallback
+            name = (pp["tower_group"] or "").strip() or (pp["policy_type"] or "").strip()
+            if not name:
+                name = f"Program {pp['id']}"
+            # Idempotent: skip if already exists for this client
+            existing = conn.execute(
+                "SELECT id FROM programs WHERE client_id = ? AND name = ?",
+                (pp["client_id"], name),
+            ).fetchone()
+            if existing:
+                continue
+            uid = next_program_uid(conn)
+            conn.execute(
+                """INSERT INTO programs (program_uid, client_id, name, line_of_business,
+                      effective_date, expiration_date, renewal_status, notes,
+                      account_exec, milestone_profile, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)""",
+                (uid, pp["client_id"], name, pp["policy_type"],
+                 pp["effective_date"], pp["expiration_date"],
+                 pp["renewal_status"], pp["notes"], pp["account_exec"],
+                 pp["milestone_profile"] or "", pp["created_at"]),
+            )
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (100, "migrate is_program=1 policies to programs table (parallel copy)"),
+        )
+        conn.commit()
+
     # Data hygiene: fix 'None' string corruption in text fields (runs every startup, fast no-op if clean)
     conn.execute("UPDATE clients SET cn_number = NULL WHERE cn_number = 'None'")
 
@@ -1720,6 +1791,22 @@ def next_policy_uid(conn: sqlite3.Connection) -> str:
     except (IndexError, ValueError):
         n = 1
     return f"POL-{n:03d}"
+
+
+def next_program_uid(conn: sqlite3.Connection) -> str:
+    """Generate next PGM-NNN uid."""
+    row = conn.execute(
+        "SELECT program_uid FROM programs WHERE program_uid LIKE 'PGM-%' "
+        "ORDER BY CAST(SUBSTR(program_uid, 5) AS INTEGER) DESC LIMIT 1"
+    ).fetchone()
+    if row is None:
+        return "PGM-001"
+    last = row["program_uid"]  # e.g. "PGM-042"
+    try:
+        n = int(last.split("-")[1]) + 1
+    except (IndexError, ValueError):
+        n = 1
+    return f"PGM-{n:03d}"
 
 
 def next_rfi_uid(conn: sqlite3.Connection, client_id: int) -> str:

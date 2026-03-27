@@ -56,20 +56,23 @@
       + '</tr></thead><tbody>';
     data.rows.forEach(function(r) {
       if (r.is_ghost) {
-        /* Ghost row: lighter, italic, Package badge, no premium */
+        /* Ghost row: lighter, italic, badge, enriched financial data when available */
+        var badge = r.ghost_badge || 'Package';
+        var badgeColor = badge === 'Program' ? 'color:#2563eb; background:#dbeafe;' : 'color:#4f46e5; background:#eef2ff;';
+        var fmtCur = function(v) { return v != null ? '$' + Number(v).toLocaleString('en-US', {minimumFractionDigits:0, maximumFractionDigits:0}) : '\u2014'; };
         html += '<tr style="color:#9ca3af; font-style:italic;">'
           + '<td style="padding-left:24px;">'
-            + '<span style="font-size:10px; color:#4f46e5; background:#eef2ff; padding:1px 6px; border-radius:9999px; font-weight:500; font-style:normal; margin-right:6px;">Package</span>'
+            + '<span style="font-size:10px; ' + badgeColor + ' padding:1px 6px; border-radius:9999px; font-weight:500; font-style:normal; margin-right:6px;">' + badge + '</span>'
             + (r.line || '\u2014')
           + '</td>'
           + '<td>' + (r.carrier || '\u2014') + '</td>'
           + '<td>' + (r.policy_number || '\u2014') + '</td>'
           + '<td>' + (r.effective || '\u2014') + '</td>'
           + '<td>' + (r.expiration || '\u2014') + '</td>'
-          + '<td style="text-align:right">\u2014</td>'
-          + '<td style="text-align:right">\u2014</td>'
-          + '<td style="text-align:right">\u2014</td>'
-          + '<td>\u2014</td>'
+          + '<td style="text-align:right">' + fmtCur(r.limit) + '</td>'
+          + '<td style="text-align:right">' + fmtCur(r.deductible) + '</td>'
+          + '<td style="text-align:right">' + fmtCur(r.premium) + '</td>'
+          + '<td>' + (r.form || '\u2014') + '</td>'
           + '</tr>';
       } else {
         /* Normal row — with optional Package indicator for parent policies */
