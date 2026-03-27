@@ -93,12 +93,12 @@ SELECT
     END AS rate_change,
     p.last_reviewed_at,
     p.review_cycle,
-    p.is_program,
-    (SELECT GROUP_CONCAT(pc.carrier, ', ') FROM program_carriers pc WHERE pc.program_id = p.id ORDER BY pc.sort_order) AS program_carriers,
-    (SELECT COUNT(*) FROM program_carriers pc WHERE pc.program_id = p.id) AS program_carrier_count,
-    p.program_id
+    p.program_id,
+    pg.program_uid,
+    pg.name AS program_name
 FROM policies p
 JOIN clients c ON p.client_id = c.id
+LEFT JOIN programs pg ON pg.id = p.program_id
 WHERE p.archived = 0
 """
 
@@ -144,7 +144,7 @@ SELECT
         THEN p.premium ELSE 0
     END) AS premium_at_risk,
     COUNT(CASE WHEN p.is_opportunity = 1 THEN 1 END) AS opportunity_count,
-    COUNT(CASE WHEN p.is_program = 1 THEN 1 END) AS program_count,
+    (SELECT COUNT(*) FROM programs pg2 WHERE pg2.client_id = c.id AND pg2.archived = 0) AS program_count,
     (SELECT COUNT(*) FROM activity_log a
      WHERE a.client_id = c.id
        AND a.activity_date >= date('now', '-90 days')) AS activity_last_90d
@@ -159,10 +159,8 @@ CREATE VIEW v_schedule AS
 SELECT
     c.name AS client_name,
     COALESCE(p.first_named_insured, c.name) AS "First Named Insured",
-    CASE WHEN p.is_program = 1 THEN p.policy_type || ' [PROGRAM]' ELSE p.policy_type END AS "Line of Business",
-    CASE WHEN p.is_program = 1
-         THEN COALESCE((SELECT GROUP_CONCAT(pc.carrier, ', ') FROM program_carriers pc WHERE pc.program_id = p.id ORDER BY pc.sort_order), p.carrier)
-         ELSE p.carrier END AS "Carrier",
+    p.policy_type AS "Line of Business",
+    p.carrier AS "Carrier",
     p.policy_number AS "Policy Number",
     p.effective_date AS "Effective",
     p.expiration_date AS "Expiration",
@@ -191,6 +189,8 @@ CREATE VIEW v_tower AS
 SELECT
     c.name AS client_name,
     p.tower_group,
+    p.program_id,
+    pg.name AS program_name,
     p.layer_position,
     p.policy_type,
     p.carrier,
@@ -215,9 +215,10 @@ SELECT
     p.layer_notation
 FROM policies p
 JOIN clients c ON p.client_id = c.id
+LEFT JOIN programs pg ON pg.id = p.program_id
 WHERE p.archived = 0
   AND (p.is_opportunity = 0 OR p.is_opportunity IS NULL)
-ORDER BY c.name, p.tower_group, COALESCE(p.attachment_point, 0) ASC
+ORDER BY c.name, pg.name, COALESCE(p.attachment_point, 0) ASC
 """
 
 V_RENEWAL_PIPELINE = """
@@ -295,7 +296,7 @@ LEFT JOIN (
 ) th ON th.policy_uid = p.policy_uid
 WHERE p.archived = 0
   AND (p.is_opportunity = 0 OR p.is_opportunity IS NULL)
-  AND (p.is_program = 0 OR p.is_program IS NULL)
+  AND p.program_id IS NULL
   AND julianday(p.expiration_date) - julianday('now') <= 180
 ORDER BY julianday(p.expiration_date) ASC
 """

@@ -149,7 +149,7 @@ def get_tower_data(conn: sqlite3.Connection, client_id: int) -> list[dict]:
     Returns grouped structure with underlying lines and excess layers separated:
     [
         {
-            "tower_group": "Casualty",
+            "program_name": "Casualty",
             "underlying": [
                 {"label": "General Liability", "carrier": "Travelers",
                  "deductible": 2000000, "limit": 2000000, "premium": 35000, "column": 1},
@@ -175,55 +175,64 @@ def get_tower_data(conn: sqlite3.Connection, client_id: int) -> list[dict]:
         (client_id,),
     ).fetchall()
 
-    # Build program_carriers lookup (same as before)
-    program_rows = conn.execute(
+    # Build program participants lookup from child policies
+    program_rows_db = conn.execute(
         """
-        SELECT p.id AS policy_id, p.tower_group, p.attachment_point,
-               p.layer_position, p.is_program
-        FROM policies p
-        WHERE p.client_id = ?
-          AND p.archived = 0
-          AND (p.is_opportunity = 0 OR p.is_opportunity IS NULL)
-          AND p.is_program = 1
+        SELECT pg.id AS program_id, pg.name AS program_name
+        FROM programs pg
+        WHERE pg.client_id = ? AND pg.archived = 0
         """,
         (client_id,),
     ).fetchall()
 
-    program_ids = [r["policy_id"] for r in program_rows]
     participants_by_program: dict[int, list[dict]] = {}
-    if program_ids:
-        placeholders = ",".join("?" * len(program_ids))
-        pc_rows = conn.execute(
-            f"""
-            SELECT pc.program_id, pc.carrier, pc.premium,
-                   pc.limit_amount, pc.policy_number, pc.sort_order
-            FROM program_carriers pc
-            WHERE pc.program_id IN ({placeholders})
-            ORDER BY pc.sort_order
+    for pgm in program_rows_db:
+        children = conn.execute(
+            """
+            SELECT DISTINCT p.carrier, p.premium, p.limit_amount, p.policy_number
+            FROM policies p
+            WHERE p.program_id = ? AND p.archived = 0
+            ORDER BY p.carrier
             """,
-            program_ids,
+            (pgm["program_id"],),
         ).fetchall()
-        for r in pc_rows:
-            pid = r["program_id"]
-            participants_by_program.setdefault(pid, []).append({
-                "carrier": r["carrier"],
-                "premium": r["premium"] or 0,
-                "limit": r["limit_amount"] or 0,
-                "policy_number": r["policy_number"] or "",
-            })
+        if children:
+            participants_by_program[pgm["program_id"]] = [
+                {
+                    "carrier": r["carrier"] or "",
+                    "premium": r["premium"] or 0,
+                    "limit": r["limit_amount"] or 0,
+                    "policy_number": r["policy_number"] or "",
+                }
+                for r in children
+            ]
 
+    # Build key -> program_id mapping from policies that have program_id
     program_key_to_id: dict[tuple, int] = {}
-    for r in program_rows:
+    prog_policy_rows = conn.execute(
+        """
+        SELECT p.program_id, p.tower_group, p.attachment_point, p.layer_position
+        FROM policies p
+        WHERE p.client_id = ? AND p.program_id IS NOT NULL
+          AND p.archived = 0
+          AND (p.is_opportunity = 0 OR p.is_opportunity IS NULL)
+        """,
+        (client_id,),
+    ).fetchall()
+    for r in prog_policy_rows:
         key = (r["tower_group"], r["attachment_point"], r["layer_position"])
-        program_key_to_id[key] = r["policy_id"]
+        if r["program_id"] and key not in program_key_to_id:
+            program_key_to_id[key] = r["program_id"]
 
     # Build sub-coverage lookup (full dicts with limit_amount, deductible)
     tower_policy_rows = conn.execute(
         """
-        SELECT p.id, p.tower_group, p.policy_type, p.carrier, p.policy_number
+        SELECT p.id, COALESCE(pg.name, p.tower_group) AS program_name,
+               p.tower_group, p.policy_type, p.carrier, p.policy_number
         FROM policies p
+        LEFT JOIN programs pg ON pg.id = p.program_id
         WHERE p.client_id = ?
-          AND p.tower_group IS NOT NULL
+          AND (p.tower_group IS NOT NULL OR p.program_id IS NOT NULL)
           AND p.archived = 0
           AND (p.is_opportunity = 0 OR p.is_opportunity IS NULL)
         """,
@@ -231,12 +240,12 @@ def get_tower_data(conn: sqlite3.Connection, client_id: int) -> list[dict]:
     ).fetchall()
     tower_policy_ids = [r["id"] for r in tower_policy_rows]
     sub_cov_full_map = get_sub_coverages_full_by_policy_id(conn, tower_policy_ids)
-    # Map (tower_group, policy_type, carrier, policy_number) -> sub-coverage info
+    # Map (program_name, policy_type, carrier, policy_number) -> sub-coverage info
     package_lookup: dict[tuple, dict] = {}
     for r in tower_policy_rows:
         subs = sub_cov_full_map.get(r["id"], [])
         if subs:
-            key = (r["tower_group"], r["policy_type"], r["carrier"], r["policy_number"])
+            key = (r["program_name"] or r["tower_group"], r["policy_type"], r["carrier"], r["policy_number"])
             package_lookup[key] = {
                 "is_package": True,
                 "package_parent_type": r["policy_type"] or "",
@@ -267,14 +276,14 @@ def get_tower_data(conn: sqlite3.Connection, client_id: int) -> list[dict]:
     # Build policy_id lookup from tower rows for coverage_map matching
     tower_policy_id_lookup: dict[tuple, int] = {}
     for r in tower_policy_rows:
-        key = (r["tower_group"], r["policy_type"], r["carrier"], r["policy_number"])
+        key = (r["program_name"] or r["tower_group"], r["policy_type"], r["carrier"], r["policy_number"])
         tower_policy_id_lookup[key] = r["id"]
 
-    # Group by tower_group, splitting into underlying (primary) and excess layers
+    # Group by program_name (falling back to tower_group), splitting into underlying (primary) and excess layers
     _WC_KEYWORDS = ("workers comp", "workers' comp")
     groups: dict[str, dict] = {}
     for r in rows:
-        tg = r["tower_group"] or "Ungrouped"
+        tg = r.get("program_name") or r["tower_group"] or "Ungrouped"
         if tg not in groups:
             groups[tg] = {"underlying": [], "layers": []}
 
@@ -283,7 +292,7 @@ def get_tower_data(conn: sqlite3.Connection, client_id: int) -> list[dict]:
         is_primary = lp == "primary" or (att == 0 and lp not in ("umbrella",))
 
         # Check if this policy is a package
-        pkg_key = (r["tower_group"], r["policy_type"], r["carrier"], r["policy_number"])
+        pkg_key = (tg, r["policy_type"], r["carrier"], r["policy_number"])
         pkg_info = package_lookup.get(pkg_key)
         policy_id = tower_policy_id_lookup.get(pkg_key)
 
@@ -327,7 +336,7 @@ def get_tower_data(conn: sqlite3.Connection, client_id: int) -> list[dict]:
                 layer["is_package"] = True
                 layer["package_parent_type"] = pkg_info["package_parent_type"]
             # Attach co-insured participants for program layers
-            key = (r["tower_group"], r["attachment_point"], r["layer_position"])
+            key = (r["tower_group"], r["attachment_point"], r["layer_position"])  # matches program_key_to_id built from policies
             pid = program_key_to_id.get(key)
             if pid and pid in participants_by_program:
                 plist = participants_by_program[pid]
@@ -437,7 +446,7 @@ def get_tower_data(conn: sqlite3.Connection, client_id: int) -> list[dict]:
         # Sort excess layers by attachment_point ascending (bottom-to-top)
         layers = sorted(g["layers"], key=lambda l: l["attachment_point"])
         result.append({
-            "tower_group": tg,
+            "program_name": tg,
             "underlying": underlying,
             "layers": layers,
         })
@@ -1021,7 +1030,7 @@ def get_exec_financial_summary_data(
         SELECT
             p.policy_type,
             p.carrier,
-            p.tower_group,
+            COALESCE(pg.name, p.tower_group) AS program_name,
             p.layer_position,
             p.attachment_point,
             p.limit_amount,
@@ -1029,17 +1038,18 @@ def get_exec_financial_summary_data(
             COALESCE(p.prior_premium, 0) AS prior_premium,
             COALESCE(p.premium, 0)       AS premium
         FROM policies p
+        LEFT JOIN programs pg ON pg.id = p.program_id
         WHERE p.client_id = ? AND {_ACTIVE_POLICY}
           AND p.policy_type IS NOT NULL AND p.policy_type != ''
-        ORDER BY p.tower_group, p.layer_position, p.attachment_point
+        ORDER BY program_name, p.layer_position, p.attachment_point
         """,
         (client_id,),
     ).fetchall()
 
-    # Group into sections: {tower_group} — Primary / Excess
+    # Group into sections: {program_name} — Primary / Excess
     sections: dict[str, dict] = {}
     for r in rows:
-        tg = r["tower_group"] or "General"
+        tg = r["program_name"] or "General"
         lp = (r["layer_position"] or "Primary").strip().lower()
         att = r["attachment_point"] or 0
         is_primary = lp == "primary" or (att == 0 and lp not in ("umbrella",))

@@ -45,7 +45,7 @@
             {% if not has_umbrella %}
             <button type="button"
               class="no-print text-xs text-blue-500 border border-dashed border-blue-300 px-3 py-1.5 rounded hover:border-blue-500 hover:text-blue-700 transition-colors"
-              hx-post="/clients/{{ client_id }}/programs/{{ tower_group | urlencode }}/umbrella/add"
+              hx-post="/programs/{{ program_uid }}/umbrella/add"
               hx-target="#excess-tbody"
               hx-swap="afterbegin">
               + Add Umbrella
@@ -53,7 +53,7 @@
             {% endif %}
             <button type="button"
               class="no-print text-xs text-gray-400 border border-dashed border-gray-300 px-3 py-1.5 rounded hover:border-marsh hover:text-marsh transition-colors"
-              hx-post="/clients/{{ client_id }}/programs/{{ tower_group | urlencode }}/excess/add"
+              hx-post="/programs/{{ program_uid }}/excess/add"
               hx-target="#excess-tbody"
               hx-swap="beforeend">
               + Add Excess Layer

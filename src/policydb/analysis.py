@@ -39,18 +39,18 @@ def run_coverage_gap_analysis(
 
 
 def detect_towers(policies: list[dict]) -> dict[str, list[dict]]:
-    """Group policies by tower_group. Returns {group_name: [policy, ...]}."""
+    """Group policies by program. Returns {program_name: [policy, ...]}."""
     towers: dict[str, list[dict]] = defaultdict(list)
     for p in policies:
-        group = p.get("tower_group")
+        group = p.get("program_name") or p.get("program_id")
         if group:
-            towers[group].append(p)
+            towers[str(group)].append(p)
     return dict(towers)
 
 
 def detect_standalones(policies: list[dict]) -> list[dict]:
-    """Return policies not assigned to any tower group."""
-    return [p for p in policies if not p.get("tower_group")]
+    """Return policies not assigned to any program."""
+    return [p for p in policies if not p.get("program_id")]
 
 
 def find_duplicate_policies(policies: list[dict]) -> list[tuple[dict, dict]]:
@@ -73,8 +73,8 @@ def find_duplicate_policies(policies: list[dict]) -> list[tuple[dict, dict]]:
         if all(key):
             if key in seen_type_carrier:
                 existing = seen_type_carrier[key]
-                # Only flag if not clearly layered
-                if not (p.get("tower_group") or existing.get("tower_group")):
+                # Only flag if not clearly layered in a program
+                if not (p.get("program_id") or existing.get("program_id")):
                     duplicates.append((existing, p))
             else:
                 seen_type_carrier[key] = p

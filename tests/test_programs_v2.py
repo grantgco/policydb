@@ -668,3 +668,89 @@ def test_uniqueness_constraint(db):
         db.execute(
             "INSERT INTO programs (program_uid, client_id, name) VALUES ('PGM-UQ2', 93, 'TestProgram')"
         )
+
+
+# ─── View SQL String Tests (Phase 4 Task 2) ─────────────────────────────
+
+
+def test_v_policy_status_no_program_carriers_subquery():
+    """v_policy_status should not reference program_carriers table."""
+    from policydb.views import V_POLICY_STATUS
+    assert "program_carriers" not in V_POLICY_STATUS
+
+
+def test_v_policy_status_has_program_id():
+    """v_policy_status should include program_id and program_name via JOIN."""
+    from policydb.views import V_POLICY_STATUS
+    assert "program_id" in V_POLICY_STATUS
+    assert "programs" in V_POLICY_STATUS  # JOIN to programs table
+
+
+def test_v_client_summary_programs_from_table():
+    """v_client_summary should count programs from programs table, not is_program."""
+    from policydb.views import V_CLIENT_SUMMARY
+    assert "is_program" not in V_CLIENT_SUMMARY
+
+
+def test_v_schedule_no_is_program():
+    """v_schedule should not reference is_program or program_carriers."""
+    from policydb.views import V_SCHEDULE
+    assert "is_program" not in V_SCHEDULE
+    assert "program_carriers" not in V_SCHEDULE
+
+
+def test_v_renewal_pipeline_excludes_children():
+    """v_renewal_pipeline should exclude child policies via program_id IS NULL."""
+    from policydb.views import V_RENEWAL_PIPELINE
+    assert "program_id IS NULL" in V_RENEWAL_PIPELINE
+    assert "is_program" not in V_RENEWAL_PIPELINE
+
+
+def test_v_tower_uses_program_id():
+    """v_tower should group by program_id, not tower_group."""
+    from policydb.views import V_TOWER
+    assert "program_id" in V_TOWER or "programs" in V_TOWER
+
+
+# ─── Task 3: Query Function Signature Tests ──────────────────────────────
+
+
+def test_get_program_child_policies_by_id():
+    """get_program_child_policies should accept program_id (int), not name."""
+    from policydb.queries import get_program_child_policies
+    import inspect
+    sig = inspect.signature(get_program_child_policies)
+    params = list(sig.parameters.keys())
+    assert "program_id" in params
+    assert "program_name" not in params
+
+
+def test_get_program_aggregates_by_id():
+    """get_program_aggregates should accept program_id (int)."""
+    from policydb.queries import get_program_aggregates
+    import inspect
+    sig = inspect.signature(get_program_aggregates)
+    params = list(sig.parameters.keys())
+    assert "program_id" in params
+
+
+def test_get_unassigned_no_is_program():
+    """get_unassigned_policies should not check is_program."""
+    from policydb.queries import get_unassigned_policies
+    import inspect
+    source = inspect.getsource(get_unassigned_policies)
+    assert "is_program" not in source
+
+
+# ─── Task 4: Email Templates Program Tokens ─────────────────────────────
+
+
+def test_email_template_program_tokens_from_programs_table():
+    """Program tokens should be populated from programs table, not program_carriers."""
+    from policydb.email_templates import policy_context
+    import inspect
+    source = inspect.getsource(policy_context)
+    # Should not query program_carriers TABLE (FROM/JOIN program_carriers)
+    assert "FROM program_carriers" not in source, "Should not query program_carriers table"
+    assert "is_program" not in source, "Should not reference is_program column"
+    assert "FROM programs" in source, "Should query programs table for program tokens"
