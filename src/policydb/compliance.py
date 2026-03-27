@@ -247,7 +247,7 @@ def get_requirement_links(conn, requirement_id: int) -> list[dict]:
     """Return all policy links for a given requirement."""
     rows = conn.execute(
         """SELECT rpl.*, p.policy_type, p.carrier, p.limit_amount, p.deductible,
-                  p.is_program, p.program_id, p.policy_number, p.expiration_date
+                  p.program_id, p.policy_number, p.expiration_date
            FROM requirement_policy_links rpl
            LEFT JOIN policies p ON p.policy_uid = rpl.policy_uid
            WHERE rpl.requirement_id = ?
@@ -261,7 +261,7 @@ def get_all_requirement_links(conn, client_id: int) -> dict[int, list[dict]]:
     """Return all links for all requirements belonging to a client, keyed by requirement_id."""
     rows = conn.execute(
         """SELECT rpl.*, p.policy_type, p.carrier, p.limit_amount, p.deductible,
-                  p.is_program, p.program_id, p.policy_number, p.expiration_date
+                  p.program_id, p.policy_number, p.expiration_date
            FROM requirement_policy_links rpl
            JOIN coverage_requirements cr ON cr.id = rpl.requirement_id
            LEFT JOIN policies p ON p.policy_uid = rpl.policy_uid
@@ -376,14 +376,14 @@ def get_linkable_policies(conn, client_id: int, req_project_id: int | None = Non
     """
     rows = conn.execute(
         """SELECT p.policy_uid, p.policy_type, p.carrier, p.limit_amount, p.deductible,
-                  p.policy_number, p.is_program, p.program_id, p.effective_date,
+                  p.policy_number, p.program_id, p.effective_date,
                   p.expiration_date, p.project_id,
                   pr.name AS _project_name
            FROM policies p
            LEFT JOIN projects pr ON p.project_id = pr.id
            WHERE p.client_id=? AND p.archived=0
              AND (p.is_opportunity=0 OR p.is_opportunity IS NULL)
-           ORDER BY p.is_program DESC, p.policy_type, p.carrier""",
+           ORDER BY (CASE WHEN p.program_id IS NOT NULL THEN 0 ELSE 1 END), p.policy_type, p.carrier""",
         (client_id,),
     ).fetchall()
     policies = [dict(r) for r in rows]
@@ -400,45 +400,37 @@ def get_linkable_policies(conn, client_id: int, req_project_id: int | None = Non
         else:
             p["_location_match"] = None
 
-    # Separate programs, children, and standalone
-    programs = []
+    # Separate programs (from programs table), children, and standalone
     children_by_program: dict[int, list[dict]] = {}
     standalone = []
 
-    # Build a uid→id map for program lookups
-    uid_to_id = {}
     for p in policies:
-        # We need the actual id for program_id matching
-        row = conn.execute(
-            "SELECT id FROM policies WHERE policy_uid=?", (p["policy_uid"],)
-        ).fetchone()
-        if row:
-            uid_to_id[p["policy_uid"]] = row["id"]
-
-    id_to_uid = {v: k for k, v in uid_to_id.items()}
-
-    for p in policies:
-        if p.get("is_program"):
-            pid = uid_to_id.get(p["policy_uid"])
-            p["children"] = []
-            p["_id"] = pid
-            programs.append(p)
-        elif p.get("program_id"):
+        if p.get("program_id"):
             children_by_program.setdefault(p["program_id"], []).append(p)
         else:
             standalone.append(p)
 
-    # Attach children to programs
-    for prog in programs:
-        prog["children"] = children_by_program.get(prog.get("_id"), [])
+    # Fetch programs from the programs table
+    prog_rows = conn.execute(
+        "SELECT id, program_uid, name, line_of_business FROM programs WHERE client_id=? AND archived=0 ORDER BY name",
+        (client_id,),
+    ).fetchall()
 
-    # Also fetch program_carriers for program display
-    for prog in programs:
-        carriers = conn.execute(
-            "SELECT carrier FROM program_carriers WHERE program_id=? ORDER BY sort_order",
-            (prog.get("_id"),),
+    programs = []
+    for pr in prog_rows:
+        prog = dict(pr)
+        prog["_id"] = prog["id"]
+        prog["policy_type"] = prog.get("line_of_business") or prog["name"]
+        prog["policy_uid"] = prog["program_uid"]
+        prog["children"] = children_by_program.get(prog["id"], [])
+        # Derive carriers from child policies
+        carrier_rows = conn.execute(
+            "SELECT DISTINCT carrier FROM policies WHERE program_id = ? AND carrier IS NOT NULL AND carrier != '' AND archived = 0",
+            (prog["id"],),
         ).fetchall()
-        prog["program_carrier_names"] = [r["carrier"] for r in carriers]
+        prog["program_carrier_names"] = [r["carrier"] for r in carrier_rows]
+        prog["carrier"] = ", ".join(prog["program_carrier_names"]) if prog["program_carrier_names"] else ""
+        programs.append(prog)
 
     # Sort standalone: location-matched first, then corporate, then other
     if req_project_id is not None:
@@ -477,7 +469,7 @@ def get_client_compliance_data(conn, client_id: int) -> dict:
     # Get all policies for this client (non-archived)
     all_policies = [dict(r) for r in conn.execute(
         "SELECT policy_uid, policy_type, carrier, limit_amount, deductible, "
-        "project_id, policy_number, is_program, program_id FROM policies "
+        "project_id, policy_number, program_id FROM policies "
         "WHERE client_id=? AND archived=0 ORDER BY policy_type",
         (client_id,),
     ).fetchall()]

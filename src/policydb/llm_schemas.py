@@ -676,12 +676,12 @@ def generate_policy_bulk_prompt(conn, client_id: int) -> str:
 
     # --- Known programs ---
     programs = conn.execute(
-        "SELECT policy_uid, policy_type, carrier FROM policies "
-        "WHERE client_id = ? AND is_program = 1 AND archived = 0 "
-        "ORDER BY policy_type",
+        "SELECT program_uid, name, line_of_business FROM programs "
+        "WHERE client_id = ? AND archived = 0 "
+        "ORDER BY name",
         (client_id,),
     ).fetchall()
-    prog_list = [f"{p['policy_uid']}: {p['policy_type']} ({p['carrier'] or 'multiple carriers'})" for p in programs]
+    prog_list = [f"{p['program_uid']}: {p['name']} ({p['line_of_business'] or 'multi-line'})" for p in programs]
 
     # --- Config lists ---
     carriers = _cfg.get("carriers", [])

@@ -740,3 +740,17 @@ def test_get_unassigned_no_is_program():
     import inspect
     source = inspect.getsource(get_unassigned_policies)
     assert "is_program" not in source
+
+
+# ─── Task 4: Email Templates Program Tokens ─────────────────────────────
+
+
+def test_email_template_program_tokens_from_programs_table():
+    """Program tokens should be populated from programs table, not program_carriers."""
+    from policydb.email_templates import policy_context
+    import inspect
+    source = inspect.getsource(policy_context)
+    # Should not query program_carriers TABLE (FROM/JOIN program_carriers)
+    assert "FROM program_carriers" not in source, "Should not query program_carriers table"
+    assert "is_program" not in source, "Should not reference is_program column"
+    assert "FROM programs" in source, "Should query programs table for program tokens"

@@ -250,9 +250,9 @@ def tower_panel(client_name: str, rows) -> None:
     towers: dict[str, list] = defaultdict(list)
     standalones = []
     for r in rows:
-        group = r["tower_group"]
+        group = r.get("program_name") or r.get("program_id")
         if group:
-            towers[group].append(r)
+            towers[str(group)].append(r)
         else:
             standalones.append(r)
 

@@ -123,10 +123,6 @@ def _score_pair(a: dict, b: dict) -> dict | None:
     """
 
     # ── Skip rules ───────────────────────────────────────────────────────
-    # Skip if both are programs
-    if a.get("is_program") and b.get("is_program"):
-        return None
-
     # Skip if one is a child of the other
     a_uid = a.get("policy_uid", "")
     b_uid = b.get("policy_uid", "")
