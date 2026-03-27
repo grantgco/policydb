@@ -1,0 +1,484 @@
+{# ── Quote Comparison — bubble chart + ranked quote detail table ──────────────
+   Bubble chart: Rate vs TIV (bubble size = premium) with ranked detail table.
+   Expects: Chart.js loaded, ManualChart namespace available.
+#}
+
+<!-- ═══ Chart Display ═══════════════════════════════════════════════════════ -->
+<div class="manual-chart-page">
+  <div class="manual-chart-wrap" style="display:flex;flex-direction:column;padding:1.5rem 2rem 1rem;">
+
+    <!-- Header -->
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:0.5rem;gap:1rem;flex-wrap:wrap;">
+      <div>
+        <h2 id="chart-title-display" style="font-family:'Noto Serif',serif;font-size:1.5rem;color:#000F47;line-height:1.2;margin:0 0 0.2rem;">
+          Quote Comparison
+        </h2>
+        <p id="chart-subtitle-display" style="font-size:0.78rem;color:#7B7974;font-weight:400;letter-spacing:0.03em;margin:0;">
+          Placeholder values &mdash; update below
+        </p>
+      </div>
+    </div>
+
+    <!-- Legend (circles, built dynamically) -->
+    <div class="mc-legend" id="chart-legend" style="margin-bottom:0.35rem;"></div>
+
+    <!-- Bubble Chart -->
+    <div style="position:relative;height:220px;min-height:0;">
+      <canvas id="qcBubbleChart"></canvas>
+    </div>
+
+    <!-- Quote Detail Table -->
+    <div id="chart-table-wrap" style="margin-top:0.35rem;overflow:auto;flex:1;min-height:0;">
+      <table id="qc-table" style="width:100%;border-collapse:collapse;font-family:'Noto Sans',sans-serif;font-size:0.7rem;color:var(--mc-text,#3D3C37);">
+        <thead>
+          <tr style="border-bottom:2px solid var(--mc-midnight,#000F47);">
+            <th style="padding:0.4rem 0.6rem;text-align:left;font-size:0.62rem;text-transform:uppercase;letter-spacing:0.07em;color:var(--mc-muted,#7B7974);font-weight:600;white-space:nowrap;">Carrier</th>
+            <th style="padding:0.4rem 0.6rem;text-align:right;font-size:0.62rem;text-transform:uppercase;letter-spacing:0.07em;color:var(--mc-muted,#7B7974);font-weight:600;white-space:nowrap;">TIV</th>
+            <th style="padding:0.4rem 0.6rem;text-align:right;font-size:0.62rem;text-transform:uppercase;letter-spacing:0.07em;color:var(--mc-muted,#7B7974);font-weight:600;white-space:nowrap;">Applied Rate</th>
+            <th style="padding:0.4rem 0.6rem;text-align:right;font-size:0.62rem;text-transform:uppercase;letter-spacing:0.07em;color:var(--mc-muted,#7B7974);font-weight:600;white-space:nowrap;">Premium</th>
+            <th style="padding:0.4rem 0.6rem;text-align:right;font-size:0.62rem;text-transform:uppercase;letter-spacing:0.07em;color:var(--mc-muted,#7B7974);font-weight:600;white-space:nowrap;">Rate Rank</th>
+            <th style="padding:0.4rem 0.6rem;text-align:right;font-size:0.62rem;text-transform:uppercase;letter-spacing:0.07em;color:var(--mc-muted,#7B7974);font-weight:600;white-space:nowrap;">Prem Rank</th>
+            <th style="padding:0.4rem 0.6rem;text-align:right;font-size:0.62rem;text-transform:uppercase;letter-spacing:0.07em;color:var(--mc-muted,#7B7974);font-weight:600;white-space:nowrap;">vs. Lowest</th>
+          </tr>
+        </thead>
+        <tbody id="qc-tbody"></tbody>
+      </table>
+    </div>
+
+    <!-- Note -->
+    <div id="chart-note" style="font-size:0.62rem;color:#7B7974;margin-top:0.35rem;text-align:center;">
+      Bubble size = premium. Lower-left carriers are cheaper in both dimensions.
+    </div>
+  </div>
+</div>
+
+<!-- ═══ Editor Panel ════════════════════════════════════════════════════════ -->
+<div class="mc-editor" id="editor-panel">
+  <div class="mc-editor-title">Configure &amp; Edit Quotes</div>
+
+  <div class="display-options">
+    <span class="section-label">Display</span>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-title" name="show-title" checked onchange="applyDisplayOptions()">
+      <span class="toggle-track"></span><span class="toggle-label">Title</span>
+    </label>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-subtitle" name="show-subtitle" checked onchange="applyDisplayOptions()">
+      <span class="toggle-track"></span><span class="toggle-label">Subtitle</span>
+    </label>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-legend" name="show-legend" checked onchange="applyDisplayOptions()">
+      <span class="toggle-track"></span><span class="toggle-label">Legend</span>
+    </label>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-table" name="show-table" checked onchange="applyDisplayOptions()">
+      <span class="toggle-track"></span><span class="toggle-label">Table</span>
+    </label>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-note" name="show-note" checked onchange="applyDisplayOptions()">
+      <span class="toggle-track"></span><span class="toggle-label">Note</span>
+    </label>
+  </div>
+
+  <!-- Hidden state for snapshot compatibility -->
+  <textarea id="qc-state" name="qc-state" style="display:none;"></textarea>
+
+  <!-- Carrier row header -->
+  <div style="margin-top:0.75rem;">
+    <div class="section-head midnight">Carrier Quotes</div>
+    <div style="display:grid;grid-template-columns:14px 1.6fr 1.3fr 0.7fr 0.7fr auto auto;gap:0.5rem;margin-bottom:0.3rem;padding:0 0.1rem;">
+      <div></div>
+      <div class="col-label" style="font-size:0.65rem;text-transform:uppercase;letter-spacing:0.06em;color:#7B7974;font-weight:600;">Carrier</div>
+      <div class="col-label" style="font-size:0.65rem;text-transform:uppercase;letter-spacing:0.06em;color:#7B7974;font-weight:600;">TIV ($)</div>
+      <div class="col-label" style="font-size:0.65rem;text-transform:uppercase;letter-spacing:0.06em;color:#7B7974;font-weight:600;">Factor</div>
+      <div class="col-label" style="font-size:0.65rem;text-transform:uppercase;letter-spacing:0.06em;color:#7B7974;font-weight:600;">Rate/$100</div>
+      <div class="col-label" style="font-size:0.65rem;text-transform:uppercase;letter-spacing:0.06em;color:#7B7974;font-weight:600;min-width:70px;text-align:right;">Premium</div>
+      <div></div>
+    </div>
+    <div id="carrier-rows" style="display:flex;flex-direction:column;gap:0.4rem;margin-bottom:0.75rem;"></div>
+    <button class="btn-mc outline sm" onclick="addCarrier()" style="margin-bottom:0.5rem;">+ Add Carrier</button>
+  </div>
+
+  <!-- Title & Subtitle -->
+  <div style="margin-top:0.75rem;">
+    <div class="section-head midnight">Title &amp; Subtitle</div>
+    <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.5rem;">
+      <input type="text" id="val-title" name="val-title"
+             placeholder="Chart title"
+             value="Quote Comparison"
+             style="flex:1;min-width:200px;border:1px solid var(--mc-border);border-radius:3px;padding:0.38rem 0.6rem;font-family:'Noto Sans',sans-serif;font-size:0.83rem;color:var(--mc-text);background:var(--mc-bg);">
+      <input type="text" id="val-subtitle" name="val-subtitle"
+             placeholder="Client / risk name"
+             value="Placeholder values — update below"
+             style="flex:1;min-width:200px;border:1px solid var(--mc-border);border-radius:3px;padding:0.38rem 0.6rem;font-family:'Noto Sans',sans-serif;font-size:0.83rem;color:var(--mc-text);background:var(--mc-bg);">
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div class="mc-editor-footer">
+    <button class="btn-mc" onclick="refreshCurrentChart()">Refresh Chart</button>
+  </div>
+</div>
+
+<!-- ═══ Script ══════════════════════════════════════════════════════════════ -->
+<script>
+(function () {
+  // ── State ──────────────────────────────────────────────────────────────
+  var chart = null;
+  var MC = ManualChart.COLORS;
+  var C = ManualChart.DATA_COLORS;
+  var fmtUSD = ManualChart.fmtCurrency;
+
+  var defaultCarriers = [
+    { name: 'Carrier A', tiv: 50000000, factor: 1.00, rate: 0.45 },
+    { name: 'Carrier B', tiv: 55000000, factor: 0.95, rate: 0.42 },
+    { name: 'Carrier C', tiv: 48000000, factor: 1.05, rate: 0.48 },
+    { name: 'Carrier D', tiv: 52000000, factor: 0.98, rate: 0.44 },
+  ];
+
+  // ── Helpers ────────────────────────────────────────────────────────────
+  function premium(c)     { return (c.tiv / 100) * (c.factor * c.rate); }
+  function appliedRate(c) { return c.factor * c.rate; }
+  function fmtRate(n)     { return Number(n).toFixed(4); }
+
+  function fmtUSDFull(n) {
+    if (n == null || isNaN(n)) return '$0';
+    return '$' + Math.round(n).toLocaleString('en-US');
+  }
+
+  function rankArray(arr) {
+    var sorted = arr.slice().sort(function (a, b) { return a - b; });
+    return arr.map(function (v) { return sorted.indexOf(v) + 1; });
+  }
+
+  function rankBadge(rank) {
+    // Marsh palette: green1000 for best, midnight for 2nd, gold1000 for 3rd, red for rest
+    var styles = {
+      1: { bg: 'rgba(47,117,0,0.12)',  color: MC.green1000 },
+      2: { bg: 'rgba(0,15,71,0.10)',   color: MC.midnight },
+      3: { bg: 'rgba(203,126,3,0.10)', color: MC.gold1000 },
+    };
+    var s = styles[rank] || { bg: 'rgba(200,16,46,0.10)', color: MC.red };
+    var label = rank === 1 ? '1st' : rank === 2 ? '2nd' : rank === 3 ? '3rd' : '#' + rank;
+    return '<span style="display:inline-block;padding:0.1rem 0.45rem;border-radius:99px;font-size:0.62rem;font-weight:600;letter-spacing:0.03em;background:' + s.bg + ';color:' + s.color + ';">' + label + '</span>';
+  }
+
+  // ── Read carriers from editor inputs ───────────────────────────────────
+  function readCarriers() {
+    var rows = document.querySelectorAll('#carrier-rows .input-row');
+    var carriers = [];
+    rows.forEach(function (row) {
+      carriers.push({
+        name:   row.querySelector('.qc-name').value   || 'Carrier',
+        tiv:    parseFloat(row.querySelector('.qc-tiv').value)    || 0,
+        factor: parseFloat(row.querySelector('.qc-factor').value) || 1,
+        rate:   parseFloat(row.querySelector('.qc-rate').value)   || 0,
+      });
+    });
+    return carriers;
+  }
+
+  // ── Build carrier input rows ───────────────────────────────────────────
+  function buildInputRows(carriers) {
+    var container = document.getElementById('carrier-rows');
+    container.innerHTML = '';
+    carriers.forEach(function (c, i) {
+      var color = C[i % C.length];
+      var prem = premium(c);
+      var row = document.createElement('div');
+      row.className = 'input-row';
+      row.style.cssText = 'display:grid;grid-template-columns:14px 1.6fr 1.3fr 0.7fr 0.7fr auto auto;gap:0.5rem;align-items:center;';
+
+      row.innerHTML =
+        '<div style="width:10px;height:10px;border-radius:50%;background:' + color + ';flex-shrink:0;"></div>' +
+        '<input type="text" class="qc-name" name="c' + i + '-name" value="' + (c.name || '').replace(/"/g, '&quot;') + '" placeholder="Carrier name" style="border:1px solid var(--mc-border);border-radius:3px;padding:0.38rem 0.5rem;font-family:\'Noto Sans\',sans-serif;font-size:0.82rem;color:var(--mc-text);background:var(--mc-bg);width:100%;">' +
+        '<input type="number" class="qc-tiv" name="c' + i + '-tiv" value="' + c.tiv + '" step="500000" min="0" placeholder="TIV" style="border:1px solid var(--mc-border);border-radius:3px;padding:0.38rem 0.5rem;font-family:\'Noto Sans\',sans-serif;font-size:0.82rem;color:var(--mc-text);background:var(--mc-bg);width:100%;">' +
+        '<input type="number" class="qc-factor" name="c' + i + '-factor" value="' + c.factor + '" step="0.01" min="0.01" placeholder="Factor" style="border:1px solid var(--mc-border);border-radius:3px;padding:0.38rem 0.5rem;font-family:\'Noto Sans\',sans-serif;font-size:0.82rem;color:var(--mc-text);background:var(--mc-bg);width:100%;">' +
+        '<input type="number" class="qc-rate" name="c' + i + '-rate" value="' + c.rate + '" step="0.001" min="0" placeholder="Rate" style="border:1px solid var(--mc-border);border-radius:3px;padding:0.38rem 0.5rem;font-family:\'Noto Sans\',sans-serif;font-size:0.82rem;color:var(--mc-text);background:var(--mc-bg);width:100%;">' +
+        '<div class="qc-computed" style="font-size:0.72rem;color:#0e8c79;font-weight:600;min-width:70px;text-align:right;">' + fmtUSD(prem) + '</div>' +
+        '<button type="button" onclick="removeCarrier(this)" title="Remove" style="background:none;border:none;cursor:pointer;color:#7B7974;font-size:1rem;line-height:1;padding:0.2rem 0.3rem;border-radius:3px;">&times;</button>';
+
+      // Live premium update on number inputs
+      row.querySelectorAll('input[type=number]').forEach(function (inp) {
+        inp.addEventListener('input', function () {
+          var tiv    = parseFloat(row.querySelector('.qc-tiv').value)    || 0;
+          var factor = parseFloat(row.querySelector('.qc-factor').value) || 1;
+          var rate   = parseFloat(row.querySelector('.qc-rate').value)   || 0;
+          var p      = (tiv / 100) * (factor * rate);
+          row.querySelector('.qc-computed').textContent = fmtUSD(p);
+        });
+      });
+
+      container.appendChild(row);
+    });
+  }
+
+  // ── Serialize / deserialize state ──────────────────────────────────────
+  function serializeState() {
+    var carriers = readCarriers();
+    document.getElementById('qc-state').value = JSON.stringify(carriers);
+  }
+
+  function deserializeState() {
+    var raw = document.getElementById('qc-state').value;
+    if (!raw) return null;
+    try { return JSON.parse(raw); } catch (e) { return null; }
+  }
+
+  // ── Display options ────────────────────────────────────────────────────
+  window.applyDisplayOptions = function () {
+    ManualChart.applyToggle('show-title',    'chart-title-display');
+    ManualChart.applyToggle('show-subtitle', 'chart-subtitle-display');
+    ManualChart.applyToggle('show-legend',   'chart-legend');
+    ManualChart.applyToggle('show-table',    'chart-table-wrap');
+    ManualChart.applyToggle('show-note',     'chart-note');
+  };
+
+  // ── Add / remove carriers ──────────────────────────────────────────────
+  window.addCarrier = function () {
+    var carriers = readCarriers();
+    carriers.push({ name: 'New Carrier', tiv: 50000000, factor: 1.00, rate: 0.45 });
+    buildInputRows(carriers);
+    refreshCurrentChart();
+  };
+
+  window.removeCarrier = function (btn) {
+    var row = btn.closest('.input-row');
+    if (row) row.remove();
+    // Re-index remaining rows (names must stay sequential for snapshot compat)
+    var rows = document.querySelectorAll('#carrier-rows .input-row');
+    rows.forEach(function (r, i) {
+      r.querySelectorAll('input').forEach(function (inp) {
+        var cls = inp.className;
+        if (cls.indexOf('qc-name')   >= 0) inp.name = 'c' + i + '-name';
+        if (cls.indexOf('qc-tiv')    >= 0) inp.name = 'c' + i + '-tiv';
+        if (cls.indexOf('qc-factor') >= 0) inp.name = 'c' + i + '-factor';
+        if (cls.indexOf('qc-rate')   >= 0) inp.name = 'c' + i + '-rate';
+      });
+      // Update color dot
+      var dot = r.querySelector('div:first-child');
+      if (dot) dot.style.background = C[i % C.length];
+    });
+    refreshCurrentChart();
+  };
+
+  // ── Render bubble chart ────────────────────────────────────────────────
+  function renderBubbleChart(carriers) {
+    var premiums = carriers.map(premium);
+    var maxP = Math.max.apply(null, premiums);
+    var minP = Math.min.apply(null, premiums);
+    var range = maxP - minP || 1;
+    var lowestPremIdx = premiums.indexOf(minP);
+
+    // Build legend HTML — circle swatches using mc-legend classes
+    var legendEl = document.getElementById('chart-legend');
+    legendEl.innerHTML = '';
+    carriers.forEach(function (c, i) {
+      var item = document.createElement('div');
+      item.className = 'mc-legend-item';
+      item.innerHTML =
+        '<div class="mc-legend-swatch" style="width:10px;height:10px;border-radius:50%;background:' + C[i % C.length] + ';"></div> ' + c.name;
+      legendEl.appendChild(item);
+    });
+
+    // Bubble sizing: min 12px so lowest carrier is still visible
+    // Highlight lowest premium with a thicker border
+    var datasets = carriers.map(function (c, i) {
+      var p = premium(c);
+      var r = 12 + 18 * ((p - minP) / range);
+      var isLowest = (i === lowestPremIdx);
+      return {
+        label: c.name,
+        data: [{ x: c.tiv, y: appliedRate(c), r: r }],
+        backgroundColor: C[i % C.length] + (isLowest ? 'CC' : '66'),
+        borderColor: isLowest ? MC.green1000 : C[i % C.length],
+        borderWidth: isLowest ? 3 : 1.5,
+        hoverBorderWidth: 3,
+      };
+    });
+
+    // Dynamic axis padding — add 5% breathing room so bubbles don't clip edges
+    var tivs = carriers.map(function (c) { return c.tiv; });
+    var rates = carriers.map(appliedRate);
+    var tivMin = Math.min.apply(null, tivs);
+    var tivMax = Math.max.apply(null, tivs);
+    var rateMin = Math.min.apply(null, rates);
+    var rateMax = Math.max.apply(null, rates);
+    var tivPad = (tivMax - tivMin) * 0.12 || tivMax * 0.05;
+    var ratePad = (rateMax - rateMin) * 0.15 || rateMax * 0.05;
+
+    var ctx = document.getElementById('qcBubbleChart').getContext('2d');
+    if (chart) chart.destroy();
+
+    chart = new Chart(ctx, {
+      type: 'bubble',
+      data: { datasets: datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        layout: { padding: { left: 8, right: 20, top: 8, bottom: 4 } },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: '#000F47',
+            titleFont: { family: 'Noto Sans', size: 11, weight: '600' },
+            bodyFont:  { family: 'Noto Sans', size: 11 },
+            padding: 10,
+            cornerRadius: 4,
+            callbacks: {
+              title: function (items) { return items[0].dataset.label; },
+              label: function (item) {
+                var c = carriers[item.datasetIndex];
+                var p = premium(c);
+                return [
+                  ' TIV: ' + fmtUSD(c.tiv),
+                  ' Factor: ' + c.factor.toFixed(2) + '\u00d7  |  Base Rate: ' + fmtRate(c.rate),
+                  ' Applied Rate: ' + fmtRate(appliedRate(c)) + ' / $100',
+                  ' Premium: ' + fmtUSDFull(p),
+                ];
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            min: tivMin - tivPad,
+            max: tivMax + tivPad,
+            title: {
+              display: true,
+              text: 'Total Insured Value (TIV)',
+              font: { family: 'Noto Sans', size: 10, weight: '500' },
+              color: '#7B7974',
+              padding: { top: 4 }
+            },
+            grid: { color: '#e8e6de' },
+            border: { display: false },
+            ticks: {
+              font: { family: 'Noto Sans', size: 10 },
+              color: '#7B7974',
+              callback: function (v) { return fmtUSD(v); }
+            }
+          },
+          y: {
+            min: rateMin - ratePad,
+            max: rateMax + ratePad,
+            title: {
+              display: true,
+              text: 'Applied Rate (per $100 TIV)',
+              font: { family: 'Noto Sans', size: 10, weight: '500' },
+              color: '#7B7974',
+              padding: { bottom: 4 }
+            },
+            grid: { color: '#e8e6de' },
+            border: { display: false },
+            ticks: {
+              font: { family: 'Noto Sans', size: 10 },
+              color: '#7B7974',
+              callback: function (v) { return v.toFixed(4); }
+            }
+          }
+        }
+      }
+    });
+
+    // Expose for editor.html export
+    currentChart = chart;
+  }
+
+  // ── Render detail table (sorted by premium rank, winner highlighted) ───
+  function renderTable(carriers) {
+    var tbody = document.getElementById('qc-tbody');
+    tbody.innerHTML = '';
+
+    var premiums     = carriers.map(premium);
+    var rates        = carriers.map(appliedRate);
+    var premRanks    = rankArray(premiums);
+    var rateRanks    = rankArray(rates);
+    var minPrem      = Math.min.apply(null, premiums);
+
+    // Build indexed array and sort by premium (lowest first)
+    var indexed = carriers.map(function (c, i) { return { c: c, i: i }; });
+    indexed.sort(function (a, b) { return premium(a.c) - premium(b.c); });
+
+    indexed.forEach(function (entry) {
+      var c       = entry.c;
+      var i       = entry.i;  // original index (for colors)
+      var p       = premiums[i];
+      var ar      = rates[i];
+      var diff    = p - minPrem;
+      var diffPct = minPrem > 0 ? ((p - minPrem) / minPrem * 100) : 0;
+      var diffStr, diffColor;
+      var isLowest = (diffPct === 0);
+
+      if (isLowest) {
+        diffStr = 'Lowest';
+        diffColor = MC.green1000;
+      } else if (diffPct < 10) {
+        diffStr = '+' + fmtUSD(diff) + ' (+' + diffPct.toFixed(1) + '%)';
+        diffColor = MC.gold1000;
+      } else {
+        diffStr = '+' + fmtUSD(diff) + ' (+' + diffPct.toFixed(1) + '%)';
+        diffColor = MC.red;
+      }
+
+      // Winner row gets green highlight background
+      var rowBg = isLowest ? 'background:rgba(47,117,0,0.06);' : '';
+
+      var tr = document.createElement('tr');
+      tr.style.cssText = 'border-bottom:1px solid #e8e6de;' + rowBg;
+      tr.innerHTML =
+        '<td style="padding:0.4rem 0.6rem;vertical-align:middle;white-space:nowrap;' + (isLowest ? 'font-weight:600;' : '') + '">' +
+          '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' + C[i % C.length] + ';margin-right:0.4rem;vertical-align:middle;"></span>' +
+          c.name +
+        '</td>' +
+        '<td style="padding:0.4rem 0.6rem;text-align:right;font-variant-numeric:tabular-nums;">' + fmtUSD(c.tiv) + '</td>' +
+        '<td style="padding:0.4rem 0.6rem;text-align:right;font-variant-numeric:tabular-nums;">' + fmtRate(ar) + '</td>' +
+        '<td style="padding:0.4rem 0.6rem;text-align:right;font-weight:600;color:' + MC.midnight + ';font-variant-numeric:tabular-nums;">' + fmtUSDFull(p) + '</td>' +
+        '<td style="padding:0.4rem 0.6rem;text-align:right;">' + rankBadge(rateRanks[i]) + '</td>' +
+        '<td style="padding:0.4rem 0.6rem;text-align:right;">' + rankBadge(premRanks[i]) + '</td>' +
+        '<td style="padding:0.4rem 0.6rem;text-align:right;font-size:0.66rem;font-weight:' + (isLowest ? '600' : '400') + ';color:' + diffColor + ';">' + diffStr + '</td>';
+      tbody.appendChild(tr);
+    });
+  }
+
+  // ── Main render ────────────────────────────────────────────────────────
+  window.refreshCurrentChart = function () {
+    // Check if loading from snapshot (hidden textarea has data, no input rows yet)
+    var stateEl = document.getElementById('qc-state');
+    var rows    = document.querySelectorAll('#carrier-rows .input-row');
+
+    if (stateEl.value && rows.length === 0) {
+      var saved = deserializeState();
+      if (saved && saved.length > 0) {
+        buildInputRows(saved);
+      }
+    }
+
+    var carriers = readCarriers();
+    if (carriers.length === 0) {
+      carriers = defaultCarriers.slice();
+      buildInputRows(carriers);
+    }
+
+    // Update title and subtitle
+    var title = document.getElementById('val-title').value;
+    var subtitle = document.getElementById('val-subtitle').value;
+    document.getElementById('chart-title-display').textContent = title || 'Quote Comparison';
+    document.getElementById('chart-subtitle-display').textContent = subtitle || '';
+
+    // Serialize state for snapshot save
+    serializeState();
+
+    // Render
+    renderBubbleChart(carriers);
+    renderTable(carriers);
+    applyDisplayOptions();
+  };
+
+  // ── Bootstrap ──────────────────────────────────────────────────────────
+  setTimeout(function () {
+    buildInputRows(defaultCarriers);
+    refreshCurrentChart();
+  }, 50);
+})();
+</script>
