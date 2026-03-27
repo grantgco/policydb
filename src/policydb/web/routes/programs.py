@@ -191,7 +191,7 @@ def program_tab_schematic(
                     "_from_sub_coverage": True, "_sub_coverage_id": sc["id"],
                 })
 
-    has_umbrella = any(p.get("layer_position") == "Umbrella" for p in excess)
+    has_umbrella = any(p.get("layer_position") == "Umbrella" and not p.get("_from_sub_coverage") for p in excess)
 
     # Compute notations
     for p in excess:
