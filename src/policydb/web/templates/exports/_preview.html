@@ -1,0 +1,105 @@
+<!-- HTMX partial: data preview + format picker + download -->
+
+<div class="card p-0">
+  <!-- Header -->
+  <div class="px-4 py-3 border-b border-gray-200 flex items-center justify-between flex-wrap gap-2">
+    <div class="flex items-center gap-3">
+      <h2 class="text-base font-semibold text-gray-900">{{ source }}</h2>
+      <span class="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">
+        {{ "{:,}".format(total) }} row{{ 's' if total != 1 else '' }} total{% if total > limit %}, showing first {{ limit }}{% endif %}
+      </span>
+    </div>
+
+    <!-- Format picker + download -->
+    <div class="flex items-center gap-2">
+      <div class="inline-flex rounded-md border border-gray-300 overflow-hidden" id="format-picker">
+        <button type="button" onclick="pickFormat(this, 'csv')"
+                class="fmt-btn px-3 py-1 text-xs font-medium bg-marsh text-white">CSV</button>
+        <button type="button" onclick="pickFormat(this, 'xlsx')"
+                class="fmt-btn px-3 py-1 text-xs font-medium bg-white text-gray-600 hover:bg-gray-50 border-l border-gray-300">XLSX</button>
+        <button type="button" onclick="pickFormat(this, 'json')"
+                class="fmt-btn px-3 py-1 text-xs font-medium bg-white text-gray-600 hover:bg-gray-50 border-l border-gray-300">JSON</button>
+      </div>
+      <button type="button" onclick="downloadExport()"
+              class="px-3 py-1 text-xs font-medium bg-marsh text-white rounded-md hover:bg-marsh/90 transition-colors">
+        Download
+      </button>
+    </div>
+  </div>
+
+  <!-- Column toggles -->
+  <div class="px-4 py-2 border-b border-gray-100 bg-gray-50">
+    <div class="flex items-center gap-1 flex-wrap">
+      <span class="text-xs text-gray-400 mr-1">Columns:</span>
+      <button type="button" onclick="toggleAllCols(true)" class="text-xs text-blue-600 hover:underline mr-1">All</button>
+      <button type="button" onclick="toggleAllCols(false)" class="text-xs text-blue-600 hover:underline mr-2">None</button>
+      {% for col in columns %}
+      <label class="inline-flex items-center gap-1 text-xs text-gray-600 bg-white border border-gray-200 rounded px-1.5 py-0.5 cursor-pointer hover:bg-gray-50">
+        <input type="checkbox" class="col-check rounded text-marsh" value="{{ col }}" checked>
+        {{ col }}
+      </label>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Data table -->
+  <div class="overflow-x-auto" style="max-height: 500px; overflow-y: auto;">
+    <table class="w-full text-sm">
+      <thead class="bg-gray-50 sticky top-0">
+        <tr>
+          {% for col in columns %}
+          <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap border-b border-gray-200">{{ col }}</th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-100">
+        {% for row in rows %}
+        <tr class="hover:bg-gray-50">
+          {% for col in columns %}
+          <td class="px-3 py-1.5 text-gray-700 whitespace-nowrap max-w-[300px] truncate" title="{{ row[col] | default('', true) }}">{{ row[col] | default('', true) }}</td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+        {% if not rows %}
+        <tr><td colspan="{{ columns | length }}" class="px-3 py-6 text-center text-gray-400">No data</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+(function() {
+  var _source = '{{ source }}';
+  var _format = 'csv';
+
+  window.pickFormat = function(btn, fmt) {
+    _format = fmt;
+    document.querySelectorAll('.fmt-btn').forEach(function(b) {
+      b.classList.remove('bg-marsh', 'text-white');
+      b.classList.add('bg-white', 'text-gray-600');
+    });
+    btn.classList.remove('bg-white', 'text-gray-600');
+    btn.classList.add('bg-marsh', 'text-white');
+  };
+
+  window.toggleAllCols = function(on) {
+    document.querySelectorAll('.col-check').forEach(function(cb) { cb.checked = on; });
+  };
+
+  window.downloadExport = function() {
+    var checked = [];
+    document.querySelectorAll('.col-check:checked').forEach(function(cb) {
+      checked.push(cb.value);
+    });
+    if (!checked.length) {
+      alert('Select at least one column.');
+      return;
+    }
+    var url = '/exports/download?source=' + encodeURIComponent(_source)
+            + '&format=' + _format
+            + '&columns=' + encodeURIComponent(checked.join(','));
+    window.location.href = url;
+  };
+})();
+</script>

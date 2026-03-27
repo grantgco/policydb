@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Data Export — PolicyDB{% endblock %}
+{% block content %}
+
+<div class="mb-6">
+  <h1 class="text-2xl font-bold text-gray-900">Data Export</h1>
+  <p class="text-sm text-gray-500 mt-1">Browse tables and views, preview data, and download as CSV, XLSX, or JSON.</p>
+</div>
+
+<div class="flex gap-6" style="min-height: 600px;">
+
+  <!-- Sidebar: source list -->
+  <div class="w-60 flex-shrink-0">
+    <div class="card p-0 sticky top-4">
+
+      <!-- Views -->
+      <div class="px-3 pt-3 pb-1">
+        <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Views</h3>
+      </div>
+      <div class="space-y-0.5 px-1 pb-2">
+        {% for v in sources.views %}
+        <button type="button"
+                class="export-src-btn w-full text-left px-3 py-1.5 text-sm rounded-md hover:bg-gray-100 transition-colors truncate"
+                data-source="{{ v }}"
+                hx-get="/exports/preview?source={{ v }}"
+                hx-target="#preview-area"
+                hx-swap="innerHTML"
+                onclick="setActiveSource(this)">
+          {{ v }}
+        </button>
+        {% endfor %}
+      </div>
+
+      <hr class="border-gray-200">
+
+      <!-- Tables -->
+      <div class="px-3 pt-3 pb-1">
+        <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Tables</h3>
+      </div>
+      <div class="space-y-0.5 px-1 pb-3 max-h-[400px] overflow-y-auto">
+        {% for t in sources.tables %}
+        <button type="button"
+                class="export-src-btn w-full text-left px-3 py-1.5 text-sm rounded-md hover:bg-gray-100 transition-colors truncate"
+                data-source="{{ t }}"
+                hx-get="/exports/preview?source={{ t }}"
+                hx-target="#preview-area"
+                hx-swap="innerHTML"
+                onclick="setActiveSource(this)">
+          {{ t }}
+        </button>
+        {% endfor %}
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Main: preview area -->
+  <div class="flex-1 min-w-0" id="preview-area">
+    <div class="card p-12 text-center">
+      <svg class="w-12 h-12 text-gray-300 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 7v10c0 2 1 3 3 3h10c2 0 3-1 3-3V7M4 7c0-2 1-3 3-3h10c2 0 3 1 3 3M4 7h16M9 11h6M9 15h4"/>
+      </svg>
+      <p class="text-gray-400 text-sm">Select a table or view to preview its data.</p>
+    </div>
+  </div>
+
+</div>
+
+<script>
+function setActiveSource(btn) {
+  document.querySelectorAll('.export-src-btn').forEach(function(b) {
+    b.classList.remove('bg-blue-50', 'text-blue-700', 'font-semibold');
+  });
+  btn.classList.add('bg-blue-50', 'text-blue-700', 'font-semibold');
+}
+</script>
+
+{% endblock %}
