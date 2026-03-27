@@ -347,11 +347,11 @@ def assign_to_program_v2(
     if not policy:
         return JSONResponse({"ok": False, "error": "Policy not found"}, status_code=404)
 
-    # Set tower_group for backward compat with schematic endpoints
+    # Set program_id FK + tower_group for backward compat with schematic endpoints
     conn.execute(
-        """UPDATE policies SET tower_group = ?, layer_position = COALESCE(layer_position, 'Primary')
+        """UPDATE policies SET program_id = ?, tower_group = ?, layer_position = COALESCE(layer_position, 'Primary')
            WHERE policy_uid = ?""",
-        (program["name"], policy_uid),
+        (program["id"], program["name"], policy_uid),
     )
     conn.commit()
     logger.info("Assigned %s to program %s", policy_uid, program_uid)

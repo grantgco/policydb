@@ -1506,6 +1506,36 @@ def init_db(path: Path | None = None) -> None:
     except Exception as e:
         logger.warning("Carrier normalization failed: %s", e)
 
+    # Data hygiene: relink orphaned policies to programs (tower_group matches but program_id is NULL)
+    try:
+        _before_relink = conn.total_changes
+        conn.execute("""
+            UPDATE policies
+            SET program_id = (
+                SELECT pg.id FROM programs pg
+                WHERE pg.client_id = policies.client_id
+                  AND LOWER(TRIM(pg.name)) = LOWER(TRIM(policies.tower_group))
+                  AND pg.archived = 0
+                LIMIT 1
+            )
+            WHERE tower_group IS NOT NULL AND tower_group != ''
+              AND (is_program = 0 OR is_program IS NULL)
+              AND program_id IS NULL
+              AND archived = 0
+              AND EXISTS (
+                  SELECT 1 FROM programs pg
+                  WHERE pg.client_id = policies.client_id
+                    AND LOWER(TRIM(pg.name)) = LOWER(TRIM(policies.tower_group))
+                    AND pg.archived = 0
+              )
+        """)
+        _relinked = conn.total_changes - _before_relink
+        if _relinked:
+            conn.commit()
+            logger.info("Relinked %d orphaned policies to programs", _relinked)
+    except Exception as e:
+        logger.warning("Program relink failed: %s", e)
+
     _create_views(conn)
     conn.commit()
 
