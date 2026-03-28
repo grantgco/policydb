@@ -64,9 +64,15 @@
       <div class="card p-4">
         <div class="flex items-center justify-between mb-3">
           <h2 class="text-sm font-semibold text-gray-900">Activity Timeline</h2>
-          <span class="text-xs text-gray-400">
-            {{ activities|length }} activities{% if total_hours %} &middot; {{ total_hours }}h{% endif %}
-          </span>
+          <div class="flex items-center gap-2">
+            <span class="text-xs text-gray-400">
+              {{ activities|length }} activities{% if total_hours %} &middot; {{ total_hours }}h{% endif %}
+            </span>
+            <button onclick="openLinkActivities()"
+                    class="text-xs text-blue-600 border border-blue-200 rounded px-2 py-1 hover:bg-blue-50 transition-colors no-print">
+              + Link Activity
+            </button>
+          </div>
         </div>
 
         {% if activities %}
@@ -230,4 +236,6 @@
     </div>
   </div>
 </div>
+
+{% include "issues/_link_activities_slideover.html" %}
 {% endblock %}

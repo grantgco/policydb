@@ -97,6 +97,7 @@ def activity_log(
     follow_up_date: str = Form(""),
     duration_hours: str = Form(""),
     disposition: str = Form(""),
+    issue_id: int = Form(0),
     pulse_oob: str = Form(""),
     conn=Depends(get_db),
 ):
@@ -123,41 +124,14 @@ def activity_log(
     account_exec = cfg.get("default_account_exec", "Grant")
     cursor = conn.execute(
         """INSERT INTO activity_log
-           (activity_date, client_id, policy_id, activity_type, contact_person, contact_id, subject, details, follow_up_date, account_exec, duration_hours, disposition)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+           (activity_date, client_id, policy_id, activity_type, contact_person, contact_id, subject, details, follow_up_date, account_exec, duration_hours, disposition, issue_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (date.today().isoformat(), client_id, policy_id or None, activity_type,
          contact_person or None, _contact_id, subject, details or None,
          follow_up_date or None, account_exec, round_duration(duration_hours),
-         disposition.strip() or None),
+         disposition.strip() or None, issue_id or None),
     )
     new_id = cursor.lastrowid
-
-    # Auto-link to open issue: if this policy (or its program) has exactly one open issue,
-    # auto-thread this activity into it. If multiple, leave unlinked (user picks in UI).
-    if policy_id:
-        # Check for program membership
-        prog_row = conn.execute(
-            "SELECT program_id FROM policies WHERE id=?", (policy_id,)
-        ).fetchone()
-        prog_id = prog_row["program_id"] if prog_row and prog_row["program_id"] else None
-
-        # Find open issues: by policy_id OR by program_id
-        open_issues = conn.execute("""
-            SELECT id FROM activity_log
-            WHERE item_kind = 'issue'
-              AND issue_id IS NULL
-              AND (issue_status IS NULL OR issue_status NOT IN ('Resolved', 'Closed'))
-              AND (
-                policy_id = ?
-                OR (? IS NOT NULL AND program_id = ?)
-              )
-        """, (policy_id, prog_id, prog_id)).fetchall()
-
-        if len(open_issues) == 1:
-            conn.execute(
-                "UPDATE activity_log SET issue_id = ? WHERE id = ?",
-                (open_issues[0]["id"], new_id),
-            )
 
     conn.commit()
     logger.info("Activity created for client %d: %s", client_id, activity_type)
@@ -1029,7 +1003,7 @@ def bulk_action(
 def followups_plan(request: Request, week_start: str = "", catchup: int = 0, conn=Depends(get_db)):
     """Plan Week view — visualize and rebalance follow-up workload."""
     from datetime import date, timedelta
-    from policydb.queries import get_week_followups, get_overdue_for_plan_week
+    from policydb.queries import get_week_followups, get_overdue_for_plan_week, get_escalation_suggestions
     from collections import defaultdict
 
     # Default to current week's Monday
@@ -1075,6 +1049,9 @@ def followups_plan(request: Request, week_start: str = "", catchup: int = 0, con
     next_week = (mon + timedelta(days=7)).isoformat()
     this_monday = (today - timedelta(days=today.weekday())).isoformat()
 
+    escalation_suggestions = get_escalation_suggestions(conn)
+    all_clients = [dict(r) for r in conn.execute("SELECT id, name FROM clients ORDER BY name").fetchall()]
+
     return templates.TemplateResponse("followups/plan.html", {
         "request": request,
         "active": "followups",
@@ -1088,7 +1065,50 @@ def followups_plan(request: Request, week_start: str = "", catchup: int = 0, con
         "total_items": len(items),
         "overdue_backlog": overdue_backlog,
         "catchup": catchup,
+        "escalation_suggestions": escalation_suggestions,
+        "issue_severities": cfg.get("issue_severities", []),
+        "all_clients": all_clients,
     })
+
+
+@router.post("/followups/plan/dismiss-escalation", response_class=HTMLResponse)
+def dismiss_escalation(
+    request: Request,
+    policy_id: int = Form(...),
+    trigger_type: str = Form(...),
+    conn=Depends(get_db),
+):
+    """Dismiss an escalation suggestion."""
+    conn.execute(
+        "INSERT OR REPLACE INTO escalation_dismissals (policy_id, trigger_type, dismissed_at) VALUES (?, ?, datetime('now'))",
+        (policy_id, trigger_type),
+    )
+    conn.commit()
+    return HTMLResponse("")
+
+
+@router.post("/followups/plan/dismiss-all-escalations", response_class=HTMLResponse)
+def dismiss_all_escalations(
+    request: Request,
+    suggestions: str = Form(""),
+    conn=Depends(get_db),
+):
+    """Dismiss all current escalation suggestions."""
+    import json
+    try:
+        items = json.loads(suggestions) if suggestions else []
+    except (json.JSONDecodeError, TypeError):
+        items = []
+    for item in items:
+        pid = item.get("policy_id")
+        tt = item.get("trigger_type")
+        if pid and tt:
+            conn.execute(
+                "INSERT OR REPLACE INTO escalation_dismissals (policy_id, trigger_type, dismissed_at) VALUES (?, ?, datetime('now'))",
+                (pid, tt),
+            )
+    conn.commit()
+    return HTMLResponse("")
 
 
 @router.post("/followups/plan/spread", response_class=HTMLResponse)

@@ -1,0 +1,371 @@
+{# Issue Create Slideover — unified panel for creating issues from any context.
+   JS entry point: openIssueCreateSlideover(opts)
+   Opts: client_id, client_name, policy_id, policy_label, subject, severity,
+         context_label, context_subject, context_detail,
+         source_activity_id, source_activity_ids
+   Requires in template context: issue_severities, all_clients
+#}
+
+{# ── Backdrop ── #}
+<div id="issue-create-backdrop"
+     class="fixed inset-0 bg-black/30 z-40 hidden"
+     onclick="closeIssueCreateSlideover()"></div>
+
+{# ── Panel ── #}
+<div id="issue-create-panel"
+     class="fixed top-0 right-0 bottom-0 w-[480px] max-sm:w-full bg-white shadow-xl z-50 flex flex-col hidden">
+
+  {# ── Header ── #}
+  <div class="flex items-center justify-between p-4 border-b shrink-0">
+    <h2 class="text-base font-semibold text-gray-900">Create Issue</h2>
+    <button onclick="closeIssueCreateSlideover()"
+            class="text-gray-400 hover:text-gray-600 transition-colors"
+            aria-label="Close panel">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+      </svg>
+    </button>
+  </div>
+
+  {# ── Scrollable content ── #}
+  <div class="flex-1 overflow-y-auto p-4 space-y-4">
+
+    {# ── Context banner (hidden by default, shown when escalating from activity/suggestion) ── #}
+    <div id="issue-create-context-banner" class="hidden rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5">
+      <div class="flex items-start gap-2">
+        <svg class="w-4 h-4 text-blue-500 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+        </svg>
+        <div class="min-w-0">
+          <p id="issue-create-context-label" class="text-xs font-medium text-blue-800"></p>
+          <p id="issue-create-context-subject" class="text-xs text-blue-700 font-semibold mt-0.5 truncate"></p>
+          <p id="issue-create-context-detail" class="text-xs text-blue-600 mt-0.5"></p>
+        </div>
+      </div>
+    </div>
+
+    {# ── Title ── #}
+    <div>
+      <label class="text-xs font-medium text-gray-600 mb-1 block" for="issue-create-subject">Title <span class="text-red-400">*</span></label>
+      <input type="text" id="issue-create-subject" name="subject" required
+             class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:border-marsh"
+             placeholder="Brief description of the issue">
+    </div>
+
+    {# ── Client ── #}
+    <div>
+      <label class="text-xs font-medium text-gray-600 mb-1 block">Client</label>
+      {# Read-only display shown when client is inherited from context #}
+      <div id="issue-create-client-display" class="hidden">
+        <div class="flex items-center gap-2 text-sm border border-gray-200 rounded-lg px-3 py-2 bg-gray-50">
+          <span id="issue-create-client-name" class="text-gray-900 flex-1"></span>
+          <span class="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">locked</span>
+        </div>
+        <input type="hidden" id="issue-create-client-id-hidden" name="client_id">
+      </div>
+      {# Editable select shown when creating from scratch #}
+      <div id="issue-create-client-select-wrap">
+        <select id="issue-create-client-select" name="client_id"
+                class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:border-marsh bg-white">
+          <option value="">Select client…</option>
+          {% for cl in all_clients %}
+            <option value="{{ cl.id }}">{{ cl.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    {# ── Policy (read-only, shown only when inherited from context) ── #}
+    <div id="issue-create-policy-row" class="hidden">
+      <label class="text-xs font-medium text-gray-600 mb-1 block">Policy</label>
+      <div class="flex items-center gap-2 text-sm border border-gray-200 rounded-lg px-3 py-2 bg-gray-50">
+        <span id="issue-create-policy-label" class="text-gray-900 flex-1 font-mono text-xs"></span>
+        <span class="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">locked</span>
+      </div>
+      <input type="hidden" id="issue-create-policy-id" name="policy_id">
+    </div>
+
+    {# ── Severity ── #}
+    <div>
+      <label class="text-xs font-medium text-gray-600 mb-2 block">Severity</label>
+      <div class="grid grid-cols-2 gap-2" id="issue-create-severity-group">
+        {% for sev in issue_severities %}
+        <label class="relative flex items-center gap-2.5 cursor-pointer p-3 rounded-lg border transition-colors
+          {% if sev.color == 'red' %}border-red-200 hover:bg-red-50
+          {% elif sev.color == 'amber' %}border-amber-200 hover:bg-amber-50
+          {% elif sev.color == 'blue' %}border-blue-200 hover:bg-blue-50
+          {% else %}border-gray-200 hover:bg-gray-50{% endif %}
+          has-[:checked]:ring-2
+          {% if sev.color == 'red' %}has-[:checked]:ring-red-400 has-[:checked]:bg-red-50
+          {% elif sev.color == 'amber' %}has-[:checked]:ring-amber-400 has-[:checked]:bg-amber-50
+          {% elif sev.color == 'blue' %}has-[:checked]:ring-blue-400 has-[:checked]:bg-blue-50
+          {% else %}has-[:checked]:ring-gray-400 has-[:checked]:bg-gray-50{% endif %}">
+          <input type="radio" name="severity" value="{{ sev.label }}"
+                 {% if sev.label == 'Normal' %}checked{% endif %}
+                 class="sr-only">
+          <span class="w-2.5 h-2.5 rounded-full flex-shrink-0
+            {% if sev.color == 'red' %}bg-red-500
+            {% elif sev.color == 'amber' %}bg-amber-500
+            {% elif sev.color == 'blue' %}bg-blue-500
+            {% else %}bg-gray-400{% endif %}"></span>
+          <span class="flex-1 min-w-0">
+            <span class="text-sm font-medium
+              {% if sev.color == 'red' %}text-red-800
+              {% elif sev.color == 'amber' %}text-amber-800
+              {% elif sev.color == 'blue' %}text-blue-800
+              {% else %}text-gray-700{% endif %}">{{ sev.label }}</span>
+            <span class="text-xs text-gray-400 ml-1">{{ sev.sla_days }}d SLA</span>
+          </span>
+        </label>
+        {% endfor %}
+      </div>
+    </div>
+
+    {# ── Details ── #}
+    <div>
+      <label class="text-xs font-medium text-gray-600 mb-1 block" for="issue-create-details">Details <span class="text-gray-400 font-normal">(optional)</span></label>
+      <textarea id="issue-create-details" name="details" rows="4"
+                class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:border-marsh resize-y"
+                placeholder="Additional context, steps to resolve, or relevant information…"></textarea>
+    </div>
+
+    {# ── Hidden fields ── #}
+    <input type="hidden" id="issue-create-source-activity-id" name="source_activity_id">
+    <input type="hidden" id="issue-create-source-activity-ids" name="source_activity_ids">
+
+    {# ── Auto-link confirmation bar (shown when source_activity_id is set) ── #}
+    <div id="issue-create-link-confirm" class="hidden rounded-lg border border-green-200 bg-green-50 px-3 py-2.5">
+      <div class="flex items-center gap-2">
+        <svg class="w-4 h-4 text-green-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/>
+        </svg>
+        <p id="issue-create-link-confirm-text" class="text-xs text-green-800 font-medium"></p>
+      </div>
+    </div>
+
+  </div>
+
+  {# ── Sticky footer ── #}
+  <div class="shrink-0 border-t p-4 flex items-center gap-3 bg-white">
+    <button type="button" id="issue-create-submit-btn"
+            onclick="submitIssueCreateForm()"
+            class="flex-1 text-sm font-medium text-white bg-marsh hover:bg-marsh-light rounded-lg py-2 transition-colors">
+      Create Issue
+    </button>
+    <button type="button" onclick="closeIssueCreateSlideover()"
+            class="text-sm font-medium text-gray-600 hover:text-gray-800 px-4 py-2 transition-colors">
+      Cancel
+    </button>
+  </div>
+
+</div>
+
+{# ── Script ── #}
+<script>
+(function() {
+
+  window.openIssueCreateSlideover = function(opts) {
+    opts = opts || {};
+
+    // Reset form fields
+    var subjectEl = document.getElementById('issue-create-subject');
+    var detailsEl = document.getElementById('issue-create-details');
+    var sourceIdEl = document.getElementById('issue-create-source-activity-id');
+    var sourceIdsEl = document.getElementById('issue-create-source-activity-ids');
+
+    if (subjectEl) subjectEl.value = '';
+    if (detailsEl) detailsEl.value = '';
+    if (sourceIdEl) sourceIdEl.value = '';
+    if (sourceIdsEl) sourceIdsEl.value = '';
+
+    // Reset severity to default (Normal)
+    var radios = document.querySelectorAll('#issue-create-severity-group input[type="radio"]');
+    radios.forEach(function(r) {
+      r.checked = (r.value === 'Normal');
+    });
+
+    // ── Client field ──
+    var clientDisplay = document.getElementById('issue-create-client-display');
+    var clientSelectWrap = document.getElementById('issue-create-client-select-wrap');
+    var clientNameEl = document.getElementById('issue-create-client-name');
+    var clientIdHidden = document.getElementById('issue-create-client-id-hidden');
+    var clientSelect = document.getElementById('issue-create-client-select');
+
+    if (opts.client_id) {
+      // Inherited — show read-only
+      if (clientNameEl) clientNameEl.textContent = opts.client_name || ('Client #' + opts.client_id);
+      if (clientIdHidden) clientIdHidden.value = opts.client_id;
+      if (clientSelect) clientSelect.name = ''; // disable from form submission
+      if (clientIdHidden) clientIdHidden.name = 'client_id';
+      if (clientDisplay) clientDisplay.classList.remove('hidden');
+      if (clientSelectWrap) clientSelectWrap.classList.add('hidden');
+    } else {
+      // Editable
+      if (clientSelect) {
+        clientSelect.value = '';
+        clientSelect.name = 'client_id';
+      }
+      if (clientIdHidden) clientIdHidden.name = '';
+      if (clientDisplay) clientDisplay.classList.add('hidden');
+      if (clientSelectWrap) clientSelectWrap.classList.remove('hidden');
+    }
+
+    // ── Policy field ──
+    var policyRow = document.getElementById('issue-create-policy-row');
+    var policyLabel = document.getElementById('issue-create-policy-label');
+    var policyIdInput = document.getElementById('issue-create-policy-id');
+
+    if (opts.policy_id) {
+      if (policyLabel) policyLabel.textContent = opts.policy_label || opts.policy_id;
+      if (policyIdInput) policyIdInput.value = opts.policy_id;
+      if (policyRow) policyRow.classList.remove('hidden');
+    } else {
+      if (policyIdInput) policyIdInput.value = '';
+      if (policyRow) policyRow.classList.add('hidden');
+    }
+
+    // ── Subject pre-fill ──
+    if (opts.subject && subjectEl) subjectEl.value = opts.subject;
+
+    // ── Severity pre-select ──
+    if (opts.severity) {
+      radios.forEach(function(r) {
+        r.checked = (r.value === opts.severity);
+      });
+    }
+
+    // ── Context banner ──
+    var banner = document.getElementById('issue-create-context-banner');
+    var bannerLabel = document.getElementById('issue-create-context-label');
+    var bannerSubject = document.getElementById('issue-create-context-subject');
+    var bannerDetail = document.getElementById('issue-create-context-detail');
+
+    if (opts.context_label || opts.context_subject || opts.context_detail) {
+      if (bannerLabel) bannerLabel.textContent = opts.context_label || '';
+      if (bannerSubject) bannerSubject.textContent = opts.context_subject || '';
+      if (bannerDetail) bannerDetail.textContent = opts.context_detail || '';
+      if (banner) banner.classList.remove('hidden');
+    } else {
+      if (banner) banner.classList.add('hidden');
+    }
+
+    // ── Source activity link ──
+    var linkConfirm = document.getElementById('issue-create-link-confirm');
+    var linkConfirmText = document.getElementById('issue-create-link-confirm-text');
+
+    if (opts.source_activity_ids) {
+      if (sourceIdsEl) sourceIdsEl.value = opts.source_activity_ids;
+      var count = opts.source_activity_ids.split(',').filter(function(x) { return x.trim(); }).length;
+      if (linkConfirmText) linkConfirmText.textContent = 'Will auto-link ' + count + ' activit' + (count === 1 ? 'y' : 'ies') + ' to this issue';
+      if (linkConfirm) linkConfirm.classList.remove('hidden');
+    } else if (opts.source_activity_id) {
+      if (sourceIdEl) sourceIdEl.value = opts.source_activity_id;
+      if (linkConfirmText) linkConfirmText.textContent = 'Will auto-link this activity to the new issue';
+      if (linkConfirm) linkConfirm.classList.remove('hidden');
+    } else {
+      if (linkConfirm) linkConfirm.classList.add('hidden');
+    }
+
+    // Show panel and backdrop
+    var panel = document.getElementById('issue-create-panel');
+    var backdrop = document.getElementById('issue-create-backdrop');
+    if (panel) panel.classList.remove('hidden');
+    if (backdrop) backdrop.classList.remove('hidden');
+    document.body.style.overflow = 'hidden';
+
+    // Focus subject field
+    setTimeout(function() {
+      if (subjectEl) subjectEl.focus();
+    }, 50);
+  };
+
+  window.closeIssueCreateSlideover = function() {
+    var panel = document.getElementById('issue-create-panel');
+    var backdrop = document.getElementById('issue-create-backdrop');
+    if (panel) panel.classList.add('hidden');
+    if (backdrop) backdrop.classList.add('hidden');
+    document.body.style.overflow = '';
+  };
+
+  window.submitIssueCreateForm = function() {
+    var subject = (document.getElementById('issue-create-subject') || {}).value || '';
+    if (!subject.trim()) {
+      var subjectEl = document.getElementById('issue-create-subject');
+      if (subjectEl) {
+        subjectEl.focus();
+        subjectEl.classList.add('border-red-400');
+        setTimeout(function() { subjectEl.classList.remove('border-red-400'); }, 2000);
+      }
+      return;
+    }
+
+    // Build form data
+    var formData = new FormData();
+    formData.append('subject', subject.trim());
+
+    // Client id — prefer hidden (locked) over select
+    var clientIdHidden = document.getElementById('issue-create-client-id-hidden');
+    var clientSelect = document.getElementById('issue-create-client-select');
+    var clientId = '';
+    if (clientIdHidden && clientIdHidden.name === 'client_id') {
+      clientId = clientIdHidden.value;
+    } else if (clientSelect && !clientSelect.classList.contains('hidden')) {
+      clientId = clientSelect.value;
+    }
+    if (clientId) formData.append('client_id', clientId);
+
+    // Policy id
+    var policyIdInput = document.getElementById('issue-create-policy-id');
+    if (policyIdInput && policyIdInput.value) formData.append('policy_id', policyIdInput.value);
+
+    // Severity
+    var checkedSev = document.querySelector('#issue-create-severity-group input[type="radio"]:checked');
+    if (checkedSev) formData.append('severity', checkedSev.value);
+
+    // Details
+    var detailsEl = document.getElementById('issue-create-details');
+    if (detailsEl && detailsEl.value.trim()) formData.append('details', detailsEl.value.trim());
+
+    // Source activity links
+    var sourceIdEl = document.getElementById('issue-create-source-activity-id');
+    var sourceIdsEl = document.getElementById('issue-create-source-activity-ids');
+    if (sourceIdsEl && sourceIdsEl.value) formData.append('source_activity_ids', sourceIdsEl.value);
+    else if (sourceIdEl && sourceIdEl.value) formData.append('source_activity_id', sourceIdEl.value);
+
+    // Disable button to prevent double-submit
+    var btn = document.getElementById('issue-create-submit-btn');
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'Creating…';
+    }
+
+    fetch('/issues/create', {
+      method: 'POST',
+      body: formData
+    })
+    .then(function(r) {
+      if (!r.ok) throw new Error('Server error ' + r.status);
+      return r.text();
+    })
+    .then(function(html) {
+      closeIssueCreateSlideover();
+      // Swap action center issues tab content if visible
+      var tabContent = document.getElementById('ac-tab-content');
+      if (tabContent && html) {
+        tabContent.innerHTML = html;
+        if (typeof htmx !== 'undefined') htmx.process(tabContent);
+      }
+      if (typeof showToast === 'function') showToast('Issue created', true);
+    })
+    .catch(function(err) {
+      if (typeof showToast === 'function') showToast('Failed to create issue', false);
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = 'Create Issue';
+      }
+    });
+  };
+
+})();
+</script>

@@ -18,6 +18,7 @@ from policydb.activity_review import (
 from policydb.queries import (
     get_activities,
     get_all_followups,
+    get_client_activity_board,
     get_dashboard_hours_this_month,
     get_suggested_followups,
     get_time_summary,
@@ -188,6 +189,31 @@ def _followups_ctx(conn, window: int, activity_type: str, q: str,
     stale_threshold = cfg.get("stale_threshold_days", 14)
     dispositions = cfg.get("follow_up_dispositions", [])
     today = date.today()
+
+    # ── Enrich activity-sourced items with linked issue data ──────────
+    # For activity items, look up their issue_id (if any) from activity_log,
+    # then attach the linked issue's uid/subject/severity for badge display.
+    activity_ids = [item["id"] for item in all_items if item.get("source") == "activity" and item.get("id")]
+    if activity_ids:
+        ph = ",".join("?" * len(activity_ids))
+        issue_links = conn.execute(
+            f"""SELECT a.id AS activity_id, a.issue_id,
+                       iss.issue_uid AS linked_issue_uid,
+                       iss.subject AS linked_issue_subject,
+                       iss.issue_severity AS linked_issue_severity
+                FROM activity_log a
+                LEFT JOIN activity_log iss ON a.issue_id = iss.id AND iss.item_kind = 'issue'
+                WHERE a.id IN ({ph})""",
+            activity_ids,
+        ).fetchall()
+        _issue_link_map = {r["activity_id"]: dict(r) for r in issue_links}
+        for item in all_items:
+            if item.get("source") == "activity" and item.get("id"):
+                link = _issue_link_map.get(item["id"])
+                if link:
+                    item["linked_issue_uid"] = link.get("linked_issue_uid")
+                    item["linked_issue_subject"] = link.get("linked_issue_subject")
+                    item["linked_issue_severity"] = link.get("linked_issue_severity")
 
     buckets: dict[str, list[dict]] = {
         "triage": [], "today": [], "overdue": [], "stale": [],
@@ -413,7 +439,8 @@ def _inbox_ctx(conn, show_processed: bool = False) -> dict:
 
 
 def _activities_ctx(conn, days: int = 90, activity_type: str = "",
-                    client_id: int = 0, q: str = "") -> dict:
+                    client_id: int = 0, q: str = "",
+                    view_mode: str = "board") -> dict:
     """Build activities tab context."""
     from policydb.web.routes.activities import _attach_pc_emails
 
@@ -433,6 +460,28 @@ def _activities_ctx(conn, days: int = 90, activity_type: str = "",
             or q_lower in (r.get("details") or "").lower()
         )]
 
+    # Enrich activities with linked issue info (issue_uid, subject, severity)
+    issue_ids = list({r["issue_id"] for r in rows if r.get("issue_id")})
+    issue_info: dict = {}
+    if issue_ids:
+        ph = ",".join("?" * len(issue_ids))
+        for ir in conn.execute(
+            f"SELECT id, issue_uid, subject, issue_severity FROM activity_log "
+            f"WHERE id IN ({ph}) AND item_kind = 'issue'",
+            issue_ids,
+        ).fetchall():
+            issue_info[ir["id"]] = dict(ir)
+    for r in rows:
+        iss = issue_info.get(r.get("issue_id"))
+        if iss:
+            r["linked_issue_uid"] = iss["issue_uid"]
+            r["linked_issue_subject"] = iss["subject"]
+            r["linked_issue_severity"] = iss["issue_severity"]
+        else:
+            r["linked_issue_uid"] = None
+            r["linked_issue_subject"] = None
+            r["linked_issue_severity"] = None
+
     time_summary = get_time_summary(
         conn, days=days,
         client_id=client_id or None,
@@ -443,6 +492,15 @@ def _activities_ctx(conn, days: int = 90, activity_type: str = "",
     ).fetchall()]
     dispositions = cfg.get("follow_up_dispositions", [])
     disposition_labels = [d["label"] if isinstance(d, dict) else d for d in dispositions]
+
+    # Build kanban board data
+    client_columns = get_client_activity_board(
+        conn, days=days,
+        activity_type=activity_type or None,
+        q=q or None,
+        client_id=client_id or None,
+    )
+
     return {
         "activities": rows,
         "time_summary": time_summary,
@@ -450,9 +508,12 @@ def _activities_ctx(conn, days: int = 90, activity_type: str = "",
         "activity_type": activity_type,
         "client_id": client_id,
         "q": q,
+        "view_mode": view_mode or "board",
+        "client_columns": client_columns,
         "activity_types": cfg.get("activity_types", []),
         "disposition_labels": disposition_labels,
         "all_clients": all_clients,
+        "issue_severities": cfg.get("issue_severities", []),
     }
 
 
@@ -709,6 +770,7 @@ def action_center_page(request: Request, tab: str = "", conn=Depends(get_db)):
         "nudge_due_count": nudge_due_count,
         "review_pending_count": review_pending_count,
         "issues_count": issues_count,
+        "issue_severities": cfg.get("issue_severities", []),
         **sidebar,
         **tab_ctx,
         **health_ctx,
@@ -750,12 +812,14 @@ def ac_activities(
     request: Request,
     days: int = 90,
     activity_type: str = "",
-    client_id: int = 0,
+    client_id: str = "",
     q: str = "",
+    view_mode: str = "board",
     conn=Depends(get_db),
 ):
+    _cid = int(client_id) if str(client_id).strip().isdigit() else 0
     ctx = _activities_ctx(conn, days=days, activity_type=activity_type,
-                          client_id=client_id, q=q)
+                          client_id=_cid, q=q, view_mode=view_mode)
     ctx["request"] = request
     return templates.TemplateResponse("action_center/_activities.html", ctx)
 

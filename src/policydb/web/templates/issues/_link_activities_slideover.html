@@ -1,0 +1,151 @@
+{# Link Activities Slideover — attach existing activities to an issue #}
+
+{# Backdrop #}
+<div id="link-activities-backdrop"
+     class="fixed inset-0 bg-black/30 z-40 hidden"
+     onclick="closeLinkActivities()"></div>
+
+{# Panel #}
+<div id="link-activities-panel"
+     class="fixed top-0 right-0 bottom-0 w-[480px] z-50 hidden flex-col bg-white shadow-xl">
+
+  {# Header #}
+  <div class="flex items-start justify-between px-5 py-4 border-b border-gray-200 flex-shrink-0">
+    <div>
+      <h2 class="text-sm font-semibold text-gray-900">Link Activities</h2>
+      <p class="text-xs text-gray-500 mt-0.5">Attach existing activities to this issue</p>
+    </div>
+    <button type="button" onclick="closeLinkActivities()"
+            class="text-gray-400 hover:text-gray-600 transition-colors ml-4 mt-0.5">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+      </svg>
+    </button>
+  </div>
+
+  {# Filters #}
+  <div class="px-4 py-3 border-b border-gray-200 flex-shrink-0 space-y-2">
+    {# Search #}
+    <input type="text"
+           id="link-act-search"
+           name="q"
+           placeholder="Search activities..."
+           hx-get="/issues/{{ issue.id }}/linkable-activities"
+           hx-trigger="input changed delay:300ms"
+           hx-target="#linkable-list"
+           hx-include="#link-act-type, #link-act-days"
+           class="w-full text-xs border border-gray-200 rounded px-3 py-1.5 bg-white focus:ring-1 focus:ring-marsh focus:border-marsh placeholder-gray-300">
+
+    {# Type + Date row #}
+    <div class="flex gap-2">
+      <select id="link-act-type"
+              name="activity_type"
+              hx-get="/issues/{{ issue.id }}/linkable-activities"
+              hx-trigger="change"
+              hx-target="#linkable-list"
+              hx-include="#link-act-search, #link-act-days"
+              class="flex-1 text-xs border border-gray-200 rounded px-2 py-1.5 bg-white focus:ring-1 focus:ring-marsh focus:border-marsh">
+        <option value="">All Types</option>
+        {% for at in activity_types %}
+        <option value="{{ at }}">{{ at }}</option>
+        {% endfor %}
+      </select>
+
+      <select id="link-act-days"
+              name="days"
+              hx-get="/issues/{{ issue.id }}/linkable-activities"
+              hx-trigger="change"
+              hx-target="#linkable-list"
+              hx-include="#link-act-search, #link-act-type"
+              class="flex-1 text-xs border border-gray-200 rounded px-2 py-1.5 bg-white focus:ring-1 focus:ring-marsh focus:border-marsh">
+        <option value="7">Last 7 Days</option>
+        <option value="30" selected>Last 30 Days</option>
+        <option value="90">Last 90 Days</option>
+      </select>
+    </div>
+
+    <p class="text-[10px] text-gray-400">Showing unlinked activities for {{ issue.client_name }}</p>
+  </div>
+
+  {# Activity list #}
+  <div id="linkable-list"
+       class="flex-1 overflow-y-auto"
+       hx-get="/issues/{{ issue.id }}/linkable-activities"
+       hx-trigger="load">
+    <p class="text-sm text-gray-400 text-center py-8">Loading activities...</p>
+  </div>
+
+  {# Sticky footer #}
+  <div class="flex-shrink-0 border-t border-gray-200 px-4 py-3 bg-white">
+    <div class="flex items-center justify-between gap-3">
+      <span id="link-selected-count" class="text-xs text-gray-500">0 selected</span>
+      <div class="flex items-center gap-2">
+        <button type="button"
+                onclick="closeLinkActivities()"
+                class="text-xs text-gray-500 px-3 py-1.5 rounded border border-gray-200 hover:bg-gray-50 transition-colors">
+          Cancel
+        </button>
+        <form method="post" action="/issues/{{ issue.id }}/link-activities" id="link-activities-form">
+          <input type="hidden" id="link-activity-ids" name="activity_ids">
+          <button type="submit"
+                  id="link-activities-submit"
+                  disabled
+                  class="text-xs bg-marsh text-white px-4 py-1.5 rounded font-medium hover:bg-marsh-light transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+            Link Selected
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function openLinkActivities() {
+  var panel = document.getElementById('link-activities-panel');
+  var backdrop = document.getElementById('link-activities-backdrop');
+  panel.style.display = 'flex';
+  backdrop.style.display = '';
+  /* Ensure HTMX loads the list on first open — if already loaded, this is a no-op */
+  var list = document.getElementById('linkable-list');
+  if (list && list.dataset.loaded !== 'true') {
+    htmx.process(list);
+    list.dataset.loaded = 'true';
+  }
+}
+
+function closeLinkActivities() {
+  document.getElementById('link-activities-panel').style.display = 'none';
+  document.getElementById('link-activities-backdrop').style.display = 'none';
+}
+
+function updateLinkCount() {
+  var list = document.getElementById('linkable-list');
+  if (!list) return;
+  var checked = list.querySelectorAll('input[name="activity_ids"]:checked');
+  var count = checked.length;
+  var ids = Array.from(checked).map(function(cb) { return cb.value; }).join(',');
+
+  var countEl = document.getElementById('link-selected-count');
+  if (countEl) countEl.textContent = count + ' selected';
+
+  var idsInput = document.getElementById('link-activity-ids');
+  if (idsInput) idsInput.value = ids;
+
+  var submitBtn = document.getElementById('link-activities-submit');
+  if (submitBtn) submitBtn.disabled = count === 0;
+}
+
+/* Event delegation — catch checkbox changes even after HTMX re-renders the list */
+document.addEventListener('change', function(e) {
+  if (e.target && e.target.name === 'activity_ids') {
+    updateLinkCount();
+  }
+});
+
+/* Reset count when list is refreshed via HTMX */
+document.addEventListener('htmx:afterSwap', function(e) {
+  if (e.target && e.target.id === 'linkable-list') {
+    updateLinkCount();
+  }
+});
+</script>

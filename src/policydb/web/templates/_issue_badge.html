@@ -1,0 +1,17 @@
+{# Reusable issue badge pill — expects: linked_issue_uid, linked_issue_subject, linked_issue_severity #}
+{% if linked_issue_uid %}
+<a href="/issues/{{ linked_issue_uid }}"
+   class="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full border no-print
+     {% if linked_issue_severity == 'Critical' %}bg-red-50 text-red-700 border-red-200
+     {% elif linked_issue_severity == 'High' %}bg-amber-50 text-amber-700 border-amber-200
+     {% elif linked_issue_severity == 'Normal' %}bg-blue-50 text-blue-700 border-blue-200
+     {% else %}bg-gray-100 text-gray-600 border-gray-200{% endif %}"
+   title="{{ linked_issue_subject }}">
+  <span class="w-1.5 h-1.5 rounded-full flex-shrink-0
+    {% if linked_issue_severity == 'Critical' %}bg-red-500
+    {% elif linked_issue_severity == 'High' %}bg-amber-500
+    {% elif linked_issue_severity == 'Normal' %}bg-blue-500
+    {% else %}bg-gray-400{% endif %}"></span>
+  {{ linked_issue_subject[:20] }}{% if linked_issue_subject|length > 20 %}…{% endif %}
+</a>
+{% endif %}
