@@ -1,0 +1,17 @@
+{# Reusable health score badge — import and call health_dot(score, details) #}
+{% macro health_dot(score, missing=[], stale=[], show_label=false) %}
+{% set color = 'bg-green-500' if score >= 85 else ('bg-amber-500' if score >= 60 else 'bg-red-500') %}
+{% set label = 'Healthy' if score >= 85 else ('Needs attention' if score >= 60 else 'Incomplete') %}
+<span class="inline-flex items-center gap-1 group relative cursor-default">
+  <span class="inline-block w-2 h-2 rounded-full {{ color }}" title="Health: {{ score }}%"></span>
+  {% if show_label %}
+    <span class="text-xs text-gray-500">{{ score }}%</span>
+  {% endif %}
+  {# Tooltip on hover #}
+  <span class="invisible group-hover:visible absolute left-4 top-0 z-50 bg-gray-900 text-white text-xs rounded px-2 py-1 whitespace-nowrap shadow-lg">
+    Health: {{ score }}% — {{ label }}
+    {% if missing %}<br>{{ missing|length }} missing{% endif %}
+    {% if stale %}<br>{{ stale|length }} stale{% endif %}
+  </span>
+</span>
+{% endmacro %}
