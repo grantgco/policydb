@@ -812,13 +812,14 @@ def ac_activities(
     request: Request,
     days: int = 90,
     activity_type: str = "",
-    client_id: int = 0,
+    client_id: str = "",
     q: str = "",
     view_mode: str = "board",
     conn=Depends(get_db),
 ):
+    _cid = int(client_id) if str(client_id).strip().isdigit() else 0
     ctx = _activities_ctx(conn, days=days, activity_type=activity_type,
-                          client_id=client_id, q=q, view_mode=view_mode)
+                          client_id=_cid, q=q, view_mode=view_mode)
     ctx["request"] = request
     return templates.TemplateResponse("action_center/_activities.html", ctx)
 
