@@ -132,6 +132,15 @@
       <button hx-post="/activities/{{ item.id }}/snooze?days=1" hx-target="#{{ row_id }}" hx-swap="outerHTML"
         class="text-xs text-gray-500 bg-white border border-gray-200 px-2 py-1.5 rounded hover:border-gray-300 transition-colors">+1d</button>
       {% endif %}
+      {# Convert to Issue (only for activity-sourced follow-ups) #}
+      {% if item.source == 'activity' and item.id %}
+      <form method="post" action="/issues/convert/{{ item.id }}" style="display:inline">
+        <input type="hidden" name="severity" value="Normal">
+        <button type="submit"
+          class="text-xs text-amber-600 bg-white border border-amber-200 px-2 py-1.5 rounded hover:border-amber-400 hover:bg-amber-50 transition-colors"
+          title="Convert this follow-up into a tracked issue">&#x26A0; Issue</button>
+      </form>
+      {% endif %}
       {% endif %}
     </div>
   </div>

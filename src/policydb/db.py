@@ -362,7 +362,7 @@ def init_db(path: Path | None = None) -> None:
     # Back up the database once before running any pending migrations.
     # This gives a clean restore point regardless of which migration fails.
 
-    _KNOWN_MIGRATIONS = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100,101,102}
+    _KNOWN_MIGRATIONS = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100,101,102,103,104}
 
     if _KNOWN_MIGRATIONS - applied:
         _backup_db(conn, db_path)
@@ -1455,6 +1455,16 @@ def init_db(path: Path | None = None) -> None:
         conn.commit()
         logger.info("Migration 103: repointed policies.program_id FK to programs(id)")
 
+    if 104 not in applied:
+        sql = (_MIGRATIONS_DIR / "104_issue_tracking.sql").read_text()
+        conn.executescript(sql)
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (104, "Add issue tracking columns to activity_log"),
+        )
+        conn.commit()
+        logger.info("Migration 104: added issue tracking columns to activity_log")
+
     # Data hygiene: fix 'None' string corruption in text fields (runs every startup, fast no-op if clean)
     conn.execute("UPDATE clients SET cn_number = NULL WHERE cn_number = 'None'")
 
@@ -1949,6 +1959,12 @@ def next_program_uid(conn: sqlite3.Connection) -> str:
     except (IndexError, ValueError):
         n = 1
     return f"PGM-{n:03d}"
+
+
+def generate_issue_uid() -> str:
+    """Generate a UUID4-based issue UID: ISS-xxxxxxxx (8-char hex)."""
+    import uuid
+    return f"ISS-{uuid.uuid4().hex[:8].upper()}"
 
 
 def next_rfi_uid(conn: sqlite3.Connection, client_id: int) -> str:
