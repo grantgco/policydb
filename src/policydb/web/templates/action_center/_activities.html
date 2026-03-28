@@ -15,6 +15,7 @@
         <div>
           <label class="block text-[10px] text-gray-500 uppercase mb-1">Client *</label>
           <select name="client_id" required
+            onchange="if(this.value){htmx.ajax('GET','/issues/for-client/'+this.value,{target:'#quick-log-issue-widget'})}else{document.getElementById('quick-log-issue-widget').innerHTML='';}"
             class="w-full text-xs border border-gray-200 rounded px-2 py-1.5 bg-white focus:ring-1 focus:ring-marsh">
             <option value="">Select client...</option>
             {% for c in all_clients %}
@@ -51,6 +52,8 @@
         <textarea name="details" rows="2" placeholder="Optional notes..."
           class="w-full text-xs border border-gray-200 rounded px-2 py-1.5 bg-white focus:ring-1 focus:ring-marsh placeholder-gray-300 resize-none"></textarea>
       </div>
+      {# Issue widget — populated via HTMX when client selected #}
+      <div id="quick-log-issue-widget"></div>
       <div class="flex justify-end gap-2">
         <button type="button" onclick="document.getElementById('ac-quick-log').style.display='none'"
           class="text-xs text-gray-500 px-3 py-1.5 rounded border border-gray-200 hover:bg-gray-50">Cancel</button>
