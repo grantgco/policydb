@@ -1,0 +1,95 @@
+{# What's Next Card - shows the single most urgent action item #}
+{% if whats_next %}
+<div class="card mb-4 overflow-hidden" id="whats-next-card">
+  <div class="flex">
+    {# Left color bar #}
+    <div class="w-1.5 flex-shrink-0
+      {% if whats_next.kind == 'issue_sla_breached' %}bg-red-500
+      {% elif whats_next.kind == 'overdue_followup' %}bg-red-400
+      {% elif whats_next.kind == 'issue_approaching_sla' %}bg-amber-500
+      {% elif whats_next.kind == 'due_followup' %}bg-blue-500
+      {% elif whats_next.kind == 'policy_expiry' %}bg-amber-400
+      {% else %}bg-green-500{% endif %}
+    "></div>
+
+    <div class="flex-1 px-4 py-3">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-2 min-w-0">
+          <span class="text-[10px] font-semibold text-gray-400 uppercase tracking-wide flex-shrink-0">What's Next</span>
+
+          {% if whats_next.kind == 'issue_sla_breached' %}
+            <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-red-100 text-red-800">{{ whats_next.severity }}</span>
+            <span class="text-sm font-medium text-gray-900 truncate">{{ whats_next.subject }}</span>
+          {% elif whats_next.kind == 'overdue_followup' %}
+            <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-700">{{ whats_next.type }}</span>
+            <span class="text-sm font-medium text-gray-900 truncate">{{ whats_next.subject }}</span>
+          {% elif whats_next.kind == 'issue_approaching_sla' %}
+            <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-800">{{ whats_next.severity }}</span>
+            <span class="text-sm font-medium text-gray-900 truncate">{{ whats_next.subject }}</span>
+          {% elif whats_next.kind == 'due_followup' %}
+            <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-100 text-blue-700">{{ whats_next.type }}</span>
+            <span class="text-sm font-medium text-gray-900 truncate">{{ whats_next.subject }}</span>
+          {% elif whats_next.kind == 'policy_expiry' %}
+            <span class="text-sm font-medium text-gray-900 truncate">{{ whats_next.policy_type }}{% if whats_next.carrier %} &mdash; {{ whats_next.carrier }}{% endif %}</span>
+          {% else %}
+            {# All clear #}
+            <svg class="w-4 h-4 text-green-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+            <span class="text-sm font-medium text-green-700">All clear</span>
+          {% endif %}
+        </div>
+
+        {# Status label #}
+        <div class="flex items-center gap-2 flex-shrink-0 ml-3">
+          {% if whats_next.kind == 'issue_sla_breached' %}
+            <span class="text-xs text-red-600 font-medium">SLA breached &mdash; {{ whats_next.overdue_days }}d overdue</span>
+          {% elif whats_next.kind == 'overdue_followup' %}
+            <span class="text-xs text-red-600 font-medium">{{ whats_next.overdue_days }}d overdue</span>
+          {% elif whats_next.kind == 'issue_approaching_sla' %}
+            <span class="text-xs text-amber-600 font-medium">SLA due {% if whats_next.remaining_days == 0 %}today{% else %}tomorrow{% endif %}</span>
+          {% elif whats_next.kind == 'due_followup' %}
+            <span class="text-xs text-blue-600 font-medium">{{ whats_next.due_label }}</span>
+          {% elif whats_next.kind == 'policy_expiry' %}
+            <span class="text-xs text-amber-600 font-medium">Expires in {{ whats_next.days_to_exp }}d</span>
+          {% endif %}
+        </div>
+      </div>
+
+      {# Action buttons #}
+      {% if whats_next.kind != 'all_clear' %}
+      <div class="flex items-center gap-2 mt-2">
+        {% if whats_next.kind in ('issue_sla_breached', 'issue_approaching_sla') %}
+          <a href="/issues/{{ whats_next.uid }}" class="inline-flex items-center px-2.5 py-1 rounded text-xs font-medium bg-marsh text-white hover:bg-blue-900 transition-colors">View Issue</a>
+        {% elif whats_next.kind in ('overdue_followup', 'due_followup') %}
+          <button onclick="wnMarkDone({{ whats_next.id }})" class="inline-flex items-center px-2.5 py-1 rounded text-xs font-medium bg-green-600 text-white hover:bg-green-700 transition-colors">Done</button>
+          <button onclick="wnSnooze({{ whats_next.id }}, 3)" class="inline-flex items-center px-2.5 py-1 rounded text-xs font-medium bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors">+3d</button>
+          <button onclick="wnSnooze({{ whats_next.id }}, 7)" class="inline-flex items-center px-2.5 py-1 rounded text-xs font-medium bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors">+7d</button>
+        {% elif whats_next.kind == 'policy_expiry' %}
+          <a href="/policies/{{ whats_next.uid }}" class="inline-flex items-center px-2.5 py-1 rounded text-xs font-medium bg-marsh text-white hover:bg-blue-900 transition-colors">Open Policy</a>
+        {% endif %}
+      </div>
+      {% else %}
+      <div class="text-xs text-gray-500 mt-1">
+        {% if last_activity_days is not none %}Last activity {{ last_activity_days }}d ago.{% endif %}
+        {% if summary and summary.next_renewal_days %}Next renewal in {{ summary.next_renewal_days }} days.{% endif %}
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+{% if whats_next.kind in ('overdue_followup', 'due_followup') %}
+<script>
+function wnMarkDone(activityId) {
+  var fd = new FormData();
+  fetch('/activities/' + activityId + '/complete', {method: 'POST', body: fd})
+    .then(function(r) { if (r.ok) location.reload(); });
+}
+function wnSnooze(activityId, days) {
+  fetch('/activities/' + activityId + '/snooze?days=' + days, {
+    method: 'POST',
+    headers: {'X-Requested-With': 'XMLHttpRequest'}
+  }).then(function(r) { if (r.ok) location.reload(); });
+}
+</script>
+{% endif %}
+{% endif %}
