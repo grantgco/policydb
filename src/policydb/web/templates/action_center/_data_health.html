@@ -1,0 +1,94 @@
+{# Data Health tab — lazy-loaded in Action Center #}
+{% from "_health_badge.html" import health_dot %}
+
+<div class="space-y-6">
+
+  {# ── Summary bar ── #}
+  <div class="card">
+    <div class="flex items-center gap-6 px-4 py-3">
+      <div class="flex items-center gap-2">
+        {{ health_dot(summary.avg_score, show_label=true) }}
+        <span class="text-sm font-medium text-gray-900">Book Health</span>
+      </div>
+      <div class="flex gap-4 text-sm">
+        <span class="text-gray-500">{{ summary.total_clients }} clients</span>
+        {% if summary.incomplete_count %}
+          <span class="text-amber-600 font-medium">{{ summary.incomplete_count }} incomplete</span>
+        {% endif %}
+        {% if summary.stale_count %}
+          <span class="text-amber-600 font-medium">{{ summary.stale_count }} stale</span>
+        {% endif %}
+        {% if summary.critical_count %}
+          <span class="text-red-600 font-medium">{{ summary.critical_count }} critical</span>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  {# ── Fill Blitz button ── #}
+  {% if missing_items %}
+  <div class="flex items-center justify-between">
+    <h3 class="text-sm font-medium text-gray-700">Missing Fields ({{ missing_items|length }})</h3>
+    <button class="px-3 py-1.5 bg-marsh text-white text-sm rounded hover:bg-marsh/90 transition-colors"
+            hx-get="/api/health/blitz/next?offset=0"
+            hx-target="#blitz-container"
+            hx-swap="innerHTML"
+            onclick="document.getElementById('blitz-container').classList.remove('hidden');">
+      Start Fill Blitz
+    </button>
+  </div>
+  {% endif %}
+
+  {# ── Fill Blitz container (hidden until activated) ── #}
+  <div id="blitz-container" class="hidden">
+    <div class="card p-4">
+      <div class="flex items-center justify-between mb-3">
+        <h4 class="text-sm font-medium text-gray-900">Fill Blitz Mode</h4>
+        <button class="text-xs text-gray-400 hover:text-gray-600"
+                onclick="this.closest('#blitz-container').classList.add('hidden');">
+          Exit Blitz
+        </button>
+      </div>
+      <div id="blitz-content"></div>
+    </div>
+  </div>
+
+  {# ── Missing fields table ── #}
+  {% if missing_items %}
+  <div class="card overflow-hidden">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="bg-gray-50 border-b text-left">
+          <th class="px-4 py-2 text-xs font-medium text-gray-500 uppercase">Client</th>
+          <th class="px-4 py-2 text-xs font-medium text-gray-500 uppercase">Policy</th>
+          <th class="px-4 py-2 text-xs font-medium text-gray-500 uppercase">Missing Field</th>
+          <th class="px-4 py-2 text-xs font-medium text-gray-500 uppercase">Stage</th>
+          <th class="px-4 py-2 text-xs font-medium text-gray-500 uppercase text-right">Impact</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y">
+        {% for item in missing_items %}
+        <tr class="hover:bg-gray-50 cursor-pointer"
+            onclick="{% if item.policy_uid %}window.location='/policies/{{ item.policy_uid }}/edit'{% else %}window.location='/clients/{{ item.client_id }}'{% endif %}">
+          <td class="px-4 py-2 text-gray-900">{{ item.client_name }}</td>
+          <td class="px-4 py-2 text-gray-500">{{ item.policy_uid or '—' }}</td>
+          <td class="px-4 py-2">
+            <span class="text-amber-700 font-medium">{{ item.label }}</span>
+          </td>
+          <td class="px-4 py-2">
+            <span class="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">{{ item.stage }}</span>
+          </td>
+          <td class="px-4 py-2 text-right text-gray-500">+{{ item.impact }}%</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="card p-8 text-center text-gray-500">
+    <div class="text-lg mb-1">All fields complete</div>
+    <div class="text-sm">No missing data detected across your book.</div>
+  </div>
+  {% endif %}
+
+</div>
