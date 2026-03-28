@@ -531,6 +531,14 @@ def client_tab_overview(request: Request, client_id: int, conn=Depends(get_db)):
         "pulse_milestone_total": pulse_milestone_total,
         "pulse_high_risks": pulse_high_risks,
         "pulse_recent": pulse_recent,
+        "open_issues": [dict(r) for r in conn.execute("""
+            SELECT a.id, a.issue_uid, a.subject, a.issue_status, a.issue_severity,
+                   a.activity_date, a.issue_sla_days,
+                   julianday(date('now')) - julianday(a.activity_date) AS days_open
+            FROM activity_log a
+            WHERE a.client_id = ? AND a.item_kind = 'issue' AND a.issue_id IS NULL
+              AND (a.issue_status IS NULL OR a.issue_status NOT IN ('Resolved', 'Closed'))
+        """, (client_id,)).fetchall()],
         "today": _today,
         "today_iso": _today,
         "client_meetings": [dict(r) for r in conn.execute(
@@ -1413,6 +1421,18 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
         "project_types": cfg.get("project_types", []),
         "timeline_data": _build_timeline_data(_get_project_pipeline(conn, client_id)),
         "client_meetings": client_meetings,
+        "open_issues": [dict(r) for r in conn.execute("""
+            SELECT a.id, a.issue_uid, a.subject, a.issue_status, a.issue_severity,
+                   a.activity_date, a.issue_sla_days,
+                   julianday(date('now')) - julianday(a.activity_date) AS days_open,
+                   (SELECT COUNT(*) FROM activity_log sub WHERE sub.issue_id = a.id) AS activity_count
+            FROM activity_log a
+            WHERE a.client_id = ? AND a.item_kind = 'issue' AND a.issue_id IS NULL
+              AND (a.issue_status IS NULL OR a.issue_status NOT IN ('Resolved', 'Closed'))
+            ORDER BY CASE a.issue_severity
+              WHEN 'Critical' THEN 0 WHEN 'High' THEN 1 WHEN 'Normal' THEN 2 ELSE 3
+            END, a.activity_date ASC
+        """, (client_id,)).fetchall()],
     })
 
 

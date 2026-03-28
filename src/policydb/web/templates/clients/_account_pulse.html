@@ -76,6 +76,14 @@
           <span class="text-red-700 font-medium">{{ pulse_high_risks }} high/critical risk{{ 's' if pulse_high_risks != 1 else '' }}</span>
         </li>
         {% endif %}
+        {% if open_issues is defined and open_issues|length > 0 %}
+        <li class="flex items-center gap-2">
+          <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+          <a href="/action-center?tab=issues" class="text-amber-700 font-medium hover:underline">
+            {{ open_issues|length }} open issue{{ 's' if open_issues|length != 1 else '' }}
+          </a>
+        </li>
+        {% endif %}
       </ul>
 
       {# Internal notes snippet #}
