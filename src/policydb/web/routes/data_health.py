@@ -1,0 +1,155 @@
+"""Data Health routes — API endpoints + Action Center tab."""
+
+from __future__ import annotations
+
+from fastapi import APIRouter, Depends, Form, Request
+from fastapi.responses import HTMLResponse, JSONResponse
+
+from policydb.web.app import get_db, templates
+import policydb.config as cfg
+from policydb.data_health import (
+    compute_health_score,
+    detect_stage,
+    get_book_health_summary,
+    get_field_last_changed,
+    get_missing_fields_report,
+    score_client,
+    score_policies,
+)
+
+router = APIRouter()
+
+
+# ── Action Center tab ────────────────────────────────────────────────────────
+
+
+@router.get("/action-center/data-health", response_class=HTMLResponse)
+def ac_data_health(request: Request, conn=Depends(get_db)):
+    """Data Health tab partial — lazy loaded in Action Center."""
+    summary = get_book_health_summary(conn)
+    missing = get_missing_fields_report(conn)
+    threshold = cfg.get("data_health_threshold", 85)
+
+    # Group missing by client
+    by_client: dict[str, list] = {}
+    for item in missing:
+        key = item["client_name"]
+        by_client.setdefault(key, []).append(item)
+
+    return templates.TemplateResponse("action_center/_data_health.html", {
+        "request": request,
+        "summary": summary,
+        "missing_items": missing[:100],
+        "missing_by_client": by_client,
+        "threshold": threshold,
+    })
+
+
+# ── API endpoints ────────────────────────────────────────────────────────────
+
+
+@router.get("/api/health/summary")
+def api_health_summary(conn=Depends(get_db)):
+    """Book-wide health summary stats."""
+    return get_book_health_summary(conn)
+
+
+@router.get("/api/health/client/{client_id}")
+def api_health_client(client_id: int, conn=Depends(get_db)):
+    """Client health score + breakdown."""
+    row = conn.execute("SELECT * FROM clients WHERE id = ?", (client_id,)).fetchone()
+    if not row:
+        return JSONResponse({"error": "Client not found"}, status_code=404)
+    client = dict(row)
+    score_client(conn, client, include_staleness=True)
+    return {
+        "score": client["health_score"],
+        "client_score": client["health_client_score"],
+        "policy_score": client["health_policy_score"],
+        "missing": client["health_missing"],
+        "stale": client["health_stale"],
+        "stage": client["health_stage"],
+    }
+
+
+@router.get("/api/health/policy/{policy_uid}")
+def api_health_policy(policy_uid: str, conn=Depends(get_db)):
+    """Policy health score + breakdown."""
+    row = conn.execute(
+        "SELECT * FROM policies WHERE policy_uid = ?", (policy_uid,)
+    ).fetchone()
+    if not row:
+        return JSONResponse({"error": "Policy not found"}, status_code=404)
+    p = dict(row)
+    field_config = cfg.get("data_health_fields", {})
+    stage = detect_stage(p)
+    stale_fields = [f["field"] for f in field_config.get("policy", []) if f.get("decay_days")]
+    field_dates = get_field_last_changed(conn, "policies", policy_uid, stale_fields)
+    result = compute_health_score(p, "policy", stage, field_config, field_dates)
+    return {
+        "score": result["score"],
+        "missing": result["missing"],
+        "stale": result["stale"],
+        "filled": result["filled"],
+        "total": result["total"],
+        "stage": stage,
+    }
+
+
+# ── Fill Blitz ───────────────────────────────────────────────────────────────
+
+
+@router.get("/api/health/blitz/next", response_class=HTMLResponse)
+def blitz_next(request: Request, offset: int = 0, conn=Depends(get_db)):
+    """Return the next missing field card for Fill Blitz mode."""
+    missing = get_missing_fields_report(conn)
+    if offset >= len(missing):
+        return HTMLResponse(
+            '<div class="text-center py-8 text-gray-500">'
+            '<div class="text-2xl mb-2">All caught up!</div>'
+            '<div class="text-sm">No more missing fields to fill.</div>'
+            '</div>'
+        )
+
+    item = missing[offset]
+    return templates.TemplateResponse("action_center/_blitz_card.html", {
+        "request": request,
+        "item": item,
+        "offset": offset,
+        "total": len(missing),
+    })
+
+
+@router.patch("/api/health/blitz/save", response_class=HTMLResponse)
+def blitz_save(
+    request: Request,
+    table: str = Form(...),
+    record_id: str = Form(...),
+    field: str = Form(...),
+    value: str = Form(""),
+    offset: int = Form(0),
+    conn=Depends(get_db),
+):
+    """Save a single field from Fill Blitz, return next card."""
+    if table not in ("clients", "policies"):
+        return JSONResponse({"error": "Invalid table"}, status_code=400)
+
+    field_config = cfg.get("data_health_fields", {})
+    record_type = "client" if table == "clients" else "policy"
+    valid_fields = [f["field"] for f in field_config.get(record_type, [])]
+    if field not in valid_fields:
+        return JSONResponse({"error": "Invalid field"}, status_code=400)
+
+    if table == "policies":
+        conn.execute(
+            f"UPDATE policies SET {field} = ? WHERE policy_uid = ?",
+            (value.strip(), record_id),
+        )
+    else:
+        conn.execute(
+            f"UPDATE clients SET {field} = ? WHERE id = ?",
+            (value.strip(), int(record_id)),
+        )
+    conn.commit()
+
+    return blitz_next(request, offset=offset + 1, conn=conn)
