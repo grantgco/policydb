@@ -65,7 +65,7 @@
     <select id="ac-act-days"
       hx-get="/action-center/activities"
       hx-target="#ac-tab-content"
-      hx-include="#ac-act-days, #ac-act-type, #ac-act-client, #ac-act-search"
+      hx-include="#ac-act-days, #ac-act-type, #ac-act-client, #ac-act-search, #ac-act-view-mode"
       name="days"
       class="text-xs border border-gray-200 rounded-md px-2 py-1.5 bg-white focus:ring-1 focus:ring-marsh focus:border-marsh">
       <option value="7" {{ 'selected' if days == 7 }}>Last 7 Days</option>
@@ -77,7 +77,7 @@
     <select id="ac-act-type"
       hx-get="/action-center/activities"
       hx-target="#ac-tab-content"
-      hx-include="#ac-act-days, #ac-act-type, #ac-act-client, #ac-act-search"
+      hx-include="#ac-act-days, #ac-act-type, #ac-act-client, #ac-act-search, #ac-act-view-mode"
       name="activity_type"
       class="text-xs border border-gray-200 rounded-md px-2 py-1.5 bg-white focus:ring-1 focus:ring-marsh focus:border-marsh">
       <option value="">All Types</option>
@@ -89,7 +89,7 @@
     <select id="ac-act-client"
       hx-get="/action-center/activities"
       hx-target="#ac-tab-content"
-      hx-include="#ac-act-days, #ac-act-type, #ac-act-client, #ac-act-search"
+      hx-include="#ac-act-days, #ac-act-type, #ac-act-client, #ac-act-search, #ac-act-view-mode"
       name="client_id"
       class="text-xs border border-gray-200 rounded-md px-2 py-1.5 bg-white focus:ring-1 focus:ring-marsh focus:border-marsh">
       <option value="">All Clients</option>
@@ -105,14 +105,38 @@
       hx-get="/action-center/activities"
       hx-target="#ac-tab-content"
       hx-trigger="keyup changed delay:400ms"
-      hx-include="#ac-act-days, #ac-act-type, #ac-act-client, #ac-act-search"
+      hx-include="#ac-act-days, #ac-act-type, #ac-act-client, #ac-act-search, #ac-act-view-mode"
       class="text-xs border border-gray-200 rounded-md px-2.5 py-1.5 w-48 bg-white focus:ring-1 focus:ring-marsh focus:border-marsh placeholder-gray-300">
 
-    <span class="ml-auto bg-gray-100 text-gray-600 text-xs px-2.5 py-1 rounded-md whitespace-nowrap">
+    <input type="hidden" id="ac-act-view-mode" name="view_mode" value="{{ view_mode or 'board' }}">
+
+    {# View toggle #}
+    <div class="ml-auto flex border border-gray-200 rounded-md overflow-hidden">
+      <button hx-get="/action-center/activities"
+              hx-target="#ac-tab-content"
+              hx-include="#ac-act-days, #ac-act-type, #ac-act-client, #ac-act-search"
+              hx-vals='{"view_mode": "board"}'
+              class="text-[11px] px-3 py-1 {% if view_mode == 'board' %}bg-marsh text-white{% else %}bg-white text-gray-500 hover:bg-gray-50{% endif %} transition-colors">
+        Board
+      </button>
+      <button hx-get="/action-center/activities"
+              hx-target="#ac-tab-content"
+              hx-include="#ac-act-days, #ac-act-type, #ac-act-client, #ac-act-search"
+              hx-vals='{"view_mode": "table"}'
+              class="text-[11px] px-3 py-1 border-l border-gray-200 {% if view_mode == 'table' %}bg-marsh text-white{% else %}bg-white text-gray-500 hover:bg-gray-50{% endif %} transition-colors">
+        Table
+      </button>
+    </div>
+
+    <span class="bg-gray-100 text-gray-600 text-xs px-2.5 py-1 rounded-md whitespace-nowrap">
       {{ activities | length }} activit{{ 'y' if activities | length == 1 else 'ies' }}
       {% if time_summary and time_summary.total_hours %} &middot; {{ '%.1f' | format(time_summary.total_hours) }}h{% endif %}
     </span>
   </div>
+
+  {% if view_mode == 'board' %}
+    {% include "action_center/_activities_board.html" %}
+  {% else %}
 
   {# ── Activities Table ── #}
   {% if activities %}
@@ -127,6 +151,7 @@
           <th class="px-3 py-2 whitespace-nowrap">Hrs</th>
           <th class="px-3 py-2 whitespace-nowrap">Disposition</th>
           <th class="px-3 py-2 whitespace-nowrap">Ref</th>
+          <th class="px-3 py-2 whitespace-nowrap no-print">Issue</th>
           <th class="px-3 py-2 whitespace-nowrap no-print"></th>
         </tr>
       </thead>
@@ -202,6 +227,21 @@
             {% with ref_tag=_a_ref %}{% include "_ref_tag_pill.html" %}{% endwith %}
           </td>
 
+          {# Issue badge or escalate #}
+          <td class="px-3 py-2 whitespace-nowrap no-print">
+            {% if a.linked_issue_uid %}
+              {% with linked_issue_uid=a.linked_issue_uid, linked_issue_subject=a.linked_issue_subject, linked_issue_severity=a.linked_issue_severity %}
+                {% include "_issue_badge.html" %}
+              {% endwith %}
+            {% else %}
+              <button type="button"
+                onclick="openIssueCreateSlideover({subject:'{{ a.subject|e }}', client_id:'{{ a.client_id }}', client_name:'{{ (a.client_name or '')|e }}', policy_id:'{{ a.policy_id or '' }}', policy_label:'{{ (a.policy_uid or '')|e }} {{ (a.policy_type or '')|e }}', source_activity_id:'{{ a.id }}', context_label:'Creating from activity', context_subject:'{{ a.subject|e }}', context_detail:'{{ a.activity_date }} &middot; {{ (a.client_name or '')|e }}', link_detail:'{{ a.subject|e }} ({{ a.activity_date }})'})"
+                class="text-[10px] text-blue-600 border border-blue-200 rounded px-2 py-0.5 hover:bg-blue-50 transition-colors whitespace-nowrap">
+                &#9873; escalate
+              </button>
+            {% endif %}
+          </td>
+
           {# Delete button #}
           <td class="px-3 py-2 whitespace-nowrap no-print">
             <button
@@ -225,11 +265,16 @@
   </div>
   {% endif %}
 
+  {% endif %}{# end view_mode check #}
+
 </div>
 
 <script>
 (function() {
-  /* ── Wire up initMatrix for inline editing ── */
+  /* ── Wire up initMatrix for inline editing (table view only) ── */
+  var tbody = document.getElementById('ac-activities-tbody');
+  if (!tbody) return;
+
   var matrix = window.initMatrix({
     tbodyId: 'ac-activities-tbody',
     idAttr: 'data-row-id',
@@ -239,32 +284,27 @@
 
   /* After PATCH on activity_type, re-render the pill color */
   if (matrix) {
-    var tbody = document.getElementById('ac-activities-tbody');
-    if (tbody) {
-      var origFocusout = null;
-      /* Override combo close to re-color the pill after type change */
-      tbody.addEventListener('focusout', function(e) {
-        var combo = e.target.closest('.matrix-cell-combo');
-        if (!combo) return;
-        var field = combo.dataset.field;
-        if (field !== 'activity_type') return;
-        /* Small delay to let the combo close handler run first */
-        setTimeout(function() {
-          var display = combo.querySelector('.cell-display');
-          if (!display) return;
-          var span = display.querySelector('span');
-          if (!span) return;
-          var val = span.textContent.trim();
-          /* Reset pill classes */
-          span.className = 'text-xs px-2 py-0.5 rounded';
-          if (val === 'Call') span.className += ' bg-blue-100 text-blue-700';
-          else if (val === 'Email') span.className += ' bg-amber-100 text-amber-700';
-          else if (val === 'Meeting') span.className += ' bg-indigo-100 text-indigo-700';
-          else if (val === 'Note') span.className += ' bg-pink-100 text-pink-700';
-          else span.className += ' bg-gray-100 text-gray-600';
-        }, 100);
-      });
-    }
+    tbody.addEventListener('focusout', function(e) {
+      var combo = e.target.closest('.matrix-cell-combo');
+      if (!combo) return;
+      var field = combo.dataset.field;
+      if (field !== 'activity_type') return;
+      /* Small delay to let the combo close handler run first */
+      setTimeout(function() {
+        var display = combo.querySelector('.cell-display');
+        if (!display) return;
+        var span = display.querySelector('span');
+        if (!span) return;
+        var val = span.textContent.trim();
+        /* Reset pill classes */
+        span.className = 'text-xs px-2 py-0.5 rounded';
+        if (val === 'Call') span.className += ' bg-blue-100 text-blue-700';
+        else if (val === 'Email') span.className += ' bg-amber-100 text-amber-700';
+        else if (val === 'Meeting') span.className += ' bg-indigo-100 text-indigo-700';
+        else if (val === 'Note') span.className += ' bg-pink-100 text-pink-700';
+        else span.className += ' bg-gray-100 text-gray-600';
+      }, 100);
+    });
   }
 })();
 </script>
