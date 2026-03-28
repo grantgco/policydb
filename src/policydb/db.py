@@ -1962,9 +1962,9 @@ def next_program_uid(conn: sqlite3.Connection) -> str:
 
 
 def generate_issue_uid() -> str:
-    """Generate a UUID4-based issue UID: ISS-xxxxxxxx (8-char hex)."""
+    """Generate a UUID4-based issue UID: 8-char uppercase hex."""
     import uuid
-    return f"ISS-{uuid.uuid4().hex[:8].upper()}"
+    return uuid.uuid4().hex[:8].upper()
 
 
 def next_rfi_uid(conn: sqlite3.Connection, client_id: int) -> str:
