@@ -49,6 +49,9 @@ EDITABLE_LISTS: dict[str, str] = {
     "exposure_denominators": "Exposure Denominators",
     "contact_roles": "Contact Roles",
     "request_categories": "Request Categories",
+    "issue_lifecycle_states": "Issue Lifecycle States",
+    "issue_resolution_types": "Issue Resolution Types",
+    "issue_root_cause_categories": "Issue Root Cause Categories",
 }
 
 TAB_LISTS: dict[str, dict[str, str]] = {
@@ -92,6 +95,11 @@ TAB_LISTS: dict[str, dict[str, str]] = {
         "linked_account_relationships": "Account Relationship Types",
         "contact_roles": "Contact Roles",
     },
+    "issues": {
+        "issue_lifecycle_states": "Issue Lifecycle States",
+        "issue_resolution_types": "Issue Resolution Types",
+        "issue_root_cause_categories": "Issue Root Cause Categories",
+    },
     "database": {
         "project_stages": "Project Stages",
         "project_types": "Project Types",
@@ -103,6 +111,7 @@ TAB_LABELS = {
     "readiness": "Readiness & Alerts",
     "carriers": "Carriers & Coverage",
     "property-risk": "Property & Risk",
+    "issues": "Issue Tracking",
     "email-contacts": "Email & Contacts",
     "database": "Database & Admin",
 }
@@ -121,6 +130,8 @@ SEARCH_INDEX = [
     {"label": "Alert & Readiness Thresholds", "tab": "readiness", "anchor": "section-thresholds"},
     {"label": "Readiness Score Weights", "tab": "readiness", "anchor": "section-readiness-weights"},
     {"label": "Carrier Aliases", "tab": "carriers", "anchor": "section-carrier-aliases"},
+    {"label": "Issue Severity Levels", "tab": "issues", "anchor": "section-issue-severities"},
+    {"label": "Renewal Issue Window", "tab": "issues", "anchor": "section-renewal-issue-window"},
     {"label": "Email Subject Lines", "tab": "email-contacts", "anchor": "section-email-subjects"},
     {"label": "Google Places API", "tab": "database", "anchor": "section-google-places"},
     {"label": "Report Logo", "tab": "database", "anchor": "section-report-logo"},
@@ -175,6 +186,11 @@ def _build_tab_context(tab: str, conn) -> dict:
 
     elif tab == "property-risk":
         pass  # Only needs lists, already loaded above
+
+    elif tab == "issues":
+        ctx["issue_severities"] = cfg.get("issue_severities", [])
+        ctx["renewal_issue_window_days"] = cfg.get("renewal_issue_window_days", 120)
+        ctx["renewal_issue_health_threshold"] = cfg.get("renewal_issue_health_threshold", "at_risk")
 
     elif tab == "email-contacts":
         ctx["email_subject_policy"] = cfg.get("email_subject_policy", "")
@@ -508,6 +524,20 @@ def update_expiration_buffer(request: Request, value: int = Form(...)):
     cfg.save_config(full)
     cfg.reload_config()
     return RedirectResponse("/settings", status_code=303)
+
+
+@router.post("/config/renewal-issue-window")
+def update_renewal_issue_window(
+    request: Request,
+    window_days: int = Form(...),
+    health_threshold: str = Form("at_risk"),
+):
+    full = dict(cfg.load_config())
+    full["renewal_issue_window_days"] = max(30, min(window_days, 365))
+    full["renewal_issue_health_threshold"] = health_threshold
+    cfg.save_config(full)
+    cfg.reload_config()
+    return RedirectResponse("/settings?tab=issues", status_code=303)
 
 
 @router.post("/config/google-places")

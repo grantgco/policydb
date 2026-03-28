@@ -1,0 +1,74 @@
+{# Single issue row — used in _issues.html sections #}
+<div class="card px-4 py-3 flex items-center gap-3 hover:bg-gray-50 group" id="issue-{{ issue.id }}">
+
+  {# Severity dot #}
+  {% set sev = issue.issue_severity or 'Normal' %}
+  <span class="w-2.5 h-2.5 rounded-full flex-shrink-0
+    {% if sev == 'Critical' %}bg-red-500
+    {% elif sev == 'High' %}bg-amber-500
+    {% elif sev == 'Normal' %}bg-blue-500
+    {% else %}bg-gray-400{% endif %}"
+    title="{{ sev }}"></span>
+
+  {# Title + client #}
+  <div class="flex-1 min-w-0">
+    <a href="/issues/{{ issue.issue_uid }}" class="text-sm font-medium text-gray-900 hover:text-marsh truncate block">
+      {% if issue.issue_uid %}<span class="text-xs text-gray-400 font-mono mr-1">{{ issue.issue_uid }}</span>{% endif %}
+      {{ issue.subject or 'Untitled Issue' }}
+    </a>
+    <div class="flex items-center gap-2 text-xs text-gray-500 mt-0.5">
+      <a href="/clients/{{ issue.client_id }}" class="hover:text-marsh">{{ issue.client_name }}</a>
+      {% if issue.policy_uid %}
+        <span class="text-gray-300">|</span>
+        <span>{{ issue.policy_uid }}</span>
+        {% if issue.policy_type %}<span class="text-gray-400">{{ issue.policy_type }}</span>{% endif %}
+      {% endif %}
+    </div>
+  </div>
+
+  {# Status pill #}
+  {% set status = issue.issue_status or 'Open' %}
+  <span class="text-xs px-2 py-0.5 rounded-full whitespace-nowrap
+    {% if status == 'Open' %}bg-blue-50 text-blue-700
+    {% elif status == 'Investigating' %}bg-purple-50 text-purple-700
+    {% elif status == 'Waiting' %}bg-amber-50 text-amber-700
+    {% elif status == 'Resolved' %}bg-green-50 text-green-700
+    {% elif status == 'Closed' %}bg-gray-100 text-gray-500
+    {% else %}bg-gray-100 text-gray-600{% endif %}">
+    {{ status }}
+  </span>
+
+  {# Age + SLA badge #}
+  {% set days = (issue.days_open or 0)|int %}
+  {% set sla = issue.sla_days or 7 %}
+  <span class="text-xs whitespace-nowrap
+    {% if days > sla %}text-red-600 font-semibold
+    {% elif days > (sla * 0.7)|int %}text-amber-600
+    {% else %}text-gray-500{% endif %}"
+    title="SLA target: {{ sla }}d">
+    {{ days }}d
+    {% if days > sla %}<span class="text-red-400">(SLA {{ sla }}d)</span>{% endif %}
+  </span>
+
+  {# Activity count + hours #}
+  {% if issue.activity_count or issue.total_hours %}
+  <span class="text-xs text-gray-400" title="Linked activities">
+    {% if issue.activity_count %}{{ issue.activity_count }} act{% endif %}
+    {% if issue.total_hours %}&middot; {{ issue.total_hours|round(1) }}h{% endif %}
+  </span>
+  {% endif %}
+
+  {# Quick actions #}
+  <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+    {# Status change #}
+    <select class="text-xs border-gray-200 rounded py-0.5 px-1"
+            hx-post="/issues/{{ issue.id }}/status"
+            hx-target="#issues-tab"
+            hx-swap="outerHTML"
+            name="status">
+      {% for state in (issue_lifecycle_states if issue_lifecycle_states is defined else ['Open','Investigating','Waiting','Resolved','Closed']) %}
+        <option value="{{ state }}" {% if state == status %}selected{% endif %}>{{ state }}</option>
+      {% endfor %}
+    </select>
+  </div>
+</div>
