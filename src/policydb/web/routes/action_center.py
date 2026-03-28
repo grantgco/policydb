@@ -23,6 +23,7 @@ from policydb.queries import (
     get_suggested_followups,
     get_time_summary,
 )
+from policydb.data_health import get_book_health_summary
 
 router = APIRouter()
 
@@ -707,6 +708,17 @@ def _issues_ctx(conn, q: str = "", client_id: int = 0) -> dict:
     }
 
 
+# ── Data Health ──────────────────────────────────────────────────────────────
+
+
+def _data_health_ctx(conn) -> dict:
+    """Build data-health tab context."""
+    from policydb.data_health import get_missing_fields_report
+    summary = get_book_health_summary(conn)
+    missing_items = get_missing_fields_report(conn)
+    return {"summary": summary, "missing_items": missing_items}
+
+
 # ── Main page ────────────────────────────────────────────────────────────────
 
 
@@ -729,6 +741,8 @@ def action_center_page(request: Request, tab: str = "", conn=Depends(get_db)):
         tab_ctx = _issues_ctx(conn)
     elif initial_tab == "activity-review":
         tab_ctx = _activity_review_ctx(conn)
+    elif initial_tab == "data-health":
+        tab_ctx = _data_health_ctx(conn)
     # Always compute scratchpad count for tab badge
     scratchpad_count = 0
     if "scratchpads" not in tab_ctx:
@@ -761,6 +775,11 @@ def action_center_page(request: Request, tab: str = "", conn=Depends(get_db)):
             "SELECT COUNT(*) FROM activity_log WHERE item_kind='issue' AND issue_id IS NULL "
             "AND (issue_status IS NULL OR issue_status NOT IN ('Resolved','Closed'))"
         ).fetchone()[0]
+    # Data health incomplete count for tab badge (always computed)
+    if "summary" in tab_ctx:
+        health_incomplete = tab_ctx["summary"]["incomplete_count"]
+    else:
+        health_incomplete = get_book_health_summary(conn)["incomplete_count"]
     ctx = {
         "request": request,
         "active": "action-center",
@@ -771,6 +790,7 @@ def action_center_page(request: Request, tab: str = "", conn=Depends(get_db)):
         "review_pending_count": review_pending_count,
         "issues_count": issues_count,
         "issue_severities": cfg.get("issue_severities", []),
+        "health_incomplete": health_incomplete,
         **sidebar,
         **tab_ctx,
         **health_ctx,
@@ -841,6 +861,14 @@ def ac_issues(
     ctx = _issues_ctx(conn, q=q, client_id=client_id)
     ctx["request"] = request
     return templates.TemplateResponse("action_center/_issues.html", ctx)
+
+
+@router.get("/action-center/data-health", response_class=HTMLResponse)
+def ac_data_health(request: Request, conn=Depends(get_db)):
+    """Data Health tab partial — lazy loaded."""
+    ctx = _data_health_ctx(conn)
+    ctx["request"] = request
+    return templates.TemplateResponse("action_center/_data_health.html", ctx)
 
 
 @router.get("/action-center/sidebar", response_class=HTMLResponse)
