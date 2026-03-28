@@ -21,6 +21,8 @@
   </div>
 </div>
 
+{% include "followups/_escalation_review.html" %}
+
 <!-- Spread preview bar (hidden by default) -->
 <div id="spread-preview" class="hidden bg-amber-50 border border-amber-200 rounded-lg px-4 py-2 mb-4 flex items-center justify-between">
   <span class="text-sm text-amber-700" id="spread-msg"></span>
@@ -260,4 +262,5 @@ function cancelSpread() {
   location.reload();
 }
 </script>
+{% include "_issue_create_slideover.html" %}
 {% endblock %}

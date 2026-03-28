@@ -1,0 +1,56 @@
+{% if escalation_suggestions %}
+<div class="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-5" id="escalation-review">
+  <div class="flex items-center justify-between mb-3">
+    <div class="flex items-center gap-2">
+      <span class="text-base">&#9888;</span>
+      <span class="text-sm font-semibold text-amber-800">Escalation Review</span>
+      <span class="text-xs text-amber-600 bg-amber-100 px-2 py-0.5 rounded-full">{{ escalation_suggestions|length }}</span>
+    </div>
+    <form hx-post="/followups/plan/dismiss-all-escalations" hx-target="#escalation-review" hx-swap="delete">
+      <input type="hidden" name="suggestions" value='{{ escalation_suggestions | tojson }}'>
+      <button type="submit" class="text-xs text-amber-700 hover:text-amber-900 underline">Dismiss all</button>
+    </form>
+  </div>
+
+  <div class="space-y-2">
+    {% for sug in escalation_suggestions %}
+    <div class="flex items-center gap-3 p-3 bg-white rounded-md border border-amber-100" id="esc-{{ loop.index }}">
+      {# Icon circle #}
+      <div class="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0
+        {% if sug.severity_preset == 'Critical' %}bg-red-100{% else %}bg-amber-100{% endif %}">
+        {% if sug.icon == 'drift' or sug.icon == 'critical' %}
+        <span class="text-xs {% if sug.severity_preset == 'Critical' %}text-red-600{% else %}text-amber-600{% endif %}">&#9660;</span>
+        {% elif sug.icon == 'nudge' %}
+        <span class="text-xs text-amber-600">&#8635;</span>
+        {% else %}
+        <span class="text-xs text-amber-600">&#9201;</span>
+        {% endif %}
+      </div>
+
+      {# Description #}
+      <div class="flex-1 min-w-0">
+        <div class="text-xs font-medium text-gray-900">{{ sug.title }}</div>
+        <div class="text-[10px] text-gray-500 mt-0.5">{{ sug.detail }}</div>
+      </div>
+
+      {# Actions #}
+      <div class="flex gap-2 flex-shrink-0">
+        <button type="button"
+          onclick="openIssueCreateSlideover({subject:'{{ sug.title|e }}', client_id:'{{ sug.client_id }}', client_name:'{{ sug.client_name|e }}', policy_id:'{{ sug.policy_id or '' }}', severity:'{{ sug.severity_preset }}', context_label:'Creating from suggestion', context_subject:'{{ sug.title|e }}', context_detail:'{{ sug.detail|e }}', source_activity_ids:'{{ sug.source_activity_ids|join(\",\") }}', link_detail:'{{ sug.source_activity_ids|length }} activities will be linked'})"
+          class="text-[10px] bg-marsh text-white px-3 py-1.5 rounded font-medium hover:bg-marsh-light transition-colors">
+          Create Issue
+        </button>
+        <form hx-post="/followups/plan/dismiss-escalation" hx-target="#esc-{{ loop.index }}" hx-swap="delete" class="inline">
+          <input type="hidden" name="policy_id" value="{{ sug.policy_id }}">
+          <input type="hidden" name="trigger_type" value="{{ sug.trigger_type }}">
+          <button type="submit"
+            class="text-[10px] text-gray-500 border border-gray-200 px-3 py-1.5 rounded hover:bg-gray-50 transition-colors">
+            Dismiss
+          </button>
+        </form>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
