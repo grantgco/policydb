@@ -10,6 +10,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from babel.dates import format_datetime as babel_format_datetime
+from collections import Counter
 from datetime import datetime, timedelta
 
 from policydb import config as cfg
@@ -77,7 +78,57 @@ def _find_similar_clients(conn, name: str, threshold: int = 85) -> list[dict]:
 _CLIENT_SORT_FIELDS = {
     "name", "industry_segment", "total_policies", "total_premium",
     "total_revenue", "next_renewal_days", "activity_last_90d",
+    "last_activity_date",
 }
+
+
+def _relative_days(delta: int) -> str:
+    """Return a human-friendly relative time string for a number of days ago."""
+    if delta == 0:
+        return "Today"
+    if delta == 1:
+        return "1d ago"
+    if delta < 7:
+        return f"{delta}d ago"
+    if delta < 14:
+        return "1w ago"
+    if delta < 21:
+        return "2w ago"
+    if delta < 28:
+        return "3w ago"
+    if delta < 60:
+        return "1mo ago"
+    if delta < 90:
+        return "2mo ago"
+    return None  # caller will format as month+day
+
+
+def _enrich_last_activity(clients: list[dict]) -> None:
+    """Add last_activity_ago and last_activity_urgency to each client dict."""
+    from datetime import date as _date
+    today = _date.today()
+    for c in clients:
+        raw = c.get("last_activity_date")
+        if raw:
+            d = _date.fromisoformat(raw)
+            delta = (today - d).days
+            rel = _relative_days(delta)
+            if rel is None:
+                # >90 days — show abbreviated date like "Mar 12"
+                c["last_activity_ago"] = d.strftime("%b %-d")
+            else:
+                c["last_activity_ago"] = rel
+            if delta < 14:
+                c["last_activity_urgency"] = "green"
+            elif delta < 60:
+                c["last_activity_urgency"] = "neutral"
+            elif delta <= 90:
+                c["last_activity_urgency"] = "amber"
+            else:
+                c["last_activity_urgency"] = "red"
+        else:
+            c["last_activity_ago"] = "Never"
+            c["last_activity_urgency"] = "neutral"
 
 
 def _apply_client_filters(clients, segment="", urgent="", inactive="", prospect=""):
@@ -239,6 +290,21 @@ def client_list(
     conn=Depends(get_db),
 ):
     clients = [dict(r) for r in get_all_clients(conn)]
+
+    # Book summary — computed from ALL clients before filtering
+    book_stats = {
+        "total_clients": len(clients),
+        "total_premium": sum(c.get("total_premium") or 0 for c in clients),
+        "total_revenue": sum(c.get("total_revenue") or 0 for c in clients),
+    }
+    segment_counts = Counter(c.get("industry_segment", "Other") or "Other" for c in clients)
+    top_segments = segment_counts.most_common(4)
+    top_set = set(k for k, v in top_segments)
+    other_count = sum(v for k, v in segment_counts.items() if k not in top_set)
+    book_stats["segments"] = top_segments
+    if other_count > 0 and len(segment_counts) > 4:
+        book_stats["other_count"] = other_count
+
     clients = _apply_client_filters(clients, segment, urgent, inactive, prospect)
     clients = _sort_clients(clients, sort, dir)
     archived_clients = [dict(r) for r in conn.execute(
@@ -287,6 +353,7 @@ def client_list(
         else:
             ordered_clients.append(c)
     clients = ordered_clients
+    _enrich_last_activity(clients)
 
     return templates.TemplateResponse("clients/list.html", {
         "request": request,
@@ -305,6 +372,7 @@ def client_list(
         "client_group_map": client_group_map,
         "group_labels": group_labels,
         "group_member_names": group_member_names,
+        "book_stats": book_stats,
     })
 
 
@@ -330,6 +398,7 @@ def client_search(
         clients = [dict(r) for r in get_all_clients(conn)]
     clients = _apply_client_filters(clients, segment, urgent, inactive, prospect)
     clients = _sort_clients(clients, sort, dir)
+    _enrich_last_activity(clients)
     return templates.TemplateResponse("clients/_table_rows.html", {
         "request": request,
         "clients": clients,
@@ -508,6 +577,169 @@ def client_tab_overview(request: Request, client_id: int, conn=Depends(get_db)):
     pulse_recent = pulse_recent[:5]
 
     summary = get_client_summary(conn, client_id)
+
+    # Quick-log template data
+    quick_log_templates = cfg.get("quick_log_templates", [])
+    try:
+        primary_contact_name = client["primary_contact"] or ""
+    except (KeyError, IndexError):
+        primary_contact_name = ""
+    # Determine next renewal label (policy type of next-expiring active policy)
+    _next_renewal_label = ""
+    _sorted_active = sorted(
+        [p for p in _active_policies if p.get("expiration_date")],
+        key=lambda p: p["expiration_date"],
+    )
+    _future = [p for p in _sorted_active if p["expiration_date"] >= _today]
+    if _future:
+        _next_renewal_label = _future[0].get("policy_type") or "renewal"
+    elif _sorted_active:
+        _next_renewal_label = _sorted_active[-1].get("policy_type") or "renewal"
+    else:
+        _next_renewal_label = "renewal"
+    issue_severities = cfg.get("issue_severities", [])
+
+    # ── What's Next card: single most urgent action item ─────────────
+    from datetime import date as _wn_date
+    _wn_today = _wn_date.today()
+    _wn_today_str = _wn_today.isoformat()
+    _wn_tomorrow_str = (_wn_today + timedelta(days=1)).isoformat()
+    whats_next = None
+
+    # Priority 1: Issues with breached SLA
+    _sla_breached = conn.execute("""
+        SELECT id, subject, issue_uid, issue_severity, issue_status, issue_sla_days,
+               activity_date, client_id,
+               CAST(julianday('now') - julianday(activity_date) AS INTEGER) AS age_days
+        FROM activity_log
+        WHERE client_id = ? AND item_kind = 'issue' AND issue_id IS NULL
+          AND (issue_status IS NULL OR issue_status NOT IN ('Resolved', 'Closed'))
+          AND issue_sla_days > 0
+          AND CAST(julianday('now') - julianday(activity_date) AS INTEGER) > issue_sla_days
+        ORDER BY
+          CASE issue_severity WHEN 'Critical' THEN 0 WHEN 'High' THEN 1 WHEN 'Normal' THEN 2 ELSE 3 END,
+          (CAST(julianday('now') - julianday(activity_date) AS INTEGER) - issue_sla_days) DESC
+        LIMIT 1
+    """, [client_id]).fetchone()
+    if _sla_breached:
+        whats_next = {
+            "kind": "issue_sla_breached",
+            "id": _sla_breached["id"],
+            "uid": _sla_breached["issue_uid"],
+            "subject": _sla_breached["subject"],
+            "severity": _sla_breached["issue_severity"],
+            "age_days": _sla_breached["age_days"],
+            "sla_days": _sla_breached["issue_sla_days"],
+            "overdue_days": _sla_breached["age_days"] - _sla_breached["issue_sla_days"],
+        }
+
+    # Priority 2: Overdue follow-ups
+    if not whats_next:
+        _overdue = conn.execute("""
+            SELECT id, subject, activity_type, follow_up_date, contact_person, policy_id,
+                   CAST(julianday('now') - julianday(follow_up_date) AS INTEGER) AS overdue_days
+            FROM activity_log
+            WHERE client_id = ? AND follow_up_date < ? AND (follow_up_done = 0 OR follow_up_done IS NULL)
+              AND (item_kind IS NULL OR item_kind = 'followup')
+            ORDER BY follow_up_date ASC
+            LIMIT 1
+        """, [client_id, _wn_today_str]).fetchone()
+        if _overdue:
+            whats_next = {
+                "kind": "overdue_followup",
+                "id": _overdue["id"],
+                "subject": _overdue["subject"],
+                "type": _overdue["activity_type"],
+                "follow_up_date": _overdue["follow_up_date"],
+                "overdue_days": _overdue["overdue_days"],
+                "contact": _overdue["contact_person"],
+            }
+
+    # Priority 3: Issues approaching SLA (within 1 day)
+    if not whats_next:
+        _approaching = conn.execute("""
+            SELECT id, subject, issue_uid, issue_severity, issue_sla_days,
+                   activity_date,
+                   CAST(julianday('now') - julianday(activity_date) AS INTEGER) AS age_days
+            FROM activity_log
+            WHERE client_id = ? AND item_kind = 'issue' AND issue_id IS NULL
+              AND (issue_status IS NULL OR issue_status NOT IN ('Resolved', 'Closed'))
+              AND issue_sla_days > 0
+              AND CAST(julianday('now') - julianday(activity_date) AS INTEGER) >= (issue_sla_days - 1)
+              AND CAST(julianday('now') - julianday(activity_date) AS INTEGER) <= issue_sla_days
+            ORDER BY issue_sla_days - CAST(julianday('now') - julianday(activity_date) AS INTEGER)
+            LIMIT 1
+        """, [client_id]).fetchone()
+        if _approaching:
+            whats_next = {
+                "kind": "issue_approaching_sla",
+                "id": _approaching["id"],
+                "uid": _approaching["issue_uid"],
+                "subject": _approaching["subject"],
+                "severity": _approaching["issue_severity"],
+                "remaining_days": _approaching["issue_sla_days"] - _approaching["age_days"],
+            }
+
+    # Priority 4: Follow-ups due today or tomorrow
+    if not whats_next:
+        _due_soon_wn = conn.execute("""
+            SELECT id, subject, activity_type, follow_up_date, contact_person
+            FROM activity_log
+            WHERE client_id = ? AND follow_up_date BETWEEN ? AND ?
+              AND (follow_up_done = 0 OR follow_up_done IS NULL)
+              AND (item_kind IS NULL OR item_kind = 'followup')
+            ORDER BY follow_up_date ASC
+            LIMIT 1
+        """, [client_id, _wn_today_str, _wn_tomorrow_str]).fetchone()
+        if _due_soon_wn:
+            _is_today = _due_soon_wn["follow_up_date"] == _wn_today_str
+            whats_next = {
+                "kind": "due_followup",
+                "id": _due_soon_wn["id"],
+                "subject": _due_soon_wn["subject"],
+                "type": _due_soon_wn["activity_type"],
+                "due_label": "Due today" if _is_today else "Due tomorrow",
+                "contact": _due_soon_wn["contact_person"],
+            }
+
+    # Priority 5: Next expiring policy (within 120 days)
+    if not whats_next:
+        _next_exp = conn.execute("""
+            SELECT policy_uid, policy_type, carrier, expiration_date,
+                   CAST(julianday(expiration_date) - julianday('now') AS INTEGER) AS days_to_exp
+            FROM policies
+            WHERE client_id = ? AND archived = 0
+              AND (is_opportunity = 0 OR is_opportunity IS NULL)
+              AND expiration_date >= ?
+            ORDER BY expiration_date ASC
+            LIMIT 1
+        """, [client_id, _wn_today_str]).fetchone()
+        if _next_exp and _next_exp["days_to_exp"] <= 120:
+            whats_next = {
+                "kind": "policy_expiry",
+                "uid": _next_exp["policy_uid"],
+                "policy_type": _next_exp["policy_type"],
+                "carrier": _next_exp["carrier"],
+                "days_to_exp": _next_exp["days_to_exp"],
+                "expiration_date": _next_exp["expiration_date"],
+            }
+
+    # Priority 6: All clear
+    if not whats_next:
+        whats_next = {"kind": "all_clear"}
+
+    # Last activity days for all-clear state
+    _last_act = conn.execute(
+        "SELECT MAX(activity_date) AS d FROM activity_log WHERE client_id = ?",
+        [client_id],
+    ).fetchone()
+    _last_activity_days = None
+    if _last_act and _last_act["d"]:
+        try:
+            _last_activity_days = (_wn_today - _wn_date.fromisoformat(_last_act["d"])).days
+        except (ValueError, TypeError):
+            pass
+
     return templates.TemplateResponse("clients/_tab_overview.html", {
         "request": request,
         "client": dict(client),
@@ -520,6 +752,10 @@ def client_tab_overview(request: Request, client_id: int, conn=Depends(get_db)):
         "history": history,
         "activity_types": cfg.get("activity_types"),
         "dispositions": cfg.get("follow_up_dispositions", []),
+        "quick_log_templates": quick_log_templates,
+        "primary_contact_name": primary_contact_name,
+        "next_renewal_label": _next_renewal_label,
+        "issue_severities": issue_severities,
         "linked_group": linked_group,
         "linked_relationships": cfg.get("linked_account_relationships", []),
         "client_scratchpad": _scratch["content"] if _scratch else "",
@@ -557,6 +793,11 @@ def client_tab_overview(request: Request, client_id: int, conn=Depends(get_db)):
                AND (is_opportunity=0 OR is_opportunity IS NULL)""",
             (client_id,),
         ).fetchone()[0],
+        "whats_next": whats_next,
+        "last_activity_days": _last_activity_days,
+        "account_priority_options": cfg.get("account_priority_options", []),
+        "relationship_risk_levels": cfg.get("relationship_risk_levels", []),
+        "service_model_options": cfg.get("service_model_options", []),
     })
 
 
@@ -745,10 +986,35 @@ def client_tab_policies(request: Request, client_id: int, conn=Depends(get_db)):
     # Build lookup by tower_group for template badge rendering
     completeness_by_tg = {c["tower_group"]: c for c in schematic_completeness}
 
+    # Renewal pipeline mini-view — policies expiring in next 120 days
+    from collections import OrderedDict
+    _renewal_statuses = cfg.get("renewal_statuses", [])
+    renewal_pipeline_policies = conn.execute(
+        """SELECT policy_uid, policy_type, carrier, expiration_date, renewal_status,
+                  CAST(julianday(expiration_date) - julianday('now') AS INTEGER) AS days_to_exp
+           FROM policies
+           WHERE client_id = ? AND archived = 0
+             AND (is_opportunity = 0 OR is_opportunity IS NULL)
+             AND expiration_date >= date('now')
+             AND CAST(julianday(expiration_date) - julianday('now') AS INTEGER) <= 120
+           ORDER BY expiration_date ASC""",
+        [client_id],
+    ).fetchall()
+    pipeline_by_status: OrderedDict = OrderedDict()
+    for _rs in _renewal_statuses:
+        pipeline_by_status[_rs] = []
+    for _rp in renewal_pipeline_policies:
+        _s = _rp["renewal_status"] or (_renewal_statuses[0] if _renewal_statuses else "Unknown")
+        if _s not in pipeline_by_status:
+            pipeline_by_status[_s] = []
+        pipeline_by_status[_s].append(dict(_rp))
+
     return templates.TemplateResponse("clients/_tab_policies.html", {
         "request": request,
         "client": dict(client),
         "policy_groups": policy_groups,
+        "pipeline_by_status": pipeline_by_status,
+        "has_renewal_pipeline": bool(renewal_pipeline_policies),
         "tower_visuals": tower_visuals,
         "completeness_by_tg": completeness_by_tg,
         "renewal_statuses": cfg.get("renewal_statuses"),
@@ -805,6 +1071,65 @@ def client_tab_contacts(request: Request, client_id: int, add_contact: str = "",
         for r in _pc_rows
     ]
 
+    # --- Key Contacts summary strip ---
+    key_contacts = []
+
+    # Primary client contact
+    _primary = conn.execute(
+        """SELECT c.name, c.email, c.phone, c.mobile, cca.role, cca.title
+           FROM contacts c
+           JOIN contact_client_assignments cca ON c.id = cca.contact_id
+           WHERE cca.client_id = ? AND cca.contact_type = 'client' AND cca.is_primary = 1
+           LIMIT 1""",
+        (client_id,),
+    ).fetchone()
+    key_contacts.append({"label": "Primary Contact", "contact": dict(_primary) if _primary else None})
+
+    # Account Manager (team / internal lead)
+    _team_lead = conn.execute(
+        """SELECT c.name, c.email, c.phone, c.mobile, cca.role, cca.title
+           FROM contacts c
+           JOIN contact_client_assignments cca ON c.id = cca.contact_id
+           WHERE cca.client_id = ? AND cca.contact_type = 'internal' AND cca.is_primary = 1
+           LIMIT 1""",
+        (client_id,),
+    ).fetchone()
+    if not _team_lead:
+        _team_lead = conn.execute(
+            """SELECT c.name, c.email, c.phone, c.mobile, cca.role, cca.title
+               FROM contacts c
+               JOIN contact_client_assignments cca ON c.id = cca.contact_id
+               WHERE cca.client_id = ? AND cca.contact_type = 'internal'
+               ORDER BY cca.id LIMIT 1""",
+            (client_id,),
+        ).fetchone()
+    key_contacts.append({"label": "Account Manager", "contact": dict(_team_lead) if _team_lead else None})
+
+    # Key Underwriter (from policy assignments, most recent active policy)
+    _underwriter = conn.execute(
+        """SELECT c.name, c.email, c.phone, c.mobile, cpa.role, cpa.title
+           FROM contacts c
+           JOIN contact_policy_assignments cpa ON c.id = cpa.contact_id
+           JOIN policies p ON p.id = cpa.policy_id
+           WHERE p.client_id = ? AND p.archived = 0
+             AND LOWER(cpa.role) LIKE '%underwriter%'
+           ORDER BY p.expiration_date DESC
+           LIMIT 1""",
+        (client_id,),
+    ).fetchone()
+    key_contacts.append({"label": "Key Underwriter", "contact": dict(_underwriter) if _underwriter else None})
+
+    # Billing contact (client assignment with billing role)
+    _billing = conn.execute(
+        """SELECT c.name, c.email, c.phone, c.mobile, cca.role, cca.title
+           FROM contacts c
+           JOIN contact_client_assignments cca ON c.id = cca.contact_id
+           WHERE cca.client_id = ? AND LOWER(cca.role) LIKE '%billing%'
+           LIMIT 1""",
+        (client_id,),
+    ).fetchone()
+    key_contacts.append({"label": "Billing Contact", "contact": dict(_billing) if _billing else None})
+
     from policydb.email_templates import client_context as _client_ctx, render_tokens as _render_tokens
     _mail_ctx = _client_ctx(conn, client_id)
     mailto_subject = _render_tokens(cfg.get("email_subject_client", "Re: {{client_name}}"), _mail_ctx)
@@ -837,6 +1162,7 @@ def client_tab_contacts(request: Request, client_id: int, add_contact: str = "",
         "contacts": contacts,
         "team_contacts": team_contacts,
         "external_contacts": external_contacts,
+        "key_contacts": key_contacts,
         "billing_accounts": [dict(r) for r in conn.execute(
             "SELECT * FROM billing_accounts WHERE client_id=? ORDER BY is_master DESC, billing_id", (client_id,)
         ).fetchall()],
@@ -895,6 +1221,89 @@ def client_tab_risk(request: Request, client_id: int, conn=Depends(get_db)):
         "policy_uid_options": policy_uid_options,
         "bundles": _get_request_bundles(conn, client_id),
         "today_iso": datetime.now().strftime("%Y-%m-%d"),
+    })
+
+
+@router.get("/{client_id}/quick-brief", response_class=HTMLResponse)
+def client_quick_brief(request: Request, client_id: int, conn=Depends(get_db)):
+    """Quick Brief slideover - 10-second client digest."""
+    from datetime import date
+    client = get_client_by_id(conn, client_id)
+    if not client:
+        return HTMLResponse("Client not found", status_code=404)
+
+    today_str = date.today().isoformat()
+
+    # Summary from view
+    summary = conn.execute("SELECT * FROM v_client_summary WHERE id = ?", [client_id]).fetchone()
+
+    # Primary contact
+    primary_contact = conn.execute("""
+        SELECT c.name, c.email, c.phone, c.mobile
+        FROM contacts c
+        JOIN contact_client_assignments cca ON c.id = cca.contact_id
+        WHERE cca.client_id = ? AND cca.contact_type = 'client' AND cca.is_primary = 1
+        LIMIT 1
+    """, [client_id]).fetchone()
+
+    # Open issues
+    open_issues = conn.execute("""
+        SELECT subject, issue_severity, issue_uid, issue_sla_days,
+               CAST(julianday('now') - julianday(activity_date) AS INTEGER) AS age_days
+        FROM activity_log
+        WHERE client_id = ? AND item_kind = 'issue'
+          AND issue_status NOT IN ('Resolved', 'Closed')
+        ORDER BY CASE issue_severity WHEN 'Critical' THEN 0 WHEN 'High' THEN 1 WHEN 'Normal' THEN 2 ELSE 3 END
+    """, [client_id]).fetchall()
+
+    # Recent activities (last 3)
+    recent = conn.execute("""
+        SELECT activity_type, subject, activity_date
+        FROM activity_log
+        WHERE client_id = ? AND (item_kind IS NULL OR item_kind = 'followup')
+        ORDER BY activity_date DESC, id DESC
+        LIMIT 3
+    """, [client_id]).fetchall()
+
+    # Upcoming follow-ups (next 3)
+    upcoming = conn.execute("""
+        SELECT subject, follow_up_date, activity_type, contact_person
+        FROM activity_log
+        WHERE client_id = ? AND follow_up_date >= ?
+          AND (follow_up_done = 0 OR follow_up_done IS NULL)
+          AND (item_kind IS NULL OR item_kind = 'followup')
+        ORDER BY follow_up_date ASC
+        LIMIT 3
+    """, [client_id, today_str]).fetchall()
+
+    # Next renewals (next 3)
+    renewals = conn.execute("""
+        SELECT policy_type, carrier, expiration_date, renewal_status,
+               CAST(julianday(expiration_date) - julianday('now') AS INTEGER) AS days_to
+        FROM policies
+        WHERE client_id = ? AND archived = 0
+          AND (is_opportunity = 0 OR is_opportunity IS NULL)
+          AND expiration_date >= ?
+        ORDER BY expiration_date ASC
+        LIMIT 3
+    """, [client_id, today_str]).fetchall()
+
+    # Scratchpad
+    scratchpad = conn.execute(
+        "SELECT content FROM client_scratchpad WHERE client_id = ?",
+        [client_id]
+    ).fetchone()
+
+    return templates.TemplateResponse("clients/_quick_brief_slideover.html", {
+        "request": request,
+        "client": dict(client),
+        "summary": dict(summary) if summary else {},
+        "primary_contact": dict(primary_contact) if primary_contact else None,
+        "open_issues": [dict(r) for r in open_issues],
+        "recent": [dict(r) for r in recent],
+        "upcoming": [dict(r) for r in upcoming],
+        "renewals": [dict(r) for r in renewals],
+        "scratchpad": scratchpad["content"] if scratchpad else "",
     })
 
 
@@ -1409,6 +1818,7 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
         "pulse_recent": pulse_recent,
         "today": _today,
         "today_iso": _today,
+        "health": _compute_client_health(conn, client_id),
         "renewal_month_counts": renewal_month_counts,
         "computed_renewal_month": computed_renewal_month,
         "next_followup_date": next_followup_date,
@@ -1902,6 +2312,133 @@ def _policy_uid_options(conn, client_id: int):
     return [{"uid": p["policy_uid"], "label": f"{p['policy_uid']} — {p['policy_type']}"} for p in all_policies]
 
 
+def _compute_client_health(conn, client_id: int) -> dict:
+    """Compute client health score (0-100) from weighted signals."""
+    from datetime import date
+    today = date.today()
+    today_str = today.isoformat()
+    score = 100
+    factors: list[dict] = []
+
+    # 1. Days since last activity (max deduction: 25)
+    last = conn.execute(
+        "SELECT MAX(activity_date) AS d FROM activity_log WHERE client_id = ?",
+        [client_id],
+    ).fetchone()
+    last_date = last["d"] if last else None
+    if last_date:
+        days_since = (today - date.fromisoformat(last_date)).days
+    else:
+        days_since = 999
+
+    if days_since > 90:
+        score -= 25
+        factors.append({"label": f"No activity in {days_since}d", "impact": -25, "color": "red"})
+    elif days_since > 60:
+        score -= 20
+        factors.append({"label": f"Last activity {days_since}d ago", "impact": -20, "color": "red"})
+    elif days_since > 30:
+        score -= 15
+        factors.append({"label": f"Last activity {days_since}d ago", "impact": -15, "color": "amber"})
+    elif days_since > 14:
+        score -= 10
+        factors.append({"label": f"Last activity {days_since}d ago", "impact": -10, "color": "amber"})
+    elif days_since > 7:
+        score -= 5
+        factors.append({"label": f"Last activity {days_since}d ago", "impact": -5, "color": "neutral"})
+
+    # 2. Overdue follow-ups (max deduction: 25)
+    overdue_count = conn.execute(
+        """SELECT COUNT(*) AS n FROM activity_log
+           WHERE client_id = ? AND follow_up_date < ?
+             AND (follow_up_done = 0 OR follow_up_done IS NULL)
+             AND (item_kind IS NULL OR item_kind = 'followup')""",
+        [client_id, today_str],
+    ).fetchone()["n"]
+
+    if overdue_count >= 3:
+        score -= 25
+        factors.append({"label": f"{overdue_count} overdue follow-ups", "impact": -25, "color": "red"})
+    elif overdue_count == 2:
+        score -= 15
+        factors.append({"label": "2 overdue follow-ups", "impact": -15, "color": "red"})
+    elif overdue_count == 1:
+        score -= 10
+        factors.append({"label": "1 overdue follow-up", "impact": -10, "color": "amber"})
+
+    # 3. Open issues (max deduction: 25)
+    issues = conn.execute(
+        """SELECT issue_severity, issue_sla_days, activity_date,
+                  CAST(julianday('now') - julianday(activity_date) AS INTEGER) AS age_days
+           FROM activity_log
+           WHERE client_id = ? AND item_kind = 'issue'
+             AND (issue_status IS NULL OR issue_status NOT IN ('Resolved', 'Closed'))""",
+        [client_id],
+    ).fetchall()
+
+    sla_breached = any(
+        r["issue_sla_days"] and r["age_days"] > r["issue_sla_days"] for r in issues
+    )
+    critical_count = sum(1 for r in issues if r["issue_severity"] == "Critical")
+    high_count = sum(1 for r in issues if r["issue_severity"] == "High")
+    other_count = sum(1 for r in issues if r["issue_severity"] not in ("Critical", "High"))
+
+    issue_deduction = 0
+    if sla_breached:
+        issue_deduction = 25
+        factors.append({"label": "Issue SLA breached", "impact": -25, "color": "red"})
+    else:
+        issue_deduction += min(critical_count * 15, 20)
+        issue_deduction += min(high_count * 10, 15)
+        issue_deduction += min(other_count * 5, 10)
+        issue_deduction = min(issue_deduction, 25)
+        if critical_count:
+            factors.append({"label": f"{critical_count} critical issue(s)", "impact": -min(critical_count * 15, 20), "color": "red"})
+        if high_count:
+            factors.append({"label": f"{high_count} high issue(s)", "impact": -min(high_count * 10, 15), "color": "amber"})
+    score -= issue_deduction
+
+    # 4. Renewal proximity without recent action (max deduction: 15)
+    next_renewal = conn.execute(
+        """SELECT MIN(CAST(julianday(expiration_date) - julianday('now') AS INTEGER)) AS days_to
+           FROM policies WHERE client_id = ? AND archived = 0
+             AND (is_opportunity = 0 OR is_opportunity IS NULL)
+             AND expiration_date >= ?""",
+        [client_id, today_str],
+    ).fetchone()
+
+    days_to_renewal = next_renewal["days_to"] if next_renewal and next_renewal["days_to"] is not None else 999
+    if days_to_renewal < 30 and days_since > 7:
+        score -= 15
+        factors.append({"label": f"Renewal in {days_to_renewal}d, no recent activity", "impact": -15, "color": "red"})
+    elif days_to_renewal < 60 and days_since > 14:
+        score -= 10
+        factors.append({"label": f"Renewal in {days_to_renewal}d, no recent activity", "impact": -10, "color": "amber"})
+
+    # 5. Open high/critical risks (max deduction: 10)
+    risk_count = conn.execute(
+        "SELECT COUNT(*) AS n FROM client_risks WHERE client_id = ? AND severity IN ('High', 'Critical')",
+        [client_id],
+    ).fetchone()["n"]
+
+    if risk_count >= 3:
+        score -= 10
+        factors.append({"label": f"{risk_count} high/critical risks", "impact": -10, "color": "amber"})
+    elif risk_count >= 1:
+        score -= 5
+        factors.append({"label": f"{risk_count} high/critical risk(s)", "impact": -5, "color": "neutral"})
+
+    score = max(score, 0)
+    level = "green" if score >= 70 else "amber" if score >= 40 else "red"
+
+    return {
+        "score": score,
+        "level": level,
+        "label": "Healthy" if level == "green" else "Needs Attention" if level == "amber" else "At Risk",
+        "factors": factors,
+    }
+
+
 def _compute_risk_summary(risks: list[dict]) -> dict:
     """Compute aggregate risk posture stats for visual widgets."""
     total = len(risks)
@@ -2252,6 +2789,28 @@ def client_followup_set(
     )
     conn.commit()
     return JSONResponse({"ok": True, "follow_up_date": follow_up_date.strip() or None})
+
+
+_STRATEGY_FIELDS = {
+    "account_priorities", "renewal_strategy", "growth_opportunities",
+    "relationship_risk", "service_model", "stewardship_date",
+}
+
+
+@router.patch("/{client_id}/strategy")
+async def client_strategy_patch(client_id: int, request: Request, conn=Depends(get_db)):
+    """PATCH a single account strategy field on a client."""
+    body = await request.json()
+    field = body.get("field", "")
+    value = body.get("value", "")
+    if field not in _STRATEGY_FIELDS:
+        return JSONResponse({"ok": False, "error": "Invalid field"}, status_code=400)
+    conn.execute(
+        f"UPDATE clients SET {field} = ? WHERE id = ?",  # noqa: S608  — field validated against allowlist
+        (value.strip() if value else "", client_id),
+    )
+    conn.commit()
+    return JSONResponse({"ok": True, "field": field, "formatted": value.strip() if value else ""})
 
 
 @router.post("/{client_id}/edit")

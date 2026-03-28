@@ -1,0 +1,160 @@
+{# Account Strategy #}
+<div class="card mt-4">
+  <div class="px-5 py-4 border-b border-gray-100">
+    <h2 class="text-xs font-semibold text-gray-400 uppercase tracking-wide">Account Strategy</h2>
+  </div>
+
+  <div class="px-5 py-4">
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
+      {# Account Priorities - pill tag input #}
+      <div class="md:col-span-2">
+        <label class="text-xs text-gray-500 mb-1.5 block">Priorities</label>
+        <div class="flex flex-wrap gap-1.5 items-center" id="priority-pills">
+          {% for p in (client.account_priorities or '').split(',') if client.account_priorities and p.strip() %}
+          <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#003865] text-white" data-value="{{ p.strip() }}">
+            {{ p.strip() }}
+            <button type="button" onclick="removePriority(this)" class="hover:text-red-200 ml-0.5 no-print">&times;</button>
+          </span>
+          {% endfor %}
+          <div class="relative inline-block no-print">
+            <select onchange="addPriority(this)" class="text-xs border border-dashed border-gray-300 rounded-full px-2.5 py-0.5 text-gray-400 bg-white cursor-pointer focus:border-[#003865] focus:outline-none">
+              <option value="">+ Add</option>
+              {% for opt in account_priority_options %}
+              <option value="{{ opt }}">{{ opt }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      {# Renewal Strategy #}
+      <div>
+        <label class="text-xs text-gray-500 mb-1.5 block">Renewal Strategy</label>
+        <div contenteditable="true"
+             data-field="renewal_strategy"
+             data-placeholder="e.g., Market to 3 carriers by Oct 15"
+             onblur="saveStrategyField(this)"
+             class="text-sm text-gray-900 border-b border-transparent hover:border-gray-300 focus:border-[#003865] focus:outline-none min-h-[24px] py-0.5 empty:before:content-[attr(data-placeholder)] empty:before:text-gray-300">{{ client.renewal_strategy or '' }}</div>
+      </div>
+
+      {# Growth Opportunities #}
+      <div>
+        <label class="text-xs text-gray-500 mb-1.5 block">Growth Opportunities</label>
+        <div contenteditable="true"
+             data-field="growth_opportunities"
+             data-placeholder="e.g., Cyber coverage gap, D&O for new board"
+             onblur="saveStrategyField(this)"
+             class="text-sm text-gray-900 border-b border-transparent hover:border-gray-300 focus:border-[#003865] focus:outline-none min-h-[24px] py-0.5 empty:before:content-[attr(data-placeholder)] empty:before:text-gray-300">{{ client.growth_opportunities or '' }}</div>
+      </div>
+
+      {# Relationship Risk #}
+      <div>
+        <label class="text-xs text-gray-500 mb-1.5 block">Relationship Risk</label>
+        <div class="flex gap-1.5" id="risk-level-pills">
+          {% for level in relationship_risk_levels %}
+          <button type="button" onclick="setRisk(this, '{{ level }}')"
+            class="px-2.5 py-1 text-xs rounded-full border transition-colors cursor-pointer
+              {% if client.relationship_risk == level %}
+                {% if level == 'High' %}bg-red-100 border-red-300 text-red-700
+                {% elif level == 'Medium' %}bg-amber-100 border-amber-300 text-amber-700
+                {% elif level == 'Low' %}bg-green-100 border-green-300 text-green-700
+                {% else %}bg-gray-100 border-gray-300 text-gray-600{% endif %}
+              {% else %}bg-white border-gray-200 text-gray-500 hover:bg-gray-50{% endif %}">
+            {{ level }}
+          </button>
+          {% endfor %}
+        </div>
+      </div>
+
+      {# Service Model #}
+      <div>
+        <label class="text-xs text-gray-500 mb-1.5 block">Service Model</label>
+        <div class="flex gap-1.5" id="service-model-pills">
+          {% for model in service_model_options %}
+          <button type="button" onclick="setServiceModel(this, '{{ model }}')"
+            class="px-2.5 py-1 text-xs rounded-full border transition-colors cursor-pointer
+              {% if client.service_model == model %}bg-[#003865] text-white border-[#003865]
+              {% else %}bg-white border-gray-200 text-gray-500 hover:bg-gray-50{% endif %}">
+            {{ model }}
+          </button>
+          {% endfor %}
+        </div>
+      </div>
+
+      {# Stewardship Date #}
+      <div>
+        <label class="text-xs text-gray-500 mb-1.5 block">Next Stewardship</label>
+        <input type="date" value="{{ client.stewardship_date or '' }}"
+               onchange="saveStrategyField(this, 'stewardship_date', this.value)"
+               class="text-sm border border-gray-300 rounded-md px-2.5 py-1 text-gray-900 focus:ring-1 focus:ring-[#003865] focus:border-[#003865] focus:outline-none">
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function saveStrategyField(el, fieldOverride, valueOverride) {
+  var field = fieldOverride || el.dataset.field;
+  var value = valueOverride !== undefined ? valueOverride : el.textContent.trim();
+  fetch('/clients/{{ client.id }}/strategy', {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({field: field, value: value})
+  }).then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.ok && el) {
+        if (typeof flashCell === 'function') flashCell(el);
+      }
+    })
+    .catch(function() {
+      if (typeof showToast === 'function') showToast('Save failed', false);
+    });
+}
+
+function addPriority(sel) {
+  if (!sel.value) return;
+  var container = document.getElementById('priority-pills');
+  var existing = container.querySelectorAll('[data-value]');
+  for (var i = 0; i < existing.length; i++) {
+    if (existing[i].dataset.value === sel.value) { sel.value = ''; return; }
+  }
+  var pill = document.createElement('span');
+  pill.className = 'inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#003865] text-white';
+  pill.dataset.value = sel.value;
+  pill.innerHTML = sel.value + ' <button type="button" onclick="removePriority(this)" class="hover:text-red-200 ml-0.5 no-print">&times;</button>';
+  container.insertBefore(pill, sel.parentElement);
+  sel.value = '';
+  savePriorities();
+}
+
+function removePriority(btn) {
+  btn.parentElement.remove();
+  savePriorities();
+}
+
+function savePriorities() {
+  var pills = document.querySelectorAll('#priority-pills [data-value]');
+  var values = [];
+  pills.forEach(function(p) { values.push(p.dataset.value); });
+  saveStrategyField(null, 'account_priorities', values.join(','));
+}
+
+function setRisk(btn, level) {
+  btn.parentElement.querySelectorAll('button').forEach(function(b) {
+    b.className = 'px-2.5 py-1 text-xs rounded-full border transition-colors cursor-pointer bg-white border-gray-200 text-gray-500 hover:bg-gray-50';
+  });
+  if (level === 'High') btn.className = 'px-2.5 py-1 text-xs rounded-full border transition-colors cursor-pointer bg-red-100 border-red-300 text-red-700';
+  else if (level === 'Medium') btn.className = 'px-2.5 py-1 text-xs rounded-full border transition-colors cursor-pointer bg-amber-100 border-amber-300 text-amber-700';
+  else if (level === 'Low') btn.className = 'px-2.5 py-1 text-xs rounded-full border transition-colors cursor-pointer bg-green-100 border-green-300 text-green-700';
+  else btn.className = 'px-2.5 py-1 text-xs rounded-full border transition-colors cursor-pointer bg-gray-100 border-gray-300 text-gray-600';
+  saveStrategyField(null, 'relationship_risk', level);
+}
+
+function setServiceModel(btn, model) {
+  btn.parentElement.querySelectorAll('button').forEach(function(b) {
+    b.className = 'px-2.5 py-1 text-xs rounded-full border transition-colors cursor-pointer bg-white border-gray-200 text-gray-500 hover:bg-gray-50';
+  });
+  btn.className = 'px-2.5 py-1 text-xs rounded-full border transition-colors cursor-pointer bg-[#003865] text-white border-[#003865]';
+  saveStrategyField(null, 'service_model', model);
+}
+</script>

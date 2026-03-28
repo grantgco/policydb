@@ -1,0 +1,167 @@
+{# Quick Brief Slideover — 10-second client digest #}
+<div id="quick-brief-panel" class="fixed inset-0 z-50 overflow-hidden">
+  {# Backdrop #}
+  <div class="absolute inset-0 bg-black bg-opacity-25"
+       onclick="document.getElementById('quick-brief-panel').remove()"></div>
+
+  {# Panel #}
+  <div class="absolute inset-y-0 right-0 w-full max-w-md bg-white shadow-xl flex flex-col"
+       style="animation: slideInRight 0.2s ease-out">
+
+    {# Header #}
+    <div class="px-5 py-4 border-b border-gray-200 bg-gray-50 flex items-center justify-between flex-shrink-0">
+      <div>
+        <h2 class="text-base font-semibold text-gray-900">{{ client.name }}</h2>
+        <div class="text-xs text-gray-500 mt-0.5">
+          {{ client.industry_segment or '' }}{% if client.cn_number %} &middot; {{ client.cn_number }}{% endif %}
+        </div>
+      </div>
+      <button onclick="document.getElementById('quick-brief-panel').remove()"
+              class="text-gray-400 hover:text-gray-600">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+
+    {# Scrollable content #}
+    <div class="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+
+      {# Key Contact #}
+      {% if primary_contact %}
+      <div>
+        <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Primary Contact</h3>
+        <div class="text-sm font-medium text-gray-900">{{ primary_contact.name }}</div>
+        <div class="flex items-center gap-3 mt-1">
+          {% if primary_contact.mobile %}
+            <a href="tel:{{ primary_contact.mobile }}" class="text-xs text-marsh hover:underline">{{ primary_contact.mobile }}</a>
+          {% elif primary_contact.phone %}
+            <a href="tel:{{ primary_contact.phone }}" class="text-xs text-marsh hover:underline">{{ primary_contact.phone }}</a>
+          {% endif %}
+          {% if primary_contact.email %}
+            <a href="mailto:{{ primary_contact.email }}" class="text-xs text-blue-600 hover:underline">{{ primary_contact.email }}</a>
+          {% endif %}
+        </div>
+      </div>
+      {% endif %}
+
+      {# Open Issues #}
+      {% if open_issues %}
+      <div>
+        <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1.5">
+          Open Issues <span class="text-red-600">({{ open_issues | length }})</span>
+        </h3>
+        <div class="space-y-1.5">
+          {% for iss in open_issues[:3] %}
+          <div class="flex items-center gap-2 text-sm">
+            <span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium
+              {% if iss.issue_severity == 'Critical' %}bg-red-100 text-red-800
+              {% elif iss.issue_severity == 'High' %}bg-amber-100 text-amber-800
+              {% else %}bg-gray-100 text-gray-700{% endif %}">{{ iss.issue_severity }}</span>
+            <span class="text-gray-900 truncate">{{ iss.subject }}</span>
+            {% if iss.issue_sla_days and iss.age_days > iss.issue_sla_days %}
+              <span class="text-xs text-red-600 flex-shrink-0">SLA breached</span>
+            {% endif %}
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
+      {# Recent Activity #}
+      <div>
+        <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Recent Activity</h3>
+        {% if recent %}
+        <div class="space-y-1.5">
+          {% for a in recent %}
+          <div class="flex items-center gap-2 text-sm">
+            <span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-600">{{ a.activity_type }}</span>
+            <span class="text-gray-700 truncate flex-1 min-w-0">{{ a.subject }}</span>
+            <span class="text-xs text-gray-400 flex-shrink-0">{{ a.activity_date }}</span>
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <div class="text-xs text-gray-400 italic">No recent activity</div>
+        {% endif %}
+      </div>
+
+      {# Upcoming Follow-ups #}
+      {% if upcoming %}
+      <div>
+        <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Upcoming Follow-ups</h3>
+        <div class="space-y-1.5">
+          {% for fu in upcoming %}
+          <div class="flex items-center gap-2 text-sm">
+            <span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-700">{{ fu.activity_type }}</span>
+            <span class="text-gray-700 truncate flex-1 min-w-0">{{ fu.subject }}</span>
+            <span class="text-xs text-gray-400 flex-shrink-0">{{ fu.follow_up_date }}</span>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
+      {# Next Renewals #}
+      {% if renewals %}
+      <div>
+        <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Next Renewals</h3>
+        <div class="space-y-1.5">
+          {% for r in renewals %}
+          <div class="flex items-center gap-2 text-sm">
+            <span class="text-gray-900">{{ r.policy_type }}</span>
+            <span class="text-gray-400 truncate">{{ r.carrier }}</span>
+            <span class="text-xs flex-shrink-0 ml-auto
+              {% if r.days_to <= 30 %}text-red-600 font-semibold{% elif r.days_to <= 60 %}text-amber-600{% else %}text-gray-500{% endif %}">
+              {{ r.days_to }}d
+            </span>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
+      {# Key Numbers #}
+      {% if summary %}
+      <div>
+        <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Key Numbers</h3>
+        <div class="grid grid-cols-3 gap-3">
+          <div>
+            <div class="text-xs text-gray-400">Premium</div>
+            <div class="text-sm font-semibold text-gray-900">{{ summary.total_premium | currency_short if summary.total_premium else '—' }}</div>
+          </div>
+          <div>
+            <div class="text-xs text-gray-400">Revenue</div>
+            <div class="text-sm font-semibold text-gray-900">{{ summary.total_revenue | currency_short if summary.total_revenue else '—' }}</div>
+          </div>
+          <div>
+            <div class="text-xs text-gray-400">Policies</div>
+            <div class="text-sm font-semibold text-gray-900">{{ summary.total_policies or 0 }}</div>
+          </div>
+        </div>
+      </div>
+      {% endif %}
+
+      {# Notes #}
+      {% if scratchpad %}
+      <div>
+        <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Notes</h3>
+        <div class="text-sm text-gray-700 line-clamp-3">{{ scratchpad }}</div>
+      </div>
+      {% endif %}
+
+    </div>
+
+    {# Footer #}
+    <div class="px-5 py-3 border-t border-gray-200 bg-gray-50 flex-shrink-0">
+      <a href="/clients/{{ client.id }}" class="text-xs text-marsh hover:underline">Open full client page &rarr;</a>
+    </div>
+  </div>
+</div>
+
+<style>
+@keyframes slideInRight {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+</style>
