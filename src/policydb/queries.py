@@ -400,6 +400,7 @@ def get_activities(
     client_ids: list[int] | None = None,
 ) -> list[sqlite3.Row]:
     sql = """SELECT a.*, c.name AS client_name, c.cn_number, p.policy_uid,
+                    p.policy_type,
                     COALESCE(a.project_id, p.project_id) AS project_id,
                     pr.name AS project_name
              FROM activity_log a
@@ -2676,3 +2677,395 @@ def get_program_activities(conn: sqlite3.Connection, program_id: int, limit: int
         (program_id, limit),
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+# ─── ISSUE / KANBAN BOARD QUERIES ────────────────────────────────────────────
+
+
+def get_client_activity_board(
+    conn: sqlite3.Connection,
+    days: Optional[int] = None,
+    activity_type: Optional[str] = None,
+    q: Optional[str] = None,
+    client_id: Optional[int] = None,
+) -> list[dict]:
+    """Return activities grouped by client with issue nesting for a kanban board view.
+
+    Each client dict contains:
+      client_id, client_name, cn_number, activity_count, total_hours,
+      has_issues, issues (sorted by severity then date), untracked (activities
+      not linked to any issue).
+    """
+    from collections import defaultdict
+
+    # ── 1. Fetch activities in the date window (exclude issue header rows) ──
+    sql = """
+        SELECT a.id, a.subject, a.activity_date, a.activity_type, a.duration_hours,
+               a.follow_up_date, a.disposition, a.contact_person, a.details,
+               a.issue_id, a.item_kind,
+               c.id AS client_id, c.name AS client_name, c.cn_number,
+               p.id AS policy_id, p.policy_uid, p.policy_type
+        FROM activity_log a
+        JOIN clients c ON a.client_id = c.id
+        LEFT JOIN policies p ON a.policy_id = p.id
+        WHERE (a.item_kind = 'followup' OR a.item_kind IS NULL)
+    """
+    params: list = []
+
+    if client_id is not None:
+        sql += " AND a.client_id = ?"
+        params.append(client_id)
+    if days is not None:
+        sql += " AND a.activity_date >= date('now', ?)"
+        params.append(f"-{days - 1} days")
+    if activity_type:
+        sql += " AND a.activity_type = ?"
+        params.append(activity_type)
+    if q:
+        sql += " AND a.subject LIKE ?"
+        params.append(f"%{q}%")
+
+    sql += " ORDER BY a.activity_date DESC, a.id DESC"
+
+    activity_rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
+
+    if not activity_rows:
+        return []
+
+    # ── 2. Collect distinct client_ids from the result ──
+    client_ids_in_result = list({r["client_id"] for r in activity_rows})
+    ph = ",".join("?" * len(client_ids_in_result))
+
+    # ── 3. Fetch open issues for those clients ──
+    issue_rows = conn.execute(
+        f"""
+        SELECT a.id, a.issue_uid, a.subject, a.issue_severity, a.issue_status,
+               a.issue_sla_days, a.client_id, a.policy_id,
+               p.policy_uid, p.policy_type,
+               CAST(julianday('now') - julianday(a.activity_date) AS INTEGER) AS days_open
+        FROM activity_log a
+        LEFT JOIN policies p ON a.policy_id = p.id
+        WHERE a.item_kind = 'issue'
+          AND a.issue_status NOT IN ('Resolved', 'Closed')
+          AND a.client_id IN ({ph})
+        ORDER BY
+            CASE a.issue_severity
+                WHEN 'Critical' THEN 1 WHEN 'High' THEN 2
+                WHEN 'Normal' THEN 3 WHEN 'Low' THEN 4 ELSE 5
+            END,
+            a.activity_date ASC
+        """,
+        client_ids_in_result,
+    ).fetchall()
+    issue_map: dict[int, dict] = {}  # issue_id → issue dict
+    issues_by_client: dict[int, list[dict]] = defaultdict(list)
+    for row in issue_rows:
+        d = dict(row)
+        d["activities"] = []
+        issue_map[d["id"]] = d
+        issues_by_client[d["client_id"]].append(d)
+
+    # ── 4. Group activities into issue buckets or untracked ──
+    # Bucket: activity.issue_id → the issue that owns it
+    untracked_by_client: dict[int, list[dict]] = defaultdict(list)
+    for act in activity_rows:
+        issue_id = act.get("issue_id")
+        if issue_id and issue_id in issue_map:
+            issue_map[issue_id]["activities"].append(act)
+        else:
+            untracked_by_client[act["client_id"]].append(act)
+
+    # ── 5. Build per-client stats ──
+    hours_by_client: dict[int, float] = defaultdict(float)
+    count_by_client: dict[int, int] = defaultdict(int)
+    last_activity_by_client: dict[int, str] = {}
+    client_meta: dict[int, dict] = {}
+
+    for act in activity_rows:
+        cid = act["client_id"]
+        count_by_client[cid] += 1
+        hours_by_client[cid] += float(act.get("duration_hours") or 0)
+        act_date = act.get("activity_date") or ""
+        if cid not in last_activity_by_client or act_date > last_activity_by_client[cid]:
+            last_activity_by_client[cid] = act_date
+        if cid not in client_meta:
+            client_meta[cid] = {
+                "client_id": cid,
+                "client_name": act["client_name"],
+                "cn_number": act["cn_number"],
+            }
+
+    # ── 6. Assemble result sorted: clients with issues first, then by most recent activity desc ──
+    result = []
+    for cid, meta in client_meta.items():
+        client_issues = issues_by_client.get(cid, [])
+        result.append({
+            "client_id": cid,
+            "client_name": meta["client_name"],
+            "cn_number": meta["cn_number"],
+            "activity_count": count_by_client[cid],
+            "total_hours": round(hours_by_client[cid], 2),
+            "has_issues": bool(client_issues),
+            "issues": client_issues,
+            "untracked": untracked_by_client.get(cid, []),
+            "_last_activity": last_activity_by_client.get(cid, ""),
+        })
+
+    # Sort: clients with issues first (0 < 1), then by most recent activity date descending.
+    # For ISO date strings, lexicographic inversion: replace digits with (9 - digit) to reverse sort order.
+    result.sort(
+        key=lambda c: (
+            0 if c["has_issues"] else 1,
+            "" if not c["_last_activity"] else "".join(
+                str(9 - int(ch)) if ch.isdigit() else ch
+                for ch in c["_last_activity"]
+            ),
+        )
+    )
+
+    # Remove internal sort key before returning
+    for c in result:
+        del c["_last_activity"]
+
+    return result
+
+
+def get_escalation_suggestions(conn: sqlite3.Connection) -> list[dict]:
+    """Return escalation suggestions from 4 trigger types.
+
+    Trigger types:
+      stale_followups   — 2+ follow-ups overdue > stale_threshold_days for same client
+      timeline_drift    — policy_timeline milestones health='at_risk' or 'critical'
+      nudge_escalation  — 3+ waiting_external activities on same policy in last 90 days
+      critical_renewal  — CRITICAL tier from get_escalation_alerts()
+
+    Skips policies with an existing open issue. Skips dismissed suggestions
+    unless a newer activity/follow-up exists on that policy since dismissal.
+    Returns sorted by severity (Critical first) then title.
+    """
+    from collections import defaultdict
+
+    _SEVERITY_ORDER = {"Critical": 0, "High": 1, "Normal": 2, "Low": 3}
+
+    stale_threshold = cfg.get("stale_threshold_days", 14)
+    excluded_statuses = cfg.get("renewal_statuses_excluded", [])
+
+    # ── Build set of policy_ids that already have an open issue ──
+    open_issue_policy_ids: set[int] = set()
+    try:
+        rows = conn.execute(
+            """SELECT DISTINCT policy_id FROM activity_log
+               WHERE item_kind = 'issue'
+                 AND issue_status NOT IN ('Resolved', 'Closed')
+                 AND policy_id IS NOT NULL"""
+        ).fetchall()
+        open_issue_policy_ids = {r["policy_id"] for r in rows}
+    except Exception:
+        pass
+
+    # ── Load dismissals: {(policy_id, trigger_type): dismissed_at} ──
+    dismissals: dict[tuple, str] = {}
+    try:
+        d_rows = conn.execute(
+            "SELECT policy_id, trigger_type, dismissed_at FROM escalation_dismissals"
+        ).fetchall()
+        for dr in d_rows:
+            dismissals[(dr["policy_id"], dr["trigger_type"])] = dr["dismissed_at"]
+    except Exception:
+        pass
+
+    # ── Helper: check if a dismissal is still active (no newer activity since dismissed_at) ──
+    def _is_dismissed(policy_id: Optional[int], trigger_type: str) -> bool:
+        if policy_id is None:
+            return False
+        dismissed_at = dismissals.get((policy_id, trigger_type))
+        if not dismissed_at:
+            return False
+        # Check if there's any activity or follow-up newer than the dismissal
+        row = conn.execute(
+            """SELECT 1 FROM activity_log
+               WHERE policy_id = ?
+                 AND (activity_date > ? OR follow_up_date > ?)
+               LIMIT 1""",
+            (policy_id, dismissed_at[:10], dismissed_at[:10]),
+        ).fetchone()
+        if row:
+            return False  # Dismissal reset by newer activity
+        return True
+
+    suggestions: list[dict] = []
+
+    # ── Trigger 1: Stale follow-ups ──
+    # Follow-ups overdue > stale_threshold_days, grouped by client
+    # Only suggest when 2+ stale items for same client
+    try:
+        stale_rows = conn.execute(
+            """SELECT a.client_id, c.name AS client_name, a.policy_id,
+                      COUNT(*) AS stale_count,
+                      GROUP_CONCAT(a.id) AS activity_ids,
+                      MAX(a.follow_up_date) AS latest_due
+               FROM activity_log a
+               JOIN clients c ON a.client_id = c.id
+               WHERE a.follow_up_done = 0
+                 AND a.follow_up_date IS NOT NULL
+                 AND a.follow_up_date < date('now', ?)
+                 AND (a.item_kind = 'followup' OR a.item_kind IS NULL)
+               GROUP BY a.client_id
+               HAVING COUNT(*) >= 2""",
+            (f"-{stale_threshold} days",),
+        ).fetchall()
+        for row in stale_rows:
+            policy_id = row["policy_id"]
+            if policy_id and policy_id in open_issue_policy_ids:
+                continue
+            if _is_dismissed(policy_id, "stale_followups"):
+                continue
+            act_ids = [int(x) for x in (row["activity_ids"] or "").split(",") if x.strip().isdigit()]
+            suggestions.append({
+                "trigger_type": "stale_followups",
+                "severity_preset": "High",
+                "icon": "stale",
+                "client_id": row["client_id"],
+                "client_name": row["client_name"],
+                "policy_id": policy_id,
+                "title": f"{row['stale_count']} stale follow-ups — {row['client_name']}",
+                "detail": f"{row['stale_count']} follow-ups overdue more than {stale_threshold} days",
+                "source_activity_ids": act_ids,
+            })
+    except Exception as e:
+        logger.warning("get_escalation_suggestions stale_followups error: %s", e)
+
+    # ── Trigger 2: Timeline drift ──
+    try:
+        drift_rows = conn.execute(
+            """SELECT pt.policy_uid, pt.milestone_name, pt.health,
+                      pt.projected_date, pt.ideal_date,
+                      p.id AS policy_id, p.client_id, p.policy_type,
+                      c.name AS client_name
+               FROM policy_timeline pt
+               JOIN policies p ON p.policy_uid = pt.policy_uid
+               JOIN clients c ON c.id = p.client_id
+               WHERE pt.health IN ('at_risk', 'critical')
+                 AND pt.completed_date IS NULL
+                 AND (pt.acknowledged IS NULL OR pt.acknowledged = 0)
+                 AND p.archived = 0
+               ORDER BY
+                 CASE pt.health WHEN 'critical' THEN 1 ELSE 2 END,
+                 pt.projected_date ASC"""
+        ).fetchall()
+        for row in drift_rows:
+            policy_id = row["policy_id"]
+            if policy_id in open_issue_policy_ids:
+                continue
+            trigger = "timeline_drift"
+            if _is_dismissed(policy_id, trigger):
+                continue
+            severity = "Critical" if row["health"] == "critical" else "High"
+            drift_days = 0
+            try:
+                from datetime import date as _date
+                proj = _date.fromisoformat(row["projected_date"]) if row["projected_date"] else None
+                ideal = _date.fromisoformat(row["ideal_date"]) if row["ideal_date"] else None
+                if proj and ideal:
+                    drift_days = (proj - ideal).days
+            except (ValueError, TypeError):
+                pass
+            suggestions.append({
+                "trigger_type": trigger,
+                "severity_preset": severity,
+                "icon": "drift",
+                "client_id": row["client_id"],
+                "client_name": row["client_name"],
+                "policy_id": policy_id,
+                "title": f"{row['milestone_name']} {row['health'].replace('_', ' ')} — {row['client_name']}",
+                "detail": f"{row['policy_type']} milestone '{row['milestone_name']}' drifted {drift_days}d past ideal",
+                "source_activity_ids": [],
+            })
+    except Exception as e:
+        logger.warning("get_escalation_suggestions timeline_drift error: %s", e)
+
+    # ── Trigger 3: Nudge escalation ──
+    # 3+ waiting_external disposition activities on same policy in last 90 days
+    waiting_external_labels: list[str] = [
+        d["label"]
+        for d in cfg.get("follow_up_dispositions", [])
+        if d.get("accountability") == "waiting_external"
+    ]
+    if waiting_external_labels:
+        try:
+            ph_we = ",".join("?" * len(waiting_external_labels))
+            nudge_rows = conn.execute(
+                f"""SELECT a.policy_id, p.client_id, c.name AS client_name,
+                           p.policy_type,
+                           COUNT(*) AS nudge_count,
+                           GROUP_CONCAT(a.id) AS activity_ids,
+                           MAX(a.activity_date) AS latest_date
+                    FROM activity_log a
+                    JOIN policies p ON p.id = a.policy_id
+                    JOIN clients c ON c.id = p.client_id
+                    WHERE a.disposition IN ({ph_we})
+                      AND a.activity_date >= date('now', '-90 days')
+                      AND (a.item_kind = 'followup' OR a.item_kind IS NULL)
+                      AND a.policy_id IS NOT NULL
+                    GROUP BY a.policy_id
+                    HAVING COUNT(*) >= 3""",
+                waiting_external_labels,
+            ).fetchall()
+            for row in nudge_rows:
+                policy_id = row["policy_id"]
+                if policy_id in open_issue_policy_ids:
+                    continue
+                if _is_dismissed(policy_id, "nudge_escalation"):
+                    continue
+                act_ids = [int(x) for x in (row["activity_ids"] or "").split(",") if x.strip().isdigit()]
+                suggestions.append({
+                    "trigger_type": "nudge_escalation",
+                    "severity_preset": "High",
+                    "icon": "nudge",
+                    "client_id": row["client_id"],
+                    "client_name": row["client_name"],
+                    "policy_id": policy_id,
+                    "title": f"{row['nudge_count']} unanswered nudges — {row['client_name']}",
+                    "detail": f"{row['policy_type']}: {row['nudge_count']} waiting-external follow-ups in last 90 days",
+                    "source_activity_ids": act_ids,
+                })
+        except Exception as e:
+            logger.warning("get_escalation_suggestions nudge_escalation error: %s", e)
+
+    # ── Trigger 4: Critical renewal alerts ──
+    try:
+        alerts = get_escalation_alerts(conn, excluded_statuses=excluded_statuses)
+        for alert in alerts:
+            if alert.get("escalation_tier") != "CRITICAL":
+                continue
+            policy_id = alert.get("id")  # policies.id from v_renewal_pipeline
+            if policy_id and policy_id in open_issue_policy_ids:
+                continue
+            if _is_dismissed(policy_id, "critical_renewal"):
+                continue
+            suggestions.append({
+                "trigger_type": "critical_renewal",
+                "severity_preset": "Critical",
+                "icon": "critical",
+                "client_id": alert.get("client_id"),
+                "client_name": alert.get("client_name", ""),
+                "policy_id": policy_id,
+                "title": f"Critical renewal — {alert.get('client_name', '')}",
+                "detail": (
+                    f"{alert.get('policy_type', '')} expires in {alert.get('days_to_renewal', '?')}d, "
+                    f"status: {alert.get('renewal_status', 'Not Started')}"
+                ),
+                "source_activity_ids": [],
+            })
+    except Exception as e:
+        logger.warning("get_escalation_suggestions critical_renewal error: %s", e)
+
+    # ── Sort: Critical first, then High, Normal, Low; then by title ──
+    suggestions.sort(
+        key=lambda s: (
+            _SEVERITY_ORDER.get(s["severity_preset"], 9),
+            s["title"],
+        )
+    )
+
+    return suggestions

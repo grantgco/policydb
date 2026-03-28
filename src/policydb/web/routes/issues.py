@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 import policydb.config as cfg
@@ -27,6 +27,8 @@ def create_issue(
     details: str = Form(""),
     policy_id: int = Form(0),
     program_id: int = Form(0),
+    source_activity_id: int = Form(0),
+    source_activity_ids: str = Form(""),
     conn=Depends(get_db),
 ):
     """Create a new issue header row in activity_log."""
@@ -41,7 +43,7 @@ def create_issue(
             break
 
     uid = generate_issue_uid()
-    conn.execute("""
+    cur = conn.execute("""
         INSERT INTO activity_log (
             activity_date, client_id, policy_id, activity_type, subject, details,
             item_kind, issue_uid, issue_status, issue_severity, issue_sla_days,
@@ -58,6 +60,26 @@ def create_issue(
         sla_days,
         program_id or None,
     ))
+    new_issue_id = cur.lastrowid
+
+    # Link source activities to the new issue
+    if source_activity_id:
+        conn.execute(
+            "UPDATE activity_log SET issue_id = ? WHERE id = ?",
+            (new_issue_id, source_activity_id),
+        )
+    elif source_activity_ids:
+        try:
+            ids = [int(x.strip()) for x in source_activity_ids.split(",") if x.strip()]
+            if ids:
+                placeholders = ",".join("?" * len(ids))
+                conn.execute(
+                    f"UPDATE activity_log SET issue_id = ? WHERE id IN ({placeholders})",
+                    [new_issue_id] + ids,
+                )
+        except ValueError:
+            pass
+
     conn.commit()
 
     # Return refreshed issues tab
@@ -151,6 +173,125 @@ def resolve_issue(
     ctx = _issues_ctx(conn)
     ctx["request"] = request
     return templates.TemplateResponse("action_center/_issues.html", ctx)
+
+
+# ── Open issues for a client (widget partial) ────────────────────────────────
+
+
+_SEVERITY_ORDER = {"Critical": 0, "High": 1, "Normal": 2, "Low": 3}
+
+
+@router.get("/issues/for-client/{client_id}", response_class=HTMLResponse)
+def issues_for_client(
+    client_id: int,
+    request: Request,
+    conn=Depends(get_db),
+):
+    """Return open issues for a client — used by the Quick Log issue widget."""
+    rows = conn.execute("""
+        SELECT id, issue_uid, subject, issue_severity, issue_sla_days,
+               CAST(julianday('now') - julianday(activity_date) AS INTEGER) AS days_open
+        FROM activity_log
+        WHERE item_kind = 'issue'
+          AND issue_id IS NULL
+          AND client_id = ?
+          AND (issue_status IS NULL OR issue_status NOT IN ('Resolved', 'Closed'))
+    """, (client_id,)).fetchall()
+
+    issues = sorted(
+        [dict(r) for r in rows],
+        key=lambda r: (
+            _SEVERITY_ORDER.get(r.get("issue_severity") or "Normal", 2),
+            r.get("days_open") or 0,
+        ),
+    )
+    return templates.TemplateResponse(
+        "issues/_issue_widget.html",
+        {"request": request, "issues": issues},
+    )
+
+
+# ── Linkable activities for an issue ─────────────────────────────────────────
+
+
+@router.get("/issues/{issue_id}/linkable-activities", response_class=HTMLResponse)
+def linkable_activities(
+    issue_id: int,
+    request: Request,
+    q: str = Query(""),
+    activity_type: str = Query(""),
+    days: int = Query(30),
+    conn=Depends(get_db),
+):
+    """Return unlinked activities that can be linked to an issue."""
+    issue = conn.execute(
+        "SELECT client_id FROM activity_log WHERE id = ? AND item_kind = 'issue'",
+        (issue_id,),
+    ).fetchone()
+    if not issue:
+        return HTMLResponse("<p class='text-sm text-gray-500 p-4'>Issue not found.</p>")
+
+    client_id = issue["client_id"]
+    cutoff = (date.today() - timedelta(days=days)).isoformat()
+
+    params: list = [client_id, cutoff]
+    extra = ""
+    if q:
+        extra += " AND a.subject LIKE ?"
+        params.append(f"%{q}%")
+    if activity_type:
+        extra += " AND a.activity_type = ?"
+        params.append(activity_type)
+
+    rows = conn.execute(f"""
+        SELECT a.id, a.activity_date, a.activity_type, a.subject, a.details,
+               a.duration_hours, p.policy_uid, p.policy_type
+        FROM activity_log a
+        LEFT JOIN policies p ON p.id = a.policy_id
+        WHERE a.client_id = ?
+          AND a.activity_date >= ?
+          AND a.issue_id IS NULL
+          AND (a.item_kind = 'followup' OR a.item_kind IS NULL)
+          {extra}
+        ORDER BY a.activity_date DESC
+    """, params).fetchall()
+
+    activities = [dict(r) for r in rows]
+    return templates.TemplateResponse(
+        "issues/_linkable_list.html",
+        {
+            "request": request,
+            "activities": activities,
+            "activity_types": cfg.get("activity_types", []),
+        },
+    )
+
+
+# ── Bulk-link activities to an issue ─────────────────────────────────────────
+
+
+@router.post("/issues/{issue_id}/link-activities", response_class=HTMLResponse)
+def link_activities(
+    issue_id: int,
+    request: Request,
+    activity_ids: list[int] = Form(default=[]),
+    conn=Depends(get_db),
+):
+    """Bulk-link selected activities to an issue."""
+    if activity_ids:
+        placeholders = ",".join("?" * len(activity_ids))
+        conn.execute(
+            f"UPDATE activity_log SET issue_id = ? WHERE id IN ({placeholders})",
+            [issue_id] + list(activity_ids),
+        )
+        conn.commit()
+
+    # Redirect to the issue detail page
+    row = conn.execute(
+        "SELECT issue_uid FROM activity_log WHERE id = ?", (issue_id,)
+    ).fetchone()
+    uid = row["issue_uid"] if row else str(issue_id)
+    return RedirectResponse(f"/issues/{uid}", status_code=303)
 
 
 # ── Issue detail page ────────────────────────────────────────────────────────

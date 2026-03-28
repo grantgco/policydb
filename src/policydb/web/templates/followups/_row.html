@@ -360,8 +360,8 @@ function _capFuDate(rawDateStr, expDateStr, bufferDays) {
   var calc = new Date(rawDateStr + 'T00:00:00');
   return calc > cap ? cap.toISOString().split('T')[0] : rawDateStr;
 }
-function _getRowExp(elId) {
-  var el = document.getElementById(elId);
+function _getRowExp(rowId) {
+  var el = document.getElementById(rowId);
   if (!el) return '';
   var tr = el.closest('tr[data-exp]');
   return tr ? tr.getAttribute('data-exp') || '' : '';
@@ -375,6 +375,7 @@ function selectDisp(btn, label, days, rowId) {
   btn.classList.add('bg-marsh', 'text-white', 'border-marsh');
   btn.classList.remove('border-gray-200', 'text-gray-500');
   document.getElementById('disp-val-' + rowId).value = label;
+  // Auto-fill date (capped against expiration)
   var dateInput = document.getElementById('rediary-date-' + rowId);
   if (days > 0 && dateInput) {
     var d = new Date();

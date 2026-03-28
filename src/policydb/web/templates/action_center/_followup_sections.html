@@ -114,6 +114,23 @@
       {% endif %}
     </div>
 
+    {# Issue badge or escalate button #}
+    {% if not (item.is_milestone is defined and item.is_milestone) and item.source == 'activity' %}
+    <div class="flex-shrink-0 no-print">
+      {% if item.linked_issue_uid %}
+        {% with linked_issue_uid=item.linked_issue_uid, linked_issue_subject=item.linked_issue_subject, linked_issue_severity=item.linked_issue_severity %}
+          {% include "_issue_badge.html" %}
+        {% endwith %}
+      {% else %}
+        <button type="button"
+          onclick="openIssueCreateSlideover({subject:'{{ item.subject|e }}', client_id:'{{ item.client_id }}', client_name:'{{ (item.client_name or '')|e }}', policy_id:'{{ item.policy_id or '' }}', source_activity_id:'{{ item.id }}', context_label:'Creating from activity', context_subject:'{{ item.subject|e }}', context_detail:'{{ (item.client_name or '')|e }}', link_detail:'{{ item.subject|e }}'})"
+          class="text-[10px] text-blue-600 border border-blue-200 rounded px-2 py-0.5 hover:bg-blue-50 transition-colors no-print">
+          &#9873; escalate
+        </button>
+      {% endif %}
+    </div>
+    {% endif %}
+
     {# Action buttons #}
     <div class="flex gap-1.5 flex-shrink-0 no-print">
       {% if item.is_milestone is defined and item.is_milestone %}

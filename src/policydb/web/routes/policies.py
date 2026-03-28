@@ -248,12 +248,25 @@ def policy_row_log_form(request: Request, policy_uid: str, conn=Depends(get_db))
         return HTMLResponse("", status_code=404)
     p = dict(policy)
     default_subject = f"{p.get('policy_type', '')} — {p.get('renewal_status', '')}"
+    policy_client_id = p.get("client_id")
+    open_issues = []
+    if policy_client_id:
+        open_issues = [dict(r) for r in conn.execute("""
+            SELECT a.id, a.subject, a.issue_severity
+            FROM activity_log a
+            WHERE a.item_kind = 'issue' AND a.issue_id IS NULL
+              AND a.client_id = ?
+              AND (a.issue_status IS NULL OR a.issue_status NOT IN ('Resolved', 'Closed'))
+            ORDER BY CASE a.issue_severity
+              WHEN 'Critical' THEN 0 WHEN 'High' THEN 1 WHEN 'Normal' THEN 2 ELSE 3 END
+        """, (policy_client_id,)).fetchall()]
     return templates.TemplateResponse("policies/_policy_row_log.html", {
         "request": request,
         "p": p,
         "activity_types": cfg.get("activity_types", ["Call", "Email", "Meeting", "Note", "Other"]),
         "quick_templates": cfg.get("quick_log_templates", []),
         "default_subject": default_subject,
+        "open_issues": open_issues,
     })
 
 
@@ -268,6 +281,7 @@ def policy_row_log_post(
     details: str = Form(""),
     follow_up_date: str = Form(""),
     duration_hours: str = Form(""),
+    issue_id: int = Form(0),
     conn=Depends(get_db),
 ):
     """HTMX: save activity log entry, restore the policy row."""
@@ -287,12 +301,13 @@ def policy_row_log_post(
     account_exec = cfg.get("default_account_exec", "Grant")
     conn.execute(
         """INSERT INTO activity_log
-           (activity_date, client_id, policy_id, activity_type, subject, details, follow_up_date, account_exec, duration_hours)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+           (activity_date, client_id, policy_id, activity_type, subject, details, follow_up_date, account_exec, duration_hours, issue_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             _date.today().isoformat(), client_id, policy_id,
             activity_type, subject, details or None,
             follow_up_date or None, account_exec, round_duration(duration_hours),
+            issue_id or None,
         ),
     )
     conn.commit()
