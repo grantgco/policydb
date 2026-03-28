@@ -1003,7 +1003,7 @@ def bulk_action(
 def followups_plan(request: Request, week_start: str = "", catchup: int = 0, conn=Depends(get_db)):
     """Plan Week view — visualize and rebalance follow-up workload."""
     from datetime import date, timedelta
-    from policydb.queries import get_week_followups, get_overdue_for_plan_week
+    from policydb.queries import get_week_followups, get_overdue_for_plan_week, get_escalation_suggestions
     from collections import defaultdict
 
     # Default to current week's Monday
@@ -1049,6 +1049,9 @@ def followups_plan(request: Request, week_start: str = "", catchup: int = 0, con
     next_week = (mon + timedelta(days=7)).isoformat()
     this_monday = (today - timedelta(days=today.weekday())).isoformat()
 
+    escalation_suggestions = get_escalation_suggestions(conn)
+    all_clients = [dict(r) for r in conn.execute("SELECT id, name FROM clients ORDER BY name").fetchall()]
+
     return templates.TemplateResponse("followups/plan.html", {
         "request": request,
         "active": "followups",
@@ -1062,7 +1065,50 @@ def followups_plan(request: Request, week_start: str = "", catchup: int = 0, con
         "total_items": len(items),
         "overdue_backlog": overdue_backlog,
         "catchup": catchup,
+        "escalation_suggestions": escalation_suggestions,
+        "issue_severities": cfg.get("issue_severities", []),
+        "all_clients": all_clients,
     })
+
+
+@router.post("/followups/plan/dismiss-escalation", response_class=HTMLResponse)
+def dismiss_escalation(
+    request: Request,
+    policy_id: int = Form(...),
+    trigger_type: str = Form(...),
+    conn=Depends(get_db),
+):
+    """Dismiss an escalation suggestion."""
+    conn.execute(
+        "INSERT OR REPLACE INTO escalation_dismissals (policy_id, trigger_type, dismissed_at) VALUES (?, ?, datetime('now'))",
+        (policy_id, trigger_type),
+    )
+    conn.commit()
+    return HTMLResponse("")
+
+
+@router.post("/followups/plan/dismiss-all-escalations", response_class=HTMLResponse)
+def dismiss_all_escalations(
+    request: Request,
+    suggestions: str = Form(""),
+    conn=Depends(get_db),
+):
+    """Dismiss all current escalation suggestions."""
+    import json
+    try:
+        items = json.loads(suggestions) if suggestions else []
+    except (json.JSONDecodeError, TypeError):
+        items = []
+    for item in items:
+        pid = item.get("policy_id")
+        tt = item.get("trigger_type")
+        if pid and tt:
+            conn.execute(
+                "INSERT OR REPLACE INTO escalation_dismissals (policy_id, trigger_type, dismissed_at) VALUES (?, ?, datetime('now'))",
+                (pid, tt),
+            )
+    conn.commit()
+    return HTMLResponse("")
 
 
 @router.post("/followups/plan/spread", response_class=HTMLResponse)
