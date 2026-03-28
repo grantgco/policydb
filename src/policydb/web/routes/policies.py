@@ -50,7 +50,7 @@ US_STATES = [
 _AUTOCOMPLETE_FIELDS = {
     "carrier", "exposure_basis", "exposure_unit", "project_name",
     "exposure_city", "exposure_state", "access_point", "first_named_insured",
-    "tower_group",
+    "tower_group", "policy_type", "coverage_form",
 }
 
 
@@ -62,6 +62,8 @@ _CONFIG_SEEDS: dict[str, str] = {
     "carrier": "carriers",
     "exposure_basis": "exposure_basis_options",
     "exposure_unit": "exposure_unit_options",
+    "policy_type": "policy_types",
+    "coverage_form": "coverage_forms",
 }
 
 # ── Status color system ───────────────────────────────────────────────────────
@@ -2123,6 +2125,17 @@ def policy_tab_details(request: Request, policy_uid: str, conn=Depends(get_db)):
     _exp_ctx = _exposure_card_context(conn, policy_dict)
     sub_coverages = _get_sub_coverages(conn, policy_dict["id"])
 
+    # Follow-up date contextual badge
+    follow_up_delta = None
+    follow_up_overdue = False
+    if policy_dict.get("follow_up_date"):
+        try:
+            fu = date.fromisoformat(policy_dict["follow_up_date"])
+            follow_up_delta = (fu - date.today()).days
+            follow_up_overdue = follow_up_delta < 0
+        except (ValueError, TypeError):
+            pass
+
     return templates.TemplateResponse("policies/_tab_details.html", {
         "request": request,
         "policy": policy_dict,
@@ -2135,6 +2148,8 @@ def policy_tab_details(request: Request, policy_uid: str, conn=Depends(get_db)):
         "tower_layers": _tower_layers,
         "cycle_labels": _RCL,
         "sub_coverages": sub_coverages,
+        "follow_up_delta": follow_up_delta,
+        "follow_up_overdue": follow_up_overdue,
         **_exp_ctx,
         "program_linked_policies": [],
         "linkable_policies": [],
@@ -3208,12 +3223,15 @@ async def policy_cell_save(request: Request, policy_uid: str, conn=Depends(get_d
         _sync_project_id(conn, policy["id"], policy["client_id"], value)
         formatted = value.strip()
     elif field == "commission_rate":
+        raw = value.strip().rstrip("%").strip()
         try:
-            rate = float(value) if value.strip() else None
+            rate = float(raw) if raw else None
         except (ValueError, TypeError):
             rate = None
+        if rate is not None and rate > 1:
+            rate = rate / 100  # e.g. "12" → 0.12
         conn.execute("UPDATE policies SET commission_rate = ? WHERE policy_uid = ?", (rate, uid))
-        formatted = f"{rate:.3f}" if rate is not None else ""
+        formatted = f"{rate * 100:g}" if rate is not None else ""
 
     conn.commit()
 
