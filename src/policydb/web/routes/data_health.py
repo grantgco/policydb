@@ -20,31 +20,6 @@ from policydb.data_health import (
 router = APIRouter()
 
 
-# ── Action Center tab ────────────────────────────────────────────────────────
-
-
-@router.get("/action-center/data-health", response_class=HTMLResponse)
-def ac_data_health(request: Request, conn=Depends(get_db)):
-    """Data Health tab partial — lazy loaded in Action Center."""
-    summary = get_book_health_summary(conn)
-    missing = get_missing_fields_report(conn)
-    threshold = cfg.get("data_health_threshold", 85)
-
-    # Group missing by client
-    by_client: dict[str, list] = {}
-    for item in missing:
-        key = item["client_name"]
-        by_client.setdefault(key, []).append(item)
-
-    return templates.TemplateResponse("action_center/_data_health.html", {
-        "request": request,
-        "summary": summary,
-        "missing_items": missing[:100],
-        "missing_by_client": by_client,
-        "threshold": threshold,
-    })
-
-
 # ── API endpoints ────────────────────────────────────────────────────────────
 
 
