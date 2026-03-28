@@ -1,4 +1,22 @@
 {# Policy Details Tab — per-field PATCH on blur, no form wrapper #}
+<style>
+.field-inline {
+  border: 1px solid transparent !important;
+  background: transparent !important;
+  transition: border-color 0.15s, background-color 0.15s, box-shadow 0.15s;
+}
+.field-inline:hover {
+  border-color: #e5e7eb !important;
+  background: #f9fafb !important;
+}
+.field-inline:focus {
+  border-color: #003865 !important;
+  background: #fff !important;
+  box-shadow: 0 0 0 1px #003865 !important;
+}
+.field-inline::placeholder { color: #d1d5db; font-style: italic; }
+textarea.field-inline { resize: none; }
+</style>
 <div id="tab-details-content">
 
 {% if ai_policy_diffs is defined and (ai_policy_diffs or ai_location_data) %}
@@ -73,7 +91,20 @@
 
       <div>
         <label class="field-label">Follow-Up Date</label>
-        <input type="date" data-field="follow_up_date" value="{{ policy.follow_up_date or '' }}" class="form-input w-full">
+        <div class="flex items-center gap-2">
+          <input type="date" data-field="follow_up_date" value="{{ policy.follow_up_date or '' }}" class="form-input field-inline flex-1">
+          <span id="fu-badge" class="text-xs font-medium px-2 py-0.5 rounded-full whitespace-nowrap
+            {% if follow_up_delta is not none %}
+              {% if follow_up_overdue %}bg-red-100 text-red-700{% elif follow_up_delta <= 3 %}bg-amber-100 text-amber-700{% else %}bg-gray-100 text-gray-500{% endif %}
+            {% endif %}"
+            {% if follow_up_delta is none %}style="display:none"{% endif %}>
+            {%- if follow_up_delta is not none -%}
+              {%- if follow_up_overdue -%}{{ (-follow_up_delta) }}d overdue
+              {%- elif follow_up_delta == 0 -%}today
+              {%- else -%}in {{ follow_up_delta }}d{%- endif -%}
+            {%- endif -%}
+          </span>
+        </div>
       </div>
 
       <div class="sm:col-span-2 lg:col-span-3 border-t border-gray-100 pt-3 mt-1">
@@ -116,19 +147,68 @@
     <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Core Fields</span>
   </div>
   <div class="p-5">
+
+    {# ── Policy Identity ── #}
+    <p class="text-xs text-gray-400 uppercase tracking-wide font-medium mb-3">Policy Identity</p>
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
 
       <div class="sm:col-span-2 lg:col-span-1">
         <label class="field-label">Line of Business <span class="text-red-400">*</span></label>
-        <select data-field="policy_type" class="form-select w-full" required>
-          {% if policy.policy_type and policy.policy_type not in policy_types %}
-          <option value="{{ policy.policy_type }}" selected>{{ policy.policy_type }}</option>
-          {% endif %}
-          {% for t in policy_types %}
-          <option value="{{ t }}" {% if t == policy.policy_type %}selected{% endif %}>{{ t }}</option>
+        <input type="text" data-field="policy_type" value="{{ policy.policy_type or '' }}"
+          class="form-input field-inline w-full" list="ac-policy_type" autocomplete="off" required>
+      </div>
+
+      <div>
+        <label class="field-label">Carrier {% if not policy.is_opportunity %}<span class="text-red-400">*</span>{% endif %}</label>
+        <input type="text" data-field="carrier" value="{{ policy.carrier or '' }}" class="form-input field-inline w-full"
+          list="ac-carrier" autocomplete="off">
+      </div>
+
+      <div>
+        <label class="field-label">Access Point</label>
+        <input type="text" data-field="access_point" value="{{ policy.access_point or '' }}"
+          placeholder="Wholesaler, MGA, etc." class="form-input field-inline w-full"
+          list="ac-access_point" autocomplete="off">
+      </div>
+
+      <div>
+        <label class="field-label">Policy Number</label>
+        <input type="text" data-field="policy_number" value="{{ policy.policy_number or '' }}" class="form-input field-inline w-full">
+      </div>
+
+      <div>
+        <label class="field-label">First Named Insured</label>
+        <input type="text" data-field="first_named_insured" value="{{ policy.first_named_insured or '' }}"
+          placeholder="If different from client name" class="form-input field-inline w-full"
+          list="ac-first_named_insured" autocomplete="off">
+      </div>
+
+      {% if policy.is_opportunity %}
+      <div{% if opportunity_statuses | length <= 10 %} class="sm:col-span-2"{% endif %}>
+        <label class="field-label">Opportunity Status</label>
+        {% if opportunity_statuses | length <= 10 %}
+        <div class="seg-control" id="seg-opp-status">
+          {% for s in opportunity_statuses %}
+          <input type="radio" name="opportunity_status" id="os-{{ loop.index }}" value="{{ s }}"
+            data-field="opportunity_status"
+            {% if s == policy.opportunity_status %}checked{% endif %}>
+          <label for="os-{{ loop.index }}">{{ s }}</label>
+          {% endfor %}
+        </div>
+        {% else %}
+        <select data-field="opportunity_status" class="form-select w-full">
+          <option value="">— Select —</option>
+          {% for s in opportunity_statuses %}
+          <option value="{{ s }}" {% if s == policy.opportunity_status %}selected{% endif %}>{{ s }}</option>
           {% endfor %}
         </select>
+        {% endif %}
       </div>
+      <div>
+        <label class="field-label">Target Effective Date</label>
+        <input type="date" data-field="target_effective_date" value="{{ policy.target_effective_date or '' }}" class="form-input field-inline w-full">
+      </div>
+      {% endif %}
 
       {# ── Sub-Coverages ── #}
       <div class="sm:col-span-2 lg:col-span-3 mt-2" id="sub-coverages-section">
@@ -179,124 +259,87 @@
         </div>
       </div>
 
-      <div>
-        <label class="field-label">Carrier {% if not policy.is_opportunity %}<span class="text-red-400">*</span>{% endif %}</label>
-        <input type="text" data-field="carrier" value="{{ policy.carrier or '' }}" class="form-input w-full"
-          list="ac-carrier" autocomplete="off">
-      </div>
+    </div>
 
-      <div>
-        <label class="field-label">Access Point</label>
-        <input type="text" data-field="access_point" value="{{ policy.access_point or '' }}"
-          placeholder="Wholesaler, MGA, etc." class="form-input w-full"
-          list="ac-access_point" autocomplete="off">
-      </div>
+    {# ── Term & Financials ── #}
+    <div class="border-t border-gray-100 pt-4 mt-4">
+      <p class="text-xs text-gray-400 uppercase tracking-wide font-medium mb-3">Term &amp; Financials</p>
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
 
-      {% if policy.is_opportunity %}
-      <div{% if opportunity_statuses | length <= 10 %} class="sm:col-span-2"{% endif %}>
-        <label class="field-label">Opportunity Status</label>
-        {% if opportunity_statuses | length <= 10 %}
-        <div class="seg-control" id="seg-opp-status">
-          {% for s in opportunity_statuses %}
-          <input type="radio" name="opportunity_status" id="os-{{ loop.index }}" value="{{ s }}"
-            data-field="opportunity_status"
-            {% if s == policy.opportunity_status %}checked{% endif %}>
-          <label for="os-{{ loop.index }}">{{ s }}</label>
-          {% endfor %}
+        {% if not policy.is_opportunity %}
+        <div>
+          <label class="field-label">Effective Date <span class="text-red-400">*</span></label>
+          <input type="date" data-field="effective_date" value="{{ policy.effective_date or '' }}" required class="form-input field-inline w-full">
         </div>
-        {% else %}
-        <select data-field="opportunity_status" class="form-select w-full">
-          <option value="">— Select —</option>
-          {% for s in opportunity_statuses %}
-          <option value="{{ s }}" {% if s == policy.opportunity_status %}selected{% endif %}>{{ s }}</option>
-          {% endfor %}
-        </select>
+        <div>
+          <label class="field-label">Expiration Date <span class="text-red-400">*</span></label>
+          <input type="date" data-field="expiration_date" value="{{ policy.expiration_date or '' }}" required class="form-input field-inline w-full">
+        </div>
         {% endif %}
-      </div>
-      <div>
-        <label class="field-label">Target Effective Date</label>
-        <input type="date" data-field="target_effective_date" value="{{ policy.target_effective_date or '' }}" class="form-input w-full">
-      </div>
-      {% endif %}
 
-      <div>
-        <label class="field-label">Policy Number</label>
-        <input type="text" data-field="policy_number" value="{{ policy.policy_number or '' }}" class="form-input w-full">
-      </div>
+        <div>
+          <label class="field-label">{% if not policy.is_opportunity %}Annual Premium <span class="text-red-400">*</span>{% else %}Est. Premium{% endif %}</label>
+          <input type="text" class="form-input field-inline w-full currency-input" autocomplete="off"
+            value="{% if policy.premium %}{{ '${:,.0f}'.format(policy.premium | float) }}{% endif %}"
+            placeholder="0" data-currency-field="premium">
+        </div>
 
-      <div>
-        <label class="field-label">First Named Insured</label>
-        <input type="text" data-field="first_named_insured" value="{{ policy.first_named_insured or '' }}"
-          placeholder="If different from client name" class="form-input w-full"
-          list="ac-first_named_insured" autocomplete="off">
-      </div>
+        <div>
+          <label class="field-label">Limit</label>
+          <input type="text" class="form-input field-inline w-full currency-input" autocomplete="off"
+            value="{% if policy.limit_amount %}{{ '${:,.0f}'.format(policy.limit_amount | float) }}{% endif %}"
+            placeholder="0" data-currency-field="limit_amount">
+        </div>
 
-      {% if not policy.is_opportunity %}
-      <div>
-        <label class="field-label">Effective Date <span class="text-red-400">*</span></label>
-        <input type="date" data-field="effective_date" value="{{ policy.effective_date or '' }}" required class="form-input w-full">
-      </div>
-      <div>
-        <label class="field-label">Expiration Date <span class="text-red-400">*</span></label>
-        <input type="date" data-field="expiration_date" value="{{ policy.expiration_date or '' }}" required class="form-input w-full">
-      </div>
-      {% endif %}
+        <div>
+          <label class="field-label">Deductible</label>
+          <input type="text" class="form-input field-inline w-full currency-input" autocomplete="off"
+            value="{% if policy.deductible %}{{ '${:,.0f}'.format(policy.deductible | float) }}{% endif %}"
+            placeholder="0" data-currency-field="deductible">
+        </div>
 
-      <div>
-        <label class="field-label">{% if not policy.is_opportunity %}Annual Premium <span class="text-red-400">*</span>{% else %}Est. Premium{% endif %}</label>
-        <input type="text" class="form-input w-full currency-input" autocomplete="off"
-          value="{% if policy.premium %}{{ '${:,.0f}'.format(policy.premium | float) }}{% endif %}"
-          placeholder="0" data-currency-field="premium">
-      </div>
+        <div>
+          <label class="field-label">Coverage Form</label>
+          <input type="text" data-field="coverage_form" value="{{ policy.coverage_form or '' }}"
+            class="form-input field-inline w-full" list="ac-coverage_form" autocomplete="off"
+            placeholder="Occurrence, Claims-Made...">
+        </div>
 
-      <div>
-        <label class="field-label">Limit</label>
-        <input type="text" class="form-input w-full currency-input" autocomplete="off"
-          value="{% if policy.limit_amount %}{{ '${:,.0f}'.format(policy.limit_amount | float) }}{% endif %}"
-          placeholder="0" data-currency-field="limit_amount">
       </div>
+    </div>
 
-      <div>
-        <label class="field-label">Deductible</label>
-        <input type="text" class="form-input w-full currency-input" autocomplete="off"
-          value="{% if policy.deductible %}{{ '${:,.0f}'.format(policy.deductible | float) }}{% endif %}"
-          placeholder="0" data-currency-field="deductible">
-      </div>
+    {# ── Assignment ── #}
+    <div class="border-t border-gray-100 pt-4 mt-4">
+      <p class="text-xs text-gray-400 uppercase tracking-wide font-medium mb-3">Assignment</p>
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
 
-      <div>
-        <label class="field-label">Coverage Form</label>
-        <select data-field="coverage_form" class="form-select w-full">
-          <option value="">—</option>
-          {% for f in coverage_forms %}
-          <option value="{{ f }}" {% if f == policy.coverage_form %}selected{% endif %}>{{ f }}</option>
-          {% endfor %}
-        </select>
-      </div>
+        <div>
+          <label class="field-label">Project / Location</label>
+          <input type="text" data-field="project_name" value="{{ policy.project_name or '' }}"
+            placeholder="e.g. Main Street Condos" class="form-input field-inline w-full"
+            list="ac-project_name" autocomplete="off">
+        </div>
 
-      <div>
-        <label class="field-label">Project / Location</label>
-        <input type="text" data-field="project_name" value="{{ policy.project_name or '' }}"
-          placeholder="e.g. Main Street Condos" class="form-input w-full"
-          list="ac-project_name" autocomplete="off">
-      </div>
+        <div class="sm:col-span-2 flex items-center gap-6 pt-5">
+          <label class="toggle-switch">
+            <input type="checkbox" data-field="is_bor" value="1" {% if policy.is_bor %}checked{% endif %}>
+            <span class="toggle-track"></span>
+            <span class="text-sm text-gray-700 ml-2">BOR</span>
+          </label>
+          <label class="toggle-switch">
+            <input type="checkbox" data-field="is_standalone" value="1" {% if policy.is_standalone %}checked{% endif %}>
+            <span class="toggle-track"></span>
+            <span class="text-sm text-gray-700 ml-2">Standalone</span>
+          </label>
+          <label class="toggle-switch">
+            <input type="checkbox" data-field="needs_investigation" value="1" {% if policy.needs_investigation %}checked{% endif %}>
+            <span class="toggle-track"></span>
+            <span class="text-sm text-amber-600 ml-2 font-medium">Needs Investigation</span>
+          </label>
+        </div>
 
-      <div class="flex items-center gap-6 pt-2">
-        <label class="toggle-switch">
-          <input type="checkbox" data-field="is_bor" value="1" {% if policy.is_bor %}checked{% endif %}>
-          <span class="toggle-track"></span>
-          <span class="text-sm text-gray-700 ml-2">BOR</span>
-        </label>
-        <label class="toggle-switch">
-          <input type="checkbox" data-field="is_standalone" value="1" {% if policy.is_standalone %}checked{% endif %}>
-          <span class="toggle-track"></span>
-          <span class="text-sm text-gray-700 ml-2">Standalone</span>
-        </label>
-        <label class="toggle-switch">
-          <input type="checkbox" data-field="needs_investigation" value="1" {% if policy.needs_investigation %}checked{% endif %}>
-          <span class="toggle-track"></span>
-          <span class="text-sm text-amber-600 ml-2 font-medium">Needs Investigation</span>
-        </label>
       </div>
+    </div>
 
     </div>
   </div>
@@ -308,8 +351,8 @@
     <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Description <span class="font-normal text-gray-400 normal-case tracking-normal">client-facing · appears on schedule of insurance</span></span>
   </div>
   <div class="p-5">
-    <textarea data-field="description" rows="3" placeholder="Plain-English summary of what this policy covers and why the client has it."
-      class="form-input w-full">{{ policy.description or '' }}</textarea>
+    <textarea data-field="description" placeholder="Plain-English summary of what this policy covers and why the client has it."
+      class="form-input field-inline w-full" style="min-height:4.5rem">{{ policy.description or '' }}</textarea>
   </div>
 </div>
 
@@ -339,7 +382,7 @@
 
       <div>
         <label class="field-label">Attachment Point ($)</label>
-        <input type="text" id="attachment_point" class="form-input w-full currency-input" autocomplete="off"
+        <input type="text" id="attachment_point" class="form-input field-inline w-full currency-input" autocomplete="off"
           value="{% if policy.attachment_point %}{{ '${:,.0f}'.format(policy.attachment_point | float) }}{% endif %}"
           placeholder="Leave blank for Primary" data-currency-field="attachment_point">
         <p id="layer-notation-preview" class="text-xs text-marsh mt-1 font-mono"></p>
@@ -348,7 +391,7 @@
 
       <div>
         <label class="field-label">Part Of Layer ($) <span class="text-gray-400 font-normal">— if shared layer</span></label>
-        <input type="text" id="participation_of" class="form-input w-full currency-input" autocomplete="off"
+        <input type="text" id="participation_of" class="form-input field-inline w-full currency-input" autocomplete="off"
           value="{% if policy.participation_of %}{{ '${:,.0f}'.format(policy.participation_of | float) }}{% endif %}"
           placeholder="Total layer limit if co-participation" data-currency-field="participation_of">
       </div>
@@ -432,19 +475,19 @@
       <div>
         <label class="field-label">Exposure Basis</label>
         <input type="text" data-field="exposure_basis" value="{{ policy.exposure_basis or '' }}"
-          placeholder="e.g. Payroll, Revenue, Sq Ft" class="form-input w-full"
+          placeholder="e.g. Payroll, Revenue, Sq Ft" class="form-input field-inline w-full"
           list="ac-exposure_basis" autocomplete="off">
       </div>
       <div>
         <label class="field-label">Exposure Amount</label>
-        <input type="text" class="form-input w-full currency-input" autocomplete="off"
+        <input type="text" class="form-input field-inline w-full currency-input" autocomplete="off"
           value="{% if policy.exposure_amount %}{{ '${:,.0f}'.format(policy.exposure_amount | float) }}{% endif %}"
           placeholder="0" data-currency-field="exposure_amount">
       </div>
       <div>
         <label class="field-label">Exposure Unit</label>
         <input type="text" data-field="exposure_unit" value="{{ policy.exposure_unit or '' }}"
-          placeholder="e.g. per $100, per $1,000, per unit" class="form-input w-full"
+          placeholder="e.g. per $100, per $1,000, per unit" class="form-input field-inline w-full"
           list="ac-exposure_unit" autocomplete="off">
       </div>
     </div>
@@ -487,28 +530,24 @@
         <div class="sm:col-span-6 relative">
           <label class="field-label">Street Address</label>
           <input type="text" data-field="exposure_address" id="exposure-address-input" value="{{ policy.exposure_address or '' }}"
-            placeholder="123 Main St, Suite 100" class="form-input w-full"
+            placeholder="123 Main St, Suite 100" class="form-input field-inline w-full"
             data-1p-ignore data-lpignore="true" autocomplete="off">
           <div id="exposure-address-suggestions" class="absolute left-0 right-0 top-full z-50 bg-white border border-gray-200 rounded-b-lg shadow-lg max-h-48 overflow-y-auto hidden"></div>
         </div>
         <div class="sm:col-span-3">
           <label class="field-label">City</label>
           <input type="text" data-field="exposure_city" value="{{ policy.exposure_city or '' }}"
-            class="form-input w-full" list="ac-exposure_city" autocomplete="off">
+            class="form-input field-inline w-full" list="ac-exposure_city" autocomplete="off">
         </div>
         <div class="sm:col-span-2">
           <label class="field-label">State</label>
-          <select data-field="exposure_state" class="form-select w-full">
-            <option value="">—</option>
-            {% for abbr, name in us_states %}
-            <option value="{{ abbr }}" {% if abbr == policy.exposure_state %}selected{% endif %}>{{ abbr }} – {{ name }}</option>
-            {% endfor %}
-          </select>
+          <input type="text" data-field="exposure_state" value="{{ policy.exposure_state or '' }}"
+            class="form-input field-inline w-full" list="ac-exposure_state" autocomplete="off" placeholder="e.g. CA, NY">
         </div>
         <div class="sm:col-span-1">
           <label class="field-label">ZIP</label>
           <input type="text" data-field="exposure_zip" value="{{ policy.exposure_zip or '' }}"
-            placeholder="12345" maxlength="10" class="form-input w-full">
+            placeholder="12345" maxlength="10" class="form-input field-inline w-full">
         </div>
       </div>
       {% endif %}
@@ -528,19 +567,24 @@
 
       <div>
         <label class="field-label">Commission Rate</label>
-        <input type="number" data-field="commission_rate" value="{{ policy.commission_rate or '' }}" step="0.001" min="0" max="1" placeholder="0.12 = 12%" class="form-input w-full">
+        <div class="relative">
+          <input type="text" data-field="commission_rate"
+            value="{% if policy.commission_rate %}{{ '{:g}'.format(policy.commission_rate * 100) }}{% endif %}"
+            placeholder="e.g. 12" class="form-input field-inline w-full pr-8">
+          <span class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm pointer-events-none">%</span>
+        </div>
       </div>
 
       <div>
         <label class="field-label">Prior Premium</label>
-        <input type="text" class="form-input w-full currency-input" autocomplete="off"
+        <input type="text" class="form-input field-inline w-full currency-input" autocomplete="off"
           value="{% if policy.prior_premium %}{{ '${:,.0f}'.format(policy.prior_premium | float) }}{% endif %}"
           placeholder="0" data-currency-field="prior_premium">
       </div>
 
       <div class="sm:col-span-2 lg:col-span-3">
         <label class="field-label">Internal Notes</label>
-        <textarea data-field="notes" rows="2" class="form-input w-full">{{ policy.notes or '' }}</textarea>
+        <textarea data-field="notes" class="form-input field-inline w-full" style="min-height:3.5rem">{{ policy.notes or '' }}</textarea>
       </div>
 
     </div>
@@ -550,7 +594,6 @@
 <!-- ── Actions ── -->
 <div class="flex items-center justify-between mb-4 no-print">
   <a href="/clients/{{ policy.client_id }}" class="text-sm text-gray-500 hover:text-gray-700">&larr; Back to Client</a>
-  <span class="text-xs text-gray-400 italic">All changes auto-save on blur</span>
 </div>
 
 <!-- Renew action -->
@@ -588,6 +631,13 @@
 <datalist id="ac-exposure_city"></datalist>
 <datalist id="ac-access_point"></datalist>
 <datalist id="ac-first_named_insured"></datalist>
+<datalist id="ac-policy_type"></datalist>
+<datalist id="ac-coverage_form"></datalist>
+<datalist id="ac-exposure_state">
+  {% for abbr, name in us_states %}
+  <option value="{{ abbr }}">{{ abbr }} – {{ name }}</option>
+  {% endfor %}
+</datalist>
 
 <script>
 (function () {
@@ -597,23 +647,72 @@
   var container = document.getElementById('tab-details-content');
   if (!container) return;
 
+  /* ── Save-state indicator ── */
+  var _saveEl = document.getElementById('save-indicator');
+  var _saveTxt = document.getElementById('save-indicator-text');
+  var _saveFade = null;
+  function updateSaveState(state, msg) {
+    if (!_saveEl || !_saveTxt) return;
+    clearTimeout(_saveFade);
+    _saveEl.style.opacity = '1';
+    if (state === 'saving') {
+      _saveTxt.textContent = 'Saving\u2026';
+      _saveTxt.className = 'text-gray-400';
+    } else if (state === 'saved') {
+      var t = new Date();
+      _saveTxt.textContent = '\u2713 Saved ' + t.getHours() + ':' + String(t.getMinutes()).padStart(2, '0');
+      _saveTxt.className = 'text-green-600';
+      _saveFade = setTimeout(function() { _saveTxt.className = 'text-gray-400'; }, 3000);
+    } else if (state === 'error') {
+      _saveTxt.textContent = msg || 'Save failed';
+      _saveTxt.className = 'text-red-600';
+    }
+  }
+
+  /* ── Follow-up badge update ── */
+  function updateFollowUpBadge(dateVal) {
+    var badge = document.getElementById('fu-badge');
+    if (!badge) return;
+    if (!dateVal) { badge.style.display = 'none'; badge.textContent = ''; return; }
+    var delta = Math.round((new Date(dateVal + 'T00:00:00') - new Date(new Date().toDateString())) / 86400000);
+    badge.style.display = '';
+    if (delta < 0) {
+      badge.textContent = Math.abs(delta) + 'd overdue';
+      badge.className = 'text-xs font-medium px-2 py-0.5 rounded-full whitespace-nowrap bg-red-100 text-red-700';
+    } else if (delta === 0) {
+      badge.textContent = 'today';
+      badge.className = 'text-xs font-medium px-2 py-0.5 rounded-full whitespace-nowrap bg-amber-100 text-amber-700';
+    } else if (delta <= 3) {
+      badge.textContent = 'in ' + delta + 'd';
+      badge.className = 'text-xs font-medium px-2 py-0.5 rounded-full whitespace-nowrap bg-amber-100 text-amber-700';
+    } else {
+      badge.textContent = 'in ' + delta + 'd';
+      badge.className = 'text-xs font-medium px-2 py-0.5 rounded-full whitespace-nowrap bg-gray-100 text-gray-500';
+    }
+  }
+
   /* ── Per-field PATCH on blur/change ── */
   function patchField(field, value, el) {
+    updateSaveState('saving');
     fetch(PATCH_URL, {
       method: 'PATCH',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({field: field, value: value})
     }).then(function(r) { return r.json(); }).then(function(data) {
       if (data.ok) {
+        updateSaveState('saved');
         if (typeof showToast === 'function') showToast('Saved', true);
         if (el && data.formatted !== undefined && data.formatted !== value) {
           if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') el.value = data.formatted;
           if (typeof flashCell === 'function') flashCell(el);
         }
+        if (field === 'follow_up_date') updateFollowUpBadge(el ? el.value : value);
       } else {
+        updateSaveState('error', data.error || 'Save failed');
         if (typeof showToast === 'function') showToast(data.error || 'Save failed', false);
       }
     }).catch(function() {
+      updateSaveState('error');
       if (typeof showToast === 'function') showToast('Save failed', false);
     });
   }
@@ -640,8 +739,19 @@
     });
   });
 
+  /* ── Auto-expanding textareas ── */
+  container.querySelectorAll('textarea[data-field]').forEach(function(ta) {
+    ta.style.overflow = 'hidden';
+    ta.style.height = 'auto';
+    ta.style.height = ta.scrollHeight + 'px';
+    ta.addEventListener('input', function() {
+      ta.style.height = 'auto';
+      ta.style.height = ta.scrollHeight + 'px';
+    });
+  });
+
   /* ── Autocomplete loading ── */
-  var AC_FIELDS = ["carrier", "exposure_basis", "exposure_unit", "project_name", "exposure_city", "access_point", "first_named_insured"];
+  var AC_FIELDS = ["carrier", "exposure_basis", "exposure_unit", "project_name", "exposure_city", "access_point", "first_named_insured", "policy_type", "coverage_form"];
   var CLIENT_SCOPED = ["project_name", "exposure_city"];
 
   function loadList(field) {
@@ -839,21 +949,24 @@
   window.patchSubCov = function(uid, subId, field, value) {
     var body = {};
     body[field] = value;
+    updateSaveState('saving');
     fetch('/policies/' + uid + '/sub-coverages/' + subId, {
       method: 'PATCH',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(body),
     }).then(function(resp) { return resp.json(); }).then(function(data) {
       if (data.ok) {
-        /* flash the input green briefly */
+        updateSaveState('saved');
         var row = document.querySelector('[data-sub-id="' + subId + '"]');
         if (row) {
           row.style.transition = 'background 0.3s';
           row.style.background = '#dcfce7';
           setTimeout(function() { row.style.background = ''; }, 800);
         }
+      } else {
+        updateSaveState('error');
       }
-    });
+    }).catch(function() { updateSaveState('error'); });
   };
 
   function fmtCurrency(val) {
