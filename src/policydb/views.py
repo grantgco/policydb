@@ -147,7 +147,8 @@ SELECT
     (SELECT COUNT(*) FROM programs pg2 WHERE pg2.client_id = c.id AND pg2.archived = 0) AS program_count,
     (SELECT COUNT(*) FROM activity_log a
      WHERE a.client_id = c.id
-       AND a.activity_date >= date('now', '-90 days')) AS activity_last_90d
+       AND a.activity_date >= date('now', '-90 days')) AS activity_last_90d,
+    (SELECT MAX(a.activity_date) FROM activity_log a WHERE a.client_id = c.id) AS last_activity_date
 FROM clients c
 LEFT JOIN policies p ON p.client_id = c.id AND p.archived = 0
 WHERE c.archived = 0

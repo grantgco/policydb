@@ -9,6 +9,42 @@
   <a href="/clients/new" class="bg-marsh hover:bg-marsh-light text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">+ Add Client</a>
 </div>
 
+{# Book Summary #}
+{% if book_stats %}
+<div class="card mb-4 no-print">
+  <div class="px-4 py-3 flex items-center justify-between flex-wrap gap-3">
+    <div class="flex items-center gap-4">
+      <div>
+        <span class="text-xs text-gray-400">Clients</span>
+        <span class="text-sm font-semibold text-gray-900 ml-1">{{ book_stats.total_clients }}</span>
+      </div>
+      <div class="w-px h-5 bg-gray-200"></div>
+      <div>
+        <span class="text-xs text-gray-400">Premium</span>
+        <span class="text-sm font-semibold text-gray-900 ml-1">{{ book_stats.total_premium | currency_short }}</span>
+      </div>
+      <div class="w-px h-5 bg-gray-200"></div>
+      <div>
+        <span class="text-xs text-gray-400">Revenue</span>
+        <span class="text-sm font-semibold text-gray-900 ml-1">{{ book_stats.total_revenue | currency_short }}</span>
+      </div>
+    </div>
+    <div class="flex items-center gap-2 flex-wrap">
+      {% for seg, count in book_stats.segments %}
+      <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-700">
+        {{ seg }} <span class="font-medium">{{ count }}</span>
+      </span>
+      {% endfor %}
+      {% if book_stats.other_count %}
+      <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-gray-50 text-gray-500">
+        Other <span class="font-medium">{{ book_stats.other_count }}</span>
+      </span>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
 <!-- Search + filters -->
 <div id="filter-bar" class="mb-5 flex flex-col gap-2">
   <div class="flex items-center gap-2 flex-wrap">
@@ -52,7 +88,7 @@
         {{ sort_th('Total Premium',  'total_premium',      sort, dir, '/clients', sparams, align='right') }}
         {{ sort_th('Est. Revenue',   'total_revenue',      sort, dir, '/clients', sparams, align='right') }}
         {{ sort_th('Next Renewal',   'next_renewal_days',  sort, dir, '/clients', sparams, align='right') }}
-        {{ sort_th('Activity (90d)', 'activity_last_90d',  sort, dir, '/clients', sparams, align='right') }}
+        {{ sort_th('Last Activity',  'last_activity_date', sort, dir, '/clients', sparams, align='right') }}
       </tr>
     </thead>
     <tbody class="divide-y divide-gray-100" id="client-table-body">

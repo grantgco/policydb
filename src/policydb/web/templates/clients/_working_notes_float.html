@@ -10,18 +10,148 @@
   </div>
 
   <div id="wn-expanded" class="hidden bg-white border border-gray-200 rounded-xl shadow-xl flex flex-col" style="max-height: 70vh; min-height: 300px;">
-    <div class="flex items-center justify-between px-3 py-2 border-b border-gray-100 bg-gray-50 rounded-t-xl">
-      <span class="text-xs font-semibold text-gray-600 uppercase tracking-wide">Working Notes</span>
+    {# Header with segmented toggle #}
+    <div class="flex items-center justify-between px-3 py-2 border-b border-gray-100 bg-gray-50 rounded-t-xl flex-shrink-0">
+      <div class="flex bg-gray-100 rounded-lg p-0.5">
+        <button type="button" onclick="wnSwitchMode('notes')" id="wn-btn-notes"
+          class="px-3 py-1 text-xs font-medium rounded-md bg-white text-gray-900 shadow-sm">Notes</button>
+        <button type="button" onclick="wnSwitchMode('log')" id="wn-btn-log"
+          class="px-3 py-1 text-xs font-medium rounded-md text-gray-500 hover:text-gray-700">Log Activity</button>
+      </div>
       <button type="button" onclick="document.getElementById('wn-expanded').classList.add('hidden'); document.getElementById('wn-collapsed').classList.remove('hidden');"
         class="text-gray-400 hover:text-gray-600 text-sm leading-none">&times;</button>
     </div>
-    <div class="flex-1 overflow-y-auto p-3">
+
+    {# Notes Mode #}
+    <div id="wn-mode-notes" class="flex-1 overflow-y-auto p-3">
       {% include "clients/_scratchpad.html" %}
     </div>
+
+    {# Log Activity Mode #}
+    <div id="wn-mode-log" class="hidden flex-1 overflow-y-auto p-3">
+      <form id="wn-log-form" class="space-y-2">
+        <input type="hidden" name="client_id" value="{{ client.id }}">
+
+        <div>
+          <select name="activity_type" class="w-full border border-gray-300 rounded-md text-xs px-2 py-1.5 text-gray-900 focus:ring-marsh focus:border-marsh">
+            {% for t in activity_types %}
+            <option value="{{ t }}">{{ t }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div>
+          <input type="text" name="subject" placeholder="Subject" required
+            class="w-full border border-gray-300 rounded-md text-xs px-2 py-1.5 text-gray-900 focus:ring-marsh focus:border-marsh">
+        </div>
+
+        <div>
+          <input type="text" name="contact_person" placeholder="Contact (optional)"
+            class="w-full border border-gray-300 rounded-md text-xs px-2 py-1.5 text-gray-900 focus:ring-marsh focus:border-marsh">
+        </div>
+
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="text-xs text-gray-500">Follow-up</label>
+            <input type="date" name="follow_up_date"
+              class="w-full border border-gray-300 rounded-md text-xs px-2 py-1.5 text-gray-900 focus:ring-marsh focus:border-marsh">
+          </div>
+          <div>
+            <label class="text-xs text-gray-500">Hours</label>
+            <input type="number" name="duration_hours" step="0.25" min="0" placeholder="0"
+              class="w-full border border-gray-300 rounded-md text-xs px-2 py-1.5 text-gray-900 focus:ring-marsh focus:border-marsh">
+          </div>
+        </div>
+
+        {% if open_issues %}
+        <div>
+          <select name="issue_id" class="w-full border border-gray-300 rounded-md text-xs px-2 py-1.5 text-gray-500 focus:ring-marsh focus:border-marsh">
+            <option value="">Link to issue (optional)</option>
+            {% for iss in open_issues %}
+            <option value="{{ iss.id }}">{{ iss.issue_uid }} — {{ iss.subject | truncate(40) }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        {% endif %}
+
+        <button type="submit" class="w-full bg-marsh text-white text-xs font-medium py-1.5 rounded-md hover:bg-blue-900">
+          Log Activity
+        </button>
+
+        <div id="wn-log-status" class="hidden text-xs text-center py-1"></div>
+      </form>
+    </div>
+
+    {# Footer: last saved (only visible in notes mode) #}
     {% if client_scratchpad_updated %}
-    <div class="px-3 py-1.5 border-t border-gray-100 text-right">
+    <div id="wn-notes-footer" class="px-3 py-1.5 border-t border-gray-100 text-right">
       <span class="text-xs text-gray-400">Last saved: {{ client_scratchpad_updated }}</span>
     </div>
     {% endif %}
   </div>
 </div>
+
+<script>
+(function() {
+  /* ── Mode toggle ────────────────────────────────────────────────── */
+  window.wnSwitchMode = function(mode) {
+    document.getElementById('wn-mode-notes').classList.toggle('hidden', mode !== 'notes');
+    document.getElementById('wn-mode-log').classList.toggle('hidden', mode !== 'log');
+    var footer = document.getElementById('wn-notes-footer');
+    if (footer) footer.classList.toggle('hidden', mode !== 'notes');
+    var btnNotes = document.getElementById('wn-btn-notes');
+    var btnLog = document.getElementById('wn-btn-log');
+    if (mode === 'notes') {
+      btnNotes.className = 'px-3 py-1 text-xs font-medium rounded-md bg-white text-gray-900 shadow-sm';
+      btnLog.className = 'px-3 py-1 text-xs font-medium rounded-md text-gray-500 hover:text-gray-700';
+    } else {
+      btnLog.className = 'px-3 py-1 text-xs font-medium rounded-md bg-white text-gray-900 shadow-sm';
+      btnNotes.className = 'px-3 py-1 text-xs font-medium rounded-md text-gray-500 hover:text-gray-700';
+    }
+  };
+
+  /* ── Log Activity form submission ───────────────────────────────── */
+  var form = document.getElementById('wn-log-form');
+  if (form) {
+    form.addEventListener('submit', function(e) {
+      e.preventDefault();
+      var data = new FormData(form);
+      var btn = form.querySelector('button[type="submit"]');
+      btn.disabled = true;
+      btn.textContent = 'Logging...';
+      fetch('/activities/log', {
+        method: 'POST',
+        body: data,
+      }).then(function(r) {
+        if (r.ok) {
+          var status = document.getElementById('wn-log-status');
+          status.textContent = 'Activity logged!';
+          status.className = 'text-xs text-center py-1 text-green-600';
+          status.classList.remove('hidden');
+          // Preserve client_id, reset other fields
+          var clientId = form.querySelector('[name="client_id"]').value;
+          form.reset();
+          form.querySelector('[name="client_id"]').value = clientId;
+          setTimeout(function() { status.classList.add('hidden'); }, 3000);
+          if (typeof showToast === 'function') showToast('Activity logged', true);
+        } else {
+          var status = document.getElementById('wn-log-status');
+          status.textContent = 'Failed to log activity';
+          status.className = 'text-xs text-center py-1 text-red-600';
+          status.classList.remove('hidden');
+          setTimeout(function() { status.classList.add('hidden'); }, 3000);
+        }
+      }).catch(function() {
+        var status = document.getElementById('wn-log-status');
+        status.textContent = 'Network error';
+        status.className = 'text-xs text-center py-1 text-red-600';
+        status.classList.remove('hidden');
+        setTimeout(function() { status.classList.add('hidden'); }, 3000);
+      }).finally(function() {
+        btn.disabled = false;
+        btn.textContent = 'Log Activity';
+      });
+    });
+  }
+})();
+</script>

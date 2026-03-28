@@ -1,0 +1,36 @@
+{# Renewal Pipeline Mini-View — compact Kanban of policies expiring in next 120 days #}
+{% if has_renewal_pipeline %}
+<div class="card mb-4 no-print">
+  <div class="px-4 py-3">
+    <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Renewal Pipeline &mdash; Next 120 Days</h3>
+    <div class="flex gap-3 overflow-x-auto pb-1">
+      {% for status, policies in pipeline_by_status.items() %}
+        {% if policies %}
+        <div class="flex-shrink-0 min-w-[140px] max-w-[180px]">
+          <div class="text-xs font-medium text-gray-500 mb-1.5 flex items-center gap-1">
+            {{ status }}
+            <span class="bg-gray-100 text-gray-600 rounded-full px-1.5 py-0.5 text-[10px] leading-none">{{ policies | length }}</span>
+          </div>
+          <div class="space-y-1.5">
+            {% for p in policies %}
+            <a href="#row-{{ p.policy_uid }}"
+               onclick="var el=document.getElementById('row-{{ p.policy_uid }}'); if(el){el.scrollIntoView({behavior:'smooth',block:'center'}); el.classList.add('bg-blue-50'); setTimeout(function(){el.classList.remove('bg-blue-50');},2000);}"
+               class="block border border-gray-200 rounded-lg px-2.5 py-2 hover:border-marsh hover:shadow-sm transition-all bg-white cursor-pointer">
+              <div class="text-xs font-medium text-gray-900 truncate">{{ p.policy_type or 'Unknown' }}</div>
+              <div class="text-xs text-gray-500 truncate">{{ p.carrier or '—' }}</div>
+              <div class="text-xs mt-1 font-medium
+                {% if p.days_to_exp <= 30 %}text-red-600
+                {% elif p.days_to_exp <= 60 %}text-amber-600
+                {% else %}text-gray-500{% endif %}">
+                {{ p.days_to_exp }}d
+              </div>
+            </a>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
