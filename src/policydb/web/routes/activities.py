@@ -130,6 +130,35 @@ def activity_log(
          follow_up_date or None, account_exec, round_duration(duration_hours),
          disposition.strip() or None),
     )
+    new_id = cursor.lastrowid
+
+    # Auto-link to open issue: if this policy (or its program) has exactly one open issue,
+    # auto-thread this activity into it. If multiple, leave unlinked (user picks in UI).
+    if policy_id:
+        # Check for program membership
+        prog_row = conn.execute(
+            "SELECT program_id FROM policies WHERE id=?", (policy_id,)
+        ).fetchone()
+        prog_id = prog_row["program_id"] if prog_row and prog_row["program_id"] else None
+
+        # Find open issues: by policy_id OR by program_id
+        open_issues = conn.execute("""
+            SELECT id FROM activity_log
+            WHERE item_kind = 'issue'
+              AND issue_id IS NULL
+              AND (issue_status IS NULL OR issue_status NOT IN ('Resolved', 'Closed'))
+              AND (
+                policy_id = ?
+                OR (? IS NOT NULL AND program_id = ?)
+              )
+        """, (policy_id, prog_id, prog_id)).fetchall()
+
+        if len(open_issues) == 1:
+            conn.execute(
+                "UPDATE activity_log SET issue_id = ? WHERE id = ?",
+                (open_issues[0]["id"], new_id),
+            )
+
     conn.commit()
     logger.info("Activity created for client %d: %s", client_id, activity_type)
     # Return the new activity row as HTMX partial
@@ -139,7 +168,7 @@ def activity_log(
            JOIN clients c ON a.client_id = c.id
            LEFT JOIN policies p ON a.policy_id = p.id
            WHERE a.id = ?""",
-        (cursor.lastrowid,),
+        (new_id,),
     ).fetchone()
     a = dict(row)
 
