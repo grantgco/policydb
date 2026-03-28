@@ -1,4 +1,49 @@
 {# Sticky sidebar — always visible alongside tabs #}
+
+{# ── Client Health Score ── #}
+{% if health %}
+<div class="card mb-3 sticky top-4">
+  <details class="group">
+    <summary class="px-4 py-3 cursor-pointer flex items-center justify-between hover:bg-gray-50 rounded-lg list-none [&::-webkit-details-marker]:hidden">
+      <div class="flex items-center gap-2.5">
+        <div class="relative w-10 h-10 flex-shrink-0">
+          <svg viewBox="0 0 36 36" class="w-10 h-10 -rotate-90">
+            <circle cx="18" cy="18" r="15.9" fill="none" stroke="#e5e7eb" stroke-width="3"/>
+            <circle cx="18" cy="18" r="15.9" fill="none"
+              stroke="{% if health.level == 'green' %}#15803d{% elif health.level == 'amber' %}#d97706{% else %}#dc2626{% endif %}"
+              stroke-width="3" stroke-dasharray="{{ health.score }}, 100"
+              stroke-linecap="round"/>
+          </svg>
+          <span class="absolute inset-0 flex items-center justify-center text-xs font-bold
+            {% if health.level == 'green' %}text-green-700{% elif health.level == 'amber' %}text-amber-600{% else %}text-red-600{% endif %}">
+            {{ health.score }}
+          </span>
+        </div>
+        <div>
+          <div class="text-sm font-medium text-gray-900">Account Health</div>
+          <div class="text-xs {% if health.level == 'green' %}text-green-700{% elif health.level == 'amber' %}text-amber-600{% else %}text-red-600{% endif %}">
+            {{ health.label }}
+          </div>
+        </div>
+      </div>
+      <svg class="w-4 h-4 text-gray-400 group-open:rotate-180 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+    </summary>
+    {% if health.factors %}
+    <div class="px-4 pb-3 space-y-1.5 border-t border-gray-100 pt-2">
+      {% for f in health.factors %}
+      <div class="flex items-center justify-between text-xs">
+        <span class="{% if f.color == 'red' %}text-red-600{% elif f.color == 'amber' %}text-amber-600{% else %}text-gray-500{% endif %}">{{ f.label }}</span>
+        <span class="font-mono text-gray-400">{{ f.impact }}</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="px-4 pb-3 text-xs text-green-600 border-t border-gray-100 pt-2">No issues detected</div>
+    {% endif %}
+  </details>
+</div>
+{% endif %}
+
 <div class="card p-4 text-sm flex flex-col gap-0 sticky top-4">
 
   {# ── Financials ── #}

@@ -301,6 +301,12 @@ def _client_tokens(conn: sqlite3.Connection, client_id: int, row) -> dict:
         "fein": row.get("fein") or "",
         "internal_notes": row.get("notes") or "",
         "linked_accounts": _linked_account_names(conn, client_id),
+        "account_priorities": row.get("account_priorities") or "",
+        "renewal_strategy": row.get("renewal_strategy") or "",
+        "growth_opportunities": row.get("growth_opportunities") or "",
+        "relationship_risk": row.get("relationship_risk") or "",
+        "service_model": row.get("service_model") or "",
+        "stewardship_date": row.get("stewardship_date") or "",
     }
 
 
@@ -732,6 +738,12 @@ _CLIENT_GROUP: list[tuple[str, str]] = [
     ("referral_source", "Referral Source"),
     ("internal_notes", "Internal Notes"),
     ("linked_accounts", "Linked Accounts"),
+    ("account_priorities", "Account Priorities"),
+    ("renewal_strategy", "Renewal Strategy"),
+    ("growth_opportunities", "Growth Opportunities"),
+    ("relationship_risk", "Relationship Risk"),
+    ("service_model", "Service Model"),
+    ("stewardship_date", "Stewardship Date"),
 ]
 
 _CLIENT_CONTACT_GROUP: list[tuple[str, str]] = [

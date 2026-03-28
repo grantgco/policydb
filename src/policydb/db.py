@@ -1475,6 +1475,16 @@ def init_db(path: Path | None = None) -> None:
         conn.commit()
         logger.info("Migration 105: added escalation_dismissals table")
 
+    if 106 not in applied:
+        sql = (_MIGRATIONS_DIR / "106_client_strategy_fields.sql").read_text()
+        conn.executescript(sql)
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (106, "Add account strategy fields to clients"),
+        )
+        conn.commit()
+        logger.info("Migration 106: added account strategy fields to clients")
+
     # Data hygiene: fix 'None' string corruption in text fields (runs every startup, fast no-op if clean)
     conn.execute("UPDATE clients SET cn_number = NULL WHERE cn_number = 'None'")
 

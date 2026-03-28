@@ -12,12 +12,20 @@
 </tr>
 {% endif %}
 {% set _last_group_id.val = _gid %}
-<tr class="hover:bg-gray-50 cursor-pointer {% if _gid %}border-l-4 border-blue-500 bg-blue-50/40{% endif %}" onclick="window.location='/clients/{{ c.id }}'">
+<tr class="group hover:bg-gray-50 cursor-pointer {% if _gid %}border-l-4 border-blue-500 bg-blue-50/40{% endif %}" onclick="window.location='/clients/{{ c.id }}'">
   <td class="px-4 py-3">
-    <a href="/clients/{{ c.id }}" class="font-medium text-marsh hover:underline">{{ c.name }}</a>
-    {% if c.is_prospect %}<span class="ml-1.5 text-xs font-semibold bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded">Prospect</span>{% endif %}
-    {% if c.cn_number %}<button type="button" onclick="event.stopPropagation(); copyRefTag(this, '{{ build_ref_tag(cn_number=c.cn_number, client_id=c.id) }}')"
-      class="ml-1.5 text-xs font-mono text-gray-300 hover:text-marsh" title="Copy CN ref tag">{{ build_ref_tag(cn_number=c.cn_number, client_id=c.id) }}</button>{% endif %}
+    <div class="flex items-center gap-1.5">
+      <a href="/clients/{{ c.id }}" class="font-medium text-marsh hover:underline">{{ c.name }}</a>
+      {% if c.is_prospect %}<span class="text-xs font-semibold bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded">Prospect</span>{% endif %}
+      {% if c.cn_number %}<button type="button" onclick="event.stopPropagation(); copyRefTag(this, '{{ build_ref_tag(cn_number=c.cn_number, client_id=c.id) }}')"
+        class="text-xs font-mono text-gray-300 hover:text-marsh" title="Copy CN ref tag">{{ build_ref_tag(cn_number=c.cn_number, client_id=c.id) }}</button>{% endif %}
+      <button onclick="event.stopPropagation()"
+              hx-get="/clients/{{ c.id }}/quick-brief" hx-target="body" hx-swap="beforeend"
+              class="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-marsh transition-opacity ml-1"
+              title="Quick Brief">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+      </button>
+    </div>
     {% if c.primary_contact %}<p class="text-xs text-gray-400">{{ c.primary_contact }}</p>{% endif %}
   </td>
   <td class="px-4 py-3 text-gray-600">{{ c.industry_segment }}</td>
@@ -36,7 +44,7 @@
     {% endif %}
   </td>
   <td class="px-4 py-3 text-right">
-    <span class="{% if c.activity_last_90d == 0 %}text-red-400{% else %}text-gray-500{% endif %}">{{ c.activity_last_90d }}</span>
+    <span class="{% if c.last_activity_urgency == 'green' %}text-green-700{% elif c.last_activity_urgency == 'amber' %}text-amber-600{% elif c.last_activity_urgency == 'red' %}text-red-600{% else %}text-gray-500{% endif %}">{{ c.last_activity_ago }}</span>
   </td>
 </tr>
 {% else %}

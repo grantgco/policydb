@@ -52,6 +52,8 @@ EDITABLE_LISTS: dict[str, str] = {
     "issue_lifecycle_states": "Issue Lifecycle States",
     "issue_resolution_types": "Issue Resolution Types",
     "issue_root_cause_categories": "Issue Root Cause Categories",
+    "account_priority_options": "Account Priority Options",
+    "service_model_options": "Service Model Options",
 }
 
 TAB_LISTS: dict[str, dict[str, str]] = {
@@ -94,6 +96,8 @@ TAB_LISTS: dict[str, dict[str, str]] = {
         "expertise_industries": "Contact Expertise — Industries",
         "linked_account_relationships": "Account Relationship Types",
         "contact_roles": "Contact Roles",
+        "account_priority_options": "Account Priority Options",
+        "service_model_options": "Service Model Options",
     },
     "issues": {
         "issue_lifecycle_states": "Issue Lifecycle States",
