@@ -1,0 +1,52 @@
+{% if activities %}
+<div class="divide-y divide-gray-100">
+  {% for act in activities %}
+  <label class="flex items-start gap-3 px-3 py-2.5 hover:bg-gray-50 cursor-pointer group"
+         onclick="updateLinkCount && updateLinkCount()">
+    <input type="checkbox"
+           name="activity_ids"
+           value="{{ act.id }}"
+           class="mt-0.5 flex-shrink-0 h-4 w-4 text-marsh border-gray-300 rounded focus:ring-marsh">
+
+    <div class="flex-1 min-w-0">
+      <div class="flex items-center gap-2 flex-wrap">
+        {# Type pill #}
+        {% set atype = act.activity_type or 'Note' %}
+        <span class="text-xs px-1.5 py-0.5 rounded font-medium
+          {% if atype == 'Call' %}bg-blue-50 text-blue-700
+          {% elif atype == 'Email' %}bg-amber-50 text-amber-700
+          {% elif atype == 'Meeting' %}bg-indigo-50 text-indigo-700
+          {% elif atype == 'Note' %}bg-pink-50 text-pink-700
+          {% else %}bg-gray-100 text-gray-600{% endif %}">
+          {{ atype }}
+        </span>
+
+        {# Date #}
+        <span class="text-xs text-gray-400 flex-shrink-0">{{ act.activity_date }}</span>
+
+        {# Subject #}
+        {% if act.subject %}
+        <span class="text-xs text-gray-800 font-medium truncate">{{ act.subject }}</span>
+        {% endif %}
+
+        {# Policy info #}
+        {% if act.policy_uid %}
+        <span class="text-xs text-gray-400 flex-shrink-0">{{ act.policy_uid }}{% if act.policy_type %} · {{ act.policy_type }}{% endif %}</span>
+        {% endif %}
+
+        {# Duration #}
+        {% if act.duration_hours %}
+        <span class="text-xs text-gray-400 flex-shrink-0">{{ act.duration_hours }}h</span>
+        {% endif %}
+      </div>
+
+      {% if act.details %}
+      <p class="text-xs text-gray-500 mt-0.5 line-clamp-1">{{ act.details }}</p>
+      {% endif %}
+    </div>
+  </label>
+  {% endfor %}
+</div>
+{% else %}
+<p class="text-sm text-gray-500 px-4 py-6 text-center">No unlinked activities found in the selected time range.</p>
+{% endif %}
