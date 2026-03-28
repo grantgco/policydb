@@ -14,6 +14,7 @@ from collections import Counter
 from datetime import datetime, timedelta
 
 from policydb import config as cfg
+from policydb.data_health import score_client
 from policydb.utils import clean_email, format_fein, format_phone, normalize_client_name, format_city, format_state, format_zip
 from policydb.queries import (
     get_activities,
@@ -354,6 +355,8 @@ def client_list(
             ordered_clients.append(c)
     clients = ordered_clients
     _enrich_last_activity(clients)
+    for c in clients:
+        score_client(conn, c, include_staleness=False)
 
     return templates.TemplateResponse("clients/list.html", {
         "request": request,
@@ -1749,10 +1752,13 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
     ).fetchall()]
 
     from policydb.queries import REVIEW_CYCLE_LABELS as _REVIEW_CYCLE_LABELS
+    from policydb.data_health import score_client as _score_client
+    _client_dict = dict(client)
+    _score_client(conn, _client_dict, include_staleness=True)
     return templates.TemplateResponse("clients/detail.html", {
         "request": request,
         "active": "clients",
-        "client": dict(client),
+        "client": _client_dict,
         "summary": dict(summary) if summary else {},
         "client_total_hours": client_total_hours,
         "policy_groups": policy_groups,
@@ -1843,6 +1849,9 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
               WHEN 'Critical' THEN 0 WHEN 'High' THEN 1 WHEN 'Normal' THEN 2 ELSE 3
             END, a.activity_date ASC
         """, (client_id,)).fetchall()],
+        "health_score": _client_dict.get("health_score", 100),
+        "health_missing": _client_dict.get("health_missing", []),
+        "health_threshold": cfg.get("data_health_threshold", 85),
     })
 
 

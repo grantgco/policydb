@@ -1,0 +1,23 @@
+{# Contextual nudge banner — include on client/policy detail pages.
+   Expects: health_score, health_missing, health_threshold (from config) #}
+{% if health_score is defined and health_score < health_threshold %}
+<div class="bg-amber-50 border border-amber-200 rounded px-4 py-2 flex items-center justify-between text-sm mb-4 no-print"
+     id="health-banner">
+  <span class="text-amber-800">
+    <strong>{{ health_missing|length }} field{{ 's' if health_missing|length != 1 }}</strong> would improve this score
+    {%- if health_missing|length <= 5 %}:
+      {% for m in health_missing[:5] %}
+        <a href="#field-{{ m.field }}" class="underline text-amber-700 hover:text-amber-900"
+           onclick="var el=document.querySelector('[data-field=&quot;{{ m.field }}&quot;]'); if(el){el.scrollIntoView({behavior:'smooth',block:'center'}); el.focus();} return false;">{{ m.label }}</a>
+        {%- if not loop.last %}, {% endif %}
+      {% endfor %}
+    {% endif %}
+  </span>
+  <button class="text-amber-400 hover:text-amber-600 ml-2 flex-shrink-0"
+          onclick="this.closest('#health-banner').remove()">
+    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+    </svg>
+  </button>
+</div>
+{% endif %}

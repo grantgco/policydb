@@ -703,6 +703,28 @@ _DEFAULTS: dict[str, Any] = {
         "QBE": ["QBE Insurance", "QBE North America"],
         "Starr": ["Starr Insurance", "Starr Companies", "Starr Indemnity"],
     },
+    # ── Data Health ──────────────────────────────────────────────────────
+    "data_health_fields": {
+        "policy": [
+            {"field": "carrier", "label": "Carrier", "weight": 3, "stages": ["active", "renewal_window", "bound_complete"], "decay_days": 365},
+            {"field": "premium", "label": "Premium", "weight": 3, "stages": ["active", "renewal_window", "bound_complete"], "decay_days": 180},
+            {"field": "effective_date", "label": "Effective Date", "weight": 3, "stages": ["active", "renewal_window", "bound_complete"], "decay_days": None},
+            {"field": "expiration_date", "label": "Expiration Date", "weight": 3, "stages": ["active", "renewal_window", "bound_complete"], "decay_days": None},
+            {"field": "policy_type", "label": "Policy Type", "weight": 2, "stages": ["opportunity", "active", "renewal_window", "bound_complete"], "decay_days": None},
+            {"field": "policy_number", "label": "Policy Number", "weight": 2, "stages": ["active", "renewal_window", "bound_complete"], "decay_days": None},
+            {"field": "renewal_status", "label": "Renewal Status", "weight": 2, "stages": ["renewal_window", "bound_complete"], "decay_days": None},
+            {"field": "first_named_insured", "label": "First Named Insured", "weight": 1, "stages": ["active", "renewal_window", "bound_complete"], "decay_days": None},
+            {"field": "estimated_premium", "label": "Estimated Premium", "weight": 2, "stages": ["opportunity"], "decay_days": 180},
+        ],
+        "client": [
+            {"field": "industry_segment", "label": "Industry", "weight": 2, "stages": ["active", "renewal_window", "bound_complete"], "decay_days": None},
+            {"field": "account_exec", "label": "Account Executive", "weight": 2, "stages": ["active", "renewal_window", "bound_complete"], "decay_days": None},
+            {"field": "cn_number", "label": "Account Number", "weight": 1, "stages": ["active", "renewal_window", "bound_complete"], "decay_days": None},
+        ],
+    },
+    "data_health_threshold": 85,
+    "data_health_completeness_weight": 0.7,
+    "data_health_freshness_weight": 0.3,
 }
 
 _config: dict[str, Any] | None = None

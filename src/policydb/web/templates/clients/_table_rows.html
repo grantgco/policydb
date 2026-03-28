@@ -1,3 +1,4 @@
+{% from "_health_badge.html" import health_dot %}
 {% set _last_group_id = namespace(val=0) %}
 {% for c in clients %}
 {% set _gid = client_group_map.get(c.id, 0) if client_group_map is defined else 0 %}
@@ -16,6 +17,7 @@
   <td class="px-4 py-3">
     <div class="flex items-center gap-1.5">
       <a href="/clients/{{ c.id }}" class="font-medium text-marsh hover:underline">{{ c.name }}</a>
+      {{ health_dot(c.health_score, c.health_missing, c.health_stale) }}
       {% if c.is_prospect %}<span class="text-xs font-semibold bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded">Prospect</span>{% endif %}
       {% if c.cn_number %}<button type="button" onclick="event.stopPropagation(); copyRefTag(this, '{{ build_ref_tag(cn_number=c.cn_number, client_id=c.id) }}')"
         class="text-xs font-mono text-gray-300 hover:text-marsh" title="Copy CN ref tag">{{ build_ref_tag(cn_number=c.cn_number, client_id=c.id) }}</button>{% endif %}

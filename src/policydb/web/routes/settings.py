@@ -108,6 +108,7 @@ TAB_LISTS: dict[str, dict[str, str]] = {
         "project_stages": "Project Stages",
         "project_types": "Project Types",
     },
+    "data-health": {},
 }
 
 TAB_LABELS = {
@@ -118,6 +119,7 @@ TAB_LABELS = {
     "issues": "Issue Tracking",
     "email-contacts": "Email & Contacts",
     "database": "Database & Admin",
+    "data-health": "Data Health",
 }
 
 SEARCH_INDEX = [
@@ -203,6 +205,12 @@ def _build_tab_context(tab: str, conn) -> dict:
         ctx["email_subject_request"] = cfg.get("email_subject_request", "")
         ctx["email_subject_request_all"] = cfg.get("email_subject_request_all", "")
         ctx["email_subject_rfi_notify"] = cfg.get("email_subject_rfi_notify", "")
+
+    elif tab == "data-health":
+        ctx["data_health_threshold"] = cfg.get("data_health_threshold", 85)
+        ctx["completeness_weight"] = cfg.get("data_health_completeness_weight", 0.7)
+        ctx["freshness_weight"] = cfg.get("data_health_freshness_weight", 0.3)
+        ctx["data_health_fields"] = cfg.get("data_health_fields", {})
 
     elif tab == "database":
         ctx["logo_exists"] = Path(cfg.get("report_logo_path", "")).exists()
@@ -304,6 +312,22 @@ def settings_page(request: Request, tab: str = Query("workflow"), conn=Depends(g
     ctx.update(tab_ctx)
 
     return templates.TemplateResponse("settings.html", ctx)
+
+
+@router.post("/config/data-health")
+def save_data_health_config(
+    request: Request,
+    threshold: int = Form(85),
+    completeness_weight: float = Form(0.7),
+    conn=Depends(get_db),
+):
+    full = dict(cfg.load_config())
+    full["data_health_threshold"] = threshold
+    full["data_health_completeness_weight"] = completeness_weight
+    full["data_health_freshness_weight"] = round(1.0 - completeness_weight, 2)
+    cfg.save_config(full)
+    cfg.reload_config()
+    return RedirectResponse("/settings?tab=data-health", status_code=303)
 
 
 @router.post("/email-subject", response_class=HTMLResponse)

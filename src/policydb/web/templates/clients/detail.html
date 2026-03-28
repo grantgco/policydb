@@ -17,6 +17,7 @@
 </div>
 {% endif %}
 
+{% from "_health_badge.html" import health_dot %}
 {# ── Header ── #}
 <div class="mb-4">
   <div class="flex items-center gap-2 text-sm text-gray-400 mb-1">
@@ -24,7 +25,10 @@
     <span>/</span>
     <span class="text-gray-600">{{ client.name }}</span>
   </div>
-  <h1 class="text-2xl font-bold text-gray-900">{{ client.name }}</h1>
+  <h1 class="text-2xl font-bold text-gray-900 flex items-center gap-2">
+    {{ client.name }}
+    {{ health_dot(health_score, health_missing, show_label=true) }}
+  </h1>
   <p class="text-gray-500 text-sm mt-1">{{ client.industry_segment }}
     {% set _cref = build_ref_tag(cn_number=client.cn_number|default(''), client_id=client.id) %}
     <button type="button" onclick="copyRefTag(this, '{{ _cref }}')"
@@ -34,6 +38,9 @@
 
 {# ── Condensed Summary Bar ── #}
 {% include "clients/_summary_bar.html" %}
+
+{# ── Data Health Banner ── #}
+{% include "_health_banner.html" %}
 
 {# ── 2-Column Layout: Tabs + Sidebar ── #}
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
