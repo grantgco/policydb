@@ -28,6 +28,35 @@
               class="px-3 py-1.5 text-xs font-medium rounded-lg border border-indigo-300 text-indigo-600 hover:bg-indigo-50 transition-colors">
         Import from AI
       </button>
+      {# ── More Actions kebab ── #}
+      <div class="relative" id="more-actions-wrapper">
+        <button type="button" id="more-actions-btn"
+          class="px-2 py-1.5 text-xs font-medium rounded-lg border border-gray-300 text-gray-500 hover:bg-gray-50 transition-colors"
+          title="More actions">
+          <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><circle cx="10" cy="4" r="1.5"/><circle cx="10" cy="10" r="1.5"/><circle cx="10" cy="16" r="1.5"/></svg>
+        </button>
+        <div id="more-actions-menu" class="hidden absolute right-0 top-full mt-1 w-48 bg-white border border-gray-200 rounded-lg shadow-lg z-50 py-1">
+          <form method="post" action="/policies/{{ policy.policy_uid }}/renew">
+            <button type="button" onclick="confirmAction(this, 'Renew this policy?')"
+              class="w-full text-left px-4 py-2 text-sm text-blue-600 hover:bg-blue-50 transition-colors">
+              Renew Policy
+            </button>
+          </form>
+          <div class="border-t border-gray-100 my-1"></div>
+          <form method="post" action="/policies/{{ policy.policy_uid }}/archive">
+            <button type="button" onclick="confirmAction(this, 'Archive this policy?')"
+              class="w-full text-left px-4 py-2 text-sm text-amber-600 hover:bg-amber-50 transition-colors">
+              Archive
+            </button>
+          </form>
+          <form method="post" action="/policies/{{ policy.policy_uid }}/delete">
+            <button type="button" onclick="confirmAction(this, 'Permanently delete?')"
+              class="w-full text-left px-4 py-2 text-sm text-red-500 hover:bg-red-50 transition-colors">
+              Delete
+            </button>
+          </form>
+        </div>
+      </div>
     </div>
   </div>
   <p class="text-sm text-gray-500 mt-1">{{ policy.policy_type }} · {{ policy.carrier }}
@@ -103,6 +132,10 @@
       {% set total = checklist | length %}
       {% if total %}<span class="tab-badge">{{ done }}/{{ total }}</span>{% endif %}
     </button>
+    <span id="save-indicator" class="ml-auto text-xs flex items-center gap-1 self-center pr-2 no-print"
+          style="opacity:0; transition: opacity 0.3s;">
+      <span id="save-indicator-text" class="text-gray-400"></span>
+    </span>
   </div>
   <div class="tab-content" id="ai-import-target">
     <div class="py-4 text-sm text-gray-400 text-center">Loading…</div>
@@ -122,6 +155,15 @@
 <script>
 document.addEventListener('DOMContentLoaded', function() {
   initTabs('policy-tabs', 'policy-tab-' + '{{ policy.policy_uid }}');
+
+  /* More Actions kebab dropdown */
+  var mBtn = document.getElementById('more-actions-btn');
+  var mMenu = document.getElementById('more-actions-menu');
+  if (mBtn && mMenu) {
+    mBtn.addEventListener('click', function(e) { e.stopPropagation(); mMenu.classList.toggle('hidden'); });
+    document.addEventListener('click', function() { mMenu.classList.add('hidden'); });
+    mMenu.addEventListener('click', function(e) { e.stopPropagation(); });
+  }
 });
 </script>
 
