@@ -268,6 +268,7 @@ def policy_row_log_post(
     details: str = Form(""),
     follow_up_date: str = Form(""),
     duration_hours: str = Form(""),
+    issue_id: int = Form(0),
     conn=Depends(get_db),
 ):
     """HTMX: save activity log entry, restore the policy row."""
@@ -287,12 +288,13 @@ def policy_row_log_post(
     account_exec = cfg.get("default_account_exec", "Grant")
     conn.execute(
         """INSERT INTO activity_log
-           (activity_date, client_id, policy_id, activity_type, subject, details, follow_up_date, account_exec, duration_hours)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+           (activity_date, client_id, policy_id, activity_type, subject, details, follow_up_date, account_exec, duration_hours, issue_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             _date.today().isoformat(), client_id, policy_id,
             activity_type, subject, details or None,
             follow_up_date or None, account_exec, round_duration(duration_hours),
+            issue_id or None,
         ),
     )
     conn.commit()

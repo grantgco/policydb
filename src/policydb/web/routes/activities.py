@@ -97,6 +97,7 @@ def activity_log(
     follow_up_date: str = Form(""),
     duration_hours: str = Form(""),
     disposition: str = Form(""),
+    issue_id: int = Form(0),
     pulse_oob: str = Form(""),
     conn=Depends(get_db),
 ):
@@ -123,41 +124,14 @@ def activity_log(
     account_exec = cfg.get("default_account_exec", "Grant")
     cursor = conn.execute(
         """INSERT INTO activity_log
-           (activity_date, client_id, policy_id, activity_type, contact_person, contact_id, subject, details, follow_up_date, account_exec, duration_hours, disposition)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+           (activity_date, client_id, policy_id, activity_type, contact_person, contact_id, subject, details, follow_up_date, account_exec, duration_hours, disposition, issue_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (date.today().isoformat(), client_id, policy_id or None, activity_type,
          contact_person or None, _contact_id, subject, details or None,
          follow_up_date or None, account_exec, round_duration(duration_hours),
-         disposition.strip() or None),
+         disposition.strip() or None, issue_id or None),
     )
     new_id = cursor.lastrowid
-
-    # Auto-link to open issue: if this policy (or its program) has exactly one open issue,
-    # auto-thread this activity into it. If multiple, leave unlinked (user picks in UI).
-    if policy_id:
-        # Check for program membership
-        prog_row = conn.execute(
-            "SELECT program_id FROM policies WHERE id=?", (policy_id,)
-        ).fetchone()
-        prog_id = prog_row["program_id"] if prog_row and prog_row["program_id"] else None
-
-        # Find open issues: by policy_id OR by program_id
-        open_issues = conn.execute("""
-            SELECT id FROM activity_log
-            WHERE item_kind = 'issue'
-              AND issue_id IS NULL
-              AND (issue_status IS NULL OR issue_status NOT IN ('Resolved', 'Closed'))
-              AND (
-                policy_id = ?
-                OR (? IS NOT NULL AND program_id = ?)
-              )
-        """, (policy_id, prog_id, prog_id)).fetchall()
-
-        if len(open_issues) == 1:
-            conn.execute(
-                "UPDATE activity_log SET issue_id = ? WHERE id = ?",
-                (open_issues[0]["id"], new_id),
-            )
 
     conn.commit()
     logger.info("Activity created for client %d: %s", client_id, activity_type)
