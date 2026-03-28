@@ -190,6 +190,31 @@ def _followups_ctx(conn, window: int, activity_type: str, q: str,
     dispositions = cfg.get("follow_up_dispositions", [])
     today = date.today()
 
+    # ── Enrich activity-sourced items with linked issue data ──────────
+    # For activity items, look up their issue_id (if any) from activity_log,
+    # then attach the linked issue's uid/subject/severity for badge display.
+    activity_ids = [item["id"] for item in all_items if item.get("source") == "activity" and item.get("id")]
+    if activity_ids:
+        ph = ",".join("?" * len(activity_ids))
+        issue_links = conn.execute(
+            f"""SELECT a.id AS activity_id, a.issue_id,
+                       iss.issue_uid AS linked_issue_uid,
+                       iss.subject AS linked_issue_subject,
+                       iss.issue_severity AS linked_issue_severity
+                FROM activity_log a
+                LEFT JOIN activity_log iss ON a.issue_id = iss.id AND iss.item_kind = 'issue'
+                WHERE a.id IN ({ph})""",
+            activity_ids,
+        ).fetchall()
+        _issue_link_map = {r["activity_id"]: dict(r) for r in issue_links}
+        for item in all_items:
+            if item.get("source") == "activity" and item.get("id"):
+                link = _issue_link_map.get(item["id"])
+                if link:
+                    item["linked_issue_uid"] = link.get("linked_issue_uid")
+                    item["linked_issue_subject"] = link.get("linked_issue_subject")
+                    item["linked_issue_severity"] = link.get("linked_issue_severity")
+
     buckets: dict[str, list[dict]] = {
         "triage": [], "today": [], "overdue": [], "stale": [],
         "nudge_due": [], "watching": [], "scheduled": [],
