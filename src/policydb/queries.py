@@ -400,6 +400,7 @@ def get_activities(
     client_ids: list[int] | None = None,
 ) -> list[sqlite3.Row]:
     sql = """SELECT a.*, c.name AS client_name, c.cn_number, p.policy_uid,
+                    p.policy_type,
                     COALESCE(a.project_id, p.project_id) AS project_id,
                     pr.name AS project_name
              FROM activity_log a
