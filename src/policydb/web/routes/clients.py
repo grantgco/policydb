@@ -14,6 +14,7 @@ from collections import Counter
 from datetime import datetime, timedelta
 
 from policydb import config as cfg
+from policydb.data_health import score_client
 from policydb.utils import clean_email, format_fein, format_phone, normalize_client_name, format_city, format_state, format_zip
 from policydb.queries import (
     get_activities,
@@ -354,6 +355,8 @@ def client_list(
             ordered_clients.append(c)
     clients = ordered_clients
     _enrich_last_activity(clients)
+    for c in clients:
+        score_client(conn, c, include_staleness=False)
 
     return templates.TemplateResponse("clients/list.html", {
         "request": request,
