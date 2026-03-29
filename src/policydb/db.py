@@ -1504,6 +1504,16 @@ def init_db(path: Path | None = None) -> None:
         conn.commit()
         logger.info("Migration 107: added updated_at columns and triggers")
 
+    if 108 not in existing:
+        sql = (_MIGRATIONS_DIR / "108_rename_investigating_to_in_hand.sql").read_text()
+        conn.executescript(sql)
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (108, "Rename issue_status Investigating to In Hand"),
+        )
+        conn.commit()
+        logger.info("Migration 108: renamed Investigating to In Hand")
+
     # Data hygiene: fix 'None' string corruption in text fields (runs every startup, fast no-op if clean)
     conn.execute("UPDATE clients SET cn_number = NULL WHERE cn_number = 'None'")
 

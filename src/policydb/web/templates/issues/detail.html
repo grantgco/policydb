@@ -28,7 +28,7 @@
       {% set status = issue.issue_status or 'Open' %}
       <span class="text-xs px-2 py-0.5 rounded-full
         {% if status == 'Open' %}bg-blue-50 text-blue-700
-        {% elif status == 'Investigating' %}bg-purple-50 text-purple-700
+        {% elif status == 'In Hand' %}bg-purple-50 text-purple-700
         {% elif status == 'Waiting' %}bg-amber-50 text-amber-700
         {% elif status == 'Resolved' %}bg-green-50 text-green-700
         {% elif status == 'Closed' %}bg-gray-100 text-gray-500

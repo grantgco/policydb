@@ -30,7 +30,7 @@
   {% set status = issue.issue_status or 'Open' %}
   <span class="text-xs px-2 py-0.5 rounded-full whitespace-nowrap
     {% if status == 'Open' %}bg-blue-50 text-blue-700
-    {% elif status == 'Investigating' %}bg-purple-50 text-purple-700
+    {% elif status == 'In Hand' %}bg-purple-50 text-purple-700
     {% elif status == 'Waiting' %}bg-amber-50 text-amber-700
     {% elif status == 'Resolved' %}bg-green-50 text-green-700
     {% elif status == 'Closed' %}bg-gray-100 text-gray-500
@@ -66,7 +66,7 @@
             hx-target="#issues-tab"
             hx-swap="outerHTML"
             name="status">
-      {% for state in (issue_lifecycle_states if issue_lifecycle_states is defined else ['Open','Investigating','Waiting','Resolved','Closed']) %}
+      {% for state in (issue_lifecycle_states if issue_lifecycle_states is defined else ['Open','In Hand','Waiting','Resolved','Closed']) %}
         <option value="{{ state }}" {% if state == status %}selected{% endif %}>{{ state }}</option>
       {% endfor %}
     </select>
