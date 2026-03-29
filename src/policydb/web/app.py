@@ -206,6 +206,7 @@ templates.env.filters["dict_merge"] = _dict_merge
 templates.env.filters["path_quote"] = _path_quote
 templates.env.filters["safe_id"] = _safe_id
 templates.env.filters["format_hours"] = _fmt_hours
+templates.env.filters["fromjson"] = lambda s: __import__("json").loads(s) if s else []
 
 # ── Template globals ─────────────────────────────────────────────────────────
 from policydb import __version__ as _app_version
