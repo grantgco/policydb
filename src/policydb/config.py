@@ -160,6 +160,22 @@ _DEFAULTS: dict[str, Any] = {
     ],
     "renewal_issue_window_days": 120,
     "renewal_issue_health_threshold": "at_risk",
+    # ── Anomaly detection ──────────────────────────────────────────────
+    "anomaly_thresholds": {
+        "renewal_not_started_days": 60,
+        "stale_followup_count": 10,
+        "status_no_activity_days": 30,
+        "no_activity_days": 90,
+        "no_followup_scheduled": True,
+        "heavy_week_threshold": 5,
+        "forecast_window_days": 30,
+        "light_week_window_days": 14,
+        "bound_missing_effective": True,
+        "expired_no_renewal": True,
+        "review_min_health_score": 70,
+        "review_activity_window_days": 30,
+        "overdue_review_days": 90,
+    },
     "carriers": [
         "AIG",
         "Berkley One",
