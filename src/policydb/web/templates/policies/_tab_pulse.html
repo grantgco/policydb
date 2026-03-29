@@ -436,11 +436,17 @@
       <input type="hidden" name="disposition" id="pulse-ql-disp-val" value="">
       <div id="pulse-ql-disp-row" class="hidden mt-2">
         <label class="block text-[10px] text-gray-500 font-semibold uppercase tracking-wider mb-1">Disposition</label>
-        <div class="flex flex-wrap gap-1">
-          {% for d in dispositions %}
-          <button type="button"
-            onclick="var inp=document.getElementById('pulse-ql-disp-val'); inp.value='{{ d.label }}'; this.parentElement.querySelectorAll('button').forEach(function(b){b.classList.remove('bg-marsh','text-white','border-marsh');b.classList.add('border-gray-300','text-gray-500');}); this.classList.add('bg-marsh','text-white','border-marsh'); this.classList.remove('border-gray-300','text-gray-500');"
-            class="text-[10px] px-2 py-0.5 rounded border border-gray-300 text-gray-500 hover:border-marsh hover:text-marsh transition-colors">{{ d.label }}</button>
+        <div class="disp-cat-group">
+          {% set gd_pulse = grouped_dispositions() %}
+          {% for cat in gd_pulse.categories %}
+          <div class="text-[9px] text-gray-400 uppercase tracking-wide mt-1 first:mt-0 mb-0.5">{{ cat.label }}</div>
+          <div class="flex flex-wrap gap-1">
+            {% for d in cat.disps %}
+            <button type="button"
+              onclick="var inp=document.getElementById('pulse-ql-disp-val'); inp.value='{{ d.label }}'; this.closest('.disp-cat-group').querySelectorAll('button').forEach(function(b){b.classList.remove('bg-marsh','text-white','border-marsh');b.classList.add('border-gray-300','text-gray-500');}); this.classList.add('bg-marsh','text-white','border-marsh'); this.classList.remove('border-gray-300','text-gray-500');"
+              class="text-[10px] px-2 py-0.5 rounded border border-gray-300 text-gray-500 hover:border-marsh hover:text-marsh transition-colors">{{ d.label }}</button>
+            {% endfor %}
+          </div>
           {% endfor %}
         </div>
       </div>

@@ -466,12 +466,14 @@ async def list_reorder_all(request: Request):
 
 
 @router.post("/dispositions/add")
-def disposition_add(request: Request, label: str = Form(...), default_days: int = Form(0)):
+def disposition_add(request: Request, label: str = Form(...), default_days: int = Form(0), category: str = Form("action")):
     """Add a new disposition to follow_up_dispositions."""
     lst = cfg.get("follow_up_dispositions", [])
     if any(d["label"] == label for d in lst):
         return RedirectResponse("/settings?tab=workflow", status_code=303)
-    lst.append({"label": label, "default_days": max(0, default_days)})
+    valid_cats = ("waiting", "action", "completed")
+    cat = category if category in valid_cats else "action"
+    lst.append({"label": label, "default_days": max(0, default_days), "category": cat})
     full = dict(cfg.load_config())
     full["follow_up_dispositions"] = lst
     cfg.save_config(full)
@@ -521,6 +523,8 @@ async def disposition_update(request: Request):
                 d["default_days"] = max(0, int(body["default_days"]))
             if "accountability" in body:
                 d["accountability"] = body["accountability"]
+            if "category" in body:
+                d["category"] = body["category"]
             break
     full = dict(cfg.load_config())
     full["follow_up_dispositions"] = lst

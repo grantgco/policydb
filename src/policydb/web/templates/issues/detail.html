@@ -173,15 +173,21 @@
             <div class="flex-1 min-w-[200px]">
               <label class="block text-[10px] text-gray-400 uppercase tracking-wide mb-1">Disposition</label>
               <input type="hidden" name="disposition" id="issue-log-disposition" value="">
-              <div class="flex gap-1.5 flex-wrap" id="issue-disposition-pills">
-                {% for d in follow_up_dispositions %}
+              <div id="issue-disposition-pills">
+                {% set gd_issue = grouped_dispositions() %}
+                {% for cat in gd_issue.categories %}
+                <div class="text-[9px] text-gray-400 uppercase tracking-wide mt-1.5 first:mt-0 mb-0.5">{{ cat.label }}</div>
+                <div class="flex gap-1.5 flex-wrap">
+                  {% for d in cat.disps %}
                   {% set dlabel = d.label if d is mapping else d %}
                   <button type="button"
-                    onclick="document.getElementById('issue-log-disposition').value=this.dataset.val;this.parentElement.querySelectorAll('button').forEach(b=>b.className='text-xs px-2.5 py-1 border border-gray-200 rounded text-gray-500 hover:bg-gray-50 transition-colors');this.className='text-xs px-2.5 py-1 border border-marsh rounded bg-marsh/10 text-marsh font-medium transition-colors'"
+                    onclick="document.getElementById('issue-log-disposition').value=this.dataset.val;this.closest('#issue-disposition-pills').querySelectorAll('button').forEach(b=>b.className='text-xs px-2.5 py-1 border border-gray-200 rounded text-gray-500 hover:bg-gray-50 transition-colors');this.className='text-xs px-2.5 py-1 border border-marsh rounded bg-marsh/10 text-marsh font-medium transition-colors'"
                     data-val="{{ dlabel }}"
                     class="text-xs px-2.5 py-1 border border-gray-200 rounded text-gray-500 hover:bg-gray-50 transition-colors">
                     {{ dlabel }}
                   </button>
+                  {% endfor %}
+                </div>
                 {% endfor %}
               </div>
             </div>

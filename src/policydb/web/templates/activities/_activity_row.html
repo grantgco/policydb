@@ -95,13 +95,17 @@
 {# ── Inline pill bar for quick disposition ── #}
 <li id="disp-bar-act-{{ a.id }}" class="hidden px-5 py-2 bg-gray-50 border-l-4 border-gray-200">
   <div class="disp-pill-bar">
+    {% set gd_act = grouped_dispositions() %}
+    {% for cat in gd_act.categories %}
+    <div class="text-[9px] text-gray-400 uppercase tracking-wide mt-1 first:mt-0 mb-0.5">{{ cat.label }}</div>
     <div class="flex flex-wrap gap-1">
-      {% for d in dispositions %}
+      {% for d in cat.disps %}
       <button type="button"
         onclick="quickSaveDisp(this, '{{ d.label }}', {{ d.default_days }}, 'act-{{ a.id }}', 'activity-{{ a.id }}', 'client')"
         class="disp-pill-inline text-[10px] px-2 py-0.5 rounded border border-gray-200 text-gray-500 hover:border-[#003865] hover:text-[#003865] transition-colors cursor-pointer{% if a.disposition == d.label %} bg-[#003865] text-white{% endif %}">{{ d.label }}</button>
       {% endfor %}
     </div>
+    {% endfor %}
   </div>
 </li>
 {# ── Unified Disposition Form ── #}
@@ -123,11 +127,17 @@
     </div>
 
     <input type="hidden" name="disposition" id="act-disp-val-{{ a.id }}" value="">
-    <div class="flex flex-wrap gap-1 mb-1">
-      {% for d in dispositions %}
-      <button type="button" data-days="{{ d.default_days }}"
-        onclick="selectActDisp(this,'{{ d.label }}',{{ d.default_days }},{{ a.id }})"
-        class="disp-pill text-[10px] px-2 py-0.5 rounded border border-gray-200 text-gray-500 hover:border-marsh hover:text-marsh transition-colors">{{ d.label }}</button>
+    {% set gd_act2 = grouped_dispositions() %}
+    <div class="mb-1">
+      {% for cat in gd_act2.categories %}
+      <div class="text-[9px] text-gray-400 uppercase tracking-wide mt-1 first:mt-0 mb-0.5">{{ cat.label }}</div>
+      <div class="flex flex-wrap gap-1">
+        {% for d in cat.disps %}
+        <button type="button" data-days="{{ d.default_days }}"
+          onclick="selectActDisp(this,'{{ d.label }}',{{ d.default_days }},{{ a.id }})"
+          class="disp-pill text-[10px] px-2 py-0.5 rounded border border-gray-200 text-gray-500 hover:border-marsh hover:text-marsh transition-colors">{{ d.label }}</button>
+        {% endfor %}
+      </div>
       {% endfor %}
     </div>
     <div class="flex items-center gap-3">
