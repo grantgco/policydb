@@ -10,6 +10,53 @@
 <!-- Account Strategy -->
 {% include "clients/_strategy_section.html" %}
 
+<!-- Issues -->
+{% if open_issues is defined and open_issues|length > 0 %}
+<div class="card mt-4">
+  <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+    <h2 class="font-semibold text-gray-900">Issues <span class="text-sm font-normal text-gray-400">({{ open_issues|length }} open)</span></h2>
+    <button onclick="openIssueCreateSlideover({client_id:'{{ client.id }}', client_name:'{{ client.name|e }}'})"
+            class="text-xs bg-marsh text-white rounded px-3 py-1.5 hover:bg-marsh-light transition-colors no-print">
+      + New Issue
+    </button>
+  </div>
+  <div class="divide-y divide-gray-50">
+    {% for iss in open_issues %}
+    {% set sev = iss.issue_severity or 'Normal' %}
+    {% set days = (iss.days_open or 0)|int %}
+    {% set sla = iss.issue_sla_days or 7 %}
+    <a href="/issues/{{ iss.issue_uid }}" class="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 transition-colors group">
+      {# Severity dot #}
+      <span class="w-2.5 h-2.5 rounded-full flex-shrink-0
+        {% if sev == 'Critical' %}bg-red-500
+        {% elif sev == 'High' %}bg-amber-500
+        {% elif sev == 'Normal' %}bg-blue-500
+        {% else %}bg-gray-400{% endif %}"></span>
+
+      {# Subject + status #}
+      <div class="flex-1 min-w-0">
+        <div class="text-sm font-medium text-gray-900 group-hover:text-marsh truncate">{{ iss.subject or 'Untitled' }}</div>
+        <div class="text-xs text-gray-500 mt-0.5">
+          {% set ist = iss.issue_status or 'Open' %}
+          <span class="{% if ist == 'Open' %}text-blue-600{% elif ist == 'In Hand' %}text-purple-600{% elif ist == 'Waiting' %}text-amber-600{% endif %} font-medium">{{ ist }}</span>
+          &middot; {{ sev }}
+        </div>
+      </div>
+
+      {# Age + SLA #}
+      <span class="text-xs whitespace-nowrap
+        {% if days > sla %}text-red-600 font-semibold
+        {% elif days > (sla * 0.7)|int %}text-amber-600
+        {% else %}text-gray-400{% endif %}">
+        {{ days }}d
+        {% if days > sla %}<span class="text-red-400">(SLA {{ sla }}d)</span>{% endif %}
+      </span>
+    </a>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
 <!-- Activity -->
 <div class="card mt-4">
   <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between gap-3">
