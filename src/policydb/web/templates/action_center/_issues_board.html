@@ -1,0 +1,70 @@
+{# Issues Kanban Board — 3 active columns + collapsed Done #}
+<div class="flex gap-4 overflow-x-auto pb-4" style="min-height:300px;align-items:flex-start;">
+
+  {# ── Open Column ── #}
+  <div class="min-w-[260px] max-w-[300px] flex-1 flex-shrink-0 rounded-lg border border-blue-200 bg-blue-50/30 flex flex-col">
+    <div class="px-3 py-2.5 border-b border-blue-200 flex items-center gap-2">
+      <span class="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
+      <span class="text-sm font-semibold text-gray-900">Open</span>
+      <span class="text-[10px] text-gray-400 ml-auto">{{ board_open|length }}</span>
+    </div>
+    <div class="p-2 flex flex-col gap-2 overflow-y-auto" style="max-height:500px;">
+      {% for issue in board_open %}
+        {% include "action_center/_issue_board_card.html" %}
+      {% endfor %}
+      {% if not board_open %}
+      <div class="text-center text-xs text-gray-400 py-4">No open issues</div>
+      {% endif %}
+    </div>
+  </div>
+
+  {# ── In Hand Column ── #}
+  <div class="min-w-[260px] max-w-[300px] flex-1 flex-shrink-0 rounded-lg border border-purple-200 bg-purple-50/30 flex flex-col">
+    <div class="px-3 py-2.5 border-b border-purple-200 flex items-center gap-2">
+      <span class="w-2.5 h-2.5 rounded-full bg-purple-500"></span>
+      <span class="text-sm font-semibold text-gray-900">In Hand</span>
+      <span class="text-[10px] text-gray-400 ml-auto">{{ board_in_hand|length }}</span>
+    </div>
+    <div class="p-2 flex flex-col gap-2 overflow-y-auto" style="max-height:500px;">
+      {% for issue in board_in_hand %}
+        {% include "action_center/_issue_board_card.html" %}
+      {% endfor %}
+      {% if not board_in_hand %}
+      <div class="text-center text-xs text-gray-400 py-4">Nothing in hand</div>
+      {% endif %}
+    </div>
+  </div>
+
+  {# ── Waiting Column ── #}
+  <div class="min-w-[260px] max-w-[300px] flex-1 flex-shrink-0 rounded-lg border border-amber-200 bg-amber-50/30 flex flex-col">
+    <div class="px-3 py-2.5 border-b border-amber-200 flex items-center gap-2">
+      <span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
+      <span class="text-sm font-semibold text-gray-900">Waiting</span>
+      <span class="text-[10px] text-gray-400 ml-auto">{{ board_waiting|length }}</span>
+    </div>
+    <div class="p-2 flex flex-col gap-2 overflow-y-auto" style="max-height:500px;">
+      {% for issue in board_waiting %}
+        {% include "action_center/_issue_board_card.html" %}
+      {% endfor %}
+      {% if not board_waiting %}
+      <div class="text-center text-xs text-gray-400 py-4">Nothing waiting</div>
+      {% endif %}
+    </div>
+  </div>
+
+</div>
+
+{# ── Done Section (collapsed) ── #}
+{% if board_done %}
+<details class="mt-2">
+  <summary class="text-xs font-semibold text-green-700 uppercase tracking-wide cursor-pointer hover:text-green-800 py-2">
+    Done <span class="text-green-500 font-normal">({{ board_done|length }})</span>
+    <span class="text-gray-400 font-normal text-[10px] ml-1">last 7 days</span>
+  </summary>
+  <div class="space-y-1 mt-2">
+    {% for issue in board_done %}
+      {% include "action_center/_issue_row.html" %}
+    {% endfor %}
+  </div>
+</details>
+{% endif %}
