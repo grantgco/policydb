@@ -1504,7 +1504,7 @@ def init_db(path: Path | None = None) -> None:
         conn.commit()
         logger.info("Migration 107: added updated_at columns and triggers")
 
-    if 108 not in existing:
+    if 108 not in applied:
         sql = (_MIGRATIONS_DIR / "108_rename_investigating_to_in_hand.sql").read_text()
         conn.executescript(sql)
         conn.execute(
