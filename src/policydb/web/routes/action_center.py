@@ -696,14 +696,7 @@ def _issues_ctx(conn, q: str = "", client_id: int = 0, view_mode: str = "board")
 
         # Board bucketing — status-based only
         if status in ("Resolved", "Closed"):
-            if issue.get("resolved_date"):
-                from dateutil.parser import parse as dparse
-                try:
-                    days_since = (date.today() - dparse(issue["resolved_date"]).date()).days
-                    if days_since <= 7:
-                        board_done.append(issue)
-                except Exception:
-                    pass
+            board_done.append(issue)
         elif status == "In Hand":
             board_in_hand.append(issue)
         elif status == "Waiting":
