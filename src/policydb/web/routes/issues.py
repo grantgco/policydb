@@ -6,6 +6,7 @@ from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
+from pydantic import BaseModel
 
 import policydb.config as cfg
 from policydb.db import generate_issue_uid
@@ -13,6 +14,10 @@ from policydb.utils import round_duration
 from policydb.web.app import get_db, templates
 
 router = APIRouter()
+
+
+class IssueDetailsUpdate(BaseModel):
+    details: str = ""
 
 
 # ── Create issue ─────────────────────────────────────────────────────────────
@@ -97,6 +102,7 @@ def update_issue_status(
     issue_id: int,
     request: Request,
     status: str = Form(...),
+    redirect: str = Query(""),
     conn=Depends(get_db),
 ):
     """Quick-update issue lifecycle status."""
@@ -105,6 +111,9 @@ def update_issue_status(
         (status, issue_id),
     )
     conn.commit()
+
+    if redirect:
+        return RedirectResponse(redirect, status_code=303)
 
     # Return refreshed issues tab
     from policydb.web.routes.action_center import _issues_ctx
@@ -121,6 +130,7 @@ def update_issue_severity(
     issue_id: int,
     request: Request,
     severity: str = Form(...),
+    redirect: str = Query(""),
     conn=Depends(get_db),
 ):
     """Quick-update issue severity."""
@@ -137,6 +147,9 @@ def update_issue_severity(
         (severity, sla_days, issue_id),
     )
     conn.commit()
+
+    if redirect:
+        return RedirectResponse(redirect, status_code=303)
 
     from policydb.web.routes.action_center import _issues_ctx
     ctx = _issues_ctx(conn)
@@ -173,6 +186,24 @@ def resolve_issue(
     ctx = _issues_ctx(conn)
     ctx["request"] = request
     return templates.TemplateResponse("action_center/_issues.html", ctx)
+
+
+# ── Update issue details ─────────────────────────────────────────────────────
+
+
+@router.patch("/issues/{issue_id}/details")
+def update_issue_details(
+    issue_id: int,
+    body: IssueDetailsUpdate,
+    conn=Depends(get_db),
+):
+    """Update issue details/description field via PATCH."""
+    conn.execute(
+        "UPDATE activity_log SET details = ? WHERE id = ? AND item_kind = 'issue'",
+        (body.details, issue_id),
+    )
+    conn.commit()
+    return {"ok": True}
 
 
 # ── Open issues for a client (widget partial) ────────────────────────────────
