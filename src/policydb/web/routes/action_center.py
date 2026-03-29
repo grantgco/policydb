@@ -135,12 +135,22 @@ def _sidebar_ctx(conn) -> dict:
         FROM activity_log a JOIN clients c ON a.client_id = c.id
         ORDER BY a.id DESC LIMIT 5
     """).fetchall()]
+    try:
+        from policydb.anomaly_engine import get_anomaly_counts, get_all_active_anomalies
+        anomaly_counts = get_anomaly_counts(conn)
+        anomalies_list = get_all_active_anomalies(conn)
+    except Exception:
+        anomaly_counts = {}
+        anomalies_list = []
+
     return {
         "overdue_count": len(overdue),
         "due_this_week": due_this_week,
         "inbox_pending": inbox_pending,
         "hours_month": hours_month,
         "recent_activities": recent,
+        "anomaly_counts": anomaly_counts,
+        "anomalies": anomalies_list,
     }
 
 

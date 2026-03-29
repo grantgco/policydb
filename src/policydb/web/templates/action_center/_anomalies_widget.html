@@ -1,0 +1,65 @@
+{# Anomalies widget — used in sidebar and as refresh target #}
+<div id="anomalies-widget">
+  {% set total = (anomaly_counts.falling_behind or 0) + (anomaly_counts.neglected or 0) + (anomaly_counts.workload or 0) + (anomaly_counts.mismatch or 0) %}
+  {% if total > 0 %}
+  <div class="mb-5">
+    <div class="flex items-center justify-between mb-2">
+      <p class="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Anomalies</p>
+      <button hx-post="/anomalies/refresh" hx-target="#anomalies-widget" hx-swap="outerHTML"
+              class="text-[9px] text-gray-400 hover:text-marsh transition-colors no-print" title="Re-scan">&#8635;</button>
+    </div>
+
+    <div class="space-y-1">
+      {% if anomaly_counts.falling_behind %}
+      <div class="flex items-center gap-2 text-[11px]">
+        <span class="w-2 h-2 rounded-full bg-red-500 flex-shrink-0"></span>
+        <span class="text-red-700 font-medium">{{ anomaly_counts.falling_behind }} falling behind</span>
+      </div>
+      {% endif %}
+      {% if anomaly_counts.neglected %}
+      <div class="flex items-center gap-2 text-[11px]">
+        <span class="w-2 h-2 rounded-full bg-amber-500 flex-shrink-0"></span>
+        <span class="text-amber-700 font-medium">{{ anomaly_counts.neglected }} neglected</span>
+      </div>
+      {% endif %}
+      {% if anomaly_counts.workload %}
+      <div class="flex items-center gap-2 text-[11px]">
+        <span class="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0"></span>
+        <span class="text-blue-700 font-medium">{{ anomaly_counts.workload }} workload</span>
+      </div>
+      {% endif %}
+      {% if anomaly_counts.mismatch %}
+      <div class="flex items-center gap-2 text-[11px]">
+        <span class="w-2 h-2 rounded-full bg-purple-500 flex-shrink-0"></span>
+        <span class="text-purple-700 font-medium">{{ anomaly_counts.mismatch }} mismatch{{ 'es' if anomaly_counts.mismatch != 1 }}</span>
+      </div>
+      {% endif %}
+    </div>
+
+    {# Expandable detail list #}
+    <details class="mt-2">
+      <summary class="text-[10px] text-gray-400 cursor-pointer hover:text-gray-600">Show details</summary>
+      <div class="mt-2 space-y-1.5 max-h-[300px] overflow-y-auto">
+        {% for a in anomalies %}
+        <div class="p-2 bg-white rounded border {% if a.severity == 'alert' %}border-red-200{% else %}border-amber-200{% endif %} text-[11px]">
+          <div class="flex items-start gap-1.5">
+            <span class="w-1.5 h-1.5 rounded-full mt-1 flex-shrink-0 {% if a.severity == 'alert' %}bg-red-500{% else %}bg-amber-500{% endif %}"></span>
+            <div class="flex-1 min-w-0">
+              <div class="font-medium text-gray-800 truncate">{{ a.title }}</div>
+              {% if a.details %}
+              <div class="text-gray-500 truncate">{{ a.details }}</div>
+              {% endif %}
+            </div>
+            <button hx-post="/anomalies/{{ a.id }}/acknowledge"
+                    hx-target="#anomalies-widget"
+                    hx-get="/anomalies/widget"
+                    hx-swap="outerHTML"
+                    class="text-[9px] text-gray-400 hover:text-gray-600 flex-shrink-0 no-print" title="Acknowledge">&#10003;</button>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </details>
+  </div>
+  {% endif %}
+</div>
