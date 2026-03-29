@@ -1740,6 +1740,13 @@ def init_db(path: Path | None = None) -> None:
     except Exception as e:
         logger.warning("FK check failed: %s", e)
 
+    # Anomaly scan (runs every startup, idempotent)
+    try:
+        from policydb.anomaly_engine import scan_anomalies
+        scan_anomalies(conn)
+    except Exception as e:
+        logger.warning("Anomaly scan failed (non-fatal): %s", e)
+
     # Purge old log entries
     _purge_old_logs(conn)
 
@@ -1778,6 +1785,17 @@ def _purge_old_logs(conn: sqlite3.Connection) -> None:
             audit_deleted = count
     except Exception:
         pass  # Table may not exist yet
+
+    # Purge old resolved anomalies
+    try:
+        n = conn.execute(
+            "DELETE FROM anomalies WHERE status = 'resolved' AND resolved_at < ?",
+            (cutoff,)
+        ).rowcount
+        if n:
+            logger.info("Purged %d old resolved anomalies", n)
+    except Exception:
+        pass
 
     try:
         count = conn.execute(
