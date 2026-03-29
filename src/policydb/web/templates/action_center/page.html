@@ -43,6 +43,12 @@
             <span class="tab-badge" style="background:#ef4444;color:white">{{ issues_count }}</span>
           {% endif %}
         </button>
+        <button class="tab-btn" data-tab="anomalies" data-tab-url="/action-center/anomalies">
+          Anomalies
+          {% if anomaly_total is defined and anomaly_total %}
+            <span class="tab-badge" style="background:#ef4444;color:white">{{ anomaly_total }}</span>
+          {% endif %}
+        </button>
         <button class="tab-btn" data-tab="activity-review" data-tab-url="/action-center/activity-review">
           Activity Review
           <span id="review-badge">
@@ -73,6 +79,8 @@
           {% include "action_center/_scratchpads.html" %}
         {% elif initial_tab == 'issues' %}
           {% include "action_center/_issues.html" %}
+        {% elif initial_tab == 'anomalies' %}
+          {% include "action_center/_anomalies_tab.html" %}
         {% elif initial_tab == 'activity-review' %}
           {% include "action_center/_activity_review.html" %}
         {% elif initial_tab == 'data-health' %}
