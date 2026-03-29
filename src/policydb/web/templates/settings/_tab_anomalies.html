@@ -1,0 +1,166 @@
+<div class="space-y-6" id="section-anomaly-thresholds">
+  <div class="card p-5">
+    <div class="flex items-start justify-between mb-1">
+      <div>
+        <h2 class="font-semibold text-gray-900 text-sm">Anomaly Detection Thresholds</h2>
+        <p class="text-xs text-gray-400 mt-0.5">Control when each anomaly rule triggers. Changes take effect on the next detection scan.</p>
+      </div>
+      <span id="anomaly-save-status" class="text-xs text-gray-400"></span>
+    </div>
+
+    <form id="anomaly-thresholds-form"
+          hx-post="/settings/anomaly-thresholds"
+          hx-swap="innerHTML"
+          hx-target="#anomaly-save-status"
+          class="mt-4 space-y-6">
+
+      {# ── Falling Behind ── #}
+      <div>
+        <p class="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-3">Falling Behind</p>
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="block text-xs text-gray-600 mb-1">Renewal not started — days to expiration</label>
+            <input type="number" name="renewal_not_started_days"
+                   value="{{ thresholds.get('renewal_not_started_days', 60) }}" min="1"
+                   class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-marsh">
+            <p class="text-xs text-gray-400 mt-0.5">Flag if renewal status is "Not Started" with fewer than this many days left</p>
+          </div>
+          <div>
+            <label class="block text-xs text-gray-600 mb-1">Status with no activity — days</label>
+            <input type="number" name="status_no_activity_days"
+                   value="{{ thresholds.get('status_no_activity_days', 30) }}" min="1"
+                   class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-marsh">
+            <p class="text-xs text-gray-400 mt-0.5">Flag a policy In Progress with no logged activity for this many days</p>
+          </div>
+          <div>
+            <label class="block text-xs text-gray-600 mb-1">Stale open follow-ups — count</label>
+            <input type="number" name="stale_followup_count"
+                   value="{{ thresholds.get('stale_followup_count', 10) }}" min="1"
+                   class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-marsh">
+            <p class="text-xs text-gray-400 mt-0.5">Warn when open follow-up queue exceeds this count</p>
+          </div>
+          <div class="flex items-start gap-3 pt-5">
+            <label class="relative inline-flex items-center cursor-pointer mt-0.5">
+              <input type="checkbox" name="no_followup_scheduled" value="on"
+                     {% if thresholds.get('no_followup_scheduled', True) %}checked{% endif %}
+                     class="sr-only peer">
+              <div class="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-marsh rounded-full peer peer-checked:bg-marsh peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all"></div>
+            </label>
+            <div>
+              <p class="text-xs text-gray-700 font-medium">Flag when no follow-up is scheduled</p>
+              <p class="text-xs text-gray-400">Flag active renewal policies with no upcoming follow-up</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {# ── Neglected Accounts ── #}
+      <div class="border-t border-gray-100 pt-5">
+        <p class="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-3">Neglected Accounts</p>
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="block text-xs text-gray-600 mb-1">No activity — days</label>
+            <input type="number" name="no_activity_days"
+                   value="{{ thresholds.get('no_activity_days', 90) }}" min="1"
+                   class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-marsh">
+            <p class="text-xs text-gray-400 mt-0.5">Flag a client with no logged activity for this many days</p>
+          </div>
+          <div>
+            <label class="block text-xs text-gray-600 mb-1">Overdue account review — days</label>
+            <input type="number" name="overdue_review_days"
+                   value="{{ thresholds.get('overdue_review_days', 90) }}" min="1"
+                   class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-marsh">
+            <p class="text-xs text-gray-400 mt-0.5">Flag clients with no review completed in this many days</p>
+          </div>
+        </div>
+      </div>
+
+      {# ── Workload Forecasting ── #}
+      <div class="border-t border-gray-100 pt-5">
+        <p class="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-3">Workload Forecasting</p>
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="block text-xs text-gray-600 mb-1">Heavy week threshold — renewals</label>
+            <input type="number" name="heavy_week_threshold"
+                   value="{{ thresholds.get('heavy_week_threshold', 5) }}" min="1"
+                   class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-marsh">
+            <p class="text-xs text-gray-400 mt-0.5">Alert when a week has more than this many renewals due</p>
+          </div>
+          <div>
+            <label class="block text-xs text-gray-600 mb-1">Forecast window — days</label>
+            <input type="number" name="forecast_window_days"
+                   value="{{ thresholds.get('forecast_window_days', 30) }}" min="1"
+                   class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-marsh">
+            <p class="text-xs text-gray-400 mt-0.5">How far ahead to look for upcoming renewals in workload warnings</p>
+          </div>
+          <div>
+            <label class="block text-xs text-gray-600 mb-1">Light week detection window — days</label>
+            <input type="number" name="light_week_window_days"
+                   value="{{ thresholds.get('light_week_window_days', 14) }}" min="1"
+                   class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-marsh">
+            <p class="text-xs text-gray-400 mt-0.5">Look-ahead for identifying light periods to surface proactive work</p>
+          </div>
+        </div>
+      </div>
+
+      {# ── Mismatches ── #}
+      <div class="border-t border-gray-100 pt-5">
+        <p class="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-3">Data Mismatches</p>
+        <div class="grid grid-cols-2 gap-4">
+          <div class="flex items-start gap-3">
+            <label class="relative inline-flex items-center cursor-pointer mt-0.5">
+              <input type="checkbox" name="bound_missing_effective" value="on"
+                     {% if thresholds.get('bound_missing_effective', True) %}checked{% endif %}
+                     class="sr-only peer">
+              <div class="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-marsh rounded-full peer peer-checked:bg-marsh peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all"></div>
+            </label>
+            <div>
+              <p class="text-xs text-gray-700 font-medium">Bound but missing effective date</p>
+              <p class="text-xs text-gray-400">Flag policies with "Bound" status that have no effective date set</p>
+            </div>
+          </div>
+          <div class="flex items-start gap-3">
+            <label class="relative inline-flex items-center cursor-pointer mt-0.5">
+              <input type="checkbox" name="expired_no_renewal" value="on"
+                     {% if thresholds.get('expired_no_renewal', True) %}checked{% endif %}
+                     class="sr-only peer">
+              <div class="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-marsh rounded-full peer peer-checked:bg-marsh peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all"></div>
+            </label>
+            <div>
+              <p class="text-xs text-gray-700 font-medium">Expired with no renewal policy</p>
+              <p class="text-xs text-gray-400">Flag expired policies where no renewal policy has been linked</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {# ── Review Gate ── #}
+      <div class="border-t border-gray-100 pt-5">
+        <p class="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-3">Review Gate</p>
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="block text-xs text-gray-600 mb-1">Minimum health score to pass review</label>
+            <input type="number" name="review_min_health_score"
+                   value="{{ thresholds.get('review_min_health_score', 70) }}" min="0" max="100"
+                   class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-marsh">
+            <p class="text-xs text-gray-400 mt-0.5">Policies below this score require manager override to mark reviewed</p>
+          </div>
+          <div>
+            <label class="block text-xs text-gray-600 mb-1">Review activity window — days</label>
+            <input type="number" name="review_activity_window_days"
+                   value="{{ thresholds.get('review_activity_window_days', 30) }}" min="1"
+                   class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-marsh">
+            <p class="text-xs text-gray-400 mt-0.5">Minimum days of activity history required for review to pass</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="border-t border-gray-100 pt-4 flex items-center gap-3">
+        <button type="submit"
+                class="px-4 py-2 bg-marsh text-white text-sm rounded hover:bg-marsh/90 focus:outline-none focus:ring-2 focus:ring-marsh">
+          Save Thresholds
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
