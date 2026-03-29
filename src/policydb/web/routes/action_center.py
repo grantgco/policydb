@@ -740,6 +740,35 @@ def _issues_ctx(conn, q: str = "", client_id: int = 0, view_mode: str = "board")
     }
 
 
+# ── Anomalies ───────────────────────────────────────────────────────────────
+
+
+def _anomalies_ctx(conn, category: str = "", q: str = "") -> dict:
+    """Build anomalies tab context."""
+    from policydb.anomaly_engine import get_anomaly_counts, get_all_active_anomalies
+    counts = get_anomaly_counts(conn)
+    anomalies = get_all_active_anomalies(conn)
+
+    # Apply filters
+    if category:
+        anomalies = [a for a in anomalies if a.get("category") == category]
+    if q:
+        q_lower = q.lower()
+        anomalies = [a for a in anomalies if
+                     q_lower in (a.get("title") or "").lower() or
+                     q_lower in (a.get("details") or "").lower() or
+                     q_lower in (a.get("client_name") or "").lower()]
+
+    total = sum(counts.values())
+    return {
+        "anomaly_counts": counts,
+        "anomaly_total": total,
+        "anomaly_list": anomalies,
+        "anomaly_category": category,
+        "anomaly_q": q,
+    }
+
+
 # ── Data Health ──────────────────────────────────────────────────────────────
 
 
@@ -771,6 +800,8 @@ def action_center_page(request: Request, tab: str = "", conn=Depends(get_db)):
         tab_ctx = _scratchpads_ctx(conn)
     elif initial_tab == "issues":
         tab_ctx = _issues_ctx(conn)
+    elif initial_tab == "anomalies":
+        tab_ctx = _anomalies_ctx(conn)
     elif initial_tab == "activity-review":
         tab_ctx = _activity_review_ctx(conn)
     elif initial_tab == "data-health":
@@ -812,6 +843,15 @@ def action_center_page(request: Request, tab: str = "", conn=Depends(get_db)):
         health_incomplete = tab_ctx["summary"]["incomplete_count"]
     else:
         health_incomplete = get_book_health_summary(conn)["incomplete_count"]
+    # Anomaly count for tab badge
+    if "anomaly_total" in tab_ctx:
+        anomaly_total = tab_ctx["anomaly_total"]
+    else:
+        try:
+            from policydb.anomaly_engine import get_anomaly_counts
+            anomaly_total = sum(get_anomaly_counts(conn).values())
+        except Exception:
+            anomaly_total = 0
     ctx = {
         "request": request,
         "active": "action-center",
@@ -823,6 +863,7 @@ def action_center_page(request: Request, tab: str = "", conn=Depends(get_db)):
         "issues_count": issues_count,
         "issue_severities": cfg.get("issue_severities", []),
         "health_incomplete": health_incomplete,
+        "anomaly_total": anomaly_total,
         **sidebar,
         **tab_ctx,
         **health_ctx,
@@ -894,6 +935,19 @@ def ac_issues(
     ctx = _issues_ctx(conn, q=q, client_id=client_id, view_mode=view_mode)
     ctx["request"] = request
     return templates.TemplateResponse("action_center/_issues.html", ctx)
+
+
+@router.get("/action-center/anomalies", response_class=HTMLResponse)
+def ac_anomalies(
+    request: Request,
+    category: str = "",
+    q: str = "",
+    conn=Depends(get_db),
+):
+    """Anomalies tab partial — lazy loaded."""
+    ctx = _anomalies_ctx(conn, category=category, q=q)
+    ctx["request"] = request
+    return templates.TemplateResponse("action_center/_anomalies_tab.html", ctx)
 
 
 @router.get("/action-center/data-health", response_class=HTMLResponse)

@@ -1,0 +1,184 @@
+{# Anomalies tab — Action Center (full-width table with clickable records) #}
+<div id="anomalies-tab">
+
+  {# ── Summary bar ── #}
+  <div class="flex items-center gap-4 mb-4 flex-wrap">
+    {% set total = (anomaly_counts.falling_behind or 0) + (anomaly_counts.neglected or 0) + (anomaly_counts.workload or 0) + (anomaly_counts.mismatch or 0) %}
+    <div class="flex items-center gap-3 text-xs">
+      {% if anomaly_counts.falling_behind %}
+      <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-red-500"></span><span class="text-red-700 font-medium">{{ anomaly_counts.falling_behind }} falling behind</span></span>
+      {% endif %}
+      {% if anomaly_counts.neglected %}
+      <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-amber-500"></span><span class="text-amber-700 font-medium">{{ anomaly_counts.neglected }} neglected</span></span>
+      {% endif %}
+      {% if anomaly_counts.workload %}
+      <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-blue-500"></span><span class="text-blue-700 font-medium">{{ anomaly_counts.workload }} workload</span></span>
+      {% endif %}
+      {% if anomaly_counts.mismatch %}
+      <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-purple-500"></span><span class="text-purple-700 font-medium">{{ anomaly_counts.mismatch }} mismatch{{ 'es' if anomaly_counts.mismatch != 1 }}</span></span>
+      {% endif %}
+      {% if not total %}
+      <span class="text-gray-400">No anomalies detected</span>
+      {% endif %}
+    </div>
+  </div>
+
+  {# ── Filter bar ── #}
+  <div class="flex items-center gap-3 mb-4 flex-wrap">
+    <select name="category" id="anom-category"
+            class="rounded border-gray-300 text-sm px-2 py-1.5"
+            hx-get="/action-center/anomalies"
+            hx-trigger="change"
+            hx-target="#ac-tab-content"
+            hx-include="#anom-category, #anom-search">
+      <option value="">All categories</option>
+      <option value="falling_behind" {% if anomaly_category == 'falling_behind' %}selected{% endif %}>Falling Behind</option>
+      <option value="neglected" {% if anomaly_category == 'neglected' %}selected{% endif %}>Neglected</option>
+      <option value="workload" {% if anomaly_category == 'workload' %}selected{% endif %}>Workload</option>
+      <option value="mismatch" {% if anomaly_category == 'mismatch' %}selected{% endif %}>Mismatch</option>
+    </select>
+
+    <input type="search" placeholder="Search anomalies..."
+           value="{{ anomaly_q }}"
+           id="anom-search"
+           name="q"
+           class="rounded border-gray-300 text-sm px-3 py-1.5 w-60"
+           hx-get="/action-center/anomalies"
+           hx-trigger="input changed delay:300ms"
+           hx-target="#ac-tab-content"
+           hx-include="#anom-category, #anom-search">
+
+    <div class="ml-auto">
+      <button hx-post="/anomalies/refresh"
+              hx-target="#ac-tab-content"
+              hx-swap="innerHTML"
+              class="text-xs text-gray-500 border border-gray-200 rounded px-3 py-1.5 hover:bg-gray-50 transition-colors no-print">
+        &#8635; Re-scan
+      </button>
+    </div>
+  </div>
+
+  {% if anomaly_list %}
+  {# ── Table ── #}
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm" style="table-layout:auto">
+      <thead>
+        <tr class="text-left text-xs text-gray-400 uppercase tracking-wide border-b border-gray-100 bg-gray-50">
+          <th class="px-3 py-2 w-6"></th>
+          <th class="px-3 py-2" style="min-width:200px">Finding</th>
+          <th class="px-3 py-2 whitespace-nowrap" style="min-width:120px">Client</th>
+          <th class="px-3 py-2 whitespace-nowrap">Policy</th>
+          <th class="px-3 py-2 whitespace-nowrap">Category</th>
+          <th class="px-3 py-2 whitespace-nowrap">Age</th>
+          <th class="px-3 py-2 whitespace-nowrap no-print">Actions</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-50">
+        {% for a in anomaly_list %}
+        <tr class="hover:bg-gray-50 transition-colors" id="anom-row-{{ a.id }}">
+          {# Severity dot #}
+          <td class="px-3 py-2.5">
+            <span class="w-2.5 h-2.5 rounded-full inline-block {% if a.severity == 'alert' %}bg-red-500{% else %}bg-amber-500{% endif %}"
+                  title="{{ a.severity | title }}"></span>
+          </td>
+
+          {# Finding — clickable #}
+          <td class="px-3 py-2.5">
+            {% if a.policy_id and a.policy_uid %}
+              <a href="/policies/{{ a.policy_uid }}/edit" class="text-sm text-gray-900 hover:text-marsh font-medium">
+                {{ a.title }}
+              </a>
+            {% elif a.client_id %}
+              <a href="/clients/{{ a.client_id }}" class="text-sm text-gray-900 hover:text-marsh font-medium">
+                {{ a.title }}
+              </a>
+            {% else %}
+              <span class="text-sm text-gray-900 font-medium">{{ a.title }}</span>
+            {% endif %}
+            {% if a.details %}
+            <div class="text-xs text-gray-400 mt-0.5 truncate" style="max-width:400px">{{ a.details }}</div>
+            {% endif %}
+          </td>
+
+          {# Client #}
+          <td class="px-3 py-2.5 text-xs whitespace-nowrap">
+            {% if a.client_id and a.client_name %}
+              <a href="/clients/{{ a.client_id }}" class="text-marsh hover:underline">{{ a.client_name }}</a>
+            {% else %}
+              <span class="text-gray-300">&mdash;</span>
+            {% endif %}
+          </td>
+
+          {# Policy #}
+          <td class="px-3 py-2.5 text-xs whitespace-nowrap">
+            {% if a.policy_uid %}
+              <a href="/policies/{{ a.policy_uid }}/edit" class="text-gray-600 hover:text-marsh">
+                {{ a.policy_uid }}
+                {% if a.policy_type %}<span class="text-gray-400">{{ a.policy_type }}</span>{% endif %}
+              </a>
+            {% else %}
+              <span class="text-gray-300">&mdash;</span>
+            {% endif %}
+          </td>
+
+          {# Category badge #}
+          <td class="px-3 py-2.5">
+            <span class="text-[10px] px-2 py-0.5 rounded-full whitespace-nowrap
+              {% if a.category == 'falling_behind' %}bg-red-50 text-red-700
+              {% elif a.category == 'neglected' %}bg-amber-50 text-amber-700
+              {% elif a.category == 'workload' %}bg-blue-50 text-blue-700
+              {% else %}bg-purple-50 text-purple-700{% endif %}">
+              {% if a.category == 'falling_behind' %}Falling Behind
+              {% elif a.category == 'neglected' %}Neglected
+              {% elif a.category == 'workload' %}Workload
+              {% else %}Mismatch{% endif %}
+            </span>
+          </td>
+
+          {# Age #}
+          <td class="px-3 py-2.5 text-xs text-gray-400 whitespace-nowrap">
+            {% if a.detected_at %}
+              {{ a.detected_at[:10] }}
+            {% endif %}
+          </td>
+
+          {# Actions #}
+          <td class="px-3 py-2.5 whitespace-nowrap no-print">
+            <div class="flex items-center gap-2">
+              {% if a.policy_id and a.policy_uid %}
+                <a href="/policies/{{ a.policy_uid }}/edit" class="text-[10px] text-blue-600 border border-blue-200 rounded px-2 py-0.5 hover:bg-blue-50 transition-colors">Open</a>
+              {% elif a.client_id %}
+                <a href="/clients/{{ a.client_id }}" class="text-[10px] text-blue-600 border border-blue-200 rounded px-2 py-0.5 hover:bg-blue-50 transition-colors">Open</a>
+              {% endif %}
+              {% if a.status == 'new' %}
+              <button hx-post="/anomalies/{{ a.id }}/acknowledge"
+                      hx-target="#anom-row-{{ a.id }}"
+                      hx-swap="outerHTML"
+                      hx-on::after-request="htmx.ajax('GET','/action-center/anomalies',{target:'#ac-tab-content'})"
+                      class="text-[10px] text-gray-400 border border-gray-200 rounded px-2 py-0.5 hover:bg-gray-50 transition-colors"
+                      title="Acknowledge">&#10003; Ack</button>
+              {% else %}
+              <span class="text-[10px] text-gray-300">ack'd</span>
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% else %}
+  {# ── Empty state ── #}
+  <div class="card p-8 text-center">
+    <div class="text-3xl mb-2">&#10003;</div>
+    <p class="text-gray-500 text-sm">
+      {% if anomaly_category or anomaly_q %}
+        No anomalies match your filters
+      {% else %}
+        No anomalies detected — your book is in good shape
+      {% endif %}
+    </p>
+  </div>
+  {% endif %}
+</div>
