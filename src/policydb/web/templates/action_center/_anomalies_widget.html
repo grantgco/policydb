@@ -45,7 +45,13 @@
           <div class="flex items-start gap-1.5">
             <span class="w-1.5 h-1.5 rounded-full mt-1 flex-shrink-0 {% if a.severity == 'alert' %}bg-red-500{% else %}bg-amber-500{% endif %}"></span>
             <div class="flex-1 min-w-0">
+              {% if a.policy_uid %}
+              <a href="/policies/{{ a.policy_uid }}/edit" class="font-medium text-gray-800 hover:text-marsh truncate block">{{ a.title }}</a>
+              {% elif a.client_id %}
+              <a href="/clients/{{ a.client_id }}" class="font-medium text-gray-800 hover:text-marsh truncate block">{{ a.title }}</a>
+              {% else %}
               <div class="font-medium text-gray-800 truncate">{{ a.title }}</div>
+              {% endif %}
               {% if a.details %}
               <div class="text-gray-500 truncate">{{ a.details }}</div>
               {% endif %}
