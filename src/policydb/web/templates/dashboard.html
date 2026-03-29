@@ -243,10 +243,16 @@
             {% else %}
             <button type="button" onclick="this.nextElementSibling.classList.toggle('hidden')"
               class="text-xs bg-green-50 hover:bg-green-100 text-green-700 border border-green-200 rounded px-2 py-1">Done</button>
-            <div class="hidden flex flex-wrap gap-0.5 mt-1">
-              {% for d in dispositions[:6] %}
-              <button type="button" onclick="dashDisp({{ o.id }},'{{ d.label }}','followup-{{ o.source }}-{{ o.id }}')"
-                class="text-[9px] px-1.5 py-0.5 rounded border border-gray-200 text-gray-500 hover:bg-marsh hover:text-white hover:border-marsh transition-colors">{{ d.label }}</button>
+            <div class="hidden mt-1">
+              {% set gd_dash = grouped_dispositions() %}
+              {% for cat in gd_dash.categories %}
+              <div class="text-[8px] text-gray-400 uppercase tracking-wide mt-1 first:mt-0">{{ cat.label }}</div>
+              <div class="flex flex-wrap gap-0.5">
+                {% for d in cat.disps %}
+                <button type="button" onclick="dashDisp({{ o.id }},'{{ d.label }}','followup-{{ o.source }}-{{ o.id }}')"
+                  class="text-[9px] px-1.5 py-0.5 rounded border border-gray-200 text-gray-500 hover:bg-marsh hover:text-white hover:border-marsh transition-colors">{{ d.label }}</button>
+                {% endfor %}
+              </div>
               {% endfor %}
               <button hx-post="/activities/{{ o.id }}/complete" hx-target="#followup-{{ o.source }}-{{ o.id }}" hx-swap="delete"
                 class="text-[9px] px-1.5 py-0.5 rounded border border-gray-300 text-gray-600 hover:bg-green-500 hover:text-white hover:border-green-500 transition-colors">No disp.</button>
@@ -308,10 +314,16 @@
             {% else %}
             <button type="button" onclick="this.nextElementSibling.classList.toggle('hidden')"
               class="text-xs bg-green-50 hover:bg-green-100 text-green-700 border border-green-200 rounded px-2 py-1">Done</button>
-            <div class="hidden flex flex-wrap gap-0.5 mt-1">
-              {% for d in dispositions[:6] %}
-              <button type="button" onclick="dashDisp({{ u.id }},'{{ d.label }}','followup-{{ u.source }}-{{ u.id }}')"
-                class="text-[9px] px-1.5 py-0.5 rounded border border-gray-200 text-gray-500 hover:bg-marsh hover:text-white hover:border-marsh transition-colors">{{ d.label }}</button>
+            <div class="hidden mt-1">
+              {% set gd_dash = grouped_dispositions() %}
+              {% for cat in gd_dash.categories %}
+              <div class="text-[8px] text-gray-400 uppercase tracking-wide mt-1 first:mt-0">{{ cat.label }}</div>
+              <div class="flex flex-wrap gap-0.5">
+                {% for d in cat.disps %}
+                <button type="button" onclick="dashDisp({{ u.id }},'{{ d.label }}','followup-{{ u.source }}-{{ u.id }}')"
+                  class="text-[9px] px-1.5 py-0.5 rounded border border-gray-200 text-gray-500 hover:bg-marsh hover:text-white hover:border-marsh transition-colors">{{ d.label }}</button>
+                {% endfor %}
+              </div>
               {% endfor %}
               <button hx-post="/activities/{{ u.id }}/complete" hx-target="#followup-{{ u.source }}-{{ u.id }}" hx-swap="delete"
                 class="text-[9px] px-1.5 py-0.5 rounded border border-gray-300 text-gray-600 hover:bg-green-500 hover:text-white hover:border-green-500 transition-colors">No disp.</button>

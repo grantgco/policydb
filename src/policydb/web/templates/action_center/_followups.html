@@ -262,11 +262,15 @@ function setQuickFuDate(form, days) {
   <span class="w-px h-5 bg-gray-600"></span>
   <div class="relative">
     <button type="button" onclick="document.getElementById('bulk-disp-list').classList.toggle('hidden')"
-      class="text-[10px] bg-[#003865] text-white px-3 py-1.5 rounded-lg hover:bg-[#004a80]">Set Disposition &#9662;</button>
-    <div id="bulk-disp-list" class="hidden absolute bottom-full left-0 mb-1 bg-white border border-gray-200 rounded-lg shadow-xl p-2 min-w-48">
-      {% for d in dispositions %}
+      class="text-[10px] bg-[#003865] text-white px-3 py-1.5 rounded-lg hover:bg-[#004a80]">What happened? &#9662;</button>
+    <div id="bulk-disp-list" class="hidden absolute bottom-full left-0 mb-1 bg-white border border-gray-200 rounded-lg shadow-xl p-2 min-w-56">
+      {% set gd_bulk = grouped_dispositions() %}
+      {% for cat in gd_bulk.categories %}
+      <div class="text-[9px] text-gray-400 uppercase tracking-wide px-3 pt-2 pb-1 font-semibold">{{ cat.label }}</div>
+      {% for d in cat.disps %}
       <button type="button" onclick="bulkSetDisposition('{{ d.label }}'); document.getElementById('bulk-disp-list').classList.add('hidden');"
         class="block w-full text-left text-xs text-gray-700 px-3 py-1.5 rounded hover:bg-gray-100">{{ d.label }}</button>
+      {% endfor %}
       {% endfor %}
     </div>
   </div>
@@ -280,6 +284,12 @@ function setQuickFuDate(form, days) {
 {# ══════════════════════════════════════════════════════════════════
    JAVASCRIPT — client-side filter + disposition helpers
    ══════════════════════════════════════════════════════════════════ #}
+<script>
+/* ── Context hints for disposition pill highlighting ── */
+{% set gd_hints = grouped_dispositions() %}
+window.DISP_CONTEXT_HINTS = {{ gd_hints.hints | tojson }};
+(function() { if (typeof applyDispContextHints === 'function') applyDispContextHints(); })();
+</script>
 <script>
 /* ── Status pill filter (client-side show/hide) ── */
 function filterFuStatus(status, btn) {

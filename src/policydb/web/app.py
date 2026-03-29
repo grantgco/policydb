@@ -272,6 +272,35 @@ def _followup_badge_counts():
 templates.env.globals["followup_badge_counts"] = _followup_badge_counts
 
 
+def _grouped_dispositions():
+    """Jinja2 global — returns dispositions grouped by category for UI rendering."""
+    disps = _cfg.get("follow_up_dispositions", [])
+    cat_labels = _cfg.get("disposition_categories", {
+        "waiting": "I reached out (waiting)",
+        "action": "I got a response (my turn)",
+        "completed": "It's handled",
+    })
+    hints = _cfg.get("disposition_context_hints", {})
+    # Infer category from accountability when category is missing (backward compat)
+    _acc_to_cat = {"waiting_external": "waiting", "scheduled": "completed", "my_action": "action"}
+    groups = {"waiting": [], "action": [], "completed": []}
+    for d in disps:
+        if isinstance(d, dict):
+            cat = d.get("category") or _acc_to_cat.get(d.get("accountability", ""), "action")
+        else:
+            cat = "action"
+        groups.setdefault(cat, []).append(d)
+    return {
+        "categories": [
+            {"key": k, "label": cat_labels.get(k, k), "disps": groups.get(k, [])}
+            for k in ("waiting", "action", "completed")
+        ],
+        "hints": hints,
+        "flat": disps,
+    }
+templates.env.globals["grouped_dispositions"] = _grouped_dispositions
+
+
 # ── DB dependency ─────────────────────────────────────────────────────────────
 
 def get_db() -> Generator[sqlite3.Connection, None, None]:
