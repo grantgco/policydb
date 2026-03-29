@@ -391,8 +391,11 @@ def _rule_heavy_week(conn, thresholds: dict) -> list[tuple]:
     window_end = today + timedelta(days=window_days)
 
     rows = conn.execute(
-        """SELECT p.expiration_date, p.policy_type, p.renewal_status
+        """SELECT p.id, p.policy_uid, p.policy_type, p.expiration_date,
+                  p.renewal_status, p.carrier,
+                  c.id AS client_id, c.name AS client_name
            FROM policies p
+           JOIN clients c ON c.id = p.client_id
            WHERE p.archived = 0
              AND (p.is_opportunity = 0 OR p.is_opportunity IS NULL)
              AND p.expiration_date IS NOT NULL
@@ -401,7 +404,7 @@ def _rule_heavy_week(conn, thresholds: dict) -> list[tuple]:
     ).fetchall()
 
     # Group by ISO week (Monday-based)
-    week_map: dict[date, list[str]] = {}
+    week_map: dict[date, list[dict]] = {}
     for r in rows:
         if r["renewal_status"] and r["renewal_status"] in excluded:
             continue
@@ -409,22 +412,30 @@ def _rule_heavy_week(conn, thresholds: dict) -> list[tuple]:
             exp = datetime.strptime(r["expiration_date"][:10], "%Y-%m-%d").date()
         except (ValueError, TypeError):
             continue
-        # Monday of that week
         monday = exp - timedelta(days=exp.weekday())
-        week_map.setdefault(monday, []).append(r["policy_type"] or "Policy")
+        week_map.setdefault(monday, []).append({
+            "policy_uid": r["policy_uid"],
+            "policy_type": r["policy_type"] or "Policy",
+            "carrier": r["carrier"] or "",
+            "expiration_date": r["expiration_date"],
+            "client_name": r["client_name"],
+            "client_id": r["client_id"],
+        })
 
+    import json
     findings = []
-    for monday, types in week_map.items():
-        if len(types) > heavy_threshold:
-            type_summary = ", ".join(t for t in dict.fromkeys(types))  # dedupe order-preserving
+    for monday, policies in week_map.items():
+        if len(policies) > heavy_threshold:
+            friday = monday + timedelta(days=4)
+            details_json = json.dumps(policies)
             findings.append((
                 f"heavy_week_{monday.isoformat()}",
                 "workload",
                 "warning",
                 None,
                 None,
-                f"Heavy week: {len(types)} expirations week of {monday.strftime('%b %d')}",
-                type_summary,
+                f"Heavy week: {len(policies)} expirations {monday.strftime('%b %d')}–{friday.strftime('%b %d')}",
+                details_json,
             ))
     return findings
 
