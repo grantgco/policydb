@@ -1,0 +1,38 @@
+{# Review gate condition checklist — returned as HTMX partial #}
+<div id="review-gate-{{ record_id }}" class="p-4 bg-white rounded-lg border border-gray-200 shadow-sm">
+  <h3 class="text-sm font-semibold text-gray-900 mb-3">Review Checklist</h3>
+  <div class="space-y-2 mb-4">
+    {% for cond in gate.conditions %}
+    <div class="flex items-center gap-2 text-sm">
+      {% if cond.passed %}
+        <span class="text-green-600 text-base">&#10003;</span>
+      {% else %}
+        <span class="text-red-500 text-base">&#10007;</span>
+      {% endif %}
+      <span class="{% if cond.passed %}text-gray-700{% else %}text-red-700 font-medium{% endif %}">{{ cond.name }}</span>
+      <span class="text-xs text-gray-400 ml-auto">{{ cond.detail }}</span>
+    </div>
+    {% endfor %}
+  </div>
+
+  {% if gate.all_pass %}
+    <form hx-post="/review/policies/{{ record_id }}/reviewed" hx-target="#review-row-{{ record_id }}" hx-swap="outerHTML">
+      <input type="hidden" name="review_cycle" value="">
+      <button type="submit" class="w-full text-sm bg-green-600 text-white rounded px-4 py-2 hover:bg-green-700 transition-colors">
+        Mark Reviewed
+      </button>
+    </form>
+  {% else %}
+    <form hx-post="/review/policies/{{ record_id }}/reviewed" hx-target="#review-row-{{ record_id }}" hx-swap="outerHTML" class="space-y-2">
+      <input type="hidden" name="review_cycle" value="">
+      <div>
+        <label class="text-xs text-gray-500 block mb-1">Override reason (required)</label>
+        <input type="text" name="override_reason" required placeholder="Why is this OK to review now?"
+               class="w-full rounded border-gray-300 text-sm px-3 py-1.5 focus:ring-marsh">
+      </div>
+      <button type="submit" class="w-full text-sm bg-amber-500 text-white rounded px-4 py-2 hover:bg-amber-600 transition-colors">
+        Override &amp; Review
+      </button>
+    </form>
+  {% endif %}
+</div>

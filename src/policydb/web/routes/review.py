@@ -151,13 +151,39 @@ def review_stats(request: Request, conn=Depends(get_db)):
 
 # ── Policy / Opportunity review actions ───────────────────────────────────────
 
+@router.get("/policies/{uid}/gate", response_class=HTMLResponse)
+def review_gate(request: Request, uid: str, conn=Depends(get_db)):
+    """Show review gate conditions before marking reviewed."""
+    from policydb.anomaly_engine import get_review_gate_status
+    # gate status uses integer policy_id for DB queries
+    row = conn.execute(
+        "SELECT id FROM policies WHERE policy_uid = ?", (uid,)
+    ).fetchone()
+    policy_id = row["id"] if row else 0
+    gate = get_review_gate_status(conn, "policy", policy_id)
+    return templates.TemplateResponse("review/_review_gate.html", {
+        "request": request,
+        "gate": gate,
+        "record_type": "policy",
+        "record_id": uid,
+    })
+
+
 @router.post("/policies/{uid}/reviewed", response_class=HTMLResponse)
 def policy_mark_reviewed(
     request: Request,
     uid: str,
     review_cycle: str = Form(""),
+    override_reason: str = Form(""),
     conn=Depends(get_db),
 ):
+    # Save override reason if provided
+    if override_reason:
+        conn.execute(
+            "UPDATE policies SET review_override_reason = ? WHERE policy_uid = ?",
+            (override_reason, uid),
+        )
+
     mark_reviewed(conn, "policy", uid, review_cycle or None)
 
     # Cascade review to child policies if this is a program

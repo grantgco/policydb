@@ -109,6 +109,7 @@ TAB_LISTS: dict[str, dict[str, str]] = {
         "project_types": "Project Types",
     },
     "data-health": {},
+    "anomalies": {},
 }
 
 TAB_LABELS = {
@@ -120,6 +121,7 @@ TAB_LABELS = {
     "email-contacts": "Email & Contacts",
     "database": "Database & Admin",
     "data-health": "Data Health",
+    "anomalies": "Anomaly Thresholds",
 }
 
 SEARCH_INDEX = [
@@ -144,6 +146,7 @@ SEARCH_INDEX = [
     {"label": "Database Health", "tab": "database", "anchor": "section-db-health"},
     {"label": "SQL Console", "tab": "database", "anchor": "section-sql-console"},
     {"label": "Schema Reference", "tab": "database", "anchor": "section-schema-ref"},
+    {"label": "Anomaly Detection Thresholds", "tab": "anomalies", "anchor": "section-anomaly-thresholds"},
 ]
 
 
@@ -211,6 +214,9 @@ def _build_tab_context(tab: str, conn) -> dict:
         ctx["completeness_weight"] = cfg.get("data_health_completeness_weight", 0.7)
         ctx["freshness_weight"] = cfg.get("data_health_freshness_weight", 0.3)
         ctx["data_health_fields"] = cfg.get("data_health_fields", {})
+
+    elif tab == "anomalies":
+        ctx["thresholds"] = cfg.get("anomaly_thresholds", {})
 
     elif tab == "database":
         ctx["logo_exists"] = Path(cfg.get("report_logo_path", "")).exists()
@@ -328,6 +334,45 @@ def save_data_health_config(
     cfg.save_config(full)
     cfg.reload_config()
     return RedirectResponse("/settings?tab=data-health", status_code=303)
+
+
+@router.post("/anomaly-thresholds", response_class=HTMLResponse)
+def save_anomaly_thresholds(
+    renewal_not_started_days: int = Form(60),
+    stale_followup_count: int = Form(10),
+    status_no_activity_days: int = Form(30),
+    no_activity_days: int = Form(90),
+    no_followup_scheduled: str = Form(""),
+    heavy_week_threshold: int = Form(5),
+    forecast_window_days: int = Form(30),
+    light_week_window_days: int = Form(14),
+    bound_missing_effective: str = Form(""),
+    expired_no_renewal: str = Form(""),
+    review_min_health_score: int = Form(70),
+    review_activity_window_days: int = Form(30),
+    overdue_review_days: int = Form(90),
+):
+    """Save anomaly detection thresholds."""
+    thresholds = {
+        "renewal_not_started_days": renewal_not_started_days,
+        "stale_followup_count": stale_followup_count,
+        "status_no_activity_days": status_no_activity_days,
+        "no_activity_days": no_activity_days,
+        "no_followup_scheduled": no_followup_scheduled == "on",
+        "heavy_week_threshold": heavy_week_threshold,
+        "forecast_window_days": forecast_window_days,
+        "light_week_window_days": light_week_window_days,
+        "bound_missing_effective": bound_missing_effective == "on",
+        "expired_no_renewal": expired_no_renewal == "on",
+        "review_min_health_score": review_min_health_score,
+        "review_activity_window_days": review_activity_window_days,
+        "overdue_review_days": overdue_review_days,
+    }
+    full = dict(cfg.load_config())
+    full["anomaly_thresholds"] = thresholds
+    cfg.save_config(full)
+    cfg.reload_config()
+    return HTMLResponse('<span class="text-green-600 text-xs font-medium">Saved</span>')
 
 
 @router.post("/email-subject", response_class=HTMLResponse)

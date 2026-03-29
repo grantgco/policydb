@@ -731,6 +731,13 @@ def client_tab_overview(request: Request, client_id: int, conn=Depends(get_db)):
     if not whats_next:
         whats_next = {"kind": "all_clear"}
 
+    # Anomalies for this client
+    try:
+        from policydb.anomaly_engine import get_anomalies_for_client
+        client_anomalies = get_anomalies_for_client(conn, client_id)
+    except Exception:
+        client_anomalies = []
+
     # Last activity days for all-clear state
     _last_act = conn.execute(
         "SELECT MAX(activity_date) AS d FROM activity_log WHERE client_id = ?",
@@ -801,6 +808,7 @@ def client_tab_overview(request: Request, client_id: int, conn=Depends(get_db)):
         "account_priority_options": cfg.get("account_priority_options", []),
         "relationship_risk_levels": cfg.get("relationship_risk_levels", []),
         "service_model_options": cfg.get("service_model_options", []),
+        "client_anomalies": client_anomalies,
     })
 
 
@@ -4722,6 +4730,43 @@ def request_bundle_export(client_id: int, bundle_id: int, conn=Depends(get_db)):
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+# ---------------------------------------------------------------------------
+# Client-level field PATCH (e.g. caching geocoded lat/lng from sidebar map)
+# ---------------------------------------------------------------------------
+
+@router.patch("/{client_id}/field")
+async def client_field_patch(
+    request: Request,
+    client_id: int,
+    conn=Depends(get_db),
+):
+    """Update a single field on a client record."""
+    body = await request.json()
+    field = body.get("field", "")
+    value = body.get("value", "")
+
+    allowed = {"latitude", "longitude", "follow_up_date"}
+    if field not in allowed:
+        return JSONResponse({"ok": False, "error": f"Invalid field: {field}"}, status_code=400)
+
+    client = conn.execute("SELECT id FROM clients WHERE id = ?", (client_id,)).fetchone()
+    if not client:
+        return JSONResponse({"ok": False, "error": "Not found"}, status_code=404)
+
+    if field in ("latitude", "longitude"):
+        try:
+            num = float(value) if str(value).strip() else None
+        except ValueError:
+            num = None
+        conn.execute(f"UPDATE clients SET {field} = ? WHERE id = ?", (num, client_id))
+        conn.commit()
+        return JSONResponse({"ok": True, "formatted": str(num) if num is not None else ""})
+
+    conn.execute(f"UPDATE clients SET {field} = ? WHERE id = ?", (value or None, client_id))
+    conn.commit()
+    return JSONResponse({"ok": True, "formatted": value})
 
 
 # ---------------------------------------------------------------------------
