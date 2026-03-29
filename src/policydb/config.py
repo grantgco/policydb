@@ -131,7 +131,7 @@ _DEFAULTS: dict[str, Any] = {
     # ── Issue tracking ──────────────────────────────────────────────
     "issue_lifecycle_states": [
         "Open",
-        "Investigating",
+        "In Hand",
         "Waiting",
         "Resolved",
         "Closed",
