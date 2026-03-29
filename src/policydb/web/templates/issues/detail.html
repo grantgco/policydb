@@ -2,105 +2,135 @@
 {% block title %}{{ issue.issue_uid }} — {{ issue.subject }}{% endblock %}
 
 {% block content %}
-<div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+<div class="max-w-3xl mx-auto px-4 sm:px-6 py-6">
 
-  {# ── Header ── #}
-  <div class="mb-6">
-    <div class="flex items-center gap-2 text-xs text-gray-500 mb-1">
-      <a href="/action-center?tab=issues" class="hover:text-marsh">&larr; Issues</a>
-      <span class="text-gray-300">|</span>
-      <span class="font-mono">{{ issue.issue_uid }}</span>
-    </div>
-    <h1 class="text-xl font-semibold text-gray-900">{{ issue.subject }}</h1>
-
-    <div class="flex items-center gap-3 mt-3 flex-wrap">
-      {# Severity pill #}
-      {% set sev = issue.issue_severity or 'Normal' %}
-      <span class="text-xs px-2 py-0.5 rounded-full font-medium
-        {% if sev == 'Critical' %}bg-red-50 text-red-700 border border-red-200
-        {% elif sev == 'High' %}bg-amber-50 text-amber-700 border border-amber-200
-        {% elif sev == 'Normal' %}bg-blue-50 text-blue-700 border border-blue-200
-        {% else %}bg-gray-100 text-gray-600 border border-gray-200{% endif %}">
-        {{ sev }}
-      </span>
-
-      {# Status pill #}
-      {% set status = issue.issue_status or 'Open' %}
-      <span class="text-xs px-2 py-0.5 rounded-full
-        {% if status == 'Open' %}bg-blue-50 text-blue-700
-        {% elif status == 'In Hand' %}bg-purple-50 text-purple-700
-        {% elif status == 'Waiting' %}bg-amber-50 text-amber-700
-        {% elif status == 'Resolved' %}bg-green-50 text-green-700
-        {% elif status == 'Closed' %}bg-gray-100 text-gray-500
-        {% else %}bg-gray-100 text-gray-600{% endif %}">
-        {{ status }}
-      </span>
-
-      {# Age badge #}
-      {% set days = (issue.days_open or 0)|int %}
-      {% set sla = issue.sla_days or 7 %}
-      <span class="text-xs {% if days > sla %}text-red-600 font-semibold{% elif days > (sla * 0.7)|int %}text-amber-600{% else %}text-gray-500{% endif %}">
-        {{ days }}d open
-        {% if sla %}<span class="text-gray-400">(SLA {{ sla }}d)</span>{% endif %}
-      </span>
-
-      <span class="text-gray-300">|</span>
-      <a href="/clients/{{ issue.client_id }}" class="text-xs text-marsh hover:underline">{{ issue.client_name }}</a>
-      {% if issue.policy_uid %}
-        <span class="text-gray-300">|</span>
-        <span class="text-xs text-gray-500">{{ issue.policy_uid }} {{ issue.policy_type or '' }}</span>
-      {% endif %}
-    </div>
-
-    {% if issue.details %}
-    <p class="text-sm text-gray-600 mt-2">{{ issue.details }}</p>
-    {% endif %}
+  {# ── Breadcrumb ── #}
+  <div class="flex items-center gap-2 text-xs text-gray-500 mb-1">
+    <a href="/action-center?tab=issues" class="hover:text-marsh">&larr; Issues</a>
+    <span class="text-gray-300">|</span>
+    <span class="font-mono">{{ issue.issue_uid }}</span>
   </div>
 
-  <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+  {# ── Title ── #}
+  <h1 class="text-xl font-semibold text-gray-900 mb-1">{{ issue.subject }}</h1>
 
-    {# ── Left: Activity Timeline ── #}
-    <div class="lg:col-span-2">
+  {# ── Metadata row ── #}
+  {% set days = (issue.days_open or 0)|int %}
+  {% set sla = issue.sla_days or 7 %}
+  <div class="flex items-center gap-2 text-xs text-gray-500 mb-4 flex-wrap">
+    <a href="/clients/{{ issue.client_id }}" class="text-marsh hover:underline">{{ issue.client_name }}</a>
+    {% if issue.policy_uid %}
+      <span class="text-gray-300">&middot;</span>
+      <span>{{ issue.policy_uid }} {{ issue.policy_type or '' }}</span>
+    {% endif %}
+    <span class="text-gray-300">&middot;</span>
+    <span class="{% if days > sla %}text-red-600 font-semibold{% elif days > (sla * 0.7)|int %}text-amber-600{% else %}text-gray-500{% endif %}">
+      {{ days }}d open
+      {% if sla %}<span class="text-gray-400">(SLA {{ sla }}d)</span>{% endif %}
+    </span>
+    <span class="text-gray-300">&middot;</span>
+    <span>{{ activities|length }} activit{{ 'y' if activities|length == 1 else 'ies' }}{% if total_hours %} &middot; {{ total_hours }}h{% endif %}</span>
+  </div>
+
+  {# ── Status pill control ── #}
+  <div class="flex gap-4 mb-5 flex-wrap">
+    <div>
+      <div class="text-[10px] text-gray-400 uppercase tracking-wide mb-1">Status</div>
+      {% set status = issue.issue_status or 'Open' %}
+      <div class="inline-flex border border-gray-200 rounded-md overflow-hidden">
+        {% for state in issue_lifecycle_states %}
+        <form method="post" action="/issues/{{ issue.id }}/status?redirect=/issues/{{ issue.issue_uid }}" class="contents">
+          <input type="hidden" name="status" value="{{ state }}">
+          <button type="submit"
+            class="text-xs px-3 py-1.5 border-r border-gray-200 last:border-r-0 transition-colors
+              {% if state == status %}
+                {% if state == 'Open' %}bg-blue-50 text-blue-700 font-semibold
+                {% elif state == 'In Hand' %}bg-purple-50 text-purple-700 font-semibold
+                {% elif state == 'Waiting' %}bg-amber-50 text-amber-700 font-semibold
+                {% elif state == 'Resolved' %}bg-green-50 text-green-700 font-semibold
+                {% elif state == 'Closed' %}bg-gray-100 text-gray-600 font-semibold
+                {% else %}bg-gray-100 text-gray-700 font-semibold{% endif %}
+              {% else %}text-gray-400 hover:bg-gray-50 hover:text-gray-600{% endif %}">
+            {{ state }}
+          </button>
+        </form>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div>
+      <div class="text-[10px] text-gray-400 uppercase tracking-wide mb-1">Severity</div>
+      {% set sev = issue.issue_severity or 'Normal' %}
+      <div class="inline-flex border border-gray-200 rounded-md overflow-hidden">
+        {% for s in issue_severities %}
+        <form method="post" action="/issues/{{ issue.id }}/severity?redirect=/issues/{{ issue.issue_uid }}" class="contents">
+          <input type="hidden" name="severity" value="{{ s.label }}">
+          <button type="submit"
+            class="text-xs px-3 py-1.5 border-r border-gray-200 last:border-r-0 transition-colors
+              {% if s.label == sev %}
+                {% if s.label == 'Critical' %}bg-red-50 text-red-700 font-semibold
+                {% elif s.label == 'High' %}bg-amber-50 text-amber-700 font-semibold
+                {% elif s.label == 'Normal' %}bg-blue-50 text-blue-700 font-semibold
+                {% elif s.label == 'Low' %}bg-gray-100 text-gray-600 font-semibold
+                {% else %}bg-gray-100 text-gray-700 font-semibold{% endif %}
+              {% else %}text-gray-400 hover:bg-gray-50 hover:text-gray-600{% endif %}">
+            {{ s.label }}
+          </button>
+        </form>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  {# ── Two-column body ── #}
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+
+    {# ── Left: Timeline + Log Panel ── #}
+    <div class="lg:col-span-2 space-y-4">
+
+      {# Activity Timeline #}
       <div class="card p-4">
         <div class="flex items-center justify-between mb-3">
           <h2 class="text-sm font-semibold text-gray-900">Activity Timeline</h2>
-          <div class="flex items-center gap-2">
-            <span class="text-xs text-gray-400">
-              {{ activities|length }} activities{% if total_hours %} &middot; {{ total_hours }}h{% endif %}
-            </span>
-            <button onclick="openLinkActivities()"
-                    class="text-xs text-blue-600 border border-blue-200 rounded px-2 py-1 hover:bg-blue-50 transition-colors no-print">
-              + Link Activity
-            </button>
-          </div>
+          <button onclick="openLinkActivities()"
+                  class="text-xs text-blue-600 border border-blue-200 rounded px-2 py-1 hover:bg-blue-50 transition-colors no-print">
+            + Link Activity
+          </button>
         </div>
 
         {% if activities %}
-        <div class="space-y-3">
+        <div class="border-l-2 border-gray-200 ml-1 pl-4 space-y-4">
           {% for act in activities %}
-          <div class="flex gap-3 text-sm {% if not loop.last %}border-b border-gray-100 pb-3{% endif %}">
-            <div class="w-20 flex-shrink-0 text-xs text-gray-400 pt-0.5">{{ act.activity_date }}</div>
-            <div class="flex-1 min-w-0">
-              <div class="font-medium text-gray-800">
-                {{ act.activity_type }}{% if act.subject %}: {{ act.subject }}{% endif %}
-              </div>
-              {% if act.details %}
-              <p class="text-gray-500 text-xs mt-0.5">{{ act.details[:200] }}</p>
+          <div>
+            <div class="flex items-center gap-2">
+              <span class="text-xs text-gray-400 w-12 flex-shrink-0">{{ act.activity_date[5:].replace('-', '/') if act.activity_date else '' }}</span>
+              {% set atype = act.activity_type or '' %}
+              <span class="text-[10px] px-1.5 py-0.5 rounded font-medium
+                {% if atype == 'Call' %}bg-blue-100 text-blue-700
+                {% elif atype == 'Email' %}bg-amber-100 text-amber-700
+                {% elif atype == 'Meeting' %}bg-indigo-100 text-indigo-700
+                {% elif atype == 'Note' %}bg-pink-100 text-pink-700
+                {% else %}bg-gray-100 text-gray-600{% endif %}">{{ atype }}</span>
+              <span class="text-sm font-medium text-gray-800">
+                {{ act.subject or '' }}
+              </span>
+            </div>
+            {% if act.details %}
+            <p class="text-xs text-gray-500 mt-1 ml-14">{{ act.details[:300] }}</p>
+            {% endif %}
+            <div class="flex items-center gap-2 mt-1 ml-14 text-[10px]">
+              {% if act.disposition %}
+                <span class="px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded">{{ act.disposition }}</span>
               {% endif %}
-              <div class="flex gap-2 mt-1 text-xs text-gray-400">
-                {% if act.disposition %}
-                  <span class="px-1.5 py-0.5 bg-gray-100 rounded">{{ act.disposition }}</span>
-                {% endif %}
-                {% if act.follow_up_date %}
-                  <span>Follow-up: {{ act.follow_up_date }}</span>
-                {% endif %}
-                {% if act.duration_hours %}
-                  <span class="font-medium text-gray-600">{{ act.duration_hours }}h</span>
-                {% endif %}
-                {% if act.contact_name %}
-                  <span>with {{ act.contact_name }}</span>
-                {% endif %}
-              </div>
+              {% if act.follow_up_date %}
+                <span class="text-gray-400">F/U: {{ act.follow_up_date[5:].replace('-', '/') }}</span>
+              {% endif %}
+              {% if act.duration_hours %}
+                <span class="font-medium text-gray-600">{{ act.duration_hours }}h</span>
+              {% endif %}
+              {% if act.contact_name %}
+                <span class="text-gray-400">with {{ act.contact_name }}</span>
+              {% endif %}
             </div>
           </div>
           {% endfor %}
@@ -108,116 +138,140 @@
         {% else %}
         <p class="text-sm text-gray-400 text-center py-4">No activities logged yet</p>
         {% endif %}
+      </div>
 
-        {# ── Quick log activity form ── #}
-        <div class="border-t border-gray-200 mt-4 pt-4">
-          <h3 class="text-xs font-semibold text-gray-700 mb-2">Log Activity</h3>
-          <form method="post" action="/issues/{{ issue.id }}/log" class="space-y-2">
-            <div class="flex gap-2">
-              <select name="activity_type" class="rounded border-gray-300 text-sm px-2 py-1.5">
+      {# ── Full Log Activity Panel ── #}
+      <div class="card p-4">
+        <h3 class="text-sm font-semibold text-gray-900 mb-3">Log Activity</h3>
+        <form method="post" action="/issues/{{ issue.id }}/log" class="space-y-3">
+          {# Row 1: Type + Subject #}
+          <div class="flex gap-3">
+            <div class="w-28">
+              <label class="block text-[10px] text-gray-400 uppercase tracking-wide mb-1">Type</label>
+              <select name="activity_type" class="w-full rounded border-gray-300 text-sm px-2 py-1.5 focus:ring-marsh focus:border-marsh">
                 {% for at in activity_types %}
-                <option value="{{ at }}">{{ at }}</option>
+                <option value="{{ at }}" {{ 'selected' if at == 'Call' }}>{{ at }}</option>
                 {% endfor %}
               </select>
-              <input type="text" name="subject" placeholder="Subject"
-                     class="flex-1 rounded border-gray-300 text-sm px-3 py-1.5">
             </div>
-            <textarea name="details" placeholder="Details (optional)" rows="2"
-                      class="w-full rounded border-gray-300 text-sm px-3 py-1.5"></textarea>
-            <div class="flex gap-2 items-center">
-              <select name="disposition" class="rounded border-gray-300 text-sm px-2 py-1.5">
-                <option value="">No disposition</option>
+            <div class="flex-1">
+              <label class="block text-[10px] text-gray-400 uppercase tracking-wide mb-1">Subject</label>
+              <input type="text" name="subject" required placeholder="What happened?"
+                     class="w-full rounded border-gray-300 text-sm px-3 py-1.5 focus:ring-marsh focus:border-marsh placeholder-gray-300">
+            </div>
+          </div>
+
+          {# Row 2: Details #}
+          <div>
+            <label class="block text-[10px] text-gray-400 uppercase tracking-wide mb-1">Details</label>
+            <textarea name="details" rows="3" placeholder="Notes, context, next steps..."
+                      class="w-full rounded border-gray-300 text-sm px-3 py-1.5 focus:ring-marsh focus:border-marsh placeholder-gray-300 resize-none"></textarea>
+          </div>
+
+          {# Row 3: Disposition pills + follow-up + hours + contact #}
+          <div class="flex gap-3 items-end flex-wrap">
+            <div class="flex-1 min-w-[200px]">
+              <label class="block text-[10px] text-gray-400 uppercase tracking-wide mb-1">Disposition</label>
+              <input type="hidden" name="disposition" id="issue-log-disposition" value="">
+              <div class="flex gap-1.5 flex-wrap" id="issue-disposition-pills">
                 {% for d in follow_up_dispositions %}
-                <option value="{{ d.label if d is mapping else d }}">{{ d.label if d is mapping else d }}</option>
+                  {% set dlabel = d.label if d is mapping else d %}
+                  <button type="button"
+                    onclick="document.getElementById('issue-log-disposition').value=this.dataset.val;this.parentElement.querySelectorAll('button').forEach(b=>b.className='text-xs px-2.5 py-1 border border-gray-200 rounded text-gray-500 hover:bg-gray-50 transition-colors');this.className='text-xs px-2.5 py-1 border border-marsh rounded bg-marsh/10 text-marsh font-medium transition-colors'"
+                    data-val="{{ dlabel }}"
+                    class="text-xs px-2.5 py-1 border border-gray-200 rounded text-gray-500 hover:bg-gray-50 transition-colors">
+                    {{ dlabel }}
+                  </button>
                 {% endfor %}
-              </select>
-              <input type="date" name="follow_up_date"
-                     class="rounded border-gray-300 text-sm px-2 py-1.5">
-              <input type="number" name="duration_hours" step="0.1" min="0"
-                     placeholder="hrs" class="w-16 rounded border-gray-300 text-sm px-2 py-1.5"
-                     title="Duration (hours)">
-              <button type="submit"
-                      class="text-sm bg-marsh text-white rounded px-4 py-1.5 hover:bg-marsh-light">
-                Log
-              </button>
+              </div>
             </div>
-          </form>
-        </div>
+            <div>
+              <label class="block text-[10px] text-gray-400 uppercase tracking-wide mb-1">Follow-up</label>
+              <input type="date" name="follow_up_date"
+                     class="rounded border-gray-300 text-sm px-2 py-1.5 focus:ring-marsh focus:border-marsh">
+            </div>
+            <div>
+              <label class="block text-[10px] text-gray-400 uppercase tracking-wide mb-1">Hours</label>
+              <input type="number" name="duration_hours" step="0.25" min="0"
+                     placeholder="0.5" class="w-16 rounded border-gray-300 text-sm px-2 py-1.5 focus:ring-marsh focus:border-marsh placeholder-gray-300">
+            </div>
+            <button type="submit"
+                    class="text-sm bg-marsh text-white rounded px-5 py-1.5 hover:bg-marsh-light transition-colors font-medium">
+              Log Activity
+            </button>
+          </div>
+        </form>
       </div>
     </div>
 
-    {# ── Right: Actions Sidebar ── #}
-    <div>
-      {# Status change #}
-      <div class="card p-4 mb-4">
-        <h3 class="text-xs font-semibold text-gray-700 mb-2">Update Status</h3>
-        <form hx-post="/issues/{{ issue.id }}/status"
-              hx-target="body"
-              class="flex gap-2">
-          <select name="status" class="flex-1 rounded border-gray-300 text-sm px-2 py-1.5">
-            {% for state in issue_lifecycle_states %}
-            <option value="{{ state }}" {% if state == status %}selected{% endif %}>{{ state }}</option>
-            {% endfor %}
-          </select>
-          <button type="submit" class="text-sm text-blue-600 hover:underline">Update</button>
-        </form>
+    {# ── Right: Context Sidebar ── #}
+    <div class="space-y-4">
+
+      {# Context card #}
+      <div class="card p-4">
+        <div class="text-[10px] text-gray-400 uppercase tracking-wide mb-2">Context</div>
+        <a href="/clients/{{ issue.client_id }}" class="text-sm font-medium text-marsh hover:underline">{{ issue.client_name }}</a>
+        {% if issue.policy_uid %}
+        <div class="text-xs text-gray-500 mt-1">{{ issue.policy_uid }} &middot; {{ issue.policy_type or '' }}</div>
+        {% endif %}
+        <div class="text-xs mt-2 {% if days > sla %}text-red-600 font-semibold{% else %}text-gray-500{% endif %}">
+          {{ days }}d open &middot; SLA {{ sla }}d
+        </div>
+        <div class="text-[10px] text-gray-400 mt-1">
+          {{ activities|length }} activit{{ 'y' if activities|length == 1 else 'ies' }}
+          {% if total_hours %}&middot; {{ total_hours }}h total{% endif %}
+        </div>
       </div>
 
-      {# Severity change #}
-      <div class="card p-4 mb-4">
-        <h3 class="text-xs font-semibold text-gray-700 mb-2">Severity</h3>
-        <form hx-post="/issues/{{ issue.id }}/severity"
-              hx-target="body"
-              class="flex gap-2">
-          <select name="severity" class="flex-1 rounded border-gray-300 text-sm px-2 py-1.5">
-            {% for s in issue_severities %}
-            <option value="{{ s.label }}" {% if s.label == sev %}selected{% endif %}>{{ s.label }}</option>
-            {% endfor %}
-          </select>
-          <button type="submit" class="text-sm text-blue-600 hover:underline">Update</button>
-        </form>
+      {# Description card (contenteditable) #}
+      <div class="card p-4">
+        <div class="text-[10px] text-gray-400 uppercase tracking-wide mb-2">Description</div>
+        <div contenteditable="true"
+             id="issue-details-editable"
+             class="text-sm text-gray-700 min-h-[3rem] outline-none focus:ring-1 focus:ring-marsh rounded px-1 -mx-1"
+             data-placeholder="Click to add description..."
+             data-issue-id="{{ issue.id }}">{{ issue.details or '' }}</div>
       </div>
 
-      {# Resolve #}
+      {# Resolve / Resolution card #}
       {% if status not in ('Resolved', 'Closed') %}
-      <div class="card p-4 border-l-4 border-green-400">
-        <h3 class="text-xs font-semibold text-green-800 mb-2">Resolve Issue</h3>
+      <div class="card p-4 border-l-4 border-green-400 bg-green-50/30">
+        <div class="text-[10px] text-green-800 uppercase tracking-wide font-semibold mb-3">Resolve Issue</div>
         <form hx-post="/issues/{{ issue.id }}/resolve"
               hx-target="body"
               class="space-y-2">
           <div>
-            <label class="text-xs text-gray-600">Resolution Type</label>
-            <select name="resolution_type" required class="w-full rounded border-gray-300 text-sm px-2 py-1.5">
+            <label class="text-[10px] text-gray-500 mb-1 block">Resolution Type</label>
+            <select name="resolution_type" required class="w-full rounded border-gray-300 text-sm px-2 py-1.5 focus:ring-marsh">
               {% for rt in issue_resolution_types %}
               <option value="{{ rt }}">{{ rt }}</option>
               {% endfor %}
             </select>
           </div>
           <div>
-            <label class="text-xs text-gray-600">Root Cause</label>
-            <select name="root_cause_category" required class="w-full rounded border-gray-300 text-sm px-2 py-1.5">
+            <label class="text-[10px] text-gray-500 mb-1 block">Root Cause</label>
+            <select name="root_cause_category" required class="w-full rounded border-gray-300 text-sm px-2 py-1.5 focus:ring-marsh">
               {% for rc in issue_root_cause_categories %}
               <option value="{{ rc }}">{{ rc }}</option>
               {% endfor %}
             </select>
           </div>
           <div>
-            <label class="text-xs text-gray-600">Notes</label>
+            <label class="text-[10px] text-gray-500 mb-1 block">Notes</label>
             <textarea name="resolution_notes" rows="3" required
-                      class="w-full rounded border-gray-300 text-sm px-3 py-1.5"
-                      placeholder="What happened? What was the fix? Lessons learned?"></textarea>
+                      class="w-full rounded border-gray-300 text-sm px-3 py-1.5 focus:ring-marsh resize-none"
+                      placeholder="What happened? What was the fix?"></textarea>
           </div>
           <button type="submit"
-                  class="w-full text-sm bg-green-600 text-white rounded px-4 py-2 hover:bg-green-700">
+                  class="w-full text-sm bg-green-600 text-white rounded px-4 py-2 hover:bg-green-700 transition-colors font-medium">
             Resolve Issue
           </button>
         </form>
       </div>
       {% else %}
-      {# Show resolution details #}
       <div class="card p-4 bg-green-50 border-green-200">
-        <h3 class="text-xs font-semibold text-green-800 mb-2">Resolution</h3>
-        <dl class="text-xs space-y-1">
+        <div class="text-[10px] text-green-800 uppercase tracking-wide font-semibold mb-2">Resolution</div>
+        <dl class="text-xs space-y-1.5">
           <div><dt class="text-gray-500 inline">Type:</dt> <dd class="inline text-gray-800">{{ issue.resolution_type }}</dd></div>
           <div><dt class="text-gray-500 inline">Root Cause:</dt> <dd class="inline text-gray-800">{{ issue.root_cause_category }}</dd></div>
           <div><dt class="text-gray-500 inline">Resolved:</dt> <dd class="inline text-gray-800">{{ issue.resolved_date }}</dd></div>
@@ -238,4 +292,45 @@
 </div>
 
 {% include "issues/_link_activities_slideover.html" %}
+
+{# ── Contenteditable save-on-blur for description ── #}
+<script>
+(function() {
+  var el = document.getElementById('issue-details-editable');
+  if (!el) return;
+  var issueId = el.dataset.issueId;
+  var original = el.textContent.trim();
+
+  el.addEventListener('blur', function() {
+    var current = el.textContent.trim();
+    if (current === original) return;
+    original = current;
+    fetch('/issues/' + issueId + '/details', {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({details: current})
+    }).then(function(r) {
+      if (r.ok && window.flashCell) flashCell(el);
+    });
+  });
+
+  // Placeholder support
+  if (!el.textContent.trim()) {
+    el.classList.add('text-gray-400', 'italic');
+    el.textContent = el.dataset.placeholder || '';
+  }
+  el.addEventListener('focus', function() {
+    if (el.classList.contains('italic')) {
+      el.textContent = '';
+      el.classList.remove('text-gray-400', 'italic');
+    }
+  });
+  el.addEventListener('blur', function() {
+    if (!el.textContent.trim()) {
+      el.classList.add('text-gray-400', 'italic');
+      el.textContent = el.dataset.placeholder || '';
+    }
+  });
+})();
+</script>
 {% endblock %}
