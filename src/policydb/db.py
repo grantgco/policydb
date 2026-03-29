@@ -362,7 +362,7 @@ def init_db(path: Path | None = None) -> None:
     # Back up the database once before running any pending migrations.
     # This gives a clean restore point regardless of which migration fails.
 
-    _KNOWN_MIGRATIONS = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100,101,102,103,104,105,106,107}
+    _KNOWN_MIGRATIONS = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100,101,102,103,104,105,106,107,108,109,110}
 
     if _KNOWN_MIGRATIONS - applied:
         _backup_db(conn, db_path)
@@ -1513,6 +1513,30 @@ def init_db(path: Path | None = None) -> None:
         )
         conn.commit()
         logger.info("Migration 108: renamed Investigating to In Hand")
+
+    if 109 not in applied:
+        sql = (_MIGRATIONS_DIR / "109_anomalies.sql").read_text()
+        conn.executescript(sql)
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (109, "Create anomalies table for drift detection"),
+        )
+        conn.commit()
+        logger.info("Migration 109: created anomalies table")
+
+    if 110 not in applied:
+        existing_policy_cols = {r[1] for r in conn.execute("PRAGMA table_info(policies)").fetchall()}
+        if "review_override_reason" not in existing_policy_cols:
+            conn.execute("ALTER TABLE policies ADD COLUMN review_override_reason TEXT")
+        existing_program_cols = {r[1] for r in conn.execute("PRAGMA table_info(programs)").fetchall()}
+        if "review_override_reason" not in existing_program_cols:
+            conn.execute("ALTER TABLE programs ADD COLUMN review_override_reason TEXT")
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (110, "Add review_override_reason to policies and programs"),
+        )
+        conn.commit()
+        logger.info("Migration 110: added review_override_reason columns")
 
     # Data hygiene: fix 'None' string corruption in text fields (runs every startup, fast no-op if clean)
     conn.execute("UPDATE clients SET cn_number = NULL WHERE cn_number = 'None'")
