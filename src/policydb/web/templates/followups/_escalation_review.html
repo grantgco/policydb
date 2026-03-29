@@ -35,8 +35,9 @@
 
       {# Actions #}
       <div class="flex gap-2 flex-shrink-0">
+        {% set act_ids = sug.source_activity_ids|join(",") %}
         <button type="button"
-          onclick="openIssueCreateSlideover({subject:'{{ sug.title|e }}', client_id:'{{ sug.client_id }}', client_name:'{{ sug.client_name|e }}', policy_id:'{{ sug.policy_id or '' }}', severity:'{{ sug.severity_preset }}', context_label:'Creating from suggestion', context_subject:'{{ sug.title|e }}', context_detail:'{{ sug.detail|e }}', source_activity_ids:'{{ sug.source_activity_ids|join(\",\") }}', link_detail:'{{ sug.source_activity_ids|length }} activities will be linked'})"
+          onclick="openIssueCreateSlideover({subject:'{{ sug.title|e }}', client_id:'{{ sug.client_id }}', client_name:'{{ sug.client_name|e }}', policy_id:'{{ sug.policy_id or "" }}', severity:'{{ sug.severity_preset }}', context_label:'Creating from suggestion', context_subject:'{{ sug.title|e }}', context_detail:'{{ sug.detail|e }}', source_activity_ids:'{{ act_ids }}', link_detail:'{{ sug.source_activity_ids|length }} activities will be linked'})"
           class="text-[10px] bg-marsh text-white px-3 py-1.5 rounded font-medium hover:bg-marsh-light transition-colors">
           Create Issue
         </button>
