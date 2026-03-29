@@ -57,6 +57,35 @@
 </div>
 {% endif %}
 
+<!-- Anomalies -->
+{% if client_anomalies is defined and client_anomalies|length > 0 %}
+<div class="card mt-4">
+  <div class="px-5 py-3 border-b border-gray-100">
+    <h2 class="font-semibold text-gray-900">Anomalies <span class="text-sm font-normal text-gray-400">({{ client_anomalies|length }})</span></h2>
+  </div>
+  <div class="divide-y divide-gray-50">
+    {% for a in client_anomalies %}
+    <div class="flex items-center gap-3 px-5 py-3">
+      <span class="w-2.5 h-2.5 rounded-full flex-shrink-0 {% if a.severity == 'alert' %}bg-red-500{% else %}bg-amber-500{% endif %}"></span>
+      <div class="flex-1 min-w-0">
+        <div class="text-sm text-gray-900">{{ a.title }}</div>
+        {% if a.details %}
+        <div class="text-xs text-gray-500 mt-0.5">{{ a.details }}</div>
+        {% endif %}
+      </div>
+      <span class="text-[10px] px-2 py-0.5 rounded-full whitespace-nowrap
+        {% if a.category == 'falling_behind' %}bg-red-50 text-red-700
+        {% elif a.category == 'neglected' %}bg-amber-50 text-amber-700
+        {% elif a.category == 'workload' %}bg-blue-50 text-blue-700
+        {% else %}bg-purple-50 text-purple-700{% endif %}">
+        {{ a.category | replace('_', ' ') | title }}
+      </span>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
 <!-- Activity -->
 <div class="card mt-4">
   <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between gap-3">
