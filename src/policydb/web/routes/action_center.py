@@ -609,7 +609,7 @@ def _risk_alerts_ctx(conn) -> dict:
 # ── Issues context ───────────────────────────────────────────────────────────
 
 
-def _issues_ctx(conn, q: str = "", client_id: int = 0) -> dict:
+def _issues_ctx(conn, q: str = "", client_id: int = 0, view_mode: str = "board") -> dict:
     """Build issues tab context — open and recently resolved issues."""
     today = date.today().isoformat()
     rows = conn.execute("""
@@ -662,6 +662,12 @@ def _issues_ctx(conn, q: str = "", client_id: int = 0) -> dict:
     waiting = []
     recently_resolved = []
 
+    # Board buckets — purely status-based
+    board_open = []
+    board_in_hand = []
+    board_waiting = []
+    board_done = []
+
     for issue in issues:
         status = issue.get("issue_status") or "Open"
         severity = issue.get("issue_severity") or "Normal"
@@ -670,6 +676,7 @@ def _issues_ctx(conn, q: str = "", client_id: int = 0) -> dict:
         issue["sla_days"] = sla
         issue["over_sla"] = days_open > sla
 
+        # List-view bucketing (existing logic)
         if status in ("Resolved", "Closed"):
             # Only show recently resolved (last 7 days)
             if issue.get("resolved_date"):
@@ -686,6 +693,23 @@ def _issues_ctx(conn, q: str = "", client_id: int = 0) -> dict:
             waiting.append(issue)
         else:
             active.append(issue)
+
+        # Board bucketing — status-based only
+        if status in ("Resolved", "Closed"):
+            if issue.get("resolved_date"):
+                from dateutil.parser import parse as dparse
+                try:
+                    days_since = (date.today() - dparse(issue["resolved_date"]).date()).days
+                    if days_since <= 7:
+                        board_done.append(issue)
+                except Exception:
+                    pass
+        elif status == "In Hand":
+            board_in_hand.append(issue)
+        elif status == "Waiting":
+            board_waiting.append(issue)
+        else:
+            board_open.append(issue)
 
     open_count = len(critical_overdue) + len(active) + len(waiting)
 
@@ -705,6 +729,11 @@ def _issues_ctx(conn, q: str = "", client_id: int = 0) -> dict:
         "client_id": client_id,
         "issue_severities": cfg.get("issue_severities", []),
         "issue_lifecycle_states": cfg.get("issue_lifecycle_states", []),
+        "view_mode": view_mode or "board",
+        "board_open": board_open,
+        "board_in_hand": board_in_hand,
+        "board_waiting": board_waiting,
+        "board_done": board_done,
     }
 
 
@@ -856,9 +885,10 @@ def ac_issues(
     request: Request,
     q: str = "",
     client_id: int = 0,
+    view_mode: str = "board",
     conn=Depends(get_db),
 ):
-    ctx = _issues_ctx(conn, q=q, client_id=client_id)
+    ctx = _issues_ctx(conn, q=q, client_id=client_id, view_mode=view_mode)
     ctx["request"] = request
     return templates.TemplateResponse("action_center/_issues.html", ctx)
 
