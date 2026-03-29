@@ -128,7 +128,7 @@ All charts, deck slides, and client-facing exports MUST use the official Marsh c
 - Migrations: `src/policydb/migrations/NNN_description.sql` — sequentially numbered
 - Migration runner: `src/policydb/db.py` — `init_db()` runs all migrations and rebuilds views on every server start
 - Views are **always dropped and recreated** on startup — never reference non-existent columns in view SQL
-- Current migration count: 071
+- Current migration count: 106
 
 ### Key Tables
 - `clients` — name, industry, contacts, account exec, scratchpad

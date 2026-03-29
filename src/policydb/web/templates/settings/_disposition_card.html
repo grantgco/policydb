@@ -1,59 +1,84 @@
-{# Disposition config card — object list with {label, default_days, accountability} #}
+{# "What happened?" outcome options — grouped by category #}
+{% set gd = grouped_dispositions() %}
 <details class="card mb-4 overflow-hidden">
   <summary class="px-4 py-2.5 cursor-pointer select-none list-none flex items-center gap-2 hover:bg-gray-50 transition-colors bg-gray-50 border-b border-gray-100">
     <span class="text-xs text-gray-400 details-arrow">&#9654;</span>
     <div>
-      <h3 class="text-xs font-bold text-gray-600 uppercase tracking-wide">Follow-Up Dispositions</h3>
-      <p class="text-[10px] text-gray-400 mt-0.5">Outcome labels for completed follow-ups. Default days auto-fills the next follow-up date on re-diary. Accountability controls badge grouping.</p>
+      <h3 class="text-xs font-bold text-gray-600 uppercase tracking-wide">What Happened? &mdash; Outcome Options</h3>
+      <p class="text-[10px] text-gray-400 mt-0.5">Grouped outcome labels for follow-ups. Default days auto-fills the next follow-up date. Accountability controls badge grouping.</p>
     </div>
   </summary>
-  <ul class="divide-y divide-gray-100">
-    {% for d in dispositions %}
-    <li class="px-4 py-2 flex items-center gap-2 text-sm hover:bg-gray-50 transition-colors">
-      <div class="flex gap-1 shrink-0">
-        <form method="post" action="/settings/dispositions/reorder" class="inline">
+
+  {% for cat in gd.categories %}
+  <div class="border-b border-gray-100 last:border-b-0">
+    <div class="px-4 py-2 bg-gray-50 flex items-center gap-2">
+      <span class="text-[10px] font-bold text-gray-500 uppercase tracking-wide">{{ cat.label }}</span>
+      <span class="text-[10px] text-gray-400">({{ cat.disps | length }})</span>
+    </div>
+    <ul class="divide-y divide-gray-100">
+      {% for d in cat.disps %}
+      <li class="px-4 py-2 flex items-center gap-2 text-sm hover:bg-gray-50 transition-colors">
+        {# Reorder within flat list #}
+        <div class="flex gap-1 shrink-0">
+          <form method="post" action="/settings/dispositions/reorder" class="inline">
+            <input type="hidden" name="label" value="{{ d.label }}">
+            <input type="hidden" name="direction" value="up">
+            <button type="submit" class="text-gray-300 hover:text-gray-500 text-xs"{% if loop.first %} disabled{% endif %}>&#9650;</button>
+          </form>
+          <form method="post" action="/settings/dispositions/reorder" class="inline">
+            <input type="hidden" name="label" value="{{ d.label }}">
+            <input type="hidden" name="direction" value="down">
+            <button type="submit" class="text-gray-300 hover:text-gray-500 text-xs"{% if loop.last %} disabled{% endif %}>&#9660;</button>
+          </form>
+        </div>
+        <span class="flex-1 text-gray-700">{{ d.label }}</span>
+        <div class="flex items-center gap-1 shrink-0">
+          <label class="text-[10px] text-gray-400">days:</label>
+          <input type="number" min="0" max="90" value="{{ d.default_days }}"
+            class="w-12 text-xs text-center border border-gray-200 rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-marsh"
+            onchange="fetch('/settings/dispositions/update',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({label:'{{ d.label }}',default_days:parseInt(this.value)||0})})">
+        </div>
+        <div class="flex items-center gap-1 shrink-0">
+          <label class="text-[10px] text-gray-400">owner:</label>
+          <select class="text-xs border border-gray-200 rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-marsh bg-transparent"
+            onchange="fetch('/settings/dispositions/update',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({label:'{{ d.label }}',accountability:this.value})})">
+            {% set acc = d.get('accountability', 'my_action') if d is mapping else 'my_action' %}
+            <option value="my_action" {{ 'selected' if acc == 'my_action' }}>My Action</option>
+            <option value="waiting_external" {{ 'selected' if acc == 'waiting_external' }}>Waiting</option>
+            <option value="scheduled" {{ 'selected' if acc == 'scheduled' }}>Scheduled</option>
+          </select>
+        </div>
+        <div class="flex items-center gap-1 shrink-0">
+          <label class="text-[10px] text-gray-400">group:</label>
+          <select class="text-xs border border-gray-200 rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-marsh bg-transparent"
+            onchange="fetch('/settings/dispositions/update',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({label:'{{ d.label }}',category:this.value})}).then(function(){window.location.reload()})">
+            {% set _dacc = d.get('accountability', '') if d is mapping else '' %}
+            {% set dcat = d.get('category', '') if d is mapping else '' %}
+            {% if not dcat %}{% set dcat = 'waiting' if _dacc == 'waiting_external' else ('completed' if _dacc == 'scheduled' else 'action') %}{% endif %}
+            <option value="waiting" {{ 'selected' if dcat == 'waiting' }}>Waiting</option>
+            <option value="action" {{ 'selected' if dcat == 'action' }}>My Action</option>
+            <option value="completed" {{ 'selected' if dcat == 'completed' }}>Handled</option>
+          </select>
+        </div>
+        <form method="post" action="/settings/dispositions/remove" class="inline shrink-0">
           <input type="hidden" name="label" value="{{ d.label }}">
-          <input type="hidden" name="direction" value="up">
-          <button type="submit" class="text-gray-300 hover:text-gray-500 text-xs"{% if loop.first %} disabled{% endif %}>&#9650;</button>
+          <button type="submit" class="text-red-300 hover:text-red-500 text-xs ml-2">&#10005;</button>
         </form>
-        <form method="post" action="/settings/dispositions/reorder" class="inline">
-          <input type="hidden" name="label" value="{{ d.label }}">
-          <input type="hidden" name="direction" value="down">
-          <button type="submit" class="text-gray-300 hover:text-gray-500 text-xs"{% if loop.last %} disabled{% endif %}>&#9660;</button>
-        </form>
-      </div>
-      <span class="flex-1 text-gray-700">{{ d.label }}</span>
-      <div class="flex items-center gap-1 shrink-0">
-        <label class="text-[10px] text-gray-400">days:</label>
-        <input type="number" min="0" max="90" value="{{ d.default_days }}"
-          class="w-12 text-xs text-center border border-gray-200 rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-marsh"
-          onchange="fetch('/settings/dispositions/update',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({label:'{{ d.label }}',default_days:parseInt(this.value)||0})})">
-      </div>
-      <div class="flex items-center gap-1 shrink-0">
-        <label class="text-[10px] text-gray-400">owner:</label>
-        <select class="text-xs border border-gray-200 rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-marsh bg-transparent"
-          onchange="fetch('/settings/dispositions/update',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({label:'{{ d.label }}',accountability:this.value})})">
-          {% set acc = d.get('accountability', 'my_action') if d is mapping else 'my_action' %}
-          <option value="my_action" {{ 'selected' if acc == 'my_action' }}>My Action</option>
-          <option value="waiting_external" {{ 'selected' if acc == 'waiting_external' }}>Waiting</option>
-          <option value="scheduled" {{ 'selected' if acc == 'scheduled' }}>Scheduled</option>
-        </select>
-      </div>
-      <form method="post" action="/settings/dispositions/remove" class="inline shrink-0">
-        <input type="hidden" name="label" value="{{ d.label }}">
-        <button type="submit" class="text-red-300 hover:text-red-500 text-xs ml-2">&#10005;</button>
+      </li>
+      {% endfor %}
+    </ul>
+    {# Add form scoped to this category #}
+    <div class="px-4 py-2 bg-gray-50 border-t border-gray-100">
+      <form method="post" action="/settings/dispositions/add" class="flex items-center gap-2">
+        <input type="hidden" name="category" value="{{ cat.key }}">
+        <input type="text" name="label" placeholder="New outcome..." required
+          class="flex-1 border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-marsh">
+        <input type="number" name="default_days" value="0" min="0" max="90"
+          class="w-14 border border-gray-200 rounded px-2 py-1 text-xs text-center focus:outline-none focus:ring-1 focus:ring-marsh"
+          placeholder="days">
+        <button type="submit" class="text-xs bg-marsh text-white px-3 py-1 rounded hover:bg-marsh-light transition-colors">Add</button>
       </form>
-    </li>
-    {% endfor %}
-  </ul>
-  <div class="px-4 py-2.5 bg-gray-50 border-t border-gray-100">
-    <form method="post" action="/settings/dispositions/add" class="flex items-center gap-2">
-      <input type="text" name="label" placeholder="New disposition..." required
-        class="flex-1 border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-marsh">
-      <input type="number" name="default_days" value="0" min="0" max="90"
-        class="w-14 border border-gray-200 rounded px-2 py-1 text-xs text-center focus:outline-none focus:ring-1 focus:ring-marsh"
-        placeholder="days">
-      <button type="submit" class="text-xs bg-marsh text-white px-3 py-1 rounded hover:bg-marsh-light transition-colors">Add</button>
-    </form>
+    </div>
   </div>
+  {% endfor %}
 </details>

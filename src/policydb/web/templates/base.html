@@ -956,6 +956,114 @@ window.bulkAction = function(action, extraField, extraValue) {
 window.bulkSetDisposition = function(label) {
   bulkAction('set_disposition', 'disposition', label);
 };
+
+/* ── Grouped disposition: consequence preview on hover ── */
+window.showDispPreview = function(rowId, days, accountability) {
+  var accMap = {
+    'waiting_external': 'Ball in their court',
+    'scheduled': 'Scheduled \u2014 no action until then',
+    'my_action': 'Your action item'
+  };
+  var accText = accMap[accountability] || accMap['my_action'];
+  var daysText = days > 0 ? ('Follow up in ' + days + ' day' + (days !== 1 ? 's' : '')) : 'No auto follow-up';
+  var previewEl = document.getElementById('disp-preview-' + rowId);
+  var textEl = document.getElementById('disp-preview-text-' + rowId) || document.getElementById(rowId + '-text');
+  if (previewEl) {
+    if (textEl) textEl.textContent = daysText + ' \u00b7 ' + accText;
+    previewEl.classList.remove('hidden');
+  }
+};
+
+window.hideDispPreview = function(rowId) {
+  var previewEl = document.getElementById('disp-preview-' + rowId);
+  if (previewEl) previewEl.classList.add('hidden');
+};
+
+/* ── Grouped disposition: select pill → show Step 2 ── */
+window.selectGroupedDisp = function(btn, rowId) {
+  var label = btn.getAttribute('data-label');
+  var days = parseInt(btn.getAttribute('data-days')) || 0;
+  var acc = btn.getAttribute('data-acc') || 'my_action';
+
+  // Highlight selected pill, deselect others
+  btn.closest('.disp-grouped-pills').querySelectorAll('.disp-pill').forEach(function(p) {
+    p.classList.remove('bg-[#003865]', 'text-white', 'border-[#003865]');
+    p.classList.add('border-gray-200', 'text-gray-500');
+  });
+  btn.classList.add('bg-[#003865]', 'text-white', 'border-[#003865]');
+  btn.classList.remove('border-gray-200', 'text-gray-500');
+
+  // Set hidden form value
+  var dispInput = document.getElementById('disp-val-' + rowId);
+  if (dispInput) dispInput.value = label;
+
+  // Accountability text
+  var accMap = {
+    'waiting_external': 'Ball in their court',
+    'scheduled': 'Scheduled \u2014 no action until then',
+    'my_action': 'Your action item'
+  };
+  var accText = accMap[acc] || accMap['my_action'];
+
+  // Transition to Step 2
+  var step1 = document.getElementById('disp-step1-' + rowId);
+  var step2 = document.getElementById('disp-step2-' + rowId);
+  if (step1 && step2) {
+    step1.classList.add('hidden');
+    step2.classList.remove('hidden');
+
+    var chosenLabel = document.getElementById('disp-chosen-label-' + rowId);
+    if (chosenLabel) chosenLabel.textContent = label;
+    var chosenAcc = document.getElementById('disp-chosen-acc-' + rowId);
+    if (chosenAcc) chosenAcc.textContent = '\u2192 ' + accText;
+
+    // Auto-fill date if days > 0
+    if (days > 0) {
+      var dateInput = document.getElementById('disp-date-' + rowId);
+      if (dateInput) {
+        var d = new Date();
+        d.setDate(d.getDate() + days);
+        var rawDate = d.toISOString().split('T')[0];
+        if (typeof getRowExp === 'function' && typeof capFollowupDate === 'function') {
+          var expDate = getRowExp(rowId);
+          var result = capFollowupDate(rawDate, expDate, typeof FU_EXP_BUFFER !== 'undefined' ? FU_EXP_BUFFER : 3);
+          dateInput.value = result.date;
+          if (typeof showCapIndicator === 'function') showCapIndicator(rowId, result.compressed, expDate);
+        } else {
+          dateInput.value = rawDate;
+        }
+      }
+    }
+  }
+};
+
+/* ── Back to Step 1 from Step 2 ── */
+window.backToStep1 = function(rowId) {
+  var step1 = document.getElementById('disp-step1-' + rowId);
+  var step2 = document.getElementById('disp-step2-' + rowId);
+  if (step1 && step2) {
+    step2.classList.add('hidden');
+    step1.classList.remove('hidden');
+  }
+};
+
+/* ── Context-aware pill highlighting (runs after HTMX swap) ── */
+window.applyDispContextHints = function() {
+  var hints = window.DISP_CONTEXT_HINTS || {};
+  document.querySelectorAll('.disp-grouped-pills').forEach(function(panel) {
+    var actType = panel.getAttribute('data-activity-type');
+    if (!actType || !hints[actType]) return;
+    var hintLabels = hints[actType];
+    panel.querySelectorAll('.disp-pill').forEach(function(pill) {
+      if (hintLabels.indexOf(pill.getAttribute('data-label')) >= 0) {
+        // Only highlight if not already selected
+        if (!pill.classList.contains('bg-[#003865]')) {
+          pill.classList.add('ring-1', 'ring-[#003865]/30', 'font-medium');
+        }
+      }
+    });
+  });
+};
 </script>
 
 <!-- Keyboard shortcut: / to focus search -->
