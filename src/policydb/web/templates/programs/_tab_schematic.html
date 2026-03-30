@@ -19,20 +19,36 @@
     <h2 class="font-semibold text-gray-900 text-sm">Unassigned Policies
       <span class="text-gray-400 font-normal">({{ unassigned | length }})</span>
     </h2>
-    <span class="text-xs text-gray-400">Click + to add to this program</span>
+    <span class="text-xs text-gray-400">Click + Assign to add to this program</span>
   </div>
-  <div id="unassigned-panel" class="p-4 flex flex-wrap gap-3">
-    {% for u in unassigned %}
-    <div id="unassigned-{{ u.policy_uid }}" class="flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-lg border border-gray-200 text-sm">
-      <div>
-        <span class="font-medium text-gray-700">{{ u.policy_type or 'Unknown' }}</span>
-        {% if u.carrier %}<span class="text-gray-400 text-xs ml-1">{{ u.carrier }}</span>{% endif %}
-        {% if u.premium %}<span class="text-gray-400 text-xs ml-1">· {{ u.premium | currency_short }}</span>{% endif %}
-      </div>
-      <button type="button" onclick="assignPolicy('{{ u.policy_uid }}')"
-              class="ml-1 text-marsh hover:text-marsh/80 font-bold text-base leading-none" title="Assign to program">+</button>
-    </div>
-    {% endfor %}
+  <div id="unassigned-panel" class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="border-b border-gray-100 text-left text-xs text-gray-400">
+          <th class="px-4 py-2 font-medium">Type</th>
+          <th class="px-4 py-2 font-medium">Carrier</th>
+          <th class="px-4 py-2 font-medium">Policy #</th>
+          <th class="px-4 py-2 font-medium text-right">Premium</th>
+          <th class="px-4 py-2 font-medium text-right">Limit</th>
+          <th class="px-4 py-2 font-medium no-print"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for u in unassigned %}
+        <tr id="unassigned-{{ u.policy_uid }}" class="border-b border-gray-50 hover:bg-gray-50 transition-colors">
+          <td class="px-4 py-2 text-gray-700 font-medium">{{ u.policy_type or 'Unknown' }}</td>
+          <td class="px-4 py-2 text-gray-600">{{ u.carrier or '—' }}</td>
+          <td class="px-4 py-2 text-gray-500 text-xs font-mono">{{ u.policy_number or '—' }}</td>
+          <td class="px-4 py-2 text-right text-gray-600 tabular-nums">{{ u.premium | currency_short if u.premium else '—' }}</td>
+          <td class="px-4 py-2 text-right text-gray-600 tabular-nums">{{ u.limit_amount | currency_short if u.limit_amount else '—' }}</td>
+          <td class="px-4 py-2 no-print">
+            <button type="button" onclick="assignPolicy('{{ u.policy_uid }}')"
+              class="text-xs text-marsh border border-marsh/30 rounded px-2 py-0.5 hover:bg-marsh hover:text-white transition-colors">+ Assign</button>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </div>
 </div>
 {% endif %}
@@ -57,6 +73,40 @@
 <script>
 (function() {
   var _base = '/programs/{{ program_uid }}';
+
+  // Date patch helpers for <input type="date"> (bypass initMatrix)
+  window.patchUnderlyingDate = function(policyId, field, value) {
+    fetch(_base + '/underlying/' + policyId + '/cell', {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({field: field, value: value})
+    }).then(function(r) { return r.json(); }).then(function(data) {
+      if (data.ok) {
+        if (typeof showToast === 'function') showToast('Saved');
+        document.body.dispatchEvent(new CustomEvent('tower-updated'));
+      }
+    });
+  };
+
+  window.patchExcessDate = function(rowId, field, value) {
+    var s = String(rowId);
+    var url;
+    if (s.indexOf('sc-') === 0) {
+      url = _base + '/subcoverage/' + s.substring(3) + '/cell';
+    } else {
+      url = _base + '/excess/' + rowId + '/cell';
+    }
+    fetch(url, {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({field: field, value: value})
+    }).then(function(r) { return r.json(); }).then(function(data) {
+      if (data.ok) {
+        if (typeof showToast === 'function') showToast('Saved');
+        document.body.dispatchEvent(new CustomEvent('tower-updated'));
+      }
+    });
+  };
 
   // Underlying matrix
   window._underlyingMatrix = window.initMatrix({
@@ -133,7 +183,9 @@
         var el = document.getElementById('unassigned-' + uid);
         if (el) el.remove();
         var panel = document.getElementById('unassigned-panel');
-        if (panel && panel.children.length === 0) {
+        // Check if any rows remain in the table tbody
+        var tbody = panel ? panel.querySelector('tbody') : null;
+        if (tbody && tbody.children.length === 0) {
           panel.closest('.card').remove();
         }
         showToast('Assigned to program');

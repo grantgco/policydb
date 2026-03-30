@@ -17,6 +17,7 @@ from policydb.queries import (
     get_program_by_uid, get_program_child_policies, get_program_aggregates,
     get_unassigned_policies,
     get_program_timeline_milestones, get_program_activities,
+    renew_policy,
 )
 from policydb.web.app import get_db, templates
 
@@ -122,6 +123,8 @@ def program_tab_overview(
         "unassigned": unassigned,
         "aggregates": agg,
         "renewal_statuses": cfg.get("renewal_statuses", []),
+        "policy_types": cfg.get("policy_types", []),
+        "carriers": cfg.get("carriers", []),
     })
 
 
@@ -145,7 +148,8 @@ def program_tab_schematic(
         """SELECT p.id, p.policy_uid, p.policy_type, p.carrier, p.policy_number,
                   p.limit_amount, p.deductible, p.premium, p.coverage_form,
                   p.layer_position, p.attachment_point, p.participation_of,
-                  p.schematic_column, p.is_program, p.tower_group
+                  p.schematic_column, p.is_program, p.tower_group,
+                  p.effective_date, p.expiration_date, p.renewal_status
            FROM policies p
            WHERE p.program_id = ?
              AND p.archived = 0
@@ -196,6 +200,9 @@ def program_tab_schematic(
                     "package_parent_type": p.get("policy_type") or "",
                     "is_package_ghost": True, "sub_coverages": [], "sub_coverages_full": [],
                     "_from_sub_coverage": True, "_sub_coverage_id": sc["id"],
+                    "effective_date": p.get("effective_date") or "",
+                    "expiration_date": p.get("expiration_date") or "",
+                    "renewal_status": p.get("renewal_status") or "",
                 })
 
     has_umbrella = any(p.get("layer_position") == "Umbrella" and not p.get("_from_sub_coverage") for p in excess)
@@ -421,10 +428,13 @@ def unassign_from_program_v2(
 # ---------------------------------------------------------------------------
 
 _CURRENCY_FIELDS = {"limit_amount", "deductible", "premium", "attachment_point", "participation_of"}
+_DATE_FIELDS = {"effective_date", "expiration_date"}
 _UNDERLYING_ALLOWED = {"policy_type", "carrier", "policy_number", "limit_amount",
-                       "deductible", "premium", "coverage_form"}
+                       "deductible", "premium", "coverage_form",
+                       "effective_date", "expiration_date", "renewal_status"}
 _EXCESS_ALLOWED = {"policy_type", "carrier", "policy_number", "limit_amount",
-                   "attachment_point", "participation_of", "premium", "coverage_form", "layer_position"}
+                   "attachment_point", "participation_of", "premium", "coverage_form", "layer_position",
+                   "effective_date", "expiration_date", "renewal_status"}
 
 
 def _parse_and_format_currency(raw: str):
@@ -458,6 +468,9 @@ async def patch_underlying_cell_v2(request: Request, program_uid: str, policy_id
         if err:
             return JSONResponse({"ok": False, "error": err}, status_code=400)
         db_value, display_value = val, formatted
+    elif field in _DATE_FIELDS:
+        db_value = str(value).strip() if value and str(value).strip() else None
+        display_value = db_value or ""
     else:
         db_value = display_value = str(value).strip() if value else ""
     conn.execute(f"UPDATE policies SET {field} = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
@@ -479,6 +492,9 @@ async def patch_excess_cell_v2(request: Request, program_uid: str, policy_id: in
         if err:
             return JSONResponse({"ok": False, "error": err}, status_code=400)
         db_value, display_value = val, formatted
+    elif field in _DATE_FIELDS:
+        db_value = str(value).strip() if value and str(value).strip() else None
+        display_value = db_value or ""
     else:
         db_value = display_value = str(value).strip() if value else ""
     conn.execute(f"UPDATE policies SET {field} = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
@@ -544,6 +560,7 @@ async def add_underlying_v2(request: Request, program_uid: str,
         "tower_group": pgm["name"], "program_uid": program_uid,
         "policy_types": cfg.get("policy_types", []), "carriers": cfg.get("carriers", []),
         "coverage_forms": cfg.get("coverage_forms", []),
+        "renewal_statuses": cfg.get("renewal_statuses", []),
     })
 
 
@@ -572,6 +589,7 @@ async def add_excess_v2(request: Request, program_uid: str,
         "request": request, "p": row_dict, "layer_num": "—",
         "client_id": pgm["client_id"], "tower_group": pgm["name"], "program_uid": program_uid,
         "carriers": cfg.get("carriers", []), "coverage_forms": cfg.get("coverage_forms", []),
+        "renewal_statuses": cfg.get("renewal_statuses", []),
     })
 
 
@@ -600,6 +618,7 @@ async def add_umbrella_v2(request: Request, program_uid: str,
         "request": request, "p": row_dict, "layer_num": "—",
         "client_id": pgm["client_id"], "tower_group": pgm["name"], "program_uid": program_uid,
         "carriers": cfg.get("carriers", []), "coverage_forms": cfg.get("coverage_forms", []),
+        "renewal_statuses": cfg.get("renewal_statuses", []),
     })
 
 
@@ -676,6 +695,142 @@ async def remove_coverage_mapping_v2(program_uid: str, ptc_id: int,
     conn.execute("DELETE FROM program_tower_coverage WHERE id = ?", (ptc_id,))
     conn.commit()
     return JSONResponse({"ok": True})
+
+
+# ---------------------------------------------------------------------------
+# Child policy cell PATCH — used by Overview tab editable grid
+# ---------------------------------------------------------------------------
+
+_CHILD_ALLOWED = {
+    "policy_type", "carrier", "policy_number", "premium", "limit_amount",
+    "deductible", "attachment_point", "effective_date", "expiration_date",
+    "renewal_status", "layer_position", "participation_of",
+}
+
+
+@router.patch("/programs/{program_uid}/child/{policy_id}/cell")
+async def patch_child_cell(request: Request, program_uid: str, policy_id: int,
+                           conn: sqlite3.Connection = Depends(get_db)):
+    """PATCH a single field on a child policy from the overview grid."""
+    _get_program_or_404(conn, program_uid)
+    body = await request.json()
+    field, value = body.get("field", ""), body.get("value", "")
+    if field not in _CHILD_ALLOWED:
+        return JSONResponse({"ok": False, "error": f"Field '{field}' not allowed"}, status_code=400)
+    if field in _CURRENCY_FIELDS:
+        val, formatted, err = _parse_and_format_currency(value)
+        if err:
+            return JSONResponse({"ok": False, "error": err}, status_code=400)
+        db_value, display_value = val, formatted
+    elif field in _DATE_FIELDS:
+        # Pass through ISO date string or clear
+        db_value = str(value).strip() if value and str(value).strip() else None
+        display_value = db_value or ""
+    else:
+        db_value = display_value = str(value).strip() if value else ""
+    conn.execute(f"UPDATE policies SET {field} = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                 (db_value, policy_id))
+    conn.commit()
+    return JSONResponse({"ok": True, "formatted": display_value})
+
+
+# ---------------------------------------------------------------------------
+# Bulk Renew Program — renews all child policies in one action
+# ---------------------------------------------------------------------------
+
+@router.post("/programs/{program_uid}/renew")
+async def renew_program(request: Request, program_uid: str,
+                        conn: sqlite3.Connection = Depends(get_db)):
+    """Renew all active child policies in the program.
+
+    For each child: call renew_policy() (archives old, creates new term),
+    then set program_id and schematic_column on the new term.
+    Finally, copy tower coverage and tower line mappings from old to new IDs.
+    """
+    pgm = _get_program_or_404(conn, program_uid)
+    children = get_program_child_policies(conn, pgm["id"])
+    if not children:
+        return JSONResponse({"ok": False, "error": "No child policies to renew"}, status_code=400)
+
+    # Map old policy id -> new policy id for tower coverage remapping
+    old_to_new = {}
+    renewed = 0
+    errors = []
+
+    for child in children:
+        try:
+            new_uid = renew_policy(conn, child["policy_uid"])
+            new_row = conn.execute(
+                "SELECT id FROM policies WHERE policy_uid = ?", (new_uid,)
+            ).fetchone()
+            if new_row:
+                new_id = new_row["id"]
+                old_to_new[child["id"]] = new_id
+                # renew_policy does NOT copy program_id or schematic_column — set them
+                conn.execute(
+                    """UPDATE policies SET program_id = ?, tower_group = ?, schematic_column = ?
+                       WHERE id = ?""",
+                    (pgm["id"], pgm["name"], child.get("schematic_column"), new_id),
+                )
+                conn.commit()
+                renewed += 1
+        except Exception as exc:
+            logger.warning("Failed to renew %s in program %s: %s",
+                           child["policy_uid"], program_uid, exc)
+            errors.append(f"{child['policy_uid']}: {exc}")
+
+    # Copy program_tower_coverage rows: remap old excess/underlying IDs to new IDs
+    if old_to_new:
+        old_coverages = conn.execute(
+            """SELECT ptc.* FROM program_tower_coverage ptc
+               WHERE ptc.excess_policy_id IN ({})""".format(
+                ",".join(str(k) for k in old_to_new.keys())
+            )
+        ).fetchall()
+        for cov in old_coverages:
+            new_excess = old_to_new.get(cov["excess_policy_id"])
+            new_underlying = old_to_new.get(cov["underlying_policy_id"]) if cov["underlying_policy_id"] else None
+            if new_excess:
+                try:
+                    conn.execute(
+                        """INSERT OR IGNORE INTO program_tower_coverage
+                           (excess_policy_id, underlying_policy_id, underlying_sub_coverage_id)
+                           VALUES (?, ?, ?)""",
+                        (new_excess, new_underlying or cov["underlying_policy_id"],
+                         cov["underlying_sub_coverage_id"]),
+                    )
+                except Exception:
+                    pass  # skip if constraint fails
+
+        # Copy program_tower_lines rows: remap old source_policy_id to new IDs
+        old_lines = conn.execute(
+            """SELECT * FROM program_tower_lines
+               WHERE source_policy_id IN ({})""".format(
+                ",".join(str(k) for k in old_to_new.keys())
+            )
+        ).fetchall()
+        for line in old_lines:
+            new_source = old_to_new.get(line["source_policy_id"])
+            if new_source:
+                try:
+                    conn.execute(
+                        """INSERT OR IGNORE INTO program_tower_lines
+                           (program_policy_id, source_policy_id, sub_coverage_id,
+                            label, include_in_tower, sort_order)
+                           VALUES (?, ?, ?, ?, ?, ?)""",
+                        (line["program_policy_id"], new_source,
+                         line["sub_coverage_id"], line["label"],
+                         line["include_in_tower"], line["sort_order"]),
+                    )
+                except Exception:
+                    pass
+
+        conn.commit()
+
+    result = {"ok": True, "renewed_count": renewed}
+    if errors:
+        result["errors"] = errors
+    return JSONResponse(result)
 
 
 # ---------------------------------------------------------------------------

@@ -26,6 +26,9 @@
           <th class="px-3 py-2 font-medium text-right" style="min-width:90px">Premium</th>
           <th class="px-3 py-2 font-medium" style="min-width:90px">Policy #</th>
           <th class="px-3 py-2 font-medium" style="min-width:80px">Form</th>
+          <th class="px-2 py-2 font-medium" style="min-width:110px">Effective</th>
+          <th class="px-2 py-2 font-medium" style="min-width:110px">Expiration</th>
+          <th class="px-3 py-2 font-medium" style="min-width:100px">Status</th>
           <th class="px-2 py-2 font-medium w-8 no-print"></th>
         </tr>
       </thead>
@@ -33,12 +36,12 @@
         {% for p in underlying %}
         {% include "programs/_underlying_row.html" %}
         {% else %}
-        <tr id="underlying-empty"><td colspan="9" class="px-4 py-8 text-center text-gray-400 text-xs">No underlying lines yet. Add one to get started.</td></tr>
+        <tr id="underlying-empty"><td colspan="12" class="px-4 py-8 text-center text-gray-400 text-xs">No underlying lines yet. Add one to get started.</td></tr>
         {% endfor %}
       </tbody>
       <tfoot>
         <tr class="border-t border-gray-200">
-          <td colspan="9" class="px-3 py-2">
+          <td colspan="12" class="px-3 py-2">
             <button type="button"
               class="no-print text-xs text-gray-400 border border-dashed border-gray-300 px-3 py-1.5 rounded hover:border-marsh hover:text-marsh transition-colors"
               hx-post="/programs/{{ program_uid }}/underlying/add"
