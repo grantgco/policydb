@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill, Alignment
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
 from policydb import config as cfg
@@ -914,13 +914,124 @@ def export_renewals_csv(conn: sqlite3.Connection, window_days: int = 180) -> str
 
 # ─── XLSX HELPERS ────────────────────────────────────────────────────────────
 
-_HEADER_FILL = PatternFill("solid", fgColor="1F4E79")
-_HEADER_FONT = Font(bold=True, color="FFFFFF")
+# Marsh brand palette (matches HTML copy-table in email_templates.py)
+_HEADER_FILL = PatternFill("solid", fgColor="003865")
+_HEADER_FONT = Font(name="Noto Sans", bold=True, color="FFFFFF", size=11)
+_DATA_FONT = Font(name="Noto Sans", size=11, color="3D3C37")
+_ALT_ROW_FILL = PatternFill("solid", fgColor="F7F3EE")
+_BORDER_COLOR = "B9B6B1"
+_THIN_BORDER = Border(
+    left=Side(style="thin", color=_BORDER_COLOR),
+    right=Side(style="thin", color=_BORDER_COLOR),
+    top=Side(style="thin", color=_BORDER_COLOR),
+    bottom=Side(style="thin", color=_BORDER_COLOR),
+)
+
 _CURRENCY_FMT = '"$"#,##0.00'
 _CURRENCY_COLS = {
     "Premium", "Limit", "Deductible", "premium", "limit_amount", "deductible",
     "prior_premium", "commission_amount", "exposure_amount",
+    "Prior Premium", "Commission", "Exposure Amount", "Broker Fee",
 }
+
+# Friendly header names — maps snake_case DB column names to human-readable labels.
+# Headers already in friendly format (e.g. v_schedule aliases) pass through unchanged.
+_FRIENDLY_HEADERS: dict[str, str] = {
+    "policy_uid": "Policy ID",
+    "policy_type": "Line of Business",
+    "policy_number": "Policy #",
+    "effective_date": "Effective",
+    "expiration_date": "Expiration",
+    "limit_amount": "Limit",
+    "deductible": "Deductible",
+    "premium": "Premium",
+    "prior_premium": "Prior Premium",
+    "rate_change": "Rate Change",
+    "commission_rate": "Commission %",
+    "commission_amount": "Commission",
+    "coverage_form": "Form",
+    "layer_position": "Layer",
+    "tower_group": "Tower Group",
+    "is_standalone": "Standalone",
+    "project_name": "Location / Project",
+    "renewal_status": "Status",
+    "placement_colleague": "Placement Colleague",
+    "placement_colleague_email": "Colleague Email",
+    "underwriter_name": "Underwriter",
+    "underwriter_contact": "Underwriter Contact",
+    "follow_up_date": "Follow-Up Date",
+    "attachment_point": "Attachment Point",
+    "participation_of": "Participation",
+    "exposure_basis": "Exposure Basis",
+    "exposure_amount": "Exposure Amount",
+    "exposure_unit": "Exposure Unit",
+    "exposure_address": "Address",
+    "exposure_city": "City",
+    "exposure_state": "State",
+    "exposure_zip": "ZIP",
+    "account_exec": "Account Executive",
+    "days_to_renewal": "Days to Renewal",
+    "first_named_insured": "First Named Insured",
+    "access_point": "Access Point",
+    "contact_person": "Contact",
+    "activity_date": "Date",
+    "activity_type": "Type",
+    "follow_up_done": "Complete",
+    "created_at": "Created",
+    "updated_at": "Updated",
+    "cn_number": "Account #",
+    "industry_segment": "Industry",
+    "date_onboarded": "Onboarded",
+    "broker_fee": "Broker Fee",
+    "is_primary": "Primary",
+    "contact_type": "Contact Type",
+    "client_name": "Client",
+    "term_effective": "Term Start",
+    "term_expiration": "Term End",
+    "has_coverage": "Covered",
+    "identified_date": "Identified",
+    "review_date": "Review Date",
+    "scope_id": "Scope ID",
+    "billing_id": "Billing ID",
+    "entity_name": "Entity Name",
+    "is_master": "Master Account",
+    "sort_order": "Order",
+    "received_at": "Received Date",
+    "send_by_date": "Send By",
+    "rfi_uid": "RFI ID",
+    "sent_at": "Sent",
+    "line_of_business": "Line of Business",
+    "lead_broker": "Lead Broker",
+    "milestone_profile": "Milestone Profile",
+    "urgency": "Urgency",
+    "notes": "Notes",
+    "description": "Description",
+    "carrier": "Carrier",
+    "name": "Name",
+    "email": "Email",
+    "phone": "Phone",
+    "mobile": "Mobile",
+    "organization": "Organization",
+    "title": "Title",
+    "role": "Role",
+    "assignment": "Assignment",
+    "subject": "Subject",
+    "details": "Details",
+    "category": "Category",
+    "severity": "Severity",
+    "source": "Source",
+    "website": "Website",
+    "fein": "FEIN",
+    "content": "Content",
+    "status": "Status",
+    "is_opportunity": "Opportunity",
+    "policy_scratchpad": "Working Notes",
+}
+
+
+def _friendly(col_name: str) -> str:
+    """Return human-readable header for a column name."""
+    return _FRIENDLY_HEADERS.get(col_name, col_name)
 
 
 def _write_sheet(wb: Workbook, title: str, rows: list, *, col_widths: dict[str, int] | None = None) -> None:
@@ -929,35 +1040,45 @@ def _write_sheet(wb: Workbook, title: str, rows: list, *, col_widths: dict[str, 
         ws.append(["No data"])
         return
 
-    headers = list(rows[0].keys())
-    ws.append(headers)
+    raw_headers = list(rows[0].keys())
+    display_headers = [_friendly(h) for h in raw_headers]
+    ws.append(display_headers)
     for cell in ws[1]:
         cell.font = _HEADER_FONT
         cell.fill = _HEADER_FILL
+        cell.border = _THIN_BORDER
         cell.alignment = Alignment(horizontal="center", wrap_text=True)
 
     for row in rows:
-        ws.append([row[k] for k in headers])
+        ws.append([row[k] for k in raw_headers])
 
-    # Apply word-wrap and currency formatting to data cells
-    _wrap_align = Alignment(wrap_text=True)
-    for col_idx, col_name in enumerate(headers, 1):
-        is_currency = col_name in _CURRENCY_COLS
+    # Apply styling to data cells: font, borders, alternating fills, currency
+    _wrap = Alignment(wrap_text=True)
+    _wrap_right = Alignment(wrap_text=True, horizontal="right")
+    for col_idx, display_name in enumerate(display_headers, 1):
+        is_currency = display_name in _CURRENCY_COLS
         for row_idx in range(2, ws.max_row + 1):
             cell = ws.cell(row=row_idx, column=col_idx)
-            cell.alignment = _wrap_align
+            cell.font = _DATA_FONT
+            cell.border = _THIN_BORDER
+            cell.alignment = _wrap_right if is_currency else _wrap
             if is_currency:
                 cell.number_format = _CURRENCY_FMT
+            # Alternating row fill (0-indexed data row: even rows get fill)
+            if (row_idx - 2) % 2 == 1:
+                cell.fill = _ALT_ROW_FILL
 
-    # Column widths — use explicit overrides when provided, otherwise auto-size
-    for col_idx, col_name in enumerate(headers, 1):
+    # Column widths — use explicit overrides (matching display name) or auto-size
+    for col_idx, (raw_name, display_name) in enumerate(zip(raw_headers, display_headers), 1):
         col_letter = get_column_letter(col_idx)
-        if col_widths and col_name in col_widths:
-            ws.column_dimensions[col_letter].width = col_widths[col_name]
+        if col_widths and raw_name in col_widths:
+            ws.column_dimensions[col_letter].width = col_widths[raw_name]
+        elif col_widths and display_name in col_widths:
+            ws.column_dimensions[col_letter].width = col_widths[display_name]
         else:
             max_len = max(
-                len(str(col_name)),
-                *(len(str(row[col_name] or "")) for row in rows),
+                len(str(display_name)),
+                *(len(str(row[raw_name] or "")) for row in rows),
             )
             ws.column_dimensions[col_letter].width = min(max_len + 4, 45)
 
@@ -1391,6 +1512,57 @@ def export_client_requests_xlsx(conn, client_id: int) -> bytes:
     if not any_items and not bundles:
         _write_sheet(wb, "Requests", [{"Item": "No outstanding items"}])
 
+    return _wb_to_bytes(wb)
+
+
+def export_rfi_by_location_xlsx(conn, client_id: int) -> bytes:
+    """Export all open RFI items for a client, grouped by location (one sheet per location)."""
+    from collections import defaultdict
+
+    items = conn.execute(
+        """SELECT cri.*, p.policy_type, p.carrier,
+                  COALESCE(p.project_name, cri.project_name, '') AS location,
+                  b.rfi_uid, b.title AS bundle_title, b.sent_at, b.created_at AS bundle_created
+           FROM client_request_items cri
+           JOIN client_request_bundles b ON cri.bundle_id = b.id
+           LEFT JOIN policies p ON cri.policy_uid = p.policy_uid
+           WHERE b.client_id = ? AND b.status != 'complete'
+           ORDER BY location, cri.received ASC, cri.sort_order ASC, cri.id ASC""",
+        (client_id,),
+    ).fetchall()
+
+    groups: dict[str, list[dict]] = defaultdict(list)
+    for item in items:
+        i = dict(item)
+        loc = (i.get("location") or "").strip() or "Unassigned"
+        ref_parts = []
+        if i.get("policy_type"):
+            ref_parts.append(i["policy_type"])
+        if i.get("carrier"):
+            ref_parts.append(i["carrier"])
+        groups[loc].append({
+            "Item": i["description"],
+            "Coverage": " — ".join(ref_parts) if ref_parts else "",
+            "RFI": i.get("rfi_uid") or i.get("bundle_title") or "",
+            "Category": i.get("category") or "",
+            "Status": "Received" if i["received"] else "Outstanding",
+            "Received Date": (i.get("received_at") or "")[:10] if i["received"] else "",
+            "Notes / Response": i.get("notes") or "",
+        })
+
+    _LOC_COL_WIDTHS = {
+        "Item": 45, "Coverage": 30, "RFI": 16, "Category": 18,
+        "Status": 14, "Received Date": 16, "Notes / Response": 45,
+    }
+
+    wb = Workbook()
+    wb.remove(wb.active)
+    if not groups:
+        _write_sheet(wb, "Requests", [{"Item": "No outstanding items"}])
+    else:
+        for loc_name in sorted(groups.keys(), key=lambda x: (x == "Unassigned", x)):
+            sheet_name = loc_name[:31]
+            _write_sheet(wb, sheet_name, groups[loc_name], col_widths=_LOC_COL_WIDTHS)
     return _wb_to_bytes(wb)
 
 
@@ -2962,5 +3134,82 @@ def export_book_review_xlsx(conn: sqlite3.Connection, client_id: int, client_nam
         })
 
     _write_sheet(wb, "Action Items", actions)
+
+    return _wb_to_bytes(wb)
+
+
+# ─── PROGRAM EXPORT ──────────────────────────────────────────────────────────
+
+
+def export_programs_xlsx(conn: sqlite3.Connection, client_id: int) -> bytes:
+    """Export all programs for a client — one sheet per program with child policies."""
+    programs = conn.execute(
+        """SELECT id, program_uid, name, line_of_business, effective_date,
+                  expiration_date, renewal_status, lead_broker, notes
+           FROM programs WHERE client_id = ? AND (archived = 0 OR archived IS NULL)
+           ORDER BY name""",
+        (client_id,),
+    ).fetchall()
+
+    wb = Workbook()
+    wb.remove(wb.active)
+
+    if not programs:
+        _write_sheet(wb, "Programs", [{"Program": "No programs found for this client"}])
+        return _wb_to_bytes(wb)
+
+    # Summary sheet
+    summary_rows = []
+    for prog in programs:
+        p = dict(prog)
+        child_count = conn.execute(
+            "SELECT COUNT(*) FROM policies WHERE program_id = ?", (p["id"],)
+        ).fetchone()[0]
+        total_premium = conn.execute(
+            "SELECT COALESCE(SUM(premium), 0) FROM policies WHERE program_id = ?", (p["id"],)
+        ).fetchone()[0]
+        summary_rows.append({
+            "Program": p["name"] or p["program_uid"],
+            "Line of Business": p.get("line_of_business") or "",
+            "Effective": p.get("effective_date") or "",
+            "Expiration": p.get("expiration_date") or "",
+            "Status": p.get("renewal_status") or "",
+            "Lead Broker": p.get("lead_broker") or "",
+            "Policies": child_count,
+            "Total Premium": total_premium,
+        })
+    _write_sheet(wb, "Summary", summary_rows)
+
+    # One sheet per program with child policies
+    for prog in programs:
+        p = dict(prog)
+        sheet_name = (p["name"] or p["program_uid"] or "Program")[:31]
+        children = conn.execute(
+            """SELECT policy_uid, policy_type, carrier, policy_number,
+                      effective_date, expiration_date, premium, limit_amount,
+                      deductible, description, layer_position, project_name,
+                      access_point, renewal_status
+               FROM policies WHERE program_id = ?
+               ORDER BY layer_position, policy_type""",
+            (p["id"],),
+        ).fetchall()
+        rows = [dict(r) for r in children]
+        if not rows:
+            rows = [{"policy_type": "(no child policies)"}]
+        _write_sheet(wb, sheet_name, rows)
+
+        # Add program metadata header row above the data
+        ws = wb[sheet_name]
+        meta_parts = []
+        if p.get("line_of_business"):
+            meta_parts.append(p["line_of_business"])
+        if p.get("effective_date") and p.get("expiration_date"):
+            meta_parts.append(f"{p['effective_date']} — {p['expiration_date']}")
+        if p.get("lead_broker"):
+            meta_parts.append(f"Lead: {p['lead_broker']}")
+        if meta_parts:
+            ws.insert_rows(1)
+            ws["A1"] = " | ".join(meta_parts)
+            ws["A1"].font = Font(name="Noto Sans", bold=True, size=11, color="003865")
 
     return _wb_to_bytes(wb)

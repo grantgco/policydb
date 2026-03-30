@@ -3307,6 +3307,38 @@ def export_project(client_id: int, project: str = "", conn=Depends(get_db)):
     )
 
 
+@router.get("/{client_id}/export/rfi-by-location")
+def export_rfi_by_location(client_id: int, conn=Depends(get_db)):
+    from fastapi.responses import Response
+    from policydb.exporter import export_rfi_by_location_xlsx
+    client = get_client_by_id(conn, client_id)
+    if not client:
+        return HTMLResponse("Client not found", status_code=404)
+    content = export_rfi_by_location_xlsx(conn, client_id)
+    safe = client["name"].lower().replace(" ", "_")[:30]
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{safe}_rfi_by_location.xlsx"'},
+    )
+
+
+@router.get("/{client_id}/export/programs")
+def export_programs(client_id: int, conn=Depends(get_db)):
+    from fastapi.responses import Response
+    from policydb.exporter import export_programs_xlsx
+    client = get_client_by_id(conn, client_id)
+    if not client:
+        return HTMLResponse("Client not found", status_code=404)
+    content = export_programs_xlsx(conn, client_id)
+    safe = client["name"].lower().replace(" ", "_")[:30]
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{safe}_programs.xlsx"'},
+    )
+
+
 @router.get("/{client_id}/copy-table")
 def copy_table(client_id: int, project: str | None = None, conn=Depends(get_db)):
     """Return HTML + plain-text policy table for clipboard copy."""
