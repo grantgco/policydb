@@ -264,6 +264,36 @@ def issues_for_client(
     )
 
 
+@router.get("/issues/for-policy/{policy_id}", response_class=HTMLResponse)
+def issues_for_policy(
+    policy_id: int,
+    request: Request,
+    conn=Depends(get_db),
+):
+    """Return open issues for a specific policy — used by policy page issue widgets."""
+    rows = conn.execute("""
+        SELECT id, issue_uid, subject, issue_severity, issue_sla_days,
+               CAST(julianday('now') - julianday(activity_date) AS INTEGER) AS days_open
+        FROM activity_log
+        WHERE item_kind = 'issue'
+          AND issue_id IS NULL
+          AND policy_id = ?
+          AND (issue_status IS NULL OR issue_status NOT IN ('Resolved', 'Closed'))
+    """, (policy_id,)).fetchall()
+
+    issues = sorted(
+        [dict(r) for r in rows],
+        key=lambda r: (
+            _SEVERITY_ORDER.get(r.get("issue_severity") or "Normal", 2),
+            r.get("days_open") or 0,
+        ),
+    )
+    return templates.TemplateResponse(
+        "issues/_issue_widget.html",
+        {"request": request, "issues": issues},
+    )
+
+
 # ── Linkable activities for an issue ─────────────────────────────────────────
 
 
@@ -405,6 +435,29 @@ def issue_detail(
     issue["sla_days"] = sla
     issue["over_sla"] = (issue.get("days_open") or 0) > sla
 
+    # For renewal issues, include timeline milestone data
+    timeline_milestones = []
+    if issue.get("is_renewal_issue"):
+        policy_uid = issue.get("policy_uid")
+        if policy_uid:
+            timeline_milestones = [dict(r) for r in conn.execute("""
+                SELECT milestone_name, ideal_date, projected_date, completed_date,
+                       health, accountability, waiting_on
+                FROM policy_timeline
+                WHERE policy_uid = ?
+                ORDER BY ideal_date
+            """, (policy_uid,)).fetchall()]
+        elif issue.get("program_id"):
+            # Program-level: aggregate child policy milestones
+            timeline_milestones = [dict(r) for r in conn.execute("""
+                SELECT pt.milestone_name, pt.ideal_date, pt.projected_date,
+                       pt.completed_date, pt.health, pt.accountability, pt.waiting_on
+                FROM policy_timeline pt
+                JOIN policies p ON p.policy_uid = pt.policy_uid
+                WHERE p.program_id = ?
+                ORDER BY pt.ideal_date
+            """, (issue["program_id"],)).fetchall()]
+
     ctx = {
         "request": request,
         "active": "action-center",
@@ -417,6 +470,7 @@ def issue_detail(
         "issue_root_cause_categories": cfg.get("issue_root_cause_categories", []),
         "activity_types": cfg.get("activity_types", []),
         "follow_up_dispositions": cfg.get("follow_up_dispositions", []),
+        "timeline_milestones": timeline_milestones,
     }
     return templates.TemplateResponse("issues/detail.html", ctx)
 
@@ -540,3 +594,214 @@ def convert_followup_to_issue(
     conn.commit()
 
     return RedirectResponse(f"/issues/{uid}", status_code=303)
+
+
+# ── Delete issue ────────────────────────────────────────────────────────────
+
+
+@router.delete("/issues/{issue_id}", response_class=HTMLResponse)
+def delete_issue(
+    issue_id: int,
+    request: Request,
+    redirect: str = Query(""),
+    conn=Depends(get_db),
+):
+    """Hard-delete an issue. Unlinks child activities first."""
+    issue = conn.execute(
+        "SELECT id FROM activity_log WHERE id = ? AND item_kind = 'issue'",
+        (issue_id,),
+    ).fetchone()
+    if not issue:
+        return HTMLResponse("<p>Issue not found.</p>", status_code=404)
+
+    # Unlink child activities
+    conn.execute("UPDATE activity_log SET issue_id = NULL WHERE issue_id = ?", (issue_id,))
+    # Delete the issue row
+    conn.execute("DELETE FROM activity_log WHERE id = ? AND item_kind = 'issue'", (issue_id,))
+    conn.commit()
+
+    # If called from detail page (hx-target=body), redirect to issues list
+    if request.headers.get("hx-target") == "body":
+        return RedirectResponse("/action-center?tab=issues", status_code=303)
+
+    # Return refreshed issues tab (called from list row)
+    from policydb.web.routes.action_center import _issues_ctx
+    ctx = _issues_ctx(conn)
+    ctx["request"] = request
+    return templates.TemplateResponse("action_center/_issues.html", ctx)
+
+
+# ── Merge issues ────────────────────────────────────────────────────────────
+
+
+@router.post("/issues/{target_id}/merge", response_class=HTMLResponse)
+def merge_issues(
+    target_id: int,
+    request: Request,
+    source_ids: str = Form(""),
+    conn=Depends(get_db),
+):
+    """Merge source issues into a target issue. Relinks activities, closes sources."""
+    target = conn.execute(
+        "SELECT id, issue_uid FROM activity_log WHERE id = ? AND item_kind = 'issue'",
+        (target_id,),
+    ).fetchone()
+    if not target:
+        return HTMLResponse("<p>Target issue not found.</p>", status_code=404)
+
+    parsed_ids = []
+    for v in source_ids.split(","):
+        v = v.strip()
+        if v.isdigit():
+            parsed_ids.append(int(v))
+
+    today = date.today().isoformat()
+    for src_id in parsed_ids:
+        if src_id == target_id:
+            continue
+        # Relink child activities to target
+        conn.execute(
+            "UPDATE activity_log SET issue_id = ? WHERE issue_id = ?",
+            (target_id, src_id),
+        )
+        # Close source issue as merged
+        conn.execute("""
+            UPDATE activity_log
+            SET issue_status = 'Closed',
+                resolution_type = 'Duplicate',
+                resolution_notes = 'Merged into ' || (SELECT issue_uid FROM activity_log WHERE id = ?),
+                resolved_date = ?,
+                merged_into_id = ?
+            WHERE id = ? AND item_kind = 'issue'
+        """, (target_id, today, target_id, src_id))
+
+    conn.commit()
+    return RedirectResponse(f"/issues/{target['issue_uid']}", status_code=303)
+
+
+# ── Mergeable issues for a target ───────────────────────────────────────────
+
+
+@router.get("/issues/{issue_id}/mergeable", response_class=HTMLResponse)
+def mergeable_issues(
+    issue_id: int,
+    request: Request,
+    conn=Depends(get_db),
+):
+    """Return other open issues for the same client that can be merged into this one."""
+    issue = conn.execute(
+        "SELECT client_id FROM activity_log WHERE id = ? AND item_kind = 'issue'",
+        (issue_id,),
+    ).fetchone()
+    if not issue:
+        return HTMLResponse("")
+
+    rows = conn.execute("""
+        SELECT id, issue_uid, subject, issue_severity, issue_status, is_renewal_issue,
+               CAST(julianday('now') - julianday(activity_date) AS INTEGER) AS days_open,
+               (SELECT COUNT(*) FROM activity_log sub WHERE sub.issue_id = a.id) AS activity_count
+        FROM activity_log a
+        WHERE a.item_kind = 'issue'
+          AND a.issue_id IS NULL
+          AND a.client_id = ?
+          AND a.id != ?
+          AND (a.issue_status IS NULL OR a.issue_status NOT IN ('Closed'))
+        ORDER BY a.activity_date DESC
+    """, (issue["client_id"], issue_id)).fetchall()
+
+    issues = [dict(r) for r in rows]
+    return templates.TemplateResponse(
+        "issues/_merge_slideover.html",
+        {"request": request, "issues": issues, "target_id": issue_id},
+    )
+
+
+# ── Bulk delete ─────────────────────────────────────────────────────────────
+
+
+@router.post("/issues/bulk-delete", response_class=HTMLResponse)
+def bulk_delete_issues(
+    request: Request,
+    issue_ids: str = Form(""),
+    conn=Depends(get_db),
+):
+    """Bulk-delete selected issues. Unlinks child activities."""
+    parsed_ids = [int(v.strip()) for v in issue_ids.split(",") if v.strip().isdigit()]
+    for issue_id in parsed_ids:
+        conn.execute("UPDATE activity_log SET issue_id = NULL WHERE issue_id = ?", (issue_id,))
+        conn.execute("DELETE FROM activity_log WHERE id = ? AND item_kind = 'issue'", (issue_id,))
+    conn.commit()
+
+    from policydb.web.routes.action_center import _issues_ctx
+    ctx = _issues_ctx(conn)
+    ctx["request"] = request
+    return templates.TemplateResponse("action_center/_issues.html", ctx)
+
+
+# ── Bulk resolve ────────────────────────────────────────────────────────────
+
+
+@router.post("/issues/bulk-resolve", response_class=HTMLResponse)
+def bulk_resolve_issues(
+    request: Request,
+    issue_ids: str = Form(""),
+    resolution_type: str = Form("Completed"),
+    conn=Depends(get_db),
+):
+    """Bulk-resolve selected issues."""
+    parsed_ids = [int(v.strip()) for v in issue_ids.split(",") if v.strip().isdigit()]
+    today = date.today().isoformat()
+    for issue_id in parsed_ids:
+        conn.execute("""
+            UPDATE activity_log
+            SET issue_status = 'Resolved', resolution_type = ?, resolved_date = ?
+            WHERE id = ? AND item_kind = 'issue'
+        """, (resolution_type, today, issue_id))
+    conn.commit()
+
+    from policydb.web.routes.action_center import _issues_ctx
+    ctx = _issues_ctx(conn)
+    ctx["request"] = request
+    return templates.TemplateResponse("action_center/_issues.html", ctx)
+
+
+# ── Bulk status update ──────────────────────────────────────────────────────
+
+
+@router.post("/issues/bulk-status", response_class=HTMLResponse)
+def bulk_status_issues(
+    request: Request,
+    issue_ids: str = Form(""),
+    status: str = Form(""),
+    conn=Depends(get_db),
+):
+    """Bulk-update status for selected issues."""
+    parsed_ids = [int(v.strip()) for v in issue_ids.split(",") if v.strip().isdigit()]
+    if not status or not parsed_ids:
+        from policydb.web.routes.action_center import _issues_ctx
+        ctx = _issues_ctx(conn)
+        ctx["request"] = request
+        return templates.TemplateResponse("action_center/_issues.html", ctx)
+
+    placeholders = ",".join("?" * len(parsed_ids))
+    conn.execute(
+        f"UPDATE activity_log SET issue_status = ? WHERE id IN ({placeholders}) AND item_kind = 'issue'",
+        [status] + parsed_ids,
+    )
+    conn.commit()
+
+    from policydb.web.routes.action_center import _issues_ctx
+    ctx = _issues_ctx(conn)
+    ctx["request"] = request
+    return templates.TemplateResponse("action_center/_issues.html", ctx)
+
+
+# ── Refresh renewal issue titles ────────────────────────────────────────────
+
+
+@router.post("/issues/refresh-titles")
+def refresh_titles(conn=Depends(get_db)):
+    """Recompute all renewal issue titles from current data."""
+    from policydb.renewal_issues import refresh_renewal_titles
+    count = refresh_renewal_titles(conn)
+    return {"ok": True, "updated": count}

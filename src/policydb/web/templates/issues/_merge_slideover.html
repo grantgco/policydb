@@ -1,0 +1,56 @@
+{# Merge issues slideover — loaded into merge panel on issue detail page #}
+{% if issues %}
+<form hx-post="/issues/{{ target_id }}/merge" hx-target="body" class="space-y-3">
+  <input type="hidden" name="source_ids" id="merge-source-ids" value="">
+  <p class="text-xs text-gray-500 mb-2">Select issues to merge into this one. Their activities will be moved here and they will be closed as duplicates.</p>
+
+  <div class="space-y-1.5 max-h-80 overflow-y-auto">
+    {% for iss in issues %}
+    <label class="flex items-center gap-2.5 p-2.5 rounded-lg border border-gray-200 hover:bg-gray-50 cursor-pointer">
+      <input type="checkbox" class="merge-source-check rounded border-gray-300 text-marsh focus:ring-marsh"
+             value="{{ iss.id }}" onchange="updateMergeSelection()">
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center gap-1.5">
+          <span class="text-sm text-gray-900 truncate">{{ iss.subject }}</span>
+          {% if iss.is_renewal_issue %}
+          <span class="text-[9px] bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full px-1 py-0">Renewal</span>
+          {% endif %}
+        </div>
+        <div class="flex items-center gap-2 text-[11px] text-gray-400 mt-0.5">
+          <span>{{ iss.issue_uid }}</span>
+          <span>{{ iss.issue_status or 'Open' }}</span>
+          {% if iss.activity_count %}<span>{{ iss.activity_count }} activities</span>{% endif %}
+          <span>{{ iss.days_open|int }}d old</span>
+        </div>
+      </div>
+      {% set sev = iss.issue_severity or 'Normal' %}
+      <span class="w-2 h-2 rounded-full flex-shrink-0
+        {% if sev == 'Critical' %}bg-red-500
+        {% elif sev == 'High' %}bg-amber-500
+        {% elif sev == 'Normal' %}bg-blue-500
+        {% else %}bg-gray-400{% endif %}"></span>
+    </label>
+    {% endfor %}
+  </div>
+
+  <div class="flex items-center justify-between pt-2 border-t border-gray-100">
+    <span class="text-xs text-gray-500" id="merge-count">0 selected</span>
+    <button type="submit" id="merge-submit-btn" disabled
+            class="text-sm bg-marsh text-white rounded px-4 py-1.5 hover:bg-marsh-light disabled:opacity-40 disabled:cursor-not-allowed">
+      Merge Selected
+    </button>
+  </div>
+</form>
+{% else %}
+<p class="text-sm text-gray-500 py-4 text-center">No other open issues for this client to merge.</p>
+{% endif %}
+
+<script>
+function updateMergeSelection() {
+  var checks = document.querySelectorAll('.merge-source-check:checked');
+  var ids = Array.from(checks).map(function(c) { return c.value; }).join(',');
+  document.getElementById('merge-source-ids').value = ids;
+  document.getElementById('merge-count').textContent = checks.length + ' selected';
+  document.getElementById('merge-submit-btn').disabled = checks.length === 0;
+}
+</script>
