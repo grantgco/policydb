@@ -1539,6 +1539,20 @@ def _ai_import_parse_inner(request: Request, conn, uid: str, result: dict):
             _tower_layers.append(dict(tr) | {"ground_up": ground_up, "is_current": tr["policy_uid"] == uid})
 
     logger.debug("AI import parse inner: rendering _tab_details.html template")
+
+    # Follow-up date contextual badge
+    follow_up_delta = None
+    follow_up_overdue = False
+    if merged.get("follow_up_date"):
+        try:
+            fu = date.fromisoformat(merged["follow_up_date"])
+            follow_up_delta = (fu - date.today()).days
+            follow_up_overdue = follow_up_delta < 0
+        except (ValueError, TypeError):
+            pass
+
+    _exp_ctx = _exposure_card_context(conn, merged)
+
     html = templates.TemplateResponse("policies/_tab_details.html", {
         "request": request,
         "policy": merged,
@@ -1551,6 +1565,9 @@ def _ai_import_parse_inner(request: Request, conn, uid: str, result: dict):
         "tower_layers": _tower_layers,
         "cycle_labels": _RCL,
         "sub_coverages": _get_sub_coverages(conn, merged["id"]),
+        "follow_up_delta": follow_up_delta,
+        "follow_up_overdue": follow_up_overdue,
+        **_exp_ctx,
         "program_linked_policies": [],
         "linkable_policies": [],
         "program_carrier_rows": [],
@@ -2164,7 +2181,7 @@ def policy_tab_details(request: Request, policy_uid: str, conn=Depends(get_db)):
 @router.get("/{policy_uid}/tab/activity", response_class=HTMLResponse)
 def policy_tab_activity(request: Request, policy_uid: str, conn=Depends(get_db)):
     uid = policy_uid.upper()
-    policy_dict, _ = _policy_base(conn, uid)
+    policy_dict, _client_info = _policy_base(conn, uid)
     if not policy_dict:
         return HTMLResponse("Not found", status_code=404)
 
@@ -2267,6 +2284,9 @@ def policy_tab_activity(request: Request, policy_uid: str, conn=Depends(get_db))
         "dispositions": cfg.get("follow_up_dispositions", []),
         "linked_meetings": linked_meetings,
         "linked_decisions": linked_decisions,
+        "client": _client_info,
+        "issue_severities": cfg.get("issue_severities", []),
+        "all_clients": [{"id": _client_info["id"], "name": _client_info["name"]}],
     })
 
 
@@ -2529,6 +2549,8 @@ def policy_tab_pulse(
         "mailto_subject": _renew_mailto_subject(conn, policy_uid),
         "today": _today.isoformat(),
         "days_since_review": days_since_review,
+        "issue_severities": cfg.get("issue_severities", []),
+        "all_clients": [{"id": client_info["id"], "name": client_info["name"]}],
     })
 
 
