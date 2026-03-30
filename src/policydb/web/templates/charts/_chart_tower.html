@@ -8,10 +8,14 @@
 #}
 {% from "charts/_chart_base.html" import chart_frame %}
 {% if tower_incomplete is defined and tower_incomplete %}
-<div class="bg-amber-50 border border-amber-200 rounded-lg px-4 py-2 mb-2 flex items-center justify-between">
-  <span class="text-xs text-amber-700">Program data is incomplete — some layers may be missing from the schematic.</span>
-  <a href="/clients/{{ client_id }}/programs/{{ tower_incomplete | urlencode }}" target="_blank"
-     class="text-xs text-marsh hover:underline font-medium">Set up program &rarr;</a>
+<div id="tower-incomplete-banner" class="bg-amber-50 border border-amber-200 rounded-lg px-4 py-2 mb-2 flex items-center justify-between no-print">
+  <div class="flex items-center gap-2">
+    <span class="text-xs text-amber-700">Program data is incomplete{% if tower_missing is defined and tower_missing %}: {{ tower_missing | join(', ') }}{% endif %}</span>
+    <a href="/clients/{{ client_id }}/programs/{{ tower_incomplete | urlencode }}" target="_blank"
+       class="text-xs text-marsh hover:underline font-medium">Set up program &rarr;</a>
+  </div>
+  <button type="button" onclick="this.closest('#tower-incomplete-banner').remove()"
+    class="text-amber-400 hover:text-amber-600 text-sm leading-none ml-2">&times;</button>
 </div>
 {% endif %}
 {% call(area_id) chart_frame("Program Structure", "Tower / layer diagram") %}
@@ -197,9 +201,11 @@
         var blockTop;
         if (u.is_statutory) {
           // Statutory (WC): taller than everything else in the group
-          // Block ends below the arrows — arrows sit on top
-          blockTop = tallestTopY - 20 - ARROW_H;
-          if (blockTop > towerBottom - MIN_BLOCK_H - ARROW_H) blockTop = towerBottom - MIN_BLOCK_H - ARROW_H;
+          // Leave room above for the arrow chevrons
+          blockTop = tallestTopY - 20;
+          if (blockTop > towerBottom - MIN_BLOCK_H) blockTop = towerBottom - MIN_BLOCK_H;
+          // Clamp so arrows (above block) stay within visible area
+          if (blockTop - ARROW_H < towerTop) blockTop = towerTop + ARROW_H;
         } else {
           blockTop = valToY(lim);
           if (blockBottom - blockTop < MIN_BLOCK_H) blockTop = blockBottom - MIN_BLOCK_H;

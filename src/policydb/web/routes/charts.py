@@ -483,12 +483,14 @@ async def deck_view(
 
     # Check tower completeness for warning banner
     tower_incomplete = None
+    tower_missing = []
     if any(cid.startswith("tower") for cid in selected_charts):
         from policydb.queries import get_schematic_completeness
         completeness = get_schematic_completeness(conn, client_id)
         for c in completeness:
             if c["pct_complete"] < 80:
                 tower_incomplete = c["tower_group"]
+                tower_missing = c.get("missing_fields", [])[:5]  # show up to 5
                 break
 
     return templates.TemplateResponse(
@@ -502,6 +504,7 @@ async def deck_view(
             "chart_titles": chart_titles,
             "chart_types": chart_types,
             "tower_incomplete": tower_incomplete,
+            "tower_missing": tower_missing,
         },
     )
 
