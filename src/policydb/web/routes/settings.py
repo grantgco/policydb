@@ -54,6 +54,7 @@ EDITABLE_LISTS: dict[str, str] = {
     "issue_root_cause_categories": "Issue Root Cause Categories",
     "account_priority_options": "Account Priority Options",
     "service_model_options": "Service Model Options",
+    "kb_categories": "KB Categories",
 }
 
 TAB_LISTS: dict[str, dict[str, str]] = {
@@ -107,6 +108,7 @@ TAB_LISTS: dict[str, dict[str, str]] = {
     "database": {
         "project_stages": "Project Stages",
         "project_types": "Project Types",
+        "kb_categories": "KB Categories",
     },
     "data-health": {},
     "anomalies": {},

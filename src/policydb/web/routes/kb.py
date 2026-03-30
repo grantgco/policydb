@@ -1,0 +1,791 @@
+"""Knowledge Base routes — articles, documents, attachments, record links."""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+import re
+import shutil
+from pathlib import Path
+
+from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
+
+import policydb.config as cfg
+from policydb.db import DB_PATH, next_kb_article_uid, next_kb_document_uid
+from policydb.web.app import get_db, templates
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/kb")
+
+_KB_FILES_DIR = Path.home() / ".policydb" / "files" / "kb" / "docs"
+
+_ALLOWED_EXTENSIONS = {".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx"}
+
+_MIME_MAP = {
+    ".pdf": "application/pdf",
+    ".doc": "application/msword",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".xls": "application/vnd.ms-excel",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".ppt": "application/vnd.ms-powerpoint",
+    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+}
+
+# Max upload size: 50 MB
+_MAX_UPLOAD_BYTES = 50 * 1024 * 1024
+
+# Category color map for templates
+CATEGORY_COLORS = {
+    "Glossary": {"bg": "bg-blue-50", "text": "text-blue-700", "border_hex": "#3b82f6"},
+    "Procedure": {"bg": "bg-green-50", "text": "text-green-700", "border_hex": "#22c55e"},
+    "Coverage": {"bg": "bg-purple-50", "text": "text-purple-700", "border_hex": "#a855f7"},
+    "Carrier Intel": {"bg": "bg-amber-50", "text": "text-amber-700", "border_hex": "#f59e0b"},
+    "Underwriting": {"bg": "bg-teal-50", "text": "text-teal-700", "border_hex": "#14b8a6"},
+    "Claims": {"bg": "bg-red-50", "text": "text-red-700", "border_hex": "#ef4444"},
+    "General": {"bg": "bg-gray-100", "text": "text-gray-600", "border_hex": "#9ca3af"},
+}
+
+_DEFAULT_COLORS = {"bg": "bg-gray-100", "text": "text-gray-600", "border_hex": "#9ca3af"}
+
+
+def _get_colors(category: str) -> dict:
+    return CATEGORY_COLORS.get(category, _DEFAULT_COLORS)
+
+
+def _parse_tags(tags_str: str | None) -> list[str]:
+    if not tags_str:
+        return []
+    try:
+        return json.loads(tags_str)
+    except (json.JSONDecodeError, TypeError):
+        return []
+
+
+def _sanitize_filename(name: str, max_len: int = 100) -> str:
+    name = re.sub(r'[/\\:*?"<>|]', '_', name)
+    name = re.sub(r'\s+', '_', name).strip('_')
+    if len(name) > max_len:
+        base, ext = os.path.splitext(name)
+        name = base[:max_len - len(ext)] + ext
+    return name
+
+
+def _file_type_info(mime_type: str, filename: str) -> dict:
+    ext = os.path.splitext(filename)[1].lower()
+    if ext == ".pdf":
+        return {"icon": "pdf", "color": "text-red-500", "label": "PDF"}
+    elif ext in (".doc", ".docx"):
+        return {"icon": "word", "color": "text-blue-500", "label": "Word"}
+    elif ext in (".xls", ".xlsx"):
+        return {"icon": "excel", "color": "text-green-600", "label": "Excel"}
+    elif ext in (".ppt", ".pptx"):
+        return {"icon": "ppt", "color": "text-orange-500", "label": "PowerPoint"}
+    return {"icon": "file", "color": "text-gray-500", "label": "File"}
+
+
+def _format_file_size(size_bytes: int) -> str:
+    if size_bytes < 1024:
+        return f"{size_bytes} B"
+    elif size_bytes < 1024 * 1024:
+        return f"{size_bytes / 1024:.1f} KB"
+    else:
+        return f"{size_bytes / (1024 * 1024):.1f} MB"
+
+
+# ── Index ────────────────────────────────────────────────────────────────────
+
+@router.get("", response_class=HTMLResponse)
+async def kb_index(request: Request, conn=Depends(get_db)):
+    categories = cfg.get("kb_categories", [])
+    articles = conn.execute(
+        "SELECT * FROM kb_articles ORDER BY updated_at DESC"
+    ).fetchall()
+    documents = conn.execute(
+        "SELECT * FROM kb_documents ORDER BY updated_at DESC"
+    ).fetchall()
+
+    # Merge into unified list with type marker
+    entries = []
+    for a in articles:
+        d = dict(a)
+        d["entry_type"] = "article"
+        d["tags_list"] = _parse_tags(d.get("tags"))
+        d["colors"] = _get_colors(d["category"])
+        entries.append(d)
+    for doc in documents:
+        d = dict(doc)
+        d["entry_type"] = "document"
+        d["tags_list"] = _parse_tags(d.get("tags"))
+        d["colors"] = _get_colors(d["category"])
+        d["file_info"] = _file_type_info(d["mime_type"], d["filename"])
+        d["file_size_fmt"] = _format_file_size(d["file_size"])
+        entries.append(d)
+
+    entries.sort(key=lambda e: e.get("updated_at", ""), reverse=True)
+
+    return templates.TemplateResponse("kb/index.html", {
+        "request": request,
+        "entries": entries,
+        "categories": categories,
+        "category_colors": CATEGORY_COLORS,
+        "active": "kb",
+        "total_articles": len(articles),
+        "total_documents": len(documents),
+    })
+
+
+@router.get("/search", response_class=HTMLResponse)
+async def kb_search(
+    request: Request,
+    q: str = Query(""),
+    category: str = Query(""),
+    entry_type: str = Query(""),
+    conn=Depends(get_db),
+):
+    pattern = f"%{q}%"
+    entries = []
+
+    if entry_type != "document":
+        where = "WHERE (title LIKE ? OR content LIKE ? OR tags LIKE ?)"
+        params = [pattern, pattern, pattern]
+        if category:
+            where += " AND category = ?"
+            params.append(category)
+        articles = conn.execute(
+            f"SELECT * FROM kb_articles {where} ORDER BY updated_at DESC",
+            params,
+        ).fetchall()
+        for a in articles:
+            d = dict(a)
+            d["entry_type"] = "article"
+            d["tags_list"] = _parse_tags(d.get("tags"))
+            d["colors"] = _get_colors(d["category"])
+            entries.append(d)
+
+    if entry_type != "article":
+        where = "WHERE (title LIKE ? OR description LIKE ? OR filename LIKE ? OR tags LIKE ?)"
+        params = [pattern, pattern, pattern, pattern]
+        if category:
+            where += " AND category = ?"
+            params.append(category)
+        documents = conn.execute(
+            f"SELECT * FROM kb_documents {where} ORDER BY updated_at DESC",
+            params,
+        ).fetchall()
+        for doc in documents:
+            d = dict(doc)
+            d["entry_type"] = "document"
+            d["tags_list"] = _parse_tags(d.get("tags"))
+            d["colors"] = _get_colors(d["category"])
+            d["file_info"] = _file_type_info(d["mime_type"], d["filename"])
+            d["file_size_fmt"] = _format_file_size(d["file_size"])
+            entries.append(d)
+
+    entries.sort(key=lambda e: e.get("updated_at", ""), reverse=True)
+
+    return templates.TemplateResponse("kb/_search_results.html", {
+        "request": request,
+        "entries": entries,
+        "category_colors": CATEGORY_COLORS,
+    })
+
+
+# ── Articles CRUD ────────────────────────────────────────────────────────────
+
+@router.get("/articles/new", response_class=HTMLResponse)
+async def new_article_form(request: Request, conn=Depends(get_db)):
+    categories = cfg.get("kb_categories", [])
+    return templates.TemplateResponse("kb/article_new.html", {
+        "request": request,
+        "categories": categories,
+        "active": "kb",
+    })
+
+
+@router.post("/articles/new")
+async def create_article(
+    request: Request,
+    title: str = Form(""),
+    category: str = Form("General"),
+    content: str = Form(""),
+    source: str = Form("authored"),
+    conn=Depends(get_db),
+):
+    uid = next_kb_article_uid(conn)
+    conn.execute(
+        "INSERT INTO kb_articles (uid, title, category, content, source, tags) VALUES (?, ?, ?, ?, ?, ?)",
+        (uid, title or "Untitled", category, content, source, "[]"),
+    )
+    conn.commit()
+    logger.info("KB article created: %s — %s", uid, title)
+    return RedirectResponse(f"/kb/articles/{uid}", status_code=303)
+
+
+@router.get("/articles/{uid}", response_class=HTMLResponse)
+async def article_detail(request: Request, uid: str, conn=Depends(get_db)):
+    article = conn.execute("SELECT * FROM kb_articles WHERE uid = ?", (uid,)).fetchone()
+    if not article:
+        return RedirectResponse("/kb", status_code=303)
+
+    article = dict(article)
+    article["tags_list"] = _parse_tags(article.get("tags"))
+    article["colors"] = _get_colors(article["category"])
+
+    # Attachments
+    attachments = conn.execute("""
+        SELECT d.*, ka.id as attach_id FROM kb_attachments ka
+        JOIN kb_documents d ON d.id = ka.document_id
+        WHERE ka.article_id = ?
+        ORDER BY ka.sort_order, ka.added_at
+    """, (article["id"],)).fetchall()
+    attach_list = []
+    for att in attachments:
+        d = dict(att)
+        d["file_info"] = _file_type_info(d["mime_type"], d["filename"])
+        d["file_size_fmt"] = _format_file_size(d["file_size"])
+        attach_list.append(d)
+
+    # Record links
+    record_links = _get_record_links(conn, "article", article["id"])
+
+    categories = cfg.get("kb_categories", [])
+
+    return templates.TemplateResponse("kb/article.html", {
+        "request": request,
+        "article": article,
+        "attachments": attach_list,
+        "record_links": record_links,
+        "categories": categories,
+        "category_colors": CATEGORY_COLORS,
+        "active": "kb",
+    })
+
+
+@router.post("/articles/{uid}/field")
+async def article_save_field(
+    request: Request,
+    uid: str,
+    conn=Depends(get_db),
+):
+    form = await request.form()
+    field = form.get("field", "")
+    value = form.get("value", "")
+
+    allowed = {"title", "category", "content", "source"}
+    if field not in allowed:
+        return JSONResponse({"ok": False, "error": "Invalid field"})
+
+    conn.execute(f"UPDATE kb_articles SET {field} = ? WHERE uid = ?", (value, uid))
+    conn.commit()
+    return JSONResponse({"ok": True, "formatted": value})
+
+
+@router.post("/articles/{uid}/tags")
+async def article_update_tags(
+    request: Request,
+    uid: str,
+    action: str = Form("add"),
+    tag: str = Form(""),
+    conn=Depends(get_db),
+):
+    article = conn.execute("SELECT id, tags FROM kb_articles WHERE uid = ?", (uid,)).fetchone()
+    if not article:
+        return JSONResponse({"ok": False})
+
+    tags = _parse_tags(article["tags"])
+    tag = tag.strip().lower()
+    if not tag:
+        return JSONResponse({"ok": False})
+
+    if action == "add" and tag not in tags:
+        tags.append(tag)
+    elif action == "remove" and tag in tags:
+        tags.remove(tag)
+
+    conn.execute("UPDATE kb_articles SET tags = ? WHERE uid = ?", (json.dumps(tags), uid))
+    conn.commit()
+
+    article_dict = dict(article)
+    article_dict["tags_list"] = tags
+    return templates.TemplateResponse("kb/_tags.html", {
+        "request": request,
+        "entry": article_dict,
+        "entry_type": "article",
+        "uid": uid,
+    })
+
+
+@router.post("/articles/{uid}/delete")
+async def delete_article(uid: str, conn=Depends(get_db)):
+    article = conn.execute("SELECT id FROM kb_articles WHERE uid = ?", (uid,)).fetchone()
+    if article:
+        conn.execute("DELETE FROM kb_attachments WHERE article_id = ?", (article["id"],))
+        conn.execute("DELETE FROM kb_record_links WHERE entry_type = 'article' AND entry_id = ?", (article["id"],))
+        conn.execute("DELETE FROM kb_articles WHERE id = ?", (article["id"],))
+        conn.commit()
+        logger.info("KB article deleted: %s", uid)
+    return RedirectResponse("/kb", status_code=303)
+
+
+# ── Documents CRUD ───────────────────────────────────────────────────────────
+
+@router.post("/documents/upload")
+async def upload_document(
+    request: Request,
+    file: UploadFile = File(...),
+    title: str = Form(""),
+    category: str = Form("General"),
+    conn=Depends(get_db),
+):
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    if ext not in _ALLOWED_EXTENSIONS:
+        return RedirectResponse("/kb?error=invalid_type", status_code=303)
+
+    # Read file content
+    content = await file.read()
+    if len(content) > _MAX_UPLOAD_BYTES:
+        return RedirectResponse("/kb?error=too_large", status_code=303)
+
+    uid = next_kb_document_uid(conn)
+    safe_name = _sanitize_filename(file.filename or "document")
+    stored_name = f"{uid}_{safe_name}"
+
+    # Ensure directory exists
+    _KB_FILES_DIR.mkdir(parents=True, exist_ok=True)
+
+    file_path = _KB_FILES_DIR / stored_name
+    with open(file_path, "wb") as f:
+        f.write(content)
+
+    mime_type = _MIME_MAP.get(ext, "application/octet-stream")
+    display_title = title or os.path.splitext(file.filename or "Document")[0]
+
+    conn.execute(
+        "INSERT INTO kb_documents (uid, title, category, filename, file_path, file_size, mime_type, tags) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (uid, display_title, category, file.filename, str(file_path), len(content), mime_type, "[]"),
+    )
+    conn.commit()
+    logger.info("KB document uploaded: %s — %s (%s)", uid, display_title, _format_file_size(len(content)))
+    return RedirectResponse(f"/kb/documents/{uid}", status_code=303)
+
+
+@router.get("/documents/{uid}", response_class=HTMLResponse)
+async def document_detail(request: Request, uid: str, conn=Depends(get_db)):
+    doc = conn.execute("SELECT * FROM kb_documents WHERE uid = ?", (uid,)).fetchone()
+    if not doc:
+        return RedirectResponse("/kb", status_code=303)
+
+    doc = dict(doc)
+    doc["tags_list"] = _parse_tags(doc.get("tags"))
+    doc["colors"] = _get_colors(doc["category"])
+    doc["file_info"] = _file_type_info(doc["mime_type"], doc["filename"])
+    doc["file_size_fmt"] = _format_file_size(doc["file_size"])
+
+    # Articles referencing this document
+    referencing = conn.execute("""
+        SELECT a.* FROM kb_attachments ka
+        JOIN kb_articles a ON a.id = ka.article_id
+        WHERE ka.document_id = ?
+        ORDER BY a.updated_at DESC
+    """, (doc["id"],)).fetchall()
+    referencing_articles = [dict(r) for r in referencing]
+    for r in referencing_articles:
+        r["colors"] = _get_colors(r["category"])
+
+    record_links = _get_record_links(conn, "document", doc["id"])
+    categories = cfg.get("kb_categories", [])
+
+    return templates.TemplateResponse("kb/document.html", {
+        "request": request,
+        "doc": doc,
+        "referencing_articles": referencing_articles,
+        "record_links": record_links,
+        "categories": categories,
+        "category_colors": CATEGORY_COLORS,
+        "active": "kb",
+    })
+
+
+@router.post("/documents/{uid}/field")
+async def document_save_field(
+    request: Request,
+    uid: str,
+    conn=Depends(get_db),
+):
+    form = await request.form()
+    field = form.get("field", "")
+    value = form.get("value", "")
+
+    allowed = {"title", "category", "description"}
+    if field not in allowed:
+        return JSONResponse({"ok": False, "error": "Invalid field"})
+
+    conn.execute(f"UPDATE kb_documents SET {field} = ? WHERE uid = ?", (value, uid))
+    conn.commit()
+    return JSONResponse({"ok": True, "formatted": value})
+
+
+@router.post("/documents/{uid}/tags")
+async def document_update_tags(
+    request: Request,
+    uid: str,
+    action: str = Form("add"),
+    tag: str = Form(""),
+    conn=Depends(get_db),
+):
+    doc = conn.execute("SELECT id, tags FROM kb_documents WHERE uid = ?", (uid,)).fetchone()
+    if not doc:
+        return JSONResponse({"ok": False})
+
+    tags = _parse_tags(doc["tags"])
+    tag = tag.strip().lower()
+    if not tag:
+        return JSONResponse({"ok": False})
+
+    if action == "add" and tag not in tags:
+        tags.append(tag)
+    elif action == "remove" and tag in tags:
+        tags.remove(tag)
+
+    conn.execute("UPDATE kb_documents SET tags = ? WHERE uid = ?", (json.dumps(tags), uid))
+    conn.commit()
+
+    doc_dict = dict(doc)
+    doc_dict["tags_list"] = tags
+    return templates.TemplateResponse("kb/_tags.html", {
+        "request": request,
+        "entry": doc_dict,
+        "entry_type": "document",
+        "uid": uid,
+    })
+
+
+@router.get("/documents/{uid}/download")
+async def document_download(uid: str, conn=Depends(get_db)):
+    doc = conn.execute("SELECT file_path, filename, mime_type FROM kb_documents WHERE uid = ?", (uid,)).fetchone()
+    if not doc:
+        return RedirectResponse("/kb", status_code=303)
+
+    file_path = Path(doc["file_path"])
+    if not file_path.exists():
+        return RedirectResponse("/kb", status_code=303)
+
+    return FileResponse(
+        path=str(file_path),
+        filename=doc["filename"],
+        media_type=doc["mime_type"],
+    )
+
+
+@router.post("/documents/{uid}/delete")
+async def delete_document(uid: str, conn=Depends(get_db)):
+    doc = conn.execute("SELECT id, file_path FROM kb_documents WHERE uid = ?", (uid,)).fetchone()
+    if doc:
+        # Remove file from disk
+        file_path = Path(doc["file_path"])
+        if file_path.exists():
+            file_path.unlink()
+        conn.execute("DELETE FROM kb_attachments WHERE document_id = ?", (doc["id"],))
+        conn.execute("DELETE FROM kb_record_links WHERE entry_type = 'document' AND entry_id = ?", (doc["id"],))
+        conn.execute("DELETE FROM kb_documents WHERE id = ?", (doc["id"],))
+        conn.commit()
+        logger.info("KB document deleted: %s", uid)
+    return RedirectResponse("/kb", status_code=303)
+
+
+# ── Attachments (article ↔ document) ─────────────────────────────────────────
+
+@router.post("/articles/{uid}/attach")
+async def attach_document(
+    request: Request,
+    uid: str,
+    document_id: int = Form(...),
+    conn=Depends(get_db),
+):
+    article = conn.execute("SELECT id FROM kb_articles WHERE uid = ?", (uid,)).fetchone()
+    if not article:
+        return JSONResponse({"ok": False})
+
+    try:
+        conn.execute(
+            "INSERT OR IGNORE INTO kb_attachments (article_id, document_id) VALUES (?, ?)",
+            (article["id"], document_id),
+        )
+        conn.commit()
+    except Exception:
+        pass
+
+    return await _render_attachments_partial(request, conn, uid, article["id"])
+
+
+@router.post("/articles/{uid}/upload-attach")
+async def upload_and_attach(
+    request: Request,
+    uid: str,
+    file: UploadFile = File(...),
+    category: str = Form("General"),
+    conn=Depends(get_db),
+):
+    article = conn.execute("SELECT id FROM kb_articles WHERE uid = ?", (uid,)).fetchone()
+    if not article:
+        return JSONResponse({"ok": False})
+
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    if ext not in _ALLOWED_EXTENSIONS:
+        return JSONResponse({"ok": False, "error": "Invalid file type"})
+
+    content = await file.read()
+    if len(content) > _MAX_UPLOAD_BYTES:
+        return JSONResponse({"ok": False, "error": "File too large"})
+
+    doc_uid = next_kb_document_uid(conn)
+    safe_name = _sanitize_filename(file.filename or "document")
+    stored_name = f"{doc_uid}_{safe_name}"
+    _KB_FILES_DIR.mkdir(parents=True, exist_ok=True)
+
+    file_path = _KB_FILES_DIR / stored_name
+    with open(file_path, "wb") as f:
+        f.write(content)
+
+    mime_type = _MIME_MAP.get(ext, "application/octet-stream")
+    display_title = os.path.splitext(file.filename or "Document")[0]
+
+    conn.execute(
+        "INSERT INTO kb_documents (uid, title, category, filename, file_path, file_size, mime_type, tags) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (doc_uid, display_title, category, file.filename, str(file_path), len(content), mime_type, "[]"),
+    )
+    doc_row = conn.execute("SELECT id FROM kb_documents WHERE uid = ?", (doc_uid,)).fetchone()
+    conn.execute(
+        "INSERT OR IGNORE INTO kb_attachments (article_id, document_id) VALUES (?, ?)",
+        (article["id"], doc_row["id"]),
+    )
+    conn.commit()
+
+    return await _render_attachments_partial(request, conn, uid, article["id"])
+
+
+@router.post("/articles/{uid}/detach")
+async def detach_document(
+    request: Request,
+    uid: str,
+    document_id: int = Form(...),
+    conn=Depends(get_db),
+):
+    article = conn.execute("SELECT id FROM kb_articles WHERE uid = ?", (uid,)).fetchone()
+    if not article:
+        return JSONResponse({"ok": False})
+
+    conn.execute(
+        "DELETE FROM kb_attachments WHERE article_id = ? AND document_id = ?",
+        (article["id"], document_id),
+    )
+    conn.commit()
+
+    return await _render_attachments_partial(request, conn, uid, article["id"])
+
+
+async def _render_attachments_partial(request, conn, uid, article_id):
+    attachments = conn.execute("""
+        SELECT d.*, ka.id as attach_id FROM kb_attachments ka
+        JOIN kb_documents d ON d.id = ka.document_id
+        WHERE ka.article_id = ?
+        ORDER BY ka.sort_order, ka.added_at
+    """, (article_id,)).fetchall()
+    attach_list = []
+    for att in attachments:
+        d = dict(att)
+        d["file_info"] = _file_type_info(d["mime_type"], d["filename"])
+        d["file_size_fmt"] = _format_file_size(d["file_size"])
+        attach_list.append(d)
+
+    return templates.TemplateResponse("kb/_attachments.html", {
+        "request": request,
+        "attachments": attach_list,
+        "uid": uid,
+    })
+
+
+# ── Record Links ─────────────────────────────────────────────────────────────
+
+def _get_record_links(conn, entry_type: str, entry_id: int) -> list[dict]:
+    rows = conn.execute(
+        "SELECT * FROM kb_record_links WHERE entry_type = ? AND entry_id = ?",
+        (entry_type, entry_id),
+    ).fetchall()
+    links = []
+    for r in rows:
+        d = dict(r)
+        if d["entity_type"] == "client":
+            entity = conn.execute("SELECT id, name FROM clients WHERE id = ?", (d["entity_id"],)).fetchone()
+            if entity:
+                d["entity_name"] = entity["name"]
+                d["entity_url"] = f"/clients/{entity['id']}"
+        elif d["entity_type"] == "policy":
+            entity = conn.execute(
+                "SELECT p.id, p.policy_uid, p.policy_type, p.carrier, c.name as client_name "
+                "FROM policies p LEFT JOIN clients c ON c.id = p.client_id "
+                "WHERE p.id = ?", (d["entity_id"],)
+            ).fetchone()
+            if entity:
+                d["entity_name"] = f"{entity['policy_uid']} — {entity['carrier'] or ''} {entity['policy_type'] or ''}"
+                d["entity_url"] = f"/policies/{entity['policy_uid']}"
+        if "entity_name" in d:
+            links.append(d)
+    return links
+
+
+@router.post("/{entry_type}/{uid}/link")
+async def link_record(
+    request: Request,
+    entry_type: str,
+    uid: str,
+    entity_type: str = Form(...),
+    entity_id: int = Form(...),
+    conn=Depends(get_db),
+):
+    if entry_type == "article":
+        row = conn.execute("SELECT id FROM kb_articles WHERE uid = ?", (uid,)).fetchone()
+    else:
+        row = conn.execute("SELECT id FROM kb_documents WHERE uid = ?", (uid,)).fetchone()
+
+    if not row:
+        return JSONResponse({"ok": False})
+
+    try:
+        conn.execute(
+            "INSERT OR IGNORE INTO kb_record_links (entry_type, entry_id, entity_type, entity_id) VALUES (?, ?, ?, ?)",
+            (entry_type, row["id"], entity_type, entity_id),
+        )
+        conn.commit()
+    except Exception:
+        pass
+
+    record_links = _get_record_links(conn, entry_type, row["id"])
+    return templates.TemplateResponse("kb/_record_links_list.html", {
+        "request": request,
+        "record_links": record_links,
+        "entry_type": entry_type,
+        "uid": uid,
+    })
+
+
+@router.post("/{entry_type}/{uid}/unlink")
+async def unlink_record(
+    request: Request,
+    entry_type: str,
+    uid: str,
+    link_id: int = Form(...),
+    conn=Depends(get_db),
+):
+    conn.execute("DELETE FROM kb_record_links WHERE id = ?", (link_id,))
+    conn.commit()
+
+    if entry_type == "article":
+        row = conn.execute("SELECT id FROM kb_articles WHERE uid = ?", (uid,)).fetchone()
+    else:
+        row = conn.execute("SELECT id FROM kb_documents WHERE uid = ?", (uid,)).fetchone()
+
+    if not row:
+        return JSONResponse({"ok": False})
+
+    record_links = _get_record_links(conn, entry_type, row["id"])
+    return templates.TemplateResponse("kb/_record_links_list.html", {
+        "request": request,
+        "record_links": record_links,
+        "entry_type": entry_type,
+        "uid": uid,
+    })
+
+
+@router.get("/search-entities", response_class=HTMLResponse)
+async def search_entities(
+    request: Request,
+    q: str = Query(""),
+    conn=Depends(get_db),
+):
+    pattern = f"%{q}%"
+    clients = conn.execute(
+        "SELECT id, name FROM clients WHERE name LIKE ? ORDER BY name LIMIT 10",
+        (pattern,),
+    ).fetchall()
+    policies = conn.execute(
+        "SELECT p.id, p.policy_uid, p.policy_type, p.carrier, c.name as client_name "
+        "FROM policies p LEFT JOIN clients c ON c.id = p.client_id "
+        "WHERE p.policy_uid LIKE ? OR p.policy_type LIKE ? OR p.carrier LIKE ? OR c.name LIKE ? "
+        "ORDER BY p.policy_uid LIMIT 10",
+        (pattern, pattern, pattern, pattern),
+    ).fetchall()
+
+    return templates.TemplateResponse("kb/_entity_picker.html", {
+        "request": request,
+        "clients": [dict(c) for c in clients],
+        "policies": [dict(p) for p in policies],
+    })
+
+
+# ── KB links for client/policy pages ─────────────────────────────────────────
+
+@router.get("/for-entity/{entity_type}/{entity_id}", response_class=HTMLResponse)
+async def kb_links_for_entity(
+    request: Request,
+    entity_type: str,
+    entity_id: int,
+    conn=Depends(get_db),
+):
+    rows = conn.execute(
+        "SELECT * FROM kb_record_links WHERE entity_type = ? AND entity_id = ?",
+        (entity_type, entity_id),
+    ).fetchall()
+    links = []
+    for r in rows:
+        d = dict(r)
+        if d["entry_type"] == "article":
+            entry = conn.execute("SELECT uid, title, category FROM kb_articles WHERE id = ?", (d["entry_id"],)).fetchone()
+        else:
+            entry = conn.execute("SELECT uid, title, category FROM kb_documents WHERE id = ?", (d["entry_id"],)).fetchone()
+        if entry:
+            d["entry_uid"] = entry["uid"]
+            d["entry_title"] = entry["title"]
+            d["entry_category"] = entry["category"]
+            d["colors"] = _get_colors(entry["category"])
+            d["entry_url"] = f"/kb/{'articles' if d['entry_type'] == 'article' else 'documents'}/{entry['uid']}"
+            links.append(d)
+
+    return templates.TemplateResponse("kb/_entity_kb_links.html", {
+        "request": request,
+        "kb_links": links,
+        "entity_type": entity_type,
+        "entity_id": entity_id,
+    })
+
+
+# ── Document search (for attach picker) ─────────────────────────────────────
+
+@router.get("/search-documents", response_class=HTMLResponse)
+async def search_documents(
+    request: Request,
+    q: str = Query(""),
+    conn=Depends(get_db),
+):
+    pattern = f"%{q}%"
+    documents = conn.execute(
+        "SELECT id, uid, title, filename, mime_type FROM kb_documents "
+        "WHERE title LIKE ? OR filename LIKE ? ORDER BY updated_at DESC LIMIT 10",
+        (pattern, pattern),
+    ).fetchall()
+
+    results = []
+    for doc in documents:
+        d = dict(doc)
+        d["file_info"] = _file_type_info(d["mime_type"], d["filename"])
+        results.append(d)
+
+    return templates.TemplateResponse("kb/_document_picker.html", {
+        "request": request,
+        "documents": results,
+    })

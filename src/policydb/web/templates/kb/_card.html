@@ -1,0 +1,65 @@
+{% set colors = entry.colors %}
+{% set is_doc = entry.entry_type == 'document' %}
+{% set url = '/kb/documents/' ~ entry.uid if is_doc else '/kb/articles/' ~ entry.uid %}
+
+<a href="{{ url }}" class="card block p-4 hover:shadow-md transition-shadow" style="border-left: 4px solid {{ colors.border_hex }}">
+  <!-- Row 1: UID + Title + Category + Timestamp -->
+  <div class="flex items-start gap-2 mb-1.5">
+    {% if is_doc %}
+    <!-- File type icon -->
+    <span class="{{ entry.file_info.color }} mt-0.5">
+      <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+        <path fill-rule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clip-rule="evenodd"/>
+      </svg>
+    </span>
+    {% else %}
+    <!-- Article icon -->
+    <span class="text-marsh mt-0.5">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+      </svg>
+    </span>
+    {% endif %}
+
+    <span class="text-[10px] font-mono bg-gray-100 text-gray-500 rounded px-1.5 py-0.5 flex-shrink-0">{{ entry.uid }}</span>
+
+    <span class="text-gray-900 font-semibold text-sm flex-1 min-w-0 truncate">{{ entry.title }}</span>
+
+    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium {{ colors.bg }} {{ colors.text }} flex-shrink-0">
+      {{ entry.category }}
+    </span>
+
+    {% if is_doc %}
+    <span class="text-[10px] text-gray-400 flex-shrink-0">{{ entry.file_size_fmt }}</span>
+    {% endif %}
+
+    <span class="text-[10px] text-gray-400 flex-shrink-0 whitespace-nowrap">
+      {{ entry.updated_at[:10] if entry.updated_at else '' }}
+    </span>
+  </div>
+
+  <!-- Row 2: Preview text -->
+  {% if is_doc %}
+  <div class="text-xs text-gray-500 ml-6 mb-1.5 truncate">{{ entry.filename }}</div>
+  {% elif entry.content %}
+  <div class="text-xs text-gray-500 ml-6 mb-1.5 line-clamp-2">{{ entry.content[:200] | replace('\n', ' ') | replace('#', '') | truncate(150) }}</div>
+  {% endif %}
+
+  <!-- Row 3: Tags + Source -->
+  {% if entry.tags_list or entry.get('source') %}
+  <div class="flex items-center gap-1.5 ml-6">
+    {% for tag in entry.tags_list[:4] %}
+    <span class="text-[9px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-600 font-medium">{{ tag }}</span>
+    {% endfor %}
+    {% if entry.tags_list | length > 4 %}
+    <span class="text-[9px] text-gray-400">+{{ entry.tags_list | length - 4 }}</span>
+    {% endif %}
+
+    {% if entry.get('source') and entry.source != 'authored' %}
+    <span class="ml-auto text-[9px] px-1.5 py-0.5 rounded-full {% if entry.source == 'llm-assisted' %}bg-blue-50 text-blue-600{% else %}bg-amber-50 text-amber-600{% endif %} font-medium">
+      {{ entry.source }}
+    </span>
+    {% endif %}
+  </div>
+  {% endif %}
+</a>
