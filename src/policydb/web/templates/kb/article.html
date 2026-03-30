@@ -35,14 +35,25 @@
              onblur="saveArticleField(this)">{{ article.title }}</div>
 
         <!-- Category combobox -->
-        <div class="mt-2 flex items-center gap-2">
-          <span class="text-xs text-gray-400">Category:</span>
-          <select class="text-sm border-0 border-b border-gray-200 focus:border-marsh outline-none py-0.5 px-1 {{ article.colors.text }} font-medium bg-transparent"
-                  onchange="saveArticleFieldVal('{{ article.uid }}', 'category', this.value); location.reload();">
-            {% for cat in categories %}
-            <option value="{{ cat }}" {{ 'selected' if cat == article.category else '' }}>{{ cat }}</option>
-            {% endfor %}
-          </select>
+        <div class="mt-2 flex items-center gap-3 flex-wrap">
+          <div class="flex items-center gap-2">
+            <span class="text-xs text-gray-400">Category:</span>
+            <select class="text-sm border-0 border-b border-gray-200 focus:border-marsh outline-none py-0.5 px-1 {{ article.colors.text }} font-medium bg-transparent"
+                    onchange="saveArticleFieldVal('{{ article.uid }}', 'category', this.value); location.reload();">
+              {% for cat in categories %}
+              <option value="{{ cat }}" {{ 'selected' if cat == article.category else '' }}>{{ cat }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="text-xs text-gray-400">Source:</span>
+            <select class="text-sm border-0 border-b border-gray-200 focus:border-marsh outline-none py-0.5 px-1 text-gray-600 font-medium bg-transparent"
+                    onchange="saveArticleFieldVal('{{ article.uid }}', 'source', this.value);">
+              {% for src in sources %}
+              <option value="{{ src | lower | replace(' ', '-') }}" {{ 'selected' if src | lower | replace(' ', '-') == article.source else '' }}>{{ src }}</option>
+              {% endfor %}
+            </select>
+          </div>
         </div>
       </div>
 

@@ -198,9 +198,11 @@ async def kb_search(
 @router.get("/articles/new", response_class=HTMLResponse)
 async def new_article_form(request: Request, conn=Depends(get_db)):
     categories = cfg.get("kb_categories", [])
+    sources = cfg.get("kb_article_sources", [])
     return templates.TemplateResponse("kb/article_new.html", {
         "request": request,
         "categories": categories,
+        "sources": sources,
         "active": "kb",
     })
 
@@ -252,6 +254,7 @@ async def article_detail(request: Request, uid: str, conn=Depends(get_db)):
     record_links = _get_record_links(conn, "article", article["id"])
 
     categories = cfg.get("kb_categories", [])
+    sources = cfg.get("kb_article_sources", [])
 
     return templates.TemplateResponse("kb/article.html", {
         "request": request,
@@ -259,6 +262,7 @@ async def article_detail(request: Request, uid: str, conn=Depends(get_db)):
         "attachments": attach_list,
         "record_links": record_links,
         "categories": categories,
+        "sources": sources,
         "category_colors": CATEGORY_COLORS,
         "active": "kb",
     })
