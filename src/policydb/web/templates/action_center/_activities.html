@@ -236,7 +236,7 @@
               {% with linked_issue_uid=a.linked_issue_uid, linked_issue_subject=a.linked_issue_subject, linked_issue_severity=a.linked_issue_severity %}
                 {% include "_issue_badge.html" %}
               {% endwith %}
-            {% else %}
+            {% elif not a.issue_id %}
               <button type="button"
                 onclick="openIssueCreateSlideover({subject:'{{ a.subject|e }}', client_id:'{{ a.client_id }}', client_name:'{{ (a.client_name or '')|e }}', policy_id:'{{ a.policy_id or '' }}', policy_label:'{{ (a.policy_uid or '')|e }} {{ (a.policy_type or '')|e }}', source_activity_id:'{{ a.id }}', context_label:'Creating from activity', context_subject:'{{ a.subject|e }}', context_detail:'{{ a.activity_date }} &middot; {{ (a.client_name or '')|e }}', link_detail:'{{ a.subject|e }} ({{ a.activity_date }})'})"
                 class="text-[10px] text-blue-600 border border-blue-200 rounded px-2 py-0.5 hover:bg-blue-50 transition-colors whitespace-nowrap">

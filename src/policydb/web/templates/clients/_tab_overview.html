@@ -35,7 +35,12 @@
 
       {# Subject + status #}
       <div class="flex-1 min-w-0">
-        <div class="text-sm font-medium text-gray-900 group-hover:text-marsh truncate">{{ iss.subject or 'Untitled' }}</div>
+        <div class="flex items-center gap-2">
+          <span class="text-sm font-medium text-gray-900 group-hover:text-marsh truncate">{{ iss.subject or 'Untitled' }}</span>
+          <button type="button" onclick="event.preventDefault();event.stopPropagation();copyRefTag(this,'{{ iss.issue_uid }}')"
+            class="inline-flex items-center gap-0.5 text-[10px] font-mono text-gray-400 hover:text-marsh bg-gray-50 border border-gray-200 hover:border-marsh/40 rounded-full px-1.5 py-0.5 cursor-pointer transition-colors whitespace-nowrap no-print flex-shrink-0"
+            title="Click to copy issue ref tag">{{ iss.issue_uid }}</button>
+        </div>
         <div class="text-xs text-gray-500 mt-0.5">
           {% set ist = iss.issue_status or 'Open' %}
           <span class="{% if ist == 'Open' %}text-blue-600{% elif ist == 'In Hand' %}text-purple-600{% elif ist == 'Waiting' %}text-amber-600{% endif %} font-medium">{{ ist }}</span>

@@ -1538,6 +1538,15 @@ def init_db(path: Path | None = None) -> None:
         conn.commit()
         logger.info("Migration 110: added review_override_reason columns")
 
+    if current_version < 111:
+        _run_sql_file(conn, "111_fix_layer_position.sql")
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (111, "Fix invalid layer_position values to Primary"),
+        )
+        conn.commit()
+        logger.info("Migration 111: fixed invalid layer_position values")
+
     # Data hygiene: fix 'None' string corruption in text fields (runs every startup, fast no-op if clean)
     conn.execute("UPDATE clients SET cn_number = NULL WHERE cn_number = 'None'")
 
