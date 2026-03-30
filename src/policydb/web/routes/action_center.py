@@ -620,7 +620,7 @@ def _risk_alerts_ctx(conn) -> dict:
 # ── Issues context ───────────────────────────────────────────────────────────
 
 
-def _issues_ctx(conn, q: str = "", client_id: int = 0, view_mode: str = "board") -> dict:
+def _issues_ctx(conn, q: str = "", client_id: int = 0, view_mode: str = "board", issue_type: str = "") -> dict:
     """Build issues tab context — open and recently resolved issues."""
     today = date.today().isoformat()
     rows = conn.execute("""
@@ -663,6 +663,10 @@ def _issues_ctx(conn, q: str = "", client_id: int = 0, view_mode: str = "board")
                   q_lower in (i.get("subject") or "").lower() or
                   q_lower in (i.get("client_name") or "").lower() or
                   q_lower in (i.get("details") or "").lower()]
+    if issue_type == "renewal":
+        issues = [i for i in issues if i.get("is_renewal_issue")]
+    elif issue_type == "manual":
+        issues = [i for i in issues if not i.get("is_renewal_issue")]
 
     # Bucket into sections
     severities = cfg.get("issue_severities", [])
@@ -717,6 +721,17 @@ def _issues_ctx(conn, q: str = "", client_id: int = 0, view_mode: str = "board")
 
     open_count = len(critical_overdue) + len(active) + len(waiting)
 
+    # SLA breach stats (open issues only)
+    open_issues = critical_overdue + active + waiting
+    sla_breached = [i for i in open_issues if i.get("over_sla")]
+    sla_breach_count = len(sla_breached)
+    oldest_breach_days = 0
+    if sla_breached:
+        oldest_breach_days = max(
+            int((i.get("days_open") or 0) - (i.get("sla_days") or 7))
+            for i in sla_breached
+        )
+
     # All clients for filter dropdown
     all_clients = [dict(r) for r in conn.execute(
         "SELECT id, name FROM clients WHERE archived=0 ORDER BY name"
@@ -731,6 +746,7 @@ def _issues_ctx(conn, q: str = "", client_id: int = 0, view_mode: str = "board")
         "all_clients": all_clients,
         "q": q,
         "client_id": client_id,
+        "issue_type": issue_type,
         "issue_severities": cfg.get("issue_severities", []),
         "issue_lifecycle_states": cfg.get("issue_lifecycle_states", []),
         "view_mode": view_mode or "board",
@@ -738,6 +754,8 @@ def _issues_ctx(conn, q: str = "", client_id: int = 0, view_mode: str = "board")
         "board_in_hand": board_in_hand,
         "board_waiting": board_waiting,
         "board_done": board_done,
+        "sla_breach_count": sla_breach_count,
+        "oldest_breach_days": oldest_breach_days,
     }
 
 
@@ -931,9 +949,10 @@ def ac_issues(
     q: str = "",
     client_id: int = 0,
     view_mode: str = "board",
+    issue_type: str = "",
     conn=Depends(get_db),
 ):
-    ctx = _issues_ctx(conn, q=q, client_id=client_id, view_mode=view_mode)
+    ctx = _issues_ctx(conn, q=q, client_id=client_id, view_mode=view_mode, issue_type=issue_type)
     ctx["request"] = request
     return templates.TemplateResponse("action_center/_issues.html", ctx)
 

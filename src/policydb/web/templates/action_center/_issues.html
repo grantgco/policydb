@@ -1,6 +1,14 @@
 {# Issues tab — Action Center #}
 <div id="issues-tab">
 
+  {# ── SLA breach banner ── #}
+  {% if sla_breach_count %}
+  <div class="bg-red-50 border border-red-200 rounded-lg px-4 py-2.5 mb-4 flex items-center gap-2">
+    <span class="text-red-600 text-sm font-semibold">{{ sla_breach_count }} issue{{ 's' if sla_breach_count != 1 else '' }} past SLA</span>
+    <span class="text-red-500 text-xs">(oldest: {{ oldest_breach_days }}d overdue)</span>
+  </div>
+  {% endif %}
+
   {# ── Filter bar ── #}
   <div class="flex items-center gap-3 mb-4 flex-wrap">
     <input type="search" placeholder="Search issues…"
@@ -10,7 +18,7 @@
            hx-trigger="input changed delay:300ms"
            hx-target="#issues-tab"
            hx-swap="outerHTML"
-           hx-include="#iss-q, #iss-client, #iss-view-mode"
+           hx-include="#iss-q, #iss-client, #iss-view-mode, #iss-type"
            name="q"
            id="iss-q">
     <select name="client_id" id="iss-client"
@@ -19,22 +27,43 @@
             hx-trigger="change"
             hx-target="#issues-tab"
             hx-swap="outerHTML"
-            hx-include="#iss-q, #iss-client, #iss-view-mode">
+            hx-include="#iss-q, #iss-client, #iss-view-mode, #iss-type">
       <option value="0">All clients</option>
       {% for cl in all_clients %}
         <option value="{{ cl.id }}" {% if cl.id == client_id %}selected{% endif %}>{{ cl.name }}</option>
       {% endfor %}
     </select>
 
-    <input type="hidden" name="view_mode" id="iss-view-mode" value="{{ view_mode or 'board' }}">
+    {# Type filter pills #}
+    <div class="flex border border-gray-200 rounded-md overflow-hidden">
+      {% for tp in [('', 'All'), ('renewal', 'Renewal'), ('manual', 'Manual')] %}
+      <button hx-get="/action-center/issues"
+              hx-target="#issues-tab"
+              hx-swap="outerHTML"
+              hx-include="#iss-q, #iss-client, #iss-view-mode"
+              hx-vals='{"issue_type": "{{ tp[0] }}"}'
+              class="text-[11px] px-3 py-1 {% if issue_type == tp[0] %}bg-marsh text-white{% else %}bg-white text-gray-500 hover:bg-gray-50{% endif %} transition-colors {% if not loop.first %}border-l border-gray-200{% endif %}">
+        {{ tp[1] }}
+      </button>
+      {% endfor %}
+    </div>
 
-    {# View toggle #}
+    <input type="hidden" name="view_mode" id="iss-view-mode" value="{{ view_mode or 'board' }}">
+    <input type="hidden" name="issue_type" id="iss-type" value="{{ issue_type or '' }}">
+
+    {# View toggle + actions #}
     <div class="ml-auto flex items-center gap-2">
+      {# Refresh titles button #}
+      <button type="button" onclick="refreshIssueTitles(this)"
+              class="text-xs text-gray-400 hover:text-marsh px-2 py-1" title="Refresh renewal issue titles">
+        &#x21bb; Titles
+      </button>
+
       <div class="flex border border-gray-200 rounded-md overflow-hidden">
         <button hx-get="/action-center/issues"
                 hx-target="#issues-tab"
                 hx-swap="outerHTML"
-                hx-include="#iss-q, #iss-client"
+                hx-include="#iss-q, #iss-client, #iss-type"
                 hx-vals='{"view_mode": "board"}'
                 class="text-[11px] px-3 py-1 {% if view_mode == 'board' %}bg-marsh text-white{% else %}bg-white text-gray-500 hover:bg-gray-50{% endif %} transition-colors">
           Board
@@ -42,7 +71,7 @@
         <button hx-get="/action-center/issues"
                 hx-target="#issues-tab"
                 hx-swap="outerHTML"
-                hx-include="#iss-q, #iss-client"
+                hx-include="#iss-q, #iss-client, #iss-type"
                 hx-vals='{"view_mode": "table"}'
                 class="text-[11px] px-3 py-1 border-l border-gray-200 {% if view_mode == 'table' %}bg-marsh text-white{% else %}bg-white text-gray-500 hover:bg-gray-50{% endif %} transition-colors">
           List
@@ -58,6 +87,24 @@
   {% if view_mode == 'board' %}
     {% include "action_center/_issues_board.html" %}
   {% else %}
+
+  {# ── Bulk toolbar (list view only) ── #}
+  <div id="issue-bulk-toolbar" class="hidden bg-gray-50 border border-gray-200 rounded-lg px-4 py-2.5 mb-3 flex items-center gap-3 flex-wrap">
+    <span class="text-sm font-medium text-gray-700" id="issue-bulk-count">0 selected</span>
+    <button type="button" onclick="issueSelectAll()" class="text-xs text-marsh hover:underline">Select All</button>
+    <button type="button" onclick="issueDeselectAll()" class="text-xs text-gray-500 hover:underline">Deselect All</button>
+    <div class="ml-auto flex items-center gap-2">
+      <select id="issue-bulk-status-select" class="rounded border-gray-300 text-xs px-2 py-1">
+        <option value="">Change Status…</option>
+        {% for state in issue_lifecycle_states %}
+        <option value="{{ state }}">{{ state }}</option>
+        {% endfor %}
+      </select>
+      <button type="button" onclick="issueBulkStatus()" class="text-xs bg-blue-600 text-white rounded px-2.5 py-1 hover:bg-blue-700">Apply</button>
+      <button type="button" onclick="issueBulkResolve()" class="text-xs bg-green-600 text-white rounded px-2.5 py-1 hover:bg-green-700">Resolve Selected</button>
+      <button type="button" onclick="issueBulkDelete()" class="text-xs bg-red-600 text-white rounded px-2.5 py-1 hover:bg-red-700">Delete Selected</button>
+    </div>
+  </div>
 
   {% set total = critical_overdue|length + active_issues|length + waiting_issues|length + recently_resolved|length %}
 
@@ -79,6 +126,7 @@
     </h3>
     <div class="space-y-1">
       {% for issue in critical_overdue %}
+        {% set show_checkbox = true %}
         {% include "action_center/_issue_row.html" %}
       {% endfor %}
     </div>
@@ -94,6 +142,7 @@
     </h3>
     <div class="space-y-1">
       {% for issue in active_issues %}
+        {% set show_checkbox = true %}
         {% include "action_center/_issue_row.html" %}
       {% endfor %}
     </div>
@@ -109,6 +158,7 @@
     </h3>
     <div class="space-y-1">
       {% for issue in waiting_issues %}
+        {% set show_checkbox = true %}
         {% include "action_center/_issue_row.html" %}
       {% endfor %}
     </div>
@@ -124,6 +174,7 @@
     </h3>
     <div class="space-y-1">
       {% for issue in recently_resolved %}
+        {% set show_checkbox = true %}
         {% include "action_center/_issue_row.html" %}
       {% endfor %}
     </div>
@@ -133,3 +184,54 @@
   {% endif %}
   {% endif %}{# end view_mode check #}
 </div>
+
+<script>
+function issueUpdateBulkToolbar() {
+  var checks = document.querySelectorAll('.issue-bulk-check:checked');
+  var toolbar = document.getElementById('issue-bulk-toolbar');
+  var countEl = document.getElementById('issue-bulk-count');
+  if (checks.length > 0) {
+    toolbar.classList.remove('hidden');
+    countEl.textContent = checks.length + ' selected';
+  } else {
+    toolbar.classList.add('hidden');
+  }
+}
+function issueSelectAll() {
+  document.querySelectorAll('.issue-bulk-check').forEach(function(c) { c.checked = true; });
+  issueUpdateBulkToolbar();
+}
+function issueDeselectAll() {
+  document.querySelectorAll('.issue-bulk-check').forEach(function(c) { c.checked = false; });
+  issueUpdateBulkToolbar();
+}
+function issueGetSelectedIds() {
+  return Array.from(document.querySelectorAll('.issue-bulk-check:checked')).map(function(c) { return c.value; }).join(',');
+}
+function issueBulkDelete() {
+  var ids = issueGetSelectedIds();
+  if (!ids) return;
+  if (!confirm('Delete ' + ids.split(',').length + ' issue(s)? This cannot be undone.')) return;
+  htmx.ajax('POST', '/issues/bulk-delete', {target: '#issues-tab', swap: 'outerHTML', values: {issue_ids: ids}});
+}
+function issueBulkResolve() {
+  var ids = issueGetSelectedIds();
+  if (!ids) return;
+  htmx.ajax('POST', '/issues/bulk-resolve', {target: '#issues-tab', swap: 'outerHTML', values: {issue_ids: ids, resolution_type: 'Completed'}});
+}
+function issueBulkStatus() {
+  var ids = issueGetSelectedIds();
+  var status = document.getElementById('issue-bulk-status-select').value;
+  if (!ids || !status) return;
+  htmx.ajax('POST', '/issues/bulk-status', {target: '#issues-tab', swap: 'outerHTML', values: {issue_ids: ids, status: status}});
+}
+function refreshIssueTitles(btn) {
+  var orig = btn.textContent;
+  btn.textContent = '…';
+  fetch('/issues/refresh-titles', {method: 'POST'}).then(function(r) { return r.json(); }).then(function(d) {
+    btn.textContent = d.updated + ' updated';
+    setTimeout(function() { btn.textContent = orig; }, 2000);
+    if (d.updated > 0) htmx.ajax('GET', '/action-center/issues', {target: '#issues-tab', swap: 'outerHTML'});
+  });
+}
+</script>
