@@ -88,6 +88,7 @@
           <th class="px-4 py-2 font-medium">Type</th>
           <th class="px-4 py-2 font-medium">Carrier</th>
           <th class="px-4 py-2 font-medium">Policy #</th>
+          <th class="px-4 py-2 font-medium">Location</th>
           <th class="px-4 py-2 font-medium text-right">Premium</th>
           <th class="px-4 py-2 font-medium text-right">Limit</th>
           <th class="px-4 py-2 font-medium">Term</th>
@@ -104,6 +105,7 @@
           <td class="px-4 py-2.5 text-gray-600">{{ pol.policy_type or '---' }}</td>
           <td class="px-4 py-2.5 text-gray-600">{{ pol.carrier or '---' }}</td>
           <td class="px-4 py-2.5 text-gray-500 text-xs font-mono">{{ pol.policy_number or '---' }}</td>
+          <td class="px-4 py-2.5 text-xs text-gray-500">{{ pol.project_name or '---' }}</td>
           <td class="px-4 py-2.5 text-right font-medium text-gray-900 tabular-nums">{{ pol.premium | currency if pol.premium else '---' }}</td>
           <td class="px-4 py-2.5 text-right text-gray-600 tabular-nums">{{ pol.limit_amount | currency_short if pol.limit_amount else '---' }}</td>
           <td class="px-4 py-2.5 text-xs text-gray-500 whitespace-nowrap">
