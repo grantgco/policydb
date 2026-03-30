@@ -1556,6 +1556,15 @@ def init_db(path: Path | None = None) -> None:
         conn.commit()
         logger.info("Migration 112: created knowledge base tables")
 
+    if 113 not in applied:
+        conn.executescript((_MIGRATIONS_DIR / "113_renewal_issues.sql").read_text())
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (113, "Add renewal issue columns and partial unique index"),
+        )
+        conn.commit()
+        logger.info("Migration 113: added renewal issue columns")
+
     if 114 not in applied:
         existing_cols = {r[1] for r in conn.execute("PRAGMA table_info(programs)").fetchall()}
         if "project_id" not in existing_cols:
@@ -1662,6 +1671,10 @@ def init_db(path: Path | None = None) -> None:
     # Generate policy timelines for all active policies with milestone profiles
     from policydb.timeline_engine import generate_policy_timelines
     generate_policy_timelines(conn)
+
+    # Create/update renewal issues for policies/programs in the renewal window
+    from policydb.renewal_issues import ensure_renewal_issues
+    ensure_renewal_issues(conn)
 
     # Seed default nudge email templates if none exist
     _seed_nudge_templates(conn)

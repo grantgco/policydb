@@ -2605,6 +2605,19 @@ def policy_tab_pulse(
         except (ValueError, TypeError):
             pass
 
+    # Renewal issue for this policy (if any)
+    renewal_issue = conn.execute("""
+        SELECT id, issue_uid, issue_status, issue_severity, is_renewal_issue,
+               julianday(date('now')) - julianday(activity_date) AS days_open,
+               (SELECT COUNT(*) FROM activity_log sub WHERE sub.issue_id = a.id) AS activity_count
+        FROM activity_log a
+        WHERE a.is_renewal_issue = 1
+          AND a.renewal_term_key = ?
+          AND a.issue_status NOT IN ('Resolved', 'Closed')
+        LIMIT 1
+    """, (policy_uid,)).fetchone()
+    renewal_issue = dict(renewal_issue) if renewal_issue else None
+
     return templates.TemplateResponse("policies/_tab_pulse.html", {
         "request": request,
         "policy": dict(p),
@@ -2627,6 +2640,7 @@ def policy_tab_pulse(
         "days_since_review": days_since_review,
         "issue_severities": cfg.get("issue_severities", []),
         "all_clients": [{"id": client_info["id"], "name": client_info["name"]}],
+        "renewal_issue": renewal_issue,
     })
 
 
@@ -3289,6 +3303,10 @@ async def policy_cell_save(request: Request, policy_uid: str, conn=Depends(get_d
         val = value.strip()
         conn.execute("UPDATE policies SET renewal_status = ? WHERE policy_uid = ?", (val or None, uid))
         formatted = val
+        # Auto-resolve renewal issue on terminal status
+        if val in cfg.get("renewal_issue_resolve_statuses", ["Bound"]):
+            from policydb.renewal_issues import auto_resolve_renewal_issue
+            auto_resolve_renewal_issue(conn, policy_uid=uid)
     elif field == "opportunity_status":
         val = value.strip()
         conn.execute("UPDATE policies SET opportunity_status = ? WHERE policy_uid = ?", (val or None, uid))
@@ -3601,6 +3619,13 @@ def policy_update_status(
     )
     conn.commit()
     logger.info("Policy %s status -> %s", uid, status)
+
+    # Auto-resolve renewal issue on terminal status
+    if status in cfg.get("renewal_issue_resolve_statuses", ["Bound"]):
+        from policydb.renewal_issues import auto_resolve_renewal_issue
+        auto_resolve_renewal_issue(conn, policy_uid=uid)
+        conn.commit()
+
     policy = get_policy_by_uid(conn, uid)
     if not policy:
         return HTMLResponse("", status_code=404)

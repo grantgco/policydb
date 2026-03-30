@@ -234,6 +234,49 @@
         </div>
       </div>
 
+      {# Renewal issue: timeline milestones summary #}
+      {% if issue.is_renewal_issue and timeline_milestones %}
+      <div class="card p-4 border-l-4 border-emerald-400">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="text-[10px] text-emerald-800 uppercase tracking-wide font-semibold">Timeline Milestones</span>
+          <span class="inline-flex items-center text-[9px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full px-1.5 py-0.5">Renewal Issue</span>
+        </div>
+        <div class="text-[10px] text-gray-400 mb-2">Severity auto-managed by timeline health</div>
+        <div class="space-y-1.5">
+          {% for ms in timeline_milestones %}
+          {% set h = ms.health or 'on_track' %}
+          <div class="flex items-center gap-2 text-xs">
+            {% if ms.completed_date %}
+              <span class="w-4 h-4 flex items-center justify-center text-green-600">&#10003;</span>
+            {% elif h == 'critical' %}
+              <span class="w-4 h-4 flex items-center justify-center rounded-full bg-red-100 text-red-600 text-[9px] font-bold">!</span>
+            {% elif h == 'at_risk' %}
+              <span class="w-4 h-4 flex items-center justify-center rounded-full bg-amber-100 text-amber-600 text-[9px] font-bold">!</span>
+            {% elif h in ('compressed', 'drifting') %}
+              <span class="w-4 h-4 flex items-center justify-center rounded-full bg-blue-100 text-blue-600 text-[9px]">&bull;</span>
+            {% else %}
+              <span class="w-4 h-4 flex items-center justify-center text-gray-300">&bull;</span>
+            {% endif %}
+            <span class="flex-1 truncate {% if ms.completed_date %}text-gray-400 line-through{% else %}text-gray-700{% endif %}">{{ ms.milestone_name }}</span>
+            <span class="text-[10px] {% if h == 'critical' %}text-red-600 font-semibold{% elif h == 'at_risk' %}text-amber-600{% else %}text-gray-400{% endif %}">
+              {{ (ms.projected_date or ms.ideal_date or '')[5:] | replace('-', '/') }}
+            </span>
+          </div>
+          {% endfor %}
+        </div>
+        {% if issue.policy_uid %}
+        <a href="/policies/{{ issue.policy_uid }}#pulse" class="block text-[10px] text-marsh hover:underline mt-2">View full timeline &rarr;</a>
+        {% endif %}
+      </div>
+      {% elif issue.is_renewal_issue %}
+      <div class="card p-4 border-l-4 border-emerald-400">
+        <div class="flex items-center gap-2 mb-1">
+          <span class="inline-flex items-center text-[9px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full px-1.5 py-0.5">Renewal Issue</span>
+        </div>
+        <div class="text-[10px] text-gray-400">Severity auto-managed by timeline health. Auto-resolves when renewal is bound.</div>
+      </div>
+      {% endif %}
+
       {# Description card (contenteditable) #}
       <div class="card p-4">
         <div class="text-[10px] text-gray-400 uppercase tracking-wide mb-2">Description</div>

@@ -170,6 +170,9 @@ _DEFAULTS: dict[str, Any] = {
     ],
     "renewal_issue_window_days": 120,
     "renewal_issue_health_threshold": "at_risk",
+    "renewal_issue_auto_create": True,
+    "renewal_issue_auto_link": True,
+    "renewal_issue_resolve_statuses": ["Bound"],
     # ── Knowledge Base ────────────────────────────────────────────────
     "kb_categories": [
         "Glossary",
