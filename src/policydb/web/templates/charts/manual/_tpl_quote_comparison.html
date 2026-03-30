@@ -5,17 +5,16 @@
 
 <!-- ═══ Chart Display ═══════════════════════════════════════════════════════ -->
 <div class="manual-chart-page">
-  <div class="manual-chart-wrap" style="display:flex;flex-direction:column;padding:1.5rem 2rem 1rem;">
+  <div class="manual-chart-wrap" style="display:flex;flex-direction:column;padding:24px 32px 16px;">
 
     <!-- Header -->
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:0.5rem;gap:1rem;flex-wrap:wrap;">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;gap:16px;flex-wrap:wrap;">
       <div>
-        <h2 id="chart-title-display" style="font-family:'Noto Serif',serif;font-size:1.5rem;color:#000F47;line-height:1.2;margin:0 0 0.2rem;">
+        <div id="chart-title-display" style="font-family:'Noto Serif',serif;font-size:24px;font-weight:700;color:#000F47;line-height:1.2;margin:0 0 3px;">
           Quote Comparison
-        </h2>
-        <p id="chart-subtitle-display" style="font-size:0.78rem;color:#7B7974;font-weight:400;letter-spacing:0.03em;margin:0;">
-          Placeholder values &mdash; update below
-        </p>
+        </div>
+        <div id="chart-subtitle-display" style="font-size:13px;color:#7B7974;font-weight:400;letter-spacing:0.5px;margin:0;">
+        </div>
       </div>
     </div>
 
@@ -28,7 +27,7 @@
     </div>
 
     <!-- Quote Detail Table -->
-    <div id="chart-table-wrap" style="margin-top:0.35rem;overflow:auto;flex:1;min-height:0;">
+    <div id="chart-table-wrap" style="margin-top:6px;overflow:auto;flex:1;min-height:0;">
       <table id="qc-table" style="width:100%;border-collapse:collapse;font-family:'Noto Sans',sans-serif;font-size:11px;color:#3D3C37;">
         <thead>
           <tr style="border-bottom:2px solid #000F47;">
@@ -124,7 +123,7 @@
              style="flex:1;min-width:200px;border:1px solid var(--mc-border);border-radius:3px;padding:0.38rem 0.6rem;font-family:'Noto Sans',sans-serif;font-size:0.83rem;color:var(--mc-text);background:var(--mc-bg);">
       <input type="text" id="val-subtitle" name="val-subtitle"
              placeholder="Client / risk name"
-             value="Placeholder values — update below"
+             value=""
              style="flex:1;min-width:200px;border:1px solid var(--mc-border);border-radius:3px;padding:0.38rem 0.6rem;font-family:'Noto Sans',sans-serif;font-size:0.83rem;color:var(--mc-text);background:var(--mc-bg);">
     </div>
   </div>
@@ -326,8 +325,8 @@
     var tivMax = Math.max.apply(null, tivs);
     var rateMin = Math.min.apply(null, rates);
     var rateMax = Math.max.apply(null, rates);
-    var tivPad = (tivMax - tivMin) * 0.12 || tivMax * 0.05;
-    var ratePad = (rateMax - rateMin) * 0.15 || rateMax * 0.05;
+    var tivPad = Math.max((tivMax - tivMin) * 0.12, tivMax * 0.05) || 1000000;
+    var ratePad = Math.max((rateMax - rateMin) * 0.15, rateMax * 0.05) || 0.01;
 
     var ctx = document.getElementById('qcBubbleChart').getContext('2d');
     if (chart) chart.destroy();
