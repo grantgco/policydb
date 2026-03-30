@@ -1275,6 +1275,12 @@ def db_schema(table: str = "", conn=Depends(get_db)):
             ).fetchall()
         ]
         return JSONResponse({"tables": tables})
+    # Validate table name against actual schema to prevent SQL injection
+    valid_tables = {r[0] for r in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'"
+    ).fetchall()}
+    if table not in valid_tables:
+        return JSONResponse({"ok": False, "error": f"Unknown table: {table}"}, status_code=400)
     try:
         columns = [
             {"name": r[1], "type": r[2], "nullable": not r[3], "default": r[4], "pk": bool(r[5])}

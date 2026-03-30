@@ -55,7 +55,7 @@
 
       <div>
         <label class="field-label">CN Number <span class="text-gray-400 font-normal">(internal)</span></label>
-        <input type="text" name="cn_number" value="{{ client.cn_number if client else (prefill.cn_number if prefill else '') }}" placeholder="e.g. CN-00123" class="form-input w-full">
+        <input type="text" name="cn_number" value="{{ client.cn_number if client and client.cn_number else (prefill.cn_number if prefill and prefill.cn_number else '') }}" placeholder="e.g. CN-00123" class="form-input w-full">
       </div>
 
       <div>
@@ -83,23 +83,23 @@
 
       <div>
         <label class="field-label">Contact Email <span class="text-gray-400 font-normal">(fallback)</span></label>
-        <input type="email" name="contact_email" value="{{ client.contact_email if client else (prefill.contact_email if prefill else '') }}" class="form-input w-full">
+        <input type="email" name="contact_email" value="{{ client.contact_email if client and client.contact_email else (prefill.contact_email if prefill and prefill.contact_email else '') }}" class="form-input w-full">
       </div>
 
       <div>
         <label class="field-label">Contact Phone <span class="text-gray-400 font-normal">(fallback)</span></label>
-        <input type="text" name="contact_phone" value="{{ client.contact_phone if client else (prefill.contact_phone if prefill else '') }}" class="form-input w-full">
+        <input type="text" name="contact_phone" value="{{ client.contact_phone if client and client.contact_phone else (prefill.contact_phone if prefill and prefill.contact_phone else '') }}" class="form-input w-full">
       </div>
 
       <div>
         <label class="field-label">Contact Mobile <span class="text-gray-400 font-normal">(fallback)</span></label>
-        <input type="text" name="contact_mobile" value="{{ client.contact_mobile if client else (prefill.contact_mobile if prefill else '') }}" class="form-input w-full">
+        <input type="text" name="contact_mobile" value="{{ client.contact_mobile if client and client.contact_mobile else (prefill.contact_mobile if prefill and prefill.contact_mobile else '') }}" class="form-input w-full">
       </div>
 
       <div class="sm:col-span-2 relative" data-addr-scope>
         <label class="field-label">Address</label>
         <div>
-          <input type="text" name="address" value="{{ client.address if client else '' }}" class="form-input w-full"
+          <input type="text" name="address" value="{{ client.address if client and client.address else '' }}" class="form-input w-full"
             placeholder="Start typing an address...">
         </div>
         <input type="hidden" name="latitude" value="{{ client.latitude if client and client.latitude else '' }}">
@@ -199,7 +199,7 @@
           class="form-input w-full">{{ client.notes if client and client.notes else '' }}</textarea>
       </div>
 
-      <input type="hidden" name="primary_contact" value="{{ client.primary_contact if client else '' }}">
+      <input type="hidden" name="primary_contact" value="{{ client.primary_contact if client and client.primary_contact else '' }}">
 
     </div>
   </div>

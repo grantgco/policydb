@@ -1588,7 +1588,9 @@ def _attach_expertise(conn, contacts: list[dict]) -> None:
     """Attach expertise tags to a list of contact dicts (mutates in place)."""
     if not contacts:
         return
-    ids = [c["id"] for c in contacts if c.get("id")]
+    # Contact dicts may use "id" (from detail page) or "contact_id" (from listing queries)
+    ids = [c.get("id") or c.get("contact_id") for c in contacts]
+    ids = [i for i in ids if i]
     if not ids:
         return
     rows = conn.execute(
@@ -1600,7 +1602,7 @@ def _attach_expertise(conn, contacts: list[dict]) -> None:
         tag_map.setdefault(r["contact_id"], {"line": [], "industry": []})
         tag_map[r["contact_id"]][r["category"]].append(r["tag"])
     for c in contacts:
-        cid = c.get("id")
+        cid = c.get("id") or c.get("contact_id")
         c["expertise_lines"] = tag_map.get(cid, {}).get("line", [])
         c["expertise_industries"] = tag_map.get(cid, {}).get("industry", [])
 
