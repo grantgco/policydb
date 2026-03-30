@@ -1310,6 +1310,7 @@ def client_quick_brief(request: Request, client_id: int, conn=Depends(get_db)):
                CAST(julianday('now') - julianday(activity_date) AS INTEGER) AS age_days
         FROM activity_log
         WHERE client_id = ? AND item_kind = 'issue'
+          AND issue_id IS NULL
           AND issue_status NOT IN ('Resolved', 'Closed')
         ORDER BY CASE issue_severity WHEN 'Critical' THEN 0 WHEN 'High' THEN 1 WHEN 'Normal' THEN 2 ELSE 3 END
     """, [client_id]).fetchall()

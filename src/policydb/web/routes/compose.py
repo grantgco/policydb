@@ -177,7 +177,7 @@ def compose_panel(
         # Resolve client_id from bundle if not provided
         if not client_id and bundle_id:
             bundle_row = conn.execute(
-                "SELECT client_id FROM request_bundles WHERE id=?", (bundle_id,)
+                "SELECT client_id FROM client_request_bundles WHERE id=?", (bundle_id,)
             ).fetchone()
             if bundle_row:
                 client_id = bundle_row["client_id"]
@@ -266,7 +266,7 @@ def compose_panel(
         # Auto-generate received/outstanding items list
         try:
             items = conn.execute(
-                "SELECT item_label, received FROM request_items WHERE bundle_id=? ORDER BY sort_order, id",
+                "SELECT item_label, received FROM client_request_items WHERE bundle_id=? ORDER BY sort_order, id",
                 (bundle_id,),
             ).fetchall()
             received = [i["item_label"] for i in items if i["received"]]
