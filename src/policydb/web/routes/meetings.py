@@ -473,6 +473,7 @@ async def schedule_next(
     new_date = form.get("meeting_date", "")
 
     from policydb.db import next_meeting_uid
+    from policydb.utils import round_duration
     new_uid = next_meeting_uid(conn, m["client_id"])
 
     cur = conn.execute(
@@ -481,7 +482,7 @@ async def schedule_next(
             location, meeting_uid, phase, meeting_type)
            VALUES (?, ?, ?, ?, ?, ?, ?, 'before', ?)""",
         (m["client_id"], new_title, new_date,
-         m.get("meeting_time", ""), m.get("duration_hours", 1.0),
+         m.get("meeting_time", ""), round_duration(m.get("duration_hours")) or 1.0,
          m.get("location", ""), new_uid, m.get("meeting_type", "")),
     )
     new_id = cur.lastrowid

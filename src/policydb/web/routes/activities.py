@@ -673,8 +673,8 @@ def patch_activity_field(activity_id: int, request_body: dict = None, conn=Depen
     # Validate & format
     formatted = value
     if field == "duration_hours":
-        formatted = str(round_duration(value))
         value = round_duration(value)
+        formatted = str(value) if value is not None else ""
 
     conn.execute(f"UPDATE activity_log SET {field} = ? WHERE id = ?", (value or None, activity_id))
     conn.commit()
