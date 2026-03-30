@@ -769,6 +769,7 @@ def client_tab_overview(request: Request, client_id: int, conn=Depends(get_db)):
         "primary_contact_name": primary_contact_name,
         "next_renewal_label": _next_renewal_label,
         "issue_severities": issue_severities,
+        "all_clients": [{"id": client_id, "name": dict(client)["name"]}],
         "linked_group": linked_group,
         "linked_relationships": cfg.get("linked_account_relationships", []),
         "client_scratchpad": _scratch["content"] if _scratch else "",
@@ -1235,6 +1236,43 @@ def client_tab_risk(request: Request, client_id: int, conn=Depends(get_db)):
         "policy_uid_options": policy_uid_options,
         "bundles": _get_request_bundles(conn, client_id),
         "today_iso": datetime.now().strftime("%Y-%m-%d"),
+    })
+
+
+@router.get("/{client_id}/tab/issues", response_class=HTMLResponse)
+def client_tab_issues(request: Request, client_id: int, conn=Depends(get_db)):
+    """Issues tab — open issues + resolved history with activity count and hours."""
+    client = get_client_by_id(conn, client_id, include_archived=True)
+    if not client:
+        return HTMLResponse("Not found", status_code=404)
+    client_dict = dict(client)
+
+    all_issues = [dict(r) for r in conn.execute("""
+        SELECT a.id, a.issue_uid, a.subject, a.issue_status, a.issue_severity,
+               a.issue_sla_days, a.resolution_type, a.resolved_date, a.activity_date,
+               CAST(julianday('now') - julianday(a.activity_date) AS INTEGER) AS days_open,
+               p.policy_uid, p.policy_type,
+               (SELECT COUNT(*) FROM activity_log sub WHERE sub.issue_id = a.id) AS activity_count,
+               (SELECT COALESCE(SUM(sub.duration_hours), 0) FROM activity_log sub
+                WHERE sub.issue_id = a.id AND sub.duration_hours IS NOT NULL) AS total_hours
+        FROM activity_log a
+        LEFT JOIN policies p ON a.policy_id = p.id
+        WHERE a.client_id = ? AND a.item_kind = 'issue' AND a.issue_id IS NULL
+        ORDER BY CASE WHEN a.issue_status IN ('Resolved','Closed') THEN 1 ELSE 0 END,
+                 CASE a.issue_severity WHEN 'Critical' THEN 0 WHEN 'High' THEN 1 WHEN 'Normal' THEN 2 ELSE 3 END,
+                 a.activity_date DESC
+    """, (client_id,)).fetchall()]
+
+    open_issues = [i for i in all_issues if i.get("issue_status") not in ("Resolved", "Closed")]
+    resolved_issues = [i for i in all_issues if i.get("issue_status") in ("Resolved", "Closed")]
+
+    return templates.TemplateResponse("clients/_tab_issues.html", {
+        "request": request,
+        "client": client_dict,
+        "open_issues": open_issues,
+        "resolved_issues": resolved_issues,
+        "issue_severities": cfg.get("issue_severities", []),
+        "all_clients": [dict(r) for r in conn.execute("SELECT id, name FROM clients WHERE archived = 0 ORDER BY name").fetchall()],
     })
 
 

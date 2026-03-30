@@ -222,6 +222,7 @@ def _followups_ctx(conn, window: int, activity_type: str, q: str,
             if item.get("source") == "activity" and item.get("id"):
                 link = _issue_link_map.get(item["id"])
                 if link:
+                    item["issue_id"] = link.get("issue_id")
                     item["linked_issue_uid"] = link.get("linked_issue_uid")
                     item["linked_issue_subject"] = link.get("linked_issue_subject")
                     item["linked_issue_severity"] = link.get("linked_issue_severity")

@@ -45,8 +45,12 @@
         <label for="paf-open">Open Follow-ups</label>
       </div>
     </div>
-    <button type="button" onclick="document.getElementById('log-form-edit').classList.toggle('hidden'); this.textContent = this.textContent.trim() === '+ Log' ? '− Close' : '+ Log'"
-      class="text-xs text-marsh hover:underline no-print">+ Log</button>
+    <div class="flex items-center gap-3 no-print">
+      <button type="button" onclick="openIssueCreateSlideover({client_id:'{{ policy.client_id }}', client_name:'{{ client.name|e }}', policy_id:'{{ policy.id }}', policy_label:'{{ policy.policy_uid }} {{ policy.policy_type|default("",true)|e }}'})"
+        class="text-xs text-amber-600 hover:underline">+ Issue</button>
+      <button type="button" onclick="document.getElementById('log-form-edit').classList.toggle('hidden'); this.textContent = this.textContent.trim() === '+ Log' ? '− Close' : '+ Log'"
+        class="text-xs text-marsh hover:underline">+ Log</button>
+    </div>
   </div>
   <div id="log-form-edit" class="hidden mt-3 border-t border-gray-100 pt-3">
     <form hx-post="/activities/log"
@@ -111,6 +115,11 @@
         </div>
       </div>
       {% endif %}
+      {# Issue widget — link activity to an open issue #}
+      <div id="policy-log-issue-widget" class="mt-2"
+           hx-get="/issues/for-client/{{ policy.client_id }}"
+           hx-trigger="intersect once"
+           hx-swap="innerHTML"></div>
     </form>
   </div>
   <div class="mt-1">

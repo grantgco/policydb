@@ -8,7 +8,7 @@
   <div class="flex items-center gap-2 text-xs text-gray-500 mb-1">
     <a href="/action-center?tab=issues" class="hover:text-marsh">&larr; Issues</a>
     <span class="text-gray-300">|</span>
-    <span class="font-mono">{{ issue.issue_uid }}</span>
+    {% with ref_tag=issue.issue_uid %}{% include "_ref_tag_pill.html" %}{% endwith %}
   </div>
 
   {# ── Title (click-to-edit) ── #}

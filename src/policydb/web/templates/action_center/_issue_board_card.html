@@ -18,6 +18,15 @@
     <span class="text-xs font-semibold text-gray-800 flex-1 line-clamp-2">{{ issue.subject or 'Untitled' }}</span>
   </div>
 
+  {# Issue UID pill #}
+  {% if issue.issue_uid %}
+  <div class="mt-1">
+    <button type="button" onclick="event.preventDefault();event.stopPropagation();copyRefTag(this,'{{ issue.issue_uid }}')"
+      class="inline-flex items-center text-[9px] font-mono text-gray-400 hover:text-marsh bg-white/60 border border-gray-200 hover:border-marsh/40 rounded-full px-1.5 py-0.5 cursor-pointer transition-colors no-print"
+      title="Click to copy issue ref tag">{{ issue.issue_uid }}</button>
+  </div>
+  {% endif %}
+
   {# Row 2: client + policy type #}
   <div class="flex items-center gap-1 mt-1.5 text-[11px] text-gray-500">
     <span class="truncate">{{ issue.client_name }}</span>

@@ -2172,11 +2172,13 @@ def policy_tab_activity(request: Request, policy_uid: str, conn=Depends(get_db))
     activities = [dict(r) for r in conn.execute(
         """SELECT a.*, c.name AS client_name, c.cn_number, p.policy_uid,
                   COALESCE(a.project_id, p.project_id) AS project_id,
-                  pr.name AS project_name
+                  pr.name AS project_name,
+                  iss.issue_uid AS linked_issue_uid
            FROM activity_log a
            JOIN clients c ON a.client_id = c.id
            LEFT JOIN policies p ON a.policy_id = p.id
            LEFT JOIN projects pr ON COALESCE(a.project_id, p.project_id) = pr.id
+           LEFT JOIN activity_log iss ON iss.id = a.issue_id AND iss.item_kind = 'issue'
            WHERE a.policy_id = ? AND a.activity_date >= date('now', '-90 days')
            ORDER BY a.activity_date DESC, a.id DESC""",
         (policy_dict["id"],),
@@ -2806,6 +2808,8 @@ def policy_edit_form(request: Request, policy_uid: str, add_contact: str = "", c
         "program_carrier_rows": [],
         "program_policy": _program_policy,
         "program_health": _program_health,
+        "issue_severities": cfg.get("issue_severities", []),
+        "all_clients": [dict(r) for r in conn.execute("SELECT id, name FROM clients WHERE archived = 0 ORDER BY name").fetchall()],
     })
 
 

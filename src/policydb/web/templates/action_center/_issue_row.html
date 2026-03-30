@@ -12,10 +12,14 @@
 
   {# Title + client #}
   <div class="flex-1 min-w-0">
-    <a href="/issues/{{ issue.issue_uid }}" class="text-sm font-medium text-gray-900 hover:text-marsh truncate block">
-      {% if issue.issue_uid %}<span class="text-xs text-gray-400 font-mono mr-1">{{ issue.issue_uid }}</span>{% endif %}
-      {{ issue.subject or 'Untitled Issue' }}
-    </a>
+    <div class="flex items-center gap-1.5">
+      <a href="/issues/{{ issue.issue_uid }}" class="text-sm font-medium text-gray-900 hover:text-marsh truncate">{{ issue.subject or 'Untitled Issue' }}</a>
+      {% if issue.issue_uid %}
+      <button type="button" onclick="event.stopPropagation();copyRefTag(this,'{{ issue.issue_uid }}')"
+        class="inline-flex items-center text-[10px] font-mono text-gray-400 hover:text-marsh bg-gray-50 border border-gray-200 hover:border-marsh/40 rounded-full px-1.5 py-0.5 cursor-pointer transition-colors whitespace-nowrap no-print flex-shrink-0"
+        title="Click to copy issue ref tag">{{ issue.issue_uid }}</button>
+      {% endif %}
+    </div>
     <div class="flex items-center gap-2 text-xs text-gray-500 mt-0.5">
       <a href="/clients/{{ issue.client_id }}" class="hover:text-marsh">{{ issue.client_name }}</a>
       {% if issue.policy_uid %}

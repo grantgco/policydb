@@ -385,7 +385,11 @@
    Section 8: Quick Log (no-print)
    ══════════════════════════════════════════════════════════ #}
 <div class="no-print">
-  <div class="text-[10px] text-gray-500 font-bold tracking-wider uppercase mb-1 px-0.5">Quick Log</div>
+  <div class="flex items-center justify-between mb-1 px-0.5">
+    <div class="text-[10px] text-gray-500 font-bold tracking-wider uppercase">Quick Log</div>
+    <button type="button" onclick="openIssueCreateSlideover({client_id:'{{ policy.client_id }}', client_name:'{{ client.name|e }}', policy_id:'{{ policy.id }}', policy_label:'{{ policy.policy_uid }} {{ policy.policy_type|default("",true)|e }}'})"
+      class="text-[10px] text-amber-600 hover:underline">+ Create Issue</button>
+  </div>
   <div class="card p-3">
     <form hx-post="/activities/log"
           hx-target="#pulse-recent-activity"
@@ -450,6 +454,11 @@
           {% endfor %}
         </div>
       </div>
+      {# Issue widget — link activity to an open issue #}
+      <div class="mt-2"
+           hx-get="/issues/for-client/{{ policy.client_id }}"
+           hx-trigger="intersect once"
+           hx-swap="innerHTML"></div>
     </form>
   </div>
 </div>
