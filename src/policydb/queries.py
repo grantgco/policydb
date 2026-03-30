@@ -188,6 +188,55 @@ def get_stale_renewals(
     return conn.execute(sql, params).fetchall()
 
 
+def get_program_pipeline(
+    conn: sqlite3.Connection,
+    client_id: int | None = None,
+    window_days: int = 180,
+) -> list[dict]:
+    """Return one row per active program with renewal-relevant aggregated data."""
+    sql = """
+    SELECT pg.id AS program_id, pg.program_uid, pg.name AS program_name,
+           pg.client_id, pg.renewal_status,
+           c.name AS client_name, c.cn_number,
+           COUNT(p.id) AS policy_count,
+           COUNT(DISTINCT p.carrier) AS carrier_count,
+           COALESCE(SUM(p.premium), 0) AS total_premium,
+           MIN(p.expiration_date) AS earliest_expiration,
+           CAST(julianday(MIN(p.expiration_date)) - julianday('now') AS INTEGER) AS days_to_renewal,
+           GROUP_CONCAT(DISTINCT p.carrier) AS carriers_list
+    FROM programs pg
+    JOIN clients c ON pg.client_id = c.id
+    LEFT JOIN policies p ON p.program_id = pg.id
+        AND p.archived = 0
+        AND (p.is_opportunity = 0 OR p.is_opportunity IS NULL)
+    WHERE pg.archived = 0
+      AND c.archived = 0
+    """
+    params: list = []
+    if client_id:
+        sql += " AND pg.client_id = ?"
+        params.append(client_id)
+    sql += " GROUP BY pg.id HAVING MIN(p.expiration_date) IS NOT NULL"
+    sql += f" AND CAST(julianday(MIN(p.expiration_date)) - julianday('now') AS INTEGER) <= {window_days}"
+    sql += " ORDER BY MIN(p.expiration_date) ASC"
+    rows = conn.execute(sql, params).fetchall()
+    result = []
+    for r in rows:
+        d = dict(r)
+        dtr = d.get("days_to_renewal") or 999
+        if dtr <= 30:
+            d["urgency"] = "CRITICAL"
+        elif dtr <= 60:
+            d["urgency"] = "HIGH"
+        elif dtr <= 90:
+            d["urgency"] = "MEDIUM"
+        else:
+            d["urgency"] = "LOW"
+        d["_is_program"] = True
+        result.append(d)
+    return result
+
+
 def get_escalation_alerts(
     conn: sqlite3.Connection,
     excluded_statuses: Optional[list] = None,
