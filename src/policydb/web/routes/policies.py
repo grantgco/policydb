@@ -1298,7 +1298,7 @@ def _ai_import_parse_inner(request: Request, conn, uid: str, result: dict):
     import_changes: list[dict] = []
     _field_labels = {f["key"]: f["label"] for f in POLICY_EXTRACTION_SCHEMA.get("fields", [])}
     for k, v in result["parsed"].items():
-        if v is not None and k != "locations":
+        if v is not None and k not in ("locations", "sub_coverages"):
             old_val = policy_dict.get(k)
             if str(v).strip() != str(old_val or "").strip():
                 import_changes.append({
@@ -1352,7 +1352,7 @@ def _ai_import_parse_inner(request: Request, conn, uid: str, result: dict):
     _field_labels = {f["key"]: f["label"] for f in POLICY_EXTRACTION_SCHEMA["fields"]}
     ai_policy_diffs: list[dict] = []
     for k, v in result["parsed"].items():
-        if k == "locations" or v is None:
+        if k in ("locations", "sub_coverages") or v is None:
             continue
         current = policy_dict.get(k)
         current_str = str(current) if current is not None else ""
@@ -1495,9 +1495,84 @@ def _ai_import_parse_inner(request: Request, conn, uid: str, result: dict):
 
             ai_location_data.append(loc_entry)
 
+    # ── Build sub-coverage diffs ──
+    sub_coverages_parsed = result["parsed"].get("sub_coverages", [])
+    ai_sub_coverage_data: list[dict] = []
+    if sub_coverages_parsed:
+        existing_subs = _get_sub_coverages(conn, merged["id"])
+        _sc_field_labels = {
+            "coverage_type": "Coverage Type",
+            "limit_amount": "Limit",
+            "deductible": "Deductible / Retention",
+            "coverage_form": "Coverage Form",
+            "notes": "Notes",
+        }
+        _sc_diff_fields = ["limit_amount", "deductible", "coverage_form", "notes"]
+
+        for sc_idx, sc in enumerate(sub_coverages_parsed):
+            sc_type = sc.get("coverage_type", "")
+            sc_entry: dict = {
+                "index": sc_idx,
+                "coverage_type": sc_type,
+                "extracted": sc,
+                "existing": None,
+                "existing_id": None,
+                "diffs": [],
+                "match_type": "new",
+                "match_score": 0,
+            }
+
+            # Fuzzy-match against existing sub-coverages by coverage_type
+            if existing_subs and sc_type:
+                best_score = 0
+                best_match = None
+                for esub in existing_subs:
+                    score = fuzz.ratio(
+                        sc_type.lower(), (esub.get("coverage_type") or "").lower()
+                    )
+                    if score > best_score and score >= 75:
+                        best_score = score
+                        best_match = esub
+                if best_match:
+                    sc_entry["match_type"] = "matched"
+                    sc_entry["match_score"] = int(best_score)
+                    sc_entry["existing"] = best_match
+                    sc_entry["existing_id"] = best_match["id"]
+
+                    # Per-field diffs
+                    for fkey in _sc_diff_fields:
+                        ext_val = sc.get(fkey)
+                        cur_val = best_match.get(fkey)
+                        if ext_val is not None:
+                            cur_str = str(cur_val) if cur_val else ""
+                            ext_str = str(ext_val) if ext_val else ""
+                            if cur_str != ext_str:
+                                sc_entry["diffs"].append({
+                                    "field": fkey,
+                                    "label": _sc_field_labels.get(fkey, fkey),
+                                    "current": cur_val,
+                                    "extracted": ext_val,
+                                    "is_fill": not cur_str,
+                                })
+
+            if sc_entry["match_type"] == "new":
+                # All fields are fills for new sub-coverages
+                for fkey in _sc_diff_fields:
+                    ext_val = sc.get(fkey)
+                    if ext_val is not None:
+                        sc_entry["diffs"].append({
+                            "field": fkey,
+                            "label": _sc_field_labels.get(fkey, fkey),
+                            "current": None,
+                            "extracted": ext_val,
+                            "is_fill": True,
+                        })
+
+            ai_sub_coverage_data.append(sc_entry)
+
     logger.debug(
-        "AI import parse inner: diffs built — %d policy diffs, %d locations",
-        len(ai_policy_diffs), len(ai_location_data),
+        "AI import parse inner: diffs built — %d policy diffs, %d locations, %d sub-coverages",
+        len(ai_policy_diffs), len(ai_location_data), len(ai_sub_coverage_data),
     )
 
     # Build the same context as policy_tab_details
@@ -1574,6 +1649,7 @@ def _ai_import_parse_inner(request: Request, conn, uid: str, result: dict):
         "ai_warnings": ai_warnings,
         "ai_policy_diffs": ai_policy_diffs,
         "ai_location_data": ai_location_data,
+        "ai_sub_coverage_data": ai_sub_coverage_data,
         "ai_parsed_json": json.dumps(result["parsed"], default=str),
     })
 

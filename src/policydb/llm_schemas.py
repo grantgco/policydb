@@ -503,6 +503,60 @@ POLICY_EXTRACTION_SCHEMA: dict = {
                 },
             },
         },
+        "sub_coverages": {
+            "type": "array",
+            "optional": True,
+            "description": (
+                "Sub-coverages, endorsements, or coverage parts within this policy. "
+                "Use for: package/BOP policies with multiple lines, Workers Comp "
+                "with Employers Liability, or any policy listing multiple coverage "
+                "sections with separate limits or deductibles."
+            ),
+            "fields": [
+                {
+                    "key": "coverage_type",
+                    "label": "Coverage Type",
+                    "type": "string",
+                    "required": True,
+                    "description": "The sub-line coverage type (e.g., General Liability, Property, Employers Liability)",
+                    "config_values": "policy_types",
+                    "config_mode": "prefer",
+                    "normalizer": "normalize_coverage_type",
+                },
+                {
+                    "key": "limit_amount",
+                    "label": "Limit",
+                    "type": "number",
+                    "required": False,
+                    "description": "Per-occurrence or aggregate limit for this sub-coverage",
+                    "normalizer": "parse_currency_with_magnitude",
+                },
+                {
+                    "key": "deductible",
+                    "label": "Deductible / Retention",
+                    "type": "number",
+                    "required": False,
+                    "description": "Deductible or self-insured retention for this sub-coverage",
+                    "normalizer": "parse_currency_with_magnitude",
+                },
+                {
+                    "key": "coverage_form",
+                    "label": "Coverage Form",
+                    "type": "string",
+                    "required": False,
+                    "description": "Coverage trigger form (e.g., Occurrence, Claims-Made)",
+                    "config_values": "coverage_forms",
+                    "config_mode": "strict",
+                },
+                {
+                    "key": "notes",
+                    "label": "Notes",
+                    "type": "string",
+                    "required": False,
+                    "description": "Any additional notes about this sub-coverage",
+                },
+            ],
+        },
     },
 }
 
