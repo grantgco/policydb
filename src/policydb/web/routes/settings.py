@@ -56,6 +56,7 @@ EDITABLE_LISTS: dict[str, str] = {
     "service_model_options": "Service Model Options",
     "kb_categories": "KB Categories",
     "kb_article_sources": "KB Article Sources",
+    "renewal_issue_resolve_statuses": "Renewal Issue — Resolve Statuses",
 }
 
 TAB_LISTS: dict[str, dict[str, str]] = {
@@ -105,6 +106,7 @@ TAB_LISTS: dict[str, dict[str, str]] = {
         "issue_lifecycle_states": "Issue Lifecycle States",
         "issue_resolution_types": "Issue Resolution Types",
         "issue_root_cause_categories": "Issue Root Cause Categories",
+        "renewal_issue_resolve_statuses": "Renewal Issue — Resolve Statuses",
     },
     "database": {
         "project_stages": "Project Stages",
@@ -204,6 +206,8 @@ def _build_tab_context(tab: str, conn) -> dict:
         ctx["issue_severities"] = cfg.get("issue_severities", [])
         ctx["renewal_issue_window_days"] = cfg.get("renewal_issue_window_days", 120)
         ctx["renewal_issue_health_threshold"] = cfg.get("renewal_issue_health_threshold", "at_risk")
+        ctx["renewal_issue_auto_create"] = cfg.get("renewal_issue_auto_create", True)
+        ctx["renewal_issue_auto_link"] = cfg.get("renewal_issue_auto_link", True)
 
     elif tab == "email-contacts":
         ctx["email_subject_policy"] = cfg.get("email_subject_policy", "")
@@ -612,10 +616,14 @@ def update_renewal_issue_window(
     request: Request,
     window_days: int = Form(...),
     health_threshold: str = Form("at_risk"),
+    auto_create: str = Form("off"),
+    auto_link: str = Form("off"),
 ):
     full = dict(cfg.load_config())
     full["renewal_issue_window_days"] = max(30, min(window_days, 365))
     full["renewal_issue_health_threshold"] = health_threshold
+    full["renewal_issue_auto_create"] = auto_create == "on"
+    full["renewal_issue_auto_link"] = auto_link == "on"
     cfg.save_config(full)
     cfg.reload_config()
     return RedirectResponse("/settings?tab=issues", status_code=303)

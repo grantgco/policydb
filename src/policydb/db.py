@@ -1691,6 +1691,7 @@ def init_db(path: Path | None = None) -> None:
     from policydb.renewal_issues import housekeep_issues
     housekeep_issues(conn)
 
+
     # Seed default nudge email templates if none exist
     _seed_nudge_templates(conn)
 
