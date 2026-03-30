@@ -30,6 +30,12 @@
     <div class="flex-1 min-w-0">
       <div class="flex items-center gap-2">
         <a href="/clients/{{ item.client_id }}" class="text-sm font-semibold text-gray-900 hover:text-[#003865] hover:underline truncate">{{ item.client_name }}</a>
+        {% if item.program_name %}
+        <a href="/programs/{{ item.program_uid }}"
+           class="text-[10px] bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded hover:bg-indigo-100">
+          {{ item.program_name }}
+        </a>
+        {% endif %}
         {% if item.is_milestone is defined and item.is_milestone %}
         <span class="text-[10px] bg-purple-100 text-purple-700 font-medium px-1.5 py-0.5 rounded">Milestone</span>
         {% endif %}
@@ -332,6 +338,12 @@
     <div class="flex-1 min-w-0">
       <div class="flex items-center gap-2">
         <a href="/clients/{{ item.client_id }}" class="text-sm font-semibold text-gray-900 hover:text-[#003865] hover:underline truncate">{{ item.client_name }}</a>
+        {% if item.program_name %}
+        <a href="/programs/{{ item.program_uid }}"
+           class="text-[10px] bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded hover:bg-indigo-100">
+          {{ item.program_name }}
+        </a>
+        {% endif %}
         {% set _fu_ref = build_ref_tag(cn_number=item.cn_number|default(''), client_id=item.client_id|default(0), policy_uid=item.policy_uid|default(''), project_id=item.project_id|default(0)) %}
         {% with ref_tag=_fu_ref %}{% include "_ref_tag_pill.html" %}{% endwith %}
       </div>
