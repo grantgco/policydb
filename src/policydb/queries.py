@@ -259,7 +259,10 @@ def get_renewal_metrics(conn: sqlite3.Connection, client_ids: list[int] | None =
                    COALESCE(SUM(total_premium), 0) AS total_premium,
                    COALESCE(SUM(total_commission), 0) AS total_commission,
                    COALESCE(SUM(total_fees), 0) AS total_fees,
-                   COALESCE(SUM(total_revenue), 0) AS total_revenue
+                   COALESCE(SUM(total_revenue), 0) AS total_revenue,
+                   COALESCE(SUM(opportunity_count), 0) AS opportunity_count,
+                   COALESCE(SUM(opportunity_premium), 0) AS opportunity_premium,
+                   COALESCE(SUM(opportunity_revenue), 0) AS opportunity_revenue
             FROM v_client_summary WHERE id IN ({ph})
         """, client_ids).fetchone()
     else:
@@ -268,7 +271,10 @@ def get_renewal_metrics(conn: sqlite3.Connection, client_ids: list[int] | None =
                    COALESCE(SUM(total_premium), 0) AS total_premium,
                    COALESCE(SUM(total_commission), 0) AS total_commission,
                    COALESCE(SUM(total_fees), 0) AS total_fees,
-                   COALESCE(SUM(total_revenue), 0) AS total_revenue
+                   COALESCE(SUM(total_revenue), 0) AS total_revenue,
+                   COALESCE(SUM(opportunity_count), 0) AS opportunity_count,
+                   COALESCE(SUM(opportunity_premium), 0) AS opportunity_premium,
+                   COALESCE(SUM(opportunity_revenue), 0) AS opportunity_revenue
             FROM v_client_summary
         """).fetchone()
     metrics["book"] = dict(book) if book else {}
@@ -2051,7 +2057,6 @@ def get_week_followups(
         WHERE p.follow_up_date IS NOT NULL
           AND p.follow_up_date BETWEEN ? AND ?
           AND p.archived = 0
-          AND (p.is_opportunity = 0 OR p.is_opportunity IS NULL)
           AND NOT EXISTS (
               SELECT 1 FROM activity_log a2
               WHERE a2.policy_id = p.id AND a2.follow_up_done = 0
@@ -2059,8 +2064,22 @@ def get_week_followups(
               AND a2.follow_up_date <= p.follow_up_date
           )
 
+        UNION ALL
+
+        SELECT 'client' AS source, c.id, ('Client Follow-Up: ' || c.name) AS subject,
+               c.follow_up_date, 'Client Reminder' AS activity_type,
+               c.id AS client_id, NULL AS policy_id,
+               c.name AS client_name,
+               NULL AS policy_type, NULL AS carrier, NULL AS expiration_date,
+               NULL AS renewal_status, NULL AS days_to_renewal,
+               NULL AS policy_uid, NULL AS disposition,
+               '' AS timeline_health, NULL AS milestone_name
+        FROM clients c
+        WHERE c.follow_up_date IS NOT NULL AND c.archived = 0
+          AND c.follow_up_date BETWEEN ? AND ?
+
         ORDER BY 4
-    """, (sat_before, fri, sat_before, fri)).fetchall()
+    """, (sat_before, fri, sat_before, fri, sat_before, fri)).fetchall()
 
     # Build accountability map from config dispositions
     disp_map = {
@@ -2147,7 +2166,6 @@ def get_overdue_for_plan_week(
         WHERE p.follow_up_date IS NOT NULL
           AND p.follow_up_date < ?
           AND p.archived = 0
-          AND (p.is_opportunity = 0 OR p.is_opportunity IS NULL)
           AND NOT EXISTS (
               SELECT 1 FROM activity_log a2
               WHERE a2.policy_id = p.id AND a2.follow_up_done = 0
@@ -2155,8 +2173,21 @@ def get_overdue_for_plan_week(
               AND a2.follow_up_date <= p.follow_up_date
           )
 
+        UNION ALL
+
+        SELECT 'client' AS source, c.id, ('Client Follow-Up: ' || c.name) AS subject,
+               c.follow_up_date, 'Client Reminder' AS activity_type,
+               c.id AS client_id, NULL AS policy_id,
+               c.name AS client_name,
+               NULL AS policy_type, NULL AS carrier, NULL AS expiration_date,
+               NULL AS renewal_status, NULL AS days_to_renewal,
+               NULL AS policy_uid, NULL AS disposition
+        FROM clients c
+        WHERE c.follow_up_date IS NOT NULL AND c.archived = 0
+          AND c.follow_up_date < ?
+
         ORDER BY 4 ASC
-    """, (cutoff, cutoff)).fetchall()
+    """, (cutoff, cutoff, cutoff)).fetchall()
 
     disp_map = {
         d["label"]: d.get("accountability", "my_action")

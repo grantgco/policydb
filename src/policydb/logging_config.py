@@ -75,9 +75,9 @@ def setup_sqlite_handler() -> None:
         root.addHandler(handler)
         _sqlite_handler = handler
         atexit.register(_shutdown_sqlite_handler)
-    except Exception:
-        # Don't block startup if handler setup fails
-        pass
+    except Exception as e:
+        # Don't block startup, but log to stderr so it's visible
+        logging.getLogger("policydb").warning("SQLite log handler setup failed: %s", e)
 
 
 def _shutdown_sqlite_handler() -> None:
@@ -100,6 +100,7 @@ class SQLiteHandler(logging.Handler):
         self._db_path = db_path
         self._queue: queue.Queue = queue.Queue()
         self._stop = threading.Event()
+        self._urgent = threading.Event()  # Signal immediate flush for errors
         self._thread = threading.Thread(target=self._writer, daemon=True, name="log-writer")
         self._thread.start()
 
@@ -116,6 +117,9 @@ class SQLiteHandler(logging.Handler):
                 "extra": getattr(record, "log_extra", None),
             }
             self._queue.put_nowait(entry)
+            # Wake the writer thread immediately for errors/warnings
+            if record.levelno >= logging.WARNING:
+                self._urgent.set()
         except Exception:
             self.handleError(record)
 
@@ -132,18 +136,16 @@ class SQLiteHandler(logging.Handler):
         buffer: list[dict] = []
 
         while not self._stop.is_set():
-            # Collect entries from queue
-            try:
-                entry = self._queue.get(timeout=self.FLUSH_INTERVAL)
-                buffer.append(entry)
-                # Drain any additional queued entries
-                while len(buffer) < self.FLUSH_SIZE:
-                    try:
-                        buffer.append(self._queue.get_nowait())
-                    except queue.Empty:
-                        break
-            except queue.Empty:
-                pass
+            # Wait for either timeout or urgent signal
+            self._urgent.wait(timeout=self.FLUSH_INTERVAL)
+            self._urgent.clear()
+
+            # Drain all queued entries
+            while not self._queue.empty():
+                try:
+                    buffer.append(self._queue.get_nowait())
+                except queue.Empty:
+                    break
 
             if buffer:
                 self._flush_buffer(conn, buffer)
