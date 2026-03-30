@@ -71,6 +71,11 @@
           Risk &amp; Compliance
           {% if risks %}<span class="tab-badge">{{ risks | length }}</span>{% endif %}
         </button>
+        <button class="tab-btn" data-tab="issues"
+          data-tab-url="/clients/{{ client.id }}/tab/issues">
+          Issues
+          {% if open_issues %}<span class="tab-badge" style="background:#3b82f6;color:white">{{ open_issues | length }}</span>{% endif %}
+        </button>
       </div>
       <div class="tab-content">
         <div class="py-4 text-sm text-gray-400 text-center">Loading…</div>
@@ -87,6 +92,9 @@
 
 {# ── Floating Working Notes Panel ── #}
 {% include "clients/_working_notes_float.html" %}
+
+{# Issue Create Slideover #}
+{% include "_issue_create_slideover.html" %}
 
 {# AI Import container — slideover panel loads here #}
 <div id="ai-import-container"></div>

@@ -121,7 +121,7 @@
         {% with linked_issue_uid=item.linked_issue_uid, linked_issue_subject=item.linked_issue_subject, linked_issue_severity=item.linked_issue_severity %}
           {% include "_issue_badge.html" %}
         {% endwith %}
-      {% else %}
+      {% elif not item.issue_id %}
         <button type="button"
           onclick="openIssueCreateSlideover({subject:'{{ item.subject|e }}', client_id:'{{ item.client_id }}', client_name:'{{ (item.client_name or '')|e }}', policy_id:'{{ item.policy_id or '' }}', source_activity_id:'{{ item.id }}', context_label:'Creating from activity', context_subject:'{{ item.subject|e }}', context_detail:'{{ (item.client_name or '')|e }}', link_detail:'{{ item.subject|e }}'})"
           class="text-[10px] text-blue-600 border border-blue-200 rounded px-2 py-0.5 hover:bg-blue-50 transition-colors no-print">
@@ -149,8 +149,8 @@
       <button hx-post="/activities/{{ item.id }}/snooze?days=1" hx-target="#{{ row_id }}" hx-swap="outerHTML"
         class="text-xs text-gray-500 bg-white border border-gray-200 px-2 py-1.5 rounded hover:border-gray-300 transition-colors">+1d</button>
       {% endif %}
-      {# Convert to Issue (only for activity-sourced follow-ups) #}
-      {% if item.source == 'activity' and item.id %}
+      {# Convert to Issue (only for activity-sourced follow-ups not already linked to an issue) #}
+      {% if item.source == 'activity' and item.id and not item.linked_issue_uid %}
       <form method="post" action="/issues/convert/{{ item.id }}" style="display:inline">
         <input type="hidden" name="severity" value="Normal">
         <button type="submit"

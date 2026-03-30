@@ -155,9 +155,14 @@ def program_tab_schematic(
     ).fetchall()
     policies = [dict(r) for r in rows]
 
-    # Split underlying vs excess (is_program filter removed — programs are standalone now)
-    underlying = [p for p in policies if (p.get("layer_position") or "Primary") == "Primary"]
-    excess = [p for p in policies if (p.get("layer_position") or "") in ("Umbrella", "Excess")]
+    # Normalize layer_position: treat NULL, empty, "0", or any non-Umbrella/Excess as Primary
+    _EXCESS_POSITIONS = {"Umbrella", "Excess"}
+    for p in policies:
+        lp = (p.get("layer_position") or "").strip()
+        if lp not in _EXCESS_POSITIONS and lp != "Primary":
+            p["layer_position"] = "Primary"
+    underlying = [p for p in policies if p["layer_position"] == "Primary"]
+    excess = [p for p in policies if p["layer_position"] in _EXCESS_POSITIONS]
 
     # Attach sub-coverage data
     all_ids = [p["id"] for p in policies]
@@ -367,9 +372,10 @@ def assign_to_program_v2(
     if not policy:
         return JSONResponse({"ok": False, "error": "Policy not found"}, status_code=404)
 
-    # Set program_id FK + tower_group for backward compat with schematic endpoints
+    # Set program_id FK + tower_group; force layer_position to Primary unless already Umbrella/Excess
     conn.execute(
-        """UPDATE policies SET program_id = ?, tower_group = ?, layer_position = COALESCE(layer_position, 'Primary')
+        """UPDATE policies SET program_id = ?, tower_group = ?,
+           layer_position = CASE WHEN layer_position IN ('Umbrella', 'Excess') THEN layer_position ELSE 'Primary' END
            WHERE policy_uid = ?""",
         (program["id"], program["name"], policy_uid),
     )
