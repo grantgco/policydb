@@ -1,0 +1,223 @@
+{% extends "base.html" %}
+{% block title %}{{ doc.title }} — Knowledge Base{% endblock %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto">
+
+  <!-- Breadcrumb -->
+  <div class="mb-4 flex items-center gap-2 text-sm text-gray-400">
+    <a href="/kb" class="hover:text-marsh">Knowledge Base</a>
+    <span>&rsaquo;</span>
+    <span class="{{ doc.colors.text }}">{{ doc.category }}</span>
+    <span>&rsaquo;</span>
+    <span class="text-gray-600">{{ doc.title }}</span>
+  </div>
+
+  <div class="lg:grid lg:grid-cols-[1fr_320px] gap-6">
+
+    <!-- Left: Content -->
+    <div>
+      <!-- Header -->
+      <div class="mb-4">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="text-[10px] font-mono bg-gray-100 text-gray-500 rounded px-1.5 py-0.5">{{ doc.uid }}</span>
+          <span class="{{ doc.file_info.color }}">
+            <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+              <path fill-rule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clip-rule="evenodd"/>
+            </svg>
+          </span>
+          <span class="text-xs text-gray-400">{{ doc.file_info.label }}</span>
+        </div>
+
+        <!-- Title (contenteditable) -->
+        <div contenteditable="true"
+             class="text-2xl font-bold text-gray-900 outline-none focus:border-b-2 focus:border-marsh pb-1"
+             data-field="title" data-uid="{{ doc.uid }}"
+             onblur="saveDocField(this)">{{ doc.title }}</div>
+
+        <!-- Category -->
+        <div class="mt-2 flex items-center gap-2">
+          <span class="text-xs text-gray-400">Category:</span>
+          <select class="text-sm border-0 border-b border-gray-200 focus:border-marsh outline-none py-0.5 px-1 {{ doc.colors.text }} font-medium bg-transparent"
+                  onchange="saveDocFieldVal('{{ doc.uid }}', 'category', this.value); location.reload();">
+            {% for cat in categories %}
+            <option value="{{ cat }}" {{ 'selected' if cat == doc.category else '' }}>{{ cat }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+
+      <!-- File info bar -->
+      <div class="card p-3 mb-4 flex items-center gap-4">
+        <span class="{{ doc.file_info.color }}">
+          <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
+            <path fill-rule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clip-rule="evenodd"/>
+          </svg>
+        </span>
+        <div class="flex-1 min-w-0">
+          <div class="text-sm font-mono text-gray-600 truncate">{{ doc.filename }}</div>
+          <div class="text-xs text-gray-400">{{ doc.file_size_fmt }} &middot; Uploaded {{ doc.created_at[:10] if doc.created_at else '' }}</div>
+        </div>
+        <a href="/kb/documents/{{ doc.uid }}/download"
+           class="bg-marsh text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-marsh-light transition-colors flex items-center gap-1.5">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+          </svg>
+          Download
+        </a>
+      </div>
+
+      <!-- File preview -->
+      {% if doc.mime_type == 'application/pdf' %}
+      <div class="card mb-4 overflow-hidden">
+        <iframe src="/kb/documents/{{ doc.uid }}/download" class="w-full border-0" style="height:600px"></iframe>
+      </div>
+      {% else %}
+      <div class="card p-8 mb-4 text-center">
+        <span class="{{ doc.file_info.color }}">
+          <svg class="w-16 h-16 mx-auto mb-3" fill="currentColor" viewBox="0 0 20 20">
+            <path fill-rule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clip-rule="evenodd"/>
+          </svg>
+        </span>
+        <p class="text-sm text-gray-500">{{ doc.file_info.label }} files cannot be previewed in the browser.</p>
+        <a href="/kb/documents/{{ doc.uid }}/download"
+           class="inline-block mt-3 bg-marsh text-white rounded-lg px-5 py-2 text-sm font-medium hover:bg-marsh-light">
+          Download to View
+        </a>
+      </div>
+      {% endif %}
+
+      <!-- Description editor -->
+      <div class="card p-4 mb-4">
+        <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Notes</h3>
+        <textarea id="doc-description" name="description" rows="6"
+                  class="hidden">{{ doc.description or '' }}</textarea>
+        <div id="doc-editor-wrapper"></div>
+      </div>
+
+      <!-- Referencing articles -->
+      {% if referencing_articles %}
+      <div class="card p-4 mb-4">
+        <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Referenced by Articles</h3>
+        <div class="space-y-1.5">
+          {% for art in referencing_articles %}
+          <a href="/kb/articles/{{ art.uid }}" class="flex items-center gap-2 text-sm text-gray-700 hover:text-marsh">
+            <span class="text-[10px] font-mono bg-gray-100 text-gray-500 rounded px-1.5 py-0.5">{{ art.uid }}</span>
+            {{ art.title }}
+            <span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-medium {{ art.colors.bg }} {{ art.colors.text }}">{{ art.category }}</span>
+          </a>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
+      <!-- Delete -->
+      <div class="flex justify-end">
+        <button onclick="confirmDeleteDoc('{{ doc.uid }}')" class="text-sm text-red-500 hover:text-red-700">
+          Delete Document
+        </button>
+      </div>
+    </div>
+
+    <!-- Right: Sidebar -->
+    <div class="hidden lg:block">
+      <div class="sticky top-4 space-y-4">
+
+        <!-- Tags -->
+        <div class="card p-3">
+          <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Tags</h3>
+          <div id="tags-container">
+            {% with entry=doc, entry_type='document', uid=doc.uid %}
+            {% include "kb/_tags.html" %}
+            {% endwith %}
+          </div>
+        </div>
+
+        <!-- Linked Records -->
+        <div class="card p-3">
+          <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Linked Records</h3>
+          <div id="record-links-container">
+            {% with entry_type='document', uid=doc.uid %}
+            {% include "kb/_record_links_list.html" %}
+            {% endwith %}
+          </div>
+          <div class="mt-2">
+            <div class="relative">
+              <input type="search" placeholder="Search clients/policies..."
+                     class="w-full text-xs border border-gray-200 rounded px-2 py-1.5 focus:ring-1 focus:ring-marsh outline-none"
+                     hx-get="/kb/search-entities" hx-trigger="keyup changed delay:300ms"
+                     hx-target="#entity-picker-results" name="q">
+              <div id="entity-picker-results"></div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+function saveDocField(el) {
+  var field = el.getAttribute('data-field');
+  var uid = el.getAttribute('data-uid');
+  var value = el.innerText.trim();
+  fetch('/kb/documents/' + uid + '/field', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    body: 'field=' + encodeURIComponent(field) + '&value=' + encodeURIComponent(value)
+  }).then(function(r) { return r.json(); }).then(function(d) {
+    if (d.ok && typeof flashCell === 'function') flashCell(el, '#d1fae5');
+  });
+}
+
+function saveDocFieldVal(uid, field, value) {
+  fetch('/kb/documents/' + uid + '/field', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    body: 'field=' + encodeURIComponent(field) + '&value=' + encodeURIComponent(value)
+  });
+}
+
+/* Markdown editor for description with auto-save */
+(function() {
+  var ta = document.getElementById('doc-description');
+  if (!ta || typeof window.initMarkdownEditor !== 'function') return;
+
+  var editor = window.initMarkdownEditor('doc-description', {minHeight: '160px'});
+  if (!editor) return;
+
+  var saveTimer;
+  editor.on('change', function() {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(function() {
+      var content = editor.getMarkdown();
+      fetch('/kb/documents/{{ doc.uid }}/field', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: 'field=description&value=' + encodeURIComponent(content)
+      });
+    }, 800);
+  });
+})();
+
+function confirmDeleteDoc(uid) {
+  if (confirm('Delete this document? The file will be removed from disk. This cannot be undone.')) {
+    fetch('/kb/documents/' + uid + '/delete', { method: 'POST' })
+      .then(function() { window.location.href = '/kb'; });
+  }
+}
+
+function linkEntity(entityType, entityId) {
+  fetch('/kb/document/{{ doc.uid }}/link', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    body: 'entity_type=' + entityType + '&entity_id=' + entityId
+  }).then(function(r) { return r.text(); }).then(function(html) {
+    document.getElementById('record-links-container').innerHTML = html;
+    document.getElementById('entity-picker-results').innerHTML = '';
+  });
+}
+</script>
+{% endblock %}

@@ -241,7 +241,7 @@ def search(request: Request, q: str = "", conn=Depends(get_db)):
     total = sum(len(v) for v in results.values())
     # Detect UID pattern for ref tree banner
     uid_pattern = bool(re.match(
-        r'^(CN?\d{5,}|POL-|COR-\d+|INB-\d+|A-\d+|CN?\d+-RFI\d+)',
+        r'^(CN?\d{5,}|POL-|COR-\d+|INB-\d+|A-\d+|CN?\d+-RFI\d+|KB-|KBD-)',
         q.strip(), re.IGNORECASE
     )) if q.strip() else False
     return templates.TemplateResponse("search.html", {
