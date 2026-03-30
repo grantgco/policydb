@@ -3934,12 +3934,8 @@ def project_log_save(
     """Create a single activity log entry at project or specific-policy level."""
     from datetime import date
     account_exec = cfg.get("default_account_exec", "")
-    dur = None
-    if duration_hours and duration_hours.strip():
-        try:
-            dur = float(duration_hours)
-        except ValueError:
-            dur = None
+    from policydb.utils import round_duration
+    dur = round_duration(duration_hours)
     today = date.today().isoformat()
 
     # Resolve contact_person → contact_id
