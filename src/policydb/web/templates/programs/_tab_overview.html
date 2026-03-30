@@ -134,6 +134,40 @@
 </div>
 {% endif %}
 
+{# -- Quick Log -- #}
+<div class="card mb-4 no-print">
+  <div class="px-4 py-2.5 bg-gray-50 border-b border-gray-100">
+    <span class="text-xs font-bold text-marsh uppercase tracking-wide">Log Activity</span>
+  </div>
+  <form hx-post="/programs/{{ program.program_uid }}/log"
+        hx-target=".tab-content" hx-swap="innerHTML"
+        class="px-4 py-3 flex flex-wrap gap-2 items-end">
+    <div>
+      <label class="text-[10px] text-gray-400 block mb-0.5">Type</label>
+      <select name="activity_type" class="text-xs border border-gray-300 rounded px-2 py-1.5">
+        {% for t in activity_types %}<option>{{ t }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="flex-1 min-w-[200px]">
+      <label class="text-[10px] text-gray-400 block mb-0.5">Subject</label>
+      <input type="text" name="subject" required placeholder="What happened..."
+             class="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:ring-marsh focus:border-marsh">
+    </div>
+    <div class="w-20">
+      <label class="text-[10px] text-gray-400 block mb-0.5">Hours</label>
+      <input type="number" name="duration_hours" step="any" min="0" placeholder="hrs"
+             class="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:ring-marsh focus:border-marsh">
+    </div>
+    <div>
+      <label class="text-[10px] text-gray-400 block mb-0.5">Follow-up</label>
+      <input type="date" name="follow_up_date"
+             class="text-xs border border-gray-300 rounded px-2 py-1.5 focus:ring-marsh focus:border-marsh">
+    </div>
+    <button type="submit"
+            class="text-xs bg-marsh text-white px-3 py-1.5 rounded hover:bg-marsh/90 transition-colors">Log</button>
+  </form>
+</div>
+
 <script>
 (function() {
   var _base = '/programs/{{ program.program_uid }}';

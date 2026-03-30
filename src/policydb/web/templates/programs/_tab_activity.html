@@ -14,8 +14,12 @@
           {% if a.activity_type %}
           <span class="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-600">{{ a.activity_type }}</span>
           {% endif %}
+          {% if a.policy_uid %}
           <a href="/policies/{{ a.policy_uid }}/edit" class="text-xs text-marsh hover:underline">{{ a.policy_uid }}</a>
           <span class="text-xs text-gray-400">{{ a.policy_type }}{% if a.carrier %} · {{ a.carrier }}{% endif %}</span>
+          {% else %}
+          <span class="text-xs bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded">Program</span>
+          {% endif %}
         </div>
         <span class="text-xs text-gray-400 tabular-nums">{{ a.created_at[:10] if a.created_at else '' }}</span>
       </div>

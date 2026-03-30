@@ -2773,7 +2773,7 @@ def get_program_timeline_milestones(conn: sqlite3.Connection, program_id: int) -
 
 
 def get_program_activities(conn: sqlite3.Connection, program_id: int, limit: int = 50) -> list[dict]:
-    """Return recent activities from all child policies of a program."""
+    """Return recent activities from program itself AND all child policies."""
     rows = conn.execute(
         """SELECT a.id, a.activity_type, a.subject, a.details, a.contact_person,
                   a.created_at, a.follow_up_date, a.disposition,
@@ -2781,9 +2781,18 @@ def get_program_activities(conn: sqlite3.Connection, program_id: int, limit: int
            FROM activity_log a
            JOIN policies p ON p.id = a.policy_id
            WHERE p.program_id = ?
-           ORDER BY a.created_at DESC
+
+           UNION ALL
+
+           SELECT a.id, a.activity_type, a.subject, a.details, a.contact_person,
+                  a.created_at, a.follow_up_date, a.disposition,
+                  NULL AS policy_type, NULL AS carrier, NULL AS policy_uid
+           FROM activity_log a
+           WHERE a.program_id = ? AND a.policy_id IS NULL
+
+           ORDER BY created_at DESC
            LIMIT ?""",
-        (program_id, limit),
+        (program_id, program_id, limit),
     ).fetchall()
     return [dict(r) for r in rows]
 
