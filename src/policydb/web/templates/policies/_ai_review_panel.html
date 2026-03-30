@@ -160,6 +160,74 @@
   {% endfor %}
   {% endif %}
 
+  {# ══════════════════════════════════════════════════════════════════════════
+     SECTION C — Sub-Coverage Review
+     ══════════════════════════════════════════════════════════════════════════ #}
+  {% if ai_sub_coverage_data is defined and ai_sub_coverage_data %}
+  <div class="card border-violet-200 bg-violet-50/20 mb-4" id="ai-sub-coverages-card">
+    <div class="px-5 py-3 border-b border-violet-100 flex items-center justify-between">
+      <div class="flex items-center gap-2">
+        <svg class="w-4 h-4 text-violet-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/>
+        </svg>
+        <span class="text-xs font-semibold text-violet-600 uppercase tracking-wide">Sub-Coverages</span>
+      </div>
+      <span class="text-xs text-gray-400">{{ ai_sub_coverage_data | length }} found</span>
+    </div>
+
+    {% for sc in ai_sub_coverage_data %}
+    <div class="border-b border-violet-50 last:border-b-0" id="ai-sc-item-{{ sc.index }}"
+         {% if sc.existing_id %}data-existing-id="{{ sc.existing_id }}"{% endif %}>
+      {# Sub-coverage header #}
+      <div class="px-5 py-2.5 flex items-center gap-3 bg-violet-50/30">
+        <input type="checkbox" class="ai-sc-select rounded border-gray-300 text-violet-600 focus:ring-violet-500"
+               value="{{ sc.index }}" checked>
+        <span class="text-xs font-semibold text-violet-800">{{ sc.coverage_type }}</span>
+        {% if sc.match_type == 'matched' %}
+        <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-violet-100 text-violet-700">
+          Update existing ({{ sc.match_score }}%)
+        </span>
+        {% else %}
+        <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-700">New</span>
+        {% endif %}
+      </div>
+
+      {# Per-field diffs #}
+      {% if sc.diffs %}
+      <div class="divide-y divide-violet-50">
+        {% for d in sc.diffs %}
+        <label class="flex items-center gap-4 px-5 py-2 hover:bg-violet-50/40 cursor-pointer transition-colors">
+          <input type="checkbox" name="apply_sc_{{ sc.index }}" value="{{ d.field }}"
+                 class="ai-sc-field-cb-{{ sc.index }} rounded border-gray-300 text-violet-600 focus:ring-violet-500"
+                 {% if d.is_fill %}checked{% endif %}>
+          <span class="text-xs font-medium text-gray-500 w-36 shrink-0">{{ d.label }}</span>
+          <span class="text-xs text-gray-400 flex-1 truncate">
+            {% if d.current is not none and d.current != '' %}{{ d.current }}{% else %}<em class="text-gray-300">empty</em>{% endif %}
+          </span>
+          <svg class="w-4 h-4 text-violet-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/>
+          </svg>
+          <span class="text-xs font-medium text-violet-700 flex-1 truncate">{{ d.extracted }}</span>
+        </label>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+    {% endfor %}
+
+    <div class="px-5 py-3 border-t border-violet-100 flex items-center gap-3">
+      <button type="button" onclick="applySubCoverages()"
+              class="px-4 py-1.5 rounded-lg text-xs font-medium bg-violet-600 text-white hover:bg-violet-700 transition-colors">
+        Apply Selected Sub-Coverages
+      </button>
+      <button type="button" onclick="document.querySelectorAll('.ai-sc-select').forEach(function(cb){cb.checked=true})"
+              class="text-xs text-violet-500 hover:text-violet-700">Select All</button>
+      <button type="button" onclick="document.querySelectorAll('.ai-sc-select').forEach(function(cb){cb.checked=false})"
+              class="text-xs text-gray-400 hover:text-gray-600">Clear All</button>
+    </div>
+  </div>
+  {% endif %}
+
 </div>
 
 <script>
@@ -243,6 +311,92 @@ function applyLocation(locIndex, projectId, createNew) {
         '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>' +
         label + ' — ' + count + ' field' + (count !== 1 ? 's' : '') + ' applied' +
         (data.created ? ' (new location created)' : '') + '</div>';
+      card.className = 'card border-emerald-200 bg-emerald-50/20 mb-4';
+    }
+  });
+}
+
+function applySubCoverages() {
+  var panel = document.getElementById('ai-review-panel');
+  var parsed = JSON.parse(panel.dataset.parsed);
+  var subCoverages = parsed.sub_coverages || [];
+  var uid = '{{ policy.policy_uid }}';
+  var applied = 0;
+
+  /* Collect selected sub-coverage indices */
+  var selectedIndices = [];
+  document.querySelectorAll('.ai-sc-select:checked').forEach(function(cb) {
+    selectedIndices.push(parseInt(cb.value));
+  });
+  if (!selectedIndices.length) return;
+
+  /* Build data per selected sub-coverage: index → {existing_id, fields_to_patch} */
+  var tasks = selectedIndices.map(function(idx) {
+    var scData = subCoverages[idx];
+    if (!scData) return null;
+
+    /* Collect selected fields for this sub-coverage */
+    var fields = {};
+    document.querySelectorAll('.ai-sc-field-cb-' + idx + ':checked').forEach(function(cb) {
+      var val = scData[cb.value];
+      if (val !== undefined && val !== null) fields[cb.value] = val;
+    });
+
+    /* Read existing_id from the template-rendered data attribute */
+    var itemEl = document.getElementById('ai-sc-item-' + idx);
+    var existingId = itemEl ? itemEl.dataset.existingId : null;
+
+    return {
+      index: idx,
+      coverage_type: scData.coverage_type || '',
+      existing_id: existingId ? parseInt(existingId) : null,
+      fields: fields
+    };
+  }).filter(Boolean);
+
+  /* Process sequentially: create new or patch existing */
+  var chain = Promise.resolve();
+  tasks.forEach(function(task) {
+    chain = chain.then(function() {
+      if (task.existing_id) {
+        /* Patch existing sub-coverage */
+        return fetch('/policies/' + uid + '/sub-coverages/' + task.existing_id, {
+          method: 'PATCH',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(task.fields)
+        }).then(function(r) { applied++; return r; });
+      } else {
+        /* Create new, then patch with financial fields */
+        return fetch('/policies/' + uid + '/sub-coverages', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({coverage_type: task.coverage_type})
+        }).then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (!data.ok) return;
+          /* Find the newly created sub-coverage id */
+          var subs = data.sub_coverages || [];
+          var newSub = subs.find(function(s) { return s.coverage_type === task.coverage_type; });
+          if (newSub && Object.keys(task.fields).length > 0) {
+            return fetch('/policies/' + uid + '/sub-coverages/' + newSub.id, {
+              method: 'PATCH',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify(task.fields)
+            }).then(function() { applied++; });
+          } else {
+            applied++;
+          }
+        });
+      }
+    });
+  });
+
+  chain.then(function() {
+    var card = document.getElementById('ai-sub-coverages-card');
+    if (card) {
+      card.innerHTML = '<div class="px-5 py-4 text-sm text-emerald-600 font-medium flex items-center gap-2">' +
+        '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>' +
+        applied + ' sub-coverage' + (applied !== 1 ? 's' : '') + ' applied</div>';
       card.className = 'card border-emerald-200 bg-emerald-50/20 mb-4';
     }
   });
