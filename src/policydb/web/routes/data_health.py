@@ -115,15 +115,23 @@ def blitz_save(
     if field not in valid_fields:
         return JSONResponse({"error": "Invalid field"}, status_code=400)
 
+    save_value = value.strip()
+    # Parse currency fields through the standard parser
+    if field in ("premium", "limit_amount", "deductible", "attachment_point"):
+        from policydb.utils import parse_currency_with_magnitude
+        parsed = parse_currency_with_magnitude(save_value)
+        if parsed is not None:
+            save_value = parsed
+
     if table == "policies":
         conn.execute(
             f"UPDATE policies SET {field} = ? WHERE policy_uid = ?",
-            (value.strip(), record_id),
+            (save_value, record_id),
         )
     else:
         conn.execute(
             f"UPDATE clients SET {field} = ? WHERE id = ?",
-            (value.strip(), int(record_id)),
+            (save_value, int(record_id)),
         )
     conn.commit()
 
