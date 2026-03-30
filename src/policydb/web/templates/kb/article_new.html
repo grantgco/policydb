@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}New Article — Knowledge Base{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto">
+  <div class="mb-4">
+    <a href="/kb" class="text-sm text-gray-400 hover:text-marsh">&larr; Knowledge Base</a>
+  </div>
+
+  <div class="card p-6">
+    <h1 class="text-xl font-bold text-gray-900 mb-5">New Article</h1>
+    <form action="/kb/articles/new" method="post">
+      <div class="mb-4">
+        <label class="block text-xs font-medium text-gray-500 mb-1">Title</label>
+        <input type="text" name="title" required autofocus placeholder="e.g. Marshall & Swift Report"
+               class="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-base focus:ring-2 focus:ring-marsh focus:border-marsh outline-none">
+      </div>
+      <div class="grid grid-cols-2 gap-4 mb-4">
+        <div>
+          <label class="block text-xs font-medium text-gray-500 mb-1">Category</label>
+          <select name="category" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-marsh focus:border-marsh outline-none">
+            {% for cat in categories %}
+            <option value="{{ cat }}">{{ cat }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-500 mb-1">Source</label>
+          <select name="source" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-marsh focus:border-marsh outline-none">
+            <option value="authored">Authored</option>
+            <option value="llm-assisted">LLM-Assisted</option>
+            <option value="external">External</option>
+          </select>
+        </div>
+      </div>
+      <div class="mb-5">
+        <label class="block text-xs font-medium text-gray-500 mb-1">Content (Markdown)</label>
+        <textarea name="content" id="new-article-content" rows="12"
+                  placeholder="Paste or write your article content here..."
+                  class="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm font-mono focus:ring-2 focus:ring-marsh focus:border-marsh outline-none resize-y"></textarea>
+      </div>
+      <div class="flex justify-end gap-2">
+        <a href="/kb" class="px-4 py-2 text-sm text-gray-600 hover:text-gray-900">Cancel</a>
+        <button type="submit" class="bg-marsh text-white rounded-lg px-5 py-2 text-sm font-medium hover:bg-marsh-light">Create Article</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+(function() {
+  var ta = document.getElementById('new-article-content');
+  if (ta && typeof window.initMarkdownEditor === 'function') {
+    window.initMarkdownEditor('new-article-content', {minHeight: '250px'});
+  }
+})();
+</script>
+{% endblock %}

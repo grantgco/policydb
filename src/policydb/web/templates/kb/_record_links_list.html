@@ -1,0 +1,25 @@
+{% if record_links %}
+<div class="space-y-1.5">
+  {% for link in record_links %}
+  <div class="flex items-center gap-2 text-xs group">
+    {% if link.entity_type == 'client' %}
+    <svg class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/>
+    </svg>
+    {% else %}
+    <svg class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+    </svg>
+    {% endif %}
+    <a href="{{ link.entity_url }}" class="text-gray-700 hover:text-marsh flex-1 min-w-0 truncate">{{ link.entity_name }}</a>
+    <button class="text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+            hx-post="/kb/{{ entry_type }}/{{ uid }}/unlink"
+            hx-vals='{"link_id":{{ link.id }}}'
+            hx-target="#record-links-container" hx-swap="innerHTML"
+            title="Unlink">&times;</button>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<p class="text-[9px] text-gray-400 italic">No linked records</p>
+{% endif %}

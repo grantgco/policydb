@@ -170,6 +170,16 @@ _DEFAULTS: dict[str, Any] = {
     ],
     "renewal_issue_window_days": 120,
     "renewal_issue_health_threshold": "at_risk",
+    # ── Knowledge Base ────────────────────────────────────────────────
+    "kb_categories": [
+        "Glossary",
+        "Procedure",
+        "Coverage",
+        "Carrier Intel",
+        "Underwriting",
+        "Claims",
+        "General",
+    ],
     # ── Anomaly detection ──────────────────────────────────────────────
     "anomaly_thresholds": {
         "renewal_not_started_days": 60,
