@@ -196,8 +196,9 @@ def get_program_pipeline(
     """Return one row per active program with renewal-relevant aggregated data."""
     sql = """
     SELECT pg.id AS program_id, pg.program_uid, pg.name AS program_name,
-           pg.client_id, pg.renewal_status,
+           pg.client_id, pg.renewal_status, pg.project_id,
            c.name AS client_name, c.cn_number,
+           pr.name AS project_name,
            COUNT(p.id) AS policy_count,
            COUNT(DISTINCT p.carrier) AS carrier_count,
            COALESCE(SUM(p.premium), 0) AS total_premium,
@@ -206,6 +207,7 @@ def get_program_pipeline(
            GROUP_CONCAT(DISTINCT p.carrier) AS carriers_list
     FROM programs pg
     JOIN clients c ON pg.client_id = c.id
+    LEFT JOIN projects pr ON pg.project_id = pr.id
     LEFT JOIN policies p ON p.program_id = pg.id
         AND p.archived = 0
         AND (p.is_opportunity = 0 OR p.is_opportunity IS NULL)
@@ -2690,7 +2692,13 @@ def auto_generate_sub_coverages(conn, policy_id: int, policy_type: str):
 def get_program_by_uid(conn: sqlite3.Connection, program_uid: str) -> dict | None:
     """Return a program dict by its UID, or None if not found."""
     row = conn.execute(
-        "SELECT * FROM programs WHERE program_uid = ?", (program_uid,)
+        """SELECT pg.*, pr.name AS project_name,
+                  pr.address AS project_address, pr.city AS project_city,
+                  pr.state AS project_state, pr.zip AS project_zip
+           FROM programs pg
+           LEFT JOIN projects pr ON pg.project_id = pr.id
+           WHERE pg.program_uid = ?""",
+        (program_uid,),
     ).fetchone()
     return dict(row) if row else None
 
@@ -2731,10 +2739,29 @@ def get_program_aggregates(conn: sqlite3.Connection, program_id: int) -> dict:
 
 
 def get_programs_for_client(conn: sqlite3.Connection, client_id: int) -> list[dict]:
-    """Return all programs for a client with aggregated stats."""
+    """Return all programs for a client with aggregated stats, including project/location info."""
     rows = conn.execute(
-        "SELECT * FROM programs WHERE client_id = ? AND archived = 0 ORDER BY name",
+        """SELECT pg.*, pr.name AS project_name
+           FROM programs pg
+           LEFT JOIN projects pr ON pg.project_id = pr.id
+           WHERE pg.client_id = ? AND pg.archived = 0
+           ORDER BY pr.name NULLS LAST, pg.name""",
         (client_id,),
+    ).fetchall()
+    programs = []
+    for r in rows:
+        pgm = dict(r)
+        agg = get_program_aggregates(conn, pgm["id"])
+        pgm.update(agg)
+        programs.append(pgm)
+    return programs
+
+
+def get_programs_for_project(conn: sqlite3.Connection, project_id: int) -> list[dict]:
+    """Return all programs linked to a specific project/location with aggregated stats."""
+    rows = conn.execute(
+        "SELECT * FROM programs WHERE project_id = ? AND archived = 0 ORDER BY name",
+        (project_id,),
     ).fetchall()
     programs = []
     for r in rows:

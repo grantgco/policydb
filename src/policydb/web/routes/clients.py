@@ -3577,6 +3577,10 @@ def project_detail(
     ).fetchone()
     cope = dict(cope_row) if cope_row else None
 
+    # Programs linked to this location
+    from policydb.queries import get_programs_for_project
+    location_programs = get_programs_for_project(conn, project_id)
+
     return templates.TemplateResponse(
         "clients/project.html",
         {
@@ -3585,6 +3589,7 @@ def project_detail(
             "client": dict(client),
             "policies": [dict(p) for p in policies],
             "cope": cope,
+            "location_programs": location_programs,
         },
     )
 
@@ -4913,13 +4918,38 @@ def project_pipeline_status(
     project = conn.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
     if not project:
         return HTMLResponse("", status_code=404)
+
+    # Check for active programs when marking Complete
+    active_program_count = 0
+    if status == "Complete":
+        active_program_count = conn.execute(
+            "SELECT COUNT(*) FROM programs WHERE project_id = ? AND archived = 0",
+            (project_id,),
+        ).fetchone()[0]
+
     client = get_client_by_id(conn, client_id)
     return templates.TemplateResponse("clients/_project_status_badge.html", {
         "request": request,
         "p": dict(project),
         "client": dict(client),
         "project_stages": stages,
+        "active_program_count": active_program_count,
     })
+
+
+@router.post("/{client_id}/projects/{project_id}/archive-programs")
+def archive_project_programs(
+    client_id: int,
+    project_id: int,
+    conn=Depends(get_db),
+):
+    """Archive all active programs linked to a project (used when project completes)."""
+    conn.execute(
+        "UPDATE programs SET archived = 1, updated_at = CURRENT_TIMESTAMP WHERE project_id = ? AND archived = 0",
+        (project_id,),
+    )
+    conn.commit()
+    return JSONResponse({"ok": True})
 
 
 @router.post("/{client_id}/projects/{project_id}/type", response_class=HTMLResponse)
@@ -5040,7 +5070,24 @@ def project_pipeline_delete(
     project_id: int,
     conn=Depends(get_db),
 ):
-    """Delete a pipeline project, unlinking its policies."""
+    """Delete a pipeline project, unlinking its policies and cleaning up programs."""
+    # Cascade safety: null out program_id on child policies of programs linked to this project,
+    # and clean up tower data, before the CASCADE delete removes the programs.
+    linked_programs = conn.execute(
+        "SELECT id FROM programs WHERE project_id = ?", (project_id,)
+    ).fetchall()
+    for pgm in linked_programs:
+        # Clean tower coverage/line refs for child policies
+        child_ids = [r[0] for r in conn.execute(
+            "SELECT id FROM policies WHERE program_id = ?", (pgm["id"],)
+        ).fetchall()]
+        if child_ids:
+            id_list = ",".join(str(cid) for cid in child_ids)
+            conn.execute(f"DELETE FROM program_tower_coverage WHERE excess_policy_id IN ({id_list}) OR underlying_policy_id IN ({id_list})")
+            conn.execute(f"DELETE FROM program_tower_lines WHERE source_policy_id IN ({id_list})")
+        # Null out program_id so policies survive the program deletion
+        conn.execute("UPDATE policies SET program_id = NULL, tower_group = NULL WHERE program_id = ?", (pgm["id"],))
+
     conn.execute("UPDATE policies SET project_id = NULL, project_name = NULL WHERE project_id = ?", (project_id,))
     conn.execute("DELETE FROM projects WHERE id = ? AND client_id = ?", (project_id, client_id))
     conn.commit()
@@ -5381,6 +5428,10 @@ def client_locations(request: Request, client_id: int, conn=Depends(get_db)):
             "SELECT 1 FROM client_exposures WHERE project_id=? LIMIT 1",
             (proj["id"],),
         ).fetchone() is not None
+        program_count = conn.execute(
+            "SELECT COUNT(*) FROM programs WHERE project_id = ? AND archived = 0",
+            (proj["id"],),
+        ).fetchone()[0]
         locations.append({
             "id": proj["id"], "name": proj["name"],
             "address": " ".join(filter(None, [
@@ -5391,6 +5442,7 @@ def client_locations(request: Request, client_id: int, conn=Depends(get_db)):
             "total_premium": sum(p.get("premium") or 0 for p in proj_policies),
             "color_bg": bg, "color_text": text, "color_light": light,
             "has_exposures": has_exposures,
+            "program_count": program_count,
         })
 
     # Smart suggestions: group unassigned by shared exposure_address

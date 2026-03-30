@@ -17,4 +17,17 @@
     <option value="{{ s }}" {% if s == p.status %}selected{% endif %}>{{ s }}</option>
     {% endfor %}
   </select>
+  {% if active_program_count %}
+  <div class="ml-2 flex items-center gap-2 text-xs">
+    <span class="text-amber-700">{{ active_program_count }} active program{{ 's' if active_program_count != 1 }}</span>
+    <button type="button"
+      class="bg-amber-100 hover:bg-amber-200 text-amber-700 px-2 py-0.5 rounded transition-colors"
+      onclick="if(confirm('Archive {{ active_program_count }} program{{ 's' if active_program_count != 1 }} linked to this project?')){fetch('/clients/{{ client.id }}/projects/{{ p.id }}/archive-programs',{method:'POST'}).then(function(){window.location.reload()})}">
+      Archive
+    </button>
+    <button type="button"
+      class="text-gray-400 hover:text-gray-600 px-1"
+      onclick="this.parentElement.remove()" title="Keep active">&times;</button>
+  </div>
+  {% endif %}
 </div>

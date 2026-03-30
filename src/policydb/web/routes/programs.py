@@ -17,7 +17,7 @@ from policydb.utils import parse_currency_with_magnitude
 from policydb.queries import (
     get_sub_coverages_by_policy_id, get_sub_coverages_full_by_policy_id,
     get_program_by_uid, get_program_child_policies, get_program_aggregates,
-    get_unassigned_policies,
+    get_unassigned_policies, get_programs_for_project,
     get_program_timeline_milestones, get_program_activities,
     renew_policy,
 )
@@ -29,6 +29,44 @@ router = APIRouter(tags=["programs"])
 # ===========================================================================
 # PROGRAMS v2 — Standalone entity routes (programs table)
 # ===========================================================================
+
+
+def _sync_policy_to_program_location(
+    conn: sqlite3.Connection, policy_uid: str, program: dict
+) -> None:
+    """Sync a policy's location to match its program's project/location.
+
+    Sets project_id, project_name, and exposure address fields on the policy
+    from the program's linked project. Uses COALESCE for address fields so
+    blank project addresses don't overwrite existing policy data.
+    """
+    if not program.get("project_id"):
+        return
+    project = conn.execute(
+        "SELECT id, name, address, city, state, zip FROM projects WHERE id = ?",
+        (program["project_id"],),
+    ).fetchone()
+    if not project:
+        return
+    conn.execute(
+        """UPDATE policies SET
+           project_id = ?,
+           project_name = ?,
+           exposure_address = COALESCE(NULLIF(?, ''), exposure_address),
+           exposure_city = COALESCE(NULLIF(?, ''), exposure_city),
+           exposure_state = COALESCE(NULLIF(?, ''), exposure_state),
+           exposure_zip = COALESCE(NULLIF(?, ''), exposure_zip)
+           WHERE policy_uid = ?""",
+        (
+            project["id"],
+            project["name"],
+            project["address"] or "",
+            project["city"] or "",
+            project["state"] or "",
+            project["zip"] or "",
+            policy_uid,
+        ),
+    )
 
 
 @router.post("/clients/{client_id}/programs/create")
@@ -53,11 +91,15 @@ async def create_program_v2(
     if existing:
         return JSONResponse({"ok": False, "error": f"Program '{name}' already exists"}, status_code=409)
 
+    project_id = body.get("project_id")
+    if project_id is not None:
+        project_id = int(project_id) if project_id else None
+
     uid = next_program_uid(conn)
     conn.execute(
-        """INSERT INTO programs (program_uid, client_id, name, line_of_business)
-           VALUES (?, ?, ?, ?)""",
-        (uid, client_id, name, lob),
+        """INSERT INTO programs (program_uid, client_id, name, line_of_business, project_id)
+           VALUES (?, ?, ?, ?, ?)""",
+        (uid, client_id, name, lob, project_id),
     )
     conn.commit()
     logger.info("Created program v2 '%s' (%s) for client %d", name, uid, client_id)
@@ -90,6 +132,20 @@ def program_detail(
         "SELECT id, name FROM clients WHERE archived=0 ORDER BY name"
     ).fetchall()]
 
+    # Client locations for the location picker
+    client_locations = [
+        dict(r) for r in conn.execute(
+            "SELECT id, name FROM projects WHERE client_id = ? ORDER BY name",
+            (program["client_id"],),
+        ).fetchall()
+    ]
+
+    # Count child policies (for move-children prompt)
+    child_count = conn.execute(
+        "SELECT COUNT(*) FROM policies WHERE program_id = ? AND archived = 0",
+        (program["id"],),
+    ).fetchone()[0]
+
     return templates.TemplateResponse("programs/detail.html", {
         "request": request,
         "active": "clients",
@@ -99,6 +155,8 @@ def program_detail(
         "renewal_statuses": renewal_statuses,
         "issue_severities": cfg.get("issue_severities", []),
         "all_clients": all_clients,
+        "client_locations": client_locations,
+        "child_count": child_count,
     })
 
 
@@ -408,10 +466,16 @@ async def patch_program_header(
     body = await request.json()
     allowed = {"name", "effective_date", "expiration_date", "renewal_status",
                "line_of_business", "notes", "working_notes", "lead_broker",
-               "placement_colleague", "account_exec", "milestone_profile"}
+               "placement_colleague", "account_exec", "milestone_profile",
+               "project_id"}
     updates = {k: v for k, v in body.items() if k in allowed}
     if not updates:
         return JSONResponse({"ok": False, "error": "No valid fields"})
+
+    # Normalize project_id to int or None
+    if "project_id" in updates:
+        pid = updates["project_id"]
+        updates["project_id"] = int(pid) if pid else None
 
     # If name changes, also update tower_group on child policies
     old_name = program["name"]
@@ -454,6 +518,8 @@ def assign_to_program_v2(
            WHERE policy_uid = ?""",
         (program["id"], program["name"], policy_uid),
     )
+    # Auto-sync location if program is scoped to a project/location
+    _sync_policy_to_program_location(conn, policy_uid, program)
     conn.commit()
     logger.info("Assigned %s to program %s", policy_uid, program_uid)
 
@@ -489,6 +555,27 @@ def unassign_from_program_v2(
     logger.info("Unassigned %s from program %s", policy_uid, program_uid)
 
     return JSONResponse({"ok": True})
+
+
+@router.post("/programs/{program_uid}/move-children")
+async def move_children_to_location(
+    request: Request,
+    program_uid: str,
+    conn: sqlite3.Connection = Depends(get_db),
+):
+    """Bulk-update child policies' location to match program's new project_id."""
+    program = get_program_by_uid(conn, program_uid)
+    if not program:
+        return JSONResponse({"ok": False, "error": "Program not found"}, status_code=404)
+
+    children = get_program_child_policies(conn, program["id"])
+    moved = 0
+    for child in children:
+        _sync_policy_to_program_location(conn, child["policy_uid"], program)
+        moved += 1
+    conn.commit()
+    logger.info("Moved %d child policies of %s to project %s", moved, program_uid, program.get("project_id"))
+    return JSONResponse({"ok": True, "moved": moved})
 
 
 # ---------------------------------------------------------------------------
@@ -876,6 +963,8 @@ async def renew_program(request: Request, program_uid: str,
                        WHERE id = ?""",
                     (pgm["id"], pgm["name"], child.get("schematic_column"), new_id),
                 )
+                # Auto-sync location if program is scoped to a project/location
+                _sync_policy_to_program_location(conn, new_uid, pgm)
                 conn.commit()
                 renewed += 1
         except Exception as exc:
