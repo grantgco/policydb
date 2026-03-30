@@ -20,6 +20,10 @@ class IssueDetailsUpdate(BaseModel):
     details: str = ""
 
 
+class IssueSubjectUpdate(BaseModel):
+    subject: str
+
+
 # ── Create issue ─────────────────────────────────────────────────────────────
 
 
@@ -206,6 +210,24 @@ def update_issue_details(
     return {"ok": True}
 
 
+@router.patch("/issues/{issue_id}/subject")
+def update_issue_subject(
+    issue_id: int,
+    body: IssueSubjectUpdate,
+    conn=Depends(get_db),
+):
+    """Update issue subject/title via PATCH."""
+    subject = body.subject.strip()
+    if not subject:
+        return {"ok": False, "error": "Subject cannot be empty"}
+    conn.execute(
+        "UPDATE activity_log SET subject = ? WHERE id = ? AND item_kind = 'issue'",
+        (subject, issue_id),
+    )
+    conn.commit()
+    return {"ok": True, "formatted": subject}
+
+
 # ── Open issues for a client (widget partial) ────────────────────────────────
 
 
@@ -305,15 +327,21 @@ def linkable_activities(
 def link_activities(
     issue_id: int,
     request: Request,
-    activity_ids: list[int] = Form(default=[]),
+    activity_ids: str = Form(default=""),
     conn=Depends(get_db),
 ):
     """Bulk-link selected activities to an issue."""
-    if activity_ids:
-        placeholders = ",".join("?" * len(activity_ids))
+    # Parse comma-separated IDs from the hidden input
+    parsed_ids = []
+    for v in activity_ids.split(","):
+        v = v.strip()
+        if v.isdigit():
+            parsed_ids.append(int(v))
+    if parsed_ids:
+        placeholders = ",".join("?" * len(parsed_ids))
         conn.execute(
             f"UPDATE activity_log SET issue_id = ? WHERE id IN ({placeholders})",
-            [issue_id] + list(activity_ids),
+            [issue_id] + parsed_ids,
         )
         conn.commit()
 

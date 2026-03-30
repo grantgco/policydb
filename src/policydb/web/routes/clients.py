@@ -297,6 +297,9 @@ def client_list(
         "total_clients": len(clients),
         "total_premium": sum(c.get("total_premium") or 0 for c in clients),
         "total_revenue": sum(c.get("total_revenue") or 0 for c in clients),
+        "opportunity_count": sum(c.get("opportunity_count") or 0 for c in clients),
+        "opportunity_premium": sum(c.get("opportunity_premium") or 0 for c in clients),
+        "opportunity_revenue": sum(c.get("opportunity_revenue") or 0 for c in clients),
     }
     segment_counts = Counter(c.get("industry_segment", "Other") or "Other" for c in clients)
     top_segments = segment_counts.most_common(4)

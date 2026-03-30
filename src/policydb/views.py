@@ -144,6 +144,9 @@ SELECT
         THEN p.premium ELSE 0
     END) AS premium_at_risk,
     COUNT(CASE WHEN p.is_opportunity = 1 THEN 1 END) AS opportunity_count,
+    COALESCE(SUM(CASE WHEN p.is_opportunity = 1 THEN p.premium ELSE 0 END), 0) AS opportunity_premium,
+    COALESCE(SUM(CASE WHEN p.is_opportunity = 1 AND p.commission_rate > 0
+        THEN ROUND(p.premium * p.commission_rate, 2) ELSE 0 END), 0) AS opportunity_revenue,
     (SELECT COUNT(*) FROM programs pg2 WHERE pg2.client_id = c.id AND pg2.archived = 0) AS program_count,
     (SELECT COUNT(*) FROM activity_log a
      WHERE a.client_id = c.id

@@ -834,6 +834,13 @@ def update_disposition(
 
     conn.commit()
     logger.info("Disposition updated: %s → %s", composite_id, disposition)
+
+    if context == "action_center":
+        from policydb.web.routes.action_center import _followups_ctx
+        ctx = _followups_ctx(conn, window=30, activity_type="", q="")
+        ctx["request"] = request
+        return templates.TemplateResponse("action_center/_followups.html", ctx)
+
     return HTMLResponse("OK")
 
 
@@ -1157,6 +1164,8 @@ async def followups_apply_spread(request: Request, conn=Depends(get_db)):
             conn.execute("UPDATE activity_log SET follow_up_date=? WHERE id=?", (new_date, int(item_id)))
         elif source == "policy":
             conn.execute("UPDATE policies SET follow_up_date=? WHERE id=?", (new_date, int(item_id)))
+        elif source == "client":
+            conn.execute("UPDATE clients SET follow_up_date=? WHERE id=?", (new_date, int(item_id)))
         count += 1
     conn.commit()
     return JSONResponse({"ok": True, "count": count})
@@ -1175,6 +1184,8 @@ async def followups_plan_move(request: Request, conn=Depends(get_db)):
         conn.execute("UPDATE activity_log SET follow_up_date=? WHERE id=?", (new_date, int(item_id)))
     elif source == "policy":
         conn.execute("UPDATE policies SET follow_up_date=? WHERE id=?", (new_date, int(item_id)))
+    elif source == "client":
+        conn.execute("UPDATE clients SET follow_up_date=? WHERE id=?", (new_date, int(item_id)))
     conn.commit()
     return JSONResponse({"ok": True})
 
