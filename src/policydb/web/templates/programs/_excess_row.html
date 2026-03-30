@@ -1,6 +1,8 @@
 {% set is_umb = p.layer_position and 'umbrella' in p.layer_position.lower() %}
-{% set is_pkg = p.is_package_ghost is defined and p.is_package_ghost %}
-<tr data-row-id="{{ p.id }}" class="matrix-row hover:bg-gray-50 transition-colors {{ 'bg-blue-50' if is_umb and not is_pkg }}{{ ' border-l-2 border-l-indigo-400' if is_pkg }}">
+{% set is_pkg = p._from_sub_coverage is defined and p._from_sub_coverage %}
+{% set _sc_id = p._sub_coverage_id if is_pkg else '' %}
+{% set _row_id = 'sc-' ~ _sc_id if _sc_id else p.id %}
+<tr data-row-id="{{ _row_id }}" class="matrix-row hover:bg-gray-50 transition-colors {{ 'bg-blue-50' if is_umb and not is_pkg }}{{ ' border-l-2 border-l-indigo-400' if is_pkg }}">
   <td class="px-2 py-2 text-xs text-gray-400 font-mono">{{ layer_num }}</td>
   <td class="px-2 py-2">
     {% if is_pkg %}
@@ -12,7 +14,7 @@
     {% endif %}
   </td>
   <td class="px-3 py-2 text-sm text-gray-800 matrix-cell-editable"
-      data-field="carrier" data-placeholder="carrier" contenteditable="true">{{ p.carrier or '' }}{% if is_pkg %}<div class="text-[10px] text-indigo-500 italic" contenteditable="false">via {{ p.package_parent_type }}</div>{% endif %}</td>
+      data-field="carrier" data-placeholder="carrier" contenteditable="true">{{ p.carrier or '' }}{% if is_pkg %}<div class="text-[10px] text-indigo-500 italic" contenteditable="false">via {{ p.package_parent_type or p.policy_type or '' }}</div>{% endif %}</td>
   <td class="px-3 py-2 text-sm text-gray-800 text-right tabular-nums matrix-cell-editable"
       data-field="limit_amount" data-placeholder="$0" contenteditable="true">{% if p.limit_amount %}${{ '{:,.0f}'.format(p.limit_amount) }}{% endif %}</td>
   <td class="px-3 py-2 text-sm text-gray-800 text-right tabular-nums matrix-cell-editable"
