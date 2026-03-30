@@ -1,27 +1,41 @@
-{# ── v2 Programs (from standalone programs table) ── #}
+{# ── v2 Programs (from standalone programs table) — grouped by location ── #}
 {% if programs_v2 %}
-<details class="card mb-4 overflow-hidden" open>
-  <summary class="px-4 py-2.5 bg-blue-50 border-b border-blue-100 cursor-pointer select-none list-none flex items-center gap-2 hover:bg-blue-100 transition-colors">
-    <span class="text-xs text-blue-400 details-arrow">&#9654;</span>
-    <span class="text-xs font-bold text-marsh uppercase tracking-wide">Programs</span>
-    <span class="text-xs text-gray-400">&middot; {{ programs_v2 | length }} program{{ 's' if programs_v2 | length != 1 }}</span>
-  </summary>
-  <div class="overflow-x-auto">
-    <table class="w-full text-sm">
-      <thead>
-        <tr class="border-b border-gray-100 text-left text-xs text-gray-400">
-          <th class="px-4 py-2 font-medium"></th>
-          <th class="px-4 py-2 font-medium">Program</th>
-          <th class="px-4 py-2 font-medium">LOB</th>
-          <th class="px-4 py-2 font-medium text-right">Premium</th>
-          <th class="px-4 py-2 font-medium text-center">Policies</th>
-          <th class="px-4 py-2 font-medium text-center">Carriers</th>
-          <th class="px-4 py-2 font-medium">Term</th>
-          <th class="px-4 py-2 font-medium">Status</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for pgm in programs_v2 %}
+{% set ns = namespace(current_group='__INIT__') %}
+<div class="space-y-4">
+{% for pgm in programs_v2 %}
+  {% set group_key = pgm.project_name or '' %}
+  {% if group_key != ns.current_group %}
+    {% if ns.current_group != '__INIT__' %}
+      {# Close previous table/details #}
+      </tbody></table></div></details>
+    {% endif %}
+    {% set ns.current_group = group_key %}
+
+    <details class="card overflow-hidden" open>
+      <summary class="px-4 py-2.5 bg-blue-50 border-b border-blue-100 cursor-pointer select-none list-none flex items-center gap-2 hover:bg-blue-100 transition-colors">
+        <span class="text-xs text-blue-400 details-arrow">&#9654;</span>
+        {% if pgm.project_id %}
+          <span class="text-xs font-bold text-marsh uppercase tracking-wide">{{ pgm.project_name }}</span>
+        {% else %}
+          <span class="text-xs font-bold text-gray-500 uppercase tracking-wide">Client-Level Programs</span>
+        {% endif %}
+      </summary>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="border-b border-gray-100 text-left text-xs text-gray-400">
+              <th class="px-4 py-2 font-medium"></th>
+              <th class="px-4 py-2 font-medium">Program</th>
+              <th class="px-4 py-2 font-medium">LOB</th>
+              <th class="px-4 py-2 font-medium text-right">Premium</th>
+              <th class="px-4 py-2 font-medium text-center">Policies</th>
+              <th class="px-4 py-2 font-medium text-center">Carriers</th>
+              <th class="px-4 py-2 font-medium">Term</th>
+              <th class="px-4 py-2 font-medium">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+  {% endif %}
         <tr class="border-b border-gray-50 hover:bg-gray-50 transition-colors">
           <td class="px-4 py-2.5">
             <span class="bg-blue-100 text-blue-700 text-[10px] font-bold px-1.5 py-0.5 rounded">PGM</span>
@@ -54,10 +68,8 @@
                class="text-[10px] text-marsh hover:underline whitespace-nowrap no-print">Open &rarr;</a>
           </td>
         </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-</details>
+{% endfor %}
+{# Close final group #}
+      </tbody></table></div></details>
+</div>
 {% endif %}
-

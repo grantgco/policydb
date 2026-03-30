@@ -33,6 +33,24 @@
          class="text-xs text-marsh hover:underline no-print">&larr; Back to Client</a>
     </div>
     <div class="flex flex-wrap items-center gap-6 text-sm">
+      {# ── Location picker ── #}
+      <div class="flex items-center gap-1.5">
+        <span class="text-gray-400 text-xs">Location:</span>
+        {% if program.project_id and program.project_name %}
+          <a href="/clients/{{ client.id }}/projects/{{ program.project_id }}"
+             class="text-sm text-marsh hover:underline">{{ program.project_name }}</a>
+          <button onclick="changeLocation('')" class="text-gray-400 hover:text-red-500 text-xs ml-1" title="Unlink location">&times;</button>
+        {% else %}
+          <select id="location-picker"
+                  class="border-0 border-b border-gray-200 text-sm text-gray-700 bg-transparent px-1 py-0.5 focus:border-marsh focus:ring-0"
+                  onchange="changeLocation(this.value)">
+            <option value="">— None —</option>
+            {% for loc in client_locations %}
+              <option value="{{ loc.id }}">{{ loc.name }}</option>
+            {% endfor %}
+          </select>
+        {% endif %}
+      </div>
       <div class="flex items-center gap-1.5">
         <span class="text-gray-400 text-xs">Term:</span>
         <input type="date" value="{{ program.effective_date or '' }}"
@@ -113,6 +131,23 @@ function patchProgramHeader(field, value) {
       }
     }
   });
+}
+
+function changeLocation(projectId) {
+  var childCount = {{ child_count }};
+  // First, update the program's project_id
+  patchProgramHeader('project_id', projectId || null);
+  // If there are child policies, ask whether to move them too
+  if (childCount > 0 && projectId) {
+    if (confirm('Move ' + childCount + ' child polic' + (childCount === 1 ? 'y' : 'ies') + ' to this location too?')) {
+      fetch('/programs/{{ program.program_uid }}/move-children', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'}
+      }).then(function() { window.location.reload(); });
+      return;
+    }
+  }
+  window.location.reload();
 }
 </script>
 
