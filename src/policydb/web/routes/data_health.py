@@ -115,9 +115,31 @@ def blitz_save(
     if field not in valid_fields:
         return JSONResponse({"error": "Invalid field"}, status_code=400)
 
+    # Validate field is an actual DB column (config may reference non-existent columns)
+    _POLICY_COLUMNS = {
+        "carrier", "premium", "effective_date", "expiration_date",
+        "policy_type", "policy_number", "renewal_status",
+        "first_named_insured", "limit_amount", "deductible",
+        "attachment_point", "description", "access_point",
+        "opportunity_status", "target_effective_date",
+        "prior_premium", "exposure_amount", "coverage_form",
+        "layer_position", "notes",
+    }
+    _CLIENT_COLUMNS = {
+        "industry_segment", "account_exec", "cn_number", "name",
+    }
+    allowed_cols = _POLICY_COLUMNS if table == "policies" else _CLIENT_COLUMNS
+    if field not in allowed_cols:
+        return JSONResponse(
+            {"error": f"Field '{field}' is not a valid column"},
+            status_code=400,
+        )
+
     save_value = value.strip()
     # Parse currency fields through the standard parser
-    if field in ("premium", "limit_amount", "deductible", "attachment_point"):
+    currency_fields = {"premium", "limit_amount", "deductible", "attachment_point",
+                       "prior_premium", "exposure_amount"}
+    if field in currency_fields:
         from policydb.utils import parse_currency_with_magnitude
         parsed = parse_currency_with_magnitude(save_value)
         if parsed is not None:
@@ -125,12 +147,12 @@ def blitz_save(
 
     if table == "policies":
         conn.execute(
-            f"UPDATE policies SET {field} = ? WHERE policy_uid = ?",
+            f"UPDATE policies SET {field} = ? WHERE policy_uid = ?",  # noqa: S608
             (save_value, record_id),
         )
     else:
         conn.execute(
-            f"UPDATE clients SET {field} = ? WHERE id = ?",
+            f"UPDATE clients SET {field} = ? WHERE id = ?",  # noqa: S608
             (save_value, int(record_id)),
         )
     conn.commit()

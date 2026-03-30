@@ -48,7 +48,7 @@
     <div class="flex items-center gap-3 no-print">
       <button type="button" onclick="openIssueCreateSlideover({client_id:'{{ policy.client_id }}', client_name:'{{ client.name|e }}', policy_id:'{{ policy.id }}', policy_label:'{{ policy.policy_uid }} {{ policy.policy_type|default("",true)|e }}'})"
         class="text-xs text-amber-600 hover:underline">+ Issue</button>
-      <button type="button" onclick="document.getElementById('log-form-edit').classList.toggle('hidden'); this.textContent = this.textContent.trim() === '+ Log' ? '− Close' : '+ Log'"
+      <button type="button" id="log-toggle-btn" onclick="document.getElementById('log-form-edit').classList.toggle('hidden'); this.textContent = this.textContent.trim() === '+ Log' ? '− Close' : '+ Log'"
         class="text-xs text-marsh hover:underline">+ Log</button>
     </div>
   </div>
@@ -56,7 +56,7 @@
     <form hx-post="/activities/log"
           hx-target="#edit-activity-list"
           hx-swap="afterbegin"
-          hx-on::after-request="this.reset(); document.getElementById('log-form-edit').classList.add('hidden'); document.querySelector('#log-toggle-bar button').textContent = '+ Log'"
+          hx-on::after-request="this.reset(); document.getElementById('log-form-edit').classList.add('hidden'); document.getElementById('log-toggle-btn').textContent = '+ Log'"
           class="border-l-4 border-marsh bg-green-50/30 pl-3 pr-2 py-2 rounded-r">
       <input type="hidden" name="client_id" value="{{ policy.client_id }}">
       <input type="hidden" name="policy_id" value="{{ policy.id }}">
@@ -117,8 +117,8 @@
       {% endif %}
       {# Issue widget — link activity to an open issue #}
       <div id="policy-log-issue-widget" class="mt-2"
-           hx-get="/issues/for-client/{{ policy.client_id }}"
-           hx-trigger="intersect once"
+           hx-get="/issues/for-policy/{{ policy.id }}"
+           hx-trigger="load"
            hx-swap="innerHTML"></div>
     </form>
   </div>

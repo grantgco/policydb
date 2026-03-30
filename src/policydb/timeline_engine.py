@@ -419,6 +419,11 @@ def _recompute_prep_and_health(conn, policy_uid: str, expiration_date: str) -> N
 
     conn.commit()
 
+    # Sync renewal issue severity from updated health
+    from policydb.renewal_issues import sync_renewal_issue_severity
+    sync_renewal_issue_severity(conn, policy_uid)
+    conn.commit()
+
 
 # ── Follow-up / Re-diary Integration ──────────────────────────────────
 
@@ -502,12 +507,21 @@ def complete_timeline_milestone(conn, policy_uid: str, milestone_name: str) -> N
                 WHERE id = ?
             """, (now, existing["id"]))
 
-    # Recompute health
+    # Recompute health (also triggers renewal issue severity sync)
     exp = conn.execute(
         "SELECT expiration_date FROM policies WHERE policy_uid = ?", (policy_uid,)
     ).fetchone()
     if exp and exp["expiration_date"]:
         _recompute_prep_and_health(conn, policy_uid, exp["expiration_date"])
+
+    # Auto-resolve renewal issue if ALL milestones are now complete
+    remaining = conn.execute("""
+        SELECT COUNT(*) AS cnt FROM policy_timeline
+        WHERE policy_uid = ? AND completed_date IS NULL
+    """, (policy_uid,)).fetchone()
+    if remaining and remaining["cnt"] == 0:
+        from policydb.renewal_issues import auto_resolve_renewal_issue
+        auto_resolve_renewal_issue(conn, policy_uid=policy_uid)
 
     conn.commit()
 
