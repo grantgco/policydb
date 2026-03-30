@@ -4,7 +4,7 @@
 #}
 
 <!-- ═══ Chart Display ═══════════════════════════════════════════════════════ -->
-<div class="manual-chart-page-auto" style="display:flex;justify-content:center;padding:2rem;">
+<div class="manual-chart-page-auto" style="display:flex;justify-content:center;padding:32px;">
   <div id="ms-card-container" style="width:520px;"></div>
 </div>
 
@@ -221,35 +221,35 @@
 
     var html =
       '<div style="background:#fff;border:1px solid ' + MC.neutral500 + ';border-radius:4px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.06);">' +
-        '<div style="padding:1.75rem 1.75rem 1.5rem;">' +
+        '<div style="padding:28px 28px 24px;">' +
           // Header row: date block + status badge
-          '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;margin-bottom:1.25rem;">' +
+          '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:20px;">' +
             // Left: super label + date
             '<div>' +
               (superLabel ?
-                '<div style="font-family:\'Noto Sans\',sans-serif;font-size:0.65rem;text-transform:uppercase;letter-spacing:0.09em;color:' + MC.neutral750 + ';font-weight:600;margin-bottom:0.1rem;">' + esc(superLabel) + '</div>'
+                '<div style="font-family:\'Noto Sans\',sans-serif;font-size:10px;text-transform:uppercase;letter-spacing:0.09em;color:' + MC.neutral750 + ';font-weight:600;margin-bottom:2px;">' + esc(superLabel) + '</div>'
                 : '') +
-              '<div style="font-family:\'Noto Serif\',serif;font-size:1.9rem;color:' + accentColor + ';line-height:1;">' +
+              '<div style="font-family:\'Noto Serif\',serif;font-size:30px;color:' + accentColor + ';line-height:1;">' +
                 esc(dateLine1) + '<br>' + esc(dateLine2) +
               '</div>' +
             '</div>' +
             // Right: status badge
-            '<div style="font-family:\'Noto Sans\',sans-serif;font-size:0.71rem;font-weight:600;letter-spacing:0.04em;padding:0.28rem 0.75rem;border-radius:99px;white-space:nowrap;margin-top:0.3rem;' +
-              'background:' + st.bg + ';color:' + st.color + ';border:1.5px solid ' + st.color + '30;">' +
+            '<div style="font-family:\'Noto Sans\',sans-serif;font-size:11px;font-weight:600;letter-spacing:0.04em;padding:4px 12px;border-radius:99px;white-space:nowrap;margin-top:5px;' +
+              'background:' + st.bg + ';color:' + st.color + ';border:1.5px solid ' + st.color + ';">' +
               st.label +
             '</div>' +
           '</div>' +
           // Milestone title
           (milestone ?
-            '<div style="font-family:\'Noto Sans\',sans-serif;font-size:1.05rem;font-weight:600;color:' + MC.midnight + ';margin-bottom:0.5rem;line-height:1.3;">' + esc(milestone) + '</div>'
+            '<div style="font-family:\'Noto Sans\',sans-serif;font-size:17px;font-weight:600;color:' + MC.midnight + ';margin-bottom:8px;line-height:1.3;">' + esc(milestone) + '</div>'
             : '') +
           // Description
           (desc ?
-            '<div style="font-family:\'Noto Sans\',sans-serif;font-size:0.83rem;color:' + MC.neutral750 + ';line-height:1.6;">' + esc(desc) + '</div>'
+            '<div style="font-family:\'Noto Sans\',sans-serif;font-size:13px;color:' + MC.neutral750 + ';line-height:1.6;">' + esc(desc) + '</div>'
             : '') +
           // Progress bar
           (showProgress ?
-            '<div style="height:4px;border-radius:2px;margin-top:1.25rem;background:' + MC.neutral500 + ';overflow:hidden;">' +
+            '<div style="height:4px;border-radius:2px;margin-top:20px;background:' + MC.neutral500 + ';overflow:hidden;">' +
               '<div style="height:100%;border-radius:2px;width:' + progress + '%;background:' + accentColor + ';transition:width 0.3s;"></div>' +
             '</div>'
             : '') +

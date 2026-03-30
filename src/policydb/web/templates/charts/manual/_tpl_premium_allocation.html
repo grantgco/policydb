@@ -3,12 +3,12 @@
 <!-- ── Chart Display ─────────────────────────────────────────────────────── -->
 <div class="manual-chart-page">
   <div class="manual-chart-wrap">
-    <h2 id="chart-title-display" style="font-family: 'Noto Serif', serif; font-size: 1.35rem; color: #000F47; margin: 0 0 0.25rem;">
+    <div id="chart-title-display" style="font-family: 'Noto Serif', serif; font-size: 24px; font-weight: 700; color: #000F47; margin: 0 0 4px;">
       Premium Allocation by Coverage Line
-    </h2>
-    <p id="chart-subtitle-display" style="font-family: 'Noto Sans', sans-serif; font-size: 0.82rem; color: #7B7974; margin: 0 0 1rem;">
+    </div>
+    <div id="chart-subtitle-display" style="font-family: 'Noto Sans', sans-serif; font-size: 13px; color: #7B7974; margin: 0 0 16px;">
       Current policy year
-    </p>
+    </div>
     <div style="position:relative;flex:1;min-height:0;">
       <canvas id="doughnut-canvas"></canvas>
     </div>
@@ -36,6 +36,10 @@
     <label class="display-toggle">
       <input type="checkbox" id="show-legend" name="show-legend" checked onchange="refreshCurrentChart()">
       <span class="toggle-track"></span><span class="toggle-label">Legend</span>
+    </label>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-pct-labels" name="show-pct-labels" checked onchange="refreshCurrentChart()">
+      <span class="toggle-track"></span><span class="toggle-label">% Labels</span>
     </label>
   </div>
 
@@ -178,6 +182,41 @@
     }
   };
 
+  /** Percentage labels on each slice */
+  var pctLabelPlugin = {
+    id: 'pctLabels',
+    afterDraw: function (chart) {
+      if (!ManualChart.isToggled('show-pct-labels')) return;
+      var ctx = chart.ctx;
+      var dataset = chart.data.datasets[0];
+      var total = dataset.data.reduce(function (a, b) { return a + b; }, 0);
+      if (!total) return;
+      var meta = chart.getDatasetMeta(0);
+      meta.data.forEach(function (arc, i) {
+        var val = dataset.data[i];
+        var pct = ((val / total) * 100).toFixed(1);
+        if (parseFloat(pct) < 3) return; // Skip tiny slices
+        var pos = arc.tooltipPosition();
+        // Push label outward from center for readability
+        var centerX = (chart.chartArea.left + chart.chartArea.right) / 2;
+        var centerY = (chart.chartArea.top + chart.chartArea.bottom) / 2;
+        var dx = pos.x - centerX;
+        var dy = pos.y - centerY;
+        var dist = Math.sqrt(dx * dx + dy * dy);
+        var pushFactor = 1.15;
+        var labelX = centerX + dx * pushFactor;
+        var labelY = centerY + dy * pushFactor;
+        ctx.save();
+        ctx.fillStyle = '#3D3C37';
+        ctx.font = "600 11px 'Noto Sans'";
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(pct + '%', labelX, labelY);
+        ctx.restore();
+      });
+    }
+  };
+
   // ── Refresh / render chart ──────────────────────────────────────────
   window.refreshCurrentChart = function () {
     // Update title and subtitle displays
@@ -256,7 +295,7 @@
           }
         }
       },
-      plugins: [centerTextPlugin]
+      plugins: [centerTextPlugin, pctLabelPlugin]
     });
   };
 

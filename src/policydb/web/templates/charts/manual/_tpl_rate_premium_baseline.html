@@ -5,20 +5,19 @@
   <div class="manual-chart-wrap" style="display:flex;flex-direction:column;">
 
     <!-- Header -->
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:1.25rem;gap:1rem;flex-wrap:wrap;">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;gap:16px;flex-wrap:wrap;">
       <div>
-        <h2 id="chart-title-display" style="font-family:'Noto Serif',serif;font-size:1.6rem;color:#000F47;line-height:1.2;margin:0 0 0.3rem;">
+        <div id="chart-title-display" style="font-family:'Noto Serif',serif;font-size:24px;font-weight:700;color:#000F47;line-height:1.2;margin:0 0 5px;">
           Rate &amp; Premium vs. Baseline
-        </h2>
-        <p id="chart-subtitle-display" style="font-size:0.82rem;color:#7B7974;font-weight:400;letter-spacing:0.03em;margin:0;">
-          Placeholder values &mdash; update below
-        </p>
+        </div>
+        <div id="chart-subtitle-display" style="font-family:'Noto Sans',sans-serif;font-size:13px;color:#7B7974;font-weight:400;letter-spacing:0.5px;margin:0;">
+        </div>
       </div>
       <div class="toggle-pills">
-        <button class="pill-btn active" id="pill-rate" onclick="toggleSeries('rate')" style="border-color:#0e8c79;background:rgba(14,140,121,0.08);color:#0e8c79;">
+        <button class="pill-btn active" id="pill-rate" onclick="toggleSeries('rate')" style="border-color:#0e8c79;background:#E8F5F2;color:#0e8c79;">
           <span class="pill-dot"></span> Rate
         </button>
-        <button class="pill-btn active" id="pill-prem" onclick="toggleSeries('prem')" style="border-color:#000F47;background:rgba(0,15,71,0.08);color:#000F47;">
+        <button class="pill-btn active" id="pill-prem" onclick="toggleSeries('prem')" style="border-color:#000F47;background:#E6E8EE;color:#000F47;">
           <span class="pill-dot"></span> Premium
         </button>
       </div>
@@ -29,8 +28,8 @@
 
     <!-- Axis labels -->
     <div class="axis-labels" id="axis-labels-display">
-      <span class="axis-label" id="lbl-rate" style="background:rgba(14,140,121,0.1);color:#0e8c79;">&larr; Rate (per $100 TIV)</span>
-      <span class="axis-label" id="lbl-prem" style="background:rgba(0,15,71,0.1);color:#000F47;">Premium ($) &rarr;</span>
+      <span class="axis-label" id="lbl-rate" style="background:#E3F2EF;color:#0e8c79;">&larr; Rate (per $100 TIV)</span>
+      <span class="axis-label" id="lbl-prem" style="background:#E6E7ED;color:#000F47;">Premium ($) &rarr;</span>
     </div>
 
     <!-- Legend -->
@@ -127,7 +126,7 @@
   <div class="mc-editor-footer">
     <input type="text" id="val-subtitle" name="val-subtitle"
            placeholder="Client name / subtitle"
-           value="2022–2025 | Placeholder values — update below"
+           value=""
            style="flex:1;min-width:200px;border:1px solid var(--mc-border);border-radius:3px;padding:0.4rem 0.6rem;font-family:'Noto Sans',sans-serif;font-size:0.83rem;color:var(--mc-text);background:var(--mc-bg);">
     <button class="btn-mc" onclick="refreshCurrentChart()">Refresh Chart</button>
   </div>
@@ -169,7 +168,7 @@
       if (showRate) {
         pillR.classList.add('active');
         pillR.style.borderColor = '#0e8c79';
-        pillR.style.background = 'rgba(14,140,121,0.08)';
+        pillR.style.background = '#E8F5F2';
         pillR.style.color = '#0e8c79';
       } else {
         pillR.classList.remove('active');
@@ -184,7 +183,7 @@
       if (showPrem) {
         pillP.classList.add('active');
         pillP.style.borderColor = '#000F47';
-        pillP.style.background = 'rgba(0,15,71,0.08)';
+        pillP.style.background = '#E6E8EE';
         pillP.style.color = '#000F47';
       } else {
         pillP.classList.remove('active');

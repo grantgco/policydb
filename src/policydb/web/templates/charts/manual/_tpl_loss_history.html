@@ -3,10 +3,10 @@
 <!-- 1. Chart Display -->
 <div class="manual-chart-page">
   <div class="manual-chart-wrap">
-    <div id="chart-title-display" style="font-family: 'Noto Serif', serif; font-size: 1.35rem; font-weight: 700; color: var(--mc-midnight); margin-bottom: 0.15rem;">
+    <div id="chart-title-display" style="font-family: 'Noto Serif', serif; font-size: 24px; font-weight: 700; color: #000F47; margin-bottom: 2px;">
       Loss History
     </div>
-    <div id="chart-subtitle-display" style="font-family: 'Noto Sans', sans-serif; font-size: 0.82rem; color: var(--mc-muted); margin-bottom: 1rem;"></div>
+    <div id="chart-subtitle-display" style="font-family: 'Noto Sans', sans-serif; font-size: 13px; color: #7B7974; margin-bottom: 16px;"></div>
 
     <!-- Legend -->
     <div class="mc-legend" id="legend-display">
@@ -357,7 +357,7 @@
             type: 'linear',
             position: 'right',
             min: 0,
-            max: 100,
+            max: Math.max(100, Math.ceil(Math.max.apply(null, ratios.length ? ratios : [0]) / 10) * 10),
             title: {
               display: true,
               text: 'Loss Ratio %',
