@@ -213,17 +213,20 @@ def get_program_pipeline(
       AND c.archived = 0
     """
     params: list = []
-    if client_id:
+    if client_id is not None:
         sql += " AND pg.client_id = ?"
         params.append(client_id)
     sql += " GROUP BY pg.id HAVING MIN(p.expiration_date) IS NOT NULL"
-    sql += f" AND CAST(julianday(MIN(p.expiration_date)) - julianday('now') AS INTEGER) <= {window_days}"
+    sql += " AND CAST(julianday(MIN(p.expiration_date)) - julianday('now') AS INTEGER) <= ?"
+    params.append(window_days)
     sql += " ORDER BY MIN(p.expiration_date) ASC"
     rows = conn.execute(sql, params).fetchall()
     result = []
     for r in rows:
         d = dict(r)
-        dtr = d.get("days_to_renewal") or 999
+        dtr = d.get("days_to_renewal")
+        if dtr is None:
+            dtr = 999
         if dtr <= 30:
             d["urgency"] = "CRITICAL"
         elif dtr <= 60:
