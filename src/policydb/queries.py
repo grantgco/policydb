@@ -623,13 +623,17 @@ def get_all_followups(
            ) AS internal_cc,
            a.details AS note_details,
            NULL AS note_subject,
-           a.activity_date AS note_date
+           a.activity_date AS note_date,
+           a.program_id,
+           pg.name AS program_name,
+           pg.program_uid
     FROM activity_log a
     JOIN clients c ON a.client_id = c.id
     LEFT JOIN policies p ON a.policy_id = p.id
     LEFT JOIN contacts co_a ON a.contact_id = co_a.id
+    LEFT JOIN programs pg ON a.program_id = pg.id
     WHERE a.follow_up_done = 0 AND a.follow_up_date IS NOT NULL
-      AND (a.project_id IS NULL OR a.policy_id IS NOT NULL)
+      AND (a.project_id IS NULL OR a.policy_id IS NOT NULL OR a.program_id IS NOT NULL)
 
     UNION ALL
 
@@ -652,7 +656,10 @@ def get_all_followups(
            ) AS internal_cc,
            a.details AS note_details,
            NULL AS note_subject,
-           a.activity_date AS note_date
+           a.activity_date AS note_date,
+           NULL AS program_id,
+           NULL AS program_name,
+           NULL AS program_uid
     FROM activity_log a
     JOIN clients c ON a.client_id = c.id
     LEFT JOIN projects pr ON a.project_id = pr.id
@@ -689,7 +696,10 @@ def get_all_followups(
            (SELECT a2.subject FROM activity_log a2
             WHERE a2.policy_id = p.id ORDER BY a2.activity_date DESC, a2.id DESC LIMIT 1) AS note_subject,
            (SELECT a2.activity_date FROM activity_log a2
-            WHERE a2.policy_id = p.id ORDER BY a2.activity_date DESC, a2.id DESC LIMIT 1) AS note_date
+            WHERE a2.policy_id = p.id ORDER BY a2.activity_date DESC, a2.id DESC LIMIT 1) AS note_date,
+           NULL AS program_id,
+           NULL AS program_name,
+           NULL AS program_uid
     FROM policies p
     JOIN clients c ON p.client_id = c.id
     WHERE p.follow_up_date IS NOT NULL AND p.archived = 0
@@ -723,7 +733,10 @@ def get_all_followups(
            ) AS internal_cc,
            c.notes AS note_details,
            NULL AS note_subject,
-           NULL AS note_date
+           NULL AS note_date,
+           NULL AS program_id,
+           NULL AS program_name,
+           NULL AS program_uid
     FROM clients c
     WHERE c.follow_up_date IS NOT NULL AND c.archived = 0
 
