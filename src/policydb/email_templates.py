@@ -86,6 +86,143 @@ def _linked_account_names(conn: sqlite3.Connection, client_id: int) -> str:
         return ""
 
 
+def _fetch_policy_table_rows(
+    conn: sqlite3.Connection,
+    client_id: int,
+    project_name: str | None = None,
+) -> list[dict]:
+    """Fetch policy rows for the copy-table feature.
+
+    Returns dicts with: policy_type, carrier, access_point, policy_number,
+    effective_date, expiration_date, premium, limit_amount, description.
+    """
+    params: list = [client_id]
+    location_filter = ""
+    if project_name is not None:
+        location_filter = "AND LOWER(TRIM(COALESCE(p.project_name, ''))) = LOWER(TRIM(?))"
+        params.append(project_name)
+
+    rows = conn.execute(
+        f"""SELECT p.policy_type, p.carrier, p.access_point, p.policy_number,
+                   p.effective_date, p.expiration_date, p.premium,
+                   p.limit_amount, p.description
+            FROM policies p
+            WHERE p.client_id = ? AND p.archived = 0
+              AND (p.is_opportunity = 0 OR p.is_opportunity IS NULL)
+              {location_filter}
+            ORDER BY p.policy_type, p.carrier""",
+        params,
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def _carrier_display(carrier: str, access_point: str) -> str:
+    """Format carrier with access point: 'Carrier via Access Point'."""
+    if access_point:
+        return f"{carrier} via {access_point}"
+    return carrier
+
+
+def _render_policy_table_html(rows: list[dict]) -> str:
+    """Render an inline-styled HTML table for Outlook paste."""
+    hdr_bg = "#003865"
+    hdr_text = "#FFFFFF"
+    border = "#B9B6B1"
+    alt_bg = "#F7F3EE"
+    font = "'Noto Sans', Calibri, Arial, sans-serif"
+
+    cell_style = (
+        f"border:1px solid {border}; padding:6px 10px; "
+        f"font-family:{font}; font-size:13px; color:#3D3C37;"
+    )
+    hdr_style = (
+        f"border:1px solid {border}; padding:6px 10px; "
+        f"font-family:{font}; font-size:13px; font-weight:600; "
+        f"color:{hdr_text}; background-color:{hdr_bg};"
+    )
+    right_style = " text-align:right;"
+
+    cols = [
+        ("Policy Type", False),
+        ("Carrier", False),
+        ("Policy #", False),
+        ("Effective", False),
+        ("Expiration", False),
+        ("Premium", True),
+        ("Limit", True),
+        ("Description", False),
+    ]
+
+    parts = ['<table style="border-collapse:collapse; width:100%;">']
+    parts.append("<thead><tr>")
+    for label, is_right in cols:
+        align = right_style if is_right else ""
+        parts.append(f'<th style="{hdr_style}{align}">{label}</th>')
+    parts.append("</tr></thead>")
+    parts.append("<tbody>")
+
+    for i, r in enumerate(rows):
+        row_bg = f" background-color:{alt_bg};" if i % 2 == 1 else ""
+        carrier_text = _carrier_display(r.get("carrier") or "", r.get("access_point") or "")
+        cells = [
+            (r.get("policy_type") or "", False),
+            (carrier_text, False),
+            (r.get("policy_number") or "", False),
+            (_fmt_date(r.get("effective_date")), False),
+            (_fmt_date(r.get("expiration_date")), False),
+            (_fmt_currency(r.get("premium")), True),
+            (_fmt_currency(r.get("limit_amount")), True),
+            (r.get("description") or "", False),
+        ]
+        parts.append("<tr>")
+        for val, is_right in cells:
+            align = right_style if is_right else ""
+            parts.append(f'<td style="{cell_style}{row_bg}{align}">{val}</td>')
+        parts.append("</tr>")
+
+    parts.append("</tbody></table>")
+    return "".join(parts)
+
+
+def _render_policy_table_text(rows: list[dict]) -> str:
+    """Render a tab-separated plain-text table for non-rich paste targets."""
+    header = "Policy Type\tCarrier\tPolicy #\tEffective\tExpiration\tPremium\tLimit\tDescription"
+    lines = [header]
+    for r in rows:
+        carrier_text = _carrier_display(r.get("carrier") or "", r.get("access_point") or "")
+        line = "\t".join([
+            r.get("policy_type") or "",
+            carrier_text,
+            r.get("policy_number") or "",
+            _fmt_date(r.get("effective_date")),
+            _fmt_date(r.get("expiration_date")),
+            _fmt_currency(r.get("premium")),
+            _fmt_currency(r.get("limit_amount")),
+            r.get("description") or "",
+        ])
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def build_policy_table(
+    conn: sqlite3.Connection,
+    client_id: int,
+    project_name: str | None = None,
+    rows: list[dict] | None = None,
+) -> dict:
+    """Public API: return {"html": ..., "text": ...} for clipboard copy.
+
+    Pass *rows* directly (e.g. from renewal pipeline) or let the function
+    query by *client_id* and optional *project_name*.
+    """
+    if rows is None:
+        rows = _fetch_policy_table_rows(conn, client_id, project_name)
+    return {
+        "html": _render_policy_table_html(rows),
+        "text": _render_policy_table_text(rows),
+    }
+
+
 def _build_policy_list_tokens(conn: sqlite3.Connection, client_id: int, project_name: str | None = None) -> dict:
     """Build formatted policy list and coverage summary tokens.
 
@@ -150,11 +287,16 @@ def _build_policy_list_tokens(conn: sqlite3.Connection, client_id: int, project_
 
     total = sum(float(r["premium"] or 0) for r in policies)
 
+    # -- policy_table: tab-separated table for compose textarea --
+    table_rows = _fetch_policy_table_rows(conn, client_id, project_name)
+    policy_table_text = _render_policy_table_text(table_rows) if table_rows else ""
+
     return {
         "policy_list": "\n".join(lines),
         "coverage_summary": "\n".join(summary_lines),
         "client_total_premium": _fmt_currency(total),
         "client_policy_count": str(len(policies)),
+        "policy_table": policy_table_text,
     }
 
 
@@ -830,6 +972,7 @@ CONTEXT_TOKEN_GROUPS: dict[str, list[tuple[str, list[tuple[str, str]]]]] = {
             ("placement_emails", "Placement Emails (list)"),
             ("policy_list", "Policy List (location)"),
             ("coverage_summary", "Coverage Summary (location)"),
+            ("policy_table", "Policy Table (tab-separated)"),
         ]),
         ("COPE", [
             ("construction_type", "Construction Type"),
@@ -865,6 +1008,7 @@ CONTEXT_TOKEN_GROUPS: dict[str, list[tuple[str, list[tuple[str, str]]]]] = {
         ("Book of Business", [
             ("policy_list", "Policy List"),
             ("coverage_summary", "Coverage Summary"),
+            ("policy_table", "Policy Table (tab-separated)"),
             ("client_total_premium", "Total Premium"),
             ("client_policy_count", "Policy Count"),
             ("rfi_due_dates", "RFI Due Dates"),

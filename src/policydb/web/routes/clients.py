@@ -3307,6 +3307,15 @@ def export_project(client_id: int, project: str = "", conn=Depends(get_db)):
     )
 
 
+@router.get("/{client_id}/copy-table")
+def copy_table(client_id: int, project: str | None = None, conn=Depends(get_db)):
+    """Return HTML + plain-text policy table for clipboard copy."""
+    from fastapi.responses import JSONResponse
+    from policydb.email_templates import build_policy_table
+    result = build_policy_table(conn, client_id, project_name=project or None)
+    return JSONResponse(result)
+
+
 # ─── Quick CSV exports per section ────────────────────────────────────────────
 
 def _safe_filename(client_name: str, section: str) -> str:

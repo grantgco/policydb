@@ -1382,6 +1382,39 @@ def renewals_export(window: int = 180, fmt: str = "xlsx", conn=Depends(get_db)):
     )
 
 
+@router.get("/renewals/copy-table")
+def renewals_copy_table(window: int = 180, status: str = "", client_id: int = 0, conn=Depends(get_db)):
+    """Return HTML + plain-text renewal pipeline table for clipboard copy."""
+    from fastapi.responses import JSONResponse
+    from policydb.email_templates import build_policy_table
+    excluded = cfg.get("renewal_statuses_excluded", [])
+    filter_client_ids = [client_id] if client_id else None
+    pipeline = get_renewal_pipeline(
+        conn,
+        window_days=window,
+        renewal_status=status or None,
+        excluded_statuses=excluded,
+        client_ids=filter_client_ids,
+    )
+    # Convert pipeline rows to the standard table row format
+    rows = []
+    for r in pipeline:
+        rd = dict(r)
+        rows.append({
+            "policy_type": rd.get("policy_type") or "",
+            "carrier": rd.get("carrier") or "",
+            "access_point": rd.get("access_point") or "",
+            "policy_number": rd.get("policy_number") or "",
+            "effective_date": rd.get("effective_date") or "",
+            "expiration_date": rd.get("expiration_date") or "",
+            "premium": rd.get("premium"),
+            "limit_amount": rd.get("limit_amount"),
+            "description": rd.get("description") or "",
+        })
+    result = build_policy_table(conn, client_id=0, rows=rows)
+    return JSONResponse(result)
+
+
 _RENEWAL_SORT_FIELDS = {
     "client_name", "carrier", "expiration_date", "days_to_renewal",
     "premium", "renewal_status", "follow_up_date",
