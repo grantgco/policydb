@@ -50,6 +50,33 @@
 </div>
 
 {# ══════════════════════════════════════════════════════════
+   Renewal Issue Banner (if active)
+   ══════════════════════════════════════════════════════════ #}
+{% if renewal_issue %}
+{% set ri_sev = renewal_issue.issue_severity or 'Normal' %}
+<a href="/issues/{{ renewal_issue.issue_uid }}" class="card px-3 py-2 flex items-center gap-2 border-l-4
+  {% if ri_sev == 'Critical' %}border-red-400 bg-red-50/40
+  {% elif ri_sev == 'High' %}border-amber-400 bg-amber-50/40
+  {% elif ri_sev == 'Normal' %}border-blue-400 bg-blue-50/40
+  {% else %}border-gray-300 bg-gray-50/40{% endif %}
+  hover:shadow-sm transition-shadow group">
+  <span class="inline-flex items-center text-[10px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full px-1.5 py-0.5">Renewal Issue</span>
+  <span class="w-2 h-2 rounded-full flex-shrink-0
+    {% if ri_sev == 'Critical' %}bg-red-500
+    {% elif ri_sev == 'High' %}bg-amber-500
+    {% elif ri_sev == 'Normal' %}bg-blue-500
+    {% else %}bg-gray-400{% endif %}"></span>
+  <span class="text-xs font-medium text-gray-700">{{ ri_sev }}</span>
+  <span class="text-xs text-gray-400">&middot; {{ renewal_issue.issue_status }}</span>
+  <span class="text-xs text-gray-400">&middot; {{ (renewal_issue.days_open or 0)|int }}d open</span>
+  {% if renewal_issue.activity_count %}
+  <span class="text-xs text-gray-400">&middot; {{ renewal_issue.activity_count }} act</span>
+  {% endif %}
+  <span class="ml-auto text-[10px] text-gray-400 group-hover:text-marsh">View &rarr;</span>
+</a>
+{% endif %}
+
+{# ══════════════════════════════════════════════════════════
    Section 2: Metrics Bar
    ══════════════════════════════════════════════════════════ #}
 <div id="pulse-metrics" class="grid grid-cols-4 gap-2">
@@ -456,7 +483,7 @@
       </div>
       {# Issue widget — link activity to an open issue #}
       <div class="mt-2"
-           hx-get="/issues/for-client/{{ policy.client_id }}"
+           hx-get="/issues/for-policy/{{ policy.id }}"
            hx-trigger="intersect once"
            hx-swap="innerHTML"></div>
     </form>
