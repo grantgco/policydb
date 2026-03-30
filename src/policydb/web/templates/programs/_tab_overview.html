@@ -134,6 +134,77 @@
 </div>
 {% endif %}
 
+{# -- Program Issues -- #}
+{% if program_issues %}
+<div class="card mb-4">
+  <div class="px-4 py-2.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
+    <span class="text-xs font-bold text-marsh uppercase tracking-wide">Open Issues</span>
+    <div class="flex items-center gap-3">
+      <span class="text-xs text-gray-400">{{ program_issues | length }}</span>
+      <button type="button"
+        class="no-print text-xs text-marsh border border-marsh/30 rounded px-2 py-0.5 hover:bg-marsh hover:text-white transition-colors"
+        onclick="openIssueCreateSlideover({
+          client_id: '{{ program.client_id }}',
+          client_name: '{{ client_name | default("") | replace("'", "\\'") }}',
+          program_id: '{{ program.id }}'
+        })">+ Issue</button>
+    </div>
+  </div>
+  <div class="divide-y divide-gray-50">
+    {% for iss in program_issues %}
+    <div class="px-4 py-2.5 flex items-center justify-between hover:bg-gray-50">
+      <div class="flex items-center gap-2 min-w-0">
+        <span class="w-2 h-2 rounded-full flex-shrink-0
+          {% if iss.issue_severity == 'Critical' %}bg-red-500
+          {% elif iss.issue_severity == 'High' %}bg-amber-500
+          {% elif iss.issue_severity == 'Normal' %}bg-blue-500
+          {% else %}bg-gray-400{% endif %}"></span>
+        <a href="/issues/{{ iss.issue_uid }}" class="text-sm text-marsh hover:underline truncate">{{ iss.subject }}</a>
+      </div>
+      <span class="text-xs px-2 py-0.5 rounded
+        {% if iss.issue_status == 'Open' %}bg-red-50 text-red-700
+        {% elif iss.issue_status == 'In Progress' %}bg-amber-50 text-amber-700
+        {% else %}bg-gray-100 text-gray-600{% endif %}">{{ iss.issue_status }}</span>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{# -- Quick Log -- #}
+<div class="card mb-4 no-print">
+  <div class="px-4 py-2.5 bg-gray-50 border-b border-gray-100">
+    <span class="text-xs font-bold text-marsh uppercase tracking-wide">Log Activity</span>
+  </div>
+  <form hx-post="/programs/{{ program.program_uid }}/log"
+        hx-target=".tab-content" hx-swap="innerHTML"
+        class="px-4 py-3 flex flex-wrap gap-2 items-end">
+    <div>
+      <label class="text-[10px] text-gray-400 block mb-0.5">Type</label>
+      <select name="activity_type" class="text-xs border border-gray-300 rounded px-2 py-1.5">
+        {% for t in activity_types %}<option>{{ t }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="flex-1 min-w-[200px]">
+      <label class="text-[10px] text-gray-400 block mb-0.5">Subject</label>
+      <input type="text" name="subject" required placeholder="What happened..."
+             class="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:ring-marsh focus:border-marsh">
+    </div>
+    <div class="w-20">
+      <label class="text-[10px] text-gray-400 block mb-0.5">Hours</label>
+      <input type="number" name="duration_hours" step="any" min="0" placeholder="hrs"
+             class="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:ring-marsh focus:border-marsh">
+    </div>
+    <div>
+      <label class="text-[10px] text-gray-400 block mb-0.5">Follow-up</label>
+      <input type="date" name="follow_up_date"
+             class="text-xs border border-gray-300 rounded px-2 py-1.5 focus:ring-marsh focus:border-marsh">
+    </div>
+    <button type="submit"
+            class="text-xs bg-marsh text-white px-3 py-1.5 rounded hover:bg-marsh/90 transition-colors">Log</button>
+  </form>
+</div>
+
 <script>
 (function() {
   var _base = '/programs/{{ program.program_uid }}';
