@@ -11,7 +11,7 @@
     {% if a.details %}<p class="text-xs text-gray-400 mt-1 line-clamp-2">{{ a.details }}</p>{% endif %}
     <p class="text-xs text-gray-400 mt-1">
       {{ a.activity_date }}
-      {% if a.contact_person %} &middot; {{ a.contact_person }}{% endif %}
+      {% if a.contact_name or a.contact_person %} &middot; {{ a.contact_name or a.contact_person }}{% endif %}
       {% if a.follow_up_date %} &middot; <span class="{% if not a.follow_up_done %}text-purple-500{% else %}line-through text-gray-300{% endif %}">Follow-up {{ a.follow_up_date }}</span>{% endif %}
     </p>
   </div>
@@ -56,7 +56,7 @@
     {% if a.details %}<p class="text-xs text-gray-500 mt-1 line-clamp-2">{{ a.details }}</p>{% endif %}
     <p class="text-xs text-gray-400 mt-1">
       {{ a.activity_date }}
-      {% if a.contact_person %} · {{ a.contact_person }}{% endif %}
+      {% if a.contact_name or a.contact_person %} · {{ a.contact_name or a.contact_person }}{% endif %}
       {% if a.follow_up_date %} · <span class="{% if not a.follow_up_done %}text-amber-600{% else %}line-through text-gray-300{% endif %}">Follow-up {{ a.follow_up_date }}</span>{% endif %}
     </p>
   </div>

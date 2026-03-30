@@ -150,6 +150,7 @@
           <th class="px-3 py-2 whitespace-nowrap">Date</th>
           <th class="px-3 py-2 whitespace-nowrap">Type</th>
           <th class="px-3 py-2 whitespace-nowrap" style="min-width:100px">Client</th>
+          <th class="px-3 py-2 whitespace-nowrap" style="min-width:80px">Contact</th>
           <th class="px-3 py-2" style="min-width:200px">Subject</th>
           <th class="px-3 py-2 whitespace-nowrap">Hrs</th>
           <th class="px-3 py-2 whitespace-nowrap">Disposition</th>
@@ -193,6 +194,14 @@
             {% else %}
             <span class="text-gray-300">&mdash;</span>
             {% endif %}
+          </td>
+
+          {# Contact — editable text, saves to contact_person #}
+          <td class="px-3 py-2">
+            <div contenteditable="true"
+                 class="matrix-cell-editable text-xs text-gray-600 min-h-[1.25rem] outline-none"
+                 data-field="contact_person"
+                 data-placeholder="Contact...">{{ a.contact_name or a.contact_person or '' }}</div>
           </td>
 
           {# Subject — contenteditable #}

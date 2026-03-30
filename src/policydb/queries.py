@@ -462,11 +462,13 @@ def get_activities(
     sql = """SELECT a.*, c.name AS client_name, c.cn_number, p.policy_uid,
                     p.policy_type,
                     COALESCE(a.project_id, p.project_id) AS project_id,
-                    pr.name AS project_name
+                    pr.name AS project_name,
+                    co_ac.name AS contact_name
              FROM activity_log a
              JOIN clients c ON a.client_id = c.id
              LEFT JOIN policies p ON a.policy_id = p.id
              LEFT JOIN projects pr ON COALESCE(a.project_id, p.project_id) = pr.id
+             LEFT JOIN contacts co_ac ON a.contact_id = co_ac.id
              WHERE 1=1"""
     params: list = []
     if client_ids:
