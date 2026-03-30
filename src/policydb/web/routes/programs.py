@@ -86,6 +86,10 @@ def program_detail(
     agg = get_program_aggregates(conn, program["id"])
     renewal_statuses = cfg.get("renewal_statuses", [])
 
+    all_clients = [dict(c) for c in conn.execute(
+        "SELECT id, name FROM clients WHERE archived=0 ORDER BY name"
+    ).fetchall()]
+
     return templates.TemplateResponse("programs/detail.html", {
         "request": request,
         "active": "clients",
@@ -93,6 +97,8 @@ def program_detail(
         "client": dict(client),
         "aggregates": agg,
         "renewal_statuses": renewal_statuses,
+        "issue_severities": cfg.get("issue_severities", []),
+        "all_clients": all_clients,
     })
 
 
@@ -118,6 +124,30 @@ def program_tab_overview(
     unassigned = get_unassigned_policies(conn, program["client_id"])
     agg = get_program_aggregates(conn, program["id"])
 
+    # Fetch open issues linked to this program
+    program_issues = [dict(r) for r in conn.execute(
+        """SELECT id, issue_uid, subject, issue_severity, issue_status, activity_date
+           FROM activity_log
+           WHERE item_kind = 'issue'
+             AND program_id = ?
+             AND issue_status NOT IN ('Resolved', 'Closed')
+           ORDER BY CASE issue_severity
+               WHEN 'Critical' THEN 1 WHEN 'High' THEN 2
+               WHEN 'Normal' THEN 3 ELSE 4 END,
+             activity_date ASC""",
+        (program["id"],),
+    ).fetchall()]
+
+    # Client name for slideover context
+    client_row = conn.execute(
+        "SELECT name FROM clients WHERE id = ?", (program["client_id"],)
+    ).fetchone()
+    client_name = client_row["name"] if client_row else ""
+
+    all_clients = [dict(c) for c in conn.execute(
+        "SELECT id, name FROM clients WHERE archived=0 ORDER BY name"
+    ).fetchall()]
+
     return templates.TemplateResponse("programs/_tab_overview.html", {
         "request": request,
         "program": program,
@@ -128,6 +158,10 @@ def program_tab_overview(
         "policy_types": cfg.get("policy_types", []),
         "carriers": cfg.get("carriers", []),
         "activity_types": cfg.get("activity_types", []),
+        "program_issues": program_issues,
+        "client_name": client_name,
+        "all_clients": all_clients,
+        "issue_severities": cfg.get("issue_severities", []),
     })
 
 
@@ -340,10 +374,23 @@ def program_tab_activity(
 
     activities = get_program_activities(conn, program["id"])
 
+    # Client name for escalate → issue slideover
+    client_row = conn.execute(
+        "SELECT name FROM clients WHERE id = ?", (program["client_id"],)
+    ).fetchone()
+    client_name = client_row["name"] if client_row else ""
+
+    all_clients = [dict(c) for c in conn.execute(
+        "SELECT id, name FROM clients WHERE archived=0 ORDER BY name"
+    ).fetchall()]
+
     return templates.TemplateResponse("programs/_tab_activity.html", {
         "request": request,
         "program": program,
         "activities": activities,
+        "client_name": client_name,
+        "all_clients": all_clients,
+        "issue_severities": cfg.get("issue_severities", []),
     })
 
 
