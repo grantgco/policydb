@@ -134,6 +134,43 @@
 </div>
 {% endif %}
 
+{# -- Program Issues -- #}
+{% if program_issues %}
+<div class="card mb-4">
+  <div class="px-4 py-2.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
+    <span class="text-xs font-bold text-marsh uppercase tracking-wide">Open Issues</span>
+    <div class="flex items-center gap-3">
+      <span class="text-xs text-gray-400">{{ program_issues | length }}</span>
+      <button type="button"
+        class="no-print text-xs text-marsh border border-marsh/30 rounded px-2 py-0.5 hover:bg-marsh hover:text-white transition-colors"
+        onclick="openIssueCreateSlideover({
+          client_id: '{{ program.client_id }}',
+          client_name: '{{ client_name | default("") | replace("'", "\\'") }}',
+          program_id: '{{ program.id }}'
+        })">+ Issue</button>
+    </div>
+  </div>
+  <div class="divide-y divide-gray-50">
+    {% for iss in program_issues %}
+    <div class="px-4 py-2.5 flex items-center justify-between hover:bg-gray-50">
+      <div class="flex items-center gap-2 min-w-0">
+        <span class="w-2 h-2 rounded-full flex-shrink-0
+          {% if iss.issue_severity == 'Critical' %}bg-red-500
+          {% elif iss.issue_severity == 'High' %}bg-amber-500
+          {% elif iss.issue_severity == 'Normal' %}bg-blue-500
+          {% else %}bg-gray-400{% endif %}"></span>
+        <a href="/issues/{{ iss.issue_uid }}" class="text-sm text-marsh hover:underline truncate">{{ iss.subject }}</a>
+      </div>
+      <span class="text-xs px-2 py-0.5 rounded
+        {% if iss.issue_status == 'Open' %}bg-red-50 text-red-700
+        {% elif iss.issue_status == 'In Progress' %}bg-amber-50 text-amber-700
+        {% else %}bg-gray-100 text-gray-600{% endif %}">{{ iss.issue_status }}</span>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
 {# -- Quick Log -- #}
 <div class="card mb-4 no-print">
   <div class="px-4 py-2.5 bg-gray-50 border-b border-gray-100">
