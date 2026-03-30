@@ -8,14 +8,13 @@
   <div class="manual-chart-wrap" style="display:flex;flex-direction:column;">
 
     <!-- Header -->
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:1.25rem;gap:1rem;flex-wrap:wrap;">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;gap:16px;flex-wrap:wrap;">
       <div>
-        <h2 id="chart-title-display" style="font-family:'Noto Serif',serif;font-size:1.6rem;color:#000F47;line-height:1.2;margin:0 0 0.3rem;">
+        <div id="chart-title-display" style="font-family:'Noto Serif',serif;font-size:24px;font-weight:700;color:#000F47;line-height:1.2;margin:0 0 5px;">
           Claims Frequency vs. Severity
-        </h2>
-        <p id="chart-subtitle-display" style="font-size:0.82rem;color:#7B7974;font-weight:400;letter-spacing:0.03em;margin:0;">
-          Placeholder values &mdash; update below
-        </p>
+        </div>
+        <div id="chart-subtitle-display" style="font-size:13px;color:#7B7974;font-weight:400;letter-spacing:0.5px;margin:0;">
+        </div>
       </div>
     </div>
 
@@ -31,9 +30,12 @@
 
     <!-- Axis labels -->
     <div class="axis-labels" id="chart-axis-labels">
-      <span class="axis-label" style="background:rgba(0,15,71,0.1);color:#000F47;">&larr; Claim Count</span>
-      <span class="axis-label" style="background:rgba(203,126,3,0.1);color:#CB7E03;">Avg Claim Cost &rarr;</span>
+      <span class="axis-label" style="background:#E6E7ED;color:#000F47;">&larr; Claim Count</span>
+      <span class="axis-label" style="background:#FDEFD9;color:#CB7E03;">Avg Claim Cost &rarr;</span>
     </div>
+
+    <!-- Callout bar -->
+    <div class="callout-bar" id="callout-bar"></div>
 
     <!-- Canvas -->
     <div style="position:relative;flex:1;min-height:0;">
@@ -63,6 +65,10 @@
     <label class="display-toggle">
       <input type="checkbox" id="show-axis-labels" name="show-axis-labels" checked onchange="applyDisplayOptions()">
       <span class="toggle-track"></span><span class="toggle-label">Axis Labels</span>
+    </label>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-callout" name="show-callout" checked onchange="applyDisplayOptions()">
+      <span class="toggle-track"></span><span class="toggle-label">Callout Bar</span>
     </label>
   </div>
 
@@ -96,7 +102,7 @@
   <div class="mc-editor-footer">
     <input type="text" id="val-subtitle" name="val-subtitle"
            placeholder="Client name / subtitle"
-           value="Placeholder values — update below"
+           value=""
            style="flex:1;min-width:200px;border:1px solid var(--mc-border);border-radius:3px;padding:0.4rem 0.6rem;font-family:'Noto Sans',sans-serif;font-size:0.83rem;color:var(--mc-text);background:var(--mc-bg);">
     <button class="btn-mc" onclick="refreshCurrentChart()">Refresh Chart</button>
   </div>
@@ -204,6 +210,7 @@
     ManualChart.applyToggle('show-subtitle', 'chart-subtitle-display');
     ManualChart.applyToggle('show-legend', 'chart-legend');
     ManualChart.applyToggle('show-axis-labels', 'chart-axis-labels');
+    ManualChart.applyToggle('show-callout', 'callout-bar');
   };
 
   // ── Main render ─────────────────────────────────────────────────────────
@@ -212,6 +219,28 @@
     var subtitle = document.getElementById('val-subtitle').value;
 
     document.getElementById('chart-subtitle-display').textContent = subtitle || '';
+
+    // Build callout stats
+    var totalClaims = v.counts.reduce(function(a,b){ return a+b; }, 0);
+    var totalIncurred = v.incurred.reduce(function(a,b){ return a+b; }, 0);
+    var overallAvg = totalClaims > 0 ? Math.round(totalIncurred / totalClaims) : 0;
+    var latestIdx = v.counts.length - 1;
+    var latestAvg = v.avgCosts[latestIdx] || 0;
+
+    var calloutHTML = '';
+    calloutHTML += '<div class="callout-stat"><span class="lbl">Total Claims (' + years.length + ' yr)</span><span class="val">' + totalClaims + '</span></div>';
+    calloutHTML += '<div class="callout-stat"><span class="lbl">Total Incurred</span><span class="val">' + fmtCurrencyFull(totalIncurred) + '</span></div>';
+    calloutHTML += '<div class="callout-stat"><span class="lbl">Overall Avg Cost</span><span class="val">' + fmtCurrencyFull(overallAvg) + '</span></div>';
+    if (latestIdx > 0) {
+      var prevAvg = v.avgCosts[latestIdx - 1] || 0;
+      var trend = prevAvg > 0 ? ((latestAvg - prevAvg) / prevAvg * 100) : 0;
+      var trendClass = trend <= 0 ? 'green' : 'red';
+      var trendSign = trend >= 0 ? '+' : '';
+      calloutHTML += '<div class="callout-stat"><span class="lbl">' + years[latestIdx] + ' vs. Prior</span><span class="val ' + trendClass + '">' + trendSign + trend.toFixed(1) + '%</span></div>';
+    }
+    document.getElementById('callout-bar').innerHTML = calloutHTML;
+
+    applyDisplayOptions();
 
     var ctx = document.getElementById('fsChart').getContext('2d');
     if (chart) chart.destroy();

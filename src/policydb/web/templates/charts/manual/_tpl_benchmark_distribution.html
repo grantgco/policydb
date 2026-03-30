@@ -8,24 +8,24 @@
 <div class="manual-chart-page">
   <div class="manual-chart-wrap">
     <!-- Title -->
-    <div style="margin-bottom: 0.25rem;">
+    <div style="margin-bottom: 4px;">
       <div id="chart-title-display"
-           style="font-family: 'Noto Serif', serif; font-size: 1.35rem; font-weight: 700; color: #000F47;">
+           style="font-family: 'Noto Serif', serif; font-size: 24px; font-weight: 700; color: #000F47;">
         Total Program Limits ($M)
       </div>
       <div id="chart-subtitle-display"
-           style="font-size: 0.78rem; color: #7B7974; margin-top: 0.15rem;">
+           style="font-size: 13px; color: #7B7974; margin-top: 2px;">
         Peer benchmarking comparison
       </div>
     </div>
 
     <!-- Big Stat Callout -->
-    <div id="stat-callout" style="margin-bottom: 1rem;">
-      <div style="font-size: 0.8rem; color: #7B7974; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">
+    <div id="stat-callout" style="margin-bottom: 16px;">
+      <div style="font-size: 13px; color: #7B7974; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px;">
         Average
       </div>
       <div id="avg-display"
-           style="font-size: 2.5rem; font-weight: 700; color: #000F47; font-family: 'Noto Serif', serif;">
+           style="font-size: 40px; font-weight: 700; color: #000F47; font-family: 'Noto Serif', serif;">
         $32M
       </div>
     </div>
@@ -63,6 +63,10 @@
     <label class="display-toggle">
       <input type="checkbox" id="show-data-labels" name="show-data-labels" checked onchange="refreshCurrentChart()">
       <span class="toggle-track"></span><span class="toggle-label">Data Labels</span>
+    </label>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-client-marker" name="show-client-marker" checked onchange="refreshCurrentChart()">
+      <span class="toggle-track"></span><span class="toggle-label">Client Marker</span>
     </label>
   </div>
 
@@ -156,6 +160,18 @@
     </div>
   </div>
 
+  <!-- Client Position -->
+  <div style="margin-bottom: 1.25rem;">
+    <div class="section-head teal">Client Position</div>
+    <div class="input-row">
+      <div class="input-group" style="flex: 1; max-width: 200px;">
+        <label>Client Value</label>
+        <input type="number" id="client-value" name="client-value" value="" step="any" placeholder="Optional"
+               style="border-color: #0e8c79; background: #E8F5F2;">
+      </div>
+    </div>
+  </div>
+
   <!-- Footer -->
   <div class="mc-editor-footer">
     <div class="config-field wide">
@@ -205,6 +221,7 @@
     id: 'barLabels',
     afterDraw(chart) {
       if (!ManualChart.isToggled('show-data-labels')) return;
+      const unitLabel = document.getElementById('unit-label').value || '';
       const ctx = chart.ctx;
       chart.data.datasets.forEach((ds, di) => {
         chart.getDatasetMeta(di).data.forEach((bar, i) => {
@@ -213,10 +230,38 @@
           ctx.fillStyle = '#3D3C37';
           ctx.font = "600 12px 'Noto Sans'";
           ctx.textAlign = 'center';
-          ctx.fillText(val, bar.x, bar.y - 8);
+          ctx.fillText(val + (unitLabel ? ' ' + unitLabel : ''), bar.x, bar.y - 8);
           ctx.restore();
         });
       });
+    }
+  };
+
+  /** Vertical dashed line + label at client's value */
+  const clientMarkerPlugin = {
+    id: 'clientMarker',
+    afterDraw(chart) {
+      if (!ManualChart.isToggled('show-client-marker')) return;
+      const clientVal = parseFloat(document.getElementById('client-value').value);
+      if (!clientVal && clientVal !== 0) return;
+      const ctx = chart.ctx;
+      const yScale = chart.scales.y;
+      const y = yScale.getPixelForValue(clientVal);
+      ctx.save();
+      ctx.setLineDash([6, 4]);
+      ctx.strokeStyle = '#0e8c79';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(chart.chartArea.left, y);
+      ctx.lineTo(chart.chartArea.right, y);
+      ctx.stroke();
+      // Label
+      ctx.setLineDash([]);
+      ctx.fillStyle = '#0e8c79';
+      ctx.font = "600 12px 'Noto Sans'";
+      ctx.textAlign = 'left';
+      ctx.fillText('Client: ' + ManualChart.fmtCurrency(clientVal), chart.chartArea.left + 8, y - 8);
+      ctx.restore();
     }
   };
 
@@ -262,6 +307,15 @@
       currentChart = null;
     }
 
+    // Bar colors — relative to client position
+    const clientVal = parseFloat(document.getElementById('client-value').value);
+    const barColors = values.map(function (v) {
+      if (isNaN(clientVal)) return '#B9B6B1';
+      if (v < clientVal) return '#82BAFF';      // Below client = blue
+      if (v > clientVal) return '#000F47';       // Above client = midnight
+      return '#0e8c79';                          // Equal = teal (client's bar)
+    });
+
     // Build chart
     const ctx = document.getElementById('benchChart').getContext('2d');
     currentChart = new Chart(ctx, {
@@ -271,15 +325,15 @@
         datasets: [{
           label: 'Value',
           data: values,
-          backgroundColor: '#B9B6B1',
-          borderColor: '#B9B6B1',
+          backgroundColor: barColors,
+          borderColor: barColors,
           borderWidth: 0,
           borderRadius: 3,
           barPercentage: 0.6,
           categoryPercentage: 0.7,
         }]
       },
-      plugins: [avgLinePlugin, dataLabelPlugin],
+      plugins: [avgLinePlugin, clientMarkerPlugin, dataLabelPlugin],
       options: {
         responsive: true,
         maintainAspectRatio: false,

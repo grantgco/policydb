@@ -4,7 +4,7 @@
 #}
 
 <!-- === Chart Display ======================================================= -->
-<div class="manual-chart-page-auto" style="display:flex;justify-content:center;padding:2rem;">
+<div class="manual-chart-page-auto" style="display:flex;justify-content:center;padding:32px;">
   <div id="cov-card-container" style="width:520px;"></div>
 </div>
 
@@ -230,51 +230,51 @@
 
     // Header bar
     if (showHeader) {
-      html += '<div style="padding:1.1rem 1.5rem 1rem;display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;background:' + accentColor + ';">';
-      html += '<div style="font-family:\'Noto Serif\',serif;font-size:1.35rem;color:#fff;line-height:1.2;">' + esc(line) + '</div>';
+      html += '<div style="padding:18px 24px 16px;display:flex;align-items:flex-start;justify-content:space-between;gap:16px;background:' + accentColor + ';">';
+      html += '<div style="font-family:\'Noto Serif\',serif;font-size:22px;color:#fff;line-height:1.2;">' + esc(line) + '</div>';
       if (carrier) {
-        html += '<div style="font-family:\'Noto Sans\',sans-serif;font-size:0.7rem;font-weight:600;letter-spacing:0.06em;background:rgba(255,255,255,0.2);color:#fff;padding:0.25rem 0.6rem;border-radius:99px;white-space:nowrap;align-self:flex-start;margin-top:0.2rem;">' + esc(carrier) + '</div>';
+        html += '<div style="font-family:\'Noto Sans\',sans-serif;font-size:11px;font-weight:600;letter-spacing:0.06em;background:#334470;color:#fff;padding:4px 10px;border-radius:99px;white-space:nowrap;align-self:flex-start;margin-top:3px;">' + esc(carrier) + '</div>';
       }
       html += '</div>';
     }
 
     // Body
-    html += '<div style="padding:1.25rem 1.5rem;">';
+    html += '<div style="padding:20px 24px;">';
 
     // 2x2 grid
-    html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem 1.5rem;margin-bottom:' + (showTerms && terms.length ? '1.1rem' : '0') + ';">';
+    html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px 24px;margin-bottom:' + (showTerms && terms.length ? '18px' : '0') + ';">';
     if (limit) {
       html += '<div>';
-      html += '<div style="font-family:\'Noto Sans\',sans-serif;font-size:0.65rem;text-transform:uppercase;letter-spacing:0.08em;color:' + MC.neutral750 + ';font-weight:600;margin-bottom:0.2rem;">Limit</div>';
-      html += '<div style="font-family:\'Noto Sans\',sans-serif;font-size:0.95rem;font-weight:600;color:' + MC.midnight + ';">' + esc(limit) + '</div>';
+      html += '<div style="font-family:\'Noto Sans\',sans-serif;font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:' + MC.neutral750 + ';font-weight:600;margin-bottom:3px;">Limit</div>';
+      html += '<div style="font-family:\'Noto Sans\',sans-serif;font-size:15px;font-weight:600;color:' + MC.midnight + ';">' + esc(limit) + '</div>';
       html += '</div>';
     }
     if (deductible) {
       html += '<div>';
-      html += '<div style="font-family:\'Noto Sans\',sans-serif;font-size:0.65rem;text-transform:uppercase;letter-spacing:0.08em;color:' + MC.neutral750 + ';font-weight:600;margin-bottom:0.2rem;">Deductible / Retention</div>';
-      html += '<div style="font-family:\'Noto Sans\',sans-serif;font-size:0.95rem;font-weight:600;color:' + MC.midnight + ';">' + esc(deductible) + '</div>';
+      html += '<div style="font-family:\'Noto Sans\',sans-serif;font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:' + MC.neutral750 + ';font-weight:600;margin-bottom:3px;">Deductible / Retention</div>';
+      html += '<div style="font-family:\'Noto Sans\',sans-serif;font-size:15px;font-weight:600;color:' + MC.midnight + ';">' + esc(deductible) + '</div>';
       html += '</div>';
     }
     if (premium) {
       html += '<div>';
-      html += '<div style="font-family:\'Noto Sans\',sans-serif;font-size:0.65rem;text-transform:uppercase;letter-spacing:0.08em;color:' + MC.neutral750 + ';font-weight:600;margin-bottom:0.2rem;">Annual Premium</div>';
-      html += '<div style="font-family:\'Noto Sans\',sans-serif;font-size:0.95rem;font-weight:600;color:' + MC.midnight + ';">' + esc(premium) + '</div>';
+      html += '<div style="font-family:\'Noto Sans\',sans-serif;font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:' + MC.neutral750 + ';font-weight:600;margin-bottom:3px;">Annual Premium</div>';
+      html += '<div style="font-family:\'Noto Sans\',sans-serif;font-size:15px;font-weight:600;color:' + MC.midnight + ';">' + esc(premium) + '</div>';
       html += '</div>';
     }
     if (effective) {
       html += '<div>';
-      html += '<div style="font-family:\'Noto Sans\',sans-serif;font-size:0.65rem;text-transform:uppercase;letter-spacing:0.08em;color:' + MC.neutral750 + ';font-weight:600;margin-bottom:0.2rem;">Effective Date</div>';
-      html += '<div style="font-family:\'Noto Sans\',sans-serif;font-size:0.95rem;font-weight:600;color:' + MC.midnight + ';">' + esc(effective) + '</div>';
+      html += '<div style="font-family:\'Noto Sans\',sans-serif;font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:' + MC.neutral750 + ';font-weight:600;margin-bottom:3px;">Effective Date</div>';
+      html += '<div style="font-family:\'Noto Sans\',sans-serif;font-size:15px;font-weight:600;color:' + MC.midnight + ';">' + esc(effective) + '</div>';
       html += '</div>';
     }
     html += '</div>';
 
     // Key Terms
     if (showTerms && terms.length) {
-      html += '<div style="font-family:\'Noto Sans\',sans-serif;font-size:0.65rem;text-transform:uppercase;letter-spacing:0.08em;color:' + MC.neutral750 + ';font-weight:600;margin-bottom:0.5rem;">Key Terms &amp; Conditions</div>';
-      html += '<div style="display:flex;flex-wrap:wrap;gap:0.4rem;">';
+      html += '<div style="font-family:\'Noto Sans\',sans-serif;font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:' + MC.neutral750 + ';font-weight:600;margin-bottom:8px;">Key Terms &amp; Conditions</div>';
+      html += '<div style="display:flex;flex-wrap:wrap;gap:6px;">';
       terms.forEach(function (t) {
-        html += '<div style="font-family:\'Noto Sans\',sans-serif;background:' + MC.neutral250 + ';border:1px solid ' + MC.neutral500 + ';border-radius:3px;padding:0.22rem 0.55rem;font-size:0.75rem;color:' + MC.neutral1000 + ';font-weight:500;">' + esc(t) + '</div>';
+        html += '<div style="font-family:\'Noto Sans\',sans-serif;background:' + MC.neutral250 + ';border:1px solid ' + MC.neutral500 + ';border-radius:3px;padding:4px 9px;font-size:12px;color:' + MC.neutral1000 + ';font-weight:500;">' + esc(t) + '</div>';
       });
       html += '</div>';
     }

@@ -4,7 +4,7 @@
 #}
 
 <!-- === Chart Display ======================================================= -->
-<div class="manual-chart-page-auto" style="display:flex;justify-content:center;padding:2rem;">
+<div class="manual-chart-page-auto" style="display:flex;justify-content:center;padding:32px;">
   <div id="carrier-card-container" style="width:520px;"></div>
 </div>
 
@@ -189,42 +189,42 @@
 
     // Header
     if (showHeader) {
-      html += '<div style="padding:1.4rem 1.5rem 1.2rem;background:' + accentColor + ';">';
-      html += '<div style="font-family:\'Noto Serif\',serif;font-size:1.5rem;color:#fff;line-height:1.1;margin-bottom:0.4rem;">' + esc(carrierName) + '</div>';
-      html += '<div style="display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap;">';
+      html += '<div style="padding:22px 24px 19px;background:' + accentColor + ';">';
+      html += '<div style="font-family:\'Noto Serif\',serif;font-size:24px;color:#fff;line-height:1.1;margin-bottom:6px;">' + esc(carrierName) + '</div>';
+      html += '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">';
       if (rating) {
-        html += '<div style="font-family:\'Noto Sans\',sans-serif;font-size:0.72rem;font-weight:700;letter-spacing:0.06em;background:rgba(255,255,255,0.22);color:#fff;padding:0.22rem 0.6rem;border-radius:3px;">AM Best: ' + esc(rating) + '</div>';
+        html += '<div style="font-family:\'Noto Sans\',sans-serif;font-size:12px;font-weight:700;letter-spacing:0.06em;background:#384876;color:#fff;padding:4px 10px;border-radius:3px;">AM Best: ' + esc(rating) + '</div>';
       }
       if (lines) {
-        html += '<div style="font-family:\'Noto Sans\',sans-serif;font-size:0.7rem;font-weight:500;color:rgba(255,255,255,0.75);">' + esc(lines) + '</div>';
+        html += '<div style="font-family:\'Noto Sans\',sans-serif;font-size:11px;font-weight:500;color:#C0CBE1;">' + esc(lines) + '</div>';
       }
       html += '</div>';
       html += '</div>';
     }
 
     // Body
-    html += '<div style="padding:1.25rem 1.5rem;">';
+    html += '<div style="padding:20px 24px;">';
 
     // Stats grid (2x2, up to 3 cells)
     var hasStats = premium || participation || retention;
     if (hasStats) {
-      html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:0.9rem 1.5rem;margin-bottom:' + (showNotes && notes ? '1rem' : '0') + ';">';
+      html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px 24px;margin-bottom:' + (showNotes && notes ? '16px' : '0') + ';">';
       if (premium) {
         html += '<div>';
-        html += '<div style="font-family:\'Noto Sans\',sans-serif;font-size:0.63rem;text-transform:uppercase;letter-spacing:0.08em;color:' + MC.neutral750 + ';font-weight:600;margin-bottom:0.15rem;">Total Premium</div>';
-        html += '<div style="font-family:\'Noto Sans\',sans-serif;font-size:1rem;font-weight:600;color:' + MC.midnight + ';">' + esc(premium) + '</div>';
+        html += '<div style="font-family:\'Noto Sans\',sans-serif;font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:' + MC.neutral750 + ';font-weight:600;margin-bottom:2px;">Total Premium</div>';
+        html += '<div style="font-family:\'Noto Sans\',sans-serif;font-size:16px;font-weight:600;color:' + MC.midnight + ';">' + esc(premium) + '</div>';
         html += '</div>';
       }
       if (participation) {
         html += '<div>';
-        html += '<div style="font-family:\'Noto Sans\',sans-serif;font-size:0.63rem;text-transform:uppercase;letter-spacing:0.08em;color:' + MC.neutral750 + ';font-weight:600;margin-bottom:0.15rem;">Participation</div>';
-        html += '<div style="font-family:\'Noto Sans\',sans-serif;font-size:1rem;font-weight:600;color:' + MC.midnight + ';">' + esc(participation) + '</div>';
+        html += '<div style="font-family:\'Noto Sans\',sans-serif;font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:' + MC.neutral750 + ';font-weight:600;margin-bottom:2px;">Participation</div>';
+        html += '<div style="font-family:\'Noto Sans\',sans-serif;font-size:16px;font-weight:600;color:' + MC.midnight + ';">' + esc(participation) + '</div>';
         html += '</div>';
       }
       if (retention) {
         html += '<div>';
-        html += '<div style="font-family:\'Noto Sans\',sans-serif;font-size:0.63rem;text-transform:uppercase;letter-spacing:0.08em;color:' + MC.neutral750 + ';font-weight:600;margin-bottom:0.15rem;">Retention / SIR</div>';
-        html += '<div style="font-family:\'Noto Sans\',sans-serif;font-size:1rem;font-weight:600;color:' + MC.midnight + ';">' + esc(retention) + '</div>';
+        html += '<div style="font-family:\'Noto Sans\',sans-serif;font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:' + MC.neutral750 + ';font-weight:600;margin-bottom:2px;">Retention / SIR</div>';
+        html += '<div style="font-family:\'Noto Sans\',sans-serif;font-size:16px;font-weight:600;color:' + MC.midnight + ';">' + esc(retention) + '</div>';
         html += '</div>';
       }
       html += '</div>';
@@ -232,7 +232,7 @@
 
     // Notes
     if (showNotes && notes) {
-      html += '<div style="font-family:\'Noto Sans\',sans-serif;font-size:0.79rem;color:' + MC.neutral750 + ';line-height:1.6;border-top:1px solid ' + MC.neutral500 + ';padding-top:0.9rem;">' + esc(notes) + '</div>';
+      html += '<div style="font-family:\'Noto Sans\',sans-serif;font-size:13px;color:' + MC.neutral750 + ';line-height:1.6;border-top:1px solid ' + MC.neutral500 + ';padding-top:14px;">' + esc(notes) + '</div>';
     }
 
     html += '</div>'; // close body
