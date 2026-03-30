@@ -627,7 +627,7 @@ def _issues_ctx(conn, q: str = "", client_id: int = 0, view_mode: str = "board")
         SELECT a.id, a.issue_uid, a.subject, a.details, a.client_id, a.policy_id,
                a.program_id, a.issue_status, a.issue_severity, a.issue_sla_days,
                a.resolution_type, a.resolution_notes, a.root_cause_category,
-               a.resolved_date, a.activity_date, a.created_at,
+               a.resolved_date, a.activity_date, a.created_at, a.is_renewal_issue,
                c.name AS client_name,
                p.policy_uid, p.policy_type, p.carrier,
                (SELECT COUNT(*) FROM activity_log sub

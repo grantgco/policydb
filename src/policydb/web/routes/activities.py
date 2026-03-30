@@ -133,6 +133,11 @@ def activity_log(
     )
     new_id = cursor.lastrowid
 
+    # Auto-link to renewal issue if no explicit issue_id
+    if not issue_id and policy_id:
+        from policydb.renewal_issues import auto_link_to_renewal_issue
+        auto_link_to_renewal_issue(conn, policy_id, new_id)
+
     conn.commit()
     logger.info("Activity created for client %d: %s", client_id, activity_type)
     # Return the new activity row as HTMX partial

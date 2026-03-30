@@ -52,6 +52,18 @@
           {% endfor %}
         </select>
       </div>
+      <div class="flex items-center gap-6 pt-1">
+        <label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+          <input type="checkbox" name="auto_create" {% if renewal_issue_auto_create %}checked{% endif %}
+                 class="rounded border-gray-300 text-marsh focus:ring-marsh">
+          Auto-create renewal issues
+        </label>
+        <label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+          <input type="checkbox" name="auto_link" {% if renewal_issue_auto_link %}checked{% endif %}
+                 class="rounded border-gray-300 text-marsh focus:ring-marsh">
+          Auto-link activities to renewal issues
+        </label>
+      </div>
       <button type="submit" class="text-sm text-blue-600 hover:underline">Save</button>
     </form>
   </div>

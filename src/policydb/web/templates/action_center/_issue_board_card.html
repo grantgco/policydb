@@ -27,6 +27,13 @@
   </div>
   {% endif %}
 
+  {# Renewal badge #}
+  {% if issue.is_renewal_issue %}
+  <div class="mt-1">
+    <span class="inline-flex items-center text-[9px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full px-1.5 py-0.5">Renewal</span>
+  </div>
+  {% endif %}
+
   {# Row 2: client + policy type #}
   <div class="flex items-center gap-1 mt-1.5 text-[11px] text-gray-500">
     <span class="truncate">{{ issue.client_name }}</span>

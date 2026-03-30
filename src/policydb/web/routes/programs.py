@@ -206,6 +206,18 @@ def program_tab_overview(
         "SELECT id, name FROM clients WHERE archived=0 ORDER BY name"
     ).fetchall()]
 
+    # Renewal issue for this program
+    renewal_issue = conn.execute("""
+        SELECT id, issue_uid, issue_status, issue_severity, is_renewal_issue,
+               julianday(date('now')) - julianday(activity_date) AS days_open,
+               (SELECT COUNT(*) FROM activity_log sub WHERE sub.issue_id = a.id) AS activity_count
+        FROM activity_log a
+        WHERE a.is_renewal_issue = 1
+          AND a.renewal_term_key = ?
+          AND a.issue_status NOT IN ('Resolved', 'Closed')
+        LIMIT 1
+    """, (f"program:{program_uid}",)).fetchone()
+
     return templates.TemplateResponse("programs/_tab_overview.html", {
         "request": request,
         "program": program,
@@ -220,6 +232,7 @@ def program_tab_overview(
         "client_name": client_name,
         "all_clients": all_clients,
         "issue_severities": cfg.get("issue_severities", []),
+        "renewal_issue": dict(renewal_issue) if renewal_issue else None,
     })
 
 
@@ -490,6 +503,14 @@ async def patch_program_header(
     vals = list(updates.values()) + [program_uid]
     conn.execute(f"UPDATE programs SET {set_clause}, updated_at = CURRENT_TIMESTAMP WHERE program_uid = ?", vals)
     conn.commit()
+
+    # Auto-resolve renewal issue on terminal status
+    if "renewal_status" in updates:
+        import policydb.config as _cfg
+        if updates["renewal_status"] in _cfg.get("renewal_issue_resolve_statuses", ["Bound"]):
+            from policydb.renewal_issues import auto_resolve_renewal_issue
+            auto_resolve_renewal_issue(conn, program_uid=program_uid)
+            conn.commit()
 
     return JSONResponse({"ok": True, "formatted": new_name if "name" in updates else ""})
 
