@@ -179,14 +179,16 @@ def program_tab_schematic(
             if any(kw in sc_type for kw in _EXCESS_SC_KEYWORDS):
                 excess.append({
                     "id": p["id"], "policy_uid": p["policy_uid"],
-                    "policy_type": sc["coverage_type"], "carrier": p.get("carrier") or "",
-                    "policy_number": p.get("policy_number") or "",
+                    "policy_type": sc["coverage_type"],
+                    "carrier": sc.get("carrier") or p.get("carrier") or "",
+                    "policy_number": sc.get("policy_number") or p.get("policy_number") or "",
                     "limit_amount": sc.get("limit_amount") or 0, "deductible": sc.get("deductible") or 0,
-                    "premium": 0, "coverage_form": sc.get("coverage_form") or "",
+                    "premium": sc.get("premium") or 0, "coverage_form": sc.get("coverage_form") or "",
                     "layer_position": "Umbrella" if "umbrella" in sc_type else "Excess",
                     "attachment_point": sc.get("attachment_point") or 0,
-                    "participation_of": None, "schematic_column": None,
+                    "participation_of": sc.get("participation_of"), "schematic_column": None,
                     "is_program": 0, "tower_group": tg,
+                    "package_parent_type": p.get("policy_type") or "",
                     "is_package_ghost": True, "sub_coverages": [], "sub_coverages_full": [],
                     "_from_sub_coverage": True, "_sub_coverage_id": sc["id"],
                 })
@@ -212,12 +214,30 @@ def program_tab_schematic(
         for cr in cov_rows:
             coverage_map.setdefault(cr["excess_policy_id"], []).append(dict(cr))
 
-    # Available tower lines for coverage selector
-    tower_lines = conn.execute(
-        "SELECT * FROM program_tower_lines WHERE program_id = ?",
-        (program_id,),
-    ).fetchall()
-    available_lines = [dict(tl) for tl in tower_lines]
+    # Build available tower lines dynamically from underlying policies + subcoverages
+    available_lines = []
+    for p in underlying:
+        if p.get("is_program"):
+            continue
+        # Add the policy itself as a line
+        available_lines.append({
+            "policy_id": p["id"],
+            "sub_coverage_id": None,
+            "label": p.get("policy_type") or p.get("policy_uid") or "Unknown",
+        })
+        # Add non-excess/umbrella subcoverages as separate lines
+        for sc in p.get("sub_coverages_full", []):
+            sc_type = (sc.get("coverage_type") or "").lower()
+            if not any(kw in sc_type for kw in _EXCESS_SC_KEYWORDS):
+                available_lines.append({
+                    "policy_id": p["id"],
+                    "sub_coverage_id": sc["id"],
+                    "label": sc.get("coverage_type") or "Sub-coverage",
+                })
+
+    # Attach covered_lines from coverage_map to each excess row
+    for p in excess:
+        p["covered_lines"] = coverage_map.get(p["id"], [])
 
     # Unassigned policies
     unassigned = get_unassigned_policies(conn, client_id)
@@ -461,6 +481,38 @@ async def patch_excess_cell_v2(request: Request, program_uid: str, policy_id: in
     row = conn.execute("SELECT limit_amount, attachment_point, participation_of FROM policies WHERE id = ?",
                        (policy_id,)).fetchone()
     notation = _layer_notation(row["limit_amount"], row["attachment_point"], row["participation_of"]) if row else ""
+    return JSONResponse({"ok": True, "formatted": display_value, "notation": notation})
+
+
+@router.patch("/programs/{program_uid}/subcoverage/{sc_id}/cell")
+async def patch_subcoverage_cell(request: Request, program_uid: str, sc_id: int,
+                                 conn: sqlite3.Connection = Depends(get_db)):
+    """Patch a sub-coverage field from the schematic excess matrix (ghost rows)."""
+    _get_program_or_404(conn, program_uid)
+    body = await request.json()
+    field, value = body.get("field", ""), body.get("value", "")
+    _SC_ALLOWED = {"limit_amount", "deductible", "attachment_point", "premium",
+                   "participation_of", "carrier", "policy_number", "coverage_form"}
+    if field not in _SC_ALLOWED:
+        return JSONResponse({"ok": False, "error": f"Field '{field}' not allowed"}, status_code=400)
+    if field in _CURRENCY_FIELDS:
+        val, formatted, err = _parse_and_format_currency(value)
+        if err:
+            return JSONResponse({"ok": False, "error": err}, status_code=400)
+        db_value, display_value = val, formatted
+    else:
+        db_value = display_value = str(value).strip() if value else ""
+    conn.execute(f"UPDATE policy_sub_coverages SET {field} = ? WHERE id = ?",
+                 (db_value, sc_id))
+    conn.commit()
+    sc = conn.execute("SELECT limit_amount, attachment_point, participation_of FROM policy_sub_coverages WHERE id = ?",
+                      (sc_id,)).fetchone()
+    notation = ""
+    if sc:
+        lim = sc["limit_amount"] or 0
+        att = sc["attachment_point"] or 0
+        po = sc["participation_of"]
+        notation = _layer_notation(lim, att, po) if lim else ""
     return JSONResponse({"ok": True, "formatted": display_value, "notation": notation})
 
 
