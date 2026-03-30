@@ -15,6 +15,9 @@
           {%- elif summary.total_commission -%}comm
           {%- endif -%}
         </span>
+        {% if summary.opportunity_revenue %}
+        <span class="text-xs text-emerald-600 ml-1">+ {{ summary.opportunity_revenue | currency_short }} pipeline</span>
+        {% endif %}
       </div>
       <div>
         <span class="text-xs text-gray-400 uppercase tracking-wide">Policies</span>
