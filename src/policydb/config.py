@@ -180,6 +180,11 @@ _DEFAULTS: dict[str, Any] = {
         "Claims",
         "General",
     ],
+    "kb_article_sources": [
+        "Authored",
+        "LLM-Assisted",
+        "External",
+    ],
     # ── Anomaly detection ──────────────────────────────────────────────
     "anomaly_thresholds": {
         "renewal_not_started_days": 60,
