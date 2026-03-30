@@ -1270,7 +1270,28 @@ def full_text_search(conn: sqlite3.Connection, query: str) -> dict[str, list[sql
            WHERE (a.subject LIKE ? OR a.details LIKE ? OR a.contact_person LIKE ?)""",
         (pattern, pattern, pattern),
     ).fetchall()
-    return {"clients": clients, "policies": policies, "activities": activities}
+    # Knowledge base
+    kb_articles = conn.execute(
+        """SELECT uid, title, category, tags, updated_at
+           FROM kb_articles
+           WHERE title LIKE ? OR content LIKE ? OR tags LIKE ?
+           ORDER BY updated_at DESC LIMIT 10""",
+        (pattern, pattern, pattern),
+    ).fetchall()
+    kb_documents = conn.execute(
+        """SELECT uid, title, category, filename, tags, updated_at
+           FROM kb_documents
+           WHERE title LIKE ? OR description LIKE ? OR filename LIKE ? OR tags LIKE ?
+           ORDER BY updated_at DESC LIMIT 10""",
+        (pattern, pattern, pattern, pattern),
+    ).fetchall()
+    return {
+        "clients": clients,
+        "policies": policies,
+        "activities": activities,
+        "kb_articles": kb_articles,
+        "kb_documents": kb_documents,
+    }
 
 
 # ─── REVIEW QUERIES ───────────────────────────────────────────────────────────

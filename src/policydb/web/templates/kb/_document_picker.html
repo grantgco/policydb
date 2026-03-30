@@ -1,0 +1,18 @@
+{% if documents %}
+<div class="absolute z-20 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+  {% for doc in documents %}
+  <button type="button" class="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+          hx-post="/kb/articles/{{ uid }}/attach"
+          hx-vals='{"document_id":{{ doc.id }}}'
+          hx-target="#attachments-container" hx-swap="innerHTML">
+    <span class="{{ doc.file_info.color }}">
+      <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+        <path fill-rule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clip-rule="evenodd"/>
+      </svg>
+    </span>
+    <span class="font-mono text-[10px] text-gray-500">{{ doc.uid }}</span>
+    {{ doc.title }}
+  </button>
+  {% endfor %}
+</div>
+{% endif %}
