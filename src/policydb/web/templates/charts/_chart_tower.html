@@ -172,26 +172,34 @@
       });
 
       // ── Primary blocks — positioned by dollar value on Y-axis ──
-      // Find tallest non-statutory primary for WC sizing reference
-      var maxNonStatTopY = towerBottom;
+      // Find tallest element in this tower group for WC sizing reference
+      // (must exceed umbrella/excess top, not just primary peers)
+      var tallestTopY = towerBottom;
       under.forEach(function(u) {
         if (!u.is_statutory) {
           var top = valToY(u.limit || 0);
-          if (top < maxNonStatTopY) maxNonStatTopY = top;
+          if (top < tallestTopY) tallestTopY = top;
         }
       });
+      layers.forEach(function(l) {
+        var layerTopVal = (l.attachment_point || 0) + (l.limit || 0);
+        var top = valToY(layerTopVal);
+        if (top < tallestTopY) tallestTopY = top;
+      });
+
+      var ARROW_H = 14; // height reserved for upward arrows above statutory block
 
       under.forEach(function(u, ci) {
         var cx = curX + ci * colW;
         var lim = u.limit || 0;
-        var ARROW_H = 12; // height reserved for upward arrows on statutory
 
         var blockBottom = towerBottom; // all primaries start at $0
         var blockTop;
         if (u.is_statutory) {
-          // Statutory (WC): slightly taller than tallest non-statutory + arrows at top
-          blockTop = maxNonStatTopY - 30; // 30px taller than tallest peer
-          if (blockTop > towerBottom - MIN_BLOCK_H) blockTop = towerBottom - MIN_BLOCK_H - 30;
+          // Statutory (WC): taller than everything else in the group
+          // Block ends below the arrows — arrows sit on top
+          blockTop = tallestTopY - 20 - ARROW_H;
+          if (blockTop > towerBottom - MIN_BLOCK_H - ARROW_H) blockTop = towerBottom - MIN_BLOCK_H - ARROW_H;
         } else {
           blockTop = valToY(lim);
           if (blockBottom - blockTop < MIN_BLOCK_H) blockTop = blockBottom - MIN_BLOCK_H;
@@ -202,22 +210,23 @@
         g.append('rect').attr('x', cx).attr('y', blockTop).attr('width', colW).attr('height', pH)
           .attr('fill', C.primary).attr('stroke', C.primaryBd).attr('stroke-width', 0.5);
 
-        // Statutory: upward arrows at top indicating "continues"
+        // Statutory: upward arrows ABOVE the block indicating "continues"
         if (u.is_statutory) {
           var arrowMidX = cx + colW / 2;
-          var arrowY = blockTop + 3;
-          // Three small upward chevrons
+          var arrowBaseY = blockTop; // arrows sit on top of the block
+          // Three small upward chevrons above the block
           [-colW*0.2, 0, colW*0.2].forEach(function(offset) {
             var ax = arrowMidX + offset;
+            var ay = arrowBaseY - 4; // small gap above block
             g.append('path')
-              .attr('d', 'M' + (ax-5) + ',' + (arrowY+6) + ' L' + ax + ',' + arrowY + ' L' + (ax+5) + ',' + (arrowY+6))
+              .attr('d', 'M' + (ax-5) + ',' + ay + ' L' + ax + ',' + (ay-8) + ' L' + (ax+5) + ',' + ay)
               .attr('fill', 'none').attr('stroke', C.primaryBd).attr('stroke-width', 1.5)
               .attr('stroke-linecap', 'round');
           });
         }
 
-        // Carrier
-        var textY = u.is_statutory ? blockTop + ARROW_H + pH/2 - ARROW_H/2 - 3 : blockTop + pH/2 - 3;
+        // Carrier — centered in block (arrows are now outside)
+        var textY = blockTop + pH/2 - 3;
         g.append('text').attr('x', cx + colW/2).attr('y', textY)
           .attr('text-anchor', 'middle').style('font-size', '9px').style('font-weight', '600')
           .attr('fill', C.textDk).text(tr(u.carrier, 16));
@@ -235,7 +244,7 @@
 
         // Package badge ("via BOP", "via WC")
         if (u.is_package && u.package_parent_type) {
-          g.append('text').attr('x', cx + colW - 3).attr('y', blockTop + (u.is_statutory ? ARROW_H + 3 : 9))
+          g.append('text').attr('x', cx + colW - 3).attr('y', blockTop + 9)
             .attr('text-anchor', 'end').style('font-size', '6px').style('font-style', 'italic')
             .attr('fill', C.pkgBadge).text('via ' + tr(u.package_parent_type, 12));
         }
