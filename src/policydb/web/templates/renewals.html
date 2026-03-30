@@ -17,6 +17,9 @@
       <span class="border-l border-gray-200 h-6 mx-1"></span>
       <a href="/renewals/calendar" class="btn-filter">Calendar</a>
       <span class="border-l border-gray-200 h-6 mx-1"></span>
+      <button type="button"
+        onclick="copyPolicyTable('/renewals/copy-table?window={{ window }}&status={{ status | urlencode }}&client_id={{ client_id or '' }}', this)"
+        class="border border-gray-300 hover:border-marsh text-gray-700 hover:text-marsh text-sm font-medium px-3 py-1.5 rounded-lg transition-colors">Copy Table</button>
       <a href="/renewals/export?window={{ window }}&fmt=csv" class="border border-gray-300 hover:border-marsh text-gray-700 hover:text-marsh text-sm font-medium px-3 py-1.5 rounded-lg transition-colors">CSV ↓</a>
       <a href="/renewals/export?window={{ window }}&fmt=xlsx" class="border border-green-600 hover:bg-green-600 text-green-700 hover:text-white text-sm font-medium px-3 py-1.5 rounded-lg transition-colors">XLSX ↓</a>
     </div>

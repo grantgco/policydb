@@ -12,6 +12,9 @@
   <div class="flex items-center justify-between mb-3">
     <h2 class="font-semibold text-gray-900 text-lg">Policies</h2>
     <div class="flex gap-3 no-print">
+      <button type="button"
+        onclick="copyPolicyTable('/clients/{{ client.id }}/copy-table', this)"
+        class="text-xs text-gray-400 hover:text-marsh" title="Copy all policies as table">Copy Table</button>
       <button type="button" onclick="toggleNewProgramForm()" class="text-xs text-marsh hover:underline">+ New Program</button>
       <a href="/policies/new?client={{ client.id }}&opp=1" class="text-xs text-amber-600 hover:underline">+ Opportunity</a>
       <a href="/policies/new?client={{ client.id }}" class="text-xs text-marsh hover:underline">+ Add Policy</a>

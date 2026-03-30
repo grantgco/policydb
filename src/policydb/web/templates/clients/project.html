@@ -27,6 +27,9 @@
         <span id="proj-save-ts" class="text-xs text-gray-400">
           {% if project.updated_at_fmt %}saved {{ project.updated_at_fmt }}{% endif %}
         </span>
+        <button type="button"
+           onclick="copyPolicyTable('/clients/{{ client.id }}/copy-table?project={{ project.name | urlencode }}', this)"
+           class="text-xs bg-gray-100 hover:bg-gray-200 text-gray-600 px-2.5 py-1 rounded transition-colors no-print">Copy Table</button>
         <a href="/clients/{{ client.id }}/projects/{{ project.id }}/pdf"
            class="text-xs bg-gray-100 hover:bg-gray-200 text-gray-600 px-2.5 py-1 rounded transition-colors no-print">Export PDF ↓</a>
       </div>
