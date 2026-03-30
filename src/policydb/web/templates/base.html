@@ -706,6 +706,32 @@ function copyRefTag(btn, tag) {
   });
 }
 
+function copyPolicyTable(url, btn) {
+  var orig = btn.textContent;
+  btn.textContent = '…';
+  fetch(url).then(function(r) { return r.json(); }).then(function(data) {
+    var htmlBlob = new Blob([data.html], {type: 'text/html'});
+    var textBlob = new Blob([data.text], {type: 'text/plain'});
+    if (typeof ClipboardItem !== 'undefined') {
+      navigator.clipboard.write([new ClipboardItem({'text/html': htmlBlob, 'text/plain': textBlob})]).then(function() {
+        btn.textContent = 'Copied ✓';
+        btn.classList.add('text-green-600');
+        setTimeout(function() { btn.textContent = orig; btn.classList.remove('text-green-600'); }, 1500);
+      });
+    } else {
+      navigator.clipboard.writeText(data.text).then(function() {
+        btn.textContent = 'Copied ✓';
+        btn.classList.add('text-green-600');
+        setTimeout(function() { btn.textContent = orig; btn.classList.remove('text-green-600'); }, 1500);
+      });
+    }
+  }).catch(function() {
+    btn.textContent = 'Error';
+    btn.classList.add('text-red-600');
+    setTimeout(function() { btn.textContent = orig; btn.classList.remove('text-red-600'); }, 1500);
+  });
+}
+
 /* confirmAction is defined via window.confirmAction in the IIFE above */
 </script>
 
