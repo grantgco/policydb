@@ -57,6 +57,9 @@
       <div>
         <p class="text-xs text-gray-400">Revenue</p>
         <p class="text-sm font-bold text-gray-900">{{ summary.total_revenue | currency }}</p>
+        {% if summary.opportunity_revenue %}
+        <p class="text-xs text-emerald-600">+ {{ summary.opportunity_revenue | currency_short }} pipeline</p>
+        {% endif %}
       </div>
       {% if client.broker_fee %}
       <div>
