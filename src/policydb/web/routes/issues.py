@@ -264,6 +264,36 @@ def issues_for_client(
     )
 
 
+@router.get("/issues/for-policy/{policy_id}", response_class=HTMLResponse)
+def issues_for_policy(
+    policy_id: int,
+    request: Request,
+    conn=Depends(get_db),
+):
+    """Return open issues for a specific policy — used by policy page issue widgets."""
+    rows = conn.execute("""
+        SELECT id, issue_uid, subject, issue_severity, issue_sla_days,
+               CAST(julianday('now') - julianday(activity_date) AS INTEGER) AS days_open
+        FROM activity_log
+        WHERE item_kind = 'issue'
+          AND issue_id IS NULL
+          AND policy_id = ?
+          AND (issue_status IS NULL OR issue_status NOT IN ('Resolved', 'Closed'))
+    """, (policy_id,)).fetchall()
+
+    issues = sorted(
+        [dict(r) for r in rows],
+        key=lambda r: (
+            _SEVERITY_ORDER.get(r.get("issue_severity") or "Normal", 2),
+            r.get("days_open") or 0,
+        ),
+    )
+    return templates.TemplateResponse(
+        "issues/_issue_widget.html",
+        {"request": request, "issues": issues},
+    )
+
+
 # ── Linkable activities for an issue ─────────────────────────────────────────
 
 
