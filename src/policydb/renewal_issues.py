@@ -95,17 +95,21 @@ def ensure_renewal_issues(conn, policy_uid: str | None = None) -> None:
     if policy_uid:
         policy_rows = conn.execute("""
             SELECT p.policy_uid, p.expiration_date, p.policy_type, p.id AS policy_id,
-                   c.name AS client_name, p.client_id, p.program_id
+                   c.name AS client_name, p.client_id, p.program_id,
+                   pr.name AS location_name
             FROM policies p
             JOIN clients c ON c.id = p.client_id
+            LEFT JOIN projects pr ON pr.id = p.project_id
             WHERE p.policy_uid = ?
         """, (policy_uid,)).fetchall()
     else:
         policy_rows = conn.execute("""
             SELECT p.policy_uid, p.expiration_date, p.policy_type, p.id AS policy_id,
-                   c.name AS client_name, p.client_id, p.program_id
+                   c.name AS client_name, p.client_id, p.program_id,
+                   pr.name AS location_name
             FROM policies p
             JOIN clients c ON c.id = p.client_id
+            LEFT JOIN projects pr ON pr.id = p.project_id
             WHERE (p.is_opportunity = 0 OR p.is_opportunity IS NULL)
               AND (p.archived = 0 OR p.archived IS NULL)
               AND p.expiration_date IS NOT NULL
@@ -124,7 +128,10 @@ def ensure_renewal_issues(conn, policy_uid: str | None = None) -> None:
             client_id=pol["client_id"],
             policy_id=pol["policy_id"],
             program_id=None,
-            subject=_build_subject(pol["expiration_date"], pol["policy_type"], pol["client_name"]),
+            subject=_build_subject(
+                pol["expiration_date"], pol["policy_type"],
+                pol["client_name"], pol["location_name"],
+            ),
             severity_fn=lambda: _worst_health_severity(conn, pol["policy_uid"]),
         )
 
@@ -132,9 +139,11 @@ def ensure_renewal_issues(conn, policy_uid: str | None = None) -> None:
     if not policy_uid:
         program_rows = conn.execute("""
             SELECT pg.id, pg.program_uid, pg.expiration_date, pg.line_of_business,
-                   pg.name AS program_name, c.name AS client_name, pg.client_id
+                   pg.name AS program_name, c.name AS client_name, pg.client_id,
+                   pr.name AS location_name
             FROM programs pg
             JOIN clients c ON c.id = pg.client_id
+            LEFT JOIN projects pr ON pr.id = pg.project_id
             WHERE (pg.archived = 0 OR pg.archived IS NULL)
               AND pg.expiration_date IS NOT NULL
               AND pg.expiration_date >= ?
@@ -149,7 +158,10 @@ def ensure_renewal_issues(conn, policy_uid: str | None = None) -> None:
                 client_id=pgm["client_id"],
                 policy_id=None,
                 program_id=pgm["id"],
-                subject=_build_subject(pgm["expiration_date"], f"{label} Program", pgm["client_name"]),
+                subject=_build_subject(
+                    pgm["expiration_date"], f"{label} Program",
+                    pgm["client_name"], pgm["location_name"],
+                ),
                 severity_fn=lambda pgm_id=pgm["id"]: _worst_program_health_severity(conn, pgm_id),
             )
 
@@ -221,8 +233,11 @@ def _backfill_link(conn, issue_id: int, client_id: int, policy_id: int | None, p
         """, (issue_id, cutoff, policy_id))
 
 
-def _build_subject(expiration_date: str | None, policy_type: str | None, client_name: str) -> str:
-    """Build renewal issue subject: '2026 GL Renewal — Acme Corp'."""
+def _build_subject(
+    expiration_date: str | None, policy_type: str | None,
+    client_name: str, location_name: str | None = None,
+) -> str:
+    """Build renewal issue subject: '2026 GL Renewal — Acme Corp — Main St'."""
     year = ""
     if expiration_date:
         try:
@@ -234,7 +249,10 @@ def _build_subject(expiration_date: str | None, policy_type: str | None, client_
     if year:
         parts.append(year)
     parts.append(f"{ptype} Renewal")
-    return f"{' '.join(parts)} — {client_name}"
+    subject = f"{' '.join(parts)} — {client_name}"
+    if location_name:
+        subject += f" — {location_name}"
+    return subject
 
 
 # ── sync_renewal_issue_severity ──────────────────────────────────────────────
@@ -350,3 +368,96 @@ def auto_link_to_renewal_issue(conn, policy_id: int, activity_id: int) -> None:
             "UPDATE activity_log SET issue_id = ? WHERE id = ?",
             (issue["id"], activity_id),
         )
+
+
+# ── refresh_renewal_titles ──────────────────────────────────────────────────
+
+
+def refresh_renewal_titles(conn) -> int:
+    """Recompute subjects for all open renewal issues from current data.
+
+    Returns count of issues whose title actually changed.
+    """
+    # Standalone policy renewal issues
+    policy_issues = conn.execute("""
+        SELECT a.id, a.subject, a.renewal_term_key,
+               p.expiration_date, p.policy_type,
+               c.name AS client_name, pr.name AS location_name
+        FROM activity_log a
+        JOIN policies p ON p.policy_uid = a.renewal_term_key
+        JOIN clients c ON c.id = a.client_id
+        LEFT JOIN projects pr ON pr.id = p.project_id
+        WHERE a.is_renewal_issue = 1
+          AND a.issue_status NOT IN ('Resolved', 'Closed')
+          AND a.renewal_term_key NOT LIKE 'program:%'
+    """).fetchall()
+
+    updated = 0
+    for row in policy_issues:
+        new_subj = _build_subject(
+            row["expiration_date"], row["policy_type"],
+            row["client_name"], row["location_name"],
+        )
+        if new_subj != row["subject"]:
+            conn.execute(
+                "UPDATE activity_log SET subject = ? WHERE id = ?",
+                (new_subj, row["id"]),
+            )
+            updated += 1
+
+    # Program renewal issues
+    program_issues = conn.execute("""
+        SELECT a.id, a.subject, a.renewal_term_key, a.program_id,
+               pg.expiration_date, pg.line_of_business, pg.name AS program_name,
+               c.name AS client_name, pr.name AS location_name
+        FROM activity_log a
+        JOIN programs pg ON pg.id = a.program_id
+        JOIN clients c ON c.id = a.client_id
+        LEFT JOIN projects pr ON pr.id = pg.project_id
+        WHERE a.is_renewal_issue = 1
+          AND a.issue_status NOT IN ('Resolved', 'Closed')
+          AND a.renewal_term_key LIKE 'program:%'
+    """).fetchall()
+
+    for row in program_issues:
+        label = row["line_of_business"] or row["program_name"] or "Program"
+        new_subj = _build_subject(
+            row["expiration_date"], f"{label} Program",
+            row["client_name"], row["location_name"],
+        )
+        if new_subj != row["subject"]:
+            conn.execute(
+                "UPDATE activity_log SET subject = ? WHERE id = ?",
+                (new_subj, row["id"]),
+            )
+            updated += 1
+
+    if updated:
+        conn.commit()
+        logger.info("Refreshed %d renewal issue titles", updated)
+    return updated
+
+
+# ── housekeep_issues ────────────────────────────────────────────────────────
+
+
+def housekeep_issues(conn) -> None:
+    """Auto-close resolved issues older than the configured threshold.
+
+    Called from init_db() on every server startup.
+    """
+    auto_close_days = cfg.get("issue_auto_close_days", 14)
+    cutoff = (date.today() - timedelta(days=auto_close_days)).isoformat()
+
+    result = conn.execute("""
+        UPDATE activity_log
+        SET issue_status = 'Closed'
+        WHERE item_kind = 'issue'
+          AND issue_status = 'Resolved'
+          AND resolved_date IS NOT NULL
+          AND resolved_date <= ?
+    """, (cutoff,))
+    closed = result.rowcount
+    if closed:
+        conn.commit()
+        logger.info("Auto-closed %d resolved issues older than %d days", closed, auto_close_days)

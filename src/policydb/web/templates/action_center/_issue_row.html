@@ -1,6 +1,12 @@
 {# Single issue row — used in _issues.html sections #}
 <div class="card px-4 py-3 flex items-center gap-3 hover:bg-gray-50 group" id="issue-{{ issue.id }}">
 
+  {# Bulk checkbox (list view only) #}
+  {% if show_checkbox is defined and show_checkbox %}
+  <input type="checkbox" class="issue-bulk-check rounded border-gray-300 text-marsh focus:ring-marsh flex-shrink-0"
+         value="{{ issue.id }}" onchange="issueUpdateBulkToolbar()">
+  {% endif %}
+
   {# Severity dot #}
   {% set sev = issue.issue_severity or 'Normal' %}
   <span class="w-2.5 h-2.5 rounded-full flex-shrink-0
@@ -77,5 +83,15 @@
         <option value="{{ state }}" {% if state == status %}selected{% endif %}>{{ state }}</option>
       {% endfor %}
     </select>
+    {# Quick delete #}
+    <button type="button"
+            hx-delete="/issues/{{ issue.id }}"
+            hx-target="#issues-tab"
+            hx-swap="outerHTML"
+            hx-confirm="Delete this issue? Child activities will be unlinked."
+            class="text-gray-300 hover:text-red-500 transition-colors p-0.5"
+            title="Delete issue">
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+    </button>
   </div>
 </div>
