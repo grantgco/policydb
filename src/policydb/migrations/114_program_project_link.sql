@@ -1,4 +1,4 @@
--- Migration 113: Link programs to projects/locations
+-- Migration 114: Link programs to projects/locations
 -- Adds project_id FK on programs table so programs can be scoped to a location or construction project.
 -- ON DELETE CASCADE: deleting a location cascades to its programs.
 

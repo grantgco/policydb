@@ -79,7 +79,7 @@ def get_policies_for_client(
 ) -> list[sqlite3.Row]:
     if include_archived:
         return conn.execute(
-            "SELECT * FROM v_policy_status WHERE client_id = ? ORDER BY policy_type, layer_position",
+            "SELECT * FROM policies WHERE client_id = ? ORDER BY policy_type, layer_position",
             (client_id,),
         ).fetchall()
     return conn.execute(
@@ -374,7 +374,7 @@ def renew_policy(conn: sqlite3.Connection, uid: str) -> str:
     try:
         new_exp = exp.replace(year=exp.year + 1)
     except ValueError:
-        # Feb 29 → Mar 1 in non-leap year
+        # Feb 29 → Feb 28 in non-leap year (industry standard: stay in month)
         new_exp = exp.replace(year=exp.year + 1, day=exp.day - 1)
 
     new_uid = next_policy_uid(conn)
@@ -389,7 +389,7 @@ def renew_policy(conn: sqlite3.Connection, uid: str) -> str:
             project_name, project_id, exposure_basis, exposure_amount, exposure_unit,
             exposure_address, exposure_city, exposure_state, exposure_zip,
             prior_policy_uid)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (
             new_uid, old["client_id"], old["policy_type"], old["carrier"], None,
             new_eff.isoformat(), new_exp.isoformat(),

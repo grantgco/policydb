@@ -1157,7 +1157,7 @@ async def followups_apply_spread(request: Request, conn=Depends(get_db)):
     for move in moves:
         cid = move.get("composite_id", "")
         new_date = move.get("new_date", "")
-        if not cid or not new_date:
+        if not cid or not new_date or "-" not in cid:
             continue
         source, item_id = cid.split("-", 1)
         if source == "activity":
@@ -1531,7 +1531,7 @@ def bulk_reschedule(
     """Bulk reschedule selected follow-ups to a specific date."""
     for item in ids.split(","):
         item = item.strip()
-        if not item:
+        if not item or "-" not in item:
             continue
         source, item_id = item.split("-", 1)
         if source == "activity":

@@ -308,6 +308,8 @@ def recalculate_downstream(
         new_gap = max(original_gap, minimum_gap_days)
 
         prev_projected = _parse_date(rows[i - 1]["projected_date"])
+        if not prev_projected:
+            continue  # Skip if previous projected date is unparseable
         new_proj = prev_projected + timedelta(days=new_gap)
 
         # Clamp to expiration_date

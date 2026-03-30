@@ -8,7 +8,7 @@ logger = logging.getLogger("policydb.web.routes.policies")
 
 from datetime import date, datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
 from policydb import config as cfg
@@ -1780,6 +1780,12 @@ async def policy_ai_import_apply_location(
 
     # Apply COPE data
     if project_id and cope_fields:
+        # Whitelist of allowed COPE columns to prevent SQL injection
+        _COPE_ALLOWED = {
+            "construction_type", "year_built", "stories", "sq_footage",
+            "sprinklered", "roof_type", "occupancy_description",
+            "protection_class", "total_insurable_value", "notes",
+        }
         # Check if cope_data row exists
         cope_row = conn.execute(
             "SELECT id FROM cope_data WHERE project_id = ?", (project_id,)
@@ -1789,8 +1795,9 @@ async def policy_ai_import_apply_location(
             cope_updates = []
             cope_vals = []
             for fkey, fval in cope_fields.items():
-                cope_updates.append(f"{fkey} = ?")
-                cope_vals.append(fval)
+                if fkey in _COPE_ALLOWED:
+                    cope_updates.append(f"{fkey} = ?")
+                    cope_vals.append(fval)
             if cope_updates:
                 cope_updates.append("updated_at = datetime('now')")
                 cope_vals.append(project_id)
@@ -1803,8 +1810,9 @@ async def policy_ai_import_apply_location(
             cols = ["project_id"]
             vals = [project_id]
             for fkey, fval in cope_fields.items():
-                cols.append(fkey)
-                vals.append(fval)
+                if fkey in _COPE_ALLOWED:
+                    cols.append(fkey)
+                    vals.append(fval)
             placeholders = ", ".join("?" for _ in cols)
             conn.execute(
                 f"INSERT INTO cope_data ({', '.join(cols)}, created_at, updated_at) "

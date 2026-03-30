@@ -174,9 +174,11 @@ SELECT
     p.coverage_form AS "Form",
     p.layer_position AS "Layer",
     p.project_name AS "Project",
-    COALESCE(ce.exposure_type || ' /' || ce.denominator, p.exposure_basis) AS "Exposure Basis",
+    COALESCE(CASE WHEN ce.exposure_type IS NOT NULL AND ce.denominator IS NOT NULL
+                  THEN ce.exposure_type || ' /' || ce.denominator
+                  ELSE ce.exposure_type END, p.exposure_basis) AS "Exposure Basis",
     COALESCE(ce.amount, p.exposure_amount) AS "Exposure Amount",
-    COALESCE('per ' || ce.denominator, p.exposure_unit) AS "Exposure Unit",
+    COALESCE(CASE WHEN ce.denominator IS NOT NULL THEN 'per ' || ce.denominator END, p.exposure_unit) AS "Exposure Unit",
     pel.rate AS "Rate",
     p.description AS "Comments"
 FROM policies p
@@ -249,7 +251,7 @@ SELECT
     COALESCE(
         (SELECT GROUP_CONCAT(co.name, ', ') FROM contact_policy_assignments cpa
          JOIN contacts co ON cpa.contact_id = co.id
-         WHERE cpa.policy_id = p.id),
+         WHERE cpa.policy_id = p.id AND cpa.is_placement_colleague = 1),
         p.placement_colleague
     ) AS placement_colleague,
     p.follow_up_date,
@@ -263,7 +265,7 @@ SELECT
     COALESCE(
         (SELECT co.email FROM contact_policy_assignments cpa
          JOIN contacts co ON cpa.contact_id = co.id
-         WHERE cpa.policy_id = p.id AND co.email IS NOT NULL
+         WHERE cpa.policy_id = p.id AND cpa.is_placement_colleague = 1 AND co.email IS NOT NULL
          LIMIT 1),
         p.placement_colleague_email
     ) AS placement_colleague_email,
@@ -337,6 +339,9 @@ LEFT JOIN (
 ) th ON th.policy_uid = p.policy_uid
 WHERE a.follow_up_date < date('now')
   AND a.follow_up_done = 0
+  AND (c.archived = 0 OR c.archived IS NULL)
+  AND (p.id IS NULL OR p.archived = 0)
+  AND (p.id IS NULL OR p.is_opportunity = 0 OR p.is_opportunity IS NULL)
 ORDER BY a.follow_up_date ASC
 """
 

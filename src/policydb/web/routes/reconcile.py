@@ -773,7 +773,7 @@ def reconcile_run_match(
     ctx["today"] = date.today().isoformat()
     ctx["policy_types"] = cfg.get("policy_types", [])
     ctx["field_display"] = _FIELD_DISPLAY
-    ctx["program_summary"] = program_reconcile_summary(all_results, carrier_map=_carrier_map)
+    ctx["program_summary"] = program_reconcile_summary(all_results)
     ctx["program_candidates"] = _detect_program_candidates(board_results)
     return templates.TemplateResponse("reconcile/index.html", ctx)
 
