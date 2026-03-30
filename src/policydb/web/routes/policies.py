@@ -1272,11 +1272,15 @@ def policy_ai_import_parse(
 
     try:
         return _ai_import_parse_inner(request, conn, uid, result)
-    except Exception:
+    except Exception as e:
         logger.exception("AI import parse failed for %s", uid)
+        import html
+        err_msg = html.escape(str(e))
         return HTMLResponse(
-            '<div class="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">'
-            'An error occurred processing the import. Check server logs for details.</div>',
+            f'<div class="p-4 bg-red-50 border border-red-200 rounded-lg text-sm">'
+            f'<div class="font-medium text-red-700 mb-1">Import failed for {uid}</div>'
+            f'<div class="text-red-600 font-mono text-xs whitespace-pre-wrap">{err_msg}</div>'
+            f'</div>',
             status_code=500,
         )
 

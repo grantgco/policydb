@@ -66,8 +66,15 @@ def setup_sqlite_handler() -> None:
     global _sqlite_handler
 
     root = logging.getLogger("policydb")
-    if any(isinstance(h, SQLiteHandler) for h in root.handlers):
-        return  # Already attached
+    # Check for existing handler — but verify its writer thread is alive
+    # (threads don't survive process fork, e.g. CLI → uvicorn worker)
+    for h in root.handlers:
+        if isinstance(h, SQLiteHandler):
+            if h._thread.is_alive():
+                return  # Already attached and healthy
+            # Dead thread — remove stale handler so we can create a fresh one
+            root.removeHandler(h)
+            break
 
     try:
         handler = SQLiteHandler(str(DB_PATH))
