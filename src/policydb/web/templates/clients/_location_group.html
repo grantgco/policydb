@@ -19,6 +19,9 @@
     {% endif %}
 
     <span class="text-xs text-gray-400">&middot; {{ location.policies | length }} polic{{ 'y' if location.policies | length == 1 else 'ies' }}</span>
+    {% if location.program_count %}
+    <span class="text-xs bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full font-medium">{{ location.program_count }} program{{ 's' if location.program_count != 1 }}</span>
+    {% endif %}
     <span class="text-xs text-gray-500 tabular-nums font-medium">{{ location.total_premium | currency }}</span>
 
     <div class="ml-auto flex items-center gap-2 no-print">
