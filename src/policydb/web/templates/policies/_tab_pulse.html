@@ -483,7 +483,7 @@
       </div>
       {# Issue widget — link activity to an open issue #}
       <div class="mt-2"
-           hx-get="/issues/for-client/{{ policy.client_id }}"
+           hx-get="/issues/for-policy/{{ policy.id }}"
            hx-trigger="intersect once"
            hx-swap="innerHTML"></div>
     </form>
