@@ -10,23 +10,22 @@
 
     <!-- Header -->
     <div style="margin-bottom:0.25rem;">
-      <h2 id="chart-title-display"
-          style="font-family:'Noto Serif',serif;font-size:1.6rem;color:#000F47;line-height:1.2;margin:0 0 0.3rem;">
+      <div id="chart-title-display"
+          style="font-family:'Noto Serif',serif;font-size:24px;font-weight:700;color:#000F47;line-height:1.2;margin:0 0 5px;">
         Total Cost of Risk Breakdown &mdash; 2024
-      </h2>
-      <p id="chart-subtitle-display"
-         style="font-size:0.82rem;color:#7B7974;font-weight:400;letter-spacing:0.03em;margin:0;">
-        Placeholder values &mdash; update below
-      </p>
+      </div>
+      <div id="chart-subtitle-display"
+         style="font-size:13px;color:#7B7974;font-weight:400;letter-spacing:0.5px;margin:0;">
+      </div>
     </div>
 
     <!-- Total Callout -->
-    <div id="stat-callout" style="margin-bottom:1rem;">
-      <div style="font-size:0.8rem;color:#7B7974;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;">
+    <div id="stat-callout" style="margin-bottom:16px;">
+      <div style="font-size:13px;color:#7B7974;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;">
         Total Cost of Risk
       </div>
       <div id="total-display"
-           style="font-size:2.5rem;font-weight:700;color:#000F47;font-family:'Noto Serif',serif;">
+           style="font-size:40px;font-weight:700;color:#000F47;font-family:'Noto Serif',serif;">
         $1.93M
       </div>
     </div>
@@ -185,7 +184,7 @@
     <div class="config-field wide">
       <span class="config-label">Subtitle</span>
       <input type="text" id="chart-subtitle" name="chart-subtitle"
-             value="Placeholder values — update below">
+             value="">
     </div>
     <button class="btn-mc" onclick="refreshCurrentChart()">Refresh Chart</button>
   </div>
@@ -382,10 +381,11 @@
             grid: { display: false },
             border: { color: '#B9B6B1' },
             ticks: {
-              font: { family: "'Noto Sans'", size: 11, weight: '500' },
+              font: { family: "'Noto Sans'", size: wf.labels.length > 7 ? 10 : 11, weight: '500' },
               color: '#3D3C37',
-              maxRotation: 45,
+              maxRotation: wf.labels.length > 6 ? 45 : 0,
               minRotation: 0,
+              autoSkip: false,
             }
           },
           y: {
