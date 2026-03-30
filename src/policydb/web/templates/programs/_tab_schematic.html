@@ -76,7 +76,11 @@
     tbodyId: 'excess-tbody',
     idAttr: 'data-row-id',
     rowClass: 'matrix-row',
-    patchUrl: function(id) { return _base + '/excess/' + id + '/cell'; },
+    patchUrl: function(id) {
+      var s = String(id);
+      if (s.indexOf('sc-') === 0) return _base + '/subcoverage/' + s.substring(3) + '/cell';
+      return _base + '/excess/' + id + '/cell';
+    },
     addRowUrl: _base + '/excess/add',
     emptyRowId: 'excess-empty',
     onSaved: function(rowEl, field, resp) {
