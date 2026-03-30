@@ -73,7 +73,11 @@
     </thead>
     <tbody class="divide-y divide-gray-100">
       {% for p in rows %}
-        {% include "policies/_policy_renew_row.html" %}
+        {% if p._is_program %}
+          {% include "policies/_program_renew_row.html" %}
+        {% else %}
+          {% include "policies/_policy_renew_row.html" %}
+        {% endif %}
       {% else %}
       <tr><td colspan="11" class="px-4 py-10 text-center text-gray-400">No renewals in this window.</td></tr>
       {% endfor %}

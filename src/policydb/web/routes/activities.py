@@ -1401,12 +1401,29 @@ def renewals(request: Request, window: int = 180, urgency: str = "", status: str
         client_ids=filter_client_ids,
     )
 
+    # Fetch program pipeline rows first so we can exclude their child policies
+    from policydb.queries import get_program_pipeline
+    program_rows = get_program_pipeline(conn, client_id=client_id or None, window_days=window)
+
+    # Build set of policy UIDs that belong to active programs
+    program_policy_uids: set[str] = set()
+    for pgm in program_rows:
+        children = conn.execute(
+            "SELECT policy_uid FROM policies WHERE program_id=? AND archived=0",
+            (pgm["program_id"],),
+        ).fetchall()
+        for c in children:
+            program_policy_uids.add(c["policy_uid"])
+
     # Attach client_id for linking, then milestone progress
     from policydb.email_templates import policy_context as _policy_ctx, render_tokens as _render_tokens
     _subj_tpl = cfg.get("email_subject_policy", "Re: {{client_name}} — {{policy_type}}")
     pipeline = []
     for p in rows:
         d = dict(p)
+        # Skip policies that belong to a program — their program row represents them
+        if d.get("policy_uid") in program_policy_uids:
+            continue
         client_row = conn.execute(
             "SELECT id FROM clients WHERE name=?", (d["client_name"],)
         ).fetchone()
@@ -1416,6 +1433,12 @@ def renewals(request: Request, window: int = 180, urgency: str = "", status: str
         pipeline.append(d)
     from policydb.web.routes.policies import _attach_milestone_progress, _attach_readiness_score
     pipeline = _attach_readiness_score(conn, _attach_milestone_progress(conn, pipeline))
+
+    # Merge program rows into pipeline with sort-compatible keys
+    for pgm in program_rows:
+        pgm["expiration_date"] = pgm["earliest_expiration"]
+        pgm["premium"] = pgm["total_premium"]
+        pipeline.append(pgm)
 
     sort_field = sort if sort in _RENEWAL_SORT_FIELDS else "expiration_date"
     reverse = dir == "desc"
