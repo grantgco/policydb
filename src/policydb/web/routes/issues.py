@@ -405,6 +405,29 @@ def issue_detail(
     issue["sla_days"] = sla
     issue["over_sla"] = (issue.get("days_open") or 0) > sla
 
+    # For renewal issues, include timeline milestone data
+    timeline_milestones = []
+    if issue.get("is_renewal_issue"):
+        policy_uid = issue.get("policy_uid")
+        if policy_uid:
+            timeline_milestones = [dict(r) for r in conn.execute("""
+                SELECT milestone_name, ideal_date, projected_date, completed_date,
+                       health, accountability, waiting_on
+                FROM policy_timeline
+                WHERE policy_uid = ?
+                ORDER BY ideal_date
+            """, (policy_uid,)).fetchall()]
+        elif issue.get("program_id"):
+            # Program-level: aggregate child policy milestones
+            timeline_milestones = [dict(r) for r in conn.execute("""
+                SELECT pt.milestone_name, pt.ideal_date, pt.projected_date,
+                       pt.completed_date, pt.health, pt.accountability, pt.waiting_on
+                FROM policy_timeline pt
+                JOIN policies p ON p.policy_uid = pt.policy_uid
+                WHERE p.program_id = ?
+                ORDER BY pt.ideal_date
+            """, (issue["program_id"],)).fetchall()]
+
     ctx = {
         "request": request,
         "active": "action-center",
@@ -417,6 +440,7 @@ def issue_detail(
         "issue_root_cause_categories": cfg.get("issue_root_cause_categories", []),
         "activity_types": cfg.get("activity_types", []),
         "follow_up_dispositions": cfg.get("follow_up_dispositions", []),
+        "timeline_milestones": timeline_milestones,
     }
     return templates.TemplateResponse("issues/detail.html", ctx)
 
