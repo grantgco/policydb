@@ -43,7 +43,7 @@
   </div>
 
   {# Hidden issue_id input #}
-  <input type="hidden" name="issue_id" id="issue-link-id" value="">
+  <input type="hidden" name="issue_id" id="issue-link-id" value="0">
 
   {# Linked confirmation bar (hidden by default) #}
   <div id="issue-linked-bar" class="hidden mt-2 flex items-center justify-between text-xs bg-green-50 border border-green-200 rounded px-2 py-1.5">
@@ -65,7 +65,7 @@ function linkIssueWidget(id, uid) {
   document.getElementById('issue-linked-bar').classList.remove('hidden');
 }
 function unlinkIssueWidget() {
-  document.getElementById('issue-link-id').value = '';
+  document.getElementById('issue-link-id').value = '0';
   document.getElementById('issue-linked-bar').classList.add('hidden');
   document.getElementById('issue-linked-label').textContent = '';
 }
