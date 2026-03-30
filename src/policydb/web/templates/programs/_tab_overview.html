@@ -1,89 +1,67 @@
-{# Program Overview Tab — child policies, assign/unassign #}
+{# Program Overview Tab — editable child policies grid, assign/unassign #}
 
-{# ── Summary Stats ── #}
+{# -- Summary Stats -- #}
 <div class="flex items-center gap-4 text-sm text-gray-500 mb-4">
   <span><strong class="text-gray-700">{{ aggregates.policy_count }}</strong> policies</span>
   <span><strong class="text-gray-700">{{ aggregates.carrier_count }}</strong> carriers</span>
   <span><strong class="text-gray-700">{{ aggregates.total_premium | currency }}</strong> total premium</span>
 </div>
 
-{# ── Child Policies Table ── #}
+{# -- Child Policies Editable Grid -- #}
 <div class="card mb-4">
   <div class="px-4 py-2.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
     <span class="text-xs font-bold text-marsh uppercase tracking-wide">Child Policies</span>
-    <span class="text-xs text-gray-400">{{ children | length }} assigned</span>
+    <div class="flex items-center gap-3">
+      <span class="text-xs text-gray-400">{{ children | length }} assigned</span>
+      {% if children %}
+      <button type="button" id="renew-program-btn"
+        class="no-print text-xs font-medium text-white bg-marsh px-3 py-1 rounded hover:bg-marsh/90 transition-colors"
+        onclick="renewProgram()">Renew Program</button>
+      {% endif %}
+    </div>
   </div>
+
+  <style>
+    #children-tbody td[contenteditable][data-placeholder]:empty::before {
+      content: attr(data-placeholder); color: #94a3b8; font-style: italic; pointer-events: none;
+    }
+    #children-tbody td[contenteditable]:focus {
+      outline: none; border-bottom: 2px solid #003865; background: rgba(0,56,101,0.03);
+    }
+    #children-tbody td.matrix-cell-combo { position: relative; }
+  </style>
+
   {% if children %}
   <div class="overflow-x-auto">
-    <table class="w-full text-sm">
+    <table class="w-full text-sm" id="children-table">
       <thead>
-        <tr class="border-b border-gray-100 text-left text-xs text-gray-400">
-          <th class="px-4 py-2 font-medium">Policy</th>
-          <th class="px-4 py-2 font-medium">Type</th>
-          <th class="px-4 py-2 font-medium">Carrier</th>
-          <th class="px-4 py-2 font-medium text-right">Premium</th>
-          <th class="px-4 py-2 font-medium text-right">Limit</th>
-          <th class="px-4 py-2 font-medium">Layer</th>
-          <th class="px-4 py-2 font-medium">Status</th>
-          <th class="px-4 py-2 font-medium no-print"></th>
+        <tr class="text-left text-xs text-gray-400 uppercase tracking-wide border-b border-gray-100 bg-gray-50">
+          <th class="px-3 py-2 font-medium">Policy</th>
+          <th class="px-3 py-2 font-medium" style="min-width:110px">Type</th>
+          <th class="px-3 py-2 font-medium" style="min-width:110px">Carrier</th>
+          <th class="px-3 py-2 font-medium" style="min-width:80px">Policy #</th>
+          <th class="px-3 py-2 font-medium text-right" style="min-width:90px">Premium</th>
+          <th class="px-3 py-2 font-medium text-right" style="min-width:80px">Limit</th>
+          <th class="px-3 py-2 font-medium text-right" style="min-width:80px">Deductible</th>
+          <th class="px-3 py-2 font-medium text-right" style="min-width:80px">Attach Pt</th>
+          <th class="px-3 py-2 font-medium" style="min-width:115px">Effective</th>
+          <th class="px-3 py-2 font-medium" style="min-width:115px">Expiration</th>
+          <th class="px-3 py-2 font-medium" style="min-width:100px">Status</th>
+          <th class="px-3 py-2 font-medium" style="min-width:80px">Layer</th>
+          <th class="px-3 py-2 font-medium text-right" style="min-width:80px">Part Of</th>
+          <th class="px-2 py-2 font-medium w-8 no-print"></th>
         </tr>
       </thead>
-      <tbody>
+      <tbody id="children-tbody" class="divide-y divide-gray-50">
         {% for child in children %}
-        <tr class="border-b border-gray-50 hover:bg-gray-50 transition-colors">
-          <td class="px-4 py-2.5">
-            <a href="/policies/{{ child.policy_uid }}/edit" class="text-marsh hover:underline font-medium text-xs">{{ child.policy_uid }}</a>
-          </td>
-          <td class="px-4 py-2.5 text-gray-600">{{ child.policy_type }}</td>
-          <td class="px-4 py-2.5 text-gray-600">{{ child.carrier }}</td>
-          <td class="px-4 py-2.5 text-right font-medium text-gray-900 tabular-nums">{{ child.premium | currency }}</td>
-          <td class="px-4 py-2.5 text-right text-gray-600 tabular-nums">{{ child.limit_amount | currency_short }}</td>
-          <td class="px-4 py-2.5">
-            {% if child.layer_position == 'Umbrella' %}
-              <span class="text-xs px-2 py-0.5 rounded bg-blue-50 text-blue-700">Umbrella</span>
-            {% elif child.layer_position == 'Excess' %}
-              <span class="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-600">Excess</span>
-            {% else %}
-              <span class="text-xs text-gray-400">Primary</span>
-            {% endif %}
-          </td>
-          <td class="px-4 py-2.5">
-            <span class="text-xs px-2 py-0.5 rounded
-              {% if child.renewal_status == 'Bound' %}bg-green-50 text-green-700
-              {% elif child.renewal_status == 'In Progress' %}bg-blue-50 text-blue-700
-              {% else %}bg-gray-100 text-gray-600{% endif %}">{{ child.renewal_status or '—' }}</span>
-          </td>
-          <td class="px-4 py-2.5 no-print">
-            <button type="button"
-              class="text-xs text-red-400 hover:text-red-600"
-              onclick="unassignPolicy('{{ child.policy_uid }}')"
-              title="Remove from program">&times;</button>
-          </td>
-        </tr>
-        {# Ghost rows for sub-coverages #}
-        {% for sc in child.sub_coverages %}
-        <tr class="border-b border-gray-50" style="color:#9ca3af; font-style:italic;">
-          <td class="px-4 py-1.5 pl-8">
-            <span class="text-[9px] text-gray-300">└</span>
-          </td>
-          <td class="px-4 py-1.5 text-xs">
-            <span class="text-[10px] text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded-full font-medium mr-1" style="font-style:normal;">Package</span>
-            {{ sc.coverage_type }}
-          </td>
-          <td class="px-4 py-1.5 text-xs">{{ sc.carrier or child.carrier }}</td>
-          <td class="px-4 py-1.5 text-right text-xs tabular-nums">{{ sc.premium | currency if sc.premium else '—' }}</td>
-          <td class="px-4 py-1.5 text-right text-xs tabular-nums">{{ sc.limit_amount | currency_short if sc.limit_amount else '—' }}</td>
-          <td class="px-4 py-1.5 text-xs">{{ sc.layer_position or '—' }}</td>
-          <td colspan="2"></td>
-        </tr>
-        {% endfor %}
+        {% include "programs/_child_row.html" %}
         {% endfor %}
       </tbody>
       <tfoot>
         <tr class="border-t border-gray-200">
-          <td colspan="3" class="px-4 py-2 text-xs font-semibold text-gray-500">Totals</td>
-          <td class="px-4 py-2 text-right text-xs font-semibold text-gray-700 tabular-nums">{{ aggregates.total_premium | currency }}</td>
-          <td colspan="4"></td>
+          <td colspan="4" class="px-3 py-2 text-xs font-semibold text-gray-500">Totals</td>
+          <td class="px-3 py-2 text-right text-xs font-semibold text-gray-700 tabular-nums">{{ aggregates.total_premium | currency }}</td>
+          <td colspan="9"></td>
         </tr>
       </tfoot>
     </table>
@@ -95,51 +73,134 @@
   {% endif %}
 </div>
 
-{# ── Assign Policy Panel ── #}
+{# -- Assign Policy Panel -- #}
 {% if unassigned %}
 <div class="card mb-4">
-  <div class="px-4 py-2.5 bg-gray-50 border-b border-gray-100">
-    <span class="text-xs font-bold text-marsh uppercase tracking-wide">Assign Policy</span>
+  <div class="px-4 py-2.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
+    <span class="text-xs font-bold text-marsh uppercase tracking-wide">Unassigned Policies</span>
+    <span class="text-xs text-gray-400">{{ unassigned | length }} available</span>
   </div>
-  <div class="p-4">
-    <div class="flex flex-wrap gap-2">
-      {% for pol in unassigned %}
-      <button type="button"
-        class="inline-flex items-center gap-1.5 text-xs border border-gray-200 rounded-lg px-3 py-1.5 text-gray-600 hover:border-marsh hover:text-marsh transition-colors"
-        onclick="assignPolicy('{{ pol.policy_uid }}')">
-        <span class="text-green-500">+</span>
-        {{ pol.policy_type }}
-        {% if pol.carrier %}<span class="text-gray-400">· {{ pol.carrier }}</span>{% endif %}
-        {% if pol.premium %}<span class="text-gray-400">· {{ pol.premium | currency_short }}</span>{% endif %}
-      </button>
-      {% endfor %}
-    </div>
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="border-b border-gray-100 text-left text-xs text-gray-400">
+          <th class="px-4 py-2 font-medium">Policy</th>
+          <th class="px-4 py-2 font-medium">Type</th>
+          <th class="px-4 py-2 font-medium">Carrier</th>
+          <th class="px-4 py-2 font-medium">Policy #</th>
+          <th class="px-4 py-2 font-medium text-right">Premium</th>
+          <th class="px-4 py-2 font-medium text-right">Limit</th>
+          <th class="px-4 py-2 font-medium">Term</th>
+          <th class="px-4 py-2 font-medium">Status</th>
+          <th class="px-4 py-2 font-medium no-print"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for pol in unassigned %}
+        <tr class="border-b border-gray-50 hover:bg-gray-50 transition-colors">
+          <td class="px-4 py-2.5">
+            <a href="/policies/{{ pol.policy_uid }}/edit" class="text-marsh hover:underline font-medium text-xs">{{ pol.policy_uid }}</a>
+          </td>
+          <td class="px-4 py-2.5 text-gray-600">{{ pol.policy_type or '---' }}</td>
+          <td class="px-4 py-2.5 text-gray-600">{{ pol.carrier or '---' }}</td>
+          <td class="px-4 py-2.5 text-gray-500 text-xs font-mono">{{ pol.policy_number or '---' }}</td>
+          <td class="px-4 py-2.5 text-right font-medium text-gray-900 tabular-nums">{{ pol.premium | currency if pol.premium else '---' }}</td>
+          <td class="px-4 py-2.5 text-right text-gray-600 tabular-nums">{{ pol.limit_amount | currency_short if pol.limit_amount else '---' }}</td>
+          <td class="px-4 py-2.5 text-xs text-gray-500 whitespace-nowrap">
+            {% if pol.effective_date and pol.expiration_date %}
+              {{ pol.effective_date[5:].replace('-', '/') }} - {{ pol.expiration_date[5:].replace('-', '/') }}
+            {% elif pol.effective_date %}
+              {{ pol.effective_date[5:].replace('-', '/') }} -
+            {% else %}---{% endif %}
+          </td>
+          <td class="px-4 py-2.5">
+            <span class="text-xs px-2 py-0.5 rounded
+              {% if pol.renewal_status == 'Bound' %}bg-green-50 text-green-700
+              {% elif pol.renewal_status == 'In Progress' %}bg-blue-50 text-blue-700
+              {% else %}bg-gray-100 text-gray-600{% endif %}">{{ pol.renewal_status or '---' }}</span>
+          </td>
+          <td class="px-4 py-2.5 no-print">
+            <button type="button"
+              class="text-xs text-marsh border border-marsh/30 rounded px-2 py-0.5 hover:bg-marsh hover:text-white transition-colors"
+              onclick="assignPolicy('{{ pol.policy_uid }}')">+ Assign</button>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </div>
 </div>
 {% endif %}
 
 <script>
-function assignPolicy(policyUid) {
-  fetch('/programs/{{ program.program_uid }}/assign/' + policyUid, {method: 'POST'})
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
-      if (data.ok) {
-        // Reload overview tab
-        htmx.ajax('GET', '/programs/{{ program.program_uid }}/tab/overview',
-                   {target: '.tab-content', swap: 'innerHTML'});
-      }
-    });
-}
+(function() {
+  var _base = '/programs/{{ program.program_uid }}';
 
-function unassignPolicy(policyUid) {
-  if (!confirm('Remove this policy from the program?')) return;
-  fetch('/programs/{{ program.program_uid }}/unassign/' + policyUid, {method: 'POST'})
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
-      if (data.ok) {
-        htmx.ajax('GET', '/programs/{{ program.program_uid }}/tab/overview',
-                   {target: '.tab-content', swap: 'innerHTML'});
-      }
+  // Editable grid for child policies
+  window._childrenMatrix = window.initMatrix({
+    tbodyId: 'children-tbody',
+    idAttr: 'data-row-id',
+    rowClass: 'matrix-row',
+    patchUrl: function(id) { return _base + '/child/' + id + '/cell'; },
+    emptyRowId: null,
+    onSaved: function(rowEl, field, resp) {}
+  });
+
+  // Date field patch helper (date inputs bypass initMatrix)
+  window.patchChildCell = function(policyId, field, value) {
+    fetch(_base + '/child/' + policyId + '/cell', {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({field: field, value: value})
+    }).then(function(r) { return r.json(); }).then(function(data) {
+      if (data.ok && typeof showToast === 'function') showToast('Saved');
     });
-}
+  };
+
+  window.assignPolicy = function(policyUid) {
+    fetch(_base + '/assign/' + policyUid, {method: 'POST'})
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.ok) {
+          htmx.ajax('GET', _base + '/tab/overview',
+                     {target: '.tab-content', swap: 'innerHTML'});
+        }
+      });
+  };
+
+  window.unassignPolicy = function(policyUid) {
+    if (!confirm('Remove this policy from the program?')) return;
+    fetch(_base + '/unassign/' + policyUid, {method: 'POST'})
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.ok) {
+          htmx.ajax('GET', _base + '/tab/overview',
+                     {target: '.tab-content', swap: 'innerHTML'});
+        }
+      });
+  };
+
+  window.renewProgram = function() {
+    if (!confirm('Renew all child policies in this program? This will archive current terms and create new ones with dates advanced by one year.')) return;
+    var btn = document.getElementById('renew-program-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Renewing...'; }
+    fetch(_base + '/renew', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'}
+    }).then(function(r) { return r.json(); }).then(function(data) {
+      if (data.ok) {
+        if (typeof showToast === 'function') showToast(data.renewed_count + ' policies renewed');
+        // Reload overview tab to show new terms
+        htmx.ajax('GET', _base + '/tab/overview',
+                   {target: '.tab-content', swap: 'innerHTML'});
+      } else {
+        alert(data.error || 'Renewal failed');
+        if (btn) { btn.disabled = false; btn.textContent = 'Renew Program'; }
+      }
+    }).catch(function() {
+      alert('Network error during renewal');
+      if (btn) { btn.disabled = false; btn.textContent = 'Renew Program'; }
+    });
+  };
+})();
 </script>

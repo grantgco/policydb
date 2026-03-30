@@ -2479,7 +2479,7 @@ def get_schematic_completeness(
                 checks = [
                     ("policy_type", bool(p.get("policy_type"))),
                     ("carrier", bool(p.get("carrier"))),
-                    ("deductible", bool(p.get("deductible") and str(p.get("deductible")) != "0")),
+                    ("deductible", p.get("deductible") is not None),
                 ]
                 for label, ok in checks:
                     total += 1
@@ -2615,7 +2615,8 @@ def get_program_child_policies(conn: sqlite3.Connection, program_id: int) -> lis
         """SELECT p.id, p.policy_uid, p.policy_type, p.carrier, p.policy_number,
                   p.premium, p.limit_amount, p.deductible, p.layer_position,
                   p.renewal_status, p.effective_date, p.expiration_date,
-                  p.attachment_point, p.participation_of, p.coverage_form
+                  p.attachment_point, p.participation_of, p.coverage_form,
+                  p.schematic_column
            FROM policies p
            WHERE p.program_id = ?
              AND p.archived = 0
@@ -2661,7 +2662,9 @@ def get_programs_for_client(conn: sqlite3.Connection, client_id: int) -> list[di
 def get_unassigned_policies(conn: sqlite3.Connection, client_id: int, exclude_program_id: int | None = None) -> list[dict]:
     """Return active policies not assigned to any program (or assigned to archived/missing programs)."""
     rows = conn.execute(
-        """SELECT p.policy_uid, p.policy_type, p.carrier, p.premium, p.limit_amount, p.program_id
+        """SELECT p.policy_uid, p.policy_type, p.carrier, p.premium, p.limit_amount,
+                  p.program_id, p.policy_number, p.effective_date, p.expiration_date,
+                  p.renewal_status, p.deductible
            FROM policies p
            WHERE p.client_id = ? AND p.archived = 0
              AND (p.is_opportunity = 0 OR p.is_opportunity IS NULL)

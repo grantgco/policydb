@@ -1,0 +1,63 @@
+{% set is_pkg = child.sub_coverages | length > 0 %}
+<tr data-row-id="{{ child.id }}" class="matrix-row border-b border-gray-50 hover:bg-gray-50 transition-colors">
+  <td class="px-3 py-2">
+    <a href="/policies/{{ child.policy_uid }}/edit" class="text-marsh hover:underline font-medium text-xs">{{ child.policy_uid }}</a>
+  </td>
+  <td class="px-3 py-2 text-sm text-gray-800 matrix-cell-combo relative"
+      data-field="policy_type" data-placeholder="type"
+      data-options='{{ policy_types | tojson }}' contenteditable="true">{{ child.policy_type or '' }}</td>
+  <td class="px-3 py-2 text-sm text-gray-800 matrix-cell-combo relative"
+      data-field="carrier" data-placeholder="carrier"
+      data-options='{{ carriers | tojson }}' contenteditable="true">{{ child.carrier or '' }}</td>
+  <td class="px-3 py-2 text-sm text-gray-800 matrix-cell-editable"
+      data-field="policy_number" data-placeholder="policy #" contenteditable="true">{{ child.policy_number or '' }}</td>
+  <td class="px-3 py-2 text-sm text-gray-800 text-right tabular-nums matrix-cell-editable"
+      data-field="premium" data-placeholder="$0" contenteditable="true">{% if child.premium %}${{ '{:,.0f}'.format(child.premium) }}{% endif %}</td>
+  <td class="px-3 py-2 text-sm text-gray-800 text-right tabular-nums matrix-cell-editable"
+      data-field="limit_amount" data-placeholder="$0" contenteditable="true">{% if child.limit_amount %}${{ '{:,.0f}'.format(child.limit_amount) }}{% endif %}</td>
+  <td class="px-3 py-2 text-sm text-gray-800 text-right tabular-nums matrix-cell-editable"
+      data-field="deductible" data-placeholder="$0" contenteditable="true">{% if child.deductible and child.deductible != '0' %}${{ '{:,.0f}'.format(child.deductible | float) }}{% endif %}</td>
+  <td class="px-3 py-2 text-sm text-gray-800 text-right tabular-nums matrix-cell-editable"
+      data-field="attachment_point" data-placeholder="$0" contenteditable="true">{% if child.attachment_point %}${{ '{:,.0f}'.format(child.attachment_point) }}{% endif %}</td>
+  <td class="px-2 py-1.5">
+    <input type="date" value="{{ child.effective_date or '' }}"
+           class="text-xs border border-gray-200 rounded px-1.5 py-1 w-[110px] focus:ring-1 focus:ring-marsh focus:border-marsh"
+           onchange="patchChildCell({{ child.id }}, 'effective_date', this.value)">
+  </td>
+  <td class="px-2 py-1.5">
+    <input type="date" value="{{ child.expiration_date or '' }}"
+           class="text-xs border border-gray-200 rounded px-1.5 py-1 w-[110px] focus:ring-1 focus:ring-marsh focus:border-marsh"
+           onchange="patchChildCell({{ child.id }}, 'expiration_date', this.value)">
+  </td>
+  <td class="px-3 py-2 text-sm text-gray-800 matrix-cell-combo relative"
+      data-field="renewal_status" data-placeholder="status"
+      data-options='{{ renewal_statuses | tojson }}' contenteditable="true">{{ child.renewal_status or '' }}</td>
+  <td class="px-3 py-2 text-sm text-gray-800 matrix-cell-combo relative"
+      data-field="layer_position" data-placeholder="layer"
+      data-options='["Primary", "Umbrella", "Excess"]' contenteditable="true">{{ child.layer_position or '' }}</td>
+  <td class="px-3 py-2 text-sm text-gray-800 text-right tabular-nums matrix-cell-editable"
+      data-field="participation_of" data-placeholder="--" contenteditable="true">{% if child.participation_of %}${{ '{:,.0f}'.format(child.participation_of) }}{% endif %}</td>
+  <td class="px-2 py-2 no-print">
+    <button type="button"
+      class="text-xs text-red-400 hover:text-red-600"
+      onclick="unassignPolicy('{{ child.policy_uid }}')"
+      title="Remove from program">&times;</button>
+  </td>
+</tr>
+{# Ghost rows for sub-coverages (read-only) #}
+{% for sc in child.sub_coverages %}
+<tr class="border-b border-gray-50" style="color:#9ca3af; font-style:italic;">
+  <td class="px-3 py-1.5 pl-6">
+    <span class="text-[9px] text-gray-300">&#9492;</span>
+  </td>
+  <td class="px-3 py-1.5 text-xs">
+    <span class="text-[10px] text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded-full font-medium mr-1" style="font-style:normal;">Package</span>
+    {{ sc.coverage_type }}
+  </td>
+  <td class="px-3 py-1.5 text-xs">{{ sc.carrier or child.carrier }}</td>
+  <td></td>
+  <td class="px-3 py-1.5 text-right text-xs tabular-nums">{{ sc.premium | currency if sc.premium else '---' }}</td>
+  <td class="px-3 py-1.5 text-right text-xs tabular-nums">{{ sc.limit_amount | currency_short if sc.limit_amount else '---' }}</td>
+  <td colspan="8"></td>
+</tr>
+{% endfor %}
