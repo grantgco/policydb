@@ -134,6 +134,9 @@
     <input type="hidden" id="issue-create-source-activity-id" name="source_activity_id">
     <input type="hidden" id="issue-create-source-activity-ids" name="source_activity_ids">
 
+    {# ── Program (hidden, set via JS when escalating from program context) ── #}
+    <input type="hidden" id="issue-create-program-id" name="program_id" value="0">
+
     {# ── Auto-link confirmation bar (shown when source_activity_id is set) ── #}
     <div id="issue-create-link-confirm" class="hidden rounded-lg border border-green-200 bg-green-50 px-3 py-2.5">
       <div class="flex items-center gap-2">
@@ -178,6 +181,8 @@
     if (detailsEl) detailsEl.value = '';
     if (sourceIdEl) sourceIdEl.value = '';
     if (sourceIdsEl) sourceIdsEl.value = '';
+    var programIdInput = document.getElementById('issue-create-program-id');
+    if (programIdInput) programIdInput.value = '0';
 
     // Reset severity to default (Normal)
     var radios = document.querySelectorAll('#issue-create-severity-group input[type="radio"]');
@@ -223,6 +228,12 @@
     } else {
       if (policyIdInput) policyIdInput.value = '';
       if (policyRow) policyRow.classList.add('hidden');
+    }
+
+    // ── Program field ──
+    var programIdInputOpen = document.getElementById('issue-create-program-id');
+    if (programIdInputOpen) {
+      programIdInputOpen.value = opts.program_id || '0';
     }
 
     // ── Subject pre-fill ──
@@ -318,6 +329,12 @@
     // Policy id
     var policyIdInput = document.getElementById('issue-create-policy-id');
     if (policyIdInput && policyIdInput.value) formData.append('policy_id', policyIdInput.value);
+
+    // Program id
+    var programIdInputSubmit = document.getElementById('issue-create-program-id');
+    if (programIdInputSubmit && programIdInputSubmit.value && programIdInputSubmit.value !== '0') {
+      formData.append('program_id', programIdInputSubmit.value);
+    }
 
     // Severity
     var checkedSev = document.querySelector('#issue-create-severity-group input[type="radio"]:checked');

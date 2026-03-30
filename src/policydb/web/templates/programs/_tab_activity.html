@@ -14,8 +14,12 @@
           {% if a.activity_type %}
           <span class="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-600">{{ a.activity_type }}</span>
           {% endif %}
+          {% if a.policy_uid %}
           <a href="/policies/{{ a.policy_uid }}/edit" class="text-xs text-marsh hover:underline">{{ a.policy_uid }}</a>
           <span class="text-xs text-gray-400">{{ a.policy_type }}{% if a.carrier %} · {{ a.carrier }}{% endif %}</span>
+          {% else %}
+          <span class="text-xs bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded">Program</span>
+          {% endif %}
         </div>
         <span class="text-xs text-gray-400 tabular-nums">{{ a.created_at[:10] if a.created_at else '' }}</span>
       </div>
@@ -33,6 +37,20 @@
         <span class="text-amber-600">Follow-up: {{ a.follow_up_date }}</span>
         {% if a.disposition %}<span class="text-gray-400 ml-1">· {{ a.disposition }}</span>{% endif %}
       </p>
+      {% endif %}
+      {% if not a.policy_uid %}
+      <button type="button" class="text-[10px] text-gray-400 hover:text-red-600 mt-1 no-print"
+        onclick="openIssueCreateSlideover({
+          subject: '{{ a.subject | replace("'", "\\'") }}',
+          client_id: '{{ program.client_id }}',
+          client_name: '{{ client_name | default("") | replace("'", "\\'") }}',
+          program_id: '{{ program.id }}',
+          context_label: 'Escalating from program activity',
+          context_subject: '{{ a.subject | replace("'", "\\'") }}',
+          source_activity_id: '{{ a.id }}'
+        })">
+        Escalate &rarr;
+      </button>
       {% endif %}
     </div>
     {% endfor %}

@@ -1,0 +1,35 @@
+{# Compact child policy list for program pipeline expand — loaded via HTMX on first expand #}
+{% if children %}
+<table class="w-full text-xs">
+  <thead>
+    <tr class="text-gray-400 uppercase tracking-wide border-b border-indigo-100">
+      <th class="px-2 py-1.5 text-left font-medium">Line</th>
+      <th class="px-2 py-1.5 text-left font-medium">Carrier</th>
+      <th class="px-2 py-1.5 text-left font-medium">Expires</th>
+      <th class="px-2 py-1.5 text-right font-medium">Premium</th>
+      <th class="px-2 py-1.5 text-left font-medium">Status</th>
+    </tr>
+  </thead>
+  <tbody class="divide-y divide-indigo-50">
+    {% for c in children %}
+    <tr class="hover:bg-white/60">
+      <td class="px-2 py-1.5">
+        <a href="/policies/{{ c.policy_uid }}/edit" class="text-marsh hover:underline font-medium">{{ c.policy_type or '—' }}</a>
+        <span class="text-gray-400 ml-1 text-[10px]">{{ c.policy_uid }}</span>
+      </td>
+      <td class="px-2 py-1.5 text-gray-600">{{ c.carrier or '—' }}</td>
+      <td class="px-2 py-1.5 text-gray-600 tabular-nums">{{ c.expiration_date or '—' }}</td>
+      <td class="px-2 py-1.5 text-right text-gray-700 tabular-nums">{{ c.premium | currency }}</td>
+      <td class="px-2 py-1.5">
+        <span class="px-1.5 py-0.5 rounded
+          {% if c.renewal_status == 'Bound' %}bg-green-50 text-green-700
+          {% elif c.renewal_status == 'In Progress' %}bg-blue-50 text-blue-700
+          {% else %}bg-gray-100 text-gray-600{% endif %}">{{ c.renewal_status or 'Not Started' }}</span>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="text-xs text-gray-400 py-2">No child policies assigned to this program.</p>
+{% endif %}

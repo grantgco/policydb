@@ -188,6 +188,58 @@ def get_stale_renewals(
     return conn.execute(sql, params).fetchall()
 
 
+def get_program_pipeline(
+    conn: sqlite3.Connection,
+    client_id: int | None = None,
+    window_days: int = 180,
+) -> list[dict]:
+    """Return one row per active program with renewal-relevant aggregated data."""
+    sql = """
+    SELECT pg.id AS program_id, pg.program_uid, pg.name AS program_name,
+           pg.client_id, pg.renewal_status,
+           c.name AS client_name, c.cn_number,
+           COUNT(p.id) AS policy_count,
+           COUNT(DISTINCT p.carrier) AS carrier_count,
+           COALESCE(SUM(p.premium), 0) AS total_premium,
+           MIN(p.expiration_date) AS earliest_expiration,
+           CAST(julianday(MIN(p.expiration_date)) - julianday('now') AS INTEGER) AS days_to_renewal,
+           GROUP_CONCAT(DISTINCT p.carrier) AS carriers_list
+    FROM programs pg
+    JOIN clients c ON pg.client_id = c.id
+    LEFT JOIN policies p ON p.program_id = pg.id
+        AND p.archived = 0
+        AND (p.is_opportunity = 0 OR p.is_opportunity IS NULL)
+    WHERE pg.archived = 0
+      AND c.archived = 0
+    """
+    params: list = []
+    if client_id is not None:
+        sql += " AND pg.client_id = ?"
+        params.append(client_id)
+    sql += " GROUP BY pg.id HAVING MIN(p.expiration_date) IS NOT NULL"
+    sql += " AND CAST(julianday(MIN(p.expiration_date)) - julianday('now') AS INTEGER) <= ?"
+    params.append(window_days)
+    sql += " ORDER BY MIN(p.expiration_date) ASC"
+    rows = conn.execute(sql, params).fetchall()
+    result = []
+    for r in rows:
+        d = dict(r)
+        dtr = d.get("days_to_renewal")
+        if dtr is None:
+            dtr = 999
+        if dtr <= 30:
+            d["urgency"] = "CRITICAL"
+        elif dtr <= 60:
+            d["urgency"] = "HIGH"
+        elif dtr <= 90:
+            d["urgency"] = "MEDIUM"
+        else:
+            d["urgency"] = "LOW"
+        d["_is_program"] = True
+        result.append(d)
+    return result
+
+
 def get_escalation_alerts(
     conn: sqlite3.Connection,
     excluded_statuses: Optional[list] = None,
@@ -571,13 +623,17 @@ def get_all_followups(
            ) AS internal_cc,
            a.details AS note_details,
            NULL AS note_subject,
-           a.activity_date AS note_date
+           a.activity_date AS note_date,
+           a.program_id,
+           pg.name AS program_name,
+           pg.program_uid
     FROM activity_log a
     JOIN clients c ON a.client_id = c.id
     LEFT JOIN policies p ON a.policy_id = p.id
     LEFT JOIN contacts co_a ON a.contact_id = co_a.id
+    LEFT JOIN programs pg ON a.program_id = pg.id
     WHERE a.follow_up_done = 0 AND a.follow_up_date IS NOT NULL
-      AND (a.project_id IS NULL OR a.policy_id IS NOT NULL)
+      AND (a.project_id IS NULL OR a.policy_id IS NOT NULL OR a.program_id IS NOT NULL)
 
     UNION ALL
 
@@ -600,7 +656,10 @@ def get_all_followups(
            ) AS internal_cc,
            a.details AS note_details,
            NULL AS note_subject,
-           a.activity_date AS note_date
+           a.activity_date AS note_date,
+           NULL AS program_id,
+           NULL AS program_name,
+           NULL AS program_uid
     FROM activity_log a
     JOIN clients c ON a.client_id = c.id
     LEFT JOIN projects pr ON a.project_id = pr.id
@@ -637,7 +696,10 @@ def get_all_followups(
            (SELECT a2.subject FROM activity_log a2
             WHERE a2.policy_id = p.id ORDER BY a2.activity_date DESC, a2.id DESC LIMIT 1) AS note_subject,
            (SELECT a2.activity_date FROM activity_log a2
-            WHERE a2.policy_id = p.id ORDER BY a2.activity_date DESC, a2.id DESC LIMIT 1) AS note_date
+            WHERE a2.policy_id = p.id ORDER BY a2.activity_date DESC, a2.id DESC LIMIT 1) AS note_date,
+           NULL AS program_id,
+           NULL AS program_name,
+           NULL AS program_uid
     FROM policies p
     JOIN clients c ON p.client_id = c.id
     WHERE p.follow_up_date IS NOT NULL AND p.archived = 0
@@ -671,7 +733,10 @@ def get_all_followups(
            ) AS internal_cc,
            c.notes AS note_details,
            NULL AS note_subject,
-           NULL AS note_date
+           NULL AS note_date,
+           NULL AS program_id,
+           NULL AS program_name,
+           NULL AS program_uid
     FROM clients c
     WHERE c.follow_up_date IS NOT NULL AND c.archived = 0
 
@@ -2721,7 +2786,7 @@ def get_program_timeline_milestones(conn: sqlite3.Connection, program_id: int) -
 
 
 def get_program_activities(conn: sqlite3.Connection, program_id: int, limit: int = 50) -> list[dict]:
-    """Return recent activities from all child policies of a program."""
+    """Return recent activities from program itself AND all child policies."""
     rows = conn.execute(
         """SELECT a.id, a.activity_type, a.subject, a.details, a.contact_person,
                   a.created_at, a.follow_up_date, a.disposition,
@@ -2729,9 +2794,18 @@ def get_program_activities(conn: sqlite3.Connection, program_id: int, limit: int
            FROM activity_log a
            JOIN policies p ON p.id = a.policy_id
            WHERE p.program_id = ?
-           ORDER BY a.created_at DESC
+
+           UNION ALL
+
+           SELECT a.id, a.activity_type, a.subject, a.details, a.contact_person,
+                  a.created_at, a.follow_up_date, a.disposition,
+                  NULL AS policy_type, NULL AS carrier, NULL AS policy_uid
+           FROM activity_log a
+           WHERE a.program_id = ? AND a.policy_id IS NULL
+
+           ORDER BY created_at DESC
            LIMIT ?""",
-        (program_id, limit),
+        (program_id, program_id, limit),
     ).fetchall()
     return [dict(r) for r in rows]
 

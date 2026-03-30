@@ -5,7 +5,9 @@ from __future__ import annotations
 import logging
 import sqlite3
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from datetime import date
+
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 import policydb.config as cfg
@@ -84,6 +86,10 @@ def program_detail(
     agg = get_program_aggregates(conn, program["id"])
     renewal_statuses = cfg.get("renewal_statuses", [])
 
+    all_clients = [dict(c) for c in conn.execute(
+        "SELECT id, name FROM clients WHERE archived=0 ORDER BY name"
+    ).fetchall()]
+
     return templates.TemplateResponse("programs/detail.html", {
         "request": request,
         "active": "clients",
@@ -91,6 +97,8 @@ def program_detail(
         "client": dict(client),
         "aggregates": agg,
         "renewal_statuses": renewal_statuses,
+        "issue_severities": cfg.get("issue_severities", []),
+        "all_clients": all_clients,
     })
 
 
@@ -116,6 +124,30 @@ def program_tab_overview(
     unassigned = get_unassigned_policies(conn, program["client_id"])
     agg = get_program_aggregates(conn, program["id"])
 
+    # Fetch open issues linked to this program
+    program_issues = [dict(r) for r in conn.execute(
+        """SELECT id, issue_uid, subject, issue_severity, issue_status, activity_date
+           FROM activity_log
+           WHERE item_kind = 'issue'
+             AND program_id = ?
+             AND issue_status NOT IN ('Resolved', 'Closed')
+           ORDER BY CASE issue_severity
+               WHEN 'Critical' THEN 1 WHEN 'High' THEN 2
+               WHEN 'Normal' THEN 3 ELSE 4 END,
+             activity_date ASC""",
+        (program["id"],),
+    ).fetchall()]
+
+    # Client name for slideover context
+    client_row = conn.execute(
+        "SELECT name FROM clients WHERE id = ?", (program["client_id"],)
+    ).fetchone()
+    client_name = client_row["name"] if client_row else ""
+
+    all_clients = [dict(c) for c in conn.execute(
+        "SELECT id, name FROM clients WHERE archived=0 ORDER BY name"
+    ).fetchall()]
+
     return templates.TemplateResponse("programs/_tab_overview.html", {
         "request": request,
         "program": program,
@@ -125,6 +157,29 @@ def program_tab_overview(
         "renewal_statuses": cfg.get("renewal_statuses", []),
         "policy_types": cfg.get("policy_types", []),
         "carriers": cfg.get("carriers", []),
+        "activity_types": cfg.get("activity_types", []),
+        "program_issues": program_issues,
+        "client_name": client_name,
+        "all_clients": all_clients,
+        "issue_severities": cfg.get("issue_severities", []),
+    })
+
+
+@router.get("/programs/{program_uid}/pipeline-children", response_class=HTMLResponse)
+def program_pipeline_children(
+    request: Request,
+    program_uid: str,
+    conn: sqlite3.Connection = Depends(get_db),
+):
+    """Return compact child policy list for renewal pipeline expand row."""
+    program = get_program_by_uid(conn, program_uid)
+    if not program:
+        return HTMLResponse("", status_code=404)
+    children = get_program_child_policies(conn, program["id"])
+    return templates.TemplateResponse("policies/_program_pipeline_children.html", {
+        "request": request,
+        "children": children,
+        "program_uid": program_uid,
     })
 
 
@@ -319,10 +374,23 @@ def program_tab_activity(
 
     activities = get_program_activities(conn, program["id"])
 
+    # Client name for escalate → issue slideover
+    client_row = conn.execute(
+        "SELECT name FROM clients WHERE id = ?", (program["client_id"],)
+    ).fetchone()
+    client_name = client_row["name"] if client_row else ""
+
+    all_clients = [dict(c) for c in conn.execute(
+        "SELECT id, name FROM clients WHERE archived=0 ORDER BY name"
+    ).fetchall()]
+
     return templates.TemplateResponse("programs/_tab_activity.html", {
         "request": request,
         "program": program,
         "activities": activities,
+        "client_name": client_name,
+        "all_clients": all_clients,
+        "issue_severities": cfg.get("issue_severities", []),
     })
 
 
@@ -446,6 +514,42 @@ def _parse_and_format_currency(raw: str):
         return None, None, f"Could not parse '{raw}'"
     formatted = f"${val:,.0f}" if val == int(val) else f"${val:,.2f}"
     return val, formatted, None
+
+
+@router.post("/programs/{program_uid}/log", response_class=HTMLResponse)
+def program_log_activity(
+    request: Request,
+    program_uid: str,
+    activity_type: str = Form("Note"),
+    subject: str = Form(""),
+    details: str = Form(""),
+    duration_hours: str = Form(""),
+    follow_up_date: str = Form(""),
+    disposition: str = Form(""),
+    contact_person: str = Form(""),
+    conn: sqlite3.Connection = Depends(get_db),
+):
+    """Log an activity directly against the program (not a child policy)."""
+    pgm = _get_program_or_404(conn, program_uid)
+    from policydb.utils import round_duration
+    account_exec = cfg.get("default_account_exec", "")
+    dur = round_duration(duration_hours)
+
+    conn.execute(
+        """INSERT INTO activity_log
+           (activity_date, client_id, program_id, activity_type, subject, details,
+            follow_up_date, duration_hours, disposition, contact_person, account_exec)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (date.today().isoformat(), pgm["client_id"], pgm["id"],
+         activity_type, subject.strip(), details.strip() or None,
+         follow_up_date or None, dur, disposition.strip() or None,
+         contact_person.strip() or None, account_exec),
+    )
+    conn.commit()
+    # Reload activity tab via script
+    return HTMLResponse(
+        '<script>htmx.ajax("GET", "/programs/' + program_uid + '/tab/activity", {target: ".tab-content", swap: "innerHTML"});</script>'
+    )
 
 
 def _get_program_or_404(conn, program_uid: str):

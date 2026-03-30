@@ -2,6 +2,9 @@
 {% block title %}{{ program.name }} — {{ client.name }}{% endblock %}
 {% block content %}
 
+{# ── Issue Create Slideover ── #}
+{% include "_issue_create_slideover.html" %}
+
 {# ── Breadcrumb ── #}
 <div class="flex items-center gap-2 text-xs text-gray-400 mb-4">
   <a href="/clients" class="hover:text-marsh">Clients</a>
