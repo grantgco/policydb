@@ -1275,15 +1275,16 @@ def serve(port, host, reload, open_browser):
         raise click.ClickException("Database not found. Run: policydb db init")
 
     # Set up application logging before anything else
-    from policydb.logging_config import setup_logging, setup_sqlite_handler
+    from policydb.logging_config import setup_logging
     setup_logging()
 
     # Always run migrations + rebuild views on startup so the schema stays
     # current even when the user hasn't manually run `policydb db init`.
     init_db()
 
-    # Now that app_log table exists (post-migration), attach the SQLite handler
-    setup_sqlite_handler()
+    # SQLite log handler attaches in the uvicorn worker process via
+    # @app.on_event("startup") — NOT here, because uvicorn spawns a
+    # separate worker and threads don't survive the transition.
 
     from policydb import __version__
     console.print(f"[bold green]PolicyDB v{__version__}[/bold green] → [link]http://{host}:{port}[/link]")

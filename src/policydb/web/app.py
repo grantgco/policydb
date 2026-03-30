@@ -48,7 +48,7 @@ def _attach_sqlite_log_handler():
     """
     try:
         from policydb.logging_config import setup_logging, setup_sqlite_handler
-        setup_logging()  # No-op if already configured (idempotent)
+        setup_logging()
         setup_sqlite_handler()
     except Exception:
         pass  # Never block app startup
