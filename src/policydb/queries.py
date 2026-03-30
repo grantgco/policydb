@@ -2685,8 +2685,10 @@ def get_unassigned_policies(conn: sqlite3.Connection, client_id: int, exclude_pr
     rows = conn.execute(
         """SELECT p.policy_uid, p.policy_type, p.carrier, p.premium, p.limit_amount,
                   p.program_id, p.policy_number, p.effective_date, p.expiration_date,
-                  p.renewal_status, p.deductible
+                  p.renewal_status, p.deductible,
+                  pr.name AS project_name
            FROM policies p
+           LEFT JOIN projects pr ON p.project_id = pr.id
            WHERE p.client_id = ? AND p.archived = 0
              AND (p.is_opportunity = 0 OR p.is_opportunity IS NULL)
              AND (
