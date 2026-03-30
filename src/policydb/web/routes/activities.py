@@ -657,7 +657,7 @@ def followup_date_count(date: str = "", conn=Depends(get_db)):
 # ── Activity field PATCH (Action Center inline editing) ──────────────────────
 
 
-_ACTIVITY_EDITABLE_FIELDS = {"subject", "activity_type", "duration_hours", "disposition", "details"}
+_ACTIVITY_EDITABLE_FIELDS = {"subject", "activity_type", "duration_hours", "disposition", "details", "contact_person", "contact_id"}
 
 
 @router.patch("/activities/{activity_id}/field")
