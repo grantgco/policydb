@@ -47,7 +47,7 @@ def _resolve_primary_contact(conn: sqlite3.Connection, client_id: int, fallback_
 
 
 def _fmt_currency(v) -> str:
-    if not v:
+    if v is None or v == "":
         return ""
     try:
         return f"${float(v):,.0f}"
@@ -584,7 +584,7 @@ def policy_context(conn: sqlite3.Connection, policy_uid: str) -> dict:
     ctx["exposure_rate"] = "${:,.2f}".format(primary["rate"]) if primary and primary["rate"] is not None else ""
     ctx["exposure_rate_label"] = (
         f"${primary['rate']:,.2f} per ${primary['denominator']:,} of {primary['exposure_type'].lower()}"
-        if primary and primary["rate"] is not None else ""
+        if primary and primary["rate"] is not None and primary.get("denominator") else ""
     )
 
     return ctx
@@ -769,9 +769,12 @@ def timeline_context(conn, policy_uid: str) -> dict:
     # Compute drift for active milestone
     drift_days = 0
     if active:
-        ideal = date.fromisoformat(active["ideal_date"])
-        projected = date.fromisoformat(active["projected_date"])
-        drift_days = (ideal - projected).days  # negative = slipped
+        try:
+            ideal = date.fromisoformat(active["ideal_date"])
+            projected = date.fromisoformat(active["projected_date"])
+            drift_days = (ideal - projected).days  # negative = slipped
+        except (ValueError, TypeError):
+            drift_days = 0
 
     # Days to expiry
     days_to_expiry = ""
@@ -790,7 +793,7 @@ def timeline_context(conn, policy_uid: str) -> dict:
         "days_to_expiry": days_to_expiry,
         "drift_days": str(abs(drift_days)) if drift_days else "0",
         "blocking_reason": blocking_reason,
-        "current_status": active["accountability"].replace("_", " ").title() if active else "",
+        "current_status": (active["accountability"] or "").replace("_", " ").title() if active else "",
         "milestones_complete": f"{len(completed)} of {len(timeline)}",
         "milestones_remaining": ", ".join(r["milestone_name"] for r in incomplete),
         "contact_first_name": "",  # Filled from contact context when available

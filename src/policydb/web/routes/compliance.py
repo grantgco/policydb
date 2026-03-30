@@ -1751,19 +1751,6 @@ def compliance_report(
     return templates.TemplateResponse("compliance/report.html", ctx)
 
 
-@router.get("/client/{client_id}/export/md")
-def export_md(client_id: int, conn=Depends(get_db)):
-    """Download the compliance report as Markdown."""
-    from policydb.exporter import export_compliance_md
-
-    md_text, filename = export_compliance_md(conn, client_id)
-    return Response(
-        content=md_text.encode("utf-8"),
-        media_type="text/markdown; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
-
-
 # ── Requirement Templates ─────────────────────────────────────────────────────
 
 @router.post("/client/{client_id}/templates/save", response_class=HTMLResponse)
@@ -1869,7 +1856,7 @@ def template_apply(
     return RedirectResponse(f"/compliance/client/{client_id}", status_code=303)
 
 
-@router.post("/compliance/templates/{tmpl_id}/delete")
+@router.post("/templates/{tmpl_id}/delete")
 def template_delete(
     tmpl_id: int,
     request: Request,

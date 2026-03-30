@@ -778,7 +778,7 @@ def clean_email(raw: str) -> str:
         '"jane@example.com"'           → "jane@example.com"
     """
     if not raw or not raw.strip():
-        return raw
+        return ""
     s = raw.strip()
     # Strip mailto: prefix
     if s.lower().startswith("mailto:"):
@@ -812,7 +812,7 @@ def format_phone(raw: str, default_region: str = "US") -> str:
         "invalid"          → "invalid"
     """
     if not raw or not raw.strip():
-        return raw
+        return ""
     try:
         import phonenumbers
         parsed = phonenumbers.parse(raw.strip(), default_region)

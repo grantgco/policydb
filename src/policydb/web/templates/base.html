@@ -929,7 +929,8 @@ window.quickSaveDisp = function(btn, label, days, rowId, compositeId, context) {
   fd.append('disposition', label);
   fd.append('context', context || '');
   fetch('/activities/update-disposition', { method: 'POST', body: fd })
-    .then(function() {
+    .then(function(r) {
+      if (!r.ok) { if (typeof showToast === 'function') showToast('Save failed', false); return; }
       if (context === 'action_center') {
         var target = document.getElementById('ac-tab-content');
         if (target && typeof htmx !== 'undefined') {
@@ -940,6 +941,8 @@ window.quickSaveDisp = function(btn, label, days, rowId, compositeId, context) {
       } else {
         window.location.reload();
       }
+    }).catch(function() {
+      if (typeof showToast === 'function') showToast('Save failed', false);
     });
 };
 
@@ -977,7 +980,12 @@ window.bulkAction = function(action, extraField, extraValue) {
   fd.append('context', 'action_center');
   if (extraField) fd.append(extraField, extraValue);
   fetch('/activities/bulk-action', { method: 'POST', body: fd })
-    .then(function() { window.location.reload(); });
+    .then(function(r) {
+      if (r.ok) { window.location.reload(); }
+      else if (typeof showToast === 'function') { showToast('Bulk action failed', false); }
+    }).catch(function() {
+      if (typeof showToast === 'function') showToast('Bulk action failed', false);
+    });
 };
 
 window.bulkSetDisposition = function(label) {
@@ -1429,6 +1437,8 @@ document.addEventListener('blur', function(e) {
         setTimeout(function() { e.target.style.transition = ''; }, 300);
       }, 800);
     }
+  }).catch(function() {
+    if (typeof showToast === 'function') showToast('Save failed', false);
   });
 }, true);
 
@@ -1437,6 +1447,10 @@ function policySaveDate(input, uid, field) {
     method: 'PATCH',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({field: field, value: input.value})
+  }).then(function(r) { return r.json(); }).then(function(data) {
+    if (data.ok && typeof showToast === 'function') showToast('Saved', true);
+  }).catch(function() {
+    if (typeof showToast === 'function') showToast('Save failed', false);
   });
 }
 
@@ -1523,7 +1537,8 @@ function policyStatusPill(btn, uid, status) {
     method: 'POST',
     headers: {'Content-Type': 'application/x-www-form-urlencoded'},
     body: 'status=' + encodeURIComponent(status)
-  }).then(function() {
+  }).then(function(r) {
+    if (!r.ok) { if (typeof showToast === 'function') showToast('Status save failed', false); return; }
     // Find the containing row and refresh it via HTMX
     var row = btn.closest('tr');
     if (row && typeof htmx !== 'undefined') {
@@ -1536,6 +1551,8 @@ function policyStatusPill(btn, uid, status) {
         htmx.ajax('GET', '/policies/' + uid + '/row', {target: '#' + rowId, swap: 'outerHTML'});
       }
     }
+  }).catch(function() {
+    if (typeof showToast === 'function') showToast('Status save failed', false);
   });
 }
 </script>
