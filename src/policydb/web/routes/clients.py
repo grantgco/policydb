@@ -1004,6 +1004,7 @@ def client_tab_policies(request: Request, client_id: int, conn=Depends(get_db)):
     # Renewal pipeline mini-view — policies expiring in next 120 days
     from collections import OrderedDict
     _renewal_statuses = cfg.get("renewal_statuses", [])
+    from policydb.queries import get_program_pipeline
     renewal_pipeline_policies = conn.execute(
         """SELECT policy_uid, policy_type, carrier, expiration_date, renewal_status,
                   CAST(julianday(expiration_date) - julianday('now') AS INTEGER) AS days_to_exp
@@ -1012,9 +1013,13 @@ def client_tab_policies(request: Request, client_id: int, conn=Depends(get_db)):
              AND (is_opportunity = 0 OR is_opportunity IS NULL)
              AND expiration_date >= date('now')
              AND CAST(julianday(expiration_date) - julianday('now') AS INTEGER) <= 120
+             AND (program_id IS NULL OR NOT EXISTS (
+                   SELECT 1 FROM programs pg WHERE pg.id = policies.program_id AND pg.archived = 0
+                 ))
            ORDER BY expiration_date ASC""",
         [client_id],
     ).fetchall()
+    program_pipeline = get_program_pipeline(conn, client_id=client_id, window_days=120)
     pipeline_by_status: OrderedDict = OrderedDict()
     for _rs in _renewal_statuses:
         pipeline_by_status[_rs] = []
@@ -1029,7 +1034,8 @@ def client_tab_policies(request: Request, client_id: int, conn=Depends(get_db)):
         "client": dict(client),
         "policy_groups": policy_groups,
         "pipeline_by_status": pipeline_by_status,
-        "has_renewal_pipeline": bool(renewal_pipeline_policies),
+        "program_pipeline": program_pipeline,
+        "has_renewal_pipeline": bool(renewal_pipeline_policies) or bool(program_pipeline),
         "tower_visuals": tower_visuals,
         "completeness_by_tg": completeness_by_tg,
         "renewal_statuses": cfg.get("renewal_statuses"),
