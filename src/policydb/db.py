@@ -1666,6 +1666,15 @@ def init_db(path: Path | None = None) -> None:
         conn.commit()
         logger.info("Migration 120: added merged_from_issue_id column to activity_log")
 
+    if 121 not in applied:
+        conn.executescript((_MIGRATIONS_DIR / "121_program_followup_bound.sql").read_text())
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (121, "Add follow_up_date and bound_date to programs"),
+        )
+        conn.commit()
+        logger.info("Migration 121: added follow_up_date and bound_date to programs")
+
     # Data hygiene: fix 'None' string corruption in text fields (runs every startup, fast no-op if clean)
     conn.execute("UPDATE clients SET cn_number = NULL WHERE cn_number = 'None'")
 
