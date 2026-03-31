@@ -381,7 +381,7 @@ def policy_spreadsheet_export(request: Request, conn=Depends(get_db)):
 
     wb = Workbook()
     wb.remove(wb.active)
-    _write_sheet(wb, "Policy Spreadsheet", export_rows)
+    _write_sheet(wb, "Policy Spreadsheet", export_rows, wrap_text=False)
     content = _wb_to_bytes(wb)
 
     return Response(

@@ -3337,3 +3337,89 @@ def get_projects_by_client(conn: sqlite3.Connection) -> dict[int, list[str]]:
     for row in conn.execute(sql).fetchall():
         result.setdefault(row["client_id"], []).append(row["name"])
     return result
+
+
+def get_all_clients_for_grid(conn: sqlite3.Connection) -> list[dict]:
+    """Return all non-archived clients with editable fields and aggregate stats
+    for the client spreadsheet grid view."""
+    sql = """
+    SELECT
+        c.id,
+        c.name,
+        c.cn_number,
+        c.industry_segment,
+        c.account_exec,
+        c.date_onboarded,
+        c.website,
+        c.fein,
+        c.broker_fee,
+        c.hourly_rate,
+        c.follow_up_date,
+        c.relationship_risk,
+        c.service_model,
+        c.business_description,
+        c.notes,
+        c.stewardship_date,
+        c.renewal_strategy,
+        c.growth_opportunities,
+        c.account_priorities,
+        COALESCE(
+            (SELECT COUNT(CASE WHEN p.is_opportunity = 0 OR p.is_opportunity IS NULL THEN p.id END)
+             FROM policies p WHERE p.client_id = c.id AND p.archived = 0), 0
+        ) AS total_policies,
+        COALESCE(
+            (SELECT SUM(CASE WHEN p.is_opportunity = 0 OR p.is_opportunity IS NULL THEN p.premium ELSE 0 END)
+             FROM policies p WHERE p.client_id = c.id AND p.archived = 0), 0
+        ) AS total_premium,
+        COALESCE(
+            (SELECT SUM(CASE WHEN (p.is_opportunity = 0 OR p.is_opportunity IS NULL) AND p.commission_rate > 0
+                         THEN ROUND(p.premium * p.commission_rate, 2) ELSE 0 END)
+             FROM policies p WHERE p.client_id = c.id AND p.archived = 0), 0
+        ) + COALESCE(c.broker_fee, 0) AS total_revenue,
+        (SELECT MIN(CAST(julianday(p.expiration_date) - julianday('now') AS INTEGER))
+         FROM policies p WHERE p.client_id = c.id AND p.archived = 0
+           AND (p.is_opportunity = 0 OR p.is_opportunity IS NULL)
+           AND julianday(p.expiration_date) - julianday('now') > 0
+        ) AS next_renewal_days
+    FROM clients c
+    WHERE c.archived = 0
+    ORDER BY c.name
+    """
+    rows = conn.execute(sql).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_followups_for_grid(conn: sqlite3.Connection) -> list[dict]:
+    """Return all open follow-ups with enriched data for the follow-ups
+    spreadsheet grid view."""
+    sql = """
+    SELECT
+        a.id,
+        a.activity_date,
+        a.subject,
+        a.activity_type,
+        a.contact_person,
+        a.disposition,
+        a.details,
+        a.duration_hours,
+        a.follow_up_date,
+        a.follow_up_done,
+        c.id AS client_id,
+        c.name AS client_name,
+        p.policy_uid,
+        p.policy_type,
+        p.carrier,
+        p.expiration_date,
+        pr.name AS project_name,
+        CAST(julianday('now') - julianday(a.follow_up_date) AS INTEGER) AS days_overdue
+    FROM activity_log a
+    JOIN clients c ON a.client_id = c.id
+    LEFT JOIN policies p ON a.policy_id = p.id
+    LEFT JOIN projects pr ON a.project_id = pr.id
+    WHERE a.follow_up_done = 0
+      AND a.follow_up_date IS NOT NULL
+      AND a.merged_into_id IS NULL
+    ORDER BY a.follow_up_date ASC
+    """
+    rows = conn.execute(sql).fetchall()
+    return [dict(r) for r in rows]
