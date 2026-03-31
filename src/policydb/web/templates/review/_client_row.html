@@ -2,7 +2,17 @@
     class="hover:bg-gray-50 border-t border-gray-100 {% if reviewed %}opacity-60 bg-green-50{% endif %}">
   <td class="px-4 py-3">
     <a href="/clients/{{ c.id }}" class="font-medium text-marsh hover:underline">{{ c.name }}</a>
-    <p class="text-xs text-gray-500">{{ c.industry_segment }}</p>
+    <div class="flex items-center gap-1.5">
+      <span class="text-xs text-gray-500">{{ c.industry_segment }}</span>
+      {% if c.open_issue_count is defined and c.open_issue_count %}
+      <span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium
+        {% if c.max_issue_severity == 'Critical' %}bg-red-100 text-red-700
+        {% elif c.max_issue_severity == 'High' %}bg-amber-100 text-amber-700
+        {% else %}bg-blue-100 text-blue-700{% endif %}">
+        {{ c.open_issue_count }} issue{{ 's' if c.open_issue_count != 1 }}
+      </span>
+      {% endif %}
+    </div>
   </td>
   <td class="px-4 py-3 text-xs text-gray-600 tabular-nums">
     <span class="block">{{ c.total_policies or 0 }} policies</span>
@@ -49,7 +59,9 @@
       {% else %}
       <span class="text-xs text-green-600 font-medium">✓ Done</span>
       {% endif %}
-      <a href="/clients/{{ c.id }}" class="text-xs text-gray-400 hover:underline">Open →</a>
+      <button hx-get="/review/clients/{{ c.id }}/slideover"
+              hx-target="#review-slideover-container" hx-swap="innerHTML"
+              class="text-xs text-blue-600 hover:underline font-medium">Review</button>
     </div>
   </td>
 </tr>
