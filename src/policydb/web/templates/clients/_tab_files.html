@@ -48,58 +48,7 @@
 
   {# ── Content area ── #}
   <div id="client-files-content">
-    {% if not groups and not flat_list %}
-      <p class="text-sm text-gray-400 italic py-8 text-center">No files attached to this client or its records</p>
-    {% elif view == 'grouped' %}
-      {# ── Grouped view ── #}
-      {% for group in groups %}
-      <div class="mb-4">
-        <div class="flex items-center gap-2 mb-2">
-          <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium
-            {% if group.record_type == 'client' %}bg-gray-100 text-gray-600
-            {% elif group.record_type == 'policy' %}bg-blue-50 text-blue-700
-            {% elif group.record_type == 'meeting' %}bg-indigo-50 text-indigo-600
-            {% elif group.record_type == 'activity' %}bg-amber-50 text-amber-700
-            {% elif group.record_type == 'project' %}bg-purple-50 text-purple-600
-            {% elif group.record_type == 'rfi_bundle' %}bg-green-50 text-green-700
-            {% else %}bg-gray-100 text-gray-500{% endif %}">
-            {{ group.record_type | replace('_', ' ') | title }}
-          </span>
-          {% if group.record_type != 'client' and group.link_url %}
-            <a href="{{ group.link_url }}" class="text-xs font-medium text-gray-700 hover:text-marsh">{{ group.label }}</a>
-          {% else %}
-            <span class="text-xs font-medium text-gray-700">{{ group.label }}</span>
-          {% endif %}
-          <span class="text-xs text-gray-400">({{ group.attachments | length }})</span>
-        </div>
-        <div class="space-y-1.5 ml-4">
-          {% for att in group.attachments %}
-          {% include "clients/_file_card.html" %}
-          {% endfor %}
-        </div>
-      </div>
-      {% endfor %}
-
-    {% else %}
-      {# ── Flat view ── #}
-      {% if record_types %}
-      <div class="flex gap-1 mb-3 flex-wrap">
-        <button hx-get="/clients/{{ client.id }}/tab/files?view=flat&q={{ q }}"
-          hx-target="#client-files-content" hx-swap="innerHTML"
-          class="px-2 py-0.5 text-[10px] font-medium rounded-full {{ 'bg-marsh text-white' if not rt_filter else 'bg-gray-100 text-gray-500 hover:bg-gray-200' }}">All</button>
-        {% for rt in record_types %}
-        <button hx-get="/clients/{{ client.id }}/tab/files?view=flat&q={{ q }}&rt={{ rt }}"
-          hx-target="#client-files-content" hx-swap="innerHTML"
-          class="px-2 py-0.5 text-[10px] font-medium rounded-full {{ 'bg-marsh text-white' if rt_filter == rt else 'bg-gray-100 text-gray-500 hover:bg-gray-200' }}">{{ rt | replace('_', ' ') | title }}</button>
-        {% endfor %}
-      </div>
-      {% endif %}
-      <div class="space-y-1.5">
-        {% for att in flat_list %}
-        {% include "clients/_file_card.html" %}
-        {% endfor %}
-      </div>
-    {% endif %}
+    {% include "clients/_files_content.html" %}
   </div>
 </div>
 
@@ -107,5 +56,17 @@
 function toggleClientAttachForm() {
   var form = document.getElementById('client-attach-form');
   form.classList.toggle('hidden');
+}
+
+function saveAttDescription(el) {
+  var uid = el.dataset.attUid;
+  var desc = el.textContent.trim();
+  fetch('/api/attachments/' + uid, {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({description: desc}),
+  }).then(function(r) {
+    if (r.ok) { el.style.color = ''; }
+  });
 }
 </script>
