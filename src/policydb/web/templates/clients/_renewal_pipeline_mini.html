@@ -4,32 +4,6 @@
   <div class="px-4 py-3">
     <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Renewal Pipeline &mdash; Next 120 Days</h3>
     <div class="flex gap-3 overflow-x-auto pb-1">
-      {# Program renewal rows #}
-      {% if program_pipeline %}
-        {% for pgm in program_pipeline %}
-        <div class="flex-shrink-0 min-w-[160px] max-w-[200px]">
-          <div class="text-xs font-medium text-gray-500 mb-1.5 flex items-center gap-1">
-            {{ pgm.program_name }}
-            <span class="bg-indigo-100 text-indigo-700 rounded-full px-1.5 py-0.5 text-[10px] leading-none">{{ pgm.policy_count }} policies</span>
-          </div>
-          <a href="/programs/{{ pgm.program_uid }}"
-             class="block border border-indigo-200 rounded-lg px-2.5 py-2 hover:border-marsh hover:shadow-sm transition-all bg-indigo-50/30 cursor-pointer">
-            <div class="text-xs font-medium text-gray-900">{{ pgm.carriers_list[:30] }}{% if pgm.carriers_list|length > 30 %}…{% endif %}</div>
-            <div class="text-xs text-gray-500">{{ pgm.total_premium | currency_short }}</div>
-            <div class="flex items-center justify-between mt-1">
-              <span class="text-xs px-1.5 py-0.5 rounded
-                {% if pgm.renewal_status == 'Bound' %}bg-green-50 text-green-700
-                {% elif pgm.renewal_status == 'In Progress' %}bg-blue-50 text-blue-700
-                {% else %}bg-gray-100 text-gray-600{% endif %}">{{ pgm.renewal_status or 'Not Started' }}</span>
-              <span class="text-xs font-medium
-                {% if pgm.days_to_renewal <= 30 %}text-red-600
-                {% elif pgm.days_to_renewal <= 60 %}text-amber-600
-                {% else %}text-gray-500{% endif %}">{{ pgm.days_to_renewal }}d</span>
-            </div>
-          </a>
-        </div>
-        {% endfor %}
-      {% endif %}
       {% for status, policies in pipeline_by_status.items() %}
         {% if policies %}
         <div class="flex-shrink-0 min-w-[140px] max-w-[180px]">
@@ -39,11 +13,30 @@
           </div>
           <div class="space-y-1.5">
             {% for p in policies %}
+            {% if p.is_program is defined and p.is_program %}
+            {# Program card — indigo styling, links to program page #}
+            <a href="/programs/{{ p.program_uid }}"
+               class="block border border-indigo-200 rounded-lg px-2.5 py-2 hover:border-marsh hover:shadow-sm transition-all bg-indigo-50/30 cursor-pointer">
+              <div class="text-xs font-medium text-gray-900 truncate">{{ p.program_name }}</div>
+              <div class="text-xs text-gray-500 truncate">{{ p.carriers_list[:30] }}{% if p.carriers_list|length > 30 %}…{% endif %}</div>
+              <div class="text-xs text-gray-500">{{ p.total_premium | currency_short }}</div>
+              {% if p.project_name %}<div class="text-[10px] text-indigo-500 truncate mt-0.5">{{ p.project_name }}</div>{% endif %}
+              <div class="flex items-center justify-between mt-1">
+                <span class="bg-indigo-100 text-indigo-700 rounded-full px-1.5 py-0.5 text-[10px] leading-none">{{ p.policy_count }} policies</span>
+                <span class="text-xs font-medium
+                  {% if p.days_to_renewal <= 30 %}text-red-600
+                  {% elif p.days_to_renewal <= 60 %}text-amber-600
+                  {% else %}text-gray-500{% endif %}">{{ p.days_to_renewal }}d</span>
+              </div>
+            </a>
+            {% else %}
+            {# Regular policy card #}
             <a href="#row-{{ p.policy_uid }}"
                onclick="var el=document.getElementById('row-{{ p.policy_uid }}'); if(el){el.scrollIntoView({behavior:'smooth',block:'center'}); el.classList.add('bg-blue-50'); setTimeout(function(){el.classList.remove('bg-blue-50');},2000);}"
                class="block border border-gray-200 rounded-lg px-2.5 py-2 hover:border-marsh hover:shadow-sm transition-all bg-white cursor-pointer">
               <div class="text-xs font-medium text-gray-900 truncate">{{ p.policy_type or 'Unknown' }}</div>
               <div class="text-xs text-gray-500 truncate">{{ p.carrier or '—' }}</div>
+              {% if p.project_name %}<div class="text-[10px] text-gray-400 truncate mt-0.5">{{ p.project_name }}</div>{% endif %}
               <div class="text-xs mt-1 font-medium
                 {% if p.days_to_exp <= 30 %}text-red-600
                 {% elif p.days_to_exp <= 60 %}text-amber-600
@@ -51,6 +44,7 @@
                 {{ p.days_to_exp }}d
               </div>
             </a>
+            {% endif %}
             {% endfor %}
           </div>
         </div>
