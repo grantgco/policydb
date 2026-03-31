@@ -1,0 +1,26 @@
+{# Inner banner content — used both via OOB (status POST) and direct inject (cell PATCH).
+   Cancel behavior: on the edit page (cell PATCH path), revert via patchField;
+   on pipeline rows (status POST path), revert via hx-post to /status. #}
+<div class="fixed bottom-6 right-6 z-50 bg-white border border-green-200 rounded-lg shadow-lg p-4 max-w-md animate-fade-in">
+  <p class="text-sm font-semibold text-green-700 mb-2">Mark as Bound?</p>
+  <p class="text-xs text-gray-600 mb-2">This will:</p>
+  <ul class="text-xs text-gray-600 mb-3 list-disc ml-4 space-y-0.5">
+    <li>Record today as the bound date</li>
+    <li>Log a "Renewal bound" activity</li>
+    <li>Complete all remaining timeline milestones</li>
+    <li>Close all open follow-ups for this policy</li>
+    <li>Resolve any open renewal issues</li>
+  </ul>
+  <div class="flex gap-2">
+    <button hx-post="/policies/{{ uid }}/bound-confirm"
+            hx-target="#bound-confirm-prompt"
+            hx-swap="innerHTML"
+            class="px-3 py-1.5 text-sm bg-marsh text-white rounded hover:bg-marsh/90">
+      Confirm Bound
+    </button>
+    <button onclick="dismissBoundBanner('{{ uid }}', '{{ prior_status }}')"
+            class="px-3 py-1.5 text-sm border border-gray-300 text-gray-600 rounded hover:bg-gray-50">
+      Cancel
+    </button>
+  </div>
+</div>
