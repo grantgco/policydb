@@ -104,6 +104,32 @@
   </div>
   {% endif %}
 
+  {# ── Knowledge Base ── #}
+  <div class="py-3 border-b border-gray-100">
+    <div class="flex items-center justify-between mb-2">
+      <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Knowledge Base</p>
+      <button type="button" onclick="var el=document.getElementById('kb-picker-client-{{ client.id }}');el.classList.toggle('hidden');if(!el.classList.contains('hidden'))el.querySelector('input').focus();"
+        class="text-[10px] text-marsh hover:underline no-print">+ Link</button>
+    </div>
+    <div id="entity-kb-links-client-{{ client.id }}"
+      hx-get="/kb/for-entity/client/{{ client.id }}"
+      hx-trigger="load"
+      hx-swap="innerHTML">
+      <span class="text-xs text-gray-300">Loading...</span>
+    </div>
+    <div id="kb-picker-client-{{ client.id }}" class="hidden mt-2 pt-2 border-t border-gray-100 kb-search-wrap relative">
+      <input type="text" placeholder="Search KB..."
+        hx-get="/kb/search-entries"
+        hx-trigger="keyup changed delay:300ms"
+        hx-target="#kb-search-results-client-{{ client.id }}"
+        hx-swap="innerHTML"
+        hx-vals='{"entity_type":"client", "entity_id":{{ client.id }}}'
+        name="q"
+        class="w-full text-xs border border-gray-200 rounded px-2 py-1.5 focus:ring-1 focus:ring-marsh placeholder-gray-300">
+      <div id="kb-search-results-client-{{ client.id }}" class="kb-search-results relative"></div>
+    </div>
+  </div>
+
   {# ── Quick Actions ── #}
   <div class="py-3 border-b border-gray-100 no-print">
     <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Quick Actions</p>

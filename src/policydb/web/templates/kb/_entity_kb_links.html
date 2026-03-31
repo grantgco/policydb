@@ -1,23 +1,35 @@
 {% if kb_links %}
 <div class="space-y-1.5">
   {% for link in kb_links %}
-  <a href="{{ link.entry_url }}" class="flex items-center gap-2 text-xs text-gray-700 hover:text-marsh">
-    {% if link.entry_type == 'article' %}
-    <svg class="w-3.5 h-3.5 text-marsh flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
-    </svg>
-    {% else %}
-    <svg class="w-3.5 h-3.5 text-red-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-      <path fill-rule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clip-rule="evenodd"/>
-    </svg>
+  <div class="flex items-center gap-2 group">
+    <a href="{{ link.entry_url }}" class="flex items-center gap-2 text-xs text-gray-700 hover:text-marsh flex-1 min-w-0">
+      {% if link.entry_type == 'article' %}
+      <svg class="w-3.5 h-3.5 text-marsh flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+      </svg>
+      {% else %}
+      <svg class="w-3.5 h-3.5 text-red-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+        <path fill-rule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clip-rule="evenodd"/>
+      </svg>
+      {% endif %}
+      <span class="flex-1 min-w-0 truncate">{{ link.entry_title }}</span>
+      <span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-medium {{ link.colors.bg }} {{ link.colors.text }} flex-shrink-0">
+        {{ link.entry_category }}
+      </span>
+    </a>
+    {% if entity_type and entity_id %}
+    <button type="button"
+      hx-post="/kb/unlink-from-entity"
+      hx-vals='{"link_id":{{ link.id }}, "entity_type":"{{ entity_type }}", "entity_id":{{ entity_id }}}'
+      hx-target="#entity-kb-links-{{ entity_type }}-{{ entity_id }}"
+      hx-swap="innerHTML"
+      hx-confirm="Remove this KB link?"
+      class="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity no-print flex-shrink-0"
+      title="Remove link">&times;</button>
     {% endif %}
-    <span class="flex-1 min-w-0 truncate">{{ link.entry_title }}</span>
-    <span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-medium {{ link.colors.bg }} {{ link.colors.text }} flex-shrink-0">
-      {{ link.entry_category }}
-    </span>
-  </a>
+  </div>
   {% endfor %}
 </div>
 {% else %}
-<p class="text-[9px] text-gray-400 italic">No KB entries linked</p>
+<p class="text-[10px] text-gray-400 italic">No KB entries linked</p>
 {% endif %}
