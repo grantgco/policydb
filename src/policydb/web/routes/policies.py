@@ -2820,18 +2820,23 @@ def policy_tab_pulse(
         except (ValueError, TypeError):
             pass
 
-    # Renewal issue for this policy (if any)
-    renewal_issue = conn.execute("""
-        SELECT id, issue_uid, issue_status, issue_severity, is_renewal_issue,
-               julianday(date('now')) - julianday(activity_date) AS days_open,
-               (SELECT COUNT(*) FROM activity_log sub WHERE sub.issue_id = a.id) AS activity_count
-        FROM activity_log a
-        WHERE a.is_renewal_issue = 1
-          AND a.renewal_term_key = ?
-          AND a.issue_status NOT IN ('Resolved', 'Closed')
-        LIMIT 1
-    """, (policy_uid,)).fetchone()
-    renewal_issue = dict(renewal_issue) if renewal_issue else None
+    # All open issues for this policy (unified section replaces renewal-only banner)
+    _policy_id_row = conn.execute("SELECT id FROM policies WHERE policy_uid = ?", (policy_uid,)).fetchone()
+    open_issues = []
+    if _policy_id_row:
+        open_issues = [dict(r) for r in conn.execute(
+            """SELECT id, issue_uid, issue_status, issue_severity, is_renewal_issue, subject,
+                      CAST(julianday('now') - julianday(activity_date) AS INTEGER) AS days_open,
+                      (SELECT COUNT(*) FROM activity_log sub WHERE sub.issue_id = a.id) AS activity_count
+               FROM activity_log a
+               WHERE a.policy_id = ?
+                 AND a.item_kind = 'issue'
+                 AND a.issue_status NOT IN ('Resolved', 'Closed')
+               ORDER BY CASE a.issue_severity
+                   WHEN 'Critical' THEN 1 WHEN 'High' THEN 2
+                   WHEN 'Normal' THEN 3 ELSE 4 END""",
+            (_policy_id_row["id"],),
+        ).fetchall()]
 
     return templates.TemplateResponse("policies/_tab_pulse.html", {
         "request": request,
@@ -2855,7 +2860,7 @@ def policy_tab_pulse(
         "days_since_review": days_since_review,
         "issue_severities": cfg.get("issue_severities", []),
         "all_clients": [{"id": client_info["id"], "name": client_info["name"]}],
-        "renewal_issue": renewal_issue,
+        "open_issues": open_issues,
     })
 
 
@@ -3362,6 +3367,12 @@ def policy_convert_opportunity(
     if _regen and _regen["milestone_profile"]:
         from policydb.timeline_engine import generate_policy_timelines
         generate_policy_timelines(conn, policy_uid=uid)
+
+    # Promote any open manual issues to renewal issues
+    _pol_id_row = conn.execute("SELECT id FROM policies WHERE policy_uid = ?", (uid,)).fetchone()
+    if _pol_id_row:
+        from policydb.renewal_issues import promote_issue_to_renewal
+        promote_issue_to_renewal(conn, policy_id=_pol_id_row["id"], policy_uid=uid)
 
     return RedirectResponse(f"/policies/{uid}/edit", status_code=303)
 
