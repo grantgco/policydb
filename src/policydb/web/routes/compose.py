@@ -75,7 +75,7 @@ def _load_recipients(
                         "email": r["email"],
                         "role": r["role"] or ("Placement Colleague" if is_pc else "Underwriter"),
                         "badge": "PLACEMENT" if is_pc else "UNDERWRITER",
-                        "pre_checked": True,  # policy contacts pre-checked
+                        "pre_checked": False,  # external stakeholders opt-in only
                         "source": "policy",
                     })
 
@@ -102,7 +102,7 @@ def _load_recipients(
                     "email": r["email"],
                     "role": r["role"] or ("Placement Colleague" if is_pc else "Underwriter"),
                     "badge": "PLACEMENT" if is_pc else "UNDERWRITER",
-                    "pre_checked": True,
+                    "pre_checked": False,  # external stakeholders opt-in only
                     "source": "policy",
                 })
 
