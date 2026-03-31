@@ -1,0 +1,311 @@
+{#
+  Pinned Notes Banner — stacked list of color-coded alerts.
+  Context:
+    pinned_notes  — list of note dicts (own + cascaded), each with 'cascaded' bool
+    pinned_scope  — current page scope: 'client', 'policy', 'project'
+    pinned_scope_id — current scope id
+    pinned_client_id — client_id for cascade (empty string if client scope)
+#}
+
+{% set color_map = {
+  'red':   {'border': 'border-red-400',   'bg': 'bg-red-50',    'text': 'text-red-800',   'badge_bg': 'bg-red-100',   'dot': 'bg-red-500',   'dot_ring': 'ring-red-800'},
+  'amber': {'border': 'border-amber-400', 'bg': 'bg-amber-50',  'text': 'text-amber-800', 'badge_bg': 'bg-amber-100', 'dot': 'bg-amber-500', 'dot_ring': 'ring-amber-800'},
+  'blue':  {'border': 'border-blue-400',  'bg': 'bg-blue-50',   'text': 'text-blue-800',  'badge_bg': 'bg-blue-100',  'dot': 'bg-blue-500',  'dot_ring': 'ring-blue-800'},
+  'green': {'border': 'border-green-400', 'bg': 'bg-green-50',  'text': 'text-green-800', 'badge_bg': 'bg-green-100', 'dot': 'bg-green-500', 'dot_ring': 'ring-green-800'}
+} %}
+
+<div id="pinned-notes-banner" data-scope="{{ pinned_scope }}" data-scope-id="{{ pinned_scope_id }}" data-client-id="{{ pinned_client_id }}">
+  {% if pinned_notes %}
+  <div class="border border-gray-200 rounded-lg overflow-hidden mb-4">
+    {% for note in pinned_notes %}
+    {% set c = color_map.get(note.color, color_map.amber) %}
+    <div class="pinned-note-row" data-note-id="{{ note.id }}">
+      {# Display row #}
+      <div class="flex items-center gap-2 px-3 py-2 border-l-[3px] {{ c.border }} {{ c.bg }} {{ 'opacity-85' if note.cascaded else '' }}{{ ' border-t border-gray-200' if not loop.first else '' }}"
+           id="pinned-display-{{ note.id }}">
+        {# Cascade badge #}
+        {% if note.cascaded %}
+        <span class="text-[9px] font-semibold uppercase px-1.5 py-0.5 rounded {{ c.badge_bg }} {{ c.text }}">Client</span>
+        {% endif %}
+
+        {# Headline — contenteditable if own note #}
+        {% if not note.cascaded %}
+        <span class="flex-1 text-xs font-semibold {{ c.text }} cursor-text pinned-headline"
+              contenteditable="true"
+              data-note-id="{{ note.id }}"
+              data-original="{{ note.headline }}"
+              onblur="savePinnedField(this, {{ note.id }}, 'headline')"
+              onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}">{{ note.headline }}</span>
+        {% else %}
+        <span class="flex-1 text-xs font-semibold {{ c.text }}">{{ note.headline }}</span>
+        {% endif %}
+
+        {# Expand/collapse chevron #}
+        <button type="button"
+                class="text-xs {{ c.text }} opacity-60 hover:opacity-100 no-print"
+                onclick="togglePinnedExpand({{ note.id }})">
+          <span id="pinned-chevron-{{ note.id }}">&#9656;</span>
+        </button>
+      </div>
+
+      {# Expanded detail panel #}
+      <div class="hidden border-l-[3px] {{ c.border }} {{ c.bg }} px-3 pb-2 {{ 'border-t border-gray-100' if not loop.first else '' }}"
+           id="pinned-expand-{{ note.id }}">
+        {# Detail text #}
+        {% if not note.cascaded %}
+        <div class="text-xs text-gray-600 mb-2 min-h-[24px] rounded px-2 py-1 bg-white/60 border border-gray-200 pinned-detail"
+             contenteditable="true"
+             data-note-id="{{ note.id }}"
+             data-placeholder="Add detail..."
+             data-original="{{ note.detail or '' }}"
+             onblur="savePinnedField(this, {{ note.id }}, 'detail')">{{ note.detail or '' }}</div>
+        {% elif note.detail %}
+        <div class="text-xs text-gray-600 mb-2 px-2 py-1">{{ note.detail }}</div>
+        {% endif %}
+
+        {# Actions row — only for own notes #}
+        {% if not note.cascaded %}
+        <div class="flex items-center gap-2">
+          <span class="text-[10px] text-gray-400">Color:</span>
+          {% for col in ['red', 'amber', 'blue', 'green'] %}
+          {% set dc = color_map[col] %}
+          <button type="button"
+                  class="w-4 h-4 rounded-full {{ dc.dot }} {{ 'ring-2 ' + dc.dot_ring if col == note.color else 'ring-1 ring-gray-300' }} hover:ring-2"
+                  onclick="changePinnedColor({{ note.id }}, '{{ col }}')"
+                  title="{{ col | capitalize }}"></button>
+          {% endfor %}
+          <span class="flex-1"></span>
+          <span class="text-[10px] text-gray-400">{{ note.created_at[:10] if note.created_at else '' }}</span>
+          <button type="button"
+                  class="text-[10px] text-red-500 hover:text-red-700"
+                  onclick="deletePinnedNote({{ note.id }})">Delete</button>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+
+    {# Add note row — only if viewing own scope (not cascaded-only) #}
+    <div class="border-t border-gray-200 bg-white" id="pinned-add-row">
+      <button type="button"
+              class="w-full text-left px-3 py-1.5 text-xs text-gray-400 hover:text-gray-600 hover:bg-gray-50 no-print"
+              onclick="showPinnedAddForm()"
+              id="pinned-add-btn">+ Add note</button>
+
+      {# Inline add form (hidden by default) #}
+      <div class="hidden px-3 py-2 space-y-2" id="pinned-add-form">
+        <input type="text" id="pinned-new-headline"
+               class="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-marsh"
+               placeholder="Note headline..." autofocus>
+        <textarea id="pinned-new-detail"
+                  class="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-marsh resize-none"
+                  rows="2" placeholder="Optional detail..."></textarea>
+        <div class="flex items-center gap-2">
+          <span class="text-[10px] text-gray-400">Color:</span>
+          {% for col in ['red', 'amber', 'blue', 'green'] %}
+          {% set dc = color_map[col] %}
+          <button type="button"
+                  class="w-4 h-4 rounded-full {{ dc.dot }} pinned-color-pick {{ 'ring-2 ' + dc.dot_ring if col == 'amber' else 'ring-1 ring-gray-300' }}"
+                  data-color="{{ col }}"
+                  onclick="pickPinnedColor(this, '{{ col }}')"
+                  title="{{ col | capitalize }}"></button>
+          {% endfor %}
+          <span class="flex-1"></span>
+          <button type="button"
+                  class="text-xs text-gray-400 hover:text-gray-600"
+                  onclick="hidePinnedAddForm()">Cancel</button>
+          <button type="button"
+                  class="text-xs bg-marsh text-white px-3 py-1 rounded hover:bg-marsh-light"
+                  onclick="submitPinnedNote()">Save</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {# Empty-state add button (only show when no notes) #}
+  {% if not pinned_notes %}
+  <div class="mb-4" id="pinned-empty-add">
+    <button type="button"
+            class="text-xs text-gray-300 hover:text-gray-500 no-print"
+            onclick="showPinnedAddFormEmpty()">
+      <span class="inline-flex items-center gap-1">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+        Pin a note
+      </span>
+    </button>
+    {# Inline add form for empty state #}
+    <div class="hidden border border-gray-200 rounded-lg overflow-hidden mt-2" id="pinned-empty-form-wrap">
+      <div class="px-3 py-2 space-y-2 bg-white">
+        <input type="text" id="pinned-empty-headline"
+               class="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-marsh"
+               placeholder="Note headline...">
+        <textarea id="pinned-empty-detail"
+                  class="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-marsh resize-none"
+                  rows="2" placeholder="Optional detail..."></textarea>
+        <div class="flex items-center gap-2">
+          <span class="text-[10px] text-gray-400">Color:</span>
+          {% for col in ['red', 'amber', 'blue', 'green'] %}
+          {% set dc = color_map[col] %}
+          <button type="button"
+                  class="w-4 h-4 rounded-full {{ dc.dot }} pinned-color-pick-empty {{ 'ring-2 ' + dc.dot_ring if col == 'amber' else 'ring-1 ring-gray-300' }}"
+                  data-color="{{ col }}"
+                  onclick="pickPinnedColorEmpty(this, '{{ col }}')"
+                  title="{{ col | capitalize }}"></button>
+          {% endfor %}
+          <span class="flex-1"></span>
+          <button type="button"
+                  class="text-xs text-gray-400 hover:text-gray-600"
+                  onclick="hidePinnedAddFormEmpty()">Cancel</button>
+          <button type="button"
+                  class="text-xs bg-marsh text-white px-3 py-1 rounded hover:bg-marsh-light"
+                  onclick="submitPinnedNoteEmpty()">Save</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+<script>
+/* Pinned Notes — all state is read from data attributes, not closures */
+(function() {
+  const banner = document.getElementById('pinned-notes-banner');
+  const SCOPE = banner.dataset.scope;
+  const SCOPE_ID = banner.dataset.scopeId;
+  const CLIENT_ID = banner.dataset.clientId || '';
+  const BASE = '/api/pinned-notes';
+  const QS = 'scope=' + encodeURIComponent(SCOPE) + '&scope_id=' + encodeURIComponent(SCOPE_ID) + '&client_id=' + encodeURIComponent(CLIENT_ID);
+
+  function reloadBanner() {
+    htmx.ajax('GET', BASE + '?' + QS, {target: '#pinned-notes-banner', swap: 'outerHTML'});
+  }
+
+  // Expand / collapse
+  window.togglePinnedExpand = function(noteId) {
+    const panel = document.getElementById('pinned-expand-' + noteId);
+    const chevron = document.getElementById('pinned-chevron-' + noteId);
+    if (!panel) return;
+    const isHidden = panel.classList.contains('hidden');
+    panel.classList.toggle('hidden');
+    chevron.innerHTML = isHidden ? '&#9662;' : '&#9656;';
+  };
+
+  // Save field on blur
+  window.savePinnedField = function(el, noteId, field) {
+    const val = el.innerText.trim();
+    const orig = el.dataset.original || '';
+    if (val === orig) return;
+    if (field === 'headline' && !val) { el.innerText = orig; return; }
+    const fd = new FormData();
+    fd.append(field, val);
+    fd.append('scope', SCOPE);
+    fd.append('scope_id', SCOPE_ID);
+    fd.append('client_id', CLIENT_ID);
+    fetch(BASE + '/' + noteId, { method: 'PATCH', body: fd }).then(() => reloadBanner());
+  };
+
+  // Change color
+  window.changePinnedColor = function(noteId, color) {
+    const fd = new FormData();
+    fd.append('color', color);
+    fd.append('scope', SCOPE);
+    fd.append('scope_id', SCOPE_ID);
+    fd.append('client_id', CLIENT_ID);
+    fetch(BASE + '/' + noteId, { method: 'PATCH', body: fd }).then(() => reloadBanner());
+  };
+
+  // Delete
+  window.deletePinnedNote = function(noteId) {
+    if (!confirm('Delete this pinned note?')) return;
+    fetch(BASE + '/' + noteId + '?' + QS, { method: 'DELETE' }).then(() => reloadBanner());
+  };
+
+  // Show/hide add form (has notes)
+  window.showPinnedAddForm = function() {
+    document.getElementById('pinned-add-btn').classList.add('hidden');
+    document.getElementById('pinned-add-form').classList.remove('hidden');
+    document.getElementById('pinned-new-headline').focus();
+  };
+  window.hidePinnedAddForm = function() {
+    document.getElementById('pinned-add-btn').classList.remove('hidden');
+    document.getElementById('pinned-add-form').classList.add('hidden');
+    document.getElementById('pinned-new-headline').value = '';
+    document.getElementById('pinned-new-detail').value = '';
+  };
+
+  // Show/hide add form (empty state)
+  window.showPinnedAddFormEmpty = function() {
+    document.getElementById('pinned-empty-add').querySelector('button').classList.add('hidden');
+    document.getElementById('pinned-empty-form-wrap').classList.remove('hidden');
+    document.getElementById('pinned-empty-headline').focus();
+  };
+  window.hidePinnedAddFormEmpty = function() {
+    document.getElementById('pinned-empty-add').querySelector('button').classList.remove('hidden');
+    document.getElementById('pinned-empty-form-wrap').classList.add('hidden');
+  };
+
+  // Color picking — store on the button group via data attribute
+  window.pickPinnedColor = function(btn, color) {
+    btn.closest('.flex').dataset.selectedColor = color;
+    btn.closest('.flex').querySelectorAll('.pinned-color-pick').forEach(b => {
+      b.className = b.className.replace(/ring-2 ring-\S+/g, 'ring-1 ring-gray-300');
+    });
+    btn.className = btn.className.replace('ring-1 ring-gray-300', 'ring-2 ring-' + color + '-800');
+  };
+  window.pickPinnedColorEmpty = function(btn, color) {
+    btn.closest('.flex').dataset.selectedColor = color;
+    btn.closest('.flex').querySelectorAll('.pinned-color-pick-empty').forEach(b => {
+      b.className = b.className.replace(/ring-2 ring-\S+/g, 'ring-1 ring-gray-300');
+    });
+    btn.className = btn.className.replace('ring-1 ring-gray-300', 'ring-2 ring-' + color + '-800');
+  };
+
+  // Submit new note
+  function _submitNote(headlineEl, detailEl, colorContainer) {
+    const headline = headlineEl.value.trim();
+    if (!headline) { headlineEl.focus(); return; }
+    const color = (colorContainer && colorContainer.dataset.selectedColor) || 'amber';
+    const fd = new FormData();
+    fd.append('scope', SCOPE);
+    fd.append('scope_id', SCOPE_ID);
+    fd.append('client_id', CLIENT_ID);
+    fd.append('headline', headline);
+    fd.append('detail', detailEl.value.trim());
+    fd.append('color', color);
+    fetch(BASE, { method: 'POST', body: fd }).then(() => reloadBanner());
+  }
+
+  window.submitPinnedNote = function() {
+    const form = document.getElementById('pinned-add-form');
+    _submitNote(
+      document.getElementById('pinned-new-headline'),
+      document.getElementById('pinned-new-detail'),
+      form ? form.querySelector('[data-selected-color]')?.closest('.flex') : null
+    );
+  };
+  window.submitPinnedNoteEmpty = function() {
+    const wrap = document.getElementById('pinned-empty-form-wrap');
+    _submitNote(
+      document.getElementById('pinned-empty-headline'),
+      document.getElementById('pinned-empty-detail'),
+      wrap ? wrap.querySelector('[data-selected-color]')?.closest('.flex') : null
+    );
+  };
+
+  // Placeholder for contenteditable
+  document.querySelectorAll('#pinned-notes-banner [data-placeholder]').forEach(el => {
+    if (!el.innerText.trim()) el.classList.add('empty');
+    el.addEventListener('focus', () => el.classList.remove('empty'));
+    el.addEventListener('blur', () => { if (!el.innerText.trim()) el.classList.add('empty'); });
+  });
+})();
+</script>
+
+<style>
+  [data-placeholder].empty::before {
+    content: attr(data-placeholder);
+    color: #9ca3af;
+    pointer-events: none;
+  }
+</style>

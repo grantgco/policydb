@@ -1,0 +1,33 @@
+{# Dashboard issues alert block — shown above Follow-Ups when issues exist #}
+{% if issues_widget and issues_widget.total > 0 %}
+<div class="card border-l-4 {% if issues_widget.sla_count > 0 %}border-red-400 bg-red-50/30{% else %}border-amber-400 bg-amber-50/30{% endif %}">
+  <div class="px-4 py-2.5 flex items-center justify-between gap-3">
+    <div class="flex items-center gap-2 flex-wrap">
+      <span class="text-xs font-semibold {% if issues_widget.sla_count > 0 %}text-red-700{% else %}text-amber-700{% endif %}">
+        Issues — {{ issues_widget.total }} open
+        {% if issues_widget.sla_count > 0 %}
+        · <span class="font-bold">{{ issues_widget.sla_count }} past SLA</span>
+        {% endif %}
+      </span>
+      {% for issue in issues_widget.top_issues %}
+      <span class="inline-flex items-center gap-1 text-[10px] text-gray-600">
+        <span class="w-1.5 h-1.5 rounded-full flex-shrink-0
+          {% if issue.issue_severity == 'Critical' %}bg-red-500
+          {% elif issue.issue_severity == 'High' %}bg-amber-500
+          {% elif issue.issue_severity == 'Normal' %}bg-blue-500
+          {% else %}bg-gray-400{% endif %}"></span>
+        <a href="/issues/{{ issue.issue_uid }}" class="hover:text-marsh hover:underline">
+          {{ issue.subject[:35] }}{% if issue.subject|length > 35 %}…{% endif %}
+        </a>
+        <span class="text-gray-400">· {{ issue.client_name }} · {{ issue.days_open }}d</span>
+      </span>
+      {% endfor %}
+    </div>
+    <div class="flex items-center gap-3 flex-shrink-0">
+      <button onclick="openIssueCreateSlideover({})"
+              class="text-[10px] font-semibold text-marsh hover:underline no-print">+ New Issue</button>
+      <a href="/action-center?tab=issues" class="text-[10px] text-gray-400 hover:text-marsh">View all →</a>
+    </div>
+  </div>
+</div>
+{% endif %}

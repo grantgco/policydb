@@ -19,6 +19,13 @@
     {% else %}
     <span class="text-xs text-gray-300">—</span>
     {% endif %}
+    {% if o.issue_uid %}
+    <div class="mt-1">
+      {% with linked_issue_uid=o.issue_uid, linked_issue_subject=o.issue_subject|default('Issue'), linked_issue_severity=o.issue_severity %}
+        {% include "_issue_badge.html" %}
+      {% endwith %}
+    </div>
+    {% endif %}
   </td>
   <td class="px-4 py-2.5 text-xs text-gray-600 whitespace-nowrap">
     {{ o.target_effective_date or '—' }}

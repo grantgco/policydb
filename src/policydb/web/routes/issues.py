@@ -413,6 +413,18 @@ def link_activities(
     return RedirectResponse(f"/issues/{uid}", status_code=303)
 
 
+# ── Unlink activity from issue ────────────────────────────────────────────────
+
+@router.delete("/issues/{issue_id}/unlink-activity/{activity_id}")
+async def unlink_activity_from_issue(issue_id: int, activity_id: int, conn=Depends(get_db)):
+    conn.execute(
+        "UPDATE activity_log SET issue_id = NULL WHERE id = ? AND issue_id = ?",
+        (activity_id, issue_id),
+    )
+    conn.commit()
+    return HTMLResponse("")
+
+
 # ── Issue detail page ────────────────────────────────────────────────────────
 
 
@@ -427,6 +439,8 @@ def issue_detail(
     issue = conn.execute("""
         SELECT a.*, c.name AS client_name,
                p.policy_uid, p.policy_type, p.carrier, p.expiration_date,
+               p.is_opportunity, p.opportunity_status, p.target_effective_date,
+               p.premium AS policy_premium,
                pr.name AS location_name,
                CASE WHEN a.resolved_date IS NOT NULL
                     THEN julianday(a.resolved_date) - julianday(a.activity_date)

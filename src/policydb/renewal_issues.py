@@ -531,3 +531,27 @@ def housekeep_issues(conn) -> None:
     if closed:
         conn.commit()
         logger.info("Auto-closed %d resolved issues older than %d days", closed, auto_close_days)
+
+
+def promote_issue_to_renewal(conn, policy_id: int, policy_uid: str) -> None:
+    """
+    After opp→policy conversion: find any open manual issues linked to this policy
+    and promote them to renewal issues (set is_renewal_issue=1, renewal_term_key=policy_uid).
+    """
+    rows = conn.execute(
+        """SELECT id FROM activity_log
+           WHERE policy_id = ?
+             AND item_kind = 'issue'
+             AND issue_status NOT IN ('Resolved', 'Closed')
+             AND (is_renewal_issue IS NULL OR is_renewal_issue = 0)""",
+        (policy_id,),
+    ).fetchall()
+    if not rows:
+        return
+    for row in rows:
+        conn.execute(
+            "UPDATE activity_log SET is_renewal_issue = 1, renewal_term_key = ? WHERE id = ?",
+            (policy_uid, row["id"]),
+        )
+    conn.commit()
+    sync_renewal_issue_severity(conn, policy_uid)

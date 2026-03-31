@@ -441,6 +441,38 @@ WHERE c.archived = 0
 ORDER BY c.last_reviewed_at ASC NULLS FIRST, c.name
 """
 
+V_ISSUE_POLICY_COVERAGE = """
+CREATE VIEW v_issue_policy_coverage AS
+-- Direct: issue's own policy
+SELECT a.id AS issue_id, a.policy_id
+FROM activity_log a
+WHERE a.item_kind = 'issue' AND a.policy_id IS NOT NULL
+
+UNION
+
+-- Program-level: all child policies in the issue's program
+SELECT a.id AS issue_id, p.id AS policy_id
+FROM activity_log a
+JOIN policies p ON p.program_id = a.program_id
+WHERE a.item_kind = 'issue' AND a.program_id IS NOT NULL AND p.archived = 0
+
+UNION
+
+-- Merged sources: target inherits source's direct policy
+SELECT a.merged_into_id AS issue_id, a.policy_id
+FROM activity_log a
+WHERE a.item_kind = 'issue' AND a.merged_into_id IS NOT NULL AND a.policy_id IS NOT NULL
+
+UNION
+
+-- Merged sources: target inherits source's program children
+SELECT a.merged_into_id AS issue_id, p.id AS policy_id
+FROM activity_log a
+JOIN policies p ON p.program_id = a.program_id
+WHERE a.item_kind = 'issue' AND a.merged_into_id IS NOT NULL
+  AND a.program_id IS NOT NULL AND p.archived = 0
+"""
+
 ALL_VIEWS = {
     "v_policy_status": V_POLICY_STATUS,
     "v_client_summary": V_CLIENT_SUMMARY,
@@ -450,4 +482,5 @@ ALL_VIEWS = {
     "v_overdue_followups": V_OVERDUE_FOLLOWUPS,
     "v_review_queue": V_REVIEW_QUEUE,
     "v_review_clients": V_REVIEW_CLIENTS,
+    "v_issue_policy_coverage": V_ISSUE_POLICY_COVERAGE,
 }
