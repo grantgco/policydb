@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Policy Spreadsheet{% endblock %}
+{% block content %}
+
+{% include "_spreadsheet.html" %}
+
+<script>
+(function() {
+  var columns = {{ columns | tojson }};
+  var data = {{ rows | tojson }};
+  var projectsByClient = {{ projects_by_client | tojson }};
+  var clientList = {{ client_list | tojson }};
+
+  initSpreadsheet({
+    el: '#spreadsheet-grid',
+    title: 'Policy Spreadsheet',
+    data: data,
+    columns: columns,
+    frozenFields: ['client_name'],
+    patchUrl: '/policies/{policy_uid}/cell',
+    idField: 'policy_uid',
+    entityName: 'Policy',
+    addRowUrl: '/policies/quick-add',
+    exportUrl: '/policies/spreadsheet/export',
+    projectsByClient: projectsByClient,
+    clientList: clientList,
+  });
+})();
+</script>
+
+{% endblock %}

@@ -1,0 +1,463 @@
+{# Reusable Tabulator spreadsheet component.
+   Include this partial in a wrapper template and call initSpreadsheet(config).
+   See docs/superpowers/specs/2026-03-31-spreadsheet-view-design.md for spec. #}
+
+<!-- Tabulator CDN -->
+<link rel="stylesheet" href="https://unpkg.com/tabulator-tables@6.3/dist/css/tabulator.min.css">
+<script src="https://unpkg.com/tabulator-tables@6.3/dist/js/tabulator.min.js"></script>
+
+<!-- Marsh brand overrides -->
+<style>
+  /* ── Header ──────────────────────────────────────────── */
+  .tabulator .tabulator-header {
+    background-color: #003865;
+    border-bottom: 2px solid #003865;
+  }
+  .tabulator .tabulator-header .tabulator-col {
+    background-color: #003865;
+    border-right-color: rgba(255,255,255,0.15);
+  }
+  .tabulator .tabulator-header .tabulator-col .tabulator-col-content .tabulator-col-title {
+    color: #FFFFFF;
+    font-family: 'Noto Sans', Calibri, Arial, sans-serif;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .tabulator .tabulator-header .tabulator-col .tabulator-col-content .tabulator-col-sorter .tabulator-arrow {
+    border-bottom-color: rgba(255,255,255,0.5);
+  }
+  .tabulator .tabulator-header .tabulator-col.tabulator-sortable[aria-sort="ascending"] .tabulator-col-content .tabulator-col-sorter .tabulator-arrow {
+    border-bottom-color: #fff;
+  }
+  .tabulator .tabulator-header .tabulator-col.tabulator-sortable[aria-sort="descending"] .tabulator-col-content .tabulator-col-sorter .tabulator-arrow {
+    border-top-color: #fff;
+  }
+
+  /* ── Header filter row ───────────────────────────────── */
+  .tabulator .tabulator-header .tabulator-header-filter input,
+  .tabulator .tabulator-header .tabulator-header-filter select {
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    padding: 2px 4px;
+    font-size: 11px;
+    font-family: 'Noto Sans', Calibri, Arial, sans-serif;
+    background: #fff;
+  }
+
+  /* ── Data rows ───────────────────────────────────────── */
+  .tabulator .tabulator-tableholder .tabulator-table .tabulator-row {
+    font-family: 'Noto Sans', Calibri, Arial, sans-serif;
+    font-size: 12px;
+    color: #3D3C37;
+    border-bottom: 1px solid #B9B6B1;
+  }
+  .tabulator .tabulator-tableholder .tabulator-table .tabulator-row:nth-child(even) {
+    background-color: #F7F3EE;
+  }
+  .tabulator .tabulator-tableholder .tabulator-table .tabulator-row:nth-child(odd) {
+    background-color: #FFFFFF;
+  }
+  .tabulator .tabulator-tableholder .tabulator-table .tabulator-row.tabulator-selected {
+    background-color: #CEECFF !important;
+  }
+  .tabulator .tabulator-tableholder .tabulator-table .tabulator-row .tabulator-cell {
+    border-right: 1px solid #B9B6B1;
+    padding: 4px 8px;
+  }
+
+  /* ── Frozen column separator ─────────────────────────── */
+  .tabulator .tabulator-frozen.tabulator-frozen-right {
+    border-left: 2px solid #003865;
+  }
+  .tabulator .tabulator-tableholder .tabulator-table .tabulator-row .tabulator-cell.tabulator-frozen {
+    border-right: 2px solid #003865;
+  }
+  .tabulator .tabulator-header .tabulator-col.tabulator-frozen {
+    border-right: 2px solid rgba(255,255,255,0.3);
+  }
+
+  /* ── Editing cell ────────────────────────────────────── */
+  .tabulator .tabulator-cell.tabulator-editing {
+    border: 1px solid #003865 !important;
+    padding: 3px 7px;
+  }
+  .tabulator .tabulator-cell.tabulator-editing input,
+  .tabulator .tabulator-cell.tabulator-editing select {
+    font-family: 'Noto Sans', Calibri, Arial, sans-serif;
+    font-size: 12px;
+  }
+
+  /* ── Cell flash animation ────────────────────────────── */
+  @keyframes cellFlashGreen {
+    0% { background-color: #bbf7d0; }
+    100% { background-color: transparent; }
+  }
+  @keyframes cellFlashRed {
+    0% { background-color: #fecaca; }
+    100% { background-color: transparent; }
+  }
+  .ss-flash-green { animation: cellFlashGreen 1s ease-out; }
+  .ss-flash-red { animation: cellFlashRed 1s ease-out; }
+
+  /* ── Status pill inside cell ─────────────────────────── */
+  .ss-status-pill {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 9999px;
+    font-size: 11px;
+    white-space: nowrap;
+  }
+
+  /* ── Top bar ─────────────────────────────────────────── */
+  .ss-topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 0;
+    margin-bottom: 4px;
+  }
+  .ss-topbar-left { display: flex; align-items: center; gap: 12px; }
+  .ss-topbar-right { display: flex; align-items: center; gap: 8px; }
+  .ss-count-badge {
+    font-size: 12px;
+    color: #7B7974;
+    font-family: 'Noto Sans', Calibri, Arial, sans-serif;
+  }
+  .ss-btn {
+    padding: 5px 14px;
+    border: 1px solid #B9B6B1;
+    border-radius: 6px;
+    font-size: 12px;
+    font-family: 'Noto Sans', Calibri, Arial, sans-serif;
+    cursor: pointer;
+    background: #fff;
+    color: #3D3C37;
+    transition: all 0.15s;
+  }
+  .ss-btn:hover { border-color: #003865; color: #003865; }
+  .ss-btn-primary {
+    background: #003865;
+    color: #fff;
+    border-color: #003865;
+  }
+  .ss-btn-primary:hover { background: #0055a5; border-color: #0055a5; }
+
+  /* ── Add-row modal ───────────────────────────────────── */
+  .ss-modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.3);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 9999;
+  }
+  .ss-modal {
+    background: #fff; border-radius: 8px; padding: 20px;
+    min-width: 320px; box-shadow: 0 8px 30px rgba(0,0,0,0.15);
+  }
+  .ss-modal h3 { margin: 0 0 12px; font-size: 15px; color: #003865; font-weight: 600; }
+  .ss-modal input, .ss-modal select {
+    width: 100%; padding: 6px 10px; border: 1px solid #B9B6B1;
+    border-radius: 4px; font-size: 13px; margin-bottom: 12px;
+  }
+  .ss-modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+</style>
+
+<!-- Top bar (populated by initSpreadsheet) -->
+<div class="ss-topbar" id="ss-topbar">
+  <div class="ss-topbar-left">
+    <h1 class="text-lg font-semibold text-gray-900" id="ss-title"></h1>
+    <span class="ss-count-badge" id="ss-count"></span>
+  </div>
+  <div class="ss-topbar-right">
+    <button class="ss-btn" id="ss-export-btn" onclick="ssExport()">Export XLSX</button>
+    <button class="ss-btn ss-btn-primary" id="ss-add-btn" style="display:none;" onclick="ssShowAddModal()">+ Add</button>
+  </div>
+</div>
+
+<!-- Grid container -->
+<div id="spreadsheet-grid"></div>
+
+<script>
+var _ssTable = null;
+var _ssConfig = null;
+
+/* ── Status pill colors ─────────────────────────────── */
+var _ssStatusColors = {
+  'Not Started': {bg: '#f3f4f6', text: '#4b5563'},
+  'In Progress': {bg: '#dbeafe', text: '#1d4ed8'},
+  'Pending Bind': {bg: '#fef3c7', text: '#92400e'},
+  'Bound': {bg: '#dcfce7', text: '#166534'},
+  'Renewed': {bg: '#dcfce7', text: '#166534'},
+  'Non-Renewed': {bg: '#fee2e2', text: '#991b1b'},
+  'Lost': {bg: '#fee2e2', text: '#991b1b'},
+  'Cancelled': {bg: '#fee2e2', text: '#991b1b'},
+};
+
+/* ── Formatters ─────────────────────────────────────── */
+function ssCurrencyFormatter(cell) {
+  var v = cell.getValue();
+  if (v == null || v === '' || v === 0) return '';
+  var n = parseFloat(v);
+  if (isNaN(n)) return v;
+  return '$' + n.toLocaleString('en-US', {minimumFractionDigits: 0, maximumFractionDigits: 0});
+}
+
+function ssPercentFormatter(cell) {
+  var v = cell.getValue();
+  if (v == null || v === '') return '';
+  var n = parseFloat(v);
+  if (isNaN(n)) return v;
+  // commission_rate is stored as decimal (0.15) — display as 15%
+  if (n > 0 && n < 1) n = n * 100;
+  return n.toFixed(1) + '%';
+}
+
+function ssDateFormatter(cell) {
+  var v = cell.getValue();
+  if (!v) return '';
+  var d = new Date(v + 'T00:00:00');
+  if (isNaN(d)) return v;
+  return (d.getMonth()+1).toString().padStart(2,'0') + '/' +
+         d.getDate().toString().padStart(2,'0') + '/' +
+         d.getFullYear();
+}
+
+function ssStatusPillFormatter(cell) {
+  var v = cell.getValue();
+  if (!v) return '';
+  var c = _ssStatusColors[v] || {bg: '#f3f4f6', text: '#4b5563'};
+  return '<span class="ss-status-pill" style="background:' + c.bg + ';color:' + c.text + ';">' + v + '</span>';
+}
+
+function ssLinkFormatter(cell) {
+  var v = cell.getValue();
+  if (!v) return '';
+  var row = cell.getRow().getData();
+  if (cell.getField() === 'client_name' && row.client_id) {
+    return '<a href="/clients/' + row.client_id + '" class="text-marsh hover:underline" title="Open client">' + v + '</a>';
+  }
+  if (cell.getField() === 'policy_uid') {
+    return '<a href="/policies/' + v + '/edit" class="text-marsh hover:underline" title="Open policy">' + v + '</a>';
+  }
+  return v;
+}
+
+/* ── Cell save ──────────────────────────────────────── */
+function ssCellEdited(cell) {
+  var field = cell.getField();
+  var value = cell.getValue();
+  var rowData = cell.getRow().getData();
+  var idVal = rowData[_ssConfig.idField];
+  if (!idVal) return;
+
+  var url = _ssConfig.patchUrl.replace('{' + _ssConfig.idField + '}', idVal);
+  var el = cell.getElement();
+
+  fetch(url, {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({field: field, value: value})
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.ok) {
+      if (data.formatted !== undefined && data.formatted !== null && String(data.formatted) !== String(value)) {
+        cell.setValue(data.formatted, true);
+      }
+      el.classList.remove('ss-flash-red');
+      el.classList.add('ss-flash-green');
+      setTimeout(function() { el.classList.remove('ss-flash-green'); }, 1100);
+    } else {
+      cell.restoreOldValue();
+      el.classList.add('ss-flash-red');
+      setTimeout(function() { el.classList.remove('ss-flash-red'); }, 1100);
+    }
+  })
+  .catch(function() {
+    cell.restoreOldValue();
+    el.classList.add('ss-flash-red');
+    setTimeout(function() { el.classList.remove('ss-flash-red'); }, 1100);
+  });
+}
+
+/* ── Row formatter (opportunity indicator) ──────────── */
+function ssRowFormatter(row) {
+  var data = row.getData();
+  if (data.is_opportunity) {
+    row.getElement().style.borderLeft = '3px solid #0B4BFF';
+  } else {
+    row.getElement().style.borderLeft = '';
+  }
+}
+
+/* ── Export ──────────────────────────────────────────── */
+function ssExport() {
+  if (!_ssConfig || !_ssConfig.exportUrl) return;
+  // Collect current header filters
+  var filters = _ssTable.getHeaderFilters();
+  var params = new URLSearchParams();
+  filters.forEach(function(f) {
+    if (f.value) params.append('filter_' + f.field, f.value);
+  });
+  // Collect sort
+  var sorters = _ssTable.getSorters();
+  if (sorters.length) {
+    params.append('sort_field', sorters[0].field);
+    params.append('sort_dir', sorters[0].dir);
+  }
+  window.location.href = _ssConfig.exportUrl + '?' + params.toString();
+}
+
+/* ── Add row modal ──────────────────────────────────── */
+function ssShowAddModal() {
+  if (!_ssConfig || !_ssConfig.addRowUrl) return;
+  var clients = _ssConfig.clientList || [];
+  var html = '<div class="ss-modal-overlay" id="ss-add-modal" onclick="if(event.target===this)ssCloseAddModal()">';
+  html += '<div class="ss-modal">';
+  html += '<h3>Add ' + (_ssConfig.entityName || 'Record') + '</h3>';
+  html += '<input type="text" id="ss-add-client" list="ss-add-clients-dl" placeholder="Select client..." autocomplete="off">';
+  html += '<datalist id="ss-add-clients-dl">';
+  clients.forEach(function(c) {
+    html += '<option value="' + c.name.replace(/"/g, '&quot;') + '" data-id="' + c.id + '">';
+  });
+  html += '</datalist>';
+  html += '<div class="ss-modal-actions">';
+  html += '<button class="ss-btn" onclick="ssCloseAddModal()">Cancel</button>';
+  html += '<button class="ss-btn ss-btn-primary" onclick="ssAddRow()">Add</button>';
+  html += '</div></div></div>';
+  document.body.insertAdjacentHTML('beforeend', html);
+  document.getElementById('ss-add-client').focus();
+}
+
+function ssCloseAddModal() {
+  var m = document.getElementById('ss-add-modal');
+  if (m) m.remove();
+}
+
+function ssAddRow() {
+  var input = document.getElementById('ss-add-client');
+  var name = input.value.trim();
+  if (!name) { input.focus(); return; }
+
+  // Find client_id from name
+  var clients = _ssConfig.clientList || [];
+  var match = clients.find(function(c) { return c.name === name; });
+  if (!match) { input.style.borderColor = '#ef4444'; return; }
+
+  fetch(_ssConfig.addRowUrl, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({client_id: match.id})
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.ok && data.row) {
+      _ssTable.addRow(data.row, false);
+      ssCloseAddModal();
+      ssUpdateCount();
+      // Scroll to new row
+      setTimeout(function() {
+        _ssTable.scrollToRow(data.row[_ssConfig.idField], 'bottom', false);
+      }, 100);
+    }
+  })
+  .catch(function(err) { console.error('Add row error:', err); });
+}
+
+/* ── Count badge ────────────────────────────────────── */
+function ssUpdateCount() {
+  if (!_ssTable) return;
+  var total = _ssTable.getDataCount();
+  var filtered = _ssTable.getDataCount('active');
+  var label = _ssConfig.entityName || 'record';
+  // Proper pluralization
+  var plural = label.toLowerCase().endsWith('y') ? label.slice(0,-1) + 'ies' : label + 's';
+  var el = document.getElementById('ss-count');
+  if (filtered < total) {
+    el.textContent = filtered + ' of ' + total + ' ' + plural;
+  } else {
+    el.textContent = total + ' ' + (total !== 1 ? plural : label);
+  }
+}
+
+/* ── Main init ──────────────────────────────────────── */
+function initSpreadsheet(config) {
+  _ssConfig = config;
+
+  // Set title
+  document.getElementById('ss-title').textContent = config.title || 'Spreadsheet';
+
+  // Show add button if addRowUrl is set
+  if (config.addRowUrl) {
+    var addBtn = document.getElementById('ss-add-btn');
+    addBtn.style.display = '';
+    addBtn.textContent = '+ Add ' + (config.entityName || 'Record');
+  }
+
+  // Process columns: apply formatters and frozen flags
+  var columns = (config.columns || []).map(function(col) {
+    // Frozen
+    if (config.frozenFields && config.frozenFields.indexOf(col.field) >= 0) {
+      col.frozen = true;
+    }
+    // Apply built-in formatters by _format hint
+    if (col._format === 'currency') {
+      col.formatter = ssCurrencyFormatter;
+      col.hozAlign = 'right';
+      col.headerHozAlign = 'right';
+    } else if (col._format === 'percent') {
+      col.formatter = ssPercentFormatter;
+      col.hozAlign = 'right';
+      col.headerHozAlign = 'right';
+    } else if (col._format === 'date') {
+      col.formatter = ssDateFormatter;
+    } else if (col._format === 'status_pill') {
+      col.formatter = ssStatusPillFormatter;
+      col.formatterParams = {allowHTML: true};
+    } else if (col._format === 'link') {
+      col.formatter = ssLinkFormatter;
+      col.formatterParams = {allowHTML: true};
+    }
+
+    // Dynamic editorParams for client-scoped dropdowns
+    if (col._dynamicValues === 'projectsByClient' && config.projectsByClient) {
+      var pbc = config.projectsByClient;
+      col.editorParams = function(cell) {
+        var cid = cell.getRow().getData().client_id;
+        return {values: pbc[cid] || [], autocomplete: true, freetext: true, listOnEmpty: true};
+      };
+    }
+
+    // Clean up internal hints
+    delete col._format;
+    delete col._dynamicValues;
+
+    return col;
+  });
+
+  // Calculate height to fill viewport
+  var topbar = document.getElementById('ss-topbar');
+  var nav = document.querySelector('nav');
+  var captureBar = document.querySelector('.bg-marsh\\/80');
+  var usedHeight = (nav ? nav.offsetHeight : 0) + (captureBar ? captureBar.offsetHeight : 0) + (topbar ? topbar.offsetHeight : 0) + 24;
+  var gridHeight = Math.max(400, window.innerHeight - usedHeight);
+
+  _ssTable = new Tabulator(config.el || '#spreadsheet-grid', {
+    data: config.data || [],
+    columns: columns,
+    layout: 'fitDataFill',
+    height: gridHeight + 'px',
+    rowFormatter: ssRowFormatter,
+    headerSortClickElement: 'icon',
+    movableColumns: true,
+    resizableColumns: true,
+    placeholder: 'No records found',
+    tabEndNewRow: false,
+    cellEdited: ssCellEdited,
+  });
+
+  // Bind events for count updates — use multiple events for coverage
+  _ssTable.on('tableBuilt', ssUpdateCount);
+  _ssTable.on('dataLoaded', ssUpdateCount);
+  _ssTable.on('dataFiltered', ssUpdateCount);
+  _ssTable.on('renderComplete', ssUpdateCount);
+}
+</script>
