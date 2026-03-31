@@ -15,6 +15,9 @@
     <div class="flex-1 min-w-0">
       <div class="text-sm text-gray-900">{{ iss.subject }}</div>
       <div class="flex items-center gap-1.5 mt-1 flex-wrap">
+        {% if iss.project_name %}
+        <span class="text-[9px] bg-gray-100 text-gray-600 border border-gray-200 rounded-full px-1.5 py-0">&#128205; {{ iss.project_name }}</span>
+        {% endif %}
         {% if iss.relevance_score|default(0) >= 30 %}
         <span class="text-[9px] bg-green-50 text-green-700 border border-green-200 rounded-full px-1.5 py-0">Likely match</span>
         {% elif iss.relevance_score|default(0) >= 15 %}
@@ -26,7 +29,6 @@
       </div>
       <div class="flex items-center gap-2 text-[11px] text-gray-400 mt-1">
         <span>{{ iss.issue_uid }}</span>
-        {% if iss.project_name %}<span class="italic text-gray-500">{{ iss.project_name }}</span>{% endif %}
         <span>{{ iss.issue_status or 'Open' }}</span>
         {% if iss.activity_count %}<span>{{ iss.activity_count }} activities</span>{% endif %}
         <span>{{ iss.days_open|int }}d old</span>
