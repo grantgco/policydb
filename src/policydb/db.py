@@ -1648,6 +1648,15 @@ def init_db(path: Path | None = None) -> None:
         conn.commit()
         logger.info("Migration 118: added bound_date column to policies")
 
+    if 119 not in applied:
+        conn.executescript((_MIGRATIONS_DIR / "119_program_followup_bound.sql").read_text())
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (119, "Add follow_up_date and bound_date to programs"),
+        )
+        conn.commit()
+        logger.info("Migration 119: added follow_up_date and bound_date to programs")
+
     # Data hygiene: fix 'None' string corruption in text fields (runs every startup, fast no-op if clean)
     conn.execute("UPDATE clients SET cn_number = NULL WHERE cn_number = 'None'")
 

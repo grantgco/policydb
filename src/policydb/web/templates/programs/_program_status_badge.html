@@ -1,0 +1,19 @@
+{% set status_classes = {
+  'Not Started': 'bg-gray-100 text-gray-600 border-gray-200',
+  'In Progress': 'bg-blue-50 text-blue-700 border-blue-200',
+  'Pending Bind': 'bg-amber-50 text-amber-700 border-amber-200',
+  'Bound': 'bg-green-50 text-green-700 border-green-200'
+} %}
+<div class="flex items-center gap-1" id="pgm-status-{{ p.program_uid }}">
+  <select
+    hx-post="/programs/{{ p.program_uid }}/status"
+    hx-target="#pgm-status-{{ p.program_uid }}"
+    hx-swap="outerHTML"
+    hx-include="this"
+    name="status"
+    class="text-xs border rounded px-2 py-1 {{ status_classes.get(p.renewal_status, 'bg-gray-100 text-gray-600 border-gray-200') }} cursor-pointer focus:outline-none focus:ring-1 focus:ring-indigo-400">
+    {% for s in (renewal_statuses or ['Not Started', 'In Progress', 'Pending Bind', 'Bound']) %}
+    <option value="{{ s }}" {% if s == p.renewal_status %}selected{% endif %}>{{ s }}</option>
+    {% endfor %}
+  </select>
+</div>
