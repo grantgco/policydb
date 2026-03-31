@@ -1392,7 +1392,7 @@ def full_text_search(conn: sqlite3.Connection, query: str) -> dict[str, list[sql
     ).fetchall()
     kb_documents = conn.execute(
         """SELECT uid, title, category, filename, tags, updated_at
-           FROM kb_documents
+           FROM attachments
            WHERE title LIKE ? OR description LIKE ? OR filename LIKE ? OR tags LIKE ?
            ORDER BY updated_at DESC LIMIT 10""",
         (pattern, pattern, pattern, pattern),

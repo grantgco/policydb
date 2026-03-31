@@ -116,6 +116,13 @@
   <p class="text-[10px] text-gray-400 mt-2">Sent {{ bundle.sent_at[:16] }}</p>
   {% endif %}
 
+  {# ── Files & Attachments ── #}
+  <div class="mt-4 pt-3 border-t border-gray-200"
+    hx-get="/api/attachments/panel?record_type=rfi_bundle&record_id={{ bundle.id }}"
+    hx-trigger="load" hx-swap="innerHTML">
+    <p class="text-xs text-gray-400 italic">Loading attachments...</p>
+  </div>
+
 </div>
 
 <script>
