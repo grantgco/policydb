@@ -13,6 +13,16 @@ from rapidfuzz import process, fuzz
 
 import policydb.config as cfg
 
+# ─── ISSUE COVERAGE HELPERS ──────────────────────────────────────────────────
+
+# Reusable SQL snippet: activities visible to a given policy via issue coverage.
+# Use with positional ? params — pass the policy_id twice.
+# Excludes issue header rows (item_kind='issue') so only real activities surface.
+_VIA_ISSUE_COVERAGE = """(a.issue_id IN (SELECT ipc.issue_id FROM v_issue_policy_coverage ipc WHERE ipc.policy_id = ?) AND a.item_kind != 'issue')"""
+
+# Same snippet for correlated subqueries where p.id is available.
+_VIA_ISSUE_COVERAGE_CORR = """(a.issue_id IN (SELECT ipc.issue_id FROM v_issue_policy_coverage ipc WHERE ipc.policy_id = p.id) AND a.item_kind != 'issue')"""
+
 
 # ─── CLIENT QUERIES ──────────────────────────────────────────────────────────
 
@@ -314,18 +324,18 @@ def get_escalation_alerts(
     nudge_stale = esc.get("nudge_stale_days", 30)
     inner = f"""
         SELECT v.*, p.created_at AS policy_created,
-               (SELECT MAX(a.activity_date) FROM activity_log a WHERE a.policy_id = p.id) AS last_activity_date,
+               (SELECT MAX(a.activity_date) FROM activity_log a WHERE a.policy_id = p.id OR (a.issue_id IN (SELECT ipc.issue_id FROM v_issue_policy_coverage ipc WHERE ipc.policy_id = p.id) AND a.item_kind != 'issue')) AS last_activity_date,
                CASE
                    WHEN v.days_to_renewal <= {critical_days}
                         AND v.renewal_status = 'Not Started'
-                        AND ((SELECT MAX(a.activity_date) FROM activity_log a WHERE a.policy_id = p.id) IS NULL
-                             OR julianday('now') - julianday((SELECT MAX(a.activity_date) FROM activity_log a WHERE a.policy_id = p.id)) > {critical_stale})
+                        AND ((SELECT MAX(a.activity_date) FROM activity_log a WHERE a.policy_id = p.id OR (a.issue_id IN (SELECT ipc.issue_id FROM v_issue_policy_coverage ipc WHERE ipc.policy_id = p.id) AND a.item_kind != 'issue')) IS NULL
+                             OR julianday('now') - julianday((SELECT MAX(a.activity_date) FROM activity_log a WHERE a.policy_id = p.id OR (a.issue_id IN (SELECT ipc.issue_id FROM v_issue_policy_coverage ipc WHERE ipc.policy_id = p.id) AND a.item_kind != 'issue'))) > {critical_stale})
                    THEN 'CRITICAL'
                    WHEN v.days_to_renewal <= {warning_days} AND v.renewal_status = 'Not Started'
                    THEN 'WARNING'
                    WHEN v.days_to_renewal <= {nudge_days} AND v.follow_up_date IS NULL
-                        AND ((SELECT MAX(a.activity_date) FROM activity_log a WHERE a.policy_id = p.id) IS NULL
-                             OR julianday('now') - julianday((SELECT MAX(a.activity_date) FROM activity_log a WHERE a.policy_id = p.id)) > {nudge_stale})
+                        AND ((SELECT MAX(a.activity_date) FROM activity_log a WHERE a.policy_id = p.id OR (a.issue_id IN (SELECT ipc.issue_id FROM v_issue_policy_coverage ipc WHERE ipc.policy_id = p.id) AND a.item_kind != 'issue')) IS NULL
+                             OR julianday('now') - julianday((SELECT MAX(a.activity_date) FROM activity_log a WHERE a.policy_id = p.id OR (a.issue_id IN (SELECT ipc.issue_id FROM v_issue_policy_coverage ipc WHERE ipc.policy_id = p.id) AND a.item_kind != 'issue'))) > {nudge_stale})
                    THEN 'NUDGE'
                END AS escalation_tier
         FROM v_renewal_pipeline v
@@ -627,11 +637,14 @@ def get_client_total_hours(conn: sqlite3.Connection, client_id: int) -> float:
 
 
 def get_policy_total_hours(conn: sqlite3.Connection, policy_id: int) -> float:
-    """Total hours logged for a specific policy."""
+    """Total hours logged for a specific policy (includes issue-sourced activities)."""
     row = conn.execute(
-        """SELECT COALESCE(SUM(duration_hours), 0) AS t FROM activity_log
-           WHERE policy_id = ? AND duration_hours IS NOT NULL""",
-        (policy_id,),
+        """SELECT COALESCE(SUM(duration_hours), 0) AS t FROM activity_log a
+           WHERE (a.policy_id = ?
+                  OR (a.issue_id IN (SELECT ipc.issue_id FROM v_issue_policy_coverage ipc WHERE ipc.policy_id = ?)
+                      AND a.item_kind != 'issue'))
+             AND a.duration_hours IS NOT NULL""",
+        (policy_id, policy_id),
     ).fetchone()
     return float(row["t"])
 
@@ -1255,7 +1268,7 @@ def get_suggested_followups(
            p.renewal_status, p.client_id, p.project_name,
            c.name AS client_name,
            CAST(julianday(p.expiration_date) - julianday('now') AS INTEGER) AS days_to_renewal,
-           (SELECT MAX(a.activity_date) FROM activity_log a WHERE a.policy_id = p.id) AS last_activity_date
+           (SELECT MAX(a.activity_date) FROM activity_log a WHERE a.policy_id = p.id OR (a.issue_id IN (SELECT ipc.issue_id FROM v_issue_policy_coverage ipc WHERE ipc.policy_id = p.id) AND a.item_kind != 'issue')) AS last_activity_date
     FROM policies p
     JOIN clients c ON p.client_id = c.id
     WHERE p.archived = 0
@@ -1267,7 +1280,9 @@ def get_suggested_followups(
       AND (
         p.renewal_status = 'Not Started'
         OR (SELECT COUNT(*) FROM activity_log a
-            WHERE a.policy_id = p.id
+            WHERE (a.policy_id = p.id
+                   OR (a.issue_id IN (SELECT ipc.issue_id FROM v_issue_policy_coverage ipc WHERE ipc.policy_id = p.id)
+                       AND a.item_kind != 'issue'))
               AND a.activity_date >= date('now', '-30 days')) = 0
       )
       AND NOT EXISTS (
