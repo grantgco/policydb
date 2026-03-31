@@ -105,9 +105,9 @@
   {% if attachments %}
   <div class="space-y-2">
     {% for att in attachments %}
-    <div id="att-card-{{ att.link_id }}" class="flex items-center gap-3 px-3 py-2 bg-white border border-gray-200 rounded-lg group hover:border-gray-300">
+    <div id="att-card-{{ att.link_id }}" class="flex items-start gap-3 px-3 py-2 bg-white border border-gray-200 rounded-lg group hover:border-gray-300">
       {# File type icon #}
-      <div class="flex-shrink-0">
+      <div class="flex-shrink-0 mt-0.5">
         {% if att.file_info.icon == 'pdf' %}
           <svg class="w-5 h-5 {{ att.file_info.color }}" fill="currentColor" viewBox="0 0 20 20"><path d="M4 18h12V6h-4V2H4v16zm8-15.5L15.5 6H12V2.5zM2 0h10l4 4v16H2V0z"/></svg>
         {% elif att.file_info.icon == 'word' %}
@@ -121,7 +121,7 @@
         {% endif %}
       </div>
 
-      {# Title + metadata #}
+      {# Title + metadata + description #}
       <div class="flex-1 min-w-0">
         <div class="flex items-center gap-2">
           <span class="text-sm font-medium text-gray-900 truncate">{{ att.title }}</span>
@@ -139,10 +139,16 @@
           {% if att.file_size %} · {{ att.size_display }}{% endif %}
           {% if att.filename %} · {{ att.filename }}{% endif %}
         </div>
+        {# Editable description / note #}
+        <div contenteditable="true"
+          class="text-xs text-gray-400 outline-none focus:bg-gray-50 focus:text-gray-600 rounded px-1 -mx-1 mt-0.5 min-h-[1em] empty:before:content-[attr(data-placeholder)] empty:before:text-gray-300 empty:before:pointer-events-none"
+          data-placeholder="Add a note..."
+          data-att-uid="{{ att.uid }}"
+          onblur="saveAttDescription(this)">{% if att.description %}{{ att.description }}{% endif %}</div>
       </div>
 
       {# Actions #}
-      <div class="flex-shrink-0 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity no-print">
+      <div class="flex-shrink-0 flex items-center gap-2 mt-0.5 opacity-0 group-hover:opacity-100 transition-opacity no-print">
         {% if att.source == 'devonthink' and att.dt_url %}
           <a href="{{ att.dt_url }}" class="text-xs text-marsh hover:text-blue-700" title="Open in DevonThink">
             Open
@@ -293,5 +299,17 @@ function refreshAttachmentPanel(panelId, recordType, recordId) {
     '/api/attachments/panel?record_type=' + recordType + '&record_id=' + recordId,
     {target: '#' + panelId, swap: 'outerHTML'}
   );
+}
+
+function saveAttDescription(el) {
+  var uid = el.dataset.attUid;
+  var desc = el.textContent.trim();
+  fetch('/api/attachments/' + uid, {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({description: desc}),
+  }).then(function(r) {
+    if (r.ok) { el.style.color = ''; }
+  });
 }
 </script>

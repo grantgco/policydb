@@ -754,9 +754,15 @@ def _score_merge_relevance(target: dict, candidate: dict) -> int:
     if target.get("policy_id") and candidate.get("policy_id") == target["policy_id"]:
         score += 30
 
-    # Same program / location
+    # Same program
     if target.get("program_id") and candidate.get("program_id") == target["program_id"]:
         score += 20
+
+    # Same location (project_name match)
+    t_loc = target.get("project_name") or ""
+    c_loc = candidate.get("project_name") or ""
+    if t_loc and c_loc and t_loc == c_loc:
+        score += 15
 
     # Same renewal term key
     rtk = target.get("renewal_term_key")
@@ -800,11 +806,16 @@ def mergeable_issues(
 ):
     """Return other open issues for the same client, sorted by relevance."""
     target = conn.execute("""
-        SELECT id, client_id, policy_id, program_id, subject,
-               issue_severity, is_renewal_issue, renewal_term_key,
-               CAST(julianday('now') - julianday(activity_date) AS INTEGER) AS days_open
-        FROM activity_log
-        WHERE id = ? AND item_kind = 'issue'
+        SELECT a.id, a.client_id, a.policy_id, a.program_id, a.subject,
+               a.issue_severity, a.is_renewal_issue, a.renewal_term_key,
+               CAST(julianday('now') - julianday(a.activity_date) AS INTEGER) AS days_open,
+               COALESCE(pr.name, pr2.name) AS project_name
+        FROM activity_log a
+        LEFT JOIN policies p ON p.id = a.policy_id
+        LEFT JOIN projects pr ON pr.id = p.project_id
+        LEFT JOIN programs pg ON pg.id = a.program_id
+        LEFT JOIN projects pr2 ON pr2.id = pg.project_id
+        WHERE a.id = ? AND a.item_kind = 'issue'
     """, (issue_id,)).fetchone()
     if not target:
         return HTMLResponse("")
@@ -812,11 +823,16 @@ def mergeable_issues(
     target = dict(target)
 
     rows = conn.execute("""
-        SELECT id, issue_uid, subject, issue_severity, issue_status, is_renewal_issue,
-               policy_id, program_id, renewal_term_key,
-               CAST(julianday('now') - julianday(activity_date) AS INTEGER) AS days_open,
-               (SELECT COUNT(*) FROM activity_log sub WHERE sub.issue_id = a.id) AS activity_count
+        SELECT a.id, a.issue_uid, a.subject, a.issue_severity, a.issue_status,
+               a.is_renewal_issue, a.policy_id, a.program_id, a.renewal_term_key,
+               CAST(julianday('now') - julianday(a.activity_date) AS INTEGER) AS days_open,
+               (SELECT COUNT(*) FROM activity_log sub WHERE sub.issue_id = a.id) AS activity_count,
+               COALESCE(pr.name, pr2.name) AS project_name
         FROM activity_log a
+        LEFT JOIN policies p ON p.id = a.policy_id
+        LEFT JOIN projects pr ON pr.id = p.project_id
+        LEFT JOIN programs pg ON pg.id = a.program_id
+        LEFT JOIN projects pr2 ON pr2.id = pg.project_id
         WHERE a.item_kind = 'issue'
           AND a.issue_id IS NULL
           AND a.client_id = ?

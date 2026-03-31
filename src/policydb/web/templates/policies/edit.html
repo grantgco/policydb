@@ -71,6 +71,9 @@
   {% if policy.first_named_insured %}<p class="text-xs text-gray-400 mt-0.5">First Named Insured: <span class="text-gray-600 font-medium">{{ policy.first_named_insured }}</span></p>{% endif %}
 </div>
 
+{# ── Pinned Notes Banner ── #}
+{% include "_pinned_notes_banner.html" %}
+
 {# ── Field Provenance drawer (loads via HTMX into this container) ── #}
 <div id="provenance-drawer" class="mb-4 no-print"></div>
 
@@ -131,6 +134,11 @@
       {% set done = checklist | selectattr('completed') | list | length %}
       {% set total = checklist | length %}
       {% if total %}<span class="tab-badge">{{ done }}/{{ total }}</span>{% endif %}
+    </button>
+    <button class="tab-btn" data-tab="files"
+      data-tab-url="/policies/{{ policy.policy_uid }}/tab/files">
+      Files
+      {% if attachment_count %}<span class="tab-badge">{{ attachment_count }}</span>{% endif %}
     </button>
     <span id="save-indicator" class="ml-auto text-xs flex items-center gap-1 self-center pr-2 no-print"
           style="opacity:0; transition: opacity 0.3s;">

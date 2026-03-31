@@ -53,6 +53,11 @@ from policydb.web.app import get_db, templates
 router = APIRouter(prefix="/clients")
 
 
+def _pinned_notes_for_page(conn, scope, scope_id, client_id=None):
+    from policydb.web.routes.pinned_notes import get_pinned_notes_with_cascade
+    return get_pinned_notes_with_cascade(conn, scope, scope_id, client_id=client_id)
+
+
 def _get_all_client_contact_orgs(conn):
     """Get all distinct organization values from contacts."""
     rows = conn.execute(
@@ -1436,6 +1441,130 @@ def client_tab_issues(request: Request, client_id: int, conn=Depends(get_db)):
     })
 
 
+@router.get("/{client_id}/tab/files", response_class=HTMLResponse)
+def client_tab_files(
+    request: Request,
+    client_id: int,
+    view: str = "grouped",
+    q: str = "",
+    rt: str = "",
+    conn=Depends(get_db),
+):
+    """Files tab — rollup of all attachments across client + child records."""
+    client = get_client_by_id(conn, client_id, include_archived=True)
+    if not client:
+        return HTMLResponse("Not found", status_code=404)
+    client_dict = dict(client)
+
+    from policydb.devonthink import is_devonthink_available
+
+    # Rollup query: all attachments linked to this client or its child records
+    rows = conn.execute("""
+        SELECT a.*, ra.id AS link_id, ra.record_type, ra.record_id, ra.sort_order,
+          CASE ra.record_type
+            WHEN 'client' THEN 'Client-level'
+            WHEN 'policy' THEN (SELECT policy_uid || ' — ' || COALESCE(policy_type, '') FROM policies WHERE id = ra.record_id)
+            WHEN 'meeting' THEN (SELECT COALESCE(title, '') || ' ' || COALESCE(meeting_date, '') FROM client_meetings WHERE id = ra.record_id)
+            WHEN 'activity' THEN (SELECT COALESCE(activity_type, '') || ': ' || COALESCE(subject, '') FROM activity_log WHERE id = ra.record_id)
+            WHEN 'project' THEN (SELECT name FROM projects WHERE id = ra.record_id)
+            WHEN 'rfi_bundle' THEN (SELECT COALESCE(title, 'RFI Bundle') FROM client_request_bundles WHERE id = ra.record_id)
+          END AS source_label
+        FROM attachments a
+        JOIN record_attachments ra ON ra.attachment_id = a.id
+        WHERE (ra.record_type = 'client' AND ra.record_id = :cid)
+           OR (ra.record_type = 'policy' AND ra.record_id IN (SELECT id FROM policies WHERE client_id = :cid AND archived = 0))
+           OR (ra.record_type = 'meeting' AND ra.record_id IN (SELECT id FROM client_meetings WHERE client_id = :cid))
+           OR (ra.record_type = 'activity' AND ra.record_id IN (SELECT id FROM activity_log WHERE client_id = :cid))
+           OR (ra.record_type = 'project' AND ra.record_id IN (SELECT id FROM projects WHERE client_id = :cid))
+           OR (ra.record_type = 'rfi_bundle' AND ra.record_id IN (SELECT id FROM client_request_bundles WHERE client_id = :cid))
+        ORDER BY ra.record_type, source_label, ra.sort_order
+        LIMIT 500
+    """, {"cid": client_id}).fetchall()
+
+    all_atts = [dict(r) for r in rows]
+
+    # Search filter
+    if q:
+        q_lower = q.lower()
+        all_atts = [a for a in all_atts if q_lower in (a.get("title") or "").lower()
+                     or q_lower in (a.get("filename") or "").lower()
+                     or q_lower in (a.get("description") or "").lower()]
+
+    # Human-readable size
+    def _size_display(size):
+        if not size:
+            return ""
+        if size < 1024:
+            return f"{size} B"
+        if size < 1024 * 1024:
+            return f"{size / 1024:.0f} KB"
+        return f"{size / (1024 * 1024):.1f} MB"
+
+    for a in all_atts:
+        a["size_display"] = _size_display(a.get("file_size"))
+
+    # Build link URLs for source records
+    def _link_url(record_type, record_id, source_label):
+        if record_type == "policy" and source_label:
+            uid = source_label.split(" — ")[0].strip()
+            return f"/policies/{uid}/edit"
+        if record_type == "meeting":
+            return f"/meetings/{record_id}"
+        if record_type == "project":
+            return f"/clients/{client_id}/projects/{record_id}"
+        if record_type == "client":
+            return f"/clients/{client_id}"
+        return ""
+
+    for a in all_atts:
+        a["link_url"] = _link_url(a["record_type"], a["record_id"], a.get("source_label", ""))
+
+    total_count = len(all_atts)
+    record_types = sorted({a["record_type"] for a in all_atts})
+
+    # Build grouped structure
+    groups = []
+    if view == "grouped":
+        from collections import OrderedDict
+        seen = OrderedDict()
+        for a in all_atts:
+            key = (a["record_type"], a["record_id"])
+            if key not in seen:
+                seen[key] = {
+                    "record_type": a["record_type"],
+                    "record_id": a["record_id"],
+                    "label": a.get("source_label") or a["record_type"].replace("_", " ").title(),
+                    "link_url": a.get("link_url", ""),
+                    "attachments": [],
+                }
+            seen[key]["attachments"].append(a)
+        groups = list(seen.values())
+
+    # Flat view + record type filter
+    flat_list = all_atts if view == "flat" else []
+    rt_filter = ""
+    if view == "flat" and rt:
+        rt_filter = rt
+        flat_list = [a for a in flat_list if a["record_type"] == rt]
+
+    ctx = {
+        "request": request,
+        "client": client_dict,
+        "view": view,
+        "q": q,
+        "total_count": total_count,
+        "groups": groups,
+        "flat_list": flat_list,
+        "record_types": record_types,
+        "rt_filter": rt_filter,
+        "dt_available": is_devonthink_available(),
+        "categories": cfg.get("attachment_categories", []),
+    }
+    # HTMX swaps target #client-files-content — return only the inner partial
+    tpl = "clients/_files_content.html" if request.headers.get("HX-Request") else "clients/_tab_files.html"
+    return templates.TemplateResponse(tpl, ctx)
+
+
 @router.get("/{client_id}/quick-brief", response_class=HTMLResponse)
 def client_quick_brief(request: Request, client_id: int, conn=Depends(get_db)):
     """Quick Brief slideover - 10-second client digest."""
@@ -1963,6 +2092,18 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
         (client_id,),
     ).fetchall()]
 
+    # Attachment rollup count for Files tab badge
+    _att_count = conn.execute("""
+        SELECT COUNT(DISTINCT a.id) FROM attachments a
+        JOIN record_attachments ra ON ra.attachment_id = a.id
+        WHERE (ra.record_type = 'client' AND ra.record_id = :cid)
+           OR (ra.record_type = 'policy' AND ra.record_id IN (SELECT id FROM policies WHERE client_id = :cid AND archived = 0))
+           OR (ra.record_type = 'meeting' AND ra.record_id IN (SELECT id FROM client_meetings WHERE client_id = :cid))
+           OR (ra.record_type = 'activity' AND ra.record_id IN (SELECT id FROM activity_log WHERE client_id = :cid))
+           OR (ra.record_type = 'project' AND ra.record_id IN (SELECT id FROM projects WHERE client_id = :cid))
+           OR (ra.record_type = 'rfi_bundle' AND ra.record_id IN (SELECT id FROM client_request_bundles WHERE client_id = :cid))
+    """, {"cid": client_id}).fetchone()[0]
+
     from policydb.queries import REVIEW_CYCLE_LABELS as _REVIEW_CYCLE_LABELS
     from policydb.data_health import score_client as _score_client
     _client_dict = dict(client)
@@ -2079,6 +2220,11 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
         "health_missing": _client_dict.get("health_missing", []),
         "health_threshold": cfg.get("data_health_threshold", 85),
         "sidebar_issues": sidebar_issues,
+        "attachment_count": _att_count,
+        "pinned_notes": _pinned_notes_for_page(conn, "client", client_id),
+        "pinned_scope": "client",
+        "pinned_scope_id": str(client_id),
+        "pinned_client_id": "",
     })
 
 
@@ -3794,6 +3940,10 @@ def project_detail(
             "policies": [dict(p) for p in policies],
             "cope": cope,
             "location_programs": location_programs,
+            "pinned_notes": _pinned_notes_for_page(conn, "project", project_id, client_id=client_id),
+            "pinned_scope": "project",
+            "pinned_scope_id": str(project_id),
+            "pinned_client_id": str(client_id),
         },
     )
 

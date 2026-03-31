@@ -35,6 +35,9 @@
       </div>
     </div>
 
+    {# ── Pinned Notes Banner ── #}
+    {% include "_pinned_notes_banner.html" %}
+
     <div class="card p-4">
       <textarea id="proj-notes-ta" rows="20"
         class="w-full text-sm text-gray-800 bg-transparent resize-none focus:outline-none">{{ project.notes or '' }}</textarea>
@@ -239,6 +242,14 @@
       <a href="/clients/{{ client.id }}?tab=risk" class="text-xs text-gray-400 hover:text-marsh mt-2 block">Edit COPE data ↗</a>
     </div>
     {% endif %}
+
+    {# Files & Attachments #}
+    <div class="card p-4">
+      <div hx-get="/api/attachments/panel?record_type=project&record_id={{ project.id }}"
+           hx-trigger="load" hx-swap="innerHTML">
+        <p class="text-xs text-gray-400 italic">Loading...</p>
+      </div>
+    </div>
 
     {# Metadata #}
     <div class="card p-4">
