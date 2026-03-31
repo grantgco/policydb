@@ -191,6 +191,20 @@ _DEFAULTS: dict[str, Any] = {
         "LLM-Assisted",
         "External",
     ],
+    "attachment_categories": [
+        "General",
+        "Dec Page",
+        "Binder",
+        "Certificate",
+        "Application",
+        "Endorsement",
+        "Loss Run",
+        "Meeting Notes",
+        "Contract",
+        "Correspondence",
+        "Proposal",
+        "Report",
+    ],
     # ── Anomaly detection ──────────────────────────────────────────────
     "anomaly_thresholds": {
         "renewal_not_started_days": 60,
