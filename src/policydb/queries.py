@@ -256,6 +256,8 @@ def attach_open_issues(conn: sqlite3.Connection, rows: list[dict], policy_id_fie
             r["issue_subject"] = issue["subject"]
         else:
             r.setdefault("issue_uid", None)
+            r.setdefault("issue_severity", None)
+            r.setdefault("issue_subject", None)
 
 
 def get_dashboard_issues_widget(conn: sqlite3.Connection, limit: int = 3) -> dict:
