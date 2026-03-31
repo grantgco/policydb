@@ -196,12 +196,15 @@
             {% endif %}
           </td>
 
-          {# Contact — editable text, saves to contact_person #}
-          <td class="px-3 py-2">
-            <div contenteditable="true"
-                 class="matrix-cell-editable text-xs text-gray-600 min-h-[1.25rem] outline-none"
-                 data-field="contact_person"
-                 data-placeholder="Contact...">{{ a.contact_name or a.contact_person or '' }}</div>
+          {# Contact — dynamic combobox, searches contacts for this client #}
+          <td class="px-3 py-2 relative contact-suggest-cell" data-client-id="{{ a.client_id }}" data-contact-id="{{ a.contact_id or '' }}">
+            <div class="cell-display cursor-pointer" onclick="openContactSuggest(this.closest('td'))">
+              {% if a.contact_name or a.contact_person %}
+              <span class="text-xs text-gray-600">{{ a.contact_name or a.contact_person }}</span>
+              {% else %}
+              <span class="text-gray-300 text-xs">&mdash;</span>
+              {% endif %}
+            </div>
           </td>
 
           {# Subject — contenteditable #}
@@ -319,4 +322,89 @@
     });
   }
 })();
+
+/* ── Contact suggest combobox ── */
+window.openContactSuggest = function(td) {
+  if (td.querySelector('.contact-suggest-input')) return;
+  var clientId = td.dataset.clientId;
+  var display = td.querySelector('.cell-display');
+  var currentName = display ? display.textContent.trim() : '';
+  if (currentName === '\u2014') currentName = '';
+  var rowId = td.closest('tr').dataset.rowId;
+
+  var input = document.createElement('input');
+  input.type = 'text'; input.className = 'contact-suggest-input';
+  input.value = currentName; input.setAttribute('autocomplete', 'off');
+  input.style.cssText = 'width:100%;font-size:12px;border:none;outline:none;padding:2px 0;background:transparent;';
+
+  var list = document.createElement('div');
+  list.style.cssText = 'position:absolute;z-index:30;left:0;right:0;top:100%;background:#fff;border:1px solid #e5e7eb;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.1);max-height:180px;overflow-y:auto;';
+
+  var allContacts = [];
+  var activeIdx = -1;
+
+  function escHtml(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+  function renderList(q) {
+    list.innerHTML = ''; activeIdx = -1;
+    var lq = (q || '').toLowerCase();
+    allContacts.filter(function(c) { return !lq || c.name.toLowerCase().indexOf(lq) >= 0; })
+      .forEach(function(c) {
+        var item = document.createElement('div');
+        item.style.cssText = 'padding:4px 10px;cursor:pointer;font-size:12px;';
+        item.innerHTML = escHtml(c.name) + (c.detail ? ' <span style="color:#999;font-size:10px;">' + escHtml(c.detail) + '</span>' : '');
+        item.dataset.contactId = c.id; item.dataset.contactName = c.name;
+        item.addEventListener('mouseenter', function() { item.style.background = '#f3f4f6'; });
+        item.addEventListener('mouseleave', function() { item.style.background = ''; });
+        item.addEventListener('mousedown', function(e) { e.preventDefault(); selectContact(c.id, c.name); });
+        list.appendChild(item);
+      });
+    if (lq && !allContacts.some(function(c) { return c.name.toLowerCase() === lq; })) {
+      var freeItem = document.createElement('div');
+      freeItem.style.cssText = 'padding:4px 10px;cursor:pointer;font-size:11px;color:#6b7280;border-top:1px solid #f3f4f6;';
+      freeItem.textContent = 'Use "' + q + '" (free text)';
+      freeItem.addEventListener('mousedown', function(e) { e.preventDefault(); selectFreeText(q); });
+      list.appendChild(freeItem);
+    }
+  }
+
+  function selectContact(contactId, name) {
+    close();
+    display.innerHTML = '<span class="text-xs text-gray-600">' + escHtml(name) + '</span>';
+    td.dataset.contactId = contactId;
+    fetch('/activities/' + rowId + '/field', {method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({field:'contact_id', value: contactId})});
+    fetch('/activities/' + rowId + '/field', {method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({field:'contact_person', value: name})});
+    flashCell(display);
+  }
+
+  function selectFreeText(name) {
+    close();
+    display.innerHTML = '<span class="text-xs text-gray-600">' + escHtml(name) + '</span>';
+    td.dataset.contactId = '';
+    fetch('/activities/' + rowId + '/field', {method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({field:'contact_person', value: name})});
+    fetch('/activities/' + rowId + '/field', {method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({field:'contact_id', value: ''})});
+    flashCell(display);
+  }
+
+  function close() {
+    input.remove(); list.remove();
+    if (display) display.style.display = '';
+  }
+
+  if (display) display.style.display = 'none';
+  td.appendChild(input); td.appendChild(list);
+  input.focus(); input.select();
+
+  fetch('/contacts/suggest?client_id=' + clientId).then(function(r) { return r.json(); }).then(function(data) {
+    allContacts = data; renderList(input.value);
+  });
+
+  input.addEventListener('input', function() { renderList(input.value); });
+  input.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') { e.preventDefault(); close(); display.style.display = ''; }
+    else if (e.key === 'Enter') { e.preventDefault(); var items = list.querySelectorAll('div[data-contact-id]'); if (items.length === 1) { selectContact(items[0].dataset.contactId, items[0].dataset.contactName); } else if (input.value.trim()) { selectFreeText(input.value.trim()); } }
+  });
+  var blurClosed = false;
+  input.addEventListener('blur', function() { if (!blurClosed) { blurClosed = true; setTimeout(close, 150); } });
+};
 </script>

@@ -881,14 +881,14 @@ def get_all_followups(
 def get_contacts_for_client(conn: sqlite3.Connection, client_id: int) -> list[dict]:
     """Return deduplicated contacts for a client (from unified contacts + assignments) for autocomplete."""
     rows = conn.execute("""
-        SELECT DISTINCT co.name, COALESCE(cca.role, cca.title, '') AS detail, cca.contact_type AS source
+        SELECT co.id, co.name, COALESCE(cca.role, cca.title, '') AS detail, cca.contact_type AS source
         FROM contacts co
         JOIN contact_client_assignments cca ON co.id = cca.contact_id
         WHERE cca.client_id = ?
 
         UNION
 
-        SELECT DISTINCT co.name, COALESCE(cpa.role, cpa.title, '') AS detail, 'placement' AS source
+        SELECT co.id, co.name, COALESCE(cpa.role, cpa.title, '') AS detail, 'placement' AS source
         FROM contacts co
         JOIN contact_policy_assignments cpa ON co.id = cpa.contact_id
         JOIN policies p ON cpa.policy_id = p.id

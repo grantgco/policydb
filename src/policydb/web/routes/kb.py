@@ -768,6 +768,81 @@ async def kb_links_for_entity(
     })
 
 
+# ── Entity-side KB linking (from policy/client pages) ─────────────────────────
+
+
+@router.get("/search-entries", response_class=HTMLResponse)
+async def search_entries(
+    request: Request,
+    q: str = Query(""),
+    entity_type: str = Query(""),
+    entity_id: int = Query(0),
+    conn=Depends(get_db),
+):
+    """Search KB articles and documents — used from policy/client pages to find entries to link."""
+    pattern = f"%{q}%"
+    articles = conn.execute(
+        "SELECT id, uid, title, category, 'article' AS entry_type FROM kb_articles "
+        "WHERE title LIKE ? OR category LIKE ? ORDER BY updated_at DESC LIMIT 10",
+        (pattern, pattern),
+    ).fetchall()
+    documents = conn.execute(
+        "SELECT id, uid, title, category, 'document' AS entry_type FROM kb_documents "
+        "WHERE title LIKE ? OR filename LIKE ? ORDER BY updated_at DESC LIMIT 10",
+        (pattern, pattern),
+    ).fetchall()
+
+    entries = []
+    for row in list(articles) + list(documents):
+        d = dict(row)
+        d["colors"] = _get_colors(d.get("category") or "")
+        entries.append(d)
+
+    return templates.TemplateResponse("kb/_entry_search_results.html", {
+        "request": request,
+        "entries": entries,
+        "entity_type": entity_type,
+        "entity_id": entity_id,
+    })
+
+
+@router.post("/link-from-entity", response_class=HTMLResponse)
+async def link_from_entity(
+    request: Request,
+    entry_type: str = Form(...),
+    entry_id: int = Form(...),
+    entity_type: str = Form(...),
+    entity_id: int = Form(...),
+    conn=Depends(get_db),
+):
+    """Create a KB link from a policy/client page."""
+    try:
+        conn.execute(
+            "INSERT OR IGNORE INTO kb_record_links (entry_type, entry_id, entity_type, entity_id) VALUES (?, ?, ?, ?)",
+            (entry_type, entry_id, entity_type, entity_id),
+        )
+        conn.commit()
+    except Exception:
+        pass
+
+    # Return refreshed entity KB links
+    return await kb_links_for_entity(request, entity_type, entity_id, conn)
+
+
+@router.post("/unlink-from-entity", response_class=HTMLResponse)
+async def unlink_from_entity(
+    request: Request,
+    link_id: int = Form(...),
+    entity_type: str = Form(...),
+    entity_id: int = Form(...),
+    conn=Depends(get_db),
+):
+    """Remove a KB link from a policy/client page."""
+    conn.execute("DELETE FROM kb_record_links WHERE id = ?", (link_id,))
+    conn.commit()
+    return await kb_links_for_entity(request, entity_type, entity_id, conn)
+
+
 # ── Document search (for attach picker) ─────────────────────────────────────
 
 @router.get("/search-documents", response_class=HTMLResponse)
