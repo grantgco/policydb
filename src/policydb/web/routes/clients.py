@@ -6,7 +6,7 @@ import logging
 logger = logging.getLogger("policydb.web.routes.clients")
 
 from fastapi import APIRouter, Depends, Form, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
 from babel.dates import format_datetime as babel_format_datetime
@@ -513,6 +513,150 @@ def client_new_post(
     conn.commit()
     logger.info("Client %d created: %s", cursor.lastrowid, name)
     return RedirectResponse(f"/clients/{cursor.lastrowid}", status_code=303)
+
+
+# ─── CLIENT SPREADSHEET VIEW ────────────────────────────────────────────────
+
+
+@router.get("/spreadsheet", response_class=HTMLResponse)
+def client_spreadsheet(request: Request, conn=Depends(get_db)):
+    """Full-book editable client spreadsheet view using Tabulator."""
+    from policydb.queries import get_all_clients_for_grid
+
+    rows = get_all_clients_for_grid(conn)
+
+    industry_segments = cfg.get("industry_segments", [])
+    risk_levels = cfg.get("relationship_risk_levels", ["None", "Low", "Medium", "High"])
+    service_models = cfg.get("service_model_options", ["Standard", "High-touch", "White-glove"])
+
+    columns = [
+        {"field": "name", "title": "Client", "width": 200,
+         "editor": "input", "headerFilter": "input", "_format": "link"},
+        {"field": "cn_number", "title": "Account #", "width": 120,
+         "editor": "input", "headerFilter": "input"},
+        {"field": "industry_segment", "title": "Industry", "width": 160,
+         "editor": "list", "editorParams": {"values": industry_segments, "autocomplete": True, "freetext": True, "listOnEmpty": True},
+         "headerFilter": "input"},
+        {"field": "account_exec", "title": "Account Exec", "width": 130,
+         "editor": "input", "headerFilter": "input"},
+        {"field": "date_onboarded", "title": "Onboarded", "width": 115,
+         "editor": "date", "_format": "date"},
+        {"field": "website", "title": "Website", "width": 160,
+         "editor": "input"},
+        {"field": "fein", "title": "FEIN", "width": 110,
+         "editor": "input"},
+        {"field": "broker_fee", "title": "Broker Fee", "width": 110,
+         "editor": "number", "editorParams": {"selectContents": True},
+         "_format": "currency"},
+        {"field": "hourly_rate", "title": "Hourly Rate", "width": 100,
+         "editor": "number", "editorParams": {"selectContents": True},
+         "_format": "currency"},
+        {"field": "follow_up_date", "title": "Follow-Up", "width": 115,
+         "editor": "date", "_format": "date"},
+        {"field": "relationship_risk", "title": "Risk Level", "width": 110,
+         "editor": "list", "editorParams": {"values": risk_levels, "autocomplete": True, "freetext": False, "listOnEmpty": True},
+         "headerFilter": "list", "headerFilterParams": {"values": {s: s for s in risk_levels}, "clearable": True}},
+        {"field": "service_model", "title": "Service Model", "width": 120,
+         "editor": "list", "editorParams": {"values": service_models, "autocomplete": True, "freetext": False, "listOnEmpty": True},
+         "headerFilter": "list", "headerFilterParams": {"values": {s: s for s in service_models}, "clearable": True}},
+        {"field": "stewardship_date", "title": "Stewardship", "width": 115,
+         "editor": "date", "_format": "date"},
+        {"field": "renewal_strategy", "title": "Renewal Strategy", "width": 180,
+         "editor": "input"},
+        {"field": "growth_opportunities", "title": "Growth Opps", "width": 180,
+         "editor": "input"},
+        {"field": "account_priorities", "title": "Priorities", "width": 160,
+         "editor": "input"},
+        {"field": "business_description", "title": "Business Desc", "width": 200,
+         "editor": "input"},
+        {"field": "notes", "title": "Notes", "width": 180,
+         "editor": "input"},
+        # Read-only aggregates
+        {"field": "total_policies", "title": "Policies", "width": 80,
+         "hozAlign": "right", "headerHozAlign": "right"},
+        {"field": "total_premium", "title": "Total Premium", "width": 120,
+         "_format": "currency"},
+        {"field": "total_revenue", "title": "Revenue", "width": 110,
+         "_format": "currency"},
+        {"field": "next_renewal_days", "title": "Next Renewal", "width": 105,
+         "hozAlign": "right", "headerHozAlign": "right"},
+    ]
+
+    return templates.TemplateResponse("clients/spreadsheet.html", {
+        "request": request,
+        "active": "client-spreadsheet",
+        "rows": rows,
+        "columns": columns,
+    })
+
+
+@router.get("/spreadsheet/export")
+def client_spreadsheet_export(request: Request, conn=Depends(get_db)):
+    """Export client spreadsheet as branded XLSX."""
+    from policydb.exporter import _write_sheet, _wb_to_bytes
+    from openpyxl import Workbook
+    from policydb.queries import get_all_clients_for_grid
+
+    rows = get_all_clients_for_grid(conn)
+
+    for key, val in request.query_params.items():
+        if key.startswith("filter_") and val:
+            field = key[7:]
+            val_lower = val.lower()
+            rows = [r for r in rows if val_lower in str(r.get(field, "") or "").lower()]
+
+    sort_field = request.query_params.get("sort_field")
+    sort_dir = request.query_params.get("sort_dir", "asc")
+    if sort_field and rows:
+        reverse = sort_dir.lower() == "desc"
+        rows.sort(key=lambda r: (r.get(sort_field) is None, r.get(sort_field, "")), reverse=reverse)
+
+    wb = Workbook()
+    wb.remove(wb.active)
+    _write_sheet(wb, "Client Spreadsheet", rows, wrap_text=False)
+    content = _wb_to_bytes(wb)
+
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="client_spreadsheet.xlsx"'},
+    )
+
+
+@router.post("/quick-add", response_class=JSONResponse)
+async def client_quick_add(request: Request, conn=Depends(get_db)):
+    """Create a minimal client record for spreadsheet add-row."""
+    body = await request.json()
+    name = (body.get("name") or "").strip()
+    if not name:
+        return JSONResponse({"ok": False, "error": "Name required"}, status_code=400)
+
+    existing = conn.execute("SELECT id FROM clients WHERE LOWER(name) = LOWER(?)", (name,)).fetchone()
+    if existing:
+        return JSONResponse({"ok": False, "error": "Client already exists"}, status_code=400)
+
+    account_exec = cfg.get("default_account_exec", "")
+    conn.execute(
+        "INSERT INTO clients (name, industry_segment, account_exec) VALUES (?, '', ?)",
+        (name, account_exec),
+    )
+    conn.commit()
+    new_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    row = conn.execute(
+        """SELECT c.id, c.name, c.cn_number, c.industry_segment, c.account_exec,
+                  c.date_onboarded, c.website, c.fein, c.broker_fee, c.hourly_rate,
+                  c.follow_up_date, c.relationship_risk, c.service_model,
+                  c.business_description, c.notes, c.stewardship_date,
+                  c.renewal_strategy, c.growth_opportunities, c.account_priorities,
+                  0 AS total_policies, 0 AS total_premium, 0 AS total_revenue,
+                  NULL AS next_renewal_days
+           FROM clients c WHERE c.id = ?""",
+        (new_id,),
+    ).fetchone()
+
+    logger.info("Quick-add client %d: %s", new_id, name)
+    return JSONResponse({"ok": True, "row": dict(row)})
 
 
 @router.get("/{client_id}/tab/overview", response_class=HTMLResponse)
@@ -4837,7 +4981,14 @@ async def client_field_patch(
     field = body.get("field", "")
     value = body.get("value", "")
 
-    allowed = {"latitude", "longitude", "follow_up_date"}
+    allowed = {
+        "name", "cn_number", "industry_segment", "account_exec",
+        "date_onboarded", "website", "fein", "broker_fee", "hourly_rate",
+        "follow_up_date", "relationship_risk", "service_model",
+        "business_description", "notes", "stewardship_date",
+        "renewal_strategy", "growth_opportunities", "account_priorities",
+        "latitude", "longitude",
+    }
     if field not in allowed:
         return JSONResponse({"ok": False, "error": f"Invalid field: {field}"}, status_code=400)
 
@@ -4845,7 +4996,10 @@ async def client_field_patch(
     if not client:
         return JSONResponse({"ok": False, "error": "Not found"}, status_code=404)
 
-    if field in ("latitude", "longitude"):
+    formatted = value
+
+    # Numeric fields
+    if field in ("latitude", "longitude", "hourly_rate"):
         try:
             num = float(value) if str(value).strip() else None
         except ValueError:
@@ -4854,9 +5008,21 @@ async def client_field_patch(
         conn.commit()
         return JSONResponse({"ok": True, "formatted": str(num) if num is not None else ""})
 
+    # Currency fields
+    if field in ("broker_fee",):
+        from policydb.utils import parse_currency_with_magnitude
+        parsed = parse_currency_with_magnitude(value)
+        conn.execute(f"UPDATE clients SET {field} = ? WHERE id = ?", (parsed, client_id))
+        conn.commit()
+        if parsed is not None:
+            formatted = f"${parsed:,.0f}" if parsed == int(parsed) else f"${parsed:,.2f}"
+        else:
+            formatted = ""
+        return JSONResponse({"ok": True, "formatted": formatted})
+
     conn.execute(f"UPDATE clients SET {field} = ? WHERE id = ?", (value or None, client_id))
     conn.commit()
-    return JSONResponse({"ok": True, "formatted": value})
+    return JSONResponse({"ok": True, "formatted": formatted})
 
 
 # ---------------------------------------------------------------------------
