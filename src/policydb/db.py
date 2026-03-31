@@ -1639,6 +1639,15 @@ def init_db(path: Path | None = None) -> None:
         conn.commit()
         logger.info("Migration 117: created universal attachments tables, migrated KB documents")
 
+    if 119 not in applied:
+        conn.executescript((_MIGRATIONS_DIR / "119_pinned_notes.sql").read_text())
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (119, "Pinned notes for client/policy/project pages"),
+        )
+        conn.commit()
+        logger.info("Migration 119: created pinned_notes table")
+
     # Data hygiene: fix 'None' string corruption in text fields (runs every startup, fast no-op if clean)
     conn.execute("UPDATE clients SET cn_number = NULL WHERE cn_number = 'None'")
 

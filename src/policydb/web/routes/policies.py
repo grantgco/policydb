@@ -30,6 +30,12 @@ from policydb.web.app import get_db, templates
 
 router = APIRouter(prefix="/policies")
 
+
+def _pinned_notes_for_page(conn, scope, scope_id, client_id=None):
+    from policydb.web.routes.pinned_notes import get_pinned_notes_with_cascade
+    return get_pinned_notes_with_cascade(conn, scope, scope_id, client_id=client_id)
+
+
 US_STATES = [
     ("AL", "Alabama"), ("AK", "Alaska"), ("AZ", "Arizona"), ("AR", "Arkansas"),
     ("CA", "California"), ("CO", "Colorado"), ("CT", "Connecticut"), ("DE", "Delaware"),
@@ -3137,6 +3143,10 @@ def policy_edit_form(request: Request, policy_uid: str, add_contact: str = "", c
         "program_health": _program_health,
         "issue_severities": cfg.get("issue_severities", []),
         "all_clients": [dict(r) for r in conn.execute("SELECT id, name FROM clients WHERE archived = 0 ORDER BY name").fetchall()],
+        "pinned_notes": _pinned_notes_for_page(conn, "policy", uid, client_id=policy_dict["client_id"]),
+        "pinned_scope": "policy",
+        "pinned_scope_id": uid,
+        "pinned_client_id": str(policy_dict["client_id"]),
     })
 
 
