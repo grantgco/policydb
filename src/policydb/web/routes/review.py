@@ -8,15 +8,20 @@ from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from policydb import config as cfg
-from policydb.utils import round_duration
-from policydb.timeline_engine import suggest_profile
+from policydb.utils import round_duration, parse_currency_with_magnitude
+from policydb.timeline_engine import suggest_profile, get_policy_timeline
 from policydb.queries import (
     REVIEW_CYCLE_DAYS,
     REVIEW_CYCLE_LABELS,
+    attach_issue_counts,
+    get_activities,
+    get_client_contacts,
+    get_policy_contacts,
     get_review_queue,
     get_review_stats,
     mark_reviewed,
     set_review_cycle,
+    supersede_followups,
 )
 from policydb.web.app import get_db, templates
 
@@ -91,7 +96,7 @@ def _policy_row_context(request, row: dict, reviewed: bool = False,
 
 
 def _enrich_policy_rows(conn, rows: list[dict]) -> list[dict]:
-    """Attach client_id, milestone progress, and timeline health to review queue rows."""
+    """Attach client_id, milestone progress, timeline health, and issue counts to review queue rows."""
     from policydb.web.routes.policies import _attach_milestone_progress
     for r in rows:
         if "client_id" not in r or not r.get("client_id"):
@@ -101,7 +106,117 @@ def _enrich_policy_rows(conn, rows: list[dict]) -> list[dict]:
             r["client_id"] = client_row["id"] if client_row else 0
     rows = _attach_milestone_progress(conn, rows)
     _attach_timeline_health(conn, rows)
+    attach_issue_counts(conn, rows, id_field="id", scope="policy")
     return rows
+
+
+def _enrich_client_rows(conn, rows: list[dict]) -> list[dict]:
+    """Attach issue counts to client review rows."""
+    attach_issue_counts(conn, rows, id_field="id", scope="client")
+    return rows
+
+
+def _get_policy_review_context(conn, uid: str) -> dict | None:
+    """Assemble all data needed for the policy review slideover."""
+    row = _fetch_review_row(conn, uid)
+    if not row:
+        return None
+    policy_id = row.get("id")
+    client_id = row.get("client_id")
+
+    # Contacts
+    policy_contacts = get_policy_contacts(conn, policy_id) if policy_id else []
+    primary_client_contact = None
+    if client_id:
+        cc = get_client_contacts(conn, client_id, contact_type="client")
+        primary_client_contact = cc[0] if cc else None
+
+    # Review gate
+    from policydb.anomaly_engine import get_review_gate_status
+    gate = get_review_gate_status(conn, "policy", policy_id)
+
+    # Follow-up info
+    active_fu = None
+    if policy_id:
+        fu_row = conn.execute("""
+            SELECT follow_up_date, subject, activity_type
+            FROM activity_log
+            WHERE policy_id = ? AND follow_up_done = 0 AND follow_up_date IS NOT NULL
+            ORDER BY follow_up_date ASC LIMIT 1
+        """, (policy_id,)).fetchone()
+        if fu_row:
+            active_fu = dict(fu_row)
+
+    return {
+        "p": row,
+        "policy_contacts": policy_contacts,
+        "primary_client_contact": primary_client_contact,
+        "gate": gate,
+        "active_followup": active_fu,
+    }
+
+
+def _get_client_review_context(conn, client_id: int) -> dict | None:
+    """Assemble all data needed for the client review slideover."""
+    row = conn.execute(
+        """SELECT c.*, cs.total_policies, cs.total_premium, cs.next_renewal_days,
+                  cs.opportunity_count,
+                  CASE WHEN c.last_reviewed_at IS NULL THEN 9999
+                       ELSE CAST(julianday('now') - julianday(c.last_reviewed_at) AS INTEGER)
+                  END AS days_since_review
+           FROM clients c
+           LEFT JOIN v_client_summary cs ON cs.id = c.id
+           WHERE c.id = ?""",
+        (client_id,),
+    ).fetchone()
+    if not row:
+        return None
+    client = dict(row)
+
+    # Contacts
+    client_contacts = get_client_contacts(conn, client_id, contact_type="client")
+    internal_contacts = get_client_contacts(conn, client_id, contact_type="internal")
+
+    # Active policies with urgency
+    policies = [dict(r) for r in conn.execute("""
+        SELECT policy_uid, policy_type, carrier, expiration_date, renewal_status,
+               is_opportunity, premium,
+               CAST(julianday(expiration_date) - julianday('now') AS INTEGER) AS days_to_renewal,
+               CASE WHEN is_opportunity = 1 THEN 'OPPORTUNITY'
+                    WHEN julianday(expiration_date) - julianday('now') <= 0 THEN 'EXPIRED'
+                    WHEN julianday(expiration_date) - julianday('now') <= 90 THEN 'URGENT'
+                    WHEN julianday(expiration_date) - julianday('now') <= 120 THEN 'WARNING'
+                    WHEN julianday(expiration_date) - julianday('now') <= 180 THEN 'UPCOMING'
+                    ELSE 'OK'
+               END AS urgency
+        FROM policies
+        WHERE client_id = ? AND archived = 0 AND program_id IS NULL
+        ORDER BY expiration_date ASC
+    """, (client_id,)).fetchall()]
+
+    # Overdue follow-ups
+    overdue_fus = [dict(r) for r in conn.execute("""
+        SELECT a.id, a.subject, a.follow_up_date, p.policy_uid, p.policy_type
+        FROM activity_log a
+        LEFT JOIN policies p ON a.policy_id = p.id
+        WHERE a.client_id = ? AND a.follow_up_done = 0
+          AND a.follow_up_date IS NOT NULL AND a.follow_up_date <= date('now')
+        ORDER BY a.follow_up_date ASC LIMIT 10
+    """, (client_id,)).fetchall()]
+
+    # Scratchpad
+    scratchpad = conn.execute(
+        "SELECT content FROM client_scratchpad WHERE client_id = ?", (client_id,)
+    ).fetchone()
+
+    return {
+        "c": client,
+        "client_contacts": client_contacts,
+        "internal_contacts": internal_contacts,
+        "policies": policies,
+        "overdue_followups": overdue_fus,
+        "scratchpad": dict(scratchpad)["content"] if scratchpad else "",
+    }
 
 
 # ── Page ──────────────────────────────────────────────────────────────────────
@@ -113,7 +228,7 @@ def review_page(request: Request, client_id: int = 0, conn=Depends(get_db)):
 
     policies = _enrich_policy_rows(conn, queue["policies"])
     opportunities = _enrich_policy_rows(conn, queue["opportunities"])
-    clients = queue["clients"]
+    clients = _enrich_client_rows(conn, queue["clients"])
 
     suggestions = suggest_profile(conn)
     unassigned_count = len(suggestions)
@@ -411,6 +526,376 @@ def policy_row_log_save(
         "review/_policy_row.html",
         _policy_row_context(request, r, suggestions=suggestions),
     )
+
+
+# ── Policy Review Slideover ──────────────────────────────────────────────────
+
+@router.get("/policies/{uid}/slideover", response_class=HTMLResponse)
+def policy_slideover(request: Request, uid: str, conn=Depends(get_db)):
+    """Return the full policy review slideover shell."""
+    ctx = _get_policy_review_context(conn, uid)
+    if not ctx:
+        return HTMLResponse("")
+    p = ctx["p"]
+
+    # Build ordered list of all review queue UIDs for next/prev navigation
+    queue = get_review_queue(conn)
+    queue_uids = [r.get("policy_uid") for r in queue["policies"]] + \
+                 [r.get("policy_uid") for r in queue["opportunities"]]
+
+    suggestions = suggest_profile(conn)
+    return templates.TemplateResponse("review/_policy_review_slideover.html", {
+        "request": request,
+        **ctx,
+        "renewal_statuses": cfg.get("renewal_statuses", []),
+        "cycle_labels": REVIEW_CYCLE_LABELS,
+        "milestone_profiles": cfg.get("milestone_profiles", []),
+        "suggestions": suggestions or {},
+        "today": date.today().isoformat(),
+        "queue_uids": queue_uids,
+    })
+
+
+@router.get("/policies/{uid}/slideover/issues", response_class=HTMLResponse)
+def policy_slideover_issues(request: Request, uid: str, conn=Depends(get_db)):
+    """Return the issues section partial for the policy review slideover."""
+    row = conn.execute("SELECT id, client_id FROM policies WHERE policy_uid = ?", (uid,)).fetchone()
+    if not row:
+        return HTMLResponse("")
+    issues = [dict(r) for r in conn.execute("""
+        SELECT a.id, a.issue_uid, a.subject, a.issue_severity, a.issue_status,
+               a.issue_sla_days, a.activity_date, a.is_renewal_issue,
+               CAST(julianday('now') - julianday(a.activity_date) AS INTEGER) AS days_open,
+               a.due_date
+        FROM activity_log a
+        WHERE a.item_kind = 'issue'
+          AND (a.policy_id = ? OR (a.client_id = ? AND a.policy_id IS NULL))
+          AND a.issue_status NOT IN ('Resolved', 'Closed')
+        ORDER BY CASE a.issue_severity
+            WHEN 'Critical' THEN 1 WHEN 'High' THEN 2
+            WHEN 'Normal' THEN 3 ELSE 4 END,
+            a.activity_date ASC
+    """, (row["id"], row["client_id"])).fetchall()]
+    return templates.TemplateResponse("review/_policy_review_issues.html", {
+        "request": request,
+        "issues": issues,
+        "policy_uid": uid,
+        "client_id": row["client_id"],
+        "policy_id": row["id"],
+        "today": date.today().isoformat(),
+    })
+
+
+@router.get("/policies/{uid}/slideover/activity", response_class=HTMLResponse)
+def policy_slideover_activity(request: Request, uid: str, conn=Depends(get_db)):
+    """Return the activity + quick-log section for the policy review slideover."""
+    row = conn.execute("SELECT id, client_id FROM policies WHERE policy_uid = ?", (uid,)).fetchone()
+    if not row:
+        return HTMLResponse("")
+    activities = [dict(r) for r in conn.execute("""
+        SELECT a.id, a.activity_date, a.activity_type, a.subject, a.details,
+               a.duration_hours, a.follow_up_date, a.follow_up_done,
+               a.disposition, co.name AS contact_name
+        FROM activity_log a
+        LEFT JOIN contacts co ON a.contact_id = co.id
+        WHERE a.policy_id = ? AND a.item_kind != 'issue'
+        ORDER BY a.activity_date DESC, a.id DESC
+        LIMIT 5
+    """, (row["id"],)).fetchall()]
+
+    # Total hours last 30d
+    hours_row = conn.execute("""
+        SELECT COALESCE(SUM(duration_hours), 0) AS total
+        FROM activity_log
+        WHERE policy_id = ? AND duration_hours > 0
+          AND activity_date >= date('now', '-30 days')
+    """, (row["id"],)).fetchone()
+
+    return templates.TemplateResponse("review/_policy_review_activity.html", {
+        "request": request,
+        "activities": activities,
+        "total_hours_30d": hours_row["total"] if hours_row else 0,
+        "policy_uid": uid,
+        "policy_id": row["id"],
+        "client_id": row["client_id"],
+        "activity_types": cfg.get("activity_types", []),
+        "quick_templates": cfg.get("quick_log_templates", []),
+    })
+
+
+@router.get("/policies/{uid}/slideover/notes", response_class=HTMLResponse)
+def policy_slideover_notes(request: Request, uid: str, conn=Depends(get_db)):
+    """Return the notes section for the policy review slideover."""
+    row = conn.execute(
+        "SELECT description, notes FROM policies WHERE policy_uid = ?", (uid,)
+    ).fetchone()
+    if not row:
+        return HTMLResponse("")
+    return templates.TemplateResponse("review/_policy_review_notes.html", {
+        "request": request,
+        "policy_uid": uid,
+        "description": row["description"] or "",
+        "notes": row["notes"] or "",
+    })
+
+
+@router.post("/policies/{uid}/slideover/field", response_class=HTMLResponse)
+def policy_slideover_field_save(
+    request: Request,
+    uid: str,
+    field: str = Form(...),
+    value: str = Form(""),
+    conn=Depends(get_db),
+):
+    """Per-field save from the review slideover."""
+    allowed = {
+        "renewal_status", "follow_up_date", "description", "notes",
+        "premium", "limit_amount", "opportunity_status",
+    }
+    if field not in allowed:
+        return HTMLResponse("", status_code=400)
+
+    if field in ("premium", "limit_amount"):
+        parsed = parse_currency_with_magnitude(value)
+        db_val = parsed if parsed is not None else None
+    elif field == "follow_up_date":
+        db_val = value or None
+        # Sync follow_up_date to policy table
+        conn.execute(
+            "UPDATE policies SET follow_up_date = ? WHERE policy_uid = ?",
+            (db_val, uid),
+        )
+        conn.commit()
+        return HTMLResponse(f'<span class="text-xs text-green-600">{value or "—"}</span>')
+    else:
+        db_val = value or None
+
+    conn.execute(
+        f"UPDATE policies SET {field} = ? WHERE policy_uid = ?",
+        (db_val, uid),
+    )
+    conn.commit()
+    return HTMLResponse(f'<span class="text-xs text-green-600">Saved</span>')
+
+
+@router.post("/policies/{uid}/slideover/log", response_class=HTMLResponse)
+def policy_slideover_log_save(
+    request: Request,
+    uid: str,
+    client_id: int = Form(...),
+    policy_id: int = Form(0),
+    activity_type: str = Form(...),
+    subject: str = Form(...),
+    details: str = Form(""),
+    follow_up_date: str = Form(""),
+    duration_hours: str = Form(""),
+    conn=Depends(get_db),
+):
+    """Log activity from within the review slideover."""
+    account_exec = cfg.get("default_account_exec", "Grant")
+    conn.execute(
+        """INSERT INTO activity_log
+           (activity_date, client_id, policy_id, activity_type, subject, details, follow_up_date, account_exec, duration_hours)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (date.today().isoformat(), client_id, policy_id or None, activity_type,
+         subject, details or None, follow_up_date or None, account_exec, round_duration(duration_hours)),
+    )
+    if follow_up_date and policy_id:
+        supersede_followups(conn, policy_id, follow_up_date)
+    conn.commit()
+
+    # Return refreshed activity section
+    return policy_slideover_activity(request, uid, conn)
+
+
+@router.post("/policies/{uid}/slideover/reviewed", response_class=HTMLResponse)
+def policy_slideover_mark_reviewed(
+    request: Request,
+    uid: str,
+    review_cycle: str = Form(""),
+    override_reason: str = Form(""),
+    conn=Depends(get_db),
+):
+    """Mark reviewed from within the slideover. Returns updated footer + OOB row swap."""
+    if override_reason:
+        conn.execute(
+            "UPDATE policies SET review_override_reason = ? WHERE policy_uid = ?",
+            (override_reason, uid),
+        )
+    mark_reviewed(conn, "policy", uid, review_cycle or None)
+
+    # Cascade to children if program
+    program = conn.execute(
+        "SELECT id FROM programs WHERE program_uid = ?", (uid,)
+    ).fetchone()
+    if program:
+        conn.execute(
+            "UPDATE policies SET last_reviewed_at = CURRENT_TIMESTAMP WHERE program_id = ?",
+            (program["id"],),
+        )
+        conn.commit()
+
+    # Build OOB row update
+    r = _fetch_review_row(conn, uid)
+    if not r:
+        return HTMLResponse("")
+
+    policy_id = r.get("id")
+    needs_followup = False
+    if policy_id:
+        active_fu = conn.execute("""
+            SELECT 1 FROM activity_log
+            WHERE policy_id = ? AND follow_up_done = 0 AND follow_up_date IS NOT NULL
+            LIMIT 1
+        """, (policy_id,)).fetchone()
+        needs_followup = active_fu is None
+
+    suggestions = suggest_profile(conn)
+
+    # Render the updated table row (OOB swap)
+    row_html = templates.TemplateResponse(
+        "review/_policy_row.html",
+        _policy_row_context(request, r, reviewed=True, needs_followup=needs_followup,
+                            suggestions=suggestions),
+    ).body.decode()
+
+    # Render the slideover footer in reviewed state
+    footer_html = f"""
+    <div id="review-slideover-footer" hx-swap-oob="innerHTML:#review-slideover-footer">
+      <div class="flex items-center justify-center gap-2 text-green-600">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+        </svg>
+        <span class="font-semibold text-sm">Reviewed</span>
+      </div>
+    </div>
+    """
+
+    resp = HTMLResponse(row_html + footer_html)
+    resp.headers["HX-Trigger"] = "refreshReviewStats"
+    return resp
+
+
+# ── Client Review Slideover ─────────────────────────────────────────────────
+
+@router.get("/clients/{client_id}/slideover", response_class=HTMLResponse)
+def client_slideover(request: Request, client_id: int, conn=Depends(get_db)):
+    """Return the full client review slideover."""
+    ctx = _get_client_review_context(conn, client_id)
+    if not ctx:
+        return HTMLResponse("")
+
+    # Queue UIDs for navigation
+    queue = get_review_queue(conn)
+    queue_client_ids = [r.get("id") for r in queue["clients"]]
+
+    return templates.TemplateResponse("review/_client_review_slideover.html", {
+        "request": request,
+        **ctx,
+        "cycle_labels": REVIEW_CYCLE_LABELS,
+        "queue_client_ids": queue_client_ids,
+    })
+
+
+@router.get("/clients/{client_id}/slideover/issues", response_class=HTMLResponse)
+def client_slideover_issues(request: Request, client_id: int, conn=Depends(get_db)):
+    """Return the issues section for the client review slideover."""
+    issues = [dict(r) for r in conn.execute("""
+        SELECT a.id, a.issue_uid, a.subject, a.issue_severity, a.issue_status,
+               a.issue_sla_days, a.activity_date, a.is_renewal_issue,
+               CAST(julianday('now') - julianday(a.activity_date) AS INTEGER) AS days_open,
+               a.due_date, p.policy_uid, p.policy_type
+        FROM activity_log a
+        LEFT JOIN policies p ON a.policy_id = p.id
+        WHERE a.item_kind = 'issue'
+          AND a.client_id = ?
+          AND a.issue_status NOT IN ('Resolved', 'Closed')
+        ORDER BY CASE a.issue_severity
+            WHEN 'Critical' THEN 1 WHEN 'High' THEN 2
+            WHEN 'Normal' THEN 3 ELSE 4 END,
+            a.activity_date ASC
+    """, (client_id,)).fetchall()]
+    return templates.TemplateResponse("review/_client_review_issues.html", {
+        "request": request,
+        "issues": issues,
+        "client_id": client_id,
+    })
+
+
+@router.get("/clients/{client_id}/slideover/activity", response_class=HTMLResponse)
+def client_slideover_activity(request: Request, client_id: int, conn=Depends(get_db)):
+    """Return the activity section for the client review slideover."""
+    activities = [dict(r) for r in conn.execute("""
+        SELECT a.id, a.activity_date, a.activity_type, a.subject,
+               a.duration_hours, p.policy_uid, p.policy_type,
+               co.name AS contact_name
+        FROM activity_log a
+        LEFT JOIN policies p ON a.policy_id = p.id
+        LEFT JOIN contacts co ON a.contact_id = co.id
+        WHERE a.client_id = ? AND a.item_kind != 'issue'
+        ORDER BY a.activity_date DESC, a.id DESC
+        LIMIT 8
+    """, (client_id,)).fetchall()]
+
+    hours_row = conn.execute("""
+        SELECT COALESCE(SUM(duration_hours), 0) AS total
+        FROM activity_log
+        WHERE client_id = ? AND duration_hours > 0
+          AND activity_date >= date('now', '-30 days')
+    """, (client_id,)).fetchone()
+
+    return templates.TemplateResponse("review/_client_review_activity.html", {
+        "request": request,
+        "activities": activities,
+        "total_hours_30d": hours_row["total"] if hours_row else 0,
+        "client_id": client_id,
+    })
+
+
+@router.post("/clients/{client_id}/slideover/reviewed", response_class=HTMLResponse)
+def client_slideover_mark_reviewed(
+    request: Request,
+    client_id: int,
+    review_cycle: str = Form(""),
+    conn=Depends(get_db),
+):
+    """Mark client reviewed from within the slideover."""
+    mark_reviewed(conn, "client", client_id, review_cycle or None)
+    row = conn.execute(
+        """SELECT c.*, cs.total_policies, cs.total_premium, cs.next_renewal_days, cs.opportunity_count,
+                  CASE WHEN c.last_reviewed_at IS NULL THEN 9999
+                       ELSE CAST(julianday('now') - julianday(c.last_reviewed_at) AS INTEGER)
+                  END AS days_since_review
+           FROM clients c
+           LEFT JOIN v_client_summary cs ON cs.id = c.id
+           WHERE c.id = ?""",
+        (client_id,),
+    ).fetchone()
+    if not row:
+        return HTMLResponse("")
+
+    # OOB row update
+    row_html = templates.TemplateResponse("review/_client_row.html", {
+        "request": request,
+        "c": dict(row),
+        "cycle_labels": REVIEW_CYCLE_LABELS,
+        "reviewed": True,
+    }).body.decode()
+
+    footer_html = """
+    <div id="client-review-slideover-footer" hx-swap-oob="innerHTML:#client-review-slideover-footer">
+      <div class="flex items-center justify-center gap-2 text-green-600">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+        </svg>
+        <span class="font-semibold text-sm">Reviewed</span>
+      </div>
+    </div>
+    """
+
+    resp = HTMLResponse(row_html + footer_html)
+    resp.headers["HX-Trigger"] = "refreshReviewStats"
+    return resp
 
 
 # ── Milestone profile change ─────────────────────────────────────────────────
