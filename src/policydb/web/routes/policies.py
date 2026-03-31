@@ -2722,6 +2722,18 @@ def policy_tab_workflow(request: Request, policy_uid: str, conn=Depends(get_db))
     })
 
 
+@router.get("/{policy_uid}/tab/files", response_class=HTMLResponse)
+def policy_tab_files(request: Request, policy_uid: str, conn=Depends(get_db)):
+    uid = policy_uid.upper()
+    policy_dict, _ = _policy_base(conn, uid)
+    if not policy_dict:
+        return HTMLResponse("Not found", status_code=404)
+    return templates.TemplateResponse("policies/_tab_files.html", {
+        "request": request,
+        "policy": policy_dict,
+    })
+
+
 @router.get("/{policy_uid}/tab/pulse", response_class=HTMLResponse)
 def policy_tab_pulse(
     request: Request,
@@ -3088,6 +3100,12 @@ def policy_edit_form(request: Request, policy_uid: str, add_contact: str = "", c
             ).fetchone()
             _program_health = _ph["health"] if _ph else ""
 
+    # Attachment count for Files tab badge
+    attachment_count = conn.execute(
+        "SELECT COUNT(*) FROM record_attachments WHERE record_type = 'policy' AND record_id = ?",
+        (policy_dict["id"],),
+    ).fetchone()[0]
+
     from policydb.queries import REVIEW_CYCLE_LABELS as _REVIEW_CYCLE_LABELS
     return templates.TemplateResponse("policies/edit.html", {
         "request": request,
@@ -3137,6 +3155,7 @@ def policy_edit_form(request: Request, policy_uid: str, add_contact: str = "", c
         "program_health": _program_health,
         "issue_severities": cfg.get("issue_severities", []),
         "all_clients": [dict(r) for r in conn.execute("SELECT id, name FROM clients WHERE archived = 0 ORDER BY name").fetchall()],
+        "attachment_count": attachment_count,
     })
 
 
