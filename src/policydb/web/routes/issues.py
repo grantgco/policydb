@@ -425,6 +425,7 @@ def issue_detail(
     issue = conn.execute("""
         SELECT a.*, c.name AS client_name,
                p.policy_uid, p.policy_type, p.carrier, p.expiration_date,
+               pr.name AS location_name,
                CASE WHEN a.resolved_date IS NOT NULL
                     THEN julianday(a.resolved_date) - julianday(a.activity_date)
                     ELSE julianday(date('now')) - julianday(a.activity_date)
@@ -436,6 +437,7 @@ def issue_detail(
         FROM activity_log a
         LEFT JOIN clients c ON c.id = a.client_id
         LEFT JOIN policies p ON p.id = a.policy_id
+        LEFT JOIN projects pr ON pr.id = p.project_id
         WHERE a.issue_uid = ? AND a.item_kind = 'issue'
     """, (issue_uid,)).fetchone()
 
