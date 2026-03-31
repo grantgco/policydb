@@ -3909,6 +3909,22 @@ def policy_update_status(
     resolve_statuses = cfg.get("renewal_issue_resolve_statuses", ["Bound"])
     if status not in resolve_statuses and prior_status in resolve_statuses:
         conn.execute("UPDATE policies SET bound_date=NULL WHERE policy_uid=?", (uid,))
+
+    # Auto-close follow-ups for non-Bound terminal statuses (Lost, Non-Renewed, etc.)
+    terminal_statuses = cfg.get("renewal_terminal_statuses", ["Bound", "Lost", "Non-Renewed", "Declined"])
+    closed_count = 0
+    if status in terminal_statuses and status not in resolve_statuses and not is_opportunity:
+        from policydb.queries import auto_close_followups
+        policy = conn.execute("SELECT id FROM policies WHERE policy_uid=?", (uid,)).fetchone()
+        if policy:
+            closed_count = auto_close_followups(
+                conn, policy_id=policy["id"], reason="policy_terminal",
+                closed_by="terminal_status_change",
+            )
+            conn.execute("UPDATE policies SET follow_up_date=NULL WHERE policy_uid=?", (uid,))
+            from policydb.renewal_issues import auto_resolve_renewal_issue
+            auto_resolve_renewal_issue(conn, policy_uid=uid)
+
     conn.commit()
     logger.info("Policy %s status -> %s", uid, status)
 
@@ -3934,7 +3950,10 @@ def policy_update_status(
 
     # Dismiss any stale confirmation banner on non-terminal status
     dismiss_html = '<div id="bound-confirm-prompt" hx-swap-oob="innerHTML"></div>'
-    return HTMLResponse(badge_html + dismiss_html)
+    resp = HTMLResponse(badge_html + dismiss_html)
+    if closed_count:
+        resp.headers["HX-Trigger"] = f'{{"showToast": "{closed_count} follow-up(s) auto-closed: policy {status.lower()}"}}'
+    return resp
 
 
 @router.get("/{policy_uid}/bound-banner", response_class=HTMLResponse)

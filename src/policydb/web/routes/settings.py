@@ -57,6 +57,7 @@ EDITABLE_LISTS: dict[str, str] = {
     "kb_categories": "KB Categories",
     "kb_article_sources": "KB Article Sources",
     "renewal_issue_resolve_statuses": "Renewal Issue — Resolve Statuses",
+    "renewal_terminal_statuses": "Renewal Terminal Statuses",
     "attachment_categories": "Attachment Categories",
 }
 
@@ -108,6 +109,7 @@ TAB_LISTS: dict[str, dict[str, str]] = {
         "issue_resolution_types": "Issue Resolution Types",
         "issue_root_cause_categories": "Issue Root Cause Categories",
         "renewal_issue_resolve_statuses": "Renewal Issue — Resolve Statuses",
+        "renewal_terminal_statuses": "Renewal Terminal Statuses",
     },
     "database": {
         "project_stages": "Project Stages",

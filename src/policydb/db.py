@@ -1667,7 +1667,12 @@ def init_db(path: Path | None = None) -> None:
         logger.info("Migration 120: added merged_from_issue_id column to activity_log")
 
     if 121 not in applied:
-        conn.executescript((_MIGRATIONS_DIR / "121_program_followup_bound.sql").read_text())
+        # Migration 103 may have already created these columns via table recreation
+        existing = {r["name"] for r in conn.execute("PRAGMA table_info(programs)").fetchall()}
+        if "follow_up_date" not in existing:
+            conn.execute("ALTER TABLE programs ADD COLUMN follow_up_date DATE")
+        if "bound_date" not in existing:
+            conn.execute("ALTER TABLE programs ADD COLUMN bound_date DATE")
         conn.execute(
             "INSERT INTO schema_version (version, description) VALUES (?, ?)",
             (121, "Add follow_up_date and bound_date to programs"),

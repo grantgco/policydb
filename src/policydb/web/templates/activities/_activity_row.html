@@ -35,7 +35,8 @@
   </div>
 </li>
 {% else %}
-<li id="activity-{{ a.id }}" class="activity-item px-5 py-3 flex items-start justify-between gap-4" data-has-followup="{{ '1' if a.follow_up_date and not a.follow_up_done else '0' }}" data-followup-date="{{ a.follow_up_date if a.follow_up_date and not a.follow_up_done else '' }}" data-activity-date="{{ a.activity_date }}" data-activity-id="{{ a.id }}">
+{% set _is_auto_closed = a.auto_close_reason and a.follow_up_done %}
+<li id="activity-{{ a.id }}" class="activity-item px-5 py-3 flex items-start justify-between gap-4{% if _is_auto_closed %} opacity-60{% endif %}" data-has-followup="{{ '1' if a.follow_up_date and not a.follow_up_done else '0' }}" data-followup-date="{{ a.follow_up_date if a.follow_up_date and not a.follow_up_done else '' }}" data-activity-date="{{ a.activity_date }}" data-activity-id="{{ a.id }}">
   <input type="checkbox" class="bulk-check accent-[#003865] mr-1 flex-shrink-0 mt-1" value="activity-{{ a.id }}" onchange="updateBulkCount()">
   {% set _a_rfi_uid = a.subject.split('Send RFI: ')[1].split(' ', 1)[0] if a.subject and a.subject.startswith('Send RFI: ') else '' %}
   {% set _a_ref = build_ref_tag(cn_number=a.cn_number|default(''), client_id=a.client_id, policy_uid=a.policy_uid|default(''), project_id=a.project_id|default(0), activity_id=a.id, rfi_uid=_a_rfi_uid) %}
@@ -91,6 +92,13 @@
       {% if a.contact_name or a.contact_person %} · {{ a.contact_name or a.contact_person }}{% endif %}
       {% if a.follow_up_date %} · <span class="{% if not a.follow_up_done %}text-amber-600{% else %}line-through text-gray-300{% endif %}">Follow-up {{ a.follow_up_date }}</span>{% endif %}
     </p>
+    {% if _is_auto_closed %}
+    <div class="flex items-center gap-2 mt-1">
+      <span class="text-[10px] bg-gray-100 text-gray-400 px-1.5 py-0.5 rounded">Auto-closed: {{ a.auto_close_reason | replace('_', ' ') }}</span>
+      <button hx-post="/activities/{{ a.id }}/reopen" hx-target="#activity-{{ a.id }}" hx-swap="outerHTML"
+        class="text-[10px] text-blue-500 hover:text-blue-700 hover:underline no-print">Reopen</button>
+    </div>
+    {% endif %}
   </div>
   <div class="flex items-center gap-2 shrink-0 no-print">
     {% if a.follow_up_date and not a.follow_up_done %}
@@ -104,6 +112,11 @@
       class="text-[10px] text-gray-400 hover:text-amber-600 border border-gray-200 hover:border-amber-300 rounded px-1.5 py-1 transition-colors">+1d</button>
     <button hx-post="/activities/{{ a.id }}/snooze?days=7" hx-target="#activity-{{ a.id }}" hx-swap="outerHTML"
       class="text-[10px] text-gray-400 hover:text-amber-600 border border-gray-200 hover:border-amber-300 rounded px-1.5 py-1 transition-colors">+7d</button>
+    <button type="button"
+      hx-get="/activities/{{ a.id }}/edit-slideover" hx-target="#fu-edit-content" hx-swap="innerHTML"
+      onclick="openFollowupEdit()"
+      class="text-[10px] text-gray-400 hover:text-[#003865] border border-gray-200 hover:border-[#003865] rounded px-1.5 py-1 transition-colors"
+      title="Edit follow-up">&#9998;</button>
     {% endif %}
     {% if a.get('pc_email') %}
     <button type="button" onclick="openComposeSlideover({context:'policy', policy_uid:'{{ a.policy_uid or '' }}', client_id:{{ a.client_id or 0 }}, to_email:'{{ a.pc_email }}'})"

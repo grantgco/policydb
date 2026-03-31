@@ -1616,5 +1616,26 @@ function policyStatusPill(btn, uid, status) {
 </script>
 <!-- OOB target for bound confirmation/renewal prompt -->
 <div id="bound-confirm-prompt"></div>
+
+{# ── Follow-up edit slideover ── #}
+<div id="fu-edit-backdrop" class="fixed inset-0 bg-black/30 z-40 hidden" onclick="closeFollowupEdit()"></div>
+<div id="fu-edit-panel" class="fixed top-0 right-0 bottom-0 w-[480px] max-sm:w-full z-50 hidden flex-col bg-white shadow-xl">
+  <div id="fu-edit-content"></div>
+</div>
+<script>
+function openFollowupEdit() {
+  document.getElementById('fu-edit-backdrop').style.display = '';
+  var panel = document.getElementById('fu-edit-panel');
+  panel.style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+}
+function closeFollowupEdit() {
+  document.getElementById('fu-edit-backdrop').style.display = 'none';
+  document.getElementById('fu-edit-panel').style.display = 'none';
+  document.body.style.overflow = '';
+}
+window.openFollowupEdit = openFollowupEdit;
+window.closeFollowupEdit = closeFollowupEdit;
+</script>
 </body>
 </html>
