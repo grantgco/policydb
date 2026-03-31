@@ -1541,7 +1541,7 @@ def client_tab_files(
         rt_filter = rt
         flat_list = [a for a in flat_list if a["record_type"] == rt]
 
-    return templates.TemplateResponse("clients/_tab_files.html", {
+    ctx = {
         "request": request,
         "client": client_dict,
         "view": view,
@@ -1553,7 +1553,10 @@ def client_tab_files(
         "rt_filter": rt_filter,
         "dt_available": is_devonthink_available(),
         "categories": cfg.get("attachment_categories", []),
-    })
+    }
+    # HTMX swaps target #client-files-content — return only the inner partial
+    tpl = "clients/_files_content.html" if request.headers.get("HX-Request") else "clients/_tab_files.html"
+    return templates.TemplateResponse(tpl, ctx)
 
 
 @router.get("/{client_id}/quick-brief", response_class=HTMLResponse)
