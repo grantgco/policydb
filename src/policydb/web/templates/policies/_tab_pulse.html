@@ -364,6 +364,37 @@
 {% endif %}
 
 {# ══════════════════════════════════════════════════════════
+   Section 5C: Knowledge Base Links
+   ══════════════════════════════════════════════════════════ #}
+<div>
+  <div class="flex items-center justify-between mb-1 px-0.5">
+    <span class="text-[10px] text-gray-500 font-bold tracking-wider uppercase">Knowledge Base</span>
+    <button type="button" onclick="var el=document.getElementById('kb-picker-policy-{{ policy.id }}');el.classList.toggle('hidden');if(!el.classList.contains('hidden'))el.querySelector('input').focus();"
+      class="text-[10px] text-marsh hover:underline no-print">+ Link</button>
+  </div>
+  <div class="card p-3">
+    <div id="entity-kb-links-policy-{{ policy.id }}"
+      hx-get="/kb/for-entity/policy/{{ policy.id }}"
+      hx-trigger="load"
+      hx-swap="innerHTML">
+      <span class="text-xs text-gray-300">Loading...</span>
+    </div>
+    {# Inline search to link a KB entry #}
+    <div id="kb-picker-policy-{{ policy.id }}" class="hidden mt-2 pt-2 border-t border-gray-100 kb-search-wrap relative">
+      <input type="text" placeholder="Search KB articles & documents..."
+        hx-get="/kb/search-entries"
+        hx-trigger="keyup changed delay:300ms"
+        hx-target="#kb-search-results-policy-{{ policy.id }}"
+        hx-swap="innerHTML"
+        hx-vals='{"entity_type":"policy", "entity_id":{{ policy.id }}}'
+        name="q"
+        class="w-full text-xs border border-gray-200 rounded px-2 py-1.5 focus:ring-1 focus:ring-marsh placeholder-gray-300">
+      <div id="kb-search-results-policy-{{ policy.id }}" class="kb-search-results relative"></div>
+    </div>
+  </div>
+</div>
+
+{# ══════════════════════════════════════════════════════════
    Section 6: Recent Activity
    ══════════════════════════════════════════════════════════ #}
 <div id="pulse-recent-activity">
