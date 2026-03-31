@@ -1,7 +1,7 @@
-"""DevonThink 3 integration via AppleScript for macOS.
+"""DevonThink integration via AppleScript for macOS.
 
 Provides:
-- is_devonthink_available() — check if DT3 is installed
+- is_devonthink_available() — check if DT is installed
 - parse_dt_link(input_str) — extract UUID from x-devonthink-item:// URL or raw UUID
 - fetch_item_metadata(uuid) — AppleScript call to get item metadata
 """
@@ -19,24 +19,38 @@ _DT_URL_PATTERN = re.compile(
     r"(?:x-devonthink-item://)?([A-Fa-f0-9-]{8,})", re.IGNORECASE
 )
 
+# Resolved app name — cached after first detection
+_DT_APP_NAME: str | None = None
+_DT_APP_NAMES = ["DEVONthink 3", "DEVONthink"]
+
+
+def _resolve_dt_app_name() -> str | None:
+    """Detect installed DevonThink app name. Cached per process."""
+    global _DT_APP_NAME
+    if _DT_APP_NAME is not None:
+        return _DT_APP_NAME
+    if shutil.which("osascript") is None:
+        return None
+    for name in _DT_APP_NAMES:
+        try:
+            result = subprocess.run(
+                ["osascript", "-e", f'id of application "{name}"'],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode == 0:
+                _DT_APP_NAME = name
+                logger.info("DevonThink detected as: %s", name)
+                return name
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            continue
+    return None
+
 
 def is_devonthink_available() -> bool:
-    """Check if DevonThink 3 is installed on this Mac."""
-    return shutil.which("osascript") is not None and _dt_app_exists()
-
-
-def _dt_app_exists() -> bool:
-    """Check if DEVONthink 3 application bundle exists."""
-    try:
-        result = subprocess.run(
-            ["osascript", "-e", 'id of application "DEVONthink 3"'],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        return result.returncode == 0
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        return False
+    """Check if DevonThink is installed on this Mac."""
+    return _resolve_dt_app_name() is not None
 
 
 def parse_dt_link(input_str: str) -> str | None:
@@ -59,13 +73,16 @@ def build_dt_url(uuid: str) -> str:
 
 
 def fetch_item_metadata(uuid: str) -> dict | None:
-    """Call AppleScript to get item metadata from DevonThink 3.
+    """Call AppleScript to get item metadata from DevonThink.
 
     Returns dict with keys: name, type, size, path, filename, uuid, url
     Returns None if DevonThink is unavailable or item not found.
     """
+    app_name = _resolve_dt_app_name()
+    if not app_name:
+        return None
     script = f"""
-tell application "DEVONthink 3"
+tell application "{app_name}"
     try
         set theRecord to get record with uuid "{uuid}"
         set theName to name of theRecord
