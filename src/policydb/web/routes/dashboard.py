@@ -17,6 +17,8 @@ from policydb.queries import (
     get_open_opportunities,
     get_renewal_metrics,
     attach_renewal_issues,
+    attach_open_issues,
+    get_dashboard_issues_widget,
     get_renewal_pipeline,
     get_stale_renewals,
     get_suggested_followups,
@@ -122,6 +124,9 @@ def dashboard(request: Request, conn=Depends(get_db)):
         }
         o["mailto_subject"] = _render_tokens(_opp_subj_tpl, _opp_ctx)
 
+    attach_open_issues(conn, open_opportunities)
+    issues_widget = get_dashboard_issues_widget(conn, limit=3)
+
     hours_this_month = get_dashboard_hours_this_month(conn)
     note_row = conn.execute("SELECT content, updated_at FROM user_notes WHERE id=1").fetchone()
 
@@ -168,6 +173,7 @@ def dashboard(request: Request, conn=Depends(get_db)):
         "readiness_counts": readiness_counts,
         "suggested_uids": suggested_uids,
         "open_opportunities": open_opportunities,
+        "issues_widget": issues_widget,
         "hours_this_month": hours_this_month,
         "upcoming_meetings": upcoming_meetings,
     })
@@ -255,3 +261,13 @@ def search(request: Request, q: str = "", conn=Depends(get_db)):
         "total": total,
         "uid_detected": uid_pattern,
     })
+
+
+@router.get("/api/nav/issues-dot", response_class=HTMLResponse)
+async def nav_issues_dot(conn=Depends(get_db)):
+    count = conn.execute(
+        "SELECT COUNT(*) FROM activity_log WHERE item_kind='issue' AND issue_status NOT IN ('Resolved','Closed')"
+    ).fetchone()[0]
+    if count > 0:
+        return HTMLResponse('<span class="w-2 h-2 rounded-full bg-red-500 inline-block ml-1"></span>')
+    return HTMLResponse('<span></span>')
