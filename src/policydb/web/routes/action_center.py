@@ -308,7 +308,12 @@ def _followups_ctx(conn, window: int, activity_type: str, q: str,
         if item.get("source") == "activity" and item.get("policy_uid")
     }
     try:
-        milestone_rows = conn.execute("""
+        _ms_params = [today_str]
+        _ms_excl_sql = ""
+        if excluded:
+            _ms_excl_sql = f" AND (p.renewal_status NOT IN ({','.join('?' * len(excluded))}) OR p.renewal_status IS NULL)"
+            _ms_params.extend(excluded)
+        milestone_rows = conn.execute(f"""
             SELECT pt.policy_uid, pt.milestone_name, pt.projected_date,
                    pt.ideal_date, pt.health, pt.accountability, pt.completed_date,
                    p.policy_type, p.carrier, p.project_name, p.project_id,
@@ -318,8 +323,11 @@ def _followups_ctx(conn, window: int, activity_type: str, q: str,
             JOIN clients c ON c.id = p.client_id
             WHERE pt.projected_date <= ?
               AND pt.completed_date IS NULL
+              AND p.archived = 0
+              AND (p.is_opportunity = 0 OR p.is_opportunity IS NULL)
+              {_ms_excl_sql}
             ORDER BY pt.projected_date
-        """, (today_str,)).fetchall()
+        """, _ms_params).fetchall()
 
         for row in milestone_rows:
             item = dict(row)
@@ -355,7 +363,12 @@ def _followups_ctx(conn, window: int, activity_type: str, q: str,
     # Only include milestones whose projected_date is still in the future
     prep_coming: list[dict] = []
     try:
-        prep_rows = conn.execute("""
+        _prep_params = [today_str, today_str]
+        _prep_excl_sql = ""
+        if excluded:
+            _prep_excl_sql = f" AND (p.renewal_status NOT IN ({','.join('?' * len(excluded))}) OR p.renewal_status IS NULL)"
+            _prep_params.extend(excluded)
+        prep_rows = conn.execute(f"""
             SELECT pt.policy_uid, pt.milestone_name, pt.projected_date,
                    pt.prep_alert_date, pt.accountability, pt.health,
                    p.policy_type, p.carrier, p.project_name, p.project_id,
@@ -366,8 +379,11 @@ def _followups_ctx(conn, window: int, activity_type: str, q: str,
             WHERE pt.prep_alert_date <= ? AND pt.projected_date > ?
               AND pt.completed_date IS NULL
               AND pt.prep_alert_date IS NOT NULL
+              AND p.archived = 0
+              AND (p.is_opportunity = 0 OR p.is_opportunity IS NULL)
+              {_prep_excl_sql}
             ORDER BY pt.projected_date
-        """, (today_str, today_str)).fetchall()
+        """, _prep_params).fetchall()
         prep_coming = [dict(r) for r in prep_rows]
     except Exception:
         # policy_timeline table may not exist yet — degrade gracefully

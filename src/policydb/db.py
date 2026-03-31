@@ -1748,8 +1748,18 @@ def init_db(path: Path | None = None) -> None:
         """, (_horizon_date,)).fetchall()
         if _far_activities:
             for _fa in _far_activities:
+                # Get the rule_name BEFORE deleting the tracking row
+                _rule_row = conn.execute(
+                    "SELECT rule_name FROM mandated_activity_log WHERE activity_id = ?",
+                    (_fa["id"],),
+                ).fetchone()
                 conn.execute("DELETE FROM mandated_activity_log WHERE activity_id = ?", (_fa["id"],))
-                conn.execute("DELETE FROM policy_milestones WHERE policy_uid = ? AND milestone IN (SELECT rule_name FROM mandated_activity_log WHERE policy_uid = ? AND activity_id IS NULL)", (_fa["policy_uid"], _fa["policy_uid"]))
+                # Only delete the specific milestone tied to this mandated activity
+                if _rule_row and _rule_row["rule_name"]:
+                    conn.execute(
+                        "DELETE FROM policy_milestones WHERE policy_uid = ? AND milestone = ?",
+                        (_fa["policy_uid"], _rule_row["rule_name"]),
+                    )
                 conn.execute("DELETE FROM activity_log WHERE id = ?", (_fa["id"],))
             conn.commit()
             logger.info("Removed %d mandated activities beyond %dd horizon", len(_far_activities), _horizon_days)
