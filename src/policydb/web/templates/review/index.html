@@ -147,4 +147,46 @@
   {% endif %}
 
 </div>
+
+{# ── Review Slideover Container ── #}
+<div id="review-slideover-container"></div>
+
+<style>
+  .review-slideover-enter {
+    animation: slideInRight 0.2s ease-out;
+  }
+  @keyframes slideInRight {
+    from { transform: translateX(100%); }
+    to { transform: translateX(0); }
+  }
+</style>
+
+<script>
+function closeReviewSlideover() {
+  var container = document.getElementById('review-slideover-container');
+  if (container) container.innerHTML = '';
+  document.body.style.overflow = '';
+}
+
+// Lock body scroll when slideover opens
+var _reviewObserver = new MutationObserver(function(mutations) {
+  var container = document.getElementById('review-slideover-container');
+  if (container && container.children.length > 0) {
+    document.body.style.overflow = 'hidden';
+  }
+});
+var _rsc = document.getElementById('review-slideover-container');
+if (_rsc) _reviewObserver.observe(_rsc, { childList: true });
+
+// Escape key closes slideover
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') {
+    var container = document.getElementById('review-slideover-container');
+    if (container && container.children.length > 0) {
+      closeReviewSlideover();
+      e.preventDefault();
+    }
+  }
+});
+</script>
 {% endblock %}

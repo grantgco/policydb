@@ -1,0 +1,341 @@
+{# Policy Review Slideover — full-context review workspace.
+   Context: p, policy_contacts, primary_client_contact, gate, active_followup,
+            renewal_statuses, cycle_labels, milestone_profiles, suggestions,
+            today, queue_uids
+#}
+
+{# ── Backdrop ── #}
+<div id="review-slideover-backdrop"
+     class="fixed inset-0 bg-black/30 z-40"
+     onclick="closeReviewSlideover()"></div>
+
+{# ── Panel ── #}
+<div id="review-slideover-panel"
+     class="fixed top-0 right-0 bottom-0 w-[560px] max-sm:w-full bg-white shadow-xl z-50 flex flex-col review-slideover-enter">
+
+  {# ── Header ── #}
+  <div class="shrink-0 border-b bg-white">
+    <div class="flex items-center justify-between px-5 pt-4 pb-2">
+      <div class="min-w-0 flex-1">
+        <div class="flex items-center gap-2 flex-wrap">
+          <a href="/clients/{{ p.client_id }}" class="font-semibold text-marsh hover:underline text-sm truncate">{{ p.client_name }}</a>
+          <span class="text-gray-300">&middot;</span>
+          <span class="text-sm text-gray-700">{{ p.policy_type }}</span>
+        </div>
+        <div class="flex items-center gap-2 mt-1 flex-wrap">
+          <span class="text-xs font-mono text-gray-400">{{ p.policy_uid }}</span>
+          {% if not p.get('is_opportunity') %}
+          <span class="text-xs text-gray-500">{{ p.carrier or '' }}</span>
+          {% endif %}
+          {% if p.expiration_date %}
+          <span class="text-xs text-gray-500">Exp {{ p.expiration_date }}</span>
+          {% endif %}
+          {% if p.days_to_renewal is not none and not p.get('is_opportunity') %}
+            <span class="{{ p.urgency | urgency_class }} text-xs font-semibold px-1.5 py-0.5 rounded">
+              {% if p.days_to_renewal <= 0 %}Expired{% else %}{{ p.days_to_renewal }}d{% endif %}
+            </span>
+          {% endif %}
+          {% if p.get('timeline_health') %}
+          <span class="inline-flex items-center gap-1 text-xs
+              {% if p.timeline_health == 'critical' %}text-red-600
+              {% elif p.timeline_health == 'at_risk' %}text-orange-600
+              {% elif p.timeline_health == 'compressed' %}text-amber-600
+              {% elif p.timeline_health == 'drifting' %}text-blue-600
+              {% else %}text-green-600{% endif %}">
+            <span class="w-1.5 h-1.5 rounded-full inline-block
+                {% if p.timeline_health == 'critical' %}bg-red-500
+                {% elif p.timeline_health == 'at_risk' %}bg-orange-500
+                {% elif p.timeline_health == 'compressed' %}bg-amber-500
+                {% elif p.timeline_health == 'drifting' %}bg-blue-500
+                {% else %}bg-green-500{% endif %}"></span>
+            {{ p.timeline_health | replace('_', ' ') | title }}
+          </span>
+          {% endif %}
+        </div>
+      </div>
+      <div class="flex items-center gap-2 shrink-0 ml-3">
+        {# Prev/Next nav #}
+        {% if queue_uids is defined and queue_uids | length > 1 %}
+          {% set curr_idx = queue_uids.index(p.policy_uid) if p.policy_uid in queue_uids else -1 %}
+          {% if curr_idx > 0 %}
+          <button hx-get="/review/policies/{{ queue_uids[curr_idx - 1] }}/slideover"
+                  hx-target="#review-slideover-container" hx-swap="innerHTML"
+                  class="text-gray-400 hover:text-gray-600 p-1" title="Previous">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+          </button>
+          {% endif %}
+          {% if curr_idx >= 0 and curr_idx < queue_uids | length - 1 %}
+          <button hx-get="/review/policies/{{ queue_uids[curr_idx + 1] }}/slideover"
+                  hx-target="#review-slideover-container" hx-swap="innerHTML"
+                  class="text-gray-400 hover:text-gray-600 p-1" title="Next">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+          </button>
+          {% endif %}
+          <span class="text-[10px] text-gray-300">{{ curr_idx + 1 }}/{{ queue_uids | length }}</span>
+        {% endif %}
+        <button onclick="closeReviewSlideover()"
+                class="text-gray-400 hover:text-gray-600 transition-colors p-1"
+                aria-label="Close panel">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+    {# Review cycle + last reviewed #}
+    <div class="flex items-center gap-3 px-5 pb-3 text-xs">
+      <select hx-post="/review/policies/{{ p.policy_uid }}/cycle"
+              hx-target="#review-row-{{ p.policy_uid }}" hx-swap="outerHTML"
+              hx-include="this" name="review_cycle"
+              class="text-xs border border-gray-200 rounded px-1.5 py-1 text-gray-600 bg-white focus:outline-none focus:ring-1 focus:ring-marsh cursor-pointer">
+        {% for code, label in cycle_labels.items() %}
+        <option value="{{ code }}" {% if (p.review_cycle or '1w') == code %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      <span class="text-gray-400">
+        {% if p.last_reviewed_at %}Last reviewed {{ p.days_since_review }}d ago{% else %}Never reviewed{% endif %}
+      </span>
+    </div>
+  </div>
+
+  {# ── Scrollable Content ── #}
+  <div class="flex-1 overflow-y-auto">
+
+    {# ── Section: Status & Key Dates ── #}
+    <div class="px-5 py-4 border-b border-gray-100">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Status & Key Dates</h3>
+      </div>
+      {% if not p.get('is_opportunity') %}
+      <div class="mb-3" id="slideover-status-{{ p.policy_uid }}">
+        {% set p = p %}
+        {% include "policies/_status_badge.html" %}
+      </div>
+      {% else %}
+      <div class="mb-3 text-sm text-gray-600">
+        Stage: <span class="font-medium">{{ p.opportunity_status or 'Not set' }}</span>
+      </div>
+      {% endif %}
+
+      {# Compact stats grid #}
+      <div class="grid grid-cols-4 gap-3 text-center mb-3">
+        <div>
+          <div class="text-[10px] text-gray-400 uppercase">Effective</div>
+          <div class="text-xs font-medium text-gray-700">{{ p.effective_date or '—' }}</div>
+        </div>
+        <div>
+          <div class="text-[10px] text-gray-400 uppercase">Expiration</div>
+          <div class="text-xs font-medium text-gray-700">{{ p.expiration_date or '—' }}</div>
+        </div>
+        <div>
+          <div class="text-[10px] text-gray-400 uppercase">Premium</div>
+          <div class="text-xs font-medium text-gray-700">{{ p.premium | currency_short if p.premium else '—' }}</div>
+        </div>
+        <div>
+          <div class="text-[10px] text-gray-400 uppercase">Limit</div>
+          <div class="text-xs font-medium text-gray-700">{{ p.limit_amount | currency_short if p.limit_amount else '—' }}</div>
+        </div>
+      </div>
+
+      {# Follow-up #}
+      <div class="flex items-center gap-2 mb-2">
+        <span class="text-xs text-gray-500 w-16 shrink-0">Follow-up:</span>
+        {% if active_followup %}
+          <span class="text-xs font-medium {% if active_followup.follow_up_date < today %}text-red-600{% else %}text-gray-700{% endif %}">
+            {{ active_followup.follow_up_date }}
+          </span>
+          <span class="text-xs text-gray-400">{{ active_followup.subject }}</span>
+        {% else %}
+          <span class="text-xs text-gray-300">No active follow-up</span>
+        {% endif %}
+        <form class="inline-flex items-center gap-1 ml-auto"
+              hx-post="/review/policies/{{ p.policy_uid }}/slideover/field"
+              hx-swap="innerHTML" hx-target="#fu-save-status">
+          <input type="hidden" name="field" value="follow_up_date">
+          <input type="date" name="value" class="text-xs border border-gray-200 rounded px-1.5 py-1 focus:ring-1 focus:ring-marsh"
+                 min="{{ today }}" value="">
+          <button type="submit" class="text-xs text-marsh hover:underline">Set</button>
+        </form>
+        <span id="fu-save-status"></span>
+      </div>
+
+      {# Milestone profile + checklist #}
+      <div class="flex items-center gap-3">
+        {% if milestone_profiles is defined and milestone_profiles %}
+        <div class="flex items-center gap-2">
+          <span class="text-xs text-gray-500">Profile:</span>
+          <select hx-post="/review/policies/{{ p.policy_uid }}/profile"
+                  hx-target="#review-row-{{ p.policy_uid }}" hx-swap="outerHTML"
+                  hx-include="this" name="milestone_profile"
+                  class="text-xs border border-gray-200 rounded px-1.5 py-1 text-gray-600 bg-white focus:outline-none focus:ring-1 focus:ring-marsh cursor-pointer">
+            <option value="">— None —</option>
+            {% for prof in milestone_profiles %}
+            <option value="{{ prof.name }}" {% if (p.milestone_profile or '') == prof.name %}selected{% endif %}>{{ prof.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        {% endif %}
+        {% if p.milestone_total %}
+        <div class="flex items-center gap-1">
+          <span class="text-xs text-gray-500">Checklist:</span>
+          <span class="text-xs tabular-nums {% if p.milestone_done == p.milestone_total %}text-green-600{% elif p.milestone_done > 0 %}text-amber-600{% else %}text-gray-400{% endif %}">
+            {{ p.milestone_done }}/{{ p.milestone_total }}
+          </span>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+    {# ── Section: Open Issues (loaded immediately) ── #}
+    <div class="px-5 py-4 border-b border-gray-100">
+      <div class="flex items-center justify-between mb-2">
+        <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Open Issues</h3>
+        <button type="button"
+                onclick="openIssueCreateSlideover({client_id: {{ p.client_id }}, policy_id: {{ p.id }}, policy_uid: '{{ p.policy_uid }}'})"
+                class="text-xs text-marsh hover:underline">+ New</button>
+      </div>
+      <div id="slideover-issues-{{ p.policy_uid }}"
+           hx-get="/review/policies/{{ p.policy_uid }}/slideover/issues"
+           hx-trigger="load" hx-swap="innerHTML">
+        <div class="text-xs text-gray-300 py-2">Loading issues...</div>
+      </div>
+    </div>
+
+    {# ── Section: Contacts ── #}
+    <div class="px-5 py-4 border-b border-gray-100">
+      <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Contacts</h3>
+      {% if policy_contacts or primary_client_contact %}
+      <div class="space-y-1.5">
+        {% for pc in policy_contacts %}
+        <div class="flex items-center justify-between text-xs">
+          <div class="flex items-center gap-2 min-w-0">
+            <span class="text-gray-400 w-20 shrink-0">{{ pc.role or 'Contact' }}</span>
+            <span class="font-medium text-gray-700 truncate">{{ pc.name }}</span>
+          </div>
+          <div class="flex items-center gap-2 shrink-0">
+            {% if pc.email %}
+            <a href="mailto:{{ pc.email }}" class="text-marsh hover:underline" title="{{ pc.email }}">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+            </a>
+            {% endif %}
+            {% if pc.phone %}
+            <a href="tel:{{ pc.phone }}" class="text-gray-400 hover:text-gray-600" title="{{ pc.phone }}">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/></svg>
+            </a>
+            {% endif %}
+          </div>
+        </div>
+        {% endfor %}
+        {% if primary_client_contact %}
+        <div class="flex items-center justify-between text-xs">
+          <div class="flex items-center gap-2 min-w-0">
+            <span class="text-gray-400 w-20 shrink-0">Client</span>
+            <span class="font-medium text-gray-700 truncate">{{ primary_client_contact.name }}</span>
+          </div>
+          <div class="flex items-center gap-2 shrink-0">
+            {% if primary_client_contact.email %}
+            <a href="mailto:{{ primary_client_contact.email }}" class="text-marsh hover:underline" title="{{ primary_client_contact.email }}">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+            </a>
+            {% endif %}
+            {% if primary_client_contact.phone %}
+            <a href="tel:{{ primary_client_contact.phone }}" class="text-gray-400 hover:text-gray-600" title="{{ primary_client_contact.phone }}">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/></svg>
+            </a>
+            {% endif %}
+          </div>
+        </div>
+        {% endif %}
+      </div>
+      {% else %}
+      <p class="text-xs text-gray-300">No contacts assigned</p>
+      {% endif %}
+    </div>
+
+    {# ── Section: Recent Activity (lazy) ── #}
+    <div class="px-5 py-4 border-b border-gray-100">
+      <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Recent Activity</h3>
+      <div id="slideover-activity-{{ p.policy_uid }}"
+           hx-get="/review/policies/{{ p.policy_uid }}/slideover/activity"
+           hx-trigger="revealed" hx-swap="innerHTML">
+        <div class="text-xs text-gray-300 py-2">Loading activity...</div>
+      </div>
+    </div>
+
+    {# ── Section: Notes (lazy) ── #}
+    <div class="px-5 py-4">
+      <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Notes</h3>
+      <div id="slideover-notes-{{ p.policy_uid }}"
+           hx-get="/review/policies/{{ p.policy_uid }}/slideover/notes"
+           hx-trigger="revealed" hx-swap="innerHTML">
+        <div class="text-xs text-gray-300 py-2">Loading notes...</div>
+      </div>
+    </div>
+
+  </div>
+
+  {# ── Footer ── #}
+  <div id="review-slideover-footer" class="shrink-0 border-t bg-white px-5 py-3">
+    <div class="flex items-center justify-between">
+      <div class="flex items-center gap-2">
+        {# Gate status indicator #}
+        {% if gate.all_pass %}
+          <span class="inline-flex items-center gap-1 text-xs text-green-600">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+            </svg>
+            All checks pass
+          </span>
+        {% else %}
+          {% set fail_count = gate.conditions | selectattr('passed', 'false') | list | length %}
+          <span class="inline-flex items-center gap-1 text-xs text-amber-600">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+            </svg>
+            {{ fail_count }} check{{ 's' if fail_count != 1 }} failed
+          </span>
+        {% endif %}
+      </div>
+      <div class="flex items-center gap-3">
+        <a href="/policies/{{ p.policy_uid }}/edit" class="text-xs text-gray-400 hover:underline">Full Page</a>
+        {% if gate.all_pass %}
+        <button hx-post="/review/policies/{{ p.policy_uid }}/slideover/reviewed"
+                hx-target="#review-row-{{ p.policy_uid }}" hx-swap="outerHTML"
+                class="text-sm bg-marsh text-white px-4 py-2 rounded-lg hover:bg-marsh-light transition-colors font-medium">
+          Mark Reviewed
+        </button>
+        {% else %}
+        <button type="button" onclick="toggleReviewOverrideForm('{{ p.policy_uid }}')"
+                class="text-sm bg-amber-500 text-white px-4 py-2 rounded-lg hover:bg-amber-600 transition-colors font-medium">
+          Override & Review
+        </button>
+        {% endif %}
+      </div>
+    </div>
+    {# Override reason form (hidden by default) #}
+    {% if not gate.all_pass %}
+    <div id="review-override-form-{{ p.policy_uid }}" class="hidden mt-3 pt-3 border-t border-gray-100">
+      <form hx-post="/review/policies/{{ p.policy_uid }}/slideover/reviewed"
+            hx-target="#review-row-{{ p.policy_uid }}" hx-swap="outerHTML"
+            class="flex items-center gap-2">
+        <input type="text" name="override_reason" required placeholder="Why is this OK to review now?"
+               class="flex-1 text-sm border border-gray-300 rounded-lg px-3 py-1.5 focus:ring-marsh focus:outline-none">
+        <button type="submit" class="text-sm bg-amber-500 text-white px-3 py-1.5 rounded-lg hover:bg-amber-600 transition-colors">
+          Confirm
+        </button>
+      </form>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<script>
+function toggleReviewOverrideForm(uid) {
+  var el = document.getElementById('review-override-form-' + uid);
+  if (el) {
+    el.classList.toggle('hidden');
+    var inp = el.querySelector('input[name="override_reason"]');
+    if (inp && !el.classList.contains('hidden')) inp.focus();
+  }
+}
+</script>
