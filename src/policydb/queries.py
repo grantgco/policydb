@@ -162,6 +162,63 @@ def get_renewal_pipeline(
     return conn.execute(sql, params).fetchall()
 
 
+def attach_renewal_issues(conn: sqlite3.Connection, rows: list[dict]) -> None:
+    """Batch-attach active renewal issue UIDs to policy/program row dicts."""
+    if not rows:
+        return
+
+    # Collect policy_uid and program_uid keys
+    policy_uids = []
+    program_uids = []
+    for r in rows:
+        uid = r.get("policy_uid")
+        if uid:
+            policy_uids.append(uid)
+        puid = r.get("program_uid")
+        if puid:
+            program_uids.append(puid)
+
+    if not policy_uids and not program_uids:
+        return
+
+    # Build combined query for both policy and program renewal issues
+    all_keys = list(policy_uids)
+    for pu in program_uids:
+        all_keys.append(f"program:{pu}")
+
+    if not all_keys:
+        return
+
+    ph = ",".join("?" * len(all_keys))
+    issue_rows = conn.execute(f"""
+        SELECT renewal_term_key, issue_uid, issue_severity, subject
+        FROM activity_log
+        WHERE is_renewal_issue = 1
+          AND renewal_term_key IN ({ph})
+          AND issue_status NOT IN ('Resolved', 'Closed')
+          AND item_kind = 'issue'
+    """, all_keys).fetchall()
+
+    lookup = {r["renewal_term_key"]: dict(r) for r in issue_rows}
+
+    for r in rows:
+        uid = r.get("policy_uid")
+        puid = r.get("program_uid")
+        match = None
+        if uid and uid in lookup:
+            match = lookup[uid]
+        elif puid and f"program:{puid}" in lookup:
+            match = lookup[f"program:{puid}"]
+        if match:
+            r["renewal_issue_uid"] = match["issue_uid"]
+            r["renewal_issue_severity"] = match["issue_severity"]
+            r["renewal_issue_subject"] = match["subject"]
+        else:
+            r["renewal_issue_uid"] = None
+            r["renewal_issue_severity"] = None
+            r["renewal_issue_subject"] = None
+
+
 def get_stale_renewals(
     conn: sqlite3.Connection,
     window_days: int = 180,

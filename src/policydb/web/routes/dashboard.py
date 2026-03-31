@@ -16,6 +16,7 @@ from policydb.queries import (
     get_escalation_alerts,
     get_open_opportunities,
     get_renewal_metrics,
+    attach_renewal_issues,
     get_renewal_pipeline,
     get_stale_renewals,
     get_suggested_followups,
@@ -48,6 +49,7 @@ def dashboard_pipeline(request: Request, window: int = 90, status: str = "", con
     pipeline = _attach_readiness_score(conn, _attach_milestone_progress(
         conn, _attach_client_ids(conn, [dict(p) for p in rows])
     ))
+    attach_renewal_issues(conn, pipeline)
     suggested_uids = {r["policy_uid"] for r in get_suggested_followups(conn, excluded_statuses=excluded)}
     return templates.TemplateResponse("policies/_pipeline_table.html", {
         "request": request,
@@ -78,6 +80,7 @@ def dashboard(request: Request, conn=Depends(get_db)):
     pipeline_dicts = _attach_readiness_score(conn, _attach_milestone_progress(
         conn, _attach_client_ids(conn, [dict(p) for p in pipeline])
     ))
+    attach_renewal_issues(conn, pipeline_dicts)
 
     # Readiness counts for summary card
     readiness_counts = {"critical": 0, "at_risk": 0, "on_track": 0, "ready": 0}
