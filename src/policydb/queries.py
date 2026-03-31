@@ -254,6 +254,8 @@ def get_program_pipeline(
     sql = """
     SELECT pg.id AS program_id, pg.program_uid, pg.name AS program_name,
            pg.client_id, pg.renewal_status, pg.project_id,
+           pg.follow_up_date, pg.bound_date, pg.placement_colleague,
+           pg.milestone_profile,
            c.name AS client_name, c.cn_number,
            pr.name AS project_name,
            COUNT(p.id) AS policy_count,
@@ -295,6 +297,10 @@ def get_program_pipeline(
         else:
             d["urgency"] = "LOW"
         d["_is_program"] = True
+        # Compute followup_overdue for display
+        from datetime import date as _date
+        fu = d.get("follow_up_date")
+        d["followup_overdue"] = bool(fu and fu < _date.today().isoformat())
         result.append(d)
     return result
 
