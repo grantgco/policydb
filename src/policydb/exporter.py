@@ -1034,7 +1034,7 @@ def _friendly(col_name: str) -> str:
     return _FRIENDLY_HEADERS.get(col_name, col_name)
 
 
-def _write_sheet(wb: Workbook, title: str, rows: list, *, col_widths: dict[str, int] | None = None) -> None:
+def _write_sheet(wb: Workbook, title: str, rows: list, *, col_widths: dict[str, int] | None = None, wrap_text: bool = True) -> None:
     ws = wb.create_sheet(title)
     if not rows:
         ws.append(["No data"])
@@ -1047,14 +1047,14 @@ def _write_sheet(wb: Workbook, title: str, rows: list, *, col_widths: dict[str, 
         cell.font = _HEADER_FONT
         cell.fill = _HEADER_FILL
         cell.border = _THIN_BORDER
-        cell.alignment = Alignment(horizontal="center", wrap_text=True)
+        cell.alignment = Alignment(horizontal="center", wrap_text=wrap_text)
 
     for row in rows:
         ws.append([row[k] for k in raw_headers])
 
     # Apply styling to data cells: font, borders, alternating fills, currency
-    _wrap = Alignment(wrap_text=True)
-    _wrap_right = Alignment(wrap_text=True, horizontal="right")
+    _wrap = Alignment(wrap_text=wrap_text)
+    _wrap_right = Alignment(wrap_text=wrap_text, horizontal="right")
     for col_idx, display_name in enumerate(display_headers, 1):
         is_currency = display_name in _CURRENCY_COLS
         for row_idx in range(2, ws.max_row + 1):
