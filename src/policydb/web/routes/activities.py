@@ -849,6 +849,57 @@ def update_disposition(
     return HTMLResponse("OK")
 
 
+# ── Reopen auto-closed item ─────────────────────────────────────────────────
+
+
+@router.post("/activities/{activity_id}/reopen", response_class=HTMLResponse)
+def reopen_activity(
+    activity_id: int,
+    request: Request,
+    conn=Depends(get_db),
+):
+    """Reopen an auto-closed follow-up or issue.
+
+    Clears auto_close metadata and restores to active state.
+    Item returns to its original bucket based on follow_up_date and disposition.
+    """
+    row = conn.execute(
+        "SELECT item_kind, auto_close_reason FROM activity_log WHERE id = ?",
+        (activity_id,),
+    ).fetchone()
+    if not row:
+        return HTMLResponse("", status_code=404)
+
+    if row["item_kind"] == "issue":
+        conn.execute("""
+            UPDATE activity_log
+            SET issue_status = 'Open',
+                resolution_type = NULL,
+                resolution_notes = NULL,
+                resolved_date = NULL,
+                auto_close_reason = NULL,
+                auto_closed_at = NULL,
+                auto_closed_by = NULL
+            WHERE id = ?
+        """, (activity_id,))
+    else:
+        conn.execute("""
+            UPDATE activity_log
+            SET follow_up_done = 0,
+                auto_close_reason = NULL,
+                auto_closed_at = NULL,
+                auto_closed_by = NULL
+            WHERE id = ?
+        """, (activity_id,))
+    conn.commit()
+    logger.info("Reopened auto-closed item %d (was: %s)", activity_id, row["auto_close_reason"])
+
+    # Return empty with HX-Trigger to refresh the followups section
+    resp = HTMLResponse("")
+    resp.headers["HX-Trigger"] = "refreshFollowups"
+    return resp
+
+
 # ── Bulk action (multi-source) ───────────────────────────────────────────────
 
 

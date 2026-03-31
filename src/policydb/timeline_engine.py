@@ -507,6 +507,32 @@ def complete_timeline_milestone(conn, policy_uid: str, milestone_name: str) -> N
                 WHERE id = ?
             """, (now, existing["id"]))
 
+    # Auto-close follow-ups that match this milestone by subject
+    try:
+        from rapidfuzz import fuzz
+        policy_row = conn.execute(
+            "SELECT id FROM policies WHERE policy_uid = ?", (policy_uid,)
+        ).fetchone()
+        if policy_row:
+            open_fus = conn.execute("""
+                SELECT id, subject FROM activity_log
+                WHERE policy_id = ? AND follow_up_done = 0
+                  AND follow_up_date IS NOT NULL AND auto_close_reason IS NULL
+            """, (policy_row["id"],)).fetchall()
+            for fu in open_fus:
+                fu_subj = (fu["subject"] or "").lower()
+                if fuzz.ratio(fu_subj, milestone_name.lower()) >= 80:
+                    conn.execute("""
+                        UPDATE activity_log
+                        SET follow_up_done = 1,
+                            auto_close_reason = 'milestone_completed',
+                            auto_closed_at = ?,
+                            auto_closed_by = 'complete_timeline_milestone'
+                        WHERE id = ?
+                    """, (now, fu["id"]))
+    except ImportError:
+        pass  # rapidfuzz not available — skip fuzzy matching
+
     # Recompute health (also triggers renewal issue severity sync)
     exp = conn.execute(
         "SELECT expiration_date FROM policies WHERE policy_uid = ?", (policy_uid,)

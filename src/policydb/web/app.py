@@ -52,6 +52,20 @@ def _attach_sqlite_log_handler():
         setup_sqlite_handler()
     except Exception:
         pass  # Never block app startup
+
+    # Auto-close stale follow-ups on startup
+    try:
+        from policydb.db import get_connection
+        from policydb.queries import auto_close_stale_followups
+        conn = get_connection()
+        count = auto_close_stale_followups(conn)
+        if count > 0:
+            import logging
+            logging.getLogger("policydb").info("Auto-closed %d stale follow-ups on startup", count)
+        conn.close()
+    except Exception:
+        pass  # Never block app startup
+
 templates = _CompatTemplates(directory=str(TEMPLATES_DIR))
 
 

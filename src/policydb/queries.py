@@ -586,7 +586,11 @@ def supersede_followups(conn, policy_id: int, new_date: str) -> None:
     2. Sync the policy's own follow_up_date to the new date.
     """
     conn.execute(
-        """UPDATE activity_log SET follow_up_done = 1
+        """UPDATE activity_log
+           SET follow_up_done = 1,
+               auto_close_reason = 'superseded',
+               auto_closed_at = datetime('now'),
+               auto_closed_by = 'supersede_followups'
            WHERE policy_id = ? AND follow_up_done = 0 AND follow_up_date IS NOT NULL""",
         (policy_id,),
     )
@@ -594,6 +598,30 @@ def supersede_followups(conn, policy_id: int, new_date: str) -> None:
         "UPDATE policies SET follow_up_date = ? WHERE id = ?",
         (new_date, policy_id),
     )
+
+
+def auto_close_stale_followups(conn) -> int:
+    """Auto-close follow-ups overdue by more than stale_auto_close_days.
+
+    Returns the number of items closed. Called on server startup.
+    """
+    threshold = cfg.get("stale_auto_close_days", 30)
+    cursor = conn.execute("""
+        UPDATE activity_log
+        SET follow_up_done = 1,
+            auto_close_reason = 'stale',
+            auto_closed_at = datetime('now'),
+            auto_closed_by = 'auto_close_stale'
+        WHERE follow_up_done = 0
+          AND follow_up_date IS NOT NULL
+          AND julianday('now') - julianday(follow_up_date) > ?
+          AND auto_close_reason IS NULL
+          AND item_kind = 'followup'
+    """, (threshold,))
+    count = cursor.rowcount
+    if count > 0:
+        conn.commit()
+    return count
 
 
 def get_all_followups(
@@ -1184,6 +1212,21 @@ def get_suggested_followups(
         OR (SELECT COUNT(*) FROM activity_log a
             WHERE a.policy_id = p.id
               AND a.activity_date >= date('now', '-30 days')) = 0
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM activity_log al
+        WHERE al.policy_id = p.id
+          AND al.follow_up_done = 0
+          AND al.follow_up_date IS NOT NULL
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM activity_log al
+        WHERE al.policy_id = p.id
+          AND al.follow_up_done = 0
+          AND al.disposition IN (
+            'Waiting on Client', 'Waiting on Carrier', 'Waiting on Colleague',
+            'Sent Email', 'Sent RFI', 'Left VM'
+          )
       )
     ORDER BY p.expiration_date ASC
     """
