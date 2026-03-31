@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Follow-ups Spreadsheet{% endblock %}
+{% block content %}
+
+{% include "_spreadsheet.html" %}
+
+<script>
+(function() {
+  var columns = {{ columns | tojson }};
+  var data = {{ rows | tojson }};
+
+  initSpreadsheet({
+    el: '#spreadsheet-grid',
+    title: 'Follow-ups Spreadsheet',
+    data: data,
+    columns: columns,
+    frozenFields: ['client_name'],
+    patchUrl: '/activities/{id}/field',
+    idField: 'id',
+    entityName: 'Follow-up',
+    addRowUrl: null,
+    exportUrl: '/followups/spreadsheet/export',
+  });
+})();
+</script>
+
+{% endblock %}

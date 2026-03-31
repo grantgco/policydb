@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Client Spreadsheet{% endblock %}
+{% block content %}
+
+{% include "_spreadsheet.html" %}
+
+<script>
+(function() {
+  var columns = {{ columns | tojson }};
+  var data = {{ rows | tojson }};
+
+  initSpreadsheet({
+    el: '#spreadsheet-grid',
+    title: 'Client Spreadsheet',
+    data: data,
+    columns: columns,
+    frozenFields: ['name'],
+    patchUrl: '/clients/{id}/field',
+    idField: 'id',
+    entityName: 'Client',
+    addRowUrl: '/clients/quick-add',
+    exportUrl: '/clients/spreadsheet/export',
+    clientList: null,
+  });
+})();
+</script>
+
+{% endblock %}

@@ -84,6 +84,102 @@ def _auto_send_rfi_bundle(conn, activity_id: int, *, abandoned: bool = False) ->
     )
 
 
+# ─── FOLLOW-UPS SPREADSHEET VIEW ─────────────────────────────────────────────
+
+
+@router.get("/followups/spreadsheet", response_class=HTMLResponse)
+def followups_spreadsheet(request: Request, conn=Depends(get_db)):
+    """Editable follow-ups spreadsheet view using Tabulator."""
+    from policydb.queries import get_followups_for_grid
+
+    rows = get_followups_for_grid(conn)
+
+    activity_types = cfg.get("activity_types", [])
+    dispositions_raw = cfg.get("follow_up_dispositions", [])
+    disposition_labels = [d.get("label", d) if isinstance(d, dict) else d for d in dispositions_raw]
+
+    columns = [
+        {"field": "client_name", "title": "Client", "width": 180,
+         "headerFilter": "input", "_format": "link"},
+        {"field": "policy_uid", "title": "Policy", "width": 90,
+         "headerFilter": "input", "_format": "link"},
+        {"field": "policy_type", "title": "Line of Business", "width": 150,
+         "headerFilter": "input"},
+        {"field": "carrier", "title": "Carrier", "width": 130,
+         "headerFilter": "input"},
+        {"field": "subject", "title": "Subject", "width": 200,
+         "editor": "input", "headerFilter": "input"},
+        {"field": "activity_type", "title": "Type", "width": 120,
+         "editor": "list", "editorParams": {"values": activity_types, "autocomplete": True, "freetext": True, "listOnEmpty": True},
+         "headerFilter": "list", "headerFilterParams": {"values": {s: s for s in activity_types}, "clearable": True}},
+        {"field": "follow_up_date", "title": "Follow-Up Date", "width": 125,
+         "editor": "date", "_format": "date", "headerFilter": "input"},
+        {"field": "days_overdue", "title": "Days Overdue", "width": 110,
+         "hozAlign": "right", "headerHozAlign": "right"},
+        {"field": "contact_person", "title": "Contact", "width": 140,
+         "editor": "input", "headerFilter": "input"},
+        {"field": "disposition", "title": "Disposition", "width": 150,
+         "editor": "list", "editorParams": {"values": disposition_labels, "autocomplete": True, "freetext": True, "listOnEmpty": True},
+         "headerFilter": "list", "headerFilterParams": {"values": {s: s for s in disposition_labels}, "clearable": True}},
+        {"field": "details", "title": "Details", "width": 220,
+         "editor": "input"},
+        {"field": "duration_hours", "title": "Hours", "width": 80,
+         "editor": "number", "editorParams": {"selectContents": True},
+         "hozAlign": "right", "headerHozAlign": "right"},
+        {"field": "activity_date", "title": "Activity Date", "width": 115,
+         "editor": "date", "_format": "date"},
+        {"field": "project_name", "title": "Location", "width": 150,
+         "headerFilter": "input"},
+        {"field": "expiration_date", "title": "Expiration", "width": 115,
+         "_format": "date"},
+    ]
+
+    return templates.TemplateResponse("followups/spreadsheet.html", {
+        "request": request,
+        "active": "followup-spreadsheet",
+        "rows": rows,
+        "columns": columns,
+    })
+
+
+@router.get("/followups/spreadsheet/export")
+def followups_spreadsheet_export(request: Request, conn=Depends(get_db)):
+    """Export follow-ups spreadsheet as branded XLSX."""
+    from policydb.exporter import _write_sheet, _wb_to_bytes
+    from openpyxl import Workbook
+    from policydb.queries import get_followups_for_grid
+    from fastapi.responses import Response
+
+    rows = get_followups_for_grid(conn)
+
+    for key, val in request.query_params.items():
+        if key.startswith("filter_") and val:
+            field = key[7:]
+            val_lower = val.lower()
+            rows = [r for r in rows if val_lower in str(r.get(field, "") or "").lower()]
+
+    sort_field = request.query_params.get("sort_field")
+    sort_dir = request.query_params.get("sort_dir", "asc")
+    if sort_field and rows:
+        reverse = sort_dir.lower() == "desc"
+        rows.sort(key=lambda r: (r.get(sort_field) is None, r.get(sort_field, "")), reverse=reverse)
+
+    # Remove internal fields
+    export_exclude = {"client_id", "follow_up_done", "id"}
+    export_rows = [{k: v for k, v in r.items() if k not in export_exclude} for r in rows]
+
+    wb = Workbook()
+    wb.remove(wb.active)
+    _write_sheet(wb, "Follow-ups Spreadsheet", export_rows, wrap_text=False)
+    content = _wb_to_bytes(wb)
+
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="followups_spreadsheet.xlsx"'},
+    )
+
+
 @router.post("/activities/log", response_class=HTMLResponse)
 def activity_log(
     request: Request,
@@ -657,7 +753,7 @@ def followup_date_count(date: str = "", conn=Depends(get_db)):
 # ── Activity field PATCH (Action Center inline editing) ──────────────────────
 
 
-_ACTIVITY_EDITABLE_FIELDS = {"subject", "activity_type", "duration_hours", "disposition", "details", "contact_person", "contact_id"}
+_ACTIVITY_EDITABLE_FIELDS = {"subject", "activity_type", "duration_hours", "disposition", "details", "contact_person", "contact_id", "follow_up_date", "activity_date", "follow_up_done"}
 
 
 @router.patch("/activities/{activity_id}/field")
