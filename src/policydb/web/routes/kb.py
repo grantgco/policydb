@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 
 import policydb.config as cfg
-from policydb.db import DB_PATH, next_kb_article_uid, next_kb_document_uid
+from policydb.db import DB_PATH, next_attachment_uid, next_kb_article_uid
 from policydb.web.app import get_db, templates
 
 logger = logging.getLogger(__name__)
@@ -104,7 +104,7 @@ async def kb_index(request: Request, conn=Depends(get_db)):
         "SELECT * FROM kb_articles ORDER BY updated_at DESC"
     ).fetchall()
     documents = conn.execute(
-        "SELECT * FROM kb_documents ORDER BY updated_at DESC"
+        "SELECT * FROM attachments ORDER BY updated_at DESC"
     ).fetchall()
 
     # Merge into unified list with type marker
@@ -172,7 +172,7 @@ async def kb_search(
             where += " AND category = ?"
             params.append(category)
         documents = conn.execute(
-            f"SELECT * FROM kb_documents {where} ORDER BY updated_at DESC",
+            f"SELECT * FROM attachments {where} ORDER BY updated_at DESC",
             params,
         ).fetchall()
         for doc in documents:
@@ -238,10 +238,10 @@ async def article_detail(request: Request, uid: str, conn=Depends(get_db)):
 
     # Attachments
     attachments = conn.execute("""
-        SELECT d.*, ka.id as attach_id FROM kb_attachments ka
-        JOIN kb_documents d ON d.id = ka.document_id
-        WHERE ka.article_id = ?
-        ORDER BY ka.sort_order, ka.added_at
+        SELECT a.*, ra.id as attach_id FROM record_attachments ra
+        JOIN attachments a ON a.id = ra.attachment_id
+        WHERE ra.record_type = 'kb_article' AND ra.record_id = ?
+        ORDER BY ra.sort_order, ra.created_at
     """, (article["id"],)).fetchall()
     attach_list = []
     for att in attachments:
@@ -326,7 +326,7 @@ async def article_update_tags(
 async def delete_article(uid: str, conn=Depends(get_db)):
     article = conn.execute("SELECT id FROM kb_articles WHERE uid = ?", (uid,)).fetchone()
     if article:
-        conn.execute("DELETE FROM kb_attachments WHERE article_id = ?", (article["id"],))
+        conn.execute("DELETE FROM record_attachments WHERE record_type = 'kb_article' AND record_id = ?", (article["id"],))
         conn.execute("DELETE FROM kb_record_links WHERE entry_type = 'article' AND entry_id = ?", (article["id"],))
         conn.execute("DELETE FROM kb_articles WHERE id = ?", (article["id"],))
         conn.commit()
@@ -353,14 +353,15 @@ async def upload_document(
     if len(content) > _MAX_UPLOAD_BYTES:
         return RedirectResponse("/kb?error=too_large", status_code=303)
 
-    uid = next_kb_document_uid(conn)
+    uid = next_attachment_uid(conn)
     safe_name = _sanitize_filename(file.filename or "document")
     stored_name = f"{uid}_{safe_name}"
 
     # Ensure directory exists
-    _KB_FILES_DIR.mkdir(parents=True, exist_ok=True)
+    from policydb.web.routes.attachments import _ATTACHMENTS_DIR
+    _ATTACHMENTS_DIR.mkdir(parents=True, exist_ok=True)
 
-    file_path = _KB_FILES_DIR / stored_name
+    file_path = _ATTACHMENTS_DIR / stored_name
     with open(file_path, "wb") as f:
         f.write(content)
 
@@ -368,8 +369,8 @@ async def upload_document(
     display_title = title or os.path.splitext(file.filename or "Document")[0]
 
     conn.execute(
-        "INSERT INTO kb_documents (uid, title, category, filename, file_path, file_size, mime_type, tags) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO attachments (uid, title, source, category, filename, file_path, file_size, mime_type, tags) "
+        "VALUES (?, ?, 'local', ?, ?, ?, ?, ?, ?)",
         (uid, display_title, category, file.filename, str(file_path), len(content), mime_type, "[]"),
     )
     conn.commit()
@@ -379,7 +380,7 @@ async def upload_document(
 
 @router.get("/documents/{uid}", response_class=HTMLResponse)
 async def document_detail(request: Request, uid: str, conn=Depends(get_db)):
-    doc = conn.execute("SELECT * FROM kb_documents WHERE uid = ?", (uid,)).fetchone()
+    doc = conn.execute("SELECT * FROM attachments WHERE uid = ?", (uid,)).fetchone()
     if not doc:
         return RedirectResponse("/kb", status_code=303)
 
@@ -391,9 +392,9 @@ async def document_detail(request: Request, uid: str, conn=Depends(get_db)):
 
     # Articles referencing this document
     referencing = conn.execute("""
-        SELECT a.* FROM kb_attachments ka
-        JOIN kb_articles a ON a.id = ka.article_id
-        WHERE ka.document_id = ?
+        SELECT a.* FROM record_attachments ra
+        JOIN kb_articles a ON a.id = ra.record_id
+        WHERE ra.attachment_id = ? AND ra.record_type = 'kb_article'
         ORDER BY a.updated_at DESC
     """, (doc["id"],)).fetchall()
     referencing_articles = [dict(r) for r in referencing]
@@ -428,7 +429,7 @@ async def document_save_field(
     if field not in allowed:
         return JSONResponse({"ok": False, "error": "Invalid field"})
 
-    conn.execute(f"UPDATE kb_documents SET {field} = ? WHERE uid = ?", (value, uid))
+    conn.execute(f"UPDATE attachments SET {field} = ? WHERE uid = ?", (value, uid))
     conn.commit()
     return JSONResponse({"ok": True, "formatted": value})
 
@@ -441,7 +442,7 @@ async def document_update_tags(
     tag: str = Form(""),
     conn=Depends(get_db),
 ):
-    doc = conn.execute("SELECT id, tags FROM kb_documents WHERE uid = ?", (uid,)).fetchone()
+    doc = conn.execute("SELECT id, tags FROM attachments WHERE uid = ?", (uid,)).fetchone()
     if not doc:
         return JSONResponse({"ok": False})
 
@@ -455,7 +456,7 @@ async def document_update_tags(
     elif action == "remove" and tag in tags:
         tags.remove(tag)
 
-    conn.execute("UPDATE kb_documents SET tags = ? WHERE uid = ?", (json.dumps(tags), uid))
+    conn.execute("UPDATE attachments SET tags = ? WHERE uid = ?", (json.dumps(tags), uid))
     conn.commit()
 
     doc_dict = dict(doc)
@@ -470,7 +471,7 @@ async def document_update_tags(
 
 @router.get("/documents/{uid}/download")
 async def document_download(uid: str, conn=Depends(get_db)):
-    doc = conn.execute("SELECT file_path, filename, mime_type FROM kb_documents WHERE uid = ?", (uid,)).fetchone()
+    doc = conn.execute("SELECT file_path, filename, mime_type FROM attachments WHERE uid = ?", (uid,)).fetchone()
     if not doc:
         return RedirectResponse("/kb", status_code=303)
 
@@ -487,15 +488,15 @@ async def document_download(uid: str, conn=Depends(get_db)):
 
 @router.post("/documents/{uid}/delete")
 async def delete_document(uid: str, conn=Depends(get_db)):
-    doc = conn.execute("SELECT id, file_path FROM kb_documents WHERE uid = ?", (uid,)).fetchone()
+    doc = conn.execute("SELECT id, file_path, source FROM attachments WHERE uid = ?", (uid,)).fetchone()
     if doc:
-        # Remove file from disk
-        file_path = Path(doc["file_path"])
-        if file_path.exists():
-            file_path.unlink()
-        conn.execute("DELETE FROM kb_attachments WHERE document_id = ?", (doc["id"],))
-        conn.execute("DELETE FROM kb_record_links WHERE entry_type = 'document' AND entry_id = ?", (doc["id"],))
-        conn.execute("DELETE FROM kb_documents WHERE id = ?", (doc["id"],))
+        # Remove file from disk if local
+        if doc["source"] == "local" and doc["file_path"]:
+            file_path = Path(doc["file_path"])
+            if file_path.exists():
+                file_path.unlink()
+        # record_attachments cascade via FK ON DELETE CASCADE
+        conn.execute("DELETE FROM attachments WHERE id = ?", (doc["id"],))
         conn.commit()
         logger.info("KB document deleted: %s", uid)
     return RedirectResponse("/kb", status_code=303)
@@ -516,8 +517,8 @@ async def attach_document(
 
     try:
         conn.execute(
-            "INSERT OR IGNORE INTO kb_attachments (article_id, document_id) VALUES (?, ?)",
-            (article["id"], document_id),
+            "INSERT OR IGNORE INTO record_attachments (attachment_id, record_type, record_id) VALUES (?, 'kb_article', ?)",
+            (document_id, article["id"]),
         )
         conn.commit()
     except Exception:
@@ -546,12 +547,13 @@ async def upload_and_attach(
     if len(content) > _MAX_UPLOAD_BYTES:
         return JSONResponse({"ok": False, "error": "File too large"})
 
-    doc_uid = next_kb_document_uid(conn)
+    doc_uid = next_attachment_uid(conn)
     safe_name = _sanitize_filename(file.filename or "document")
     stored_name = f"{doc_uid}_{safe_name}"
-    _KB_FILES_DIR.mkdir(parents=True, exist_ok=True)
+    from policydb.web.routes.attachments import _ATTACHMENTS_DIR
+    _ATTACHMENTS_DIR.mkdir(parents=True, exist_ok=True)
 
-    file_path = _KB_FILES_DIR / stored_name
+    file_path = _ATTACHMENTS_DIR / stored_name
     with open(file_path, "wb") as f:
         f.write(content)
 
@@ -559,14 +561,14 @@ async def upload_and_attach(
     display_title = os.path.splitext(file.filename or "Document")[0]
 
     conn.execute(
-        "INSERT INTO kb_documents (uid, title, category, filename, file_path, file_size, mime_type, tags) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO attachments (uid, title, source, category, filename, file_path, file_size, mime_type, tags) "
+        "VALUES (?, ?, 'local', ?, ?, ?, ?, ?, ?)",
         (doc_uid, display_title, category, file.filename, str(file_path), len(content), mime_type, "[]"),
     )
-    doc_row = conn.execute("SELECT id FROM kb_documents WHERE uid = ?", (doc_uid,)).fetchone()
+    doc_row = conn.execute("SELECT id FROM attachments WHERE uid = ?", (doc_uid,)).fetchone()
     conn.execute(
-        "INSERT OR IGNORE INTO kb_attachments (article_id, document_id) VALUES (?, ?)",
-        (article["id"], doc_row["id"]),
+        "INSERT OR IGNORE INTO record_attachments (attachment_id, record_type, record_id) VALUES (?, 'kb_article', ?)",
+        (doc_row["id"], article["id"]),
     )
     conn.commit()
 
@@ -585,8 +587,8 @@ async def detach_document(
         return JSONResponse({"ok": False})
 
     conn.execute(
-        "DELETE FROM kb_attachments WHERE article_id = ? AND document_id = ?",
-        (article["id"], document_id),
+        "DELETE FROM record_attachments WHERE attachment_id = ? AND record_type = 'kb_article' AND record_id = ?",
+        (document_id, article["id"]),
     )
     conn.commit()
 
@@ -595,10 +597,10 @@ async def detach_document(
 
 async def _render_attachments_partial(request, conn, uid, article_id):
     attachments = conn.execute("""
-        SELECT d.*, ka.id as attach_id FROM kb_attachments ka
-        JOIN kb_documents d ON d.id = ka.document_id
-        WHERE ka.article_id = ?
-        ORDER BY ka.sort_order, ka.added_at
+        SELECT a.*, ra.id as attach_id FROM record_attachments ra
+        JOIN attachments a ON a.id = ra.attachment_id
+        WHERE ra.record_type = 'kb_article' AND ra.record_id = ?
+        ORDER BY ra.sort_order, ra.created_at
     """, (article_id,)).fetchall()
     attach_list = []
     for att in attachments:
@@ -617,30 +619,60 @@ async def _render_attachments_partial(request, conn, uid, article_id):
 # ── Record Links ─────────────────────────────────────────────────────────────
 
 def _get_record_links(conn, entry_type: str, entry_id: int) -> list[dict]:
-    rows = conn.execute(
-        "SELECT * FROM kb_record_links WHERE entry_type = ? AND entry_id = ?",
-        (entry_type, entry_id),
-    ).fetchall()
-    links = []
-    for r in rows:
-        d = dict(r)
-        if d["entity_type"] == "client":
-            entity = conn.execute("SELECT id, name FROM clients WHERE id = ?", (d["entity_id"],)).fetchone()
-            if entity:
-                d["entity_name"] = entity["name"]
-                d["entity_url"] = f"/clients/{entity['id']}"
-        elif d["entity_type"] == "policy":
-            entity = conn.execute(
-                "SELECT p.id, p.policy_uid, p.policy_type, p.carrier, c.name as client_name "
-                "FROM policies p LEFT JOIN clients c ON c.id = p.client_id "
-                "WHERE p.id = ?", (d["entity_id"],)
-            ).fetchone()
-            if entity:
-                d["entity_name"] = f"{entity['policy_uid']} — {entity['carrier'] or ''} {entity['policy_type'] or ''}"
-                d["entity_url"] = f"/policies/{entity['policy_uid']}"
-        if "entity_name" in d:
-            links.append(d)
-    return links
+    if entry_type == "document":
+        # Documents use record_attachments (migrated from kb_record_links)
+        rows = conn.execute(
+            "SELECT * FROM record_attachments WHERE attachment_id = ? AND record_type IN ('client', 'policy')",
+            (entry_id,),
+        ).fetchall()
+        links = []
+        for r in rows:
+            d = dict(r)
+            d["entity_type"] = d["record_type"]
+            d["entity_id"] = d["record_id"]
+            if d["entity_type"] == "client":
+                entity = conn.execute("SELECT id, name FROM clients WHERE id = ?", (d["entity_id"],)).fetchone()
+                if entity:
+                    d["entity_name"] = entity["name"]
+                    d["entity_url"] = f"/clients/{entity['id']}"
+            elif d["entity_type"] == "policy":
+                entity = conn.execute(
+                    "SELECT p.id, p.policy_uid, p.policy_type, p.carrier, c.name as client_name "
+                    "FROM policies p LEFT JOIN clients c ON c.id = p.client_id "
+                    "WHERE p.id = ?", (d["entity_id"],)
+                ).fetchone()
+                if entity:
+                    d["entity_name"] = f"{entity['policy_uid']} — {entity['carrier'] or ''} {entity['policy_type'] or ''}"
+                    d["entity_url"] = f"/policies/{entity['policy_uid']}"
+            if "entity_name" in d:
+                links.append(d)
+        return links
+    else:
+        # Articles still use kb_record_links
+        rows = conn.execute(
+            "SELECT * FROM kb_record_links WHERE entry_type = ? AND entry_id = ?",
+            (entry_type, entry_id),
+        ).fetchall()
+        links = []
+        for r in rows:
+            d = dict(r)
+            if d["entity_type"] == "client":
+                entity = conn.execute("SELECT id, name FROM clients WHERE id = ?", (d["entity_id"],)).fetchone()
+                if entity:
+                    d["entity_name"] = entity["name"]
+                    d["entity_url"] = f"/clients/{entity['id']}"
+            elif d["entity_type"] == "policy":
+                entity = conn.execute(
+                    "SELECT p.id, p.policy_uid, p.policy_type, p.carrier, c.name as client_name "
+                    "FROM policies p LEFT JOIN clients c ON c.id = p.client_id "
+                    "WHERE p.id = ?", (d["entity_id"],)
+                ).fetchone()
+                if entity:
+                    d["entity_name"] = f"{entity['policy_uid']} — {entity['carrier'] or ''} {entity['policy_type'] or ''}"
+                    d["entity_url"] = f"/policies/{entity['policy_uid']}"
+            if "entity_name" in d:
+                links.append(d)
+        return links
 
 
 @router.post("/{entry_type}/{uid}/link")
@@ -655,16 +687,24 @@ async def link_record(
     if entry_type == "article":
         row = conn.execute("SELECT id FROM kb_articles WHERE uid = ?", (uid,)).fetchone()
     else:
-        row = conn.execute("SELECT id FROM kb_documents WHERE uid = ?", (uid,)).fetchone()
+        row = conn.execute("SELECT id FROM attachments WHERE uid = ?", (uid,)).fetchone()
 
     if not row:
         return JSONResponse({"ok": False})
 
     try:
-        conn.execute(
-            "INSERT OR IGNORE INTO kb_record_links (entry_type, entry_id, entity_type, entity_id) VALUES (?, ?, ?, ?)",
-            (entry_type, row["id"], entity_type, entity_id),
-        )
+        if entry_type == "document":
+            # Documents use record_attachments
+            conn.execute(
+                "INSERT OR IGNORE INTO record_attachments (attachment_id, record_type, record_id) VALUES (?, ?, ?)",
+                (row["id"], entity_type, entity_id),
+            )
+        else:
+            # Articles use kb_record_links
+            conn.execute(
+                "INSERT OR IGNORE INTO kb_record_links (entry_type, entry_id, entity_type, entity_id) VALUES (?, ?, ?, ?)",
+                (entry_type, row["id"], entity_type, entity_id),
+            )
         conn.commit()
     except Exception:
         pass
@@ -686,13 +726,16 @@ async def unlink_record(
     link_id: int = Form(...),
     conn=Depends(get_db),
 ):
-    conn.execute("DELETE FROM kb_record_links WHERE id = ?", (link_id,))
+    if entry_type == "document":
+        conn.execute("DELETE FROM record_attachments WHERE id = ?", (link_id,))
+    else:
+        conn.execute("DELETE FROM kb_record_links WHERE id = ?", (link_id,))
     conn.commit()
 
     if entry_type == "article":
         row = conn.execute("SELECT id FROM kb_articles WHERE uid = ?", (uid,)).fetchone()
     else:
-        row = conn.execute("SELECT id FROM kb_documents WHERE uid = ?", (uid,)).fetchone()
+        row = conn.execute("SELECT id FROM attachments WHERE uid = ?", (uid,)).fetchone()
 
     if not row:
         return JSONResponse({"ok": False})
@@ -751,7 +794,7 @@ async def kb_links_for_entity(
         if d["entry_type"] == "article":
             entry = conn.execute("SELECT uid, title, category FROM kb_articles WHERE id = ?", (d["entry_id"],)).fetchone()
         else:
-            entry = conn.execute("SELECT uid, title, category FROM kb_documents WHERE id = ?", (d["entry_id"],)).fetchone()
+            entry = conn.execute("SELECT uid, title, category FROM attachments WHERE id = ?", (d["entry_id"],)).fetchone()
         if entry:
             d["entry_uid"] = entry["uid"]
             d["entry_title"] = entry["title"]
@@ -787,7 +830,7 @@ async def search_entries(
         (pattern, pattern),
     ).fetchall()
     documents = conn.execute(
-        "SELECT id, uid, title, category, 'document' AS entry_type FROM kb_documents "
+        "SELECT id, uid, title, category, 'document' AS entry_type FROM attachments "
         "WHERE title LIKE ? OR filename LIKE ? ORDER BY updated_at DESC LIMIT 10",
         (pattern, pattern),
     ).fetchall()
@@ -853,7 +896,7 @@ async def search_documents(
 ):
     pattern = f"%{q}%"
     documents = conn.execute(
-        "SELECT id, uid, title, filename, mime_type FROM kb_documents "
+        "SELECT id, uid, title, filename, mime_type FROM attachments "
         "WHERE title LIKE ? OR filename LIKE ? ORDER BY updated_at DESC LIMIT 10",
         (pattern, pattern),
     ).fetchall()

@@ -1630,6 +1630,15 @@ def init_db(path: Path | None = None) -> None:
         conn.commit()
         logger.info("Migration 116: added due_date and auto-close tracking columns")
 
+    if 117 not in applied:
+        conn.executescript((_MIGRATIONS_DIR / "117_universal_attachments.sql").read_text())
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (117, "Universal attachments with DevonThink integration, migrate kb_documents"),
+        )
+        conn.commit()
+        logger.info("Migration 117: created universal attachments tables, migrated KB documents")
+
     # Data hygiene: fix 'None' string corruption in text fields (runs every startup, fast no-op if clean)
     conn.execute("UPDATE clients SET cn_number = NULL WHERE cn_number = 'None'")
 
@@ -2193,6 +2202,22 @@ def next_kb_document_uid(conn: sqlite3.Connection) -> str:
     except (IndexError, ValueError):
         n = 1
     return f"KBD-{n:03d}"
+
+
+def next_attachment_uid(conn: sqlite3.Connection) -> str:
+    """Generate next ATT-NNN uid."""
+    row = conn.execute(
+        "SELECT uid FROM attachments WHERE uid LIKE 'ATT-%' "
+        "ORDER BY CAST(SUBSTR(uid, 5) AS INTEGER) DESC LIMIT 1"
+    ).fetchone()
+    if row is None:
+        return "ATT-001"
+    last = row["uid"]
+    try:
+        n = int(last.split("-")[1]) + 1
+    except (IndexError, ValueError):
+        n = 1
+    return f"ATT-{n:03d}"
 
 
 def generate_issue_uid() -> str:

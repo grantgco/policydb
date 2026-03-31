@@ -1,0 +1,297 @@
+{# Reusable attachment panel — include on any page that supports file attachments.
+   Context vars: record_type, record_id, attachments (list), categories (list), dt_available (bool)
+   Panel ID: attachments-panel-{{ record_type }}-{{ record_id }}
+#}
+{% set panel_id = "attachments-panel-" ~ record_type ~ "-" ~ record_id %}
+
+<div id="{{ panel_id }}" class="mt-4">
+  <div class="flex items-center justify-between mb-3">
+    <h3 class="text-sm font-semibold text-gray-700 flex items-center gap-2">
+      <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
+      </svg>
+      Files
+      {% if attachments %}
+        <span class="text-xs text-gray-400">({{ attachments|length }})</span>
+      {% endif %}
+    </h3>
+    <button type="button" onclick="toggleAttachForm('{{ panel_id }}')"
+      class="text-xs text-marsh hover:text-blue-700 font-medium no-print">
+      + Attach
+    </button>
+  </div>
+
+  {# ── Attach form (hidden by default) ─────────────────────────────── #}
+  <div id="{{ panel_id }}-form" class="hidden mb-4 border border-gray-200 rounded-lg p-4 bg-gray-50 no-print">
+    {# Tab switcher #}
+    <div class="flex gap-1 mb-3">
+      {% if dt_available %}
+      <button type="button" onclick="switchAttachTab('{{ panel_id }}', 'dt')"
+        id="{{ panel_id }}-tab-dt"
+        class="px-3 py-1 text-xs font-medium rounded-full bg-marsh text-white">
+        DevonThink
+      </button>
+      {% endif %}
+      <button type="button" onclick="switchAttachTab('{{ panel_id }}', 'upload')"
+        id="{{ panel_id }}-tab-upload"
+        class="px-3 py-1 text-xs font-medium rounded-full {% if not dt_available %}bg-marsh text-white{% else %}bg-gray-200 text-gray-600{% endif %}">
+        Upload File
+      </button>
+      <button type="button" onclick="switchAttachTab('{{ panel_id }}', 'link')"
+        id="{{ panel_id }}-tab-link"
+        class="px-3 py-1 text-xs font-medium rounded-full bg-gray-200 text-gray-600">
+        Link Existing
+      </button>
+    </div>
+
+    {# DevonThink paste tab #}
+    {% if dt_available %}
+    <div id="{{ panel_id }}-pane-dt" class="">
+      <div class="flex gap-2">
+        <input type="text" id="{{ panel_id }}-dt-input"
+          placeholder="Paste x-devonthink-item://UUID or UUID..."
+          class="flex-1 text-sm border border-gray-300 rounded px-3 py-1.5 focus:ring-1 focus:ring-marsh focus:border-marsh">
+        <select id="{{ panel_id }}-dt-category" class="text-xs border border-gray-300 rounded px-2 py-1.5">
+          {% for cat in categories %}
+          <option value="{{ cat }}">{{ cat }}</option>
+          {% endfor %}
+        </select>
+        <button type="button" onclick="attachFromDT('{{ panel_id }}', '{{ record_type }}', {{ record_id }})"
+          class="px-3 py-1.5 text-xs font-medium bg-marsh text-white rounded hover:bg-blue-800">
+          Attach
+        </button>
+      </div>
+      <p class="text-xs text-gray-400 mt-1">Right-click an item in DevonThink → Copy Item Link → paste above</p>
+    </div>
+    {% endif %}
+
+    {# Upload file tab #}
+    <div id="{{ panel_id }}-pane-upload" class="{% if dt_available %}hidden{% endif %}">
+      <form id="{{ panel_id }}-upload-form" enctype="multipart/form-data"
+        onsubmit="attachUpload(event, '{{ panel_id }}', '{{ record_type }}', {{ record_id }}); return false;">
+        <div class="flex gap-2 items-end">
+          <div class="flex-1">
+            <input type="file" name="file" required
+              accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.jpg,.jpeg,.png,.gif,.txt,.md,.csv"
+              class="text-sm border border-gray-300 rounded px-2 py-1 w-full">
+          </div>
+          <select name="category" class="text-xs border border-gray-300 rounded px-2 py-1.5">
+            {% for cat in categories %}
+            <option value="{{ cat }}">{{ cat }}</option>
+            {% endfor %}
+          </select>
+          <button type="submit"
+            class="px-3 py-1.5 text-xs font-medium bg-marsh text-white rounded hover:bg-blue-800">
+            Upload
+          </button>
+        </div>
+      </form>
+      <p class="text-xs text-gray-400 mt-1">PDF, Word, Excel, PowerPoint, images, text — 50 MB max</p>
+    </div>
+
+    {# Link existing tab #}
+    <div id="{{ panel_id }}-pane-link" class="hidden">
+      <div class="flex gap-2">
+        <input type="text" id="{{ panel_id }}-link-search"
+          placeholder="Search attachments by title..."
+          oninput="searchAttachments('{{ panel_id }}', this.value, '{{ record_type }}', {{ record_id }})"
+          class="flex-1 text-sm border border-gray-300 rounded px-3 py-1.5 focus:ring-1 focus:ring-marsh focus:border-marsh">
+      </div>
+      <div id="{{ panel_id }}-link-results" class="mt-2 max-h-40 overflow-y-auto"></div>
+    </div>
+  </div>
+
+  {# ── Attachment list ──────────────────────────────────────────────── #}
+  {% if attachments %}
+  <div class="space-y-2">
+    {% for att in attachments %}
+    <div id="att-card-{{ att.link_id }}" class="flex items-center gap-3 px-3 py-2 bg-white border border-gray-200 rounded-lg group hover:border-gray-300">
+      {# File type icon #}
+      <div class="flex-shrink-0">
+        {% if att.file_info.icon == 'pdf' %}
+          <svg class="w-5 h-5 {{ att.file_info.color }}" fill="currentColor" viewBox="0 0 20 20"><path d="M4 18h12V6h-4V2H4v16zm8-15.5L15.5 6H12V2.5zM2 0h10l4 4v16H2V0z"/></svg>
+        {% elif att.file_info.icon == 'word' %}
+          <svg class="w-5 h-5 {{ att.file_info.color }}" fill="currentColor" viewBox="0 0 20 20"><path d="M4 18h12V6h-4V2H4v16zm8-15.5L15.5 6H12V2.5zM2 0h10l4 4v16H2V0z"/></svg>
+        {% elif att.file_info.icon == 'excel' %}
+          <svg class="w-5 h-5 {{ att.file_info.color }}" fill="currentColor" viewBox="0 0 20 20"><path d="M4 18h12V6h-4V2H4v16zm8-15.5L15.5 6H12V2.5zM2 0h10l4 4v16H2V0z"/></svg>
+        {% elif att.file_info.icon == 'image' %}
+          <svg class="w-5 h-5 {{ att.file_info.color }}" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+        {% else %}
+          <svg class="w-5 h-5 {{ att.file_info.color }}" fill="currentColor" viewBox="0 0 20 20"><path d="M4 18h12V6h-4V2H4v16zm8-15.5L15.5 6H12V2.5zM2 0h10l4 4v16H2V0z"/></svg>
+        {% endif %}
+      </div>
+
+      {# Title + metadata #}
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center gap-2">
+          <span class="text-sm font-medium text-gray-900 truncate">{{ att.title }}</span>
+          {% if att.source == 'devonthink' %}
+            <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-50 text-blue-700">DT</span>
+          {% else %}
+            <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-500">Local</span>
+          {% endif %}
+          {% if att.category and att.category != 'General' %}
+            <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-50 text-amber-700">{{ att.category }}</span>
+          {% endif %}
+        </div>
+        <div class="text-xs text-gray-400">
+          {{ att.file_info.label }}
+          {% if att.file_size %} · {{ att.size_display }}{% endif %}
+          {% if att.filename %} · {{ att.filename }}{% endif %}
+        </div>
+      </div>
+
+      {# Actions #}
+      <div class="flex-shrink-0 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity no-print">
+        {% if att.source == 'devonthink' and att.dt_url %}
+          <a href="{{ att.dt_url }}" class="text-xs text-marsh hover:text-blue-700" title="Open in DevonThink">
+            Open
+          </a>
+        {% elif att.source == 'local' %}
+          <a href="/attachments/{{ att.uid }}/download" class="text-xs text-marsh hover:text-blue-700" title="Download">
+            Download
+          </a>
+        {% endif %}
+        <button type="button"
+          onclick="detachFile({{ att.link_id }}, '{{ panel_id }}', '{{ record_type }}', {{ record_id }})"
+          class="text-xs text-red-400 hover:text-red-600" title="Detach">
+          ×
+        </button>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="text-xs text-gray-400 italic">No files attached</p>
+  {% endif %}
+</div>
+
+<script>
+/* ── Attachment panel JS ──────────────────────────────────────────────────── */
+
+function toggleAttachForm(panelId) {
+  const form = document.getElementById(panelId + '-form');
+  form.classList.toggle('hidden');
+}
+
+function switchAttachTab(panelId, tab) {
+  // Hide all panes
+  ['dt', 'upload', 'link'].forEach(t => {
+    const pane = document.getElementById(panelId + '-pane-' + t);
+    const btn = document.getElementById(panelId + '-tab-' + t);
+    if (pane) pane.classList.add('hidden');
+    if (btn) { btn.classList.remove('bg-marsh', 'text-white'); btn.classList.add('bg-gray-200', 'text-gray-600'); }
+  });
+  // Show selected
+  const pane = document.getElementById(panelId + '-pane-' + tab);
+  const btn = document.getElementById(panelId + '-tab-' + tab);
+  if (pane) pane.classList.remove('hidden');
+  if (btn) { btn.classList.remove('bg-gray-200', 'text-gray-600'); btn.classList.add('bg-marsh', 'text-white'); }
+}
+
+function attachFromDT(panelId, recordType, recordId) {
+  const input = document.getElementById(panelId + '-dt-input');
+  const catSelect = document.getElementById(panelId + '-dt-category');
+  const dtInput = input.value.trim();
+  if (!dtInput) return;
+
+  fetch('/api/attachments', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      dt_input: dtInput,
+      record_type: recordType,
+      record_id: recordId,
+      category: catSelect.value,
+    }),
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.ok) {
+      input.value = '';
+      refreshAttachmentPanel(panelId, recordType, recordId);
+    } else {
+      alert(data.error || 'Failed to attach');
+    }
+  })
+  .catch(() => alert('Network error'));
+}
+
+function attachUpload(event, panelId, recordType, recordId) {
+  event.preventDefault();
+  const form = document.getElementById(panelId + '-upload-form');
+  const formData = new FormData(form);
+  formData.append('record_type', recordType);
+  formData.append('record_id', recordId);
+
+  fetch('/api/attachments/upload', { method: 'POST', body: formData })
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok) {
+        form.reset();
+        refreshAttachmentPanel(panelId, recordType, recordId);
+      } else {
+        alert(data.error || 'Upload failed');
+      }
+    })
+    .catch(() => alert('Upload error'));
+}
+
+function detachFile(linkId, panelId, recordType, recordId) {
+  fetch('/api/record-attachments/' + linkId, { method: 'DELETE' })
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok) {
+        const card = document.getElementById('att-card-' + linkId);
+        if (card) card.remove();
+      }
+    });
+}
+
+let _searchTimer = null;
+function searchAttachments(panelId, query, recordType, recordId) {
+  clearTimeout(_searchTimer);
+  _searchTimer = setTimeout(() => {
+    if (!query.trim()) {
+      document.getElementById(panelId + '-link-results').innerHTML = '';
+      return;
+    }
+    fetch('/api/attachments/search?q=' + encodeURIComponent(query))
+      .then(r => r.json())
+      .then(data => {
+        const container = document.getElementById(panelId + '-link-results');
+        if (!data.results || !data.results.length) {
+          container.innerHTML = '<p class="text-xs text-gray-400 italic py-2">No matching attachments</p>';
+          return;
+        }
+        container.innerHTML = data.results.map(att =>
+          '<div class="flex items-center justify-between py-1.5 px-2 hover:bg-gray-50 rounded cursor-pointer" ' +
+          'onclick="linkExisting(' + att.id + ', \'' + panelId + '\', \'' + recordType + '\', ' + recordId + ')">' +
+          '<div class="text-sm text-gray-700">' + att.title + ' <span class="text-xs text-gray-400">' + att.size_display + '</span></div>' +
+          '<span class="text-xs text-marsh">Link →</span></div>'
+        ).join('');
+      });
+  }, 300);
+}
+
+function linkExisting(attachmentId, panelId, recordType, recordId) {
+  fetch('/api/record-attachments', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ attachment_id: attachmentId, record_type: recordType, record_id: recordId }),
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.ok) {
+      refreshAttachmentPanel(panelId, recordType, recordId);
+    }
+  });
+}
+
+function refreshAttachmentPanel(panelId, recordType, recordId) {
+  htmx.ajax('GET',
+    '/api/attachments/panel?record_type=' + recordType + '&record_id=' + recordId,
+    {target: '#' + panelId, swap: 'outerHTML'}
+  );
+}
+</script>
