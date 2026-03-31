@@ -1007,6 +1007,7 @@ def client_tab_policies(request: Request, client_id: int, conn=Depends(get_db)):
     from policydb.queries import get_program_pipeline
     renewal_pipeline_policies = conn.execute(
         """SELECT policy_uid, policy_type, carrier, expiration_date, renewal_status,
+                  project_name,
                   CAST(julianday(expiration_date) - julianday('now') AS INTEGER) AS days_to_exp
            FROM policies
            WHERE client_id = ? AND archived = 0
@@ -1028,6 +1029,12 @@ def client_tab_policies(request: Request, client_id: int, conn=Depends(get_db)):
         if _s not in pipeline_by_status:
             pipeline_by_status[_s] = []
         pipeline_by_status[_s].append(dict(_rp))
+    # Merge programs into status columns alongside regular policies
+    for pgm in program_pipeline:
+        _s = pgm["renewal_status"] or (_renewal_statuses[0] if _renewal_statuses else "Unknown")
+        if _s not in pipeline_by_status:
+            pipeline_by_status[_s] = []
+        pipeline_by_status[_s].append({**dict(pgm), "is_program": True})
 
     return templates.TemplateResponse("clients/_tab_policies.html", {
         "request": request,
