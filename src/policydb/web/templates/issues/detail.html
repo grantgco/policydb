@@ -26,13 +26,22 @@
     <a href="/clients/{{ issue.client_id }}" class="text-marsh hover:underline">{{ issue.client_name }}</a>
     {% if issue.policy_uid %}
       <span class="text-gray-300">&middot;</span>
-      <span>{{ issue.policy_uid }} {{ issue.policy_type or '' }}</span>
+      <a href="/policies/{{ issue.policy_uid }}/edit" class="text-marsh hover:underline">{{ issue.policy_uid }}</a>
+      {% if issue.policy_type %}<span class="text-gray-400">{{ issue.policy_type }}</span>{% endif %}
+    {% endif %}
+    {% if issue.location_name %}
+      <span class="text-gray-300">&middot;</span>
+      <span class="text-gray-500">{{ issue.location_name }}</span>
     {% endif %}
     <span class="text-gray-300">&middot;</span>
+    {% if issue.is_renewal_issue %}
+    <span class="text-gray-500">{{ days }}d open</span>
+    {% else %}
     <span class="{% if days > sla %}text-red-600 font-semibold{% elif days > (sla * 0.7)|int %}text-amber-600{% else %}text-gray-500{% endif %}">
       {{ days }}d open
       {% if sla %}<span class="text-gray-400">(SLA {{ sla }}d)</span>{% endif %}
     </span>
+    {% endif %}
     <span class="text-gray-300">&middot;</span>
     <span>{{ activities|length }} activit{{ 'y' if activities|length == 1 else 'ies' }}{% if total_hours %} &middot; {{ total_hours }}h{% endif %}</span>
   </div>
@@ -223,11 +232,22 @@
         <div class="text-[10px] text-gray-400 uppercase tracking-wide mb-2">Context</div>
         <a href="/clients/{{ issue.client_id }}" class="text-sm font-medium text-marsh hover:underline">{{ issue.client_name }}</a>
         {% if issue.policy_uid %}
-        <div class="text-xs text-gray-500 mt-1">{{ issue.policy_uid }} &middot; {{ issue.policy_type or '' }}</div>
+        <div class="text-xs text-gray-500 mt-1">
+          <a href="/policies/{{ issue.policy_uid }}/edit" class="text-marsh hover:underline font-mono">{{ issue.policy_uid }}</a>
+          {% if issue.policy_type %}&middot; {{ issue.policy_type }}{% endif %}
+        </div>
+        <a href="/policies/{{ issue.policy_uid }}/edit" class="block text-[10px] text-marsh hover:underline mt-1">Review Policy &rarr;</a>
         {% endif %}
+        {% if issue.location_name %}
+        <div class="text-xs text-gray-500 mt-1">{{ issue.location_name }}</div>
+        {% endif %}
+        {% if issue.is_renewal_issue %}
+        <div class="text-xs text-gray-500 mt-2">{{ days }}d open</div>
+        {% else %}
         <div class="text-xs mt-2 {% if days > sla %}text-red-600 font-semibold{% else %}text-gray-500{% endif %}">
           {{ days }}d open &middot; SLA {{ sla }}d
         </div>
+        {% endif %}
         <div class="text-[10px] text-gray-400 mt-1">
           {{ activities|length }} activit{{ 'y' if activities|length == 1 else 'ies' }}
           {% if total_hours %}&middot; {{ total_hours }}h total{% endif %}
