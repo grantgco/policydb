@@ -21,6 +21,9 @@
     {% if suggested_uids is defined and p.policy_uid in suggested_uids %}
     <span class="text-amber-500 text-xs ml-1" title="No follow-up scheduled — renewal approaching">&#9873;</span>
     {% endif %}
+    {% if p.renewal_issue_uid %}
+    <div class="mt-1">{% with linked_issue_uid=p.renewal_issue_uid, linked_issue_subject=p.renewal_issue_subject|default('Renewal Issue'), linked_issue_severity=p.renewal_issue_severity %}{% include "_issue_badge.html" %}{% endwith %}</div>
+    {% endif %}
   </td>
   <td class="px-3 py-3">
     {% if p.milestone_total %}

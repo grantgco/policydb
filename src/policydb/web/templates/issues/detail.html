@@ -376,7 +376,11 @@
           <div><dt class="text-gray-500 inline">Total Effort:</dt> <dd class="inline text-gray-800">{{ total_hours }}h</dd></div>
           {% endif %}
         </dl>
-        {% if issue.resolution_notes %}
+        {% if merged_into_uid %}
+        <p class="text-xs mt-2 border-t border-green-200 pt-2">
+          Merged into <a href="/issues/{{ merged_into_uid }}" class="text-marsh hover:underline font-medium">{{ merged_into_uid }} &rarr;</a>
+        </p>
+        {% elif issue.resolution_notes %}
         <p class="text-xs text-gray-700 mt-2 border-t border-green-200 pt-2">{{ issue.resolution_notes }}</p>
         {% endif %}
       </div>
