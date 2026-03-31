@@ -229,6 +229,213 @@ def policy_autocomplete(field: str, q: str = "", client_id: int = 0, conn=Depend
     return JSONResponse(values[:40])
 
 
+# ─── SPREADSHEET VIEW ───────────────────────────────────────────────────────
+
+
+@router.get("/spreadsheet", response_class=HTMLResponse)
+def policy_spreadsheet(request: Request, conn=Depends(get_db)):
+    """Full-book editable spreadsheet view using Tabulator."""
+    from policydb.queries import get_all_policies_for_grid, get_projects_by_client
+
+    rows = get_all_policies_for_grid(conn)
+    projects_by_client = get_projects_by_client(conn)
+
+    # Build client list for add-row modal
+    clients = conn.execute(
+        "SELECT id, name FROM clients WHERE archived = 0 ORDER BY name"
+    ).fetchall()
+    client_list = [{"id": c["id"], "name": c["name"]} for c in clients]
+    client_names = [c["name"] for c in client_list]
+
+    # Config lists for combobox editors
+    policy_types = cfg.get("policy_types", [])
+    carriers = cfg.get("carriers", [])
+    renewal_statuses = cfg.get("renewal_statuses", [])
+    opportunity_statuses = cfg.get("opportunity_statuses", [])
+    coverage_forms = cfg.get("coverage_forms", [])
+    layer_positions = cfg.get("layer_positions", [])
+    states = [s[0] for s in US_STATES]
+
+    # Column definitions for Tabulator
+    columns = [
+        {"field": "client_name", "title": "Client", "width": 180,
+         "editor": "list", "editorParams": {"values": client_names, "autocomplete": True, "freetext": False, "listOnEmpty": True},
+         "headerFilter": "input", "_format": "link"},
+        {"field": "policy_uid", "title": "UID", "width": 90,
+         "headerFilter": "input", "_format": "link"},
+        {"field": "policy_type", "title": "Line of Business", "width": 160,
+         "editor": "list", "editorParams": {"values": policy_types, "autocomplete": True, "freetext": True, "listOnEmpty": True},
+         "headerFilter": "input"},
+        {"field": "carrier", "title": "Carrier", "width": 150,
+         "editor": "list", "editorParams": {"values": carriers, "autocomplete": True, "freetext": True, "listOnEmpty": True},
+         "headerFilter": "input"},
+        {"field": "access_point", "title": "Access Point", "width": 120,
+         "editor": "input", "headerFilter": "input"},
+        {"field": "policy_number", "title": "Policy #", "width": 130,
+         "editor": "input", "headerFilter": "input"},
+        {"field": "effective_date", "title": "Effective", "width": 120,
+         "editor": "date", "headerFilter": "input", "_format": "date"},
+        {"field": "expiration_date", "title": "Expiration", "width": 120,
+         "editor": "date", "headerFilter": "input", "_format": "date"},
+        {"field": "premium", "title": "Premium", "width": 120,
+         "editor": "number", "editorParams": {"selectContents": True},
+         "_format": "currency"},
+        {"field": "limit_amount", "title": "Limit", "width": 120,
+         "editor": "number", "editorParams": {"selectContents": True},
+         "_format": "currency"},
+        {"field": "deductible", "title": "Deductible", "width": 110,
+         "editor": "number", "editorParams": {"selectContents": True},
+         "_format": "currency"},
+        {"field": "commission_rate", "title": "Comm %", "width": 80,
+         "editor": "number", "editorParams": {"selectContents": True},
+         "_format": "percent"},
+        {"field": "prior_premium", "title": "Prior Premium", "width": 120,
+         "editor": "number", "editorParams": {"selectContents": True},
+         "_format": "currency"},
+        {"field": "renewal_status", "title": "Status", "width": 130,
+         "editor": "list", "editorParams": {"values": renewal_statuses, "autocomplete": True, "freetext": False, "listOnEmpty": True},
+         "headerFilter": "list", "headerFilterParams": {"values": {s: s for s in renewal_statuses}, "clearable": True},
+         "_format": "status_pill"},
+        {"field": "opportunity_status", "title": "Opp Status", "width": 120,
+         "editor": "list", "editorParams": {"values": opportunity_statuses, "autocomplete": True, "freetext": False, "listOnEmpty": True},
+         "headerFilter": "list", "headerFilterParams": {"values": {s: s for s in opportunity_statuses}, "clearable": True}},
+        {"field": "follow_up_date", "title": "Follow-Up", "width": 120,
+         "editor": "date", "headerFilter": "input", "_format": "date"},
+        {"field": "coverage_form", "title": "Form", "width": 110,
+         "editor": "list", "editorParams": {"values": coverage_forms, "autocomplete": True, "freetext": True, "listOnEmpty": True},
+         "headerFilter": "input"},
+        {"field": "layer_position", "title": "Layer", "width": 100,
+         "editor": "list", "editorParams": {"values": layer_positions, "autocomplete": True, "freetext": True, "listOnEmpty": True},
+         "headerFilter": "input"},
+        {"field": "project_name", "title": "Location", "width": 160,
+         "editor": "list", "headerFilter": "input",
+         "_dynamicValues": "projectsByClient"},
+        {"field": "first_named_insured", "title": "First Named Insured", "width": 170,
+         "editor": "input", "headerFilter": "input"},
+        {"field": "description", "title": "Description", "width": 200,
+         "editor": "input"},
+        {"field": "notes", "title": "Notes", "width": 180,
+         "editor": "input"},
+        {"field": "placement_colleague", "title": "Placement Colleague", "width": 160,
+         "editor": "input", "headerFilter": "input"},
+        {"field": "underwriter_name", "title": "Underwriter", "width": 140,
+         "editor": "input", "headerFilter": "input"},
+        {"field": "exposure_basis", "title": "Exposure Basis", "width": 120,
+         "editor": "input"},
+        {"field": "exposure_amount", "title": "Exposure Amount", "width": 130,
+         "editor": "number", "editorParams": {"selectContents": True},
+         "_format": "currency"},
+        {"field": "exposure_address", "title": "Address", "width": 160,
+         "editor": "input"},
+        {"field": "exposure_city", "title": "City", "width": 120,
+         "editor": "input"},
+        {"field": "exposure_state", "title": "State", "width": 80,
+         "editor": "list", "editorParams": {"values": states, "autocomplete": True, "freetext": True, "listOnEmpty": True},
+         "headerFilter": "list", "headerFilterParams": {"values": {s: s for s in states}, "clearable": True}},
+        {"field": "exposure_zip", "title": "ZIP", "width": 80,
+         "editor": "input"},
+        {"field": "attachment_point", "title": "Attachment Pt", "width": 120,
+         "editor": "number", "editorParams": {"selectContents": True},
+         "_format": "currency"},
+        {"field": "participation_of", "title": "Participation", "width": 120,
+         "editor": "number", "editorParams": {"selectContents": True},
+         "_format": "currency"},
+    ]
+
+    return templates.TemplateResponse("policies/spreadsheet.html", {
+        "request": request,
+        "active": "spreadsheet",
+        "rows": rows,
+        "columns": columns,
+        "projects_by_client": projects_by_client,
+        "client_list": client_list,
+    })
+
+
+@router.get("/spreadsheet/export")
+def policy_spreadsheet_export(request: Request, conn=Depends(get_db)):
+    """Export the spreadsheet view as branded XLSX, respecting current filters."""
+    from policydb.exporter import _write_sheet, _wb_to_bytes
+    from openpyxl import Workbook
+    from policydb.queries import get_all_policies_for_grid
+
+    rows = get_all_policies_for_grid(conn)
+
+    # Apply filters from query params (filter_<field>=<value>)
+    for key, val in request.query_params.items():
+        if key.startswith("filter_") and val:
+            field = key[7:]  # strip "filter_" prefix
+            val_lower = val.lower()
+            rows = [r for r in rows if val_lower in str(r.get(field, "") or "").lower()]
+
+    # Apply sort
+    sort_field = request.query_params.get("sort_field")
+    sort_dir = request.query_params.get("sort_dir", "asc")
+    if sort_field and rows:
+        reverse = sort_dir.lower() == "desc"
+        rows.sort(key=lambda r: (r.get(sort_field) is None, r.get(sort_field, "")), reverse=reverse)
+
+    # Remove internal-only fields before export
+    export_exclude = {"client_id", "is_opportunity"}
+    export_rows = [{k: v for k, v in r.items() if k not in export_exclude} for r in rows]
+
+    wb = Workbook()
+    wb.remove(wb.active)
+    _write_sheet(wb, "Policy Spreadsheet", export_rows)
+    content = _wb_to_bytes(wb)
+
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="policy_spreadsheet.xlsx"'},
+    )
+
+
+@router.post("/quick-add", response_class=JSONResponse)
+async def policy_quick_add(request: Request, conn=Depends(get_db)):
+    """Create a minimal policy record for spreadsheet add-row."""
+    from policydb.db import next_policy_uid
+
+    body = await request.json()
+    client_id = body.get("client_id")
+    if not client_id:
+        return JSONResponse({"ok": False, "error": "client_id required"}, status_code=400)
+
+    # Verify client exists
+    client = conn.execute("SELECT id, name FROM clients WHERE id = ?", (client_id,)).fetchone()
+    if not client:
+        return JSONResponse({"ok": False, "error": "Client not found"}, status_code=404)
+
+    uid = next_policy_uid(conn)
+    conn.execute(
+        """INSERT INTO policies (policy_uid, client_id, renewal_status, account_exec, created_at)
+           VALUES (?, ?, 'Not Started', ?, CURRENT_TIMESTAMP)""",
+        (uid, client_id, cfg.get("default_account_exec", "")),
+    )
+    conn.commit()
+
+    # Return the new row in the same shape as get_all_policies_for_grid
+    row = conn.execute(
+        """SELECT p.policy_uid, p.client_id, c.name AS client_name,
+                  p.policy_type, p.carrier, p.access_point, p.policy_number,
+                  p.effective_date, p.expiration_date, p.premium, p.limit_amount,
+                  p.deductible, p.commission_rate, p.prior_premium, p.renewal_status,
+                  p.is_opportunity, p.opportunity_status, p.follow_up_date,
+                  p.coverage_form, p.layer_position, p.project_name,
+                  p.first_named_insured, p.description, p.notes,
+                  p.placement_colleague, p.underwriter_name,
+                  p.exposure_basis, p.exposure_amount, p.exposure_address,
+                  p.exposure_city, p.exposure_state, p.exposure_zip,
+                  p.attachment_point, p.participation_of
+           FROM policies p JOIN clients c ON p.client_id = c.id
+           WHERE p.policy_uid = ?""",
+        (uid,),
+    ).fetchone()
+
+    logger.info("Quick-add policy %s for client %s", uid, client["name"])
+    return JSONResponse({"ok": True, "row": dict(row)})
+
+
 @router.get("/{policy_uid}/row", response_class=HTMLResponse)
 def policy_row(request: Request, policy_uid: str, conn=Depends(get_db)):
     """HTMX partial: display-mode policy table row (used by Cancel)."""
