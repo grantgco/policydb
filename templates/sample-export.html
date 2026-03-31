@@ -1,0 +1,96 @@
+<!--
+  PolicyDB / Marsh Brand — HTML Export Template (Outlook-Safe)
+
+  This is the standard inline-styled HTML table used for:
+  - Copy Table to clipboard (rich paste into Outlook, Word, etc.)
+  - Email body tables
+  - Any HTML export that leaves the app
+
+  ALL styles must be inline — Outlook strips <style> blocks and CSS classes.
+
+  Source of truth: src/policydb/email_templates.py → _render_policy_table_html()
+
+  ─── BRAND PALETTE ───────────────────────────────────────────────────────
+  Header background:    #003865  (Marsh navy)
+  Header text:          #FFFFFF  (white)
+  Data text:            #3D3C37  (charcoal)
+  Alternating row bg:   #F7F3EE  (warm cream)
+  Borders:              #B9B6B1  (warm gray)
+  Font stack:           'Noto Sans', Calibri, Arial, sans-serif
+  Font size:            13px
+  Cell padding:         6px 10px
+  Currency alignment:   text-align: right
+  ─────────────────────────────────────────────────────────────────────────
+-->
+
+<table style="border-collapse:collapse; width:100%;">
+  <thead>
+    <tr>
+      <th style="border:1px solid #B9B6B1; padding:6px 10px; font-family:'Noto Sans', Calibri, Arial, sans-serif; font-size:13px; font-weight:600; color:#FFFFFF; background-color:#003865;">Policy Type</th>
+      <th style="border:1px solid #B9B6B1; padding:6px 10px; font-family:'Noto Sans', Calibri, Arial, sans-serif; font-size:13px; font-weight:600; color:#FFFFFF; background-color:#003865;">Carrier</th>
+      <th style="border:1px solid #B9B6B1; padding:6px 10px; font-family:'Noto Sans', Calibri, Arial, sans-serif; font-size:13px; font-weight:600; color:#FFFFFF; background-color:#003865;">Policy #</th>
+      <th style="border:1px solid #B9B6B1; padding:6px 10px; font-family:'Noto Sans', Calibri, Arial, sans-serif; font-size:13px; font-weight:600; color:#FFFFFF; background-color:#003865;">Effective</th>
+      <th style="border:1px solid #B9B6B1; padding:6px 10px; font-family:'Noto Sans', Calibri, Arial, sans-serif; font-size:13px; font-weight:600; color:#FFFFFF; background-color:#003865;">Expiration</th>
+      <th style="border:1px solid #B9B6B1; padding:6px 10px; font-family:'Noto Sans', Calibri, Arial, sans-serif; font-size:13px; font-weight:600; color:#FFFFFF; background-color:#003865; text-align:right;">Premium</th>
+      <th style="border:1px solid #B9B6B1; padding:6px 10px; font-family:'Noto Sans', Calibri, Arial, sans-serif; font-size:13px; font-weight:600; color:#FFFFFF; background-color:#003865; text-align:right;">Limit</th>
+      <th style="border:1px solid #B9B6B1; padding:6px 10px; font-family:'Noto Sans', Calibri, Arial, sans-serif; font-size:13px; font-weight:600; color:#FFFFFF; background-color:#003865;">Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <!-- Row 1 (white background) -->
+    <tr>
+      <td style="border:1px solid #B9B6B1; padding:6px 10px; font-family:'Noto Sans', Calibri, Arial, sans-serif; font-size:13px; color:#3D3C37;">General Liability</td>
+      <td style="border:1px solid #B9B6B1; padding:6px 10px; font-family:'Noto Sans', Calibri, Arial, sans-serif; font-size:13px; color:#3D3C37;">Zurich via Marsh</td>
+      <td style="border:1px solid #B9B6B1; padding:6px 10px; font-family:'Noto Sans', Calibri, Arial, sans-serif; font-size:13px; color:#3D3C37;">GL-2026-001</td>
+      <td style="border:1px solid #B9B6B1; padding:6px 10px; font-family:'Noto Sans', Calibri, Arial, sans-serif; font-size:13px; color:#3D3C37;">01/01/2026</td>
+      <td style="border:1px solid #B9B6B1; padding:6px 10px; font-family:'Noto Sans', Calibri, Arial, sans-serif; font-size:13px; color:#3D3C37;">01/01/2027</td>
+      <td style="border:1px solid #B9B6B1; padding:6px 10px; font-family:'Noto Sans', Calibri, Arial, sans-serif; font-size:13px; color:#3D3C37; text-align:right;">$125,000</td>
+      <td style="border:1px solid #B9B6B1; padding:6px 10px; font-family:'Noto Sans', Calibri, Arial, sans-serif; font-size:13px; color:#3D3C37; text-align:right;">$1,000,000</td>
+      <td style="border:1px solid #B9B6B1; padding:6px 10px; font-family:'Noto Sans', Calibri, Arial, sans-serif; font-size:13px; color:#3D3C37;">Commercial General Liability</td>
+    </tr>
+    <!-- Row 2 (alternating cream background) -->
+    <tr>
+      <td style="border:1px solid #B9B6B1; padding:6px 10px; font-family:'Noto Sans', Calibri, Arial, sans-serif; font-size:13px; color:#3D3C37; background-color:#F7F3EE;">Property</td>
+      <td style="border:1px solid #B9B6B1; padding:6px 10px; font-family:'Noto Sans', Calibri, Arial, sans-serif; font-size:13px; color:#3D3C37; background-color:#F7F3EE;">Chubb</td>
+      <td style="border:1px solid #B9B6B1; padding:6px 10px; font-family:'Noto Sans', Calibri, Arial, sans-serif; font-size:13px; color:#3D3C37; background-color:#F7F3EE;">PR-2026-042</td>
+      <td style="border:1px solid #B9B6B1; padding:6px 10px; font-family:'Noto Sans', Calibri, Arial, sans-serif; font-size:13px; color:#3D3C37; background-color:#F7F3EE;">03/15/2026</td>
+      <td style="border:1px solid #B9B6B1; padding:6px 10px; font-family:'Noto Sans', Calibri, Arial, sans-serif; font-size:13px; color:#3D3C37; background-color:#F7F3EE;">03/15/2027</td>
+      <td style="border:1px solid #B9B6B1; padding:6px 10px; font-family:'Noto Sans', Calibri, Arial, sans-serif; font-size:13px; color:#3D3C37; background-color:#F7F3EE; text-align:right;">$87,500</td>
+      <td style="border:1px solid #B9B6B1; padding:6px 10px; font-family:'Noto Sans', Calibri, Arial, sans-serif; font-size:13px; color:#3D3C37; background-color:#F7F3EE; text-align:right;">$5,000,000</td>
+      <td style="border:1px solid #B9B6B1; padding:6px 10px; font-family:'Noto Sans', Calibri, Arial, sans-serif; font-size:13px; color:#3D3C37; background-color:#F7F3EE;">All-Risk Property</td>
+    </tr>
+    <!-- Row 3 (white background) -->
+    <tr>
+      <td style="border:1px solid #B9B6B1; padding:6px 10px; font-family:'Noto Sans', Calibri, Arial, sans-serif; font-size:13px; color:#3D3C37;">Workers Compensation</td>
+      <td style="border:1px solid #B9B6B1; padding:6px 10px; font-family:'Noto Sans', Calibri, Arial, sans-serif; font-size:13px; color:#3D3C37;">Hartford</td>
+      <td style="border:1px solid #B9B6B1; padding:6px 10px; font-family:'Noto Sans', Calibri, Arial, sans-serif; font-size:13px; color:#3D3C37;">WC-2026-010</td>
+      <td style="border:1px solid #B9B6B1; padding:6px 10px; font-family:'Noto Sans', Calibri, Arial, sans-serif; font-size:13px; color:#3D3C37;">01/01/2026</td>
+      <td style="border:1px solid #B9B6B1; padding:6px 10px; font-family:'Noto Sans', Calibri, Arial, sans-serif; font-size:13px; color:#3D3C37;">01/01/2027</td>
+      <td style="border:1px solid #B9B6B1; padding:6px 10px; font-family:'Noto Sans', Calibri, Arial, sans-serif; font-size:13px; color:#3D3C37; text-align:right;">$210,000</td>
+      <td style="border:1px solid #B9B6B1; padding:6px 10px; font-family:'Noto Sans', Calibri, Arial, sans-serif; font-size:13px; color:#3D3C37; text-align:right;">$1,000,000</td>
+      <td style="border:1px solid #B9B6B1; padding:6px 10px; font-family:'Noto Sans', Calibri, Arial, sans-serif; font-size:13px; color:#3D3C37;">Statutory WC + Employers Liability</td>
+    </tr>
+    <!-- Row 4 (alternating cream background) -->
+    <tr>
+      <td style="border:1px solid #B9B6B1; padding:6px 10px; font-family:'Noto Sans', Calibri, Arial, sans-serif; font-size:13px; color:#3D3C37; background-color:#F7F3EE;">Commercial Auto</td>
+      <td style="border:1px solid #B9B6B1; padding:6px 10px; font-family:'Noto Sans', Calibri, Arial, sans-serif; font-size:13px; color:#3D3C37; background-color:#F7F3EE;">Travelers</td>
+      <td style="border:1px solid #B9B6B1; padding:6px 10px; font-family:'Noto Sans', Calibri, Arial, sans-serif; font-size:13px; color:#3D3C37; background-color:#F7F3EE;">CA-2026-005</td>
+      <td style="border:1px solid #B9B6B1; padding:6px 10px; font-family:'Noto Sans', Calibri, Arial, sans-serif; font-size:13px; color:#3D3C37; background-color:#F7F3EE;">06/01/2026</td>
+      <td style="border:1px solid #B9B6B1; padding:6px 10px; font-family:'Noto Sans', Calibri, Arial, sans-serif; font-size:13px; color:#3D3C37; background-color:#F7F3EE;">06/01/2027</td>
+      <td style="border:1px solid #B9B6B1; padding:6px 10px; font-family:'Noto Sans', Calibri, Arial, sans-serif; font-size:13px; color:#3D3C37; background-color:#F7F3EE; text-align:right;">$45,000</td>
+      <td style="border:1px solid #B9B6B1; padding:6px 10px; font-family:'Noto Sans', Calibri, Arial, sans-serif; font-size:13px; color:#3D3C37; background-color:#F7F3EE; text-align:right;">$1,000,000</td>
+      <td style="border:1px solid #B9B6B1; padding:6px 10px; font-family:'Noto Sans', Calibri, Arial, sans-serif; font-size:13px; color:#3D3C37; background-color:#F7F3EE;">Fleet Auto — 12 vehicles</td>
+    </tr>
+    <!-- Row 5 (white background) -->
+    <tr>
+      <td style="border:1px solid #B9B6B1; padding:6px 10px; font-family:'Noto Sans', Calibri, Arial, sans-serif; font-size:13px; color:#3D3C37;">Umbrella</td>
+      <td style="border:1px solid #B9B6B1; padding:6px 10px; font-family:'Noto Sans', Calibri, Arial, sans-serif; font-size:13px; color:#3D3C37;">AIG via Marsh</td>
+      <td style="border:1px solid #B9B6B1; padding:6px 10px; font-family:'Noto Sans', Calibri, Arial, sans-serif; font-size:13px; color:#3D3C37;">UMB-2026-003</td>
+      <td style="border:1px solid #B9B6B1; padding:6px 10px; font-family:'Noto Sans', Calibri, Arial, sans-serif; font-size:13px; color:#3D3C37;">01/01/2026</td>
+      <td style="border:1px solid #B9B6B1; padding:6px 10px; font-family:'Noto Sans', Calibri, Arial, sans-serif; font-size:13px; color:#3D3C37;">01/01/2027</td>
+      <td style="border:1px solid #B9B6B1; padding:6px 10px; font-family:'Noto Sans', Calibri, Arial, sans-serif; font-size:13px; color:#3D3C37; text-align:right;">$62,000</td>
+      <td style="border:1px solid #B9B6B1; padding:6px 10px; font-family:'Noto Sans', Calibri, Arial, sans-serif; font-size:13px; color:#3D3C37; text-align:right;">$10,000,000</td>
+      <td style="border:1px solid #B9B6B1; padding:6px 10px; font-family:'Noto Sans', Calibri, Arial, sans-serif; font-size:13px; color:#3D3C37;">Follow-form Umbrella</td>
+    </tr>
+  </tbody>
+</table>

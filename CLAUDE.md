@@ -41,6 +41,7 @@ Not every task needs a full brainstorm cycle. Use this to calibrate:
 | Currency parsing | `parse_currency_with_magnitude()` in `src/policydb/utils.py` — supports shorthand like `1m`, `1.5M`, `500k`, `$2,000,000` |
 | Address autocomplete | **Google Places API** via backend proxy (`src/policydb/geocoder.py`) — all address fields use `/api/address/autocomplete` + `/api/address/details/{place_id}`. API key stored in config, never exposed client-side. Daily rate limit configurable in Settings. |
 | Geocoding | **Google Geocoding API** via `/api/address/geocode` — used for map display when cached lat/lng not available |
+| Spreadsheet grids | **Tabulator 6.3** (CDN) — for large editable data tables. Reusable `_spreadsheet.html` partial + `initSpreadsheet(config)`. See Spreadsheet Component section below. |
 
 ### Address Autocomplete Rules
 
@@ -467,6 +468,52 @@ Reusable UI for matching records from two sources: left (source) | center (score
 **Colors:** Green (high >=75), Amber (medium 45–74), Red (unmatched source), Purple (extra target/draggable).
 
 **Reference implementation:** `reconcile/_pairing_board.html`. See `reconciler.py` for the `_score_pair()` pattern.
+
+---
+
+## Spreadsheet Component (Tabulator)
+
+Reusable spreadsheet/grid component for large editable data tables, built on **Tabulator 6.3** (CDN).
+
+### Architecture
+
+| File | Purpose |
+|------|---------|
+| `_spreadsheet.html` | Shared partial: Tabulator CDN includes, Marsh CSS overrides, `initSpreadsheet(config)` JS function |
+| `policies/spreadsheet.html` | Policy spreadsheet wrapper (extends base.html, includes `_spreadsheet.html`) |
+| (Future) `clients/spreadsheet.html` | Client spreadsheet wrapper |
+| (Future) `followups/spreadsheet.html` | Follow-up spreadsheet wrapper |
+
+### `initSpreadsheet(config)` API
+
+```javascript
+initSpreadsheet({
+    el: "#spreadsheet-grid",         // container selector
+    data: [...],                      // row objects
+    columns: [...],                   // Tabulator column definitions
+    frozenFields: ["client_name"],    // fields to freeze on left
+    patchUrl: "/policies/{uid}/cell", // URL template for cell save
+    idField: "policy_uid",            // row field for PATCH URL
+    entityName: "policy",             // for UI labels
+    addRowUrl: "/policies/quick-add", // POST endpoint for new rows (null to disable)
+    exportUrl: "/policies/spreadsheet/export", // branded XLSX export
+    projectsByClient: {...},          // client-scoped dropdown data
+})
+```
+
+### When to Use
+
+For any **large data table** or **bulk-editing UI** with 50+ rows, use this Tabulator component instead of building a custom contenteditable table. Benefits: virtual scrolling, column resize, built-in sort/filter/header filters, keyboard navigation.
+
+For **small tables** (< 20 rows) within detail pages, continue using the existing `initMatrix()` contenteditable pattern — it's lighter and doesn't need a CDN dependency.
+
+### Cell Save Pattern
+
+`cellEdited` → `fetch(PATCH, {field, value})` → on success update cell with `formatted` value + green flash → on error restore old value + red flash. Same backend endpoints as existing inline editing.
+
+### Theming
+
+Tabulator's default dark gray theme is overridden in `_spreadsheet.html` to match Marsh brand: navy `#003865` headers, `#F7F3EE` alt-rows, `#B9B6B1` borders, Noto Sans font, `#CEECFF` selected rows.
 
 ---
 
