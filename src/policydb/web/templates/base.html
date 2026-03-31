@@ -1530,6 +1530,25 @@ function policySaveDate(input, uid, field) {
   if (inboxAdd) initAtComplete(inboxAdd, 'inbox-add-contact-id');
 })();
 
+function dismissBoundBanner(uid, priorStatus) {
+  document.getElementById('bound-confirm-prompt').innerHTML = '';
+  // Revert status back to prior value
+  fetch('/policies/' + uid + '/cell', {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({field: 'renewal_status', value: priorStatus})
+  }).then(function(r) { return r.json(); }).then(function(data) {
+    if (data.ok && typeof showToast === 'function') showToast('Status reverted', true);
+    // Update seg-control radio if on edit page
+    var seg = document.getElementById('seg-renewal-status');
+    if (seg) {
+      seg.querySelectorAll('input[type="radio"]').forEach(function(r) {
+        r.checked = (r.value === priorStatus);
+      });
+    }
+  });
+}
+
 function policyStatusPill(btn, uid, status) {
   var td = btn.closest('td');
   td.querySelectorAll('.status-pill').forEach(function(p) {
@@ -1543,7 +1562,27 @@ function policyStatusPill(btn, uid, status) {
     body: 'status=' + encodeURIComponent(status)
   }).then(function(r) {
     if (!r.ok) { if (typeof showToast === 'function') showToast('Status save failed', false); return; }
-    // Find the containing row and refresh it via HTMX
+    return r.text();
+  }).then(function(html) {
+    if (!html) return;
+    // Process OOB swaps from response (fetch bypasses HTMX OOB processing)
+    var temp = document.createElement('div');
+    temp.innerHTML = html;
+    var oobEls = temp.querySelectorAll('[hx-swap-oob]');
+    oobEls.forEach(function(el) {
+      var targetId = el.id;
+      var existing = document.getElementById(targetId);
+      if (existing) {
+        existing.innerHTML = el.innerHTML;
+      }
+      el.remove();
+    });
+    // Process any htmx elements in injected OOB content
+    if (typeof htmx !== 'undefined') {
+      var prompt = document.getElementById('bound-confirm-prompt');
+      if (prompt) htmx.process(prompt);
+    }
+    // Refresh the containing row via HTMX
     var row = btn.closest('tr');
     if (row && typeof htmx !== 'undefined') {
       var rowId = row.id;
@@ -1560,5 +1599,7 @@ function policyStatusPill(btn, uid, status) {
   });
 }
 </script>
+<!-- OOB target for bound confirmation/renewal prompt -->
+<div id="bound-confirm-prompt"></div>
 </body>
 </html>

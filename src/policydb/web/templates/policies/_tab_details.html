@@ -591,18 +591,6 @@ textarea.field-inline { resize: none; }
   </div>
 </div>
 
-{# ── Files & Attachments ── #}
-<div class="card mb-4">
-  <div class="px-5 py-3 border-b border-gray-100">
-    <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Files & Attachments</span>
-  </div>
-  <div class="p-5"
-    hx-get="/api/attachments/panel?record_type=policy&record_id={{ policy.id }}"
-    hx-trigger="load" hx-swap="innerHTML">
-    <p class="text-xs text-gray-400 italic">Loading...</p>
-  </div>
-</div>
-
 <!-- ── Actions ── -->
 <div class="flex items-center justify-between mb-4 no-print">
   <a href="/clients/{{ policy.client_id }}" class="text-sm text-gray-500 hover:text-gray-700">&larr; Back to Client</a>
@@ -719,6 +707,17 @@ textarea.field-inline { resize: none; }
           if (typeof flashCell === 'function') flashCell(el);
         }
         if (field === 'follow_up_date') updateFollowUpBadge(el ? el.value : value);
+        // Show bound confirmation banner when setting terminal status
+        if (data.bound_confirm) {
+          fetch('/policies/' + data.policy_uid + '/bound-banner?prior_status=' + encodeURIComponent(data.prior_status))
+          .then(function(r2) { return r2.text(); }).then(function(html) {
+            var prompt = document.getElementById('bound-confirm-prompt');
+            if (prompt) {
+              prompt.innerHTML = html;
+              if (typeof htmx !== 'undefined') htmx.process(prompt);
+            }
+          });
+        }
       } else {
         updateSaveState('error', data.error || 'Save failed');
         if (typeof showToast === 'function') showToast(data.error || 'Save failed', false);

@@ -2728,6 +2728,18 @@ def policy_tab_workflow(request: Request, policy_uid: str, conn=Depends(get_db))
     })
 
 
+@router.get("/{policy_uid}/tab/files", response_class=HTMLResponse)
+def policy_tab_files(request: Request, policy_uid: str, conn=Depends(get_db)):
+    uid = policy_uid.upper()
+    policy_dict, _ = _policy_base(conn, uid)
+    if not policy_dict:
+        return HTMLResponse("Not found", status_code=404)
+    return templates.TemplateResponse("policies/_tab_files.html", {
+        "request": request,
+        "policy": policy_dict,
+    })
+
+
 @router.get("/{policy_uid}/tab/pulse", response_class=HTMLResponse)
 def policy_tab_pulse(
     request: Request,
@@ -3094,6 +3106,12 @@ def policy_edit_form(request: Request, policy_uid: str, add_contact: str = "", c
             ).fetchone()
             _program_health = _ph["health"] if _ph else ""
 
+    # Attachment count for Files tab badge
+    attachment_count = conn.execute(
+        "SELECT COUNT(*) FROM record_attachments WHERE record_type = 'policy' AND record_id = ?",
+        (policy_dict["id"],),
+    ).fetchone()[0]
+
     from policydb.queries import REVIEW_CYCLE_LABELS as _REVIEW_CYCLE_LABELS
     return templates.TemplateResponse("policies/edit.html", {
         "request": request,
@@ -3143,6 +3161,7 @@ def policy_edit_form(request: Request, policy_uid: str, add_contact: str = "", c
         "program_health": _program_health,
         "issue_severities": cfg.get("issue_severities", []),
         "all_clients": [dict(r) for r in conn.execute("SELECT id, name FROM clients WHERE archived = 0 ORDER BY name").fetchall()],
+        "attachment_count": attachment_count,
         "pinned_notes": _pinned_notes_for_page(conn, "policy", uid, client_id=policy_dict["client_id"]),
         "pinned_scope": "policy",
         "pinned_scope_id": uid,
@@ -3526,13 +3545,29 @@ async def policy_cell_save(request: Request, policy_uid: str, conn=Depends(get_d
         conn.execute("UPDATE policies SET carrier = ? WHERE policy_uid = ?", (formatted or None, uid))
     elif field == "renewal_status":
         val = value.strip()
+        # Capture prior status for revert
+        prior_row = conn.execute(
+            "SELECT renewal_status, is_opportunity FROM policies WHERE policy_uid=?", (uid,)
+        ).fetchone()
+        prior_status = prior_row["renewal_status"] if prior_row else "Not Started"
+        is_opp = prior_row["is_opportunity"] if prior_row else 0
+
         conn.execute("UPDATE policies SET renewal_status = ? WHERE policy_uid = ?", (val or None, uid))
         formatted = val
-        # Auto-resolve renewal issue on terminal status
-        if val in cfg.get("renewal_issue_resolve_statuses", ["Bound"]):
-            from policydb.renewal_issues import auto_resolve_renewal_issue, cascade_program_renewal_close
-            auto_resolve_renewal_issue(conn, policy_uid=uid)
-            cascade_program_renewal_close(conn, uid)
+
+        resolve_statuses = cfg.get("renewal_issue_resolve_statuses", ["Bound"])
+        # Clear bound_date when moving away from terminal status
+        if val not in resolve_statuses and prior_status in resolve_statuses:
+            conn.execute("UPDATE policies SET bound_date=NULL WHERE policy_uid=?", (uid,))
+        # Signal confirmation banner for terminal status (skip opportunities)
+        if val in resolve_statuses and not is_opp:
+            conn.commit()
+            return JSONResponse({
+                "ok": True, "formatted": formatted,
+                "bound_confirm": True,
+                "policy_uid": uid,
+                "prior_status": prior_status,
+            })
     elif field == "opportunity_status":
         val = value.strip()
         conn.execute("UPDATE policies SET opportunity_status = ? WHERE policy_uid = ?", (val or None, uid))
@@ -3839,29 +3874,136 @@ def policy_update_status(
     uid = policy_uid.upper()
     if status not in _renewal_statuses():
         status = _renewal_statuses()[0]
+
+    # Capture prior status before update (for cancel revert)
+    prior_row = conn.execute(
+        "SELECT renewal_status, is_opportunity FROM policies WHERE policy_uid=?", (uid,)
+    ).fetchone()
+    prior_status = prior_row["renewal_status"] if prior_row else "Not Started"
+    is_opportunity = prior_row["is_opportunity"] if prior_row else 0
+
     conn.execute(
         "UPDATE policies SET renewal_status=? WHERE policy_uid=?",
         (status, uid),
     )
+    # Clear bound_date when moving away from a terminal status
+    resolve_statuses = cfg.get("renewal_issue_resolve_statuses", ["Bound"])
+    if status not in resolve_statuses and prior_status in resolve_statuses:
+        conn.execute("UPDATE policies SET bound_date=NULL WHERE policy_uid=?", (uid,))
     conn.commit()
     logger.info("Policy %s status -> %s", uid, status)
-
-    # Auto-resolve renewal issue on terminal status
-    if status in cfg.get("renewal_issue_resolve_statuses", ["Bound"]):
-        from policydb.renewal_issues import auto_resolve_renewal_issue, cascade_program_renewal_close
-        auto_resolve_renewal_issue(conn, policy_uid=uid)
-        cascade_program_renewal_close(conn, uid)
-        conn.commit()
 
     policy = get_policy_by_uid(conn, uid)
     if not policy:
         return HTMLResponse("", status_code=404)
     p = dict(policy)
-    return templates.TemplateResponse("policies/_status_badge.html", {
+    badge_html = templates.TemplateResponse("policies/_status_badge.html", {
         "request": request,
         "p": p,
         "renewal_statuses": _renewal_statuses(),
+    }).body.decode()
+
+    # Show confirmation banner for terminal status (skip opportunities)
+    if status in resolve_statuses and not is_opportunity:
+        inner_html = templates.TemplateResponse("policies/_bound_confirm.html", {
+            "request": request,
+            "uid": uid,
+            "prior_status": prior_status,
+        }).body.decode()
+        oob_html = f'<div id="bound-confirm-prompt" hx-swap-oob="innerHTML">{inner_html}</div>'
+        return HTMLResponse(badge_html + oob_html)
+
+    # Dismiss any stale confirmation banner on non-terminal status
+    dismiss_html = '<div id="bound-confirm-prompt" hx-swap-oob="innerHTML"></div>'
+    return HTMLResponse(badge_html + dismiss_html)
+
+
+@router.get("/{policy_uid}/bound-banner", response_class=HTMLResponse)
+def policy_bound_banner(
+    request: Request,
+    policy_uid: str,
+    prior_status: str = "Pending Bind",
+):
+    """Return bound confirmation banner HTML (for JS injection on edit page)."""
+    uid = policy_uid.upper()
+    return templates.TemplateResponse("policies/_bound_confirm.html", {
+        "request": request,
+        "uid": uid,
+        "prior_status": prior_status,
     })
+
+
+@router.post("/{policy_uid}/bound-confirm", response_class=HTMLResponse)
+def policy_bound_confirm(
+    request: Request,
+    policy_uid: str,
+    conn=Depends(get_db),
+):
+    """Execute all bound automations after user confirms."""
+    uid = policy_uid.upper()
+    policy = conn.execute(
+        "SELECT id, client_id, policy_uid, is_opportunity, program_id, expiration_date FROM policies WHERE policy_uid=?",
+        (uid,),
+    ).fetchone()
+    if not policy:
+        return HTMLResponse("", status_code=404)
+
+    # Guard: skip automations for opportunities
+    if policy["is_opportunity"]:
+        return HTMLResponse('<div id="bound-confirm-prompt" hx-swap-oob="innerHTML"></div>')
+
+    policy_id = policy["id"]
+
+    # 1. Record bound_date
+    conn.execute("UPDATE policies SET bound_date=date('now') WHERE policy_uid=?", (uid,))
+
+    # 2. Log activity
+    conn.execute(
+        """INSERT INTO activity_log (client_id, policy_id, activity_type, subject, created_at)
+           VALUES (?, ?, 'Milestone', 'Renewal bound', datetime('now'))""",
+        (policy["client_id"], policy_id),
+    )
+
+    # 3. Complete remaining timeline milestones (skip if program child)
+    if not policy["program_id"]:
+        from policydb.timeline_engine import complete_timeline_milestone
+        incomplete = conn.execute(
+            "SELECT milestone_name FROM policy_timeline WHERE policy_uid=? AND completed_date IS NULL",
+            (uid,),
+        ).fetchall()
+        for m in incomplete:
+            complete_timeline_milestone(conn, uid, m["milestone_name"])
+
+    # 4. Close all pending follow-ups
+    conn.execute(
+        """UPDATE activity_log
+           SET follow_up_done=1, auto_close_reason='renewal_bound',
+               auto_closed_at=datetime('now'), auto_closed_by='bound_status_change'
+           WHERE policy_id=? AND follow_up_done=0 AND follow_up_date IS NOT NULL""",
+        (policy_id,),
+    )
+    conn.execute("UPDATE policies SET follow_up_date=NULL WHERE policy_uid=?", (uid,))
+
+    # 5. Auto-resolve renewal issues + cascade
+    from policydb.renewal_issues import auto_resolve_renewal_issue, cascade_program_renewal_close
+    auto_resolve_renewal_issue(conn, policy_uid=uid)
+    cascade_program_renewal_close(conn, uid)
+
+    conn.commit()
+    logger.info("Policy %s bound automations complete", uid)
+
+    # Check if eligible for renewal term prompt
+    has_successor = conn.execute(
+        "SELECT 1 FROM policies WHERE prior_policy_uid=?", (uid,)
+    ).fetchone()
+    if not has_successor and policy["expiration_date"]:
+        return templates.TemplateResponse("policies/_bound_renew_prompt.html", {
+            "request": request,
+            "uid": uid,
+        })
+
+    # No renewal prompt — just dismiss the banner
+    return HTMLResponse("")
 
 
 @router.post("/{policy_uid}/renew")
