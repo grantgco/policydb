@@ -2194,6 +2194,7 @@ def get_week_followups(
               SELECT 1 FROM activity_log a2
               WHERE a2.policy_id = p.id AND a2.follow_up_done = 0
               AND a2.follow_up_date IS NOT NULL
+              AND a2.follow_up_date BETWEEN ? AND ?
               AND a2.follow_up_date <= p.follow_up_date
           )
 
@@ -2212,7 +2213,7 @@ def get_week_followups(
           AND c.follow_up_date BETWEEN ? AND ?
 
         ORDER BY 4
-    """, (sat_before, fri, sat_before, fri, sat_before, fri)).fetchall()
+    """, (sat_before, fri, sat_before, fri, sat_before, fri, sat_before, fri)).fetchall()
 
     # Build accountability map from config dispositions
     disp_map = {
