@@ -1,0 +1,29 @@
+{# Notes section for policy review slideover.
+   Context: policy_uid, description, notes
+#}
+<div class="space-y-3">
+  <div>
+    <label class="text-[10px] text-gray-400 uppercase block mb-1">Description</label>
+    <div contenteditable="true"
+         data-placeholder="Add a description..."
+         class="text-xs text-gray-700 min-h-[2rem] p-2 rounded border border-gray-100 focus:border-marsh focus:outline-none"
+         onblur="saveReviewNote('{{ policy_uid }}', 'description', this.textContent)">{{ description }}</div>
+  </div>
+  <div>
+    <label class="text-[10px] text-gray-400 uppercase block mb-1">Internal Notes</label>
+    <div contenteditable="true"
+         data-placeholder="Add notes..."
+         class="text-xs text-gray-700 min-h-[3rem] p-2 rounded border border-gray-100 focus:border-marsh focus:outline-none"
+         onblur="saveReviewNote('{{ policy_uid }}', 'notes', this.textContent)">{{ notes }}</div>
+  </div>
+</div>
+
+<script>
+function saveReviewNote(uid, field, value) {
+  var fd = new FormData();
+  fd.append('field', field);
+  fd.append('value', value);
+  fetch('/review/policies/' + uid + '/slideover/field', {method: 'POST', body: fd})
+    .then(function(r) { if (r.ok) { /* saved silently */ } });
+}
+</script>

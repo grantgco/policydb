@@ -3,7 +3,17 @@
     class="hover:bg-gray-50 border-t border-gray-100 {% if reviewed %}opacity-60 bg-green-50{% endif %}">
   <td class="px-4 py-3">
     <a href="/clients/{{ p.client_id }}" class="font-medium text-marsh hover:underline">{{ p.client_name }}</a>
-    <p class="text-xs text-gray-500">{{ p.policy_type }}</p>
+    <div class="flex items-center gap-1.5">
+      <span class="text-xs text-gray-500">{{ p.policy_type }}</span>
+      {% if p.open_issue_count is defined and p.open_issue_count %}
+      <span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium
+        {% if p.max_issue_severity == 'Critical' %}bg-red-100 text-red-700
+        {% elif p.max_issue_severity == 'High' %}bg-amber-100 text-amber-700
+        {% else %}bg-blue-100 text-blue-700{% endif %}">
+        {{ p.open_issue_count }} issue{{ 's' if p.open_issue_count != 1 }}
+      </span>
+      {% endif %}
+    </div>
     {% if p.project_name %}<p class="text-xs text-gray-400">{{ p.project_name }}</p>{% endif %}
   </td>
   <td class="px-4 py-3 text-xs text-gray-600">
@@ -135,7 +145,9 @@
         hx-target="#review-row-{{ p.policy_uid }}"
         hx-swap="outerHTML"
         class="text-xs text-amber-600 hover:underline">Log</button>
-      <a href="/policies/{{ p.policy_uid }}/edit" class="text-xs text-gray-400 hover:underline">Full →</a>
+      <button hx-get="/review/policies/{{ p.policy_uid }}/slideover"
+              hx-target="#review-slideover-container" hx-swap="innerHTML"
+              class="text-xs text-blue-600 hover:underline font-medium">Review</button>
       {% set _rref = build_ref_tag(cn_number=p.cn_number|default(''), client_id=p.client_id|default(0), policy_uid=p.policy_uid, project_id=p.project_id|default(0)) %}
       <button type="button" onclick="copyRefTag(this, '{{ _rref }}')"
         class="text-xs font-mono text-gray-300 hover:text-marsh" title="Copy ref tag">{{ _rref }}</button>
