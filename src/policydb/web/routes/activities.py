@@ -15,6 +15,7 @@ from policydb import config as cfg
 from policydb.email_templates import followup_context, render_tokens
 from policydb.utils import cap_followup_date, round_duration
 from policydb.queries import (
+    attach_renewal_issues,
     get_activities,
     get_activity_by_id,
     get_all_followups,
@@ -1618,12 +1619,13 @@ def renewals(request: Request, window: int = 180, urgency: str = "", status: str
         pipeline.append(d)
     from policydb.web.routes.policies import _attach_milestone_progress, _attach_readiness_score
     pipeline = _attach_readiness_score(conn, _attach_milestone_progress(conn, pipeline))
-
     # Merge program rows into pipeline with sort-compatible keys
     for pgm in program_rows:
         pgm["expiration_date"] = pgm["earliest_expiration"]
         pgm["premium"] = pgm["total_premium"]
         pipeline.append(pgm)
+
+    attach_renewal_issues(conn, pipeline)
 
     sort_field = sort if sort in _RENEWAL_SORT_FIELDS else "expiration_date"
     reverse = dir == "desc"

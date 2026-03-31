@@ -972,7 +972,9 @@ def client_tab_policies(request: Request, client_id: int, conn=Depends(get_db)):
     policies = [p for p in all_policies if not p.get("is_opportunity")]
 
     from policydb.web.routes.policies import _attach_milestone_progress, _attach_readiness_score
+    from policydb.queries import attach_renewal_issues
     policies = _attach_readiness_score(conn, _attach_milestone_progress(conn, policies))
+    attach_renewal_issues(conn, policies)
 
     # Attach sub-coverages for ghost row display on package policies
     from policydb.queries import get_sub_coverages_full_by_policy_id

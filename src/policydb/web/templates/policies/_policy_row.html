@@ -50,6 +50,9 @@
   <td class="px-3 py-2 text-right tabular-nums text-gray-500 text-xs hidden xl:table-cell">{{ p.limit_amount | currency_short if p.limit_amount else '—' }}</td>
   <td class="px-3 py-2">
     {% include "policies/_status_badge.html" %}
+    {% if p.renewal_issue_uid %}
+    <div class="mt-1">{% with linked_issue_uid=p.renewal_issue_uid, linked_issue_subject=p.renewal_issue_subject|default('Renewal Issue'), linked_issue_severity=p.renewal_issue_severity %}{% include "_issue_badge.html" %}{% endwith %}</div>
+    {% endif %}
   </td>
   <td class="px-3 py-2 whitespace-nowrap">
     <a href="/policies/{{ p.policy_uid }}/edit" class="text-gray-400 hover:text-marsh text-xs no-print" title="Full edit">&rarr;</a>

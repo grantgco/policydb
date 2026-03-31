@@ -7,6 +7,7 @@ from datetime import date, timedelta
 from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
+from rapidfuzz import fuzz
 
 import policydb.config as cfg
 from policydb.db import generate_issue_uid
@@ -466,6 +467,23 @@ def issue_detail(
     issue["sla_days"] = sla
     issue["over_sla"] = (issue.get("days_open") or 0) > sla
 
+    # Resolve merged-into chain to final active issue
+    merged_into_uid = None
+    if issue.get("merged_into_id"):
+        cur_id = issue["merged_into_id"]
+        for _ in range(10):  # guard against cycles
+            row = conn.execute(
+                "SELECT id, issue_uid, merged_into_id FROM activity_log WHERE id = ?",
+                (cur_id,),
+            ).fetchone()
+            if not row:
+                break
+            if row["merged_into_id"]:
+                cur_id = row["merged_into_id"]
+            else:
+                merged_into_uid = row["issue_uid"]
+                break
+
     # For renewal issues, include timeline milestone data
     timeline_milestones = []
     if issue.get("is_renewal_issue"):
@@ -495,6 +513,7 @@ def issue_detail(
         "issue": issue,
         "activities": activities,
         "total_hours": round(total_hours, 1),
+        "merged_into_uid": merged_into_uid,
         "issue_lifecycle_states": cfg.get("issue_lifecycle_states", []),
         "issue_severities": cfg.get("issue_severities", []),
         "issue_resolution_types": cfg.get("issue_resolution_types", []),
@@ -710,6 +729,52 @@ def merge_issues(
     return RedirectResponse(f"/issues/{target['issue_uid']}", status_code=303)
 
 
+# ── Merge relevance scoring ────────────────────────────────────────────────
+
+
+def _score_merge_relevance(target: dict, candidate: dict) -> int:
+    """Additive relevance score for merge suggestions. No hard gates."""
+    score = 0
+
+    # Same policy (strongest signal)
+    if target.get("policy_id") and candidate.get("policy_id") == target["policy_id"]:
+        score += 30
+
+    # Same program / location
+    if target.get("program_id") and candidate.get("program_id") == target["program_id"]:
+        score += 20
+
+    # Same renewal term key
+    rtk = target.get("renewal_term_key")
+    if rtk and candidate.get("renewal_term_key") == rtk:
+        score += 15
+
+    # Fuzzy subject similarity
+    t_subj = target.get("subject") or ""
+    c_subj = candidate.get("subject") or ""
+    if t_subj and c_subj:
+        ratio = fuzz.token_sort_ratio(t_subj, c_subj)
+        if ratio > 60:
+            score += int((ratio - 60) / 2)  # 0–20 pts
+
+    # Both renewal or both manual
+    if bool(target.get("is_renewal_issue")) == bool(candidate.get("is_renewal_issue")):
+        score += 5
+
+    # Same severity
+    if target.get("issue_severity") and target["issue_severity"] == candidate.get("issue_severity"):
+        score += 3
+
+    # Temporal proximity (within 14 days)
+    t_days = target.get("days_open") or 0
+    c_days = candidate.get("days_open") or 0
+    gap = abs(t_days - c_days)
+    if gap < 14:
+        score += max(0, 7 - gap // 2)
+
+    return score
+
+
 # ── Mergeable issues for a target ───────────────────────────────────────────
 
 
@@ -719,16 +784,22 @@ def mergeable_issues(
     request: Request,
     conn=Depends(get_db),
 ):
-    """Return other open issues for the same client that can be merged into this one."""
-    issue = conn.execute(
-        "SELECT client_id FROM activity_log WHERE id = ? AND item_kind = 'issue'",
-        (issue_id,),
-    ).fetchone()
-    if not issue:
+    """Return other open issues for the same client, sorted by relevance."""
+    target = conn.execute("""
+        SELECT id, client_id, policy_id, program_id, subject,
+               issue_severity, is_renewal_issue, renewal_term_key,
+               CAST(julianday('now') - julianday(activity_date) AS INTEGER) AS days_open
+        FROM activity_log
+        WHERE id = ? AND item_kind = 'issue'
+    """, (issue_id,)).fetchone()
+    if not target:
         return HTMLResponse("")
+
+    target = dict(target)
 
     rows = conn.execute("""
         SELECT id, issue_uid, subject, issue_severity, issue_status, is_renewal_issue,
+               policy_id, program_id, renewal_term_key,
                CAST(julianday('now') - julianday(activity_date) AS INTEGER) AS days_open,
                (SELECT COUNT(*) FROM activity_log sub WHERE sub.issue_id = a.id) AS activity_count
         FROM activity_log a
@@ -738,9 +809,14 @@ def mergeable_issues(
           AND a.id != ?
           AND (a.issue_status IS NULL OR a.issue_status NOT IN ('Closed'))
         ORDER BY a.activity_date DESC
-    """, (issue["client_id"], issue_id)).fetchall()
+    """, (target["client_id"], issue_id)).fetchall()
 
     issues = [dict(r) for r in rows]
+    for iss in issues:
+        iss["relevance_score"] = _score_merge_relevance(target, iss)
+
+    issues.sort(key=lambda x: x["relevance_score"], reverse=True)
+
     return templates.TemplateResponse(
         "issues/_merge_slideover.html",
         {"request": request, "issues": issues, "target_id": issue_id},
