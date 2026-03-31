@@ -219,6 +219,75 @@ def attach_renewal_issues(conn: sqlite3.Connection, rows: list[dict]) -> None:
             r["renewal_issue_subject"] = None
 
 
+def attach_open_issues(conn: sqlite3.Connection, rows: list[dict], policy_id_field: str = "id") -> None:
+    """
+    For each row, find the highest-severity open issue linked via policy_id.
+    Sets: issue_uid, issue_severity, issue_subject on each row dict.
+    Used for opportunities (which don't have renewal_term_keys).
+    """
+    if not rows:
+        return
+    policy_ids = [r.get(policy_id_field) for r in rows if r.get(policy_id_field)]
+    if not policy_ids:
+        return
+    ph = ",".join("?" * len(policy_ids))
+    issue_rows = conn.execute(
+        f"""SELECT policy_id, issue_uid, issue_severity, subject
+            FROM activity_log
+            WHERE item_kind = 'issue'
+              AND policy_id IN ({ph})
+              AND issue_status NOT IN ('Resolved', 'Closed')
+            ORDER BY CASE issue_severity
+                WHEN 'Critical' THEN 1 WHEN 'High' THEN 2
+                WHEN 'Normal' THEN 3 ELSE 4 END""",
+        policy_ids,
+    ).fetchall()
+    lookup: dict[int, dict] = {}
+    for row in issue_rows:
+        pid = row["policy_id"]
+        if pid not in lookup:
+            lookup[pid] = dict(row)
+    for r in rows:
+        pid = r.get(policy_id_field)
+        if pid and pid in lookup:
+            issue = lookup[pid]
+            r["issue_uid"] = issue["issue_uid"]
+            r["issue_severity"] = issue["issue_severity"]
+            r["issue_subject"] = issue["subject"]
+        else:
+            r.setdefault("issue_uid", None)
+
+
+def get_dashboard_issues_widget(conn: sqlite3.Connection, limit: int = 3) -> dict:
+    """Returns top N open issues by severity + counts for dashboard widget."""
+    top = conn.execute(
+        """SELECT a.issue_uid, a.subject, a.issue_severity, a.issue_status,
+                  a.issue_sla_days, c.name AS client_name,
+                  CAST(julianday('now') - julianday(a.activity_date) AS INTEGER) AS days_open
+           FROM activity_log a
+           LEFT JOIN clients c ON c.id = a.client_id
+           WHERE a.item_kind = 'issue'
+             AND a.issue_status NOT IN ('Resolved', 'Closed')
+           ORDER BY CASE a.issue_severity
+               WHEN 'Critical' THEN 1 WHEN 'High' THEN 2
+               WHEN 'Normal' THEN 3 ELSE 4 END,
+               days_open DESC
+           LIMIT ?""",
+        (limit,),
+    ).fetchall()
+    total = conn.execute(
+        "SELECT COUNT(*) FROM activity_log WHERE item_kind='issue' AND issue_status NOT IN ('Resolved','Closed')"
+    ).fetchone()[0]
+    sla_count = conn.execute(
+        """SELECT COUNT(*) FROM activity_log
+           WHERE item_kind = 'issue'
+             AND issue_status NOT IN ('Resolved', 'Closed')
+             AND issue_sla_days IS NOT NULL
+             AND CAST(julianday('now') - julianday(activity_date) AS INTEGER) > issue_sla_days"""
+    ).fetchone()[0]
+    return {"total": total, "sla_count": sla_count, "top_issues": [dict(r) for r in top]}
+
+
 def get_stale_renewals(
     conn: sqlite3.Connection,
     window_days: int = 180,
