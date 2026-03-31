@@ -180,6 +180,8 @@ def _build_tab_context(tab: str, conn) -> dict:
         ctx["renewal_milestones"] = cfg.get("renewal_milestones", [])
         ctx["stale_threshold_days"] = cfg.get("stale_threshold_days", 14)
         ctx["followup_expiration_buffer_days"] = cfg.get("followup_expiration_buffer_days", 3)
+        ctx["stale_auto_close_days"] = cfg.get("stale_auto_close_days", 30)
+        ctx["auto_closed_section_days"] = cfg.get("auto_closed_section_days", 7)
         # activity_types needed by mandated activities editor
         if "lists" not in ctx:
             ctx["lists"] = {}
@@ -609,6 +611,24 @@ def update_expiration_buffer(request: Request, value: int = Form(...)):
     cfg.save_config(full)
     cfg.reload_config()
     return RedirectResponse("/settings", status_code=303)
+
+
+@router.post("/config/stale-auto-close-days")
+def update_stale_auto_close_days(request: Request, value: int = Form(...)):
+    full = dict(cfg.load_config())
+    full["stale_auto_close_days"] = max(7, min(value, 180))
+    cfg.save_config(full)
+    cfg.reload_config()
+    return RedirectResponse("/settings?tab=follow-ups", status_code=303)
+
+
+@router.post("/config/auto-closed-section-days")
+def update_auto_closed_section_days(request: Request, value: int = Form(...)):
+    full = dict(cfg.load_config())
+    full["auto_closed_section_days"] = max(1, min(value, 30))
+    cfg.save_config(full)
+    cfg.reload_config()
+    return RedirectResponse("/settings?tab=follow-ups", status_code=303)
 
 
 @router.post("/config/renewal-issue-window")
