@@ -1648,6 +1648,15 @@ def init_db(path: Path | None = None) -> None:
         conn.commit()
         logger.info("Migration 118: added bound_date column to policies")
 
+    if 119 not in applied:
+        conn.executescript((_MIGRATIONS_DIR / "119_pinned_notes.sql").read_text())
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (119, "Pinned notes for client/policy/project pages"),
+        )
+        conn.commit()
+        logger.info("Migration 119: created pinned_notes table")
+
     if 120 not in applied:
         conn.executescript((_MIGRATIONS_DIR / "120_merge_tracking.sql").read_text())
         conn.execute(

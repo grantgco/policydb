@@ -30,6 +30,12 @@ from policydb.web.app import get_db, templates
 
 router = APIRouter(prefix="/policies")
 
+
+def _pinned_notes_for_page(conn, scope, scope_id, client_id=None):
+    from policydb.web.routes.pinned_notes import get_pinned_notes_with_cascade
+    return get_pinned_notes_with_cascade(conn, scope, scope_id, client_id=client_id)
+
+
 US_STATES = [
     ("AL", "Alabama"), ("AK", "Alaska"), ("AZ", "Arizona"), ("AR", "Arkansas"),
     ("CA", "California"), ("CO", "Colorado"), ("CT", "Connecticut"), ("DE", "Delaware"),
@@ -2477,6 +2483,7 @@ def policy_tab_activity(request: Request, policy_uid: str, conn=Depends(get_db))
         return HTMLResponse("Not found", status_code=404)
 
     _today_iso = date.today().isoformat()
+    _pid = policy_dict["id"]
     activities = [dict(r) for r in conn.execute(
         """SELECT a.*, c.name AS client_name, c.cn_number, p.policy_uid,
                   COALESCE(a.project_id, p.project_id) AS project_id,
@@ -2487,10 +2494,17 @@ def policy_tab_activity(request: Request, policy_uid: str, conn=Depends(get_db))
            LEFT JOIN policies p ON a.policy_id = p.id
            LEFT JOIN projects pr ON COALESCE(a.project_id, p.project_id) = pr.id
            LEFT JOIN activity_log iss ON iss.id = a.issue_id AND iss.item_kind = 'issue'
-           WHERE a.policy_id = ? AND a.activity_date >= date('now', '-90 days')
+           WHERE (a.policy_id = ?
+                  OR (a.issue_id IN (SELECT ipc.issue_id FROM v_issue_policy_coverage ipc WHERE ipc.policy_id = ?)
+                      AND a.item_kind != 'issue'))
+             AND a.activity_date >= date('now', '-90 days')
            ORDER BY a.activity_date DESC, a.id DESC""",
-        (policy_dict["id"],),
+        (_pid, _pid),
     ).fetchall()]
+    # Tag issue-sourced activities (not directly on this policy)
+    for act in activities:
+        if act.get("policy_id") != _pid:
+            act["is_issue_xref"] = True
     # Split into 3 groups: overdue follow-ups, upcoming follow-ups, history
     overdue_followups = sorted(
         [a for a in activities if a.get("follow_up_date") and not a.get("follow_up_done") and a["follow_up_date"] < _today_iso],
@@ -2832,18 +2846,23 @@ def policy_tab_pulse(
         except (ValueError, TypeError):
             pass
 
-    # Renewal issue for this policy (if any)
-    renewal_issue = conn.execute("""
-        SELECT id, issue_uid, issue_status, issue_severity, is_renewal_issue,
-               julianday(date('now')) - julianday(activity_date) AS days_open,
-               (SELECT COUNT(*) FROM activity_log sub WHERE sub.issue_id = a.id) AS activity_count
-        FROM activity_log a
-        WHERE a.is_renewal_issue = 1
-          AND a.renewal_term_key = ?
-          AND a.issue_status NOT IN ('Resolved', 'Closed')
-        LIMIT 1
-    """, (policy_uid,)).fetchone()
-    renewal_issue = dict(renewal_issue) if renewal_issue else None
+    # All open issues for this policy (unified section replaces renewal-only banner)
+    _policy_id_row = conn.execute("SELECT id FROM policies WHERE policy_uid = ?", (policy_uid,)).fetchone()
+    open_issues = []
+    if _policy_id_row:
+        open_issues = [dict(r) for r in conn.execute(
+            """SELECT id, issue_uid, issue_status, issue_severity, is_renewal_issue, subject,
+                      CAST(julianday('now') - julianday(activity_date) AS INTEGER) AS days_open,
+                      (SELECT COUNT(*) FROM activity_log sub WHERE sub.issue_id = a.id) AS activity_count
+               FROM activity_log a
+               WHERE a.policy_id = ?
+                 AND a.item_kind = 'issue'
+                 AND a.issue_status NOT IN ('Resolved', 'Closed')
+               ORDER BY CASE a.issue_severity
+                   WHEN 'Critical' THEN 1 WHEN 'High' THEN 2
+                   WHEN 'Normal' THEN 3 ELSE 4 END""",
+            (_policy_id_row["id"],),
+        ).fetchall()]
 
     return templates.TemplateResponse("policies/_tab_pulse.html", {
         "request": request,
@@ -2867,7 +2886,7 @@ def policy_tab_pulse(
         "days_since_review": days_since_review,
         "issue_severities": cfg.get("issue_severities", []),
         "all_clients": [{"id": client_info["id"], "name": client_info["name"]}],
-        "renewal_issue": renewal_issue,
+        "open_issues": open_issues,
     })
 
 
@@ -3156,6 +3175,10 @@ def policy_edit_form(request: Request, policy_uid: str, add_contact: str = "", c
         "issue_severities": cfg.get("issue_severities", []),
         "all_clients": [dict(r) for r in conn.execute("SELECT id, name FROM clients WHERE archived = 0 ORDER BY name").fetchall()],
         "attachment_count": attachment_count,
+        "pinned_notes": _pinned_notes_for_page(conn, "policy", uid, client_id=policy_dict["client_id"]),
+        "pinned_scope": "policy",
+        "pinned_scope_id": uid,
+        "pinned_client_id": str(policy_dict["client_id"]),
     })
 
 
@@ -3381,6 +3404,12 @@ def policy_convert_opportunity(
     if _regen and _regen["milestone_profile"]:
         from policydb.timeline_engine import generate_policy_timelines
         generate_policy_timelines(conn, policy_uid=uid)
+
+    # Promote any open manual issues to renewal issues
+    _pol_id_row = conn.execute("SELECT id FROM policies WHERE policy_uid = ?", (uid,)).fetchone()
+    if _pol_id_row:
+        from policydb.renewal_issues import promote_issue_to_renewal
+        promote_issue_to_renewal(conn, policy_id=_pol_id_row["id"], policy_uid=uid)
 
     return RedirectResponse(f"/policies/{uid}/edit", status_code=303)
 

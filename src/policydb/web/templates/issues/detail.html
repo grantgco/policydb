@@ -38,6 +38,9 @@
       <span class="text-gray-300">&middot;</span>
       <a href="/policies/{{ issue.policy_uid }}/edit" class="text-marsh hover:underline">{{ issue.policy_uid }}</a>
       {% if issue.policy_type %}<span class="text-gray-400">{{ issue.policy_type }}</span>{% endif %}
+      {% if issue.is_opportunity %}
+      <span class="inline-flex items-center text-[9px] font-medium bg-violet-50 text-violet-700 border border-violet-200 rounded-full px-1.5 py-0.5 ml-1">Opportunity</span>
+      {% endif %}
     {% endif %}
     {% if issue.location_name %}
       <span class="text-gray-300">&middot;</span>
@@ -125,8 +128,9 @@
         {% if activities %}
         <div class="border-l-2 border-gray-200 ml-1 pl-4 space-y-4">
           {% for act in activities %}
-          <div>
-            <div class="flex items-center gap-2">
+          <div id="issue-activity-{{ act.id }}">
+            <div class="flex items-start gap-2">
+              <div class="flex-1 min-w-0">
               <span class="text-xs text-gray-400 w-12 flex-shrink-0">{{ act.activity_date[5:].replace('-', '/') if act.activity_date else '' }}</span>
               {% set atype = act.activity_type or '' %}
               <span class="text-[10px] px-1.5 py-0.5 rounded font-medium
@@ -138,6 +142,13 @@
               <span class="text-sm font-medium text-gray-800">
                 {{ act.subject or '' }}
               </span>
+              </div>
+              <button hx-delete="/issues/{{ issue.id }}/unlink-activity/{{ act.id }}"
+                      hx-target="#issue-activity-{{ act.id }}"
+                      hx-swap="outerHTML"
+                      hx-confirm="Remove this activity from the issue?"
+                      class="text-gray-300 hover:text-red-400 text-sm leading-none flex-shrink-0 mt-0.5 no-print"
+                      title="Unlink from issue">×</button>
             </div>
             {% if act.details %}
             <p class="text-xs text-gray-500 mt-1 ml-14">{{ act.details[:300] }}</p>
@@ -263,6 +274,41 @@
           {% if total_hours %}&middot; {{ total_hours }}h total{% endif %}
         </div>
       </div>
+
+      {# Opportunity context block (when issue is linked to an opportunity) #}
+      {% if issue.is_opportunity %}
+      <div class="card p-4 border-l-4 border-violet-400 bg-violet-50/30">
+        <div class="flex items-center gap-2 mb-3">
+          <span class="text-[10px] text-violet-800 uppercase tracking-wide font-semibold">Opportunity — Pipeline Context</span>
+          <span class="inline-flex items-center text-[9px] font-medium bg-violet-50 text-violet-700 border border-violet-200 rounded-full px-1.5 py-0.5">Opportunity</span>
+        </div>
+        <div class="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
+          <div>
+            <div class="text-[10px] text-gray-400 uppercase tracking-wide mb-0.5">Status</div>
+            <div class="font-medium text-gray-800">{{ issue.opportunity_status or '—' }}</div>
+          </div>
+          <div>
+            <div class="text-[10px] text-gray-400 uppercase tracking-wide mb-0.5">Target Eff. Date</div>
+            <div class="font-medium text-gray-800">{{ issue.target_effective_date or '—' }}</div>
+          </div>
+          <div>
+            <div class="text-[10px] text-gray-400 uppercase tracking-wide mb-0.5">Coverage</div>
+            <div class="font-medium text-gray-800">{{ issue.policy_type or '—' }}</div>
+          </div>
+          <div>
+            <div class="text-[10px] text-gray-400 uppercase tracking-wide mb-0.5">Est. Premium</div>
+            <div class="font-medium text-gray-800">
+              {% if issue.policy_premium %}{{ issue.policy_premium | currency_short }}{% else %}—{% endif %}
+            </div>
+          </div>
+        </div>
+        {% if issue.policy_uid %}
+        <a href="/policies/{{ issue.policy_uid }}/edit" class="block text-[10px] text-violet-600 hover:underline mt-3">
+          View Opportunity {{ issue.policy_uid }} &rarr;
+        </a>
+        {% endif %}
+      </div>
+      {% endif %}
 
       {# Renewal issue: timeline milestones summary #}
       {% if issue.is_renewal_issue and timeline_milestones %}
