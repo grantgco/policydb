@@ -947,6 +947,118 @@ async def patch_child_cell(request: Request, program_uid: str, policy_id: int,
 
 
 # ---------------------------------------------------------------------------
+# Program inline logging from renewal pipeline
+# (Must be before /programs/{uid}/renew to avoid route capture)
+# ---------------------------------------------------------------------------
+
+def _build_program_row_context(conn, program_uid: str) -> dict:
+    """Build a program row dict matching get_program_pipeline() output for template rendering."""
+    from policydb.queries import get_program_pipeline
+    all_pgms = get_program_pipeline(conn, window_days=9999)
+    for pgm in all_pgms:
+        if pgm.get("program_uid") == program_uid:
+            pgm["expiration_date"] = pgm["earliest_expiration"]
+            pgm["premium"] = pgm["total_premium"]
+            return pgm
+    # Fallback: build minimal context from DB
+    program = get_program_by_uid(conn, program_uid)
+    if not program:
+        return {}
+    d = dict(program)
+    client = conn.execute("SELECT name, cn_number FROM clients WHERE id=?", (d["client_id"],)).fetchone()
+    d["client_name"] = client["name"] if client else ""
+    d["cn_number"] = client["cn_number"] if client else ""
+    d["program_name"] = d["name"]
+    d["_is_program"] = True
+    d["program_id"] = d["id"]
+    d["followup_overdue"] = bool(d.get("follow_up_date") and d["follow_up_date"] < date.today().isoformat())
+    return d
+
+
+@router.get("/programs/{program_uid}/renew/log", response_class=HTMLResponse)
+def program_renew_log_form(
+    request: Request,
+    program_uid: str,
+    conn: sqlite3.Connection = Depends(get_db),
+):
+    """Return inline activity log form for program row in renewal pipeline."""
+    p = _build_program_row_context(conn, program_uid)
+    if not p:
+        return HTMLResponse("", status_code=404)
+    return templates.TemplateResponse("programs/_program_renew_row_log.html", {
+        "request": request,
+        "p": p,
+        "activity_types": cfg.get("activity_types", ["Call", "Email", "Meeting", "Note", "Other"]),
+    })
+
+
+@router.post("/programs/{program_uid}/renew/log", response_class=HTMLResponse)
+def program_renew_log_save(
+    request: Request,
+    program_uid: str,
+    activity_type: str = Form("Note"),
+    subject: str = Form(""),
+    details: str = Form(""),
+    duration_hours: str = Form(""),
+    follow_up_date: str = Form(""),
+    contact_person: str = Form(""),
+    conn: sqlite3.Connection = Depends(get_db),
+):
+    """Save activity from program renewal pipeline inline form."""
+    pgm = _get_program_or_404(conn, program_uid)
+    from policydb.utils import round_duration
+    dur = round_duration(duration_hours)
+
+    conn.execute(
+        """INSERT INTO activity_log
+           (activity_date, client_id, program_id, activity_type, subject, details,
+            follow_up_date, duration_hours, contact_person)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (date.today().isoformat(), pgm["client_id"], pgm["id"],
+         activity_type, subject.strip(), details.strip() or None,
+         follow_up_date or None, dur, contact_person.strip() or None),
+    )
+
+    # Update program follow_up_date if provided
+    if follow_up_date:
+        conn.execute(
+            "UPDATE programs SET follow_up_date=? WHERE program_uid=?",
+            (follow_up_date, program_uid),
+        )
+    conn.commit()
+    logger.info("Program %s activity logged from renewal pipeline", program_uid)
+
+    # Return the display row
+    p = _build_program_row_context(conn, program_uid)
+    from policydb.queries import attach_renewal_issues
+    attach_renewal_issues(conn, [p])
+    return templates.TemplateResponse("policies/_program_renew_row.html", {
+        "request": request,
+        "p": p,
+        "renewal_statuses": _renewal_statuses(),
+    })
+
+
+@router.get("/programs/{program_uid}/renew/row", response_class=HTMLResponse)
+def program_renew_row(
+    request: Request,
+    program_uid: str,
+    conn: sqlite3.Connection = Depends(get_db),
+):
+    """Restore display row for program in renewal pipeline (Cancel target)."""
+    p = _build_program_row_context(conn, program_uid)
+    if not p:
+        return HTMLResponse("", status_code=404)
+    from policydb.queries import attach_renewal_issues
+    attach_renewal_issues(conn, [p])
+    return templates.TemplateResponse("policies/_program_renew_row.html", {
+        "request": request,
+        "p": p,
+        "renewal_statuses": _renewal_statuses(),
+    })
+
+
+# ---------------------------------------------------------------------------
 # Bulk Renew Program — renews all child policies in one action
 # ---------------------------------------------------------------------------
 
@@ -1045,6 +1157,145 @@ async def renew_program(request: Request, program_uid: str,
     if errors:
         result["errors"] = errors
     return JSONResponse(result)
+
+
+# ---------------------------------------------------------------------------
+# Program status + bound automation (mirrors policy status flow)
+# ---------------------------------------------------------------------------
+
+
+def _renewal_statuses() -> list[str]:
+    return cfg.get("renewal_statuses", ["Not Started", "In Progress", "Pending Bind", "Bound"])
+
+
+@router.post("/programs/{program_uid}/status", response_class=HTMLResponse)
+def program_update_status(
+    request: Request,
+    program_uid: str,
+    status: str = Form(...),
+    conn: sqlite3.Connection = Depends(get_db),
+):
+    """HTMX endpoint: update program renewal status, return updated badge partial."""
+    program = get_program_by_uid(conn, program_uid)
+    if not program:
+        return HTMLResponse("", status_code=404)
+
+    if status not in _renewal_statuses():
+        status = _renewal_statuses()[0]
+
+    prior_status = program["renewal_status"] or "Not Started"
+
+    conn.execute(
+        "UPDATE programs SET renewal_status=?, updated_at=CURRENT_TIMESTAMP WHERE program_uid=?",
+        (status, program_uid),
+    )
+    # Clear bound_date when moving away from a terminal status
+    resolve_statuses = cfg.get("renewal_issue_resolve_statuses", ["Bound"])
+    if status not in resolve_statuses and prior_status in resolve_statuses:
+        conn.execute("UPDATE programs SET bound_date=NULL WHERE program_uid=?", (program_uid,))
+    conn.commit()
+    logger.info("Program %s status -> %s", program_uid, status)
+
+    # Re-fetch for badge render
+    program = get_program_by_uid(conn, program_uid)
+    p = dict(program)
+    badge_html = templates.TemplateResponse("programs/_program_status_badge.html", {
+        "request": request,
+        "p": p,
+        "renewal_statuses": _renewal_statuses(),
+    }).body.decode()
+
+    # Show confirmation banner for terminal status
+    if status in resolve_statuses:
+        inner_html = templates.TemplateResponse("programs/_program_bound_confirm.html", {
+            "request": request,
+            "uid": program_uid,
+            "prior_status": prior_status,
+        }).body.decode()
+        oob_html = f'<div id="bound-confirm-prompt" hx-swap-oob="innerHTML">{inner_html}</div>'
+        return HTMLResponse(badge_html + oob_html)
+
+    # Dismiss any stale confirmation banner
+    dismiss_html = '<div id="bound-confirm-prompt" hx-swap-oob="innerHTML"></div>'
+    return HTMLResponse(badge_html + dismiss_html)
+
+
+@router.get("/programs/{program_uid}/status-badge", response_class=HTMLResponse)
+def program_status_badge(
+    request: Request,
+    program_uid: str,
+    conn: sqlite3.Connection = Depends(get_db),
+):
+    """Return just the status badge partial (used by cancel revert)."""
+    program = get_program_by_uid(conn, program_uid)
+    if not program:
+        return HTMLResponse("", status_code=404)
+    return templates.TemplateResponse("programs/_program_status_badge.html", {
+        "request": request,
+        "p": dict(program),
+        "renewal_statuses": _renewal_statuses(),
+    })
+
+
+@router.post("/programs/{program_uid}/bound-confirm", response_class=HTMLResponse)
+def program_bound_confirm(
+    request: Request,
+    program_uid: str,
+    conn: sqlite3.Connection = Depends(get_db),
+):
+    """Execute all bound automations for a program after user confirms."""
+    program = get_program_by_uid(conn, program_uid)
+    if not program:
+        return HTMLResponse("", status_code=404)
+
+    program_id = program["id"]
+
+    # 1. Record bound_date
+    conn.execute("UPDATE programs SET bound_date=date('now') WHERE program_uid=?", (program_uid,))
+
+    # 2. Log activity
+    conn.execute(
+        """INSERT INTO activity_log (client_id, program_id, activity_type, subject, created_at)
+           VALUES (?, ?, 'Milestone', 'Renewal bound', datetime('now'))""",
+        (program["client_id"], program_id),
+    )
+
+    # 3. Complete remaining timeline milestones for the program
+    from policydb.timeline_engine import complete_timeline_milestone
+    incomplete = conn.execute(
+        "SELECT milestone_name FROM policy_timeline WHERE policy_uid=? AND completed_date IS NULL",
+        (program_uid,),
+    ).fetchall()
+    for m in incomplete:
+        complete_timeline_milestone(conn, program_uid, m["milestone_name"])
+
+    # 4. Close all pending follow-ups for this program
+    conn.execute(
+        """UPDATE activity_log
+           SET follow_up_done=1, auto_close_reason='renewal_bound',
+               auto_closed_at=datetime('now'), auto_closed_by='bound_status_change'
+           WHERE program_id=? AND follow_up_done=0 AND follow_up_date IS NOT NULL""",
+        (program_id,),
+    )
+    conn.execute("UPDATE programs SET follow_up_date=NULL WHERE program_uid=?", (program_uid,))
+
+    # 5. Auto-resolve renewal issues
+    from policydb.renewal_issues import auto_resolve_renewal_issue
+    auto_resolve_renewal_issue(conn, program_uid=program_uid)
+
+    conn.commit()
+    logger.info("Program %s bound automations complete", program_uid)
+
+    # Check if eligible for renewal prompt
+    children = get_program_child_policies(conn, program_id)
+    has_children = bool(children)
+    if has_children:
+        return templates.TemplateResponse("programs/_program_bound_renew_prompt.html", {
+            "request": request,
+            "program_uid": program_uid,
+        })
+
+    return HTMLResponse("")
 
 
 # ---------------------------------------------------------------------------

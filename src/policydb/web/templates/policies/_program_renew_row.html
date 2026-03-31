@@ -32,18 +32,24 @@
       {% else %}bg-gray-100 text-gray-600{% endif %}">{{ urg }}</span>
   </td>
   <td class="px-4 py-3">
-    <span class="text-xs px-1.5 py-0.5 rounded
-      {% if p.renewal_status == 'Bound' %}bg-green-50 text-green-700
-      {% elif p.renewal_status == 'In Progress' %}bg-blue-50 text-blue-700
-      {% else %}bg-gray-100 text-gray-600{% endif %}">{{ p.renewal_status or 'Not Started' }}</span>
+    {% include "programs/_program_status_badge.html" %}
     {% if p.renewal_issue_uid %}
     <div class="mt-1">{% with linked_issue_uid=p.renewal_issue_uid, linked_issue_subject=p.renewal_issue_subject|default('Renewal Issue'), linked_issue_severity=p.renewal_issue_severity %}{% include "_issue_badge.html" %}{% endwith %}</div>
     {% endif %}
   </td>
   <td class="px-4 py-3"><span class="text-gray-300 text-xs">&mdash;</span></td>
-  <td class="px-4 py-3"><span class="text-gray-300 text-xs">&mdash;</span></td>
-  <td class="px-4 py-3"><span class="text-gray-300 text-xs">&mdash;</span></td>
-  <td class="px-4 py-3">
+  <td class="px-4 py-3 text-xs text-gray-500">{{ p.placement_colleague or '—' }}</td>
+  <td class="px-4 py-3 text-xs whitespace-nowrap">
+    {% if p.follow_up_date %}
+    <span class="{{ 'text-red-500 font-medium' if p.followup_overdue else 'text-gray-500' }}">{{ p.follow_up_date }}</span>
+    {% else %}&mdash;{% endif %}
+  </td>
+  <td class="px-4 py-3 flex items-center gap-3">
+    <button
+      hx-get="/programs/{{ p.program_uid }}/renew/log"
+      hx-target="#pgm-row-{{ p.program_uid }}"
+      hx-swap="outerHTML"
+      class="text-xs text-indigo-600 hover:underline">Log</button>
     <button type="button"
       class="text-xs text-indigo-600 hover:text-indigo-800 font-medium whitespace-nowrap no-print"
       hx-get="/programs/{{ p.program_uid }}/pipeline-children"
@@ -53,6 +59,7 @@
       onclick="(function(btn){var wrapper=btn.closest('tr').nextElementSibling;wrapper.classList.toggle('hidden');btn.textContent=wrapper.classList.contains('hidden')?'Expand \u25BE':'Collapse \u25B4';})(this)">
       Expand &#9662;
     </button>
+    <a href="/programs/{{ p.program_uid }}" class="text-xs text-gray-400 hover:underline">Full &rarr;</a>
   </td>
 </tr>
 <tr id="pgm-children-wrapper-{{ p.program_uid }}" class="hidden">

@@ -1550,6 +1550,20 @@ function dismissBoundBanner(uid, priorStatus) {
   });
 }
 
+function dismissProgramBoundBanner(programUid, priorStatus) {
+  document.getElementById('bound-confirm-prompt').innerHTML = '';
+  fetch('/programs/' + programUid + '/header', {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({renewal_status: priorStatus})
+  }).then(function(r) { return r.json(); }).then(function(data) {
+    if (data.ok && typeof showToast === 'function') showToast('Status reverted', true);
+    // Re-render the status badge via HTMX
+    var badge = document.getElementById('pgm-status-' + programUid);
+    if (badge) htmx.ajax('GET', '/programs/' + programUid + '/status-badge', {target: badge, swap: 'outerHTML'});
+  });
+}
+
 function policyStatusPill(btn, uid, status) {
   var td = btn.closest('td');
   td.querySelectorAll('.status-pill').forEach(function(p) {
