@@ -714,6 +714,7 @@ def _issues_ctx(conn, q: str = "", client_id: int = 0, view_mode: str = "board",
                a.resolved_date, a.activity_date, a.created_at, a.is_renewal_issue,
                c.name AS client_name,
                p.policy_uid, p.policy_type, p.carrier,
+               pr.name AS location_name,
                (SELECT COUNT(*) FROM activity_log sub
                 WHERE sub.issue_id = a.id) AS activity_count,
                (SELECT COALESCE(SUM(sub.duration_hours), 0) FROM activity_log sub
@@ -724,6 +725,7 @@ def _issues_ctx(conn, q: str = "", client_id: int = 0, view_mode: str = "board",
         FROM activity_log a
         LEFT JOIN clients c ON c.id = a.client_id
         LEFT JOIN policies p ON p.id = a.policy_id
+        LEFT JOIN projects pr ON pr.id = p.project_id
         WHERE a.item_kind = 'issue'
           AND a.issue_id IS NULL
         ORDER BY

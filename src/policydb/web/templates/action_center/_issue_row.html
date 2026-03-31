@@ -33,8 +33,12 @@
       <a href="/clients/{{ issue.client_id }}" class="hover:text-marsh">{{ issue.client_name }}</a>
       {% if issue.policy_uid %}
         <span class="text-gray-300">|</span>
-        <span>{{ issue.policy_uid }}</span>
+        <a href="/policies/{{ issue.policy_uid }}/edit" class="text-marsh hover:underline font-mono">{{ issue.policy_uid }}</a>
         {% if issue.policy_type %}<span class="text-gray-400">{{ issue.policy_type }}</span>{% endif %}
+      {% endif %}
+      {% if issue.location_name %}
+        <span class="text-gray-300">|</span>
+        <span class="text-gray-400">{{ issue.location_name }}</span>
       {% endif %}
     </div>
   </div>
@@ -54,6 +58,9 @@
   {# Age + SLA badge #}
   {% set days = (issue.days_open or 0)|int %}
   {% set sla = issue.sla_days or 7 %}
+  {% if issue.is_renewal_issue %}
+  <span class="text-xs whitespace-nowrap text-gray-500">{{ days }}d</span>
+  {% else %}
   <span class="text-xs whitespace-nowrap
     {% if days > sla %}text-red-600 font-semibold
     {% elif days > (sla * 0.7)|int %}text-amber-600
@@ -62,6 +69,7 @@
     {{ days }}d
     {% if days > sla %}<span class="text-red-400">(SLA {{ sla }}d)</span>{% endif %}
   </span>
+  {% endif %}
 
   {# Activity count + hours #}
   {% if issue.activity_count or issue.total_hours %}
