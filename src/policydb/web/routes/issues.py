@@ -818,7 +818,7 @@ def mergeable_issues(
     issues.sort(key=lambda x: x["relevance_score"], reverse=True)
 
     return templates.TemplateResponse(
-        "issues/_merge_slideover.html",
+        "issues/_merge_issue_list.html",
         {"request": request, "issues": issues, "target_id": issue_id},
     )
 
