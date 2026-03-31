@@ -174,6 +174,8 @@ _DEFAULTS: dict[str, Any] = {
     "renewal_issue_auto_link": True,
     "renewal_issue_resolve_statuses": ["Bound"],
     "issue_auto_close_days": 14,
+    "stale_auto_close_days": 30,
+    "auto_closed_section_days": 7,
     # ── Knowledge Base ────────────────────────────────────────────────
     "kb_categories": [
         "Glossary",

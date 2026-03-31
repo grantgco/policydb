@@ -459,6 +459,7 @@
   {% if prep_coming %}<span><strong class="text-purple-600">{{ prep_coming | length }}</strong> Prep</span>{% endif %}
   {% if watching %}<span><strong class="text-gray-400">{{ watching | length }}</strong> Watching</span>{% endif %}
   {% if scheduled %}<span><strong class="text-indigo-400">{{ scheduled | length }}</strong> Scheduled</span>{% endif %}
+  {% if recently_auto_closed is defined and recently_auto_closed %}<span class="ml-auto"><strong class="text-gray-400">{{ recently_auto_closed | length }}</strong> Auto-Closed</span>{% endif %}
 </div>
 
 
@@ -640,6 +641,77 @@
   <div class="space-y-1 mt-1 ml-1">
     {% for item in scheduled %}
     {{ fu_row(item, 'bg-white', 'border border-indigo-200', 'bg-indigo-400', 'text-indigo-600', 'scheduled') }}
+    {% endfor %}
+  </div>
+</details>
+{% endif %}
+
+{# ══════════════════════════════════════════════════════════════════
+   AUTO-CLOSED ALERT BANNER
+   ══════════════════════════════════════════════════════════════════ #}
+{% if auto_closed_today_count is defined and auto_closed_today_count > 0 %}
+<div class="mb-4 px-4 py-2 bg-amber-50 border border-amber-200 rounded-lg flex items-center gap-2 text-sm" id="auto-closed-alert">
+  <svg class="w-4 h-4 text-amber-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+    <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
+  </svg>
+  <span class="text-amber-700">
+    <strong>{{ auto_closed_today_count }}</strong> item{{ 's' if auto_closed_today_count != 1 }} auto-closed today
+  </span>
+  <a href="#auto-closed-section" onclick="document.getElementById('auto-closed-section').open=true"
+     class="ml-auto text-xs text-amber-600 hover:text-amber-800 font-medium">Review &darr;</a>
+  <button onclick="this.closest('#auto-closed-alert').remove()" class="text-amber-400 hover:text-amber-600 ml-1">&times;</button>
+</div>
+{% endif %}
+
+{# ══════════════════════════════════════════════════════════════════
+   9. RECENTLY AUTO-CLOSED — collapsed section
+   ══════════════════════════════════════════════════════════════════ #}
+{% if recently_auto_closed is defined and recently_auto_closed %}
+<details class="mb-5 fu-section" data-section="auto_closed" id="auto-closed-section">
+  <summary class="flex items-center gap-2 mb-2 cursor-pointer select-none border-l-4 border-gray-300 px-4 py-2 bg-gray-50 rounded-r-lg">
+    <span class="text-gray-600 text-xs font-semibold px-2.5 py-0.5 rounded-full bg-gray-200">Recently Auto-Closed</span>
+    <span class="text-gray-400 text-xs">{{ recently_auto_closed | length }} item{{ 's' if recently_auto_closed | length != 1 }} in last {{ cfg.get('auto_closed_section_days', 7) if cfg is defined else 7 }} days</span>
+  </summary>
+  <p class="text-[10px] text-gray-400 ml-4 mb-2">Items closed by automation — reopen if needed</p>
+  <div class="space-y-1 mt-1 ml-1">
+    {% for item in recently_auto_closed %}
+    <div class="bg-gray-50 rounded-lg border border-gray-200 px-4 py-2 flex items-center gap-3 text-sm">
+      <div class="w-2 h-2 rounded-full bg-gray-300 flex-shrink-0"></div>
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center gap-2 flex-wrap">
+          <span class="text-gray-500 truncate">{{ item.subject or 'Untitled' }}</span>
+          {% if item.client_name %}
+          <span class="text-[10px] text-gray-400">{{ item.client_name }}</span>
+          {% endif %}
+          {% if item.policy_uid %}
+          <span class="text-[10px] text-gray-400">{{ item.policy_uid }}</span>
+          {% endif %}
+        </div>
+        <div class="flex items-center gap-2 mt-0.5">
+          {# Reason badge #}
+          {% set reason = item.auto_close_reason or 'unknown' %}
+          {% if reason == 'superseded' %}
+          <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-600">Superseded</span>
+          {% elif reason == 'renewal_bound' %}
+          <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-green-50 text-green-700">Renewal Bound</span>
+          {% elif reason == 'milestone_completed' %}
+          <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-700">Milestone Done</span>
+          {% elif reason == 'stale' %}
+          <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700">Stale</span>
+          {% else %}
+          <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500">{{ reason }}</span>
+          {% endif %}
+          {% if item.auto_closed_at %}
+          <span class="text-[10px] text-gray-400">{{ item.auto_closed_at[:10] }}</span>
+          {% endif %}
+        </div>
+      </div>
+      <button hx-post="/activities/{{ item.id }}/reopen"
+              hx-swap="none"
+              class="text-xs text-blue-600 hover:text-blue-800 font-medium whitespace-nowrap no-print">
+        Reopen
+      </button>
+    </div>
     {% endfor %}
   </div>
 </details>

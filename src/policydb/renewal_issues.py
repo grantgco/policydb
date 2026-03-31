@@ -8,7 +8,7 @@ when the renewal reaches a terminal status (e.g., Bound).
 from __future__ import annotations
 
 import logging
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 import policydb.config as cfg
 from policydb.db import generate_issue_uid
@@ -133,6 +133,7 @@ def ensure_renewal_issues(conn, policy_uid: str | None = None) -> None:
                 pol["client_name"], pol["location_name"],
             ),
             severity_fn=lambda: _worst_health_severity(conn, pol["policy_uid"]),
+            due_date=pol["expiration_date"],
         )
 
     # ── Programs ─────────────────────────────────────────────────────
@@ -163,6 +164,7 @@ def ensure_renewal_issues(conn, policy_uid: str | None = None) -> None:
                     pgm["client_name"], pgm["location_name"],
                 ),
                 severity_fn=lambda pgm_id=pgm["id"]: _worst_program_health_severity(conn, pgm_id),
+                due_date=pgm["expiration_date"],
             )
 
     conn.commit()
@@ -171,6 +173,7 @@ def ensure_renewal_issues(conn, policy_uid: str | None = None) -> None:
 def _create_renewal_issue_if_needed(
     conn, term_key: str, *, client_id: int, policy_id: int | None,
     program_id: int | None, subject: str, severity_fn,
+    due_date: str | None = None,
 ) -> None:
     """Create a renewal issue if one doesn't already exist for this term key."""
     existing = conn.execute("""
@@ -191,11 +194,11 @@ def _create_renewal_issue_if_needed(
         INSERT INTO activity_log (
             activity_date, client_id, policy_id, activity_type, subject,
             item_kind, issue_uid, issue_status, issue_severity, issue_sla_days,
-            program_id, is_renewal_issue, renewal_term_key, created_at
-        ) VALUES (?, ?, ?, 'Issue', ?, 'issue', ?, 'Open', ?, ?, ?, 1, ?, CURRENT_TIMESTAMP)
+            program_id, is_renewal_issue, renewal_term_key, due_date, created_at
+        ) VALUES (?, ?, ?, 'Issue', ?, 'issue', ?, 'Open', ?, ?, ?, 1, ?, ?, CURRENT_TIMESTAMP)
     """, (
         today_str, client_id, policy_id, subject,
-        uid, severity, sla_days, program_id, term_key,
+        uid, severity, sla_days, program_id, term_key, due_date,
     ))
     new_issue_id = cur.lastrowid
 
@@ -309,16 +312,83 @@ def auto_resolve_renewal_issue(conn, policy_uid: str | None = None, program_uid:
         return
 
     today_str = date.today().isoformat()
+    now_str = datetime.now().isoformat()
     conn.execute("""
         UPDATE activity_log
         SET issue_status = 'Resolved',
             resolution_type = 'Completed',
             resolution_notes = 'Auto-resolved: renewal bound',
-            resolved_date = ?
+            resolved_date = ?,
+            auto_close_reason = 'renewal_bound',
+            auto_closed_at = ?,
+            auto_closed_by = 'auto_resolve_renewal_issue'
         WHERE is_renewal_issue = 1
           AND renewal_term_key = ?
           AND issue_status NOT IN ('Resolved', 'Closed')
-    """, (today_str, term_key))
+    """, (today_str, now_str, term_key))
+
+
+def cascade_program_renewal_close(conn, policy_uid: str) -> None:
+    """When a policy is bound, cascade auto-close to its program's renewal issue.
+
+    If the policy belongs to a program, resolve the program-level renewal issue
+    and all child policy renewal issues in that program.
+    """
+    pol = conn.execute(
+        "SELECT id, program_id FROM policies WHERE policy_uid = ?", (policy_uid,)
+    ).fetchone()
+    if not pol or not pol["program_id"]:
+        return
+
+    program_id = pol["program_id"]
+
+    # Get program UID for the term key
+    pgm = conn.execute(
+        "SELECT program_uid FROM programs WHERE id = ?", (program_id,)
+    ).fetchone()
+    if not pgm:
+        return
+
+    program_term_key = f"program:{pgm['program_uid']}"
+    now_str = datetime.now().isoformat()
+    today_str = date.today().isoformat()
+
+    # Resolve program-level renewal issue
+    conn.execute("""
+        UPDATE activity_log
+        SET issue_status = 'Resolved',
+            resolution_type = 'Completed',
+            resolution_notes = 'Auto-resolved: renewal bound (program cascade)',
+            resolved_date = ?,
+            auto_close_reason = 'renewal_bound',
+            auto_closed_at = ?,
+            auto_closed_by = 'cascade_program_renewal_close'
+        WHERE is_renewal_issue = 1
+          AND renewal_term_key = ?
+          AND issue_status NOT IN ('Resolved', 'Closed')
+    """, (today_str, now_str, program_term_key))
+
+    # Resolve renewal issues on all child policies in this program
+    child_uids = [r["policy_uid"] for r in conn.execute(
+        "SELECT policy_uid FROM policies WHERE program_id = ?", (program_id,)
+    ).fetchall()]
+    for uid in child_uids:
+        conn.execute("""
+            UPDATE activity_log
+            SET issue_status = 'Resolved',
+                resolution_type = 'Completed',
+                resolution_notes = 'Auto-resolved: renewal bound (program cascade)',
+                resolved_date = ?,
+                auto_close_reason = 'renewal_bound',
+                auto_closed_at = ?,
+                auto_closed_by = 'cascade_program_renewal_close'
+            WHERE is_renewal_issue = 1
+              AND renewal_term_key = ?
+              AND issue_status NOT IN ('Resolved', 'Closed')
+        """, (today_str, now_str, uid))
+
+    logger.info("Cascaded renewal close for program %s (%d children)",
+                pgm["program_uid"], len(child_uids))
 
 
 # ── auto_link_to_renewal_issue ───────────────────────────────────────────────

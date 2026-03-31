@@ -3313,8 +3313,9 @@ async def policy_cell_save(request: Request, policy_uid: str, conn=Depends(get_d
         formatted = val
         # Auto-resolve renewal issue on terminal status
         if val in cfg.get("renewal_issue_resolve_statuses", ["Bound"]):
-            from policydb.renewal_issues import auto_resolve_renewal_issue
+            from policydb.renewal_issues import auto_resolve_renewal_issue, cascade_program_renewal_close
             auto_resolve_renewal_issue(conn, policy_uid=uid)
+            cascade_program_renewal_close(conn, uid)
     elif field == "opportunity_status":
         val = value.strip()
         conn.execute("UPDATE policies SET opportunity_status = ? WHERE policy_uid = ?", (val or None, uid))
@@ -3630,8 +3631,9 @@ def policy_update_status(
 
     # Auto-resolve renewal issue on terminal status
     if status in cfg.get("renewal_issue_resolve_statuses", ["Bound"]):
-        from policydb.renewal_issues import auto_resolve_renewal_issue
+        from policydb.renewal_issues import auto_resolve_renewal_issue, cascade_program_renewal_close
         auto_resolve_renewal_issue(conn, policy_uid=uid)
+        cascade_program_renewal_close(conn, uid)
         conn.commit()
 
     policy = get_policy_by_uid(conn, uid)

@@ -378,6 +378,87 @@ def _followups_ctx(conn, window: int, activity_type: str, q: str,
         q_lower = q.lower()
         prep_coming = [r for r in prep_coming if q_lower in r.get("client_name", "").lower()]
 
+    # ── Inject open issues with due_date into urgency buckets ────────
+    try:
+        issue_q = """
+            SELECT a.id, a.subject, a.due_date, a.client_id, a.policy_id,
+                   a.issue_uid, a.issue_status, a.issue_severity, a.item_kind,
+                   a.program_id, a.activity_date, a.created_at,
+                   c.name AS client_name, c.cn_number,
+                   p.policy_uid, p.policy_type, p.carrier,
+                   COALESCE(pr.name, p.project_name) AS project_name
+            FROM activity_log a
+            JOIN clients c ON a.client_id = c.id
+            LEFT JOIN policies p ON a.policy_id = p.id
+            LEFT JOIN projects prj ON a.program_id = prj.id
+            LEFT JOIN projects pr ON COALESCE(a.project_id, p.project_id) = pr.id
+            WHERE a.item_kind = 'issue'
+              AND a.issue_status NOT IN ('Resolved', 'Closed')
+              AND a.due_date IS NOT NULL
+              AND a.auto_close_reason IS NULL
+        """
+        issue_params = []
+        if filter_client_ids:
+            issue_q += " AND a.client_id IN (" + ",".join("?" * len(filter_client_ids)) + ")"
+            issue_params.extend(filter_client_ids)
+        issue_rows = conn.execute(issue_q, issue_params).fetchall()
+
+        for row in issue_rows:
+            item = dict(row)
+            if q and q.lower() not in (item.get("client_name") or "").lower():
+                continue
+            item["source"] = "issue"
+            item["source_label"] = "Issue"
+            item["follow_up_date"] = item["due_date"]  # for bucket classification
+            try:
+                due_d = date.fromisoformat(item["due_date"])
+                days_to_due = (today - due_d).days
+                item["days_overdue"] = days_to_due
+            except (ValueError, TypeError):
+                continue
+
+            if days_to_due > stale_threshold:
+                buckets["stale"].append(item)
+            elif days_to_due > 0:
+                buckets["overdue"].append(item)
+            elif days_to_due == 0:
+                buckets["today"].append(item)
+            else:
+                buckets["watching"].append(item)
+    except Exception:
+        pass  # Degrade gracefully if columns don't exist yet
+
+    # ── Recently auto-closed items ──────────────────────────────────
+    auto_closed_days = cfg.get("auto_closed_section_days", 7)
+    recently_auto_closed: list[dict] = []
+    try:
+        ac_rows = conn.execute("""
+            SELECT a.id, a.subject, a.client_id, a.policy_id, a.item_kind,
+                   a.follow_up_date, a.due_date, a.auto_close_reason,
+                   a.auto_closed_at, a.auto_closed_by,
+                   a.issue_uid, a.issue_status,
+                   c.name AS client_name, c.cn_number,
+                   p.policy_uid, p.policy_type, p.carrier
+            FROM activity_log a
+            JOIN clients c ON a.client_id = c.id
+            LEFT JOIN policies p ON a.policy_id = p.id
+            WHERE a.auto_close_reason IS NOT NULL
+              AND a.auto_closed_at >= date('now', ?)
+            ORDER BY a.auto_closed_at DESC
+        """, (f'-{auto_closed_days} days',)).fetchall()
+        recently_auto_closed = [dict(r) for r in ac_rows]
+        if q:
+            recently_auto_closed = [r for r in recently_auto_closed
+                                    if q.lower() in (r.get("client_name") or "").lower()]
+    except Exception:
+        pass
+
+    # Count items auto-closed today for the alert banner
+    auto_closed_today_count = sum(
+        1 for r in recently_auto_closed
+        if (r.get("auto_closed_at") or "")[:10] == today_str
+    )
+
     all_clients = [dict(c) for c in conn.execute(
         "SELECT id, name FROM clients WHERE archived=0 ORDER BY name"
     ).fetchall()]
@@ -413,6 +494,9 @@ def _followups_ctx(conn, window: int, activity_type: str, q: str,
         "renewal_statuses": cfg.get("renewal_statuses", []),
         "dispositions": cfg.get("follow_up_dispositions", []),
         "followup_expiration_buffer_days": cfg.get("followup_expiration_buffer_days", 3),
+        # Auto-close section
+        "recently_auto_closed": recently_auto_closed,
+        "auto_closed_today_count": auto_closed_today_count,
     }
 
 
