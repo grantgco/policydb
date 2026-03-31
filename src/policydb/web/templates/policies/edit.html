@@ -132,6 +132,11 @@
       {% set total = checklist | length %}
       {% if total %}<span class="tab-badge">{{ done }}/{{ total }}</span>{% endif %}
     </button>
+    <button class="tab-btn" data-tab="files"
+      data-tab-url="/policies/{{ policy.policy_uid }}/tab/files">
+      Files
+      {% if attachment_count %}<span class="tab-badge">{{ attachment_count }}</span>{% endif %}
+    </button>
     <span id="save-indicator" class="ml-auto text-xs flex items-center gap-1 self-center pr-2 no-print"
           style="opacity:0; transition: opacity 0.3s;">
       <span id="save-indicator-text" class="text-gray-400"></span>
