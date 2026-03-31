@@ -59,19 +59,19 @@
       <div class="text-xs text-gray-600 truncate mt-0.5">
         {% if item.is_milestone is defined and item.is_milestone %}
           {% if item.project_name %}<span class="text-[10px] bg-purple-50 text-purple-600 font-medium px-1.5 py-0.5 rounded inline-flex items-center gap-0.5"><span>&#128205;</span> {{ item.project_name }}</span> <span class="text-gray-400">&middot;</span> {% endif %}
-          {{ item.milestone_name }} &middot; {{ item.policy_type }}
+          {{ item.milestone_name }} &middot; <a href="/policies/{{ item.policy_uid }}/edit" class="hover:text-[#003865] hover:underline">{{ item.policy_type }}</a>
         {% elif item.policy_uid %}
           {% if item.project_name %}<span class="text-[10px] bg-purple-50 text-purple-600 font-medium px-1.5 py-0.5 rounded inline-flex items-center gap-0.5"><span>&#128205;</span> {{ item.project_name }}</span> <span class="text-gray-400">&middot;</span> {% endif %}
           <a href="/policies/{{ item.policy_uid }}/edit" class="hover:text-[#003865] hover:underline">{{ item.policy_type }}{% if item.carrier %} <span class="text-gray-400">&middot; {{ item.carrier }}</span>{% endif %}</a>
         {% elif item.source == 'project' %}
-          <span class="text-[10px] bg-purple-50 text-purple-600 font-medium px-1.5 py-0.5 rounded inline-flex items-center gap-0.5"><span>&#128205;</span> {{ item.project_name or 'Project' }}</span>
+          <a href="/clients/{{ item.client_id }}/projects/{{ item.project_id }}" class="text-[10px] bg-purple-50 text-purple-600 font-medium px-1.5 py-0.5 rounded inline-flex items-center gap-0.5 hover:bg-purple-100"><span>&#128205;</span> {{ item.project_name or 'Project' }}</a>
           <span class="text-gray-400">&middot;</span>
           {{ item.subject }}
         {% elif item.source == 'policy' %}
           {% if item.project_name %}<span class="text-[10px] bg-purple-50 text-purple-600 font-medium px-1.5 py-0.5 rounded inline-flex items-center gap-0.5"><span>&#128205;</span> {{ item.project_name }}</span> <span class="text-gray-400">&middot;</span> {% endif %}
-          {{ item.policy_type }}{% if item.carrier %} <span class="text-gray-400">&middot; {{ item.carrier }}</span>{% endif %}
+          <a href="/policies/{{ item.policy_uid }}/edit" class="hover:text-[#003865] hover:underline">{{ item.policy_type }}{% if item.carrier %} <span class="text-gray-400">&middot; {{ item.carrier }}</span>{% endif %}</a>
         {% else %}
-          {{ item.subject }}
+          <a href="/clients/{{ item.client_id }}" class="hover:text-[#003865] hover:underline">{{ item.subject }}</a>
         {% endif %}
       </div>
       {% if item.prev_disposition %}
