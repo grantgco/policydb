@@ -235,6 +235,14 @@ def activity_log(
         from policydb.renewal_issues import auto_link_to_renewal_issue
         auto_link_to_renewal_issue(conn, policy_id, new_id)
 
+    # Supersede older follow-ups on the same issue
+    if issue_id:
+        from policydb.queries import auto_close_followups
+        auto_close_followups(
+            conn, issue_id=issue_id, reason="superseded_by_activity",
+            closed_by="issue_activity_log", exclude_id=new_id,
+        )
+
     conn.commit()
     logger.info("Activity created for client %d: %s", client_id, activity_type)
     # Return the new activity row as HTMX partial
@@ -749,6 +757,22 @@ def followup_date_count(date: str = "", conn=Depends(get_db)):
         return JSONResponse({"count": 0})
     count = get_followup_count_for_date(conn, date)
     return JSONResponse({"count": count})
+
+
+# ── Follow-up edit slideover ─────────────────────────────────────────────────
+
+
+@router.get("/activities/{activity_id}/edit-slideover", response_class=HTMLResponse)
+def activity_edit_slideover(activity_id: int, request: Request, conn=Depends(get_db)):
+    """Return the edit slideover partial for a follow-up."""
+    a = _activity_row_dict(conn, activity_id)
+    if not a:
+        return HTMLResponse("<p class='p-4 text-sm text-gray-400'>Not found.</p>", status_code=404)
+    return templates.TemplateResponse("activities/_edit_slideover.html", {
+        "request": request,
+        "a": a,
+        "activity_types": cfg.get("activity_types", []),
+    })
 
 
 # ── Activity field PATCH (Action Center inline editing) ──────────────────────

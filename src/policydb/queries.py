@@ -270,6 +270,52 @@ def attach_open_issues(conn: sqlite3.Connection, rows: list[dict], policy_id_fie
             r.setdefault("issue_subject", None)
 
 
+def attach_issue_counts(
+    conn: sqlite3.Connection,
+    rows: list[dict],
+    id_field: str = "id",
+    scope: str = "policy",
+) -> None:
+    """Attach open_issue_count and max_issue_severity to each row dict.
+
+    Args:
+        scope: 'policy' matches on policy_id, 'client' matches on client_id.
+    """
+    if not rows:
+        return
+    col = "policy_id" if scope == "policy" else "client_id"
+    ids = [r.get(id_field) for r in rows if r.get(id_field)]
+    if not ids:
+        for r in rows:
+            r.setdefault("open_issue_count", 0)
+            r.setdefault("max_issue_severity", None)
+        return
+    ph = ",".join("?" * len(ids))
+    issue_rows = conn.execute(
+        f"""SELECT {col} AS scope_id,
+                   COUNT(*) AS cnt,
+                   MIN(CASE issue_severity
+                       WHEN 'Critical' THEN 1 WHEN 'High' THEN 2
+                       WHEN 'Normal' THEN 3 ELSE 4 END) AS sev_rank
+            FROM activity_log
+            WHERE item_kind = 'issue'
+              AND {col} IN ({ph})
+              AND issue_status NOT IN ('Resolved', 'Closed')
+            GROUP BY {col}""",
+        ids,
+    ).fetchall()
+    sev_map = {1: "Critical", 2: "High", 3: "Normal", 4: "Low"}
+    lookup = {r["scope_id"]: (r["cnt"], sev_map.get(r["sev_rank"])) for r in issue_rows}
+    for r in rows:
+        rid = r.get(id_field)
+        if rid and rid in lookup:
+            r["open_issue_count"] = lookup[rid][0]
+            r["max_issue_severity"] = lookup[rid][1]
+        else:
+            r["open_issue_count"] = 0
+            r["max_issue_severity"] = None
+
+
 def get_dashboard_issues_widget(conn: sqlite3.Connection, limit: int = 3) -> dict:
     """Returns top N open issues by severity + counts for dashboard widget."""
     top = conn.execute(
@@ -725,6 +771,52 @@ def get_policy_total_hours(conn: sqlite3.Connection, policy_id: int) -> float:
         (policy_id, policy_id),
     ).fetchone()
     return float(row["t"])
+
+
+def auto_close_followups(
+    conn,
+    *,
+    policy_id: int | None = None,
+    issue_id: int | None = None,
+    reason: str,
+    closed_by: str,
+    exclude_id: int | None = None,
+    before_date: str | None = None,
+) -> int:
+    """Auto-close open follow-ups matching criteria. Returns count closed.
+
+    At least one of policy_id or issue_id must be provided.
+    """
+    clauses = [
+        "follow_up_done = 0",
+        "follow_up_date IS NOT NULL",
+        "item_kind = 'followup'",
+    ]
+    params: list = []
+    if policy_id is not None:
+        clauses.append("policy_id = ?")
+        params.append(policy_id)
+    if issue_id is not None:
+        clauses.append("issue_id = ?")
+        params.append(issue_id)
+    if exclude_id is not None:
+        clauses.append("id != ?")
+        params.append(exclude_id)
+    if before_date is not None:
+        clauses.append("activity_date < ?")
+        params.append(before_date)
+
+    where = " AND ".join(clauses)
+    cursor = conn.execute(
+        f"""UPDATE activity_log
+            SET follow_up_done = 1,
+                auto_close_reason = ?,
+                auto_closed_at = datetime('now'),
+                auto_closed_by = ?
+            WHERE {where}""",
+        [reason, closed_by] + params,
+    )
+    return cursor.rowcount
 
 
 def supersede_followups(conn, policy_id: int, new_date: str) -> None:

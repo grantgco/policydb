@@ -155,6 +155,14 @@
       <button hx-post="/activities/{{ item.id }}/snooze?days=1" hx-target="#{{ row_id }}" hx-swap="outerHTML"
         class="text-xs text-gray-500 bg-white border border-gray-200 px-2 py-1.5 rounded hover:border-gray-300 transition-colors">+1d</button>
       {% endif %}
+      {# Edit slideover (activity-sourced only) #}
+      {% if item.source == 'activity' and item.id %}
+      <button type="button"
+        hx-get="/activities/{{ item.id }}/edit-slideover" hx-target="#fu-edit-content" hx-swap="innerHTML"
+        onclick="openFollowupEdit()"
+        class="text-xs text-gray-400 bg-white border border-gray-200 px-2 py-1.5 rounded hover:border-gray-300 hover:text-[#003865] transition-colors"
+        title="Edit follow-up">&#9998;</button>
+      {% endif %}
       {# Convert to Issue (only for activity-sourced follow-ups not already linked to an issue) #}
       {% if item.source == 'activity' and item.id and not item.linked_issue_uid %}
       <form method="post" action="/issues/convert/{{ item.id }}" style="display:inline">

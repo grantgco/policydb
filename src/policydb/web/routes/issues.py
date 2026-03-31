@@ -11,6 +11,7 @@ from rapidfuzz import fuzz
 
 import policydb.config as cfg
 from policydb.db import generate_issue_uid
+from policydb.queries import auto_close_followups
 from policydb.utils import round_duration
 from policydb.web.app import get_db, templates
 
@@ -117,6 +118,12 @@ def update_issue_status(
         "UPDATE activity_log SET issue_status = ? WHERE id = ? AND item_kind = 'issue'",
         (status, issue_id),
     )
+
+    closed = 0
+    if status in ("Resolved", "Closed"):
+        closed = auto_close_followups(
+            conn, issue_id=issue_id, reason="issue_resolved", closed_by="issue_status_change",
+        )
     conn.commit()
 
     if redirect:
@@ -126,7 +133,10 @@ def update_issue_status(
     from policydb.web.routes.action_center import _issues_ctx
     ctx = _issues_ctx(conn)
     ctx["request"] = request
-    return templates.TemplateResponse("action_center/_issues.html", ctx)
+    resp = templates.TemplateResponse("action_center/_issues.html", ctx)
+    if closed:
+        resp.headers["HX-Trigger"] = f'{{"showToast": "{closed} follow-up(s) auto-closed: issue {status.lower()}"}}'
+    return resp
 
 
 # ── Update issue severity ────────────────────────────────────────────────────
@@ -214,12 +224,19 @@ def resolve_issue(
             resolved_date = ?
         WHERE id = ? AND item_kind = 'issue'
     """, (resolution_type, resolution_notes, root_cause_category, today, issue_id))
+
+    closed = auto_close_followups(
+        conn, issue_id=issue_id, reason="issue_resolved", closed_by="issue_resolve",
+    )
     conn.commit()
 
     from policydb.web.routes.action_center import _issues_ctx
     ctx = _issues_ctx(conn)
     ctx["request"] = request
-    return templates.TemplateResponse("action_center/_issues.html", ctx)
+    resp = templates.TemplateResponse("action_center/_issues.html", ctx)
+    if closed:
+        resp.headers["HX-Trigger"] = f'{{"showToast": "{closed} follow-up(s) auto-closed: issue resolved"}}'
+    return resp
 
 
 # ── Update issue details ─────────────────────────────────────────────────────
@@ -731,9 +748,15 @@ def merge_issues(
             parsed_ids.append(int(v))
 
     today = date.today().isoformat()
+    total_closed = 0
     for src_id in parsed_ids:
         if src_id == target_id:
             continue
+        # Auto-close stale follow-ups on source before relink
+        total_closed += auto_close_followups(
+            conn, issue_id=src_id, reason="issue_merged",
+            closed_by="issue_merge", before_date=today,
+        )
         # Relink child activities to target (tag with source for dissolve)
         conn.execute(
             "UPDATE activity_log SET issue_id = ?, merged_from_issue_id = ? WHERE issue_id = ?",
@@ -945,18 +968,25 @@ def bulk_resolve_issues(
     """Bulk-resolve selected issues."""
     parsed_ids = [int(v.strip()) for v in issue_ids.split(",") if v.strip().isdigit()]
     today = date.today().isoformat()
+    total_closed = 0
     for issue_id in parsed_ids:
         conn.execute("""
             UPDATE activity_log
             SET issue_status = 'Resolved', resolution_type = ?, resolved_date = ?
             WHERE id = ? AND item_kind = 'issue'
         """, (resolution_type, today, issue_id))
+        total_closed += auto_close_followups(
+            conn, issue_id=issue_id, reason="issue_resolved", closed_by="bulk_resolve",
+        )
     conn.commit()
 
     from policydb.web.routes.action_center import _issues_ctx
     ctx = _issues_ctx(conn)
     ctx["request"] = request
-    return templates.TemplateResponse("action_center/_issues.html", ctx)
+    resp = templates.TemplateResponse("action_center/_issues.html", ctx)
+    if total_closed:
+        resp.headers["HX-Trigger"] = f'{{"showToast": "{total_closed} follow-up(s) auto-closed: issues resolved"}}'
+    return resp
 
 
 # ── Bulk status update ──────────────────────────────────────────────────────
@@ -982,12 +1012,23 @@ def bulk_status_issues(
         f"UPDATE activity_log SET issue_status = ? WHERE id IN ({placeholders}) AND item_kind = 'issue'",
         [status] + parsed_ids,
     )
+
+    total_closed = 0
+    if status in ("Resolved", "Closed"):
+        for issue_id in parsed_ids:
+            total_closed += auto_close_followups(
+                conn, issue_id=issue_id, reason="issue_resolved",
+                closed_by="bulk_status_change",
+            )
     conn.commit()
 
     from policydb.web.routes.action_center import _issues_ctx
     ctx = _issues_ctx(conn)
     ctx["request"] = request
-    return templates.TemplateResponse("action_center/_issues.html", ctx)
+    resp = templates.TemplateResponse("action_center/_issues.html", ctx)
+    if total_closed:
+        resp.headers["HX-Trigger"] = f'{{"showToast": "{total_closed} follow-up(s) auto-closed: issues {status.lower()}"}}'
+    return resp
 
 
 # ── Refresh renewal issue titles ────────────────────────────────────────────
