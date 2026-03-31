@@ -362,7 +362,7 @@ def init_db(path: Path | None = None) -> None:
     # Back up the database once before running any pending migrations.
     # This gives a clean restore point regardless of which migration fails.
 
-    _KNOWN_MIGRATIONS = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100,101,102,103,104,105,106,107,108,109,110,111,112,114,115}
+    _KNOWN_MIGRATIONS = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100,101,102,103,104,105,106,107,108,109,110,111,112,114,115,116}
 
     if _KNOWN_MIGRATIONS - applied:
         _backup_db(conn, db_path)
@@ -1590,6 +1590,45 @@ def init_db(path: Path | None = None) -> None:
         )
         conn.commit()
         logger.info("Migration 115: added merged_into_id column for issue merging")
+
+    if 116 not in applied:
+        existing_cols = {r[1] for r in conn.execute("PRAGMA table_info(activity_log)").fetchall()}
+        for col_name, col_def in [
+            ("due_date", "TEXT"),
+            ("auto_close_reason", "TEXT"),
+            ("auto_closed_at", "TEXT"),
+            ("auto_closed_by", "TEXT"),
+        ]:
+            if col_name not in existing_cols:
+                conn.execute(f"ALTER TABLE activity_log ADD COLUMN {col_name} {col_def}")
+        # Backfill due_date on existing renewal issues
+        conn.execute("""
+            UPDATE activity_log
+            SET due_date = (
+                SELECT p.expiration_date FROM policies p
+                WHERE p.policy_uid = activity_log.renewal_term_key
+            )
+            WHERE is_renewal_issue = 1 AND due_date IS NULL
+              AND renewal_term_key IS NOT NULL
+              AND renewal_term_key NOT LIKE 'program:%%'
+        """)
+        conn.execute("""
+            UPDATE activity_log
+            SET due_date = (
+                SELECT MAX(p.expiration_date) FROM policies p
+                JOIN programs pr ON p.program_id = pr.id
+                WHERE 'program:' || pr.program_uid = activity_log.renewal_term_key
+            )
+            WHERE is_renewal_issue = 1 AND due_date IS NULL
+              AND renewal_term_key IS NOT NULL
+              AND renewal_term_key LIKE 'program:%%'
+        """)
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (116, "Add due_date and auto-close tracking columns"),
+        )
+        conn.commit()
+        logger.info("Migration 116: added due_date and auto-close tracking columns")
 
     # Data hygiene: fix 'None' string corruption in text fields (runs every startup, fast no-op if clean)
     conn.execute("UPDATE clients SET cn_number = NULL WHERE cn_number = 'None'")

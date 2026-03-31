@@ -38,6 +38,7 @@ def create_issue(
     program_id: int = Form(0),
     source_activity_id: int = Form(0),
     source_activity_ids: str = Form(""),
+    due_date: str = Form(""),
     conn=Depends(get_db),
 ):
     """Create a new issue header row in activity_log."""
@@ -56,8 +57,8 @@ def create_issue(
         INSERT INTO activity_log (
             activity_date, client_id, policy_id, activity_type, subject, details,
             item_kind, issue_uid, issue_status, issue_severity, issue_sla_days,
-            program_id, created_at
-        ) VALUES (?, ?, ?, 'Issue', ?, ?, 'issue', ?, 'Open', ?, ?, ?, CURRENT_TIMESTAMP)
+            program_id, due_date, created_at
+        ) VALUES (?, ?, ?, 'Issue', ?, ?, 'issue', ?, 'Open', ?, ?, ?, ?, CURRENT_TIMESTAMP)
     """, (
         today,
         client_id,
@@ -68,6 +69,7 @@ def create_issue(
         severity,
         sla_days,
         program_id or None,
+        due_date or None,
     ))
     new_issue_id = cur.lastrowid
 
@@ -149,6 +151,33 @@ def update_issue_severity(
         "UPDATE activity_log SET issue_severity = ?, issue_sla_days = ? "
         "WHERE id = ? AND item_kind = 'issue'",
         (severity, sla_days, issue_id),
+    )
+    conn.commit()
+
+    if redirect:
+        return RedirectResponse(redirect, status_code=303)
+
+    from policydb.web.routes.action_center import _issues_ctx
+    ctx = _issues_ctx(conn)
+    ctx["request"] = request
+    return templates.TemplateResponse("action_center/_issues.html", ctx)
+
+
+# ── Update issue due date ───────────────────────────────────────────────────
+
+
+@router.post("/issues/{issue_id}/due-date", response_class=HTMLResponse)
+def update_issue_due_date(
+    issue_id: int,
+    request: Request,
+    due_date: str = Form(""),
+    redirect: str = Query(""),
+    conn=Depends(get_db),
+):
+    """Quick-update issue due date."""
+    conn.execute(
+        "UPDATE activity_log SET due_date = ? WHERE id = ? AND item_kind = 'issue'",
+        (due_date or None, issue_id),
     )
     conn.commit()
 

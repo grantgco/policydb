@@ -339,6 +339,7 @@ LEFT JOIN (
 ) th ON th.policy_uid = p.policy_uid
 WHERE a.follow_up_date < date('now')
   AND a.follow_up_done = 0
+  AND a.auto_close_reason IS NULL
   AND (c.archived = 0 OR c.archived IS NULL)
   AND (p.id IS NULL OR p.archived = 0)
   AND (p.id IS NULL OR p.is_opportunity = 0 OR p.is_opportunity IS NULL)
