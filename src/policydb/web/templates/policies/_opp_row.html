@@ -63,6 +63,13 @@
       <span class="text-amber-700">{{ o.follow_up_date }}</span>
       {% endif %}
     {% else %}<span class="text-gray-300">—</span>{% endif %}
+    {% if o.issue_uid %}
+    <div class="mt-1">
+      {% with linked_issue_uid=o.issue_uid, linked_issue_subject=o.issue_subject|default('Issue'), linked_issue_severity=o.issue_severity %}
+        {% include "_issue_badge.html" %}
+      {% endwith %}
+    </div>
+    {% endif %}
   </td>
   <td class="px-4 py-2.5">
     <div class="flex items-center gap-3">

@@ -46,10 +46,16 @@ from policydb.queries import (
     get_distinct_custom_exposure_types,
     get_exposure_observations,
     get_exposure_by_id,
+    attach_open_issues,
 )
 from policydb.web.app import get_db, templates
 
 router = APIRouter(prefix="/clients")
+
+
+def _pinned_notes_for_page(conn, scope, scope_id, client_id=None):
+    from policydb.web.routes.pinned_notes import get_pinned_notes_with_cascade
+    return get_pinned_notes_with_cascade(conn, scope, scope_id, client_id=client_id)
 
 
 def _get_all_client_contact_orgs(conn):
@@ -1541,7 +1547,7 @@ def client_tab_files(
         rt_filter = rt
         flat_list = [a for a in flat_list if a["record_type"] == rt]
 
-    return templates.TemplateResponse("clients/_tab_files.html", {
+    ctx = {
         "request": request,
         "client": client_dict,
         "view": view,
@@ -1553,7 +1559,10 @@ def client_tab_files(
         "rt_filter": rt_filter,
         "dt_available": is_devonthink_available(),
         "categories": cfg.get("attachment_categories", []),
-    })
+    }
+    # HTMX swaps target #client-files-content — return only the inner partial
+    tpl = "clients/_files_content.html" if request.headers.get("HX-Request") else "clients/_tab_files.html"
+    return templates.TemplateResponse(tpl, ctx)
 
 
 @router.get("/{client_id}/quick-brief", response_class=HTMLResponse)
@@ -1935,6 +1944,8 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
         }
         o["mailto_subject"] = _render_tokens(_pol_subj_tpl, _opp_ctx)
 
+    attach_open_issues(conn, opportunities)
+
     # All contacts JSON for the contacts card autocomplete
     import json as _json
     _ac_rows = conn.execute(
@@ -2097,6 +2108,20 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
     from policydb.data_health import score_client as _score_client
     _client_dict = dict(client)
     _score_client(conn, _client_dict, include_staleness=True)
+
+    sidebar_issues = [dict(r) for r in conn.execute(
+        """SELECT issue_uid, subject, issue_severity
+           FROM activity_log
+           WHERE client_id = ?
+             AND item_kind = 'issue'
+             AND issue_status NOT IN ('Resolved', 'Closed')
+           ORDER BY CASE issue_severity
+               WHEN 'Critical' THEN 1 WHEN 'High' THEN 2
+               WHEN 'Normal' THEN 3 ELSE 4 END
+           LIMIT 5""",
+        (client_id,),
+    ).fetchall()]
+
     return templates.TemplateResponse("clients/detail.html", {
         "request": request,
         "active": "clients",
@@ -2194,7 +2219,12 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
         "health_score": _client_dict.get("health_score", 100),
         "health_missing": _client_dict.get("health_missing", []),
         "health_threshold": cfg.get("data_health_threshold", 85),
+        "sidebar_issues": sidebar_issues,
         "attachment_count": _att_count,
+        "pinned_notes": _pinned_notes_for_page(conn, "client", client_id),
+        "pinned_scope": "client",
+        "pinned_scope_id": str(client_id),
+        "pinned_client_id": "",
     })
 
 
@@ -3910,6 +3940,10 @@ def project_detail(
             "policies": [dict(p) for p in policies],
             "cope": cope,
             "location_programs": location_programs,
+            "pinned_notes": _pinned_notes_for_page(conn, "project", project_id, client_id=client_id),
+            "pinned_scope": "project",
+            "pinned_scope_id": str(project_id),
+            "pinned_client_id": str(client_id),
         },
     )
 

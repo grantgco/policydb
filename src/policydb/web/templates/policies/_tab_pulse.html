@@ -54,30 +54,35 @@
 </div>
 
 {# ══════════════════════════════════════════════════════════
-   Renewal Issue Banner (if active)
+   Issues Section (all open issues — renewal + manual)
    ══════════════════════════════════════════════════════════ #}
-{% if renewal_issue %}
-{% set ri_sev = renewal_issue.issue_severity or 'Normal' %}
-<a href="/issues/{{ renewal_issue.issue_uid }}" class="card px-3 py-2 flex items-center gap-2 border-l-4
-  {% if ri_sev == 'Critical' %}border-red-400 bg-red-50/40
-  {% elif ri_sev == 'High' %}border-amber-400 bg-amber-50/40
-  {% elif ri_sev == 'Normal' %}border-blue-400 bg-blue-50/40
-  {% else %}border-gray-300 bg-gray-50/40{% endif %}
-  hover:shadow-sm transition-shadow group">
-  <span class="inline-flex items-center text-[10px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full px-1.5 py-0.5">Renewal Issue</span>
-  <span class="w-2 h-2 rounded-full flex-shrink-0
-    {% if ri_sev == 'Critical' %}bg-red-500
-    {% elif ri_sev == 'High' %}bg-amber-500
-    {% elif ri_sev == 'Normal' %}bg-blue-500
-    {% else %}bg-gray-400{% endif %}"></span>
-  <span class="text-xs font-medium text-gray-700">{{ ri_sev }}</span>
-  <span class="text-xs text-gray-400">&middot; {{ renewal_issue.issue_status }}</span>
-  <span class="text-xs text-gray-400">&middot; {{ (renewal_issue.days_open or 0)|int }}d open</span>
-  {% if renewal_issue.activity_count %}
-  <span class="text-xs text-gray-400">&middot; {{ renewal_issue.activity_count }} act</span>
-  {% endif %}
-  <span class="ml-auto text-[10px] text-gray-400 group-hover:text-marsh">View &rarr;</span>
-</a>
+{% if open_issues %}
+<div class="card p-3">
+  <div class="flex items-center justify-between mb-2">
+    <span class="text-xs font-semibold text-gray-700">Issues ({{ open_issues|length }} open)</span>
+    <button type="button"
+            onclick="openIssueCreateSlideover({client_id: {{ policy.client_id }}, policy_id: {{ policy.id }}})"
+            class="text-[10px] text-marsh hover:underline font-semibold no-print">+ New Issue</button>
+  </div>
+  {% for issue in open_issues %}
+  {% set isev = issue.issue_severity or 'Normal' %}
+  <a href="/issues/{{ issue.issue_uid }}"
+     class="flex items-center gap-2 py-1 hover:bg-gray-50 rounded transition-colors group -mx-1 px-1">
+    <span class="w-2 h-2 rounded-full flex-shrink-0
+      {% if isev == 'Critical' %}bg-red-500
+      {% elif isev == 'High' %}bg-amber-500
+      {% elif isev == 'Normal' %}bg-blue-500
+      {% else %}bg-gray-400{% endif %}"></span>
+    {% if issue.is_renewal_issue %}
+    <span class="inline-flex items-center text-[9px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full px-1.5 py-0.5 flex-shrink-0">Renewal</span>
+    {% endif %}
+    <span class="text-xs text-gray-700 truncate flex-1">{{ issue.subject or (isev + ' issue') }}</span>
+    <span class="text-[10px] text-gray-400 flex-shrink-0">{{ isev }}</span>
+    <span class="text-[10px] text-gray-400 flex-shrink-0">&middot; {{ (issue.days_open or 0)|int }}d</span>
+    <span class="text-[10px] text-gray-400 ml-auto group-hover:text-marsh flex-shrink-0">&rarr;</span>
+  </a>
+  {% endfor %}
+</div>
 {% endif %}
 
 {# ══════════════════════════════════════════════════════════
