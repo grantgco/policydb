@@ -520,7 +520,8 @@ def get_activities(
                     p.policy_type,
                     COALESCE(a.project_id, p.project_id) AS project_id,
                     pr.name AS project_name,
-                    co_ac.name AS contact_name
+                    co_ac.name AS contact_name,
+                    (SELECT COUNT(*) FROM record_attachments ra WHERE ra.record_type = 'activity' AND ra.record_id = a.id) AS attachment_count
              FROM activity_log a
              JOIN clients c ON a.client_id = c.id
              LEFT JOIN policies p ON a.policy_id = p.id
