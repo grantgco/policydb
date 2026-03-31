@@ -312,15 +312,10 @@
         <div class="text-[10px] text-gray-400 uppercase tracking-wide mb-2">Actions</div>
         <div class="space-y-2">
           {# Merge #}
-          <details id="merge-panel">
-            <summary class="text-xs text-marsh hover:underline cursor-pointer">Merge other issues into this one</summary>
-            <div class="mt-2" id="merge-content"
-                 hx-get="/issues/{{ issue.id }}/mergeable"
-                 hx-trigger="toggle from:#merge-panel once"
-                 hx-swap="innerHTML">
-              <p class="text-xs text-gray-400 py-2">Loading...</p>
-            </div>
-          </details>
+          <button type="button" onclick="openMergePanel()"
+                  class="text-xs text-marsh hover:underline cursor-pointer">
+            Merge other issues into this one &rarr;
+          </button>
           {# Delete #}
           <div class="pt-2 border-t border-gray-100">
             <button type="button" id="issue-delete-btn"
@@ -410,6 +405,7 @@
 </div>
 
 {% include "issues/_link_activities_slideover.html" %}
+{% include "issues/_merge_slideover.html" %}
 
 {# ── Contenteditable save-on-blur for description ── #}
 <script>
