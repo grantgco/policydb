@@ -432,6 +432,7 @@ async def unlink_activity_from_issue(issue_id: int, activity_id: int, conn=Depen
 def issue_detail(
     issue_uid: str,
     request: Request,
+    merged_from: str = Query(""),
     conn=Depends(get_db),
 ):
     """Full issue detail page with activity timeline."""
@@ -462,6 +463,24 @@ def issue_detail(
     issue = dict(issue)
     issue_id = issue["id"]
 
+    # Redirect merged issues to their target
+    if issue.get("merged_into_id"):
+        cur_id = issue["merged_into_id"]
+        for _ in range(10):  # guard against cycles
+            row = conn.execute(
+                "SELECT id, issue_uid, merged_into_id FROM activity_log WHERE id = ?",
+                (cur_id,),
+            ).fetchone()
+            if not row:
+                break
+            if row["merged_into_id"]:
+                cur_id = row["merged_into_id"]
+            else:
+                return RedirectResponse(
+                    f"/issues/{row['issue_uid']}?merged_from={issue['issue_uid']}",
+                    status_code=303,
+                )
+
     # Get linked activities (threaded into this issue)
     activities = [dict(r) for r in conn.execute("""
         SELECT a.*, c.name AS contact_name
@@ -481,22 +500,13 @@ def issue_detail(
     issue["sla_days"] = sla
     issue["over_sla"] = (issue.get("days_open") or 0) > sla
 
-    # Resolve merged-into chain to final active issue
-    merged_into_uid = None
-    if issue.get("merged_into_id"):
-        cur_id = issue["merged_into_id"]
-        for _ in range(10):  # guard against cycles
-            row = conn.execute(
-                "SELECT id, issue_uid, merged_into_id FROM activity_log WHERE id = ?",
-                (cur_id,),
-            ).fetchone()
-            if not row:
-                break
-            if row["merged_into_id"]:
-                cur_id = row["merged_into_id"]
-            else:
-                merged_into_uid = row["issue_uid"]
-                break
+    # Query issues that were merged into this one
+    merged_from_issues = [dict(r) for r in conn.execute("""
+        SELECT id, issue_uid, subject, resolved_date
+        FROM activity_log
+        WHERE merged_into_id = ? AND item_kind = 'issue'
+        ORDER BY resolved_date DESC
+    """, (issue_id,)).fetchall()]
 
     # For renewal issues, include timeline milestone data
     timeline_milestones = []
@@ -527,7 +537,8 @@ def issue_detail(
         "issue": issue,
         "activities": activities,
         "total_hours": round(total_hours, 1),
-        "merged_into_uid": merged_into_uid,
+        "merged_from_issues": merged_from_issues,
+        "merged_from_flash": merged_from or "",
         "issue_lifecycle_states": cfg.get("issue_lifecycle_states", []),
         "issue_severities": cfg.get("issue_severities", []),
         "issue_resolution_types": cfg.get("issue_resolution_types", []),
@@ -723,10 +734,10 @@ def merge_issues(
     for src_id in parsed_ids:
         if src_id == target_id:
             continue
-        # Relink child activities to target
+        # Relink child activities to target (tag with source for dissolve)
         conn.execute(
-            "UPDATE activity_log SET issue_id = ? WHERE issue_id = ?",
-            (target_id, src_id),
+            "UPDATE activity_log SET issue_id = ?, merged_from_issue_id = ? WHERE issue_id = ?",
+            (target_id, src_id, src_id),
         )
         # Close source issue as merged
         conn.execute("""
@@ -738,6 +749,52 @@ def merge_issues(
                 merged_into_id = ?
             WHERE id = ? AND item_kind = 'issue'
         """, (target_id, today, target_id, src_id))
+
+    conn.commit()
+    return RedirectResponse(f"/issues/{target['issue_uid']}", status_code=303)
+
+
+# ── Dissolve merge ─────────────────────────────────────────────────────────
+
+
+@router.post("/issues/{target_id}/dissolve/{source_id}")
+def dissolve_merge(
+    target_id: int,
+    source_id: int,
+    conn=Depends(get_db),
+):
+    """Undo a merge: move activities back to source issue and reopen it."""
+    # Verify source was merged into target
+    source = conn.execute(
+        "SELECT id, issue_uid, merged_into_id FROM activity_log WHERE id = ? AND item_kind = 'issue'",
+        (source_id,),
+    ).fetchone()
+    if not source or source["merged_into_id"] != target_id:
+        return HTMLResponse("<p>Source issue not found or not merged into this target.</p>", status_code=404)
+
+    target = conn.execute(
+        "SELECT issue_uid FROM activity_log WHERE id = ? AND item_kind = 'issue'",
+        (target_id,),
+    ).fetchone()
+    if not target:
+        return HTMLResponse("<p>Target issue not found.</p>", status_code=404)
+
+    # Move activities back to source
+    conn.execute(
+        "UPDATE activity_log SET issue_id = ?, merged_from_issue_id = NULL WHERE issue_id = ? AND merged_from_issue_id = ?",
+        (source_id, target_id, source_id),
+    )
+
+    # Reopen source issue
+    conn.execute("""
+        UPDATE activity_log
+        SET merged_into_id = NULL,
+            issue_status = 'Open',
+            resolution_type = NULL,
+            resolution_notes = NULL,
+            resolved_date = NULL
+        WHERE id = ? AND item_kind = 'issue'
+    """, (source_id,))
 
     conn.commit()
     return RedirectResponse(f"/issues/{target['issue_uid']}", status_code=303)

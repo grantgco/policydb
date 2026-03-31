@@ -11,6 +11,16 @@
     {% with ref_tag=issue.issue_uid %}{% include "_ref_tag_pill.html" %}{% endwith %}
   </div>
 
+  {# ── Merge redirect flash banner ── #}
+  {% if merged_from_flash %}
+  <div class="bg-blue-50 border border-blue-200 rounded-lg px-4 py-2 mb-3 flex items-center justify-between text-sm">
+    <span class="text-blue-800">
+      <span class="font-medium">{{ merged_from_flash }}</span> was merged into this issue &mdash; redirected here.
+    </span>
+    <button onclick="this.parentElement.remove()" class="text-blue-400 hover:text-blue-600 ml-4">&times;</button>
+  </div>
+  {% endif %}
+
   {# ── Title (click-to-edit) ── #}
   <h1 class="text-xl font-semibold text-gray-900 mb-1 cursor-pointer hover:bg-gray-50 rounded px-1 -mx-1 transition-colors"
       contenteditable="true"
@@ -437,15 +447,42 @@
           <div><dt class="text-gray-500 inline">Total Effort:</dt> <dd class="inline text-gray-800">{{ total_hours }}h</dd></div>
           {% endif %}
         </dl>
-        {% if merged_into_uid %}
-        <p class="text-xs mt-2 border-t border-green-200 pt-2">
-          Merged into <a href="/issues/{{ merged_into_uid }}" class="text-marsh hover:underline font-medium">{{ merged_into_uid }} &rarr;</a>
-        </p>
-        {% elif issue.resolution_notes %}
+        {% if issue.resolution_notes %}
         <p class="text-xs text-gray-700 mt-2 border-t border-green-200 pt-2">{{ issue.resolution_notes }}</p>
         {% endif %}
       </div>
       {% endif %}
+
+      {# ── Merged Issues card ── #}
+      {% if merged_from_issues %}
+      <div class="card p-4 border-l-4 border-purple-300">
+        <div class="text-[10px] text-purple-700 uppercase tracking-wide font-semibold mb-2">
+          Merged Issues ({{ merged_from_issues|length }})
+        </div>
+        <ul class="text-xs space-y-2">
+          {% for src in merged_from_issues %}
+          <li class="flex items-center justify-between gap-2">
+            <div class="min-w-0 flex-1">
+              <span class="font-medium text-gray-700">{{ src.issue_uid }}</span>
+              <span class="text-gray-400 ml-1">{{ src.subject|truncate(30) }}</span>
+              {% if src.resolved_date %}
+              <span class="text-gray-400 text-[10px] ml-1">{{ src.resolved_date }}</span>
+              {% endif %}
+            </div>
+            <form hx-post="/issues/{{ issue.id }}/dissolve/{{ src.id }}"
+                  hx-confirm="Dissolve merge? This will reopen {{ src.issue_uid }} and move its activities back."
+                  class="flex-shrink-0">
+              <button type="submit"
+                      class="text-[10px] text-purple-500 hover:text-purple-700 hover:underline">
+                Dissolve
+              </button>
+            </form>
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+
     </div>
   </div>
 </div>
