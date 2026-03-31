@@ -2483,6 +2483,7 @@ def policy_tab_activity(request: Request, policy_uid: str, conn=Depends(get_db))
         return HTMLResponse("Not found", status_code=404)
 
     _today_iso = date.today().isoformat()
+    _pid = policy_dict["id"]
     activities = [dict(r) for r in conn.execute(
         """SELECT a.*, c.name AS client_name, c.cn_number, p.policy_uid,
                   COALESCE(a.project_id, p.project_id) AS project_id,
@@ -2493,10 +2494,17 @@ def policy_tab_activity(request: Request, policy_uid: str, conn=Depends(get_db))
            LEFT JOIN policies p ON a.policy_id = p.id
            LEFT JOIN projects pr ON COALESCE(a.project_id, p.project_id) = pr.id
            LEFT JOIN activity_log iss ON iss.id = a.issue_id AND iss.item_kind = 'issue'
-           WHERE a.policy_id = ? AND a.activity_date >= date('now', '-90 days')
+           WHERE (a.policy_id = ?
+                  OR (a.issue_id IN (SELECT ipc.issue_id FROM v_issue_policy_coverage ipc WHERE ipc.policy_id = ?)
+                      AND a.item_kind != 'issue'))
+             AND a.activity_date >= date('now', '-90 days')
            ORDER BY a.activity_date DESC, a.id DESC""",
-        (policy_dict["id"],),
+        (_pid, _pid),
     ).fetchall()]
+    # Tag issue-sourced activities (not directly on this policy)
+    for act in activities:
+        if act.get("policy_id") != _pid:
+            act["is_issue_xref"] = True
     # Split into 3 groups: overdue follow-ups, upcoming follow-ups, history
     overdue_followups = sorted(
         [a for a in activities if a.get("follow_up_date") and not a.get("follow_up_done") and a["follow_up_date"] < _today_iso],

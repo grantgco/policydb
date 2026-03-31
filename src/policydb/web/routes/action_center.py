@@ -45,11 +45,14 @@ def _compute_nudge_tier(conn, policy_uid: str, dispositions: list[dict]) -> tupl
 
     placeholders = ",".join("?" * len(waiting_labels))
     count = conn.execute(
-        f"""SELECT COUNT(*) FROM activity_log
-            WHERE policy_id = (SELECT id FROM policies WHERE policy_uid = ?)
-              AND disposition IN ({placeholders})
-              AND activity_date >= date('now', '-90 days')""",
-        [policy_uid] + waiting_labels,
+        f"""SELECT COUNT(*) FROM activity_log a
+            WHERE (a.policy_id = (SELECT id FROM policies WHERE policy_uid = ?)
+                   OR (a.issue_id IN (SELECT ipc.issue_id FROM v_issue_policy_coverage ipc
+                                      WHERE ipc.policy_id = (SELECT id FROM policies WHERE policy_uid = ?))
+                       AND a.item_kind != 'issue'))
+              AND a.disposition IN ({placeholders})
+              AND a.activity_date >= date('now', '-90 days')""",
+        [policy_uid, policy_uid] + waiting_labels,
     ).fetchone()[0]
 
     count = max(count, 1)
