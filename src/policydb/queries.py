@@ -3229,3 +3229,68 @@ def get_escalation_suggestions(conn: sqlite3.Connection) -> list[dict]:
     )
 
     return suggestions
+
+
+# ─── SPREADSHEET GRID DATA ──────────────────────────────────────────────────
+
+
+def get_all_policies_for_grid(conn: sqlite3.Connection) -> list[dict]:
+    """Return all non-archived policies with all editable fields for the
+    spreadsheet grid view.  Includes opportunities."""
+    sql = """
+    SELECT
+        p.policy_uid,
+        p.client_id,
+        c.name AS client_name,
+        p.policy_type,
+        p.carrier,
+        p.access_point,
+        p.policy_number,
+        p.effective_date,
+        p.expiration_date,
+        p.premium,
+        p.limit_amount,
+        p.deductible,
+        p.commission_rate,
+        p.prior_premium,
+        p.renewal_status,
+        p.is_opportunity,
+        p.opportunity_status,
+        p.follow_up_date,
+        p.coverage_form,
+        p.layer_position,
+        p.project_name,
+        p.first_named_insured,
+        p.description,
+        p.notes,
+        p.placement_colleague,
+        p.underwriter_name,
+        p.exposure_basis,
+        p.exposure_amount,
+        p.exposure_address,
+        p.exposure_city,
+        p.exposure_state,
+        p.exposure_zip,
+        p.attachment_point,
+        p.participation_of
+    FROM policies p
+    JOIN clients c ON p.client_id = c.id
+    WHERE p.archived = 0
+    ORDER BY c.name, p.policy_type, p.layer_position
+    """
+    rows = conn.execute(sql).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_projects_by_client(conn: sqlite3.Connection) -> dict[int, list[str]]:
+    """Return {client_id: [project_name, ...]} for Location column dropdowns."""
+    sql = """
+    SELECT client_id, name
+    FROM projects
+    WHERE name IS NOT NULL AND name != ''
+    ORDER BY name
+    """
+    result: dict[int, list[str]] = {}
+    for row in conn.execute(sql).fetchall():
+        result.setdefault(row["client_id"], []).append(row["name"])
+    return result
