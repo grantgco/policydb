@@ -22,6 +22,9 @@ window.addLocation = function(clientId) {
     <div class="ml-auto flex gap-2 items-center no-print">
       <a href="/clients/{{ client.id }}/locations" onclick="event.stopPropagation()"
         class="text-xs bg-indigo-500 text-white px-3 py-1 rounded hover:bg-indigo-600 transition-colors">Organize by Location</a>
+      <button type="button"
+         onclick="event.stopPropagation(); copyPolicyTable('/clients/{{ client.id }}/projects/locations/copy-table', this)"
+         class="text-xs text-marsh hover:underline">Copy Table</button>
       <a href="/clients/{{ client.id }}/projects/locations/export?format=xlsx" class="text-xs text-marsh hover:underline">XLSX</a>
       <a href="/clients/{{ client.id }}/projects/locations/export?format=csv" class="text-xs text-gray-400 hover:underline">CSV</a>
       <button type="button" onclick="addLocation({{ client.id }})"
