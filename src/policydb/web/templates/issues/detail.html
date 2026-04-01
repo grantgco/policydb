@@ -339,6 +339,15 @@
           </div>
         </div>
       </div>
+
+      {# ── Files & Attachments ── #}
+      <div class="card p-4">
+        <div class="text-[10px] text-gray-400 uppercase tracking-wide mb-2">Files & Attachments</div>
+        <div hx-get="/api/attachments/panel?record_type=issue&record_id={{ issue.id }}"
+             hx-trigger="load" hx-swap="innerHTML">
+          <p class="text-xs text-gray-400 italic">Loading...</p>
+        </div>
+      </div>
     </div>
 
     {# ── Right: Context Sidebar ── #}
@@ -473,15 +482,6 @@
              class="text-sm text-gray-700 min-h-[3rem] outline-none focus:ring-1 focus:ring-marsh rounded px-1 -mx-1"
              data-placeholder="Click to add description..."
              data-issue-id="{{ issue.id }}">{{ issue.details or '' }}</div>
-      </div>
-
-      {# ── Files & Attachments ── #}
-      <div class="card p-4">
-        <div class="text-[10px] text-gray-400 uppercase tracking-wide mb-2">Files & Attachments</div>
-        <div hx-get="/api/attachments/panel?record_type=issue&record_id={{ issue.id }}"
-             hx-trigger="load" hx-swap="innerHTML">
-          <p class="text-xs text-gray-400 italic">Loading...</p>
-        </div>
       </div>
 
       {# ── Actions card: Merge + Delete ── #}
