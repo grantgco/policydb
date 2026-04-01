@@ -67,6 +67,12 @@ def dashboard_pipeline(request: Request, window: int = 90, status: str = "", con
 def dashboard(request: Request, conn=Depends(get_db)):
     from policydb.web.routes.policies import _attach_milestone_progress, _attach_readiness_score
     excluded = cfg.get("renewal_statuses_excluded", [])
+    # Stale cleanup — keep dashboard in sync with Action Center
+    try:
+        from policydb.queries import auto_close_stale_followups
+        auto_close_stale_followups(conn)
+    except Exception:
+        pass
     metrics = get_renewal_metrics(conn)
     pipeline = get_renewal_pipeline(conn, window_days=90, excluded_statuses=excluded)
     overdue, upcoming = get_all_followups(conn, window=30)
