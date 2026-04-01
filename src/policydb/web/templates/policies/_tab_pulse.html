@@ -95,7 +95,7 @@
   {% set rl = readiness.get('readiness_label') or '' %}
   <div class="card p-2 px-3">
     <div class="text-[10px] text-gray-500 font-bold tracking-wider uppercase mb-1">Readiness</div>
-    <div class="text-xl font-bold
+    <div class="text-xl font-bold font-mono
       {% if rs >= 75 %}text-green-600
       {% elif rs >= 50 %}text-amber-600
       {% else %}text-red-600{% endif %}">{{ rs }}</div>
@@ -107,7 +107,7 @@
   {# Days to Renewal #}
   <div class="card p-2 px-3">
     <div class="text-[10px] text-gray-500 font-bold tracking-wider uppercase mb-1">Days to Renewal</div>
-    <div class="text-xl font-bold
+    <div class="text-xl font-bold font-mono
       {% if days_to_renewal is none %}text-gray-400
       {% elif days_to_renewal <= 30 %}text-red-600
       {% elif days_to_renewal <= 90 %}text-amber-600
@@ -122,7 +122,7 @@
   {# Premium + Rate Change #}
   <div class="card p-2 px-3">
     <div class="text-[10px] text-gray-500 font-bold tracking-wider uppercase mb-1">Premium</div>
-    <div class="text-xl font-bold text-gray-900">
+    <div class="text-xl font-bold font-mono text-gray-900">
       {% if policy.premium %}{{ policy.premium | currency_short }}{% else %}—{% endif %}
     </div>
     <div class="text-[10px] mt-0.5">
@@ -141,7 +141,7 @@
   {# Effort Hours #}
   <div class="card p-2 px-3">
     <div class="text-[10px] text-gray-500 font-bold tracking-wider uppercase mb-1">Effort</div>
-    <div class="text-xl font-bold text-gray-900" id="pulse-metrics-effort">
+    <div class="text-xl font-bold font-mono text-gray-900" id="pulse-metrics-effort">
       {{ (effort | round(1)) if effort else '0' }}h
     </div>
     <div class="text-[10px] text-gray-500 mt-0.5">total logged</div>

@@ -33,7 +33,7 @@ Not every task needs a full brainstorm cycle. Use this to calibrate:
 | Web framework | FastAPI + uvicorn |
 | Templates | Jinja2 (in `src/policydb/web/templates/`) |
 | Interactivity | HTMX (partial HTML swaps) |
-| Styling | Tailwind CSS (CDN, utility classes only) — see Theme Colors below |
+| Styling | Tailwind CSS (CDN, utility classes only) — see Visual Design System below |
 | Database | SQLite via `sqlite3` with `row_factory`, WAL mode |
 | CLI | Click (`policydb` / `pdb` entry points) |
 | Parsing | **Humanize, Dateparser, RapidFuzz, Babel** — use these; do not write custom parsing code |
@@ -53,29 +53,76 @@ Not every task needs a full brainstorm cycle. Use this to calibrate:
 - **API key**: Stored in `config.yaml` as `google_places_api_key`, editable in Settings > Database & Admin.
 - **Rate limit**: `google_places_daily_limit` (default 1000) tracked in-memory, resets daily. Check `/api/address/usage` for current count.
 
-### Theme Colors
+## Visual Design System
 
-The app uses a **light theme** throughout. Key conventions:
+### Color Theme
 
-| Element | Color Approach |
-|---------|---------------|
-| Page background | White / light gray (`bg-white`, `bg-gray-50`) |
-| Cards / sections | `card` class (white bg, border, rounded) — NOT `bg-gray-800` dark cards |
-| Primary brand | `marsh` / `marsh-light` (custom Tailwind color — dark navy blue `#003865`) |
-| Text headings | `text-gray-900` |
-| Text secondary | `text-gray-500`, `text-gray-400` |
-| Links | `text-marsh`, `text-blue-600` — NOT `text-blue-400` (that's dark-theme) |
-| Success/positive | `text-green-700`, `bg-green-50`, `border-green-200` |
-| Warning/caution | `text-amber-700`, `bg-amber-50`, `border-amber-200` |
-| Danger/overdue | `text-red-700`, `bg-red-50`, `border-red-200` |
-| Info/badges | `bg-gray-100 text-gray-600` for neutral, `bg-blue-50 text-blue-700` for info |
-| Inputs | `border-gray-300`, `text-gray-900`, `focus:ring-marsh` |
+This project uses a **professional, data-forward design language** built on a deep navy foundation with clean warm neutrals and a structured data palette. The aesthetic is authoritative and analytical — appropriate for financial, insurance, or infrastructure dashboards — while remaining approachable through warm off-whites and clear typographic hierarchy.
 
-**Rule:** Never use dark-theme classes (`bg-gray-800`, `bg-gray-900`, `text-gray-100`, `text-blue-400`, `text-emerald-400`, `border-gray-600/700`) in new UI. The Policy Pulse tab was converted to light theme — all new sections should follow the light `card` pattern.
+---
+
+### Core Brand Colors
+
+| Token         | HEX       | Role                                                         |
+| ------------- | --------- | ------------------------------------------------------------ |
+| Midnight Blue | `#000F47` | Primary brand color; headings, borders, hero backgrounds     |
+| Sky Blue      | `#CEECFF` | Light blue tints; card highlights, hover states, tag backgrounds |
+| White         | `#FFFFFF` | Chart areas, modal backgrounds, content surfaces             |
+
+**Usage guidance:** Midnight Blue should anchor any prominent UI element — navbars, section headers, primary buttons, and key borders. Sky Blue works as a softening complement for callouts and highlight states. Never use Midnight Blue as body text on dark backgrounds.
+
+---
+
+### Warm Neutral Scale
+
+| Token        | HEX       | Role                                          |
+| ------------ | --------- | --------------------------------------------- |
+| Neutral 1000 | `#3D3C37` | Primary body text, data labels                |
+| Neutral 750  | `#7B7974` | Secondary text, captions, metadata            |
+| Neutral 500  | `#B9B6B1` | Dividers, input borders, disabled states      |
+| Neutral 250  | `#F7F3EE` | Page background, subtotal rows, sidebar fills |
+
+**Usage guidance:** Prefer Neutral 1000 over pure black for body text — it reads as warmer and more considered. Neutral 250 as a page background creates a subtle warmth that distinguishes this palette from sterile white-background UIs. Use Neutral 500 borders sparingly; let whitespace do structural work first.
+
+---
+
+### Active Accent
+
+`#0B4BFF` — **Blue 750**
+
+The primary interactive color. Use for:
+- Hyperlinks and inline text actions
+- Focus rings and active input states
+- CTA buttons (filled)
+- Progress indicators and loading states
+- Selected/active navigation items
+
+Do **not** use Blue 750 for decorative purposes — reserve it strictly for interactive affordances so users learn to trust it as a signal.
+
+---
+
+### Typography Pairing
+
+| Role               | Font             | Weight                      |
+| ------------------ | ---------------- | --------------------------- |
+| Display / H1–H2    | DM Serif Display | Regular (400)               |
+| UI / Body / Labels | DM Sans          | Regular (400), Medium (500) |
+| Monospace / Code   | JetBrains Mono   | Regular (400)               |
+
+Headings in DM Serif Display set in `#000F47` create immediate brand recognition. DM Sans at Neutral 1000 for body ensures legibility. Never set display headings in the warm neutrals — reserve those for supporting text.
+
+---
+
+### Design Principles
+
+1. **Navy anchors, warmth softens.** Lead with Midnight Blue in structural chrome; let Neutral 250 backgrounds and warm text create approachability.
+2. **Accent earns attention.** Blue 750 (`#0B4BFF`) is the only interactive signal — use it consistently and exclusively.
+3. **Data colors are ordinal, not decorative.** Assign series colors by priority, not aesthetics. Never skip a tier without a documented reason.
+4. **Borders are structural, not decorative.** Use Neutral 500 dividers only where a visual boundary is functionally necessary.
 
 ### Marsh Brand Guide (Charts & Deliverables)
 
-All charts, deck slides, and client-facing exports MUST use the official Marsh color palette and typography.
+All charts, deck slides, spreadsheets, exported tables, and client-facing exports MUST use the official Marsh color palette and typography.
 
 **Typography:**
 - **Noto Serif** — headings, chart titles, section headers
@@ -110,9 +157,10 @@ All charts, deck slides, and client-facing exports MUST use the official Marsh c
 | 4th | Gold | `#CB7E03` | `#FFBF00` | `#FFD98A` | `#FFF3DA` |
 
 **Rules:**
+
 - Additional tint stacks (500, 250) are for complex data sets and accessibility
 - Each tint stack goes from dark (1000) to light (250) — use 1000 for fills, 250 for backgrounds
-- The app's current `#003865` (marsh Tailwind color) is the UI brand color; `#000F47` (Midnight Blue) is the official Marsh deliverable color
+- The app UI and Marsh deliverables both use `#000F47` (Midnight Blue) as the primary brand color via Tailwind's `marsh` token
 
 ### Currency & Phone Rules
 
@@ -234,19 +282,6 @@ Opportunities have optional dates/carrier; the "Convert to Policy" flow sets rea
 
 ---
 
-## Logging & Audit System
-
-### Application Logging
-- **Module:** `src/policydb/logging_config.py` — `setup_logging()` + `setup_sqlite_handler()`
-- **File handler:** `~/.policydb/logs/policydb.log` — RotatingFileHandler (5MB x 5 files), level from `cfg.get("log_level")`
-- **SQLite handler:** Background writer thread inserts into `app_log` table (flushes every 5s or 50 entries)
-- **Request middleware:** `app.py` logs every non-static HTTP request (method, path, status, duration_ms) at INFO/WARNING/ERROR based on status code
-- **Business events:** Lightweight `logger.info()` calls in `policies.py`, `clients.py`, `activities.py`, `reconcile.py`, `inbox.py`
-
-### Audit Log (Database Triggers)
-- **Migration 067:** SQLite triggers on 7 tables (clients, policies, activity_log, contacts, inbox, policy_milestones, saved_notes)
-- Captures INSERT/UPDATE/DELETE with JSON old_values/new_values
-
 ### Auto-Purge
 - `_purge_old_logs()` in `db.py` runs on every server startup after health checks
 - Deletes `audit_log` and `app_log` rows older than `log_retention_days` config (default: 730 = 2 years)
@@ -261,17 +296,6 @@ Opportunities have optional dates/carrier; the "Convert to Policy" flow sets rea
 
 ## Email Template System
 
-### Token Rendering
-- **Module:** `src/policydb/email_templates.py`
-- `render_tokens(template_text, context_dict)` — replaces `{{token}}` placeholders; strips remaining unreplaced `{{...}}` tags
-- `policy_context(conn, policy_uid)` — builds token dict for policy context (includes client, COPE, and project tokens)
-- `client_context(conn, client_id)` — builds token dict for client context
-- `location_context(conn, client_id, project_name)` — builds token dict for location/project context (aggregates policies at location)
-- `followup_context(row_dict)` — builds token dict for follow-up rows
-- `timeline_context(conn, policy_uid)` — builds token dict for timeline data (drift, blocking reason, milestones)
-- **Shared helpers:** `_client_tokens()` (client fields), `_project_tokens()` (project/location fields), `_build_policy_list_tokens()` (policy list aggregation)
-- `CONTEXT_TOKEN_GROUPS` — grouped token definitions for UI pill toolbars; `CONTEXT_TOKENS` auto-derives from it
-
 ### Critical Rule: New Fields → Add to Tokens
 **Every time a new field is added to policies, clients, projects, or related tables, it must also be added to:**
 1. The relevant `*_context()` function or `_*_tokens()` helper in `email_templates.py`
@@ -279,20 +303,6 @@ Opportunities have optional dates/carrier; the "Convert to Policy" flow sets rea
 3. For projects table changes: update `_project_tokens()` helper which feeds both `location_context()` and `policy_context()`
 
 This makes the field available as a clickable token pill in the template builder at `/templates`.
-
-### Compose Panel
-Uses `hx-trigger="toggle from:#compose-panel-id once"` on `<details>`. Do NOT use `toggle[open]` — the `[open]` filter is always falsy on the inner div.
-
----
-
-## JavaScript in Jinja2 Templates
-
-**Critical:** Jinja2 processes `{{ }}` everywhere including inside `<script>` blocks. Never write `'{{' + jsVar + '}}'` — Jinja2 treats the `{{` as a template expression.
-
-**Wrong:** `var insert = '{{' + token + '}}';`
-**Correct:** `var insert = '{' + '{' + token + '}' + '}';`
-
-The same issue applies anywhere `{{` or `}}` appears inside JavaScript string literals in Jinja2 templates.
 
 ---
 
