@@ -1653,11 +1653,21 @@ def full_text_search(conn: sqlite3.Connection, query: str) -> dict[str, list[sql
            ORDER BY a.activity_date DESC LIMIT 20""",
         (pattern, pattern, pattern),
     ).fetchall()
+    locations = conn.execute(
+        """SELECT pr.id, pr.name, pr.address, pr.city, pr.state, pr.zip,
+                  pr.client_id, c.name AS client_name
+           FROM projects pr
+           JOIN clients c ON c.id = pr.client_id
+           WHERE pr.name LIKE ? OR pr.address LIKE ? OR pr.city LIKE ?
+           ORDER BY pr.name LIMIT 20""",
+        (pattern, pattern, pattern),
+    ).fetchall()
     return {
         "clients": clients,
         "policies": policies,
         "activities": activities,
         "issues": issues,
+        "locations": locations,
         "kb_articles": kb_articles,
         "kb_documents": kb_documents,
     }
