@@ -236,6 +236,9 @@
       <div class="flex items-center gap-2 flex-wrap">
         <span class="text-xs text-gray-400 tabular-nums whitespace-nowrap">{{ a.activity_date }}</span>
         <span class="text-xs font-medium bg-gray-100 text-gray-600 px-2 py-0.5 rounded">{{ a.activity_type }}</span>
+        {% if a.source is defined and a.source == 'outlook_sync' %}
+        <span class="text-[9px] px-1 rounded bg-sky-100 text-sky-600 font-medium">synced</span>
+        {% endif %}
         {% if a.disposition %}
         <span class="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">{{ a.disposition }}</span>
         {% endif %}
@@ -253,6 +256,12 @@
       </div>
       {% if a.details %}
       <p class="text-xs text-gray-500 mt-1 line-clamp-2 ml-0">{{ a.details }}</p>
+      {% endif %}
+      {% if a.email_snippet is defined and a.email_snippet %}
+      <details class="mt-1">
+        <summary class="text-[10px] text-blue-500 cursor-pointer hover:text-blue-700">view email content</summary>
+        <div class="text-[10px] text-gray-500 mt-1 whitespace-pre-line leading-relaxed max-h-32 overflow-y-auto bg-gray-50 rounded p-2">{{ a.email_snippet }}</div>
+      </details>
       {% endif %}
     </div>
     {% else %}
