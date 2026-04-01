@@ -1,6 +1,15 @@
 {# Inner content for client Files tab — rendered standalone for HTMX swaps #}
 {% if not groups and not flat_list %}
-  <p class="text-sm text-gray-400 italic py-8 text-center">No files attached to this client or its records</p>
+  <div class="py-12 text-center">
+    <svg class="w-10 h-10 text-gray-300 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
+    </svg>
+    <p class="text-sm text-gray-400 mb-3">No files attached to this client or its records</p>
+    <button type="button" onclick="toggleClientAttachForm()"
+      class="text-sm font-medium text-white bg-marsh hover:bg-marsh-light rounded px-4 py-2 transition-colors">
+      + Attach File
+    </button>
+  </div>
 {% elif view == 'grouped' %}
   {# ── Grouped view ── #}
   {% for group in groups %}
