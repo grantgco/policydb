@@ -1,0 +1,56 @@
+{# About — Business Description + Internal Notes (inline-editable) #}
+<div class="card mt-4">
+  <div class="px-5 py-4 border-b border-gray-100">
+    <h2 class="text-xs font-semibold text-gray-400 uppercase tracking-wide">About</h2>
+  </div>
+
+  <div class="px-5 py-4 space-y-4">
+    {# Business Description #}
+    <div>
+      <label class="text-xs text-gray-500 mb-1.5 block">Business Description</label>
+      <div contenteditable="true"
+           id="about-business-description"
+           data-field="business_description"
+           data-placeholder="Describe the client's business, operations, and key exposures..."
+           onblur="saveAboutField(this)"
+           class="text-sm text-gray-900 border border-transparent rounded px-2 py-1.5 -mx-2 hover:border-gray-200 focus:border-marsh focus:outline-none min-h-[60px] whitespace-pre-wrap empty:before:content-[attr(data-placeholder)] empty:before:text-gray-300">{{ client.business_description or '' }}</div>
+    </div>
+
+    {# Internal Notes #}
+    <div>
+      <label class="text-xs text-gray-500 mb-1.5 block">Internal Notes</label>
+      <div contenteditable="true"
+           id="about-internal-notes"
+           data-field="notes"
+           data-placeholder="Internal notes, reminders, context for the team..."
+           onblur="saveAboutField(this)"
+           class="text-sm text-gray-900 border border-transparent rounded px-2 py-1.5 -mx-2 hover:border-gray-200 focus:border-marsh focus:outline-none min-h-[60px] whitespace-pre-wrap empty:before:content-[attr(data-placeholder)] empty:before:text-gray-300">{{ client.notes or '' }}</div>
+    </div>
+  </div>
+</div>
+
+<script>
+function saveAboutField(el) {
+  var field = el.dataset.field;
+  var value = el.textContent.trim();
+  fetch('/clients/{{ client.id }}/field', {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({field: field, value: value})
+  }).then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.ok) {
+        if (typeof flashCell === 'function') flashCell(el);
+      } else {
+        el.style.borderColor = '#ef4444';
+        setTimeout(function() { el.style.borderColor = ''; }, 3000);
+        if (typeof showToast === 'function') showToast('Save failed: ' + (data.error || ''), false);
+      }
+    })
+    .catch(function() {
+      el.style.borderColor = '#ef4444';
+      setTimeout(function() { el.style.borderColor = ''; }, 3000);
+      if (typeof showToast === 'function') showToast('Save failed', false);
+    });
+}
+</script>
