@@ -747,6 +747,7 @@ def _issues_ctx(conn, q: str = "", client_id: int = 0, view_mode: str = "board",
         LEFT JOIN projects pr ON pr.id = p.project_id
         WHERE a.item_kind = 'issue'
           AND a.issue_id IS NULL
+          AND a.merged_into_id IS NULL
         ORDER BY
           CASE a.issue_severity
             WHEN 'Critical' THEN 0
@@ -960,6 +961,7 @@ def action_center_page(request: Request, tab: str = "", conn=Depends(get_db)):
     else:
         issues_count = conn.execute(
             "SELECT COUNT(*) FROM activity_log WHERE item_kind='issue' AND issue_id IS NULL "
+            "AND merged_into_id IS NULL "
             "AND (issue_status IS NULL OR issue_status NOT IN ('Resolved','Closed'))"
         ).fetchone()[0]
     # Data health incomplete count for tab badge (always computed)

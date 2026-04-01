@@ -470,6 +470,7 @@ def policy_row_log_form(request: Request, policy_uid: str, conn=Depends(get_db))
             SELECT a.id, a.subject, a.issue_severity
             FROM activity_log a
             WHERE a.item_kind = 'issue' AND a.issue_id IS NULL
+              AND a.merged_into_id IS NULL
               AND a.client_id = ?
               AND (a.issue_status IS NULL OR a.issue_status NOT IN ('Resolved', 'Closed'))
             ORDER BY CASE a.issue_severity

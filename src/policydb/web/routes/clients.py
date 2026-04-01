@@ -769,6 +769,7 @@ def client_tab_overview(request: Request, client_id: int, conn=Depends(get_db)):
                CAST(julianday('now') - julianday(activity_date) AS INTEGER) AS age_days
         FROM activity_log
         WHERE client_id = ? AND item_kind = 'issue' AND issue_id IS NULL
+          AND merged_into_id IS NULL
           AND (issue_status IS NULL OR issue_status NOT IN ('Resolved', 'Closed'))
           AND issue_sla_days > 0
           AND CAST(julianday('now') - julianday(activity_date) AS INTEGER) > issue_sla_days
@@ -819,6 +820,7 @@ def client_tab_overview(request: Request, client_id: int, conn=Depends(get_db)):
                    CAST(julianday('now') - julianday(activity_date) AS INTEGER) AS age_days
             FROM activity_log
             WHERE client_id = ? AND item_kind = 'issue' AND issue_id IS NULL
+              AND merged_into_id IS NULL
               AND (issue_status IS NULL OR issue_status NOT IN ('Resolved', 'Closed'))
               AND issue_sla_days > 0
               AND CAST(julianday('now') - julianday(activity_date) AS INTEGER) >= (issue_sla_days - 1)
@@ -937,6 +939,7 @@ def client_tab_overview(request: Request, client_id: int, conn=Depends(get_db)):
                    julianday(date('now')) - julianday(a.activity_date) AS days_open
             FROM activity_log a
             WHERE a.client_id = ? AND a.item_kind = 'issue' AND a.issue_id IS NULL
+              AND a.merged_into_id IS NULL
               AND (a.issue_status IS NULL OR a.issue_status NOT IN ('Resolved', 'Closed'))
         """, (client_id,)).fetchall()],
         "today": _today,
@@ -1423,6 +1426,7 @@ def client_tab_issues(request: Request, client_id: int, conn=Depends(get_db)):
         FROM activity_log a
         LEFT JOIN policies p ON a.policy_id = p.id
         WHERE a.client_id = ? AND a.item_kind = 'issue' AND a.issue_id IS NULL
+          AND a.merged_into_id IS NULL
         ORDER BY CASE WHEN a.issue_status IN ('Resolved','Closed') THEN 1 ELSE 0 END,
                  CASE a.issue_severity WHEN 'Critical' THEN 0 WHEN 'High' THEN 1 WHEN 'Normal' THEN 2 ELSE 3 END,
                  a.activity_date DESC
@@ -2211,6 +2215,7 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
                    (SELECT COUNT(*) FROM activity_log sub WHERE sub.issue_id = a.id) AS activity_count
             FROM activity_log a
             WHERE a.client_id = ? AND a.item_kind = 'issue' AND a.issue_id IS NULL
+              AND a.merged_into_id IS NULL
               AND (a.issue_status IS NULL OR a.issue_status NOT IN ('Resolved', 'Closed'))
             ORDER BY CASE a.issue_severity
               WHEN 'Critical' THEN 0 WHEN 'High' THEN 1 WHEN 'Normal' THEN 2 ELSE 3
