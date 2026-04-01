@@ -266,7 +266,7 @@ def search(request: Request, q: str = "", conn=Depends(get_db)):
 @router.get("/api/nav/issues-dot", response_class=HTMLResponse)
 async def nav_issues_dot(conn=Depends(get_db)):
     count = conn.execute(
-        "SELECT COUNT(*) FROM activity_log WHERE item_kind='issue' AND issue_status NOT IN ('Resolved','Closed')"
+        "SELECT COUNT(*) FROM activity_log WHERE item_kind='issue' AND merged_into_id IS NULL AND issue_status NOT IN ('Resolved','Closed')"
     ).fetchone()[0]
     if count > 0:
         return HTMLResponse('<span class="w-2 h-2 rounded-full bg-red-500 inline-block ml-1"></span>')

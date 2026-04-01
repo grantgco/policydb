@@ -916,6 +916,7 @@ def mergeable_issues(
         LEFT JOIN projects pr2 ON pr2.id = pg.project_id
         WHERE a.item_kind = 'issue'
           AND a.issue_id IS NULL
+          AND a.merged_into_id IS NULL
           AND a.client_id = ?
           AND a.id != ?
           AND (a.issue_status IS NULL OR a.issue_status NOT IN ('Closed'))

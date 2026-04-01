@@ -325,6 +325,7 @@ def get_dashboard_issues_widget(conn: sqlite3.Connection, limit: int = 3) -> dic
            FROM activity_log a
            LEFT JOIN clients c ON c.id = a.client_id
            WHERE a.item_kind = 'issue'
+             AND a.merged_into_id IS NULL
              AND a.issue_status NOT IN ('Resolved', 'Closed')
            ORDER BY CASE a.issue_severity
                WHEN 'Critical' THEN 1 WHEN 'High' THEN 2
@@ -334,11 +335,12 @@ def get_dashboard_issues_widget(conn: sqlite3.Connection, limit: int = 3) -> dic
         (limit,),
     ).fetchall()
     total = conn.execute(
-        "SELECT COUNT(*) FROM activity_log WHERE item_kind='issue' AND issue_status NOT IN ('Resolved','Closed')"
+        "SELECT COUNT(*) FROM activity_log WHERE item_kind='issue' AND merged_into_id IS NULL AND issue_status NOT IN ('Resolved','Closed')"
     ).fetchone()[0]
     sla_count = conn.execute(
         """SELECT COUNT(*) FROM activity_log
            WHERE item_kind = 'issue'
+             AND merged_into_id IS NULL
              AND issue_status NOT IN ('Resolved', 'Closed')
              AND issue_sla_days IS NOT NULL
              AND CAST(julianday('now') - julianday(activity_date) AS INTEGER) > issue_sla_days"""

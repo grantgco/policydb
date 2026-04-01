@@ -323,6 +323,7 @@ def inbox_client_issues(inbox_id: int, client_id: int = 0, q: str = "", conn=Dep
             SELECT id, issue_uid, subject
             FROM activity_log
             WHERE client_id = ? AND item_kind = 'issue'
+              AND merged_into_id IS NULL
               AND (issue_status IS NULL OR issue_status != 'Resolved')
               AND (subject LIKE ? OR issue_uid LIKE ?)
             ORDER BY activity_date DESC LIMIT 20
@@ -332,6 +333,7 @@ def inbox_client_issues(inbox_id: int, client_id: int = 0, q: str = "", conn=Dep
             SELECT id, issue_uid, subject
             FROM activity_log
             WHERE client_id = ? AND item_kind = 'issue'
+              AND merged_into_id IS NULL
               AND (issue_status IS NULL OR issue_status != 'Resolved')
             ORDER BY activity_date DESC
         """, (client_id,)).fetchall()
