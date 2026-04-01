@@ -548,6 +548,7 @@ def policy_context(conn: sqlite3.Connection, policy_uid: str) -> dict:
                   p.deductible, p.project_name, p.project_id, p.renewal_status, p.account_exec,
                   p.access_point, p.last_reviewed_at, p.review_cycle,
                   p.first_named_insured, p.program_id, p.bound_date,
+                  p.description AS policy_description_raw, p.notes AS policy_notes_raw,
                   c.id AS client_id, c.name AS client_name, c.industry_segment AS industry,
                   c.primary_contact, c.contact_email,
                   c.cn_number, c.address, c.business_description, c.notes,
@@ -646,6 +647,9 @@ def policy_context(conn: sqlite3.Connection, policy_uid: str) -> dict:
         "occupancy_description": cope_data.get("occupancy_description", ""),
         "protection_class": cope_data.get("protection_class", ""),
         "total_insurable_value": _fmt_currency(cope_data.get("total_insurable_value")),
+        # Policy text fields
+        "policy_description": row.get("policy_description_raw") or "",
+        "policy_notes": row.get("policy_notes_raw") or "",
     })
     # Overlay project tokens — fill gaps only so policy fields take precedence
     for k, v in proj_tokens.items():
@@ -1065,6 +1069,8 @@ CONTEXT_TOKEN_GROUPS: dict[str, list[tuple[str, list[tuple[str, str]]]]] = {
             ("placement_colleague_email", "Colleague Email"),
             ("placement_colleague_phone", "Colleague Phone"),
             ("renewal_status", "Renewal Status"),
+            ("policy_description", "Policy Description"),
+            ("policy_notes", "Policy Notes"),
             ("program_carriers", "Program Carriers"),
             ("program_carrier_count", "Program Carrier Count"),
         ]),
