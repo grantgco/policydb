@@ -820,7 +820,7 @@ def dissolve_merge(
     """, (source_id,))
 
     conn.commit()
-    return RedirectResponse(f"/issues/{target['issue_uid']}", status_code=303)
+    return HTMLResponse("", headers={"HX-Redirect": f"/issues/{target['issue_uid']}"})
 
 
 # ── Merge relevance scoring ────────────────────────────────────────────────
