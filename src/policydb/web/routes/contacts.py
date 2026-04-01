@@ -59,6 +59,197 @@ def _find_similar_contacts(conn, name: str, threshold: int = 85, source: str = "
 
 
 # ---------------------------------------------------------------------------
+# AI Contact Import (directory-level — no client association)
+# ---------------------------------------------------------------------------
+
+_DIRECTORY_CONTACT_IMPORT_CACHE: dict = {}
+
+
+@router.get("/ai-import/prompt", response_class=HTMLResponse)
+def contacts_ai_import_prompt(request: Request):
+    """Return the AI import panel with contact extraction prompt."""
+    import json as _j
+    from policydb.llm_schemas import CONTACT_BULK_IMPORT_SCHEMA
+
+    prompt_text = (
+        "Extract contacts from the email text below. Return a JSON array of objects.\n\n"
+        "Each object should have these fields (all optional except name):\n"
+        '  name (required), email, phone, mobile, organization, title\n\n'
+        "Look for:\n"
+        "- Email signature blocks\n"
+        "- CC/To recipients\n"
+        "- Names mentioned in the body with roles or titles\n"
+        "- Phone numbers near names\n\n"
+        "Return ONLY the JSON array, no other text."
+    )
+
+    example = {}
+    for f in CONTACT_BULK_IMPORT_SCHEMA["fields"]:
+        if f.get("example") and f["key"] not in ("contact_type", "role"):
+            example[f["key"]] = f["example"]
+    json_template = _j.dumps([example], indent=2)
+
+    return templates.TemplateResponse("_ai_import_panel.html", {
+        "request": request,
+        "import_type": "directory_contacts",
+        "prompt_text": prompt_text,
+        "json_template": json_template,
+        "context_display": {"Scope": "Global Directory"},
+        "parse_url": "/contacts/ai-import/parse",
+        "import_target": "#ai-contact-import-result",
+    })
+
+
+@router.post("/ai-import/parse", response_class=HTMLResponse)
+def contacts_ai_import_parse(
+    request: Request,
+    json_text: str = Form(...),
+    conn=Depends(get_db),
+):
+    """Parse LLM contact JSON and return review panel."""
+    import time
+    import uuid
+    from policydb.llm_schemas import parse_contact_bulk_import_json
+
+    result = parse_contact_bulk_import_json(json_text)
+    if not result["ok"]:
+        return HTMLResponse(
+            f'<div class="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">'
+            f'{result["error"]}</div>',
+            status_code=422,
+        )
+
+    contacts = result["contacts"]
+    warnings = result.get("warnings", [])
+
+    # Check which contacts already exist globally
+    for contact in contacts:
+        existing = conn.execute(
+            "SELECT id, email, phone, organization FROM contacts "
+            "WHERE LOWER(TRIM(name)) = LOWER(TRIM(?))",
+            (contact["name"],),
+        ).fetchone()
+        contact["existing_contact"] = dict(existing) if existing else None
+
+    token = str(uuid.uuid4())
+    _DIRECTORY_CONTACT_IMPORT_CACHE[token] = (contacts, time.time())
+
+    # Purge stale cache entries (>30 min)
+    now = time.time()
+    stale = [k for k, v in _DIRECTORY_CONTACT_IMPORT_CACHE.items() if now - v[1] > 1800]
+    for k in stale:
+        _DIRECTORY_CONTACT_IMPORT_CACHE.pop(k, None)
+
+    return templates.TemplateResponse("contacts/_ai_contacts_review.html", {
+        "request": request,
+        "contacts": contacts,
+        "warnings": warnings,
+        "token": token,
+        "contact_roles": cfg.get("contact_roles", []),
+    })
+
+
+@router.post("/ai-import/apply", response_class=HTMLResponse)
+async def contacts_ai_import_apply(request: Request, conn=Depends(get_db)):
+    """Apply selected contacts from AI import to the global directory."""
+    form = await request.form()
+    token = form.get("token", "")
+
+    cache = _DIRECTORY_CONTACT_IMPORT_CACHE.get(token)
+    if not cache:
+        return HTMLResponse(
+            '<div class="p-4 text-red-600 text-sm">Session expired — please re-parse.</div>'
+        )
+
+    contacts, ts = cache
+    created = 0
+    updated = 0
+    errors: list[str] = []
+
+    for i, contact in enumerate(contacts):
+        if not form.get(f"select_{i}"):
+            continue
+
+        name = form.get(f"name_{i}", contact.get("name", "")).strip()
+        email = form.get(f"email_{i}", contact.get("email", "")).strip()
+        phone = form.get(f"phone_{i}", contact.get("phone", "")).strip()
+        mobile = form.get(f"mobile_{i}", contact.get("mobile", "")).strip()
+        org = form.get(f"org_{i}", contact.get("organization", "")).strip()
+        title = form.get(f"title_{i}", contact.get("title", "")).strip()
+
+        if not name:
+            continue
+
+        try:
+            if email:
+                email = clean_email(email)
+            if phone:
+                phone = format_phone(phone)
+            if mobile:
+                mobile = format_phone(mobile)
+
+            cid = get_or_create_contact(
+                conn, name,
+                email=email or None,
+                phone=phone or None,
+                mobile=mobile or None,
+                organization=org or None,
+            )
+
+            # Update title if provided
+            if title:
+                conn.execute(
+                    "UPDATE contacts SET title = ? WHERE id = ? AND (title IS NULL OR title = '')",
+                    (title, cid),
+                )
+
+            if contact.get("existing_contact"):
+                updated += 1
+            else:
+                created += 1
+        except Exception as e:
+            errors.append(f"{name}: {e}")
+
+    conn.commit()
+    _DIRECTORY_CONTACT_IMPORT_CACHE.pop(token, None)
+
+    total = created + updated
+    parts = [
+        '<div class="p-4 space-y-3">',
+        '<div class="flex items-center gap-2">',
+        '<svg class="w-5 h-5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">',
+        '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>',
+        "</svg>",
+        f'<span class="text-sm font-medium text-gray-900">'
+        f'{total} contact{"s" if total != 1 else ""} imported to directory</span>',
+        "</div>",
+        '<div class="flex gap-2">',
+    ]
+    if created:
+        parts.append(
+            f'<span class="px-2 py-0.5 rounded-full text-xs bg-green-50 text-green-700">'
+            f"{created} created</span>"
+        )
+    if updated:
+        parts.append(
+            f'<span class="px-2 py-0.5 rounded-full text-xs bg-blue-50 text-blue-700">'
+            f"{updated} updated</span>"
+        )
+    parts.append("</div>")
+    if errors:
+        parts.append('<div class="mt-2 text-xs text-red-600">')
+        for err in errors:
+            parts.append(f"<p>{err}</p>")
+        parts.append("</div>")
+    parts.append(
+        '<button type="button" onclick="closeAiImport(); window.location.reload();" '
+        'class="mt-3 text-xs text-marsh hover:underline">Close &amp; refresh</button>'
+    )
+    parts.append("</div>")
+    return HTMLResponse("".join(parts))
+
+
+# ---------------------------------------------------------------------------
 # Autocomplete endpoint (already uses new schema via queries.py)
 # ---------------------------------------------------------------------------
 
