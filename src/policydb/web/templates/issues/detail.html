@@ -475,6 +475,15 @@
              data-issue-id="{{ issue.id }}">{{ issue.details or '' }}</div>
       </div>
 
+      {# ── Files & Attachments ── #}
+      <div class="card p-4">
+        <div class="text-[10px] text-gray-400 uppercase tracking-wide mb-2">Files & Attachments</div>
+        <div hx-get="/api/attachments/panel?record_type=issue&record_id={{ issue.id }}"
+             hx-trigger="load" hx-swap="innerHTML">
+          <p class="text-xs text-gray-400 italic">Loading...</p>
+        </div>
+      </div>
+
       {# ── Actions card: Merge + Delete ── #}
       <div class="card p-4">
         <div class="text-[10px] text-gray-400 uppercase tracking-wide mb-2">Actions</div>
