@@ -74,9 +74,34 @@ def _resolve_ref_tag(conn: sqlite3.Connection, tag: str) -> dict | None:
     Resolution priority (most specific wins):
       issue > policy > CN number
     Each resolved record's client_id/policy_id overwrites less-specific values.
+    Falls back to direct lookup if structured parsing finds nothing.
     """
     parsed = _parse_ref_tag(tag)
     if not parsed:
+        # Direct lookup: try the raw tag against known ID columns
+        # Issue UID
+        issue = conn.execute(
+            "SELECT id, client_id, policy_id FROM activity_log WHERE issue_uid=? AND item_kind='issue'",
+            (tag.upper(),),
+        ).fetchone()
+        if issue:
+            result = {"tier": 1, "confidence": 90, "issue_id": issue["id"], "issue_uid": tag.upper()}
+            if issue["client_id"]:
+                result["client_id"] = issue["client_id"]
+            if issue["policy_id"]:
+                result["policy_id"] = issue["policy_id"]
+            return result
+        # Policy UID
+        policy = conn.execute(
+            "SELECT id, client_id FROM policies WHERE policy_uid=?", (tag.upper(),),
+        ).fetchone()
+        if policy:
+            return {"tier": 1, "confidence": 90, "policy_id": policy["id"], "client_id": policy["client_id"]}
+        # CN number (strip leading CN if present)
+        cn = tag.upper().replace("CN", "") if tag.upper().startswith("CN") else tag
+        client = conn.execute("SELECT id FROM clients WHERE cn_number=?", (cn,)).fetchone()
+        if client:
+            return {"tier": 1, "confidence": 80, "client_id": client["id"]}
         return None
 
     result = {"tier": 1, "confidence": 100}
@@ -114,9 +139,27 @@ def _resolve_ref_tag(conn: sqlite3.Connection, tag: str) -> dict | None:
             if issue["policy_id"]:
                 result["policy_id"] = issue["policy_id"]
 
-    # Must have resolved at least a client
+    # Must have resolved at least a client — if not, try direct lookup
+    # of each segment in the tag as a last resort
     if "client_id" not in result:
-        return None
+        # Split tag on dashes and try each segment
+        for segment in tag.split("-"):
+            if not segment:
+                continue
+            # Try as issue UID
+            issue = conn.execute(
+                "SELECT id, client_id, policy_id FROM activity_log WHERE issue_uid=? AND item_kind='issue'",
+                (segment.upper(),),
+            ).fetchone()
+            if issue:
+                result["issue_id"] = issue["id"]
+                if issue["client_id"]:
+                    result["client_id"] = issue["client_id"]
+                if issue["policy_id"]:
+                    result["policy_id"] = issue["policy_id"]
+                break
+        if "client_id" not in result:
+            return None
 
     return result
 
