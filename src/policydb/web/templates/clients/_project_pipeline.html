@@ -206,4 +206,36 @@ window.sortTable = function(tbodyId, colIdx, type, th) {
     }).catch(function() {});
   };
 })();
+
+/* Insurance deadline urgency badges */
+(function() {
+  var badges = document.querySelectorAll('.ins-urgency-badge');
+  var now = new Date();
+  now.setHours(0,0,0,0);
+  badges.forEach(function(badge) {
+    var deadline = badge.dataset.deadline;
+    if (!deadline) return;
+    var d = new Date(deadline + 'T00:00:00');
+    var diff = Math.ceil((d - now) / 86400000);
+    var text, cls;
+    if (diff < 0) {
+      text = Math.abs(diff) + 'd overdue';
+      cls = 'bg-red-200 text-red-900';
+    } else if (diff <= 7) {
+      text = diff + 'd';
+      cls = 'bg-red-100 text-red-700';
+    } else if (diff <= 14) {
+      text = diff + 'd';
+      cls = 'bg-orange-100 text-orange-700';
+    } else if (diff <= 30) {
+      text = diff + 'd';
+      cls = 'bg-amber-100 text-amber-700';
+    } else {
+      text = diff + 'd';
+      cls = 'bg-green-100 text-green-700';
+    }
+    badge.textContent = text;
+    badge.className = 'ins-urgency-badge text-[10px] font-medium px-1.5 py-0.5 rounded ' + cls;
+  });
+})();
 </script>

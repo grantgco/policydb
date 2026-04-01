@@ -22,12 +22,18 @@
     {% include "clients/_project_status_badge.html" %}
   </td>
 
-  {# Insurance Needed By #}
+  {# Insurance Needed By + urgency badge #}
   <td class="px-2 py-2 whitespace-nowrap">
-    <input type="date"
-           value="{{ p.insurance_needed_by or '' }}"
-           class="text-xs border-0 border-b border-gray-200 focus:border-marsh focus:outline-none bg-transparent w-32 py-0.5"
-           onchange="ppSaveDate(this, 'insurance_needed_by', {{ client.id }}, {{ p.id }})">
+    <div class="flex items-center gap-1.5">
+      <input type="date"
+             value="{{ p.insurance_needed_by or '' }}"
+             class="text-xs border-0 border-b border-gray-200 focus:border-marsh focus:outline-none bg-transparent w-32 py-0.5"
+             onchange="ppSaveDate(this, 'insurance_needed_by', {{ client.id }}, {{ p.id }})">
+      {% if p.insurance_needed_by %}
+      <span class="ins-urgency-badge text-[10px] font-medium px-1.5 py-0.5 rounded hidden"
+            data-deadline="{{ p.insurance_needed_by }}"></span>
+      {% endif %}
+    </div>
   </td>
 
   {# Start Date #}
