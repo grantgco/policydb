@@ -549,6 +549,33 @@ def issue_detail(
                 ORDER BY pt.ideal_date
             """, (issue["program_id"],)).fetchall()]
 
+    # Linked policies: direct policy + program siblings
+    linked_policies = []
+    if issue.get("policy_id"):
+        linked_policies = [dict(r) for r in conn.execute("""
+            SELECT p.policy_uid, p.policy_type, p.carrier, p.premium,
+                   p.expiration_date, p.renewal_status, p.project_name,
+                   pr.name AS location_name
+            FROM policies p
+            LEFT JOIN projects pr ON pr.id = p.project_id
+            WHERE p.id = ? AND p.archived = 0
+        """, (issue["policy_id"],)).fetchall()]
+    if issue.get("program_id"):
+        # Add all policies in the program
+        program_policies = [dict(r) for r in conn.execute("""
+            SELECT p.policy_uid, p.policy_type, p.carrier, p.premium,
+                   p.expiration_date, p.renewal_status, p.project_name,
+                   pr.name AS location_name
+            FROM policies p
+            LEFT JOIN projects pr ON pr.id = p.project_id
+            WHERE p.program_id = ? AND p.archived = 0
+            ORDER BY p.policy_type
+        """, (issue["program_id"],)).fetchall()]
+        existing_uids = {lp["policy_uid"] for lp in linked_policies}
+        for pp in program_policies:
+            if pp["policy_uid"] not in existing_uids:
+                linked_policies.append(pp)
+
     ctx = {
         "request": request,
         "active": "action-center",
@@ -557,6 +584,7 @@ def issue_detail(
         "total_hours": round(total_hours, 1),
         "merged_from_issues": merged_from_issues,
         "merged_from_flash": merged_from or "",
+        "linked_policies": linked_policies,
         "issue_lifecycle_states": cfg.get("issue_lifecycle_states", []),
         "issue_severities": cfg.get("issue_severities", []),
         "issue_resolution_types": cfg.get("issue_resolution_types", []),
