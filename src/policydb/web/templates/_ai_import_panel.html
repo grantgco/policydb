@@ -150,7 +150,16 @@
 function closeAiImport() {
     var container = document.getElementById('ai-import-container');
     if (container) container.innerHTML = '';
+    // Restore Working Notes float if it was hidden
+    var wn = document.getElementById('working-notes-float');
+    if (wn) wn.style.display = '';
 }
+
+// Hide Working Notes float so it doesn't overlap action buttons
+(function() {
+    var wn = document.getElementById('working-notes-float');
+    if (wn) wn.style.display = 'none';
+})();
 
 function showAiStep(n) {
     document.getElementById('ai-step-prompt').style.display = n === 1 ? '' : 'none';

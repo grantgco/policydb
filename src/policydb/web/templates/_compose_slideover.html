@@ -332,7 +332,16 @@
     if (backdrop) backdrop.remove();
     if (panel) panel.remove();
     document.body.style.overflow = '';
+    // Restore Working Notes float if it was hidden
+    var wn = document.getElementById('working-notes-float');
+    if (wn) wn.style.display = '';
   };
+
+  // Hide Working Notes float so it doesn't overlap action bar
+  (function() {
+    var wn = document.getElementById('working-notes-float');
+    if (wn) wn.style.display = 'none';
+  })();
 
   // Initialize preview on load
   updateComposePreview();
