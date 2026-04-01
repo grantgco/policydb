@@ -96,53 +96,73 @@
   </div>
 
   {# New contact form #}
-  <div id="add-contact-form" class="hidden card p-4 mt-3 bg-gray-50/50">
+  <div id="add-contact-form" class="hidden card mt-3 overflow-hidden border-l-4 border-[#003865]">
+    <div class="flex items-center justify-between px-4 py-2.5 bg-[#003865]/5 border-b border-gray-200">
+      <div class="flex items-center gap-2">
+        <svg class="w-4 h-4 text-[#003865]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"/></svg>
+        <span class="text-sm font-semibold text-[#003865]">New Contact</span>
+      </div>
+      <button type="button" onclick="document.getElementById('add-contact-form').classList.add('hidden')"
+        class="text-gray-400 hover:text-gray-600 text-lg leading-none">&times;</button>
+    </div>
     <form hx-post="/contacts/new" hx-target="#unified-tbody" hx-swap="innerHTML"
           hx-on::after-request="if(event.detail.successful){this.reset();document.getElementById('add-contact-form').classList.add('hidden');document.getElementById('dup-warn-new').innerHTML='';}"
-          class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3 items-end">
-      <div>
-        <label class="text-xs font-medium text-gray-500 block mb-1">Name <span class="text-red-400">*</span></label>
-        <input type="text" name="name" required
-          hx-get="/contacts/check-duplicate" hx-trigger="blur changed delay:300ms" hx-target="#dup-warn-new" hx-swap="innerHTML"
-          hx-include="[name='email']" hx-params="name,email"
-          class="border border-gray-300 rounded px-2 py-1.5 text-sm w-full focus:outline-none focus:ring-1 focus:ring-marsh">
+          class="p-4 space-y-3">
+      {# Row 1: Identity #}
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div>
+          <label class="text-[10px] font-semibold text-gray-400 uppercase tracking-wide block mb-1">Name <span class="text-red-400">*</span></label>
+          <input type="text" name="name" required placeholder="Full name"
+            hx-get="/contacts/check-duplicate" hx-trigger="blur changed delay:300ms" hx-target="#dup-warn-new" hx-swap="innerHTML"
+            hx-include="[name='email']" hx-params="name,email"
+            class="border border-gray-200 rounded-lg px-3 py-2 text-sm w-full focus:outline-none focus:ring-1 focus:ring-[#003865] focus:border-[#003865]">
+        </div>
+        <div>
+          <label class="text-[10px] font-semibold text-gray-400 uppercase tracking-wide block mb-1">Organization</label>
+          <input type="text" name="organization" list="new-contact-orgs" autocomplete="off" placeholder="Company"
+            class="border border-gray-200 rounded-lg px-3 py-2 text-sm w-full focus:outline-none focus:ring-1 focus:ring-[#003865] focus:border-[#003865]">
+          <datalist id="new-contact-orgs">
+            {% for o in all_orgs %}<option value="{{ o }}">{% endfor %}
+          </datalist>
+        </div>
+        <div>
+          <label class="text-[10px] font-semibold text-gray-400 uppercase tracking-wide block mb-1">Title / Role</label>
+          <input type="text" name="role" list="new-contact-roles" autocomplete="off" placeholder="e.g. Underwriter, CFO"
+            class="border border-gray-200 rounded-lg px-3 py-2 text-sm w-full focus:outline-none focus:ring-1 focus:ring-[#003865] focus:border-[#003865]">
+          <datalist id="new-contact-roles">
+            {% for r in all_roles %}<option value="{{ r }}">{% endfor %}
+          </datalist>
+        </div>
       </div>
-      <div>
-        <label class="text-xs font-medium text-gray-500 block mb-1">Organization</label>
-        <input type="text" name="organization" list="new-contact-orgs" autocomplete="off"
-          class="border border-gray-300 rounded px-2 py-1.5 text-sm w-full focus:outline-none focus:ring-1 focus:ring-marsh">
-        <datalist id="new-contact-orgs">
-          {% for o in all_orgs %}<option value="{{ o }}">{% endfor %}
-        </datalist>
+      {# Row 2: Contact info #}
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div>
+          <label class="text-[10px] font-semibold text-gray-400 uppercase tracking-wide block mb-1">Email</label>
+          <input type="email" name="email" placeholder="name@company.com"
+            hx-get="/contacts/check-duplicate" hx-trigger="blur changed delay:300ms" hx-target="#dup-warn-new" hx-swap="innerHTML"
+            hx-include="[name='name']" hx-params="name,email"
+            class="border border-gray-200 rounded-lg px-3 py-2 text-sm w-full focus:outline-none focus:ring-1 focus:ring-[#003865] focus:border-[#003865]">
+        </div>
+        <div>
+          <label class="text-[10px] font-semibold text-gray-400 uppercase tracking-wide block mb-1">Phone</label>
+          <input type="text" name="phone" placeholder="(555) 123-4567"
+            class="border border-gray-200 rounded-lg px-3 py-2 text-sm w-full focus:outline-none focus:ring-1 focus:ring-[#003865] focus:border-[#003865]">
+        </div>
+        <div>
+          <label class="text-[10px] font-semibold text-gray-400 uppercase tracking-wide block mb-1">Cell</label>
+          <input type="text" name="mobile" placeholder="(555) 987-6543"
+            class="border border-gray-200 rounded-lg px-3 py-2 text-sm w-full focus:outline-none focus:ring-1 focus:ring-[#003865] focus:border-[#003865]">
+        </div>
       </div>
-      <div>
-        <label class="text-xs font-medium text-gray-500 block mb-1">Role</label>
-        <input type="text" name="role" list="new-contact-roles" autocomplete="off"
-          class="border border-gray-300 rounded px-2 py-1.5 text-sm w-full focus:outline-none focus:ring-1 focus:ring-marsh">
-        <datalist id="new-contact-roles">
-          {% for r in all_roles %}<option value="{{ r }}">{% endfor %}
-        </datalist>
-      </div>
-      <div>
-        <label class="text-xs font-medium text-gray-500 block mb-1">Email</label>
-        <input type="email" name="email"
-          hx-get="/contacts/check-duplicate" hx-trigger="blur changed delay:300ms" hx-target="#dup-warn-new" hx-swap="innerHTML"
-          hx-include="[name='name']" hx-params="name,email"
-          class="border border-gray-300 rounded px-2 py-1.5 text-sm w-full focus:outline-none focus:ring-1 focus:ring-marsh">
-      </div>
-      <div>
-        <label class="text-xs font-medium text-gray-500 block mb-1">Phone</label>
-        <input type="text" name="phone" class="border border-gray-300 rounded px-2 py-1.5 text-sm w-full focus:outline-none focus:ring-1 focus:ring-marsh">
-      </div>
-      <div>
-        <label class="text-xs font-medium text-gray-500 block mb-1">Cell</label>
-        <input type="text" name="mobile" class="border border-gray-300 rounded px-2 py-1.5 text-sm w-full focus:outline-none focus:ring-1 focus:ring-marsh">
-      </div>
-      <div>
-        <button type="submit" class="bg-marsh text-white text-sm font-medium px-4 py-1.5 rounded hover:bg-marsh-light transition-colors w-full">Add Contact</button>
+      {# Duplicate warning + submit #}
+      <div id="dup-warn-new"></div>
+      <div class="flex justify-end">
+        <button type="submit"
+          class="bg-[#003865] text-white text-sm font-medium px-5 py-2 rounded-lg hover:bg-[#0055a5] transition-colors">
+          Add Contact
+        </button>
       </div>
     </form>
-    <div id="dup-warn-new" class="col-span-full"></div>
   </div>
 </div>
 
