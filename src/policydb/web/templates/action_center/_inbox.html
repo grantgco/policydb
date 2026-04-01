@@ -365,7 +365,9 @@ function acWireContactAutocomplete(inboxId, input) {
     document.getElementById(hiddenId).value = '0';
     if (q.length < 2) { acRemoveDropdown(); return; }
     debounceTimer = setTimeout(function() {
-      fetch('/inbox/contacts/search?q=' + encodeURIComponent(q))
+      var clientSel = document.getElementById('ac-proc-client-' + inboxId);
+      var cid = clientSel ? clientSel.value : '';
+      fetch('/inbox/contacts/search?q=' + encodeURIComponent(q) + (cid ? '&client_id=' + cid : ''))
         .then(function(r) { return r.json(); })
         .then(function(results) {
           acRemoveDropdown();
