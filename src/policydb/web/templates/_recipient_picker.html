@@ -12,6 +12,7 @@
       {% elif primary_to.badge == 'INTERNAL' %}bg-blue-100 text-blue-700
       {% elif primary_to.badge == 'PLACEMENT' %}bg-amber-100 text-amber-700
       {% elif primary_to.badge == 'UNDERWRITER' %}bg-amber-100 text-amber-700
+      {% elif primary_to.badge == 'EXTERNAL' %}bg-purple-100 text-purple-700
       {% else %}bg-gray-100 text-gray-700{% endif %}">
       {{ primary_to.name or primary_to.email }}
       {% if primary_to.badge %}<span class="opacity-60">({{ primary_to.badge | lower }})</span>{% endif %}
@@ -59,6 +60,7 @@
             {% elif r.badge == 'INTERNAL' %}bg-blue-100 text-blue-600
             {% elif r.badge == 'PLACEMENT' %}bg-amber-100 text-amber-600
             {% elif r.badge == 'UNDERWRITER' %}bg-amber-100 text-amber-600
+            {% elif r.badge == 'EXTERNAL' %}bg-purple-100 text-purple-600
             {% else %}bg-gray-100 text-gray-500{% endif %}">{{ r.badge | lower }}</span>
         </span>
       </label>

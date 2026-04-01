@@ -149,8 +149,20 @@ def _load_recipients(
                         "pre_checked": True,  # internal team always pre-checked
                         "source": "internal",
                     })
+                elif r["contact_type"] == "external":
+                    # External stakeholders — show with distinct badge
+                    if mode == "rfi_notify":
+                        continue
+                    recipients.append({
+                        "name": r["name"] or "",
+                        "email": r["email"],
+                        "role": r["role"] or "External",
+                        "badge": "EXTERNAL",
+                        "pre_checked": False,
+                        "source": "external",
+                    })
                 else:
-                    # Client contacts: skip entirely in rfi_notify mode
+                    # Client contacts
                     if mode == "rfi_notify":
                         continue
                     recipients.append({
@@ -158,7 +170,7 @@ def _load_recipients(
                         "email": r["email"],
                         "role": r["role"] or "Client Contact",
                         "badge": "CLIENT",
-                        "pre_checked": False,  # client contacts NOT pre-checked
+                        "pre_checked": False,
                         "source": "client",
                     })
 

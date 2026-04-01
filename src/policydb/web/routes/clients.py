@@ -3910,11 +3910,14 @@ def project_detail(
         "SELECT id, name FROM clients WHERE id = ?", (client_id,)
     ).fetchone()
     policies = conn.execute(
-        """SELECT policy_uid, policy_type, carrier, renewal_status,
-                  exposure_address, exposure_city, exposure_state, exposure_zip
-           FROM policies
-           WHERE project_id = ?
-           ORDER BY policy_type""",
+        """SELECT p.id, p.policy_uid, p.policy_type, p.carrier, p.renewal_status,
+                  p.premium, p.expiration_date, p.effective_date, p.policy_number,
+                  p.limit_amount, p.is_opportunity, p.client_id,
+                  p.exposure_address, p.exposure_city, p.exposure_state, p.exposure_zip,
+                  CAST(julianday(p.expiration_date) - julianday('now') AS INTEGER) AS days_to_renewal
+           FROM policies p
+           WHERE p.project_id = ? AND p.archived = 0
+           ORDER BY p.policy_type""",
         (project_id,),
     ).fetchall()
     project = dict(project)
@@ -3956,6 +3959,7 @@ def project_detail(
             "policies": [dict(p) for p in policies],
             "cope": cope,
             "location_programs": location_programs,
+            "renewal_statuses": cfg.get("renewal_statuses", []),
             "pinned_notes": _pinned_notes_for_page(conn, "project", project_id, client_id=client_id),
             "pinned_scope": "project",
             "pinned_scope_id": str(project_id),
