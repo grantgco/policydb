@@ -1485,6 +1485,76 @@ def get_suggested_followups(
     return [dict(r) for r in conn.execute(sql, excl_params + client_params).fetchall()]
 
 
+def get_insurance_deadline_suggestions(
+    conn: sqlite3.Connection,
+    client_ids: list[int] | None = None,
+) -> list[dict]:
+    """Return project pipeline items approaching their insurance_needed_by deadline.
+
+    Returns suggestions for projects where:
+    - insurance_needed_by is set and in the future
+    - project stage is NOT in insurance_completed_stages
+    - deadline is within the largest tier window
+
+    Each result includes a tier label (Normal/High/Urgent) based on days remaining.
+    """
+    import policydb.config as cfg
+
+    tiers = cfg.get("insurance_reminder_tiers", [30, 14, 7])
+    completed = cfg.get("insurance_completed_stages", ["Bound", "Active", "Complete"])
+    if not tiers:
+        return []
+
+    max_window = max(tiers)
+    tiers_sorted = sorted(tiers, reverse=True)  # e.g. [30, 14, 7]
+
+    client_clause = ""
+    client_params: list = []
+    if client_ids:
+        placeholders = ",".join("?" * len(client_ids))
+        client_clause = f"AND p.client_id IN ({placeholders})"
+        client_params = list(client_ids)
+
+    stage_clause = ""
+    stage_params: list = []
+    if completed:
+        placeholders = ",".join("?" * len(completed))
+        stage_clause = f"AND (p.project_stage IS NULL OR p.project_stage NOT IN ({placeholders}))"
+        stage_params = list(completed)
+
+    sql = f"""
+    SELECT p.id AS project_id, p.name AS project_name, p.insurance_needed_by,
+           p.project_stage, p.client_id,
+           c.name AS client_name,
+           CAST(julianday(p.insurance_needed_by) - julianday('now') AS INTEGER) AS days_remaining
+    FROM projects p
+    JOIN clients c ON p.client_id = c.id
+    WHERE p.insurance_needed_by IS NOT NULL
+      AND julianday(p.insurance_needed_by) - julianday('now') > 0
+      AND julianday(p.insurance_needed_by) - julianday('now') <= ?
+      AND p.project_type != 'Location'
+      AND c.archived = 0
+      {stage_clause}
+      {client_clause}
+    ORDER BY p.insurance_needed_by ASC
+    """
+    params = [max_window] + stage_params + client_params
+    rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
+
+    # Assign tier label based on days remaining
+    for row in rows:
+        days = row["days_remaining"]
+        if days <= tiers_sorted[-1]:      # e.g. <= 7
+            row["tier"] = "Urgent"
+        elif len(tiers_sorted) > 1 and days <= tiers_sorted[-2]:  # e.g. <= 14
+            row["tier"] = "High"
+        else:
+            row["tier"] = "Normal"
+        row["subject"] = f"Insurance needed in {days}d — {row['project_name']}"
+
+    return rows
+
+
 _OPPORTUNITY_SELECT = """SELECT p.id, p.policy_uid, p.policy_type, p.carrier, p.opportunity_status,
                   p.target_effective_date, p.premium, p.commission_rate,
                   CASE WHEN p.commission_rate > 0
