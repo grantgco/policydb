@@ -230,12 +230,13 @@ def resolve_issue(
     )
     conn.commit()
 
-    from policydb.web.routes.action_center import _issues_ctx
-    ctx = _issues_ctx(conn)
-    ctx["request"] = request
-    resp = templates.TemplateResponse("action_center/_issues.html", ctx)
+    # Redirect to action center issues tab after resolve
+    toast = "Issue resolved"
     if closed:
-        resp.headers["HX-Trigger"] = f'{{"showToast": "{closed} follow-up(s) auto-closed: issue resolved"}}'
+        toast += f" — {closed} follow-up(s) auto-closed"
+    resp = HTMLResponse("")
+    resp.headers["HX-Redirect"] = "/action-center?tab=issues"
+    resp.headers["HX-Trigger"] = '{"showToast": "' + toast + '"}'
     return resp
 
 

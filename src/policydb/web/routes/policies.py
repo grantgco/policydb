@@ -146,7 +146,7 @@ def _sync_project_id(conn, policy_id: int, client_id: int, project_name: str | N
     """
     name = (project_name or "").strip()
     if not name:
-        conn.execute("UPDATE policies SET project_id = NULL WHERE id = ?", (policy_id,))
+        conn.execute("UPDATE policies SET project_id = NULL, project_name = NULL WHERE id = ?", (policy_id,))
         return
     existing = conn.execute(
         "SELECT id FROM projects WHERE client_id = ? AND LOWER(TRIM(name)) = LOWER(TRIM(?))",
@@ -159,7 +159,7 @@ def _sync_project_id(conn, policy_id: int, client_id: int, project_name: str | N
             "INSERT INTO projects (client_id, name) VALUES (?, ?)", (client_id, name)
         )
         project_id = cursor.lastrowid
-    conn.execute("UPDATE policies SET project_id = ? WHERE id = ?", (project_id, policy_id))
+    conn.execute("UPDATE policies SET project_id = ?, project_name = ? WHERE id = ?", (project_id, name, policy_id))
 
 
 @router.get("/colleague-data", response_class=JSONResponse)
