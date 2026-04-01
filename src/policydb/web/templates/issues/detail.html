@@ -282,6 +282,22 @@
           {{ days }}d open &middot; SLA {{ sla }}d
         </div>
         {% endif %}
+        {# Due date — manual override #}
+        <div class="mt-2">
+          <div class="flex items-center gap-1.5">
+            <span class="text-[10px] text-gray-400 uppercase tracking-wide">Due</span>
+            <input type="date" id="issue-due-date" value="{{ issue.due_date or '' }}"
+              onchange="issueSetDueDate(this.value)"
+              class="text-xs border border-gray-200 rounded px-1.5 py-0.5 focus:border-[#003865] focus:outline-none bg-transparent
+                {% if issue.due_date %}{% set due_d = issue.due_date %}{% if due_d < today %}text-red-600 font-semibold{% else %}text-gray-700{% endif %}{% else %}text-gray-400{% endif %}">
+            {% if issue.due_date %}
+            <button type="button" onclick="issueSetDueDate('')" class="text-[10px] text-gray-300 hover:text-red-500" title="Clear due date">&times;</button>
+            {% endif %}
+          </div>
+          {% if issue.due_date and issue.due_date < today %}
+          <div class="text-[10px] text-red-600 font-medium mt-0.5">Overdue</div>
+          {% endif %}
+        </div>
         <div class="text-[10px] text-gray-400 mt-1">
           {{ activities|length }} activit{{ 'y' if activities|length == 1 else 'ies' }}
           {% if total_hours %}&middot; {{ total_hours }}h total{% endif %}
@@ -565,5 +581,17 @@ window.saveIssueSubject = function(el) {
     if (r.ok && window.flashCell) flashCell(el);
   });
 };
+
+/* Set or clear manual due date */
+function issueSetDueDate(val) {
+  var formData = new FormData();
+  formData.append('due_date', val);
+  fetch('/issues/{{ issue.id }}/due-date?redirect=/issues/{{ issue.issue_uid }}', {
+    method: 'POST', body: formData
+  }).then(function(r) {
+    if (r.redirected) { window.location.href = r.url; }
+    else if (r.ok) { window.location.reload(); }
+  });
+}
 </script>
 {% endblock %}

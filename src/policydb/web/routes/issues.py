@@ -564,6 +564,7 @@ def issue_detail(
         "activity_types": cfg.get("activity_types", []),
         "follow_up_dispositions": cfg.get("follow_up_dispositions", []),
         "timeline_milestones": timeline_milestones,
+        "today": date.today().isoformat(),
     }
     return templates.TemplateResponse("issues/detail.html", ctx)
 
