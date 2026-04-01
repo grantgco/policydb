@@ -250,7 +250,7 @@
         <a href="/policies/{{ a.policy_uid }}/edit" class="text-xs font-mono text-marsh hover:underline shrink-0">{{ a.policy_uid }}</a>
         {% endif %}
         {% if a.duration_hours %}
-        <span class="text-xs bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded shrink-0">{{ a.duration_hours }}h</span>
+        <span class="text-xs bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded shrink-0">{{ a.duration_hours | format_hours }}</span>
         {% endif %}
         <a href="/clients/{{ a.client_id }}" class="text-xs text-gray-300 hover:text-marsh ml-auto shrink-0">{{ a.client_name }}</a>
       </div>

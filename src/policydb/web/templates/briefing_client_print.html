@@ -222,7 +222,7 @@
           <span class="text-gray-400 shrink-0 w-14">{{ a.activity_date[:10] if a.activity_date else '' }}</span>
           <span class="text-gray-500 shrink-0 w-10">{{ a.activity_type }}</span>
           <span class="text-gray-700 truncate">{{ a.subject }}</span>
-          {% if a.duration_hours %}<span class="text-blue-500 shrink-0">{{ a.duration_hours }}h</span>{% endif %}
+          {% if a.duration_hours %}<span class="text-blue-500 shrink-0">{{ a.duration_hours | format_hours }}</span>{% endif %}
         </div>
         {% endfor %}
       </div>

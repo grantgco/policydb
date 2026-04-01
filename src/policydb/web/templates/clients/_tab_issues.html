@@ -59,7 +59,7 @@
         <div class="text-xs text-gray-600">{{ iss.activity_count }} activit{{ 'y' if iss.activity_count == 1 else 'ies' }}</div>
         {% endif %}
         {% if iss.total_hours %}
-        <div class="text-xs font-medium text-blue-600">{{ iss.total_hours }}h</div>
+        <div class="text-xs font-medium text-blue-600">{{ iss.total_hours | format_hours }}</div>
         {% endif %}
       </div>
 
@@ -126,7 +126,7 @@
         {# Hours #}
         <div class="text-right flex-shrink-0">
           {% if iss.total_hours %}
-          <div class="text-xs text-gray-500">{{ iss.total_hours }}h</div>
+          <div class="text-xs text-gray-500">{{ iss.total_hours | format_hours }}</div>
           {% endif %}
         </div>
       </div>

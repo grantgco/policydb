@@ -12,7 +12,7 @@
     <span class="px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 text-[10px] shrink-0">{{ a.activity_type }}</span>
     <span class="text-gray-700 truncate flex-1">{{ a.subject }}</span>
     {% if a.duration_hours %}
-    <span class="text-gray-400 shrink-0 tabular-nums">{{ a.duration_hours }}h</span>
+    <span class="text-gray-400 shrink-0 tabular-nums">{{ a.duration_hours | format_hours }}</span>
     {% endif %}
   </div>
   {% endfor %}

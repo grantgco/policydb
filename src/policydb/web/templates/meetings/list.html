@@ -43,7 +43,7 @@
           <span class="text-xs {% if m.action_done == m.action_total %}text-green-600{% elif m.action_done > 0 %}text-amber-600{% else %}text-gray-400{% endif %}">{{ m.action_done }}/{{ m.action_total }}{% if m.action_done == m.action_total %} ✓{% endif %}</span>
           {% else %}—{% endif %}
         </td>
-        <td class="px-4 py-3 text-right text-gray-500">{% if m.duration_hours %}{{ m.duration_hours }}h{% else %}—{% endif %}</td>
+        <td class="px-4 py-3 text-right text-gray-500">{{ m.duration_hours | format_hours }}</td>
       </tr>
       {% else %}
       <tr><td colspan="6" class="px-4 py-10 text-center text-gray-400">No meetings yet. <a href="/meetings/new" class="text-marsh hover:underline">Create one →</a></td></tr>
