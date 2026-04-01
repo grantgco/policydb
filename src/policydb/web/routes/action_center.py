@@ -176,6 +176,12 @@ def _followups_ctx(conn, window: int, activity_type: str, q: str,
 
     filter_client_ids = [client_id] if client_id else None
     excluded = cfg.get("renewal_statuses_excluded", [])
+    # Periodic stale cleanup — runs on each followups tab load instead of only at startup
+    try:
+        from policydb.queries import auto_close_stale_followups
+        auto_close_stale_followups(conn)
+    except Exception:
+        pass
     overdue_raw, upcoming_raw = get_all_followups(conn, window=window, client_ids=filter_client_ids)
     suggested = get_suggested_followups(conn, excluded_statuses=excluded, client_ids=filter_client_ids)
 
@@ -310,6 +316,21 @@ def _followups_ctx(conn, window: int, activity_type: str, q: str,
         for item in all_items
         if item.get("source") == "activity" and item.get("policy_uid")
     }
+    # Also suppress milestones for policies covered by a program issue
+    # that has an active follow-up (avoids double-listing).
+    try:
+        _covered_uids = conn.execute("""
+            SELECT DISTINCT p.policy_uid
+            FROM v_issue_policy_coverage ipc
+            JOIN policies p ON p.id = ipc.policy_id
+            JOIN activity_log a ON a.issue_id = ipc.issue_id
+            WHERE a.item_kind != 'issue'
+              AND a.follow_up_done = 0
+              AND a.follow_up_date IS NOT NULL
+        """).fetchall()
+        _activity_policy_uids.update(r["policy_uid"] for r in _covered_uids)
+    except Exception:
+        pass  # Graceful degradation — dedup still works for direct matches
     try:
         _ms_params = [today_str]
         _ms_excl_sql = ""
