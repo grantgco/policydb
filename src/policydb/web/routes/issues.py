@@ -808,6 +808,17 @@ def dissolve_merge(
         (source_id, target_id, source_id),
     )
 
+    # Clear renewal_term_key on any replacement issue auto-created after the merge,
+    # so the original can reclaim its key without UNIQUE constraint violation.
+    rtk = conn.execute(
+        "SELECT renewal_term_key FROM activity_log WHERE id = ?", (source_id,)
+    ).fetchone()
+    if rtk and rtk["renewal_term_key"]:
+        conn.execute(
+            "UPDATE activity_log SET renewal_term_key = NULL WHERE renewal_term_key = ? AND id != ? AND item_kind = 'issue'",
+            (rtk["renewal_term_key"], source_id),
+        )
+
     # Reopen source issue
     conn.execute("""
         UPDATE activity_log
