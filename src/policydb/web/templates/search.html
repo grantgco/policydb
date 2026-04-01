@@ -61,6 +61,31 @@
 </div>
 {% endif %}
 
+{% if results.issues %}
+<div class="bg-white rounded-xl border border-gray-200 mb-4">
+  <div class="px-5 py-3 border-b border-gray-100 text-xs font-semibold text-gray-500 uppercase tracking-wide">Issues</div>
+  {% for r in results.issues %}
+  <a href="/issues/{{ r.issue_uid }}" class="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 border-b border-gray-50 last:border-0">
+    <span class="w-1.5 h-1.5 rounded-full flex-shrink-0
+      {% if r.issue_severity == 'Critical' %}bg-red-500
+      {% elif r.issue_severity == 'High' %}bg-amber-500
+      {% elif r.issue_severity == 'Normal' %}bg-blue-500
+      {% else %}bg-gray-400{% endif %}"></span>
+    <span class="text-[10px] font-mono text-gray-400 shrink-0">{{ r.issue_uid }}</span>
+    <span class="font-medium text-gray-800 truncate">{{ r.subject }}</span>
+    {% if r.client_name %}
+    <span class="text-xs text-gray-400 shrink-0">{{ r.client_name }}</span>
+    {% endif %}
+    <span class="text-[10px] px-1.5 py-0.5 rounded-full shrink-0
+      {% if r.issue_status == 'Resolved' %}bg-green-100 text-green-700
+      {% elif r.issue_status == 'In Hand' %}bg-blue-100 text-blue-700
+      {% elif r.issue_status == 'Waiting' %}bg-amber-100 text-amber-700
+      {% else %}bg-gray-100 text-gray-600{% endif %}">{{ r.issue_status or 'Open' }}</span>
+  </a>
+  {% endfor %}
+</div>
+{% endif %}
+
 {% if results.kb_articles or results.kb_documents %}
 <div class="bg-white rounded-xl border border-gray-200">
   <div class="px-5 py-3 border-b border-gray-100 text-xs font-semibold text-gray-500 uppercase tracking-wide">Knowledge Base</div>

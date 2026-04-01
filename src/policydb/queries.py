@@ -1641,10 +1641,23 @@ def full_text_search(conn: sqlite3.Connection, query: str) -> dict[str, list[sql
            ORDER BY updated_at DESC LIMIT 10""",
         (pattern, pattern, pattern, pattern),
     ).fetchall()
+    issues = conn.execute(
+        """SELECT a.id, a.issue_uid, a.subject, a.issue_status, a.issue_severity,
+                  a.activity_date, c.name AS client_name, p.policy_type
+           FROM activity_log a
+           LEFT JOIN clients c ON a.client_id = c.id
+           LEFT JOIN policies p ON a.policy_id = p.id
+           WHERE a.item_kind = 'issue' AND a.issue_id IS NULL
+             AND a.merged_into_id IS NULL
+             AND (a.subject LIKE ? OR a.issue_uid LIKE ? OR a.details LIKE ?)
+           ORDER BY a.activity_date DESC LIMIT 20""",
+        (pattern, pattern, pattern),
+    ).fetchall()
     return {
         "clients": clients,
         "policies": policies,
         "activities": activities,
+        "issues": issues,
         "kb_articles": kb_articles,
         "kb_documents": kb_documents,
     }
