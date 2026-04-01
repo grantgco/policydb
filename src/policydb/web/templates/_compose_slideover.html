@@ -84,17 +84,24 @@
     </div>
 
     {# ── Options ── #}
-    <div class="flex items-center gap-4 flex-wrap">
-      <label class="flex items-center gap-1.5 cursor-pointer text-xs text-gray-600">
-        <input type="checkbox" id="compose-formal" class="rounded border-gray-300">
-        <span>Formal email format</span>
-      </label>
-      {% if policy_uid or project_name or issue_uid %}
-      <label class="flex items-center gap-1.5 cursor-pointer text-xs text-gray-600">
-        <input type="checkbox" id="compose-include-table" class="rounded border-gray-300">
-        <span>Include policy table</span>
-      </label>
-      {% endif %}
+    <div class="space-y-2">
+      <div class="flex items-center gap-4 flex-wrap">
+        <label class="flex items-center gap-1.5 cursor-pointer text-xs text-gray-600">
+          <input type="checkbox" id="compose-formal" class="rounded border-gray-300"
+                 onchange="document.getElementById('compose-formal-hint').classList.toggle('hidden', !this.checked)">
+          <span>Formal email format</span>
+        </label>
+        {% if policy_uid or project_name or issue_uid %}
+        <label class="flex items-center gap-1.5 cursor-pointer text-xs text-gray-600">
+          <input type="checkbox" id="compose-include-table" class="rounded border-gray-300"
+                 onchange="if(this.checked){var f=document.getElementById('compose-formal');f.checked=true;f.dispatchEvent(new Event('change'));}">
+          <span>Include policy table</span>
+        </label>
+        {% endif %}
+      </div>
+      <p id="compose-formal-hint" class="text-[11px] text-gray-400 hidden">
+        Formal format uses Marsh-branded HTML styling. Only applies to Outlook drafts.
+      </p>
     </div>
 
     {# ── Separator ── #}
@@ -149,6 +156,14 @@
       document.getElementById('compose-body').value = originalBody;
       composeEdited = false;
       return;
+    }
+    // Warn if user has made edits
+    if (composeEdited) {
+      if (!confirm('You have unsaved edits. Replace with template?')) {
+        // Reset dropdown to previous selection
+        document.getElementById('compose-template-select').value = '';
+        return;
+      }
     }
     var url = '/compose/render?template_id=' + encodeURIComponent(templateId)
       + '&policy_uid=' + encodeURIComponent(composeParams.policy_uid)
@@ -305,6 +320,16 @@
   };
 
   window.openComposeInMail = function() {
+    // Warn if formatting options will be lost in mailto fallback
+    var formalCheck = document.getElementById('compose-formal');
+    var tableCheck = document.getElementById('compose-include-table');
+    var lostOptions = [];
+    if (formalCheck && formalCheck.checked) lostOptions.push('formal formatting');
+    if (tableCheck && tableCheck.checked) lostOptions.push('policy table');
+    if (lostOptions.length && typeof showToast === 'function') {
+      showToast('Note: ' + lostOptions.join(' and ') + ' not available in mail client \u2014 plain text only', false);
+    }
+
     var toEl = document.getElementById('compose-to-email');
     var toEmail = toEl ? toEl.value : '';
     var subject = document.getElementById('compose-subject').value || '';

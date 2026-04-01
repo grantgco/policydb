@@ -288,11 +288,13 @@ def _rule_no_activity(conn, thresholds: dict) -> list[tuple]:
 
     findings = []
     for c in clients:
-        # Any recent activity?
+        # Any recent user-created activity? (exclude system-generated)
         act_row = conn.execute(
             """SELECT MAX(DATE(activity_date)) AS last_act
                FROM activity_log
-               WHERE client_id = ? AND DATE(activity_date) >= DATE(?)""",
+               WHERE client_id = ? AND DATE(activity_date) >= DATE(?)
+               AND activity_type NOT IN ('Milestone')
+               AND source = 'manual'""",
             (c["id"], cutoff),
         ).fetchone()
         if act_row and act_row["last_act"]:
@@ -309,10 +311,12 @@ def _rule_no_activity(conn, thresholds: dict) -> list[tuple]:
         if rev_row and rev_row["last_rev"]:
             continue
 
-        # How long since last activity at all?
+        # How long since last user-created activity?
         last_any = conn.execute(
             """SELECT MAX(DATE(activity_date)) AS last_act
-               FROM activity_log WHERE client_id = ?""",
+               FROM activity_log WHERE client_id = ?
+               AND activity_type NOT IN ('Milestone')
+               AND source = 'manual'""",
             (c["id"],),
         ).fetchone()
         if last_any and last_any["last_act"]:
@@ -717,16 +721,21 @@ def get_review_gate_status(conn, record_type: str, record_id: int) -> dict:
         })
 
     # 2. Recent activity
+    # Only count user-created activities (exclude system-generated Milestones,
+    # auto-imports) for the review gate — system noise shouldn't satisfy this.
+    _user_act_filter = "AND activity_type NOT IN ('Milestone') AND source = 'manual'"
     if record_type == "client":
         act_row = conn.execute(
-            """SELECT COUNT(*) AS cnt FROM activity_log
-               WHERE client_id = ? AND DATE(activity_date) >= DATE(?)""",
+            f"""SELECT COUNT(*) AS cnt FROM activity_log
+               WHERE client_id = ? AND DATE(activity_date) >= DATE(?)
+               {_user_act_filter}""",
             (record_id, activity_cutoff),
         ).fetchone()
     else:
         act_row = conn.execute(
-            """SELECT COUNT(*) AS cnt FROM activity_log
-               WHERE policy_id = ? AND DATE(activity_date) >= DATE(?)""",
+            f"""SELECT COUNT(*) AS cnt FROM activity_log
+               WHERE policy_id = ? AND DATE(activity_date) >= DATE(?)
+               {_user_act_filter}""",
             (record_id, activity_cutoff),
         ).fetchone()
 

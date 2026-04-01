@@ -26,7 +26,7 @@ Two-way integration with Legacy Outlook for Mac via `osascript` subprocess calls
 
 **Plain quick email (default):** Body text + `[PDB:ref_tag]` appended. No HTML wrapping.
 
-**Formal email format (checkbox):** Marsh-branded HTML shell via `wrap_email_html()` — navy header, Noto fonts, structured layout. Independent of policy table.
+**Formal email format (checkbox):** Marsh-branded HTML shell via `wrap_email_html()` — navy header, Noto fonts, structured layout. Coupled with policy table — checking either triggers HTML shell (see `policydb-compose` skill for details).
 
 **Include policy table (checkbox):** Inserts formatted policy schedule. Scoping:
 - From a **single policy**: only that policy's row

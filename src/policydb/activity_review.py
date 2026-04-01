@@ -20,6 +20,15 @@ logger = logging.getLogger(__name__)
 # Tables we scan for client-attributable work
 _TRACKED_TABLES = {"clients", "policies", "contacts", "policy_milestones"}
 
+# System-generated audit entries to exclude: (table, operation) pairs that
+# represent automated work, not user actions.  Milestone INSERTs are system-
+# created (renewal checklist auto-populated), but UPDATEs are user actions
+# (checking off a milestone).
+_SYSTEM_OPS: set[tuple[str, str]] = {
+    ("policy_milestones", "INSERT"),
+    ("policy_milestones", "DELETE"),
+}
+
 # Summary text templates: (table, operation) -> verb
 _SUMMARY_VERBS: dict[tuple[str, str], str] = {
     ("clients", "INSERT"): "Created client",
@@ -205,11 +214,15 @@ def _has_covering_activity(
     window_start = (session_start - timedelta(minutes=30)).isoformat()
     window_end = (session_end + timedelta(minutes=30)).isoformat()
 
-    # Check if any activity was created within the session window (±30 min)
+    # Check if any user-created activity was created within the session window
+    # (±30 min).  Exclude system-generated activities (Milestone auto-logs,
+    # outlook_sync) since those don't represent the user logging their own work.
     count = conn.execute(
         """SELECT COUNT(*) FROM activity_log
            WHERE client_id = ?
-           AND created_at >= ? AND created_at <= ?""",
+           AND created_at >= ? AND created_at <= ?
+           AND activity_type NOT IN ('Milestone')
+           AND source = 'manual'""",
         (client_id, window_start, window_end),
     ).fetchone()[0]
 
@@ -259,7 +272,11 @@ def scan_for_unlogged_sessions(
             "changed_at": r[5],
         }
         for r in rows
+        if (r[0], r[2]) not in _SYSTEM_OPS  # skip system-generated ops
     ]
+
+    if not entries:
+        return 0
 
     # 2. Resolve to client_ids
     resolved = _resolve_client_ids(conn, entries)

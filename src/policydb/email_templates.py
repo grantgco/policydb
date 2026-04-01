@@ -673,7 +673,7 @@ def policy_context(conn: sqlite3.Connection, policy_uid: str) -> dict:
     primary = next((e for e in exp_links if e["is_primary"]), None)
     ctx["exposure_type"] = primary["exposure_type"] if primary else ""
     ctx["exposure_amount"] = "${:,.0f}".format(primary["amount"]) if primary and primary["amount"] else ""
-    ctx["exposure_denominator"] = str(primary["denominator"]) if primary else ""
+    ctx["exposure_denominator"] = str(primary["denominator"]) if primary and primary.get("denominator") is not None else ""
     ctx["exposure_rate"] = "${:,.2f}".format(primary["rate"]) if primary and primary["rate"] is not None else ""
     ctx["exposure_rate_label"] = (
         f"${primary['rate']:,.2f} per ${primary['denominator']:,} of {primary['exposure_type'].lower()}"
@@ -928,8 +928,8 @@ def rfi_notify_context(conn, bundle_id: int) -> dict:
         "cn_number": bundle["cn_number"] or "",
         "bundle_status": bundle["status"] or "",
         "sent_at": bundle["sent_at"] or "",
-        "received_items": received,
-        "outstanding_items": outstanding,
+        "received_items": "\n".join(f"  - {item}" for item in received) if received else "",
+        "outstanding_items": "\n".join(f"  - {item}" for item in outstanding) if outstanding else "",
         "ref_tag": ref_tag,
     }
 
