@@ -217,9 +217,8 @@ def _create_or_enrich_activity(
     folder = email.get("folder", "")
     subject = email.get("subject", "")
     sender = email.get("sender", "")
-    # Strip HTML and store clean text snippet
-    raw_snippet = email.get("body_snippet", "")
-    snippet = _HTML_TAG_RE.sub('', raw_snippet).strip()[:500]
+    # Clean and store readable text snippet
+    snippet = _clean_email_text(email.get("body_snippet", ""))[:500]
     email_date = email.get("date", "")[:10]  # ISO date portion
     flag_due = email.get("flag_due_date")
 
@@ -374,6 +373,19 @@ def sync_outlook(conn: sqlite3.Connection) -> dict:
     return results
 
 
+def _clean_email_text(text: str) -> str:
+    """Collapse excessive whitespace in captured email text for readability."""
+    # Strip HTML tags
+    text = _HTML_TAG_RE.sub('', text)
+    # Collapse runs of 3+ newlines to 2
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    # Collapse runs of spaces/tabs on a line (preserve newlines)
+    text = re.sub(r'[^\S\n]+', ' ', text)
+    # Strip leading/trailing whitespace per line
+    text = '\n'.join(line.strip() for line in text.split('\n'))
+    return text.strip()
+
+
 def _process_email(
     conn: sqlite3.Connection,
     email: dict,
@@ -403,10 +415,11 @@ def _process_email(
             email.get("subject", ""),
         )
 
-    if not match and category in ("flagged", "sent"):
+    if not match:
         # Can't associate — send to inbox for triage
+        # (all categories: sent, received, flagged — never silently drop)
         message_id = email.get("message_id", "")
-        # Dedup: check if already in inbox or activity_log
+        # Dedup: check if already in activity_log or inbox
         if message_id:
             existing = conn.execute(
                 "SELECT 1 FROM activity_log WHERE outlook_message_id=?", (message_id,),
@@ -414,9 +427,8 @@ def _process_email(
             if existing:
                 results["skipped"] += 1
                 return
-            # Also check inbox by message_id in content
             existing_inbox = conn.execute(
-                "SELECT 1 FROM inbox WHERE content LIKE ?", (f"%{message_id}%",),
+                "SELECT 1 FROM inbox WHERE outlook_message_id=?", (message_id,),
             ).fetchone()
             if existing_inbox:
                 results["skipped"] += 1
@@ -425,24 +437,27 @@ def _process_email(
         sender = email.get("sender", "")
         folder = email.get("folder", "")
         date_str = (email.get("date", "") or "")[:10]
-        snippet = _HTML_TAG_RE.sub('', email.get("body_snippet", "")).strip()[:200]
-        label = "[Outlook Flagged]" if category == "flagged" else "[Outlook Sent]"
+        snippet = _clean_email_text(email.get("body_snippet", ""))[:1000]
+        label_map = {"flagged": "[Outlook Flagged]", "sent": "[Outlook Sent]", "received": "[Outlook Received]"}
+        label = label_map.get(category, "[Outlook]")
         recipients = ", ".join(email.get("recipients", [])[:3])
-        content = f"{label} {subject}\nTo: {recipients}\nFolder: {folder}\nDate: {date_str}"
+        content = f"{label} {subject}\nFrom: {sender}\nTo: {recipients}\nFolder: {folder}\nDate: {date_str}"
         if snippet:
             content += f"\n\n{snippet}"
         conn.execute(
-            "INSERT INTO inbox (content, client_id, contact_id, inbox_uid) VALUES (?, NULL, NULL, '')",
-            (content,),
+            """INSERT INTO inbox (content, client_id, contact_id, inbox_uid,
+                                  email_subject, email_date, outlook_message_id)
+               VALUES (?, NULL, NULL, '', ?, ?, ?)""",
+            (content, subject, date_str, message_id),
         )
         row_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
         conn.execute("UPDATE inbox SET inbox_uid = ? WHERE id = ?", (f"INB-{row_id}", row_id))
         conn.commit()
-        results["auto_linked"][category] += 1
+        results["suggestions"].append({
+            "subject": subject, "sender": sender, "folder": folder,
+            "date": date_str, "category": category, "inbox_uid": f"INB-{row_id}",
+        })
         return
-
-    if not match:
-        return  # No match, not flagged/sent — skip
 
     result = _create_or_enrich_activity(conn, email, match)
 

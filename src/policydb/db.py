@@ -1689,6 +1689,15 @@ def init_db(path: Path | None = None) -> None:
         conn.commit()
         logger.info("Migration 122: added outlook sync columns to activity_log")
 
+    if 123 not in applied:
+        conn.executescript((_MIGRATIONS_DIR / "123_inbox_email_metadata.sql").read_text())
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (123, "Add email_subject, email_date, outlook_message_id to inbox"),
+        )
+        conn.commit()
+        logger.info("Migration 123: added email metadata columns to inbox")
+
     # Data hygiene: fix 'None' string corruption in text fields (runs every startup, fast no-op if clean)
     conn.execute("UPDATE clients SET cn_number = NULL WHERE cn_number = 'None'")
 

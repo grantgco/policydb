@@ -180,9 +180,11 @@ def inbox_process(
     client_id: int = Form(...),
     policy_id: int = Form(0),
     contact_id: int = Form(0),
+    issue_id: int = Form(0),
     activity_type: str = Form("Note"),
     subject: str = Form(""),
     details: str = Form(""),
+    activity_date: str = Form(""),
     follow_up_date: str = Form(""),
     duration_hours: str = Form(""),
     conn=Depends(get_db),
@@ -191,6 +193,7 @@ def inbox_process(
     from policydb.utils import round_duration
     account_exec = cfg.get("default_account_exec", "Grant")
     dur = round_duration(duration_hours)
+    act_date = activity_date or date.today().isoformat()
     # Carry over contact_id from inbox item if not explicitly provided
     if not contact_id:
         inbox_row = conn.execute("SELECT contact_id FROM inbox WHERE id=?", (inbox_id,)).fetchone()
@@ -199,11 +202,12 @@ def inbox_process(
     cursor = conn.execute(
         """INSERT INTO activity_log
            (activity_date, client_id, policy_id, activity_type, subject, details,
-            follow_up_date, account_exec, duration_hours, contact_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (date.today().isoformat(), client_id, policy_id or None, activity_type,
+            follow_up_date, account_exec, duration_hours, contact_id, issue_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (act_date, client_id, policy_id or None, activity_type,
          subject or "Inbox item", details or None,
-         follow_up_date or None, account_exec, dur, contact_id or None),
+         follow_up_date or None, account_exec, dur, contact_id or None,
+         issue_id or None),
     )
     activity_id = cursor.lastrowid
     # Supersede follow-ups if needed
@@ -277,6 +281,21 @@ def inbox_client_policies(inbox_id: int, client_id: int = 0, conn=Depends(get_db
         ORDER BY policy_type
     """, (client_id,)).fetchall()
     return JSONResponse([{"id": r["id"], "uid": r["policy_uid"], "type": r["policy_type"], "carrier": r["carrier"] or ""} for r in rows])
+
+
+@router.get("/inbox/{inbox_id}/issues")
+def inbox_client_issues(inbox_id: int, client_id: int = 0, conn=Depends(get_db)):
+    """Return open issues for a client (for the process form issue picker)."""
+    if not client_id:
+        return JSONResponse([])
+    rows = conn.execute("""
+        SELECT id, issue_uid, subject
+        FROM activity_log
+        WHERE client_id = ? AND item_kind = 'issue'
+          AND (issue_status IS NULL OR issue_status != 'Resolved')
+        ORDER BY activity_date DESC
+    """, (client_id,)).fetchall()
+    return JSONResponse([{"id": r["id"], "uid": r["issue_uid"] or "", "subject": r["subject"] or ""} for r in rows])
 
 
 def get_inbox_pending_count(conn) -> int:
