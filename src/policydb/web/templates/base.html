@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}Coverage{% endblock %}</title>
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=DM+Serif+Display&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/htmx.org@1.9.12"></script>
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js"></script>
@@ -16,12 +16,18 @@
         extend: {
           colors: {
             marsh: { DEFAULT: '#003865', light: '#0055a5' }
+          },
+          fontFamily: {
+            heading: ['"DM Serif Display"', 'Georgia', 'serif'],
+            sans: ['"DM Sans"', 'system-ui', 'sans-serif'],
           }
         }
       }
     }
   </script>
   <style>
+    body { font-family: 'DM Sans', system-ui, sans-serif; }
+    h1, h2, h3, .font-heading { font-family: 'DM Serif Display', Georgia, serif; }
     .htmx-indicator { opacity: 0; transition: opacity 200ms ease-in; }
     .htmx-request .htmx-indicator { opacity: 1; }
     .htmx-request.htmx-indicator { opacity: 1; }
@@ -73,6 +79,16 @@
     .seg-control input:focus-visible + label { box-shadow: inset 0 0 0 2px #0055a5; }
     .bulk-check { display: none; }
     body.bulk-mode .bulk-check { display: inline-block; }
+    .section-label {
+      font-family: 'DM Sans', system-ui, sans-serif;
+      font-size: 0.6875rem;
+      font-weight: 600;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      border-left: 3px solid #003865;
+      padding-left: 0.5rem;
+    }
     @media print {
       .no-print { display: none !important; }
       nav, [role="navigation"] { display: none !important; }
@@ -441,7 +457,7 @@
       initialEditType: 'wysiwyg',
       previewStyle: 'tab',
       usageStatistics: false,
-      toolbarItems: [
+      toolbarItems: opts.toolbarItems || [
         ['heading', 'bold', 'italic', 'strike'],
         ['ul', 'ol', 'task'],
         ['table', 'link'],
@@ -474,7 +490,7 @@
         <div class="flex items-center gap-8">
           <a href="/" class="flex items-center" aria-label="Coverage — Home">
             <svg xmlns="http://www.w3.org/2000/svg" width="200" height="40" viewBox="0 0 260 52">
-              <text x="0" y="32" font-family="'IBM Plex Mono', monospace" font-weight="500" font-size="22" letter-spacing="7" fill="#f0ece4">COVERAGE</text>
+              <text x="0" y="32" font-family="'DM Serif Display', Georgia, serif" font-weight="400" font-size="22" letter-spacing="4" fill="#f0ece4">COVERAGE</text>
               <rect x="0" y="40" width="250" height="2" fill="#c8a96e"/>
             </svg>
           </a>
