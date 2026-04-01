@@ -207,6 +207,80 @@ def _render_policy_table_text(rows: list[dict]) -> str:
     return "\n".join(lines)
 
 
+# ── Generic table builder ────────────────────────────────────────────────────
+
+
+def build_generic_table(
+    rows: list[dict],
+    columns: list[tuple[str, str, bool]],
+) -> dict:
+    """Build HTML + plain-text table for clipboard copy.
+
+    *columns* is a list of (key, display_label, is_currency) tuples.
+    Returns {"html": ..., "text": ...}.
+    """
+    return {
+        "html": _render_generic_table_html(rows, columns),
+        "text": _render_generic_table_text(rows, columns),
+    }
+
+
+def _render_generic_table_html(rows: list[dict], columns: list[tuple[str, str, bool]]) -> str:
+    """Render an inline-styled HTML table for Outlook paste (Marsh branded)."""
+    hdr_bg = "#003865"
+    hdr_text = "#FFFFFF"
+    border = "#B9B6B1"
+    alt_bg = "#F7F3EE"
+    font = "'Noto Sans', Calibri, Arial, sans-serif"
+
+    cell_style = (
+        f"border:1px solid {border}; padding:6px 10px; "
+        f"font-family:{font}; font-size:13px; color:#3D3C37;"
+    )
+    hdr_style = (
+        f"border:1px solid {border}; padding:6px 10px; "
+        f"font-family:{font}; font-size:13px; font-weight:600; "
+        f"color:{hdr_text}; background-color:{hdr_bg};"
+    )
+    right_style = " text-align:right;"
+
+    parts = ['<table style="border-collapse:collapse; width:100%;">']
+    parts.append("<thead><tr>")
+    for _key, label, is_cur in columns:
+        align = right_style if is_cur else ""
+        parts.append(f'<th style="{hdr_style}{align}">{label}</th>')
+    parts.append("</tr></thead><tbody>")
+
+    for i, r in enumerate(rows):
+        row_bg = f" background-color:{alt_bg};" if i % 2 == 1 else ""
+        parts.append("<tr>")
+        for key, _label, is_cur in columns:
+            val = r.get(key) or ""
+            if is_cur and val:
+                val = _fmt_currency(val)
+            align = right_style if is_cur else ""
+            parts.append(f'<td style="{cell_style}{row_bg}{align}">{val}</td>')
+        parts.append("</tr>")
+
+    parts.append("</tbody></table>")
+    return "".join(parts)
+
+
+def _render_generic_table_text(rows: list[dict], columns: list[tuple[str, str, bool]]) -> str:
+    """Tab-separated plain-text for non-rich paste targets."""
+    header = "\t".join(label for _key, label, _cur in columns)
+    lines = [header]
+    for r in rows:
+        vals = []
+        for key, _label, is_cur in columns:
+            val = r.get(key) or ""
+            if is_cur and val:
+                val = _fmt_currency(val)
+            vals.append(str(val))
+        lines.append("\t".join(vals))
+    return "\n".join(lines)
+
+
 def build_policy_table(
     conn: sqlite3.Connection,
     client_id: int,
