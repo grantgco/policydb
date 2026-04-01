@@ -204,7 +204,7 @@ def _create_or_enrich_activity(
     subject = email.get("subject", "")
     sender = email.get("sender", "")
     # Clean and store readable text snippet
-    snippet = _clean_email_text(email.get("body_snippet", ""))[:500]
+    snippet = _clean_email_text(email.get("body_snippet", ""))[:2500]
     email_date = email.get("date", "")[:10]  # ISO date portion
     flag_due = email.get("flag_due_date")
 
