@@ -703,7 +703,7 @@ def activity_snooze(request: Request, activity_id: int, days: int = 7, conn=Depe
             "request": request, "a": a,
             "dispositions": cfg.get("follow_up_dispositions", []),
         })
-        resp.headers["HX-Trigger"] = "reorderActivities"
+        resp.headers["HX-Trigger"] = '{"reorderActivities": "", "showToast": "Snoozed +' + str(days) + 'd to ' + new_date + '"}'
         return resp
     row = conn.execute(
         """SELECT a.*, c.name AS client_name, c.cn_number, p.policy_uid, p.project_id, p.policy_type, p.carrier, p.project_name,
