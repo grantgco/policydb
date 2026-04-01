@@ -314,7 +314,12 @@ textarea.field-inline { resize: none; }
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
 
         <div>
-          <label class="field-label">Project / Location</label>
+          <label class="field-label">Project / Location
+            {% if policy.project_id %}
+            <a href="/clients/{{ policy.client_id }}/projects/{{ policy.project_id }}"
+               class="text-[10px] text-marsh hover:underline ml-1 font-normal">View &rarr;</a>
+            {% endif %}
+          </label>
           <input type="text" data-field="project_name" value="{{ policy.project_name or '' }}"
             placeholder="e.g. Main Street Condos" class="form-input field-inline w-full"
             list="ac-project_name" autocomplete="off">
