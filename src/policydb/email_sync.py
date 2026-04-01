@@ -181,6 +181,13 @@ def _create_or_enrich_activity(
     # can create separate activities for different policies
     policy_id = match.get("policy_id")
     if message_id:
+        # Skip if user previously deleted an activity for this message
+        dismissed = conn.execute(
+            "SELECT 1 FROM dismissed_outlook_messages WHERE message_id=?",
+            (message_id,),
+        ).fetchone()
+        if dismissed:
+            return {"action": "skipped", "activity_id": 0, "reason": "dismissed"}
         if policy_id:
             existing = conn.execute(
                 "SELECT id FROM activity_log WHERE outlook_message_id=? AND policy_id=?",
@@ -400,8 +407,14 @@ def _process_email(
         # No ref tag match — send to inbox for triage
         # (all categories: sent, received, flagged — never silently drop)
         message_id = email.get("message_id", "")
-        # Dedup: check if already in activity_log or inbox
+        # Dedup: check if already in activity_log, inbox, or previously dismissed
         if message_id:
+            dismissed = conn.execute(
+                "SELECT 1 FROM dismissed_outlook_messages WHERE message_id=?", (message_id,),
+            ).fetchone()
+            if dismissed:
+                results["skipped"] += 1
+                return
             existing = conn.execute(
                 "SELECT 1 FROM activity_log WHERE outlook_message_id=?", (message_id,),
             ).fetchone()

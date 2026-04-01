@@ -1707,6 +1707,15 @@ def init_db(path: Path | None = None) -> None:
         conn.commit()
         logger.info("Migration 124: created issue_policies junction table")
 
+    if 125 not in applied:
+        conn.executescript((_MIGRATIONS_DIR / "125_dismissed_outlook_messages.sql").read_text())
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (125, "Track dismissed Outlook message IDs to prevent re-import"),
+        )
+        conn.commit()
+        logger.info("Migration 125: created dismissed_outlook_messages table")
+
     # Data hygiene: fix 'None' string corruption in text fields (runs every startup, fast no-op if clean)
     conn.execute("UPDATE clients SET cn_number = NULL WHERE cn_number = 'None'")
 
