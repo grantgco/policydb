@@ -695,6 +695,15 @@ def update_outlook_config(
     return RedirectResponse("/settings?tab=database", status_code=303)
 
 
+@router.post("/config/outlook-reset-sync")
+def reset_outlook_sync():
+    full = dict(cfg.load_config())
+    full["last_outlook_sync"] = None
+    cfg.save_config(full)
+    cfg.reload_config()
+    return JSONResponse({"ok": True})
+
+
 @router.post("/readiness-weights", response_class=HTMLResponse)
 async def save_readiness_weights(request: Request):
     """Save all readiness score weight configuration."""
