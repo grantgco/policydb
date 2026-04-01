@@ -1519,12 +1519,12 @@ def get_insurance_deadline_suggestions(
     stage_params: list = []
     if completed:
         placeholders = ",".join("?" * len(completed))
-        stage_clause = f"AND (p.project_stage IS NULL OR p.project_stage NOT IN ({placeholders}))"
+        stage_clause = f"AND (p.status IS NULL OR p.status NOT IN ({placeholders}))"
         stage_params = list(completed)
 
     sql = f"""
     SELECT p.id AS project_id, p.name AS project_name, p.insurance_needed_by,
-           p.project_stage, p.client_id,
+           p.status AS project_stage, p.client_id,
            c.name AS client_name,
            CAST(julianday(p.insurance_needed_by) - julianday('now') AS INTEGER) AS days_remaining
     FROM projects p
