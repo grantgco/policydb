@@ -53,6 +53,9 @@
        class="text-xs text-blue-600 hover:text-blue-800 border border-blue-300 hover:border-blue-500 rounded px-2 py-1 transition-colors no-print">
        Notify Team</button>
     {% endif %}
+    <button type="button"
+       onclick="copyPolicyTable('/clients/{{ client.id }}/requests/{{ bundle.id }}/copy-table', this)"
+       class="text-xs text-marsh hover:text-blue-800 border border-blue-200 hover:border-blue-300 rounded px-2 py-1 transition-colors no-print">Copy Table</button>
     <a href="/clients/{{ client.id }}/requests/{{ bundle.id }}/export"
        class="text-xs text-green-600 hover:text-green-700 border border-green-200 hover:border-green-300 rounded px-2 py-1 transition-colors no-print">Export XLSX</a>
     <span class="flex-1"></span>

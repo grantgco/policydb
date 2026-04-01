@@ -760,6 +760,36 @@ def compliance_index(client_id: int, request: Request, conn=Depends(get_db)):
     return templates.TemplateResponse("compliance/index.html", ctx)
 
 
+@router.get("/client/{client_id}/copy-table")
+def compliance_copy_table(client_id: int, conn=Depends(get_db)):
+    """Return HTML + plain-text compliance matrix for clipboard copy."""
+    from policydb.email_templates import build_generic_table
+    data = get_client_compliance_data(conn, client_id)
+    rows = []
+    for loc in data["locations"]:
+        loc_name = loc["project"].get("name", "")
+        for line, gov in loc["governing"].items():
+            rows.append({
+                "location": loc_name,
+                "coverage_line": gov.get("coverage_line") or line,
+                "required_limit": gov.get("required_limit"),
+                "status": gov.get("compliance_status") or "Needs Review",
+                "linked_policy": gov.get("linked_policy_uid") or "",
+                "source": gov.get("source_name") or "",
+                "max_deductible": gov.get("max_deductible"),
+            })
+    columns = [
+        ("location", "Location", False),
+        ("coverage_line", "Coverage Line", False),
+        ("required_limit", "Required Limit", True),
+        ("max_deductible", "Max Deductible", True),
+        ("status", "Status", False),
+        ("linked_policy", "Linked Policy", False),
+        ("source", "Source", False),
+    ]
+    return JSONResponse(build_generic_table(rows, columns))
+
+
 # ── Sources CRUD ──────────────────────────────────────────────────────────────
 
 @router.post("/client/{client_id}/sources/add", response_class=HTMLResponse)

@@ -37,6 +37,9 @@
           </div>
         </div>
       </details>
+      <button type="button"
+         onclick="copyPolicyTable('/compliance/client/{{ client_id }}/copy-table', this)"
+         class="bg-white text-marsh border border-marsh px-3 py-1.5 rounded text-sm hover:bg-marsh hover:text-white transition">Copy Table</button>
       <a id="export-xlsx-link" href="/compliance/client/{{ client_id }}/export/xlsx"
          class="bg-white text-marsh border border-marsh px-3 py-1.5 rounded text-sm hover:bg-marsh hover:text-white transition">Export XLSX</a>
       <a id="export-md-link" href="/compliance/client/{{ client_id }}/export/md" download
