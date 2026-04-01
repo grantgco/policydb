@@ -907,6 +907,7 @@ def get_all_followups(
     LEFT JOIN contacts co_a ON a.contact_id = co_a.id
     LEFT JOIN programs pg ON a.program_id = pg.id
     WHERE a.follow_up_done = 0 AND a.follow_up_date IS NOT NULL
+      AND a.item_kind != 'issue'
       AND (a.project_id IS NULL OR a.policy_id IS NOT NULL OR a.program_id IS NOT NULL)
 
     UNION ALL
@@ -939,6 +940,7 @@ def get_all_followups(
     LEFT JOIN projects pr ON a.project_id = pr.id
     LEFT JOIN contacts co_a2 ON a.contact_id = co_a2.id
     WHERE a.follow_up_done = 0 AND a.follow_up_date IS NOT NULL
+      AND a.item_kind != 'issue'
       AND a.project_id IS NOT NULL AND a.policy_id IS NULL
 
     UNION ALL
