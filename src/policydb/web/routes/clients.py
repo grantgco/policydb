@@ -3683,6 +3683,64 @@ def copy_table(client_id: int, project: str | None = None, conn=Depends(get_db))
     return JSONResponse(result)
 
 
+@router.get("/{client_id}/copy-table/schedule")
+def copy_table_schedule(client_id: int, conn=Depends(get_db)):
+    """Return HTML + plain-text schedule of insurance for clipboard copy."""
+    from fastapi.responses import JSONResponse
+    from policydb.email_templates import build_generic_table
+    from policydb.exporter import _schedule_rows_for_client
+    rows = [dict(r) for r in _schedule_rows_for_client(conn, client_id)]
+    # Strip client_name — already known from context
+    for r in rows:
+        r.pop("client_name", None)
+    columns = [
+        ("First Named Insured", "First Named Insured", False),
+        ("Line of Business", "Line of Business", False),
+        ("Carrier", "Carrier", False),
+        ("Policy Number", "Policy #", False),
+        ("Effective", "Effective", False),
+        ("Expiration", "Expiration", False),
+        ("Premium", "Premium", True),
+        ("Limit", "Limit", True),
+        ("Deductible", "Deductible", True),
+        ("Form", "Form", False),
+        ("Layer", "Layer", False),
+        ("Project", "Project", False),
+        ("Comments", "Comments", False),
+    ]
+    return JSONResponse(build_generic_table(rows, columns))
+
+
+@router.get("/{client_id}/requests/{bundle_id}/copy-table")
+def copy_table_request_bundle(client_id: int, bundle_id: int, conn=Depends(get_db)):
+    """Return HTML + plain-text request bundle items for clipboard copy."""
+    from fastapi.responses import JSONResponse
+    from policydb.email_templates import build_generic_table
+    items = _enrich_request_items(conn, [dict(r) for r in conn.execute(
+        "SELECT * FROM client_request_items WHERE bundle_id=? ORDER BY received ASC, sort_order ASC, id ASC",
+        (bundle_id,),
+    ).fetchall()])
+    # Build a coverage/location column
+    for item in items:
+        parts = []
+        if item.get("policy_type"):
+            parts.append(item["policy_type"])
+        if item.get("carrier"):
+            parts.append(item["carrier"])
+        if item.get("project_name"):
+            parts.append(item["project_name"])
+        item["coverage_location"] = " — ".join(parts) if parts else ""
+        item["status_label"] = "Received" if item.get("received") else "Outstanding"
+    columns = [
+        ("description", "Item", False),
+        ("coverage_location", "Coverage / Location", False),
+        ("category", "Category", False),
+        ("status_label", "Status", False),
+        ("notes", "Notes / Response", False),
+    ]
+    return JSONResponse(build_generic_table(items, columns))
+
+
 # ─── Quick CSV exports per section ────────────────────────────────────────────
 
 def _safe_filename(client_name: str, section: str) -> str:

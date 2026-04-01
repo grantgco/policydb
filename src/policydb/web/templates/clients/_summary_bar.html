@@ -45,6 +45,9 @@
       </button>
       <a href="/clients/{{ client.id }}/edit" class="text-xs border border-gray-300 hover:border-marsh text-gray-600 hover:text-marsh px-3 py-1.5 rounded-lg transition-colors">Edit</a>
       <a href="/compliance/client/{{ client.id }}" class="text-xs border border-gray-300 hover:border-marsh text-gray-600 hover:text-marsh px-3 py-1.5 rounded-lg transition-colors">Compliance</a>
+      <button type="button"
+         onclick="copyPolicyTable('/clients/{{ client.id }}/copy-table/schedule', this)"
+         class="text-xs border border-gray-300 hover:border-marsh text-gray-700 hover:text-marsh px-3 py-1.5 rounded-lg transition-colors">Copy Schedule</button>
       <a href="/clients/{{ client.id }}/export/schedule?fmt=xlsx" class="text-xs border border-green-600 hover:bg-green-600 text-green-700 hover:text-white px-3 py-1.5 rounded-lg transition-colors">Schedule ↓</a>
     </div>
   </div>
