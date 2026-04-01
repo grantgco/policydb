@@ -5599,23 +5599,54 @@ def project_pipeline_export(
             headers={"Content-Disposition": f'attachment; filename="{safe_name}_pipeline.csv"'},
         )
 
-    # XLSX via openpyxl
+    # XLSX via exporter shared styling
     from openpyxl import Workbook
+    from policydb.exporter import _write_sheet, _wb_to_bytes
+    sheet_rows = [{h: p.get(c, "") or "" for h, c in zip(headers, cols)} for p in projects]
     wb = Workbook()
-    ws = wb.active
-    ws.title = "Pipeline"
-    ws.append(headers)
-    for p in projects:
-        ws.append([p.get(c, "") or "" for c in cols])
-    buf = io.BytesIO()
-    wb.save(buf)
-    buf.seek(0)
+    _write_sheet(wb, "Pipeline", sheet_rows)
+    if wb.sheetnames and wb.sheetnames[0] == "Sheet":
+        del wb["Sheet"]
     from starlette.responses import Response
     return Response(
-        content=buf.getvalue(),
+        content=_wb_to_bytes(wb),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{safe_name}_pipeline.xlsx"'},
     )
+
+
+@router.get("/{client_id}/projects/pipeline/copy-table")
+def project_pipeline_copy_table(client_id: int, conn=Depends(get_db)):
+    """Return HTML + plain-text pipeline table for clipboard copy."""
+    from fastapi.responses import JSONResponse
+    from policydb.email_templates import build_generic_table
+    projects = _get_project_pipeline(conn, client_id)
+    for p in projects:
+        pols = conn.execute("""
+            SELECT policy_type, is_opportunity, renewal_status
+            FROM policies WHERE project_id = ? AND archived = 0
+            ORDER BY is_opportunity, policy_type
+        """, (p["id"],)).fetchall()
+        coverages = []
+        for pol in pols:
+            status = "Opp" if pol["is_opportunity"] else (pol["renewal_status"] or "Placed")
+            coverages.append(f"{pol['policy_type']} ({status})")
+        p["coverage_list"] = ", ".join(coverages) if coverages else ""
+    columns = [
+        ("name", "Project", False),
+        ("project_type", "Type", False),
+        ("status", "Status", False),
+        ("address", "Address", False),
+        ("city", "City", False),
+        ("state", "State", False),
+        ("insurance_needed_by", "Insurance Needed By", False),
+        ("project_value", "Project Value", True),
+        ("total_premium", "Total Premium", True),
+        ("total_revenue", "Total Revenue", True),
+        ("general_contractor", "General Contractor", False),
+        ("coverage_list", "Coverages", False),
+    ]
+    return JSONResponse(build_generic_table(projects, columns))
 
 
 @router.get("/{client_id}/projects/locations/export")
@@ -5666,21 +5697,48 @@ def project_locations_export(
         )
 
     from openpyxl import Workbook
+    from policydb.exporter import _write_sheet, _wb_to_bytes
+    sheet_rows = [{h: loc.get(c, "") or "" for h, c in zip(headers, cols)} for loc in locations]
     wb = Workbook()
-    ws = wb.active
-    ws.title = "Locations"
-    ws.append(headers)
-    for loc in locations:
-        ws.append([loc.get(c, "") or "" for c in cols])
-    buf = io.BytesIO()
-    wb.save(buf)
-    buf.seek(0)
+    _write_sheet(wb, "Locations", sheet_rows)
+    if wb.sheetnames and wb.sheetnames[0] == "Sheet":
+        del wb["Sheet"]
     from starlette.responses import Response
     return Response(
-        content=buf.getvalue(),
+        content=_wb_to_bytes(wb),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{safe_name}_locations.xlsx"'},
     )
+
+
+@router.get("/{client_id}/projects/locations/copy-table")
+def project_locations_copy_table(client_id: int, conn=Depends(get_db)):
+    """Return HTML + plain-text locations table for clipboard copy."""
+    from fastapi.responses import JSONResponse
+    from policydb.email_templates import build_generic_table
+    locations = _get_project_locations(conn, client_id)
+    for loc in locations:
+        pols = conn.execute("""
+            SELECT policy_type, is_opportunity, renewal_status
+            FROM policies WHERE project_id = ? AND archived = 0
+            ORDER BY is_opportunity, policy_type
+        """, (loc["id"],)).fetchall()
+        coverages = []
+        for pol in pols:
+            status = "Opp" if pol["is_opportunity"] else (pol["renewal_status"] or "Placed")
+            coverages.append(f"{pol['policy_type']} ({status})")
+        loc["coverage_list"] = ", ".join(coverages) if coverages else ""
+    columns = [
+        ("name", "Location", False),
+        ("address", "Address", False),
+        ("city", "City", False),
+        ("state", "State", False),
+        ("zip", "ZIP", False),
+        ("total_premium", "Total Premium", True),
+        ("total_revenue", "Total Revenue", True),
+        ("coverage_list", "Coverages", False),
+    ]
+    return JSONResponse(build_generic_table(locations, columns))
 
 
 @router.get("/{client_id}/projects/pipeline/timeline")
