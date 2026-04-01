@@ -1658,7 +1658,8 @@ def full_text_search(conn: sqlite3.Connection, query: str) -> dict[str, list[sql
            WHERE a.item_kind = 'issue' AND a.issue_id IS NULL
              AND a.merged_into_id IS NULL
              AND a.issue_status NOT IN ('Resolved', 'Closed')
-             AND (a.subject LIKE ? OR a.issue_uid LIKE ? OR a.details LIKE ?)
+             AND (a.subject LIKE ? OR a.issue_uid LIKE ? OR a.details LIKE ?
+                  OR c.name LIKE ?)
            ORDER BY
              CASE a.issue_severity
                WHEN 'Critical' THEN 0 WHEN 'High' THEN 1
@@ -1666,7 +1667,7 @@ def full_text_search(conn: sqlite3.Connection, query: str) -> dict[str, list[sql
              END,
              a.activity_date DESC
            LIMIT 20""",
-        (pattern, pattern, pattern),
+        (pattern, pattern, pattern, pattern),
     ).fetchall()
     locations = conn.execute(
         """SELECT pr.id, pr.name, pr.address, pr.city, pr.state, pr.zip,
