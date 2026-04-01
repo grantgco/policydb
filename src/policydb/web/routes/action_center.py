@@ -20,6 +20,7 @@ from policydb.queries import (
     get_all_followups,
     get_client_activity_board,
     get_dashboard_hours_this_month,
+    get_insurance_deadline_suggestions,
     get_suggested_followups,
     get_time_summary,
 )
@@ -184,6 +185,7 @@ def _followups_ctx(conn, window: int, activity_type: str, q: str,
         pass
     overdue_raw, upcoming_raw = get_all_followups(conn, window=window, client_ids=filter_client_ids)
     suggested = get_suggested_followups(conn, excluded_statuses=excluded, client_ids=filter_client_ids)
+    insurance_suggestions = get_insurance_deadline_suggestions(conn, client_ids=filter_client_ids)
 
     if activity_type:
         overdue_raw = [r for r in overdue_raw if r.get("activity_type") == activity_type]
@@ -193,6 +195,7 @@ def _followups_ctx(conn, window: int, activity_type: str, q: str,
         overdue_raw = [r for r in overdue_raw if q_lower in r.get("client_name", "").lower()]
         upcoming_raw = [r for r in upcoming_raw if q_lower in r.get("client_name", "").lower()]
         suggested = [r for r in suggested if q_lower in r.get("client_name", "").lower()]
+        insurance_suggestions = [r for r in insurance_suggestions if q_lower in r.get("client_name", "").lower()]
 
     subject_tpl = cfg.get("email_subject_followup", "Re: {{client_name}} — {{policy_type}} — {{subject}}")
     overdue = _add_mailto_subjects(overdue_raw, subject_tpl)
@@ -511,6 +514,7 @@ def _followups_ctx(conn, window: int, activity_type: str, q: str,
         "tomorrow_items": tomorrow_items,
         "later_items": later_items,
         "suggested": suggested,
+        "insurance_suggestions": insurance_suggestions,
         # Urgency-tier buckets (replaces act_now)
         "triage": buckets["triage"],
         "today_bucket": buckets["today"],

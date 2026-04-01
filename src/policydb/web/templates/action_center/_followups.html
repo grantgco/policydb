@@ -8,7 +8,7 @@
 {% set prep_count = prep_coming | length if prep_coming is defined else 0 %}
 {% set watching_count = watching | length if watching is defined else 0 %}
 {% set scheduled_count = scheduled | length if scheduled is defined else 0 %}
-{% set suggested_count = suggested | length %}
+{% set suggested_count = (suggested | length) + (insurance_suggestions | length if insurance_suggestions is defined else 0) %}
 {% set total_action = triage_count + today_b_count + overdue_b_count + stale_count %}
 
 {# ── New Follow-up Form (toggled by sidebar button) ── #}
@@ -189,6 +189,52 @@ function setQuickFuDate(form, days) {
 {% include "action_center/_followup_sections.html" %}
 
 {# ══════════════════════════════════════════════════════════════════
+   INSURANCE DEADLINE SUGGESTIONS
+   ══════════════════════════════════════════════════════════════════ #}
+{# ── Insurance deadline suggestions ── #}
+{% if insurance_suggestions %}
+<div class="mb-5 fu-section" data-section="suggested">
+  <div class="flex items-center gap-2 mb-2">
+    <span class="text-[10px] font-bold uppercase tracking-widest text-amber-600">Insurance Deadlines</span>
+    <span class="bg-amber-100 text-amber-700 text-[10px] font-bold px-2 py-0.5 rounded-full">{{ insurance_suggestions | length }}</span>
+    <span class="text-[10px] text-gray-400">&mdash; project insurance placements approaching deadline</span>
+  </div>
+  <div class="space-y-1">
+    {% for s in insurance_suggestions %}
+    <div class="fu-row bg-amber-50 rounded-lg border border-amber-100 hover:border-amber-200 transition-colors" data-status="suggested">
+      <div class="flex items-center gap-3 px-4 py-3">
+        <div class="w-2 h-2 rounded-full flex-shrink-0
+          {% if s.days_remaining <= 7 %}bg-red-500
+          {% elif s.days_remaining <= 14 %}bg-orange-400
+          {% else %}bg-amber-400{% endif %}"></div>
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center gap-2">
+            <a href="/clients/{{ s.client_id }}" class="text-sm font-semibold text-gray-900 hover:text-marsh hover:underline truncate">{{ s.client_name }}</a>
+          </div>
+          <div class="text-xs text-gray-600 mt-0.5">
+            {{ s.project_name }}
+            {% if s.project_stage %}
+            <span class="text-gray-400">&middot; {{ s.project_stage }}</span>
+            {% endif %}
+          </div>
+        </div>
+        <div class="text-right flex-shrink-0">
+          <div class="text-xs text-gray-500">{{ s.insurance_needed_by }}</div>
+          <span class="text-[10px] px-1.5 py-0.5 rounded
+            {% if s.days_remaining <= 7 %}bg-red-100 text-red-700
+            {% elif s.days_remaining <= 14 %}bg-orange-100 text-orange-700
+            {% else %}bg-amber-100 text-amber-700{% endif %}">
+            {{ s.days_remaining }}d &middot; {{ s.tier }}
+          </span>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{# ══════════════════════════════════════════════════════════════════
    SUGGESTED SECTION
    ══════════════════════════════════════════════════════════════════ #}
 {% if suggested %}
@@ -246,7 +292,7 @@ function setQuickFuDate(form, days) {
 {# ══════════════════════════════════════════════════════════════════
    EMPTY STATE
    ══════════════════════════════════════════════════════════════════ #}
-{% if not triage and not today_bucket and not overdue_bucket and not stale and not nudge_due and not (prep_coming is defined and prep_coming) and not watching and not scheduled and not suggested %}
+{% if not triage and not today_bucket and not overdue_bucket and not stale and not nudge_due and not (prep_coming is defined and prep_coming) and not watching and not scheduled and not suggested and not insurance_suggestions %}
 <div class="text-center py-16">
   <div class="text-gray-300 text-4xl mb-3">&#10003;</div>
   <p class="text-gray-400 text-sm">No follow-ups found{% if q %} matching "{{ q }}"{% endif %}{% if activity_type %} for type "{{ activity_type }}"{% endif %}.</p>
