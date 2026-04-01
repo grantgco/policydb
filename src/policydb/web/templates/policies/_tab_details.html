@@ -92,7 +92,11 @@ textarea.field-inline { resize: none; }
       <div>
         <label class="field-label">Follow-Up Date</label>
         <div class="flex items-center gap-2">
-          <input type="date" data-field="follow_up_date" value="{{ policy.follow_up_date or '' }}" class="form-input field-inline flex-1">
+          <input type="date" data-field="follow_up_date" id="policy-fu-date" value="{{ policy.follow_up_date or '' }}" class="form-input field-inline flex-1">
+          {% if policy.follow_up_date %}
+          <button type="button" onclick="var d=document.getElementById('policy-fu-date');d.value='';d.dispatchEvent(new Event('blur'))"
+            class="text-gray-300 hover:text-red-500 text-sm" title="Clear follow-up date">&times;</button>
+          {% endif %}
           <span id="fu-badge" class="text-xs font-medium px-2 py-0.5 rounded-full whitespace-nowrap
             {% if follow_up_delta is not none %}
               {% if follow_up_overdue %}bg-red-100 text-red-700{% elif follow_up_delta <= 3 %}bg-amber-100 text-amber-700{% else %}bg-gray-100 text-gray-500{% endif %}

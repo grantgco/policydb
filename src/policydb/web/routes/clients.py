@@ -2759,6 +2759,7 @@ def _compute_client_health(conn, client_id: int) -> dict:
                   CAST(julianday('now') - julianday(activity_date) AS INTEGER) AS age_days
            FROM activity_log
            WHERE client_id = ? AND item_kind = 'issue'
+             AND merged_into_id IS NULL
              AND (issue_status IS NULL OR issue_status NOT IN ('Resolved', 'Closed'))""",
         [client_id],
     ).fetchall()
