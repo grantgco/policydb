@@ -51,8 +51,17 @@
           <div class="flex items-center gap-1 text-[10px] text-gray-400">
             <span>{{ act.activity_type or '' }}</span>
             {% if act.activity_date %}<span>&middot; {{ act.activity_date[5:].replace('-', '/') }}</span>{% endif %}
+            {% if act.source is defined and act.source == 'outlook_sync' %}
+            <span class="px-1 rounded bg-sky-100 text-sky-600 font-medium">synced</span>
+            {% endif %}
           </div>
           <div class="text-xs text-gray-700 truncate">{{ act.subject or '' }}</div>
+          {% if act.email_snippet is defined and act.email_snippet %}
+          <details class="mt-1">
+            <summary class="text-[10px] text-blue-500 cursor-pointer hover:text-blue-700">view email</summary>
+            <div class="text-[10px] text-gray-500 mt-1 whitespace-pre-line leading-relaxed max-h-32 overflow-y-auto">{{ act.email_snippet }}</div>
+          </details>
+          {% endif %}
         </div>
         {% endfor %}
 
@@ -80,6 +89,9 @@
           <div class="flex items-center gap-1 text-[10px] text-gray-400">
             <span>{{ act.activity_type or '' }}</span>
             {% if act.activity_date %}<span>&middot; {{ act.activity_date[5:].replace('-', '/') }}</span>{% endif %}
+            {% if act.source is defined and act.source == 'outlook_sync' %}
+            <span class="px-1 rounded bg-sky-100 text-sky-600 font-medium">synced</span>
+            {% endif %}
             {% if not act.issue_id %}
             <button type="button"
               onclick="openIssueCreateSlideover({subject:'{{ act.subject|e }}', client_id:'{{ col.client_id }}', client_name:'{{ col.client_name|e }}', policy_id:'{{ act.policy_id or '' }}', policy_label:'{{ (act.policy_uid or '')|e }} {{ (act.policy_type or '')|e }}', source_activity_id:'{{ act.id }}', context_label:'Creating from activity', context_subject:'{{ act.subject|e }}', context_detail:'{{ act.activity_date }} &middot; {{ col.client_name|e }}', link_detail:'{{ act.subject|e }} ({{ act.activity_date }})'})"
@@ -89,6 +101,12 @@
             {% endif %}
           </div>
           <div class="text-xs text-gray-700 truncate">{{ act.subject or '' }}</div>
+          {% if act.email_snippet is defined and act.email_snippet %}
+          <details class="mt-1">
+            <summary class="text-[10px] text-blue-500 cursor-pointer hover:text-blue-700">view email</summary>
+            <div class="text-[10px] text-gray-500 mt-1 whitespace-pre-line leading-relaxed max-h-32 overflow-y-auto">{{ act.email_snippet }}</div>
+          </details>
+          {% endif %}
         </div>
         {% endfor %}
       {% endif %}

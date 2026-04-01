@@ -42,7 +42,18 @@
               <span class="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">{{ a.disposition }}</span>
               {% endif %}
             </td>
-            <td class="px-3 py-1.5 text-gray-600 truncate max-w-xs">{{ a.subject or a.details or '' }}</td>
+            <td class="px-3 py-1.5 text-gray-600 max-w-xs">
+              <div class="truncate">{{ a.subject or a.details or '' }}</div>
+              {% if a.source is defined and a.source == 'outlook_sync' %}
+              <span class="text-[9px] px-1 rounded bg-sky-100 text-sky-600 font-medium">synced</span>
+              {% endif %}
+              {% if a.email_snippet is defined and a.email_snippet %}
+              <details class="mt-0.5">
+                <summary class="text-[10px] text-blue-500 cursor-pointer hover:text-blue-700">view email</summary>
+                <div class="text-[10px] text-gray-500 mt-1 whitespace-pre-line leading-relaxed max-h-32 overflow-y-auto bg-gray-50 rounded p-2">{{ a.email_snippet }}</div>
+              </details>
+              {% endif %}
+            </td>
             <td class="px-3 py-1.5 text-right text-gray-400 tabular-nums w-16">
               {% if a.duration_hours %}{{ a.duration_hours | format_hours }}{% endif %}
             </td>

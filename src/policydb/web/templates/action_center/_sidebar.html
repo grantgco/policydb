@@ -41,8 +41,70 @@
             class="text-left text-[11px] bg-white text-gray-700 border border-gray-300 px-3 py-1.5 rounded hover:bg-gray-50 transition-colors">
       + New Follow-up
     </button>
+    <button id="outlook-sync-btn"
+            onclick="startOutlookSync()"
+            class="text-left text-[11px] bg-white text-gray-700 border border-gray-300 px-3 py-1.5 rounded hover:bg-gray-50 transition-colors flex items-center gap-1.5">
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+      Sync Outlook
+    </button>
   </div>
 </div>
+
+<script>
+window.startOutlookSync = function() {
+  var btn = document.getElementById('outlook-sync-btn');
+  if (!btn || btn.disabled) return;
+  btn.disabled = true;
+
+  // Show fixed bottom banner with progress
+  var existing = document.getElementById('outlook-sync-banner');
+  if (existing) existing.remove();
+  var banner = document.createElement('div');
+  banner.id = 'outlook-sync-banner';
+  banner.style.cssText = 'position:fixed;bottom:0;left:0;right:0;z-index:100;';
+  banner.innerHTML = '<div style="max-width:800px;margin:0 auto;padding:12px 24px;">'
+    + '<div style="background:#000F47;color:white;border-radius:12px 12px 0 0;padding:16px 20px;box-shadow:0 -4px 20px rgba(0,0,0,.15);display:flex;align-items:center;gap:12px;">'
+    + '<svg class="animate-spin" style="width:18px;height:18px;flex-shrink:0;" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="rgba(255,255,255,.3)" stroke-width="3"/><path d="M12 2a10 10 0 019.95 9" stroke="white" stroke-width="3" stroke-linecap="round"/></svg>'
+    + '<div><div style="font-size:13px;font-weight:600;">Syncing Outlook&hellip;</div>'
+    + '<div style="font-size:11px;opacity:.7;">Scanning sent items, received emails, and flagged items</div></div>'
+    + '</div></div>';
+  document.body.appendChild(banner);
+
+  fetch('/outlook/sync', {method: 'POST'})
+    .then(function(r) { return r.text(); })
+    .then(function(html) {
+      // Replace progress with results
+      var inner = banner.querySelector('div > div');
+      if (inner) {
+        inner.style.background = 'white';
+        inner.style.color = '#3D3C37';
+        inner.style.border = '1px solid #B9B6B1';
+        inner.style.borderBottom = 'none';
+        inner.innerHTML = html;
+      }
+      // Auto-dismiss after 15s
+      setTimeout(function() {
+        if (banner.parentNode) {
+          banner.style.transition = 'opacity .3s';
+          banner.style.opacity = '0';
+          setTimeout(function() { banner.remove(); }, 300);
+        }
+      }, 15000);
+    })
+    .catch(function(err) {
+      var inner = banner.querySelector('div > div');
+      if (inner) {
+        inner.style.background = '#FEF2F2';
+        inner.style.color = '#991B1B';
+        inner.style.border = '1px solid #FECACA';
+        inner.innerHTML = '<div style="padding:4px 0;font-size:12px;">Sync failed: ' + err.message + '</div>';
+      }
+    })
+    .finally(function() {
+      btn.disabled = false;
+    });
+};
+</script>
 
 {# ── Recent Activity Feed ── #}
 <div>

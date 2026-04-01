@@ -83,6 +83,20 @@
                 class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-marsh resize-y font-mono leading-relaxed">{{ body }}</textarea>
     </div>
 
+    {# ── Options ── #}
+    <div class="flex items-center gap-4 flex-wrap">
+      <label class="flex items-center gap-1.5 cursor-pointer text-xs text-gray-600">
+        <input type="checkbox" id="compose-formal" class="rounded border-gray-300">
+        <span>Formal email format</span>
+      </label>
+      {% if policy_uid or project_name or issue_uid %}
+      <label class="flex items-center gap-1.5 cursor-pointer text-xs text-gray-600">
+        <input type="checkbox" id="compose-include-table" class="rounded border-gray-300">
+        <span>Include policy table</span>
+      </label>
+      {% endif %}
+    </div>
+
     {# ── Separator ── #}
     <hr class="border-gray-100">
 
@@ -99,9 +113,9 @@
             class="flex-1 text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg py-2 transition-colors">
       Copy All
     </button>
-    <button type="button" onclick="openComposeInMail()"
+    <button type="button" id="compose-outlook-btn" onclick="createOutlookDraft()"
             class="flex-1 text-xs font-medium text-white bg-marsh hover:bg-marsh-light rounded-lg py-2 transition-colors">
-      Open in Mail &rarr;
+      Create Draft in Outlook &rarr;
     </button>
   </div>
 </div>
@@ -120,7 +134,8 @@
     project_name: {{ project_name | tojson }},
     bundle_id: {{ bundle_id | tojson }},
     mode: {{ mode | tojson }},
-    ref_tag: {{ ref_tag | tojson }}
+    ref_tag: {{ ref_tag | tojson }},
+    issue_uid: {{ (issue_uid | default('')) | tojson }}
   };
 
   window.markComposeEdited = function() {
@@ -230,6 +245,65 @@
     });
   };
 
+  window.createOutlookDraft = function() {
+    var toEl = document.getElementById('compose-to-email');
+    var toEmail = toEl ? toEl.value : '';
+    var subject = document.getElementById('compose-subject').value || '';
+    var body = document.getElementById('compose-body').value || '';
+
+    var ccEmails = [];
+    document.querySelectorAll('.compose-cc-check:checked').forEach(function(cb) {
+      ccEmails.push(cb.value);
+    });
+
+    var btn = document.getElementById('compose-outlook-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Creating draft…'; }
+
+    var includeTable = false;
+    var tableCheck = document.getElementById('compose-include-table');
+    if (tableCheck) includeTable = tableCheck.checked;
+
+    var formalFormat = false;
+    var formalCheck = document.getElementById('compose-formal');
+    if (formalCheck) formalFormat = formalCheck.checked;
+
+    fetch('/outlook/compose', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        to: toEmail,
+        cc: ccEmails,
+        subject: subject,
+        body: body,
+        policy_uid: composeParams.policy_uid,
+        client_id: composeParams.client_id,
+        project_name: composeParams.project_name,
+        issue_uid: composeParams.issue_uid || '',
+        include_policy_table: includeTable,
+        formal_format: formalFormat
+      })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.ok) {
+        if (typeof showToast === 'function') showToast('Draft created in Outlook', true);
+        closeComposeSlideover();
+      } else {
+        // Outlook unavailable — fall back to mailto:
+        if (typeof showToast === 'function') showToast(data.error || 'Outlook unavailable — opening in default mail client', false);
+        openComposeInMail();
+      }
+    })
+    .catch(function(err) {
+      console.error('Outlook compose failed:', err);
+      if (typeof showToast === 'function') showToast('Error creating draft — opening in mail client', false);
+      openComposeInMail();
+    })
+    .finally(function() {
+      if (btn) { btn.disabled = false; btn.textContent = 'Create Draft in Outlook →'; }
+    });
+  };
+
   window.openComposeInMail = function() {
     var toEl = document.getElementById('compose-to-email');
     var toEmail = toEl ? toEl.value : '';
@@ -245,7 +319,6 @@
     if (typeof buildMailto === 'function') {
       window.location.href = buildMailto(toEmail, subject, ccEmails, body, ref);
     } else {
-      // Fallback: build mailto manually
       var url = 'mailto:' + encodeURIComponent(toEmail) + '?subject=' + encodeURIComponent(subject);
       if (ccEmails.length) url += '&cc=' + encodeURIComponent(ccEmails.join(','));
       if (body) url += '&body=' + encodeURIComponent(body);

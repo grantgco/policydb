@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import sqlite3
 from datetime import date
+from html import escape as html_escape
+
+import markdown as md
 
 from policydb.utils import build_ref_tag
 
@@ -869,6 +872,60 @@ def followup_context(row: dict) -> dict:
     }
 
 
+def issue_context(conn: sqlite3.Connection, issue_uid: str) -> dict:
+    """Build token context dict for issue email correspondence."""
+    # The issue header is an activity_log row with item_kind='issue'
+    issue = conn.execute(
+        """SELECT al.*, c.name AS client_name, c.cn_number
+           FROM activity_log al
+           LEFT JOIN clients c ON c.id = al.client_id
+           WHERE al.issue_uid = ? AND al.item_kind = 'issue'""",
+        (issue_uid,),
+    ).fetchone()
+    if not issue:
+        return {}
+    issue = dict(issue)
+
+    # Count linked activities
+    linked_count = conn.execute(
+        "SELECT COUNT(*) AS cnt FROM activity_log WHERE issue_id=? AND item_kind != 'issue'",
+        (issue["id"],),
+    ).fetchone()["cnt"]
+
+    # Get policy info if linked
+    policy_type = ""
+    policy_uid_val = ""
+    if issue.get("policy_id"):
+        pol = conn.execute(
+            "SELECT policy_uid, policy_type FROM policies WHERE id=?",
+            (issue["policy_id"],),
+        ).fetchone()
+        if pol:
+            policy_type = pol["policy_type"] or ""
+            policy_uid_val = pol["policy_uid"] or ""
+
+    ref_tag = build_ref_tag(
+        cn_number=issue.get("cn_number") or "",
+        client_id=issue.get("client_id") or 0,
+        issue_uid=issue_uid,
+    )
+
+    return {
+        "issue_uid": issue_uid,
+        "issue_subject": issue.get("subject") or "",
+        "issue_status": issue.get("issue_status") or "",
+        "issue_severity": issue.get("issue_severity") or "",
+        "client_name": issue.get("client_name") or "",
+        "cn_number": issue.get("cn_number") or "",
+        "policy_type": policy_type,
+        "policy_uid": policy_uid_val,
+        "linked_activities": str(linked_count),
+        "today": date.today().strftime("%B %d, %Y"),
+        "today_iso": date.today().isoformat(),
+        "ref_tag": ref_tag,
+    }
+
+
 # Reusable client token groups
 _CLIENT_GROUP: list[tuple[str, str]] = [
     ("client_name", "Client Name"),
@@ -1041,6 +1098,24 @@ CONTEXT_TOKEN_GROUPS: dict[str, list[tuple[str, list[tuple[str, str]]]]] = {
         ]),
         ("Tracking", [("ref_tag", "Email Ref Tag")]),
     ],
+    "issue": [
+        ("Issue", [
+            ("issue_uid", "Issue UID"),
+            ("issue_subject", "Issue Subject"),
+            ("issue_status", "Status"),
+            ("issue_severity", "Severity"),
+            ("linked_activities", "Linked Activity Count"),
+        ]),
+        ("Client", _CLIENT_GROUP),
+        ("Policy", [
+            ("policy_type", "Policy Type"),
+            ("policy_uid", "Policy ID"),
+        ]),
+        ("Other", [
+            ("today", "Today's Date"),
+        ]),
+        ("Tracking", [("ref_tag", "Email Ref Tag")]),
+    ],
 }
 
 # Flat token list per context — derived from groups for backward compat
@@ -1048,3 +1123,95 @@ CONTEXT_TOKENS: dict[str, list[tuple[str, str]]] = {
     ctx: [tok for _, tokens in groups for tok in tokens]
     for ctx, groups in CONTEXT_TOKEN_GROUPS.items()
 }
+
+
+# ---------------------------------------------------------------------------
+# Markdown → HTML email rendering
+# ---------------------------------------------------------------------------
+
+def markdown_to_html(text: str) -> str:
+    """Convert Markdown text to HTML using the markdown library.
+
+    Supports tables, newline-to-break, and smart quotes.
+    """
+    return md.markdown(
+        text,
+        extensions=["tables", "nl2br", "smarty"],
+        output_format="html",
+    )
+
+
+def wrap_email_html(
+    html_body: str,
+    ref_tag: str = "",
+    policy_table_html: str | None = None,
+    show_header: bool = True,
+) -> str:
+    """Wrap rendered HTML in a Marsh-branded email shell.
+
+    Uses Outlook-safe inline styles only — no CSS classes, no rem units,
+    no rgba(), no CSS variables. Same constraints as the Copy Table pattern.
+
+    Args:
+        html_body: Pre-rendered HTML content (from markdown_to_html)
+        ref_tag: Reference tag string (e.g. "CN123456789-POL042")
+        policy_table_html: Optional pre-built HTML table to insert
+        show_header: Whether to show the navy header bar
+    """
+    font = "'Noto Sans', Calibri, Arial, sans-serif"
+    heading_font = "'Noto Serif', Georgia, serif"
+
+    # Navy header bar
+    header = ""
+    if show_header:
+        header = (
+            '<tr><td style="background-color:#000F47; height:6px; '
+            'font-size:1px; line-height:1px;">&nbsp;</td></tr>'
+        )
+
+    # Policy table section
+    table_section = ""
+    if policy_table_html:
+        table_section = (
+            f'<tr><td style="padding:16px 0 0 0;">'
+            f'{policy_table_html}'
+            f'</td></tr>'
+        )
+
+    # Ref tag footer
+    ref_footer = ""
+    if ref_tag:
+        esc_tag = html_escape(ref_tag)
+        ref_footer = (
+            f'<tr><td style="padding:24px 0 8px 0; font-family:{font}; '
+            f'font-size:11px; color:#B9B6B1;">'
+            f'[PDB:{esc_tag}]</td></tr>'
+        )
+
+    return f'''<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#FFFFFF;">
+<tr><td align="center">
+<table width="680" cellpadding="0" cellspacing="0" border="0" style="max-width:680px; width:100%;">
+{header}
+<tr><td style="padding:24px 0 0 0; font-family:{font}; font-size:14px; color:#3D3C37; line-height:1.6;">
+<style>
+h1, h2, h3 {{ font-family: {heading_font}; color: #000F47; margin: 16px 0 8px 0; }}
+h1 {{ font-size: 22px; }}
+h2 {{ font-size: 18px; }}
+h3 {{ font-size: 15px; }}
+p {{ margin: 0 0 12px 0; }}
+table {{ border-collapse: collapse; width: 100%; margin: 12px 0; }}
+th {{ background-color: #000F47; color: #FFFFFF; padding: 6px 10px; font-size: 13px; text-align: left; }}
+td {{ padding: 6px 10px; border: 1px solid #B9B6B1; font-size: 13px; }}
+tr:nth-child(even) {{ background-color: #F7F3EE; }}
+a {{ color: #0B4BFF; }}
+ul, ol {{ margin: 0 0 12px 0; padding-left: 24px; }}
+li {{ margin-bottom: 4px; }}
+</style>
+{html_body}
+</td></tr>
+{table_section}
+<tr><td style="padding:16px 0 0 0;">&nbsp;</td></tr>
+{ref_footer}
+</table>
+</td></tr>
+</table>'''

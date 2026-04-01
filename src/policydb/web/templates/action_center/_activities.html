@@ -111,7 +111,7 @@
       hx-include="#ac-act-days, #ac-act-type, #ac-act-client, #ac-act-search, #ac-act-view-mode"
       class="text-xs border border-gray-200 rounded-md px-2.5 py-1.5 w-48 bg-white focus:ring-1 focus:ring-marsh focus:border-marsh placeholder-gray-300">
 
-    <input type="hidden" id="ac-act-view-mode" name="view_mode" value="{{ view_mode or 'board' }}">
+    <input type="hidden" id="ac-act-view-mode" name="view_mode" value="{{ view_mode or 'table' }}">
 
     {# View toggle #}
     <div class="ml-auto flex border border-gray-200 rounded-md overflow-hidden">
@@ -162,9 +162,17 @@
       <tbody id="ac-activities-tbody" class="divide-y divide-gray-50">
         {% for a in activities %}
         <tr class="matrix-row hover:bg-gray-50 transition-colors" data-row-id="{{ a.id }}">
-          {# Date — display only #}
+          {# Date + expand toggle #}
           <td class="px-3 py-2 text-xs text-gray-500 whitespace-nowrap">
-            {% if a.activity_date %}{{ a.activity_date[5:].replace('-', '/') }}{% endif %}
+            <div class="flex items-center gap-1">
+              <button type="button" onclick="toggleActivityDetail(this, '{{ a.id }}')"
+                class="text-gray-300 hover:text-gray-500 transition-colors text-[10px] leading-none w-3 no-print"
+                title="Show details">&#9654;</button>
+              {% if a.activity_date %}{{ a.activity_date[5:].replace('-', '/') }}{% endif %}
+              {% if a.source is defined and a.source == 'outlook_sync' %}
+              <span class="text-[8px] px-1 rounded bg-sky-100 text-sky-600 font-medium">synced</span>
+              {% endif %}
+            </div>
           </td>
 
           {# Type — colored pill, combobox editable #}
@@ -268,6 +276,71 @@
               class="text-xs text-gray-300 hover:text-red-500 transition-colors">✕</button>
           </td>
         </tr>
+        {# ── Expandable detail row ── #}
+        <tr id="activity-detail-{{ a.id }}" style="display:none" class="bg-gray-50/50">
+          <td colspan="10" class="px-6 py-3">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+              {% if a.details %}
+              <div>
+                <div class="text-[10px] text-gray-400 uppercase tracking-wide mb-1">Notes</div>
+                <div class="text-gray-600 whitespace-pre-line">{{ a.details }}</div>
+              </div>
+              {% endif %}
+              {% if a.email_snippet is defined and a.email_snippet %}
+              <div>
+                <div class="text-[10px] text-gray-400 uppercase tracking-wide mb-1">Email Content</div>
+                <div class="text-gray-500 whitespace-pre-line leading-relaxed max-h-40 overflow-y-auto bg-white rounded border border-gray-100 p-2">{{ a.email_snippet }}</div>
+              </div>
+              {% endif %}
+              {# ── Reassignment controls ── #}
+              <div>
+                <div class="text-[10px] text-gray-400 uppercase tracking-wide mb-1">Assigned To</div>
+                <div class="flex flex-wrap gap-2 items-end">
+                  <div>
+                    <label class="text-[10px] text-gray-400 block">Client</label>
+                    <select onchange="reassignActivity({{ a.id }}, 'client_id', this.value, this)"
+                            class="text-xs border border-gray-200 rounded px-2 py-1 bg-white focus:ring-1 focus:ring-marsh">
+                      <option value="">— none —</option>
+                      {% for c in all_clients %}
+                      <option value="{{ c.id }}" {% if a.client_id == c.id %}selected{% endif %}>{{ c.name }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                  <div>
+                    <label class="text-[10px] text-gray-400 block">Policy</label>
+                    <select id="reassign-policy-{{ a.id }}"
+                            onchange="reassignActivity({{ a.id }}, 'policy_id', this.value, this)"
+                            class="text-xs border border-gray-200 rounded px-2 py-1 bg-white focus:ring-1 focus:ring-marsh">
+                      <option value="">— none —</option>
+                    </select>
+                    <script>
+                    (function(){
+                      var sel = document.getElementById('reassign-policy-{{ a.id }}');
+                      var cid = {{ a.client_id or 0 }};
+                      if (cid) {
+                        fetch('/clients/' + cid + '/policies-json').then(function(r){return r.json()}).then(function(pols){
+                          pols.forEach(function(p){
+                            var opt = document.createElement('option');
+                            opt.value = p.id; opt.textContent = p.policy_uid + ' ' + (p.policy_type || '');
+                            if (p.id === {{ a.policy_id or 'null' }}) opt.selected = true;
+                            sel.appendChild(opt);
+                          });
+                        }).catch(function(){});
+                      }
+                    })();
+                    </script>
+                  </div>
+                </div>
+              </div>
+              <div class="flex flex-wrap gap-x-6 gap-y-1 text-[10px] text-gray-400">
+                {% if a.follow_up_date %}<span>Follow-up: {{ a.follow_up_date }}</span>{% endif %}
+                {% if a.policy_uid is defined and a.policy_uid %}<span>Policy: <a href="/policies/{{ a.policy_uid }}/edit" class="text-marsh hover:underline">{{ a.policy_uid }}</a></span>{% endif %}
+                {% if a.project_name is defined and a.project_name %}<span>Location: {{ a.project_name }}</span>{% endif %}
+                {% if a.source is defined and a.source != 'manual' %}<span>Source: {{ a.source }}</span>{% endif %}
+              </div>
+            </div>
+          </td>
+        </tr>
         {% endfor %}
       </tbody>
     </table>
@@ -285,6 +358,50 @@
 </div>
 
 <script>
+window.reassignActivity = function(actId, field, value, selectEl) {
+  fetch('/activities/' + actId + '/field', {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({field: field, value: value})
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.ok) {
+      if (typeof flashCell === 'function') flashCell(selectEl);
+      // If client changed, reload policies dropdown
+      if (field === 'client_id' && value) {
+        var polSel = document.getElementById('reassign-policy-' + actId);
+        if (polSel) {
+          polSel.innerHTML = '<option value="">— none —</option>';
+          fetch('/clients/' + value + '/policies-json').then(function(r){return r.json()}).then(function(pols){
+            pols.forEach(function(p){
+              var opt = document.createElement('option');
+              opt.value = p.id; opt.textContent = p.policy_uid + ' ' + (p.policy_type || '');
+              polSel.appendChild(opt);
+            });
+          });
+        }
+        // Update client name in the main row
+        var row = selectEl.closest('tr').previousElementSibling;
+        if (row && data.client_name) {
+          var clientCell = row.querySelector('td:nth-child(3) a');
+          if (clientCell) { clientCell.textContent = data.client_name; clientCell.href = '/clients/' + value; }
+        }
+      }
+    }
+  });
+};
+
+window.toggleActivityDetail = function(btn, actId) {
+  var detailRow = document.getElementById('activity-detail-' + actId);
+  if (!detailRow) return;
+  var showing = detailRow.style.display !== 'none';
+  detailRow.style.display = showing ? 'none' : '';
+  btn.innerHTML = showing ? '&#9654;' : '&#9660;';
+  btn.classList.toggle('text-gray-500', !showing);
+  btn.classList.toggle('text-gray-300', showing);
+};
+
 (function() {
   /* ── Wire up initMatrix for inline editing (table view only) ── */
   var tbody = document.getElementById('ac-activities-tbody');
