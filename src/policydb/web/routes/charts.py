@@ -84,6 +84,9 @@ MANUAL_CHART_REGISTRY = [
     {"id": "callout_narrative", "title": "Narrative Card",
      "description": "Market update or analysis narrative with callout quote block.",
      "category": "card", "icon": "card"},
+    {"id": "team_chart", "title": "Team Chart",
+     "description": "Org chart showing internal team members grouped by assignment with contact details.",
+     "category": "builder", "icon": "team"},
 ]
 
 _MANUAL_TITLE_MAP = {c["id"]: c["title"] for c in MANUAL_CHART_REGISTRY}
@@ -101,6 +104,37 @@ async def chart_client_search(q: str = "", conn=Depends(get_db)):
         (f"%{q}%",),
     ).fetchall()
     return [{"id": r["id"], "name": r["name"]} for r in rows]
+
+
+# ── Load Team API (for Team Chart pre-populate) ─────────────────────────────
+
+@router.get("/api/team/{client_id}", response_class=JSONResponse)
+async def chart_load_team(client_id: int, conn=Depends(get_db)):
+    """Return internal team contacts for a client as JSON for the Team Chart editor."""
+    rows = conn.execute(
+        """
+        SELECT c.name, c.email, c.phone, c.mobile,
+               ca.title, ca.role, ca.assignment, ca.notes
+        FROM contact_client_assignments ca
+        JOIN contacts c ON c.id = ca.contact_id
+        WHERE ca.client_id = ? AND ca.contact_type = 'internal'
+        ORDER BY ca.assignment, c.name
+        """,
+        (client_id,),
+    ).fetchall()
+    return [
+        {
+            "name": r["name"] or "",
+            "title": r["title"] or "",
+            "role": r["role"] or "",
+            "assignment": r["assignment"] or "",
+            "phone": r["phone"] or "",
+            "email": r["email"] or "",
+            "mobile": r["mobile"] or "",
+            "notes": r["notes"] or "",
+        }
+        for r in rows
+    ]
 
 
 # ── Manual Snapshot CRUD — MUST come BEFORE /manual/{chart_type} ──────────
