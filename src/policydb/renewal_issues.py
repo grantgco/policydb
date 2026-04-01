@@ -300,20 +300,30 @@ def sync_renewal_issue_severity(conn, policy_uid: str) -> None:
 # ── auto_resolve_renewal_issue ───────────────────────────────────────────────
 
 
-def auto_resolve_renewal_issue(conn, policy_uid: str | None = None, program_uid: str | None = None) -> None:
+def auto_resolve_renewal_issue(conn, policy_uid: str | None = None, program_uid: str | None = None) -> int:
     """Resolve the renewal issue when renewal reaches a terminal status.
 
     Call with policy_uid for standalone policies, program_uid for programs.
+    Returns the number of follow-ups auto-closed.
     """
     if policy_uid:
         term_key = policy_uid
     elif program_uid:
         term_key = f"program:{program_uid}"
     else:
-        return
+        return 0
 
     today_str = date.today().isoformat()
     now_str = datetime.now().isoformat()
+
+    # Find the issue id before resolving (needed for follow-up closure)
+    issue_row = conn.execute("""
+        SELECT id FROM activity_log
+        WHERE is_renewal_issue = 1
+          AND renewal_term_key = ?
+          AND issue_status NOT IN ('Resolved', 'Closed')
+    """, (term_key,)).fetchone()
+
     conn.execute("""
         UPDATE activity_log
         SET issue_status = 'Resolved',
@@ -327,6 +337,15 @@ def auto_resolve_renewal_issue(conn, policy_uid: str | None = None, program_uid:
           AND renewal_term_key = ?
           AND issue_status NOT IN ('Resolved', 'Closed')
     """, (today_str, now_str, term_key))
+
+    # Close all follow-ups linked to this renewal issue
+    closed = 0
+    if issue_row:
+        closed = auto_close_followups(
+            conn, issue_id=issue_row["id"],
+            reason="renewal_bound", closed_by="auto_resolve_renewal_issue",
+        )
+    return closed
 
 
 def cascade_program_renewal_close(conn, policy_uid: str) -> int:
