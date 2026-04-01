@@ -283,30 +283,48 @@ def inbox_schedule(
 
 
 @router.get("/inbox/{inbox_id}/policies")
-def inbox_client_policies(inbox_id: int, client_id: int = 0, conn=Depends(get_db)):
-    """Return policies for a client (for the process form policy picker)."""
+def inbox_client_policies(inbox_id: int, client_id: int = 0, q: str = "", conn=Depends(get_db)):
+    """Return policies for a client, optionally filtered by search query."""
     if not client_id:
         return JSONResponse([])
-    rows = conn.execute("""
-        SELECT id, policy_uid, policy_type, carrier
-        FROM policies WHERE client_id = ? AND archived = 0
-        ORDER BY policy_type
-    """, (client_id,)).fetchall()
+    if q:
+        rows = conn.execute("""
+            SELECT id, policy_uid, policy_type, carrier
+            FROM policies WHERE client_id = ? AND archived = 0
+              AND (policy_type LIKE ? OR carrier LIKE ? OR policy_uid LIKE ?)
+            ORDER BY policy_type LIMIT 20
+        """, (client_id, f"%{q}%", f"%{q}%", f"%{q}%")).fetchall()
+    else:
+        rows = conn.execute("""
+            SELECT id, policy_uid, policy_type, carrier
+            FROM policies WHERE client_id = ? AND archived = 0
+            ORDER BY policy_type
+        """, (client_id,)).fetchall()
     return JSONResponse([{"id": r["id"], "uid": r["policy_uid"], "type": r["policy_type"], "carrier": r["carrier"] or ""} for r in rows])
 
 
 @router.get("/inbox/{inbox_id}/issues")
-def inbox_client_issues(inbox_id: int, client_id: int = 0, conn=Depends(get_db)):
-    """Return open issues for a client (for the process form issue picker)."""
+def inbox_client_issues(inbox_id: int, client_id: int = 0, q: str = "", conn=Depends(get_db)):
+    """Return open issues for a client, optionally filtered by search query."""
     if not client_id:
         return JSONResponse([])
-    rows = conn.execute("""
-        SELECT id, issue_uid, subject
-        FROM activity_log
-        WHERE client_id = ? AND item_kind = 'issue'
-          AND (issue_status IS NULL OR issue_status != 'Resolved')
-        ORDER BY activity_date DESC
-    """, (client_id,)).fetchall()
+    if q:
+        rows = conn.execute("""
+            SELECT id, issue_uid, subject
+            FROM activity_log
+            WHERE client_id = ? AND item_kind = 'issue'
+              AND (issue_status IS NULL OR issue_status != 'Resolved')
+              AND (subject LIKE ? OR issue_uid LIKE ?)
+            ORDER BY activity_date DESC LIMIT 20
+        """, (client_id, f"%{q}%", f"%{q}%")).fetchall()
+    else:
+        rows = conn.execute("""
+            SELECT id, issue_uid, subject
+            FROM activity_log
+            WHERE client_id = ? AND item_kind = 'issue'
+              AND (issue_status IS NULL OR issue_status != 'Resolved')
+            ORDER BY activity_date DESC
+        """, (client_id,)).fetchall()
     return JSONResponse([{"id": r["id"], "uid": r["issue_uid"] or "", "subject": r["subject"] or ""} for r in rows])
 
 

@@ -101,44 +101,46 @@
           {% set default_date = item.email_date if (item.email_date is defined and item.email_date) else '' %}
           {% set default_type = 'Email' if is_email else 'Call' %}
 
-          {# Row 1: Client + Policy + Issue #}
+          {# Row 1: Client #}
+          <div>
+            <label class="text-xs font-medium text-gray-500 block mb-1">Client</label>
+            <select name="client_id" id="ac-proc-client-{{ item.id }}" required
+              onchange="acLoadClientData({{ item.id }}, this.value)"
+              class="w-full text-sm border border-gray-200 rounded px-2 py-1.5 focus:border-[#003865] focus:outline-none">
+              <option value="">Select client...</option>
+              {% for c in all_clients %}
+              <option value="{{ c.id }}" {% if item.client_id == c.id %}selected{% endif %}>{{ c.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          {# Row 2: Policy + Issue + Contact (all autocomplete) #}
           <div class="grid grid-cols-3 gap-3">
             <div>
-              <label class="text-xs font-medium text-gray-500 block mb-1">Client</label>
-              <select name="client_id" id="ac-proc-client-{{ item.id }}" required
-                onchange="acLoadClientData({{ item.id }}, this.value)"
-                class="w-full text-sm border border-gray-200 rounded px-2 py-1.5 focus:border-[#003865] focus:outline-none">
-                <option value="">Select client...</option>
-                {% for c in all_clients %}
-                <option value="{{ c.id }}" {% if item.client_id == c.id %}selected{% endif %}>{{ c.name }}</option>
-                {% endfor %}
-              </select>
-            </div>
-            <div>
               <label class="text-xs font-medium text-gray-500 block mb-1">Policy (optional)</label>
-              <select name="policy_id" id="ac-proc-policy-{{ item.id }}"
+              <input type="text" id="ac-proc-policy-name-{{ item.id }}"
+                placeholder="Search policies..."
+                autocomplete="off"
                 class="w-full text-sm border border-gray-200 rounded px-2 py-1.5 focus:border-[#003865] focus:outline-none">
-                <option value="0">None</option>
-              </select>
+              <input type="hidden" name="policy_id" id="ac-proc-policy-{{ item.id }}" value="0">
             </div>
             <div>
               <label class="text-xs font-medium text-gray-500 block mb-1">Issue (optional)</label>
-              <select name="issue_id" id="ac-proc-issue-{{ item.id }}"
+              <input type="text" id="ac-proc-issue-name-{{ item.id }}"
+                placeholder="Search issues..."
+                autocomplete="off"
                 class="w-full text-sm border border-gray-200 rounded px-2 py-1.5 focus:border-[#003865] focus:outline-none">
-                <option value="0">None</option>
-              </select>
+              <input type="hidden" name="issue_id" id="ac-proc-issue-{{ item.id }}" value="0">
             </div>
-          </div>
-
-          {# Row 1b: Contact (with autocomplete) #}
-          <div>
-            <label class="text-xs font-medium text-gray-500 block mb-1">Contact</label>
-            <input type="text" name="contact_name_display" id="ac-proc-contact-name-{{ item.id }}"
-              value="{{ item.contact_name or '' }}"
-              placeholder="Type to search contacts..."
-              autocomplete="off"
-              class="w-full text-sm border border-gray-200 rounded px-2 py-1.5 focus:border-[#003865] focus:outline-none">
-            <input type="hidden" name="contact_id" id="ac-proc-contact-id-{{ item.id }}" value="{{ item.contact_id or 0 }}">
+            <div>
+              <label class="text-xs font-medium text-gray-500 block mb-1">Contact</label>
+              <input type="text" name="contact_name_display" id="ac-proc-contact-name-{{ item.id }}"
+                value="{{ item.contact_name or '' }}"
+                placeholder="Search contacts..."
+                autocomplete="off"
+                class="w-full text-sm border border-gray-200 rounded px-2 py-1.5 focus:border-[#003865] focus:outline-none">
+              <input type="hidden" name="contact_id" id="ac-proc-contact-id-{{ item.id }}" value="{{ item.contact_id or 0 }}">
+            </div>
           </div>
 
           {# Row 2: Type + Subject + Date + Hours #}
@@ -284,13 +286,10 @@ function acToggleProcessForm(id) {
   // Close schedule form if open
   var sf = document.getElementById('ac-schedule-form-' + id);
   if (sf && !sf.classList.contains('hidden')) sf.classList.add('hidden');
-  // Wire up contact autocomplete when opening
-  if (el && !el.classList.contains('hidden')) {
-    var contactInput = document.getElementById('ac-proc-contact-name-' + id);
-    if (contactInput && !contactInput.dataset.acWired) {
-      contactInput.dataset.acWired = '1';
-      acWireContactAutocomplete(id, contactInput);
-    }
+  // Wire up all autocomplete fields when opening
+  if (el && !el.classList.contains('hidden') && !el.dataset.acWired) {
+    el.dataset.acWired = '1';
+    acWireAllAutocompletes(id);
   }
 }
 
@@ -313,91 +312,121 @@ function acSetFuDate(inboxId, days) {
   }
 }
 
-/* Load policies + issues for selected client */
+/* On client change: clear policy/issue selections */
 function acLoadClientData(inboxId, clientId) {
-  acLoadPolicies(inboxId, clientId);
-  acLoadIssues(inboxId, clientId);
+  // Clear policy and issue when client changes
+  var polInput = document.getElementById('ac-proc-policy-name-' + inboxId);
+  var polHidden = document.getElementById('ac-proc-policy-' + inboxId);
+  if (polInput) polInput.value = '';
+  if (polHidden) polHidden.value = '0';
+  var issInput = document.getElementById('ac-proc-issue-name-' + inboxId);
+  var issHidden = document.getElementById('ac-proc-issue-' + inboxId);
+  if (issInput) issInput.value = '';
+  if (issHidden) issHidden.value = '0';
 }
 
-function acLoadPolicies(inboxId, clientId) {
-  var sel = document.getElementById('ac-proc-policy-' + inboxId);
-  if (!sel) return;
-  sel.innerHTML = '<option value="0">None</option>';
-  if (!clientId) return;
-  fetch('/inbox/' + inboxId + '/policies?client_id=' + clientId)
-    .then(function(r) { return r.json(); })
-    .then(function(policies) {
-      policies.forEach(function(p) {
-        var opt = document.createElement('option');
-        opt.value = p.id;
-        opt.textContent = p.type + (p.carrier ? ' - ' + p.carrier : '') + ' (' + p.uid + ')';
-        sel.appendChild(opt);
-      });
-    });
+/* Generic autocomplete wiring for all three fields */
+function acWireAllAutocompletes(inboxId) {
+  // Policy autocomplete
+  acWireSearchField(inboxId, {
+    inputId: 'ac-proc-policy-name-' + inboxId,
+    hiddenId: 'ac-proc-policy-' + inboxId,
+    fetchUrl: function(q) {
+      var cid = _acGetClientId(inboxId);
+      return '/inbox/' + inboxId + '/policies?client_id=' + (cid || '0') + '&q=' + encodeURIComponent(q);
+    },
+    formatItem: function(p) { return p.type + (p.carrier ? ' - ' + p.carrier : '') + ' (' + p.uid + ')'; },
+    getId: function(p) { return p.id; },
+    minChars: 0
+  });
+
+  // Issue autocomplete
+  acWireSearchField(inboxId, {
+    inputId: 'ac-proc-issue-name-' + inboxId,
+    hiddenId: 'ac-proc-issue-' + inboxId,
+    fetchUrl: function(q) {
+      var cid = _acGetClientId(inboxId);
+      return '/inbox/' + inboxId + '/issues?client_id=' + (cid || '0') + '&q=' + encodeURIComponent(q);
+    },
+    formatItem: function(iss) { return (iss.uid ? iss.uid + ' - ' : '') + iss.subject; },
+    getId: function(iss) { return iss.id; },
+    minChars: 0
+  });
+
+  // Contact autocomplete
+  acWireSearchField(inboxId, {
+    inputId: 'ac-proc-contact-name-' + inboxId,
+    hiddenId: 'ac-proc-contact-id-' + inboxId,
+    fetchUrl: function(q) {
+      var cid = _acGetClientId(inboxId);
+      return '/inbox/contacts/search?q=' + encodeURIComponent(q) + (cid ? '&client_id=' + cid : '');
+    },
+    formatItem: function(c) { return c.name + (c.org ? ' (' + c.org + ')' : ''); },
+    getId: function(c) { return c.id; },
+    minChars: 2
+  });
 }
 
-function acLoadIssues(inboxId, clientId) {
-  var sel = document.getElementById('ac-proc-issue-' + inboxId);
-  if (!sel) return;
-  sel.innerHTML = '<option value="0">None</option>';
-  if (!clientId) return;
-  fetch('/inbox/' + inboxId + '/issues?client_id=' + clientId)
-    .then(function(r) { return r.json(); })
-    .then(function(issues) {
-      issues.forEach(function(iss) {
-        var opt = document.createElement('option');
-        opt.value = iss.id;
-        opt.textContent = iss.uid + ' - ' + iss.subject;
-        sel.appendChild(opt);
-      });
-    });
+function _acGetClientId(inboxId) {
+  var sel = document.getElementById('ac-proc-client-' + inboxId);
+  return sel ? sel.value : '';
 }
 
-/* Contact autocomplete for process form */
-function acWireContactAutocomplete(inboxId, input) {
-  var hiddenId = 'ac-proc-contact-id-' + inboxId;
+/* Reusable search-field autocomplete */
+function acWireSearchField(inboxId, opts) {
+  var input = document.getElementById(opts.inputId);
+  var hiddenId = opts.hiddenId;
+  if (!input) return;
   var dropdown = null;
   var debounceTimer = null;
+  var minChars = opts.minChars || 0;
 
   input.addEventListener('input', function() {
     clearTimeout(debounceTimer);
     var q = input.value.trim();
     document.getElementById(hiddenId).value = '0';
-    if (q.length < 2) { acRemoveDropdown(); return; }
-    debounceTimer = setTimeout(function() {
-      var clientSel = document.getElementById('ac-proc-client-' + inboxId);
-      var cid = clientSel ? clientSel.value : '';
-      fetch('/inbox/contacts/search?q=' + encodeURIComponent(q) + (cid ? '&client_id=' + cid : ''))
-        .then(function(r) { return r.json(); })
-        .then(function(results) {
-          acRemoveDropdown();
-          if (!results.length) return;
-          dropdown = document.createElement('div');
-          dropdown.className = 'absolute z-50 bg-white border border-gray-200 rounded shadow-lg mt-1 max-h-40 overflow-y-auto';
-          dropdown.style.width = input.offsetWidth + 'px';
-          results.forEach(function(c) {
-            var item = document.createElement('div');
-            item.className = 'px-3 py-1.5 text-sm hover:bg-blue-50 cursor-pointer';
-            item.textContent = c.name + (c.org ? ' (' + c.org + ')' : '');
-            item.addEventListener('mousedown', function(e) {
-              e.preventDefault();
-              input.value = c.name;
-              document.getElementById(hiddenId).value = c.id;
-              acRemoveDropdown();
-            });
-            dropdown.appendChild(item);
-          });
-          input.parentNode.style.position = 'relative';
-          input.parentNode.appendChild(dropdown);
-        });
-    }, 200);
+    if (q.length < minChars) { removeDD(); return; }
+    debounceTimer = setTimeout(function() { doSearch(q); }, 200);
+  });
+
+  // Show all on focus click (for policy/issue with minChars=0)
+  input.addEventListener('focus', function() {
+    if (minChars === 0 && !input.value.trim()) {
+      doSearch('');
+    }
   });
 
   input.addEventListener('blur', function() {
-    setTimeout(acRemoveDropdown, 150);
+    setTimeout(removeDD, 150);
   });
 
-  function acRemoveDropdown() {
+  function doSearch(q) {
+    fetch(opts.fetchUrl(q))
+      .then(function(r) { return r.json(); })
+      .then(function(results) {
+        removeDD();
+        if (!results.length) return;
+        dropdown = document.createElement('div');
+        dropdown.className = 'absolute z-50 bg-white border border-gray-200 rounded shadow-lg mt-1 max-h-48 overflow-y-auto';
+        dropdown.style.width = input.offsetWidth + 'px';
+        results.forEach(function(item) {
+          var row = document.createElement('div');
+          row.className = 'px-3 py-1.5 text-sm hover:bg-blue-50 cursor-pointer truncate';
+          row.textContent = opts.formatItem(item);
+          row.addEventListener('mousedown', function(e) {
+            e.preventDefault();
+            input.value = opts.formatItem(item);
+            document.getElementById(hiddenId).value = opts.getId(item);
+            removeDD();
+          });
+          dropdown.appendChild(row);
+        });
+        input.parentNode.style.position = 'relative';
+        input.parentNode.appendChild(dropdown);
+      });
+  }
+
+  function removeDD() {
     if (dropdown && dropdown.parentNode) dropdown.parentNode.removeChild(dropdown);
     dropdown = null;
   }
@@ -428,15 +457,7 @@ function acCancelDismiss(id) {
       'Dismiss</button>';
 }
 
-/* On load: if a client is already selected (pre-tagged), load their policies + issues */
-(function() {
-  document.querySelectorAll('[id^="ac-proc-client-"]').forEach(function(sel) {
-    if (sel.value) {
-      var inboxId = sel.id.replace('ac-proc-client-', '');
-      acLoadClientData(parseInt(inboxId), sel.value);
-    }
-  });
-})();
+/* No pre-load needed — autocompletes wire on Process form open */
 
 /* Wire up @ contact autocomplete on the inbox tab capture input */
 (function() {
