@@ -1657,8 +1657,15 @@ def full_text_search(conn: sqlite3.Connection, query: str) -> dict[str, list[sql
            LEFT JOIN policies p ON a.policy_id = p.id
            WHERE a.item_kind = 'issue' AND a.issue_id IS NULL
              AND a.merged_into_id IS NULL
+             AND a.issue_status NOT IN ('Resolved', 'Closed')
              AND (a.subject LIKE ? OR a.issue_uid LIKE ? OR a.details LIKE ?)
-           ORDER BY a.activity_date DESC LIMIT 20""",
+           ORDER BY
+             CASE a.issue_severity
+               WHEN 'Critical' THEN 0 WHEN 'High' THEN 1
+               WHEN 'Normal' THEN 2 ELSE 3
+             END,
+             a.activity_date DESC
+           LIMIT 20""",
         (pattern, pattern, pattern),
     ).fetchall()
     locations = conn.execute(
