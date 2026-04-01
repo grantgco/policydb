@@ -604,6 +604,8 @@ _DEFAULTS: dict[str, Any] = {
     "email_subject_rfi_notify": "FYI: {{client_name}} \u2014 {{rfi_uid}} Items Received",
     "project_stages": ["Upcoming", "Quoting", "Bound", "Active", "Complete"],
     "project_types": ["Location", "Construction", "Development", "Renovation"],
+    "insurance_reminder_tiers": [30, 14, 7],
+    "insurance_completed_stages": ["Bound", "Active", "Complete"],
     "expertise_lines": [
         "Casualty", "Property", "Workers Compensation", "Professional Liability",
         "D&O", "Cyber", "Construction", "Environmental", "Marine",

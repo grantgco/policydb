@@ -34,6 +34,7 @@ EDITABLE_LISTS: dict[str, str] = {
     "linked_account_relationships": "Account Relationship Types",
     "project_stages": "Project Stages",
     "project_types": "Project Types",
+    "insurance_completed_stages": "Insurance — Completed Stages",
     "expertise_lines": "Contact Expertise — Lines",
     "expertise_industries": "Contact Expertise — Industries",
     "endorsement_types": "Required Endorsement Types",
