@@ -12,29 +12,29 @@
         {% if c.title %}<span class="text-xs text-gray-400 ml-1">· {{ c.title }}</span>{% endif %}
         {% if c.role %}<span class="text-xs text-gray-400 ml-1">· {{ c.role }}</span>{% endif %}
       </div>
-      <div class="flex gap-4 text-xs">
-        {% if c.phone %}<span class="text-gray-500">{{ c.phone }}</span>{% endif %}
-        {% if c.mobile %}<span class="text-gray-400">Cell: {{ c.mobile }}</span>{% endif %}
+      <div class="flex gap-4 text-xs shrink-0">
+        {% if c.phone %}<span class="text-gray-500 whitespace-nowrap">{{ c.phone }}</span>{% endif %}
+        {% if c.mobile %}<span class="text-gray-400 whitespace-nowrap">Cell: {{ c.mobile }}</span>{% endif %}
         {% if c.email %}
         <button type="button"
           onclick="openComposeSlideover({context:'policy', policy_uid:'{{ policy.policy_uid }}', client_id:{{ policy.client_id }}, to_email:'{{ c.email }}'})"
-          class="text-marsh hover:underline">✉ {{ c.email }}</button>
+          class="text-marsh hover:underline truncate max-w-[200px]" title="{{ c.email }}">✉ {{ c.email }}</button>
         {% endif %}
       </div>
     </div>
     {% endfor %}
     {% for c in team_contacts %}
     <div class="flex items-center justify-between py-1.5 bg-indigo-50/30">
-      <div>
+      <div class="min-w-0">
         <span class="text-sm font-medium text-gray-700">{{ c.name }}</span>
         {% if c.role %}<span class="text-xs text-indigo-500 ml-1.5">· {{ c.role }}</span>{% endif %}
         {% if c.title %}<span class="text-xs text-gray-400 ml-1">· {{ c.title }}</span>{% endif %}
       </div>
-      <div class="flex gap-4 text-xs">
-        {% if c.phone %}<span class="text-gray-500">{{ c.phone }}</span>{% endif %}
-        {% if c.mobile %}<span class="text-gray-400">Cell: {{ c.mobile }}</span>{% endif %}
+      <div class="flex gap-4 text-xs shrink-0">
+        {% if c.phone %}<span class="text-gray-500 whitespace-nowrap">{{ c.phone }}</span>{% endif %}
+        {% if c.mobile %}<span class="text-gray-400 whitespace-nowrap">Cell: {{ c.mobile }}</span>{% endif %}
         {% if c.email %}
-        <a href="mailto:{{ c.email }}?subject={{ mailto_subject | urlencode }}" class="text-indigo-500 hover:underline" title="Email {{ c.name }}">✉ {{ c.email }}</a>
+        <a href="mailto:{{ c.email }}?subject={{ mailto_subject | urlencode }}" class="text-indigo-500 hover:underline truncate max-w-[200px]" title="{{ c.email }}">✉ {{ c.email }}</a>
         {% endif %}
       </div>
     </div>
