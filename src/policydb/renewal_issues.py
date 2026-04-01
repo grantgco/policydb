@@ -12,6 +12,7 @@ from datetime import date, datetime, timedelta
 
 import policydb.config as cfg
 from policydb.db import generate_issue_uid
+from policydb.queries import auto_close_followups
 
 logger = logging.getLogger("policydb.renewal_issues")
 
@@ -328,17 +329,20 @@ def auto_resolve_renewal_issue(conn, policy_uid: str | None = None, program_uid:
     """, (today_str, now_str, term_key))
 
 
-def cascade_program_renewal_close(conn, policy_uid: str) -> None:
+def cascade_program_renewal_close(conn, policy_uid: str) -> int:
     """When a policy is bound, cascade auto-close to its program's renewal issue.
 
     If the policy belongs to a program, resolve the program-level renewal issue
-    and all child policy renewal issues in that program.
+    and all child policy renewal issues in that program. Also closes linked
+    follow-ups and clears follow_up_date on affected policies.
+
+    Returns total follow-ups auto-closed.
     """
     pol = conn.execute(
         "SELECT id, program_id FROM policies WHERE policy_uid = ?", (policy_uid,)
     ).fetchone()
     if not pol or not pol["program_id"]:
-        return
+        return 0
 
     program_id = pol["program_id"]
 
@@ -347,13 +351,21 @@ def cascade_program_renewal_close(conn, policy_uid: str) -> None:
         "SELECT program_uid FROM programs WHERE id = ?", (program_id,)
     ).fetchone()
     if not pgm:
-        return
+        return 0
 
     program_term_key = f"program:{pgm['program_uid']}"
     now_str = datetime.now().isoformat()
     today_str = date.today().isoformat()
+    total_closed = 0
 
-    # Resolve program-level renewal issue
+    # Resolve program-level renewal issue + close its follow-ups
+    pgm_issue = conn.execute("""
+        SELECT id FROM activity_log
+        WHERE is_renewal_issue = 1
+          AND renewal_term_key = ?
+          AND issue_status NOT IN ('Resolved', 'Closed')
+    """, (program_term_key,)).fetchone()
+
     conn.execute("""
         UPDATE activity_log
         SET issue_status = 'Resolved',
@@ -368,11 +380,24 @@ def cascade_program_renewal_close(conn, policy_uid: str) -> None:
           AND issue_status NOT IN ('Resolved', 'Closed')
     """, (today_str, now_str, program_term_key))
 
-    # Resolve renewal issues on all child policies in this program
-    child_uids = [r["policy_uid"] for r in conn.execute(
-        "SELECT policy_uid FROM policies WHERE program_id = ?", (program_id,)
-    ).fetchall()]
-    for uid in child_uids:
+    if pgm_issue:
+        total_closed += auto_close_followups(
+            conn, issue_id=pgm_issue["id"],
+            reason="renewal_bound", closed_by="cascade_program_renewal_close",
+        )
+
+    # Resolve renewal issues on all child policies + close their follow-ups
+    child_rows = conn.execute(
+        "SELECT id, policy_uid FROM policies WHERE program_id = ?", (program_id,)
+    ).fetchall()
+    for child in child_rows:
+        child_issue = conn.execute("""
+            SELECT id FROM activity_log
+            WHERE is_renewal_issue = 1
+              AND renewal_term_key = ?
+              AND issue_status NOT IN ('Resolved', 'Closed')
+        """, (child["policy_uid"],)).fetchone()
+
         conn.execute("""
             UPDATE activity_log
             SET issue_status = 'Resolved',
@@ -385,10 +410,27 @@ def cascade_program_renewal_close(conn, policy_uid: str) -> None:
             WHERE is_renewal_issue = 1
               AND renewal_term_key = ?
               AND issue_status NOT IN ('Resolved', 'Closed')
-        """, (today_str, now_str, uid))
+        """, (today_str, now_str, child["policy_uid"]))
 
-    logger.info("Cascaded renewal close for program %s (%d children)",
-                pgm["program_uid"], len(child_uids))
+        if child_issue:
+            total_closed += auto_close_followups(
+                conn, issue_id=child_issue["id"],
+                reason="renewal_bound", closed_by="cascade_program_renewal_close",
+            )
+
+        # Close direct policy follow-ups and clear follow_up_date on siblings
+        total_closed += auto_close_followups(
+            conn, policy_id=child["id"],
+            reason="renewal_bound", closed_by="cascade_program_renewal_close",
+        )
+        conn.execute(
+            "UPDATE policies SET follow_up_date = NULL WHERE id = ?",
+            (child["id"],),
+        )
+
+    logger.info("Cascaded renewal close for program %s (%d children, %d follow-ups closed)",
+                pgm["program_uid"], len(child_rows), total_closed)
+    return total_closed
 
 
 # ── auto_link_to_renewal_issue ───────────────────────────────────────────────
