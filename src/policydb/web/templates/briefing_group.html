@@ -215,15 +215,15 @@ function toggleBqComplete(rowId) {
       <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">This Period's Work <span class="font-normal text-gray-400">({{ days }}d)</span></p>
       <div class="grid grid-cols-3 gap-4 mb-4">
         <div class="text-center">
-          <p class="text-2xl font-bold text-gray-900">{% if time_summary and time_summary.total_hours %}{{ time_summary.total_hours | format_hours }}{% else %}0h{% endif %}</p>
+          <p class="text-2xl font-bold font-mono text-gray-900">{% if time_summary and time_summary.total_hours %}{{ time_summary.total_hours | format_hours }}{% else %}0h{% endif %}</p>
           <p class="text-xs text-gray-400">Hours</p>
         </div>
         <div class="text-center">
-          <p class="text-2xl font-bold text-gray-900">{{ activities | length }}</p>
+          <p class="text-2xl font-bold font-mono text-gray-900">{{ activities | length }}</p>
           <p class="text-xs text-gray-400">Activities</p>
         </div>
         <div class="text-center">
-          <p class="text-2xl font-bold text-gray-900">{{ policies_touched }}</p>
+          <p class="text-2xl font-bold font-mono text-gray-900">{{ policies_touched }}</p>
           <p class="text-xs text-gray-400">Policies</p>
         </div>
       </div>

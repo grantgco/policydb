@@ -121,15 +121,15 @@
 <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
   <div class="card p-3">
     <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Clients</p>
-    <p class="text-2xl font-bold text-gray-900 mt-1">{{ metrics.book.total_clients }}</p>
+    <p class="text-2xl font-bold text-gray-900 font-mono mt-1">{{ metrics.book.total_clients }}</p>
   </div>
   <div class="card p-3">
     <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Total Premium</p>
-    <p class="text-2xl font-bold text-gray-900 mt-1">{{ metrics.book.total_premium | currency }}</p>
+    <p class="text-2xl font-bold text-gray-900 font-mono mt-1">{{ metrics.book.total_premium | currency }}</p>
   </div>
   <div class="card p-3">
     <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Est. Revenue</p>
-    <p class="text-2xl font-bold text-gray-900 mt-1">{{ metrics.book.total_revenue | currency }}</p>
+    <p class="text-2xl font-bold text-gray-900 font-mono mt-1">{{ metrics.book.total_revenue | currency }}</p>
     {% if metrics.book.opportunity_revenue %}
     <p class="text-xs text-emerald-600 mt-1">+ {{ metrics.book.opportunity_revenue | currency_short }} pipeline</p>
     {% else %}
@@ -138,16 +138,16 @@
   </div>
   <div class="card p-3">
     <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Policies</p>
-    <p class="text-2xl font-bold text-gray-900 mt-1">{{ metrics.book.total_policies }}</p>
+    <p class="text-2xl font-bold text-gray-900 font-mono mt-1">{{ metrics.book.total_policies }}</p>
   </div>
   <div class="card p-3 {{ 'border-red-300 bg-red-50' if urgent_count > 0 else '' }}">
     <p class="text-xs font-medium {{ 'text-red-600' if urgent_count > 0 else 'text-gray-500' }} uppercase tracking-wide">Urgent Renewals</p>
-    <p class="text-2xl font-bold {{ 'text-red-700' if urgent_count > 0 else 'text-gray-900' }} mt-1">{{ urgent_count }}</p>
+    <p class="text-2xl font-bold {{ 'text-red-700' if urgent_count > 0 else 'text-gray-900' }} font-mono mt-1">{{ urgent_count }}</p>
     <p class="text-xs text-gray-400 mt-1">≤ 90 days</p>
   </div>
   <div class="card p-3">
     <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Hours This Month</p>
-    <p class="text-2xl font-bold text-gray-900 mt-1">{{ hours_this_month | format_hours }}</p>
+    <p class="text-2xl font-bold text-gray-900 font-mono mt-1">{{ hours_this_month | format_hours }}</p>
     <p class="text-xs text-gray-400 mt-1"><a href="/activities?days=30" class="hover:text-marsh hover:underline">View log →</a></p>
   </div>
 </div>

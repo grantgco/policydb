@@ -258,19 +258,19 @@ document.addEventListener('click', function(e) {
   <div class="p-5">
     <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
       <div class="text-center">
-        <p class="text-2xl font-bold text-gray-900">{% if time_summary and time_summary.total_hours %}{{ time_summary.total_hours | format_hours }}{% else %}0h{% endif %}</p>
+        <p class="text-2xl font-bold font-mono text-gray-900">{% if time_summary and time_summary.total_hours %}{{ time_summary.total_hours | format_hours }}{% else %}0h{% endif %}</p>
         <p class="text-xs text-gray-400">Hours Logged</p>
       </div>
       <div class="text-center">
-        <p class="text-2xl font-bold text-gray-900">{{ activities | length }}</p>
+        <p class="text-2xl font-bold font-mono text-gray-900">{{ activities | length }}</p>
         <p class="text-xs text-gray-400">Activities</p>
       </div>
       <div class="text-center">
-        <p class="text-2xl font-bold text-gray-900">{{ clients_touched }}</p>
+        <p class="text-2xl font-bold font-mono text-gray-900">{{ clients_touched }}</p>
         <p class="text-xs text-gray-400">Clients Touched <span class="text-gray-300">/ {{ total_clients }}</span></p>
       </div>
       <div class="text-center">
-        <p class="text-2xl font-bold text-gray-900">{{ policies_touched }}</p>
+        <p class="text-2xl font-bold font-mono text-gray-900">{{ policies_touched }}</p>
         <p class="text-xs text-gray-400">Policies Touched</p>
       </div>
     </div>
