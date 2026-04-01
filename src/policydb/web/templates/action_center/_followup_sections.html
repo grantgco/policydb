@@ -362,13 +362,20 @@
           {{ item.subject }}
         {% elif item.policy_uid %}
           {% if item.project_name %}<span class="text-[10px] bg-purple-50 text-purple-600 font-medium px-1.5 py-0.5 rounded inline-flex items-center gap-0.5"><span>&#128205;</span> {{ item.project_name }}</span> <span class="text-gray-400">&middot;</span> {% endif %}
-          {{ item.policy_type }}{% if item.carrier %} <span class="text-gray-400">&middot; {{ item.carrier }}</span>{% endif %}
+          <a href="/policies/{{ item.policy_uid }}/edit" class="text-marsh hover:underline">{{ item.policy_type }}</a>{% if item.carrier %} <span class="text-gray-400">&middot; {{ item.carrier }}</span>{% endif %}
         {% elif item.source == 'policy' %}
           {{ item.policy_type }}{% if item.carrier %} <span class="text-gray-400">&middot; {{ item.carrier }}</span>{% endif %}
         {% else %}
           {{ item.subject }}
         {% endif %}
       </div>
+      {% if item.linked_issue_uid %}
+      <div class="mt-0.5">
+        {% with linked_issue_uid=item.linked_issue_uid, linked_issue_subject=item.linked_issue_subject, linked_issue_severity=item.linked_issue_severity %}
+          {% include "_issue_badge.html" %}
+        {% endwith %}
+      </div>
+      {% endif %}
     </div>
 
     {# Date #}
