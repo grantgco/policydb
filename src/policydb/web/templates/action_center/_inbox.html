@@ -55,7 +55,22 @@
 
       {# Content + meta #}
       <div class="flex-1 min-w-0">
+        {% if item.content is defined and item.content.startswith('[Outlook') %}
+        {# Outlook-imported item — show structured header + truncated body #}
+        {% set lines = item.content.split('\n') %}
+        <p class="text-[13px] font-medium text-gray-900">{{ lines[0] }}</p>
+        {% if lines|length > 1 %}
+        <div class="text-[11px] text-gray-500 mt-0.5">{{ lines[1:4]|join(' &middot; ') }}</div>
+        {% endif %}
+        {% if lines|length > 5 %}
+        <details class="mt-1">
+          <summary class="text-[10px] text-blue-500 cursor-pointer hover:text-blue-700">show full content</summary>
+          <div class="text-[11px] text-gray-500 mt-1 whitespace-pre-line leading-relaxed max-h-32 overflow-y-auto bg-gray-50 rounded p-2">{{ item.content }}</div>
+        </details>
+        {% endif %}
+        {% else %}
         <p class="text-[13px] text-gray-900">{{ item.content }}</p>
+        {% endif %}
         <div class="flex items-center gap-2 mt-1 flex-wrap">
           {% if item.contact_name %}
           <span class="bg-indigo-50 text-indigo-700 text-xs px-2 py-0.5 rounded-full">@{{ item.contact_name }}</span>
