@@ -24,7 +24,7 @@
     <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Follow-up Date</label>
     <div class="flex items-center gap-2 mt-1">
       <input type="date" id="edit-fu-date" value="{{ a.follow_up_date or '' }}"
-        class="text-sm border border-gray-300 rounded px-2 py-1.5 focus:ring-1 focus:ring-[#003865] focus:border-[#003865]"
+        class="text-sm border border-gray-300 rounded px-2 py-1.5 focus:ring-1 focus:ring-marsh focus:border-marsh"
         onchange="patchEditField({{ a.id }}, 'follow_up_date', this.value, this)">
       <button type="button" onclick="setEditDate(1)" class="text-[10px] border border-gray-200 rounded px-1.5 py-0.5 text-gray-400 hover:text-[#003865] hover:border-[#003865]">+1d</button>
       <button type="button" onclick="setEditDate(3)" class="text-[10px] border border-gray-200 rounded px-1.5 py-0.5 text-gray-400 hover:text-[#003865] hover:border-[#003865]">+3d</button>
@@ -37,7 +37,7 @@
   <div>
     <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Subject</label>
     <input type="text" id="edit-fu-subject" value="{{ a.subject or '' }}"
-      class="mt-1 w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:ring-1 focus:ring-[#003865] focus:border-[#003865]"
+      class="mt-1 w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:ring-1 focus:ring-marsh focus:border-marsh"
       onblur="patchEditField({{ a.id }}, 'subject', this.value, this)">
   </div>
 
@@ -65,7 +65,7 @@
   <div>
     <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Activity Type</label>
     <select id="edit-fu-type"
-      class="mt-1 w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:ring-1 focus:ring-[#003865] focus:border-[#003865]"
+      class="mt-1 w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:ring-1 focus:ring-marsh focus:border-marsh"
       onchange="patchEditField({{ a.id }}, 'activity_type', this.value, this)">
       {% for t in activity_types %}
       <option value="{{ t }}" {% if a.activity_type == t %}selected{% endif %}>{{ t }}</option>
@@ -77,7 +77,7 @@
   <div>
     <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Contact</label>
     <input type="text" id="edit-fu-contact" value="{{ a.contact_person or '' }}"
-      class="mt-1 w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:ring-1 focus:ring-[#003865] focus:border-[#003865]"
+      class="mt-1 w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:ring-1 focus:ring-marsh focus:border-marsh"
       onblur="patchEditField({{ a.id }}, 'contact_person', this.value, this)">
   </div>
 
@@ -85,7 +85,7 @@
   <div>
     <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Notes</label>
     <textarea id="edit-fu-details" rows="3"
-      class="mt-1 w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:ring-1 focus:ring-[#003865] focus:border-[#003865] resize-y"
+      class="mt-1 w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:ring-1 focus:ring-marsh focus:border-marsh resize-y"
       onblur="patchEditField({{ a.id }}, 'details', this.value, this)">{{ a.details or '' }}</textarea>
   </div>
 
@@ -93,7 +93,7 @@
   <div>
     <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Hours</label>
     <input type="number" id="edit-fu-hours" step="0.1" min="0" value="{{ a.duration_hours or '' }}"
-      class="mt-1 w-24 text-sm border border-gray-300 rounded px-2 py-1.5 focus:ring-1 focus:ring-[#003865] focus:border-[#003865]"
+      class="mt-1 w-24 text-sm border border-gray-300 rounded px-2 py-1.5 focus:ring-1 focus:ring-marsh focus:border-marsh"
       onblur="patchEditField({{ a.id }}, 'duration_hours', this.value, this)">
   </div>
 
@@ -101,7 +101,7 @@
   <div>
     <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Activity Date</label>
     <input type="date" id="edit-fu-actdate" value="{{ a.activity_date or '' }}"
-      class="mt-1 text-sm border border-gray-300 rounded px-2 py-1.5 focus:ring-1 focus:ring-[#003865] focus:border-[#003865]"
+      class="mt-1 text-sm border border-gray-300 rounded px-2 py-1.5 focus:ring-1 focus:ring-marsh focus:border-marsh"
       onchange="patchEditField({{ a.id }}, 'activity_date', this.value, this)">
   </div>
 </div>

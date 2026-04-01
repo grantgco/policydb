@@ -19,12 +19,21 @@
   <div>
     <p class="text-sm font-bold text-red-800">CRITICAL — {{ critical | length }} renewal{{ 's' if critical | length != 1 }} require immediate attention</p>
     <ul class="mt-1 space-y-0.5">
-      {% for r in critical %}
+      {% for r in critical[:3] %}
       <li class="text-xs text-red-700">
         <a href="/clients/{{ r.client_id }}" class="font-medium hover:underline">{{ r.client_name }}</a>
         — <a href="/policies/{{ r.policy_uid }}/edit" class="hover:underline">{{ r.policy_type }}</a>{% if r.project_name %} <span class="text-red-400 italic">· {{ r.project_name }}</span>{% endif %} · expires {{ r.expiration_date }} ({{ r.days_to_renewal }}d) — placement team must be engaged
       </li>
       {% endfor %}
+      {% if critical | length > 3 %}
+      {% for r in critical[3:] %}
+      <li class="text-xs text-red-700 alert-extra-critical hidden">
+        <a href="/clients/{{ r.client_id }}" class="font-medium hover:underline">{{ r.client_name }}</a>
+        — <a href="/policies/{{ r.policy_uid }}/edit" class="hover:underline">{{ r.policy_type }}</a>{% if r.project_name %} <span class="text-red-400 italic">· {{ r.project_name }}</span>{% endif %} · expires {{ r.expiration_date }} ({{ r.days_to_renewal }}d) — placement team must be engaged
+      </li>
+      {% endfor %}
+      <li><button type="button" onclick="this.parentElement.querySelectorAll('.alert-extra-critical').forEach(function(e){e.classList.toggle('hidden')});this.textContent=this.textContent.includes('more')?'show fewer':'+ {{ critical|length - 3 }} more'" class="text-xs text-red-500 hover:underline mt-0.5">+ {{ critical|length - 3 }} more</button></li>
+      {% endif %}
     </ul>
   </div>
 </div>
@@ -36,12 +45,21 @@
   <div>
     <p class="text-sm font-semibold text-amber-800">{{ warning | length }} renewal{{ 's' if warning | length != 1 }} not yet started</p>
     <ul class="mt-1 space-y-0.5">
-      {% for r in warning %}
+      {% for r in warning[:3] %}
       <li class="text-xs text-amber-700">
         <a href="/clients/{{ r.client_id }}" class="font-medium hover:underline">{{ r.client_name }}</a>
         — <a href="/policies/{{ r.policy_uid }}/edit" class="hover:underline">{{ r.policy_type }}</a>{% if r.project_name %} <span class="text-amber-500 italic">· {{ r.project_name }}</span>{% endif %} · expires {{ r.expiration_date }} ({{ r.days_to_renewal }}d)
       </li>
       {% endfor %}
+      {% if warning | length > 3 %}
+      {% for r in warning[3:] %}
+      <li class="text-xs text-amber-700 alert-extra-warning hidden">
+        <a href="/clients/{{ r.client_id }}" class="font-medium hover:underline">{{ r.client_name }}</a>
+        — <a href="/policies/{{ r.policy_uid }}/edit" class="hover:underline">{{ r.policy_type }}</a>{% if r.project_name %} <span class="text-amber-500 italic">· {{ r.project_name }}</span>{% endif %} · expires {{ r.expiration_date }} ({{ r.days_to_renewal }}d)
+      </li>
+      {% endfor %}
+      <li><button type="button" onclick="this.parentElement.querySelectorAll('.alert-extra-warning').forEach(function(e){e.classList.toggle('hidden')});this.textContent=this.textContent.includes('more')?'show fewer':'+ {{ warning|length - 3 }} more'" class="text-xs text-amber-600 hover:underline mt-0.5">+ {{ warning|length - 3 }} more</button></li>
+      {% endif %}
     </ul>
   </div>
 </div>
@@ -53,12 +71,21 @@
   <div>
     <p class="text-sm font-medium text-blue-800">{{ nudge | length }} renewal{{ 's' if nudge | length != 1 }} could use a check-in</p>
     <ul class="mt-1 space-y-0.5">
-      {% for r in nudge %}
+      {% for r in nudge[:3] %}
       <li class="text-xs text-blue-700">
         <a href="/clients/{{ r.client_id }}" class="font-medium hover:underline">{{ r.client_name }}</a>
         — <a href="/policies/{{ r.policy_uid }}/edit" class="hover:underline">{{ r.policy_type }}</a>{% if r.project_name %} <span class="text-blue-400 italic">· {{ r.project_name }}</span>{% endif %} · expires {{ r.expiration_date }} ({{ r.days_to_renewal }}d) — no follow-up scheduled
       </li>
       {% endfor %}
+      {% if nudge | length > 3 %}
+      {% for r in nudge[3:] %}
+      <li class="text-xs text-blue-700 alert-extra-nudge hidden">
+        <a href="/clients/{{ r.client_id }}" class="font-medium hover:underline">{{ r.client_name }}</a>
+        — <a href="/policies/{{ r.policy_uid }}/edit" class="hover:underline">{{ r.policy_type }}</a>{% if r.project_name %} <span class="text-blue-400 italic">· {{ r.project_name }}</span>{% endif %} · expires {{ r.expiration_date }} ({{ r.days_to_renewal }}d) — no follow-up scheduled
+      </li>
+      {% endfor %}
+      <li><button type="button" onclick="this.parentElement.querySelectorAll('.alert-extra-nudge').forEach(function(e){e.classList.toggle('hidden')});this.textContent=this.textContent.includes('more')?'show fewer':'+ {{ nudge|length - 3 }} more'" class="text-xs text-blue-500 hover:underline mt-0.5">+ {{ nudge|length - 3 }} more</button></li>
+      {% endif %}
     </ul>
   </div>
 </div>
@@ -70,12 +97,21 @@
   <div>
     <p class="text-sm font-semibold text-amber-800">{{ stale | length }} renewal{{ 's' if stale | length != 1 }} not yet started</p>
     <ul class="mt-1 space-y-0.5">
-      {% for r in stale %}
+      {% for r in stale[:3] %}
       <li class="text-xs text-amber-700">
         <a href="/clients/{{ r.client_id }}" class="font-medium hover:underline">{{ r.client_name }}</a>
         — <a href="/policies/{{ r.policy_uid }}/edit" class="hover:underline">{{ r.policy_type }}</a>{% if r.project_name %} <span class="text-amber-500 italic">· {{ r.project_name }}</span>{% endif %} · expires {{ r.expiration_date }} ({{ r.days_to_renewal }}d)
       </li>
       {% endfor %}
+      {% if stale | length > 3 %}
+      {% for r in stale[3:] %}
+      <li class="text-xs text-amber-700 alert-extra-stale hidden">
+        <a href="/clients/{{ r.client_id }}" class="font-medium hover:underline">{{ r.client_name }}</a>
+        — <a href="/policies/{{ r.policy_uid }}/edit" class="hover:underline">{{ r.policy_type }}</a>{% if r.project_name %} <span class="text-amber-500 italic">· {{ r.project_name }}</span>{% endif %} · expires {{ r.expiration_date }} ({{ r.days_to_renewal }}d)
+      </li>
+      {% endfor %}
+      <li><button type="button" onclick="this.parentElement.querySelectorAll('.alert-extra-stale').forEach(function(e){e.classList.toggle('hidden')});this.textContent=this.textContent.includes('more')?'show fewer':'+ {{ stale|length - 3 }} more'" class="text-xs text-amber-600 hover:underline mt-0.5">+ {{ stale|length - 3 }} more</button></li>
+      {% endif %}
     </ul>
   </div>
 </div>

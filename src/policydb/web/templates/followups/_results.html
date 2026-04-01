@@ -173,7 +173,7 @@
 {% endif %}
 
 {% if not overdue and not upcoming and not today_items and not tomorrow_items and not later_items and not suggested %}
-<div class="card p-12 text-center">
+<div class="card p-8 text-center">
   <p class="text-gray-400 text-sm">No pending follow-ups {% if window == 1 %}today{% elif window == 7 %}this week{% else %}in the next {{ window }} days{% endif %}.</p>
 </div>
 {% endif %}

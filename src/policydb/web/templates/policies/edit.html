@@ -16,7 +16,7 @@
       class="text-gray-600 hover:text-marsh cursor-pointer" title="Copy ref tag">{{ policy.policy_uid }}</button>
   </div>
   <div class="flex items-center gap-3">
-    <h1 class="text-2xl font-bold text-gray-900">Edit Policy</h1>
+    <h1 class="text-2xl font-bold text-gray-900">{{ policy.policy_type }}{% if policy.carrier %} <span class="text-lg font-normal text-gray-400">· {{ policy.carrier }}</span>{% endif %}</h1>
     <div class="ml-auto flex items-center gap-2 no-print">
       <button hx-get="/policies/{{ policy.policy_uid }}/provenance"
               hx-target="#provenance-drawer" hx-swap="innerHTML"
@@ -59,7 +59,7 @@
       </div>
     </div>
   </div>
-  <p class="text-sm text-gray-500 mt-1">{{ policy.policy_type }} · {{ policy.carrier }}
+  <p class="text-sm text-gray-500 mt-1">{{ policy.policy_uid }}
     <button type="button" onclick="copyRefTag(this, '{{ _ref }}')"
       class="ml-2 text-xs font-mono text-gray-400 hover:text-marsh bg-gray-100 hover:bg-gray-200 px-1.5 py-0.5 rounded cursor-pointer transition-colors" title="Click to copy email ref tag">{{ _ref }}</button>
     {% if policy.project_id %}
