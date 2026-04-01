@@ -93,10 +93,12 @@ def create_draft(
     esc_to = _escape_for_applescript(to)
 
     # Build recipient lines
-    recipient_lines = [
-        f'make new to recipient at newMsg with properties '
-        f'{{email address:{{address:"{esc_to}"}}}}'
-    ]
+    recipient_lines = []
+    if to and to.strip():
+        recipient_lines.append(
+            f'make new to recipient at newMsg with properties '
+            f'{{email address:{{address:"{esc_to}"}}}}'
+        )
     for addr in cc:
         esc_addr = _escape_for_applescript(addr)
         recipient_lines.append(
