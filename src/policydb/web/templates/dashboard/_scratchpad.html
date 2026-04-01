@@ -1,25 +1,49 @@
-<div id="scratchpad-card" class="card p-3 mb-4">
-  <div class="flex items-center justify-between mb-1.5">
-    <h2 class="font-semibold text-gray-900 text-sm">Scratchpad</h2>
-    <span id="dash-scratch-ts" class="text-xs text-gray-400 italic">
-      {% if scratchpad_updated %}saved {{ scratchpad_updated[:16] }}{% endif %}
-    </span>
-  </div>
-  <textarea
-    id="dash-scratch-ta"
-    name="content"
-    rows="3"
-    placeholder="Daily notes, action items, reminders…"
-    class="w-full text-sm text-gray-800 bg-transparent resize-none focus:outline-none placeholder-gray-300 leading-relaxed">{{ scratchpad_content }}</textarea>
+<div id="scratchpad-card" class="card mb-4">
+  <details id="scratchpad-details" open>
+    <summary class="px-3 pt-3 pb-1.5 cursor-pointer flex items-center justify-between list-none [&::-webkit-details-marker]:hidden">
+      <h2 class="font-semibold text-gray-900 text-sm">Scratchpad</h2>
+      <div class="flex items-center gap-2">
+        <span id="dash-scratch-ts" class="text-xs text-gray-400 italic">
+          {% if scratchpad_updated %}saved {{ scratchpad_updated[:16] }}{% endif %}
+        </span>
+        <svg class="w-4 h-4 text-gray-400 transition-transform scratchpad-chevron" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+      </div>
+    </summary>
+    <div class="px-3 pb-3">
+      <textarea
+        id="dash-scratch-ta"
+        name="content"
+        rows="3"
+        placeholder="Daily notes, action items, reminders…"
+        class="w-full text-sm text-gray-800 bg-transparent resize-none focus:outline-none placeholder-gray-300 leading-relaxed">{{ scratchpad_content }}</textarea>
+    </div>
+  </details>
 </div>
+
+<style>
+  #scratchpad-details:not([open]) .scratchpad-chevron { transform: rotate(-90deg); }
+</style>
 
 <script>
 (function() {
   var ta = document.getElementById('dash-scratch-ta');
   var ts = document.getElementById('dash-scratch-ts');
+  var det = document.getElementById('scratchpad-details');
   if (!ta) return;
 
-  var mde = window.initMarkdownEditor('dash-scratch-ta', {minHeight: '80px'});
+  // Persist collapsed state
+  if (det) {
+    var stored = sessionStorage.getItem('dash-scratch-open');
+    if (stored === 'false') det.removeAttribute('open');
+    det.addEventListener('toggle', function() {
+      sessionStorage.setItem('dash-scratch-open', det.open);
+    });
+  }
+
+  var mde = window.initMarkdownEditor('dash-scratch-ta', {
+    minHeight: '60px',
+    toolbarItems: [['bold', 'italic', 'strike'], ['ul', 'ol', 'task']]
+  });
 
   var saveTimer = null;
   var saving = false;

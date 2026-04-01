@@ -88,9 +88,11 @@
     {% endfor %}
     {% endif %}
   {% else %}
-  <div class="p-4 bg-amber-50 border border-amber-200 rounded-lg text-center">
-    <div class="text-amber-700 text-sm font-medium">No rating basis linked</div>
-    <div class="text-xs text-amber-500 mt-1">Link exposures in the client's Exposures tab</div>
+  <div class="px-3 py-2.5 bg-amber-50 border border-amber-200 rounded-lg flex items-center gap-2">
+    <span class="text-amber-500 text-xs">⚠</span>
+    <span class="text-amber-700 text-xs font-medium">No rating basis linked</span>
+    <span class="text-xs text-amber-400">·</span>
+    <span class="text-xs text-amber-600">Link exposures in the client's Exposures tab</span>
   </div>
   {% endif %}
 </div>
