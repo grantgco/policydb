@@ -775,7 +775,6 @@ _DEFAULTS: dict[str, Any] = {
             {"field": "policy_type", "label": "Policy Type", "weight": 2, "stages": ["opportunity", "active", "renewal_window", "bound_complete"], "decay_days": None},
             {"field": "policy_number", "label": "Policy Number", "weight": 2, "stages": ["active", "renewal_window", "bound_complete"], "decay_days": None},
             {"field": "renewal_status", "label": "Renewal Status", "weight": 2, "stages": ["renewal_window", "bound_complete"], "decay_days": None},
-            {"field": "first_named_insured", "label": "First Named Insured", "weight": 1, "stages": ["active", "renewal_window", "bound_complete"], "decay_days": None},
             {"field": "premium", "label": "Estimated Premium", "weight": 2, "stages": ["opportunity"], "decay_days": 180},
         ],
         "client": [
