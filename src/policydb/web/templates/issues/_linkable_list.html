@@ -36,7 +36,7 @@
 
         {# Duration #}
         {% if act.duration_hours %}
-        <span class="text-xs text-gray-400 flex-shrink-0">{{ act.duration_hours }}h</span>
+        <span class="text-xs text-gray-400 flex-shrink-0">{{ act.duration_hours | format_hours }}</span>
         {% endif %}
       </div>
 

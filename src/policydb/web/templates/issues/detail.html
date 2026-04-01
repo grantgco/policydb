@@ -56,7 +56,7 @@
     </span>
     {% endif %}
     <span class="text-gray-300">&middot;</span>
-    <span>{{ activities|length }} activit{{ 'y' if activities|length == 1 else 'ies' }}{% if total_hours %} &middot; {{ total_hours }}h{% endif %}</span>
+    <span>{{ activities|length }} activit{{ 'y' if activities|length == 1 else 'ies' }}{% if total_hours %} &middot; {{ total_hours | format_hours }}{% endif %}</span>
   </div>
 
   {# ── Status pill control ── #}
@@ -174,7 +174,7 @@
                 <span class="text-gray-400">F/U: {{ act.follow_up_date[5:].replace('-', '/') }}</span>
               {% endif %}
               {% if act.duration_hours %}
-                <span class="font-medium text-gray-600">{{ act.duration_hours }}h</span>
+                <span class="font-medium text-gray-600">{{ act.duration_hours | format_hours }}</span>
               {% endif %}
               {% if act.contact_name %}
                 <span class="text-gray-400">with {{ act.contact_name }}</span>
@@ -335,7 +335,7 @@
         </div>
         <div class="text-[10px] text-gray-400 mt-1">
           {{ activities|length }} activit{{ 'y' if activities|length == 1 else 'ies' }}
-          {% if total_hours %}&middot; {{ total_hours }}h total{% endif %}
+          {% if total_hours %}&middot; {{ total_hours | format_hours }} total{% endif %}
         </div>
       </div>
 
@@ -508,7 +508,7 @@
           <div><dt class="text-gray-500 inline">Time to Resolve:</dt> <dd class="inline text-gray-800">{{ issue.time_to_resolve|int }}d</dd></div>
           {% endif %}
           {% if total_hours %}
-          <div><dt class="text-gray-500 inline">Total Effort:</dt> <dd class="inline text-gray-800">{{ total_hours }}h</dd></div>
+          <div><dt class="text-gray-500 inline">Total Effort:</dt> <dd class="inline text-gray-800">{{ total_hours | format_hours }}</dd></div>
           {% endif %}
         </dl>
         {% if issue.resolution_notes %}

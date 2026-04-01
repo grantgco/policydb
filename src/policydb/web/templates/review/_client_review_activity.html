@@ -12,7 +12,7 @@
     <span class="text-[10px] text-gray-400 shrink-0">{{ a.policy_type }}</span>
     {% endif %}
     {% if a.duration_hours %}
-    <span class="text-gray-400 shrink-0 tabular-nums">{{ a.duration_hours }}h</span>
+    <span class="text-gray-400 shrink-0 tabular-nums">{{ a.duration_hours | format_hours }}</span>
     {% endif %}
   </div>
   {% endfor %}
