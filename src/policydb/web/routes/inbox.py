@@ -206,20 +206,30 @@ def inbox_process(
     account_exec = cfg.get("default_account_exec", "Grant")
     dur = round_duration(duration_hours)
     act_date = activity_date or date.today().isoformat()
-    # Carry over contact_id from inbox item if not explicitly provided
-    if not contact_id:
-        inbox_row = conn.execute("SELECT contact_id FROM inbox WHERE id=?", (inbox_id,)).fetchone()
-        if inbox_row and inbox_row["contact_id"]:
-            contact_id = inbox_row["contact_id"]
+    # Carry over contact_id and email metadata from inbox item
+    inbox_row = conn.execute(
+        "SELECT contact_id, outlook_message_id, content FROM inbox WHERE id=?", (inbox_id,),
+    ).fetchone()
+    if not contact_id and inbox_row and inbox_row["contact_id"]:
+        contact_id = inbox_row["contact_id"]
+    # If inbox item came from Outlook, carry email body as email_snippet
+    email_snippet = None
+    outlook_msg_id = None
+    if inbox_row:
+        outlook_msg_id = inbox_row["outlook_message_id"]
+        if outlook_msg_id or (inbox_row["content"] or "").startswith("[Outlook"):
+            email_snippet = inbox_row["content"]
     cursor = conn.execute(
         """INSERT INTO activity_log
            (activity_date, client_id, policy_id, activity_type, subject, details,
-            follow_up_date, account_exec, duration_hours, contact_id, issue_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            follow_up_date, account_exec, duration_hours, contact_id, issue_id,
+            email_snippet, outlook_message_id, source)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (act_date, client_id, policy_id or None, activity_type,
          subject or "Inbox item", details or None,
          follow_up_date or None, account_exec, dur, contact_id or None,
-         issue_id or None),
+         issue_id or None, email_snippet, outlook_msg_id,
+         "outlook_sync" if outlook_msg_id else "manual"),
     )
     activity_id = cursor.lastrowid
     # Supersede follow-ups if needed
