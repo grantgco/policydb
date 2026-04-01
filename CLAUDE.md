@@ -261,6 +261,7 @@ Specialized reference docs are available as on-demand skills:
 | `policydb-activities` | Activity lifecycle, follow-up buckets, issue tracking, auto-close, escalation tiers |
 | `policydb-reconciler` | Reconciliation scoring, pairing board UI pattern |
 | `policydb-timeline` | Timeline engine, milestone health, accountability tracking |
+| `policydb-review` | Review queue, slideover, gate conditions, anomaly engine, override flow |
 | `risk-analysis-skill` | Client risk assessment, coverage strategy, exposure analysis |
 
 ---

@@ -418,7 +418,7 @@ def _process_email(
         sender = email.get("sender", "")
         folder = email.get("folder", "")
         date_str = (email.get("date", "") or "")[:10]
-        snippet = _clean_email_text(email.get("body_snippet", ""))[:1000]
+        snippet = _clean_email_text(email.get("body_snippet", ""))[:2500]
         label_map = {"flagged": "[Outlook Flagged]", "sent": "[Outlook Sent]", "received": "[Outlook Received]"}
         label = label_map.get(category, "[Outlook]")
         recipients = ", ".join(email.get("recipients", [])[:3])

@@ -11,11 +11,36 @@
     {% with ref_tag=issue.issue_uid %}{% include "_ref_tag_pill.html" %}{% endwith %}
   </div>
 
-  {# ── Merge redirect flash banner ── #}
+  {# ── MERGED banner — this issue was merged into another ── #}
+  {% if merged_into_issue %}
+  <div class="bg-amber-50 border-2 border-amber-300 rounded-lg px-5 py-4 mb-4">
+    <div class="flex items-center gap-3">
+      <svg class="w-6 h-6 text-amber-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/>
+      </svg>
+      <div>
+        <div class="text-sm font-semibold text-amber-800">This issue has been merged</div>
+        <div class="text-xs text-amber-700 mt-0.5">
+          All activity now lives under
+          <a href="/issues/{{ merged_into_issue.issue_uid }}"
+             class="font-mono font-semibold text-marsh hover:underline">{{ merged_into_issue.issue_uid }}</a>
+          &mdash; {{ merged_into_issue.subject }}
+        </div>
+      </div>
+      <a href="/issues/{{ merged_into_issue.issue_uid }}"
+         class="ml-auto shrink-0 text-xs font-medium bg-amber-200 hover:bg-amber-300 text-amber-900 rounded px-3 py-1.5 transition-colors">
+        Go to Master Issue &rarr;
+      </a>
+    </div>
+  </div>
+  {% endif %}
+
+  {# ── Merge redirect flash banner (arriving at target from merged link) ── #}
   {% if merged_from_flash %}
   <div class="bg-blue-50 border border-blue-200 rounded-lg px-4 py-2 mb-3 flex items-center justify-between text-sm">
     <span class="text-blue-800">
-      <span class="font-medium">{{ merged_from_flash }}</span> was merged into this issue &mdash; redirected here.
+      <span class="font-medium">{{ merged_from_flash }}</span> was merged into this issue.
     </span>
     <button onclick="this.parentElement.remove()" class="text-blue-400 hover:text-blue-600 ml-4">&times;</button>
   </div>
@@ -258,39 +283,62 @@
       </div>
 
       {# ── Linked Policies Panel ── #}
-      {% if linked_policies %}
       <div class="card overflow-hidden">
-        <div class="px-4 py-2.5 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
-          <span class="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">
-            Linked Policies
-            <span class="text-gray-400 normal-case">({{ linked_policies | length }})</span>
-          </span>
-        </div>
-        <div class="divide-y divide-gray-100">
-          {% for p in linked_policies %}
-          <div class="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 text-sm">
-            <a href="/policies/{{ p.policy_uid }}/edit" class="font-mono text-xs text-marsh hover:underline shrink-0">{{ p.policy_uid }}</a>
-            <span class="text-gray-800 truncate">{{ p.policy_type or '' }}</span>
-            {% if p.carrier %}
-            <span class="text-xs text-gray-500 truncate">{{ p.carrier }}</span>
-            {% endif %}
-            {% if p.premium %}
-            <span class="text-xs text-gray-500 tabular-nums shrink-0 ml-auto">{{ p.premium | currency_short }}</span>
-            {% endif %}
-            {% if p.expiration_date %}
-            <span class="text-[10px] text-gray-400 shrink-0">exp {{ p.expiration_date }}</span>
-            {% endif %}
-            {% if p.renewal_status %}
-            <span class="text-[10px] px-1.5 py-0.5 rounded-full shrink-0
-              {% if p.renewal_status == 'Bound' %}bg-green-100 text-green-700
-              {% elif p.renewal_status == 'In Progress' %}bg-blue-100 text-blue-700
-              {% else %}bg-gray-100 text-gray-600{% endif %}">{{ p.renewal_status }}</span>
-            {% endif %}
+        <div id="linked-policies-panel">
+          <div class="px-4 py-2.5 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
+            <span class="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">
+              Linked Policies
+              <span class="text-gray-400 normal-case">({{ linked_policies | length }})</span>
+            </span>
           </div>
-          {% endfor %}
+          {% if linked_policies %}
+          <div class="divide-y divide-gray-100">
+            {% for p in linked_policies %}
+            <div class="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 text-sm">
+              <a href="/policies/{{ p.policy_uid }}/edit" class="font-mono text-xs text-marsh hover:underline shrink-0">{{ p.policy_uid }}</a>
+              <span class="text-gray-800 truncate">{{ p.policy_type or '' }}</span>
+              {% if p.is_opportunity %}
+              <span class="text-[9px] px-1 py-0.5 rounded bg-purple-100 text-purple-600 shrink-0">OPP</span>
+              {% endif %}
+              {% if p.carrier %}
+              <span class="text-xs text-gray-500 truncate">{{ p.carrier }}</span>
+              {% endif %}
+              {% if p.premium %}
+              <span class="text-xs text-gray-500 tabular-nums shrink-0 ml-auto">{{ p.premium | currency_short }}</span>
+              {% endif %}
+              {% if p.expiration_date %}
+              <span class="text-[10px] text-gray-400 shrink-0">exp {{ p.expiration_date }}</span>
+              {% endif %}
+              {% if p.renewal_status %}
+              <span class="text-[10px] px-1.5 py-0.5 rounded-full shrink-0
+                {% if p.renewal_status == 'Bound' %}bg-green-100 text-green-700
+                {% elif p.renewal_status == 'In Progress' %}bg-blue-100 text-blue-700
+                {% else %}bg-gray-100 text-gray-600{% endif %}">{{ p.renewal_status }}</span>
+              {% endif %}
+              {% if p._junction %}
+              <button hx-post="/issues/{{ issue.id }}/policies/{{ p.id }}/remove"
+                      hx-target="#linked-policies-panel" hx-swap="innerHTML"
+                      class="text-gray-300 hover:text-red-500 text-xs ml-1 shrink-0 no-print"
+                      title="Remove">&times;</button>
+              {% endif %}
+            </div>
+            {% endfor %}
+          </div>
+          {% endif %}
+        </div>
+        {# ── Add Policy search ── #}
+        <div class="px-4 py-2.5 border-t border-gray-100 no-print">
+          <div class="relative" id="policy-link-search">
+            <input type="text" id="policy-link-input"
+                   placeholder="Search policies to link…"
+                   autocomplete="off"
+                   class="w-full text-xs border border-gray-200 rounded px-2.5 py-1.5 focus:ring-marsh focus:border-marsh placeholder-gray-400"
+                   oninput="searchPoliciesToLink(this.value)"
+                   onfocus="if(this.value.length) searchPoliciesToLink(this.value)">
+            <div id="policy-link-results" class="absolute z-20 left-0 right-0 mt-1 bg-white border border-gray-200 rounded shadow-lg max-h-48 overflow-y-auto hidden"></div>
+          </div>
         </div>
       </div>
-      {% endif %}
     </div>
 
     {# ── Right: Context Sidebar ── #}
@@ -628,5 +676,51 @@ function issueSetDueDate(val) {
     else if (r.ok) { window.location.reload(); }
   });
 }
+
+/* ── Policy link search ── */
+let _plTimer = null;
+function searchPoliciesToLink(q) {
+  clearTimeout(_plTimer);
+  const box = document.getElementById('policy-link-results');
+  if (q.length < 1) { box.classList.add('hidden'); return; }
+  _plTimer = setTimeout(function() {
+    fetch('/issues/{{ issue.id }}/policies/search?q=' + encodeURIComponent(q))
+      .then(r => r.json())
+      .then(items => {
+        if (!items.length) {
+          box.innerHTML = '<div class="px-3 py-2 text-xs text-gray-400">No matching policies</div>';
+          box.classList.remove('hidden');
+          return;
+        }
+        box.innerHTML = items.map(p =>
+          '<button type="button" class="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 truncate" ' +
+          'onclick="linkPolicy(' + p.id + ')">' + p.label + '</button>'
+        ).join('');
+        box.classList.remove('hidden');
+      });
+  }, 200);
+}
+
+function linkPolicy(policyId) {
+  const box = document.getElementById('policy-link-results');
+  const input = document.getElementById('policy-link-input');
+  box.classList.add('hidden');
+  input.value = '';
+  const fd = new FormData();
+  fd.append('policy_id', policyId);
+  fetch('/issues/{{ issue.id }}/policies/add', {method: 'POST', body: fd})
+    .then(r => r.text())
+    .then(html => {
+      document.getElementById('linked-policies-panel').innerHTML = html;
+      htmx.process(document.getElementById('linked-policies-panel'));
+    });
+}
+
+document.addEventListener('click', function(e) {
+  const search = document.getElementById('policy-link-search');
+  if (search && !search.contains(e.target)) {
+    document.getElementById('policy-link-results').classList.add('hidden');
+  }
+});
 </script>
 {% endblock %}

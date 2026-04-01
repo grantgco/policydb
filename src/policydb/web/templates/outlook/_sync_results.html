@@ -38,7 +38,6 @@
 
   <div class="text-xs text-gray-400 mb-3">{{ total_scanned }} emails scanned</div>
 
-  {# ── Suggestions (fuzzy matches needing confirmation) ── #}
   {# ── Flagged-to-inbox note ── #}
   {% if auto_linked.flagged %}
   <div class="text-[10px] text-gray-500 mb-3">
@@ -47,56 +46,11 @@
   </div>
   {% endif %}
 
+  {# ── Unmatched-to-inbox note ── #}
   {% if suggestions %}
-  <div class="border-t pt-3">
-    <div class="text-xs font-medium text-gray-700 mb-2">Suggestions ({{ suggestions|length }})</div>
-    <div class="space-y-2 max-h-60 overflow-y-auto">
-      {% for s in suggestions %}
-      <div id="suggestion-{{ s.activity_id }}" class="flex items-center justify-between bg-amber-50 border border-amber-200 rounded px-3 py-2">
-        <div class="flex-1 min-w-0 mr-3">
-          <div class="text-xs font-medium text-gray-900 truncate">{{ s.subject }}</div>
-          <div class="text-[10px] text-gray-500">
-            {{ s.sender }} &middot; {{ s.date[:10] if s.date else '' }}
-            <span class="text-amber-600">&middot; {{ s.confidence }}% match</span>
-          </div>
-        </div>
-        <div class="flex items-center gap-1.5 shrink-0">
-          <button onclick="confirmSuggestion({{ s.activity_id }})"
-                  class="text-[10px] font-medium text-green-700 bg-green-100 hover:bg-green-200 rounded px-2 py-1 transition-colors">
-            Confirm
-          </button>
-          <button onclick="dismissSuggestion({{ s.activity_id }})"
-                  class="text-[10px] font-medium text-red-700 bg-red-100 hover:bg-red-200 rounded px-2 py-1 transition-colors">
-            Dismiss
-          </button>
-        </div>
-      </div>
-      {% endfor %}
-    </div>
+  <div class="text-[10px] text-gray-500">
+    {{ suggestions|length }} unmatched email{{ 's' if suggestions|length != 1 }} sent to
+    <a href="/action-center?tab=inbox" class="text-blue-500 hover:underline">Inbox</a> for triage.
   </div>
   {% endif %}
 </div>
-
-<script>
-function confirmSuggestion(activityId) {
-  fetch('/outlook/sync/confirm/' + activityId, {method: 'POST'})
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
-      if (data.ok) {
-        var el = document.getElementById('suggestion-' + activityId);
-        if (el) { el.innerHTML = '<div class="text-xs text-green-600 py-1">Confirmed</div>'; }
-      }
-    });
-}
-
-function dismissSuggestion(activityId) {
-  fetch('/outlook/sync/dismiss/' + activityId, {method: 'POST'})
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
-      if (data.ok) {
-        var el = document.getElementById('suggestion-' + activityId);
-        if (el) el.remove();
-      }
-    });
-}
-</script>
