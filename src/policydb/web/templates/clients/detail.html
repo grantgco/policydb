@@ -46,10 +46,10 @@
 {% include "_pinned_notes_banner.html" %}
 
 {# ── 2-Column Layout: Tabs + Sidebar ── #}
-<div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+<div class="grid grid-cols-1 xl:grid-cols-3 gap-4">
 
   {# Left: Tab Bar + Tab Content #}
-  <div class="lg:col-span-2">
+  <div class="xl:col-span-2">
     <div id="client-tabs">
       <div class="tab-bar">
         <button class="tab-btn active" data-tab="overview"
@@ -91,8 +91,8 @@
     </div>
   </div>
 
-  {# Right: Sticky Sidebar #}
-  <div>
+  {# Right: Sticky Sidebar (xl+ only — lg overlaps tabbed content) #}
+  <div class="hidden xl:block">
     {% include "clients/_sticky_sidebar.html" %}
   </div>
 
