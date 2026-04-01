@@ -51,6 +51,14 @@
       <div class="text-center py-6 text-gray-300 text-xs">Loading exposures...</div>
     </div>
 
+    {# ── Compliance / Contract Review ── #}
+    <div class="mt-6" id="project-compliance-section"
+         hx-get="/compliance/client/{{ client.id }}/location/{{ project.id }}/embed"
+         hx-trigger="load"
+         hx-swap="innerHTML">
+      <div class="text-center py-6 text-gray-300 text-xs">Loading compliance review...</div>
+    </div>
+
   </div>
 
   {# ── Right sidebar ── #}

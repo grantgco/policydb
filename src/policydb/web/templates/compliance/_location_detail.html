@@ -17,8 +17,10 @@
         {% if source_ids %} from {{ source_ids | length }} source{{ 's' if source_ids | length != 1 else '' }}{% endif %}
       </p>
     </div>
+    {% if location_index is defined %}
     <button class="text-xs text-gray-400 hover:text-gray-600 no-print"
             onclick="document.getElementById('location-tab-content').innerHTML = ''">Close &times;</button>
+    {% endif %}
   </div>
 
   {# Group requirements by source #}
@@ -226,12 +228,6 @@
     {% endfor %}
   </div>
 
-  {# COPE Data — lazy loaded #}
-  <div class="px-5"
-       hx-get="/compliance/client/{{ client_id }}/location/{{ project.id }}/cope"
-       hx-trigger="load once"
-       hx-swap="innerHTML"></div>
-
   {# Policies covering this location #}
   {% if loc.policies %}
   <div class="px-5 py-3 bg-gray-50 border-t border-gray-100">
@@ -242,6 +238,7 @@
         <div class="flex items-center gap-2">
           <span class="font-mono text-xs text-gray-400 group-hover:text-marsh">{{ pol.policy_uid }}</span>
           <span class="text-xs font-medium text-gray-800">{{ pol.policy_type or 'Unknown' }}</span>
+          {% if pol.is_opportunity %}<span class="text-[9px] bg-purple-100 text-purple-600 px-1 rounded">OPP</span>{% endif %}
           {% if not pol.project_id %}<span class="text-[10px] bg-gray-100 text-gray-500 px-1 rounded">Corporate</span>{% endif %}
         </div>
         <div class="flex items-center gap-3 mt-0.5 text-[11px] text-gray-500">
@@ -254,6 +251,38 @@
     </div>
   </div>
   {% endif %}
+
+  {# Issues for this location #}
+  {% if location_issues %}
+  <div class="px-5 py-3 border-t border-gray-100">
+    <span class="text-xs uppercase tracking-wider text-gray-400">Issues ({{ location_issues | length }})</span>
+    <div class="space-y-1.5 mt-2">
+      {% for iss in location_issues %}
+      <a href="/issues/{{ iss.issue_uid }}" class="flex items-center gap-3 bg-white border border-gray-200 px-3 py-2 rounded hover:border-marsh hover:shadow-sm transition-all group">
+        <span class="font-mono text-xs text-gray-400 group-hover:text-marsh shrink-0">{{ iss.issue_uid }}</span>
+        <span class="text-xs text-gray-800 truncate flex-1">{{ iss.subject }}</span>
+        {% if iss.issue_severity and iss.issue_severity != 'Normal' %}
+        <span class="text-[9px] px-1.5 py-0.5 rounded shrink-0
+          {% if iss.issue_severity == 'Critical' %}bg-red-100 text-red-700
+          {% elif iss.issue_severity == 'High' %}bg-amber-100 text-amber-700
+          {% else %}bg-gray-100 text-gray-600{% endif %}">{{ iss.issue_severity }}</span>
+        {% endif %}
+        <span class="text-[9px] px-1.5 py-0.5 rounded shrink-0
+          {% if iss.issue_status == 'Open' %}bg-red-50 text-red-600
+          {% elif iss.issue_status == 'In Hand' %}bg-blue-50 text-blue-600
+          {% elif iss.issue_status == 'Waiting' %}bg-amber-50 text-amber-600
+          {% else %}bg-gray-100 text-gray-500{% endif %}">{{ iss.issue_status or 'Open' }}</span>
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {# COPE Data — lazy loaded #}
+  <div class="px-5"
+       hx-get="/compliance/client/{{ client_id }}/location/{{ project.id }}/cope"
+       hx-trigger="load once"
+       hx-swap="innerHTML"></div>
 </div>
 
 {# Location navigation footer #}

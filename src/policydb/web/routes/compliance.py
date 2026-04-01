@@ -14,10 +14,13 @@ from rapidfuzz import fuzz
 from policydb import config as cfg
 from policydb.compliance import (
     compute_auto_status,
+    compute_compliance_summary,
     get_client_compliance_data,
     get_linkable_policies,
+    get_location_requirements,
     get_requirement_links,
     link_policy_to_requirement,
+    resolve_governing_requirements,
     set_primary_link,
     unlink_policy_from_requirement,
     get_risk_review_prompts,
@@ -1457,6 +1460,22 @@ def location_detail(
     ctx["location_data"] = location_data
     ctx["project"] = location_data["project"] if location_data else {}
 
+    # Issues for this location (via policies linked to this project)
+    ctx["location_issues"] = [dict(r) for r in conn.execute("""
+        SELECT a.id, a.issue_uid, a.subject, a.issue_status, a.issue_severity,
+               a.activity_date, p.policy_uid
+        FROM activity_log a
+        JOIN policies p ON p.id = a.policy_id
+        WHERE a.item_kind = 'issue'
+          AND p.project_id = ?
+          AND a.resolved_date IS NULL
+        ORDER BY
+          CASE a.issue_severity
+            WHEN 'Critical' THEN 0 WHEN 'High' THEN 1 WHEN 'Normal' THEN 2 ELSE 3
+          END,
+          a.activity_date DESC
+    """, (project_id,)).fetchall()]
+
     # Add navigation context for "Next location →" footer
     locs = ctx.get("locations", [])
     idx = next((i for i, l in enumerate(locs) if l["project"]["id"] == project_id), 0)
@@ -1465,6 +1484,81 @@ def location_detail(
     ctx["next_location"] = locs[idx + 1]["project"] if idx + 1 < len(locs) else None
 
     return templates.TemplateResponse("compliance/_location_detail.html", ctx)
+
+
+@router.get("/client/{client_id}/location/{project_id}/embed", response_class=HTMLResponse)
+def location_detail_embed(
+    client_id: int,
+    project_id: int,
+    request: Request,
+    conn=Depends(get_db),
+):
+    """Lightweight compliance panel for embedding in the project detail page.
+
+    Builds only the data needed for a single location — avoids the full
+    _compliance_context() which loads all locations for the client.
+    """
+    reqs = get_location_requirements(conn, client_id, project_id)
+    governing = resolve_governing_requirements(reqs)
+    summary = compute_compliance_summary(governing)
+
+    project = conn.execute(
+        "SELECT * FROM projects WHERE id=? AND client_id=?",
+        (project_id, client_id),
+    ).fetchone()
+    if not project:
+        return HTMLResponse("")
+
+    policies = [dict(r) for r in conn.execute(
+        "SELECT * FROM policies WHERE project_id=? AND archived=0 ORDER BY policy_type",
+        (project_id,),
+    ).fetchall()]
+
+    linkable = get_linkable_policies(conn, client_id)
+    sources = [dict(r) for r in conn.execute(
+        "SELECT * FROM requirement_sources WHERE client_id=? ORDER BY name",
+        (client_id,),
+    ).fetchall()]
+
+    # Issues for this location
+    location_issues = [dict(r) for r in conn.execute("""
+        SELECT a.id, a.issue_uid, a.subject, a.issue_status, a.issue_severity,
+               a.activity_date, p.policy_uid
+        FROM activity_log a
+        JOIN policies p ON p.id = a.policy_id
+        WHERE a.item_kind = 'issue'
+          AND p.project_id = ?
+          AND a.resolved_date IS NULL
+        ORDER BY
+          CASE a.issue_severity
+            WHEN 'Critical' THEN 0 WHEN 'High' THEN 1 WHEN 'Normal' THEN 2 ELSE 3
+          END,
+          a.activity_date DESC
+    """, (project_id,)).fetchall()]
+
+    location_data = {
+        "project": dict(project),
+        "requirements": reqs,
+        "governing": governing,
+        "summary": summary,
+        "policies": policies,
+    }
+
+    return templates.TemplateResponse("compliance/_location_detail.html", {
+        "request": request,
+        "client_id": client_id,
+        "location_data": location_data,
+        "project": dict(project),
+        "location_issues": location_issues,
+        "sources": sources,
+        "all_policies": policies,
+        "linkable_policies": linkable,
+        "compliance_statuses": cfg.get("compliance_statuses", []),
+        "deductible_types": cfg.get("deductible_types", []),
+        "policy_types": cfg.get("policy_types", []),
+        "endorsement_types": cfg.get("endorsement_types", []),
+        # No location_index — suppresses nav footer and close button
+    })
 
 
 # ── COPE Data ─────────────────────────────────────────────────────────────────
