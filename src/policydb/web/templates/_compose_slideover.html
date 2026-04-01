@@ -320,6 +320,16 @@
   };
 
   window.openComposeInMail = function() {
+    // Warn if formatting options will be lost in mailto fallback
+    var formalCheck = document.getElementById('compose-formal');
+    var tableCheck = document.getElementById('compose-include-table');
+    var lostOptions = [];
+    if (formalCheck && formalCheck.checked) lostOptions.push('formal formatting');
+    if (tableCheck && tableCheck.checked) lostOptions.push('policy table');
+    if (lostOptions.length && typeof showToast === 'function') {
+      showToast('Note: ' + lostOptions.join(' and ') + ' not available in mail client \u2014 plain text only', false);
+    }
+
     var toEl = document.getElementById('compose-to-email');
     var toEmail = toEl ? toEl.value : '';
     var subject = document.getElementById('compose-subject').value || '';
