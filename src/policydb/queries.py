@@ -979,7 +979,9 @@ def get_all_followups(
     WHERE p.follow_up_date IS NOT NULL AND p.archived = 0
       AND NOT EXISTS (
           SELECT 1 FROM activity_log a
-          WHERE a.policy_id = p.id
+          WHERE (a.policy_id = p.id
+                 OR (a.issue_id IN (SELECT ipc.issue_id FROM v_issue_policy_coverage ipc WHERE ipc.policy_id = p.id)
+                     AND a.item_kind != 'issue'))
             AND a.follow_up_done = 0
             AND a.follow_up_date IS NOT NULL
       )
@@ -1459,13 +1461,17 @@ def get_suggested_followups(
       )
       AND NOT EXISTS (
         SELECT 1 FROM activity_log al
-        WHERE al.policy_id = p.id
+        WHERE (al.policy_id = p.id
+               OR (al.issue_id IN (SELECT ipc.issue_id FROM v_issue_policy_coverage ipc WHERE ipc.policy_id = p.id)
+                   AND al.item_kind != 'issue'))
           AND al.follow_up_done = 0
           AND al.follow_up_date IS NOT NULL
       )
       AND NOT EXISTS (
         SELECT 1 FROM activity_log al
-        WHERE al.policy_id = p.id
+        WHERE (al.policy_id = p.id
+               OR (al.issue_id IN (SELECT ipc.issue_id FROM v_issue_policy_coverage ipc WHERE ipc.policy_id = p.id)
+                   AND al.item_kind != 'issue'))
           AND al.follow_up_done = 0
           AND al.disposition IN (
             'Waiting on Client', 'Waiting on Carrier', 'Waiting on Colleague',
