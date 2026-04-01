@@ -49,6 +49,17 @@ def _resolve_primary_contact(conn: sqlite3.Connection, client_id: int, fallback_
     return fallback_name, fallback_email
 
 
+def _resolve_primary_org(conn: sqlite3.Connection, client_id: int) -> str:
+    """Return the organization of the flagged primary contact, or empty string."""
+    row = conn.execute(
+        """SELECT co.organization FROM contact_client_assignments cca
+           JOIN contacts co ON cca.contact_id = co.id
+           WHERE cca.client_id=? AND cca.is_primary=1 AND cca.contact_type='client'""",
+        (client_id,),
+    ).fetchone()
+    return (row["organization"] or "") if row else ""
+
+
 def _fmt_currency(v) -> str:
     if v is None or v == "":
         return ""
@@ -510,7 +521,7 @@ def _client_tokens(conn: sqlite3.Connection, client_id: int, row) -> dict:
         "primary_email": primary_email,
         "contact_phone": row.get("contact_phone") or "",
         "contact_mobile": row.get("contact_mobile") or "",
-        "contact_organization": "",  # Populated per-contact if needed
+        "contact_organization": _resolve_primary_org(conn, client_id),
         "preferred_contact_method": row.get("preferred_contact_method") or "",
         "account_exec": row.get("account_exec") or "",
         "website": row.get("website") or "",
