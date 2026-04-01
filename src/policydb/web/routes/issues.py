@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, Form, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
 from rapidfuzz import fuzz
 
@@ -443,6 +443,194 @@ async def unlink_activity_from_issue(issue_id: int, activity_id: int, conn=Depen
     return HTMLResponse("")
 
 
+# ── Issue policy linking ─────────────────────────────────────────────────────
+
+
+@router.get("/issues/{issue_id}/policies/search")
+def search_issue_policies(issue_id: int, q: str = Query(""), conn=Depends(get_db)):
+    """Return client policies available to link to this issue (includes opportunities)."""
+    issue = conn.execute(
+        "SELECT client_id FROM activity_log WHERE id = ?", (issue_id,)
+    ).fetchone()
+    if not issue:
+        return JSONResponse([])
+
+    # Already-linked policy IDs (direct FK + junction)
+    linked_ids = set()
+    row = conn.execute(
+        "SELECT policy_id FROM activity_log WHERE id = ?", (issue_id,)
+    ).fetchone()
+    if row and row["policy_id"]:
+        linked_ids.add(row["policy_id"])
+    for r in conn.execute(
+        "SELECT policy_id FROM issue_policies WHERE issue_id = ?", (issue_id,)
+    ).fetchall():
+        linked_ids.add(r["policy_id"])
+
+    term = f"%{q}%"
+    rows = conn.execute("""
+        SELECT p.id, p.policy_uid, p.policy_type, p.carrier, p.is_opportunity,
+               pr.name AS location_name
+        FROM policies p
+        LEFT JOIN projects pr ON pr.id = p.project_id
+        WHERE p.client_id = ? AND p.archived = 0
+          AND (p.policy_uid LIKE ? OR p.policy_type LIKE ? OR p.carrier LIKE ?
+               OR pr.name LIKE ?)
+        ORDER BY p.policy_uid
+        LIMIT 20
+    """, (issue["client_id"], term, term, term, term)).fetchall()
+
+    results = []
+    for r in rows:
+        if r["id"] not in linked_ids:
+            label = r["policy_uid"]
+            if r["policy_type"]:
+                label += f" — {r['policy_type']}"
+            if r["carrier"]:
+                label += f" ({r['carrier']})"
+            if r["location_name"]:
+                label += f" @ {r['location_name']}"
+            if r["is_opportunity"]:
+                label += " [OPP]"
+            results.append({"id": r["id"], "label": label, "policy_uid": r["policy_uid"]})
+    return JSONResponse(results)
+
+
+@router.post("/issues/{issue_id}/policies/add")
+def add_issue_policy(issue_id: int, policy_id: int = Form(...), conn=Depends(get_db)):
+    """Link a policy to an issue via junction table."""
+    conn.execute(
+        "INSERT OR IGNORE INTO issue_policies (issue_id, policy_id) VALUES (?, ?)",
+        (issue_id, policy_id),
+    )
+    conn.commit()
+    return _render_linked_policies_panel(issue_id, conn)
+
+
+@router.post("/issues/{issue_id}/policies/{policy_id}/remove")
+def remove_issue_policy(issue_id: int, policy_id: int, conn=Depends(get_db)):
+    """Unlink a policy from an issue (junction table only, not the primary FK)."""
+    conn.execute(
+        "DELETE FROM issue_policies WHERE issue_id = ? AND policy_id = ?",
+        (issue_id, policy_id),
+    )
+    conn.commit()
+    return _render_linked_policies_panel(issue_id, conn)
+
+
+def _render_linked_policies_panel(issue_id: int, conn) -> HTMLResponse:
+    """Return the updated linked-policies panel partial."""
+    issue = conn.execute(
+        "SELECT policy_id, program_id FROM activity_log WHERE id = ?", (issue_id,)
+    ).fetchone()
+    linked = _get_linked_policies(conn, issue_id, issue)
+    html_parts = []
+    for p in linked:
+        is_junction = p.get("_junction")
+        remove_btn = ""
+        if is_junction:
+            remove_btn = (
+                f'<button hx-post="/issues/{issue_id}/policies/{p["id"]}/remove" '
+                f'hx-target="#linked-policies-panel" hx-swap="innerHTML" '
+                f'class="text-gray-300 hover:text-red-500 text-xs ml-1 shrink-0 no-print" '
+                f'title="Remove">&times;</button>'
+            )
+        opp_badge = ""
+        if p.get("is_opportunity"):
+            opp_badge = '<span class="text-[9px] px-1 py-0.5 rounded bg-purple-100 text-purple-600 shrink-0">OPP</span>'
+        status_badge = ""
+        if p.get("renewal_status"):
+            cls = "bg-gray-100 text-gray-600"
+            if p["renewal_status"] == "Bound":
+                cls = "bg-green-100 text-green-700"
+            elif p["renewal_status"] == "In Progress":
+                cls = "bg-blue-100 text-blue-700"
+            status_badge = f'<span class="text-[10px] px-1.5 py-0.5 rounded-full shrink-0 {cls}">{p["renewal_status"]}</span>'
+        premium_str = ""
+        if p.get("premium"):
+            premium_str = f'<span class="text-xs text-gray-500 tabular-nums shrink-0 ml-auto">${p["premium"]:,.0f}</span>'
+        exp_str = ""
+        if p.get("expiration_date"):
+            exp_str = f'<span class="text-[10px] text-gray-400 shrink-0">exp {p["expiration_date"]}</span>'
+        carrier_str = ""
+        if p.get("carrier"):
+            carrier_str = f'<span class="text-xs text-gray-500 truncate">{p["carrier"]}</span>'
+        html_parts.append(
+            f'<div class="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 text-sm">'
+            f'<a href="/policies/{p["policy_uid"]}/edit" class="font-mono text-xs text-marsh hover:underline shrink-0">{p["policy_uid"]}</a>'
+            f'<span class="text-gray-800 truncate">{p.get("policy_type") or ""}</span>'
+            f'{opp_badge}{carrier_str}'
+            f'{premium_str}{exp_str}{status_badge}{remove_btn}'
+            f'</div>'
+        )
+    count = len(linked)
+    header = (
+        f'<div class="px-4 py-2.5 bg-gray-50 border-b border-gray-200 flex items-center justify-between">'
+        f'<span class="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">'
+        f'Linked Policies <span class="text-gray-400 normal-case">({count})</span></span></div>'
+    )
+    body = f'<div class="divide-y divide-gray-100">{"".join(html_parts)}</div>' if html_parts else ""
+    return HTMLResponse(header + body)
+
+
+def _get_linked_policies(conn, issue_id: int, issue) -> list[dict]:
+    """Gather all linked policies: direct FK + program + junction table."""
+    linked = []
+    seen_ids = set()
+
+    # Direct FK
+    if issue and issue["policy_id"]:
+        rows = conn.execute("""
+            SELECT p.id, p.policy_uid, p.policy_type, p.carrier, p.premium,
+                   p.expiration_date, p.renewal_status, p.is_opportunity,
+                   pr.name AS location_name
+            FROM policies p
+            LEFT JOIN projects pr ON pr.id = p.project_id
+            WHERE p.id = ? AND p.archived = 0
+        """, (issue["policy_id"],)).fetchall()
+        for r in rows:
+            d = dict(r)
+            seen_ids.add(d["id"])
+            linked.append(d)
+
+    # Program siblings
+    if issue and issue["program_id"]:
+        rows = conn.execute("""
+            SELECT p.id, p.policy_uid, p.policy_type, p.carrier, p.premium,
+                   p.expiration_date, p.renewal_status, p.is_opportunity,
+                   pr.name AS location_name
+            FROM policies p
+            LEFT JOIN projects pr ON pr.id = p.project_id
+            WHERE p.program_id = ? AND p.archived = 0
+            ORDER BY p.policy_type
+        """, (issue["program_id"],)).fetchall()
+        for r in rows:
+            d = dict(r)
+            if d["id"] not in seen_ids:
+                seen_ids.add(d["id"])
+                linked.append(d)
+
+    # Junction table
+    rows = conn.execute("""
+        SELECT p.id, p.policy_uid, p.policy_type, p.carrier, p.premium,
+               p.expiration_date, p.renewal_status, p.is_opportunity,
+               pr.name AS location_name
+        FROM issue_policies ip
+        JOIN policies p ON p.id = ip.policy_id
+        LEFT JOIN projects pr ON pr.id = p.project_id
+        WHERE ip.issue_id = ? AND p.archived = 0
+        ORDER BY p.policy_uid
+    """, (issue_id,)).fetchall()
+    for r in rows:
+        d = dict(r)
+        if d["id"] not in seen_ids:
+            d["_junction"] = True
+            seen_ids.add(d["id"])
+            linked.append(d)
+
+    return linked
+
+
 # ── Issue detail page ────────────────────────────────────────────────────────
 
 
@@ -481,12 +669,13 @@ def issue_detail(
     issue = dict(issue)
     issue_id = issue["id"]
 
-    # Redirect merged issues to their target
+    # Resolve the final merge target for display (follow chain)
+    merged_into_issue = None
     if issue.get("merged_into_id"):
         cur_id = issue["merged_into_id"]
         for _ in range(10):  # guard against cycles
             row = conn.execute(
-                "SELECT id, issue_uid, merged_into_id FROM activity_log WHERE id = ?",
+                "SELECT id, issue_uid, subject, merged_into_id FROM activity_log WHERE id = ?",
                 (cur_id,),
             ).fetchone()
             if not row:
@@ -494,10 +683,8 @@ def issue_detail(
             if row["merged_into_id"]:
                 cur_id = row["merged_into_id"]
             else:
-                return RedirectResponse(
-                    f"/issues/{row['issue_uid']}?merged_from={issue['issue_uid']}",
-                    status_code=303,
-                )
+                merged_into_issue = dict(row)
+                break
 
     # Get linked activities (threaded into this issue)
     activities = [dict(r) for r in conn.execute("""
@@ -549,32 +736,8 @@ def issue_detail(
                 ORDER BY pt.ideal_date
             """, (issue["program_id"],)).fetchall()]
 
-    # Linked policies: direct policy + program siblings
-    linked_policies = []
-    if issue.get("policy_id"):
-        linked_policies = [dict(r) for r in conn.execute("""
-            SELECT p.policy_uid, p.policy_type, p.carrier, p.premium,
-                   p.expiration_date, p.renewal_status, p.project_name,
-                   pr.name AS location_name
-            FROM policies p
-            LEFT JOIN projects pr ON pr.id = p.project_id
-            WHERE p.id = ? AND p.archived = 0
-        """, (issue["policy_id"],)).fetchall()]
-    if issue.get("program_id"):
-        # Add all policies in the program
-        program_policies = [dict(r) for r in conn.execute("""
-            SELECT p.policy_uid, p.policy_type, p.carrier, p.premium,
-                   p.expiration_date, p.renewal_status, p.project_name,
-                   pr.name AS location_name
-            FROM policies p
-            LEFT JOIN projects pr ON pr.id = p.project_id
-            WHERE p.program_id = ? AND p.archived = 0
-            ORDER BY p.policy_type
-        """, (issue["program_id"],)).fetchall()]
-        existing_uids = {lp["policy_uid"] for lp in linked_policies}
-        for pp in program_policies:
-            if pp["policy_uid"] not in existing_uids:
-                linked_policies.append(pp)
+    # Linked policies: direct FK + program siblings + junction table
+    linked_policies = _get_linked_policies(conn, issue_id, issue)
 
     ctx = {
         "request": request,
@@ -592,6 +755,7 @@ def issue_detail(
         "activity_types": cfg.get("activity_types", []),
         "follow_up_dispositions": cfg.get("follow_up_dispositions", []),
         "timeline_milestones": timeline_milestones,
+        "merged_into_issue": merged_into_issue,
         "today": date.today().isoformat(),
     }
     return templates.TemplateResponse("issues/detail.html", ctx)

@@ -569,13 +569,13 @@ def policy_slideover_issues(request: Request, uid: str, conn=Depends(get_db)):
                a.due_date
         FROM activity_log a
         WHERE a.item_kind = 'issue'
-          AND (a.policy_id = ? OR (a.client_id = ? AND a.policy_id IS NULL))
+          AND a.policy_id = ?
           AND a.issue_status NOT IN ('Resolved', 'Closed')
         ORDER BY CASE a.issue_severity
             WHEN 'Critical' THEN 1 WHEN 'High' THEN 2
             WHEN 'Normal' THEN 3 ELSE 4 END,
             a.activity_date ASC
-    """, (row["id"], row["client_id"])).fetchall()]
+    """, (row["id"],)).fetchall()]
     return templates.TemplateResponse("review/_policy_review_issues.html", {
         "request": request,
         "issues": issues,

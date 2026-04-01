@@ -1698,6 +1698,15 @@ def init_db(path: Path | None = None) -> None:
         conn.commit()
         logger.info("Migration 123: added email metadata columns to inbox")
 
+    if 124 not in applied:
+        conn.executescript((_MIGRATIONS_DIR / "124_issue_policies.sql").read_text())
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (124, "Junction table for linking multiple policies to an issue"),
+        )
+        conn.commit()
+        logger.info("Migration 124: created issue_policies junction table")
+
     # Data hygiene: fix 'None' string corruption in text fields (runs every startup, fast no-op if clean)
     conn.execute("UPDATE clients SET cn_number = NULL WHERE cn_number = 'None'")
 

@@ -168,23 +168,3 @@ def outlook_sync(request: Request, conn=Depends(get_db)):
     })
 
 
-@router.post("/sync/confirm/{activity_id}")
-def outlook_sync_confirm(activity_id: int, conn=Depends(get_db)):
-    """Confirm a fuzzy-match suggestion — link the imported activity to the matched record."""
-    conn.execute(
-        "UPDATE activity_log SET source='outlook_sync' WHERE id=? AND source='outlook_suggestion'",
-        (activity_id,),
-    )
-    conn.commit()
-    return JSONResponse({"ok": True})
-
-
-@router.post("/sync/dismiss/{activity_id}")
-def outlook_sync_dismiss(activity_id: int, conn=Depends(get_db)):
-    """Dismiss a fuzzy-match suggestion — delete the pending activity."""
-    conn.execute(
-        "DELETE FROM activity_log WHERE id=? AND source='outlook_suggestion'",
-        (activity_id,),
-    )
-    conn.commit()
-    return JSONResponse({"ok": True})
