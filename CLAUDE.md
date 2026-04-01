@@ -259,6 +259,7 @@ Specialized reference docs are available as on-demand skills:
 | `policydb-copy-table` | Clipboard rich-paste buttons, Outlook-safe HTML tables |
 | `policydb-spreadsheet` | Tabulator grid component, initSpreadsheet() API |
 | `policydb-activities` | Activity lifecycle, follow-up buckets, issue tracking, auto-close, escalation tiers |
+| `policydb-exports` | XLSX theming, CSV, HTML copy-table, _write_sheet(), build_generic_table() |
 | `policydb-reconciler` | Reconciliation scoring, pairing board UI pattern |
 | `policydb-timeline` | Timeline engine, milestone health, accountability tracking |
 | `policydb-review` | Review queue, slideover, gate conditions, anomaly engine, override flow |
