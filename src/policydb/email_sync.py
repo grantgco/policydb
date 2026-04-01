@@ -177,17 +177,24 @@ def _create_or_enrich_activity(
     """
     message_id = email.get("message_id", "")
 
-    # Dedup check
+    # Dedup check — per message_id + policy_id so multi-tag emails
+    # can create separate activities for different policies
+    policy_id = match.get("policy_id")
     if message_id:
-        existing = conn.execute(
-            "SELECT id FROM activity_log WHERE outlook_message_id=?",
-            (message_id,),
-        ).fetchone()
+        if policy_id:
+            existing = conn.execute(
+                "SELECT id FROM activity_log WHERE outlook_message_id=? AND policy_id=?",
+                (message_id, policy_id),
+            ).fetchone()
+        else:
+            existing = conn.execute(
+                "SELECT id FROM activity_log WHERE outlook_message_id=? AND policy_id IS NULL",
+                (message_id,),
+            ).fetchone()
         if existing:
             return {"action": "skipped", "activity_id": existing["id"], "reason": "duplicate"}
 
     client_id = match.get("client_id") or 0
-    policy_id = match.get("policy_id")
     issue_id = match.get("issue_id")
 
     # Can't create activity without a client
@@ -377,15 +384,19 @@ def _process_email(
     combined_text = email.get("subject", "") + " " + body
     tags = _extract_ref_tags(combined_text)
 
-    # Try ref tag matching first
-    match = None
+    # Resolve ALL tags — one activity per unique (client_id, policy_id) pair
+    matches: list[dict] = []
+    seen_pairs: set[tuple] = set()
     if tags:
         for tag in tags:
             match = _resolve_ref_tag(conn, tag)
             if match:
-                break
+                pair = (match.get("client_id"), match.get("policy_id"))
+                if pair not in seen_pairs:
+                    seen_pairs.add(pair)
+                    matches.append(match)
 
-    if not match:
+    if not matches:
         # No ref tag match — send to inbox for triage
         # (all categories: sent, received, flagged — never silently drop)
         message_id = email.get("message_id", "")
@@ -429,9 +440,10 @@ def _process_email(
         })
         return
 
-    result = _create_or_enrich_activity(conn, email, match)
-
-    if result["action"] == "skipped":
-        results["skipped"] += 1
-    elif result["action"] in ("created", "enriched"):
-        results["auto_linked"][category] += 1
+    # Create one activity per unique match
+    for match in matches:
+        result = _create_or_enrich_activity(conn, email, match)
+        if result["action"] == "skipped":
+            results["skipped"] += 1
+        elif result["action"] in ("created", "enriched"):
+            results["auto_linked"][category] += 1
