@@ -119,10 +119,17 @@
       <div class="card p-4">
         <div class="flex items-center justify-between mb-3">
           <h2 class="text-sm font-semibold text-gray-900">Activity Timeline</h2>
-          <button onclick="openLinkActivities()"
-                  class="text-xs text-blue-600 border border-blue-200 rounded px-2 py-1 hover:bg-blue-50 transition-colors no-print">
-            + Link Activity
-          </button>
+          <div class="flex items-center gap-2 no-print">
+            <button onclick="openComposeSlideover({context:'issue', issue_uid:'{{ issue.issue_uid }}', client_id:{{ issue.client_id or 0 }}})"
+                    class="text-xs text-marsh border border-blue-200 rounded px-2 py-1 hover:bg-blue-50 transition-colors"
+                    title="Compose email about this issue">
+              Compose Email
+            </button>
+            <button onclick="openLinkActivities()"
+                    class="text-xs text-blue-600 border border-blue-200 rounded px-2 py-1 hover:bg-blue-50 transition-colors">
+              + Link Activity
+            </button>
+          </div>
         </div>
 
         {% if activities %}
@@ -152,6 +159,12 @@
             </div>
             {% if act.details %}
             <p class="text-xs text-gray-500 mt-1 ml-14">{{ act.details[:300] }}</p>
+            {% endif %}
+            {% if act.email_snippet %}
+            <details class="mt-1 ml-14">
+              <summary class="text-[10px] text-blue-500 cursor-pointer hover:text-blue-700">view email content</summary>
+              <div class="text-[10px] text-gray-500 mt-1 whitespace-pre-line leading-relaxed max-h-40 overflow-y-auto bg-gray-50 rounded p-2">{{ act.email_snippet }}</div>
+            </details>
             {% endif %}
             <div class="flex items-center gap-2 mt-1 ml-14 text-[10px]">
               {% if act.disposition %}

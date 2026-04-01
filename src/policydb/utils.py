@@ -668,15 +668,16 @@ def format_city(raw: str) -> str:
 def build_ref_tag(cn_number: str = "", client_id: int = 0,
                   policy_uid: str = "", project_id: int = 0,
                   activity_id: int = 0, thread_id: int = 0,
-                  rfi_uid: str = "") -> str:
+                  rfi_uid: str = "", issue_uid: str = "") -> str:
     """Build hierarchical email reference tag.
 
-    Hierarchy: Client → Location → Policy → Activity/Correspondence/RFI
+    Hierarchy: Client → Location → Policy → Activity/Correspondence/RFI/Issue
     Format:    CN{number}-L{project_id}-{policy_uid}-A{activity_id}
                CN{number}-L{project_id}-{policy_uid}-COR{thread_id}
                CN{number}-RFI{nn}
+               CN{number}-{issue_uid}
 
-    Priority: rfi_uid > thread_id > activity_id
+    Priority: rfi_uid > issue_uid > thread_id > activity_id
 
     Examples:
         build_ref_tag(cn_number="123456789")                          → "CN123456789"
@@ -690,6 +691,8 @@ def build_ref_tag(cn_number: str = "", client_id: int = 0,
                       thread_id=42)                                   → "CN123456789-POL042-COR42"
         build_ref_tag(cn_number="123456789",
                       rfi_uid="CN123456789-RFI01")                    → "CN123456789-RFI01"
+        build_ref_tag(cn_number="123456789",
+                      issue_uid="A7F2C3B1")                           → "CN123456789-A7F2C3B1"
     """
     # Guard against the string "None" (from str(None) data corruption)
     if cn_number in (None, "None", "none", ""):
@@ -701,12 +704,14 @@ def build_ref_tag(cn_number: str = "", client_id: int = 0,
         tag += f"-L{project_id}"
     if policy_uid:
         tag += f"-{policy_uid.replace('-', '')}"
-    # RFI UID takes precedence, then thread ID, then activity ID
+    # RFI UID takes precedence, then issue UID, then thread ID, then activity ID
     if rfi_uid:
         # Extract RFI suffix from full UID (e.g., "CN123-RFI01" → "RFI01")
         rfi_match = re.search(r'(RFI\d+)', rfi_uid, re.IGNORECASE)
         if rfi_match:
             tag += f"-{rfi_match.group(1).upper()}"
+    elif issue_uid:
+        tag += f"-{issue_uid}"
     elif thread_id:
         tag += f"-COR{thread_id}"
     elif activity_id:

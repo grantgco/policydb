@@ -787,6 +787,12 @@ _DEFAULTS: dict[str, Any] = {
     "data_health_threshold": 85,
     "data_health_completeness_weight": 0.7,
     "data_health_freshness_weight": 0.3,
+    # Outlook integration
+    "last_outlook_sync": None,
+    "outlook_sync_lookback_days": 7,
+    "outlook_email_shell_header": True,
+    "outlook_capture_category": "PDB",
+    "outlook_skip_category": "Personal",
 }
 
 _config: dict[str, Any] | None = None

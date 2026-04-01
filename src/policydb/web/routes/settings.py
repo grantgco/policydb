@@ -298,6 +298,11 @@ def _build_tab_context(tab: str, conn) -> dict:
         ctx["google_places_api_key"] = cfg.get("google_places_api_key", "")
         ctx["google_places_daily_limit"] = cfg.get("google_places_daily_limit", 1000)
         ctx["brokerage_name"] = cfg.get("brokerage_name", "")
+        ctx["outlook_sync_lookback_days"] = cfg.get("outlook_sync_lookback_days", 7)
+        ctx["outlook_capture_category"] = cfg.get("outlook_capture_category", "PDB")
+        ctx["outlook_skip_category"] = cfg.get("outlook_skip_category", "Personal")
+        ctx["outlook_email_shell_header"] = cfg.get("outlook_email_shell_header", True)
+        ctx["last_outlook_sync"] = cfg.get("last_outlook_sync", "")
 
     return ctx
 
@@ -667,6 +672,24 @@ def update_google_places(request: Request, api_key: str = Form(""), daily_limit:
 def update_brokerage(request: Request, brokerage_name: str = Form("")):
     full = dict(cfg.load_config())
     full["brokerage_name"] = brokerage_name.strip()
+    cfg.save_config(full)
+    cfg.reload_config()
+    return RedirectResponse("/settings?tab=database", status_code=303)
+
+
+@router.post("/config/outlook")
+def update_outlook_config(
+    request: Request,
+    lookback_days: int = Form(7),
+    capture_category: str = Form("PDB"),
+    skip_category: str = Form("Personal"),
+    email_shell_header: str = Form(""),
+):
+    full = dict(cfg.load_config())
+    full["outlook_sync_lookback_days"] = max(1, min(lookback_days, 90))
+    full["outlook_capture_category"] = capture_category.strip()
+    full["outlook_skip_category"] = skip_category.strip()
+    full["outlook_email_shell_header"] = email_shell_header == "1"
     cfg.save_config(full)
     cfg.reload_config()
     return RedirectResponse("/settings?tab=database", status_code=303)

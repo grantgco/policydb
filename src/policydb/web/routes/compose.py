@@ -17,6 +17,7 @@ from policydb.email_templates import (
     followup_context,
     meeting_context,
     timeline_context,
+    issue_context,
     CONTEXT_TOKEN_GROUPS,
     CONTEXT_TOKENS,
 )
@@ -33,6 +34,7 @@ def _load_recipients(
     client_id: int = 0,
     project_name: str = "",
     mode: str = "",
+    issue_uid: str = "",
 ) -> list[dict]:
     """Load contacts for recipient selection with role badges and pre_checked flags.
 
@@ -48,6 +50,24 @@ def _load_recipients(
     recipients: list[dict] = []
     seen: set[str] = set()  # dedup by lowercase email
     resolved_client_id = client_id
+
+    # ── Issue mode: resolve client/policy from issue ────────────────────
+    if issue_uid:
+        issue_row = conn.execute(
+            "SELECT client_id, policy_id FROM activity_log WHERE issue_uid=? AND item_kind='issue'",
+            (issue_uid,),
+        ).fetchone()
+        if issue_row:
+            if issue_row["client_id"]:
+                resolved_client_id = issue_row["client_id"]
+            if issue_row["policy_id"]:
+                # Also load policy contacts
+                policy = conn.execute(
+                    "SELECT policy_uid FROM policies WHERE id=?",
+                    (issue_row["policy_id"],),
+                ).fetchone()
+                if policy:
+                    policy_uid = policy["policy_uid"]
 
     # ── Policy contacts ──────────────────────────────────────────────────
     if policy_uid:
@@ -160,13 +180,24 @@ def compose_panel(
     mode: str = Query(""),
     to_email: str = Query(""),
     template_id: int = Query(0),
+    issue_uid: str = Query(""),
 ):
     """Return the compose slideover HTML partial."""
 
     # ── Build rendering context based on params ──────────────────────────
     ctx: dict = {}
 
-    if mode == "rfi_notify" and bundle_id:
+    if issue_uid:
+        ctx = issue_context(conn, issue_uid)
+        # Resolve client_id from issue if not provided
+        if not client_id and ctx.get("client_name"):
+            issue_row = conn.execute(
+                "SELECT client_id FROM activity_log WHERE issue_uid=? AND item_kind='issue'",
+                (issue_uid,),
+            ).fetchone()
+            if issue_row:
+                client_id = issue_row["client_id"] or 0
+    elif mode == "rfi_notify" and bundle_id:
         # RFI notify mode — lazy import since rfi_notify_context is added in Task 4
         try:
             from policydb.email_templates import rfi_notify_context
@@ -218,6 +249,7 @@ def compose_panel(
         client_id=client_id,
         project_name=project_name,
         mode=mode,
+        issue_uid=issue_uid,
     )
 
     # ── Determine primary To contact ─────────────────────────────────────
@@ -238,7 +270,12 @@ def compose_panel(
             primary_to = client_contacts[0]
 
     # ── Pre-fill subject from config template ────────────────────────────
-    if mode == "rfi_notify":
+    if issue_uid:
+        subj_tpl = cfg.get(
+            "email_subject_issue",
+            "Re: {{client_name}} — Issue: {{issue_subject}}",
+        )
+    elif mode == "rfi_notify":
         subj_tpl = cfg.get(
             "email_subject_rfi_notify",
             "FYI: {{client_name}} — {{rfi_uid}} Items Received",
@@ -331,6 +368,7 @@ def compose_panel(
         "project_name": project_name,
         "bundle_id": bundle_id,
         "mode": mode,
+        "issue_uid": issue_uid,
         "recipients": recipients,
         "primary_to": primary_to,
         "subject": subject,

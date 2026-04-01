@@ -3657,6 +3657,17 @@ def export_programs(client_id: int, conn=Depends(get_db)):
     )
 
 
+@router.get("/{client_id}/policies-json")
+def client_policies_json(client_id: int, conn=Depends(get_db)):
+    """Return client's policies as JSON for reassignment dropdowns."""
+    from fastapi.responses import JSONResponse
+    rows = conn.execute(
+        "SELECT id, policy_uid, policy_type FROM policies WHERE client_id=? AND archived=0 ORDER BY policy_type",
+        (client_id,),
+    ).fetchall()
+    return JSONResponse([dict(r) for r in rows])
+
+
 @router.get("/{client_id}/copy-table")
 def copy_table(client_id: int, project: str | None = None, conn=Depends(get_db)):
     """Return HTML + plain-text policy table for clipboard copy."""

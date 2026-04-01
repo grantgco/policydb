@@ -778,7 +778,7 @@ def activity_edit_slideover(activity_id: int, request: Request, conn=Depends(get
 # ── Activity field PATCH (Action Center inline editing) ──────────────────────
 
 
-_ACTIVITY_EDITABLE_FIELDS = {"subject", "activity_type", "duration_hours", "disposition", "details", "contact_person", "contact_id", "follow_up_date", "activity_date", "follow_up_done"}
+_ACTIVITY_EDITABLE_FIELDS = {"subject", "activity_type", "duration_hours", "disposition", "details", "contact_person", "contact_id", "follow_up_date", "activity_date", "follow_up_done", "client_id", "policy_id"}
 
 
 @router.patch("/activities/{activity_id}/field")
@@ -801,10 +801,29 @@ def patch_activity_field(activity_id: int, request_body: dict = None, conn=Depen
     if field == "duration_hours":
         value = round_duration(value)
         formatted = str(value) if value is not None else ""
+    elif field == "client_id":
+        value = int(value) if value else None
+    elif field == "policy_id":
+        value = int(value) if value else None
 
     conn.execute(f"UPDATE activity_log SET {field} = ? WHERE id = ?", (value or None, activity_id))
     conn.commit()
-    return JSONResponse({"ok": True, "formatted": formatted})
+
+    # Return enriched info for client/policy reassignment
+    extra: dict = {}
+    if field == "client_id" and value:
+        client = conn.execute("SELECT name FROM clients WHERE id=?", (value,)).fetchone()
+        if client:
+            extra["client_name"] = client["name"]
+            formatted = client["name"]
+    elif field == "policy_id" and value:
+        policy = conn.execute("SELECT policy_uid, policy_type FROM policies WHERE id=?", (value,)).fetchone()
+        if policy:
+            extra["policy_uid"] = policy["policy_uid"]
+            extra["policy_type"] = policy["policy_type"]
+            formatted = f"{policy['policy_uid']} {policy['policy_type'] or ''}"
+
+    return JSONResponse({"ok": True, "formatted": formatted, **extra})
 
 
 # ── Disposition update (all source types) ────────────────────────────────────

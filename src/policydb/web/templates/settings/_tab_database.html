@@ -54,6 +54,52 @@
     </div>
   </div>
 
+  {# Outlook Integration #}
+  <div class="card mb-6" id="section-outlook">
+    <div class="px-5 py-3 border-b border-gray-100">
+      <h3 class="text-sm font-semibold text-gray-700">Outlook Integration</h3>
+      <p class="text-xs text-gray-400">Controls for AppleScript email sync. Requires Legacy Outlook for Mac.</p>
+    </div>
+    <div class="px-5 py-4">
+      <form method="post" action="/settings/config/outlook" class="space-y-3">
+        <div class="grid grid-cols-2 lg:grid-cols-3 gap-4">
+          <div>
+            <label class="text-xs font-medium text-gray-600 block mb-0.5">Lookback days (first sync)</label>
+            <input type="number" name="lookback_days" value="{{ outlook_sync_lookback_days }}"
+                   min="1" max="90" class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-marsh focus:border-marsh">
+          </div>
+          <div>
+            <label class="text-xs font-medium text-gray-600 block mb-0.5">Capture category (received)</label>
+            <input type="text" name="capture_category" value="{{ outlook_capture_category }}"
+                   class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-marsh focus:border-marsh"
+                   placeholder="PDB">
+          </div>
+          <div>
+            <label class="text-xs font-medium text-gray-600 block mb-0.5">Skip category (sent)</label>
+            <input type="text" name="skip_category" value="{{ outlook_skip_category }}"
+                   class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-marsh focus:border-marsh"
+                   placeholder="Personal">
+          </div>
+        </div>
+        <div class="flex items-center gap-3">
+          <label class="flex items-center gap-1.5 cursor-pointer text-xs text-gray-600">
+            <input type="checkbox" name="email_shell_header" value="1"
+                   {% if outlook_email_shell_header %}checked{% endif %}
+                   class="rounded border-gray-300">
+            <span>Include branded header in Outlook drafts</span>
+          </label>
+        </div>
+        <div class="flex items-center gap-3">
+          <button type="submit"
+                  class="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-lg bg-marsh text-white hover:bg-marsh-light">Save</button>
+          {% if last_outlook_sync %}
+          <span class="text-[10px] text-gray-400">Last sync: {{ last_outlook_sync }}</span>
+          {% endif %}
+        </div>
+      </form>
+    </div>
+  </div>
+
   {# Report Logo #}
   <div class="card mb-6" id="section-report-logo">
     <div class="px-5 py-3 border-b border-gray-100">

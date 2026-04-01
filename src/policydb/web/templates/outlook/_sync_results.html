@@ -1,0 +1,102 @@
+{# Outlook Sync Results — shown after manual sync in Action Center #}
+
+<div id="outlook-sync-results" class="bg-white border border-gray-200 rounded-lg p-4 mb-4">
+  <div class="flex items-center justify-between mb-3">
+    <h3 class="text-sm font-semibold text-gray-900">Outlook Sync Complete</h3>
+    <button onclick="this.closest('#outlook-sync-results').remove()"
+            class="text-gray-400 hover:text-gray-600 text-xs">&times;</button>
+  </div>
+
+  {# ── Errors ── #}
+  {% if errors %}
+  <div class="bg-red-50 border border-red-200 rounded px-3 py-2 mb-3 text-xs text-red-700">
+    {% for err in errors %}
+    <div>{{ err }}</div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {# ── Summary counts ── #}
+  <div class="grid grid-cols-4 gap-3 mb-3">
+    <div class="text-center">
+      <div class="text-lg font-semibold text-gray-900">{{ auto_linked.sent }}</div>
+      <div class="text-[10px] text-gray-500 uppercase">Sent</div>
+    </div>
+    <div class="text-center">
+      <div class="text-lg font-semibold text-gray-900">{{ auto_linked.received }}</div>
+      <div class="text-[10px] text-gray-500 uppercase">Received</div>
+    </div>
+    <div class="text-center">
+      <div class="text-lg font-semibold text-gray-900">{{ auto_linked.flagged }}</div>
+      <div class="text-[10px] text-gray-500 uppercase">Flagged</div>
+    </div>
+    <div class="text-center">
+      <div class="text-lg font-semibold text-gray-900">{{ skipped }}</div>
+      <div class="text-[10px] text-gray-500 uppercase">Skipped</div>
+    </div>
+  </div>
+
+  <div class="text-xs text-gray-400 mb-3">{{ total_scanned }} emails scanned</div>
+
+  {# ── Suggestions (fuzzy matches needing confirmation) ── #}
+  {# ── Flagged-to-inbox note ── #}
+  {% if auto_linked.flagged %}
+  <div class="text-[10px] text-gray-500 mb-3">
+    {{ auto_linked.flagged }} flagged item{{ 's' if auto_linked.flagged != 1 }} sent to
+    <a href="/action-center?tab=inbox" class="text-blue-500 hover:underline">Inbox</a> for triage.
+  </div>
+  {% endif %}
+
+  {% if suggestions %}
+  <div class="border-t pt-3">
+    <div class="text-xs font-medium text-gray-700 mb-2">Suggestions ({{ suggestions|length }})</div>
+    <div class="space-y-2 max-h-60 overflow-y-auto">
+      {% for s in suggestions %}
+      <div id="suggestion-{{ s.activity_id }}" class="flex items-center justify-between bg-amber-50 border border-amber-200 rounded px-3 py-2">
+        <div class="flex-1 min-w-0 mr-3">
+          <div class="text-xs font-medium text-gray-900 truncate">{{ s.subject }}</div>
+          <div class="text-[10px] text-gray-500">
+            {{ s.sender }} &middot; {{ s.date[:10] if s.date else '' }}
+            <span class="text-amber-600">&middot; {{ s.confidence }}% match</span>
+          </div>
+        </div>
+        <div class="flex items-center gap-1.5 shrink-0">
+          <button onclick="confirmSuggestion({{ s.activity_id }})"
+                  class="text-[10px] font-medium text-green-700 bg-green-100 hover:bg-green-200 rounded px-2 py-1 transition-colors">
+            Confirm
+          </button>
+          <button onclick="dismissSuggestion({{ s.activity_id }})"
+                  class="text-[10px] font-medium text-red-700 bg-red-100 hover:bg-red-200 rounded px-2 py-1 transition-colors">
+            Dismiss
+          </button>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+<script>
+function confirmSuggestion(activityId) {
+  fetch('/outlook/sync/confirm/' + activityId, {method: 'POST'})
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.ok) {
+        var el = document.getElementById('suggestion-' + activityId);
+        if (el) { el.innerHTML = '<div class="text-xs text-green-600 py-1">Confirmed</div>'; }
+      }
+    });
+}
+
+function dismissSuggestion(activityId) {
+  fetch('/outlook/sync/dismiss/' + activityId, {method: 'POST'})
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.ok) {
+        var el = document.getElementById('suggestion-' + activityId);
+        if (el) el.remove();
+      }
+    });
+}
+</script>
