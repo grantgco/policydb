@@ -928,8 +928,8 @@ def rfi_notify_context(conn, bundle_id: int) -> dict:
         "cn_number": bundle["cn_number"] or "",
         "bundle_status": bundle["status"] or "",
         "sent_at": bundle["sent_at"] or "",
-        "received_items": received,
-        "outstanding_items": outstanding,
+        "received_items": "\n".join(f"  - {item}" for item in received) if received else "",
+        "outstanding_items": "\n".join(f"  - {item}" for item in outstanding) if outstanding else "",
         "ref_tag": ref_tag,
     }
 
