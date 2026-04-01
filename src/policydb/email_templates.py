@@ -1004,6 +1004,7 @@ def issue_context(conn: sqlite3.Connection, issue_uid: str) -> dict:
         "issue_subject": issue.get("subject") or "",
         "issue_status": issue.get("issue_status") or "",
         "issue_severity": issue.get("issue_severity") or "",
+        "issue_details": issue.get("details") or "",
         "client_name": issue.get("client_name") or "",
         "cn_number": issue.get("cn_number") or "",
         "policy_type": policy_type,
@@ -1196,6 +1197,7 @@ CONTEXT_TOKEN_GROUPS: dict[str, list[tuple[str, list[tuple[str, str]]]]] = {
             ("issue_status", "Status"),
             ("issue_severity", "Severity"),
             ("linked_activities", "Linked Activity Count"),
+            ("issue_details", "Issue Details"),
         ]),
         ("Client", _CLIENT_GROUP),
         ("Policy", [
