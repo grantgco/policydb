@@ -709,6 +709,10 @@ function openComposeSlideover(params) {
   if (params.to_email) qs.set('to_email', params.to_email);
   if (params.template_id) qs.set('template_id', params.template_id);
 
+  // Hide Working Notes so it doesn't overlap slideover action bar
+  var wn = document.getElementById('working-notes-float');
+  if (wn) wn.style.display = 'none';
+
   htmx.ajax('GET', '/compose?' + qs.toString(), {
     target: '#compose-slideover-body',
     swap: 'innerHTML'
@@ -723,6 +727,9 @@ function closeComposeSlideover() {
   if (backdrop) backdrop.remove();
   if (panel) panel.remove();
   document.body.style.overflow = '';
+  // Restore Working Notes float
+  var wn = document.getElementById('working-notes-float');
+  if (wn) wn.style.display = '';
 }
 
 document.addEventListener('keydown', function(e) {
