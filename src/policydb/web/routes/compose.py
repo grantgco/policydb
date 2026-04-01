@@ -54,20 +54,45 @@ def _load_recipients(
     # ── Issue mode: resolve client/policy from issue ────────────────────
     if issue_uid:
         issue_row = conn.execute(
-            "SELECT client_id, policy_id FROM activity_log WHERE issue_uid=? AND item_kind='issue'",
+            "SELECT client_id, policy_id, program_id FROM activity_log WHERE issue_uid=? AND item_kind='issue'",
             (issue_uid,),
         ).fetchone()
         if issue_row:
             if issue_row["client_id"]:
                 resolved_client_id = issue_row["client_id"]
             if issue_row["policy_id"]:
-                # Also load policy contacts
+                # Load contacts from the linked policy
                 policy = conn.execute(
                     "SELECT policy_uid FROM policies WHERE id=?",
                     (issue_row["policy_id"],),
                 ).fetchone()
                 if policy:
                     policy_uid = policy["policy_uid"]
+            if issue_row.get("program_id"):
+                # Program-level issue: load contacts from ALL policies in the program
+                prog_policies = conn.execute(
+                    """SELECT cpa.contact_id, co.name, co.email, cpa.role, cpa.is_placement_colleague
+                       FROM contact_policy_assignments cpa
+                       JOIN contacts co ON cpa.contact_id = co.id
+                       JOIN policies p ON cpa.policy_id = p.id
+                       WHERE p.program_id = ? AND p.archived = 0
+                         AND co.email IS NOT NULL AND TRIM(co.email) != ''
+                       ORDER BY co.name""",
+                    (issue_row["program_id"],),
+                ).fetchall()
+                for r in prog_policies:
+                    key = r["email"].strip().lower()
+                    if key not in seen:
+                        seen.add(key)
+                        is_pc = r["is_placement_colleague"]
+                        recipients.append({
+                            "name": r["name"] or "",
+                            "email": r["email"],
+                            "role": r["role"] or ("Placement Colleague" if is_pc else "Underwriter"),
+                            "badge": "PLACEMENT" if is_pc else "UNDERWRITER",
+                            "pre_checked": False,
+                            "source": "policy",
+                        })
 
     # ── Policy contacts ──────────────────────────────────────────────────
     if policy_uid:

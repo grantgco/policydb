@@ -67,22 +67,32 @@ def outlook_compose(req: ComposeRequest, conn=Depends(get_db)):
             if rows:
                 policy_table_html = _render_policy_table_html([dict(r) for r in rows])
     elif req.issue_uid:
-        # Issue context — resolve linked policy/client
+        # Issue context — resolve linked policy/client/program
         issue_row = conn.execute(
-            "SELECT client_id, policy_id FROM activity_log WHERE issue_uid=? AND item_kind='issue'",
+            "SELECT client_id, policy_id, program_id FROM activity_log WHERE issue_uid=? AND item_kind='issue'",
             (req.issue_uid,),
         ).fetchone()
         if issue_row and issue_row["client_id"]:
-            ctx = client_context(conn, issue_row["client_id"])
-            # Issue table: all policies for the client
+            ctx = issue_context(conn, req.issue_uid)
+            # Issue table: linked policies (program or single policy)
             if req.include_policy_table:
-                rows = conn.execute(
-                    """SELECT policy_type, carrier, access_point, policy_number,
-                              effective_date, expiration_date, premium, limit_amount, description
-                       FROM policies WHERE client_id=? AND archived=0
-                       ORDER BY policy_type""",
-                    (issue_row["client_id"],),
-                ).fetchall()
+                if issue_row.get("program_id"):
+                    rows = conn.execute(
+                        """SELECT policy_type, carrier, access_point, policy_number,
+                                  effective_date, expiration_date, premium, limit_amount, description
+                           FROM policies WHERE program_id=? AND archived=0
+                           ORDER BY policy_type""",
+                        (issue_row["program_id"],),
+                    ).fetchall()
+                elif issue_row.get("policy_id"):
+                    rows = conn.execute(
+                        """SELECT policy_type, carrier, access_point, policy_number,
+                                  effective_date, expiration_date, premium, limit_amount, description
+                           FROM policies WHERE id=? AND archived=0""",
+                        (issue_row["policy_id"],),
+                    ).fetchall()
+                else:
+                    rows = []
                 if rows:
                     policy_table_html = _render_policy_table_html([dict(r) for r in rows])
     elif req.project_name and req.client_id:
