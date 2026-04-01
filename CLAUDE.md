@@ -260,6 +260,7 @@ Specialized reference docs are available as on-demand skills:
 | `policydb-spreadsheet` | Tabulator grid component, initSpreadsheet() API |
 | `policydb-activities` | Activity lifecycle, follow-up buckets, issue tracking, auto-close, escalation tiers |
 | `policydb-exports` | XLSX theming, CSV, HTML copy-table, _write_sheet(), build_generic_table() |
+| `policydb-reports` | All 29 chart types, insurance schematics, tower notation, TCOR, benchmarking, data sources |
 | `policydb-reconciler` | Reconciliation scoring, pairing board UI pattern |
 | `policydb-timeline` | Timeline engine, milestone health, accountability tracking |
 | `policydb-review` | Review queue, slideover, gate conditions, anomaly engine, override flow |

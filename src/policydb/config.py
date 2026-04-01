@@ -496,6 +496,10 @@ _DEFAULTS: dict[str, Any] = {
         "Account Executive", "Account Manager", "Producer", "CSR",
         "Placement Colleague", "Underwriter", "Broker", "Claims Adjuster",
     ],
+    "team_assignments": [
+        "Account Management", "Placement/Broking", "Claims",
+        "Analytics", "Risk Engineering", "Administration",
+    ],
     "request_categories": [
         "Exposure Data", "Loss Runs", "Applications",
         "Financial Statements", "Certificates", "Fleet Schedule",

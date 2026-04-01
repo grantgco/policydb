@@ -1,0 +1,906 @@
+{# ── Team Chart ─────────────────────────────────────────────────────────────
+   Org chart showing internal team members grouped by assignment with contact details.
+   Two layouts: Grid (card grid) and Grouped (cards under assignment headers).
+   Expects: ManualChart namespace available (manual.js loaded).
+#}
+
+<!-- ═══ Scoped Styles ══════════════════════════════════════════════════════ -->
+<style>
+/* ── Team Canvas (preview card) ────────────────────────────────────────── */
+#team-canvas {
+  background: white;
+  border-radius: 4px;
+  box-shadow: 0 4px 32px rgba(0,0,0,0.13), 0 1px 4px rgba(0,0,0,0.07);
+  overflow: hidden;
+  font-family: 'Noto Sans', sans-serif;
+  width: 900px;
+  max-width: 100%;
+}
+
+/* ── Canvas header ── */
+.tc-header {
+  padding: 24px 32px 20px;
+  border-bottom: 1px solid #e8e6e0;
+}
+.tc-title {
+  font-family: 'Noto Serif', serif;
+  font-size: 23px;
+  color: #000F47;
+  line-height: 1.2;
+}
+.tc-subtitle {
+  font-size: 13px;
+  color: #7B7974;
+  margin-top: 4px;
+}
+
+/* ── Grid layout ── */
+.tc-grid {
+  padding: 24px 32px 32px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+}
+
+/* ── Grouped layout ── */
+.tc-grouped {
+  padding: 20px 32px 32px;
+}
+.tc-group-header {
+  padding: 8px 16px;
+  border-radius: 4px;
+  margin-bottom: 12px;
+  margin-top: 16px;
+  font-family: 'Noto Sans', sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #fff;
+}
+.tc-group-header:first-child { margin-top: 0; }
+.tc-group-cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+
+/* ── Member card ── */
+.tc-card {
+  background: #fff;
+  border: 1px solid #B9B6B1;
+  border-radius: 4px;
+  padding: 16px 20px;
+  min-width: 240px;
+  flex: 1;
+  max-width: 320px;
+  position: relative;
+}
+.tc-card-name {
+  font-family: 'Noto Serif', serif;
+  font-size: 16px;
+  font-weight: 700;
+  color: #000F47;
+  line-height: 1.2;
+  margin-bottom: 2px;
+}
+.tc-card-subtitle {
+  font-size: 12px;
+  color: #7B7974;
+  line-height: 1.3;
+  margin-bottom: 8px;
+}
+.tc-card-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 2px 8px;
+  border-radius: 3px;
+  margin-bottom: 8px;
+}
+.tc-card-contact {
+  font-size: 11px;
+  color: #7B7974;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.tc-card-contact-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.tc-card-contact-icon {
+  width: 12px;
+  flex-shrink: 0;
+  text-align: center;
+  font-size: 10px;
+  color: #B9B6B1;
+}
+.tc-card-notes {
+  font-size: 11px;
+  color: #7B7974;
+  font-style: italic;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #e8e6e0;
+  line-height: 1.4;
+}
+
+/* ── Tooltip (hover, not exported) ── */
+.tc-card .tc-tooltip {
+  display: none;
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: #000F47;
+  color: #fff;
+  font-size: 11px;
+  padding: 10px 14px;
+  border-radius: 4px;
+  white-space: nowrap;
+  z-index: 20;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+  line-height: 1.5;
+}
+.tc-card .tc-tooltip::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-top-color: #000F47;
+}
+.tc-card:hover .tc-tooltip { display: block; }
+
+/* ── Editor: member cards ── */
+.tc-members-editor { display: flex; flex-direction: column; gap: 0.6rem; margin-bottom: 0.75rem; }
+.tc-member-card {
+  border: 1px solid var(--mc-border, #B9B6B1);
+  border-radius: 4px;
+  background: var(--mc-bg, #F7F3EE);
+  overflow: hidden;
+}
+.tc-member-card-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.55rem 0.65rem;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.12s;
+}
+.tc-member-card-header:hover { background: #eeecea; }
+.tc-member-num {
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.68rem; font-weight: 700;
+  color: white;
+  flex-shrink: 0;
+}
+.tc-member-card-title {
+  flex: 1;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #000F47;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tc-member-card-badge {
+  font-size: 0.65rem;
+  font-weight: 600;
+  padding: 0.15rem 0.45rem;
+  border-radius: 99px;
+  white-space: nowrap;
+  background: #fef3c7;
+  border: 1px solid #d97706;
+  color: #92400e;
+}
+.tc-member-controls { display: flex; gap: 0.2rem; }
+.tc-member-ctrl-btn {
+  background: none; border: none; cursor: pointer;
+  color: #7B7974; font-size: 0.8rem; padding: 0.15rem 0.25rem;
+  border-radius: 2px; line-height: 1; transition: color 0.1s;
+}
+.tc-member-ctrl-btn:hover { color: #000F47; }
+.tc-member-ctrl-btn.del:hover { color: #c8102e; }
+
+.tc-member-card-body {
+  padding: 0.75rem 0.65rem 0.65rem;
+  border-top: 1px solid var(--mc-border, #B9B6B1);
+  display: none;
+  flex-direction: column;
+  gap: 0.5rem;
+  background: white;
+}
+.tc-member-card-body.open { display: flex; }
+
+.tc-fg { display: flex; flex-direction: column; gap: 0.22rem; }
+.tc-fg label { font-size: 0.7rem; color: #7B7974; font-weight: 500; }
+.tc-fg input, .tc-fg textarea {
+  border: 1px solid var(--mc-border, #B9B6B1);
+  border-radius: 3px;
+  padding: 0.38rem 0.55rem;
+  font-family: 'Noto Sans', sans-serif;
+  font-size: 0.82rem;
+  color: #3D3C37;
+  background: var(--mc-bg, #F7F3EE);
+  width: 100%;
+}
+.tc-fg input:focus, .tc-fg textarea:focus {
+  outline: none; border-color: #000F47; background: white;
+}
+.tc-fg textarea { resize: vertical; min-height: 40px; line-height: 1.5; }
+
+.tc-btn-add-member {
+  width: 100%;
+  padding: 0.5rem;
+  background: none;
+  border: 1.5px dashed #0B4BFF;
+  border-radius: 3px;
+  color: #0B4BFF;
+  font-family: 'Noto Sans', sans-serif;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.tc-btn-add-member:hover { background: rgba(11,75,255,0.05); }
+
+/* Layout segmented control */
+.tc-layout-seg { display: flex; gap: 0; border: 1.5px solid var(--mc-border, #B9B6B1); border-radius: 4px; overflow: hidden; }
+.tc-layout-btn {
+  flex: 1;
+  padding: 0.35rem 0.6rem;
+  font-family: 'Noto Sans', sans-serif;
+  font-size: 0.75rem;
+  font-weight: 500;
+  border: none;
+  background: transparent;
+  color: #7B7974;
+  cursor: pointer;
+  transition: all 0.15s;
+  border-right: 1.5px solid var(--mc-border, #B9B6B1);
+  white-space: nowrap;
+  text-align: center;
+}
+.tc-layout-btn:last-child { border-right: none; }
+.tc-layout-btn.active { background: rgba(0,15,71,0.08); color: #000F47; font-weight: 600; }
+
+/* Load team button */
+.tc-btn-load {
+  padding: 0.4rem 0.8rem;
+  background: #000F47;
+  color: #fff;
+  border: none;
+  border-radius: 3px;
+  font-family: 'Noto Sans', sans-serif;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.tc-btn-load:hover { background: #0B4BFF; }
+</style>
+
+<!-- ═══ Chart Display ══════════════════════════════════════════════════════ -->
+<div class="manual-chart-page" style="display:flex;justify-content:center;align-items:flex-start;padding:0;">
+  <div id="team-canvas" style="width:960px;height:540px;overflow:hidden;"></div>
+</div>
+
+<!-- ═══ Editor Panel ═══════════════════════════════════════════════════════ -->
+<div class="mc-editor" id="editor-panel">
+  <div class="mc-editor-title">Configure Team Chart</div>
+
+  <!-- Display toggles -->
+  <div class="display-options">
+    <span class="section-label">Display</span>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-title" name="show-title" checked onchange="refreshCurrentChart()">
+      <span class="toggle-track"></span><span class="toggle-label">Title</span>
+    </label>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-subtitle" name="show-subtitle" checked onchange="refreshCurrentChart()">
+      <span class="toggle-track"></span><span class="toggle-label">Subtitle</span>
+    </label>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-contact" name="show-contact" checked onchange="refreshCurrentChart()">
+      <span class="toggle-track"></span><span class="toggle-label">Contact Info</span>
+    </label>
+    <label class="display-toggle">
+      <input type="checkbox" id="show-notes" name="show-notes" onchange="refreshCurrentChart()">
+      <span class="toggle-track"></span><span class="toggle-label">Notes</span>
+    </label>
+  </div>
+
+  <!-- Settings -->
+  <div style="margin-top:0.75rem;">
+    <div class="section-head midnight">Settings</div>
+    <div style="display:flex;flex-direction:column;gap:0.6rem;">
+
+      <!-- Title -->
+      <div class="input-group">
+        <label>Title</label>
+        <input type="text" id="val-title" name="val-title"
+               value="Your Team"
+               oninput="refreshCurrentChart()"
+               style="border:1px solid var(--mc-border);border-radius:3px;padding:0.38rem 0.6rem;font-family:'Noto Sans',sans-serif;font-size:0.83rem;color:var(--mc-text);background:var(--mc-bg);width:100%;">
+      </div>
+
+      <!-- Subtitle -->
+      <div class="input-group">
+        <label>Subtitle</label>
+        <input type="text" id="val-subtitle" name="val-subtitle"
+               value=""
+               oninput="refreshCurrentChart()"
+               style="border:1px solid var(--mc-border);border-radius:3px;padding:0.38rem 0.6rem;font-family:'Noto Sans',sans-serif;font-size:0.83rem;color:var(--mc-text);background:var(--mc-bg);width:100%;">
+      </div>
+
+      <!-- Layout mode -->
+      <div class="input-group">
+        <label>Layout</label>
+        <input type="hidden" id="cfg-layout" name="cfg-layout" value="grid">
+        <div class="tc-layout-seg" id="layout-btns">
+          <button type="button" class="tc-layout-btn active" data-l="grid">Grid</button>
+          <button type="button" class="tc-layout-btn" data-l="grouped">Grouped</button>
+        </div>
+      </div>
+
+      <!-- Group by (visible when layout = grouped) -->
+      <div class="input-group" id="group-by-row" style="display:none;">
+        <label>Group By</label>
+        <select id="cfg-group-by" name="cfg-group-by"
+                onchange="refreshCurrentChart()"
+                style="border:1px solid var(--mc-border);border-radius:3px;padding:0.38rem 0.55rem;font-family:'Noto Sans',sans-serif;font-size:0.83rem;color:var(--mc-text);background:white;width:180px;">
+          <option value="assignment" selected>Assignment</option>
+          <option value="role">Role</option>
+        </select>
+      </div>
+
+      <!-- Accent color -->
+      <div class="input-group">
+        <label>Accent Color</label>
+        <input type="hidden" id="cfg-accent-color" name="cfg-accent-color" value="#000F47">
+        <div id="color-swatches" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:0.25rem;"></div>
+      </div>
+
+      <!-- Canvas is fixed 960×540 (16:9 slide) -->
+    </div>
+  </div>
+
+  <!-- Load from Client -->
+  <div style="margin-top:1rem;">
+    <div class="section-head midnight">Load from Client</div>
+    <div style="display:flex;align-items:center;gap:0.5rem;">
+      <button type="button" class="tc-btn-load" onclick="loadTeamFromClient()">Load Team</button>
+      <span style="font-size:0.72rem;color:#7B7974;">Select a client in the snapshot bar above, then click Load Team</span>
+    </div>
+  </div>
+
+  <!-- Team Members -->
+  <div style="margin-top:1rem;">
+    <div class="section-head midnight">Team Members</div>
+    <div class="tc-members-editor" id="members-editor"></div>
+    <button type="button" class="tc-btn-add-member" onclick="addMember()">+ Add Member</button>
+  </div>
+
+  <!-- Hidden state for snapshot persistence -->
+  <textarea id="team-state" name="team-state" style="display:none;"></textarea>
+
+  <!-- Footer -->
+  <div class="mc-editor-footer">
+    <button class="btn-mc" onclick="refreshCurrentChart()">Refresh Chart</button>
+  </div>
+</div>
+
+<!-- ═══ Script ═════════════════════════════════════════════════════════════ -->
+<script>
+(function () {
+  var MC = ManualChart.COLORS;
+  var C  = ManualChart.DATA_COLORS;
+
+  // ── Default members ───────────────────────────────────────────────────
+  var members = [
+    // Account Management (4)
+    { id: 1,  name: 'Jane Smith',        title: 'Senior Vice President',     role: 'Account Executive',  assignment: 'Account Management', phone: '212-555-0100', email: 'jane.smith@marsh.com',        mobile: '917-555-0101', notes: 'Lead AE, 15yr relationship' },
+    { id: 2,  name: 'Sarah Williams',    title: 'Assistant Vice President',  role: 'Account Manager',    assignment: 'Account Management', phone: '212-555-0300', email: 'sarah.williams@marsh.com',    mobile: '917-555-0301', notes: 'Day-to-day contact' },
+    { id: 3,  name: 'Kevin Patel',       title: 'Senior Associate',          role: 'CSR',                assignment: 'Account Management', phone: '212-555-0150', email: 'kevin.patel@marsh.com',       mobile: '',             notes: 'Certificates and endorsements' },
+    { id: 4,  name: 'Lisa Fernandez',    title: 'Associate',                 role: 'CSR',                assignment: 'Account Management', phone: '212-555-0160', email: 'lisa.fernandez@marsh.com',    mobile: '',             notes: '' },
+    // Placement/Broking (3)
+    { id: 5,  name: 'Michael Chen',      title: 'Vice President',            role: 'Broker',             assignment: 'Placement/Broking',  phone: '212-555-0200', email: 'michael.chen@marsh.com',      mobile: '917-555-0201', notes: 'Property & Casualty lead' },
+    { id: 6,  name: 'Rachel Torres',     title: 'Assistant Vice President',  role: 'Broker',             assignment: 'Placement/Broking',  phone: '212-555-0210', email: 'rachel.torres@marsh.com',     mobile: '',             notes: 'Specialty lines' },
+    { id: 7,  name: 'James O\'Brien',    title: 'Vice President',            role: 'Placement Colleague', assignment: 'Placement/Broking', phone: '312-555-0700', email: 'james.obrien@marsh.com',      mobile: '',             notes: 'Chicago office, excess casualty' },
+    // Claims (2)
+    { id: 8,  name: 'David Park',        title: 'Senior Claims Advocate',    role: 'Claims Adjuster',    assignment: 'Claims',             phone: '212-555-0400', email: 'david.park@marsh.com',        mobile: '917-555-0401', notes: 'GL and Auto claims' },
+    { id: 9,  name: 'Angela Morrison',   title: 'Claims Advocate',           role: 'Claims Adjuster',    assignment: 'Claims',             phone: '212-555-0410', email: 'angela.morrison@marsh.com',   mobile: '',             notes: 'Property and WC claims' },
+    // Analytics (2)
+    { id: 10, name: 'Priya Sharma',      title: 'Vice President',            role: 'Account Manager',    assignment: 'Analytics',          phone: '212-555-0500', email: 'priya.sharma@marsh.com',      mobile: '',             notes: 'Loss projections and benchmarking' },
+    { id: 11, name: 'Thomas Nguyen',     title: 'Senior Analyst',            role: 'CSR',                assignment: 'Analytics',          phone: '212-555-0510', email: 'thomas.nguyen@marsh.com',     mobile: '',             notes: '' },
+    // Risk Engineering (2)
+    { id: 12, name: 'Robert Hayes',      title: 'Senior Risk Engineer',      role: 'Account Manager',    assignment: 'Risk Engineering',   phone: '404-555-0600', email: 'robert.hayes@marsh.com',      mobile: '404-555-0601', notes: 'Annual site inspections' },
+    { id: 13, name: 'Christina Wolfe',   title: 'Risk Consultant',           role: 'Account Manager',    assignment: 'Risk Engineering',   phone: '404-555-0610', email: 'christina.wolfe@marsh.com',   mobile: '',             notes: 'Fleet safety program' },
+    // Administration (2)
+    { id: 14, name: 'Maria Gonzalez',    title: 'Senior Associate',          role: 'CSR',                assignment: 'Administration',     phone: '212-555-0700', email: 'maria.gonzalez@marsh.com',    mobile: '',             notes: 'Billing and invoicing' },
+    { id: 15, name: 'Derek Washington',  title: 'Associate',                 role: 'CSR',                assignment: 'Administration',     phone: '212-555-0710', email: 'derek.washington@marsh.com',  mobile: '',             notes: 'Policy issuance and filing' },
+  ];
+  var nextId = 16;
+  var openMember = null;
+
+  // ── Helpers ────────────────────────────────────────────────────────────
+  function esc(s) {
+    var d = document.createElement('div');
+    d.textContent = s || '';
+    return d.innerHTML;
+  }
+
+  function tintOnWhite(hex, alpha) {
+    var r = parseInt(hex.slice(1,3), 16);
+    var g = parseInt(hex.slice(3,5), 16);
+    var b = parseInt(hex.slice(5,7), 16);
+    var rr = Math.round(r * alpha + 255 * (1 - alpha));
+    var gg = Math.round(g * alpha + 255 * (1 - alpha));
+    var bb = Math.round(b * alpha + 255 * (1 - alpha));
+    return '#' + ((1<<24)+(rr<<16)+(gg<<8)+bb).toString(16).slice(1);
+  }
+
+  // ── Accent Color Swatches ─────────────────────────────────────────────
+  function buildSwatches() {
+    var container = document.getElementById('color-swatches');
+    var current = document.getElementById('cfg-accent-color').value || MC.midnight;
+    container.innerHTML = '';
+    var swatchColors = C.concat([MC.red, MC.teal]);
+    var seen = {};
+    swatchColors.forEach(function(color) {
+      if (seen[color]) return;
+      seen[color] = true;
+      var sw = document.createElement('div');
+      sw.style.cssText = 'width:22px;height:22px;border-radius:3px;cursor:pointer;border:2px solid ' +
+        (color === current ? MC.midnight : 'transparent') + ';background:' + color + ';transition:transform 0.1s;';
+      sw.onmouseover = function () { sw.style.transform = 'scale(1.15)'; };
+      sw.onmouseout  = function () { sw.style.transform = ''; };
+      sw.onclick = function () {
+        document.getElementById('cfg-accent-color').value = color;
+        buildSwatches();
+        refreshCurrentChart();
+      };
+      container.appendChild(sw);
+    });
+  }
+
+  // ── Layout buttons ────────────────────────────────────────────────────
+  function initLayoutButtons() {
+    var btns = document.querySelectorAll('#layout-btns .tc-layout-btn');
+    btns.forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var lay = btn.getAttribute('data-l');
+        document.getElementById('cfg-layout').value = lay;
+        btns.forEach(function(b) { b.classList.toggle('active', b.getAttribute('data-l') === lay); });
+        refreshCurrentChart();
+      });
+    });
+  }
+
+  // ── Serialize/Deserialize ─────────────────────────────────────────────
+  function serializeState() {
+    var el = document.getElementById('team-state');
+    if (el) {
+      el.value = JSON.stringify({ members: members, nextId: nextId });
+    }
+  }
+
+  function deserializeState() {
+    var el = document.getElementById('team-state');
+    if (el && el.value) {
+      try {
+        var saved = JSON.parse(el.value);
+        if (saved.members && saved.members.length) {
+          members = saved.members;
+          nextId = saved.nextId || members.length + 1;
+          return true;
+        }
+      } catch(e) {}
+    }
+    return false;
+  }
+
+  // ── Build Member Editor Cards ─────────────────────────────────────────
+  function buildMemberEditor() {
+    var container = document.getElementById('members-editor');
+    var accentColor = document.getElementById('cfg-accent-color').value || MC.midnight;
+    container.innerHTML = '';
+
+    members.forEach(function(m, i) {
+      var div = document.createElement('div');
+      div.className = 'tc-member-card';
+
+      var badgeHtml = m.assignment
+        ? '<div class="tc-member-card-badge">' + esc(m.assignment) + '</div>'
+        : '';
+
+      div.innerHTML =
+        '<div class="tc-member-card-header" data-toggle-id="' + m.id + '">' +
+          '<div class="tc-member-num" style="background:' + accentColor + '">' + (i + 1) + '</div>' +
+          '<div class="tc-member-card-title">' + (esc(m.name) || 'New Member') + '</div>' +
+          badgeHtml +
+          '<div class="tc-member-controls">' +
+            '<button type="button" class="tc-member-ctrl-btn" data-move-id="' + m.id + '" data-move-dir="-1" title="Move up">&uarr;</button>' +
+            '<button type="button" class="tc-member-ctrl-btn" data-move-id="' + m.id + '" data-move-dir="1" title="Move down">&darr;</button>' +
+            '<button type="button" class="tc-member-ctrl-btn del" data-del-id="' + m.id + '" title="Delete">&times;</button>' +
+          '</div>' +
+        '</div>' +
+        '<div class="tc-member-card-body' + (openMember === m.id ? ' open' : '') + '" id="mbody-' + m.id + '">' +
+          '<div class="tc-fg">' +
+            '<label>Name</label>' +
+            '<input value="' + esc(m.name) + '" data-member-id="' + m.id + '" data-member-field="name">' +
+          '</div>' +
+          '<div style="display:flex;gap:0.5rem;">' +
+            '<div class="tc-fg" style="flex:1;">' +
+              '<label>Title</label>' +
+              '<input value="' + esc(m.title) + '" data-member-id="' + m.id + '" data-member-field="title">' +
+            '</div>' +
+            '<div class="tc-fg" style="flex:1;">' +
+              '<label>Role</label>' +
+              '<input value="' + esc(m.role) + '" data-member-id="' + m.id + '" data-member-field="role">' +
+            '</div>' +
+          '</div>' +
+          '<div class="tc-fg">' +
+            '<label>Assignment / Group</label>' +
+            '<input value="' + esc(m.assignment) + '" data-member-id="' + m.id + '" data-member-field="assignment">' +
+          '</div>' +
+          '<div style="display:flex;gap:0.5rem;">' +
+            '<div class="tc-fg" style="flex:1;">' +
+              '<label>Phone</label>' +
+              '<input value="' + esc(m.phone) + '" data-member-id="' + m.id + '" data-member-field="phone">' +
+            '</div>' +
+            '<div class="tc-fg" style="flex:1;">' +
+              '<label>Mobile</label>' +
+              '<input value="' + esc(m.mobile) + '" data-member-id="' + m.id + '" data-member-field="mobile">' +
+            '</div>' +
+          '</div>' +
+          '<div class="tc-fg">' +
+            '<label>Email</label>' +
+            '<input value="' + esc(m.email) + '" data-member-id="' + m.id + '" data-member-field="email">' +
+          '</div>' +
+          '<div class="tc-fg">' +
+            '<label>Notes</label>' +
+            '<textarea data-member-id="' + m.id + '" data-member-field="notes">' + esc(m.notes) + '</textarea>' +
+          '</div>' +
+        '</div>';
+
+      container.appendChild(div);
+    });
+
+    attachMemberEditorEvents(container);
+  }
+
+  function attachMemberEditorEvents(container) {
+    // Header toggle
+    container.querySelectorAll('.tc-member-card-header').forEach(function(hdr) {
+      hdr.addEventListener('click', function(e) {
+        if (e.target.closest('.tc-member-controls')) return;
+        var id = parseInt(hdr.getAttribute('data-toggle-id'));
+        openMember = openMember === id ? null : id;
+        buildMemberEditor();
+      });
+    });
+
+    // Move buttons
+    container.querySelectorAll('[data-move-id]').forEach(function(btn) {
+      btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        var id = parseInt(btn.getAttribute('data-move-id'));
+        var dir = parseInt(btn.getAttribute('data-move-dir'));
+        var i = members.findIndex(function(m) { return m.id === id; });
+        var j = i + dir;
+        if (j < 0 || j >= members.length) return;
+        var tmp = members[i]; members[i] = members[j]; members[j] = tmp;
+        serializeState();
+        buildMemberEditor();
+        buildCanvas();
+      });
+    });
+
+    // Delete buttons
+    container.querySelectorAll('[data-del-id]').forEach(function(btn) {
+      btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        var id = parseInt(btn.getAttribute('data-del-id'));
+        members = members.filter(function(m) { return m.id !== id; });
+        if (openMember === id) openMember = null;
+        serializeState();
+        buildMemberEditor();
+        buildCanvas();
+      });
+    });
+
+    // Field inputs
+    container.querySelectorAll('[data-member-id][data-member-field]').forEach(function(input) {
+      input.addEventListener('input', function() {
+        var id = parseInt(input.getAttribute('data-member-id'));
+        var field = input.getAttribute('data-member-field');
+        var m = members.find(function(mb) { return mb.id === id; });
+        if (m) {
+          m[field] = input.value;
+          serializeState();
+          buildCanvas();
+          // Update card header title live
+          if (field === 'name' || field === 'assignment') {
+            var titleEl = input.closest('.tc-member-card-body').previousElementSibling.querySelector('.tc-member-card-title');
+            if (field === 'name' && titleEl) titleEl.textContent = input.value || 'New Member';
+          }
+        }
+      });
+    });
+  }
+
+  // ── Add Member ────────────────────────────────────────────────────────
+  window.addMember = function() {
+    var newMember = {
+      id: nextId++,
+      name: '',
+      title: '',
+      role: '',
+      assignment: '',
+      phone: '',
+      email: '',
+      mobile: '',
+      notes: '',
+    };
+    members.push(newMember);
+    openMember = newMember.id;
+    serializeState();
+    buildMemberEditor();
+    buildCanvas();
+    var editorPanel = document.getElementById('editor-panel');
+    setTimeout(function() { editorPanel.scrollTop = editorPanel.scrollHeight; }, 50);
+  };
+
+  // ── Load from Client ──────────────────────────────────────────────────
+  window.loadTeamFromClient = function() {
+    // Find the client ID from the snapshot bar's client combobox
+    var clientInput = document.querySelector('.snapshot-bar input[name="snapshot_client_name"]');
+    var clientIdInput = document.querySelector('.snapshot-bar input[name="snapshot_client_id"]');
+    if (!clientIdInput || !clientIdInput.value) {
+      ManualChart.toast('Select a client in the snapshot bar first', 'error');
+      return;
+    }
+    var clientId = clientIdInput.value;
+    var clientName = clientInput ? clientInput.value : 'this client';
+
+    if (members.length > 0) {
+      if (!confirm('Replace current team with data from ' + clientName + '?')) return;
+    }
+
+    fetch('/charts/api/team/' + clientId)
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (!data.length) {
+          ManualChart.toast('No internal team contacts found for ' + clientName, 'error');
+          return;
+        }
+        members = data.map(function(d, i) {
+          return {
+            id: i + 1,
+            name: d.name || '',
+            title: d.title || '',
+            role: d.role || '',
+            assignment: d.assignment || '',
+            phone: d.phone || '',
+            email: d.email || '',
+            mobile: d.mobile || '',
+            notes: d.notes || '',
+          };
+        });
+        nextId = members.length + 1;
+        openMember = null;
+        serializeState();
+        buildMemberEditor();
+        buildCanvas();
+        ManualChart.toast('Loaded ' + members.length + ' team members from ' + clientName, 'success');
+      })
+      .catch(function() {
+        ManualChart.toast('Failed to load team data', 'error');
+      });
+  };
+
+  // ── Size tiers based on member count ────────────────────────────────────
+  // Returns {pad, namePx, subPx, badgePx, contactPx, gap} for responsive scaling
+  function cardSizes(n) {
+    if (n <= 4)  return { pad: '14px 16px', namePx: 15, subPx: 11, badgePx: 9, contactPx: 9, notesPx: 9, gap: '14px 16px' };
+    if (n <= 8)  return { pad: '10px 13px', namePx: 13, subPx: 10, badgePx: 8, contactPx: 8, notesPx: 8, gap: '12px 14px' };
+    if (n <= 12) return { pad: '8px 10px',  namePx: 12, subPx: 9,  badgePx: 8, contactPx: 8, notesPx: 7, gap: '10px 10px' };
+    return                { pad: '7px 9px',  namePx: 11, subPx: 8,  badgePx: 7, contactPx: 7, notesPx: 7, gap: '8px 8px'   };
+  }
+
+  // ── Build Card HTML (dynamically sized) ───────────────────────────────
+  function buildCardHtml(m, accentColor, showBadge, showContact, showNotes, sz) {
+    var html = '<div class="tc-card" style="border:1px solid #D9D5CF;border-radius:3px;padding:' + sz.pad + ';background:#fff;position:relative;box-shadow:0 1px 3px rgba(0,0,0,0.06);overflow:hidden;min-width:0;">';
+
+    // Tooltip (no-print, hidden on export)
+    var tooltipParts = [];
+    if (m.phone) tooltipParts.push('Phone: ' + esc(m.phone));
+    if (m.mobile) tooltipParts.push('Mobile: ' + esc(m.mobile));
+    if (m.email) tooltipParts.push('Email: ' + esc(m.email));
+    if (m.notes) tooltipParts.push(esc(m.notes));
+    if (tooltipParts.length) {
+      html += '<div class="tc-tooltip no-print" style="display:none;position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);background:#000F47;color:#fff;font-family:\'Noto Sans\',sans-serif;font-size:10px;padding:7px 10px;border-radius:3px;white-space:nowrap;z-index:20;box-shadow:0 3px 10px rgba(0,0,0,0.2);line-height:1.5;">' +
+        tooltipParts.join('<br>') +
+        '</div>';
+    }
+
+    // Name
+    html += '<div style="font-family:\'Noto Serif\',serif;font-size:' + sz.namePx + 'px;font-weight:700;color:#000F47;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(m.name) + '</div>';
+
+    // Subtitle (title + role)
+    var subtitle = [m.title, m.role].filter(Boolean).join(' \u2014 ');
+    if (subtitle) {
+      html += '<div style="font-family:\'Noto Sans\',sans-serif;font-size:' + sz.subPx + 'px;color:#7B7974;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(subtitle) + '</div>';
+    }
+
+    // Assignment badge (grid layout only)
+    if (showBadge && m.assignment) {
+      html += '<div style="display:inline-block;max-width:100%;font-family:\'Noto Sans\',sans-serif;font-size:' + sz.badgePx + 'px;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;padding:1px 5px;border-radius:2px;margin-top:2px;background:' + tintOnWhite(accentColor, 0.1) + ';color:' + accentColor + ';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(m.assignment) + '</div>';
+    }
+
+    // Contact info — single line
+    if (showContact && (m.phone || m.email)) {
+      var contactParts = [];
+      if (m.phone) contactParts.push(esc(m.phone));
+      if (m.email) contactParts.push(esc(m.email));
+      html += '<div style="font-family:\'Noto Sans\',sans-serif;font-size:' + sz.contactPx + 'px;color:#9A9792;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' +
+        contactParts.join(' &middot; ') + '</div>';
+    }
+
+    // Notes — single line
+    if (showNotes && m.notes) {
+      html += '<div style="font-family:\'Noto Sans\',sans-serif;font-size:' + sz.notesPx + 'px;color:#9A9792;font-style:italic;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(m.notes) + '</div>';
+    }
+
+    html += '</div>';
+    return html;
+  }
+
+  // ── Build Canvas (fixed 960×540 slide) ────────────────────────────────
+  function buildCanvas() {
+    var title       = document.getElementById('val-title').value || '';
+    var subtitle    = document.getElementById('val-subtitle').value || '';
+    var accentColor = document.getElementById('cfg-accent-color').value || MC.midnight;
+    var layout      = document.getElementById('cfg-layout').value || 'grid';
+
+    var showTitle    = ManualChart.isToggled('show-title');
+    var showSubtitle = ManualChart.isToggled('show-subtitle');
+    var showContact  = ManualChart.isToggled('show-contact');
+    var showNotes    = ManualChart.isToggled('show-notes');
+
+    var canvas = document.getElementById('team-canvas');
+
+    var html = '<div style="width:960px;height:540px;background:#fff;font-family:\'Noto Sans\',sans-serif;display:flex;flex-direction:column;overflow:hidden;">';
+
+    // Header (compact)
+    if (showTitle || showSubtitle) {
+      html += '<div style="padding:16px 28px 12px;border-bottom:1px solid #e8e6e0;flex-shrink:0;">';
+      if (showTitle && title) {
+        html += '<div style="font-family:\'Noto Serif\',serif;font-size:18px;color:#000F47;line-height:1.2;">' + esc(title) + '</div>';
+      }
+      if (showSubtitle && subtitle) {
+        html += '<div style="font-family:\'Noto Sans\',sans-serif;font-size:10px;color:#7B7974;margin-top:2px;">' + esc(subtitle) + '</div>';
+      }
+      html += '</div>';
+    }
+
+    if (!members.length) {
+      html += '<div style="flex:1;display:flex;align-items:center;justify-content:center;font-size:13px;color:#B9B6B1;">No team members added yet</div>';
+    } else if (layout === 'grid') {
+      html += buildGridLayout(accentColor, showContact, showNotes);
+    } else {
+      html += buildGroupedLayout(accentColor, showContact, showNotes);
+    }
+
+    html += '</div>';
+    canvas.innerHTML = html;
+  }
+
+  function buildGridLayout(accentColor, showContact, showNotes) {
+    var n = members.length;
+    var cols = n >= 11 ? 5 : n >= 7 ? 4 : n >= 4 ? 3 : n >= 2 ? 2 : 1;
+    var sz = cardSizes(n);
+    var html = '<div style="flex:1;padding:14px 24px 16px;display:grid;grid-template-columns:repeat(' + cols + ',minmax(0,1fr));gap:' + sz.gap + ';align-content:start;overflow:hidden;">';
+    members.forEach(function(m) {
+      html += buildCardHtml(m, accentColor, true, showContact, showNotes, sz);
+    });
+    html += '</div>';
+    return html;
+  }
+
+  function buildGroupedLayout(accentColor, showContact, showNotes) {
+    var groupBy = document.getElementById('cfg-group-by').value || 'assignment';
+    var n = members.length;
+    var groups = {};
+    var groupOrder = [];
+    members.forEach(function(m) {
+      var group = m[groupBy] || 'Unassigned';
+      if (!groups[group]) {
+        groups[group] = [];
+        groupOrder.push(group);
+      }
+      groups[group].push(m);
+    });
+
+    // Responsive sizing for grouped rows
+    var namePx = n <= 6 ? 13 : n <= 10 ? 11 : 10;
+    var subPx  = n <= 6 ? 10 : n <= 10 ? 9  : 8;
+    var ctPx   = n <= 6 ? 9  : n <= 10 ? 8  : 7;
+    var hdrPx  = n <= 6 ? 10 : 9;
+    var rowPad = n <= 6 ? '3px 10px' : '2px 10px';
+    var hdrPad = n <= 6 ? '4px 10px' : '3px 10px';
+
+    // Two-column layout for groups to use horizontal space
+    var nGroups = groupOrder.length;
+    var useTwoCols = nGroups >= 4;
+
+    var html = '<div style="flex:1;padding:10px 24px 14px;overflow:hidden;' +
+      (useTwoCols ? 'display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;align-content:start;' : '') +
+      '">';
+
+    groupOrder.forEach(function(group, gi) {
+      html += '<div>';
+      // Group header — thin accent bar
+      html += '<div style="padding:' + hdrPad + ';border-radius:2px;margin-bottom:3px;' +
+        (gi > 0 && !useTwoCols ? 'margin-top:6px;' : '') +
+        'font-family:\'Noto Sans\',sans-serif;font-size:' + hdrPx + 'px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:#fff;background:' + accentColor + ';">' +
+        esc(group) + '</div>';
+      // Member rows — compact inline list
+      groups[group].forEach(function(m) {
+        var sub = [m.title, m.role].filter(Boolean).join(' \u2014 ');
+        html += '<div style="display:flex;align-items:baseline;gap:6px;padding:' + rowPad + ';border-bottom:1px solid #F0EBE5;min-width:0;">';
+        html += '<div style="font-family:\'Noto Serif\',serif;font-size:' + namePx + 'px;font-weight:700;color:#000F47;white-space:nowrap;flex-shrink:0;">' + esc(m.name) + '</div>';
+        if (sub) {
+          html += '<div style="font-family:\'Noto Sans\',sans-serif;font-size:' + subPx + 'px;color:#7B7974;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;">' + esc(sub) + '</div>';
+        }
+        if (showContact && (m.phone || m.email)) {
+          var cp = [];
+          if (m.phone) cp.push(esc(m.phone));
+          if (m.email) cp.push(esc(m.email));
+          html += '<div style="font-family:\'Noto Sans\',sans-serif;font-size:' + ctPx + 'px;color:#9A9792;margin-left:auto;white-space:nowrap;flex-shrink:0;">' + cp.join(' &middot; ') + '</div>';
+        }
+        html += '</div>';
+      });
+      html += '</div>';
+    });
+    html += '</div>';
+    return html;
+  }
+
+  // ── refreshCurrentChart ───────────────────────────────────────────────
+  window.refreshCurrentChart = function() {
+    // If editor is empty (snapshot load), try to deserialize
+    var container = document.getElementById('members-editor');
+    if (!container.children.length) {
+      deserializeState();
+    }
+    // Sync layout buttons and group-by visibility
+    var layout = document.getElementById('cfg-layout').value || 'grid';
+    document.querySelectorAll('#layout-btns .tc-layout-btn').forEach(function(b) {
+      b.classList.toggle('active', b.getAttribute('data-l') === layout);
+    });
+    document.getElementById('group-by-row').style.display = layout === 'grouped' ? '' : 'none';
+    serializeState();
+    buildSwatches();
+    buildMemberEditor();
+    buildCanvas();
+  };
+
+  // ── Init ──────────────────────────────────────────────────────────────
+  initLayoutButtons();
+  serializeState();
+  buildSwatches();
+  buildMemberEditor();
+  buildCanvas();
+})();
+</script>

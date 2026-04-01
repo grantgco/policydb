@@ -1355,6 +1355,7 @@ def client_tab_contacts(request: Request, client_id: int, add_contact: str = "",
         "all_internal_contacts_json": all_internal_contacts_json,
         "add_contact": add_contact,
         "contact_roles": cfg.get("contact_roles", []),
+        "team_assignments": cfg.get("team_assignments", []),
         "all_orgs": _get_all_client_contact_orgs(conn),
     })
 
@@ -2305,6 +2306,7 @@ def _internal_contacts_response(request, conn, client_id: int):
         "mailto_subject": mailto_subject,
         "all_internal_contacts_json": all_internal_contacts_json,
         "contact_roles": cfg.get("contact_roles", []),
+        "team_assignments": cfg.get("team_assignments", []),
         "add_contact": "",
     })
 
@@ -2492,6 +2494,7 @@ def team_contact_add_row(request: Request, client_id: int, conn=Depends(get_db))
     return templates.TemplateResponse("clients/_team_matrix_row.html", {
         "request": request, "c": c, "client": {"id": client_id},
         "contact_roles": cfg.get("contact_roles", []),
+        "team_assignments": cfg.get("team_assignments", []),
     })
 
 

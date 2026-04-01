@@ -23,12 +23,15 @@
       {% else %}<span class="text-gray-300 text-xs">&mdash;</span>{% endif %}
     </span>
   </td>
-  {# Assignment (amber, client-specific) #}
-  <td class="px-3 py-2.5">
-    <div contenteditable="true"
-         class="matrix-cell-editable outline-none text-amber-700 text-xs rounded px-1 -mx-1 bg-amber-50/30"
-         data-field="assignment"
-         data-placeholder="Assignment...">{{ c.assignment or '' }}</div>
+  {# Assignment (combobox, amber, client-specific) #}
+  <td class="matrix-cell-combo px-3 py-2.5 cursor-pointer relative"
+      data-field="assignment"
+      data-options='{{ team_assignments | tojson }}'>
+    <span class="cell-display">
+      {% if c.assignment %}
+      <span class="text-xs text-amber-700 bg-amber-50 px-2 py-0.5 rounded">{{ c.assignment }}</span>
+      {% else %}<span class="text-gray-300 text-xs">&mdash;</span>{% endif %}
+    </span>
   </td>
   {# Email (click-to-input) #}
   <td class="matrix-cell-email px-3 py-2.5 cursor-pointer" data-field="email">
