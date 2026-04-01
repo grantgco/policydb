@@ -14,6 +14,9 @@
           {% if a.activity_type %}
           <span class="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-600">{{ a.activity_type }}</span>
           {% endif %}
+          {% if a.source is defined and a.source == 'outlook_sync' %}
+          <span class="text-[9px] px-1 rounded bg-sky-100 text-sky-600 font-medium">synced</span>
+          {% endif %}
           {% if a.policy_uid %}
           <a href="/policies/{{ a.policy_uid }}/edit" class="text-xs text-marsh hover:underline">{{ a.policy_uid }}</a>
           <span class="text-xs text-gray-400">{{ a.policy_type }}{% if a.carrier %} · {{ a.carrier }}{% endif %}</span>
@@ -28,6 +31,12 @@
       {% endif %}
       {% if a.details %}
       <p class="text-sm text-gray-500 ml-0">{{ a.details | truncate(200) }}</p>
+      {% endif %}
+      {% if a.email_snippet is defined and a.email_snippet %}
+      <details class="mt-1">
+        <summary class="text-[10px] text-blue-500 cursor-pointer hover:text-blue-700">view email content</summary>
+        <div class="text-[10px] text-gray-500 mt-1 whitespace-pre-line leading-relaxed max-h-32 overflow-y-auto bg-gray-50 rounded p-2">{{ a.email_snippet }}</div>
+      </details>
       {% endif %}
       {% if a.contact_person %}
       <p class="text-xs text-gray-400 mt-1">Contact: {{ a.contact_person }}</p>
