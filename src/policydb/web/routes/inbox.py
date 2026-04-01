@@ -17,14 +17,26 @@ router = APIRouter()
 
 
 @router.get("/inbox/contacts/search")
-def inbox_contact_search(q: str = "", conn=Depends(get_db)):
-    """Search contacts for @ autocomplete."""
+def inbox_contact_search(q: str = "", client_id: int = 0, conn=Depends(get_db)):
+    """Search contacts for @ autocomplete, optionally filtered by client."""
     if len(q) < 2:
         return JSONResponse([])
-    rows = conn.execute("""
-        SELECT id, name, organization FROM contacts
-        WHERE name LIKE ? ORDER BY name LIMIT 15
-    """, (f"%{q}%",)).fetchall()
+    if client_id:
+        # Return contacts assigned to this client first, then others
+        rows = conn.execute("""
+            SELECT co.id, co.name, co.organization,
+                   CASE WHEN cca.client_id IS NOT NULL THEN 1 ELSE 0 END AS is_client_contact
+            FROM contacts co
+            LEFT JOIN contact_client_assignments cca ON cca.contact_id = co.id AND cca.client_id = ?
+            WHERE co.name LIKE ?
+            ORDER BY is_client_contact DESC, co.name
+            LIMIT 15
+        """, (client_id, f"%{q}%")).fetchall()
+    else:
+        rows = conn.execute("""
+            SELECT id, name, organization FROM contacts
+            WHERE name LIKE ? ORDER BY name LIMIT 15
+        """, (f"%{q}%",)).fetchall()
     return JSONResponse([{"id": r["id"], "name": r["name"], "org": r["organization"] or ""} for r in rows])
 
 
