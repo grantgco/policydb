@@ -93,7 +93,15 @@
           <button type="submit"
                   class="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-lg bg-marsh text-white hover:bg-marsh-light">Save</button>
           {% if last_outlook_sync %}
-          <span class="text-[10px] text-gray-400">Last sync: {{ last_outlook_sync }}</span>
+          <span class="text-[10px] text-gray-400">Last sync: {{ last_outlook_sync[:16] }}</span>
+          <button type="button"
+                  hx-post="/settings/config/outlook-reset-sync"
+                  hx-confirm="Reset sync history? Next sync will use the lookback window to scan older emails. Already-imported emails won't be duplicated."
+                  hx-swap="none"
+                  hx-on::after-request="if(event.detail.successful){location.reload()}"
+                  class="text-[10px] text-red-500 hover:text-red-700 hover:underline">Reset</button>
+          {% else %}
+          <span class="text-[10px] text-gray-400">No sync yet</span>
           {% endif %}
         </div>
       </form>

@@ -13,8 +13,6 @@ import re
 import sqlite3
 from datetime import datetime, timedelta
 
-from rapidfuzz import fuzz
-
 from policydb import config as cfg
 from policydb.outlook import search_emails, search_all_folders, get_flagged_emails
 
@@ -122,68 +120,6 @@ def _resolve_ref_tag(conn: sqlite3.Connection, tag: str) -> dict | None:
 
     return result
 
-
-def _fuzzy_match(
-    conn: sqlite3.Connection,
-    sender: str,
-    recipients: list[str],
-    subject: str,
-) -> dict | None:
-    """Try to match an email to a record using contact emails + subject keywords.
-
-    Returns match info or None.
-    """
-    all_emails = [sender] + (recipients or [])
-    all_emails = [e.strip().lower() for e in all_emails if e and e.strip()]
-
-    # Find contacts by email
-    matched_contacts = []
-    for email in all_emails:
-        contact = conn.execute(
-            """SELECT co.id, co.name, cca.client_id
-               FROM contacts co
-               JOIN contact_client_assignments cca ON cca.contact_id = co.id
-               WHERE LOWER(TRIM(co.email)) = ?""",
-            (email,),
-        ).fetchall()
-        matched_contacts.extend(contact)
-
-    if not matched_contacts:
-        return None
-
-    # Get unique client IDs from matched contacts
-    client_ids = list({c["client_id"] for c in matched_contacts if c["client_id"]})
-
-    if not client_ids:
-        return None
-
-    # Score each client by subject similarity
-    best_score = 0
-    best_client_id = client_ids[0]
-
-    for cid in client_ids:
-        client = conn.execute(
-            "SELECT name FROM clients WHERE id=?", (cid,),
-        ).fetchone()
-        if client:
-            score = fuzz.token_sort_ratio(
-                subject.lower(),
-                client["name"].lower(),
-            )
-            if score > best_score:
-                best_score = score
-                best_client_id = cid
-
-    # Only return if above threshold
-    if best_score < 75 and len(client_ids) > 1:
-        # Ambiguous — multiple clients, low score
-        return None
-
-    return {
-        "tier": 2,
-        "client_id": best_client_id,
-        "confidence": best_score,
-    }
 
 
 def _create_or_enrich_activity(
@@ -406,17 +342,8 @@ def _process_email(
             if match:
                 break
 
-    # No ref tag or ref tag didn't resolve — try fuzzy match
     if not match:
-        match = _fuzzy_match(
-            conn,
-            email.get("sender", ""),
-            email.get("recipients", []),
-            email.get("subject", ""),
-        )
-
-    if not match:
-        # Can't associate — send to inbox for triage
+        # No ref tag match — send to inbox for triage
         # (all categories: sent, received, flagged — never silently drop)
         message_id = email.get("message_id", "")
         # Dedup: check if already in activity_log or inbox
