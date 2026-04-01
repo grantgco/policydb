@@ -84,17 +84,24 @@
     </div>
 
     {# ── Options ── #}
-    <div class="flex items-center gap-4 flex-wrap">
-      <label class="flex items-center gap-1.5 cursor-pointer text-xs text-gray-600">
-        <input type="checkbox" id="compose-formal" class="rounded border-gray-300">
-        <span>Formal email format</span>
-      </label>
-      {% if policy_uid or project_name or issue_uid %}
-      <label class="flex items-center gap-1.5 cursor-pointer text-xs text-gray-600">
-        <input type="checkbox" id="compose-include-table" class="rounded border-gray-300">
-        <span>Include policy table</span>
-      </label>
-      {% endif %}
+    <div class="space-y-2">
+      <div class="flex items-center gap-4 flex-wrap">
+        <label class="flex items-center gap-1.5 cursor-pointer text-xs text-gray-600">
+          <input type="checkbox" id="compose-formal" class="rounded border-gray-300"
+                 onchange="document.getElementById('compose-formal-hint').classList.toggle('hidden', !this.checked)">
+          <span>Formal email format</span>
+        </label>
+        {% if policy_uid or project_name or issue_uid %}
+        <label class="flex items-center gap-1.5 cursor-pointer text-xs text-gray-600">
+          <input type="checkbox" id="compose-include-table" class="rounded border-gray-300"
+                 onchange="if(this.checked){var f=document.getElementById('compose-formal');f.checked=true;f.dispatchEvent(new Event('change'));}">
+          <span>Include policy table</span>
+        </label>
+        {% endif %}
+      </div>
+      <p id="compose-formal-hint" class="text-[11px] text-gray-400 hidden">
+        Formal format uses Marsh-branded HTML styling. Only applies to Outlook drafts.
+      </p>
     </div>
 
     {# ── Separator ── #}
