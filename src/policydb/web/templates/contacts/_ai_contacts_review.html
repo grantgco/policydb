@@ -1,0 +1,118 @@
+{# AI Contact Import Review Panel — directory-level (no client association).
+   Context variables:
+     contacts      — list of extracted contact dicts
+     warnings      — list of warning strings
+     token         — cache token for apply step
+     contact_roles — list of role options from config
+#}
+<div id="ai-contact-import-result" class="space-y-4">
+
+  {# Summary badges #}
+  <div class="flex items-center gap-3 flex-wrap">
+    <span class="px-2.5 py-1 rounded-full text-xs font-medium bg-indigo-50 text-indigo-700">
+      {{ contacts | length }} contact{{ 's' if contacts | length != 1 else '' }} extracted
+    </span>
+    {% set new_count = contacts | rejectattr('existing_contact') | list | length %}
+    {% set exists_count = contacts | selectattr('existing_contact') | list | length %}
+    {% if new_count %}
+    <span class="px-2.5 py-1 rounded-full text-xs font-medium bg-green-50 text-green-700">
+      {{ new_count }} new
+    </span>
+    {% endif %}
+    {% if exists_count %}
+    <span class="px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700">
+      {{ exists_count }} already in directory
+    </span>
+    {% endif %}
+  </div>
+
+  {# Warnings #}
+  {% if warnings %}
+  <div class="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+    <p class="text-xs font-semibold text-amber-800 mb-1">Warnings</p>
+    {% for w in warnings %}
+    <p class="text-xs text-amber-700">{{ w }}</p>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {# Contact list form #}
+  <form id="ai-contacts-apply-form">
+    <input type="hidden" name="token" value="{{ token }}">
+    <div class="border border-gray-200 rounded-lg overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="text-left text-xs text-gray-400 uppercase tracking-wide bg-gray-50 border-b border-gray-200">
+            <th class="px-3 py-2 w-8">
+              <input type="checkbox" id="ai-contacts-select-all" checked
+                     class="rounded border-gray-300 text-marsh focus:ring-marsh"
+                     onchange="document.querySelectorAll('.ai-contact-cb:not(:disabled)').forEach(function(c){c.checked=this.checked}.bind(this))">
+            </th>
+            <th class="px-3 py-2">Name</th>
+            <th class="px-3 py-2">Email</th>
+            <th class="px-3 py-2">Phone</th>
+            <th class="px-3 py-2">Org</th>
+            <th class="px-3 py-2">Title</th>
+            <th class="px-3 py-2 w-16">Status</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-100">
+          {% for c in contacts %}
+          <tr class="{% if c.existing_contact %}bg-blue-50/30{% else %}hover:bg-gray-50{% endif %}">
+            <td class="px-3 py-2">
+              <input type="checkbox" name="select_{{ loop.index0 }}" value="1"
+                     class="ai-contact-cb rounded border-gray-300 text-marsh focus:ring-marsh"
+                     {% if not c.existing_contact %}checked{% endif %}>
+            </td>
+            <td class="px-3 py-2">
+              <input type="text" name="name_{{ loop.index0 }}" value="{{ c.name }}"
+                     class="w-full border-0 bg-transparent text-sm font-medium text-gray-900 focus:ring-1 focus:ring-marsh focus:bg-white rounded px-1 py-0.5">
+            </td>
+            <td class="px-3 py-2">
+              <input type="text" name="email_{{ loop.index0 }}" value="{{ c.email or '' }}"
+                     class="w-full border-0 bg-transparent text-xs text-gray-600 focus:ring-1 focus:ring-marsh focus:bg-white rounded px-1 py-0.5">
+            </td>
+            <td class="px-3 py-2 space-y-0.5">
+              <input type="text" name="phone_{{ loop.index0 }}" value="{{ c.phone or '' }}"
+                     class="w-full border-0 bg-transparent text-xs text-gray-600 focus:ring-1 focus:ring-marsh focus:bg-white rounded px-1 py-0.5"
+                     placeholder="Phone">
+              <input type="text" name="mobile_{{ loop.index0 }}" value="{{ c.mobile or '' }}"
+                     class="w-full border-0 bg-transparent text-xs text-gray-400 focus:ring-1 focus:ring-marsh focus:bg-white rounded px-1 py-0.5"
+                     placeholder="Mobile">
+            </td>
+            <td class="px-3 py-2">
+              <input type="text" name="org_{{ loop.index0 }}" value="{{ c.organization or '' }}"
+                     class="w-full border-0 bg-transparent text-xs text-gray-600 focus:ring-1 focus:ring-marsh focus:bg-white rounded px-1 py-0.5">
+            </td>
+            <td class="px-3 py-2">
+              <input type="text" name="title_{{ loop.index0 }}" value="{{ c.title or '' }}"
+                     class="w-full border-0 bg-transparent text-xs text-gray-500 focus:ring-1 focus:ring-marsh focus:bg-white rounded px-1 py-0.5">
+            </td>
+            <td class="px-3 py-2">
+              {% if c.existing_contact %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-100 text-blue-700">Exists</span>
+              {% else %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-500">New</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="flex items-center justify-between mt-4">
+      <p class="text-xs text-gray-400">
+        Uncheck contacts you don't want to import. Existing contacts will be updated with new details.
+      </p>
+      <button type="submit"
+              hx-post="/contacts/ai-import/apply"
+              hx-target="#ai-contact-import-result"
+              hx-swap="innerHTML"
+              hx-include="#ai-contacts-apply-form"
+              class="px-4 py-2 bg-marsh text-white text-sm font-medium rounded-lg hover:bg-marsh-light transition-colors">
+        Apply Selected
+      </button>
+    </div>
+  </form>
+</div>
