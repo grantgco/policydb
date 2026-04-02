@@ -1,0 +1,116 @@
+{# Issue Edit Slideover — per-field save on blur via PATCH #}
+
+<div class="flex items-start justify-between px-5 py-4 border-b border-gray-200 flex-shrink-0">
+  <div>
+    <h2 class="text-sm font-semibold text-gray-900">Edit Issue</h2>
+    <p class="text-xs text-gray-500 mt-0.5">
+      {% if iss.issue_uid %}{{ iss.issue_uid }} &middot; {% endif %}{{ iss.client_name }}
+    </p>
+  </div>
+  <button type="button" onclick="closeFollowupEdit()"
+          class="text-gray-400 hover:text-gray-600 transition-colors ml-4 mt-0.5">
+    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+    </svg>
+  </button>
+</div>
+
+<div class="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+  {# Due date #}
+  <div>
+    <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Due Date</label>
+    <div class="flex items-center gap-2 mt-1">
+      <input type="date" id="edit-iss-due" value="{{ iss.due_date or '' }}"
+        class="text-sm border border-gray-300 rounded px-2 py-1.5 focus:ring-1 focus:ring-marsh focus:border-marsh"
+        onchange="patchIssField({{ iss.id }}, 'due_date', this.value, this)">
+      <button type="button" onclick="setIssDue(1)" class="text-[10px] border border-gray-200 rounded px-1.5 py-0.5 text-gray-400 hover:text-[#003865] hover:border-[#003865]">+1d</button>
+      <button type="button" onclick="setIssDue(3)" class="text-[10px] border border-gray-200 rounded px-1.5 py-0.5 text-gray-400 hover:text-[#003865] hover:border-[#003865]">+3d</button>
+      <button type="button" onclick="setIssDue(7)" class="text-[10px] border border-gray-200 rounded px-1.5 py-0.5 text-gray-400 hover:text-[#003865] hover:border-[#003865]">+7d</button>
+    </div>
+  </div>
+
+  {# Severity — pill buttons #}
+  <div>
+    <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Severity</label>
+    <div class="flex flex-wrap gap-1.5 mt-1">
+      {% for sev in severities %}
+      <button type="button"
+        onclick="selectIssSev(this, {{ iss.id }}, '{{ sev.label }}')"
+        class="iss-sev-pill text-[11px] px-3 py-1 rounded border transition-colors cursor-pointer
+          {% if iss.issue_severity == sev.label %}bg-[#003865] text-white border-[#003865]{% else %}border-gray-200 text-gray-500 hover:border-[#003865] hover:text-[#003865]{% endif %}">{{ sev.label }}</button>
+      {% endfor %}
+    </div>
+  </div>
+
+  {# Status — pill buttons #}
+  <div>
+    <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Status</label>
+    <div class="flex flex-wrap gap-1.5 mt-1">
+      {% for st in lifecycle_states %}
+      <button type="button"
+        onclick="selectIssStat(this, {{ iss.id }}, '{{ st }}')"
+        class="iss-stat-pill text-[11px] px-3 py-1 rounded border transition-colors cursor-pointer
+          {% if (iss.issue_status or 'Open') == st %}bg-[#003865] text-white border-[#003865]{% else %}border-gray-200 text-gray-500 hover:border-[#003865] hover:text-[#003865]{% endif %}">{{ st }}</button>
+      {% endfor %}
+    </div>
+  </div>
+
+  {# Subject #}
+  <div>
+    <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Subject</label>
+    <input type="text" id="edit-iss-subject" value="{{ iss.subject or '' }}"
+      class="mt-1 w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:ring-1 focus:ring-marsh focus:border-marsh"
+      onblur="patchIssField({{ iss.id }}, 'subject', this.value, this)">
+  </div>
+
+  {# Details #}
+  <div>
+    <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Details</label>
+    <textarea id="edit-iss-details" rows="4"
+      class="mt-1 w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:ring-1 focus:ring-marsh focus:border-marsh resize-y"
+      onblur="patchIssField({{ iss.id }}, 'details', this.value, this)">{{ iss.details or '' }}</textarea>
+  </div>
+</div>
+
+<script>
+function setIssDue(days) {
+  var d = new Date();
+  d.setDate(d.getDate() + days);
+  var val = d.toISOString().split('T')[0];
+  var el = document.getElementById('edit-iss-due');
+  el.value = val;
+  patchIssField({{ iss.id }}, 'due_date', val, el);
+}
+
+function selectIssSev(btn, issId, label) {
+  document.querySelectorAll('.iss-sev-pill').forEach(function(p) {
+    p.className = p.className.replace(/bg-\[#003865\] text-white border-\[#003865\]/g, 'border-gray-200 text-gray-500 hover:border-[#003865] hover:text-[#003865]');
+  });
+  btn.className = btn.className.replace(/border-gray-200 text-gray-500 hover:border-\[#003865\] hover:text-\[#003865\]/g, 'bg-[#003865] text-white border-[#003865]');
+  patchIssField(issId, 'issue_severity', label, btn);
+}
+
+function selectIssStat(btn, issId, label) {
+  document.querySelectorAll('.iss-stat-pill').forEach(function(p) {
+    p.className = p.className.replace(/bg-\[#003865\] text-white border-\[#003865\]/g, 'border-gray-200 text-gray-500 hover:border-[#003865] hover:text-[#003865]');
+  });
+  btn.className = btn.className.replace(/border-gray-200 text-gray-500 hover:border-\[#003865\] hover:text-\[#003865\]/g, 'bg-[#003865] text-white border-[#003865]');
+  patchIssField(issId, 'issue_status', label, btn);
+}
+
+function patchIssField(issId, field, value, el) {
+  fetch('/issues/' + issId + '/field', {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({field: field, value: value})
+  }).then(function(r) { return r.json(); }).then(function(data) {
+    if (data.ok && el && el.tagName) {
+      el.style.transition = 'background-color 0.3s';
+      el.style.backgroundColor = '#ecfdf5';
+      setTimeout(function() { el.style.backgroundColor = ''; }, 800);
+    } else if (!data.ok && typeof showToast === 'function') {
+      showToast('Save failed: ' + (data.error || 'unknown'), false);
+    }
+  });
+}
+</script>

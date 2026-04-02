@@ -258,6 +258,75 @@ def update_issue_details(
     return {"ok": True}
 
 
+# ── Edit slideover ────────────────────────────────────────────────────────────
+
+
+@router.get("/issues/{issue_id}/edit-slideover", response_class=HTMLResponse)
+def issue_edit_slideover(issue_id: int, request: Request, conn=Depends(get_db)):
+    """Return the edit slideover partial for an issue."""
+    row = conn.execute(
+        """SELECT a.id, a.issue_uid, a.subject, a.details, a.due_date,
+                  a.issue_severity, a.issue_status,
+                  c.name AS client_name
+           FROM activity_log a
+           JOIN clients c ON a.client_id = c.id
+           WHERE a.id = ? AND a.item_kind = 'issue'""",
+        (issue_id,),
+    ).fetchone()
+    if not row:
+        return HTMLResponse("<p class='p-4 text-sm text-gray-400'>Not found.</p>", status_code=404)
+    return templates.TemplateResponse("action_center/_edit_issue_slideover.html", {
+        "request": request,
+        "iss": dict(row),
+        "lifecycle_states": cfg.get("issue_lifecycle_states", []),
+        "severities": cfg.get("issue_severities", []),
+    })
+
+
+@router.patch("/issues/{issue_id}/field")
+def patch_issue_field(issue_id: int, body: dict = None, conn=Depends(get_db)):
+    """Update a single field on an issue (slideover inline edit)."""
+    if not body:
+        return JSONResponse({"ok": False, "error": "No body"}, status_code=400)
+    field = body.get("field", "")
+    value = body.get("value", "")
+
+    allowed = {"due_date", "issue_severity", "issue_status", "subject", "details"}
+    if field not in allowed:
+        return JSONResponse({"ok": False, "error": f"Field '{field}' not editable"}, status_code=400)
+
+    if field == "subject" and not (value or "").strip():
+        return JSONResponse({"ok": False, "error": "Subject cannot be empty"}, status_code=400)
+
+    # Update SLA when severity changes
+    if field == "issue_severity":
+        severities = cfg.get("issue_severities", [])
+        sla_days = 7
+        for sev in severities:
+            if sev["label"] == value:
+                sla_days = sev.get("sla_days", 7)
+                break
+        conn.execute(
+            "UPDATE activity_log SET issue_severity = ?, issue_sla_days = ? WHERE id = ? AND item_kind = 'issue'",
+            (value, sla_days, issue_id),
+        )
+    elif field == "issue_status":
+        conn.execute(
+            "UPDATE activity_log SET issue_status = ? WHERE id = ? AND item_kind = 'issue'",
+            (value, issue_id),
+        )
+        if value in ("Resolved", "Closed"):
+            auto_close_followups(conn, issue_id=issue_id, reason="issue_resolved", closed_by="issue_status_change")
+    else:
+        conn.execute(
+            f"UPDATE activity_log SET {field} = ? WHERE id = ? AND item_kind = 'issue'",
+            (value or None, issue_id),
+        )
+
+    conn.commit()
+    return {"ok": True, "formatted": value}
+
+
 @router.patch("/issues/{issue_id}/subject")
 def update_issue_subject(
     issue_id: int,
