@@ -739,6 +739,69 @@ def program_team_toggle_pc(request: Request, program_uid: str, contact_id: int, 
     return _program_team_response(request, conn, program_uid)
 
 
+# ── Workflow tab ───────────────────────────────────────────────────────────
+
+@router.get("/programs/{program_uid}/tab/workflow", response_class=HTMLResponse)
+def program_tab_workflow(request: Request, program_uid: str, conn=Depends(get_db)):
+    """Workflow tab: checklist + information requests."""
+    program = get_program_by_uid(conn, program_uid)
+    if not program:
+        return HTMLResponse("Not found", status_code=404)
+
+    # Program milestones (checklist)
+    milestones_config = cfg.get("renewal_milestones", [])
+    checklist = []
+    existing = {r["milestone"]: dict(r) for r in conn.execute(
+        "SELECT * FROM program_milestones WHERE program_uid=?", (program_uid,)
+    ).fetchall()}
+
+    for ms in milestones_config:
+        if ms in existing:
+            checklist.append(existing[ms])
+        else:
+            checklist.append({"id": None, "program_uid": program_uid, "milestone": ms, "completed": 0, "completed_at": None})
+
+    return templates.TemplateResponse("programs/_tab_workflow.html", {
+        "request": request,
+        "program": program,
+        "checklist": checklist,
+    })
+
+
+@router.post("/programs/{program_uid}/milestone/toggle", response_class=HTMLResponse)
+def program_milestone_toggle(
+    request: Request,
+    program_uid: str,
+    milestone: str = Form(...),
+    conn=Depends(get_db),
+):
+    """Toggle a program milestone completion status."""
+    program = get_program_by_uid(conn, program_uid)
+    if not program:
+        return HTMLResponse("Not found", status_code=404)
+
+    existing = conn.execute(
+        "SELECT id, completed FROM program_milestones WHERE program_uid=? AND milestone=?",
+        (program_uid, milestone),
+    ).fetchone()
+
+    if existing:
+        new_val = 0 if existing["completed"] else 1
+        conn.execute(
+            "UPDATE program_milestones SET completed=?, completed_at=CASE WHEN ?=1 THEN CURRENT_TIMESTAMP ELSE NULL END WHERE id=?",
+            (new_val, new_val, existing["id"]),
+        )
+    else:
+        conn.execute(
+            "INSERT INTO program_milestones (program_uid, milestone, completed, completed_at) VALUES (?, ?, 1, CURRENT_TIMESTAMP)",
+            (program_uid, milestone),
+        )
+    conn.commit()
+
+    # Return the full workflow tab
+    return program_tab_workflow(request, program_uid, conn)
+
+
 @router.patch("/programs/{program_uid}/header")
 async def patch_program_header(
     request: Request,
