@@ -53,4 +53,12 @@
     <a href="/action-center?tab=inbox" class="text-blue-500 hover:underline">Inbox</a> for triage.
   </div>
   {% endif %}
+
+  {# ── Suggested contacts note ── #}
+  {% if new_contacts_found %}
+  <div class="text-[10px] text-gray-500 mt-1">
+    <span class="text-teal-600">{{ new_contacts_found }} suggested contact{{ 's' if new_contacts_found != 1 }}</span>
+    pending review.
+  </div>
+  {% endif %}
 </div>

@@ -502,6 +502,7 @@ def sync_outlook(conn: sqlite3.Connection) -> dict:
         "errors": [],
         "total_scanned": 0,
         "since": since.strftime("%b %d, %Y %H:%M"),
+        "new_contacts_found": 0,
     }
 
     skip_category = cfg.get("outlook_skip_category", "Personal")
@@ -538,6 +539,11 @@ def sync_outlook(conn: sqlite3.Connection) -> dict:
         for email in flagged_result.get("emails", []):
             results["total_scanned"] += 1
             _process_email(conn, email, results, "flagged")
+
+    # Count contacts captured during this sync run
+    results["new_contacts_found"] = conn.execute(
+        "SELECT COUNT(*) FROM suggested_contacts WHERE status='pending' AND blocked=0"
+    ).fetchone()[0]
 
     # ── Update last sync timestamp ───────────────────────────────────
     config_data = dict(cfg.load_config())
