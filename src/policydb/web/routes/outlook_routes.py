@@ -13,6 +13,7 @@ from policydb.email_templates import (
     policy_context,
     client_context,
     location_context,
+    issue_context,
     markdown_to_html,
     wrap_email_html,
     _render_policy_table_html,

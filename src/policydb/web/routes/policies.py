@@ -442,6 +442,152 @@ async def policy_quick_add(request: Request, conn=Depends(get_db)):
     return JSONResponse({"ok": True, "row": dict(row)})
 
 
+# ── New Policy (MUST be before /{policy_uid} to avoid route capture) ─────────
+
+
+@router.get("/new", response_class=HTMLResponse)
+def policy_new_form(request: Request, client: int = 0, opp: int = 0, conn=Depends(get_db)):
+    client_row = get_client_by_id(conn, client) if client else None
+    all_clients = conn.execute(
+        "SELECT id, name FROM clients WHERE archived=0 ORDER BY name"
+    ).fetchall()
+    return templates.TemplateResponse("policies/new.html", {
+        "request": request,
+        "active": "",
+        "client": dict(client_row) if client_row else None,
+        "all_clients": [dict(c) for c in all_clients],
+        "policy_types": cfg.get("policy_types"),
+        "coverage_forms": cfg.get("coverage_forms"),
+        "renewal_statuses": _renewal_statuses(),
+        "us_states": US_STATES,
+        "opportunity_statuses": cfg.get("opportunity_statuses"),
+        "default_opportunity": opp == 1,
+    })
+
+
+@router.post("/new")
+def policy_new_post(
+    request: Request,
+    client_id: int = Form(...),
+    policy_type: str = Form(...),
+    carrier: str = Form(""),
+    is_opportunity: str = Form("0"),
+    opportunity_status: str = Form(""),
+    target_effective_date: str = Form(""),
+    policy_number: str = Form(""),
+    effective_date: str = Form(""),
+    expiration_date: str = Form(""),
+    premium: str = Form("0"),
+    limit_amount: str = Form(""),
+    deductible: str = Form(""),
+    description: str = Form(""),
+    coverage_form: str = Form(""),
+    layer_position: str = Form("Primary"),
+    tower_group: str = Form(""),
+    is_standalone: str = Form("0"),
+    is_bor: str = Form("0"),
+    renewal_status: str = Form("Not Started"),
+    placement_colleague: str = Form(""),
+    underwriter_name: str = Form(""),
+    underwriter_contact: str = Form(""),
+    project_name: str = Form(""),
+    exposure_basis: str = Form(""),
+    exposure_amount: str = Form(""),
+    exposure_unit: str = Form(""),
+    exposure_address: str = Form(""),
+    exposure_city: str = Form(""),
+    exposure_state: str = Form(""),
+    exposure_zip: str = Form(""),
+    commission_rate: str = Form(""),
+    prior_premium: str = Form(""),
+    notes: str = Form(""),
+    follow_up_date: str = Form(""),
+    attachment_point: str = Form(""),
+    participation_of: str = Form(""),
+    first_named_insured: str = Form(""),
+    access_point: str = Form(""),
+    conn=Depends(get_db),
+):
+    from policydb.db import next_policy_uid
+
+    def _float(v):
+        try:
+            return float(v) if str(v).strip() else None
+        except ValueError:
+            return None
+
+    from policydb.utils import parse_currency_with_magnitude as _parse_money
+    uid = next_policy_uid(conn)
+    account_exec = cfg.get("default_account_exec", "Grant")
+    opp = 1 if is_opportunity == "1" else 0
+    policy_type = normalize_coverage_type(policy_type)
+    carrier = normalize_carrier(carrier) if carrier else ""
+    policy_number = normalize_policy_number(policy_number) if policy_number else ""
+    # Parse currency shorthand (e.g., "$5M" → 5000000)
+    premium = str(_parse_money(premium) or 0) if premium else premium
+    limit_amount = str(_parse_money(limit_amount) or '') if limit_amount else limit_amount
+    deductible = str(_parse_money(deductible) or '') if deductible else deductible
+    exposure_address = exposure_address.strip() if exposure_address else ""
+    exposure_city = format_city(exposure_city) if exposure_city else ""
+    exposure_state = format_state(exposure_state) if exposure_state else ""
+    exposure_zip = format_zip(exposure_zip) if exposure_zip else ""
+    conn.execute(
+        """INSERT INTO policies
+           (policy_uid, client_id, policy_type, carrier, policy_number,
+            effective_date, expiration_date, premium, limit_amount, deductible,
+            description, coverage_form, layer_position, tower_group, is_standalone, is_bor,
+            is_opportunity, opportunity_status, target_effective_date,
+            renewal_status, underwriter_name, underwriter_contact,
+            account_exec, project_name,
+            exposure_basis, exposure_amount, exposure_unit,
+            exposure_address, exposure_city, exposure_state, exposure_zip,
+            commission_rate, prior_premium, notes, follow_up_date,
+            attachment_point, participation_of, first_named_insured, access_point)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (uid, client_id, policy_type, carrier or None, policy_number or None,
+         effective_date or None, expiration_date or None, _float(premium) or 0,
+         _float(limit_amount), _float(deductible),
+         description or None, coverage_form or None,
+         layer_position or "Primary", tower_group or None,
+         1 if is_standalone == "1" else 0,
+         1 if is_bor == "1" else 0,
+         opp, opportunity_status or None, target_effective_date or None,
+         renewal_status,
+         underwriter_name or None, underwriter_contact or None,
+         account_exec, project_name or None,
+         exposure_basis or None, _float(exposure_amount), exposure_unit or None,
+         exposure_address or None, exposure_city or None,
+         exposure_state or None, exposure_zip or None,
+         _float(commission_rate), _float(prior_premium), notes or None,
+         follow_up_date or None,
+         _float(attachment_point), _float(participation_of),
+         first_named_insured or None, access_point or None),
+    )
+    conn.commit()
+    logger.info("Policy %s created for client %d", uid, client_id)
+    new_policy = get_policy_by_uid(conn, uid)
+    if new_policy:
+        _pid = new_policy["id"]
+        # Create structured contact records for placement colleague and underwriter
+        _pc_name = (placement_colleague or "").strip()
+        if _pc_name:
+            _pc_cid = get_or_create_contact(conn, _pc_name)
+            assign_contact_to_policy(conn, _pc_cid, _pid, is_placement_colleague=1)
+        _uw_name = (underwriter_name or "").strip()
+        if _uw_name:
+            _uw_email = (underwriter_contact or "").strip() or None
+            _uw_cid = get_or_create_contact(conn, _uw_name, email=_uw_email)
+            assign_contact_to_policy(conn, _uw_cid, _pid, role="Underwriter")
+        if project_name:
+            _sync_project_id(conn, _pid, client_id, project_name)
+        _auto_generate_sub_coverages(conn, _pid, policy_type)
+        conn.commit()
+    return RedirectResponse(f"/policies/{uid}/edit", status_code=303)
+
+
+# ── Parameterized routes (/{policy_uid}) ─────────────────────────────────────
+
+
 @router.get("/{policy_uid}/row", response_class=HTMLResponse)
 def policy_row(request: Request, policy_uid: str, conn=Depends(get_db)):
     """HTMX partial: display-mode policy table row (used by Cancel)."""
@@ -4567,143 +4713,3 @@ async def patch_sub_coverage(uid: str, sub_id: int, request: Request, conn=Depen
     conn.commit()
     subs = _get_sub_coverages(conn, row["id"])
     return {"ok": True, "sub_coverages": subs}
-
-
-@router.get("/new", response_class=HTMLResponse)
-def policy_new_form(request: Request, client: int = 0, opp: int = 0, conn=Depends(get_db)):
-    client_row = get_client_by_id(conn, client) if client else None
-    all_clients = conn.execute(
-        "SELECT id, name FROM clients WHERE archived=0 ORDER BY name"
-    ).fetchall()
-    return templates.TemplateResponse("policies/new.html", {
-        "request": request,
-        "active": "",
-        "client": dict(client_row) if client_row else None,
-        "all_clients": [dict(c) for c in all_clients],
-        "policy_types": cfg.get("policy_types"),
-        "coverage_forms": cfg.get("coverage_forms"),
-        "renewal_statuses": _renewal_statuses(),
-        "us_states": US_STATES,
-        "opportunity_statuses": cfg.get("opportunity_statuses"),
-        "default_opportunity": opp == 1,
-    })
-
-
-@router.post("/new")
-def policy_new_post(
-    request: Request,
-    client_id: int = Form(...),
-    policy_type: str = Form(...),
-    carrier: str = Form(""),
-    is_opportunity: str = Form("0"),
-    opportunity_status: str = Form(""),
-    target_effective_date: str = Form(""),
-    policy_number: str = Form(""),
-    effective_date: str = Form(""),
-    expiration_date: str = Form(""),
-    premium: str = Form("0"),
-    limit_amount: str = Form(""),
-    deductible: str = Form(""),
-    description: str = Form(""),
-    coverage_form: str = Form(""),
-    layer_position: str = Form("Primary"),
-    tower_group: str = Form(""),
-    is_standalone: str = Form("0"),
-    is_bor: str = Form("0"),
-    renewal_status: str = Form("Not Started"),
-    placement_colleague: str = Form(""),
-    underwriter_name: str = Form(""),
-    underwriter_contact: str = Form(""),
-    project_name: str = Form(""),
-    exposure_basis: str = Form(""),
-    exposure_amount: str = Form(""),
-    exposure_unit: str = Form(""),
-    exposure_address: str = Form(""),
-    exposure_city: str = Form(""),
-    exposure_state: str = Form(""),
-    exposure_zip: str = Form(""),
-    commission_rate: str = Form(""),
-    prior_premium: str = Form(""),
-    notes: str = Form(""),
-    follow_up_date: str = Form(""),
-    attachment_point: str = Form(""),
-    participation_of: str = Form(""),
-    first_named_insured: str = Form(""),
-    access_point: str = Form(""),
-    conn=Depends(get_db),
-):
-    from policydb.db import next_policy_uid
-
-    def _float(v):
-        try:
-            return float(v) if str(v).strip() else None
-        except ValueError:
-            return None
-
-    from policydb.utils import parse_currency_with_magnitude as _parse_money
-    uid = next_policy_uid(conn)
-    account_exec = cfg.get("default_account_exec", "Grant")
-    opp = 1 if is_opportunity == "1" else 0
-    policy_type = normalize_coverage_type(policy_type)
-    carrier = normalize_carrier(carrier) if carrier else ""
-    policy_number = normalize_policy_number(policy_number) if policy_number else ""
-    # Parse currency shorthand (e.g., "$5M" → 5000000)
-    premium = str(_parse_money(premium) or 0) if premium else premium
-    limit_amount = str(_parse_money(limit_amount) or '') if limit_amount else limit_amount
-    deductible = str(_parse_money(deductible) or '') if deductible else deductible
-    exposure_address = exposure_address.strip() if exposure_address else ""
-    exposure_city = format_city(exposure_city) if exposure_city else ""
-    exposure_state = format_state(exposure_state) if exposure_state else ""
-    exposure_zip = format_zip(exposure_zip) if exposure_zip else ""
-    conn.execute(
-        """INSERT INTO policies
-           (policy_uid, client_id, policy_type, carrier, policy_number,
-            effective_date, expiration_date, premium, limit_amount, deductible,
-            description, coverage_form, layer_position, tower_group, is_standalone, is_bor,
-            is_opportunity, opportunity_status, target_effective_date,
-            renewal_status, underwriter_name, underwriter_contact,
-            account_exec, project_name,
-            exposure_basis, exposure_amount, exposure_unit,
-            exposure_address, exposure_city, exposure_state, exposure_zip,
-            commission_rate, prior_premium, notes, follow_up_date,
-            attachment_point, participation_of, first_named_insured, access_point)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (uid, client_id, policy_type, carrier or None, policy_number or None,
-         effective_date or None, expiration_date or None, _float(premium) or 0,
-         _float(limit_amount), _float(deductible),
-         description or None, coverage_form or None,
-         layer_position or "Primary", tower_group or None,
-         1 if is_standalone == "1" else 0,
-         1 if is_bor == "1" else 0,
-         opp, opportunity_status or None, target_effective_date or None,
-         renewal_status,
-         underwriter_name or None, underwriter_contact or None,
-         account_exec, project_name or None,
-         exposure_basis or None, _float(exposure_amount), exposure_unit or None,
-         exposure_address or None, exposure_city or None,
-         exposure_state or None, exposure_zip or None,
-         _float(commission_rate), _float(prior_premium), notes or None,
-         follow_up_date or None,
-         _float(attachment_point), _float(participation_of),
-         first_named_insured or None, access_point or None),
-    )
-    conn.commit()
-    logger.info("Policy %s created for client %d", uid, client_id)
-    new_policy = get_policy_by_uid(conn, uid)
-    if new_policy:
-        _pid = new_policy["id"]
-        # Create structured contact records for placement colleague and underwriter
-        _pc_name = (placement_colleague or "").strip()
-        if _pc_name:
-            _pc_cid = get_or_create_contact(conn, _pc_name)
-            assign_contact_to_policy(conn, _pc_cid, _pid, is_placement_colleague=1)
-        _uw_name = (underwriter_name or "").strip()
-        if _uw_name:
-            _uw_email = (underwriter_contact or "").strip() or None
-            _uw_cid = get_or_create_contact(conn, _uw_name, email=_uw_email)
-            assign_contact_to_policy(conn, _uw_cid, _pid, role="Underwriter")
-        if project_name:
-            _sync_project_id(conn, _pid, client_id, project_name)
-        _auto_generate_sub_coverages(conn, _pid, policy_type)
-        conn.commit()
-    return RedirectResponse(f"/policies/{uid}/edit", status_code=303)
