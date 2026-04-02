@@ -137,6 +137,93 @@ async def chart_load_team(client_id: int, conn=Depends(get_db)):
     ]
 
 
+# ── Team Suggestions / Confirm / Dismiss APIs ────────────────────────────────
+
+@router.get("/api/team/{client_id}/suggestions", response_class=JSONResponse)
+async def chart_team_suggestions(client_id: int, conn=Depends(get_db)):
+    """Return placement colleagues not yet on the internal team and not dismissed."""
+    rows = conn.execute(
+        """
+        SELECT DISTINCT c.id   AS contact_id,
+               c.name, c.email, c.phone, c.mobile,
+               GROUP_CONCAT(DISTINCT
+                 COALESCE(
+                   CASE WHEN cpa.is_placement_colleague = 1 THEN 'Placement' ELSE cpa.role END,
+                   'Policy Contact'
+                 ) || ' - ' || COALESCE(p.policy_type, '?')
+               ) AS suggested_role
+        FROM contact_policy_assignments cpa
+        JOIN contacts c  ON c.id  = cpa.contact_id
+        JOIN policies p  ON p.id  = cpa.policy_id
+        WHERE p.client_id = ?
+          AND (p.is_opportunity = 0 OR p.is_opportunity IS NULL)
+          AND cpa.contact_id NOT IN (
+              SELECT contact_id FROM contact_client_assignments
+              WHERE client_id = ? AND contact_type = 'internal'
+          )
+          AND cpa.contact_id NOT IN (
+              SELECT contact_id FROM team_chart_dismissals
+              WHERE client_id = ?
+          )
+        GROUP BY c.id
+        ORDER BY c.name
+        """,
+        (client_id, client_id, client_id),
+    ).fetchall()
+    return [
+        {
+            "contact_id": r["contact_id"],
+            "name":       r["name"] or "",
+            "email":      r["email"] or "",
+            "phone":      r["phone"] or "",
+            "mobile":     r["mobile"] or "",
+            "suggested_role": r["suggested_role"] or "",
+        }
+        for r in rows
+    ]
+
+
+@router.post("/api/team/{client_id}/suggestions/{contact_id}/confirm", response_class=JSONResponse)
+async def chart_team_confirm(client_id: int, contact_id: int, conn=Depends(get_db)):
+    """Confirm a suggested placement colleague as an internal team member."""
+    from policydb.queries import assign_contact_to_client
+
+    # Build smart role from policy assignments
+    role_row = conn.execute(
+        """
+        SELECT GROUP_CONCAT(DISTINCT
+                 COALESCE(
+                   CASE WHEN cpa.is_placement_colleague = 1 THEN 'Placement' ELSE cpa.role END,
+                   'Policy Contact'
+                 ) || ' - ' || COALESCE(p.policy_type, '?')
+               ) AS suggested_role
+        FROM contact_policy_assignments cpa
+        JOIN policies p ON p.id = cpa.policy_id
+        WHERE cpa.contact_id = ? AND p.client_id = ?
+        """,
+        (contact_id, client_id),
+    ).fetchone()
+
+    assignment_id = assign_contact_to_client(
+        conn, contact_id, client_id,
+        contact_type="internal",
+        assignment=role_row["suggested_role"] if role_row else "",
+    )
+    conn.commit()
+    return {"ok": True, "assignment_id": assignment_id}
+
+
+@router.post("/api/team/{client_id}/suggestions/{contact_id}/dismiss", response_class=JSONResponse)
+async def chart_team_dismiss(client_id: int, contact_id: int, conn=Depends(get_db)):
+    """Permanently dismiss a placement colleague suggestion for this client."""
+    conn.execute(
+        "INSERT OR IGNORE INTO team_chart_dismissals (contact_id, client_id) VALUES (?, ?)",
+        (contact_id, client_id),
+    )
+    conn.commit()
+    return {"ok": True}
+
+
 # ── Manual Snapshot CRUD — MUST come BEFORE /manual/{chart_type} ──────────
 
 @router.get("/manual/snapshots/{chart_type}", response_class=JSONResponse)
