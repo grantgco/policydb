@@ -1,35 +1,35 @@
 {# Program Team Matrix — editable contact table #}
-<div id="program-team-wrap">
-  <div class="flex items-center justify-between mb-2">
-    <h3 class="text-sm font-semibold text-[#3D3C37]">Program Team</h3>
-    <div class="flex items-center gap-2">
+<div id="program-team-wrap" class="card mb-4">
+  <div class="px-4 py-2.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
+    <span class="text-xs font-bold text-marsh uppercase tracking-wide">Program Team</span>
+    <div class="flex items-center gap-3">
       {# Compose email button #}
       <button onclick="document.getElementById('compose-slideover')?.remove();
         htmx.ajax('GET', '/compose?context=program&program_uid={{ program.program_uid }}', {target: 'body', swap: 'beforeend'})"
-        class="text-xs text-[#0B4BFF] hover:underline cursor-pointer no-print">
+        class="no-print text-xs text-marsh-light hover:underline cursor-pointer">
         ✉ Compose
       </button>
       <button onclick="window._programTeamMatrix?.addRow()"
-        class="text-xs bg-[#0B4BFF] text-white px-2 py-0.5 rounded hover:bg-[#0940d4] no-print">
+        class="no-print text-xs font-medium text-white bg-marsh px-3 py-1 rounded hover:bg-marsh/90 transition-colors">
         + Add
       </button>
     </div>
   </div>
 
   <div class="overflow-x-auto">
-    <table class="w-full text-xs border-collapse">
+    <table class="w-full text-sm">
       <thead>
-        <tr class="text-left text-[#8C8880] border-b border-[#E8E4DE]">
-          <th class="py-1 px-2 font-medium" style="width:160px">Name</th>
-          <th class="py-1 px-2 font-medium" style="width:120px">Org</th>
-          <th class="py-1 px-2 font-medium" style="width:100px">Title</th>
-          <th class="py-1 px-2 font-medium" style="width:130px">Role</th>
-          <th class="py-1 px-2 font-medium" style="width:180px">Email</th>
-          <th class="py-1 px-2 font-medium" style="width:110px">Phone</th>
-          <th class="py-1 px-2 font-medium" style="width:110px">Mobile</th>
-          <th class="py-1 px-2 font-medium" style="width:140px">Notes</th>
-          <th class="py-1 px-2 font-medium no-print" style="width:28px">★</th>
-          <th class="py-1 px-2 font-medium no-print" style="width:28px"></th>
+        <tr class="text-left text-xs text-gray-400 uppercase tracking-wide border-b border-gray-100 bg-gray-50">
+          <th class="px-3 py-2 font-medium" style="width:160px">Name</th>
+          <th class="px-3 py-2 font-medium" style="width:120px">Org</th>
+          <th class="px-3 py-2 font-medium" style="width:100px">Title</th>
+          <th class="px-3 py-2 font-medium" style="width:130px">Role</th>
+          <th class="px-3 py-2 font-medium" style="width:180px">Email</th>
+          <th class="px-3 py-2 font-medium" style="width:110px">Phone</th>
+          <th class="px-3 py-2 font-medium" style="width:110px">Mobile</th>
+          <th class="px-3 py-2 font-medium" style="width:140px">Notes</th>
+          <th class="px-3 py-2 font-medium no-print" style="width:28px">★</th>
+          <th class="px-3 py-2 font-medium no-print" style="width:28px"></th>
         </tr>
       </thead>
       <tbody id="program-team-tbody">
@@ -39,7 +39,7 @@
           {% endfor %}
         {% endif %}
         <tr id="program-team-empty" {% if program_contacts %}class="hidden"{% endif %}>
-          <td colspan="10" class="py-4 text-center text-xs text-[#8C8880] italic">No program contacts yet.</td>
+          <td colspan="10" class="py-4 text-center text-xs text-gray-400 italic">No program contacts yet.</td>
         </tr>
       </tbody>
     </table>
