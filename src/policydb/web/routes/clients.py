@@ -7128,3 +7128,33 @@ async def exposure_copy_forward(request: Request, client_id: int, conn=Depends(g
     """Copy exposure types from one year to another (INSERT OR IGNORE)."""
     form = await request.form()
     return _exposure_copy_forward_handler(request, client_id, form, conn)
+
+
+@router.get("/{client_id}/edit-followup-slideover", response_class=HTMLResponse)
+def client_edit_followup_slideover(client_id: int, request: Request, conn=Depends(get_db)):
+    """Return the edit slideover partial for a client follow-up."""
+    row = conn.execute(
+        "SELECT id, name, follow_up_date, notes FROM clients WHERE id = ?",
+        (client_id,),
+    ).fetchone()
+    if not row:
+        return HTMLResponse("<p class='p-4 text-sm text-gray-400'>Not found.</p>", status_code=404)
+    return templates.TemplateResponse("action_center/_edit_client_slideover.html", {
+        "request": request,
+        "c": dict(row),
+    })
+
+
+@router.patch("/{client_id}/followup-field")
+def patch_client_followup_field(client_id: int, body: dict = None, conn=Depends(get_db)):
+    """Update follow_up_date or notes on a client (slideover inline edit)."""
+    if not body:
+        return JSONResponse({"ok": False, "error": "No body"}, status_code=400)
+    field = body.get("field", "")
+    value = body.get("value", "")
+    allowed = {"follow_up_date", "notes"}
+    if field not in allowed:
+        return JSONResponse({"ok": False, "error": f"Field '{field}' not editable"}, status_code=400)
+    conn.execute(f"UPDATE clients SET {field} = ? WHERE id = ?", (value or None, client_id))
+    conn.commit()
+    return {"ok": True, "formatted": value}
