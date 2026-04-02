@@ -140,7 +140,7 @@ Variants exist for: `row` (client detail), `dash` (dashboard), `renew` (renewals
 **Activity Timeline:** Auto-clustered by `activity_cluster_days` config (default 7 days). Display-only grouping, no data model.
 
 ### Opportunities
-Policies with `is_opportunity=1` are excluded from renewal pipeline, suggested follow-ups, stale renewal alerts, and client summary policy counts. All views use `AND (p.is_opportunity = 0 OR p.is_opportunity IS NULL)`. The "Convert to Policy" flow sets real dates and clears the flag.
+Policies with `is_opportunity=1` are excluded from renewal pipeline, stale renewal alerts, and client summary policy counts. Opportunities are **included** in suggested follow-ups so they remain visible for tracking. Views that exclude opportunities use `AND (p.is_opportunity = 0 OR p.is_opportunity IS NULL)`. The "Convert to Policy" flow sets real dates and clears the flag.
 
 ### Renewal Status Exclusion
 `renewal_statuses_excluded` config key stores statuses silenced from alerts. Pass `excluded_statuses=cfg.get("renewal_statuses_excluded", [])` to `get_renewal_pipeline()`, `get_suggested_followups()`, and `get_stale_renewals()`.
