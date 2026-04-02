@@ -2608,6 +2608,16 @@ def policy_tab_contacts(request: Request, policy_uid: str, conn=Depends(get_db))
     team_contacts = _gcc(conn, policy_dict["client_id"], contact_type="internal")
     policy_contacts = get_policy_contacts(conn, policy_dict["id"])
 
+    # Inherited program contacts (if policy belongs to a program)
+    inherited_contacts = []
+    program_uid_for_link = ""
+    if policy_dict.get("program_id"):
+        from policydb.queries import get_program_contacts as _gpc
+        inherited_contacts = _gpc(conn, policy_dict["program_id"])
+        _prog_row = conn.execute("SELECT program_uid FROM programs WHERE id=?", (policy_dict["program_id"],)).fetchone()
+        if _prog_row:
+            program_uid_for_link = _prog_row["program_uid"]
+
     # Expertise tags
     _pc_ids = [c["contact_id"] for c in policy_contacts if c.get("contact_id")]
     if _pc_ids:
@@ -2696,6 +2706,8 @@ def policy_tab_contacts(request: Request, policy_uid: str, conn=Depends(get_db))
         "expertise_lines": cfg.get("expertise_lines", []),
         "expertise_industries": cfg.get("expertise_industries", []),
         "all_orgs": sorted({r["organization"] for r in conn.execute("SELECT DISTINCT organization FROM contacts WHERE organization IS NOT NULL AND organization != ''").fetchall()}),
+        "inherited_contacts": inherited_contacts,
+        "program_uid_for_link": program_uid_for_link,
     })
 
 
