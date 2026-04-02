@@ -565,13 +565,22 @@ def policy_context(conn: sqlite3.Connection, policy_uid: str) -> dict:
 
     ctx = _client_tokens(conn, row["client_id"], dict(row))
     proj = row["project_name"] or ""
-    # Placement colleague from contact_policy_assignments (is_placement_colleague flag)
-    _pc_row = conn.execute(
-        """SELECT co.name, co.email, co.phone FROM contact_policy_assignments cpa
-           JOIN contacts co ON cpa.contact_id = co.id
-           WHERE cpa.policy_id = (SELECT id FROM policies WHERE policy_uid = ?) AND cpa.is_placement_colleague = 1 LIMIT 1""",
-        (policy_uid.upper(),),
-    ).fetchone()
+    # Placement colleague: check program-level first (program wins), then policy-level
+    _pc_row = None
+    if row.get("program_id"):
+        _pc_row = conn.execute(
+            """SELECT co.name, co.email, co.phone FROM contact_program_assignments cpa
+               JOIN contacts co ON cpa.contact_id = co.id
+               WHERE cpa.program_id = ? AND cpa.is_placement_colleague = 1 LIMIT 1""",
+            (row["program_id"],),
+        ).fetchone()
+    if not _pc_row:
+        _pc_row = conn.execute(
+            """SELECT co.name, co.email, co.phone FROM contact_policy_assignments cpa
+               JOIN contacts co ON cpa.contact_id = co.id
+               WHERE cpa.policy_id = (SELECT id FROM policies WHERE policy_uid = ?) AND cpa.is_placement_colleague = 1 LIMIT 1""",
+            (policy_uid.upper(),),
+        ).fetchone()
     pc_name = _pc_row["name"] if _pc_row else ""
     pc_email = _pc_row["email"] if _pc_row else ""
     pc_phone = _pc_row["phone"] if _pc_row else ""
@@ -934,6 +943,83 @@ def rfi_notify_context(conn, bundle_id: int) -> dict:
     }
 
 
+def program_context(conn: sqlite3.Connection, program_uid: str) -> dict:
+    """Build token context for a program — program fields, contacts, client, aggregates."""
+    from policydb.queries import get_program_by_uid
+
+    program = get_program_by_uid(conn, program_uid)
+    if not program:
+        return {}
+
+    # Client row for _client_tokens
+    _client_row = conn.execute(
+        "SELECT * FROM clients WHERE id = ?", (program["client_id"],)
+    ).fetchone()
+    if not _client_row:
+        return {}
+
+    ctx = _client_tokens(conn, program["client_id"], dict(_client_row))
+
+    # Placement colleague from contact_program_assignments
+    _pc_row = conn.execute(
+        """SELECT co.name, co.email, co.phone FROM contact_program_assignments cpa
+           JOIN contacts co ON cpa.contact_id = co.id
+           WHERE cpa.program_id = ? AND cpa.is_placement_colleague = 1 LIMIT 1""",
+        (program["id"],),
+    ).fetchone()
+    pc_name = _pc_row["name"] if _pc_row else ""
+    pc_email = _pc_row["email"] if _pc_row else ""
+    pc_phone = _pc_row["phone"] if _pc_row else ""
+
+    # Lead broker from contact_program_assignments
+    _lb_row = conn.execute(
+        """SELECT co.name, co.email, co.phone FROM contact_program_assignments cpa
+           JOIN contacts co ON cpa.contact_id = co.id
+           WHERE cpa.program_id = ? AND LOWER(COALESCE(cpa.role, '')) IN ('lead broker', 'broker') LIMIT 1""",
+        (program["id"],),
+    ).fetchone()
+    lb_name = _lb_row["name"] if _lb_row else ""
+    lb_email = _lb_row["email"] if _lb_row else ""
+    lb_phone = _lb_row["phone"] if _lb_row else ""
+
+    # Aggregate carriers from child policies
+    child_carriers = conn.execute(
+        """SELECT DISTINCT carrier FROM policies
+           WHERE program_id = ? AND archived = 0
+             AND (is_opportunity = 0 OR is_opportunity IS NULL)
+             AND carrier IS NOT NULL AND carrier != ''
+           ORDER BY carrier""",
+        (program["id"],),
+    ).fetchall()
+    carriers_list = ", ".join(r["carrier"] for r in child_carriers)
+
+    ctx.update({
+        "program_name": program["name"] or "",
+        "program_uid": program["program_uid"] or "",
+        "line_of_business": program["line_of_business"] or "",
+        "effective_date": program["effective_date"] or "",
+        "expiration_date": program["expiration_date"] or "",
+        "renewal_status": program["renewal_status"] or "",
+        "placement_colleague": pc_name,
+        "placement_colleague_name": pc_name,
+        "placement_colleague_email": pc_email,
+        "placement_colleague_phone": pc_phone,
+        "lead_broker": lb_name,
+        "lead_broker_name": lb_name,
+        "lead_broker_email": lb_email,
+        "lead_broker_phone": lb_phone,
+        "account_exec": program.get("account_exec") or "",
+        "carriers": carriers_list,
+        "today": date.today().strftime("%B %d, %Y"),
+        "today_iso": date.today().isoformat(),
+        "ref_tag": build_ref_tag(
+            cn_number=ctx.get("cn_number") or "",
+            client_id=program["client_id"],
+        ),
+    })
+    return ctx
+
+
 def followup_context(row: dict) -> dict:
     """Build token context dict from a follow-up row dict."""
     proj = row.get("project_name") or ""
@@ -1189,6 +1275,34 @@ CONTEXT_TOKEN_GROUPS: dict[str, list[tuple[str, list[tuple[str, str]]]]] = {
             ("today", "Today's Date"),
         ]),
         ("Tracking", [("ref_tag", "Email Ref Tag")]),
+    ],
+    "program": [
+        ("Program", [
+            ("program_name", "Program Name"),
+            ("program_uid", "Program ID"),
+            ("line_of_business", "Line of Business"),
+            ("effective_date", "Effective Date"),
+            ("expiration_date", "Expiration Date"),
+            ("renewal_status", "Renewal Status"),
+        ]),
+        ("Program Team", [
+            ("placement_colleague", "Placement Colleague"),
+            ("placement_colleague_email", "Colleague Email"),
+            ("placement_colleague_phone", "Colleague Phone"),
+            ("lead_broker", "Lead Broker"),
+            ("lead_broker_email", "Lead Broker Email"),
+            ("lead_broker_phone", "Lead Broker Phone"),
+            ("account_exec", "Account Executive"),
+        ]),
+        ("Client", _CLIENT_GROUP),
+        ("Contact", _CLIENT_CONTACT_GROUP),
+        ("Aggregated", [
+            ("carriers", "Carriers (comma-separated)"),
+        ]),
+        ("Tracking", [
+            ("ref_tag", "Reference Tag"),
+            ("today", "Today's Date"),
+        ]),
     ],
     "issue": [
         ("Issue", [
