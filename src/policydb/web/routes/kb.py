@@ -114,6 +114,7 @@ async def kb_index(request: Request, conn=Depends(get_db)):
         d["entry_type"] = "article"
         d["tags_list"] = _parse_tags(d.get("tags"))
         d["colors"] = _get_colors(d["category"])
+        d["source_type"] = "article"
         entries.append(d)
     for doc in documents:
         d = dict(doc)
@@ -122,6 +123,7 @@ async def kb_index(request: Request, conn=Depends(get_db)):
         d["colors"] = _get_colors(d["category"])
         d["file_info"] = _file_type_info(d["mime_type"], d["filename"])
         d["file_size_fmt"] = _format_file_size(d["file_size"])
+        d["source_type"] = d.get("source", "local")
         entries.append(d)
 
     entries.sort(key=lambda e: e.get("updated_at", ""), reverse=True)
@@ -163,6 +165,7 @@ async def kb_search(
             d["entry_type"] = "article"
             d["tags_list"] = _parse_tags(d.get("tags"))
             d["colors"] = _get_colors(d["category"])
+            d["source_type"] = "article"
             entries.append(d)
 
     if entry_type != "article":
@@ -182,6 +185,7 @@ async def kb_search(
             d["colors"] = _get_colors(d["category"])
             d["file_info"] = _file_type_info(d["mime_type"], d["filename"])
             d["file_size_fmt"] = _format_file_size(d["file_size"])
+            d["source_type"] = d.get("source", "local")
             entries.append(d)
 
     entries.sort(key=lambda e: e.get("updated_at", ""), reverse=True)

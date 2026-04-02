@@ -1,27 +1,29 @@
 {% set colors = entry.colors %}
 {% set is_doc = entry.entry_type == 'document' %}
+{% set is_dt = entry.source_type == 'devonthink' %}
 {% set url = '/kb/documents/' ~ entry.uid if is_doc else '/kb/articles/' ~ entry.uid %}
 
-<a href="{{ url }}" class="card block p-4 hover:shadow-md transition-shadow" style="border-left: 4px solid {{ colors.border_hex }}">
-  <!-- Row 1: UID + Title + Category + Timestamp -->
-  <div class="flex items-start gap-2 mb-1.5">
-    {% if is_doc %}
-    <!-- File type icon -->
-    <span class="{{ entry.file_info.color }} mt-0.5">
-      <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-        <path fill-rule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clip-rule="evenodd"/>
-      </svg>
-    </span>
-    {% else %}
-    <!-- Article icon -->
-    <span class="text-marsh mt-0.5">
-      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
-      </svg>
-    </span>
-    {% endif %}
+{# Border color: articles=blue, DEVONthink=purple, local files=file-type color #}
+{% if not is_doc %}
+  {% set border_color = '#0B4BFF' %}
+{% elif is_dt %}
+  {% set border_color = '#8b5cf6' %}
+{% elif entry.file_info.label == 'PDF' %}
+  {% set border_color = '#ef4444' %}
+{% elif entry.file_info.label == 'Word' %}
+  {% set border_color = '#3b82f6' %}
+{% elif entry.file_info.label == 'Excel' %}
+  {% set border_color = '#22c55e' %}
+{% elif entry.file_info.label == 'PowerPoint' %}
+  {% set border_color = '#f59e0b' %}
+{% else %}
+  {% set border_color = '#9ca3af' %}
+{% endif %}
 
-    <span class="text-[10px] font-mono bg-gray-100 text-gray-500 rounded px-1.5 py-0.5 flex-shrink-0">{{ entry.uid }}</span>
+<a href="{{ url }}" class="block bg-white border border-[#e5e2dc] rounded-lg p-3 hover:shadow-md transition-shadow" style="border-left: 4px solid {{ border_color }}">
+  {# Row 1: UID + Title + Category + Size + Date #}
+  <div class="flex items-center gap-2">
+    <span class="text-[9px] font-mono bg-[#f3f2ee] text-gray-500 rounded px-1.5 py-0.5 flex-shrink-0">{{ entry.uid }}</span>
 
     <span class="text-gray-900 font-semibold text-sm flex-1 min-w-0 truncate">{{ entry.title }}</span>
 
@@ -29,8 +31,15 @@
       {{ entry.category }}
     </span>
 
-    {% if is_doc %}
+    {% if is_doc and entry.file_size_fmt %}
     <span class="text-[10px] text-gray-400 flex-shrink-0">{{ entry.file_size_fmt }}</span>
+    {% endif %}
+
+    {% if entry.link_count is defined and entry.link_count > 0 %}
+    <span class="text-[9px] text-gray-400 flex-shrink-0" title="{{ entry.link_count }} reference{{ 's' if entry.link_count != 1 else '' }}">
+      <svg class="w-3 h-3 inline -mt-px" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg>
+      {{ entry.link_count }}
+    </span>
     {% endif %}
 
     <span class="text-[10px] text-gray-400 flex-shrink-0 whitespace-nowrap">
@@ -38,16 +47,32 @@
     </span>
   </div>
 
-  <!-- Row 2: Preview text -->
-  {% if is_doc %}
-  <div class="text-xs text-gray-500 ml-6 mb-1.5 truncate">{{ entry.filename }}</div>
-  {% elif entry.content %}
-  <div class="text-xs text-gray-500 ml-6 mb-1.5 line-clamp-2">{{ entry.content[:200] | replace('\n', ' ') | replace('#', '') | truncate(150) }}</div>
-  {% endif %}
+  {# Row 2: Source line — content preview, filename, or DEVONthink indicator #}
+  <div class="text-xs mt-1 ml-0">
+    {% if not is_doc %}
+      {# Article: content preview #}
+      {% if entry.content %}
+      <div class="text-gray-500 line-clamp-2">{{ entry.content[:200] | replace('\n', ' ') | replace('#', '') | truncate(150) }}</div>
+      {% endif %}
+    {% elif is_dt %}
+      {# DEVONthink: link icon + label + filename #}
+      <div>
+        <svg class="w-3 h-3 inline -mt-px" fill="none" stroke="#8b5cf6" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path stroke-linecap="round" stroke-linejoin="round" d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>
+        <span class="text-[#8b5cf6] font-medium">DEVONthink</span>
+        <span class="text-gray-400">&middot; {{ entry.filename }}</span>
+      </div>
+    {% else %}
+      {# Local file: file icon + filename #}
+      <div class="text-gray-500">
+        <svg class="w-3 h-3 inline -mt-px {{ entry.file_info.color }}" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clip-rule="evenodd"/></svg>
+        {{ entry.filename }}
+      </div>
+    {% endif %}
+  </div>
 
-  <!-- Row 3: Tags + Source -->
-  {% if entry.tags_list or entry.get('source') %}
-  <div class="flex items-center gap-1.5 ml-6">
+  {# Row 3: Tags + Source badge #}
+  {% if entry.tags_list or (entry.get('source') and entry.source not in ('authored', 'local')) %}
+  <div class="flex items-center gap-1.5 mt-1.5">
     {% for tag in entry.tags_list[:4] %}
     <span class="text-[9px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-600 font-medium">{{ tag }}</span>
     {% endfor %}
@@ -55,7 +80,7 @@
     <span class="text-[9px] text-gray-400">+{{ entry.tags_list | length - 4 }}</span>
     {% endif %}
 
-    {% if entry.get('source') and entry.source != 'authored' %}
+    {% if entry.get('source') and entry.source not in ('authored', 'local') %}
     <span class="ml-auto text-[9px] px-1.5 py-0.5 rounded-full {% if entry.source == 'llm-assisted' %}bg-blue-50 text-blue-600{% else %}bg-amber-50 text-amber-600{% endif %} font-medium">
       {{ entry.source }}
     </span>
