@@ -17,7 +17,7 @@
   {% endif %}
 
   {# ── Summary counts ── #}
-  <div class="grid grid-cols-4 gap-3 mb-3">
+  <div class="grid grid-cols-5 gap-3 mb-3">
     <div class="text-center">
       <div class="text-lg font-semibold text-gray-900">{{ auto_linked.sent }}</div>
       <div class="text-[10px] text-gray-500 uppercase">Sent</div>
@@ -29,6 +29,10 @@
     <div class="text-center">
       <div class="text-lg font-semibold text-gray-900">{{ auto_linked.flagged }}</div>
       <div class="text-[10px] text-gray-500 uppercase">Flagged</div>
+    </div>
+    <div class="text-center">
+      <div class="text-lg font-semibold {% if thread_inherited %}text-indigo-700{% else %}text-gray-900{% endif %}">{{ thread_inherited }}</div>
+      <div class="text-[10px] text-gray-500 uppercase">Via Thread</div>
     </div>
     <div class="text-center">
       <div class="text-lg font-semibold text-gray-900">{{ skipped }}</div>
