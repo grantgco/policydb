@@ -956,7 +956,7 @@
       });
       sugHtml += '</div></div></div>';
       // Insert after the grid/grouped layout (inside canvas inner div)
-      var layoutEl = canvas.querySelector('.manual-chart-page, [style*="flex-direction:column"]');
+      var layoutEl = canvas.firstElementChild;
       if (layoutEl) layoutEl.insertAdjacentHTML('beforeend', sugHtml);
     }
   }
@@ -1057,5 +1057,11 @@
   buildSwatches();
   buildMemberEditor();
   buildCanvas();
+  // Load suggestions if snapshot restored with a client
+  var initClientId = document.querySelector('.snapshot-bar input[name="snapshot_client_id"]');
+  if (initClientId && initClientId.value) {
+    document.getElementById('team-canvas').dataset.clientId = initClientId.value;
+    loadSuggestions();
+  }
 })();
 </script>
