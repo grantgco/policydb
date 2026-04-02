@@ -215,14 +215,15 @@ def _has_covering_activity(
     window_end = (session_end + timedelta(minutes=30)).isoformat()
 
     # Check if any user-created activity was created within the session window
-    # (±30 min).  Exclude system-generated activities (Milestone auto-logs,
-    # outlook_sync) since those don't represent the user logging their own work.
+    # (±30 min).  Exclude system-generated activities (Milestone auto-logs).
+    # outlook_sync emails count as real work — synced emails represent genuine
+    # client contact and should satisfy the covering-activity check.
     count = conn.execute(
         """SELECT COUNT(*) FROM activity_log
            WHERE client_id = ?
            AND created_at >= ? AND created_at <= ?
            AND activity_type NOT IN ('Milestone')
-           AND source = 'manual'""",
+           AND source IN ('manual', 'outlook_sync')""",
         (client_id, window_start, window_end),
     ).fetchone()[0]
 
