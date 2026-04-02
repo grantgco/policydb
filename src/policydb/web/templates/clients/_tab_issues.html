@@ -75,6 +75,13 @@
         <div class="text-[10px] text-red-400">SLA {{ sla }}d</div>
         {% endif %}
       </div>
+
+      {# Edit pencil #}
+      <button type="button"
+        hx-get="/issues/{{ iss.id }}/edit-slideover" hx-target="#fu-edit-content" hx-swap="innerHTML"
+        onclick="openFollowupEdit()"
+        class="text-xs text-gray-400 hover:text-[#003865] transition-colors flex-shrink-0 no-print"
+        title="Edit issue">&#9998;</button>
     </div>
     {% endfor %}
   </div>

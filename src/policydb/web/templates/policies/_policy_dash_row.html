@@ -31,6 +31,11 @@
     {% else %}<span class="text-gray-300 text-xs">&mdash;</span>{% endif %}
   </td>
   <td class="px-3 py-3 flex items-center gap-2">
+    <button type="button"
+      hx-get="/policies/{{ p.policy_uid }}/edit-followup-slideover" hx-target="#fu-edit-content" hx-swap="innerHTML"
+      onclick="openFollowupEdit()"
+      class="text-xs text-gray-400 hover:text-[#003865] transition-colors"
+      title="Edit policy follow-up">&#9998;</button>
     <button
       hx-get="/policies/{{ p.policy_uid }}/dash/log"
       hx-target="#dash-row-{{ p.policy_uid }}"
