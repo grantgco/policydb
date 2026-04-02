@@ -33,9 +33,13 @@ _REPLY_FWD_RE = re.compile(r'^[\s]*(Re|RE|Fwd|FW|Fw)\s*:\s*', re.IGNORECASE)
 def _normalize_subject(subject: str) -> str:
     """Normalize an email subject for thread comparison.
 
-    Strips Re:/Fwd:/FW: prefixes (repeated/nested), collapses whitespace, lowercases.
+    Strips Re:/Fwd:/FW: prefixes (repeated/nested), the "Received: " prefix
+    added by sync, collapses whitespace, lowercases.
     """
     s = subject or ""
+    # Strip "Received: " prefix added by _create_or_enrich_activity
+    if s.startswith("Received: "):
+        s = s[10:]
     while True:
         stripped = _REPLY_FWD_RE.sub('', s)
         if stripped == s:
@@ -514,6 +518,8 @@ def _run_thread_inheritance(
     results["thread_inherited"] = 0
 
     # ── 1. Build thread map from Tier 1 matched activities ──
+    # Only include activities that have policy/issue/program (Tier 1 ref-tag matches).
+    # Tier 2 domain-only matches typically only have client_id — exclude those.
     matched_rows = conn.execute("""
         SELECT a.client_id, a.policy_id, a.program_id, a.issue_id,
                a.subject, a.outlook_message_id
@@ -521,7 +527,9 @@ def _run_thread_inheritance(
         WHERE a.source IN ('outlook_sync', 'thread_inherit')
           AND a.outlook_message_id IS NOT NULL
           AND a.client_id IS NOT NULL
+          AND (a.policy_id IS NOT NULL OR a.issue_id IS NOT NULL OR a.program_id IS NOT NULL)
           AND a.activity_date >= date('now', '-90 days')
+        ORDER BY a.activity_date ASC
     """).fetchall()
 
     thread_map: dict[tuple[str, int], dict] = {}
@@ -657,13 +665,15 @@ def _run_thread_inheritance(
         )
 
         conn.execute("DELETE FROM inbox WHERE id = ?", (candidate["id"],))
-        conn.commit()
 
         results["thread_inherited"] += 1
         logger.info(
             "Thread inherit: promoted inbox %s -> client %s (subject: %s)",
             candidate.get("id"), inherited_match["client_id"], norm,
         )
+
+    if results["thread_inherited"]:
+        conn.commit()
 
 
 def sync_outlook(conn: sqlite3.Connection) -> dict:
