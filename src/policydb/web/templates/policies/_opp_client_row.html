@@ -73,6 +73,11 @@
   </td>
   <td class="px-4 py-2.5">
     <div class="flex items-center gap-3">
+      <button type="button"
+        hx-get="/policies/{{ o.policy_uid }}/edit-followup-slideover" hx-target="#fu-edit-content" hx-swap="innerHTML"
+        onclick="openFollowupEdit()"
+        class="text-xs text-gray-400 hover:text-[#003865] transition-colors"
+        title="Edit policy follow-up">&#9998;</button>
       <button
         hx-get="/policies/{{ o.policy_uid }}/opp/edit"
         hx-target="#opp-row-{{ o.policy_uid }}"

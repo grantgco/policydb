@@ -237,16 +237,71 @@ POST /{uid}/row/log   → saves, restores display row
 
 ## Slideover Panel
 
-Right-aligned fixed panel for detail views. Used for requirement detail, policy quick-edit.
+Right-aligned fixed panel for detail/edit views. Shared container in `base.html`, content swapped via HTMX.
 
+### Shell (in base.html)
 ```html
-<div id="backdrop" class="fixed inset-0 bg-black/30 z-40" onclick="closePanel()"></div>
-<div id="panel" class="fixed top-0 right-0 bottom-0 w-[520px] max-sm:w-full bg-white shadow-xl z-50 overflow-y-auto">
-  <!-- content -->
+<div id="fu-edit-backdrop" class="fixed inset-0 bg-black/30 z-40 hidden" onclick="closeFollowupEdit()"></div>
+<div id="fu-edit-panel" class="fixed top-0 right-0 bottom-0 w-[480px] max-sm:w-full z-50 hidden flex-col bg-white shadow-xl">
+  <div id="fu-edit-content"></div>
 </div>
 ```
 
-520px wide desktop, full-width mobile. Backdrop at z-40, panel at z-50.
+480px wide desktop, full-width mobile. Backdrop z-40, panel z-50. `openFollowupEdit()` / `closeFollowupEdit()` toggle visibility + body scroll lock.
+
+### Trigger Button Pattern
+```html
+<button type="button"
+  hx-get="/activities/{{ item.id }}/edit-slideover"
+  hx-target="#fu-edit-content" hx-swap="innerHTML"
+  onclick="openFollowupEdit()"
+  class="text-xs text-gray-400 bg-white border border-gray-200 px-2 py-1.5 rounded hover:border-gray-300 hover:text-[#003865] transition-colors"
+  title="Edit">&#9998;</button>
+```
+
+### Partial Template Structure
+Each slideover is a standalone partial with header, fields, and self-contained JS:
+```html
+{# Header with close button #}
+<div class="flex items-start justify-between px-5 py-4 border-b border-gray-200 flex-shrink-0">
+  <div>
+    <h2 class="text-sm font-semibold text-gray-900">Edit [Type]</h2>
+    <p class="text-xs text-gray-500 mt-0.5">Context info</p>
+  </div>
+  <button type="button" onclick="closeFollowupEdit()" class="text-gray-400 hover:text-gray-600">X</button>
+</div>
+{# Fields — per-field save on blur via PATCH #}
+<div class="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+  {# Date with quick-add buttons #}
+  {# Pill buttons for status/severity (toggle active class on click) #}
+  {# Text inputs and textareas with onblur save #}
+</div>
+<script>/* patchField() function — PATCH JSON, green flash on success */</script>
+```
+
+### Styling Rules
+- Labels: `text-[10px] font-medium text-gray-500 uppercase tracking-wide`
+- Inputs: `text-sm border border-gray-300 rounded px-2 py-1.5 focus:ring-1 focus:ring-marsh focus:border-marsh`
+- Quick-date buttons: `text-[10px] border border-gray-200 rounded px-1.5 py-0.5 text-gray-400 hover:text-[#003865]`
+- Pill buttons (active): `bg-[#003865] text-white border-[#003865]`
+- Pill buttons (inactive): `border-gray-200 text-gray-500 hover:border-[#003865] hover:text-[#003865]`
+- Green flash: `backgroundColor = '#ecfdf5'` for 800ms
+
+### Existing Slideovers
+| Endpoint | Source | Fields |
+|----------|--------|--------|
+| `GET /activities/{id}/edit-slideover` | activity_log | follow-up date, subject, disposition, type, contact, notes, hours, activity date |
+| `GET /policies/{uid}/edit-followup-slideover` | policies | follow-up date, renewal status |
+| `GET /clients/{id}/edit-followup-slideover` | clients | follow-up date, notes |
+| `GET /issues/{id}/edit-slideover` | activity_log (issues) | due date, severity, status, subject, details |
+
+### Where Slideover is Used
+- **Action Center Follow-ups tab:** pencil on activity, project, policy, client, issue rows (not milestones)
+- **Action Center Activities tab:** pencil on each table row
+- **Action Center Issues tab:** pencil on list rows and board cards
+
+### When to Add a New Slideover
+Use this pattern when a record needs lightweight inline editing from a list/table context without full-page navigation. Create a GET endpoint returning the partial, a PATCH endpoint for field saves, and wire a pencil button (`&#9998;`) with `hx-get` targeting `#fu-edit-content`.
 
 ---
 

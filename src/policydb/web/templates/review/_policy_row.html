@@ -135,6 +135,11 @@
       {% else %}
       <span class="text-xs text-green-600 font-medium">✓ Done</span>
       {% endif %}
+      <button type="button"
+        hx-get="/policies/{{ p.policy_uid }}/edit-followup-slideover" hx-target="#fu-edit-content" hx-swap="innerHTML"
+        onclick="openFollowupEdit()"
+        class="text-xs text-gray-400 hover:text-[#003865] transition-colors"
+        title="Edit policy follow-up">&#9998;</button>
       <button
         hx-get="/review/policies/{{ p.policy_uid }}/row/edit"
         hx-target="#review-row-{{ p.policy_uid }}"
