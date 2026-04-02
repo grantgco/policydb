@@ -498,6 +498,172 @@ def _create_or_enrich_activity(
     return {"action": "created", "activity_id": cursor.lastrowid}
 
 
+def _run_thread_inheritance(
+    conn: sqlite3.Connection,
+    current_batch_inbox: list[dict],
+    results: dict,
+) -> None:
+    """Propagate ref tag matches to unmatched emails in the same thread.
+
+    1. Build thread map from Tier 1 matched activities (current + historical)
+    2. Scan unmatched items (current batch inbox + existing inbox items)
+    3. Promote matches to activities with source='thread_inherit'
+    """
+    results["thread_inherited"] = 0
+
+    # ── 1. Build thread map from Tier 1 matched activities ──
+    matched_rows = conn.execute("""
+        SELECT a.client_id, a.policy_id, a.program_id, a.issue_id,
+               a.subject, a.outlook_message_id
+        FROM activity_log a
+        WHERE a.source IN ('outlook_sync', 'thread_inherit')
+          AND a.outlook_message_id IS NOT NULL
+          AND a.client_id IS NOT NULL
+          AND a.activity_date >= date('now', '-90 days')
+    """).fetchall()
+
+    thread_map: dict[tuple[str, int], dict] = {}
+    for row in matched_rows:
+        norm = _normalize_subject(row["subject"])
+        if not norm:
+            continue
+        key = (norm, row["client_id"])
+        thread_map[key] = {
+            "client_id": row["client_id"],
+            "policy_id": row["policy_id"],
+            "program_id": row["program_id"],
+            "issue_id": row["issue_id"],
+        }
+
+    if not thread_map:
+        return
+
+    # ── 2. Collect unmatched inbox items (current batch + historical) ──
+    inbox_candidates = []
+
+    for suggestion in current_batch_inbox:
+        inbox_uid = suggestion.get("inbox_uid", "")
+        if not inbox_uid:
+            continue
+        inbox_row = conn.execute(
+            "SELECT id, content, outlook_message_id, email_subject, email_date FROM inbox WHERE inbox_uid = ?",
+            (inbox_uid,),
+        ).fetchone()
+        if inbox_row:
+            inbox_candidates.append(dict(inbox_row))
+
+    historical = conn.execute("""
+        SELECT id, content, outlook_message_id, email_subject, email_date
+        FROM inbox
+        WHERE outlook_message_id IS NOT NULL
+          AND status = 'pending'
+    """).fetchall()
+    seen_ids = {c["id"] for c in inbox_candidates}
+    for row in historical:
+        if row["id"] not in seen_ids:
+            inbox_candidates.append(dict(row))
+
+    # ── 3. Try to match each candidate via thread map ──
+    for candidate in inbox_candidates:
+        subject = candidate.get("email_subject") or ""
+        if not subject:
+            content = candidate.get("content", "")
+            first_line = content.split("\n")[0] if content else ""
+            subject = re.sub(r'^\[Outlook [^\]]*\]\s*', '', first_line)
+
+        norm = _normalize_subject(subject)
+        if not norm:
+            continue
+
+        # Extract email addresses from content for domain matching
+        content = candidate.get("content", "")
+        addresses = re.findall(r'[\w.+-]+@[\w-]+\.[\w.-]+', content)
+
+        domain_match = _match_by_domain(conn, addresses)
+        if not domain_match:
+            continue
+        candidate_client_id = domain_match.get("client_id")
+        if not candidate_client_id:
+            continue
+
+        key = (norm, candidate_client_id)
+        inherited_match = thread_map.get(key)
+        if not inherited_match:
+            continue
+
+        # Dedup checks
+        message_id = candidate.get("outlook_message_id", "")
+        if message_id:
+            dismissed = conn.execute(
+                "SELECT 1 FROM dismissed_outlook_messages WHERE message_id=?",
+                (message_id,),
+            ).fetchone()
+            if dismissed:
+                continue
+            existing = conn.execute(
+                "SELECT 1 FROM activity_log WHERE outlook_message_id=?",
+                (message_id,),
+            ).fetchone()
+            if existing:
+                continue
+
+        # ── Promote: create activity from inbox item ──
+        email_date = (candidate.get("email_date") or "")[:10]
+        if not email_date:
+            email_date = datetime.now().strftime("%Y-%m-%d")
+
+        sender = ""
+        for line in (candidate.get("content") or "").split("\n"):
+            if line.startswith("From: "):
+                sender = line[6:].strip()
+                break
+
+        contact_id = None
+        contact_person = sender
+        if sender:
+            contact = conn.execute(
+                "SELECT id, name FROM contacts WHERE LOWER(TRIM(email))=?",
+                (sender.strip().lower(),),
+            ).fetchone()
+            if contact:
+                contact_id = contact["id"]
+                contact_person = contact["name"] or sender
+
+        content_lines = (candidate.get("content") or "").split("\n")
+        snippet_lines = [l for l in content_lines[4:] if l.strip()]
+        snippet = "\n".join(snippet_lines)[:2500]
+
+        conn.execute(
+            """INSERT INTO activity_log
+               (activity_date, client_id, policy_id, program_id, activity_type, subject,
+                details, contact_person, contact_id, source, outlook_message_id,
+                email_snippet, issue_id, follow_up_done)
+               VALUES (?, ?, ?, ?, 'Email', ?, ?, ?, ?, 'thread_inherit', ?, ?, ?, 1)""",
+            (
+                email_date,
+                inherited_match["client_id"],
+                inherited_match.get("policy_id"),
+                inherited_match.get("program_id"),
+                subject,
+                "Linked via thread inheritance",
+                contact_person,
+                contact_id,
+                message_id,
+                snippet,
+                inherited_match.get("issue_id"),
+            ),
+        )
+
+        conn.execute("DELETE FROM inbox WHERE id = ?", (candidate["id"],))
+        conn.commit()
+
+        results["thread_inherited"] += 1
+        logger.info(
+            "Thread inherit: promoted inbox %s -> client %s (subject: %s)",
+            candidate.get("id"), inherited_match["client_id"], norm,
+        )
+
+
 def sync_outlook(conn: sqlite3.Connection) -> dict:
     """Run the full Outlook sync sweep.
 
