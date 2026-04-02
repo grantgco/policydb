@@ -804,6 +804,9 @@ _DEFAULTS: dict[str, Any] = {
         "aol.com", "icloud.com", "live.com", "msn.com", "me.com",
         "comcast.net", "att.net", "verizon.net",
     ],
+    "internal_email_domains": [
+        "marsh.com", "marshpm.com", "mmc.com",
+    ],
 }
 
 _config: dict[str, Any] | None = None
