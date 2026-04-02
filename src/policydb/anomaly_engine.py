@@ -8,7 +8,7 @@ stale ones no longer seen in the current scan.
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 import policydb.config as cfg
@@ -25,7 +25,7 @@ def scan_anomalies(conn) -> int:
     Called on every server startup. Returns count of active findings.
     """
     thresholds: dict[str, Any] = cfg.get("anomaly_thresholds", {})
-    scan_id = datetime.utcnow().isoformat()
+    scan_id = datetime.now(timezone.utc).isoformat()
 
     existing = _load_existing(conn)
 
@@ -98,7 +98,7 @@ def _reconcile(conn, scan_id: str, existing: dict, new_findings: list[tuple]) ->
             )
 
     # Auto-resolve stale findings (those NOT seen in this scan)
-    now_iso = datetime.utcnow().isoformat()
+    now_iso = datetime.now(timezone.utc).isoformat()
     for key, row in existing.items():
         if key not in seen_keys:
             conn.execute(
@@ -562,8 +562,9 @@ def _rule_expired_no_renewal(conn, thresholds: dict) -> list[tuple]:
            WHERE p.archived = 0
              AND (p.is_opportunity = 0 OR p.is_opportunity IS NULL)
              AND p.expiration_date IS NOT NULL
-             AND DATE(p.expiration_date) < DATE(?)""",
-        (today_iso,),
+             AND DATE(p.expiration_date) < DATE(?)
+             AND DATE(p.expiration_date) >= DATE(?, '-365 days')""",
+        (today_iso, today_iso),
     ).fetchall()
 
     findings = []

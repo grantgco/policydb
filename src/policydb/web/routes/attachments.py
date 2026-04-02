@@ -339,7 +339,9 @@ async def download_attachment(uid: str, conn=Depends(get_db)):
     if not att or att["source"] != "local" or not att["file_path"]:
         return RedirectResponse("/", status_code=303)
 
-    file_path = Path(att["file_path"])
+    file_path = Path(att["file_path"]).resolve()
+    if not str(file_path).startswith(str(_ATTACHMENTS_DIR.resolve())):
+        return JSONResponse({"ok": False, "error": "Invalid file path"}, status_code=403)
     if not file_path.exists():
         return JSONResponse({"ok": False, "error": "File not found on disk"}, status_code=404)
 
