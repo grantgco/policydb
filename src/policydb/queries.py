@@ -1524,6 +1524,13 @@ def get_suggested_followups(
         client_clause = f"AND c.id IN ({placeholders})"
         client_params = list(client_ids)
 
+    # Build waiting-external disposition labels from config
+    waiting_labels = [
+        d["label"] for d in cfg.get("follow_up_dispositions", [])
+        if d.get("accountability") == "waiting_external"
+    ]
+    waiting_ph = ",".join("?" * len(waiting_labels)) if waiting_labels else "'__none__'"
+
     sql = f"""
     SELECT p.policy_uid, p.policy_type, p.carrier, p.expiration_date,
            p.renewal_status, p.client_id, p.project_name,
@@ -1533,6 +1540,7 @@ def get_suggested_followups(
     FROM policies p
     JOIN clients c ON p.client_id = c.id
     WHERE p.archived = 0
+      AND (p.is_opportunity = 0 OR p.is_opportunity IS NULL)
       AND p.follow_up_date IS NULL
       AND julianday(p.expiration_date) - julianday('now') <= 90
       AND julianday(p.expiration_date) - julianday('now') > 0
@@ -1560,14 +1568,12 @@ def get_suggested_followups(
                OR (al.issue_id IN (SELECT ipc.issue_id FROM v_issue_policy_coverage ipc WHERE ipc.policy_id = p.id)
                    AND al.item_kind != 'issue'))
           AND al.follow_up_done = 0
-          AND al.disposition IN (
-            'Waiting on Client', 'Waiting on Carrier', 'Waiting on Colleague',
-            'Sent Email', 'Sent RFI', 'Left VM'
-          )
+          AND al.disposition IN ({waiting_ph})
       )
     ORDER BY p.expiration_date ASC
     """
-    return [dict(r) for r in conn.execute(sql, excl_params + client_params).fetchall()]
+    all_params = excl_params + client_params + (waiting_labels if waiting_labels else [])
+    return [dict(r) for r in conn.execute(sql, all_params).fetchall()]
 
 
 def get_insurance_deadline_suggestions(
