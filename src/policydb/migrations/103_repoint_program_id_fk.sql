@@ -68,7 +68,7 @@ CREATE TABLE policies_new (
     program_id                INTEGER  REFERENCES programs(id) ON DELETE SET NULL,
     is_bor                    INTEGER  DEFAULT 0,
     milestone_profile         TEXT     DEFAULT '',
-    needs_investigation       INTEGER  DEFAULT 0,
+    flagged                   INTEGER  DEFAULT 0,
     schematic_column          INTEGER,
     layer_notation            TEXT
 );

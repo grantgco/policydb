@@ -1735,6 +1735,15 @@ def init_db(path: Path | None = None) -> None:
         conn.commit()
         logger.info("Migration 127: created team_chart_dismissals table")
 
+    if 128 not in applied:
+        conn.execute("ALTER TABLE policies RENAME COLUMN needs_investigation TO flagged")
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (128, "Rename needs_investigation to flagged on policies"),
+        )
+        conn.commit()
+        logger.info("Migration 128: renamed needs_investigation to flagged")
+
     # Data hygiene: fix 'None' string corruption in text fields (runs every startup, fast no-op if clean)
     conn.execute("UPDATE clients SET cn_number = NULL WHERE cn_number = 'None'")
 
