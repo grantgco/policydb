@@ -95,6 +95,15 @@ def _format_file_size(size_bytes: int) -> str:
         return f"{size_bytes / (1024 * 1024):.1f} MB"
 
 
+def _get_link_count(conn, entity_type: str, entity_id: int) -> int:
+    row = conn.execute(
+        "SELECT COUNT(*) AS cnt FROM kb_links "
+        "WHERE (source_type = ? AND source_id = ?) OR (target_type = ? AND target_id = ?)",
+        (entity_type, entity_id, entity_type, entity_id),
+    ).fetchone()
+    return row["cnt"] if row else 0
+
+
 # ── Index ────────────────────────────────────────────────────────────────────
 
 @router.get("", response_class=HTMLResponse)
@@ -115,6 +124,7 @@ async def kb_index(request: Request, conn=Depends(get_db)):
         d["tags_list"] = _parse_tags(d.get("tags"))
         d["colors"] = _get_colors(d["category"])
         d["source_type"] = "article"
+        d["link_count"] = _get_link_count(conn, "kb_article", d["id"])
         entries.append(d)
     for doc in documents:
         d = dict(doc)
@@ -124,6 +134,7 @@ async def kb_index(request: Request, conn=Depends(get_db)):
         d["file_info"] = _file_type_info(d["mime_type"], d["filename"])
         d["file_size_fmt"] = _format_file_size(d["file_size"])
         d["source_type"] = d.get("source", "local")
+        d["link_count"] = _get_link_count(conn, "attachment", d["id"])
         entries.append(d)
 
     entries.sort(key=lambda e: e.get("updated_at", ""), reverse=True)
@@ -144,13 +155,39 @@ async def kb_search(
     request: Request,
     q: str = Query(""),
     category: str = Query(""),
-    entry_type: str = Query(""),
+    source_filter: str = Query(""),
+    sort: str = Query("updated"),
+    linked_type: str = Query(""),
+    linked_id: int = Query(0),
     conn=Depends(get_db),
 ):
     pattern = f"%{q}%"
     entries = []
 
-    if entry_type != "document":
+    # If linked-to filter is active, get the set of linked entry IDs
+    linked_article_ids = None
+    linked_attachment_ids = None
+    if linked_type and linked_id:
+        link_rows = conn.execute(
+            "SELECT source_type, source_id, target_type, target_id FROM kb_links "
+            "WHERE (source_type = ? AND source_id = ?) OR (target_type = ? AND target_id = ?)",
+            (linked_type, linked_id, linked_type, linked_id),
+        ).fetchall()
+        linked_article_ids = set()
+        linked_attachment_ids = set()
+        for lr in link_rows:
+            lr = dict(lr)
+            if lr["source_type"] == linked_type and lr["source_id"] == linked_id:
+                other_type, other_id = lr["target_type"], lr["target_id"]
+            else:
+                other_type, other_id = lr["source_type"], lr["source_id"]
+            if other_type == "kb_article":
+                linked_article_ids.add(other_id)
+            elif other_type == "attachment":
+                linked_attachment_ids.add(other_id)
+
+    # Articles
+    if source_filter in ("", "article"):
         where = "WHERE (title LIKE ? OR content LIKE ? OR tags LIKE ?)"
         params = [pattern, pattern, pattern]
         if category:
@@ -162,33 +199,51 @@ async def kb_search(
         ).fetchall()
         for a in articles:
             d = dict(a)
+            if linked_article_ids is not None and d["id"] not in linked_article_ids:
+                continue
             d["entry_type"] = "article"
+            d["source_type"] = "article"
             d["tags_list"] = _parse_tags(d.get("tags"))
             d["colors"] = _get_colors(d["category"])
-            d["source_type"] = "article"
+            d["link_count"] = _get_link_count(conn, "kb_article", d["id"])
             entries.append(d)
 
-    if entry_type != "article":
+    # Attachments (local and devonthink)
+    if source_filter in ("", "local", "devonthink"):
         where = "WHERE (title LIKE ? OR description LIKE ? OR filename LIKE ? OR tags LIKE ?)"
         params = [pattern, pattern, pattern, pattern]
         if category:
             where += " AND category = ?"
             params.append(category)
+        if source_filter in ("local", "devonthink"):
+            where += " AND source = ?"
+            params.append(source_filter)
         documents = conn.execute(
             f"SELECT * FROM attachments {where} ORDER BY updated_at DESC",
             params,
         ).fetchall()
         for doc in documents:
             d = dict(doc)
+            if linked_attachment_ids is not None and d["id"] not in linked_attachment_ids:
+                continue
             d["entry_type"] = "document"
+            d["source_type"] = d.get("source", "local")
             d["tags_list"] = _parse_tags(d.get("tags"))
             d["colors"] = _get_colors(d["category"])
-            d["file_info"] = _file_type_info(d["mime_type"], d["filename"])
-            d["file_size_fmt"] = _format_file_size(d["file_size"])
-            d["source_type"] = d.get("source", "local")
+            d["file_info"] = _file_type_info(d.get("mime_type", ""), d.get("filename", ""))
+            d["file_size_fmt"] = _format_file_size(d.get("file_size", 0) or 0)
+            d["link_count"] = _get_link_count(conn, "attachment", d["id"])
             entries.append(d)
 
-    entries.sort(key=lambda e: e.get("updated_at", ""), reverse=True)
+    # Sort
+    if sort == "title":
+        entries.sort(key=lambda e: (e.get("title") or "").lower())
+    elif sort == "most_linked":
+        entries.sort(key=lambda e: e.get("link_count", 0), reverse=True)
+    elif sort == "category":
+        entries.sort(key=lambda e: (e.get("category") or "").lower())
+    else:  # "updated" default
+        entries.sort(key=lambda e: e.get("updated_at", ""), reverse=True)
 
     return templates.TemplateResponse("kb/_search_results.html", {
         "request": request,
@@ -777,6 +832,81 @@ async def search_entities(
         "clients": [dict(c) for c in clients],
         "policies": [dict(p) for p in policies],
     })
+
+
+@router.get("/search-linkable", response_class=HTMLResponse)
+async def search_linkable(
+    request: Request,
+    q: str = Query(""),
+    conn=Depends(get_db),
+):
+    """Search all linkable entity types for the linked-to filter combobox."""
+    if len(q.strip()) < 2:
+        return HTMLResponse("")
+    pattern = f"%{q}%"
+    results = []
+
+    # Clients
+    for r in conn.execute(
+        "SELECT id, name FROM clients WHERE name LIKE ? ORDER BY name LIMIT 5", (pattern,)
+    ).fetchall():
+        results.append({"type": "client", "id": r["id"], "label": r["name"], "icon": "client"})
+
+    # Policies
+    for r in conn.execute(
+        "SELECT p.id, p.policy_uid, p.carrier, p.policy_type, c.name AS client_name "
+        "FROM policies p LEFT JOIN clients c ON c.id = p.client_id "
+        "WHERE p.policy_uid LIKE ? OR p.carrier LIKE ? OR c.name LIKE ? "
+        "ORDER BY p.policy_uid LIMIT 5",
+        (pattern, pattern, pattern),
+    ).fetchall():
+        label = f"{r['policy_uid']} — {r['carrier'] or ''} {r['policy_type'] or ''}".strip()
+        results.append({"type": "policy", "id": r["id"], "label": label, "icon": "policy"})
+
+    # Issues
+    for r in conn.execute(
+        "SELECT id, issue_uid, subject FROM issues WHERE issue_uid LIKE ? OR subject LIKE ? ORDER BY issue_uid DESC LIMIT 5",
+        (pattern, pattern),
+    ).fetchall():
+        results.append({"type": "issue", "id": r["id"], "label": f"{r['issue_uid']} — {r['subject']}", "icon": "issue"})
+
+    # KB Articles
+    for r in conn.execute(
+        "SELECT id, uid, title FROM kb_articles WHERE uid LIKE ? OR title LIKE ? ORDER BY updated_at DESC LIMIT 5",
+        (pattern, pattern),
+    ).fetchall():
+        results.append({"type": "kb_article", "id": r["id"], "label": f"{r['uid']} — {r['title']}", "icon": "article"})
+
+    # Attachments
+    for r in conn.execute(
+        "SELECT id, uid, title FROM attachments WHERE uid LIKE ? OR title LIKE ? ORDER BY updated_at DESC LIMIT 5",
+        (pattern, pattern),
+    ).fetchall():
+        results.append({"type": "attachment", "id": r["id"], "label": f"{r['uid']} — {r['title']}", "icon": "document"})
+
+    # Projects
+    for r in conn.execute(
+        "SELECT id, name FROM projects WHERE name LIKE ? ORDER BY name LIMIT 5",
+        (pattern,),
+    ).fetchall():
+        results.append({"type": "project", "id": r["id"], "label": r["name"], "icon": "project"})
+
+    # Render inline HTML for dropdown
+    if not results:
+        return HTMLResponse('<div class="px-3 py-2 text-xs text-gray-400">No results</div>')
+
+    html_parts = []
+    for r in results:
+        escaped_label = r["label"].replace("'", "&#39;").replace('"', "&quot;")
+        html_parts.append(
+            f'<button type="button" class="w-full text-left px-3 py-1.5 text-xs hover:bg-gray-50 flex items-center gap-2" '
+            f'onclick="selectLinkedEntity(\'{r["type"]}\', {r["id"]}, \'{escaped_label}\');">'
+            f'<span class="text-[9px] uppercase font-medium text-gray-400 w-12">{r["type"].replace("kb_article","article").replace("attachment","file")}</span>'
+            f'<span class="text-gray-700 truncate">{r["label"]}</span>'
+            f'</button>'
+        )
+    html = '<div class="py-1">' + ''.join(html_parts) + '</div>'
+    return HTMLResponse(html)
 
 
 # ── KB links for client/policy pages ─────────────────────────────────────────
