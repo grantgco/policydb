@@ -512,6 +512,7 @@ _DEFAULTS: dict[str, Any] = {
     "email_subject_client": "Re: {{client_name}}",
     "email_subject_followup": "Re: {{client_name}}{{project_name_sep}} \u2014 {{policy_type}} \u2014 {{subject}}",
     "email_subject_meeting": "Meeting Recap: {{meeting_title}} \u2014 {{meeting_date}}",
+    "email_subject_program": "Re: {{client_name}} \u2014 {{program_name}}",
     "mandated_activity_horizon_days": 180,
     "mandated_activities": [
         {

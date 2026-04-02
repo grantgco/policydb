@@ -13,13 +13,16 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 import policydb.config as cfg
 from policydb.charts import _layer_notation, get_tower_data
 from policydb.db import next_program_uid, next_policy_uid
-from policydb.utils import parse_currency_with_magnitude
+from policydb.utils import parse_currency_with_magnitude, clean_email, format_phone
 from policydb.queries import (
     get_sub_coverages_by_policy_id, get_sub_coverages_full_by_policy_id,
     get_program_by_uid, get_program_child_policies, get_program_aggregates,
     get_unassigned_policies, get_programs_for_project,
     get_program_timeline_milestones, get_program_activities,
     renew_policy,
+    get_or_create_contact, get_program_contacts, assign_contact_to_program,
+    remove_contact_from_program, set_program_placement_colleague,
+    get_program_underwriter_rollup,
 )
 from policydb.web.app import get_db, templates
 
@@ -463,6 +466,340 @@ def program_tab_activity(
         "all_clients": all_clients,
         "issue_severities": cfg.get("issue_severities", []),
     })
+
+
+# ── Contacts tab ───────────────────────────────────────────────────────────
+
+@router.get("/programs/{program_uid}/tab/contacts", response_class=HTMLResponse)
+def program_tab_contacts(request: Request, program_uid: str, conn=Depends(get_db)):
+    """Contacts tab: program team matrix + underwriter rollup + correspondence."""
+    program = get_program_by_uid(conn, program_uid)
+    if not program:
+        return HTMLResponse("Not found", status_code=404)
+
+    program_contacts = get_program_contacts(conn, program["id"])
+
+    # Attach expertise tags
+    _pc_ids = [c["contact_id"] for c in program_contacts if c.get("contact_id")]
+    if _pc_ids:
+        _exp_rows = conn.execute(
+            f"SELECT contact_id, category, tag FROM contact_expertise WHERE contact_id IN ({','.join('?' * len(_pc_ids))})",
+            _pc_ids,
+        ).fetchall()
+        _exp_map: dict = {}
+        for _er in _exp_rows:
+            _exp_map.setdefault(_er["contact_id"], {"line": [], "industry": []})
+            _exp_map[_er["contact_id"]][_er["category"]].append(_er["tag"])
+        for _pc in program_contacts:
+            _cid = _pc.get("contact_id")
+            _pc["expertise_lines"] = _exp_map.get(_cid, {}).get("line", [])
+            _pc["expertise_industries"] = _exp_map.get(_cid, {}).get("industry", [])
+
+    # Underwriter rollup from child policies
+    underwriters = get_program_underwriter_rollup(conn, program["id"])
+
+    # Autocomplete data for contact name combobox
+    _ac_rows = conn.execute(
+        """SELECT co.name, co.email, co.phone, co.mobile, co.organization,
+                  MAX(COALESCE(cpa.role, cca.role)) AS role,
+                  MAX(COALESCE(cpa.title, cca.title)) AS title
+           FROM contacts co
+           LEFT JOIN contact_policy_assignments cpa ON co.id = cpa.contact_id
+           LEFT JOIN contact_client_assignments cca ON co.id = cca.contact_id
+           WHERE co.name IS NOT NULL AND co.name != ''
+           GROUP BY co.id ORDER BY co.name"""
+    ).fetchall()
+    import json as _json_mod
+    all_contacts_for_ac_json = _json_mod.dumps({
+        r["name"]: {
+            "email": r["email"] or "", "role": r["role"] or "",
+            "phone": r["phone"] or "", "mobile": r["mobile"] or "",
+            "title": r["title"] or "", "organization": r["organization"] or "",
+        } for r in _ac_rows
+    })
+
+    # Mailto subject
+    from policydb.email_templates import render_tokens as _rtk
+    _ctx = {"client_name": "", "program_name": program["name"] or ""}
+    client_row = conn.execute("SELECT name FROM clients WHERE id=?", (program["client_id"],)).fetchone()
+    if client_row:
+        _ctx["client_name"] = client_row["name"]
+    mailto_subject = _rtk(
+        cfg.get("email_subject_program", "Re: {{client_name}} — {{program_name}}"),
+        _ctx,
+    )
+
+    # Activity clusters for correspondence section
+    _cluster_days = cfg.get("activity_cluster_days", 7)
+    _all_acts = [dict(r) for r in conn.execute(
+        """SELECT activity_date, activity_type, subject, disposition, details,
+                  duration_hours, follow_up_done
+           FROM activity_log WHERE program_id = ?
+           ORDER BY activity_date DESC, id DESC""",
+        (program["id"],),
+    ).fetchall()]
+    # Build clusters
+    activity_clusters: list[list[dict]] = []
+    if _all_acts:
+        import dateutil.parser as _dp
+        current_cluster: list[dict] = [_all_acts[0]]
+        for act in _all_acts[1:]:
+            prev_date = current_cluster[-1].get("activity_date") or ""
+            curr_date = act.get("activity_date") or ""
+            try:
+                gap = abs((_dp.parse(prev_date) - _dp.parse(curr_date)).days) if prev_date and curr_date else 999
+            except Exception:
+                gap = 999
+            if gap <= _cluster_days:
+                current_cluster.append(act)
+            else:
+                activity_clusters.append(current_cluster)
+                current_cluster = [act]
+        activity_clusters.append(current_cluster)
+
+    return templates.TemplateResponse("programs/_tab_contacts.html", {
+        "request": request,
+        "program": program,
+        "program_contacts": program_contacts,
+        "underwriters": underwriters,
+        "all_contacts_for_ac_json": all_contacts_for_ac_json,
+        "mailto_subject": mailto_subject,
+        "activity_clusters": activity_clusters,
+        "contact_roles": cfg.get("contact_roles", []),
+        "expertise_lines": cfg.get("expertise_lines", []),
+        "expertise_industries": cfg.get("expertise_industries", []),
+        "all_orgs": sorted({r["organization"] for r in conn.execute(
+            "SELECT DISTINCT organization FROM contacts WHERE organization IS NOT NULL AND organization != ''"
+        ).fetchall()}),
+    })
+
+
+@router.get("/programs/{program_uid}/tab/files", response_class=HTMLResponse)
+def program_tab_files(request: Request, program_uid: str, conn=Depends(get_db)):
+    """Files tab: universal attachment panel for program."""
+    program = get_program_by_uid(conn, program_uid)
+    if not program:
+        return HTMLResponse("Not found", status_code=404)
+
+    return templates.TemplateResponse("programs/_tab_files.html", {
+        "request": request,
+        "program": program,
+    })
+
+
+# ── Program Contact CRUD ───────────────────────────────────────────────────
+
+
+def _program_team_response(request, conn, program_uid: str):
+    """Return rendered _program_team.html partial (+ underwriter rollup)."""
+    program = get_program_by_uid(conn, program_uid)
+    if not program:
+        return HTMLResponse("Program not found", status_code=404)
+
+    program_contacts = get_program_contacts(conn, program["id"])
+
+    # Attach expertise tags
+    _pc_ids = [c["contact_id"] for c in program_contacts if c.get("contact_id")]
+    if _pc_ids:
+        _exp_rows = conn.execute(
+            f"SELECT contact_id, category, tag FROM contact_expertise WHERE contact_id IN ({','.join('?' * len(_pc_ids))})",
+            _pc_ids,
+        ).fetchall()
+        _exp_map: dict = {}
+        for _er in _exp_rows:
+            _exp_map.setdefault(_er["contact_id"], {"line": [], "industry": []})
+            _exp_map[_er["contact_id"]][_er["category"]].append(_er["tag"])
+        for _pc in program_contacts:
+            _cid = _pc.get("contact_id")
+            _pc["expertise_lines"] = _exp_map.get(_cid, {}).get("line", [])
+            _pc["expertise_industries"] = _exp_map.get(_cid, {}).get("industry", [])
+
+    import json as _json_mod
+    _ac_rows = conn.execute(
+        """SELECT co.name, co.email, co.phone, co.mobile, co.organization,
+                  MAX(COALESCE(cpa.role, cca.role)) AS role,
+                  MAX(COALESCE(cpa.title, cca.title)) AS title
+           FROM contacts co
+           LEFT JOIN contact_policy_assignments cpa ON co.id = cpa.contact_id
+           LEFT JOIN contact_client_assignments cca ON co.id = cca.contact_id
+           WHERE co.name IS NOT NULL AND co.name != ''
+           GROUP BY co.id ORDER BY co.name"""
+    ).fetchall()
+    all_contacts_for_ac_json = _json_mod.dumps({
+        r["name"]: {
+            "email": r["email"] or "", "role": r["role"] or "",
+            "phone": r["phone"] or "", "mobile": r["mobile"] or "",
+            "title": r["title"] or "", "organization": r["organization"] or "",
+        } for r in _ac_rows
+    })
+
+    from policydb.email_templates import render_tokens as _rtk
+    _ctx = {"client_name": "", "program_name": program["name"] or ""}
+    client_row = conn.execute("SELECT name FROM clients WHERE id=?", (program["client_id"],)).fetchone()
+    if client_row:
+        _ctx["client_name"] = client_row["name"]
+    mailto_subject = _rtk(
+        cfg.get("email_subject_program", "Re: {{client_name}} — {{program_name}}"),
+        _ctx,
+    )
+
+    return templates.TemplateResponse("programs/_program_team.html", {
+        "request": request,
+        "program": dict(program),
+        "program_contacts": program_contacts,
+        "all_contacts_for_ac_json": all_contacts_for_ac_json,
+        "mailto_subject": mailto_subject,
+        "contact_roles": cfg.get("contact_roles", []),
+        "expertise_lines": cfg.get("expertise_lines", []),
+        "expertise_industries": cfg.get("expertise_industries", []),
+        "all_orgs": sorted({r["organization"] for r in conn.execute(
+            "SELECT DISTINCT organization FROM contacts WHERE organization IS NOT NULL AND organization != ''"
+        ).fetchall()}),
+    })
+
+
+@router.post("/programs/{program_uid}/team/add-row", response_class=HTMLResponse)
+def program_team_add_row(request: Request, program_uid: str, conn=Depends(get_db)):
+    """Create blank program contact row and return matrix row HTML."""
+    program = get_program_by_uid(conn, program_uid)
+    if not program:
+        return HTMLResponse("Program not found", status_code=404)
+    cid = get_or_create_contact(conn, "New Contact")
+    asg_id = assign_contact_to_program(conn, cid, program["id"])
+    conn.commit()
+    c = {"id": asg_id, "contact_id": cid, "name": "New Contact", "title": None, "role": None,
+         "organization": None, "email": None, "phone": None, "mobile": None,
+         "notes": None, "is_placement_colleague": 0}
+    all_orgs = sorted({r["organization"] for r in conn.execute(
+        "SELECT DISTINCT organization FROM contacts WHERE organization IS NOT NULL AND organization != ''"
+    ).fetchall()})
+    return templates.TemplateResponse("programs/_team_matrix_row.html", {
+        "request": request, "c": c, "program": dict(program),
+        "contact_roles": cfg.get("contact_roles", []),
+        "all_orgs": all_orgs,
+    })
+
+
+@router.patch("/programs/{program_uid}/team/{contact_id}/cell")
+async def program_team_cell(request: Request, program_uid: str, contact_id: int, conn=Depends(get_db)):
+    """Save a single cell value for a program contact (matrix edit)."""
+    body = await request.json()
+    field, value = body.get("field", ""), body.get("value", "")
+    allowed = {"name", "organization", "title", "role", "email", "phone", "mobile", "notes"}
+    if field not in allowed:
+        return JSONResponse({"ok": False, "error": "Invalid field"}, status_code=400)
+    formatted = value.strip()
+    if field in ("phone", "mobile"):
+        formatted = format_phone(formatted) if formatted else ""
+    elif field == "email":
+        formatted = clean_email(formatted) or ""
+    program = get_program_by_uid(conn, program_uid)
+    if not program:
+        return JSONResponse({"ok": False, "error": "Not found"}, status_code=404)
+    assignment_id = contact_id
+    shared_fields = {"name", "email", "phone", "mobile", "organization"}
+    assignment_fields = {"role", "title", "notes"}
+    if field in shared_fields:
+        asg = conn.execute(
+            "SELECT contact_id FROM contact_program_assignments WHERE id=?", (assignment_id,)
+        ).fetchone()
+        if asg:
+            conn.execute(
+                f"UPDATE contacts SET {field}=? WHERE id=?",
+                (formatted or None, asg["contact_id"]),
+            )
+    elif field in assignment_fields:
+        conn.execute(
+            f"UPDATE contact_program_assignments SET {field}=? WHERE id=?",
+            (formatted or None, assignment_id),
+        )
+    conn.commit()
+    return JSONResponse({"ok": True, "formatted": formatted})
+
+
+@router.post("/programs/{program_uid}/team/{contact_id}/delete", response_class=HTMLResponse)
+def program_team_delete(request: Request, program_uid: str, contact_id: int, conn=Depends(get_db)):
+    """Remove a contact from the program team."""
+    program = get_program_by_uid(conn, program_uid)
+    if not program:
+        return HTMLResponse("Program not found", status_code=404)
+    remove_contact_from_program(conn, contact_id)
+    conn.commit()
+    return _program_team_response(request, conn, program_uid)
+
+
+@router.post("/programs/{program_uid}/team/{contact_id}/toggle-pc", response_class=HTMLResponse)
+def program_team_toggle_pc(request: Request, program_uid: str, contact_id: int, conn=Depends(get_db)):
+    """Toggle is_placement_colleague flag on a program contact assignment."""
+    program = get_program_by_uid(conn, program_uid)
+    if not program:
+        return HTMLResponse("Program not found", status_code=404)
+    set_program_placement_colleague(conn, contact_id)
+    conn.commit()
+    return _program_team_response(request, conn, program_uid)
+
+
+# ── Workflow tab ───────────────────────────────────────────────────────────
+
+@router.get("/programs/{program_uid}/tab/workflow", response_class=HTMLResponse)
+def program_tab_workflow(request: Request, program_uid: str, conn=Depends(get_db)):
+    """Workflow tab: checklist + information requests."""
+    program = get_program_by_uid(conn, program_uid)
+    if not program:
+        return HTMLResponse("Not found", status_code=404)
+
+    # Program milestones (checklist)
+    milestones_config = cfg.get("renewal_milestones", [])
+    checklist = []
+    existing = {r["milestone"]: dict(r) for r in conn.execute(
+        "SELECT * FROM program_milestones WHERE program_uid=?", (program_uid,)
+    ).fetchall()}
+
+    for ms in milestones_config:
+        if ms in existing:
+            checklist.append(existing[ms])
+        else:
+            checklist.append({"id": None, "program_uid": program_uid, "milestone": ms, "completed": 0, "completed_at": None})
+
+    return templates.TemplateResponse("programs/_tab_workflow.html", {
+        "request": request,
+        "program": program,
+        "checklist": checklist,
+    })
+
+
+@router.post("/programs/{program_uid}/milestone/toggle", response_class=HTMLResponse)
+def program_milestone_toggle(
+    request: Request,
+    program_uid: str,
+    milestone: str = Form(...),
+    conn=Depends(get_db),
+):
+    """Toggle a program milestone completion status."""
+    program = get_program_by_uid(conn, program_uid)
+    if not program:
+        return HTMLResponse("Not found", status_code=404)
+
+    existing = conn.execute(
+        "SELECT id, completed FROM program_milestones WHERE program_uid=? AND milestone=?",
+        (program_uid, milestone),
+    ).fetchone()
+
+    if existing:
+        new_val = 0 if existing["completed"] else 1
+        conn.execute(
+            "UPDATE program_milestones SET completed=?, completed_at=CASE WHEN ?=1 THEN CURRENT_TIMESTAMP ELSE NULL END WHERE id=?",
+            (new_val, new_val, existing["id"]),
+        )
+    else:
+        conn.execute(
+            "INSERT INTO program_milestones (program_uid, milestone, completed, completed_at) VALUES (?, ?, 1, CURRENT_TIMESTAMP)",
+            (program_uid, milestone),
+        )
+    conn.commit()
+
+    # Return the full workflow tab
+    return program_tab_workflow(request, program_uid, conn)
 
 
 @router.patch("/programs/{program_uid}/header")
