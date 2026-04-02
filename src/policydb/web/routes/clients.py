@@ -1419,6 +1419,7 @@ def client_tab_issues(request: Request, client_id: int, conn=Depends(get_db)):
     all_issues = [dict(r) for r in conn.execute("""
         SELECT a.id, a.issue_uid, a.subject, a.issue_status, a.issue_severity,
                a.issue_sla_days, a.resolution_type, a.resolved_date, a.activity_date,
+               a.is_renewal_issue,
                CAST(julianday('now') - julianday(a.activity_date) AS INTEGER) AS days_open,
                p.policy_uid, p.policy_type,
                (SELECT COUNT(*) FROM activity_log sub WHERE sub.issue_id = a.id) AS activity_count,
