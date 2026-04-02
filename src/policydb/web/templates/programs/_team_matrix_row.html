@@ -1,10 +1,10 @@
 {# Program Team Matrix Row — editable contenteditable cells #}
-<tr data-row-id="{{ c.id }}" class="matrix-row group border-b border-[#F0ECE6] hover:bg-[#FDFBF8]">
+<tr data-row-id="{{ c.id }}" class="matrix-row group border-b border-gray-100 hover:bg-gray-50">
   {# Name — combobox with autocomplete #}
-  <td class="py-1 px-2">
+  <td class="px-3 py-2">
     <div contenteditable="true" data-field="name"
          data-placeholder="Name"
-         class="outline-none min-h-[1.4em] focus:border-b focus:border-[#0B4BFF]"
+         class="outline-none min-h-[1.4em] focus:border-b focus:border-marsh-light"
     >{{ c.name or '' }}</div>
     {% if c.get('expertise_lines') or c.get('expertise_industries') %}
       <div class="flex flex-wrap gap-0.5 mt-0.5">
@@ -19,73 +19,73 @@
   </td>
 
   {# Organization — combobox #}
-  <td class="py-1 px-2">
+  <td class="px-3 py-2">
     <div contenteditable="true" data-field="organization"
          data-placeholder="Org"
          data-combobox='{{ all_orgs | tojson }}'
-         class="outline-none min-h-[1.4em] focus:border-b focus:border-[#0B4BFF]"
+         class="outline-none min-h-[1.4em] focus:border-b focus:border-marsh-light"
     >{{ c.organization or '' }}</div>
   </td>
 
   {# Title #}
-  <td class="py-1 px-2">
+  <td class="px-3 py-2">
     <div contenteditable="true" data-field="title"
          data-placeholder="Title"
-         class="outline-none min-h-[1.4em] focus:border-b focus:border-[#0B4BFF]"
+         class="outline-none min-h-[1.4em] focus:border-b focus:border-marsh-light"
     >{{ c.title or '' }}</div>
   </td>
 
   {# Role — combobox #}
-  <td class="py-1 px-2">
+  <td class="px-3 py-2">
     <div contenteditable="true" data-field="role"
          data-placeholder="Role"
          data-combobox='{{ contact_roles | tojson }}'
-         class="outline-none min-h-[1.4em] focus:border-b focus:border-[#0B4BFF]"
+         class="outline-none min-h-[1.4em] focus:border-b focus:border-marsh-light"
     >{{ c.role or '' }}</div>
   </td>
 
   {# Email — click-to-input with mailto link #}
-  <td class="py-1 px-2">
+  <td class="px-3 py-2">
     <div class="flex items-center gap-1">
       <div contenteditable="true" data-field="email"
            data-placeholder="Email"
-           class="outline-none min-h-[1.4em] flex-1 focus:border-b focus:border-[#0B4BFF]"
+           class="outline-none min-h-[1.4em] flex-1 focus:border-b focus:border-marsh-light"
       >{{ c.email or '' }}</div>
       {% if c.email %}
         <button onclick="document.getElementById('compose-slideover')?.remove();
           htmx.ajax('GET', '/compose?context=program&program_uid={{ program.program_uid }}&to_email={{ c.email | urlencode }}', {target: 'body', swap: 'beforeend'})"
-          class="text-[#0B4BFF] hover:text-[#0940d4] opacity-0 group-hover:opacity-100 no-print"
+          class="text-marsh-light hover:text-marsh opacity-0 group-hover:opacity-100 no-print"
           title="Compose email">✉</button>
       {% endif %}
     </div>
   </td>
 
   {# Phone #}
-  <td class="py-1 px-2">
+  <td class="px-3 py-2">
     <div contenteditable="true" data-field="phone"
          data-placeholder="Phone"
-         class="outline-none min-h-[1.4em] focus:border-b focus:border-[#0B4BFF]"
+         class="outline-none min-h-[1.4em] focus:border-b focus:border-marsh-light"
     >{{ c.phone or '' }}</div>
   </td>
 
   {# Mobile #}
-  <td class="py-1 px-2">
+  <td class="px-3 py-2">
     <div contenteditable="true" data-field="mobile"
          data-placeholder="Mobile"
-         class="outline-none min-h-[1.4em] focus:border-b focus:border-[#0B4BFF]"
+         class="outline-none min-h-[1.4em] focus:border-b focus:border-marsh-light"
     >{{ c.mobile or '' }}</div>
   </td>
 
   {# Notes #}
-  <td class="py-1 px-2">
+  <td class="px-3 py-2">
     <div contenteditable="true" data-field="notes"
          data-placeholder="Notes"
-         class="outline-none min-h-[1.4em] focus:border-b focus:border-[#0B4BFF]"
+         class="outline-none min-h-[1.4em] focus:border-b focus:border-marsh-light"
     >{{ c.notes or '' }}</div>
   </td>
 
   {# Placement Colleague toggle #}
-  <td class="py-1 px-2 text-center no-print">
+  <td class="px-3 py-2 text-center no-print">
     <button hx-post="/programs/{{ program.program_uid }}/team/{{ c.id }}/toggle-pc"
             hx-target="#program-team-wrap" hx-swap="outerHTML"
             class="text-sm {{ 'text-amber-500' if c.is_placement_colleague else 'text-gray-300 hover:text-amber-400' }}"
@@ -93,7 +93,7 @@
   </td>
 
   {# Delete #}
-  <td class="py-1 px-2 text-center no-print">
+  <td class="px-3 py-2 text-center no-print">
     <button hx-post="/programs/{{ program.program_uid }}/team/{{ c.id }}/delete"
             hx-target="#program-team-wrap" hx-swap="outerHTML"
             hx-confirm="Remove this contact from the program?"

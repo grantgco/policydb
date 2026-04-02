@@ -1,5 +1,5 @@
 {# Program Contacts Tab — team matrix + underwriter rollup + correspondence #}
-<div class="py-4 space-y-6">
+<div class="py-4 space-y-4">
 
   {# ── Program Team Matrix ─────────────────────────────── #}
   {% include "programs/_program_team.html" %}
@@ -8,22 +8,26 @@
   {% include "programs/_underwriter_rollup.html" %}
 
   {# ── Correspondence ──────────────────────────────────── #}
-  <div class="mt-6">
-    <h3 class="text-sm font-semibold text-[#3D3C37] mb-3">Correspondence</h3>
-    {% if activity_clusters %}
-      {% for cluster in activity_clusters %}
-        <div class="mb-4 border-l-2 border-[#E8E4DE] pl-3">
-          {% for act in cluster %}
-            <div class="py-1 text-xs text-[#6B6962]">
-              <span class="font-medium text-[#3D3C37]">{{ act.activity_date or '' }}</span>
-              — {{ act.activity_type or '' }}{% if act.subject %}: {{ act.subject }}{% endif %}
-              {% if act.disposition %}<span class="ml-1 text-[#8C8880]">({{ act.disposition }})</span>{% endif %}
-            </div>
-          {% endfor %}
-        </div>
-      {% endfor %}
-    {% else %}
-      <p class="text-xs text-[#8C8880] italic">No activity logged yet.</p>
-    {% endif %}
+  <div class="card mb-4">
+    <div class="px-4 py-2.5 bg-gray-50 border-b border-gray-100">
+      <span class="text-xs font-bold text-marsh uppercase tracking-wide">Correspondence</span>
+    </div>
+    <div class="px-4 py-3">
+      {% if activity_clusters %}
+        {% for cluster in activity_clusters %}
+          <div class="mb-3 border-l-2 border-gray-200 pl-3">
+            {% for act in cluster %}
+              <div class="py-1 text-xs text-gray-500">
+                <span class="font-medium text-gray-700">{{ act.activity_date or '' }}</span>
+                — {{ act.activity_type or '' }}{% if act.subject %}: {{ act.subject }}{% endif %}
+                {% if act.disposition %}<span class="ml-1 text-gray-400">({{ act.disposition }})</span>{% endif %}
+              </div>
+            {% endfor %}
+          </div>
+        {% endfor %}
+      {% else %}
+        <p class="text-xs text-gray-400 italic">No activity logged yet.</p>
+      {% endif %}
+    </div>
   </div>
 </div>
