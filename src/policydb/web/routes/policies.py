@@ -4241,6 +4241,43 @@ def policy_snooze_followup(
     return resp
 
 
+@router.get("/{policy_uid}/edit-followup-slideover", response_class=HTMLResponse)
+def policy_edit_followup_slideover(policy_uid: str, request: Request, conn=Depends(get_db)):
+    """Return the edit slideover partial for a policy follow-up."""
+    uid = policy_uid.upper()
+    row = conn.execute(
+        """SELECT p.id, p.policy_uid, p.policy_type, p.carrier, p.follow_up_date,
+                  p.renewal_status, p.expiration_date, p.project_name,
+                  c.name AS client_name
+           FROM policies p JOIN clients c ON p.client_id = c.id
+           WHERE p.policy_uid = ?""",
+        (uid,),
+    ).fetchone()
+    if not row:
+        return HTMLResponse("<p class='p-4 text-sm text-gray-400'>Not found.</p>", status_code=404)
+    return templates.TemplateResponse("action_center/_edit_policy_slideover.html", {
+        "request": request,
+        "p": dict(row),
+        "renewal_statuses": cfg.get("renewal_statuses", []),
+    })
+
+
+@router.patch("/{policy_uid}/followup-field")
+def patch_policy_followup_field(policy_uid: str, body: dict = None, conn=Depends(get_db)):
+    """Update follow_up_date or renewal_status on a policy (slideover inline edit)."""
+    if not body:
+        return JSONResponse({"ok": False, "error": "No body"}, status_code=400)
+    uid = policy_uid.upper()
+    field = body.get("field", "")
+    value = body.get("value", "")
+    allowed = {"follow_up_date", "renewal_status"}
+    if field not in allowed:
+        return JSONResponse({"ok": False, "error": f"Field '{field}' not editable"}, status_code=400)
+    conn.execute(f"UPDATE policies SET {field} = ? WHERE policy_uid = ?", (value or None, uid))
+    conn.commit()
+    return {"ok": True, "formatted": value}
+
+
 @router.post("/{policy_uid}/reschedule-followup", response_class=HTMLResponse)
 def policy_reschedule_followup(
     request: Request, policy_uid: str, new_date: str = Form(...), conn=Depends(get_db)
