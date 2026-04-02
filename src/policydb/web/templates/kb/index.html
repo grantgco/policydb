@@ -97,11 +97,21 @@
 </div>
 
 <script>
+function _kbRefresh() {
+  htmx.ajax('GET', '/kb/search', {
+    target: '#kb-results',
+    values: {
+      q: document.getElementById('kb-search').value,
+      entry_type: document.getElementById('kb-type-filter').value,
+      category: document.getElementById('kb-cat-filter').value
+    }
+  });
+}
 function setTypeFilter(btn, val) {
   document.getElementById('kb-type-filter').value = val;
   btn.closest('#kb-filters').querySelectorAll('.btn-filter').forEach(function(b) { b.classList.remove('active'); });
   btn.classList.add('active');
-  htmx.trigger(document.getElementById('kb-search'), 'keyup');
+  _kbRefresh();
 }
 function setCatFilter(btn, val) {
   document.getElementById('kb-cat-filter').value = val;
@@ -110,7 +120,7 @@ function setCatFilter(btn, val) {
     p.className = 'rounded-full px-3 py-1 text-xs font-medium border border-gray-200 text-gray-600 hover:border-gray-400 transition-colors';
   });
   btn.className = 'rounded-full px-3 py-1 text-xs font-medium bg-marsh text-white';
-  htmx.trigger(document.getElementById('kb-search'), 'keyup');
+  _kbRefresh();
 }
 </script>
 {% endblock %}
