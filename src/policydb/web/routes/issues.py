@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -16,6 +16,14 @@ from policydb.utils import round_duration
 from policydb.web.app import get_db, templates
 
 router = APIRouter()
+
+
+def _get_issue_checklist(conn, issue_id: int) -> list[dict]:
+    """Return checklist items for an issue, ordered by sort_order then id."""
+    return [dict(r) for r in conn.execute(
+        "SELECT * FROM issue_checklist WHERE issue_id=? ORDER BY sort_order, id",
+        (issue_id,),
+    ).fetchall()]
 
 
 class IssueDetailsUpdate(BaseModel):
@@ -826,6 +834,7 @@ def issue_detail(
         "timeline_milestones": timeline_milestones,
         "merged_into_issue": merged_into_issue,
         "today": date.today().isoformat(),
+        "checklist_items": _get_issue_checklist(conn, issue_id),
     }
     return templates.TemplateResponse("issues/detail.html", ctx)
 
@@ -891,6 +900,80 @@ def log_issue_activity(
     row = conn.execute("SELECT issue_uid FROM activity_log WHERE id=?", (issue_id,)).fetchone()
     uid = row["issue_uid"] if row else issue_id
     return RedirectResponse(f"/issues/{uid}", status_code=303)
+
+
+# ── Issue checklist ─────────────────────────────────────────────────────────
+
+
+@router.get("/issues/{issue_id}/checklist", response_class=HTMLResponse)
+def issue_checklist_get(issue_id: int, request: Request, conn=Depends(get_db)):
+    """Return the checklist card partial for HTMX refresh."""
+    items = _get_issue_checklist(conn, issue_id)
+    return templates.TemplateResponse("issues/_issue_checklist.html", {
+        "request": request, "issue": {"id": issue_id}, "checklist_items": items,
+    })
+
+
+@router.post("/issues/{issue_id}/checklist", response_class=HTMLResponse)
+def issue_checklist_add(
+    issue_id: int, request: Request,
+    label: str = Form(""), conn=Depends(get_db),
+):
+    """Add a new checklist item to an issue."""
+    label = label.strip()
+    if label:
+        max_order = conn.execute(
+            "SELECT COALESCE(MAX(sort_order), -1) FROM issue_checklist WHERE issue_id=?",
+            (issue_id,),
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO issue_checklist (issue_id, label, sort_order) VALUES (?, ?, ?)",
+            (issue_id, label, max_order + 1),
+        )
+        conn.commit()
+    items = _get_issue_checklist(conn, issue_id)
+    return templates.TemplateResponse("issues/_issue_checklist.html", {
+        "request": request, "issue": {"id": issue_id}, "checklist_items": items,
+    })
+
+
+@router.patch("/issues/{issue_id}/checklist/{item_id}")
+async def issue_checklist_update(
+    issue_id: int, item_id: int, request: Request, conn=Depends(get_db),
+):
+    """Toggle completed or update label on a checklist item."""
+    body = await request.json()
+
+    row = conn.execute("SELECT * FROM issue_checklist WHERE id=? AND issue_id=?", (item_id, issue_id)).fetchone()
+    if not row:
+        return JSONResponse({"ok": False, "error": "Not found"}, status_code=404)
+
+    if "completed" in body:
+        completed = 1 if body["completed"] else 0
+        completed_at = datetime.now().isoformat() if completed else None
+        conn.execute(
+            "UPDATE issue_checklist SET completed=?, completed_at=? WHERE id=?",
+            (completed, completed_at, item_id),
+        )
+    if "label" in body:
+        label = body["label"].strip()
+        if label:
+            conn.execute("UPDATE issue_checklist SET label=? WHERE id=?", (label, item_id))
+    conn.commit()
+    return JSONResponse({"ok": True})
+
+
+@router.delete("/issues/{issue_id}/checklist/{item_id}", response_class=HTMLResponse)
+def issue_checklist_delete(
+    issue_id: int, item_id: int, request: Request, conn=Depends(get_db),
+):
+    """Remove a checklist item."""
+    conn.execute("DELETE FROM issue_checklist WHERE id=? AND issue_id=?", (item_id, issue_id))
+    conn.commit()
+    items = _get_issue_checklist(conn, issue_id)
+    return templates.TemplateResponse("issues/_issue_checklist.html", {
+        "request": request, "issue": {"id": issue_id}, "checklist_items": items,
+    })
 
 
 # ── Convert follow-up to issue ───────────────────────────────────────────────
