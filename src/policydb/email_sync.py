@@ -117,11 +117,12 @@ def _match_by_domain(conn: sqlite3.Connection, email_addresses: list[str]) -> di
     Checks client website fields and contact email domains.
     Returns match dict with tier=2 or None if no unique match.
     """
-    freemail = set(cfg.get("freemail_domains", []))
+    skip_domains = set(cfg.get("freemail_domains", []))
+    skip_domains.update(cfg.get("internal_email_domains", []))
     domains: set[str] = set()
     for addr in email_addresses:
         d = _extract_domain(addr)
-        if d and d not in freemail:
+        if d and d not in skip_domains:
             domains.add(d)
 
     if not domains:
@@ -181,7 +182,8 @@ def _capture_unknown_contacts(
         if recip:
             addresses.append((recip, ""))
 
-    freemail = set(cfg.get("freemail_domains", []))
+    skip_domains = set(cfg.get("freemail_domains", []))
+    skip_domains.update(cfg.get("internal_email_domains", []))
     subject = email.get("subject", "")
 
     for addr, display in addresses:
@@ -190,7 +192,7 @@ def _capture_unknown_contacts(
             continue
 
         domain = addr_lower.rsplit("@", 1)[1]
-        if domain in freemail:
+        if domain in skip_domains:
             continue
 
         # Skip if already a known contact
