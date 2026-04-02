@@ -75,6 +75,76 @@ def _parse_ref_tag(tag: str) -> dict:
     return result
 
 
+def _extract_domain(email_or_url: str) -> str:
+    """Extract lowercase domain from an email address or URL.
+
+    Handles 'user@domain.com' and 'https://www.domain.com/path'.
+    Returns empty string if no domain found.
+    """
+    s = email_or_url.strip().lower()
+    # Email address
+    if "@" in s:
+        return s.rsplit("@", 1)[1]
+    # URL — strip protocol and path, then strip www.
+    s = re.sub(r'^https?://', '', s)
+    s = s.split("/")[0].split("?")[0]
+    if s.startswith("www."):
+        s = s[4:]
+    return s
+
+
+def _match_by_domain(conn: sqlite3.Connection, email_addresses: list[str]) -> dict | None:
+    """Tier 2: match email addresses to a client by domain.
+
+    Checks client website fields and contact email domains.
+    Returns match dict with tier=2 or None if no unique match.
+    """
+    freemail = set(cfg.get("freemail_domains", []))
+    domains: set[str] = set()
+    for addr in email_addresses:
+        d = _extract_domain(addr)
+        if d and d not in freemail:
+            domains.add(d)
+
+    if not domains:
+        return None
+
+    matched_clients: dict[int, str] = {}  # client_id -> match source
+
+    for domain in domains:
+        # 1. Match against client website field
+        rows = conn.execute(
+            "SELECT id, website FROM clients WHERE website IS NOT NULL AND website != ''",
+        ).fetchall()
+        for row in rows:
+            client_domain = _extract_domain(row["website"])
+            if client_domain == domain:
+                matched_clients[row["id"]] = "website"
+
+        # 2. Match against contact email domains via assignments
+        contact_rows = conn.execute(
+            """SELECT DISTINCT cca.client_id
+               FROM contacts co
+               JOIN contact_client_assignments cca ON co.id = cca.contact_id
+               WHERE LOWER(TRIM(co.email)) LIKE ?""",
+            (f"%@{domain}",),
+        ).fetchall()
+        for cr in contact_rows:
+            if cr["client_id"] not in matched_clients:
+                matched_clients[cr["client_id"]] = "contact_domain"
+
+    if len(matched_clients) == 1:
+        client_id = next(iter(matched_clients))
+        return {"tier": 2, "confidence": 70, "client_id": client_id}
+
+    if len(matched_clients) > 1:
+        # Ambiguous — return None, caller will route to inbox
+        logger.debug("Domain match ambiguous: %d clients matched for domains %s", len(matched_clients), domains)
+        return None
+
+    return None
+
+
 def _resolve_ref_tag(conn: sqlite3.Connection, tag: str) -> dict | None:
     """Resolve a ref tag to database records. Returns match info or None.
 
@@ -441,7 +511,17 @@ def _process_email(
                     matches.append(match)
 
     if not matches:
-        # No ref tag match — send to inbox for triage
+        # Tier 2: try domain-based matching
+        all_addresses = []
+        if email.get("sender"):
+            all_addresses.append(email["sender"])
+        all_addresses.extend(email.get("recipients", []))
+        domain_match = _match_by_domain(conn, all_addresses)
+        if domain_match:
+            matches.append(domain_match)
+
+    if not matches:
+        # No ref tag or domain match — send to inbox for triage
         # (all categories: sent, received, flagged — never silently drop)
         message_id = email.get("message_id", "")
         # Dedup: check if already in activity_log, inbox, or previously dismissed
