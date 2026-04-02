@@ -42,7 +42,7 @@
       {# ── Footer Row ── #}
       <div class="flex items-center gap-2 mt-2">
         <button type="button"
-          class="no-print text-xs bg-[#003865] text-white px-3 py-1.5 rounded hover:bg-[#0055a5] transition-colors"
+          class="no-print text-xs bg-marsh text-white px-3 py-1.5 rounded hover:bg-[#0055a5] transition-colors"
           onclick="toggleLogForm('{{ sp_id }}')">Log as Activity</button>
         <button type="button"
           class="no-print text-xs text-gray-400 border border-gray-200 px-3 py-1.5 rounded hover:bg-gray-50 hover:text-gray-600 transition-colors"
@@ -94,7 +94,7 @@
 
         <div class="flex items-center gap-2 mt-3">
           <button type="button"
-            class="no-print text-xs bg-[#003865] text-white px-3 py-1.5 rounded hover:bg-[#0055a5] transition-colors"
+            class="no-print text-xs bg-marsh text-white px-3 py-1.5 rounded hover:bg-[#0055a5] transition-colors"
             onclick="submitLogActivity('{{ sp_id }}', '{{ sp.source }}', '{{ sp.client_id|default('') }}', '{{ sp.policy_uid|default('') }}')">
             Log Activity</button>
           <button type="button"

@@ -25,10 +25,10 @@
       <input type="date" id="edit-pol-fu-date" value="{{ p.follow_up_date or '' }}"
         class="text-sm border border-gray-300 rounded px-2 py-1.5 focus:ring-1 focus:ring-marsh focus:border-marsh"
         onchange="patchPolField('{{ p.policy_uid }}', 'follow_up_date', this.value, this)">
-      <button type="button" onclick="setPolDate(1)" class="text-[10px] border border-gray-200 rounded px-1.5 py-0.5 text-gray-400 hover:text-[#003865] hover:border-[#003865]">+1d</button>
-      <button type="button" onclick="setPolDate(3)" class="text-[10px] border border-gray-200 rounded px-1.5 py-0.5 text-gray-400 hover:text-[#003865] hover:border-[#003865]">+3d</button>
-      <button type="button" onclick="setPolDate(7)" class="text-[10px] border border-gray-200 rounded px-1.5 py-0.5 text-gray-400 hover:text-[#003865] hover:border-[#003865]">+7d</button>
-      <button type="button" onclick="setPolDate(14)" class="text-[10px] border border-gray-200 rounded px-1.5 py-0.5 text-gray-400 hover:text-[#003865] hover:border-[#003865]">+2w</button>
+      <button type="button" onclick="setPolDate(1)" class="text-[10px] border border-gray-200 rounded px-1.5 py-0.5 text-gray-400 hover:text-marsh hover:border-marsh">+1d</button>
+      <button type="button" onclick="setPolDate(3)" class="text-[10px] border border-gray-200 rounded px-1.5 py-0.5 text-gray-400 hover:text-marsh hover:border-marsh">+3d</button>
+      <button type="button" onclick="setPolDate(7)" class="text-[10px] border border-gray-200 rounded px-1.5 py-0.5 text-gray-400 hover:text-marsh hover:border-marsh">+7d</button>
+      <button type="button" onclick="setPolDate(14)" class="text-[10px] border border-gray-200 rounded px-1.5 py-0.5 text-gray-400 hover:text-marsh hover:border-marsh">+2w</button>
     </div>
   </div>
 
@@ -40,7 +40,7 @@
       <button type="button"
         onclick="selectPolStatus(this, '{{ p.policy_uid }}', '{{ s }}')"
         class="pol-status-pill text-[11px] px-3 py-1 rounded border transition-colors cursor-pointer
-          {% if p.renewal_status == s %}bg-[#003865] text-white border-[#003865]{% else %}border-gray-200 text-gray-500 hover:border-[#003865] hover:text-[#003865]{% endif %}">{{ s }}</button>
+          {% if p.renewal_status == s %}bg-marsh text-white border-marsh{% else %}border-gray-200 text-gray-500 hover:border-marsh hover:text-marsh{% endif %}">{{ s }}</button>
       {% endfor %}
     </div>
   </div>
@@ -58,9 +58,9 @@ function setPolDate(days) {
 
 function selectPolStatus(btn, uid, status) {
   document.querySelectorAll('.pol-status-pill').forEach(function(p) {
-    p.className = p.className.replace(/bg-\[#003865\] text-white border-\[#003865\]/g, 'border-gray-200 text-gray-500 hover:border-[#003865] hover:text-[#003865]');
+    p.className = p.className.replace(/bg-marsh text-white border-marsh/g, 'border-gray-200 text-gray-500 hover:border-marsh hover:text-marsh');
   });
-  btn.className = btn.className.replace(/border-gray-200 text-gray-500 hover:border-\[#003865\] hover:text-\[#003865\]/g, 'bg-[#003865] text-white border-[#003865]');
+  btn.className = btn.className.replace(/border-gray-200 text-gray-500 hover:border-marsh hover:text-marsh/g, 'bg-marsh text-white border-marsh');
   patchPolField(uid, 'renewal_status', status, btn);
 }
 

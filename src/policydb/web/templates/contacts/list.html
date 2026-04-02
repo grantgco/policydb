@@ -4,8 +4,8 @@
 
 <style>
   [contenteditable]:empty:before { content: attr(data-placeholder); color: #cbd5e1; pointer-events: none; }
-  .contact-cell-editable:focus { border-bottom: 2px solid var(--color-marsh, #003865); margin-bottom: -2px; }
-  .contact-cell-combo.cell-active { border-bottom: 2px solid var(--color-marsh, #003865); margin-bottom: -2px; }
+  .contact-cell-editable:focus { border-bottom: 2px solid var(--color-marsh, #000F47); margin-bottom: -2px; }
+  .contact-cell-combo.cell-active { border-bottom: 2px solid var(--color-marsh, #000F47); margin-bottom: -2px; }
   .contact-combo-dropdown {
     position: absolute; left: 0; right: 0; top: 100%;
     z-index: 50; max-height: 180px; overflow-y: auto;
@@ -13,18 +13,18 @@
     border-radius: 0 0 6px 6px; box-shadow: 0 4px 12px rgba(0,0,0,.1);
   }
   .contact-combo-dropdown .combo-item { padding: 5px 10px; cursor: pointer; font-size: 13px; color: #374151; }
-  .contact-combo-dropdown .combo-item:hover, .contact-combo-dropdown .combo-item.active { background: #f0f4f8; color: #003865; }
+  .contact-combo-dropdown .combo-item:hover, .contact-combo-dropdown .combo-item.active { background: #f0f4f8; color: #000F47; }
   .contact-combo-dropdown .combo-item mark { background: none; font-weight: 700; color: inherit; }
   .contact-combo-input { width: 100%; border: 1px solid #d1d5db; border-radius: 4px; padding: 3px 8px; font-size: 13px; outline: none; }
-  .contact-combo-input:focus { border-color: #003865; box-shadow: 0 0 0 1px #003865; }
+  .contact-combo-input:focus { border-color: #000F47; box-shadow: 0 0 0 1px #000F47; }
   .contact-email-input { border: 1px solid #d1d5db; border-radius: 4px; padding: 2px 6px; font-size: 12px; outline: none; width: 100%; }
-  .contact-email-input:focus { border-color: #003865; box-shadow: 0 0 0 1px #003865; }
+  .contact-email-input:focus { border-color: #000F47; box-shadow: 0 0 0 1px #000F47; }
   /* Tab underline styling */
   .tab-btn { position: relative; padding: 0.5rem 0; font-size: 0.8125rem; font-weight: 500; color: #9ca3af; transition: color 150ms; cursor: pointer; background: none; border: none; }
   .tab-btn:hover { color: #374151; }
-  .tab-btn.active { color: #003865; }
+  .tab-btn.active { color: #000F47; }
   .tab-btn::after { content: ''; position: absolute; bottom: -1px; left: 0; right: 0; height: 2px; background: transparent; border-radius: 1px; transition: background 150ms; }
-  .tab-btn.active::after { background: #003865; }
+  .tab-btn.active::after { background: #000F47; }
   .tab-badge { font-size: 0.625rem; font-weight: 600; padding: 1px 6px; border-radius: 9999px; margin-left: 4px; }
   /* Store pills */
   .pill-placement { background: #eff6ff; color: #2563eb; }
@@ -37,7 +37,7 @@
   .person-detail { max-height: 0; overflow: hidden; transition: max-height 250ms ease-out, opacity 200ms; opacity: 0; }
   .person-detail.open { max-height: 600px; opacity: 1; }
   /* Unified cell editing */
-  .ucell:focus { border-bottom: 2px solid #003865; margin-bottom: -2px; outline: none; }
+  .ucell:focus { border-bottom: 2px solid #000F47; margin-bottom: -2px; outline: none; }
 </style>
 
 {# ── Page Header ── #}
@@ -96,11 +96,11 @@
   </div>
 
   {# New contact form #}
-  <div id="add-contact-form" class="hidden card mt-3 overflow-hidden border-l-4 border-[#003865]">
-    <div class="flex items-center justify-between px-4 py-2.5 bg-[#003865]/5 border-b border-gray-200">
+  <div id="add-contact-form" class="hidden card mt-3 overflow-hidden border-l-4 border-marsh">
+    <div class="flex items-center justify-between px-4 py-2.5 bg-marsh/5 border-b border-gray-200">
       <div class="flex items-center gap-2">
-        <svg class="w-4 h-4 text-[#003865]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"/></svg>
-        <span class="text-sm font-semibold text-[#003865]">New Contact</span>
+        <svg class="w-4 h-4 text-marsh" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"/></svg>
+        <span class="text-sm font-semibold text-marsh">New Contact</span>
       </div>
       <button type="button" onclick="document.getElementById('add-contact-form').classList.add('hidden')"
         class="text-gray-400 hover:text-gray-600 text-lg leading-none">&times;</button>
@@ -115,12 +115,12 @@
           <input type="text" name="name" required placeholder="Full name"
             hx-get="/contacts/check-duplicate" hx-trigger="blur changed delay:300ms" hx-target="#dup-warn-new" hx-swap="innerHTML"
             hx-include="[name='email']" hx-params="name,email"
-            class="border border-gray-200 rounded-lg px-3 py-2 text-sm w-full focus:outline-none focus:ring-1 focus:ring-[#003865] focus:border-[#003865]">
+            class="border border-gray-200 rounded-lg px-3 py-2 text-sm w-full focus:outline-none focus:ring-1 focus:ring-marsh focus:border-marsh">
         </div>
         <div>
           <label class="text-[10px] font-semibold text-gray-400 uppercase tracking-wide block mb-1">Organization</label>
           <input type="text" name="organization" list="new-contact-orgs" autocomplete="off" placeholder="Company"
-            class="border border-gray-200 rounded-lg px-3 py-2 text-sm w-full focus:outline-none focus:ring-1 focus:ring-[#003865] focus:border-[#003865]">
+            class="border border-gray-200 rounded-lg px-3 py-2 text-sm w-full focus:outline-none focus:ring-1 focus:ring-marsh focus:border-marsh">
           <datalist id="new-contact-orgs">
             {% for o in all_orgs %}<option value="{{ o }}">{% endfor %}
           </datalist>
@@ -128,7 +128,7 @@
         <div>
           <label class="text-[10px] font-semibold text-gray-400 uppercase tracking-wide block mb-1">Title / Role</label>
           <input type="text" name="role" list="new-contact-roles" autocomplete="off" placeholder="e.g. Underwriter, CFO"
-            class="border border-gray-200 rounded-lg px-3 py-2 text-sm w-full focus:outline-none focus:ring-1 focus:ring-[#003865] focus:border-[#003865]">
+            class="border border-gray-200 rounded-lg px-3 py-2 text-sm w-full focus:outline-none focus:ring-1 focus:ring-marsh focus:border-marsh">
           <datalist id="new-contact-roles">
             {% for r in all_roles %}<option value="{{ r }}">{% endfor %}
           </datalist>
@@ -141,24 +141,24 @@
           <input type="email" name="email" placeholder="name@company.com"
             hx-get="/contacts/check-duplicate" hx-trigger="blur changed delay:300ms" hx-target="#dup-warn-new" hx-swap="innerHTML"
             hx-include="[name='name']" hx-params="name,email"
-            class="border border-gray-200 rounded-lg px-3 py-2 text-sm w-full focus:outline-none focus:ring-1 focus:ring-[#003865] focus:border-[#003865]">
+            class="border border-gray-200 rounded-lg px-3 py-2 text-sm w-full focus:outline-none focus:ring-1 focus:ring-marsh focus:border-marsh">
         </div>
         <div>
           <label class="text-[10px] font-semibold text-gray-400 uppercase tracking-wide block mb-1">Phone</label>
           <input type="text" name="phone" placeholder="(555) 123-4567"
-            class="border border-gray-200 rounded-lg px-3 py-2 text-sm w-full focus:outline-none focus:ring-1 focus:ring-[#003865] focus:border-[#003865]">
+            class="border border-gray-200 rounded-lg px-3 py-2 text-sm w-full focus:outline-none focus:ring-1 focus:ring-marsh focus:border-marsh">
         </div>
         <div>
           <label class="text-[10px] font-semibold text-gray-400 uppercase tracking-wide block mb-1">Cell</label>
           <input type="text" name="mobile" placeholder="(555) 987-6543"
-            class="border border-gray-200 rounded-lg px-3 py-2 text-sm w-full focus:outline-none focus:ring-1 focus:ring-[#003865] focus:border-[#003865]">
+            class="border border-gray-200 rounded-lg px-3 py-2 text-sm w-full focus:outline-none focus:ring-1 focus:ring-marsh focus:border-marsh">
         </div>
       </div>
       {# Duplicate warning + submit #}
       <div id="dup-warn-new"></div>
       <div class="flex justify-end">
         <button type="submit"
-          class="bg-[#003865] text-white text-sm font-medium px-5 py-2 rounded-lg hover:bg-[#0055a5] transition-colors">
+          class="bg-marsh text-white text-sm font-medium px-5 py-2 rounded-lg hover:bg-[#0055a5] transition-colors">
           Add Contact
         </button>
       </div>

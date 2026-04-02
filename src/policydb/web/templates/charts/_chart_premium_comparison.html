@@ -102,7 +102,7 @@ window.render_premium_comparison = function() {
     .attr('x', x1('current') + x1.bandwidth() / 2)
     .attr('y', function(d) { return y(d.premium || 0) - 4; })
     .attr('text-anchor', 'middle')
-    .attr('style', 'font-size:9px; fill:#003865; font-weight:600;')
+    .attr('style', 'font-size:9px; fill:#000F47; font-weight:600;')
     .text(function(d) { return d.premium ? formatCurrency(d.premium) : ''; });
 
   // Legend

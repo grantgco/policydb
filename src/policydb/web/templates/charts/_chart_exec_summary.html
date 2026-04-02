@@ -50,22 +50,22 @@
     var html = '<table class="chart-table" style="font-size:12px;min-width:700px">';
 
     // Header row
-    html += '<thead><tr style="border-bottom:2px solid #003865">'
-      + '<th style="text-align:left;padding:6px 8px;color:#003865">Line / Layer</th>'
-      + '<th style="text-align:left;padding:6px 8px;color:#003865">Carrier</th>'
-      + '<th style="text-align:right;padding:6px 8px;color:#003865;white-space:nowrap">Expiring</th>';
+    html += '<thead><tr style="border-bottom:2px solid #000F47">'
+      + '<th style="text-align:left;padding:6px 8px;color:#000F47">Line / Layer</th>'
+      + '<th style="text-align:left;padding:6px 8px;color:#000F47">Carrier</th>'
+      + '<th style="text-align:right;padding:6px 8px;color:#000F47;white-space:nowrap">Expiring</th>';
     if (hasNorm) {
-      html += '<th style="text-align:right;padding:6px 8px;color:#003865;white-space:nowrap">Normalized</th>';
+      html += '<th style="text-align:right;padding:6px 8px;color:#000F47;white-space:nowrap">Normalized</th>';
     }
-    html += '<th style="text-align:right;padding:6px 8px;color:#003865;white-space:nowrap">Renewal</th>'
-      + '<th style="text-align:right;padding:6px 8px;color:#003865;white-space:nowrap">\u0394$</th>'
-      + '<th style="text-align:right;padding:6px 8px;color:#003865;white-space:nowrap">\u0394%</th>'
+    html += '<th style="text-align:right;padding:6px 8px;color:#000F47;white-space:nowrap">Renewal</th>'
+      + '<th style="text-align:right;padding:6px 8px;color:#000F47;white-space:nowrap">\u0394$</th>'
+      + '<th style="text-align:right;padding:6px 8px;color:#000F47;white-space:nowrap">\u0394%</th>'
       + '</tr></thead><tbody>';
 
     data.sections.forEach(function(section, si) {
       // Section header row
       html += '<tr><td colspan="' + totalCols + '" style="padding:10px 8px 4px;font-weight:700;font-size:11px;'
-        + 'color:#003865;text-transform:uppercase;letter-spacing:0.05em;border-bottom:1px solid #e5e7eb">'
+        + 'color:#000F47;text-transform:uppercase;letter-spacing:0.05em;border-bottom:1px solid #e5e7eb">'
         + section.title + '</td></tr>';
 
       // Data rows
@@ -103,14 +103,14 @@
     html += '</tbody>';
 
     // Grand total footer
-    html += '<tfoot><tr style="border-top:2px solid #003865;background:#f0f4f8">'
-      + '<td colspan="2" style="padding:8px;font-weight:700;text-align:right;color:#003865">TOTAL PROGRAM</td>'
-      + '<td style="padding:8px;text-align:right;font-weight:700;color:#003865">' + fmtDollar(data.grand_total_expiring) + '</td>';
+    html += '<tfoot><tr style="border-top:2px solid #000F47;background:#f0f4f8">'
+      + '<td colspan="2" style="padding:8px;font-weight:700;text-align:right;color:#000F47">TOTAL PROGRAM</td>'
+      + '<td style="padding:8px;text-align:right;font-weight:700;color:#000F47">' + fmtDollar(data.grand_total_expiring) + '</td>';
     if (hasNorm) {
       html += '<td style="padding:8px;text-align:right;font-weight:700;color:#9ca3af">'
         + (data.grand_total_normalized != null ? fmtDollar(data.grand_total_normalized) : '\u2014') + '</td>';
     }
-    html += '<td style="padding:8px;text-align:right;font-weight:700;color:#003865">' + fmtDollar(data.grand_total_renewal) + '</td>'
+    html += '<td style="padding:8px;text-align:right;font-weight:700;color:#000F47">' + fmtDollar(data.grand_total_renewal) + '</td>'
       + '<td style="padding:8px;text-align:right;font-weight:700;' + deltaColor(data.grand_total_delta_dollars) + '">'
         + fmtDelta(data.grand_total_delta_dollars) + '</td>'
       + '<td style="padding:8px;text-align:right;font-weight:700;' + deltaColor(data.grand_total_delta_pct) + '">'

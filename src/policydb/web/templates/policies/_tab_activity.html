@@ -107,8 +107,8 @@
           <div class="flex flex-wrap gap-1">
             {% for d in cat.disps %}
             <button type="button"
-              onclick="this.closest('.disp-cat-group').querySelectorAll('button').forEach(function(b){b.classList.remove('bg-[#003865]','text-white');b.classList.add('border-gray-200','text-gray-500');}); this.classList.add('bg-[#003865]','text-white'); this.classList.remove('border-gray-200','text-gray-500'); document.getElementById('policy-log-disp').value='{{ d.label }}'; if({{ d.default_days }}>0){var di=document.querySelector('#log-form-edit input[name=follow_up_date]'); if(di && !di.value){var dt=new Date(); dt.setDate(dt.getDate()+{{ d.default_days }}); di.value=dt.toISOString().split('T')[0];}}"
-              class="text-[10px] px-2 py-0.5 rounded border border-gray-200 text-gray-500 hover:border-[#003865] hover:text-[#003865] transition-colors cursor-pointer">{{ d.label }}</button>
+              onclick="this.closest('.disp-cat-group').querySelectorAll('button').forEach(function(b){b.classList.remove('bg-marsh','text-white');b.classList.add('border-gray-200','text-gray-500');}); this.classList.add('bg-marsh','text-white'); this.classList.remove('border-gray-200','text-gray-500'); document.getElementById('policy-log-disp').value='{{ d.label }}'; if({{ d.default_days }}>0){var di=document.querySelector('#log-form-edit input[name=follow_up_date]'); if(di && !di.value){var dt=new Date(); dt.setDate(dt.getDate()+{{ d.default_days }}); di.value=dt.toISOString().split('T')[0];}}"
+              class="text-[10px] px-2 py-0.5 rounded border border-gray-200 text-gray-500 hover:border-marsh hover:text-marsh transition-colors cursor-pointer">{{ d.label }}</button>
             {% endfor %}
           </div>
           {% endfor %}

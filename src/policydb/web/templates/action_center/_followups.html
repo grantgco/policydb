@@ -86,7 +86,7 @@ function setQuickFuDate(form, days) {
   {# ── Status pill toggles (client-side) ── #}
   <div class="flex gap-1 flex-wrap" id="fu-status-pills">
     <button type="button" onclick="filterFuStatus('all', this)"
-      class="fu-status-pill text-xs px-3 py-1.5 rounded-full font-medium transition-colors bg-[#003865] text-white"
+      class="fu-status-pill text-xs px-3 py-1.5 rounded-full font-medium transition-colors bg-marsh text-white"
       data-filter="all">All</button>
     {% if triage_count %}
     <button type="button" onclick="filterFuStatus('triage', this)"
@@ -137,7 +137,7 @@ function setQuickFuDate(form, days) {
 
   <a href="/followups/plan" class="text-xs bg-amber-100 text-amber-700 px-3 py-1.5 rounded-full hover:bg-amber-200 transition-colors font-medium whitespace-nowrap">Plan Week</a>
   <button type="button" onclick="toggleBulkMode(this)"
-    class="text-xs bg-white text-gray-600 border border-gray-200 px-3 py-1.5 rounded-full hover:border-[#003865] hover:text-[#003865] transition-colors font-medium whitespace-nowrap no-print">&#9744; Bulk Edit</button>
+    class="text-xs bg-white text-gray-600 border border-gray-200 px-3 py-1.5 rounded-full hover:border-marsh hover:text-marsh transition-colors font-medium whitespace-nowrap no-print">&#9744; Bulk Edit</button>
 
   <div class="h-5 border-l border-gray-200"></div>
 
@@ -146,7 +146,7 @@ function setQuickFuDate(form, days) {
     <div class="relative">
       <input type="text" name="activity_type" list="fu-type-opts" value="{{ activity_type }}"
         placeholder="Type" autocomplete="off"
-        class="text-xs border border-gray-200 rounded px-2 py-1.5 w-32 bg-white focus:outline-none focus:ring-1 focus:ring-[#003865] placeholder-gray-400"
+        class="text-xs border border-gray-200 rounded px-2 py-1.5 w-32 bg-white focus:outline-none focus:ring-1 focus:ring-marsh placeholder-gray-400"
         hx-get="/action-center/followups"
         hx-trigger="change"
         hx-target="#ac-tab-content"
@@ -161,7 +161,7 @@ function setQuickFuDate(form, days) {
     <div class="relative">
       <input type="text" name="client_id" list="fu-client-opts" value="{{ client_id or '' }}"
         placeholder="Client" autocomplete="off"
-        class="text-xs border border-gray-200 rounded px-2 py-1.5 w-40 bg-white focus:outline-none focus:ring-1 focus:ring-[#003865] placeholder-gray-400"
+        class="text-xs border border-gray-200 rounded px-2 py-1.5 w-40 bg-white focus:outline-none focus:ring-1 focus:ring-marsh placeholder-gray-400"
         hx-get="/action-center/followups"
         hx-trigger="change"
         hx-target="#ac-tab-content"
@@ -174,7 +174,7 @@ function setQuickFuDate(form, days) {
       </datalist>
     </div>
     <input type="text" name="q" value="{{ q }}" placeholder="Search..."
-      class="text-xs border border-gray-200 rounded px-2 py-1.5 w-36 bg-white focus:outline-none focus:ring-1 focus:ring-[#003865] placeholder-gray-400"
+      class="text-xs border border-gray-200 rounded px-2 py-1.5 w-36 bg-white focus:outline-none focus:ring-1 focus:ring-marsh placeholder-gray-400"
       hx-get="/action-center/followups"
       hx-trigger="keyup changed delay:400ms"
       hx-target="#ac-tab-content"
@@ -252,7 +252,7 @@ function setQuickFuDate(form, days) {
         <div class="w-2 h-2 rounded-full bg-green-400 flex-shrink-0"></div>
         <div class="flex-1 min-w-0">
           <div class="flex items-center gap-2">
-            <a href="/clients/{{ s.client_id }}" class="text-sm font-semibold text-gray-900 hover:text-[#003865] hover:underline truncate">{{ s.client_name }}</a>
+            <a href="/clients/{{ s.client_id }}" class="text-sm font-semibold text-gray-900 hover:text-marsh hover:underline truncate">{{ s.client_name }}</a>
           </div>
           <div class="text-xs text-gray-600 mt-0.5">
             {{ s.policy_type }}
@@ -278,7 +278,7 @@ function setQuickFuDate(form, days) {
             hx-get="/policies/{{ s.policy_uid }}/followup-form"
             hx-target="#sug-actions-{{ s.policy_uid }}"
             hx-swap="innerHTML"
-            class="text-xs bg-[#003865] text-white px-3 py-1.5 rounded font-medium hover:bg-[#004a80] transition-colors">Schedule</button>
+            class="text-xs bg-marsh text-white px-3 py-1.5 rounded font-medium hover:bg-[#004a80] transition-colors">Schedule</button>
           <button type="button" onclick="this.closest('.fu-row').style.display='none'"
             class="text-xs text-gray-500 bg-white border border-gray-200 px-2 py-1.5 rounded hover:border-gray-300 transition-colors">Dismiss</button>
         </div>
@@ -308,7 +308,7 @@ function setQuickFuDate(form, days) {
   <span class="w-px h-5 bg-gray-600"></span>
   <div class="relative">
     <button type="button" onclick="document.getElementById('bulk-disp-list').classList.toggle('hidden')"
-      class="text-[10px] bg-[#003865] text-white px-3 py-1.5 rounded-lg hover:bg-[#004a80]">What happened? &#9662;</button>
+      class="text-[10px] bg-marsh text-white px-3 py-1.5 rounded-lg hover:bg-[#004a80]">What happened? &#9662;</button>
     <div id="bulk-disp-list" class="hidden absolute bottom-full left-0 mb-1 bg-white border border-gray-200 rounded-lg shadow-xl p-2 min-w-56">
       {% set gd_bulk = grouped_dispositions() %}
       {% for cat in gd_bulk.categories %}
@@ -341,11 +341,11 @@ window.DISP_CONTEXT_HINTS = {{ gd_hints.hints | tojson }};
 function filterFuStatus(status, btn) {
   // Update pill styles
   document.querySelectorAll('.fu-status-pill').forEach(function(p) {
-    p.classList.remove('bg-[#003865]', 'text-white');
+    p.classList.remove('bg-marsh', 'text-white');
     p.classList.add('bg-white', 'text-gray-600', 'border', 'border-gray-200');
   });
   btn.classList.remove('bg-white', 'text-gray-600', 'border', 'border-gray-200');
-  btn.classList.add('bg-[#003865]', 'text-white');
+  btn.classList.add('bg-marsh', 'text-white');
 
   // Show/hide sections by data-section attribute
   document.querySelectorAll('.fu-section').forEach(function(sec) {
@@ -428,10 +428,10 @@ function showCapIndicator(rowId, compressed, expDate) {
 /* ── Disposition pill selection ── */
 function selectAcDisp(btn, label, days, rowId) {
   btn.closest('.flex-wrap').querySelectorAll('.ac-disp-pill').forEach(function(p) {
-    p.classList.remove('bg-[#003865]', 'text-white', 'border-[#003865]');
+    p.classList.remove('bg-marsh', 'text-white', 'border-marsh');
     p.classList.add('border-gray-200', 'text-gray-500');
   });
-  btn.classList.add('bg-[#003865]', 'text-white', 'border-[#003865]');
+  btn.classList.add('bg-marsh', 'text-white', 'border-marsh');
   btn.classList.remove('border-gray-200', 'text-gray-500');
   document.getElementById('ac-disp-val-' + rowId).value = label;
   if (days > 0) {

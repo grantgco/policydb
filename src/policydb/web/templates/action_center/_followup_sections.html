@@ -7,7 +7,7 @@
 {% set row_id = "ac-fu-" ~ item.source ~ "-" ~ item.id %}
 <div class="fu-row {{ bg_class }} rounded-lg {{ border_class }} hover:border-gray-300 transition-colors" data-status="{{ section_tag }}" data-exp="{{ item.expiration_date or '' }}" id="{{ row_id }}">
   <div class="flex items-center gap-3 px-4 py-3">
-    <input type="checkbox" class="bulk-check accent-[#003865] mr-1" value="{{ item.source }}-{{ item.id }}" onchange="updateBulkCount()">
+    <input type="checkbox" class="bulk-check accent-marsh mr-1" value="{{ item.source }}-{{ item.id }}" onchange="updateBulkCount()">
     {# Color dot — diamond for milestones, circle for regular #}
     {% if item.is_milestone is defined and item.is_milestone %}
     <div class="w-2.5 h-2.5 {{ dot_color }} flex-shrink-0" style="transform: rotate(45deg); border-radius: 2px;"></div>
@@ -29,7 +29,7 @@
     {# Client + Subject #}
     <div class="flex-1 min-w-0">
       <div class="flex items-center gap-2">
-        <a href="/clients/{{ item.client_id }}" class="text-sm font-semibold text-gray-900 hover:text-[#003865] hover:underline truncate">{{ item.client_name }}</a>
+        <a href="/clients/{{ item.client_id }}" class="text-sm font-semibold text-gray-900 hover:text-marsh hover:underline truncate">{{ item.client_name }}</a>
         {% if item.program_name %}
         <a href="/programs/{{ item.program_uid }}"
            class="text-[10px] bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded hover:bg-indigo-100">
@@ -59,19 +59,19 @@
       <div class="text-xs text-gray-600 truncate mt-0.5">
         {% if item.is_milestone is defined and item.is_milestone %}
           {% if item.project_name %}<span class="text-[10px] bg-purple-50 text-purple-600 font-medium px-1.5 py-0.5 rounded inline-flex items-center gap-0.5"><span>&#128205;</span> {{ item.project_name }}</span> <span class="text-gray-400">&middot;</span> {% endif %}
-          {{ item.milestone_name }} &middot; <a href="/policies/{{ item.policy_uid }}/edit" class="hover:text-[#003865] hover:underline">{{ item.policy_type }}</a>
+          {{ item.milestone_name }} &middot; <a href="/policies/{{ item.policy_uid }}/edit" class="hover:text-marsh hover:underline">{{ item.policy_type }}</a>
         {% elif item.policy_uid %}
           {% if item.project_name %}<span class="text-[10px] bg-purple-50 text-purple-600 font-medium px-1.5 py-0.5 rounded inline-flex items-center gap-0.5"><span>&#128205;</span> {{ item.project_name }}</span> <span class="text-gray-400">&middot;</span> {% endif %}
-          <a href="/policies/{{ item.policy_uid }}/edit" class="hover:text-[#003865] hover:underline">{{ item.policy_type }}{% if item.carrier %} <span class="text-gray-400">&middot; {{ item.carrier }}</span>{% endif %}</a>
+          <a href="/policies/{{ item.policy_uid }}/edit" class="hover:text-marsh hover:underline">{{ item.policy_type }}{% if item.carrier %} <span class="text-gray-400">&middot; {{ item.carrier }}</span>{% endif %}</a>
         {% elif item.source == 'project' %}
           <a href="/clients/{{ item.client_id }}/projects/{{ item.project_id }}" class="text-[10px] bg-purple-50 text-purple-600 font-medium px-1.5 py-0.5 rounded inline-flex items-center gap-0.5 hover:bg-purple-100"><span>&#128205;</span> {{ item.project_name or 'Project' }}</a>
           <span class="text-gray-400">&middot;</span>
           {{ item.subject }}
         {% elif item.source == 'policy' %}
           {% if item.project_name %}<span class="text-[10px] bg-purple-50 text-purple-600 font-medium px-1.5 py-0.5 rounded inline-flex items-center gap-0.5"><span>&#128205;</span> {{ item.project_name }}</span> <span class="text-gray-400">&middot;</span> {% endif %}
-          <a href="/policies/{{ item.policy_uid }}/edit" class="hover:text-[#003865] hover:underline">{{ item.policy_type }}{% if item.carrier %} <span class="text-gray-400">&middot; {{ item.carrier }}</span>{% endif %}</a>
+          <a href="/policies/{{ item.policy_uid }}/edit" class="hover:text-marsh hover:underline">{{ item.policy_type }}{% if item.carrier %} <span class="text-gray-400">&middot; {{ item.carrier }}</span>{% endif %}</a>
         {% else %}
-          <a href="/clients/{{ item.client_id }}" class="hover:text-[#003865] hover:underline">{{ item.subject }}</a>
+          <a href="/clients/{{ item.client_id }}" class="hover:text-marsh hover:underline">{{ item.subject }}</a>
         {% endif %}
       </div>
       {% if item.prev_disposition %}
@@ -103,10 +103,10 @@
       {% if not (item.is_milestone is defined and item.is_milestone) %}
         {% if item.disposition %}
         <button type="button" onclick="toggleDispBar('{{ row_id }}')"
-          class="text-[10px] px-2 py-0.5 rounded-full border border-dashed border-gray-300 text-gray-500 hover:border-[#003865] hover:text-[#003865] cursor-pointer mt-0.5 transition-colors no-print">{{ item.disposition }} &#9998;</button>
+          class="text-[10px] px-2 py-0.5 rounded-full border border-dashed border-gray-300 text-gray-500 hover:border-marsh hover:text-marsh cursor-pointer mt-0.5 transition-colors no-print">{{ item.disposition }} &#9998;</button>
         {% else %}
         <button type="button" onclick="toggleDispBar('{{ row_id }}')"
-          class="text-[10px] px-2 py-0.5 rounded-full border border-dashed border-gray-300 text-gray-400 hover:border-[#003865] hover:text-[#003865] cursor-pointer mt-0.5 transition-colors no-print">What happened?</button>
+          class="text-[10px] px-2 py-0.5 rounded-full border border-dashed border-gray-300 text-gray-400 hover:border-marsh hover:text-marsh cursor-pointer mt-0.5 transition-colors no-print">What happened?</button>
         {% endif %}
       {% endif %}
       {% if item.cadence is defined and item.cadence %}
@@ -147,7 +147,7 @@
         class="text-xs text-gray-500 bg-white border border-gray-200 px-2 py-1.5 rounded hover:border-gray-300 transition-colors">View</a>
       {% else %}
       <button type="button" onclick="toggleAcFuForm('{{ row_id }}')"
-        class="text-xs bg-[#003865] text-white px-3 py-1.5 rounded font-medium hover:bg-[#004a80] transition-colors">Follow Up</button>
+        class="text-xs bg-marsh text-white px-3 py-1.5 rounded font-medium hover:bg-[#004a80] transition-colors">Follow Up</button>
       {% if item.source == 'policy' %}
       <button hx-post="/policies/{{ item.policy_uid }}/snooze-followup?days=1" hx-target="#{{ row_id }}" hx-swap="outerHTML"
         class="text-xs text-gray-500 bg-white border border-gray-200 px-2 py-1.5 rounded hover:border-gray-300 transition-colors">+1d</button>
@@ -160,25 +160,25 @@
       <button type="button"
         hx-get="/activities/{{ item.id }}/edit-slideover" hx-target="#fu-edit-content" hx-swap="innerHTML"
         onclick="openFollowupEdit()"
-        class="text-xs text-gray-400 bg-white border border-gray-200 px-2 py-1.5 rounded hover:border-gray-300 hover:text-[#003865] transition-colors"
+        class="text-xs text-gray-400 bg-white border border-gray-200 px-2 py-1.5 rounded hover:border-gray-300 hover:text-marsh transition-colors"
         title="Edit follow-up">&#9998;</button>
       {% elif item.source == 'policy' and item.policy_uid %}
       <button type="button"
         hx-get="/policies/{{ item.policy_uid }}/edit-followup-slideover" hx-target="#fu-edit-content" hx-swap="innerHTML"
         onclick="openFollowupEdit()"
-        class="text-xs text-gray-400 bg-white border border-gray-200 px-2 py-1.5 rounded hover:border-gray-300 hover:text-[#003865] transition-colors"
+        class="text-xs text-gray-400 bg-white border border-gray-200 px-2 py-1.5 rounded hover:border-gray-300 hover:text-marsh transition-colors"
         title="Edit policy follow-up">&#9998;</button>
       {% elif item.source == 'client' and item.id %}
       <button type="button"
         hx-get="/clients/{{ item.id }}/edit-followup-slideover" hx-target="#fu-edit-content" hx-swap="innerHTML"
         onclick="openFollowupEdit()"
-        class="text-xs text-gray-400 bg-white border border-gray-200 px-2 py-1.5 rounded hover:border-gray-300 hover:text-[#003865] transition-colors"
+        class="text-xs text-gray-400 bg-white border border-gray-200 px-2 py-1.5 rounded hover:border-gray-300 hover:text-marsh transition-colors"
         title="Edit client follow-up">&#9998;</button>
       {% elif item.source == 'issue' and item.id %}
       <button type="button"
         hx-get="/issues/{{ item.id }}/edit-slideover" hx-target="#fu-edit-content" hx-swap="innerHTML"
         onclick="openFollowupEdit()"
-        class="text-xs text-gray-400 bg-white border border-gray-200 px-2 py-1.5 rounded hover:border-gray-300 hover:text-[#003865] transition-colors"
+        class="text-xs text-gray-400 bg-white border border-gray-200 px-2 py-1.5 rounded hover:border-gray-300 hover:text-marsh transition-colors"
         title="Edit issue">&#9998;</button>
       {% endif %}
       {# Convert to Issue (activity_log-sourced follow-ups not already linked to an issue) #}
@@ -219,7 +219,7 @@
                   onmouseenter="showDispPreview('{{ row_id }}', {{ d.default_days }}, '{{ d.get('accountability', 'my_action') if d is mapping else 'my_action' }}')"
                   onmouseleave="hideDispPreview('{{ row_id }}')"
                   class="disp-pill text-[10px] px-2 py-0.5 rounded border transition-colors cursor-pointer
-                    {% if item.disposition == d.label %}bg-[#003865] text-white border-[#003865]{% else %}border-gray-200 text-gray-500 hover:border-[#003865] hover:text-[#003865]{% endif %}">{{ d.label }}</button>
+                    {% if item.disposition == d.label %}bg-marsh text-white border-marsh{% else %}border-gray-200 text-gray-500 hover:border-marsh hover:text-marsh{% endif %}">{{ d.label }}</button>
                 {% endfor %}
               </div>
             </div>
@@ -233,7 +233,7 @@
         {# Step 2: Confirm — date, note, save #}
         <div id="disp-step2-{{ row_id }}" class="hidden">
           <div class="flex items-center gap-2 mb-2">
-            <span id="disp-chosen-label-{{ row_id }}" class="text-[11px] font-medium bg-[#003865] text-white px-2.5 py-0.5 rounded-full"></span>
+            <span id="disp-chosen-label-{{ row_id }}" class="text-[11px] font-medium bg-marsh text-white px-2.5 py-0.5 rounded-full"></span>
             <span id="disp-chosen-acc-{{ row_id }}" class="text-[10px] text-gray-500"></span>
           </div>
           <div class="flex gap-3 items-end flex-wrap">
@@ -241,19 +241,19 @@
               <div class="text-[9px] text-gray-400">Follow-up date</div>
               <div class="flex gap-1 items-center">
                 <input type="date" name="follow_up_date" id="disp-date-{{ row_id }}" value="{{ item.follow_up_date }}"
-                  class="text-xs border border-gray-200 rounded px-2 py-1 focus:ring-1 focus:ring-[#003865]"
+                  class="text-xs border border-gray-200 rounded px-2 py-1 focus:ring-1 focus:ring-marsh"
                   onchange="checkDateVsExpiry(this, '{{ row_id }}', 'disp-cap-{{ row_id }}')">
-                <button type="button" onclick="setDispBarDate('disp-date-{{ row_id }}', 1, '{{ row_id }}')" class="text-[9px] border border-gray-200 rounded px-1 py-0.5 text-gray-400 hover:text-[#003865]">+1d</button>
-                <button type="button" onclick="setDispBarDate('disp-date-{{ row_id }}', 3, '{{ row_id }}')" class="text-[9px] border border-gray-200 rounded px-1 py-0.5 text-gray-400 hover:text-[#003865]">+3d</button>
-                <button type="button" onclick="setDispBarDate('disp-date-{{ row_id }}', 7, '{{ row_id }}')" class="text-[9px] border border-gray-200 rounded px-1 py-0.5 text-gray-400 hover:text-[#003865]">+7d</button>
+                <button type="button" onclick="setDispBarDate('disp-date-{{ row_id }}', 1, '{{ row_id }}')" class="text-[9px] border border-gray-200 rounded px-1 py-0.5 text-gray-400 hover:text-marsh">+1d</button>
+                <button type="button" onclick="setDispBarDate('disp-date-{{ row_id }}', 3, '{{ row_id }}')" class="text-[9px] border border-gray-200 rounded px-1 py-0.5 text-gray-400 hover:text-marsh">+3d</button>
+                <button type="button" onclick="setDispBarDate('disp-date-{{ row_id }}', 7, '{{ row_id }}')" class="text-[9px] border border-gray-200 rounded px-1 py-0.5 text-gray-400 hover:text-marsh">+7d</button>
               </div>
               <span id="disp-cap-{{ row_id }}" class="text-[10px] text-amber-600 hidden"></span>
             </div>
             <div class="flex-1 min-w-32">
               <div class="text-[9px] text-gray-400">Note</div>
-              <input type="text" name="note" placeholder="Optional..." class="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:ring-1 focus:ring-[#003865]">
+              <input type="text" name="note" placeholder="Optional..." class="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:ring-1 focus:ring-marsh">
             </div>
-            <button type="submit" class="text-xs bg-[#003865] text-white px-3 py-1.5 rounded hover:bg-[#004a80]">Confirm</button>
+            <button type="submit" class="text-xs bg-marsh text-white px-3 py-1.5 rounded hover:bg-[#004a80]">Confirm</button>
             <button type="button" onclick="backToStep1('{{ row_id }}')" class="text-xs text-gray-400 hover:text-gray-600">Back</button>
             <button type="button" onclick="toggleDispBar('{{ row_id }}')" class="text-xs text-gray-400">Cancel</button>
           </div>
@@ -295,7 +295,7 @@
                 onclick="selectAcDisp(this, '{{ d.label }}', {{ d.default_days }}, '{{ row_id }}')"
                 onmouseenter="showDispPreview('ac-fu-preview-{{ row_id }}', {{ d.default_days }}, '{{ d.get('accountability', 'my_action') if d is mapping else 'my_action' }}')"
                 onmouseleave="hideDispPreview('ac-fu-preview-{{ row_id }}')"
-                class="ac-disp-pill text-[10px] px-2 py-0.5 rounded border border-gray-200 text-gray-500 hover:border-[#003865] hover:text-[#003865] transition-colors cursor-pointer">{{ d.label }}</button>
+                class="ac-disp-pill text-[10px] px-2 py-0.5 rounded border border-gray-200 text-gray-500 hover:border-marsh hover:text-marsh transition-colors cursor-pointer">{{ d.label }}</button>
               {% endfor %}
             </div>
           </div>
@@ -310,12 +310,12 @@
           <div class="w-16">
             <label class="text-[10px] text-gray-500 block">Hours</label>
             <input type="number" name="duration_hours" step="0.1" min="0" placeholder="0"
-              class="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:ring-1 focus:ring-[#003865]">
+              class="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:ring-1 focus:ring-marsh">
           </div>
           <div class="flex-1">
             <label class="text-[10px] text-gray-500 block">Note</label>
             <input type="text" name="notes" placeholder="Details..."
-              class="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:ring-1 focus:ring-[#003865]">
+              class="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:ring-1 focus:ring-marsh">
           </div>
         </div>
 
@@ -323,12 +323,12 @@
         <div>
           <label class="text-[10px] text-gray-500 block">Next Follow-Up</label>
           <div class="flex items-center gap-1.5">
-            <button type="button" onclick="setAcFuDate('{{ row_id }}', 1)" class="text-[10px] text-gray-400 hover:text-[#003865] border border-gray-200 hover:border-[#003865] rounded px-1.5 py-0.5 transition-colors">+1d</button>
-            <button type="button" onclick="setAcFuDate('{{ row_id }}', 3)" class="text-[10px] text-gray-400 hover:text-[#003865] border border-gray-200 hover:border-[#003865] rounded px-1.5 py-0.5 transition-colors">+3d</button>
-            <button type="button" onclick="setAcFuDate('{{ row_id }}', 7)" class="text-[10px] text-gray-400 hover:text-[#003865] border border-gray-200 hover:border-[#003865] rounded px-1.5 py-0.5 transition-colors">+7d</button>
-            <button type="button" onclick="setAcFuDate('{{ row_id }}', 14)" class="text-[10px] text-gray-400 hover:text-[#003865] border border-gray-200 hover:border-[#003865] rounded px-1.5 py-0.5 transition-colors">+14d</button>
+            <button type="button" onclick="setAcFuDate('{{ row_id }}', 1)" class="text-[10px] text-gray-400 hover:text-marsh border border-gray-200 hover:border-marsh rounded px-1.5 py-0.5 transition-colors">+1d</button>
+            <button type="button" onclick="setAcFuDate('{{ row_id }}', 3)" class="text-[10px] text-gray-400 hover:text-marsh border border-gray-200 hover:border-marsh rounded px-1.5 py-0.5 transition-colors">+3d</button>
+            <button type="button" onclick="setAcFuDate('{{ row_id }}', 7)" class="text-[10px] text-gray-400 hover:text-marsh border border-gray-200 hover:border-marsh rounded px-1.5 py-0.5 transition-colors">+7d</button>
+            <button type="button" onclick="setAcFuDate('{{ row_id }}', 14)" class="text-[10px] text-gray-400 hover:text-marsh border border-gray-200 hover:border-marsh rounded px-1.5 py-0.5 transition-colors">+14d</button>
             <input type="date" name="new_follow_up_date" id="ac-fu-date-{{ row_id }}"
-              class="text-xs border border-gray-200 rounded px-2 py-1 focus:ring-1 focus:ring-[#003865]"
+              class="text-xs border border-gray-200 rounded px-2 py-1 focus:ring-1 focus:ring-marsh"
               onchange="checkDateVsExpiry(this, '{{ row_id }}', 'ac-fu-cap-{{ row_id }}')">
           </div>
           <span id="ac-fu-cap-{{ row_id }}" class="text-[10px] text-amber-600 hidden"></span>
@@ -337,7 +337,7 @@
         {# Save / Cancel #}
         <div class="flex items-center gap-2 pt-1">
           <button type="submit"
-            class="text-xs bg-[#003865] text-white px-4 py-1.5 rounded font-medium hover:bg-[#004a80] transition-colors">Save</button>
+            class="text-xs bg-marsh text-white px-4 py-1.5 rounded font-medium hover:bg-[#004a80] transition-colors">Save</button>
           <button type="button" onclick="document.getElementById('ac-fu-form-{{ row_id }}').classList.add('hidden')"
             class="text-xs text-gray-400 hover:text-gray-600">Cancel</button>
         </div>
@@ -356,14 +356,14 @@
 {% set row_id = "ac-fu-" ~ item.source ~ "-" ~ item.id %}
 <div class="fu-row bg-gray-50 rounded-lg border border-dashed border-gray-300 hover:border-gray-400 transition-colors" data-status="triage" data-exp="{{ item.expiration_date or '' }}" id="{{ row_id }}">
   <div class="flex items-center gap-3 px-4 py-3">
-    <input type="checkbox" class="bulk-check accent-[#003865] mr-1" value="{{ item.source }}-{{ item.id }}" onchange="updateBulkCount()">
+    <input type="checkbox" class="bulk-check accent-marsh mr-1" value="{{ item.source }}-{{ item.id }}" onchange="updateBulkCount()">
     {# Color dot — gray open circle #}
     <div class="w-2 h-2 rounded-full border-2 border-gray-400 flex-shrink-0"></div>
 
     {# Client + Subject #}
     <div class="flex-1 min-w-0">
       <div class="flex items-center gap-2">
-        <a href="/clients/{{ item.client_id }}" class="text-sm font-semibold text-gray-900 hover:text-[#003865] hover:underline truncate">{{ item.client_name }}</a>
+        <a href="/clients/{{ item.client_id }}" class="text-sm font-semibold text-gray-900 hover:text-marsh hover:underline truncate">{{ item.client_name }}</a>
         {% if item.program_name %}
         <a href="/programs/{{ item.program_uid }}"
            class="text-[10px] bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded hover:bg-indigo-100">
@@ -434,7 +434,7 @@
                   onclick="selectGroupedDisp(this, '{{ row_id }}')"
                   onmouseenter="showDispPreview('{{ row_id }}', {{ d.default_days }}, '{{ d.get('accountability', 'my_action') if d is mapping else 'my_action' }}')"
                   onmouseleave="hideDispPreview('{{ row_id }}')"
-                  class="disp-pill text-[11px] px-2.5 py-1 rounded border border-gray-200 text-gray-600 hover:border-[#003865] hover:text-[#003865] hover:bg-blue-50 transition-colors cursor-pointer">{{ d.label }}</button>
+                  class="disp-pill text-[11px] px-2.5 py-1 rounded border border-gray-200 text-gray-600 hover:border-marsh hover:text-marsh hover:bg-blue-50 transition-colors cursor-pointer">{{ d.label }}</button>
                 {% endfor %}
               </div>
             </div>
@@ -448,7 +448,7 @@
         {# Step 2: Confirm — date, note, save #}
         <div id="disp-step2-{{ row_id }}" class="hidden">
           <div class="flex items-center gap-2 mb-2">
-            <span id="disp-chosen-label-{{ row_id }}" class="text-[11px] font-medium bg-[#003865] text-white px-2.5 py-0.5 rounded-full"></span>
+            <span id="disp-chosen-label-{{ row_id }}" class="text-[11px] font-medium bg-marsh text-white px-2.5 py-0.5 rounded-full"></span>
             <span id="disp-chosen-acc-{{ row_id }}" class="text-[10px] text-gray-500"></span>
           </div>
           <div class="flex gap-3 items-end flex-wrap">
@@ -456,19 +456,19 @@
               <div class="text-[9px] text-gray-400">Follow-up date</div>
               <div class="flex gap-1 items-center">
                 <input type="date" name="follow_up_date" id="disp-date-{{ row_id }}" value="{{ item.follow_up_date }}"
-                  class="text-xs border border-gray-200 rounded px-2 py-1 focus:ring-1 focus:ring-[#003865]"
+                  class="text-xs border border-gray-200 rounded px-2 py-1 focus:ring-1 focus:ring-marsh"
                   onchange="checkDateVsExpiry(this, '{{ row_id }}', 'disp-cap-{{ row_id }}')">
-                <button type="button" onclick="setDispBarDate('disp-date-{{ row_id }}', 1, '{{ row_id }}')" class="text-[9px] border border-gray-200 rounded px-1 py-0.5 text-gray-400 hover:text-[#003865]">+1d</button>
-                <button type="button" onclick="setDispBarDate('disp-date-{{ row_id }}', 3, '{{ row_id }}')" class="text-[9px] border border-gray-200 rounded px-1 py-0.5 text-gray-400 hover:text-[#003865]">+3d</button>
-                <button type="button" onclick="setDispBarDate('disp-date-{{ row_id }}', 7, '{{ row_id }}')" class="text-[9px] border border-gray-200 rounded px-1 py-0.5 text-gray-400 hover:text-[#003865]">+7d</button>
+                <button type="button" onclick="setDispBarDate('disp-date-{{ row_id }}', 1, '{{ row_id }}')" class="text-[9px] border border-gray-200 rounded px-1 py-0.5 text-gray-400 hover:text-marsh">+1d</button>
+                <button type="button" onclick="setDispBarDate('disp-date-{{ row_id }}', 3, '{{ row_id }}')" class="text-[9px] border border-gray-200 rounded px-1 py-0.5 text-gray-400 hover:text-marsh">+3d</button>
+                <button type="button" onclick="setDispBarDate('disp-date-{{ row_id }}', 7, '{{ row_id }}')" class="text-[9px] border border-gray-200 rounded px-1 py-0.5 text-gray-400 hover:text-marsh">+7d</button>
               </div>
               <span id="disp-cap-{{ row_id }}" class="text-[10px] text-amber-600 hidden"></span>
             </div>
             <div class="flex-1 min-w-32">
               <div class="text-[9px] text-gray-400">Note</div>
-              <input type="text" name="note" placeholder="Optional..." class="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:ring-1 focus:ring-[#003865]">
+              <input type="text" name="note" placeholder="Optional..." class="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:ring-1 focus:ring-marsh">
             </div>
-            <button type="submit" class="text-xs bg-[#003865] text-white px-3 py-1.5 rounded hover:bg-[#004a80]">Confirm</button>
+            <button type="submit" class="text-xs bg-marsh text-white px-3 py-1.5 rounded hover:bg-[#004a80]">Confirm</button>
             <button type="button" onclick="backToStep1('{{ row_id }}')" class="text-xs text-gray-400 hover:text-gray-600">Back</button>
             <button type="button" onclick="toggleDispBar('{{ row_id }}')" class="text-xs text-gray-400">Cancel</button>
           </div>
