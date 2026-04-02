@@ -537,6 +537,8 @@ def _client_tokens(conn: sqlite3.Connection, client_id: int, row) -> dict:
         "relationship_risk": row.get("relationship_risk") or "",
         "service_model": row.get("service_model") or "",
         "stewardship_date": row.get("stewardship_date") or "",
+        "broker_fee": row.get("broker_fee") or "",
+        "renewal_month": row.get("renewal_month") or "",
     }
 
 
@@ -547,7 +549,7 @@ def policy_context(conn: sqlite3.Connection, policy_uid: str) -> dict:
                   p.effective_date, p.expiration_date, p.premium, p.limit_amount,
                   p.deductible, p.project_name, p.project_id, p.renewal_status, p.account_exec,
                   p.access_point, p.last_reviewed_at, p.review_cycle,
-                  p.first_named_insured, p.program_id, p.bound_date,
+                  p.first_named_insured, p.program_id, p.bound_date, p.is_bor, p.milestone_profile,
                   p.description AS policy_description_raw, p.notes AS policy_notes_raw,
                   c.id AS client_id, c.name AS client_name, c.industry_segment AS industry,
                   c.primary_contact, c.contact_email,
@@ -660,6 +662,8 @@ def policy_context(conn: sqlite3.Connection, policy_uid: str) -> dict:
         # Policy text fields
         "policy_description": row.get("policy_description_raw") or "",
         "policy_notes": row.get("policy_notes_raw") or "",
+        "is_bor": "Yes" if row.get("is_bor") else "No",
+        "milestone_profile": row.get("milestone_profile") or "",
     })
     # Overlay project tokens — fill gaps only so policy fields take precedence
     for k, v in proj_tokens.items():
@@ -1124,6 +1128,8 @@ _CLIENT_GROUP: list[tuple[str, str]] = [
     ("relationship_risk", "Relationship Risk"),
     ("service_model", "Service Model"),
     ("stewardship_date", "Stewardship Date"),
+    ("broker_fee", "Broker Fee"),
+    ("renewal_month", "Renewal Month"),
 ]
 
 _CLIENT_CONTACT_GROUP: list[tuple[str, str]] = [
@@ -1161,6 +1167,8 @@ CONTEXT_TOKEN_GROUPS: dict[str, list[tuple[str, list[tuple[str, str]]]]] = {
             ("policy_notes", "Policy Notes"),
             ("program_carriers", "Program Carriers"),
             ("program_carrier_count", "Program Carrier Count"),
+            ("is_bor", "Broker of Record"),
+            ("milestone_profile", "Milestone Profile"),
         ]),
         ("Program", [
             ("program_name", "Program Name"),

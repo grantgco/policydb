@@ -720,7 +720,10 @@ def _get_record_links(conn, entry_type: str, entry_id: int) -> list[dict]:
                 d["entity_name"] = f"{entity['policy_uid']} — {entity['carrier'] or ''} {entity['policy_type'] or ''}"
                 d["entity_url"] = f"/policies/{entity['policy_uid']}"
         elif ref_type == "issue":
-            entity = conn.execute("SELECT id, issue_uid, subject FROM issues WHERE id = ?", (ref_id,)).fetchone()
+            entity = conn.execute(
+                "SELECT id, issue_uid, subject FROM activity_log WHERE id = ? AND item_kind = 'issue'",
+                (ref_id,),
+            ).fetchone()
             if entity:
                 d["entity_name"] = f"{entity['issue_uid']} — {entity['subject']}"
                 d["entity_url"] = f"/issues/{entity['issue_uid']}"
@@ -997,7 +1000,9 @@ async def search_linkable(
 
     # Issues
     for r in conn.execute(
-        "SELECT id, issue_uid, subject FROM issues WHERE issue_uid LIKE ? OR subject LIKE ? ORDER BY issue_uid DESC LIMIT 5",
+        "SELECT id, issue_uid, subject FROM activity_log "
+        "WHERE item_kind = 'issue' AND (issue_uid LIKE ? OR subject LIKE ?) "
+        "ORDER BY issue_uid DESC LIMIT 5",
         (pattern, pattern),
     ).fetchall():
         results.append({"type": "issue", "id": r["id"], "label": f"{r['issue_uid']} — {r['subject']}", "icon": "issue"})
