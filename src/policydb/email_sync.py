@@ -145,6 +145,93 @@ def _match_by_domain(conn: sqlite3.Connection, email_addresses: list[str]) -> di
     return None
 
 
+def _capture_unknown_contacts(
+    conn: sqlite3.Connection,
+    email: dict,
+    client_id: int | None,
+    client_name: str | None = None,
+) -> None:
+    """Check sender + recipients against contacts table; upsert unknowns into suggested_contacts."""
+    addresses: list[tuple[str, str]] = []  # (email, display_name)
+
+    sender = email.get("sender", "").strip()
+    if sender:
+        addresses.append((sender, ""))
+
+    for recip in email.get("recipients", []):
+        recip = recip.strip()
+        if recip:
+            addresses.append((recip, ""))
+
+    freemail = set(cfg.get("freemail_domains", []))
+    subject = email.get("subject", "")
+
+    for addr, display in addresses:
+        addr_lower = addr.lower().strip()
+        if not addr_lower or "@" not in addr_lower:
+            continue
+
+        domain = addr_lower.rsplit("@", 1)[1]
+        if domain in freemail:
+            continue
+
+        # Skip if already a known contact
+        known = conn.execute(
+            "SELECT 1 FROM contacts WHERE LOWER(TRIM(email)) = ?",
+            (addr_lower,),
+        ).fetchone()
+        if known:
+            continue
+
+        # Skip if blocked or already added
+        existing = conn.execute(
+            "SELECT id, status, blocked FROM suggested_contacts WHERE LOWER(TRIM(email)) = ?",
+            (addr_lower,),
+        ).fetchone()
+        if existing:
+            if existing["blocked"] or existing["status"] == "added":
+                continue
+            # Update existing pending/dismissed row
+            conn.execute(
+                """UPDATE suggested_contacts
+                   SET last_seen_at = datetime('now'),
+                       seen_count = seen_count + 1,
+                       client_id = COALESCE(?, client_id),
+                       client_name = COALESCE(?, client_name),
+                       source_subject = ?
+                   WHERE id = ?""",
+                (client_id, client_name, subject, existing["id"]),
+            )
+            continue
+
+        # Parse name from email local part as fallback
+        local_part = addr_lower.rsplit("@", 1)[0]
+        parsed_name = display or ""
+        if not parsed_name:
+            # Try common patterns: first.last, first_last, firstlast
+            parts = re.split(r'[._]', local_part)
+            if len(parts) >= 2:
+                parsed_name = " ".join(p.capitalize() for p in parts[:2])
+
+        # Resolve client_name if we have client_id but no name
+        if client_id and not client_name:
+            c = conn.execute("SELECT name FROM clients WHERE id = ?", (client_id,)).fetchone()
+            if c:
+                client_name = c["name"]
+
+        # Infer organization from domain
+        org = domain.rsplit(".", 1)[0].replace("-", " ").title() if domain else ""
+
+        conn.execute(
+            """INSERT INTO suggested_contacts
+               (email, parsed_name, organization, client_id, client_name, source_subject)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (addr_lower, parsed_name, org, client_id, client_name, subject),
+        )
+
+    conn.commit()
+
+
 def _resolve_ref_tag(conn: sqlite3.Connection, tag: str) -> dict | None:
     """Resolve a ref tag to database records. Returns match info or None.
 
@@ -568,6 +655,7 @@ def _process_email(
             "subject": subject, "sender": sender, "folder": folder,
             "date": date_str, "category": category, "inbox_uid": f"INB-{row_id}",
         })
+        _capture_unknown_contacts(conn, email, None, None)
         return
 
     # Create one activity per unique match
@@ -577,3 +665,15 @@ def _process_email(
             results["skipped"] += 1
         elif result["action"] in ("created", "enriched"):
             results["auto_linked"][category] += 1
+
+    # ── Contact capture: flag unknown email addresses ──
+    # Determine the best client_id from matches for context
+    _best_client_id = None
+    _best_client_name = None
+    if matches:
+        _best_client_id = matches[0].get("client_id")
+        if _best_client_id:
+            _c = conn.execute("SELECT name FROM clients WHERE id=?", (_best_client_id,)).fetchone()
+            if _c:
+                _best_client_name = _c["name"]
+    _capture_unknown_contacts(conn, email, _best_client_id, _best_client_name)
