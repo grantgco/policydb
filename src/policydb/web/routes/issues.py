@@ -103,11 +103,8 @@ def create_issue(
 
     conn.commit()
 
-    # Return refreshed issues tab
-    from policydb.web.routes.action_center import _issues_ctx
-    ctx = _issues_ctx(conn)
-    ctx["request"] = request
-    return templates.TemplateResponse("action_center/_issues.html", ctx)
+    # Redirect to the new issue's detail page for editing
+    return RedirectResponse(f"/issues/{uid}", status_code=303)
 
 
 # ── Update issue status ──────────────────────────────────────────────────────

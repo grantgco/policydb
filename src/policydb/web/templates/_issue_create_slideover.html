@@ -359,25 +359,15 @@
 
     fetch('/issues/create', {
       method: 'POST',
-      body: formData
+      body: formData,
+      redirect: 'follow'
     })
     .then(function(r) {
       if (!r.ok) throw new Error('Server error ' + r.status);
-      return r.text();
-    })
-    .then(function(html) {
+      // Server redirects to /issues/{uid} — navigate there
       closeIssueCreateSlideover();
-      // Swap action center issues tab content if visible
-      var tabContent = document.getElementById('ac-tab-content');
-      if (tabContent && html) {
-        tabContent.innerHTML = html;
-        if (typeof htmx !== 'undefined') htmx.process(tabContent);
-        if (typeof showToast === 'function') showToast('Issue created', true);
-      } else {
-        // On client or other pages, reload to show the new issue
-        if (typeof showToast === 'function') showToast('Issue created — reloading…', true);
-        setTimeout(function() { window.location.reload(); }, 600);
-      }
+      if (typeof showToast === 'function') showToast('Issue created', true);
+      window.location.href = r.url;
     })
     .catch(function(err) {
       if (typeof showToast === 'function') showToast('Failed to create issue', false);
