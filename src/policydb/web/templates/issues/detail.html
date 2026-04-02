@@ -330,7 +330,7 @@
         <div class="px-4 py-2.5 border-t border-gray-100 no-print">
           <div class="relative" id="policy-link-search">
             <input type="text" id="policy-link-input"
-                   placeholder="Search policies to link…"
+                   placeholder="Search policies or programs to link…"
                    autocomplete="off"
                    class="w-full text-xs border border-gray-200 rounded px-2.5 py-1.5 focus:ring-marsh focus:border-marsh placeholder-gray-400"
                    oninput="searchPoliciesToLink(this.value)"
@@ -691,7 +691,7 @@ function issueSetDueDate(val) {
   });
 }
 
-/* ── Policy link search ── */
+/* ── Policy / program link search ── */
 let _plTimer = null;
 function searchPoliciesToLink(q) {
   clearTimeout(_plTimer);
@@ -702,27 +702,40 @@ function searchPoliciesToLink(q) {
       .then(r => r.json())
       .then(items => {
         if (!items.length) {
-          box.innerHTML = '<div class="px-3 py-2 text-xs text-gray-400">No matching policies</div>';
+          box.innerHTML = '<div class="px-3 py-2 text-xs text-gray-400">No matching policies or programs</div>';
           box.classList.remove('hidden');
           return;
         }
-        box.innerHTML = items.map(p =>
-          '<button type="button" class="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 truncate" ' +
-          'onclick="linkPolicy(' + p.id + ')">' + p.label + '</button>'
-        ).join('');
+        box.innerHTML = items.map(function(p) {
+          var isProg = p.kind === 'program';
+          var badge = isProg
+            ? '<span class="inline-block text-[9px] font-semibold px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 mr-1.5 shrink-0">PROGRAM</span>'
+            : '';
+          var cls = isProg ? 'bg-indigo-50/40' : '';
+          return '<button type="button" class="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 truncate flex items-center ' + cls + '" ' +
+            'onclick="linkItem(' + p.id + ', \'' + p.kind + '\')">' +
+            badge + '<span class="truncate">' + p.label + '</span></button>';
+        }).join('');
         box.classList.remove('hidden');
       });
   }, 200);
 }
 
-function linkPolicy(policyId) {
+function linkItem(id, kind) {
   const box = document.getElementById('policy-link-results');
   const input = document.getElementById('policy-link-input');
   box.classList.add('hidden');
   input.value = '';
   const fd = new FormData();
-  fd.append('policy_id', policyId);
-  fetch('/issues/{{ issue.id }}/policies/add', {method: 'POST', body: fd})
+  var url;
+  if (kind === 'program') {
+    fd.append('program_id', id);
+    url = '/issues/{{ issue.id }}/programs/add';
+  } else {
+    fd.append('policy_id', id);
+    url = '/issues/{{ issue.id }}/policies/add';
+  }
+  fetch(url, {method: 'POST', body: fd})
     .then(r => r.text())
     .then(html => {
       document.getElementById('linked-policies-panel').innerHTML = html;

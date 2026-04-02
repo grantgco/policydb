@@ -522,7 +522,7 @@ async def unlink_activity_from_issue(issue_id: int, activity_id: int, conn=Depen
 
 @router.get("/issues/{issue_id}/policies/search")
 def search_issue_policies(issue_id: int, q: str = Query(""), conn=Depends(get_db)):
-    """Return client policies available to link to this issue (includes opportunities)."""
+    """Return client policies and programs available to link to this issue."""
     issue = conn.execute(
         "SELECT client_id FROM activity_log WHERE id = ?", (issue_id,)
     ).fetchone()
@@ -542,9 +542,42 @@ def search_issue_policies(issue_id: int, q: str = Query(""), conn=Depends(get_db
         linked_ids.add(r["policy_id"])
 
     term = f"%{q}%"
-    rows = conn.execute("""
+    results = []
+
+    # ── Programs matching the search ──
+    prog_rows = conn.execute("""
+        SELECT pg.id, pg.program_uid, pg.name, pg.line_of_business,
+               pg.expiration_date, pg.renewal_status,
+               (SELECT COUNT(*) FROM policies p2
+                WHERE p2.program_id = pg.id AND p2.archived = 0) AS policy_count
+        FROM programs pg
+        WHERE pg.client_id = ? AND pg.archived = 0
+          AND (pg.program_uid LIKE ? OR pg.name LIKE ? OR pg.line_of_business LIKE ?)
+        ORDER BY pg.name
+        LIMIT 10
+    """, (issue["client_id"], term, term, term)).fetchall()
+
+    for pg in prog_rows:
+        label = pg["program_uid"]
+        if pg["name"]:
+            label += f" — {pg['name']}"
+        if pg["line_of_business"]:
+            label += f" · {pg['line_of_business']}"
+        if pg["expiration_date"]:
+            label += f" · exp {pg['expiration_date']}"
+        if pg["renewal_status"]:
+            label += f" [{pg['renewal_status']}]"
+        label += f" ({pg['policy_count']} policies)"
+        results.append({
+            "id": pg["id"], "label": label, "kind": "program",
+            "uid": pg["program_uid"],
+        })
+
+    # ── Individual policies ──
+    pol_rows = conn.execute("""
         SELECT p.id, p.policy_uid, p.policy_type, p.carrier, p.is_opportunity,
-               pr.name AS location_name
+               p.expiration_date, p.premium, p.renewal_status,
+               pr.name AS location_name, p.program_id
         FROM policies p
         LEFT JOIN projects pr ON pr.id = p.project_id
         WHERE p.client_id = ? AND p.archived = 0
@@ -554,8 +587,7 @@ def search_issue_policies(issue_id: int, q: str = Query(""), conn=Depends(get_db
         LIMIT 20
     """, (issue["client_id"], term, term, term, term)).fetchall()
 
-    results = []
-    for r in rows:
+    for r in pol_rows:
         if r["id"] not in linked_ids:
             label = r["policy_uid"]
             if r["policy_type"]:
@@ -564,9 +596,20 @@ def search_issue_policies(issue_id: int, q: str = Query(""), conn=Depends(get_db
                 label += f" ({r['carrier']})"
             if r["location_name"]:
                 label += f" @ {r['location_name']}"
+            if r["expiration_date"]:
+                label += f" · exp {r['expiration_date']}"
+            if r["premium"]:
+                label += f" · ${r['premium']:,.0f}"
+            if r["renewal_status"]:
+                label += f" [{r['renewal_status']}]"
             if r["is_opportunity"]:
                 label += " [OPP]"
-            results.append({"id": r["id"], "label": label, "policy_uid": r["policy_uid"]})
+            if r["program_id"]:
+                label += " ◆"
+            results.append({
+                "id": r["id"], "label": label, "kind": "policy",
+                "uid": r["policy_uid"],
+            })
     return JSONResponse(results)
 
 
@@ -577,6 +620,24 @@ def add_issue_policy(issue_id: int, policy_id: int = Form(...), conn=Depends(get
         "INSERT OR IGNORE INTO issue_policies (issue_id, policy_id) VALUES (?, ?)",
         (issue_id, policy_id),
     )
+    conn.commit()
+    return _render_linked_policies_panel(issue_id, conn)
+
+
+@router.post("/issues/{issue_id}/programs/add")
+def add_issue_program(issue_id: int, program_id: int = Form(...), conn=Depends(get_db)):
+    """Link all policies in a program to an issue via junction table."""
+    child_ids = [
+        r["id"] for r in conn.execute(
+            "SELECT id FROM policies WHERE program_id = ? AND archived = 0",
+            (program_id,),
+        ).fetchall()
+    ]
+    for pid in child_ids:
+        conn.execute(
+            "INSERT OR IGNORE INTO issue_policies (issue_id, policy_id) VALUES (?, ?)",
+            (issue_id, pid),
+        )
     conn.commit()
     return _render_linked_policies_panel(issue_id, conn)
 
@@ -609,6 +670,14 @@ def _render_linked_policies_panel(issue_id: int, conn) -> HTMLResponse:
                 f'class="text-gray-300 hover:text-red-500 text-xs ml-1 shrink-0 no-print" '
                 f'title="Remove">&times;</button>'
             )
+        prog_badge = ""
+        if p.get("program_uid"):
+            prog_name = p.get("program_name") or p["program_uid"]
+            prog_badge = (
+                f'<a href="/programs/{p["program_uid"]}" '
+                f'class="text-[9px] px-1 py-0.5 rounded bg-indigo-100 text-indigo-700 shrink-0 hover:bg-indigo-200" '
+                f'title="{prog_name}">{p["program_uid"]}</a>'
+            )
         opp_badge = ""
         if p.get("is_opportunity"):
             opp_badge = '<span class="text-[9px] px-1 py-0.5 rounded bg-purple-100 text-purple-600 shrink-0">OPP</span>'
@@ -633,7 +702,7 @@ def _render_linked_policies_panel(issue_id: int, conn) -> HTMLResponse:
             f'<div class="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 text-sm">'
             f'<a href="/policies/{p["policy_uid"]}/edit" class="font-mono text-xs text-marsh hover:underline shrink-0">{p["policy_uid"]}</a>'
             f'<span class="text-gray-800 truncate">{p.get("policy_type") or ""}</span>'
-            f'{opp_badge}{carrier_str}'
+            f'{prog_badge}{opp_badge}{carrier_str}'
             f'{premium_str}{exp_str}{status_badge}{remove_btn}'
             f'</div>'
         )
@@ -652,14 +721,21 @@ def _get_linked_policies(conn, issue_id: int, issue) -> list[dict]:
     linked = []
     seen_ids = set()
 
+    _pol_cols = """
+        p.id, p.policy_uid, p.policy_type, p.carrier, p.premium,
+        p.expiration_date, p.renewal_status, p.is_opportunity,
+        p.program_id, pr.name AS location_name,
+        pg.program_uid, pg.name AS program_name
+    """
+    _pol_joins = """
+        LEFT JOIN projects pr ON pr.id = p.project_id
+        LEFT JOIN programs pg ON pg.id = p.program_id
+    """
+
     # Direct FK
     if issue and issue["policy_id"]:
-        rows = conn.execute("""
-            SELECT p.id, p.policy_uid, p.policy_type, p.carrier, p.premium,
-                   p.expiration_date, p.renewal_status, p.is_opportunity,
-                   pr.name AS location_name
-            FROM policies p
-            LEFT JOIN projects pr ON pr.id = p.project_id
+        rows = conn.execute(f"""
+            SELECT {_pol_cols} FROM policies p {_pol_joins}
             WHERE p.id = ? AND p.archived = 0
         """, (issue["policy_id"],)).fetchall()
         for r in rows:
@@ -669,12 +745,8 @@ def _get_linked_policies(conn, issue_id: int, issue) -> list[dict]:
 
     # Program siblings
     if issue and issue["program_id"]:
-        rows = conn.execute("""
-            SELECT p.id, p.policy_uid, p.policy_type, p.carrier, p.premium,
-                   p.expiration_date, p.renewal_status, p.is_opportunity,
-                   pr.name AS location_name
-            FROM policies p
-            LEFT JOIN projects pr ON pr.id = p.project_id
+        rows = conn.execute(f"""
+            SELECT {_pol_cols} FROM policies p {_pol_joins}
             WHERE p.program_id = ? AND p.archived = 0
             ORDER BY p.policy_type
         """, (issue["program_id"],)).fetchall()
@@ -685,13 +757,10 @@ def _get_linked_policies(conn, issue_id: int, issue) -> list[dict]:
                 linked.append(d)
 
     # Junction table
-    rows = conn.execute("""
-        SELECT p.id, p.policy_uid, p.policy_type, p.carrier, p.premium,
-               p.expiration_date, p.renewal_status, p.is_opportunity,
-               pr.name AS location_name
-        FROM issue_policies ip
+    rows = conn.execute(f"""
+        SELECT {_pol_cols} FROM issue_policies ip
         JOIN policies p ON p.id = ip.policy_id
-        LEFT JOIN projects pr ON pr.id = p.project_id
+        {_pol_joins}
         WHERE ip.issue_id = ? AND p.archived = 0
         ORDER BY p.policy_uid
     """, (issue_id,)).fetchall()
