@@ -42,6 +42,13 @@ def _parse_ref_tag(tag: str) -> dict:
     if cn_match:
         result["cn_number"] = cn_match.group(1)
 
+    # Extract program UID (PGM followed by digits)
+    pgm_match = re.search(r'(PGM\d+)', tag)
+    if pgm_match:
+        pgm_raw = pgm_match.group(1)
+        digits = pgm_raw[3:]
+        result["program_uid"] = f"PGM-{digits}"
+
     # Extract policy UID (POL followed by digits)
     pol_match = re.search(r'(POL\d+)', tag)
     if pol_match:
@@ -91,12 +98,21 @@ def _resolve_ref_tag(conn: sqlite3.Connection, tag: str) -> dict | None:
             if issue["policy_id"]:
                 result["policy_id"] = issue["policy_id"]
             return result
+        # Program UID
+        program = conn.execute(
+            "SELECT id, client_id FROM programs WHERE program_uid=?", (tag.upper(),),
+        ).fetchone()
+        if program:
+            return {"tier": 1, "confidence": 90, "program_id": program["id"], "client_id": program["client_id"]}
         # Policy UID
         policy = conn.execute(
-            "SELECT id, client_id FROM policies WHERE policy_uid=?", (tag.upper(),),
+            "SELECT id, client_id, program_id FROM policies WHERE policy_uid=?", (tag.upper(),),
         ).fetchone()
         if policy:
-            return {"tier": 1, "confidence": 90, "policy_id": policy["id"], "client_id": policy["client_id"]}
+            result = {"tier": 1, "confidence": 90, "policy_id": policy["id"], "client_id": policy["client_id"]}
+            if policy["program_id"]:
+                result["program_id"] = policy["program_id"]
+            return result
         # CN number (strip leading CN if present)
         cn = tag.upper().replace("CN", "") if tag.upper().startswith("CN") else tag
         client = conn.execute("SELECT id FROM clients WHERE cn_number=?", (cn,)).fetchone()
@@ -115,15 +131,28 @@ def _resolve_ref_tag(conn: sqlite3.Connection, tag: str) -> dict | None:
         if client:
             result["client_id"] = client["id"]
 
-    # Layer 2: Resolve policy — its client_id overwrites CN lookup
+    # Layer 2a: Resolve program — its client_id overwrites CN lookup
+    if "program_uid" in parsed:
+        program = conn.execute(
+            "SELECT id, client_id FROM programs WHERE program_uid=?",
+            (parsed["program_uid"],),
+        ).fetchone()
+        if program:
+            result["program_id"] = program["id"]
+            result["client_id"] = program["client_id"]
+
+    # Layer 2b: Resolve policy — its client_id overwrites CN/program lookup
     if "policy_uid" in parsed:
         policy = conn.execute(
-            "SELECT id, client_id FROM policies WHERE policy_uid=?",
+            "SELECT id, client_id, program_id FROM policies WHERE policy_uid=?",
             (parsed["policy_uid"],),
         ).fetchone()
         if policy:
             result["policy_id"] = policy["id"]
             result["client_id"] = policy["client_id"]
+            # Inherit program_id from the policy if not already set
+            if policy["program_id"] and "program_id" not in result:
+                result["program_id"] = policy["program_id"]
 
     # Layer 3 (most specific): Resolve issue — its client_id/policy_id overwrite all
     if "issue_uid" in parsed:
@@ -203,6 +232,13 @@ def _create_or_enrich_activity(
 
     client_id = match.get("client_id") or 0
     issue_id = match.get("issue_id")
+    program_id = match.get("program_id")
+
+    # If we have a policy but no program, look up the policy's program_id
+    if policy_id and not program_id:
+        _pol = conn.execute("SELECT program_id FROM policies WHERE id=?", (policy_id,)).fetchone()
+        if _pol and _pol["program_id"]:
+            program_id = _pol["program_id"]
 
     # Can't create activity without a client
     if not client_id:
@@ -260,14 +296,15 @@ def _create_or_enrich_activity(
 
     cursor = conn.execute(
         """INSERT INTO activity_log
-           (activity_date, client_id, policy_id, activity_type, subject, details,
+           (activity_date, client_id, policy_id, program_id, activity_type, subject, details,
             contact_person, contact_id, disposition, source, outlook_message_id,
             email_snippet, issue_id, follow_up_date, follow_up_done)
-           VALUES (?, ?, ?, 'Email', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+           VALUES (?, ?, ?, ?, 'Email', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             email_date,
             client_id,
             policy_id,
+            program_id,
             f"{subj_prefix}{subject}",
             f"Imported from Outlook ({folder})",
             contact_person,
