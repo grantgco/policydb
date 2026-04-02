@@ -28,18 +28,25 @@ def _extract_ref_tags(text: str) -> list[str]:
 
 
 _REPLY_FWD_RE = re.compile(r'^[\s]*(Re|RE|Fwd|FW|Fw)\s*:\s*', re.IGNORECASE)
+# [EXTERNAL], [EXT], *External*, EXTERNAL:, [External Sender], etc.
+_EXTERNAL_RE = re.compile(
+    r'\[?\*?\s*(?:external(?:\s+sender)?|ext)\s*\*?\]?\s*:?\s*',
+    re.IGNORECASE,
+)
 
 
 def _normalize_subject(subject: str) -> str:
     """Normalize an email subject for thread comparison.
 
-    Strips Re:/Fwd:/FW: prefixes (repeated/nested), the "Received: " prefix
-    added by sync, collapses whitespace, lowercases.
+    Strips Re:/Fwd:/FW: prefixes (repeated/nested), external sender warnings,
+    the "Received: " prefix added by sync, collapses whitespace, lowercases.
     """
     s = subject or ""
     # Strip "Received: " prefix added by _create_or_enrich_activity
     if s.startswith("Received: "):
         s = s[10:]
+    # Strip external sender warnings
+    s = _EXTERNAL_RE.sub('', s)
     while True:
         stripped = _REPLY_FWD_RE.sub('', s)
         if stripped == s:
