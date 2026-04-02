@@ -678,60 +678,45 @@ async def _render_attachments_partial(request, conn, uid, article_id):
 # ── Record Links ─────────────────────────────────────────────────────────────
 
 def _get_record_links(conn, entry_type: str, entry_id: int) -> list[dict]:
-    if entry_type == "document":
-        # Documents use record_attachments (migrated from kb_record_links)
-        rows = conn.execute(
-            "SELECT * FROM record_attachments WHERE attachment_id = ? AND record_type IN ('client', 'policy')",
-            (entry_id,),
-        ).fetchall()
-        links = []
-        for r in rows:
-            d = dict(r)
-            d["entity_type"] = d["record_type"]
-            d["entity_id"] = d["record_id"]
-            if d["entity_type"] == "client":
-                entity = conn.execute("SELECT id, name FROM clients WHERE id = ?", (d["entity_id"],)).fetchone()
-                if entity:
-                    d["entity_name"] = entity["name"]
-                    d["entity_url"] = f"/clients/{entity['id']}"
-            elif d["entity_type"] == "policy":
-                entity = conn.execute(
-                    "SELECT p.id, p.policy_uid, p.policy_type, p.carrier, c.name as client_name "
-                    "FROM policies p LEFT JOIN clients c ON c.id = p.client_id "
-                    "WHERE p.id = ?", (d["entity_id"],)
-                ).fetchone()
-                if entity:
-                    d["entity_name"] = f"{entity['policy_uid']} — {entity['carrier'] or ''} {entity['policy_type'] or ''}"
-                    d["entity_url"] = f"/policies/{entity['policy_uid']}"
-            if "entity_name" in d:
-                links.append(d)
-        return links
-    else:
-        # Articles still use kb_record_links
-        rows = conn.execute(
-            "SELECT * FROM kb_record_links WHERE entry_type = ? AND entry_id = ?",
-            (entry_type, entry_id),
-        ).fetchall()
-        links = []
-        for r in rows:
-            d = dict(r)
-            if d["entity_type"] == "client":
-                entity = conn.execute("SELECT id, name FROM clients WHERE id = ?", (d["entity_id"],)).fetchone()
-                if entity:
-                    d["entity_name"] = entity["name"]
-                    d["entity_url"] = f"/clients/{entity['id']}"
-            elif d["entity_type"] == "policy":
-                entity = conn.execute(
-                    "SELECT p.id, p.policy_uid, p.policy_type, p.carrier, c.name as client_name "
-                    "FROM policies p LEFT JOIN clients c ON c.id = p.client_id "
-                    "WHERE p.id = ?", (d["entity_id"],)
-                ).fetchone()
-                if entity:
-                    d["entity_name"] = f"{entity['policy_uid']} — {entity['carrier'] or ''} {entity['policy_type'] or ''}"
-                    d["entity_url"] = f"/policies/{entity['policy_uid']}"
-            if "entity_name" in d:
-                links.append(d)
-        return links
+    """Get entities linked to a KB entry via kb_links."""
+    source_type = "kb_article" if entry_type == "article" else "attachment"
+    rows = conn.execute(
+        "SELECT id, source_type, source_id, target_type, target_id FROM kb_links "
+        "WHERE (source_type = ? AND source_id = ?) OR (target_type = ? AND target_id = ?)",
+        (source_type, entry_id, source_type, entry_id),
+    ).fetchall()
+    links = []
+    for r in rows:
+        r = dict(r)
+        if r["source_type"] == source_type and r["source_id"] == entry_id:
+            ref_type, ref_id = r["target_type"], r["target_id"]
+        else:
+            ref_type, ref_id = r["source_type"], r["source_id"]
+
+        d = {"id": r["id"], "entity_type": ref_type, "entity_id": ref_id}
+
+        if ref_type == "client":
+            entity = conn.execute("SELECT id, name FROM clients WHERE id = ?", (ref_id,)).fetchone()
+            if entity:
+                d["entity_name"] = entity["name"]
+                d["entity_url"] = f"/clients/{entity['id']}"
+        elif ref_type == "policy":
+            entity = conn.execute(
+                "SELECT p.id, p.policy_uid, p.policy_type, p.carrier "
+                "FROM policies p WHERE p.id = ?", (ref_id,)
+            ).fetchone()
+            if entity:
+                d["entity_name"] = f"{entity['policy_uid']} — {entity['carrier'] or ''} {entity['policy_type'] or ''}"
+                d["entity_url"] = f"/policies/{entity['policy_uid']}"
+        elif ref_type == "issue":
+            entity = conn.execute("SELECT id, issue_uid, subject FROM issues WHERE id = ?", (ref_id,)).fetchone()
+            if entity:
+                d["entity_name"] = f"{entity['issue_uid']} — {entity['subject']}"
+                d["entity_url"] = f"/issues/{entity['issue_uid']}"
+
+        if "entity_name" in d:
+            links.append(d)
+    return links
 
 
 @router.post("/{entry_type}/{uid}/link")
@@ -745,25 +730,19 @@ async def link_record(
 ):
     if entry_type == "article":
         row = conn.execute("SELECT id FROM kb_articles WHERE uid = ?", (uid,)).fetchone()
+        source_type = "kb_article"
     else:
         row = conn.execute("SELECT id FROM attachments WHERE uid = ?", (uid,)).fetchone()
+        source_type = "attachment"
 
     if not row:
         return JSONResponse({"ok": False})
 
     try:
-        if entry_type == "document":
-            # Documents use record_attachments
-            conn.execute(
-                "INSERT OR IGNORE INTO record_attachments (attachment_id, record_type, record_id) VALUES (?, ?, ?)",
-                (row["id"], entity_type, entity_id),
-            )
-        else:
-            # Articles use kb_record_links
-            conn.execute(
-                "INSERT OR IGNORE INTO kb_record_links (entry_type, entry_id, entity_type, entity_id) VALUES (?, ?, ?, ?)",
-                (entry_type, row["id"], entity_type, entity_id),
-            )
+        conn.execute(
+            "INSERT OR IGNORE INTO kb_links (source_type, source_id, target_type, target_id) VALUES (?, ?, ?, ?)",
+            (source_type, row["id"], entity_type, entity_id),
+        )
         conn.commit()
     except Exception:
         pass
@@ -785,10 +764,7 @@ async def unlink_record(
     link_id: int = Form(...),
     conn=Depends(get_db),
 ):
-    if entry_type == "document":
-        conn.execute("DELETE FROM record_attachments WHERE id = ?", (link_id,))
-    else:
-        conn.execute("DELETE FROM kb_record_links WHERE id = ?", (link_id,))
+    conn.execute("DELETE FROM kb_links WHERE id = ?", (link_id,))
     conn.commit()
 
     if entry_type == "article":
@@ -1061,31 +1037,8 @@ async def kb_links_for_entity(
     entity_id: int,
     conn=Depends(get_db),
 ):
-    rows = conn.execute(
-        "SELECT * FROM kb_record_links WHERE entity_type = ? AND entity_id = ?",
-        (entity_type, entity_id),
-    ).fetchall()
-    links = []
-    for r in rows:
-        d = dict(r)
-        if d["entry_type"] == "article":
-            entry = conn.execute("SELECT uid, title, category FROM kb_articles WHERE id = ?", (d["entry_id"],)).fetchone()
-        else:
-            entry = conn.execute("SELECT uid, title, category FROM attachments WHERE id = ?", (d["entry_id"],)).fetchone()
-        if entry:
-            d["entry_uid"] = entry["uid"]
-            d["entry_title"] = entry["title"]
-            d["entry_category"] = entry["category"]
-            d["colors"] = _get_colors(entry["category"])
-            d["entry_url"] = f"/kb/{'articles' if d['entry_type'] == 'article' else 'documents'}/{entry['uid']}"
-            links.append(d)
-
-    return templates.TemplateResponse("kb/_entity_kb_links.html", {
-        "request": request,
-        "kb_links": links,
-        "entity_type": entity_type,
-        "entity_id": entity_id,
-    })
+    """Legacy endpoint — delegates to references panel."""
+    return await references_panel(request, entity_type, entity_id, conn)
 
 
 # ── Entity-side KB linking (from policy/client pages) ─────────────────────────
@@ -1135,18 +1088,18 @@ async def link_from_entity(
     entity_id: int = Form(...),
     conn=Depends(get_db),
 ):
-    """Create a KB link from a policy/client page."""
+    """Create a KB link from a policy/client page — uses kb_links."""
+    source_type = "kb_article" if entry_type == "article" else "attachment"
     try:
         conn.execute(
-            "INSERT OR IGNORE INTO kb_record_links (entry_type, entry_id, entity_type, entity_id) VALUES (?, ?, ?, ?)",
-            (entry_type, entry_id, entity_type, entity_id),
+            "INSERT OR IGNORE INTO kb_links (source_type, source_id, target_type, target_id) VALUES (?, ?, ?, ?)",
+            (entity_type, entity_id, source_type, entry_id),
         )
         conn.commit()
     except Exception:
         pass
 
-    # Return refreshed entity KB links
-    return await kb_links_for_entity(request, entity_type, entity_id, conn)
+    return await references_panel(request, entity_type, entity_id, conn)
 
 
 @router.post("/unlink-from-entity", response_class=HTMLResponse)
@@ -1157,10 +1110,10 @@ async def unlink_from_entity(
     entity_id: int = Form(...),
     conn=Depends(get_db),
 ):
-    """Remove a KB link from a policy/client page."""
-    conn.execute("DELETE FROM kb_record_links WHERE id = ?", (link_id,))
+    """Remove a KB link from a policy/client page — uses kb_links."""
+    conn.execute("DELETE FROM kb_links WHERE id = ?", (link_id,))
     conn.commit()
-    return await kb_links_for_entity(request, entity_type, entity_id, conn)
+    return await references_panel(request, entity_type, entity_id, conn)
 
 
 # ── Document search (for attach picker) ─────────────────────────────────────
