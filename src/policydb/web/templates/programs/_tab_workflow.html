@@ -1,0 +1,51 @@
+{# Program Workflow Tab — Checklist + Information Requests #}
+<div class="py-4 space-y-6">
+
+  {# ── Renewal Checklist ──────────────────────────────── #}
+  <div>
+    <div class="flex items-center justify-between mb-2">
+      <h3 class="text-sm font-semibold text-[#3D3C37]">Renewal Checklist</h3>
+      {% set done = checklist | selectattr('completed') | list | length %}
+      {% set total = checklist | length %}
+      {% if total %}
+        <span class="text-xs text-[#8C8880]">{{ done }}/{{ total }} complete</span>
+      {% endif %}
+    </div>
+
+    {% if checklist %}
+      <div class="space-y-1">
+        {% for ms in checklist %}
+          <form hx-post="/programs/{{ program.program_uid }}/milestone/toggle"
+                hx-target="closest div.py-4"
+                hx-swap="outerHTML"
+                class="flex items-center gap-2 py-1 px-2 rounded hover:bg-[#FDFBF8]">
+            <input type="hidden" name="milestone" value="{{ ms.milestone }}">
+            <button type="submit"
+                    class="w-4 h-4 rounded border flex items-center justify-center text-xs
+                           {{ 'bg-[#0B4BFF] border-[#0B4BFF] text-white' if ms.completed else 'border-[#C8C4BD] text-transparent hover:border-[#0B4BFF]' }}">
+              {% if ms.completed %}✓{% endif %}
+            </button>
+            <span class="text-xs {{ 'text-[#8C8880] line-through' if ms.completed else 'text-[#3D3C37]' }}">
+              {{ ms.milestone }}
+            </span>
+            {% if ms.completed_at %}
+              <span class="text-[10px] text-[#8C8880] ml-auto">{{ ms.completed_at[:10] }}</span>
+            {% endif %}
+          </form>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="text-xs text-[#8C8880] italic">No milestones configured. Add items in Settings → Renewal Checklist.</p>
+    {% endif %}
+  </div>
+
+  {# ── Information Requests ───────────────────────────── #}
+  <div>
+    <h3 class="text-sm font-semibold text-[#3D3C37] mb-2">Information Requests</h3>
+    <div hx-get="/clients/{{ program.client_id }}/requests/program-view?program_uid={{ program.program_uid }}"
+         hx-trigger="load" hx-swap="innerHTML">
+      <p class="text-xs text-[#8C8880] italic">Loading…</p>
+    </div>
+  </div>
+
+</div>
