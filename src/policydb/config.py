@@ -799,6 +799,11 @@ _DEFAULTS: dict[str, Any] = {
     "outlook_email_shell_header": True,
     "outlook_capture_category": "PDB",
     "outlook_skip_category": "Personal",
+    "freemail_domains": [
+        "gmail.com", "outlook.com", "yahoo.com", "hotmail.com",
+        "aol.com", "icloud.com", "live.com", "msn.com", "me.com",
+        "comcast.net", "att.net", "verizon.net",
+    ],
 }
 
 _config: dict[str, Any] | None = None

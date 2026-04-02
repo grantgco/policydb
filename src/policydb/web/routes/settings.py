@@ -61,6 +61,7 @@ EDITABLE_LISTS: dict[str, str] = {
     "renewal_issue_resolve_statuses": "Renewal Issue — Resolve Statuses",
     "renewal_terminal_statuses": "Renewal Terminal Statuses",
     "attachment_categories": "Attachment Categories",
+    "freemail_domains": "Freemail Domains (Skip for Client Matching)",
 }
 
 TAB_LISTS: dict[str, dict[str, str]] = {
