@@ -128,6 +128,12 @@ def _sidebar_ctx(conn) -> dict:
     inbox_pending = conn.execute(
         "SELECT COUNT(*) FROM inbox WHERE status='pending'"
     ).fetchone()[0]
+    try:
+        suggested_contacts_count = conn.execute(
+            "SELECT COUNT(*) FROM suggested_contacts WHERE status='pending'"
+        ).fetchone()[0]
+    except Exception:
+        suggested_contacts_count = 0
     hours_month = get_dashboard_hours_this_month(conn)
     # Due this week: items from upcoming whose follow_up_date <= 7 days out
     due_this_week = len(upcoming)
@@ -150,6 +156,7 @@ def _sidebar_ctx(conn) -> dict:
         "overdue_count": len(overdue),
         "due_this_week": due_this_week,
         "inbox_pending": inbox_pending,
+        "suggested_contacts_count": suggested_contacts_count,
         "hours_month": hours_month,
         "recent_activities": recent,
         "anomaly_counts": anomaly_counts,
@@ -1336,3 +1343,80 @@ def ac_log_suggestion(
         badge_html += f'<span class="tab-badge" style="background:#f59e0b;color:white">{count}</span>'
     badge_html += '</span>'
     return HTMLResponse(badge_html)
+
+
+# ── Suggested Contacts ───────────────────────────────────────────────────────
+
+
+@router.get("/action-center/suggested-contacts", response_class=HTMLResponse)
+def suggested_contacts_list(request: Request, conn=Depends(get_db)):
+    """Return suggested contacts panel HTML."""
+    rows = [dict(r) for r in conn.execute(
+        """SELECT id, email, parsed_name, organization, client_id, client_name,
+                  source_subject, first_seen_at, last_seen_at, seen_count
+           FROM suggested_contacts
+           WHERE status = 'pending' AND blocked = 0
+           ORDER BY seen_count DESC, last_seen_at DESC"""
+    ).fetchall()]
+    clients = [dict(r) for r in conn.execute(
+        "SELECT id, name FROM clients ORDER BY name"
+    ).fetchall()]
+    return templates.TemplateResponse("action_center/_suggested_contacts.html", {
+        "request": request, "suggestions": rows, "clients": clients,
+    })
+
+
+@router.post("/action-center/suggested-contacts/{sc_id}/add", response_class=HTMLResponse)
+def suggested_contact_add(sc_id: int, request: Request, client_id: int = Form(0), conn=Depends(get_db)):
+    """Add a suggested contact to the contacts table and assign to client."""
+    row = conn.execute("SELECT * FROM suggested_contacts WHERE id=?", (sc_id,)).fetchone()
+    if not row:
+        return HTMLResponse("Not found", status_code=404)
+
+    # Use provided client_id override, or fall back to the suggestion's client_id
+    target_client_id = client_id or row["client_id"]
+    email = row["email"]
+    name = row["parsed_name"] or email.split("@")[0].replace(".", " ").title()
+    org = row["organization"] or ""
+
+    # Create contact (skip if email already exists)
+    existing = conn.execute(
+        "SELECT id FROM contacts WHERE LOWER(TRIM(email))=?", (email.lower().strip(),)
+    ).fetchone()
+    if existing:
+        contact_id = existing["id"]
+    else:
+        cursor = conn.execute(
+            "INSERT INTO contacts (name, email, organization) VALUES (?, ?, ?)",
+            (name, email, org),
+        )
+        contact_id = cursor.lastrowid
+
+    # Assign to client if we have one
+    if target_client_id:
+        exists = conn.execute(
+            "SELECT 1 FROM contact_client_assignments WHERE contact_id=? AND client_id=?",
+            (contact_id, target_client_id),
+        ).fetchone()
+        if not exists:
+            conn.execute(
+                "INSERT INTO contact_client_assignments (contact_id, client_id, contact_type) VALUES (?, ?, 'client')",
+                (contact_id, target_client_id),
+            )
+
+    conn.execute("UPDATE suggested_contacts SET status='added' WHERE id=?", (sc_id,))
+    conn.commit()
+
+    # Re-render the list
+    return suggested_contacts_list(request, conn)
+
+
+@router.post("/action-center/suggested-contacts/{sc_id}/dismiss", response_class=HTMLResponse)
+def suggested_contact_dismiss(sc_id: int, request: Request, block: int = Form(0), conn=Depends(get_db)):
+    """Dismiss a suggested contact. If block=1, permanently suppress this email."""
+    conn.execute(
+        "UPDATE suggested_contacts SET status='dismissed', blocked=? WHERE id=?",
+        (1 if block else 0, sc_id),
+    )
+    conn.commit()
+    return suggested_contacts_list(request, conn)
