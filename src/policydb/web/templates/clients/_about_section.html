@@ -32,7 +32,7 @@
 <script>
 function saveAboutField(el) {
   var field = el.dataset.field;
-  var value = el.textContent.trim();
+  var value = el.innerText.trim();
   fetch('/clients/{{ client.id }}/field', {
     method: 'PATCH',
     headers: {'Content-Type': 'application/json'},
