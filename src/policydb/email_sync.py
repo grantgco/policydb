@@ -27,6 +27,24 @@ def _extract_ref_tags(text: str) -> list[str]:
     return _REF_TAG_RE.findall(text or "")
 
 
+_REPLY_FWD_RE = re.compile(r'^[\s]*(Re|RE|Fwd|FW|Fw)\s*:\s*', re.IGNORECASE)
+
+
+def _normalize_subject(subject: str) -> str:
+    """Normalize an email subject for thread comparison.
+
+    Strips Re:/Fwd:/FW: prefixes (repeated/nested), collapses whitespace, lowercases.
+    """
+    s = subject or ""
+    while True:
+        stripped = _REPLY_FWD_RE.sub('', s)
+        if stripped == s:
+            break
+        s = stripped
+    s = re.sub(r'\s+', ' ', s).strip().lower()
+    return s
+
+
 def _parse_ref_tag(tag: str) -> dict:
     """Parse a ref tag string into components.
 
