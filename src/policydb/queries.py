@@ -1362,6 +1362,91 @@ def set_placement_colleague(conn: sqlite3.Connection, assignment_id: int) -> Non
         )
 
 
+def get_program_contacts(conn: sqlite3.Connection, program_id: int) -> list[dict]:
+    """Return contacts assigned to a program via contact_program_assignments."""
+    rows = conn.execute(
+        """SELECT cpa.id AS assignment_id, co.id AS contact_id,
+                  co.name, co.email, co.phone, co.mobile, co.organization,
+                  cpa.role, cpa.title, cpa.notes, cpa.is_placement_colleague
+           FROM contact_program_assignments cpa
+           JOIN contacts co ON cpa.contact_id = co.id
+           WHERE cpa.program_id = ?
+           ORDER BY cpa.role, co.name""",
+        (program_id,),
+    ).fetchall()
+    result = []
+    for r in rows:
+        d = dict(r)
+        d["id"] = d["assignment_id"]
+        result.append(d)
+    return result
+
+
+def assign_contact_to_program(conn: sqlite3.Connection, contact_id: int, program_id: int, **fields) -> int:
+    """Create or update a contact-program assignment. Returns assignment id."""
+    existing = conn.execute(
+        "SELECT id FROM contact_program_assignments WHERE contact_id=? AND program_id=?",
+        (contact_id, program_id),
+    ).fetchone()
+    if existing:
+        updates = []
+        params = []
+        for field in ("role", "title", "notes", "is_placement_colleague"):
+            if field in fields:
+                updates.append(f"{field}=?")
+                params.append(fields[field])
+        if updates:
+            params.append(existing["id"])
+            conn.execute(f"UPDATE contact_program_assignments SET {', '.join(updates)} WHERE id=?", params)
+        return existing["id"]
+    else:
+        cur = conn.execute(
+            """INSERT INTO contact_program_assignments
+               (contact_id, program_id, role, title, notes, is_placement_colleague)
+               VALUES (?,?,?,?,?,?)""",
+            (contact_id, program_id,
+             fields.get("role"), fields.get("title"), fields.get("notes"),
+             fields.get("is_placement_colleague", 0)),
+        )
+        return cur.lastrowid
+
+
+def remove_contact_from_program(conn: sqlite3.Connection, assignment_id: int) -> None:
+    """Delete a contact-program assignment."""
+    conn.execute("DELETE FROM contact_program_assignments WHERE id=?", (assignment_id,))
+
+
+def set_program_placement_colleague(conn: sqlite3.Connection, assignment_id: int) -> None:
+    """Toggle is_placement_colleague on a program contact assignment."""
+    current = conn.execute(
+        "SELECT is_placement_colleague FROM contact_program_assignments WHERE id=?", (assignment_id,)
+    ).fetchone()
+    if current:
+        new_val = 0 if current["is_placement_colleague"] else 1
+        conn.execute(
+            "UPDATE contact_program_assignments SET is_placement_colleague=? WHERE id=?",
+            (new_val, assignment_id),
+        )
+
+
+def get_program_underwriter_rollup(conn: sqlite3.Connection, program_id: int) -> list[dict]:
+    """Aggregate underwriter contacts from all child policies of a program."""
+    rows = conn.execute(
+        """SELECT DISTINCT co.id AS contact_id, co.name, co.email, co.phone, co.mobile,
+                  p.carrier, p.policy_uid,
+                  cpa.role, cpa.title
+           FROM contact_policy_assignments cpa
+           JOIN contacts co ON cpa.contact_id = co.id
+           JOIN policies p ON cpa.policy_id = p.id
+           WHERE p.program_id = ?
+             AND p.archived = 0
+             AND LOWER(COALESCE(cpa.role, '')) IN ('underwriter', 'uw')
+           ORDER BY p.carrier, co.name""",
+        (program_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
 def merge_contacts(conn: sqlite3.Connection, source_id: int, target_id: int) -> None:
     """Merge source contact into target: reassign all assignments, delete source."""
     # Reassign client assignments (skip if target already has the same assignment)
