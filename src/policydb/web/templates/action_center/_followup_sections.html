@@ -155,13 +155,31 @@
       <button hx-post="/activities/{{ item.id }}/snooze?days=1" hx-target="#{{ row_id }}" hx-swap="outerHTML"
         class="text-xs text-gray-500 bg-white border border-gray-200 px-2 py-1.5 rounded hover:border-gray-300 transition-colors">+1d</button>
       {% endif %}
-      {# Edit slideover (activity_log-sourced items) #}
+      {# Edit slideover — dispatches to source-specific endpoint #}
       {% if item.source in ('activity', 'project') and item.id %}
       <button type="button"
         hx-get="/activities/{{ item.id }}/edit-slideover" hx-target="#fu-edit-content" hx-swap="innerHTML"
         onclick="openFollowupEdit()"
         class="text-xs text-gray-400 bg-white border border-gray-200 px-2 py-1.5 rounded hover:border-gray-300 hover:text-[#003865] transition-colors"
         title="Edit follow-up">&#9998;</button>
+      {% elif item.source == 'policy' and item.policy_uid %}
+      <button type="button"
+        hx-get="/policies/{{ item.policy_uid }}/edit-followup-slideover" hx-target="#fu-edit-content" hx-swap="innerHTML"
+        onclick="openFollowupEdit()"
+        class="text-xs text-gray-400 bg-white border border-gray-200 px-2 py-1.5 rounded hover:border-gray-300 hover:text-[#003865] transition-colors"
+        title="Edit policy follow-up">&#9998;</button>
+      {% elif item.source == 'client' and item.id %}
+      <button type="button"
+        hx-get="/clients/{{ item.id }}/edit-followup-slideover" hx-target="#fu-edit-content" hx-swap="innerHTML"
+        onclick="openFollowupEdit()"
+        class="text-xs text-gray-400 bg-white border border-gray-200 px-2 py-1.5 rounded hover:border-gray-300 hover:text-[#003865] transition-colors"
+        title="Edit client follow-up">&#9998;</button>
+      {% elif item.source == 'issue' and item.id %}
+      <button type="button"
+        hx-get="/issues/{{ item.id }}/edit-slideover" hx-target="#fu-edit-content" hx-swap="innerHTML"
+        onclick="openFollowupEdit()"
+        class="text-xs text-gray-400 bg-white border border-gray-200 px-2 py-1.5 rounded hover:border-gray-300 hover:text-[#003865] transition-colors"
+        title="Edit issue">&#9998;</button>
       {% endif %}
       {# Convert to Issue (activity_log-sourced follow-ups not already linked to an issue) #}
       {% if item.source in ('activity', 'project') and item.id and not item.linked_issue_uid %}
