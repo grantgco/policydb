@@ -12,10 +12,11 @@ import dateparser
 
 from policydb import config as cfg
 from policydb.db import next_policy_uid
-from policydb.utils import normalize_carrier, normalize_coverage_type, normalize_policy_number, normalize_client_name, parse_currency
+from policydb.utils import normalize_carrier, normalize_coverage_type, normalize_policy_number, normalize_client_name, parse_currency, parse_currency_with_magnitude
 
 # Backward-compat alias: other modules import _parse_currency from here
 _parse_currency = parse_currency
+_parse_money = parse_currency_with_magnitude
 
 
 # ─── NORMALIZATION HELPERS ───────────────────────────────────────────────────
@@ -39,7 +40,7 @@ def _parse_bool(value: str) -> int:
 
 
 def _normalize_renewal_status(value: str) -> str:
-    valid = {"Not Started", "In Progress", "Pending Bind", "Bound"}
+    valid = set(cfg.get("renewal_statuses", ["Not Started", "In Progress", "Pending Bind", "Bound"]))
     v = str(value).strip().title() if value else "Not Started"
     # Fuzzy match
     from rapidfuzz import process, fuzz
@@ -299,7 +300,7 @@ class PolicyImporter:
                 self.skipped += 1
                 continue
 
-            premium = _parse_currency(row.get("premium", "0"))
+            premium = _parse_money(row.get("premium", "0"))
 
             client_id = self._get_or_create_client(client_name)
             if client_id is None:
@@ -328,10 +329,10 @@ class PolicyImporter:
 
             uid = next_policy_uid(self.conn)
             description = row.get("description", "").strip() or None
-            limit_amount = _parse_currency(row.get("limit_amount", "0"))
-            deductible = _parse_currency(row.get("deductible", "0"))
-            commission_rate = _parse_currency(row.get("commission_rate", "0"))
-            prior_premium = _parse_currency(row.get("prior_premium", "0")) or None
+            limit_amount = _parse_money(row.get("limit_amount", "0"))
+            deductible = _parse_money(row.get("deductible", "0"))
+            commission_rate = _parse_money(row.get("commission_rate", "0"))
+            prior_premium = _parse_money(row.get("prior_premium", "0")) or None
 
             self.conn.execute(
                 """INSERT INTO policies
@@ -463,9 +464,9 @@ class PremiumHistoryImporter:
                         row.get("carrier") or None,
                         eff,
                         exp,
-                        _parse_currency(row.get("premium", "0")),
-                        _parse_currency(row.get("limit", "0")) or None,
-                        _parse_currency(row.get("deductible", "0")) or None,
+                        _parse_money(row.get("premium", "0")),
+                        _parse_money(row.get("limit", "0")) or None,
+                        _parse_money(row.get("deductible", "0")) or None,
                         row.get("notes") or None,
                     ),
                 )

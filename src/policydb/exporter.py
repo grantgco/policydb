@@ -3120,7 +3120,7 @@ def export_book_review_xlsx(conn: sqlite3.Connection, client_id: int, client_nam
                 "#": action_num,
                 "Priority": "Medium",
                 "Category": "Program Membership",
-                "Policy ID": prog_row["Program ID"],
+                "Policy ID": prog_row["Program"],
                 "What To Do": f"VERIFY: {prog_row['Review Note']}. Should these standalone policies be part of this program?",
                 "Context": f"{prog_row['Carrier Count']} carriers, {prog_row['Child Policies Linked']} linked",
                 "Your Notes": "",

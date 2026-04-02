@@ -235,7 +235,9 @@ POST /{uid}/row/log   → saves, restores display row
 
 ---
 
-## Slideover Panel
+## Slideover Panel (Preferred Pattern for Record Access)
+
+**Slideover is the default pattern for accessing and editing records from list/table views.** Use slideover instead of full-page navigation or new tabs. Full pages are reserved for views with 4+ tabs or deep nested navigation (e.g., full client detail page).
 
 Right-aligned fixed panel for detail/edit views. Shared container in `base.html`, content swapped via HTMX.
 
@@ -255,7 +257,7 @@ Right-aligned fixed panel for detail/edit views. Shared container in `base.html`
   hx-get="/activities/{{ item.id }}/edit-slideover"
   hx-target="#fu-edit-content" hx-swap="innerHTML"
   onclick="openFollowupEdit()"
-  class="text-xs text-gray-400 bg-white border border-gray-200 px-2 py-1.5 rounded hover:border-gray-300 hover:text-[#003865] transition-colors"
+  class="text-xs text-gray-400 bg-white border border-gray-200 px-2 py-1.5 rounded hover:border-gray-300 hover:text-marsh transition-colors"
   title="Edit">&#9998;</button>
 ```
 
@@ -282,9 +284,9 @@ Each slideover is a standalone partial with header, fields, and self-contained J
 ### Styling Rules
 - Labels: `text-[10px] font-medium text-gray-500 uppercase tracking-wide`
 - Inputs: `text-sm border border-gray-300 rounded px-2 py-1.5 focus:ring-1 focus:ring-marsh focus:border-marsh`
-- Quick-date buttons: `text-[10px] border border-gray-200 rounded px-1.5 py-0.5 text-gray-400 hover:text-[#003865]`
-- Pill buttons (active): `bg-[#003865] text-white border-[#003865]`
-- Pill buttons (inactive): `border-gray-200 text-gray-500 hover:border-[#003865] hover:text-[#003865]`
+- Quick-date buttons: `text-[10px] border border-gray-200 rounded px-1.5 py-0.5 text-gray-400 hover:text-marsh`
+- Pill buttons (active): `bg-marsh text-white border-marsh`
+- Pill buttons (inactive): `border-gray-200 text-gray-500 hover:border-marsh hover:text-marsh`
 - Green flash: `backgroundColor = '#ecfdf5'` for 800ms
 
 ### Existing Slideovers
@@ -386,13 +388,55 @@ Low: bg-gray-100 text-gray-600
 
 ---
 
+## Confirmation & Error Feedback Patterns
+
+**Destructive actions** — use `confirmAction()` (two-click pattern), NEVER `confirm()`:
+```html
+<button onclick="confirmAction(this, 'Delete this record?')"
+  data-href="/items/{{ id }}/delete" data-method="DELETE">Delete</button>
+```
+
+**Validation errors** — use `showToast()` or inline red border + message, NEVER `alert()`:
+```javascript
+// Success feedback
+showToast('Saved', true);
+
+// Error feedback
+showToast('Failed to save — check required fields', false);
+
+// Inline error (preferred for field validation)
+el.classList.add('border-red-500');
+el.nextElementSibling.textContent = 'Required field';
+```
+
+**Error logging** — always pair `console.error()` with visible user feedback:
+```javascript
+// WRONG
+console.error('Save failed', err);
+
+// CORRECT
+console.error('Save failed', err);
+showToast('Save failed — please try again', false);
+```
+
+---
+
+## Color Migration Note
+
+**`#003865` is the OLD Marsh navy.** The current design system primary brand is `#000F47` (Midnight Blue), mapped to the Tailwind `marsh` token. Always use `bg-marsh`, `text-marsh`, `border-marsh` instead of hardcoded `#003865` or `[#003865]`. There are ~182 legacy occurrences of `#003865` in templates that should be migrated to the `marsh` token as files are touched.
+
+---
+
 ## Anti-Patterns (Never Do)
 
 - No `<input>` inside `<td>` — use contenteditable
 - No `<select>` where user might type — use combobox
 - No raw `<input type="checkbox">` — use toggle switch
-- No `alert()` or `confirm()` — use inline prompts or `confirmAction()`
-- No `console.error()` only — show red border + inline message
+- No `alert()` or `confirm()` — use `showToast()` or `confirmAction()`
+- No `console.error()` as only error feedback — show red border + inline message or toast
+- No hardcoded `#003865` — use Tailwind `marsh` token (`#000F47`)
 - No Save buttons on auto-save pages
 - No collapsed `<details>` sections on detail pages
 - No `| e` with `tojson` in double-quoted HTML attributes
+- No `target="_blank"` for same-app navigation — only for mailto, exports, PDFs
+- No raw `${{ "{:,.0f}".format(value) }}` — use `{{ value | currency }}` filter
