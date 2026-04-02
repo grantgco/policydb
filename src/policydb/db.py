@@ -1736,7 +1736,12 @@ def init_db(path: Path | None = None) -> None:
         logger.info("Migration 127: created team_chart_dismissals table")
 
     if 128 not in applied:
-        conn.execute("ALTER TABLE policies RENAME COLUMN needs_investigation TO flagged")
+        # Rename needs_investigation → flagged; skip if already renamed
+        _pol_cols = {r[1] for r in conn.execute("PRAGMA table_info(policies)").fetchall()}
+        if "needs_investigation" in _pol_cols:
+            conn.execute("ALTER TABLE policies RENAME COLUMN needs_investigation TO flagged")
+        elif "flagged" not in _pol_cols:
+            conn.execute("ALTER TABLE policies ADD COLUMN flagged INTEGER DEFAULT 0")
         conn.execute(
             "INSERT INTO schema_version (version, description) VALUES (?, ?)",
             (128, "Rename needs_investigation to flagged on policies"),
