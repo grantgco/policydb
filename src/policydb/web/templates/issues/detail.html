@@ -484,6 +484,11 @@
              data-issue-id="{{ issue.id }}">{{ issue.details or '' }}</div>
       </div>
 
+      {# ── Checklist card ── #}
+      <div class="card p-4" id="issue-checklist-card">
+        {% include "issues/_issue_checklist.html" %}
+      </div>
+
       {# ── Actions card: Merge + Delete ── #}
       <div class="card p-4">
         <div class="text-[10px] text-gray-400 uppercase tracking-wide mb-2">Actions</div>
