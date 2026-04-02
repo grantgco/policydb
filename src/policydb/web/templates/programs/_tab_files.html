@@ -1,11 +1,7 @@
 {# Program Files Tab — lazy-loads the universal attachment panel #}
-<div class="py-4">
-  <div class="card mb-4">
-    <div hx-get="/api/attachments/panel?record_type=program&record_id={{ program.id }}"
-         hx-trigger="load" hx-swap="innerHTML">
-      <div class="px-4 py-3">
-        <p class="text-xs text-gray-400 italic">Loading...</p>
-      </div>
-    </div>
+<div class="py-6 px-2">
+  <div hx-get="/api/attachments/panel?record_type=program&record_id={{ program.id }}"
+       hx-trigger="load" hx-swap="innerHTML">
+    <p class="text-xs text-gray-400 italic">Loading...</p>
   </div>
 </div>
