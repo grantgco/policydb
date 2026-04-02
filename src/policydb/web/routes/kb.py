@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import json
 import logging
 import os
@@ -49,6 +50,8 @@ CATEGORY_COLORS = {
 }
 
 _DEFAULT_COLORS = {"bg": "bg-gray-100", "text": "text-gray-600", "border_hex": "#9ca3af"}
+
+_ALLOWED_ENTITY_TYPES = {"kb_article", "attachment", "issue", "policy", "client", "activity", "project"}
 
 
 def _get_colors(category: str) -> dict:
@@ -387,6 +390,10 @@ async def delete_article(uid: str, conn=Depends(get_db)):
     if article:
         conn.execute("DELETE FROM record_attachments WHERE record_type = 'kb_article' AND record_id = ?", (article["id"],))
         conn.execute("DELETE FROM kb_record_links WHERE entry_type = 'article' AND entry_id = ?", (article["id"],))
+        conn.execute(
+            "DELETE FROM kb_links WHERE (source_type = 'kb_article' AND source_id = ?) OR (target_type = 'kb_article' AND target_id = ?)",
+            (article["id"], article["id"]),
+        )
         conn.execute("DELETE FROM kb_articles WHERE id = ?", (article["id"],))
         conn.commit()
         logger.info("KB article deleted: %s", uid)
@@ -555,6 +562,10 @@ async def delete_document(uid: str, conn=Depends(get_db)):
             if file_path.exists():
                 file_path.unlink()
         # record_attachments cascade via FK ON DELETE CASCADE
+        conn.execute(
+            "DELETE FROM kb_links WHERE (source_type = 'attachment' AND source_id = ?) OR (target_type = 'attachment' AND target_id = ?)",
+            (doc["id"], doc["id"]),
+        )
         conn.execute("DELETE FROM attachments WHERE id = ?", (doc["id"],))
         conn.commit()
         logger.info("KB document deleted: %s", uid)
@@ -896,6 +907,8 @@ async def create_kb_link(
     conn=Depends(get_db),
 ):
     """Create a bi-directional link between two entities."""
+    if source_type not in _ALLOWED_ENTITY_TYPES or target_type not in _ALLOWED_ENTITY_TYPES:
+        return HTMLResponse("", status_code=400)
     try:
         conn.execute(
             "INSERT OR IGNORE INTO kb_links (source_type, source_id, target_type, target_id) VALUES (?, ?, ?, ?)",
@@ -1016,16 +1029,18 @@ async def search_linkable(
 
     html_parts = []
     for r in results:
-        escaped_label = r["label"].replace("'", "&#39;").replace('"', "&quot;")
+        safe_label = html.escape(r["label"])
+        attr_label = safe_label.replace("'", "&#39;")
+        display_type = html.escape(r["type"].replace("kb_article", "article").replace("attachment", "file"))
         html_parts.append(
             f'<button type="button" class="w-full text-left px-3 py-1.5 text-xs hover:bg-gray-50 flex items-center gap-2" '
-            f'onclick="selectLinkedEntity(\'{r["type"]}\', {r["id"]}, \'{escaped_label}\');">'
-            f'<span class="text-[9px] uppercase font-medium text-gray-400 w-12">{r["type"].replace("kb_article","article").replace("attachment","file")}</span>'
-            f'<span class="text-gray-700 truncate">{r["label"]}</span>'
+            f"onclick=\"selectLinkedEntity('{html.escape(r['type'])}', {r['id']}, '{attr_label}');\">"
+            f'<span class="text-[9px] uppercase font-medium text-gray-400 w-12">{display_type}</span>'
+            f'<span class="text-gray-700 truncate">{safe_label}</span>'
             f'</button>'
         )
-    html = '<div class="py-1">' + ''.join(html_parts) + '</div>'
-    return HTMLResponse(html)
+    html_output = '<div class="py-1">' + ''.join(html_parts) + '</div>'
+    return HTMLResponse(html_output)
 
 
 # ── KB links for client/policy pages ─────────────────────────────────────────
