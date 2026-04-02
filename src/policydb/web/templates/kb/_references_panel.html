@@ -1,0 +1,70 @@
+{# Shared references panel — shows all entities linked to the current entity.
+   Expects: grouped_references (list of (type, label, refs)), entity_type, entity_id, total_count #}
+
+{% if grouped_references %}
+<div class="space-y-3">
+  {% for ref_type, ref_label, refs in grouped_references %}
+  <div>
+    <div class="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1">{{ ref_label }}</div>
+    <div class="space-y-1">
+      {% for ref in refs %}
+      <div class="flex items-center gap-2 group">
+        <a href="{{ ref.url }}" class="flex items-center gap-2 text-xs text-gray-700 hover:text-marsh flex-1 min-w-0">
+          {# Type-specific icon #}
+          {% if ref.type == 'kb_article' %}
+          <svg class="w-3.5 h-3.5 text-[#0B4BFF] flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
+          </svg>
+          {% elif ref.type == 'attachment' and ref.get('source') == 'devonthink' %}
+          <svg class="w-3.5 h-3.5 text-[#8b5cf6] flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/>
+          </svg>
+          {% elif ref.type == 'attachment' %}
+          <svg class="w-3.5 h-3.5 text-red-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+            <path fill-rule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clip-rule="evenodd"/>
+          </svg>
+          {% elif ref.type == 'issue' %}
+          <svg class="w-3.5 h-3.5 text-amber-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4.5c-.77-.833-2.694-.833-3.464 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z"/>
+          </svg>
+          {% elif ref.type == 'policy' %}
+          <svg class="w-3.5 h-3.5 text-violet-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+          </svg>
+          {% elif ref.type == 'client' %}
+          <svg class="w-3.5 h-3.5 text-green-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/>
+          </svg>
+          {% elif ref.type == 'project' %}
+          <svg class="w-3.5 h-3.5 text-orange-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/>
+          </svg>
+          {% elif ref.type == 'activity' %}
+          <svg class="w-3.5 h-3.5 text-teal-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+          </svg>
+          {% endif %}
+          <span class="text-[9px] font-mono bg-gray-100 text-gray-500 rounded px-1 py-0.5 flex-shrink-0">{{ ref.uid }}</span>
+          <span class="flex-1 min-w-0 truncate">{{ ref.title }}</span>
+          {% if ref.get('category') %}
+          <span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-medium {{ ref.colors.bg }} {{ ref.colors.text }} flex-shrink-0">
+            {{ ref.category }}
+          </span>
+          {% endif %}
+        </a>
+        <button type="button"
+          hx-delete="/kb/links/{{ ref.link_id }}?return_panel_for_type={{ entity_type }}&return_panel_for_id={{ entity_id }}"
+          hx-target="#references-panel-{{ entity_type }}-{{ entity_id }}"
+          hx-swap="innerHTML"
+          hx-confirm="Remove this reference?"
+          class="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity no-print flex-shrink-0"
+          title="Remove reference">&times;</button>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<p class="text-[10px] text-gray-400 italic">No references linked</p>
+{% endif %}
