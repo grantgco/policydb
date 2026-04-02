@@ -133,21 +133,30 @@
           </div>
         </div>
 
-        <!-- Linked Records -->
+        <!-- References -->
         <div class="card p-3">
-          <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Linked Records</h3>
-          <div id="record-links-container">
-            {% with entry_type='document', uid=doc.uid %}
-            {% include "kb/_record_links_list.html" %}
-            {% endwith %}
-          </div>
-          <div class="mt-2">
-            <div class="relative">
-              <input type="search" placeholder="Search clients/policies..."
-                     class="w-full text-xs border border-gray-200 rounded px-2 py-1.5 focus:ring-1 focus:ring-marsh outline-none"
-                     hx-get="/kb/search-entities" hx-trigger="keyup changed delay:300ms"
-                     hx-target="#entity-picker-results" name="q">
-              <div id="entity-picker-results"></div>
+          {# ── References ── #}
+          <div class="py-0">
+            <div class="flex items-center justify-between mb-2">
+              <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide">References</p>
+              <button type="button" onclick="var el=document.getElementById('ref-picker-{{ doc.uid }}');el.classList.toggle('hidden');if(!el.classList.contains('hidden'))el.querySelector('input').focus();"
+                class="text-[10px] text-marsh hover:underline no-print">+ Link</button>
+            </div>
+            <div id="references-panel-attachment-{{ doc.id }}"
+              hx-get="/kb/references/attachment/{{ doc.id }}"
+              hx-trigger="load"
+              hx-swap="innerHTML">
+              <span class="text-xs text-gray-300">Loading...</span>
+            </div>
+            <div id="ref-picker-{{ doc.uid }}" class="hidden mt-2 pt-2 border-t border-gray-100 relative">
+              <input type="text" placeholder="Search to link..."
+                hx-get="/kb/search-linkable"
+                hx-trigger="keyup changed delay:300ms"
+                hx-target="#ref-picker-results-{{ doc.uid }}"
+                name="q"
+                class="w-full text-xs border border-gray-200 rounded px-2 py-1.5 focus:ring-1 focus:ring-marsh placeholder-gray-300"
+                autocomplete="off">
+              <div id="ref-picker-results-{{ doc.uid }}" class="absolute top-full left-0 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg z-50 max-h-48 overflow-y-auto hidden"></div>
             </div>
           </div>
         </div>
@@ -209,15 +218,30 @@ function confirmDeleteDoc(uid) {
   }
 }
 
-function linkEntity(entityType, entityId) {
-  fetch('/kb/document/{{ doc.uid }}/link', {
+/* References panel — link picker */
+function selectLinkedEntity(type, id, label) {
+  fetch('/kb/links', {
     method: 'POST',
     headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-    body: 'entity_type=' + entityType + '&entity_id=' + entityId
+    body: new URLSearchParams({
+      source_type: 'attachment',
+      source_id: '{{ doc.id }}',
+      target_type: type,
+      target_id: id,
+      return_panel_for_type: 'attachment',
+      return_panel_for_id: '{{ doc.id }}'
+    })
   }).then(function(r) { return r.text(); }).then(function(html) {
-    document.getElementById('record-links-container').innerHTML = html;
-    document.getElementById('entity-picker-results').innerHTML = '';
+    document.getElementById('references-panel-attachment-{{ doc.id }}').innerHTML = html;
+    var picker = document.getElementById('ref-picker-{{ doc.uid }}');
+    picker.classList.add('hidden');
+    picker.querySelector('input').value = '';
   });
 }
+document.body.addEventListener('htmx:afterOnLoad', function(e) {
+  if (e.detail.target && e.detail.target.id && e.detail.target.id.startsWith('ref-picker-results-')) {
+    e.detail.target.classList.toggle('hidden', e.detail.target.innerHTML.trim() === '');
+  }
+});
 </script>
 {% endblock %}
