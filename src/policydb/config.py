@@ -821,12 +821,16 @@ def load_config() -> dict[str, Any]:
         try:
             with open(CONFIG_PATH) as f:
                 user = yaml.safe_load(f) or {}
-            # Deep merge renewal_windows
-            if "renewal_windows" in user:
-                result["renewal_windows"].update(user.pop("renewal_windows"))
-            result.update(user)
-        except Exception:
-            pass
+            # Deep merge all dict-type config keys so partial overrides
+            # don't lose default values for unspecified sub-keys
+            for key, val in user.items():
+                if isinstance(val, dict) and isinstance(result.get(key), dict):
+                    result[key] = {**result[key], **val}
+                else:
+                    result[key] = val
+        except Exception as e:
+            import logging
+            logging.getLogger("policydb").warning("Failed to load config.yaml: %s", e)
     _config = result
     return _config
 

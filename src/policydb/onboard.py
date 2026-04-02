@@ -179,7 +179,7 @@ def _renewal_setup(conn: sqlite3.Connection, client_id: int) -> None:
     if not click.confirm("Configure renewal assignments now?", default=True):
         return
 
-    valid_statuses = ["Not Started", "In Progress", "Pending Bind", "Bound"]
+    valid_statuses = cfg.get("renewal_statuses", ["Not Started", "In Progress", "Pending Bind", "Bound"])
 
     for r in near_term:
         click.echo(f"\n  {r['policy_uid']}: {r['policy_type']} / {r['carrier']} — expires {r['expiration_date']} ({r['days']}d)")

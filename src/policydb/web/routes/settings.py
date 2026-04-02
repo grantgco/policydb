@@ -63,6 +63,9 @@ EDITABLE_LISTS: dict[str, str] = {
     "attachment_categories": "Attachment Categories",
     "freemail_domains": "Freemail Domains (Skip for Client Matching)",
     "internal_email_domains": "Internal Email Domains (Skip for Client Matching)",
+    "relationship_risk_levels": "Relationship Risk Levels",
+    "risk_review_prompt_categories": "Risk Review Prompt Categories",
+    "import_source_names": "Import Source Names",
 }
 
 TAB_LISTS: dict[str, dict[str, str]] = {
@@ -97,6 +100,8 @@ TAB_LISTS: dict[str, dict[str, str]] = {
         "risk_control_statuses": "Risk Control Statuses",
         "risk_adequacy_levels": "Coverage Adequacy Levels",
         "compliance_statuses": "Compliance Statuses",
+        "relationship_risk_levels": "Relationship Risk Levels",
+        "risk_review_prompt_categories": "Risk Review Prompt Categories",
     },
     "email-contacts": {
         "industry_segments": "Industry Segments",
@@ -124,6 +129,7 @@ TAB_LISTS: dict[str, dict[str, str]] = {
         "kb_categories": "KB Categories",
         "kb_article_sources": "KB Article Sources",
         "attachment_categories": "Attachment Categories",
+        "import_source_names": "Import Source Names",
     },
     "data-health": {},
     "anomalies": {},

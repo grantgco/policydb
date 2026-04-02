@@ -202,11 +202,12 @@ def _safe_id(s: str) -> str:
 
 
 def _fmt_hours(value) -> str:
-    """:g strips trailing zeros: 1.0 → '1h', 1.5 → '1.5h', 0 → '—'."""
+    """Strip trailing zeros: 1.0 → '1h', 1.5 → '1.5h', 0 → '—'."""
     if value is None or value == 0:
         return "—"
     try:
-        return f"{float(value):g}h"
+        formatted = f"{float(value):.1f}".rstrip("0").rstrip(".")
+        return f"{formatted}h"
     except (TypeError, ValueError):
         return "—"
 

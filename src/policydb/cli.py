@@ -384,7 +384,7 @@ def policy_add(client_name):
     conn = _get_conn()
     account_exec = cfg.get("default_account_exec", "Grant")
     policy_types = cfg.get("policy_types")
-    valid_statuses = ["Not Started", "In Progress", "Pending Bind", "Bound"]
+    valid_statuses = cfg.get("renewal_statuses", ["Not Started", "In Progress", "Pending Bind", "Bound"])
 
     if client_name:
         client = _resolve_client(conn, client_name)
@@ -593,7 +593,7 @@ def policy_edit(policy_uid):
 
 @policy_group.command("set-status")
 @click.argument("policy_uid")
-@click.argument("status", type=click.Choice(["Not Started", "In Progress", "Pending Bind", "Bound"], case_sensitive=False))
+@click.argument("status")
 def policy_set_status(policy_uid, status):
     """Quick renewal status update."""
     conn = _get_conn()

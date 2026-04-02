@@ -96,7 +96,7 @@ def layer_notation(limit_amount, attachment_point=None, participation_of=None) -
 
     def _fmt(v: float) -> str:
         m = v / 1_000_000
-        return f"${m:g}M"
+        return f"${f'{m:.6f}'.rstrip('0').rstrip('.')}M"
 
     lim = _fmt(limit_amount)
 

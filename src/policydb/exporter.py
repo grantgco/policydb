@@ -25,7 +25,9 @@ _INTERNAL_FIELDS = {
     "underwriter_contact", "notes", "account_exec",
 }
 
-TODAY = date.today().isoformat()
+def _today() -> str:
+    """Return today's date as ISO string. Called per-export to avoid stale dates in long-running servers."""
+    return date.today().isoformat()
 
 
 def _schedule_rows_for_client(conn: sqlite3.Connection, client_id: int) -> list[sqlite3.Row]:
@@ -54,7 +56,7 @@ def export_schedule_md(conn: sqlite3.Connection, client_id: int, client_name: st
         "# Schedule of Insurance",
         "",
         f"**Insured:** {client_name}",
-        f"**Prepared:** {TODAY}",
+        f"**Prepared:** {_today()}",
         f"**Prepared by:** {account_exec}, Marsh",
         "",
         "| First Named Insured | Line of Business | Carrier | Policy # | Effective | Expiration | Premium | Limit | Deductible | Form | Layer | Comments |",
@@ -103,7 +105,7 @@ def export_schedule_json(conn: sqlite3.Connection, client_id: int, client_name: 
         policies.append(d)
     return json.dumps({
         "client": client_name,
-        "prepared": TODAY,
+        "prepared": _today(),
         "total_premium": sum(r["Premium"] or 0 for r in rows),
         "policies": policies,
     }, indent=2, default=str)
@@ -230,7 +232,7 @@ def export_llm_client_md(conn: sqlite3.Connection, client_id: int) -> str:
         f'client: "{client["name"]}"',
         f'industry: "{client["industry_segment"]}"',
         f'account_executive: "{client["account_exec"]}"',
-        f'export_date: "{TODAY}"',
+        f'export_date: "{_today()}"',
         f"total_policies: {len(policies)}",
         f"total_annual_premium: {fmt_currency(total_premium)}",
         f"estimated_annual_revenue: {fmt_currency(total_revenue)}",
@@ -654,7 +656,7 @@ def export_llm_client_json(conn: sqlite3.Connection, client_id: int) -> str:
     data = {
         "metadata": {
             "export_type": "client_program",
-            "date": TODAY,
+            "date": _today(),
             "client": client["name"],
         },
         "client": dict(client),
@@ -729,7 +731,7 @@ def export_llm_book_md(conn: sqlite3.Connection) -> str:
         "---",
         "export_type: book_of_business",
         f'account_executive: "{cfg.get("default_account_exec", "Grant")}"',
-        f'export_date: "{TODAY}"',
+        f'export_date: "{_today()}"',
         f"total_clients: {len(clients)}",
         f"total_policies: {len(all_policies)}",
         f"total_premium: {fmt_currency(total_premium)}",
@@ -800,7 +802,7 @@ def export_llm_book_json(conn: sqlite3.Connection) -> str:
     overdue = conn.execute("SELECT * FROM v_overdue_followups").fetchall()
 
     return json.dumps({
-        "metadata": {"export_type": "book_of_business", "date": TODAY},
+        "metadata": {"export_type": "book_of_business", "date": _today()},
         "clients": [dict(c) for c in clients],
         "policies": [dict(p) for p in all_policies],
         "renewal_pipeline": [dict(p) for p in pipeline],
@@ -863,7 +865,7 @@ def export_renewals_md(conn: sqlite3.Connection, window_days: int = 180) -> str:
     lines = [
         f"# Renewal Pipeline — Next {window_days} Days",
         "",
-        f"**As of:** {TODAY}  ",
+        f"**As of:** {_today()}  ",
         f"**Policies:** {len(rows)}  ",
         f"**Premium at Risk:** {fmt_currency(total)}",
         "",
@@ -890,7 +892,7 @@ def export_renewals_json(conn: sqlite3.Connection, window_days: int = 180) -> st
     ).fetchall()
     return json.dumps({
         "window_days": window_days,
-        "export_date": TODAY,
+        "export_date": _today(),
         "renewals": [dict(r) for r in rows],
     }, indent=2, default=str)
 
@@ -2161,7 +2163,7 @@ def export_compliance_xlsx(
     _compliance_sheet_cope(wb, conn, client_id, project_ids=project_ids)
 
     safe_name = client_name.replace(" ", "_").replace("/", "-")
-    filename = f"Compliance_{safe_name}_{TODAY}.xlsx"
+    filename = f"Compliance_{safe_name}_{_today()}.xlsx"
     return _wb_to_bytes(wb), filename
 
 
@@ -2175,7 +2177,7 @@ def _compliance_sheet_executive(wb: Workbook, data: dict, client_name: str) -> N
 
     rows_to_write: list[tuple[str, Any]] = [
         ("Client", client_name),
-        ("Report Date", TODAY),
+        ("Report Date", _today()),
         ("Overall Compliance", f"{s['compliance_pct']}%"),
         ("", ""),
         ("Total Requirements", s["total"]),
@@ -2416,7 +2418,7 @@ def export_compliance_md(
         client_name = row["name"] if row else f"Client_{client_id}"
 
     safe_name = client_name.replace(" ", "_").replace("/", "-")
-    filename = f"Compliance_{safe_name}_{TODAY}.md"
+    filename = f"Compliance_{safe_name}_{_today()}.md"
 
     locations = data["locations"]
     s = data["overall_summary"]
@@ -2427,7 +2429,7 @@ def export_compliance_md(
         "# Insurance Compliance Review",
         "",
         f"**Client:** {client_name}  ",
-        f"**Report Date:** {TODAY}  ",
+        f"**Report Date:** {_today()}  ",
         f"**Locations:** {len(locations)}",
         "",
         "---",
