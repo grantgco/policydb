@@ -722,7 +722,7 @@
   function loadSuggestions() {
     var clientId = document.getElementById('team-canvas').dataset.clientId;
     if (!clientId) return;
-    fetch('/api/team/' + clientId + '/suggestions')
+    fetch('/charts/api/team/' + clientId + '/suggestions')
       .then(function(r) { return r.json(); })
       .then(function(data) {
         suggestions = data;
@@ -754,7 +754,7 @@
   window.confirmSuggestion = function(contactId) {
     var clientId = document.getElementById('team-canvas').dataset.clientId;
     if (!clientId) return;
-    fetch('/api/team/' + clientId + '/suggestions/' + contactId + '/confirm', { method: 'POST' })
+    fetch('/charts/api/team/' + clientId + '/suggestions/' + contactId + '/confirm', { method: 'POST' })
       .then(function(r) { return r.json(); })
       .then(function(data) {
         if (!data.ok) return;
@@ -783,7 +783,7 @@
   window.dismissSuggestion = function(contactId) {
     var clientId = document.getElementById('team-canvas').dataset.clientId;
     if (!clientId) return;
-    fetch('/api/team/' + clientId + '/suggestions/' + contactId + '/dismiss', { method: 'POST' })
+    fetch('/charts/api/team/' + clientId + '/suggestions/' + contactId + '/dismiss', { method: 'POST' })
       .then(function(r) { return r.json(); })
       .then(function(data) {
         if (!data.ok) return;
@@ -796,8 +796,8 @@
   // ── Load from Client ──────────────────────────────────────────────────
   window.loadTeamFromClient = function() {
     // Find the client ID from the snapshot bar's client combobox
-    var clientInput = document.querySelector('.snapshot-bar input[name="snapshot_client_name"]');
-    var clientIdInput = document.querySelector('.snapshot-bar input[name="snapshot_client_id"]');
+    var clientInput = document.getElementById('snapshot-client');
+    var clientIdInput = document.getElementById('snapshot-client-id');
     if (!clientIdInput || !clientIdInput.value) {
       ManualChart.toast('Select a client in the snapshot bar first', 'error');
       return;
@@ -1058,7 +1058,7 @@
   buildMemberEditor();
   buildCanvas();
   // Load suggestions if snapshot restored with a client
-  var initClientId = document.querySelector('.snapshot-bar input[name="snapshot_client_id"]');
+  var initClientId = document.getElementById('snapshot-client-id');
   if (initClientId && initClientId.value) {
     document.getElementById('team-canvas').dataset.clientId = initClientId.value;
     loadSuggestions();
