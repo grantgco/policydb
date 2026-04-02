@@ -17,6 +17,23 @@
       class="text-xs bg-marsh text-white px-3 py-1.5 rounded font-medium hover:bg-marsh-light transition-colors no-print">+ New Issue</button>
   </div>
 
+  {# Filter pills #}
+  {% set renewal_count = open_issues | selectattr('is_renewal_issue') | list | length %}
+  {% set manual_count = open_issues | length - renewal_count %}
+  {% if open_issues and (renewal_count > 0 and manual_count > 0) %}
+  <div class="flex items-center gap-1.5 mb-3 no-print" id="issue-type-filter">
+    <button type="button" onclick="filterIssues('all')" data-filter="all"
+      class="text-[11px] px-2.5 py-1 rounded-full font-medium transition-colors border border-gray-200 bg-white text-gray-700 issue-filter-btn issue-filter-active">
+      All <span class="text-gray-400 ml-0.5">{{ open_issues | length }}</span></button>
+    <button type="button" onclick="filterIssues('manual')" data-filter="manual"
+      class="text-[11px] px-2.5 py-1 rounded-full font-medium transition-colors border border-gray-200 bg-white text-gray-500 issue-filter-btn">
+      Manual <span class="text-gray-400 ml-0.5">{{ manual_count }}</span></button>
+    <button type="button" onclick="filterIssues('renewal')" data-filter="renewal"
+      class="text-[11px] px-2.5 py-1 rounded-full font-medium transition-colors border border-gray-200 bg-white text-gray-500 issue-filter-btn">
+      Renewal <span class="text-gray-400 ml-0.5">{{ renewal_count }}</span></button>
+  </div>
+  {% endif %}
+
   {# ── Open Issues ── #}
   {% if open_issues %}
   <div class="space-y-2 mb-6">
@@ -25,7 +42,7 @@
     {% set days = (iss.days_open or 0)|int %}
     {% set sla = iss.issue_sla_days or 7 %}
     {% set ist = iss.issue_status or 'Open' %}
-    <div class="card px-4 py-3 flex items-center gap-3 hover:bg-gray-50 transition-colors">
+    <div class="card px-4 py-3 flex items-center gap-3 hover:bg-gray-50 transition-colors issue-card" data-issue-type="{{ 'renewal' if iss.is_renewal_issue else 'manual' }}">
       {# Severity dot #}
       <span class="w-2.5 h-2.5 rounded-full flex-shrink-0
         {% if sev == 'Critical' %}bg-red-500
@@ -143,3 +160,22 @@
   {% endif %}
 
 </div>
+
+<script>
+function filterIssues(type) {
+  document.querySelectorAll('.issue-card').forEach(function(card) {
+    card.style.display = (type === 'all' || card.dataset.issueType === type) ? '' : 'none';
+  });
+  document.querySelectorAll('.issue-filter-btn').forEach(function(btn) {
+    var active = btn.dataset.filter === type;
+    btn.classList.toggle('issue-filter-active', active);
+    btn.classList.toggle('bg-[#000F47]', active);
+    btn.classList.toggle('text-white', active);
+    btn.classList.toggle('border-[#000F47]', active);
+    btn.classList.toggle('bg-white', !active);
+    btn.classList.toggle('text-gray-500', !active);
+    btn.classList.toggle('text-gray-700', false);
+    btn.classList.toggle('border-gray-200', !active);
+  });
+}
+</script>
