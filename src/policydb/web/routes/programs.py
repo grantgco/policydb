@@ -574,6 +574,19 @@ def program_tab_contacts(request: Request, program_uid: str, conn=Depends(get_db
     })
 
 
+@router.get("/programs/{program_uid}/tab/files", response_class=HTMLResponse)
+def program_tab_files(request: Request, program_uid: str, conn=Depends(get_db)):
+    """Files tab: universal attachment panel for program."""
+    program = get_program_by_uid(conn, program_uid)
+    if not program:
+        return HTMLResponse("Not found", status_code=404)
+
+    return templates.TemplateResponse("programs/_tab_files.html", {
+        "request": request,
+        "program": program,
+    })
+
+
 # ── Program Contact CRUD ───────────────────────────────────────────────────
 
 
