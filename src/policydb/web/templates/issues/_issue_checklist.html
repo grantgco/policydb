@@ -1,0 +1,85 @@
+{% set done = checklist_items | selectattr('completed') | list | length %}
+{% set total = checklist_items | length %}
+<div class="text-[10px] text-gray-400 uppercase tracking-wide mb-2 flex items-center justify-between">
+  <span>Checklist</span>
+  {% if total %}
+  <span class="{% if done == total %}text-green-600{% else %}text-gray-400{% endif %}">{{ done }}/{{ total }}</span>
+  {% endif %}
+</div>
+
+{# Items #}
+<div class="space-y-1" id="checklist-items">
+  {% for item in checklist_items %}
+  <div class="flex items-start gap-2 group" id="cl-item-{{ item.id }}">
+    <input type="checkbox" {% if item.completed %}checked{% endif %}
+           onchange="toggleChecklistItem({{ issue.id }}, {{ item.id }}, this.checked)"
+           class="mt-0.5 rounded border-gray-300 text-marsh focus:ring-marsh cursor-pointer">
+    <span contenteditable="true"
+          data-item-id="{{ item.id }}"
+          onblur="saveChecklistLabel({{ issue.id }}, {{ item.id }}, this)"
+          onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}"
+          class="flex-1 text-sm outline-none {% if item.completed %}line-through text-gray-400{% else %}text-gray-700{% endif %} focus:bg-gray-50 rounded px-0.5 -mx-0.5">{{ item.label }}</span>
+    <button type="button"
+            hx-delete="/issues/{{ issue.id }}/checklist/{{ item.id }}"
+            hx-target="#issue-checklist-card"
+            hx-swap="innerHTML"
+            class="text-gray-300 hover:text-red-500 text-xs opacity-0 group-hover:opacity-100 transition-opacity shrink-0 mt-0.5 no-print"
+            title="Remove">&times;</button>
+  </div>
+  {% endfor %}
+</div>
+
+{# Add item input #}
+<div class="mt-2 no-print">
+  <div contenteditable="true"
+       id="checklist-add-input"
+       data-placeholder="+ Add item..."
+       onkeydown="if(event.key==='Enter'){event.preventDefault();addChecklistItem({{ issue.id }}, this);}"
+       class="text-sm text-gray-500 outline-none border-b border-transparent hover:border-gray-200 focus:border-marsh px-0.5 -mx-0.5 py-0.5
+              empty:before:content-[attr(data-placeholder)] empty:before:text-gray-300"></div>
+</div>
+
+<script>
+function toggleChecklistItem(issueId, itemId, checked) {
+  fetch('/issues/' + issueId + '/checklist/' + itemId, {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({completed: checked})
+  }).then(function(r) { return r.json(); }).then(function(d) {
+    if (d.ok) {
+      // Re-fetch the card to update styling
+      htmx.ajax('GET', '/issues/' + issueId + '/checklist', {target: '#issue-checklist-card', swap: 'innerHTML'});
+    }
+  });
+}
+
+function saveChecklistLabel(issueId, itemId, el) {
+  var label = el.innerText.trim();
+  if (!label) return;
+  fetch('/issues/' + issueId + '/checklist/' + itemId, {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({label: label})
+  });
+}
+
+function addChecklistItem(issueId, el) {
+  var label = el.innerText.trim();
+  if (!label) return;
+  el.textContent = '';
+  var form = new FormData();
+  form.append('label', label);
+  fetch('/issues/' + issueId + '/checklist', {
+    method: 'POST',
+    body: form
+  }).then(function(r) { return r.text(); }).then(function(html) {
+    document.getElementById('issue-checklist-card').innerHTML = html;
+    htmx.process(document.getElementById('issue-checklist-card'));
+    // Focus the add input again for rapid entry
+    setTimeout(function() {
+      var inp = document.getElementById('checklist-add-input');
+      if (inp) inp.focus();
+    }, 50);
+  });
+}
+</script>
