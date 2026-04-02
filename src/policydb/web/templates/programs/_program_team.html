@@ -1,0 +1,61 @@
+{# Program Team Matrix — editable contact table #}
+<div id="program-team-wrap">
+  <div class="flex items-center justify-between mb-2">
+    <h3 class="text-sm font-semibold text-[#3D3C37]">Program Team</h3>
+    <div class="flex items-center gap-2">
+      {# Compose email button #}
+      <button onclick="document.getElementById('compose-slideover')?.remove();
+        htmx.ajax('GET', '/compose?context=program&program_uid={{ program.program_uid }}', {target: 'body', swap: 'beforeend'})"
+        class="text-xs text-[#0B4BFF] hover:underline cursor-pointer no-print">
+        ✉ Compose
+      </button>
+      <button onclick="window._programTeamMatrix?.addRow()"
+        class="text-xs bg-[#0B4BFF] text-white px-2 py-0.5 rounded hover:bg-[#0940d4] no-print">
+        + Add
+      </button>
+    </div>
+  </div>
+
+  <div class="overflow-x-auto">
+    <table class="w-full text-xs border-collapse">
+      <thead>
+        <tr class="text-left text-[#8C8880] border-b border-[#E8E4DE]">
+          <th class="py-1 px-2 font-medium" style="width:160px">Name</th>
+          <th class="py-1 px-2 font-medium" style="width:120px">Org</th>
+          <th class="py-1 px-2 font-medium" style="width:100px">Title</th>
+          <th class="py-1 px-2 font-medium" style="width:130px">Role</th>
+          <th class="py-1 px-2 font-medium" style="width:180px">Email</th>
+          <th class="py-1 px-2 font-medium" style="width:110px">Phone</th>
+          <th class="py-1 px-2 font-medium" style="width:110px">Mobile</th>
+          <th class="py-1 px-2 font-medium" style="width:140px">Notes</th>
+          <th class="py-1 px-2 font-medium no-print" style="width:28px">★</th>
+          <th class="py-1 px-2 font-medium no-print" style="width:28px"></th>
+        </tr>
+      </thead>
+      <tbody id="program-team-tbody">
+        {% if program_contacts %}
+          {% for c in program_contacts %}
+            {% include "programs/_team_matrix_row.html" %}
+          {% endfor %}
+        {% endif %}
+        <tr id="program-team-empty" {% if program_contacts %}class="hidden"{% endif %}>
+          <td colspan="10" class="py-4 text-center text-xs text-[#8C8880] italic">No program contacts yet.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  {# Contact picker for autocomplete #}
+  {% include "contacts/_picker.html" %}
+
+  <script>
+    window._programTeamMatrix = window.initMatrix({
+      tbodyId: 'program-team-tbody',
+      idAttr: 'data-row-id',
+      rowClass: 'matrix-row',
+      patchUrl: function(id) { return '/programs/{{ program.program_uid }}/team/' + id + '/cell'; },
+      addRowUrl: '/programs/{{ program.program_uid }}/team/add-row',
+      emptyRowId: 'program-team-empty',
+    });
+  </script>
+</div>

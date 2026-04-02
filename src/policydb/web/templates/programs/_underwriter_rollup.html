@@ -1,0 +1,43 @@
+{# Underwriter Rollup — read-only aggregate from child policies #}
+<div class="mt-6">
+  <h3 class="text-sm font-semibold text-[#3D3C37] mb-2">Underwriters
+    <span class="font-normal text-[#8C8880]">(from child policies)</span>
+  </h3>
+
+  {% if underwriters %}
+    <div class="overflow-x-auto">
+      <table class="w-full text-xs border-collapse">
+        <thead>
+          <tr class="text-left text-[#8C8880] border-b border-[#E8E4DE]">
+            <th class="py-1 px-2 font-medium">Name</th>
+            <th class="py-1 px-2 font-medium">Email</th>
+            <th class="py-1 px-2 font-medium">Phone</th>
+            <th class="py-1 px-2 font-medium">Carrier</th>
+            <th class="py-1 px-2 font-medium">Policy</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for uw in underwriters %}
+            <tr class="border-b border-[#F0ECE6] bg-[#FDFBF8]">
+              <td class="py-1 px-2 text-[#3D3C37]">{{ uw.name or '' }}</td>
+              <td class="py-1 px-2 text-[#6B6962]">
+                {% if uw.email %}
+                  <button onclick="document.getElementById('compose-slideover')?.remove();
+                    htmx.ajax('GET', '/compose?context=program&program_uid={{ program.program_uid }}&to_email={{ uw.email | urlencode }}', {target: 'body', swap: 'beforeend'})"
+                    class="text-[#0B4BFF] hover:underline no-print">{{ uw.email }}</button>
+                {% endif %}
+              </td>
+              <td class="py-1 px-2 text-[#6B6962]">{{ uw.phone or '' }}</td>
+              <td class="py-1 px-2 text-[#6B6962]">{{ uw.carrier or '' }}</td>
+              <td class="py-1 px-2">
+                <a href="/policies/{{ uw.policy_uid }}" class="text-[#0B4BFF] hover:underline">{{ uw.policy_uid }}</a>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p class="text-xs text-[#8C8880] italic">No underwriters on child policies yet.</p>
+  {% endif %}
+</div>
