@@ -3686,6 +3686,26 @@ def copy_table(client_id: int, project: str | None = None, conn=Depends(get_db))
     return JSONResponse(result)
 
 
+@router.get("/{client_id}/copy-table/opportunities")
+def copy_table_opportunities(client_id: int, conn=Depends(get_db)):
+    """Return HTML + plain-text opportunities table for clipboard copy."""
+    from fastapi.responses import JSONResponse
+    from policydb.email_templates import build_generic_table
+    from policydb.queries import get_policies_for_client
+    all_policies = [dict(p) for p in get_policies_for_client(conn, client_id)]
+    opps = [p for p in all_policies if p.get("is_opportunity")]
+    columns = [
+        ("policy_type", "Line of Business", False),
+        ("carrier", "Carrier (Target)", False),
+        ("opportunity_status", "Status", False),
+        ("target_effective_date", "Target Effective", False),
+        ("premium", "Est. Premium", True),
+        ("commission_amount", "Est. Revenue", True),
+        ("placement_colleague", "Placement Team", False),
+    ]
+    return JSONResponse(build_generic_table(opps, columns))
+
+
 @router.get("/{client_id}/copy-table/schedule")
 def copy_table_schedule(client_id: int, conn=Depends(get_db)):
     """Return HTML + plain-text schedule of insurance for clipboard copy."""

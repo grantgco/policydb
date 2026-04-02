@@ -13,7 +13,12 @@
       <span class="text-xs text-gray-400 ml-1">Rev: <span class="font-semibold text-emerald-600">{{ _opp_total_revenue | currency }}</span></span>
       {% endif %}
     </div>
-    <a href="/policies/new?client={{ client.id }}&opp=1" class="text-xs text-marsh hover:underline">+ New Opportunity</a>
+    <div class="flex items-center gap-3">
+      <button type="button"
+        onclick="copyPolicyTable('/clients/{{ client.id }}/copy-table/opportunities', this)"
+        class="text-xs text-gray-300 hover:text-marsh no-print" title="Copy table to clipboard">Copy Table</button>
+      <a href="/policies/new?client={{ client.id }}&opp=1" class="text-xs text-marsh hover:underline">+ New Opportunity</a>
+    </div>
   </div>
   <table class="w-full text-sm">
     <thead>
