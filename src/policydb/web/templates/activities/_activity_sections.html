@@ -9,7 +9,7 @@
 {% if overdue_followups or _due_soon or _later %}
 <div class="flex items-center gap-2 mb-2 no-print">
   <button type="button" onclick="toggleBulkMode(this)"
-    class="text-xs bg-white text-gray-600 border border-gray-200 px-3 py-1.5 rounded-full hover:border-[#003865] hover:text-[#003865] transition-colors font-medium whitespace-nowrap">&#9744; Bulk Edit</button>
+    class="text-xs bg-white text-gray-600 border border-gray-200 px-3 py-1.5 rounded-full hover:border-marsh hover:text-marsh transition-colors font-medium whitespace-nowrap">&#9744; Bulk Edit</button>
 </div>
 {% endif %}
 
@@ -123,7 +123,7 @@
   <span class="w-px h-5 bg-gray-600"></span>
   <div class="relative">
     <button type="button" onclick="document.getElementById('bulk-disp-list').classList.toggle('hidden')"
-      class="text-[10px] bg-[#003865] text-white px-3 py-1.5 rounded-lg hover:bg-[#004a80]">Set Disposition &#9662;</button>
+      class="text-[10px] bg-marsh text-white px-3 py-1.5 rounded-lg hover:bg-[#004a80]">Set Disposition &#9662;</button>
     <div id="bulk-disp-list" class="hidden absolute bottom-full left-0 mb-1 bg-white border border-gray-200 rounded-lg shadow-xl p-2 min-w-56">
       {% set gd_bulk = grouped_dispositions() %}
       {% for cat in gd_bulk.categories %}

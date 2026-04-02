@@ -7,7 +7,7 @@
           {% if alert.health == 'critical' %}text-red-700{% else %}text-orange-700{% endif %}">
           {{ alert.health | replace('_', ' ') | upper }}
         </span>
-        <a href="/clients/{{ alert.client_id }}" class="text-sm font-semibold text-gray-800 hover:text-[#003865] hover:underline truncate">
+        <a href="/clients/{{ alert.client_id }}" class="text-sm font-semibold text-gray-800 hover:text-marsh hover:underline truncate">
           {{ alert.client_name }}
         </a>
         <span class="text-sm text-gray-500">&mdash; {{ alert.policy_type }}</span>

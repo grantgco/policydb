@@ -23,9 +23,9 @@
       <input type="date" id="edit-iss-due" value="{{ iss.due_date or '' }}"
         class="text-sm border border-gray-300 rounded px-2 py-1.5 focus:ring-1 focus:ring-marsh focus:border-marsh"
         onchange="patchIssField({{ iss.id }}, 'due_date', this.value, this)">
-      <button type="button" onclick="setIssDue(1)" class="text-[10px] border border-gray-200 rounded px-1.5 py-0.5 text-gray-400 hover:text-[#003865] hover:border-[#003865]">+1d</button>
-      <button type="button" onclick="setIssDue(3)" class="text-[10px] border border-gray-200 rounded px-1.5 py-0.5 text-gray-400 hover:text-[#003865] hover:border-[#003865]">+3d</button>
-      <button type="button" onclick="setIssDue(7)" class="text-[10px] border border-gray-200 rounded px-1.5 py-0.5 text-gray-400 hover:text-[#003865] hover:border-[#003865]">+7d</button>
+      <button type="button" onclick="setIssDue(1)" class="text-[10px] border border-gray-200 rounded px-1.5 py-0.5 text-gray-400 hover:text-marsh hover:border-marsh">+1d</button>
+      <button type="button" onclick="setIssDue(3)" class="text-[10px] border border-gray-200 rounded px-1.5 py-0.5 text-gray-400 hover:text-marsh hover:border-marsh">+3d</button>
+      <button type="button" onclick="setIssDue(7)" class="text-[10px] border border-gray-200 rounded px-1.5 py-0.5 text-gray-400 hover:text-marsh hover:border-marsh">+7d</button>
     </div>
   </div>
 
@@ -37,7 +37,7 @@
       <button type="button"
         onclick="selectIssSev(this, {{ iss.id }}, '{{ sev.label }}')"
         class="iss-sev-pill text-[11px] px-3 py-1 rounded border transition-colors cursor-pointer
-          {% if iss.issue_severity == sev.label %}bg-[#003865] text-white border-[#003865]{% else %}border-gray-200 text-gray-500 hover:border-[#003865] hover:text-[#003865]{% endif %}">{{ sev.label }}</button>
+          {% if iss.issue_severity == sev.label %}bg-marsh text-white border-marsh{% else %}border-gray-200 text-gray-500 hover:border-marsh hover:text-marsh{% endif %}">{{ sev.label }}</button>
       {% endfor %}
     </div>
   </div>
@@ -50,7 +50,7 @@
       <button type="button"
         onclick="selectIssStat(this, {{ iss.id }}, '{{ st }}')"
         class="iss-stat-pill text-[11px] px-3 py-1 rounded border transition-colors cursor-pointer
-          {% if (iss.issue_status or 'Open') == st %}bg-[#003865] text-white border-[#003865]{% else %}border-gray-200 text-gray-500 hover:border-[#003865] hover:text-[#003865]{% endif %}">{{ st }}</button>
+          {% if (iss.issue_status or 'Open') == st %}bg-marsh text-white border-marsh{% else %}border-gray-200 text-gray-500 hover:border-marsh hover:text-marsh{% endif %}">{{ st }}</button>
       {% endfor %}
     </div>
   </div>
@@ -84,17 +84,17 @@ function setIssDue(days) {
 
 function selectIssSev(btn, issId, label) {
   document.querySelectorAll('.iss-sev-pill').forEach(function(p) {
-    p.className = p.className.replace(/bg-\[#003865\] text-white border-\[#003865\]/g, 'border-gray-200 text-gray-500 hover:border-[#003865] hover:text-[#003865]');
+    p.className = p.className.replace(/bg-marsh text-white border-marsh/g, 'border-gray-200 text-gray-500 hover:border-marsh hover:text-marsh');
   });
-  btn.className = btn.className.replace(/border-gray-200 text-gray-500 hover:border-\[#003865\] hover:text-\[#003865\]/g, 'bg-[#003865] text-white border-[#003865]');
+  btn.className = btn.className.replace(/border-gray-200 text-gray-500 hover:border-marsh hover:text-marsh/g, 'bg-marsh text-white border-marsh');
   patchIssField(issId, 'issue_severity', label, btn);
 }
 
 function selectIssStat(btn, issId, label) {
   document.querySelectorAll('.iss-stat-pill').forEach(function(p) {
-    p.className = p.className.replace(/bg-\[#003865\] text-white border-\[#003865\]/g, 'border-gray-200 text-gray-500 hover:border-[#003865] hover:text-[#003865]');
+    p.className = p.className.replace(/bg-marsh text-white border-marsh/g, 'border-gray-200 text-gray-500 hover:border-marsh hover:text-marsh');
   });
-  btn.className = btn.className.replace(/border-gray-200 text-gray-500 hover:border-\[#003865\] hover:text-\[#003865\]/g, 'bg-[#003865] text-white border-[#003865]');
+  btn.className = btn.className.replace(/border-gray-200 text-gray-500 hover:border-marsh hover:text-marsh/g, 'bg-marsh text-white border-marsh');
   patchIssField(issId, 'issue_status', label, btn);
 }
 

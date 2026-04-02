@@ -380,7 +380,7 @@
             <span class="text-[10px] text-gray-400 uppercase tracking-wide">Due</span>
             <input type="date" id="issue-due-date" value="{{ issue.due_date or '' }}"
               onchange="issueSetDueDate(this.value)"
-              class="text-xs border border-gray-200 rounded px-1.5 py-0.5 focus:border-[#003865] focus:outline-none bg-transparent
+              class="text-xs border border-gray-200 rounded px-1.5 py-0.5 focus:border-marsh focus:outline-none bg-transparent
                 {% if issue.due_date %}{% set due_d = issue.due_date %}{% if due_d < today %}text-red-600 font-semibold{% else %}text-gray-700{% endif %}{% else %}text-gray-400{% endif %}">
             {% if issue.due_date %}
             <button type="button" onclick="issueSetDueDate('')" class="text-[10px] text-gray-300 hover:text-red-500" title="Clear due date">&times;</button>
