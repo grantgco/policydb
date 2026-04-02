@@ -808,6 +808,149 @@ async def unlink_record(
     })
 
 
+# ── kb_links API ─────────────────────────────────────────────────────────────
+
+@router.get("/references/{entity_type}/{entity_id}", response_class=HTMLResponse)
+async def references_panel(
+    request: Request,
+    entity_type: str,
+    entity_id: int,
+    conn=Depends(get_db),
+):
+    """Get all references for an entity — renders the references panel partial."""
+    rows = conn.execute(
+        "SELECT id, source_type, source_id, target_type, target_id FROM kb_links "
+        "WHERE (source_type = ? AND source_id = ?) OR (target_type = ? AND target_id = ?)",
+        (entity_type, entity_id, entity_type, entity_id),
+    ).fetchall()
+
+    references = []
+    for r in rows:
+        r = dict(r)
+        if r["source_type"] == entity_type and r["source_id"] == entity_id:
+            ref_type, ref_id = r["target_type"], r["target_id"]
+        else:
+            ref_type, ref_id = r["source_type"], r["source_id"]
+
+        ref = {"link_id": r["id"], "type": ref_type, "id": ref_id}
+
+        if ref_type == "kb_article":
+            entry = conn.execute("SELECT uid, title, category FROM kb_articles WHERE id = ?", (ref_id,)).fetchone()
+            if entry:
+                ref["uid"] = entry["uid"]
+                ref["title"] = entry["title"]
+                ref["category"] = entry["category"]
+                ref["url"] = f"/kb/articles/{entry['uid']}"
+                ref["colors"] = _get_colors(entry["category"])
+        elif ref_type == "attachment":
+            entry = conn.execute("SELECT uid, title, category, source FROM attachments WHERE id = ?", (ref_id,)).fetchone()
+            if entry:
+                ref["uid"] = entry["uid"]
+                ref["title"] = entry["title"]
+                ref["category"] = entry["category"]
+                ref["url"] = f"/kb/documents/{entry['uid']}"
+                ref["colors"] = _get_colors(entry["category"])
+                ref["source"] = entry["source"]
+        elif ref_type == "client":
+            entry = conn.execute("SELECT id, name FROM clients WHERE id = ?", (ref_id,)).fetchone()
+            if entry:
+                ref["uid"] = f"CLT-{entry['id']}"
+                ref["title"] = entry["name"]
+                ref["url"] = f"/clients/{entry['id']}"
+        elif ref_type == "policy":
+            entry = conn.execute(
+                "SELECT p.id, p.policy_uid, p.policy_type, p.carrier, c.name AS client_name "
+                "FROM policies p LEFT JOIN clients c ON c.id = p.client_id WHERE p.id = ?",
+                (ref_id,),
+            ).fetchone()
+            if entry:
+                ref["uid"] = entry["policy_uid"]
+                ref["title"] = f"{entry['carrier'] or ''} {entry['policy_type'] or ''}".strip() or entry["policy_uid"]
+                ref["url"] = f"/policies/{entry['policy_uid']}"
+        elif ref_type == "issue":
+            entry = conn.execute("SELECT id, issue_uid, subject FROM issues WHERE id = ?", (ref_id,)).fetchone()
+            if entry:
+                ref["uid"] = entry["issue_uid"]
+                ref["title"] = entry["subject"]
+                ref["url"] = f"/issues/{entry['issue_uid']}"
+        elif ref_type == "activity":
+            entry = conn.execute("SELECT id, summary FROM activity_log WHERE id = ?", (ref_id,)).fetchone()
+            if entry:
+                ref["uid"] = f"ACT-{entry['id']}"
+                ref["title"] = entry["summary"] or "Activity"
+                ref["url"] = "#"
+        elif ref_type == "project":
+            entry = conn.execute("SELECT id, name FROM projects WHERE id = ?", (ref_id,)).fetchone()
+            if entry:
+                ref["uid"] = f"PRJ-{entry['id']}"
+                ref["title"] = entry["name"]
+                ref["url"] = f"/clients/projects/{entry['id']}"
+
+        if "title" in ref:
+            references.append(ref)
+
+    type_order = ["kb_article", "attachment", "issue", "policy", "client", "activity", "project"]
+    type_labels = {
+        "kb_article": "Articles", "attachment": "Documents", "issue": "Issues",
+        "policy": "Policies", "client": "Clients", "activity": "Activities", "project": "Projects",
+    }
+    grouped = {}
+    for ref in references:
+        grouped.setdefault(ref["type"], []).append(ref)
+    ordered_groups = [(t, type_labels.get(t, t), grouped[t]) for t in type_order if t in grouped]
+
+    return templates.TemplateResponse("kb/_references_panel.html", {
+        "request": request,
+        "grouped_references": ordered_groups,
+        "entity_type": entity_type,
+        "entity_id": entity_id,
+        "total_count": len(references),
+    })
+
+
+@router.post("/links", response_class=HTMLResponse)
+async def create_kb_link(
+    request: Request,
+    source_type: str = Form(...),
+    source_id: int = Form(...),
+    target_type: str = Form(...),
+    target_id: int = Form(...),
+    return_panel_for_type: str = Form(""),
+    return_panel_for_id: int = Form(0),
+    conn=Depends(get_db),
+):
+    """Create a bi-directional link between two entities."""
+    try:
+        conn.execute(
+            "INSERT OR IGNORE INTO kb_links (source_type, source_id, target_type, target_id) VALUES (?, ?, ?, ?)",
+            (source_type, source_id, target_type, target_id),
+        )
+        conn.commit()
+    except Exception:
+        logger.exception("Failed to create kb_link")
+
+    if return_panel_for_type and return_panel_for_id:
+        return await references_panel(request, return_panel_for_type, return_panel_for_id, conn)
+    return HTMLResponse("")
+
+
+@router.delete("/links/{link_id}", response_class=HTMLResponse)
+async def delete_kb_link(
+    request: Request,
+    link_id: int,
+    return_panel_for_type: str = Query(""),
+    return_panel_for_id: int = Query(0),
+    conn=Depends(get_db),
+):
+    """Remove a link."""
+    conn.execute("DELETE FROM kb_links WHERE id = ?", (link_id,))
+    conn.commit()
+
+    if return_panel_for_type and return_panel_for_id:
+        return await references_panel(request, return_panel_for_type, return_panel_for_id, conn)
+    return HTMLResponse("")
+
+
 @router.get("/search-entities", response_class=HTMLResponse)
 async def search_entities(
     request: Request,
