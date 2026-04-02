@@ -1,0 +1,46 @@
+{# Underwriter Rollup — read-only aggregate from child policies #}
+<div class="card mb-4">
+  <div class="px-4 py-2.5 bg-gray-50 border-b border-gray-100">
+    <span class="text-xs font-bold text-marsh uppercase tracking-wide">Underwriters</span>
+    <span class="text-xs text-gray-400 font-normal ml-1">(from child policies)</span>
+  </div>
+
+  {% if underwriters %}
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="text-left text-xs text-gray-400 uppercase tracking-wide border-b border-gray-100 bg-gray-50">
+            <th class="px-3 py-2 font-medium">Name</th>
+            <th class="px-3 py-2 font-medium">Email</th>
+            <th class="px-3 py-2 font-medium">Phone</th>
+            <th class="px-3 py-2 font-medium">Carrier</th>
+            <th class="px-3 py-2 font-medium">Policy</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for uw in underwriters %}
+            <tr class="border-b border-gray-100 hover:bg-gray-50">
+              <td class="px-3 py-2 text-gray-700">{{ uw.name or '' }}</td>
+              <td class="px-3 py-2 text-gray-500">
+                {% if uw.email %}
+                  <button onclick="document.getElementById('compose-slideover')?.remove();
+                    htmx.ajax('GET', '/compose?context=program&program_uid={{ program.program_uid }}&to_email={{ uw.email | urlencode }}', {target: 'body', swap: 'beforeend'})"
+                    class="text-marsh-light hover:underline no-print">{{ uw.email }}</button>
+                {% endif %}
+              </td>
+              <td class="px-3 py-2 text-gray-500">{{ uw.phone or '' }}</td>
+              <td class="px-3 py-2 text-gray-500">{{ uw.carrier or '' }}</td>
+              <td class="px-3 py-2">
+                <a href="/policies/{{ uw.policy_uid }}" class="text-marsh-light hover:underline">{{ uw.policy_uid }}</a>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="px-4 py-3">
+      <p class="text-xs text-gray-400 italic">No underwriters on child policies yet.</p>
+    </div>
+  {% endif %}
+</div>

@@ -218,6 +218,7 @@ def compose_panel(
     to_email: str = Query(""),
     template_id: int = Query(0),
     issue_uid: str = Query(""),
+    program_uid: str = Query(""),
 ):
     """Return the compose slideover HTML partial."""
 
@@ -249,6 +250,15 @@ def compose_panel(
             ).fetchone()
             if bundle_row:
                 client_id = bundle_row["client_id"]
+    elif program_uid:
+        from policydb.email_templates import program_context as _program_ctx
+        ctx = _program_ctx(conn, program_uid)
+        if not client_id:
+            _prog_row = conn.execute(
+                "SELECT client_id FROM programs WHERE program_uid=?", (program_uid,)
+            ).fetchone()
+            if _prog_row:
+                client_id = _prog_row["client_id"]
     elif policy_uid:
         ctx = policy_context(conn, policy_uid)
         # Overlay timeline context if available
@@ -317,6 +327,11 @@ def compose_panel(
             "email_subject_rfi_notify",
             "FYI: {{client_name}} — {{rfi_uid}} Items Received",
         )
+    elif program_uid:
+        subj_tpl = cfg.get(
+            "email_subject_program",
+            "Re: {{client_name}} — {{program_name}}",
+        )
     elif policy_uid:
         subj_tpl = cfg.get(
             "email_subject_policy",
@@ -383,7 +398,11 @@ def compose_panel(
             body = rendered_body
 
     # ── Load available templates for dropdown ────────────────────────────
-    if policy_uid or project_name:
+    if program_uid:
+        tpl_rows = conn.execute(
+            "SELECT * FROM email_templates WHERE context IN ('policy','general') ORDER BY context, name"
+        ).fetchall()
+    elif policy_uid or project_name:
         tpl_rows = conn.execute(
             "SELECT * FROM email_templates WHERE context IN ('policy','general') ORDER BY context, name"
         ).fetchall()
@@ -406,6 +425,7 @@ def compose_panel(
         "bundle_id": bundle_id,
         "mode": mode,
         "issue_uid": issue_uid,
+        "program_uid": program_uid,
         "recipients": recipients,
         "primary_to": primary_to,
         "subject": subject,

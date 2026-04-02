@@ -46,6 +46,43 @@
 <!-- Correspondence Threads -->
 <div class="mb-4">{% include 'policies/_correspondence_threads.html' %}</div>
 
+  {# ── Inherited Program Contacts (read-only) ──────────── #}
+  {% if inherited_contacts %}
+    <div class="mb-4">
+      <h3 class="text-sm font-semibold text-[#3D3C37] mb-2">
+        Program Team
+        <span class="text-[10px] font-medium bg-[#0B4BFF] text-white px-1.5 py-0.5 rounded ml-1">PGM</span>
+      </h3>
+      <div class="overflow-x-auto">
+        <table class="w-full text-xs border-collapse">
+          <thead>
+            <tr class="text-left text-[#8C8880] border-b border-[#E8E4DE]">
+              <th class="py-1 px-2 font-medium">Name</th>
+              <th class="py-1 px-2 font-medium">Role</th>
+              <th class="py-1 px-2 font-medium">Email</th>
+              <th class="py-1 px-2 font-medium">Phone</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for ic in inherited_contacts %}
+              <tr class="border-b border-[#F0ECE6] bg-[#f0f4ff]">
+                <td class="py-1 px-2 text-[#3D3C37]">
+                  {{ ic.name or '' }}
+                  <span class="text-[9px] bg-[#0B4BFF] text-white px-1 rounded ml-1">PGM</span>
+                </td>
+                <td class="py-1 px-2 text-[#6B6962]">{{ ic.role or '' }}</td>
+                <td class="py-1 px-2 text-[#6B6962]">{{ ic.email or '' }}</td>
+                <td class="py-1 px-2 text-[#6B6962]">{{ ic.phone or '' }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <p class="text-[10px] text-[#8C8880] mt-1 italic">Inherited from program — edit on the
+        <a href="/programs/{{ program_uid_for_link }}" class="text-[#0B4BFF] hover:underline">program page</a>.</p>
+    </div>
+  {% endif %}
+
 <!-- Policy Team -->
 <div class="mb-4">{% include 'policies/_policy_team.html' %}</div>
 

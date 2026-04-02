@@ -4840,6 +4840,45 @@ def request_policy_items(client_id: int, policy_uid: str = "", conn=Depends(get_
     return JSONResponse({"items": items, "bundle_url": bundle_url})
 
 
+@router.get("/{client_id}/requests/program-view", response_class=HTMLResponse)
+def request_program_view(request: Request, client_id: int, program_uid: str = "", conn=Depends(get_db)):
+    """HTMX partial: request items scoped to a program — items from all child policies."""
+    from policydb.queries import get_program_by_uid
+    program = get_program_by_uid(conn, program_uid) if program_uid else None
+
+    # Find the active bundle for this client
+    bundle = conn.execute(
+        "SELECT * FROM client_request_bundles WHERE client_id=? AND status IN ('open','sent','partial') ORDER BY updated_at DESC LIMIT 1",
+        (client_id,),
+    ).fetchone()
+    bundle_id = bundle["id"] if bundle else None
+
+    items = []
+    if bundle_id and program:
+        # Get all child policy UIDs for this program
+        child_uids = [r["policy_uid"] for r in conn.execute(
+            "SELECT policy_uid FROM policies WHERE program_id=? AND archived=0",
+            (program["id"],),
+        ).fetchall()]
+        if child_uids:
+            placeholders = ",".join("?" * len(child_uids))
+            items = _enrich_request_items(conn, [dict(r) for r in conn.execute(
+                f"SELECT * FROM client_request_items WHERE bundle_id=? AND policy_uid IN ({placeholders}) ORDER BY received ASC, sort_order ASC, id ASC",
+                [bundle_id] + child_uids,
+            ).fetchall()])
+
+    client = conn.execute("SELECT id, name FROM clients WHERE id=?", (client_id,)).fetchone()
+    return templates.TemplateResponse("clients/_request_policy_view.html", {
+        "request": request,
+        "client": dict(client) if client else {"id": client_id, "name": ""},
+        "bundle": dict(bundle) if bundle else None,
+        "bundle_id": bundle_id,
+        "items": items,
+        "policy_uid": program_uid,
+        "request_categories": cfg.get("request_categories", []),
+    })
+
+
 @router.get("/{client_id}/requests/policy-view", response_class=HTMLResponse)
 def request_policy_view(request: Request, client_id: int, policy_uid: str = "", conn=Depends(get_db)):
     """HTMX partial: server-rendered request items for a policy, with full card layout."""
