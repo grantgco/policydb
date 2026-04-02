@@ -36,24 +36,50 @@
                hx-include="#kb-filters" name="q">
       </div>
       <div id="kb-filters" class="flex items-center gap-2">
-        <!-- Type toggle -->
-        <button class="btn-filter active" data-type="" onclick="setTypeFilter(this, '')">All</button>
-        <button class="btn-filter" data-type="article" onclick="setTypeFilter(this, 'article')">Articles</button>
-        <button class="btn-filter" data-type="document" onclick="setTypeFilter(this, 'document')">Documents</button>
-        <input type="hidden" name="entry_type" id="kb-type-filter" value="">
+        <!-- Source toggle -->
+        <button class="btn-filter active" onclick="setSourceFilter(this, '')">All</button>
+        <button class="btn-filter" onclick="setSourceFilter(this, 'article')">Articles</button>
+        <button class="btn-filter" onclick="setSourceFilter(this, 'local')">Files</button>
+        <button class="btn-filter" onclick="setSourceFilter(this, 'devonthink')">DEVONthink</button>
+        <input type="hidden" name="source_filter" id="kb-source-filter" value="">
         <input type="hidden" name="category" id="kb-cat-filter" value="">
+        <input type="hidden" name="sort" id="kb-sort-filter" value="updated">
+        <input type="hidden" name="linked_type" id="kb-linked-type" value="">
+        <input type="hidden" name="linked_id" id="kb-linked-id" value="">
       </div>
     </div>
 
-    <!-- Category pills -->
-    <div class="flex items-center gap-1.5 flex-wrap">
-      <button class="rounded-full px-3 py-1 text-xs font-medium bg-marsh text-white"
-              onclick="setCatFilter(this, '')">All</button>
-      {% for cat in categories %}
-      {% set colors = category_colors.get(cat, {"bg": "bg-gray-100", "text": "text-gray-600"}) %}
-      <button class="rounded-full px-3 py-1 text-xs font-medium border border-gray-200 text-gray-600 hover:border-gray-400 transition-colors"
-              onclick="setCatFilter(this, '{{ cat }}')">{{ cat }}</button>
-      {% endfor %}
+    <div class="flex items-center gap-3 flex-wrap">
+      <!-- Category pills -->
+      <div class="flex items-center gap-1.5 flex-wrap flex-1">
+        <button class="rounded-full px-3 py-1 text-xs font-medium bg-marsh text-white"
+                onclick="setCatFilter(this, '')">All</button>
+        {% for cat in categories %}
+        <button class="rounded-full px-3 py-1 text-xs font-medium border border-gray-200 text-gray-600 hover:border-gray-400 transition-colors"
+                onclick="setCatFilter(this, '{{ cat }}')">{{ cat }}</button>
+        {% endfor %}
+      </div>
+
+      <!-- Sort -->
+      <select id="kb-sort-select" onchange="setSortFilter(this.value)"
+              class="text-xs border border-gray-200 rounded-lg px-2 py-1.5 text-gray-600 focus:ring-1 focus:ring-marsh outline-none">
+        <option value="updated" selected>Recently Updated</option>
+        <option value="title">Title A-Z</option>
+        <option value="most_linked">Most Linked</option>
+        <option value="category">Category</option>
+      </select>
+
+      <!-- Linked-to filter -->
+      <div class="relative">
+        <input type="text" id="kb-linked-search" placeholder="Linked to..."
+               class="text-xs border border-gray-200 rounded-lg pl-2 pr-6 py-1.5 w-40 text-gray-600 focus:ring-1 focus:ring-marsh outline-none"
+               hx-get="/kb/search-linkable" hx-trigger="keyup changed delay:300ms"
+               hx-target="#kb-linked-results" name="q"
+               autocomplete="off">
+        <button id="kb-linked-clear" class="hidden absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-sm"
+                onclick="clearLinkedFilter()">&times;</button>
+        <div id="kb-linked-results" class="absolute top-full left-0 mt-1 w-64 bg-white border border-gray-200 rounded-lg shadow-lg z-50 max-h-48 overflow-y-auto hidden"></div>
+      </div>
     </div>
   </div>
 
@@ -102,13 +128,16 @@ function _kbRefresh() {
     target: '#kb-results',
     values: {
       q: document.getElementById('kb-search').value,
-      entry_type: document.getElementById('kb-type-filter').value,
-      category: document.getElementById('kb-cat-filter').value
+      source_filter: document.getElementById('kb-source-filter').value,
+      category: document.getElementById('kb-cat-filter').value,
+      sort: document.getElementById('kb-sort-filter').value,
+      linked_type: document.getElementById('kb-linked-type').value,
+      linked_id: document.getElementById('kb-linked-id').value
     }
   });
 }
-function setTypeFilter(btn, val) {
-  document.getElementById('kb-type-filter').value = val;
+function setSourceFilter(btn, val) {
+  document.getElementById('kb-source-filter').value = val;
   btn.closest('#kb-filters').querySelectorAll('.btn-filter').forEach(function(b) { b.classList.remove('active'); });
   btn.classList.add('active');
   _kbRefresh();
@@ -122,5 +151,36 @@ function setCatFilter(btn, val) {
   btn.className = 'rounded-full px-3 py-1 text-xs font-medium bg-marsh text-white';
   _kbRefresh();
 }
+function setSortFilter(val) {
+  document.getElementById('kb-sort-filter').value = val;
+  _kbRefresh();
+}
+function selectLinkedEntity(type, id, label) {
+  document.getElementById('kb-linked-type').value = type;
+  document.getElementById('kb-linked-id').value = id;
+  document.getElementById('kb-linked-search').value = label;
+  document.getElementById('kb-linked-results').classList.add('hidden');
+  document.getElementById('kb-linked-clear').classList.remove('hidden');
+  _kbRefresh();
+}
+function clearLinkedFilter() {
+  document.getElementById('kb-linked-type').value = '';
+  document.getElementById('kb-linked-id').value = '';
+  document.getElementById('kb-linked-search').value = '';
+  document.getElementById('kb-linked-clear').classList.add('hidden');
+  _kbRefresh();
+}
+document.addEventListener('click', function(e) {
+  var results = document.getElementById('kb-linked-results');
+  if (results && !results.contains(e.target) && e.target.id !== 'kb-linked-search') {
+    results.classList.add('hidden');
+  }
+});
+document.body.addEventListener('htmx:afterOnLoad', function(e) {
+  if (e.detail.target && e.detail.target.id === 'kb-linked-results') {
+    var el = e.detail.target;
+    el.classList.toggle('hidden', el.innerHTML.trim() === '');
+  }
+});
 </script>
 {% endblock %}
