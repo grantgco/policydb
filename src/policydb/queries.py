@@ -1540,7 +1540,6 @@ def get_suggested_followups(
     FROM policies p
     JOIN clients c ON p.client_id = c.id
     WHERE p.archived = 0
-      AND (p.is_opportunity = 0 OR p.is_opportunity IS NULL)
       AND p.follow_up_date IS NULL
       AND julianday(p.expiration_date) - julianday('now') <= 90
       AND julianday(p.expiration_date) - julianday('now') > 0
