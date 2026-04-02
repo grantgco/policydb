@@ -562,9 +562,10 @@ def policy_context(conn: sqlite3.Connection, policy_uid: str) -> dict:
     ).fetchone()
     if not row:
         return {}
+    row = dict(row)
 
-    ctx = _client_tokens(conn, row["client_id"], dict(row))
-    proj = row["project_name"] or ""
+    ctx = _client_tokens(conn, row["client_id"], row)
+    proj = row.get("project_name") or ""
     # Placement colleague: check program-level first (program wins), then policy-level
     _pc_row = None
     if row.get("program_id"):
