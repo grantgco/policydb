@@ -18,7 +18,6 @@ from policydb.activity_review import (
 from policydb.queries import (
     get_activities,
     get_all_followups,
-    get_client_activity_board,
     get_dashboard_hours_this_month,
     get_insurance_deadline_suggestions,
     get_suggested_followups,
@@ -579,8 +578,7 @@ def _inbox_ctx(conn, show_processed: bool = False) -> dict:
 
 
 def _activities_ctx(conn, days: int = 90, activity_type: str = "",
-                    client_id: int = 0, q: str = "",
-                    view_mode: str = "board") -> dict:
+                    client_id: int = 0, q: str = "") -> dict:
     """Build activities tab context."""
     from policydb.web.routes.activities import _attach_pc_emails
 
@@ -633,14 +631,6 @@ def _activities_ctx(conn, days: int = 90, activity_type: str = "",
     dispositions = cfg.get("follow_up_dispositions", [])
     disposition_labels = [d["label"] if isinstance(d, dict) else d for d in dispositions]
 
-    # Build kanban board data
-    client_columns = get_client_activity_board(
-        conn, days=days,
-        activity_type=activity_type or None,
-        q=q or None,
-        client_id=client_id or None,
-    )
-
     return {
         "activities": rows,
         "time_summary": time_summary,
@@ -648,8 +638,6 @@ def _activities_ctx(conn, days: int = 90, activity_type: str = "",
         "activity_type": activity_type,
         "client_id": client_id,
         "q": q,
-        "view_mode": view_mode or "table",
-        "client_columns": client_columns,
         "activity_types": cfg.get("activity_types", []),
         "disposition_labels": disposition_labels,
         "all_clients": all_clients,
@@ -1058,12 +1046,11 @@ def ac_activities(
     activity_type: str = "",
     client_id: str = "",
     q: str = "",
-    view_mode: str = "board",
     conn=Depends(get_db),
 ):
     _cid = int(client_id) if str(client_id).strip().isdigit() else 0
     ctx = _activities_ctx(conn, days=days, activity_type=activity_type,
-                          client_id=_cid, q=q, view_mode=view_mode)
+                          client_id=_cid, q=q)
     ctx["request"] = request
     return templates.TemplateResponse("action_center/_activities.html", ctx)
 

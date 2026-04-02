@@ -68,7 +68,7 @@
     <select id="ac-act-days"
       hx-get="/action-center/activities"
       hx-target="#ac-tab-content"
-      hx-include="#ac-act-days, #ac-act-type, #ac-act-client, #ac-act-search, #ac-act-view-mode"
+      hx-include="#ac-act-days, #ac-act-type, #ac-act-client, #ac-act-search"
       name="days"
       class="text-xs border border-gray-200 rounded-md px-2 py-1.5 bg-white focus:ring-1 focus:ring-marsh focus:border-marsh">
       <option value="7" {{ 'selected' if days == 7 }}>Last 7 Days</option>
@@ -80,7 +80,7 @@
     <select id="ac-act-type"
       hx-get="/action-center/activities"
       hx-target="#ac-tab-content"
-      hx-include="#ac-act-days, #ac-act-type, #ac-act-client, #ac-act-search, #ac-act-view-mode"
+      hx-include="#ac-act-days, #ac-act-type, #ac-act-client, #ac-act-search"
       name="activity_type"
       class="text-xs border border-gray-200 rounded-md px-2 py-1.5 bg-white focus:ring-1 focus:ring-marsh focus:border-marsh">
       <option value="">All Types</option>
@@ -92,7 +92,7 @@
     <select id="ac-act-client"
       hx-get="/action-center/activities"
       hx-target="#ac-tab-content"
-      hx-include="#ac-act-days, #ac-act-type, #ac-act-client, #ac-act-search, #ac-act-view-mode"
+      hx-include="#ac-act-days, #ac-act-type, #ac-act-client, #ac-act-search"
       name="client_id"
       class="text-xs border border-gray-200 rounded-md px-2 py-1.5 bg-white focus:ring-1 focus:ring-marsh focus:border-marsh">
       <option value="">All Clients</option>
@@ -108,38 +108,14 @@
       hx-get="/action-center/activities"
       hx-target="#ac-tab-content"
       hx-trigger="keyup changed delay:400ms"
-      hx-include="#ac-act-days, #ac-act-type, #ac-act-client, #ac-act-search, #ac-act-view-mode"
+      hx-include="#ac-act-days, #ac-act-type, #ac-act-client, #ac-act-search"
       class="text-xs border border-gray-200 rounded-md px-2.5 py-1.5 w-48 bg-white focus:ring-1 focus:ring-marsh focus:border-marsh placeholder-gray-300">
-
-    <input type="hidden" id="ac-act-view-mode" name="view_mode" value="{{ view_mode or 'table' }}">
-
-    {# View toggle #}
-    <div class="ml-auto flex border border-gray-200 rounded-md overflow-hidden">
-      <button hx-get="/action-center/activities"
-              hx-target="#ac-tab-content"
-              hx-include="#ac-act-days, #ac-act-type, #ac-act-client, #ac-act-search"
-              hx-vals='{"view_mode": "board"}'
-              class="text-[11px] px-3 py-1 {% if view_mode == 'board' %}bg-marsh text-white{% else %}bg-white text-gray-500 hover:bg-gray-50{% endif %} transition-colors">
-        Board
-      </button>
-      <button hx-get="/action-center/activities"
-              hx-target="#ac-tab-content"
-              hx-include="#ac-act-days, #ac-act-type, #ac-act-client, #ac-act-search"
-              hx-vals='{"view_mode": "table"}'
-              class="text-[11px] px-3 py-1 border-l border-gray-200 {% if view_mode == 'table' %}bg-marsh text-white{% else %}bg-white text-gray-500 hover:bg-gray-50{% endif %} transition-colors">
-        Table
-      </button>
-    </div>
 
     <span class="bg-gray-100 text-gray-600 text-xs px-2.5 py-1 rounded-md whitespace-nowrap">
       {{ activities | length }} activit{{ 'y' if activities | length == 1 else 'ies' }}
       {% if time_summary and time_summary.total_hours %} &middot; {{ '%.1f' | format(time_summary.total_hours) }}h{% endif %}
     </span>
   </div>
-
-  {% if view_mode == 'board' %}
-    {% include "action_center/_activities_board.html" %}
-  {% else %}
 
   {# ── Activities Table ── #}
   {% if activities %}
@@ -156,6 +132,7 @@
           <th class="px-3 py-2 whitespace-nowrap">Disposition</th>
           <th class="px-3 py-2 whitespace-nowrap">Ref</th>
           <th class="px-3 py-2 whitespace-nowrap no-print">Issue</th>
+          <th class="px-3 py-2 whitespace-nowrap no-print"></th>
           <th class="px-3 py-2 whitespace-nowrap no-print"></th>
         </tr>
       </thead>
@@ -265,6 +242,15 @@
             {% endif %}
           </td>
 
+          {# Pencil edit button #}
+          <td class="px-3 py-2 whitespace-nowrap no-print">
+            <button type="button"
+              hx-get="/activities/{{ a.id }}/edit-slideover" hx-target="#fu-edit-content" hx-swap="innerHTML"
+              onclick="openFollowupEdit()"
+              class="text-xs text-gray-400 hover:text-[#003865] transition-colors"
+              title="Edit activity">&#9998;</button>
+          </td>
+
           {# Delete button #}
           <td class="px-3 py-2 whitespace-nowrap no-print">
             <button
@@ -278,7 +264,7 @@
         </tr>
         {# ── Expandable detail row ── #}
         <tr id="activity-detail-{{ a.id }}" style="display:none" class="bg-gray-50/50">
-          <td colspan="10" class="px-6 py-3">
+          <td colspan="11" class="px-6 py-3">
             <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
               {% if a.details %}
               <div>
@@ -352,8 +338,6 @@
     No activities found for this period.
   </div>
   {% endif %}
-
-  {% endif %}{# end view_mode check #}
 
 </div>
 
