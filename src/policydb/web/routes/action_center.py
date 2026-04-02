@@ -216,7 +216,7 @@ def _followups_ctx(conn, window: int, activity_type: str, q: str,
     # ── Enrich activity-sourced items with linked issue data ──────────
     # For activity items, look up their issue_id (if any) from activity_log,
     # then attach the linked issue's uid/subject/severity for badge display.
-    activity_ids = [item["id"] for item in all_items if item.get("source") == "activity" and item.get("id")]
+    activity_ids = [item["id"] for item in all_items if item.get("source") in ("activity", "project") and item.get("id")]
     if activity_ids:
         ph = ",".join("?" * len(activity_ids))
         issue_links = conn.execute(
@@ -231,7 +231,7 @@ def _followups_ctx(conn, window: int, activity_type: str, q: str,
         ).fetchall()
         _issue_link_map = {r["activity_id"]: dict(r) for r in issue_links}
         for item in all_items:
-            if item.get("source") == "activity" and item.get("id"):
+            if item.get("source") in ("activity", "project") and item.get("id"):
                 link = _issue_link_map.get(item["id"])
                 if link:
                     item["issue_id"] = link.get("issue_id")
