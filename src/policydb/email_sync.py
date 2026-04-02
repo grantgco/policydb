@@ -687,6 +687,7 @@ def sync_outlook(conn: sqlite3.Connection) -> dict:
         "total_scanned": 0,
         "since": since.strftime("%b %d, %Y %H:%M"),
         "new_contacts_found": 0,
+        "thread_inherited": 0,
     }
 
     skip_category = cfg.get("outlook_skip_category", "Personal")
@@ -724,6 +725,13 @@ def sync_outlook(conn: sqlite3.Connection) -> dict:
             results["total_scanned"] += 1
             _process_email(conn, email, results, "flagged")
 
+    # ── Thread inheritance pass ─────────────────────────────────────
+    try:
+        _run_thread_inheritance(conn, list(results["suggestions"]), results)
+    except Exception as e:
+        logger.exception("Thread inheritance pass failed: %s", e)
+        results["errors"].append(f"Thread inheritance error: {e}")
+
     # Count contacts captured during this sync run
     results["new_contacts_found"] = conn.execute(
         "SELECT COUNT(*) FROM suggested_contacts WHERE status='pending' AND blocked=0"
@@ -737,12 +745,13 @@ def sync_outlook(conn: sqlite3.Connection) -> dict:
 
     logger.info(
         "Outlook sync complete: %d scanned, %d auto-linked (sent=%d recv=%d flag=%d), "
-        "%d suggestions, %d skipped",
+        "%d thread-inherited, %d suggestions, %d skipped",
         results["total_scanned"],
         sum(results["auto_linked"].values()),
         results["auto_linked"]["sent"],
         results["auto_linked"]["received"],
         results["auto_linked"]["flagged"],
+        results["thread_inherited"],
         len(results["suggestions"]),
         results["skipped"],
     )
