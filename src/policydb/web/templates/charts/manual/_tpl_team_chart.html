@@ -253,6 +253,52 @@
 }
 .tc-btn-add-member:hover { background: rgba(11,75,255,0.05); }
 
+/* ── Suggestion cards (editor panel) ── */
+.tc-suggestion-card {
+  background: #fff;
+  border: 1px dashed #D97706;
+  border-radius: 4px;
+  padding: 0.55rem 0.65rem;
+}
+.tc-suggestion-name {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #000F47;
+}
+.tc-suggestion-role {
+  font-size: 0.7rem;
+  color: #7B7974;
+  margin-top: 1px;
+}
+.tc-suggestion-actions {
+  display: flex;
+  gap: 0.3rem;
+  margin-top: 0.4rem;
+}
+.tc-suggestion-confirm {
+  flex: 1;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  background: #000F47;
+  color: #fff;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.tc-suggestion-confirm:hover { background: #0B4BFF; }
+.tc-suggestion-dismiss {
+  padding: 0.3rem 0.5rem;
+  font-size: 0.7rem;
+  font-weight: 500;
+  background: #fff;
+  color: #7B7974;
+  border: 1px solid #B9B6B1;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.tc-suggestion-dismiss:hover { color: #c8102e; border-color: #c8102e; }
+
 /* Layout segmented control */
 .tc-layout-seg { display: flex; gap: 0; border: 1.5px solid var(--mc-border, #B9B6B1); border-radius: 4px; overflow: hidden; }
 .tc-layout-btn {
@@ -387,6 +433,15 @@
   <div style="margin-top:1rem;">
     <div class="section-head midnight">Team Members</div>
     <div class="tc-members-editor" id="members-editor"></div>
+    <!-- ── Suggested from Policies ── -->
+    <div id="suggestions-section" style="display:none; margin-bottom: 0.75rem;">
+      <div style="background: #FFFBEB; border: 1px dashed #D97706; border-radius: 4px; padding: 0.6rem 0.65rem;">
+        <div style="font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: #92400E; margin-bottom: 0.5rem;">
+          ✦ Suggested from Policies
+        </div>
+        <div id="suggestions-list" style="display: flex; flex-direction: column; gap: 0.4rem;"></div>
+      </div>
+    </div>
     <button type="button" class="tc-btn-add-member" onclick="addMember()">+ Add Member</button>
   </div>
 
@@ -661,6 +716,83 @@
     setTimeout(function() { editorPanel.scrollTop = editorPanel.scrollHeight; }, 50);
   };
 
+  // ── Placement Colleague Suggestions ──────────────────────────────────
+  var suggestions = [];
+
+  function loadSuggestions() {
+    var clientId = document.getElementById('team-canvas').dataset.clientId;
+    if (!clientId) return;
+    fetch('/api/team/' + clientId + '/suggestions')
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        suggestions = data;
+        buildSuggestions();
+        buildCanvas();
+      })
+      .catch(function() { suggestions = []; buildSuggestions(); });
+  }
+
+  function buildSuggestions() {
+    var section = document.getElementById('suggestions-section');
+    var list = document.getElementById('suggestions-list');
+    if (!section || !list) return;
+    if (!suggestions.length) { section.style.display = 'none'; return; }
+    section.style.display = 'block';
+    list.innerHTML = suggestions.map(function(s) {
+      return '<div class="tc-suggestion-card" data-contact-id="' + s.contact_id + '">'
+        + '<div class="tc-suggestion-name">' + esc(s.name) + '</div>'
+        + '<div class="tc-suggestion-role">' + esc(s.suggested_role) + '</div>'
+        + (s.email ? '<div style="font-size:0.65rem;color:#7B7974;margin-top:2px;">&#9993; ' + esc(s.email) + '</div>' : '')
+        + '<div class="tc-suggestion-actions">'
+        + '  <button class="tc-suggestion-confirm" onclick="confirmSuggestion(' + s.contact_id + ')">&#10003; Add to Team</button>'
+        + '  <button class="tc-suggestion-dismiss" onclick="dismissSuggestion(' + s.contact_id + ')">&#10005;</button>'
+        + '</div>'
+        + '</div>';
+    }).join('');
+  }
+
+  window.confirmSuggestion = function(contactId) {
+    var clientId = document.getElementById('team-canvas').dataset.clientId;
+    if (!clientId) return;
+    fetch('/api/team/' + clientId + '/suggestions/' + contactId + '/confirm', { method: 'POST' })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (!data.ok) return;
+        var s = suggestions.find(function(x) { return x.contact_id === contactId; });
+        if (s) {
+          members.push({
+            id: nextId++,
+            name: s.name,
+            title: '',
+            role: '',
+            assignment: s.suggested_role,
+            phone: s.phone || '',
+            email: s.email || '',
+            mobile: s.mobile || '',
+            notes: '',
+          });
+          serializeState();
+          buildMemberEditor();
+        }
+        suggestions = suggestions.filter(function(x) { return x.contact_id !== contactId; });
+        buildSuggestions();
+        buildCanvas();
+      });
+  };
+
+  window.dismissSuggestion = function(contactId) {
+    var clientId = document.getElementById('team-canvas').dataset.clientId;
+    if (!clientId) return;
+    fetch('/api/team/' + clientId + '/suggestions/' + contactId + '/dismiss', { method: 'POST' })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (!data.ok) return;
+        suggestions = suggestions.filter(function(x) { return x.contact_id !== contactId; });
+        buildSuggestions();
+        buildCanvas();
+      });
+  };
+
   // ── Load from Client ──────────────────────────────────────────────────
   window.loadTeamFromClient = function() {
     // Find the client ID from the snapshot bar's client combobox
@@ -702,6 +834,9 @@
         serializeState();
         buildMemberEditor();
         buildCanvas();
+        // Store clientId for suggestions and load them
+        document.getElementById('team-canvas').dataset.clientId = clientId;
+        loadSuggestions();
         ManualChart.toast('Loaded ' + members.length + ' team members from ' + clientName, 'success');
       })
       .catch(function() {
@@ -804,6 +939,26 @@
 
     html += '</div>';
     canvas.innerHTML = html;
+
+    // ── Suggested from policies (canvas preview only — excluded from export via .no-print) ──
+    if (suggestions.length) {
+      var sz = cardSizes(members.length + suggestions.length);
+      var sugHtml = '<div class="no-print tc-suggestions-preview" style="padding:10px 28px 18px;">'
+        + '<div style="background:#FFFBEB;border:1px dashed #D97706;border-radius:4px;padding:10px 14px;">'
+        + '<div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:#92400E;margin-bottom:8px;">&#9734; Suggested from Policies</div>'
+        + '<div style="display:flex;flex-wrap:wrap;gap:10px;">';
+      suggestions.forEach(function(s) {
+        sugHtml += '<div style="border:1px dashed #D97706;border-radius:4px;padding:' + sz.pad + ';min-width:180px;flex:1;max-width:260px;background:#fff;">'
+          + '<div style="font-family:\'Noto Serif\',serif;font-size:' + sz.namePx + 'px;font-weight:700;color:#000F47;">' + esc(s.name) + '</div>'
+          + '<div style="font-family:\'Noto Sans\',sans-serif;font-size:' + sz.subPx + 'px;color:#7B7974;margin-bottom:3px;">' + esc(s.suggested_role) + '</div>'
+          + (s.email ? '<div style="font-family:\'Noto Sans\',sans-serif;font-size:' + sz.contactPx + 'px;color:#7B7974;">&#9993; ' + esc(s.email) + '</div>' : '')
+          + '</div>';
+      });
+      sugHtml += '</div></div></div>';
+      // Insert after the grid/grouped layout (inside canvas inner div)
+      var layoutEl = canvas.querySelector('.manual-chart-page, [style*="flex-direction:column"]');
+      if (layoutEl) layoutEl.insertAdjacentHTML('beforeend', sugHtml);
+    }
   }
 
   function buildGridLayout(accentColor, showContact, showNotes) {
