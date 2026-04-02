@@ -62,6 +62,7 @@ EDITABLE_LISTS: dict[str, str] = {
     "renewal_terminal_statuses": "Renewal Terminal Statuses",
     "attachment_categories": "Attachment Categories",
     "freemail_domains": "Freemail Domains (Skip for Client Matching)",
+    "internal_email_domains": "Internal Email Domains (Skip for Client Matching)",
 }
 
 TAB_LISTS: dict[str, dict[str, str]] = {
@@ -107,6 +108,8 @@ TAB_LISTS: dict[str, dict[str, str]] = {
         "team_assignments": "Team Assignments",
         "account_priority_options": "Account Priority Options",
         "service_model_options": "Service Model Options",
+        "freemail_domains": "Freemail Domains (Skip for Client Matching)",
+        "internal_email_domains": "Internal Email Domains (Skip for Client Matching)",
     },
     "issues": {
         "issue_lifecycle_states": "Issue Lifecycle States",

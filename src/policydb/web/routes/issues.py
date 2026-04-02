@@ -627,6 +627,16 @@ def add_issue_policy(issue_id: int, policy_id: int = Form(...), conn=Depends(get
 @router.post("/issues/{issue_id}/programs/add")
 def add_issue_program(issue_id: int, program_id: int = Form(...), conn=Depends(get_db)):
     """Link all policies in a program to an issue via junction table."""
+    issue = conn.execute(
+        "SELECT client_id FROM activity_log WHERE id = ?", (issue_id,)
+    ).fetchone()
+    if not issue:
+        return HTMLResponse("Issue not found", status_code=404)
+    prog = conn.execute(
+        "SELECT client_id FROM programs WHERE id = ?", (program_id,)
+    ).fetchone()
+    if not prog or prog["client_id"] != issue["client_id"]:
+        return HTMLResponse("Program does not belong to this client", status_code=400)
     child_ids = [
         r["id"] for r in conn.execute(
             "SELECT id FROM policies WHERE program_id = ? AND archived = 0",
