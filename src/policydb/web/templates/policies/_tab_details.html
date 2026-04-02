@@ -341,9 +341,9 @@ textarea.field-inline { resize: none; }
             <span class="text-sm text-gray-700 ml-2">Standalone</span>
           </label>
           <label class="toggle-switch">
-            <input type="checkbox" data-field="needs_investigation" value="1" {% if policy.needs_investigation %}checked{% endif %}>
+            <input type="checkbox" data-field="flagged" value="1" {% if policy.flagged %}checked{% endif %}>
             <span class="toggle-track"></span>
-            <span class="text-sm text-amber-600 ml-2 font-medium">Needs Investigation</span>
+            <span class="text-sm text-red-600 ml-2 font-medium">Flagged</span>
           </label>
         </div>
 

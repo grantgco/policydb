@@ -83,6 +83,27 @@
   </tr>
   {% endset %}
 
+  {# ── Flagged Policies (shown at top when any exist) ── #}
+  {% set ns_flagged = namespace(policies=[]) %}
+  {% for _, group in policy_groups %}{% for p in group %}{% if p.flagged %}{% set ns_flagged.policies = ns_flagged.policies + [p] %}{% endif %}{% endfor %}{% endfor %}
+  {% if ns_flagged.policies %}
+  <div class="card mb-3 overflow-hidden border-red-200 bg-red-50/30">
+    <div class="px-4 py-2 bg-red-50 border-b border-red-200 flex items-center gap-2">
+      <span class="w-2 h-2 rounded-full bg-red-500 flex-shrink-0"></span>
+      <span class="text-xs font-semibold text-red-700 uppercase tracking-wide">Flagged</span>
+      <span class="text-xs text-red-500">· {{ ns_flagged.policies | length }} polic{{ 'y' if ns_flagged.policies | length == 1 else 'ies' }} requiring immediate attention</span>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead>{{ col_headers }}</thead>
+        <tbody>
+          {% for p in ns_flagged.policies %}{% include "policies/_policy_row.html" %}{% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
   {% for project_name, group in policy_groups %}
   {% set note = project_notes.get((project_name or '').lower().strip(), '') if project_notes else '' %}
   {% set addr = project_addresses.get((project_name or '').lower().strip(), {}) if project_addresses else {} %}

@@ -2753,7 +2753,7 @@ def export_book_review_xlsx(conn: sqlite3.Connection, client_id: int, client_nam
                   p.placement_colleague, p.underwriter_name,
                   p.exposure_address, p.project_name, p.project_id,
                   p.program_id, p.is_opportunity,
-                  p.needs_investigation,
+                  p.flagged,
                   pr.name AS location_name,
                   pgm.name AS parent_program_name
            FROM policies p
@@ -2859,7 +2859,7 @@ def export_book_review_xlsx(conn: sqlite3.Connection, client_id: int, client_nam
         {"Item": "Policies Missing Policy Number", "Value": len(missing_polnum)},
         {"Item": "Policies Missing Dates", "Value": len(missing_dates)},
         {"Item": "Policies with Placeholder/TBD Data", "Value": sketchy_count},
-        {"Item": "Policies Flagged for Investigation", "Value": sum(1 for p in policies if p.get("needs_investigation"))},
+        {"Item": "Flagged Policies", "Value": sum(1 for p in policies if p.get("flagged"))},
         {"Item": "Suspected Duplicates", "Value": len(dedup_candidates)},
     ]
     _write_sheet(wb, "Summary", summary_rows, col_widths={"Item": 40, "Value": 25})
@@ -2896,7 +2896,7 @@ def export_book_review_xlsx(conn: sqlite3.Connection, client_id: int, client_nam
             "Has Carrier?": "Yes" if (p.get("carrier") or "").strip() else "NO",
             "Has Policy #?": "Yes" if (p.get("policy_number") or "").strip() else "NO",
             "Sketchy Data?": "YES" if sketchy_here else "",
-            "Needs Investigation?": "YES" if p.get("needs_investigation") else "",
+            "Flagged?": "YES" if p.get("flagged") else "",
         })
     _write_sheet(wb, "All Policies", all_rows)
 
