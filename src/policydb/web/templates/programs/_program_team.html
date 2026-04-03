@@ -17,19 +17,24 @@
   </div>
 
   <div class="overflow-x-auto">
-    <table class="w-full text-sm">
+    <table class="w-full text-sm table-fixed">
+      <colgroup>
+        <col style="width:14%"><col style="width:11%"><col style="width:10%"><col style="width:10%">
+        <col style="width:16%"><col style="width:11%"><col style="width:11%"><col style="width:8%">
+        <col style="width:28px"><col style="width:28px">
+      </colgroup>
       <thead>
         <tr class="text-left text-xs text-gray-400 uppercase tracking-wide border-b border-gray-100 bg-gray-50">
-          <th class="px-3 py-2 font-medium" style="width:160px">Name</th>
-          <th class="px-3 py-2 font-medium" style="width:120px">Org</th>
-          <th class="px-3 py-2 font-medium" style="width:100px">Title</th>
-          <th class="px-3 py-2 font-medium" style="width:130px">Role</th>
-          <th class="px-3 py-2 font-medium" style="width:180px">Email</th>
-          <th class="px-3 py-2 font-medium" style="width:110px">Phone</th>
-          <th class="px-3 py-2 font-medium" style="width:110px">Mobile</th>
-          <th class="px-3 py-2 font-medium" style="width:140px">Notes</th>
-          <th class="px-3 py-2 font-medium no-print" style="width:28px">★</th>
-          <th class="px-3 py-2 font-medium no-print" style="width:28px"></th>
+          <th class="px-3 py-2">Name</th>
+          <th class="px-3 py-2">Org</th>
+          <th class="px-3 py-2">Title</th>
+          <th class="px-3 py-2">Role</th>
+          <th class="px-3 py-2">Email</th>
+          <th class="px-3 py-2">Phone</th>
+          <th class="px-3 py-2">Mobile</th>
+          <th class="px-3 py-2">Notes</th>
+          <th class="px-3 py-2"></th>
+          <th class="px-3 py-2"></th>
         </tr>
       </thead>
       <tbody id="program-team-tbody">
@@ -45,7 +50,28 @@
     </table>
   </div>
 
+  {% if client_team_contacts is defined and client_team_contacts %}
+  <details class="border-t border-gray-100 pt-2 mt-3 mb-2 mx-4">
+    <summary class="text-xs text-amber-600 hover:underline cursor-pointer select-none list-none">Quick assign from client team</summary>
+    <form hx-post="/programs/{{ program.program_uid }}/team/quick-assign"
+          hx-target="#program-team-wrap" hx-swap="outerHTML"
+          class="mt-2 p-3 bg-amber-50/50 rounded-lg border border-amber-100">
+      {% for t in client_team_contacts %}
+      <label class="flex items-center gap-2 py-1 text-sm">
+        <input type="checkbox" name="contact_ids" value="{{ t.id }}">
+        <span>{{ t.name }}</span>
+        {% if t.role %}<span class="text-xs text-indigo-500">{{ t.role }}</span>{% endif %}
+        {% if t.email %}<span class="text-xs text-gray-400">{{ t.email }}</span>{% endif %}
+      </label>
+      {% endfor %}
+      <button type="submit" class="mt-2 bg-marsh text-white text-xs font-medium px-4 py-1.5 rounded hover:bg-marsh-light">Assign Selected</button>
+    </form>
+  </details>
+  {% endif %}
+
   {# Contact picker for autocomplete #}
+  {% set picker_context = 'program_team' %}
+  {% set picker_target_id = program.program_uid %}
   {% include "contacts/_picker.html" %}
 
   <script>
