@@ -260,6 +260,16 @@
               {% if o.policy_uid %}<a href="/policies/{{ o.policy_uid }}/edit" class="text-xs font-mono text-gray-400 hover:text-marsh">{{ o.policy_uid }}</a>{% endif %}
             </div>
             <p class="text-xs text-gray-700 truncate">{{ o.subject }}</p>
+            {% if o.email_snippet is defined and o.email_snippet %}
+            <details class="mt-0.5">
+              <summary class="text-[10px] text-blue-500 cursor-pointer hover:text-blue-700">view email content</summary>
+              <div class="text-[10px] text-gray-500 mt-1 bg-gray-50 rounded p-2">
+                {% if o.email_from is defined and o.email_from %}<div class="text-[10px] mb-0.5"><span class="text-gray-400">From:</span> {{ o.email_from }}</div>{% endif %}
+                {% if o.email_to is defined and o.email_to %}<div class="text-[10px] mb-1"><span class="text-gray-400">To:</span> {{ o.email_to }}</div>{% endif %}
+                <div class="whitespace-pre-line leading-relaxed max-h-32 overflow-y-auto">{{ o.email_snippet }}</div>
+              </div>
+            </details>
+            {% endif %}
             <p class="text-xs text-gray-400 mt-0.5">
               {% set _o_rfi = o.subject.split('Send RFI: ')[1].split(' ', 1)[0] if o.subject and o.subject.startswith('Send RFI: ') else '' %}
               {% set _o_ref = build_ref_tag(cn_number=o.get('cn_number', ''), client_id=o.client_id, policy_uid=o.get('policy_uid', ''), project_id=o.get('project_id', 0), activity_id=o.id, rfi_uid=_o_rfi) %}
@@ -321,6 +331,16 @@
               {% if u.policy_uid %}<a href="/policies/{{ u.policy_uid }}/edit" class="text-xs font-mono text-gray-400 hover:text-marsh">{{ u.policy_uid }}</a>{% endif %}
             </div>
             <p class="text-xs text-gray-700 truncate">{{ u.subject }}</p>
+            {% if u.email_snippet is defined and u.email_snippet %}
+            <details class="mt-0.5">
+              <summary class="text-[10px] text-blue-500 cursor-pointer hover:text-blue-700">view email content</summary>
+              <div class="text-[10px] text-gray-500 mt-1 bg-gray-50 rounded p-2">
+                {% if u.email_from is defined and u.email_from %}<div class="text-[10px] mb-0.5"><span class="text-gray-400">From:</span> {{ u.email_from }}</div>{% endif %}
+                {% if u.email_to is defined and u.email_to %}<div class="text-[10px] mb-1"><span class="text-gray-400">To:</span> {{ u.email_to }}</div>{% endif %}
+                <div class="whitespace-pre-line leading-relaxed max-h-32 overflow-y-auto">{{ u.email_snippet }}</div>
+              </div>
+            </details>
+            {% endif %}
             <p class="text-xs text-gray-400 mt-0.5">
               {% set _u_rfi = u.subject.split('Send RFI: ')[1].split(' ', 1)[0] if u.subject and u.subject.startswith('Send RFI: ') else '' %}
               {% set _u_ref = build_ref_tag(cn_number=u.get('cn_number', ''), client_id=u.client_id, policy_uid=u.get('policy_uid', ''), project_id=u.get('project_id', 0), activity_id=u.id, rfi_uid=_u_rfi) %}

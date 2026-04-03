@@ -27,6 +27,16 @@
   </div>
   {% endif %}
 
+  {% if item.content %}
+  {% set _so_body_parts = item.content.split('\n\n', 1) %}
+  {% if _so_body_parts|length > 1 and _so_body_parts[1]|trim %}
+  <details class="px-5 py-2 border-b border-gray-100">
+    <summary class="text-[10px] text-blue-500 cursor-pointer hover:text-blue-700">view email body</summary>
+    <div class="text-[11px] text-gray-500 mt-1 whitespace-pre-line leading-relaxed max-h-40 overflow-y-auto bg-white rounded border border-gray-100 p-2">{{ _so_body_parts[1] }}</div>
+  </details>
+  {% endif %}
+  {% endif %}
+
   <form id="inbox-slideover-form"
         hx-post="/inbox/{{ item.id }}/process"
         hx-swap="none"

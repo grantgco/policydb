@@ -933,7 +933,8 @@ def get_all_followups(
            a.activity_date AS note_date,
            a.program_id,
            pg.name AS program_name,
-           pg.program_uid
+           pg.program_uid,
+           a.email_from, a.email_to, a.email_snippet
     FROM activity_log a
     JOIN clients c ON a.client_id = c.id
     LEFT JOIN policies p ON a.policy_id = p.id
@@ -967,7 +968,8 @@ def get_all_followups(
            a.activity_date AS note_date,
            NULL AS program_id,
            NULL AS program_name,
-           NULL AS program_uid
+           NULL AS program_uid,
+           a.email_from, a.email_to, a.email_snippet
     FROM activity_log a
     JOIN clients c ON a.client_id = c.id
     LEFT JOIN projects pr ON a.project_id = pr.id
@@ -1008,7 +1010,8 @@ def get_all_followups(
             WHERE a2.policy_id = p.id ORDER BY a2.activity_date DESC, a2.id DESC LIMIT 1) AS note_date,
            NULL AS program_id,
            NULL AS program_name,
-           NULL AS program_uid
+           NULL AS program_uid,
+           NULL AS email_from, NULL AS email_to, NULL AS email_snippet
     FROM policies p
     JOIN clients c ON p.client_id = c.id
     WHERE p.follow_up_date IS NOT NULL AND p.archived = 0
@@ -1047,7 +1050,8 @@ def get_all_followups(
            NULL AS note_date,
            NULL AS program_id,
            NULL AS program_name,
-           NULL AS program_uid
+           NULL AS program_uid,
+           NULL AS email_from, NULL AS email_to, NULL AS email_snippet
     FROM clients c
     WHERE c.follow_up_date IS NOT NULL AND c.archived = 0
 
