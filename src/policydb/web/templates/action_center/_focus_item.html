@@ -51,6 +51,10 @@
       </div>
       {# Subject line #}
       <div class="text-[13px] text-[#3D3C37]">{{ item.subject }}</div>
+      {# Notes/details from the activity #}
+      {% if item.details %}
+      <div class="text-[12px] text-[#9B9790] mt-0.5 line-clamp-2">{{ item.details }}</div>
+      {% endif %}
       {# Context line (why it's hot) #}
       {% if item.context_line %}
       <div class="text-[12px] text-[#6B6860] mt-0.5">{{ item.context_line }}</div>
@@ -136,6 +140,11 @@
                class="text-xs border border-gray-200 rounded px-2 py-1 w-48 focus:border-blue-400 focus:outline-none">
       </div>
       <div class="flex flex-col gap-0.5">
+        <label class="text-[10px] uppercase text-gray-400 font-semibold">Hours</label>
+        <input type="number" name="duration_hours" step="0.1" min="0" placeholder="0.0"
+               class="text-xs border border-gray-200 rounded px-2 py-1 w-16 focus:border-blue-400 focus:outline-none">
+      </div>
+      <div class="flex flex-col gap-0.5">
         <label class="text-[10px] uppercase text-gray-400 font-semibold">Next follow-up</label>
         <input type="date" name="new_follow_up_date"
                value="{{ item.follow_up_date or '' }}"
@@ -189,6 +198,14 @@
                 hx-post="/activities/{{ item.id }}/complete"
                 hx-target="#fq-{{ row_id }}" hx-swap="delete">
           Mark Done
+        </button>
+      {% endif %}
+      {% if item.kind in ('followup',) and item.id and not item.linked_issue_uid %}
+        <button class="text-purple-600 hover:text-purple-800"
+                hx-post="/activities/{{ item.id }}/convert-to-issue"
+                hx-target="#fq-{{ row_id }}" hx-swap="outerHTML"
+                hx-confirm="Convert this follow-up into an issue?">
+          → Issue
         </button>
       {% endif %}
     </div>

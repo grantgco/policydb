@@ -772,6 +772,77 @@ def activity_nudge(
     )
 
 
+@router.post("/activities/{activity_id}/convert-to-issue", response_class=HTMLResponse)
+def convert_to_issue(
+    request: Request,
+    activity_id: int,
+    conn=Depends(get_db),
+):
+    """Convert a follow-up activity into an issue header."""
+    row = conn.execute(
+        "SELECT * FROM activity_log WHERE id = ?", (activity_id,)
+    ).fetchone()
+    if not row:
+        return HTMLResponse("Not found", status_code=404)
+    row = dict(row)
+
+    # Generate issue UID
+    last = conn.execute(
+        "SELECT issue_uid FROM activity_log WHERE item_kind='issue' AND issue_uid IS NOT NULL ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    if last and last["issue_uid"]:
+        try:
+            num = int(last["issue_uid"].split("-")[-1]) + 1
+        except (ValueError, IndexError):
+            num = 1
+    else:
+        num = 1
+    issue_uid = f"ISS-{date.today().year}-{num:03d}"
+
+    # Create issue header from the follow-up data
+    policy_id = row.get("policy_id")
+    # Get expiration date as due_date if available
+    due_date = None
+    if policy_id:
+        pol = conn.execute("SELECT expiration_date FROM policies WHERE id = ?", (policy_id,)).fetchone()
+        if pol and pol["expiration_date"]:
+            due_date = pol["expiration_date"]
+
+    conn.execute("""
+        INSERT INTO activity_log (
+            client_id, policy_id, program_id, activity_type, subject, details,
+            activity_date, account_exec, item_kind, issue_uid, issue_status,
+            issue_severity, due_date, follow_up_date
+        ) VALUES (?, ?, ?, 'Note', ?, ?, date('now'), ?, 'issue', ?, 'Open', 'Normal', ?, ?)
+    """, (
+        row["client_id"], policy_id, row.get("program_id"),
+        row.get("subject", ""),
+        row.get("details") or f"Converted from follow-up (activity #{activity_id})",
+        row.get("account_exec", cfg.get("default_account_exec", "Grant")),
+        issue_uid,
+        due_date,
+        row.get("follow_up_date"),
+    ))
+    issue_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    # Link the original activity to the new issue
+    conn.execute(
+        "UPDATE activity_log SET issue_id = ? WHERE id = ?",
+        (issue_id, activity_id),
+    )
+    # Mark the follow-up as done (it's now tracked by the issue)
+    conn.execute(
+        "UPDATE activity_log SET follow_up_done = 1, auto_close_reason = 'converted_to_issue' WHERE id = ?",
+        (activity_id,),
+    )
+    conn.commit()
+
+    return HTMLResponse(
+        f'<div class="text-xs text-purple-600 p-2 bg-purple-50 rounded">Converted to issue <strong>{issue_uid}</strong> ✓</div>',
+        headers={"HX-Trigger": '{"activityLogged": "Converted to issue"}'},
+    )
+
+
 @router.post("/activities/{activity_id}/reschedule", response_class=HTMLResponse)
 def activity_reschedule(request: Request, activity_id: int, new_date: str = Form(...), conn=Depends(get_db)):
     """Reschedule an activity follow-up to a specific date."""
