@@ -562,6 +562,12 @@ def _build_suggestion(item: dict) -> tuple[str, str]:
     if kind == "insurance_deadline":
         return ("Review Insurance", f"Check insurance requirements for {item.get('project_name', 'project')}.")
 
+    if kind == "project_deadline":
+        return ("Review Project", f"Check progress on {item.get('project_name', 'project')} — target completion approaching.")
+
+    if kind == "opportunity":
+        return ("Advance Opportunity", f"Move {item.get('policy_type', 'opportunity')} forward for {item.get('client_name', 'client')}.")
+
     if kind == "milestone":
         name = item.get("milestone_name", "milestone")
         return (f"Complete: {name}", f"Mark '{name}' as done for {item.get('client_name', '')} {item.get('policy_type', '')}.")
@@ -642,6 +648,173 @@ def get_overdue_milestones(conn: sqlite3.Connection) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def get_approaching_projects(conn: sqlite3.Connection, window_days: int = 30) -> list[dict]:
+    """Get projects with approaching target_completion dates."""
+    today_str = date.today().isoformat()
+    rows = conn.execute("""
+        SELECT p.id AS project_id, p.name AS project_name, p.target_completion,
+               p.status AS project_stage, p.client_id, p.start_date,
+               c.name AS client_name,
+               CAST(julianday(p.target_completion) - julianday('now') AS INTEGER) AS days_remaining
+        FROM projects p
+        JOIN clients c ON p.client_id = c.id
+        WHERE p.target_completion IS NOT NULL
+          AND julianday(p.target_completion) - julianday('now') <= ?
+          AND julianday(p.target_completion) - julianday('now') > -30
+          AND p.project_type != 'Location'
+          AND c.archived = 0
+          AND p.status NOT IN ('Complete', 'Closed', 'Cancelled')
+        ORDER BY p.target_completion ASC
+    """, (window_days,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_approaching_opportunities(conn: sqlite3.Connection, window_days: int = 90) -> list[dict]:
+    """Get opportunities with approaching target dates."""
+    rows = conn.execute("""
+        SELECT p.id, p.policy_uid, p.policy_type, p.carrier,
+               p.target_effective_date, p.expiration_date,
+               p.client_id, p.renewal_status,
+               c.name AS client_name,
+               COALESCE(p.target_effective_date, p.expiration_date) AS deadline,
+               CAST(julianday(COALESCE(p.target_effective_date, p.expiration_date))
+                    - julianday('now') AS INTEGER) AS days_remaining,
+               (SELECT MAX(a.activity_date) FROM activity_log a
+                WHERE a.policy_id = p.id) AS last_activity_date
+        FROM policies p
+        JOIN clients c ON p.client_id = c.id
+        WHERE p.is_opportunity = 1
+          AND p.archived = 0
+          AND COALESCE(p.target_effective_date, p.expiration_date) IS NOT NULL
+          AND julianday(COALESCE(p.target_effective_date, p.expiration_date))
+              - julianday('now') <= ?
+          AND julianday(COALESCE(p.target_effective_date, p.expiration_date))
+              - julianday('now') > -14
+        ORDER BY deadline ASC
+    """, (window_days,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def _normalize_project_deadline(item: dict, today: date) -> dict:
+    """Normalize a project with approaching target_completion."""
+    target = item.get("target_completion", "")
+    days_remaining = item.get("days_remaining")
+
+    return {
+        "id": item.get("project_id"),
+        "kind": "project_deadline",
+        "source": "project_deadline",
+        "source_label": "Project",
+        "client_id": item.get("client_id"),
+        "client_name": item.get("client_name", ""),
+        "policy_uid": None,
+        "policy_type": None,
+        "carrier": None,
+        "subject": f"{item.get('project_name', '')} — target completion approaching",
+        "follow_up_date": None,
+        "expiration_date": None,
+        "deadline_date": target,
+        "days_until_deadline": days_remaining,
+        "days_since_activity": None,
+        "accountability": "my_action",
+        "disposition": None,
+        "severity": "High" if days_remaining is not None and days_remaining <= 7 else None,
+        "escalation_tier": None,
+        "nudge_count": 0,
+        "cadence": None,
+        "is_milestone": False,
+        "milestone_name": None,
+        "project_id": item.get("project_id"),
+        "project_name": item.get("project_name"),
+        "program_uid": None,
+        "program_name": None,
+        "linked_issue_uid": None,
+        "linked_issue_subject": None,
+        "linked_issue_severity": None,
+        "prev_disposition": None,
+        "prev_days_ago": None,
+        "contact_person": None,
+        "contact_email": None,
+        "reason_line": "",
+        "inbox_id": None,
+        "is_matched": None,
+        "email_from": None,
+        "email_subject": None,
+        "score": 0.0,
+        "context_line": "",
+        "suggested_action": "",
+        "suggested_action_detail": "",
+        "activity_type": None,
+        "duration_hours": None,
+        "thread_id": None,
+        "health": None,
+    }
+
+
+def _normalize_opportunity(item: dict, today: date) -> dict:
+    """Normalize an opportunity with approaching target date."""
+    deadline = item.get("deadline", "") or ""
+    days_remaining = item.get("days_remaining")
+    last_act = item.get("last_activity_date") or ""
+    days_since = None
+    if last_act:
+        try:
+            d = datetime.strptime(last_act[:10], "%Y-%m-%d").date()
+            days_since = (today - d).days
+        except ValueError:
+            pass
+
+    return {
+        "id": item.get("id"),
+        "kind": "opportunity",
+        "source": "opportunity",
+        "source_label": "Opportunity",
+        "client_id": item.get("client_id"),
+        "client_name": item.get("client_name", ""),
+        "policy_uid": item.get("policy_uid"),
+        "policy_type": item.get("policy_type"),
+        "carrier": item.get("carrier"),
+        "subject": f"{item.get('policy_type', '')} opportunity — {item.get('renewal_status', 'in progress')}",
+        "follow_up_date": None,
+        "expiration_date": None,
+        "deadline_date": deadline,
+        "days_until_deadline": days_remaining,
+        "days_since_activity": days_since,
+        "accountability": "my_action",
+        "disposition": None,
+        "severity": None,
+        "escalation_tier": None,
+        "nudge_count": 0,
+        "cadence": None,
+        "is_milestone": False,
+        "milestone_name": None,
+        "project_id": None,
+        "project_name": None,
+        "program_uid": None,
+        "program_name": None,
+        "linked_issue_uid": None,
+        "linked_issue_subject": None,
+        "linked_issue_severity": None,
+        "prev_disposition": None,
+        "prev_days_ago": None,
+        "contact_person": None,
+        "contact_email": None,
+        "reason_line": "",
+        "inbox_id": None,
+        "is_matched": None,
+        "email_from": None,
+        "email_subject": None,
+        "score": 0.0,
+        "context_line": "",
+        "suggested_action": "",
+        "suggested_action_detail": "",
+        "activity_type": None,
+        "duration_hours": None,
+        "thread_id": None,
+        "health": None,
+    }
+
+
 def build_focus_queue(
     conn: sqlite3.Connection,
     horizon_days: int = 0,
@@ -675,12 +848,16 @@ def build_focus_queue(
     inbox_items = get_pending_inbox(conn)
     issues = get_open_issues_with_due(conn)
     milestones = get_overdue_milestones(conn)
+    projects = get_approaching_projects(conn, window_days=max(horizon_days, 30))
+    opportunities = get_approaching_opportunities(conn, window_days=max(horizon_days, 90))
 
-    # Filter inbox by client if needed
+    # Filter by client if needed
     if client_id:
         inbox_items = [i for i in inbox_items if i.get("client_id") == client_id or not i.get("client_id")]
         issues = [i for i in issues if i.get("client_id") == client_id]
         milestones = [m for m in milestones if m.get("client_id") == client_id]
+        projects = [p for p in projects if p.get("client_id") == client_id]
+        opportunities = [o for o in opportunities if o.get("client_id") == client_id]
 
     # --- Normalize all items ---
     all_items: list[dict] = []
@@ -702,6 +879,12 @@ def build_focus_queue(
 
     for item in milestones:
         all_items.append(_normalize_milestone(item, today))
+
+    for item in projects:
+        all_items.append(_normalize_project_deadline(item, today))
+
+    for item in opportunities:
+        all_items.append(_normalize_opportunity(item, today))
 
     # --- Score all items ---
     for item in all_items:
