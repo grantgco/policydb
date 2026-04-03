@@ -1,0 +1,275 @@
+{# Inbox Process Slideover — per-field form with autocomplete pickers #}
+
+<div class="flex items-start justify-between px-5 py-4 border-b border-gray-200 flex-shrink-0">
+  <div>
+    <h2 class="text-sm font-semibold text-gray-900">Process Inbox Item</h2>
+    <p class="text-xs text-gray-500 mt-0.5">
+      INB-{{ item.id }}
+      {% if item.email_subject %}&middot; {{ item.email_subject[:60] }}{% endif %}
+    </p>
+  </div>
+  <button type="button" onclick="closeFollowupEdit()"
+          class="text-gray-400 hover:text-gray-600 transition-colors ml-4 mt-0.5">
+    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+    </svg>
+  </button>
+</div>
+
+<div class="flex-1 overflow-y-auto">
+
+  {# Email preview #}
+  {% if is_email %}
+  <div class="px-5 py-3 bg-gray-50 border-b border-gray-100 text-[11px] text-gray-500">
+    {% if item.email_from %}<div><span class="text-gray-400">From:</span> {{ item.email_from }}</div>{% endif %}
+    {% if item.email_to %}<div><span class="text-gray-400">To:</span> {{ item.email_to }}</div>{% endif %}
+    {% if item.email_date %}<div><span class="text-gray-400">Date:</span> {{ item.email_date }}</div>{% endif %}
+  </div>
+  {% endif %}
+
+  <form id="inbox-slideover-form"
+        hx-post="/inbox/{{ item.id }}/process"
+        hx-swap="none"
+        hx-on::after-request="if(event.detail.successful){closeFollowupEdit();document.getElementById('ac-inbox-item-{{ item.id }}')?.remove();}"
+        class="px-5 py-4 space-y-4">
+
+    {# Client #}
+    <div>
+      <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Client</label>
+      <select name="client_id" id="so-proc-client-{{ item.id }}" required
+        onchange="soLoadClientData({{ item.id }}, this.value)"
+        class="mt-1 w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:ring-1 focus:ring-marsh focus:border-marsh">
+        <option value="">Select client...</option>
+        {% for c in all_clients %}
+        <option value="{{ c.id }}" {% if item.client_id == c.id %}selected{% endif %}>{{ c.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    {# Policy + Issue (side by side) #}
+    <div class="grid grid-cols-2 gap-3">
+      <div>
+        <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Policy</label>
+        <input type="text" id="so-proc-policy-name-{{ item.id }}"
+          placeholder="Search policies..."
+          autocomplete="off"
+          class="mt-1 w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:ring-1 focus:ring-marsh focus:border-marsh">
+        <input type="hidden" name="policy_id" id="so-proc-policy-{{ item.id }}" value="0">
+      </div>
+      <div>
+        <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Issue</label>
+        <input type="text" id="so-proc-issue-name-{{ item.id }}"
+          placeholder="Search issues..."
+          autocomplete="off"
+          class="mt-1 w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:ring-1 focus:ring-marsh focus:border-marsh">
+        <input type="hidden" name="issue_id" id="so-proc-issue-{{ item.id }}" value="0">
+      </div>
+    </div>
+
+    {# Contact #}
+    <div>
+      <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Contact</label>
+      <input type="text" name="contact_name_display" id="so-proc-contact-name-{{ item.id }}"
+        value="{{ item.contact_name or '' }}"
+        placeholder="Search contacts..."
+        autocomplete="off"
+        class="mt-1 w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:ring-1 focus:ring-marsh focus:border-marsh">
+      <input type="hidden" name="contact_id" id="so-proc-contact-id-{{ item.id }}" value="{{ item.contact_id or 0 }}">
+    </div>
+
+    {# Type + Date + Hours #}
+    <div class="grid grid-cols-3 gap-3">
+      <div>
+        <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Type</label>
+        <select name="activity_type"
+          class="mt-1 w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:ring-1 focus:ring-marsh focus:border-marsh">
+          {% set default_type = 'Email' if is_email else 'Call' %}
+          {% for at in activity_types %}
+          <option value="{{ at }}" {% if at == default_type %}selected{% endif %}>{{ at }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Activity Date</label>
+        <input type="date" name="activity_date" value="{{ item.email_date or '' }}"
+          class="mt-1 w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:ring-1 focus:ring-marsh focus:border-marsh">
+      </div>
+      <div>
+        <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Hours</label>
+        <input type="text" name="duration_hours" placeholder="0.25"
+          class="mt-1 w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:ring-1 focus:ring-marsh focus:border-marsh">
+      </div>
+    </div>
+
+    {# Subject #}
+    <div>
+      <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Subject</label>
+      {% set default_subject = item.email_subject if item.email_subject else item.content %}
+      <input type="text" name="subject" value="{{ default_subject }}"
+        class="mt-1 w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:ring-1 focus:ring-marsh focus:border-marsh">
+    </div>
+
+    {# Details #}
+    <div>
+      <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Details</label>
+      <textarea name="details" rows="3"
+        class="mt-1 w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:ring-1 focus:ring-marsh focus:border-marsh resize-y">{{ item.content }}</textarea>
+    </div>
+
+    {# Follow-up #}
+    <div>
+      <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Follow-up Date</label>
+      <div class="flex items-center gap-2 mt-1">
+        <input type="date" name="follow_up_date" id="so-proc-fudate-{{ item.id }}"
+          class="text-sm border border-gray-300 rounded px-2 py-1.5 focus:ring-1 focus:ring-marsh focus:border-marsh">
+        <button type="button" onclick="soSetFuDate({{ item.id }}, 1)" class="text-[10px] border border-gray-200 rounded px-1.5 py-0.5 text-gray-400 hover:text-marsh hover:border-marsh">+1d</button>
+        <button type="button" onclick="soSetFuDate({{ item.id }}, 3)" class="text-[10px] border border-gray-200 rounded px-1.5 py-0.5 text-gray-400 hover:text-marsh hover:border-marsh">+3d</button>
+        <button type="button" onclick="soSetFuDate({{ item.id }}, 7)" class="text-[10px] border border-gray-200 rounded px-1.5 py-0.5 text-gray-400 hover:text-marsh hover:border-marsh">+7d</button>
+      </div>
+    </div>
+
+  </form>
+</div>
+
+{# Footer #}
+<div class="flex-shrink-0 border-t border-gray-200 px-5 py-3 bg-gray-50 flex items-center gap-2">
+  <button type="submit" form="inbox-slideover-form"
+    class="text-xs bg-marsh text-white px-4 py-1.5 rounded hover:bg-[#0055a5] transition-colors font-medium">
+    Save &amp; Process
+  </button>
+  <button type="button" onclick="soScheduleItem({{ item.id }})"
+    class="text-xs bg-amber-100 text-amber-700 px-4 py-1.5 rounded hover:bg-amber-200 transition-colors font-medium">
+    Schedule Task
+  </button>
+  <button type="button" onclick="closeFollowupEdit()"
+    class="text-xs text-gray-500 px-3 py-1.5 rounded hover:bg-gray-100 transition-colors">
+    Cancel
+  </button>
+</div>
+
+<script>
+function soSetFuDate(inboxId, days) {
+  var d = new Date();
+  d.setDate(d.getDate() + days);
+  document.getElementById('so-proc-fudate-' + inboxId).value = d.toISOString().split('T')[0];
+}
+
+function soScheduleItem(inboxId) {
+  var form = document.getElementById('inbox-slideover-form');
+  var fd = new FormData(form);
+  var clientId = fd.get('client_id');
+  var fuDate = fd.get('follow_up_date');
+  var subject = fd.get('subject');
+  if (!clientId) { if (typeof showToast === 'function') showToast('Select a client first', false); return; }
+  if (!fuDate) { if (typeof showToast === 'function') showToast('Set a follow-up date first', false); return; }
+  var body = new FormData();
+  body.append('client_id', clientId);
+  body.append('follow_up_date', fuDate);
+  body.append('subject', subject || 'Inbox item');
+  fetch('/inbox/' + inboxId + '/schedule', { method: 'POST', body: body })
+    .then(function(r) {
+      if (r.ok) {
+        closeFollowupEdit();
+        var el = document.getElementById('ac-inbox-item-' + inboxId);
+        if (el) el.remove();
+      } else if (typeof showToast === 'function') {
+        showToast('Schedule failed', false);
+      }
+    });
+}
+
+function soLoadClientData(inboxId, clientId) {
+  // Clear policy and issue when client changes
+  var els = ['so-proc-policy-name-', 'so-proc-issue-name-'];
+  els.forEach(function(prefix) {
+    var el = document.getElementById(prefix + inboxId);
+    if (el) el.value = '';
+  });
+  ['so-proc-policy-', 'so-proc-issue-'].forEach(function(prefix) {
+    var el = document.getElementById(prefix + inboxId);
+    if (el) el.value = '0';
+  });
+}
+
+// Wire autocompletes
+(function() {
+  var inboxId = {{ item.id }};
+
+  function wireSearch(opts) {
+    var input = document.getElementById(opts.inputId);
+    if (!input) return;
+    var hiddenId = opts.hiddenId;
+    var dropdown = null;
+    var debounce = null;
+
+    input.addEventListener('input', function() {
+      clearTimeout(debounce);
+      document.getElementById(hiddenId).value = '0';
+      var q = input.value.trim();
+      if (q.length < (opts.min || 0)) { rmDD(); return; }
+      debounce = setTimeout(function() { doSearch(q); }, 200);
+    });
+    input.addEventListener('focus', function() {
+      if ((opts.min || 0) === 0 && !input.value.trim()) doSearch('');
+    });
+    input.addEventListener('blur', function() { setTimeout(rmDD, 150); });
+
+    function doSearch(q) {
+      fetch(opts.url(q)).then(function(r) { return r.json(); }).then(function(results) {
+        rmDD();
+        if (!results.length) return;
+        dropdown = document.createElement('div');
+        dropdown.className = 'absolute z-50 bg-white border border-gray-200 rounded shadow-lg mt-1 max-h-48 overflow-y-auto';
+        dropdown.style.width = input.offsetWidth + 'px';
+        results.forEach(function(item) {
+          var row = document.createElement('div');
+          row.className = 'px-3 py-1.5 text-sm hover:bg-blue-50 cursor-pointer truncate';
+          row.textContent = opts.fmt(item);
+          row.addEventListener('mousedown', function(e) {
+            e.preventDefault();
+            input.value = opts.fmt(item);
+            document.getElementById(hiddenId).value = opts.id(item);
+            rmDD();
+          });
+          dropdown.appendChild(row);
+        });
+        input.parentNode.style.position = 'relative';
+        input.parentNode.appendChild(dropdown);
+      });
+    }
+    function rmDD() { if (dropdown && dropdown.parentNode) dropdown.parentNode.removeChild(dropdown); dropdown = null; }
+  }
+
+  function getClientId() {
+    var s = document.getElementById('so-proc-client-' + inboxId);
+    return s ? s.value : '';
+  }
+
+  wireSearch({
+    inputId: 'so-proc-policy-name-' + inboxId,
+    hiddenId: 'so-proc-policy-' + inboxId,
+    url: function(q) { return '/inbox/' + inboxId + '/policies?client_id=' + (getClientId() || '0') + '&q=' + encodeURIComponent(q); },
+    fmt: function(p) { return p.type + (p.carrier ? ' - ' + p.carrier : '') + ' (' + p.uid + ')'; },
+    id: function(p) { return p.id; },
+    min: 0
+  });
+
+  wireSearch({
+    inputId: 'so-proc-issue-name-' + inboxId,
+    hiddenId: 'so-proc-issue-' + inboxId,
+    url: function(q) { return '/inbox/' + inboxId + '/issues?client_id=' + (getClientId() || '0') + '&q=' + encodeURIComponent(q); },
+    fmt: function(iss) { return (iss.uid ? iss.uid + ' - ' : '') + iss.subject; },
+    id: function(iss) { return iss.id; },
+    min: 0
+  });
+
+  wireSearch({
+    inputId: 'so-proc-contact-name-' + inboxId,
+    hiddenId: 'so-proc-contact-id-' + inboxId,
+    url: function(q) { return '/inbox/contacts/search?q=' + encodeURIComponent(q) + (getClientId() ? '&client_id=' + getClientId() : ''); },
+    fmt: function(c) { return c.name + (c.org ? ' (' + c.org + ')' : ''); },
+    id: function(c) { return c.id; },
+    min: 2
+  });
+})();
+</script>

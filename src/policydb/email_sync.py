@@ -87,8 +87,8 @@ def _parse_ref_tag(tag: str) -> dict:
         result["policy_uid"] = f"POL-{digits}"
 
     # Extract issue UID (8-char hex, not matching POL/RFI/COR patterns)
-    # Must check BEFORE activity ID since issue UIDs like A7F2C3B1 start with 'A'
-    hex_match = re.search(r'-([A-Fa-f0-9]{8})(?:-|$)', tag)
+    # Supports both compound (CN123-64E389E2) and standalone (64E389E2) formats
+    hex_match = re.search(r'(?:^|-)([A-Fa-f0-9]{8})(?:-|$)', tag)
     if hex_match:
         candidate = hex_match.group(1).upper()
         # Exclude if it looks like a POL/RFI/COR pattern

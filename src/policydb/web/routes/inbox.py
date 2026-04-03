@@ -186,6 +186,32 @@ def scratchpad_process(
 
 # ── Inbox item routes (parameterized {inbox_id}) ──
 
+@router.get("/inbox/{inbox_id}/process-slideover", response_class=HTMLResponse)
+def inbox_process_slideover(request: Request, inbox_id: int, conn=Depends(get_db)):
+    """Return the process slideover partial for an inbox item."""
+    item = conn.execute(
+        """SELECT i.*, c.name AS client_name, ct.name AS contact_name
+           FROM inbox i
+           LEFT JOIN clients c ON i.client_id = c.id
+           LEFT JOIN contacts ct ON i.contact_id = ct.id
+           WHERE i.id = ?""",
+        (inbox_id,),
+    ).fetchone()
+    if not item:
+        return HTMLResponse("<p class='p-4 text-sm text-gray-400'>Not found.</p>", status_code=404)
+    all_clients = [dict(r) for r in conn.execute(
+        "SELECT id, name FROM clients WHERE archived=0 ORDER BY name"
+    ).fetchall()]
+    is_email = bool(item["outlook_message_id"]) or (item["content"] or "").startswith("[Outlook")
+    return templates.TemplateResponse("action_center/_process_inbox_slideover.html", {
+        "request": request,
+        "item": dict(item),
+        "all_clients": all_clients,
+        "activity_types": cfg.get("activity_types", []),
+        "is_email": is_email,
+    })
+
+
 @router.post("/inbox/{inbox_id}/process", response_class=HTMLResponse)
 def inbox_process(
     request: Request, inbox_id: int,
@@ -208,28 +234,33 @@ def inbox_process(
     act_date = activity_date or date.today().isoformat()
     # Carry over contact_id and email metadata from inbox item
     inbox_row = conn.execute(
-        "SELECT contact_id, outlook_message_id, content FROM inbox WHERE id=?", (inbox_id,),
+        "SELECT contact_id, outlook_message_id, content, email_from, email_to FROM inbox WHERE id=?", (inbox_id,),
     ).fetchone()
     if not contact_id and inbox_row and inbox_row["contact_id"]:
         contact_id = inbox_row["contact_id"]
     # If inbox item came from Outlook, carry email body as email_snippet
     email_snippet = None
     outlook_msg_id = None
+    email_from = None
+    email_to = None
     if inbox_row:
         outlook_msg_id = inbox_row["outlook_message_id"]
+        email_from = inbox_row["email_from"]
+        email_to = inbox_row["email_to"]
         if outlook_msg_id or (inbox_row["content"] or "").startswith("[Outlook"):
             email_snippet = inbox_row["content"]
     cursor = conn.execute(
         """INSERT INTO activity_log
            (activity_date, client_id, policy_id, activity_type, subject, details,
             follow_up_date, account_exec, duration_hours, contact_id, issue_id,
-            email_snippet, outlook_message_id, source)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            email_snippet, outlook_message_id, source, email_from, email_to)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (act_date, client_id, policy_id or None, activity_type,
          subject or "Inbox item", details or None,
          follow_up_date or None, account_exec, dur, contact_id or None,
          issue_id or None, email_snippet, outlook_msg_id,
-         "outlook_sync" if outlook_msg_id else "manual"),
+         "outlook_sync" if outlook_msg_id else "manual",
+         email_from, email_to),
     )
     activity_id = cursor.lastrowid
     # Supersede follow-ups if needed

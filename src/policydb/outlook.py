@@ -196,14 +196,14 @@ tell application "Microsoft Outlook"
                         set msgContent to ""
                         try
                             set msgContent to plain text content of msg
-                            if length of msgContent > 3000 then
-                                set msgContent to text 1 thru 3000 of msgContent
+                            if length of msgContent > 10000 then
+                                set msgContent to text 1 thru 10000 of msgContent
                             end if
                         on error
                             try
                                 set msgContent to content of msg
-                                if length of msgContent > 3000 then
-                                    set msgContent to text 1 thru 3000 of msgContent
+                                if length of msgContent > 10000 then
+                                    set msgContent to text 1 thru 10000 of msgContent
                                 end if
                             end try
                         end try
@@ -333,14 +333,14 @@ tell application "Microsoft Outlook"
         set msgContent to ""
         try
             set msgContent to plain text content of msg
-            if length of msgContent > 3000 then
-                set msgContent to text 1 thru 3000 of msgContent
+            if length of msgContent > 10000 then
+                set msgContent to text 1 thru 10000 of msgContent
             end if
         on error
             try
                 set msgContent to content of msg
-                if length of msgContent > 3000 then
-                    set msgContent to text 1 thru 3000 of msgContent
+                if length of msgContent > 10000 then
+                    set msgContent to text 1 thru 10000 of msgContent
                 end if
             end try
         end try
@@ -461,14 +461,14 @@ tell application "Microsoft Outlook"
                 set msgContent to ""
                 try
                     set msgContent to plain text content of msg
-                    if length of msgContent > 3000 then
-                        set msgContent to text 1 thru 3000 of msgContent
+                    if length of msgContent > 10000 then
+                        set msgContent to text 1 thru 10000 of msgContent
                     end if
                 on error
                     try
                         set msgContent to content of msg
-                        if length of msgContent > 3000 then
-                            set msgContent to text 1 thru 3000 of msgContent
+                        if length of msgContent > 10000 then
+                            set msgContent to text 1 thru 10000 of msgContent
                         end if
                     end try
                 end try
