@@ -133,18 +133,12 @@
         <input type="hidden" name="policy_uid" value="{{ item.policy_uid or '' }}">
       {% endif %}
       <input type="hidden" name="context" value="focus_queue">
-      <div class="flex flex-col gap-0.5">
-        <label class="text-[10px] uppercase text-gray-400 font-semibold">Note</label>
-        <input type="text" name="notes" placeholder="What happened?"
-               value="{% if guide_me %}{{ item.suggested_action_detail }}{% endif %}"
-               class="text-xs border border-gray-200 rounded px-2 py-1 w-48 focus:border-blue-400 focus:outline-none">
-      </div>
+      {# Row 1: Hours, Re-check, Toggle, Done #}
       <div class="flex flex-col gap-0.5">
         <label class="text-[10px] uppercase text-gray-400 font-semibold">Hours</label>
         <input type="number" name="duration_hours" step="0.1" min="0" placeholder="0.0"
                class="text-xs border border-gray-200 rounded px-2 py-1 w-16 focus:border-blue-400 focus:outline-none">
       </div>
-      {# Follow-up date with quick-pick buttons #}
       <div class="flex flex-col gap-0.5">
         <label class="text-[10px] uppercase text-gray-400 font-semibold">Re-check in</label>
         <div class="flex items-center gap-1">
@@ -164,7 +158,6 @@
                  class="text-xs border border-gray-200 rounded px-2 py-1 w-28 focus:border-blue-400 focus:outline-none">
         </div>
       </div>
-      {# Waiting toggle — simple binary. Auto-sets 7d when switching to Waiting. #}
       <input type="hidden" name="disposition" id="fq-disp-{{ row_id }}" value="">
       <div class="flex rounded-md overflow-hidden border border-gray-200 text-xs" id="fq-wait-toggle-{{ row_id }}">
         <button type="button"
@@ -185,6 +178,12 @@
               class="text-xs text-gray-500 hover:text-gray-700 px-2 py-1.5">
         Cancel
       </button>
+      {# Row 2: Note (full width below) #}
+      <div class="w-full mt-1">
+        <input type="text" name="notes" placeholder="What happened? (optional)"
+               value="{% if guide_me %}{{ item.suggested_action_detail }}{% endif %}"
+               class="w-full text-xs border border-gray-200 rounded px-2 py-1.5 focus:border-blue-400 focus:outline-none">
+      </div>
     </form>
   </div>
 

@@ -22,7 +22,9 @@
     <div class="flex flex-wrap items-center justify-between gap-4 mb-3">
       <div class="flex items-center gap-3">
         <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-marsh/10 text-marsh uppercase tracking-wide">PGM</span>
-        <span class="text-xs text-gray-400 font-mono">{{ program.program_uid }}</span>
+        {% set _pgm_ref = build_ref_tag(cn_number=client.cn_number|default(''), client_id=program.client_id, program_uid=program.program_uid) %}
+        <button type="button" onclick="copyRefTag(this, '{{ _pgm_ref }}')"
+          class="text-xs font-mono text-gray-400 hover:text-marsh bg-gray-100 hover:bg-gray-200 px-1.5 py-0.5 rounded cursor-pointer transition-colors" title="Click to copy ref tag">{{ program.program_uid }}</button>
         <h1 id="program-name" class="text-lg font-bold text-gray-900 cursor-pointer hover:bg-gray-50 px-1 rounded"
             contenteditable="true" spellcheck="false"
             data-original="{{ program.name }}">{{ program.name }}</h1>

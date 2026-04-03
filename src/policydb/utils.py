@@ -668,7 +668,8 @@ def format_city(raw: str) -> str:
 def build_ref_tag(cn_number: str = "", client_id: int = 0,
                   policy_uid: str = "", project_id: int = 0,
                   activity_id: int = 0, thread_id: int = 0,
-                  rfi_uid: str = "", issue_uid: str = "") -> str:
+                  rfi_uid: str = "", issue_uid: str = "",
+                  program_uid: str = "") -> str:
     """Build hierarchical email reference tag.
 
     Hierarchy: Client → Location → Policy → Activity/Correspondence/RFI/Issue
@@ -702,6 +703,8 @@ def build_ref_tag(cn_number: str = "", client_id: int = 0,
     tag = f"CN{cn_clean}" if cn_clean else f"C{client_id}"
     if project_id:
         tag += f"-L{project_id}"
+    if program_uid:
+        tag += f"-{program_uid.replace('-', '')}"
     if policy_uid:
         tag += f"-{policy_uid.replace('-', '')}"
     # RFI UID takes precedence, then issue UID, then thread ID, then activity ID
