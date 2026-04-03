@@ -6904,11 +6904,25 @@ async def exposure_cell(request: Request, client_id: int, exposure_id: int, conn
     """Save a single cell value for an exposure row."""
     body = await request.json()
     field, value = body.get("field", ""), body.get("value", "")
-    allowed = {"amount", "source_document", "notes", "policy_id", "denominator"}
+    allowed = {"amount", "source_document", "notes", "policy_id", "denominator", "exposure_type"}
     if field not in allowed:
         return JSONResponse({"ok": False, "error": "Invalid field"}, status_code=400)
 
     formatted = value.strip() if isinstance(value, str) else value
+
+    if field == "exposure_type":
+        # Only allow editing custom exposure types
+        row = conn.execute("SELECT is_custom FROM client_exposures WHERE id=? AND client_id=?", (exposure_id, client_id)).fetchone()
+        if not row or not row["is_custom"]:
+            return JSONResponse({"ok": False, "error": "Cannot rename standard exposure types"}, status_code=400)
+        if not formatted:
+            return JSONResponse({"ok": False, "error": "Exposure type cannot be empty"}, status_code=400)
+        conn.execute(
+            "UPDATE client_exposures SET exposure_type=?, updated_at=CURRENT_TIMESTAMP WHERE id=? AND client_id=?",
+            (formatted, exposure_id, client_id),
+        )
+        conn.commit()
+        return JSONResponse({"ok": True, "formatted": formatted})
 
     if field == "amount":
         # Strip currency symbols and commas, parse to float
