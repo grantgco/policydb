@@ -21,18 +21,40 @@
            hx-include="#iss-q, #iss-client, #iss-view-mode, #iss-type"
            name="q"
            id="iss-q">
-    <select name="client_id" id="iss-client"
-            class="rounded border-gray-300 text-sm px-2 py-1.5"
-            hx-get="/action-center/issues"
-            hx-trigger="change"
-            hx-target="#issues-tab"
-            hx-swap="outerHTML"
-            hx-include="#iss-q, #iss-client, #iss-view-mode, #iss-type">
-      <option value="0">All clients</option>
-      {% for cl in all_clients %}
-        <option value="{{ cl.id }}" {% if cl.id == client_id %}selected{% endif %}>{{ cl.name }}</option>
-      {% endfor %}
-    </select>
+    <input type="text" id="iss-client-search" placeholder="All clients" autocomplete="off"
+           value="{{ client_name if client_id else '' }}"
+           class="rounded border-gray-300 text-sm px-2 py-1.5 w-48">
+    <input type="hidden" name="client_id" id="iss-client" value="{{ client_id or 0 }}">
+    <script>
+    initClientAutocomplete('iss-client-search', 'iss-client', {
+      onSelect: function(item) {
+        document.getElementById('iss-client').value = item.id;
+        htmx.ajax('GET', '/action-center/issues', {
+          target: '#issues-tab', swap: 'outerHTML',
+          values: {
+            q: document.getElementById('iss-q').value,
+            client_id: item.id,
+            view_mode: document.getElementById('iss-view-mode').value,
+            issue_type: document.getElementById('iss-type').value
+          }
+        });
+      }
+    });
+    document.getElementById('iss-client-search').addEventListener('input', function() {
+      if (!this.value.trim()) {
+        document.getElementById('iss-client').value = '0';
+        htmx.ajax('GET', '/action-center/issues', {
+          target: '#issues-tab', swap: 'outerHTML',
+          values: {
+            q: document.getElementById('iss-q').value,
+            client_id: 0,
+            view_mode: document.getElementById('iss-view-mode').value,
+            issue_type: document.getElementById('iss-type').value
+          }
+        });
+      }
+    });
+    </script>
 
     {# Type filter pills #}
     <div class="flex border border-gray-200 rounded-md overflow-hidden">

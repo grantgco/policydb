@@ -31,12 +31,10 @@
             {% if s.client_id %}
             <input type="hidden" name="client_id" value="{{ s.client_id }}">
             {% else %}
-            <select name="client_id" class="text-[10px] border border-gray-200 rounded px-1 py-0.5 mb-1 w-full">
-              <option value="0">— Select client —</option>
-              {% for c in clients %}
-              <option value="{{ c.id }}">{{ c.name }}</option>
-              {% endfor %}
-            </select>
+            <input type="text" id="sc-client-name-{{ s.id }}" placeholder="Search clients..." autocomplete="off"
+              class="text-[10px] border border-gray-200 rounded px-1 py-0.5 mb-1 w-full">
+            <input type="hidden" name="client_id" id="sc-client-{{ s.id }}" value="0">
+            <script>initClientAutocomplete('sc-client-name-{{ s.id }}', 'sc-client-{{ s.id }}');</script>
             {% endif %}
             <button type="submit" class="text-[10px] text-white bg-marsh px-2 py-1 rounded hover:bg-marsh-light w-full">Add</button>
           </form>

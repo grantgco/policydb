@@ -14,15 +14,11 @@
       <!-- Client -->
       <div class="col-span-2">
         <label class="text-xs text-gray-500 mb-0.5 block">Client <span class="text-red-400">*</span></label>
-        <select name="client_id" required
+        <input type="text" id="recon-create-client-name" placeholder="Search clients..." autocomplete="off"
+          value="{{ matched_client.name if matched_client else '' }}"
           class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm bg-white focus:outline-none focus:ring-1 focus:ring-marsh">
-          {% for c in all_clients %}
-          <option value="{{ c.id }}"
-            {% if matched_client and c.id == matched_client.id %}selected{% endif %}>
-            {{ c.name }}
-          </option>
-          {% endfor %}
-        </select>
+        <input type="hidden" name="client_id" id="recon-create-client" required value="{{ matched_client.id if matched_client else 0 }}">
+        <script>initClientAutocomplete('recon-create-client-name', 'recon-create-client');</script>
         {% if not matched_client %}
         <p class="text-xs text-amber-600 mt-0.5">Could not auto-match "{{ ext.client_name }}" — please select manually.</p>
         {% endif %}

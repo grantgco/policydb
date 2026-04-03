@@ -15,23 +15,34 @@
 
 <!-- Filters -->
 <div id="activity-filters" class="mb-5 flex flex-wrap gap-2 items-center">
-  <!-- Client dropdown -->
+  <!-- Client autocomplete -->
   <div class="flex items-center gap-2">
-    <select name="client_id"
-      hx-get="/activities"
-      hx-trigger="change"
-      hx-target="body"
-      hx-push-url="true"
-      hx-include="#activity-filters [name]"
-      class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-marsh">
-      <option value="0" {% if not client_id %}selected{% endif %}>All Clients</option>
-      {% for c in all_clients %}
-      <option value="{{ c.id }}" {% if client_id == c.id %}selected{% endif %}>{{ c.name }}</option>
-      {% endfor %}
-    </select>
+    <input type="text" id="act-client-search" placeholder="All Clients" autocomplete="off"
+      value="{{ client_name if client_id else '' }}"
+      class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-marsh w-52">
+    <input type="hidden" name="client_id" id="act-client-id" value="{{ client_id or 0 }}">
     <input type="hidden" name="days" value="{{ days }}">
     <input type="hidden" name="activity_type" value="{{ activity_type }}">
   </div>
+  <script>
+  initClientAutocomplete('act-client-search', 'act-client-id', {
+    onSelect: function(item) {
+      var days = document.querySelector('#activity-filters [name="days"]').value;
+      var atype = document.querySelector('#activity-filters [name="activity_type"]').value;
+      var url = '/activities?client_id=' + item.id + '&days=' + days + '&activity_type=' + encodeURIComponent(atype);
+      htmx.ajax('GET', url, {target: 'body', pushUrl: true});
+    }
+  });
+  /* Allow clearing back to "All Clients" */
+  document.getElementById('act-client-search').addEventListener('input', function() {
+    if (!this.value.trim()) {
+      document.getElementById('act-client-id').value = '0';
+      var days = document.querySelector('#activity-filters [name="days"]').value;
+      var atype = document.querySelector('#activity-filters [name="activity_type"]').value;
+      htmx.ajax('GET', '/activities?client_id=0&days=' + days + '&activity_type=' + encodeURIComponent(atype), {target: 'body', pushUrl: true});
+    }
+  });
+  </script>
   <span class="border-l border-gray-200 h-6 mx-1"></span>
   <!-- Type filter pills -->
   <a href="/activities?days={{ days }}&client_id={{ client_id }}" class="btn-filter {{ 'active' if not activity_type else '' }}">All Types</a>

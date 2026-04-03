@@ -863,6 +863,13 @@ def _issues_ctx(conn, q: str = "", client_id: int = 0, view_mode: str = "board",
         "SELECT id, name FROM clients WHERE archived=0 ORDER BY name"
     ).fetchall()]
 
+    # Resolve client name for autocomplete pre-fill
+    client_name = ""
+    if client_id:
+        _cl = conn.execute("SELECT name FROM clients WHERE id=?", (client_id,)).fetchone()
+        if _cl:
+            client_name = _cl["name"]
+
     return {
         "critical_overdue": critical_overdue,
         "active_issues": active,
@@ -872,6 +879,7 @@ def _issues_ctx(conn, q: str = "", client_id: int = 0, view_mode: str = "board",
         "all_clients": all_clients,
         "q": q,
         "client_id": client_id,
+        "client_name": client_name,
         "issue_type": issue_type,
         "issue_severities": cfg.get("issue_severities", []),
         "issue_lifecycle_states": cfg.get("issue_lifecycle_states", []),

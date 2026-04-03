@@ -64,15 +64,11 @@
         </div>
         <input type="hidden" id="issue-create-client-id-hidden" name="client_id">
       </div>
-      {# Editable select shown when creating from scratch #}
+      {# Editable autocomplete shown when creating from scratch #}
       <div id="issue-create-client-select-wrap">
-        <select id="issue-create-client-select" name="client_id"
-                class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:border-marsh bg-white">
-          <option value="">Select client…</option>
-          {% for cl in all_clients %}
-            <option value="{{ cl.id }}">{{ cl.name }}</option>
-          {% endfor %}
-        </select>
+        <input type="text" id="issue-create-client-search" placeholder="Search clients..." autocomplete="off"
+               class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:border-marsh bg-white">
+        <input type="hidden" id="issue-create-client-select" name="client_id" value="">
       </div>
     </div>
 
@@ -206,7 +202,9 @@
       if (clientDisplay) clientDisplay.classList.remove('hidden');
       if (clientSelectWrap) clientSelectWrap.classList.add('hidden');
     } else {
-      // Editable
+      // Editable — clear both the visible text input and the hidden value
+      var clientSearchInput = document.getElementById('issue-create-client-search');
+      if (clientSearchInput) clientSearchInput.value = '';
       if (clientSelect) {
         clientSelect.value = '';
         clientSelect.name = 'client_id';
@@ -315,13 +313,13 @@
     var formData = new FormData();
     formData.append('subject', subject.trim());
 
-    // Client id — prefer hidden (locked) over select
+    // Client id — prefer hidden (locked) over autocomplete hidden input
     var clientIdHidden = document.getElementById('issue-create-client-id-hidden');
     var clientSelect = document.getElementById('issue-create-client-select');
     var clientId = '';
     if (clientIdHidden && clientIdHidden.name === 'client_id') {
       clientId = clientIdHidden.value;
-    } else if (clientSelect && !clientSelect.classList.contains('hidden')) {
+    } else if (clientSelect && clientSelect.name === 'client_id') {
       clientId = clientSelect.value;
     }
     if (clientId) formData.append('client_id', clientId);
@@ -377,6 +375,9 @@
       }
     });
   };
+
+  // Wire up client autocomplete for the editable (non-locked) case
+  initClientAutocomplete('issue-create-client-search', 'issue-create-client-select');
 
 })();
 </script>

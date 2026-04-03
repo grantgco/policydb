@@ -96,13 +96,16 @@ _MANUAL_TITLE_MAP = {c["id"]: c["title"] for c in MANUAL_CHART_REGISTRY}
 
 @router.get("/api/client-search", response_class=JSONResponse)
 async def chart_client_search(q: str = "", conn=Depends(get_db)):
-    """Search clients by name for snapshot tagging."""
-    if not q or len(q) < 2:
-        return []
-    rows = conn.execute(
-        "SELECT id, name FROM clients WHERE archived = 0 AND name LIKE ? ORDER BY name LIMIT 10",
-        (f"%{q}%",),
-    ).fetchall()
+    """Search clients by name — shared autocomplete endpoint."""
+    if q:
+        rows = conn.execute(
+            "SELECT id, name FROM clients WHERE archived = 0 AND name LIKE ? ORDER BY name LIMIT 30",
+            (f"%{q}%",),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT id, name FROM clients WHERE archived = 0 ORDER BY name LIMIT 30",
+        ).fetchall()
     return [{"id": r["id"], "name": r["name"]} for r in rows]
 
 

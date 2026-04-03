@@ -1386,6 +1386,64 @@ document.addEventListener('keydown', function(e) {
   }
   window.showToast = showToast;
 
+  /**
+   * Shared client autocomplete — replaces <select> dropdowns.
+   * Usage: initClientAutocomplete(inputId, hiddenId, { onSelect: fn, min: 0 })
+   *   inputId  — visible text input element ID
+   *   hiddenId — hidden input (name="client_id") element ID
+   *   opts.onSelect(item) — callback after selection (for cascading)
+   *   opts.min — minimum chars before searching (default 0 = show all on focus)
+   */
+  function initClientAutocomplete(inputId, hiddenId, opts) {
+    opts = opts || {};
+    var input = document.getElementById(inputId);
+    if (!input) return;
+    var dropdown = null, debounce = null;
+    var minChars = opts.min || 0;
+
+    input.addEventListener('input', function() {
+      clearTimeout(debounce);
+      document.getElementById(hiddenId).value = '0';
+      var q = input.value.trim();
+      if (q.length < minChars) { rmDD(); return; }
+      debounce = setTimeout(function() { doSearch(q); }, 200);
+    });
+    input.addEventListener('focus', function() {
+      if (minChars === 0 && !dropdown) doSearch(input.value.trim());
+    });
+    input.addEventListener('blur', function() { setTimeout(rmDD, 150); });
+
+    function doSearch(q) {
+      fetch('/api/client-search?q=' + encodeURIComponent(q))
+        .then(function(r) { return r.json(); })
+        .then(function(results) {
+          rmDD();
+          if (!results.length) return;
+          dropdown = document.createElement('div');
+          dropdown.className = 'absolute z-50 bg-white border border-gray-200 rounded shadow-lg mt-1 max-h-48 overflow-y-auto';
+          dropdown.style.minWidth = input.offsetWidth + 'px';
+          dropdown.style.maxWidth = '420px';
+          results.forEach(function(item) {
+            var row = document.createElement('div');
+            row.className = 'px-3 py-1.5 text-sm hover:bg-blue-50 cursor-pointer truncate';
+            row.textContent = item.name;
+            row.addEventListener('mousedown', function(e) {
+              e.preventDefault();
+              input.value = item.name;
+              document.getElementById(hiddenId).value = item.id;
+              rmDD();
+              if (opts.onSelect) opts.onSelect(item);
+            });
+            dropdown.appendChild(row);
+          });
+          input.parentNode.style.position = 'relative';
+          input.parentNode.appendChild(dropdown);
+        });
+    }
+    function rmDD() { if (dropdown && dropdown.parentNode) dropdown.parentNode.removeChild(dropdown); dropdown = null; }
+  }
+  window.initClientAutocomplete = initClientAutocomplete;
+
   // Listen for server-sent toast messages via HX-Trigger
   document.body.addEventListener('activityLogged', function(e) {
     var msg = (e.detail && e.detail.value) ? e.detail.value : 'Activity logged';

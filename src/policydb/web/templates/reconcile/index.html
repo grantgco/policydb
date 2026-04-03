@@ -66,13 +66,11 @@
       <!-- Client filter -->
       <div>
         <label class="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Limit to Client</label>
-        <select name="client_id"
+        <input type="text" id="recon-filter-client-name" placeholder="All clients..." autocomplete="off"
+          value="{{ all_clients | selectattr('id', 'equalto', selected_client_id) | map(attribute='name') | first | default('') if selected_client_id else '' }}"
           class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-marsh bg-white">
-          <option value="0" {% if selected_client_id == 0 %}selected{% endif %}>— All Clients —</option>
-          {% for c in all_clients %}
-          <option value="{{ c.id }}" {% if selected_client_id == c.id %}selected{% endif %}>{{ c.name }}</option>
-          {% endfor %}
-        </select>
+        <input type="hidden" name="client_id" id="recon-filter-client" value="{{ selected_client_id or 0 }}">
+        <script>initClientAutocomplete('recon-filter-client-name', 'recon-filter-client', {allowEmpty: true, emptyValue: '0'});</script>
         <p class="text-xs text-gray-400 mt-1">Recommended: filter to one client at a time</p>
       </div>
 
