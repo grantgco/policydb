@@ -71,9 +71,119 @@ Follow-up dates can be set at three levels — activity, policy, and client. The
 
 ---
 
-## Classification Buckets
+## Focus Queue (Default Action Center View)
 
-`_classify_item()` in `action_center.py` sorts each follow-up into exactly one bucket:
+The Focus Queue (`src/policydb/focus_queue.py`) replaces the old 8-bucket follow-up system as the default Action Center view. It provides a single ranked list of items needing attention + a waiting sidebar.
+
+### Architecture
+
+`build_focus_queue()` aggregates items from **9 data sources**, normalizes them into a common dict shape, scores each by urgency, then splits into Focus Queue (your action) vs Waiting Sidebar (someone else's action).
+
+### Data Sources
+
+| Source | Function | What |
+|--------|----------|------|
+| Follow-ups | `get_all_followups()` | Activity/policy/project/client follow-ups |
+| Suggested | `get_suggested_followups()` | Policies nearing expiration with no follow-up |
+| Insurance deadlines | `get_insurance_deadline_suggestions()` | Projects with approaching `insurance_needed_by` |
+| Inbox | `get_pending_inbox()` | Unprocessed emails and manual captures |
+| Issues | `get_open_issues_with_due()` | Open issues with due dates |
+| Milestones | `get_overdue_milestones()` | Timeline milestones due or with prep alerts |
+| Project deadlines | `get_approaching_projects()` | Projects with approaching `target_completion` |
+| Opportunities | `get_approaching_opportunities()` | Opportunities with approaching `target_effective_date` |
+
+### Scoring Model
+
+Additive score with configurable weights (`focus_score_weights` in config):
+
+| Factor | Weight | Signal |
+|--------|--------|--------|
+| `deadline_proximity` | 40 | Closer deadline = higher score. Past due items score highest. |
+| `staleness` | 25 | Days since last activity (14d+ = full weight) |
+| `severity` | 20 | Issue severity, source importance |
+| `overdue_multiplier` | 15 | Escalating bonus for items past due |
+
+### Focus vs Waiting Split
+
+Items are split by `accountability`:
+- **`my_action`** → Focus Queue (your action needed)
+- **`waiting_external`** → Waiting Sidebar (someone else's court)
+- **`scheduled`** → Waiting Sidebar (unless overdue)
+
+### Waiting → Focus Promotion (Deadline-Aware)
+
+Waiting items auto-promote to Focus Queue when:
+
+| Condition | Promotion reason |
+|-----------|-----------------|
+| Waited 14+ days (`focus_auto_promote_days`) | "Waiting X days — consider nudging" |
+| Expiration within **time horizon window** | "⚠ Expires in Xd — still waiting" |
+| Follow-up date overdue | "Overdue — still waiting" |
+| Follow-up date within horizon (when horizon > 0) | "Due in Xd — still waiting" |
+
+**The promotion window matches the time horizon.** "Today" uses 7d default. "Next 2 Weeks" promotes waiting items expiring within 14 days. This is critical for vacation planning — slide to "Next 2 Weeks" and everything that'll go hot while you're gone surfaces in Focus Queue.
+
+### Time Horizon Control
+
+| Setting | Filter | Promotion window |
+|---------|--------|-----------------|
+| Today | Items due now | 7d (default min) |
+| This Week | Items due within 7d | 7d |
+| Next 2 Weeks | Items due within 14d | 14d |
+| Custom date | Items due within Nd | Nd |
+
+### UI: Simplified Disposition
+
+The Focus Queue uses a **binary toggle** instead of the full disposition dropdown:
+- **"My move"** (default) → `accountability = my_action`, item stays in Focus Queue
+- **"⏳ Waiting"** → sets `disposition = "Waiting on Response"` (`accountability = waiting_external`), item moves to Waiting Sidebar
+
+The old disposition system remains in the database and config for the legacy Follow-ups tab. The Focus Queue just simplifies the UX to a binary choice.
+
+### Item Display
+
+Each Focus Queue item shows:
+1. **Source badge** (FOLLOW-UP, RENEWAL, INBOX, MILESTONE, ISSUE, PROJECT, OPPORTUNITY)
+2. **Client — Policy Type (Carrier)**
+3. **Subject** (the activity subject or description)
+4. **Context line** — urgency signals: days overdue, expiration proximity, staleness
+5. **Detail pills** — `Last: Email` (activity type), `↳ Contact Name`, `⏳ Waiting` badge
+6. **Action button** — context-specific ("Follow Up", "Nudge Carrier", "Escalate", "Log & Reply")
+
+### Guide Me Mode
+
+Toggle that highlights the top-priority item with a purple border and shows a specific suggested action. Smart completion pre-fills the note and follow-up date. User works items one at a time.
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `src/policydb/focus_queue.py` | Scoring, normalization, suggestions, `build_focus_queue()` |
+| `src/policydb/web/routes/action_center.py` | `GET /action-center/focus` endpoint, page handler |
+| `src/policydb/web/templates/action_center/_focus_queue.html` | Main template (top bar + two panels) |
+| `src/policydb/web/templates/action_center/_focus_item.html` | Single item row template |
+| `src/policydb/web/templates/action_center/_waiting_sidebar.html` | Waiting sidebar template |
+
+### Config Keys
+
+| Key | Default | Purpose |
+|-----|---------|---------|
+| `focus_score_weights` | `{deadline_proximity: 40, staleness: 25, severity: 20, overdue_multiplier: 15}` | Scoring weights |
+| `focus_auto_promote_days` | 14 | Waiting items auto-promote after this many days |
+| `focus_nudge_alert_days` | 10 | Yellow alert threshold in Waiting Sidebar |
+
+### Action Center Tab Structure
+
+The Action Center now has:
+- **Focus** (default) — Focus Queue + Waiting Sidebar
+- **Follow-ups** — Legacy 8-bucket view (preserved for backward compatibility)
+- **More ▾** dropdown — Inbox, Activities, Scratchpads, Issues, Anomalies, Activity Review, Data Health
+
+---
+
+## Legacy Classification Buckets (Follow-ups Tab)
+
+The old 8-bucket system remains accessible via the "Follow-ups" tab. `_classify_item()` in `action_center.py` sorts each follow-up into exactly one bucket:
 
 ```
 triage      — activity/project items with no disposition, due today or past
@@ -84,10 +194,6 @@ nudge_due   — waiting_external items with follow_up_date <= today
 watching    — future items (both my_action and waiting_external)
 scheduled   — items with 'scheduled' accountability
 ```
-
-**Stale threshold:** `cfg.get("stale_followup_days", 14)` — configurable in Settings.
-
-**Triage exception:** Future items with no disposition go to `watching`, not `triage` — they're not actionable yet.
 
 ---
 
@@ -106,11 +212,7 @@ Config: `follow_up_dispositions` list in `config.py`. Each entry:
 - **`waiting_external`** — ball in someone else's court
 - **`scheduled`** — meeting/call booked, date is firm
 
-### Cadence tracking:
-Compares actual `days_overdue` to disposition's `default_days`:
-- **on_cadence** — within expected window
-- **mild** — 1-2x over `default_days`
-- **severe** — 2x+ over `default_days`
+**Focus Queue simplification:** The Focus Queue UI uses a binary "My move / Waiting" toggle that maps to `my_action` or `waiting_external`. The full disposition list is still used by the legacy Follow-ups tab and the underlying data model.
 
 ---
 
@@ -124,7 +226,7 @@ Compares actual `days_overdue` to disposition's `default_days`:
 | 2 | `elevated` | Second attempt |
 | 3+ | `urgent` | Multiple attempts, escalation needed |
 
-Used in the nudge_due bucket to signal how aggressively to follow up.
+Used in the Waiting Sidebar nudge alerts and the legacy nudge_due bucket.
 
 ---
 

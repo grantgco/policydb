@@ -103,7 +103,7 @@ Each route module is in `src/policydb/web/routes/`. Routers registered in `src/p
 | dashboard.py | / | Dashboard, search, pipeline partial |
 | clients.py | /clients | Client CRUD, contacts, team |
 | policies.py | /policies | Policy CRUD, row edit, quick log, inline forms |
-| action_center.py | /action-center | Unified tabbed page: Follow-ups, Inbox, Activities, Scratchpads |
+| action_center.py | /action-center | Focus Queue (default), Follow-ups (legacy), + More menu (Inbox, Activities, Scratchpads, Issues, Anomalies, Review, Health) |
 | activities.py | /followups/plan, /renewals | Plan Week, renewal pipeline, activity PATCH |
 | settings.py | /settings | Config list management, email subjects |
 | templates.py | /templates | Email template CRUD + compose panel |
@@ -258,7 +258,7 @@ Specialized reference docs are available as on-demand skills:
 | `policydb-charts` | Chart templates, exports, snapshot system, html2canvas rules |
 | `policydb-copy-table` | Clipboard rich-paste buttons, Outlook-safe HTML tables |
 | `policydb-spreadsheet` | Tabulator grid component, initSpreadsheet() API |
-| `policydb-activities` | Activity lifecycle, follow-up buckets, issue tracking, auto-close, escalation tiers |
+| `policydb-activities` | Focus Queue scoring, waiting promotion, activity lifecycle, issue tracking, auto-close, escalation |
 | `policydb-activity-review` | Unlogged session detection, system vs user filtering, review gates, anomaly rules |
 | `policydb-exports` | XLSX theming, CSV, HTML copy-table, _write_sheet(), build_generic_table() |
 | `policydb-reports` | All 29 chart types, insurance schematics, tower notation, TCOR, benchmarking, data sources |
