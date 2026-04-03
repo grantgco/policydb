@@ -38,6 +38,13 @@
         <span class="text-[11px] font-semibold px-2 py-0.5 rounded {{ badge_color }} whitespace-nowrap">
           {{ item.source_label | upper }}
         </span>
+        {# Ref tag pill — click to copy for emails #}
+        {% if item.policy_uid %}
+          {% set _item_ref = build_ref_tag(cn_number=item.cn_number|default(''), client_id=item.client_id, policy_uid=item.policy_uid) %}
+          <button type="button" onclick="copyRefTag(this, '{{ _item_ref }}')"
+            class="text-[10px] font-mono text-gray-400 hover:text-marsh bg-gray-100 hover:bg-gray-200 px-1.5 py-0.5 rounded cursor-pointer transition-colors no-print"
+            title="Copy ref tag">{{ item.policy_uid }}</button>
+        {% endif %}
         <span class="text-sm font-semibold text-[#3D3C37] truncate">
           {% if item.client_name %}{{ item.client_name }}{% endif %}
           {% if item.policy_type %} — {{ item.policy_type }}{% endif %}
@@ -59,20 +66,24 @@
       {% if item.context_line %}
       <div class="text-[12px] text-[#6B6860] mt-0.5">{{ item.context_line }}</div>
       {% endif %}
-      {# Last action + waiting indicator #}
-      {% if item.activity_type or item.contact_person or item.accountability == 'waiting_external' %}
+      {# Last action + contact + waiting indicator #}
       <div class="flex items-center gap-2 mt-1 flex-wrap">
         {% if item.activity_type %}
           <span class="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">Last: {{ item.activity_type }}</span>
         {% endif %}
         {% if item.contact_person %}
-          <span class="text-[10px] text-gray-400">↳ {{ item.contact_person }}</span>
+          <span class="text-[10px] text-gray-500">↳ {{ item.contact_person }}</span>
+        {% endif %}
+        {% if item.contact_email %}
+          <a href="mailto:{{ item.contact_email }}" class="text-[10px] text-blue-500 hover:underline no-print" title="Email {{ item.contact_person or item.contact_email }}">✉ {{ item.contact_email }}</a>
         {% endif %}
         {% if item.accountability == 'waiting_external' %}
           <span class="text-[10px] bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded font-semibold">⏳ Waiting</span>
         {% endif %}
+        {% if not item.contact_person and not item.contact_email and item.kind == 'followup' %}
+          <span class="text-[10px] text-gray-300 italic">no contact</span>
+        {% endif %}
       </div>
-      {% endif %}
     </div>
 
     {# Action buttons #}
@@ -126,7 +137,9 @@
   {# Inline completion form (hidden, expanded by fqExpandComplete) #}
   <div id="fq-complete-{{ row_id }}" class="hidden mt-2.5 p-3 bg-gray-50 rounded-md border border-gray-200">
     <form hx-post="{% if item.kind == 'followup' and item.source == 'activity' %}/activities/{{ item.id }}/followup{% elif item.policy_uid %}/policies/{{ item.policy_uid }}/followup{% else %}/activities/log{% endif %}"
-          hx-target="#fq-{{ row_id }}" hx-swap="outerHTML"
+          hx-target="#fq-{{ row_id }}"
+          hx-swap="outerHTML"
+          hx-on::after-request="if(event.detail.successful) document.getElementById('fq-{{ row_id }}')?.remove()"
           class="flex flex-wrap gap-2 items-end">
       {% if not item.id or item.kind in ('suggested', 'insurance_deadline') %}
         <input type="hidden" name="client_id" value="{{ item.client_id or '' }}">
