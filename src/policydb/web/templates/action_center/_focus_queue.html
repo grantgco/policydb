@@ -105,7 +105,12 @@
 <script>
 function fqExpandComplete(rowId) {
   var form = document.getElementById('fq-complete-' + rowId);
-  if (form) { form.classList.remove('hidden'); }
+  if (form) {
+    form.classList.remove('hidden');
+    // Auto-set 7d default if no date is set
+    var dateInput = document.getElementById('fq-date-' + rowId);
+    if (dateInput && !dateInput.value) { fqSetDate(rowId, 7); }
+  }
 }
 function fqCollapseComplete(rowId) {
   var form = document.getElementById('fq-complete-' + rowId);
@@ -114,5 +119,50 @@ function fqCollapseComplete(rowId) {
 function fqToggleMenu(rowId) {
   var menu = document.getElementById('fq-menu-' + rowId);
   if (menu) { menu.classList.toggle('hidden'); }
+}
+function fqSetDate(rowId, days) {
+  var d = new Date(); d.setDate(d.getDate() + days);
+  var iso = d.toISOString().split('T')[0];
+  document.getElementById('fq-date-' + rowId).value = iso;
+  // Highlight the selected button
+  var form = document.getElementById('fq-complete-' + rowId);
+  if (form) {
+    form.querySelectorAll('.fq-date-btn').forEach(function(b) {
+      b.classList.remove('bg-blue-50', 'text-blue-700', 'font-semibold');
+      b.classList.add('text-gray-600');
+    });
+    // Find the button that was clicked (match by days label)
+    var labels = {'1': '1d', '3': '3d', '7': '1w', '14': '2w', '30': '1m'};
+    form.querySelectorAll('.fq-date-btn').forEach(function(b) {
+      if (b.textContent.trim() === labels[days]) {
+        b.classList.add('bg-blue-50', 'text-blue-700', 'font-semibold');
+        b.classList.remove('text-gray-600');
+      }
+    });
+  }
+}
+function fqSetWaiting(rowId) {
+  document.getElementById('fq-disp-' + rowId).value = 'Waiting on Response';
+  var toggle = document.getElementById('fq-wait-toggle-' + rowId);
+  var btns = toggle.querySelectorAll('button');
+  btns[0].className = 'px-3 py-1.5 font-semibold transition-colors bg-white text-gray-600';
+  btns[1].className = 'px-3 py-1.5 font-semibold transition-colors bg-amber-500 text-white';
+  // Auto-set 7d if no date or date is today
+  var dateInput = document.getElementById('fq-date-' + rowId);
+  if (!dateInput.value || dateInput.value <= new Date().toISOString().split('T')[0]) {
+    fqSetDate(rowId, 7);
+  }
+}
+function fqSetMove(rowId) {
+  document.getElementById('fq-disp-' + rowId).value = '';
+  var toggle = document.getElementById('fq-wait-toggle-' + rowId);
+  var btns = toggle.querySelectorAll('button');
+  btns[0].className = 'px-3 py-1.5 font-semibold transition-colors bg-blue-600 text-white';
+  btns[1].className = 'px-3 py-1.5 font-semibold transition-colors bg-white text-gray-600';
+  // Auto-set 3d for my-move items
+  var dateInput = document.getElementById('fq-date-' + rowId);
+  if (!dateInput.value || dateInput.value <= new Date().toISOString().split('T')[0]) {
+    fqSetDate(rowId, 3);
+  }
 }
 </script>

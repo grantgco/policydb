@@ -144,23 +144,37 @@
         <input type="number" name="duration_hours" step="0.1" min="0" placeholder="0.0"
                class="text-xs border border-gray-200 rounded px-2 py-1 w-16 focus:border-blue-400 focus:outline-none">
       </div>
+      {# Follow-up date with quick-pick buttons #}
       <div class="flex flex-col gap-0.5">
-        <label class="text-[10px] uppercase text-gray-400 font-semibold">Next follow-up</label>
-        <input type="date" name="new_follow_up_date"
-               value="{{ item.follow_up_date or '' }}"
-               class="text-xs border border-gray-200 rounded px-2 py-1 focus:border-blue-400 focus:outline-none">
+        <label class="text-[10px] uppercase text-gray-400 font-semibold">Re-check in</label>
+        <div class="flex items-center gap-1">
+          <div class="flex rounded-md overflow-hidden border border-gray-200 text-[11px]">
+            <button type="button" class="px-2 py-1 hover:bg-blue-50 text-gray-600 fq-date-btn"
+                    onclick="fqSetDate('{{ row_id }}', 1)">1d</button>
+            <button type="button" class="px-2 py-1 hover:bg-blue-50 text-gray-600 border-l border-gray-200 fq-date-btn"
+                    onclick="fqSetDate('{{ row_id }}', 3)">3d</button>
+            <button type="button" class="px-2 py-1 hover:bg-blue-50 bg-blue-50 text-blue-700 font-semibold border-l border-gray-200 fq-date-btn"
+                    onclick="fqSetDate('{{ row_id }}', 7)">1w</button>
+            <button type="button" class="px-2 py-1 hover:bg-blue-50 text-gray-600 border-l border-gray-200 fq-date-btn"
+                    onclick="fqSetDate('{{ row_id }}', 14)">2w</button>
+            <button type="button" class="px-2 py-1 hover:bg-blue-50 text-gray-600 border-l border-gray-200 fq-date-btn"
+                    onclick="fqSetDate('{{ row_id }}', 30)">1m</button>
+          </div>
+          <input type="date" name="new_follow_up_date" id="fq-date-{{ row_id }}"
+                 class="text-xs border border-gray-200 rounded px-2 py-1 w-28 focus:border-blue-400 focus:outline-none">
+        </div>
       </div>
-      {# Waiting toggle — simple binary #}
+      {# Waiting toggle — simple binary. Auto-sets 7d when switching to Waiting. #}
       <input type="hidden" name="disposition" id="fq-disp-{{ row_id }}" value="">
       <div class="flex rounded-md overflow-hidden border border-gray-200 text-xs" id="fq-wait-toggle-{{ row_id }}">
         <button type="button"
                 class="px-3 py-1.5 font-semibold transition-colors bg-blue-600 text-white"
-                onclick="this.classList.add('bg-blue-600','text-white'); this.classList.remove('bg-white','text-gray-600'); this.nextElementSibling.classList.add('bg-white','text-gray-600'); this.nextElementSibling.classList.remove('bg-amber-500','text-white'); document.getElementById('fq-disp-{{ row_id }}').value=''">
+                onclick="fqSetMove('{{ row_id }}')">
           My move
         </button>
         <button type="button"
                 class="px-3 py-1.5 font-semibold transition-colors bg-white text-gray-600"
-                onclick="this.classList.add('bg-amber-500','text-white'); this.classList.remove('bg-white','text-gray-600'); this.previousElementSibling.classList.add('bg-white','text-gray-600'); this.previousElementSibling.classList.remove('bg-blue-600','text-white'); document.getElementById('fq-disp-{{ row_id }}').value='Waiting on Response'">
+                onclick="fqSetWaiting('{{ row_id }}')">
           ⏳ Waiting
         </button>
       </div>
