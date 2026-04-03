@@ -1,0 +1,183 @@
+{# Contact Edit Slideover — per-field save on blur via PATCH #}
+
+<div class="flex items-start justify-between px-5 py-4 border-b border-gray-200 flex-shrink-0">
+  <div>
+    <h2 class="text-sm font-semibold text-gray-900">Edit Contact</h2>
+    <p class="text-xs text-gray-500 mt-0.5">
+      {{ contact.name }}
+      {% if contact.organization %}&middot; {{ contact.organization }}{% endif %}
+    </p>
+  </div>
+  <button type="button" onclick="closeFollowupEdit()"
+          class="text-gray-400 hover:text-gray-600 transition-colors ml-4 mt-0.5">
+    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+    </svg>
+  </button>
+</div>
+
+<div class="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+
+  {# Name #}
+  <div>
+    <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Name</label>
+    <input type="text" id="edit-ct-name" value="{{ contact.name or '' }}"
+      class="mt-1 w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:ring-1 focus:ring-marsh focus:border-marsh"
+      onblur="patchContactField({{ contact.id }}, 'name', this.value, this)">
+  </div>
+
+  {# Organization #}
+  <div>
+    <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Organization</label>
+    <input type="text" id="edit-ct-org" value="{{ contact.organization or '' }}"
+      class="mt-1 w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:ring-1 focus:ring-marsh focus:border-marsh"
+      onblur="patchContactField({{ contact.id }}, 'organization', this.value, this)">
+  </div>
+
+  {# Email #}
+  <div>
+    <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Email</label>
+    <input type="email" id="edit-ct-email" value="{{ contact.email or '' }}"
+      class="mt-1 w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:ring-1 focus:ring-marsh focus:border-marsh"
+      onblur="patchContactField({{ contact.id }}, 'email', this.value, this)">
+  </div>
+
+  {# Phone #}
+  <div>
+    <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Phone</label>
+    <input type="tel" id="edit-ct-phone" value="{{ contact.phone or '' }}"
+      class="mt-1 w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:ring-1 focus:ring-marsh focus:border-marsh"
+      onblur="patchContactField({{ contact.id }}, 'phone', this.value, this)">
+  </div>
+
+  {# Mobile #}
+  <div>
+    <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Mobile</label>
+    <input type="tel" id="edit-ct-mobile" value="{{ contact.mobile or '' }}"
+      class="mt-1 w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:ring-1 focus:ring-marsh focus:border-marsh"
+      onblur="patchContactField({{ contact.id }}, 'mobile', this.value, this)">
+  </div>
+
+  {# Expertise Notes #}
+  <div>
+    <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Expertise Notes</label>
+    <textarea id="edit-ct-notes" rows="3"
+      class="mt-1 w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:ring-1 focus:ring-marsh focus:border-marsh resize-y"
+      onblur="patchContactField({{ contact.id }}, 'expertise_notes', this.value, this)">{{ contact.expertise_notes or '' }}</textarea>
+  </div>
+
+  {# Expertise Tags #}
+  {% if expertise_lines or expertise_industries %}
+  <div>
+    <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Lines of Business</label>
+    <div class="flex flex-wrap gap-1.5 mt-1">
+      {% for tag in expertise_lines %}
+      <button type="button"
+        onclick="toggleContactTag(this, {{ contact.id }}, 'line', '{{ tag }}')"
+        class="ct-tag-line text-[11px] px-3 py-1 rounded border transition-colors cursor-pointer
+          {% if tag in contact.get('expertise_lines', []) %}bg-marsh text-white border-marsh{% else %}border-gray-200 text-gray-500 hover:border-marsh hover:text-marsh{% endif %}">{{ tag }}</button>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div>
+    <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Industries</label>
+    <div class="flex flex-wrap gap-1.5 mt-1">
+      {% for tag in expertise_industries %}
+      <button type="button"
+        onclick="toggleContactTag(this, {{ contact.id }}, 'industry', '{{ tag }}')"
+        class="ct-tag-industry text-[11px] px-3 py-1 rounded border transition-colors cursor-pointer
+          {% if tag in contact.get('expertise_industries', []) %}bg-marsh text-white border-marsh{% else %}border-gray-200 text-gray-500 hover:border-marsh hover:text-marsh{% endif %}">{{ tag }}</button>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {# Assignments summary (read-only context) #}
+  {% if client_assignments or policy_assignments %}
+  <div class="border-t border-gray-100 pt-4 mt-2">
+    <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Assignments</label>
+
+    {% if client_assignments %}
+    <div class="mt-2 space-y-1.5">
+      {% for ca in client_assignments %}
+      <div class="flex items-center gap-2 text-xs">
+        <span class="{% if ca.contact_type == 'internal' %}text-indigo-600 bg-indigo-50{% else %}text-teal-600 bg-teal-50{% endif %} px-1.5 py-0.5 rounded text-[10px] font-medium uppercase">{{ ca.contact_type }}</span>
+        <a href="/clients/{{ ca.client_id }}" class="text-gray-700 hover:text-marsh transition-colors">{{ ca.client_name }}</a>
+        {% if ca.role %}<span class="text-gray-400">· {{ ca.role }}</span>{% endif %}
+        {% if ca.title %}<span class="text-gray-400">· {{ ca.title }}</span>{% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if policy_assignments %}
+    <div class="mt-2 space-y-1.5">
+      {% for pa in policy_assignments %}
+      <div class="flex items-center gap-2 text-xs">
+        <span class="text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded text-[10px] font-medium uppercase">policy</span>
+        <a href="/policies/{{ pa.policy_uid }}/edit" class="font-mono text-gray-400 hover:text-marsh transition-colors">{{ pa.policy_uid }}</a>
+        <span class="text-gray-700">{{ pa.client_name }}</span>
+        <span class="text-gray-400">· {{ pa.policy_type }}</span>
+        {% if pa.role %}<span class="text-gray-400">· {{ pa.role }}</span>{% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+
+</div>
+
+{# Footer with link to full detail page #}
+<div class="flex-shrink-0 border-t border-gray-200 px-5 py-3 bg-gray-50">
+  <a href="/contacts/{{ contact.id }}"
+     class="text-xs text-marsh hover:underline">Open full detail →</a>
+</div>
+
+<script>
+function patchContactField(contactId, field, value, el) {
+  fetch('/contacts/' + contactId + '/field', {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({field: field, value: value})
+  }).then(function(r) { return r.json(); }).then(function(data) {
+    if (data.ok) {
+      if (el && el.tagName) {
+        if (data.formatted !== undefined && data.formatted !== value) {
+          if (el.tagName === 'TEXTAREA') el.value = data.formatted;
+          else el.value = data.formatted;
+        }
+        el.style.transition = 'background-color 0.3s';
+        el.style.backgroundColor = '#ecfdf5';
+        setTimeout(function() { el.style.backgroundColor = ''; }, 800);
+      }
+    } else if (typeof showToast === 'function') {
+      showToast('Save failed: ' + (data.error || 'unknown'), false);
+    }
+  });
+}
+
+function toggleContactTag(btn, contactId, category, tag) {
+  var isActive = btn.className.indexOf('bg-marsh') !== -1;
+  var action = isActive ? 'remove' : 'add';
+
+  fetch('/contacts/' + contactId + '/expertise', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({category: category, tag: tag, action: action})
+  }).then(function(r) { return r.json(); }).then(function(data) {
+    if (data.ok) {
+      if (action === 'add') {
+        btn.className = btn.className
+          .replace(/border-gray-200 text-gray-500 hover:border-marsh hover:text-marsh/g, 'bg-marsh text-white border-marsh');
+      } else {
+        btn.className = btn.className
+          .replace(/bg-marsh text-white border-marsh/g, 'border-gray-200 text-gray-500 hover:border-marsh hover:text-marsh');
+      }
+    } else if (typeof showToast === 'function') {
+      showToast('Save failed: ' + (data.error || 'unknown'), false);
+    }
+  });
+}
+</script>

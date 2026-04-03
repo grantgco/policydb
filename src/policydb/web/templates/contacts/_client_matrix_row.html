@@ -107,7 +107,14 @@
   </td>
   {# Actions #}
   <td class="px-3 py-2.5 text-right">
-    <div class="opacity-0 group-hover:opacity-100 transition-opacity">
+    <div class="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-2 justify-end">
+      <button type="button"
+        hx-get="/contacts/{{ c.contact_id }}/edit-slideover"
+        hx-target="#fu-edit-content"
+        hx-swap="innerHTML"
+        onclick="event.preventDefault();event.stopPropagation();openFollowupEdit()"
+        class="text-xs text-gray-400 hover:text-marsh transition-colors"
+        title="Quick edit">&#9998;</button>
       <button type="button"
         data-delete-name="{{ c.name }}" data-delete-count="{{ c.client_count }}"
         onclick="if(!confirmDestructive(this,'Delete? Click again'))return;var n=this.dataset.deleteName;fetch('/contacts/client/'+encodeURIComponent(n)+'/delete',{method:'POST'}).then(function(){location.reload()})"
