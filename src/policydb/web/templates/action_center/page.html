@@ -10,66 +10,100 @@
       {# Risk alerts banner — above tabs #}
       {% include "action_center/_risk_alerts.html" %}
 
-      {# Tab bar #}
+      {# Tab bar — Focus (primary) + Follow-ups (secondary) + More dropdown #}
+      {% set _focus_badge = (act_now_count if act_now_count is defined else 0) + (nudge_due_count if nudge_due_count is defined else 0) %}
+      {% set _fu_badge = _focus_badge %}
+      {% set _sp_count = scratchpad_count if scratchpad_count is defined else (scratchpads|length if scratchpads is defined else 0) %}
+      {% set _rev_count = review_pending_count if review_pending_count is defined else 0 %}
+      {# Amber dot if any secondary tab has a badge #}
+      {% set _more_has_badge = (inbox_pending if inbox_pending is defined else 0)
+                             + (_sp_count)
+                             + (issues_count if issues_count is defined else 0)
+                             + (anomaly_total if anomaly_total is defined else 0)
+                             + (_rev_count)
+                             + (health_incomplete if health_incomplete is defined else 0) %}
       <div class="tab-bar no-print" id="ac-tab-bar">
+        <button class="tab-btn" data-tab="focus" data-tab-url="/action-center/focus">
+          Focus
+          {% if _focus_badge %}
+            <span class="tab-badge" style="background:#ef4444;color:white">{{ _focus_badge }}</span>
+          {% endif %}
+        </button>
         <button class="tab-btn" data-tab="followups" data-tab-url="/action-center/followups">
           Follow-ups
-          {% set _fu_badge = (act_now_count if act_now_count is defined else 0) + (nudge_due_count if nudge_due_count is defined else 0) %}
           {% if _fu_badge %}
             <span class="tab-badge" style="background:#ef4444;color:white">{{ _fu_badge }}</span>
           {% elif overdue is defined and overdue|length %}
             <span class="tab-badge" style="background:#ef4444;color:white">{{ overdue|length }}</span>
           {% endif %}
         </button>
-        <button class="tab-btn" data-tab="inbox" data-tab-url="/action-center/inbox">
-          Inbox
-          {% if inbox_pending %}
-            <span class="tab-badge" style="background:#ef4444;color:white">{{ inbox_pending }}</span>
-          {% endif %}
-        </button>
-        <button class="tab-btn" data-tab="activities" data-tab-url="/action-center/activities">
-          Activities
-        </button>
-        <button class="tab-btn" data-tab="scratchpads" data-tab-url="/action-center/scratchpads">
-          Scratchpads
-          {% set _sp_count = scratchpad_count if scratchpad_count is defined else (scratchpads|length if scratchpads is defined else 0) %}
-          {% if _sp_count %}
-            <span class="tab-badge" style="background:#ef4444;color:white">{{ _sp_count }}</span>
-          {% endif %}
-        </button>
-        <button class="tab-btn" data-tab="issues" data-tab-url="/action-center/issues">
-          Issues
-          {% if issues_count is defined and issues_count %}
-            <span class="tab-badge" style="background:#ef4444;color:white">{{ issues_count }}</span>
-          {% endif %}
-        </button>
-        <button class="tab-btn" data-tab="anomalies" data-tab-url="/action-center/anomalies">
-          Anomalies
-          {% if anomaly_total is defined and anomaly_total %}
-            <span class="tab-badge" style="background:#ef4444;color:white">{{ anomaly_total }}</span>
-          {% endif %}
-        </button>
-        <button class="tab-btn" data-tab="activity-review" data-tab-url="/action-center/activity-review">
-          Activity Review
-          <span id="review-badge">
-          {% set _rev_count = review_pending_count if review_pending_count is defined else 0 %}
-          {% if _rev_count %}
-            <span class="tab-badge" style="background:#f59e0b;color:white">{{ _rev_count }}</span>
-          {% endif %}
-          </span>
-        </button>
-        <button class="tab-btn" data-tab="data-health" data-tab-url="/action-center/data-health">
-          Data Health
-          {% if health_incomplete is defined and health_incomplete %}
-            <span class="tab-badge" style="background:#f59e0b;color:white">{{ health_incomplete }}</span>
-          {% endif %}
-        </button>
+
+        {# ── More ▾ dropdown ── #}
+        <div class="relative" style="margin-left:auto;">
+          <button id="ac-more-menu" type="button"
+                  class="tab-btn flex items-center gap-1"
+                  onclick="document.getElementById('ac-more-dropdown').classList.toggle('hidden')">
+            More
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+            {% if _more_has_badge %}
+              <span class="inline-block w-2 h-2 rounded-full bg-amber-500 ml-1" title="Items need attention"></span>
+            {% endif %}
+          </button>
+          <div id="ac-more-dropdown"
+               class="hidden absolute right-0 top-full mt-1 z-50 bg-white border border-[#D9D5CF] rounded-lg shadow-lg py-1 min-w-[180px]">
+            <button class="tab-btn-dropdown" data-tab="inbox" data-tab-url="/action-center/inbox">
+              Inbox
+              {% if inbox_pending %}
+                <span class="tab-badge" style="background:#ef4444;color:white">{{ inbox_pending }}</span>
+              {% endif %}
+            </button>
+            <button class="tab-btn-dropdown" data-tab="activities" data-tab-url="/action-center/activities">
+              Activities
+            </button>
+            <button class="tab-btn-dropdown" data-tab="scratchpads" data-tab-url="/action-center/scratchpads">
+              Scratchpads
+              {% if _sp_count %}
+                <span class="tab-badge" style="background:#ef4444;color:white">{{ _sp_count }}</span>
+              {% endif %}
+            </button>
+            <button class="tab-btn-dropdown" data-tab="issues" data-tab-url="/action-center/issues">
+              Issues
+              {% if issues_count is defined and issues_count %}
+                <span class="tab-badge" style="background:#ef4444;color:white">{{ issues_count }}</span>
+              {% endif %}
+            </button>
+            <button class="tab-btn-dropdown" data-tab="anomalies" data-tab-url="/action-center/anomalies">
+              Anomalies
+              {% if anomaly_total is defined and anomaly_total %}
+                <span class="tab-badge" style="background:#ef4444;color:white">{{ anomaly_total }}</span>
+              {% endif %}
+            </button>
+            <button class="tab-btn-dropdown" data-tab="activity-review" data-tab-url="/action-center/activity-review">
+              Activity Review
+              <span id="review-badge">
+              {% if _rev_count %}
+                <span class="tab-badge" style="background:#f59e0b;color:white">{{ _rev_count }}</span>
+              {% endif %}
+              </span>
+            </button>
+            <button class="tab-btn-dropdown" data-tab="data-health" data-tab-url="/action-center/data-health">
+              Data Health
+              {% if health_incomplete is defined and health_incomplete %}
+                <span class="tab-badge" style="background:#f59e0b;color:white">{{ health_incomplete }}</span>
+              {% endif %}
+            </button>
+          </div>
+        </div>
       </div>
 
       {# Tab content area #}
       <div class="tab-content" id="ac-tab-content">
         {# Initial tab content rendered server-side #}
-        {% if initial_tab == 'followups' %}
+        {% if initial_tab == 'focus' %}
+          <div id="fq-content">
+            {% include "action_center/_focus_queue.html" %}
+          </div>
+        {% elif initial_tab == 'followups' %}
           {% include "action_center/_followups.html" %}
         {% elif initial_tab == 'inbox' %}
           {% include "action_center/_inbox.html" %}
@@ -99,35 +133,80 @@
   </div>
 </div>
 
+<style>
+  .tab-btn-dropdown {
+    display: flex; align-items: center; gap: 6px; width: 100%;
+    padding: 7px 14px; font-size: 13px; font-weight: 500;
+    color: #7B7974; cursor: pointer; border: none; background: none;
+    text-align: left; white-space: nowrap; transition: background 0.1s, color 0.1s;
+  }
+  .tab-btn-dropdown:hover { background: #F7F3EE; color: #000F47; }
+  .tab-btn-dropdown.active { color: #000F47; font-weight: 600; background: #F7F3EE; }
+  .tab-btn-dropdown .tab-badge { font-size: 10px; padding: 1px 6px; border-radius: 9px; margin-left: auto; font-weight: 600; }
+</style>
 <script>
 (function() {
-  /* Initialize tabs — override initTabs to support ?tab= query param */
+  /* Initialize tabs — Focus (primary) + Follow-ups + More dropdown items */
   var params = new URLSearchParams(window.location.search);
   var requestedTab = params.get('tab') || '{{ initial_tab }}';
 
   var container = document.getElementById('action-center');
   var bar = document.getElementById('ac-tab-bar');
   var content = document.getElementById('ac-tab-content');
+  var moreMenu = document.getElementById('ac-more-dropdown');
   if (!bar || !content) return;
-  var buttons = bar.querySelectorAll('.tab-btn');
+
+  /* Collect all tab-activatable buttons: top-level .tab-btn (except More) + dropdown .tab-btn-dropdown */
+  var topButtons = bar.querySelectorAll('.tab-btn[data-tab]');
+  var dropdownButtons = moreMenu ? moreMenu.querySelectorAll('.tab-btn-dropdown[data-tab]') : [];
+  var allButtons = [];
+  topButtons.forEach(function(b) { allButtons.push(b); });
+  dropdownButtons.forEach(function(b) { allButtons.push(b); });
 
   function activateTab(btn, skipLoad) {
-    buttons.forEach(function(b) { b.classList.remove('active'); });
+    /* Clear active state from all buttons */
+    allButtons.forEach(function(b) { b.classList.remove('active'); });
     btn.classList.add('active');
+
+    /* If this is a dropdown item, also style the More button as active */
+    var moreBtn = document.getElementById('ac-more-menu');
+    if (moreBtn) {
+      var isDropdownTab = false;
+      dropdownButtons.forEach(function(b) { if (b === btn) isDropdownTab = true; });
+      if (isDropdownTab) {
+        moreBtn.classList.add('active');
+      } else {
+        moreBtn.classList.remove('active');
+      }
+    }
+
     sessionStorage.setItem('action-center-tab', btn.dataset.tab);
+
+    /* Close dropdown after selection */
+    if (moreMenu) moreMenu.classList.add('hidden');
+
     if (!skipLoad && btn.dataset.tabUrl) {
       htmx.ajax('GET', btn.dataset.tabUrl, {target: '#ac-tab-content', swap: 'innerHTML'});
     }
   }
 
-  buttons.forEach(function(btn) {
+  allButtons.forEach(function(btn) {
     btn.addEventListener('click', function() { activateTab(btn); });
+  });
+
+  /* Close More dropdown on outside click */
+  document.addEventListener('click', function(e) {
+    var menu = document.getElementById('ac-more-dropdown');
+    var btn = document.getElementById('ac-more-menu');
+    if (menu && btn && !btn.contains(e.target) && !menu.contains(e.target)) {
+      menu.classList.add('hidden');
+    }
   });
 
   /* Activate initial tab without re-fetching (already server-rendered) */
   var target = null;
-  buttons.forEach(function(b) { if (b.dataset.tab === requestedTab) target = b; });
-  if (!target) target = buttons[0];
+  allButtons.forEach(function(b) { if (b.dataset.tab === requestedTab) target = b; });
+  if (!target) target = allButtons[0];
   if (target) activateTab(target, true);
 })();
 </script>
