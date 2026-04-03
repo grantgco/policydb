@@ -907,10 +907,36 @@ def build_focus_queue(
         days = item.get("days_until_deadline")
 
         if acc == "waiting_external":
-            # Auto-promote stale waiting items to focus
+            # Check expiration date — deadline approaching overrides waiting status
+            exp = item.get("expiration_date") or ""
+            exp_days = None
+            if exp:
+                try:
+                    exp_days = (datetime.strptime(exp, "%Y-%m-%d").date() - today).days
+                except ValueError:
+                    pass
+
+            promote = False
+            promote_reason = ""
+
+            # Promote if been waiting too long
             if days is not None and days <= -auto_promote_days:
-                item["context_line"] = f"Waiting {abs(days)} days — consider nudging · " + item["context_line"]
-                item["suggested_action"] = "Send Nudge"
+                promote = True
+                promote_reason = f"Waiting {abs(days)} days — consider nudging"
+            # Promote if deadline/expiration within 7 days (even if still waiting)
+            elif exp_days is not None and exp_days <= 7:
+                promote = True
+                promote_reason = f"⚠ Expires in {exp_days}d — still waiting"
+            elif days is not None and days <= 0:
+                promote = True
+                promote_reason = f"Overdue — still waiting"
+
+            if promote:
+                item["context_line"] = promote_reason + (" · " + item["context_line"] if item["context_line"] else "")
+                if "Expires" in promote_reason or "Overdue" in promote_reason:
+                    item["suggested_action"] = "Escalate"
+                else:
+                    item["suggested_action"] = "Send Nudge"
                 focus_items.append(item)
             else:
                 waiting_items.append(item)
