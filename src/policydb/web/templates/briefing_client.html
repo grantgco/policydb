@@ -37,8 +37,8 @@
 {% set f = s.financials %}
 <div class="card px-5 py-3 mb-5">
   <div class="flex items-center gap-6 text-sm">
-    {% if f.total_premium %}<div><span class="font-bold text-gray-900">${{ "{:,.0f}".format(f.total_premium) }}</span> <span class="text-xs text-gray-400">Premium</span></div>{% endif %}
-    {% if f.total_revenue %}<div><span class="font-bold text-gray-900">${{ "{:,.0f}".format(f.total_revenue) }}</span> <span class="text-xs text-gray-400">Revenue</span></div>{% endif %}
+    {% if f.total_premium %}<div><span class="font-bold text-gray-900">{{ f.total_premium | currency }}</span> <span class="text-xs text-gray-400">Premium</span></div>{% endif %}
+    {% if f.total_revenue %}<div><span class="font-bold text-gray-900">{{ f.total_revenue | currency }}</span> <span class="text-xs text-gray-400">Revenue</span></div>{% endif %}
     {% if f.total_policies %}<div><span class="font-bold text-gray-900">{{ f.total_policies }}</span> <span class="text-xs text-gray-400">Policies</span></div>{% endif %}
     {% if f.carrier_count %}<div><span class="font-bold text-gray-900">{{ f.carrier_count }}</span> <span class="text-xs text-gray-400">Carriers</span></div>{% endif %}
   </div>
@@ -346,7 +346,7 @@ function toggleBqComplete(rowId) {
         <div class="flex items-center gap-2 text-xs py-0.5">
           <span class="text-gray-800 font-medium truncate">{{ p.policy_type }}</span>
           <span class="text-gray-400 truncate">{{ p.carrier }}</span>
-          {% if p.premium %}<span class="ml-auto text-gray-500 tabular-nums shrink-0">${{ "{:,.0f}".format(p.premium) }}</span>{% endif %}
+          {% if p.premium %}<span class="ml-auto text-gray-500 tabular-nums shrink-0">{{ p.premium | currency }}</span>{% endif %}
         </div>
         {% endfor %}
       </div>
@@ -418,7 +418,7 @@ function toggleBqComplete(rowId) {
       </div>
       <div>
         <p class="text-[10px] text-gray-400">Est. Cost</p>
-        <p class="text-sm font-bold text-gray-900">${{ '{:,.0f}'.format(ep.annual_cost) }}</p>
+        <p class="text-sm font-bold text-gray-900">{{ ep.annual_cost | currency }}</p>
       </div>
       <div>
         <p class="text-[10px] text-gray-400">Revenue Ratio</p>

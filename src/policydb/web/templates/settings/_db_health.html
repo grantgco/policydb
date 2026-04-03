@@ -147,7 +147,7 @@
       <p class="text-xs font-medium text-amber-700">{{ legacy_backups | length }} legacy backup{{ 's' if legacy_backups | length != 1 else '' }} in ~/.policydb/</p>
       <p class="text-xs text-amber-600">Old-format backups from before the backup consolidation. Safe to remove.</p>
     </div>
-    <button type="button" onclick="dbCleanupLegacy()"
+    <button type="button" onclick="dbCleanupLegacy(this)"
       class="text-xs bg-amber-100 text-amber-800 hover:bg-amber-200 border border-amber-300 px-3 py-1.5 rounded-lg font-medium transition-colors whitespace-nowrap ml-3">
       Clean Up
     </button>
@@ -222,8 +222,8 @@ function dbPurgeConfirm() {
     .catch(function(e) { _dbSetStatus('Request failed.', 'text-red-600'); });
 }
 
-function dbCleanupLegacy() {
-  if (!confirm('Delete legacy backup files from ~/.policydb/?')) return;
+function dbCleanupLegacy(btn) {
+  if (!confirmDestructive(btn, 'Click again to clean up')) return;
   _dbSetStatus('Cleaning up…', 'text-gray-500');
   fetch('/settings/db/cleanup-legacy', { method: 'POST' })
     .then(function(r) { return r.json(); })

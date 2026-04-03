@@ -201,7 +201,7 @@ function clearChecks() {
 function bulkReschedule() {
   var ids = getCheckedIds();
   var newDate = document.getElementById('bulk-date').value;
-  if (!ids.length || !newDate) { alert('Select items and pick a date.'); return; }
+  if (!ids.length || !newDate) { showToast('Select items and pick a date.', false); return; }
   htmx.ajax('POST', '/followups/bulk-reschedule', {
     target: '#followup-results',
     swap: 'innerHTML',

@@ -16,13 +16,13 @@
   <td class="px-3 py-2 text-sm text-gray-800 matrix-cell-editable"
       data-field="carrier" data-placeholder="carrier" contenteditable="true">{{ p.carrier or '' }}{% if is_pkg %}<div class="text-[10px] text-indigo-500 italic" contenteditable="false">via {{ p.package_parent_type or p.policy_type or '' }}</div>{% endif %}</td>
   <td class="px-3 py-2 text-sm text-gray-800 text-right tabular-nums matrix-cell-editable"
-      data-field="limit_amount" data-placeholder="$0" contenteditable="true">{% if p.limit_amount %}${{ '{:,.0f}'.format(p.limit_amount) }}{% endif %}</td>
+      data-field="limit_amount" data-placeholder="$0" contenteditable="true">{% if p.limit_amount %}{{ p.limit_amount | currency }}{% endif %}</td>
   <td class="px-3 py-2 text-sm text-gray-800 text-right tabular-nums matrix-cell-editable"
-      data-field="attachment_point" data-placeholder="$0" contenteditable="true">{% if p.attachment_point %}${{ '{:,.0f}'.format(p.attachment_point) }}{% endif %}</td>
+      data-field="attachment_point" data-placeholder="$0" contenteditable="true">{% if p.attachment_point %}{{ p.attachment_point | currency }}{% endif %}</td>
   <td class="px-3 py-2 text-sm text-gray-800 text-right tabular-nums matrix-cell-editable"
-      data-field="participation_of" data-placeholder="—" contenteditable="true">{% if p.participation_of %}${{ '{:,.0f}'.format(p.participation_of) }}{% endif %}</td>
+      data-field="participation_of" data-placeholder="—" contenteditable="true">{% if p.participation_of %}{{ p.participation_of | currency }}{% endif %}</td>
   <td class="px-3 py-2 text-sm text-right tabular-nums matrix-cell-editable {{ 'text-gray-400 italic' if is_pkg else 'text-gray-800' }}"
-      data-field="premium" data-placeholder="$0" contenteditable="true">{% if is_pkg %}pkg premium{% elif p.premium %}${{ '{:,.0f}'.format(p.premium) }}{% endif %}</td>
+      data-field="premium" data-placeholder="$0" contenteditable="true">{% if is_pkg %}pkg premium{% elif p.premium %}{{ p.premium | currency }}{% endif %}</td>
   <td class="px-3 py-2 text-sm text-gray-800 matrix-cell-editable"
       data-field="policy_number" data-placeholder="policy #" contenteditable="true">{{ p.policy_number or '' }}</td>
   <td class="px-3 py-2 text-xs text-gray-500 italic" data-field="notation">{{ p.notation or '' }}</td>

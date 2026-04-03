@@ -51,7 +51,7 @@
     </div>
     <input type="hidden" id="snapshot-client-id" value="{{ snapshot_client_id or '' }}">
     <button class="btn-mc sm" onclick="doSaveSnapshot()">Save</button>
-    <button class="btn-mc sm danger" onclick="doDeleteSnapshot()">Delete</button>
+    <button class="btn-mc sm danger" onclick="doDeleteSnapshot(this)">Delete</button>
   </div>
 
   <!-- Chart + Editor: each _tpl_*.html provides both the chart display and editor panel -->
@@ -119,10 +119,10 @@
     }
   }
 
-  async function doDeleteSnapshot() {
+  async function doDeleteSnapshot(btn) {
     const id = document.getElementById('snapshot-id').value;
     if (!id) return;
-    if (!confirm('Delete this snapshot?')) return;
+    if (!confirmDestructive(btn, 'Click again to delete')) return;
     await ManualChart.deleteSnapshot(CHART_TYPE, parseInt(id));
     document.getElementById('snapshot-id').value = '';
     document.getElementById('snapshot-name').value = '';

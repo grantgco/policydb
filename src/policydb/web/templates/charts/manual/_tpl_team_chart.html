@@ -424,7 +424,7 @@
   <div style="margin-top:1rem;">
     <div class="section-head midnight">Load from Client</div>
     <div style="display:flex;align-items:center;gap:0.5rem;">
-      <button type="button" class="tc-btn-load" onclick="loadTeamFromClient()">Load Team</button>
+      <button type="button" class="tc-btn-load" onclick="loadTeamFromClient(this)">Load Team</button>
       <span style="font-size:0.72rem;color:#7B7974;">Select a client in the snapshot bar above, then click Load Team</span>
     </div>
   </div>
@@ -794,7 +794,7 @@
   };
 
   // ── Load from Client ──────────────────────────────────────────────────
-  window.loadTeamFromClient = function() {
+  window.loadTeamFromClient = function(btn) {
     // Find the client ID from the snapshot bar's client combobox
     var clientInput = document.getElementById('snapshot-client');
     var clientIdInput = document.getElementById('snapshot-client-id');
@@ -806,7 +806,7 @@
     var clientName = clientInput ? clientInput.value : 'this client';
 
     if (members.length > 0) {
-      if (!confirm('Replace current team with data from ' + clientName + '?')) return;
+      if (!confirmDestructive(btn, 'Replace team? Click again')) return;
     }
 
     fetch('/charts/api/team/' + clientId)

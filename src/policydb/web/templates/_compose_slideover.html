@@ -157,14 +157,14 @@
       composeEdited = false;
       return;
     }
-    // Warn if user has made edits
-    if (composeEdited) {
-      if (!confirm('You have unsaved edits. Replace with template?')) {
-        // Reset dropdown to previous selection
-        document.getElementById('compose-template-select').value = '';
-        return;
-      }
+    // Warn if user has made edits — two-step confirmation via select
+    var sel = document.getElementById('compose-template-select');
+    if (composeEdited && sel.dataset.pendingConfirm !== templateId) {
+      sel.dataset.pendingConfirm = templateId;
+      showToast('You have unsaved edits. Select the same template again to replace.', false);
+      return;
     }
+    delete sel.dataset.pendingConfirm;
     var url = '/compose/render?template_id=' + encodeURIComponent(templateId)
       + '&policy_uid=' + encodeURIComponent(composeParams.policy_uid)
       + '&client_id=' + encodeURIComponent(composeParams.client_id)

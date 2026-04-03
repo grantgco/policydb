@@ -93,8 +93,8 @@
     <tr>
       <td>{{ p.policy_type }}</td>
       <td>{{ p.carrier or '—' }}</td>
-      <td class="text-right">{% if p.premium %}${{ '{:,.0f}'.format(p.premium) }}{% else %}—{% endif %}</td>
-      <td class="text-right">{% if p.limit_amount %}${{ '{:,.0f}'.format(p.limit_amount) }}{% else %}—{% endif %}</td>
+      <td class="text-right">{% if p.premium %}{{ p.premium | currency }}{% else %}—{% endif %}</td>
+      <td class="text-right">{% if p.limit_amount %}{{ p.limit_amount | currency }}{% else %}—{% endif %}</td>
       <td>{{ p.effective_date or '—' }}</td>
       <td>{{ p.expiration_date or '—' }}</td>
       <td>{{ p.renewal_status or '—' }}</td>
@@ -103,7 +103,7 @@
     <tr class="total-row">
       <td>Total</td>
       <td></td>
-      <td class="text-right">${{ '{:,.0f}'.format(policies | sum(attribute='premium')) }}</td>
+      <td class="text-right">{{ policies | sum(attribute='premium') | currency }}</td>
       <td colspan="4"></td>
     </tr>
   </tbody>

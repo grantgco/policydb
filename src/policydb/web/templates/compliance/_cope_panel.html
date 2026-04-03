@@ -89,7 +89,7 @@
     <div>
       <label class="block text-[10px] text-gray-400 uppercase" title="Total Insurable Value — building + contents + business income at this location">E &mdash; TIV</label>
       <span contenteditable="true" class="cope-cell block text-sm py-1 border-b border-transparent focus:border-marsh outline-none"
-            data-field="total_insurable_value" data-placeholder="e.g. 45m">{{ '{:,.0f}'.format(cope.get('total_insurable_value')) if cope.get('total_insurable_value') else '' }}</span>
+            data-field="total_insurable_value" data-placeholder="e.g. 45m">{{ cope.get('total_insurable_value') | currency if cope.get('total_insurable_value') else '' }}</span>
     </div>
   </div>
 

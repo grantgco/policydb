@@ -52,8 +52,8 @@
 {% if s and s.financials %}
 {% set f = s.financials %}
 <div class="flex items-center gap-6 text-sm mb-5 pb-3 border-b border-gray-200">
-  {% if f.total_premium %}<div><span class="font-bold">${{ "{:,.0f}".format(f.total_premium) }}</span> <span class="text-xs text-gray-400">Premium</span></div>{% endif %}
-  {% if f.total_revenue %}<div><span class="font-bold">${{ "{:,.0f}".format(f.total_revenue) }}</span> <span class="text-xs text-gray-400">Revenue</span></div>{% endif %}
+  {% if f.total_premium %}<div><span class="font-bold">{{ f.total_premium | currency }}</span> <span class="text-xs text-gray-400">Premium</span></div>{% endif %}
+  {% if f.total_revenue %}<div><span class="font-bold">{{ f.total_revenue | currency }}</span> <span class="text-xs text-gray-400">Revenue</span></div>{% endif %}
   {% if f.total_policies %}<div><span class="font-bold">{{ f.total_policies }}</span> <span class="text-xs text-gray-400">Policies</span></div>{% endif %}
   {% if f.carrier_count %}<div><span class="font-bold">{{ f.carrier_count }}</span> <span class="text-xs text-gray-400">Carriers</span></div>{% endif %}
 </div>
@@ -250,7 +250,7 @@
         <div class="flex items-center gap-1.5 text-[10px] py-0.5">
           <span class="text-gray-800 font-medium truncate">{{ p.policy_type }}</span>
           <span class="text-gray-400 truncate">{{ p.carrier }}</span>
-          {% if p.premium %}<span class="ml-auto text-gray-500 tabular-nums shrink-0">${{ "{:,.0f}".format(p.premium) }}</span>{% endif %}
+          {% if p.premium %}<span class="ml-auto text-gray-500 tabular-nums shrink-0">{{ p.premium | currency }}</span>{% endif %}
         </div>
         {% endfor %}
       </div>

@@ -164,7 +164,7 @@ window.sortTable = function(tbodyId, colIdx, type, th) {
   }, true);
 
   window.ppDeleteRow = function(btn, clientId, projectId) {
-    if (!confirm('Delete this project? Linked policies will be unassigned.')) return;
+    if (!confirmDestructive(btn, 'Click again to delete')) return;
     var row = document.getElementById('pp-row-' + projectId);
     fetch('/clients/' + clientId + '/projects/' + projectId + '/pipeline', {
       method: 'DELETE',

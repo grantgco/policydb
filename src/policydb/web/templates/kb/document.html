@@ -113,7 +113,7 @@
 
       <!-- Delete -->
       <div class="flex justify-end">
-        <button onclick="confirmDeleteDoc('{{ doc.uid }}')" class="text-sm text-red-500 hover:text-red-700">
+        <button onclick="confirmDeleteDoc('{{ doc.uid }}', this)" class="text-sm text-red-500 hover:text-red-700">
           Delete Document
         </button>
       </div>
@@ -211,11 +211,10 @@ function saveDocFieldVal(uid, field, value) {
   });
 })();
 
-function confirmDeleteDoc(uid) {
-  if (confirm('Delete this document? The file will be removed from disk. This cannot be undone.')) {
-    fetch('/kb/documents/' + uid + '/delete', { method: 'POST' })
-      .then(function() { window.location.href = '/kb'; });
-  }
+function confirmDeleteDoc(uid, btn) {
+  if (!confirmDestructive(btn, 'Click again to delete')) return;
+  fetch('/kb/documents/' + uid + '/delete', { method: 'POST' })
+    .then(function() { window.location.href = '/kb'; });
 }
 
 /* References panel — link picker */

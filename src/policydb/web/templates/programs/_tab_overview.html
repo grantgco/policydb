@@ -41,7 +41,7 @@
       {% if children %}
       <button type="button" id="renew-program-btn"
         class="no-print text-xs font-medium text-white bg-marsh px-3 py-1 rounded hover:bg-marsh/90 transition-colors"
-        onclick="renewProgram()">Renew Program</button>
+        onclick="renewProgram(this)">Renew Program</button>
       {% endif %}
     </div>
   </div>
@@ -266,8 +266,8 @@
       });
   };
 
-  window.unassignPolicy = function(policyUid) {
-    if (!confirm('Remove this policy from the program?')) return;
+  window.unassignPolicy = function(policyUid, btn) {
+    if (!confirmDestructive(btn, 'Click again to remove')) return;
     fetch(_base + '/unassign/' + policyUid, {method: 'POST'})
       .then(function(r) { return r.json(); })
       .then(function(data) {
@@ -278,9 +278,8 @@
       });
   };
 
-  window.renewProgram = function() {
-    if (!confirm('Renew all child policies in this program? This will archive current terms and create new ones with dates advanced by one year.')) return;
-    var btn = document.getElementById('renew-program-btn');
+  window.renewProgram = function(btn) {
+    if (!confirmDestructive(btn, 'Renew all? Click again to confirm')) return;
     if (btn) { btn.disabled = true; btn.textContent = 'Renewing...'; }
     fetch(_base + '/renew', {
       method: 'POST',
@@ -292,11 +291,11 @@
         htmx.ajax('GET', _base + '/tab/overview',
                    {target: '.tab-content', swap: 'innerHTML'});
       } else {
-        alert(data.error || 'Renewal failed');
+        showToast(data.error || 'Renewal failed', false);
         if (btn) { btn.disabled = false; btn.textContent = 'Renew Program'; }
       }
     }).catch(function() {
-      alert('Network error during renewal');
+      showToast('Network error during renewal', false);
       if (btn) { btn.disabled = false; btn.textContent = 'Renew Program'; }
     });
   };

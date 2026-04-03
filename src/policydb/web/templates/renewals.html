@@ -186,7 +186,7 @@ function toggleBulkLogPanel() {
 function bulkMilestone(action) {
   var uids = getCheckedRenewalUids();
   var milestone = document.getElementById('bulk-milestone').value;
-  if (!uids.length || !milestone) { alert('Select policies and pick a milestone.'); return; }
+  if (!uids.length || !milestone) { showToast('Select policies and pick a milestone.', false); return; }
   htmx.ajax('POST', '/renewals/bulk-milestones', {
     target: 'body',
     swap: 'none',
@@ -202,8 +202,8 @@ function bulkMilestone(action) {
 function bulkLog() {
   var uids = getCheckedRenewalUids();
   var subject = document.getElementById('bulk-log-subject').value.trim();
-  if (!uids.length) { alert('Select at least one policy.'); return; }
-  if (!subject) { alert('Subject is required.'); return; }
+  if (!uids.length) { showToast('Select at least one policy.', false); return; }
+  if (!subject) { showToast('Subject is required.', false); return; }
   htmx.ajax('POST', '/renewals/bulk/log', {
     target: 'body',
     swap: 'none',

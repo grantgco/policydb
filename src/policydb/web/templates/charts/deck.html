@@ -135,7 +135,7 @@
             class="text-xs bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-1 rounded transition-colors">Save</button>
           <button type="button" onclick="saveExecSnapshot(true)"
             class="text-xs bg-marsh text-white px-3 py-1 rounded hover:bg-marsh/90 transition-colors">Save As&hellip;</button>
-          <button type="button" onclick="deleteExecSnapshot()" id="exec-delete-btn"
+          <button type="button" onclick="deleteExecSnapshot(this)" id="exec-delete-btn"
             class="text-xs text-red-500 hover:text-red-700 disabled:text-gray-300 disabled:cursor-not-allowed" disabled>&times;</button>
         </div>
         <div class="flex items-center justify-between mb-3">
@@ -463,12 +463,11 @@ function saveExecSnapshot(saveAs) {
   });
 }
 
-function deleteExecSnapshot() {
+function deleteExecSnapshot(btn) {
   var sel = document.getElementById('exec-snapshot-select');
   var sid = sel.value;
   if (!sid) return;
-  var name = sel.options[sel.selectedIndex].textContent.split(' (')[0];
-  if (!confirm('Delete snapshot "' + name + '"?')) return;
+  if (!confirmDestructive(btn, 'Click again to delete')) return;
   fetch('/charts/' + _execClientId + '/snapshots/exec_summary/' + sid, { method: 'DELETE' })
     .then(function(r) { return r.json(); })
     .then(function(res) {

@@ -80,10 +80,10 @@
               <td class="py-1 px-2 font-medium text-blue-700">{{ cd.carrier }}</td>
               <td class="py-1 px-2 font-mono text-gray-600">{{ cd.policy_number or '—' }}</td>
               <td class="py-1 px-2 text-right tabular-nums">
-                {% if cd.premium %}${{ "{:,.0f}".format(cd.premium | float) }}{% else %}—{% endif %}
+                {% if cd.premium %}{{ cd.premium | float | currency }}{% else %}—{% endif %}
               </td>
               <td class="py-1 px-2 text-right tabular-nums">
-                {% if cd.limit_amount %}${{ "{:,.0f}".format(cd.limit_amount | float) }}{% else %}—{% endif %}
+                {% if cd.limit_amount %}{{ cd.limit_amount | float | currency }}{% else %}—{% endif %}
               </td>
             </tr>
             {% endfor %}
@@ -94,12 +94,12 @@
               <td class="py-1.5 px-2 text-right tabular-nums">
                 {% set ns = namespace(total_prem=0) %}
                 {% for cd in cand.carrier_details %}{% if cd.premium %}{% set ns.total_prem = ns.total_prem + (cd.premium | float) %}{% endif %}{% endfor %}
-                {% if ns.total_prem %}${{ "{:,.0f}".format(ns.total_prem) }}{% endif %}
+                {% if ns.total_prem %}{{ ns.total_prem | currency }}{% endif %}
               </td>
               <td class="py-1.5 px-2 text-right tabular-nums">
                 {% set ns2 = namespace(total_limit=0) %}
                 {% for cd in cand.carrier_details %}{% if cd.limit_amount %}{% set ns2.total_limit = ns2.total_limit + (cd.limit_amount | float) %}{% endif %}{% endfor %}
-                {% if ns2.total_limit %}${{ "{:,.0f}".format(ns2.total_limit) }}{% endif %}
+                {% if ns2.total_limit %}{{ ns2.total_limit | currency }}{% endif %}
               </td>
             </tr>
           </tfoot>
