@@ -1,0 +1,81 @@
+<div id="tpl-card-{{ t.id }}" class="border border-marsh rounded-lg p-5 bg-white">
+  <form {% if editing %}
+          hx-post="/prompt-builder/templates/{{ t.id }}/edit"
+          hx-target="#tpl-card-{{ t.id }}"
+          hx-swap="outerHTML"
+        {% else %}
+          hx-post="/prompt-builder/templates/new"
+          hx-target="#tpl-manage-list"
+          hx-swap="innerHTML"
+        {% endif %}
+        class="space-y-4">
+
+    <div class="grid grid-cols-2 gap-4">
+      <div>
+        <label class="text-xs font-medium text-gray-600">Name *</label>
+        <input name="name" value="{{ t.name or '' }}" required
+               class="form-input w-full mt-1">
+      </div>
+      <div>
+        <label class="text-xs font-medium text-gray-600">Deliverable Type</label>
+        <select name="deliverable_type" class="form-select w-full mt-1">
+          {% for dt in deliverable_types %}
+          <option value="{{ dt }}" {% if t.deliverable_type == dt %}selected{% endif %}>{{ dt | capitalize }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <div>
+      <label class="text-xs font-medium text-gray-600">Description</label>
+      <input name="description" value="{{ t.description or '' }}"
+             class="form-input w-full mt-1" placeholder="Brief description shown when selecting this template">
+    </div>
+
+    <div>
+      <label class="text-xs font-medium text-gray-600">System Prompt</label>
+      <textarea name="system_prompt" rows="4"
+                class="form-input w-full mt-1 font-mono text-xs" placeholder="Role and behavior instruction for the LLM...">{{ t.system_prompt or '' }}</textarea>
+    </div>
+
+    <div>
+      <label class="text-xs font-medium text-gray-600">Closing Instruction</label>
+      <textarea name="closing_instruction" rows="3"
+                class="form-input w-full mt-1 font-mono text-xs" placeholder="Final directive after the data block...">{{ t.closing_instruction or '' }}</textarea>
+    </div>
+
+    <div class="grid grid-cols-2 gap-4">
+      <div>
+        <label class="text-xs font-medium text-gray-600">Required Record Types</label>
+        <input name="required_record_types" value='{{ t.required_record_types or "[]" }}'
+               class="form-input w-full mt-1 font-mono text-xs" placeholder='["client","policies"]'>
+        <p class="text-[10px] text-gray-400 mt-1">JSON array. First element = primary type ({{ record_types | join(', ') }}). Rest = related data blocks.</p>
+      </div>
+      <div>
+        <label class="text-xs font-medium text-gray-600">Depth Overrides</label>
+        <input name="depth_overrides" value='{{ t.depth_overrides or "" }}'
+               class="form-input w-full mt-1 font-mono text-xs" placeholder='{"issues": 1, "follow_ups": 1}'>
+        <p class="text-[10px] text-gray-400 mt-1">JSON dict. Override depth per type: 1=full, 2=summary, 3=reference.</p>
+      </div>
+    </div>
+
+    <div class="flex items-center gap-3 pt-2">
+      <button type="submit" class="btn-primary text-xs px-4 py-1.5">
+        {{ 'Save' if editing else 'Create Template' }}
+      </button>
+      {% if editing %}
+      <button type="button" class="text-xs text-gray-500 hover:text-gray-700"
+              hx-get="/prompt-builder/templates"
+              hx-target="#tpl-manage-list"
+              hx-swap="innerHTML">
+        Cancel
+      </button>
+      {% else %}
+      <button type="button" class="text-xs text-gray-500 hover:text-gray-700"
+              onclick="document.getElementById('new-template-form').classList.add('hidden')">
+        Cancel
+      </button>
+      {% endif %}
+    </div>
+  </form>
+</div>
