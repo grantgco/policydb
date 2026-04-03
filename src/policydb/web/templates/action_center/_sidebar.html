@@ -6,7 +6,7 @@
   <div class="grid grid-cols-2 gap-2">
     <div class="text-center py-2 px-1 bg-white rounded-md border border-gray-200">
       <div class="text-xl font-bold {% if act_now_count is defined and act_now_count %}text-red-500{% elif overdue_count %}text-red-500{% else %}text-gray-300{% endif %}">{{ act_now_count if act_now_count is defined else overdue_count }}</div>
-      <div class="text-[9px] text-gray-500 uppercase">Actions</div>
+      <div class="text-[9px] text-gray-500 uppercase">Focus</div>
     </div>
     <div class="text-center py-2 px-1 bg-white rounded-md border border-gray-200">
       <div class="text-xl font-bold {% if nudge_due_count is defined and nudge_due_count %}text-blue-500{% elif due_this_week %}text-amber-500{% else %}text-gray-300{% endif %}">{{ nudge_due_count if nudge_due_count is defined else due_this_week }}</div>
