@@ -1005,8 +1005,8 @@ def build_focus_queue(
             promote_reason = ""
 
             # Promotion window matches the time horizon you're looking at
-            # "Today" = 7d default, "This Week" = 7d, "Next 2 Weeks" = 14d, etc.
-            promote_window = max(horizon_days, 7)
+            # Negative values (overdue, all) use 7d default
+            promote_window = max(horizon_days, 7) if horizon_days > 0 else 7
 
             # Promote if been waiting too long
             if days is not None and days <= -auto_promote_days:
@@ -1048,12 +1048,33 @@ def build_focus_queue(
             focus_items.append(item)
 
     # --- Apply time horizon filter ---
-    if horizon_days > 0:
+    # horizon_days semantics:
+    #   -1 = "overdue" (only past-due items)
+    #   0  = "today" (only items due today, NOT overdue)
+    #   >0 = "next N days" (items due within N days, NOT overdue)
+    #   -999 = "all" (no filter)
+    if horizon_days == -1:
+        # Overdue only
+        focus_items = [
+            i for i in focus_items
+            if i.get("days_until_deadline") is not None
+            and i["days_until_deadline"] < 0
+        ]
+    elif horizon_days == 0:
+        # Today only (due today, not overdue)
+        focus_items = [
+            i for i in focus_items
+            if i.get("days_until_deadline") is None  # no-deadline items (inbox) always show
+            or i["days_until_deadline"] == 0
+        ]
+    elif horizon_days > 0:
+        # Next N days (excludes overdue)
         focus_items = [
             i for i in focus_items
             if i.get("days_until_deadline") is None
-            or i["days_until_deadline"] <= horizon_days
+            or (0 <= i["days_until_deadline"] <= horizon_days)
         ]
+    # else: horizon_days == -999 → "all", no filter
 
     # --- Sort ---
     focus_items.sort(key=lambda x: -x["score"])
