@@ -505,6 +505,7 @@ def _build_context_line(item: dict) -> str:
             parts.append("Needs client assignment")
         return " · ".join(parts)
 
+    # Urgency signal
     if days is not None:
         if days < 0:
             parts.append(f"{abs(days)} days overdue")
@@ -515,8 +516,9 @@ def _build_context_line(item: dict) -> str:
         elif days <= 14:
             parts.append(f"Due in {days} days")
 
+    # Expiration proximity
     exp = item.get("expiration_date")
-    if exp and kind != "insurance_deadline":
+    if exp and kind not in ("insurance_deadline", "project_deadline", "opportunity"):
         try:
             exp_d = datetime.strptime(exp, "%Y-%m-%d").date()
             exp_days = (exp_d - date.today()).days
@@ -527,17 +529,19 @@ def _build_context_line(item: dict) -> str:
         except ValueError:
             pass
 
+    # Staleness
     days_since = item.get("days_since_activity")
     if days_since and days_since >= 7:
-        parts.append(f"Last activity: {days_since} days ago")
+        parts.append(f"Last activity: {days_since}d ago")
 
+    # Linked issue
     if item.get("linked_issue_severity") in ("Critical", "High"):
         parts.append(f"{item['linked_issue_severity']} issue linked")
 
     if not parts:
         if item.get("reason_line"):
             return item["reason_line"]
-        return item.get("subject", "")
+        return ""
 
     return " · ".join(parts)
 
