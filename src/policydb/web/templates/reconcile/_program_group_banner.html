@@ -35,7 +35,7 @@
         {% for cd in cand.carrier_details %}
         <span class="inline-flex items-center gap-1 text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
           {{ cd.carrier }}
-          {% if cd.premium %}<span class="text-blue-500">${{ "{:,.0f}".format(cd.premium | float) }}</span>{% endif %}
+          {% if cd.premium %}<span class="text-blue-500">{{ cd.premium | float | currency }}</span>{% endif %}
         </span>
         {% endfor %}
       {% else %}

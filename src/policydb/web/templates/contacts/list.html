@@ -367,7 +367,7 @@
           <td class="px-3 py-2.5 text-right">
             <button type="button"
               data-delete-name="{{ c.name }}"
-              onclick="var n=this.dataset.deleteName;if(!confirm('Delete '+n+'? All assignments will be removed.'))return;fetch('/contacts/unified/'+encodeURIComponent(n)+'/delete',{method:'POST'}).then(function(r){return r.json()}).then(function(d){if(d.ok)location.reload()})"
+              onclick="if(!confirmDestructive(this,'Delete? Click again'))return;var n=this.dataset.deleteName;fetch('/contacts/unified/'+encodeURIComponent(n)+'/delete',{method:'POST'}).then(function(r){return r.json()}).then(function(d){if(d.ok)location.reload()})"
               class="text-xs text-gray-300 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity">&times;</button>
           </td>
         </tr>
@@ -511,7 +511,7 @@
 {# ── Bulk Action Bar ── #}
 <div id="contact-bulk-bar" class="hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-lg px-6 py-3 flex items-center gap-3 z-50 no-print">
   <span class="text-sm font-medium text-gray-700" id="contact-bulk-count">0 selected</span>
-  <button onclick="bulkDeleteContacts()" class="bg-red-500 hover:bg-red-600 text-white text-sm px-3 py-1.5 rounded">Delete Selected</button>
+  <button onclick="bulkDeleteContacts(this)" class="bg-red-500 hover:bg-red-600 text-white text-sm px-3 py-1.5 rounded">Delete Selected</button>
   <button onclick="showMergeComparison()" id="contact-merge-btn" class="hidden bg-blue-500 hover:bg-blue-600 text-white text-sm px-3 py-1.5 rounded">Merge Selected</button>
   <button onclick="clearContactChecks()" class="text-sm text-gray-400 hover:text-gray-600 ml-auto">Clear</button>
 </div>
@@ -869,7 +869,7 @@ document.querySelectorAll('[id^="assign-clients-"], #new-contact-clients, #new-c
   document.getElementById('merge-btn').addEventListener('click', function() {
     var src = document.getElementById('merge-source').value.trim(), tgt = document.getElementById('merge-target').value.trim();
     var status = document.getElementById('merge-status');
-    if (!confirm('Merge "' + src + '" into "' + tgt + '"?\n\nAll assignments will transfer to "' + tgt + '".')) return;
+    if (!confirmDestructive(this, 'Click again to merge')) return;
     fetch('/contacts/merge', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({source_name: src, target_name: tgt}) })
     .then(function(r) { return r.json(); }).then(function(data) {
       if (data.ok) { location.reload(); }
@@ -900,10 +900,10 @@ function toggleAllChecks(tbodyId, checked) {
   updateContactBulkBar();
 }
 
-function bulkDeleteContacts() {
+function bulkDeleteContacts(btn) {
   var ids = Array.from(document.querySelectorAll('.contact-check:checked')).map(function(cb) { return cb.value; });
   if (!ids.length) return;
-  if (!confirm('Delete ' + ids.length + ' contact(s)? This removes all their assignments.')) return;
+  if (!confirmDestructive(btn, 'Delete ' + ids.length + '? Click again')) return;
   Promise.all(ids.map(function(id) {
     return fetch('/contacts/unified/' + id + '/delete-by-id', {method: 'POST'});
   })).then(function() { window.location.reload(); });

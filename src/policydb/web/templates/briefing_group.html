@@ -28,7 +28,7 @@
   <a href="/briefing/client/{{ m.client_id }}"
      class="text-xs px-3 py-1.5 rounded-full border transition-colors {% if m.client_id == client_id %}bg-marsh text-white border-marsh{% else %}bg-white text-gray-600 border-gray-200 hover:border-marsh hover:text-marsh{% endif %}">
     {{ m.name }}
-    {% if m.total_premium %}<span class="opacity-70">· ${{ "{:,.0f}".format(m.total_premium or 0) }}</span>{% endif %}
+    {% if m.total_premium %}<span class="opacity-70">· {{ (m.total_premium or 0) | currency }}</span>{% endif %}
   </a>
   {% endfor %}
 </div>
@@ -45,15 +45,15 @@
 {% set f = s.financials %}
 <div class="card px-5 py-3 mb-5">
   <div class="flex items-center gap-6 text-sm">
-    {% if f.total_premium %}<div><span class="font-bold text-gray-900">${{ "{:,.0f}".format(f.total_premium) }}</span> <span class="text-xs text-gray-400">Combined Premium</span></div>{% endif %}
-    {% if f.total_revenue %}<div><span class="font-bold text-gray-900">${{ "{:,.0f}".format(f.total_revenue) }}</span> <span class="text-xs text-gray-400">Revenue</span></div>{% endif %}
+    {% if f.total_premium %}<div><span class="font-bold text-gray-900">{{ f.total_premium | currency }}</span> <span class="text-xs text-gray-400">Combined Premium</span></div>{% endif %}
+    {% if f.total_revenue %}<div><span class="font-bold text-gray-900">{{ f.total_revenue | currency }}</span> <span class="text-xs text-gray-400">Revenue</span></div>{% endif %}
     {% if f.total_policies %}<div><span class="font-bold text-gray-900">{{ f.total_policies }}</span> <span class="text-xs text-gray-400">Policies</span></div>{% endif %}
     {% if f.carrier_count %}<div><span class="font-bold text-gray-900">{{ f.carrier_count }}</span> <span class="text-xs text-gray-400">Carriers</span></div>{% endif %}
   </div>
   {% if s.linked_members %}
   <div class="flex flex-wrap gap-2 mt-2 pt-2 border-t border-gray-100">
     {% for m in s.linked_members %}
-    <span class="text-xs text-gray-500">{{ m.name }}: ${{ "{:,.0f}".format(m.total_premium) }} · {{ m.total_policies }} pol</span>
+    <span class="text-xs text-gray-500">{{ m.name }}: {{ m.total_premium | currency }} · {{ m.total_policies }} pol</span>
     {% endfor %}
   </div>
   {% endif %}

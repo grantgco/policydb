@@ -284,21 +284,21 @@ textarea.field-inline { resize: none; }
         <div>
           <label class="field-label">{% if not policy.is_opportunity %}Annual Premium <span class="text-red-400">*</span>{% else %}Est. Premium{% endif %}</label>
           <input type="text" class="form-input field-inline w-full currency-input" autocomplete="off"
-            value="{% if policy.premium %}{{ '${:,.0f}'.format(policy.premium | float) }}{% endif %}"
+            value="{% if policy.premium %}{{ policy.premium | float | currency }}{% endif %}"
             placeholder="0" data-currency-field="premium">
         </div>
 
         <div>
           <label class="field-label">Limit</label>
           <input type="text" class="form-input field-inline w-full currency-input" autocomplete="off"
-            value="{% if policy.limit_amount %}{{ '${:,.0f}'.format(policy.limit_amount | float) }}{% endif %}"
+            value="{% if policy.limit_amount %}{{ policy.limit_amount | float | currency }}{% endif %}"
             placeholder="0" data-currency-field="limit_amount">
         </div>
 
         <div>
           <label class="field-label">Deductible</label>
           <input type="text" class="form-input field-inline w-full currency-input" autocomplete="off"
-            value="{% if policy.deductible %}{{ '${:,.0f}'.format(policy.deductible | float) }}{% endif %}"
+            value="{% if policy.deductible %}{{ policy.deductible | float | currency }}{% endif %}"
             placeholder="0" data-currency-field="deductible">
         </div>
 
@@ -392,7 +392,7 @@ textarea.field-inline { resize: none; }
       <div>
         <label class="field-label">Attachment Point ($)</label>
         <input type="text" id="attachment_point" class="form-input field-inline w-full currency-input" autocomplete="off"
-          value="{% if policy.attachment_point %}{{ '${:,.0f}'.format(policy.attachment_point | float) }}{% endif %}"
+          value="{% if policy.attachment_point %}{{ policy.attachment_point | float | currency }}{% endif %}"
           placeholder="Leave blank for Primary" data-currency-field="attachment_point">
         <p id="layer-notation-preview" class="text-xs text-marsh mt-1 font-mono"></p>
         <p id="attachment-hint" class="text-xs text-gray-400 mt-0.5 hidden"></p>
@@ -401,7 +401,7 @@ textarea.field-inline { resize: none; }
       <div>
         <label class="field-label">Part Of Layer ($) <span class="text-gray-400 font-normal">— if shared layer</span></label>
         <input type="text" id="participation_of" class="form-input field-inline w-full currency-input" autocomplete="off"
-          value="{% if policy.participation_of %}{{ '${:,.0f}'.format(policy.participation_of | float) }}{% endif %}"
+          value="{% if policy.participation_of %}{{ policy.participation_of | float | currency }}{% endif %}"
           placeholder="Total layer limit if co-participation" data-currency-field="participation_of">
       </div>
 
@@ -434,13 +434,13 @@ textarea.field-inline { resize: none; }
                 {% if layer.carrier %}<span class="font-normal text-gray-400">— {{ layer.carrier }}</span>{% endif %}
               </p>
               <p class="text-xs font-mono text-gray-500 mt-0.5">
-                {% if lim >= 1000000 %}${{ "{:,.0f}".format(lim / 1000000) }}M{% else %}${{ "{:,.0f}".format(lim) }}{% endif %}
+                {{ lim | currency_short }}
                 {% if att is not none and att | float > 0 %}
-                  xs {% if att | float >= 1000000 %}${{ "{:,.0f}".format(att | float / 1000000) }}M{% else %}${{ "{:,.0f}".format(att | float) }}{% endif %}
+                  xs {{ att | float | currency_short }}
                 {% elif lpos == 0 %} Primary
                 {% else %} xs Primary{% endif %}
                 {% if layer.participation_of and layer.participation_of | float > 0 %}
-                  PO {% if layer.participation_of | float >= 1000000 %}${{ "{:,.0f}".format(layer.participation_of | float / 1000000) }}M{% else %}${{ "{:,.0f}".format(layer.participation_of | float) }}{% endif %}
+                  PO {{ layer.participation_of | float | currency_short }}
                 {% endif %}
               </p>
             </div>
@@ -455,7 +455,7 @@ textarea.field-inline { resize: none; }
           <div class="w-28 shrink-0 flex flex-col items-end justify-center pr-3 py-2.5 {% if layer.is_current %}bg-blue-100/40{% else %}bg-gray-50/50{% endif %}">
             <span class="text-xs text-gray-400">Ground-Up</span>
             <span class="text-sm font-mono tabular-nums font-semibold {% if layer.is_current %}text-blue-700{% else %}text-gray-700{% endif %}">
-              {% if layer.ground_up >= 1000000 %}${{ "{:,.0f}".format(layer.ground_up / 1000000) }}M{% else %}${{ "{:,.0f}".format(layer.ground_up) }}{% endif %}
+              {{ layer.ground_up | currency_short }}
             </span>
           </div>
         </div>
@@ -465,7 +465,7 @@ textarea.field-inline { resize: none; }
         <div class="bg-marsh/5 border border-marsh/20 rounded-lg px-4 py-2">
           <span class="text-xs text-gray-500">Total Program Limit:</span>
           <span class="text-sm font-mono tabular-nums font-bold text-marsh ml-2">
-            {% if tower_layers[-1].ground_up >= 1000000 %}${{ "{:,.0f}".format(tower_layers[-1].ground_up / 1000000) }}M{% else %}${{ "{:,.0f}".format(tower_layers[-1].ground_up) }}{% endif %}
+            {{ tower_layers[-1].ground_up | currency_short }}
           </span>
         </div>
       </div>
@@ -490,7 +490,7 @@ textarea.field-inline { resize: none; }
       <div>
         <label class="field-label">Exposure Amount</label>
         <input type="text" class="form-input field-inline w-full currency-input" autocomplete="off"
-          value="{% if policy.exposure_amount %}{{ '${:,.0f}'.format(policy.exposure_amount | float) }}{% endif %}"
+          value="{% if policy.exposure_amount %}{{ policy.exposure_amount | float | currency }}{% endif %}"
           placeholder="0" data-currency-field="exposure_amount">
       </div>
       <div>
@@ -587,7 +587,7 @@ textarea.field-inline { resize: none; }
       <div>
         <label class="field-label">Prior Premium</label>
         <input type="text" class="form-input field-inline w-full currency-input" autocomplete="off"
-          value="{% if policy.prior_premium %}{{ '${:,.0f}'.format(policy.prior_premium | float) }}{% endif %}"
+          value="{% if policy.prior_premium %}{{ policy.prior_premium | float | currency }}{% endif %}"
           placeholder="0" data-currency-field="prior_premium">
       </div>
 

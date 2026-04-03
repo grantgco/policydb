@@ -86,7 +86,7 @@
     var removeId = survivorId === c1Id ? c2Id : c1Id;
     var survivorName = survivorInput.closest('label').querySelector('span.font-semibold').textContent.trim();
     var removeName = (survivorId === c1Id ? {{ c2.name | tojson }} : {{ c1.name | tojson }});
-    if (!confirm('Merge "' + removeName + '" into "' + survivorName + '"?\n\nAll assignments will transfer to "' + survivorName + '".')) return;
+    if (!confirmDestructive(btn, 'Click again to merge')) return;
     var status = document.getElementById('merge-compare-status');
     btn.disabled = true; btn.textContent = 'Merging…';
     fetch('/contacts/merge', {

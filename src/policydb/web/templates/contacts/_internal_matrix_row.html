@@ -106,7 +106,7 @@
     <div class="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-2 justify-end">
       <button type="button"
         data-delete-name="{{ c.name }}" data-delete-count="{{ c.client_count }}"
-        onclick="var n=this.dataset.deleteName,cnt=this.dataset.deleteCount;if(!confirm('Delete '+n+' from all '+cnt+' client'+(cnt==='1'?'':'s')+'?'))return;fetch('/contacts/internal/'+encodeURIComponent(n)+'/delete',{method:'POST'}).then(function(){location.reload()})"
+        onclick="if(!confirmDestructive(this,'Delete? Click again'))return;var n=this.dataset.deleteName;fetch('/contacts/internal/'+encodeURIComponent(n)+'/delete',{method:'POST'}).then(function(){location.reload()})"
         class="text-xs text-gray-300 hover:text-red-500">&times;</button>
     </div>
   </td>

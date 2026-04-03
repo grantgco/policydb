@@ -434,7 +434,7 @@
     </div>
     <button type="button"
             class="text-xs text-red-500 hover:text-red-700 font-medium"
-            onclick="if(confirm('Delete this requirement?')){fetch('/compliance/client/{{ client_id }}/requirements/{{ req.id }}/delete',{method:'POST'}).then(function(){closeRequirementDetail()})}">Delete</button>
+            onclick="if(!confirmDestructive(this,'Click again to delete'))return;fetch('/compliance/client/{{ client_id }}/requirements/{{ req.id }}/delete',{method:'POST'}).then(function(){closeRequirementDetail()})">Delete</button>
   </div>
 
 </div>{# /panel #}

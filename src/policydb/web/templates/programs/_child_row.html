@@ -12,13 +12,13 @@
   <td class="px-3 py-2 text-sm text-gray-800 matrix-cell-editable"
       data-field="policy_number" data-placeholder="policy #" contenteditable="true">{{ child.policy_number or '' }}</td>
   <td class="px-3 py-2 text-sm text-gray-800 text-right tabular-nums matrix-cell-editable"
-      data-field="premium" data-placeholder="$0" contenteditable="true">{% if child.premium %}${{ '{:,.0f}'.format(child.premium) }}{% endif %}</td>
+      data-field="premium" data-placeholder="$0" contenteditable="true">{% if child.premium %}{{ child.premium | currency }}{% endif %}</td>
   <td class="px-3 py-2 text-sm text-gray-800 text-right tabular-nums matrix-cell-editable"
-      data-field="limit_amount" data-placeholder="$0" contenteditable="true">{% if child.limit_amount %}${{ '{:,.0f}'.format(child.limit_amount) }}{% endif %}</td>
+      data-field="limit_amount" data-placeholder="$0" contenteditable="true">{% if child.limit_amount %}{{ child.limit_amount | currency }}{% endif %}</td>
   <td class="px-3 py-2 text-sm text-gray-800 text-right tabular-nums matrix-cell-editable"
-      data-field="deductible" data-placeholder="$0" contenteditable="true">{% if child.deductible and child.deductible != '0' %}${{ '{:,.0f}'.format(child.deductible | float) }}{% endif %}</td>
+      data-field="deductible" data-placeholder="$0" contenteditable="true">{% if child.deductible and child.deductible != '0' %}{{ child.deductible | float | currency }}{% endif %}</td>
   <td class="px-3 py-2 text-sm text-gray-800 text-right tabular-nums matrix-cell-editable"
-      data-field="attachment_point" data-placeholder="$0" contenteditable="true">{% if child.attachment_point %}${{ '{:,.0f}'.format(child.attachment_point) }}{% endif %}</td>
+      data-field="attachment_point" data-placeholder="$0" contenteditable="true">{% if child.attachment_point %}{{ child.attachment_point | currency }}{% endif %}</td>
   <td class="px-2 py-1.5">
     <input type="date" value="{{ child.effective_date or '' }}"
            class="text-xs border border-gray-200 rounded px-1.5 py-1 w-[110px] focus:ring-1 focus:ring-marsh focus:border-marsh"
@@ -36,11 +36,11 @@
       data-field="layer_position" data-placeholder="layer"
       data-options='["Primary", "Umbrella", "Excess"]' contenteditable="true">{{ child.layer_position or '' }}</td>
   <td class="px-3 py-2 text-sm text-gray-800 text-right tabular-nums matrix-cell-editable"
-      data-field="participation_of" data-placeholder="--" contenteditable="true">{% if child.participation_of %}${{ '{:,.0f}'.format(child.participation_of) }}{% endif %}</td>
+      data-field="participation_of" data-placeholder="--" contenteditable="true">{% if child.participation_of %}{{ child.participation_of | currency }}{% endif %}</td>
   <td class="px-2 py-2 no-print">
     <button type="button"
       class="text-xs text-red-400 hover:text-red-600"
-      onclick="unassignPolicy('{{ child.policy_uid }}')"
+      onclick="unassignPolicy('{{ child.policy_uid }}', this)"
       title="Remove from program">&times;</button>
   </td>
 </tr>

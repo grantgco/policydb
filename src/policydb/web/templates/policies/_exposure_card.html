@@ -15,7 +15,7 @@
           hx-target="#exposure-card-wrapper" hx-swap="outerHTML">
           <span class="font-medium text-gray-900">{{ exp.exposure_type }}</span>
           <span class="text-xs text-gray-400 ml-1">
-            {% if exp.amount %}{% if exp.unit == 'currency' %}${{ "{:,.0f}".format(exp.amount) }}{% else %}{{ "{:,.0f}".format(exp.amount) }}{% endif %} · {% endif %}per {{ exp.denominator }}
+            {% if exp.amount %}{% if exp.unit == 'currency' %}{{ exp.amount | currency }}{% else %}{{ "{:,.0f}".format(exp.amount) }}{% endif %} · {% endif %}per {{ exp.denominator }}
           </span>
         </button>
         {% endfor %}
@@ -40,7 +40,7 @@
         <div class="text-xs text-gray-500">{{ link.project_name or 'Corporate' }} · {{ link.year }} · per {{ link.denominator }}</div>
       </div>
       <div class="text-right">
-        <div class="text-xs text-gray-500">{% if link.unit == 'currency' %}{{ "${:,.0f}".format(link.amount) }}{% else %}{{ "{:,.0f}".format(link.amount) }}{% endif %}</div>
+        <div class="text-xs text-gray-500">{% if link.unit == 'currency' %}{{ link.amount | currency }}{% else %}{{ "{:,.0f}".format(link.amount) }}{% endif %}</div>
         {% if link.rate is not none %}
         <div class="font-bold text-green-700 text-base">${{ "{:,.2f}".format(link.rate) }}</div>
         <div class="text-[10px] text-gray-400">per ${{ "{:,}".format(link.denominator) }} of {{ link.exposure_type | lower }}</div>
@@ -74,7 +74,7 @@
         <div class="text-xs text-gray-400">{{ link.project_name or 'Corporate' }} · {{ link.year }}</div>
       </div>
       <div class="text-right">
-        <div class="text-xs text-gray-400">{% if link.unit == 'currency' %}{{ "${:,.0f}".format(link.amount) }}{% else %}{{ "{:,.0f}".format(link.amount) }}{% endif %}</div>
+        <div class="text-xs text-gray-400">{% if link.unit == 'currency' %}{{ link.amount | currency }}{% else %}{{ "{:,.0f}".format(link.amount) }}{% endif %}</div>
         {% if link.rate is not none %}
         <div class="font-medium text-gray-500">${{ "{:,.2f}".format(link.rate) }}</div>
         {% endif %}

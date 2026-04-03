@@ -93,7 +93,7 @@
       checked.push(cb.value);
     });
     if (!checked.length) {
-      alert('Select at least one column.');
+      showToast('Select at least one column.', false);
       return;
     }
     var url = '/exports/download?source=' + encodeURIComponent(_source)

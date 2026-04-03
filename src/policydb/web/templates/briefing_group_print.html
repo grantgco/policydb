@@ -52,7 +52,7 @@
 <div class="flex flex-wrap gap-2 mb-4 text-xs">
   {% for m in members %}
   <span class="px-2 py-1 rounded border border-gray-200 text-gray-600">
-    {{ m.name }}{% if m.total_premium %} &middot; ${{ "{:,.0f}".format(m.total_premium or 0) }}{% endif %}
+    {{ m.name }}{% if m.total_premium %} &middot; {{ (m.total_premium or 0) | currency }}{% endif %}
   </span>
   {% endfor %}
 </div>
@@ -61,8 +61,8 @@
 {% if s and s.financials %}
 {% set f = s.financials %}
 <div class="flex items-center gap-6 text-sm mb-5 pb-3 border-b border-gray-200">
-  {% if f.total_premium %}<div><span class="font-bold">${{ "{:,.0f}".format(f.total_premium) }}</span> <span class="text-xs text-gray-400">Combined Premium</span></div>{% endif %}
-  {% if f.total_revenue %}<div><span class="font-bold">${{ "{:,.0f}".format(f.total_revenue) }}</span> <span class="text-xs text-gray-400">Revenue</span></div>{% endif %}
+  {% if f.total_premium %}<div><span class="font-bold">{{ f.total_premium | currency }}</span> <span class="text-xs text-gray-400">Combined Premium</span></div>{% endif %}
+  {% if f.total_revenue %}<div><span class="font-bold">{{ f.total_revenue | currency }}</span> <span class="text-xs text-gray-400">Revenue</span></div>{% endif %}
   {% if f.total_policies %}<div><span class="font-bold">{{ f.total_policies }}</span> <span class="text-xs text-gray-400">Policies</span></div>{% endif %}
   {% if f.carrier_count %}<div><span class="font-bold">{{ f.carrier_count }}</span> <span class="text-xs text-gray-400">Carriers</span></div>{% endif %}
 </div>

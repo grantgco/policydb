@@ -198,7 +198,7 @@
 
   // Delete handlers
   window.deleteUnderlyingRow = function(btn, pid) {
-    if (!confirm('Remove this underlying line?')) return;
+    if (!confirmDestructive(btn, 'Click again to remove')) return;
     var row = btn.closest('tr');
     fetch(_base + '/underlying/' + pid, { method: 'DELETE' })
       .then(function(r) { return r.text(); }).then(function() {
@@ -208,7 +208,7 @@
   };
 
   window.deleteExcessRow = function(btn, pid) {
-    if (!confirm('Remove this layer?')) return;
+    if (!confirmDestructive(btn, 'Click again to remove')) return;
     var row = btn.closest('tr');
     var coversRow = row.nextElementSibling;
     fetch(_base + '/excess/' + pid, { method: 'DELETE' })

@@ -217,10 +217,10 @@ function attachFromDT(panelId, recordType, recordId) {
       input.value = '';
       refreshAttachmentPanel(panelId, recordType, recordId);
     } else {
-      alert(data.error || 'Failed to attach');
+      showToast(data.error || 'Failed to attach', false);
     }
   })
-  .catch(() => alert('Network error'));
+  .catch(() => showToast('Network error', false));
 }
 
 function attachUpload(event, panelId, recordType, recordId) {
@@ -237,10 +237,10 @@ function attachUpload(event, panelId, recordType, recordId) {
         form.reset();
         refreshAttachmentPanel(panelId, recordType, recordId);
       } else {
-        alert(data.error || 'Upload failed');
+        showToast(data.error || 'Upload failed', false);
       }
     })
-    .catch(() => alert('Upload error'));
+    .catch(() => showToast('Upload error', false));
 }
 
 function detachFile(linkId, panelId, recordType, recordId) {

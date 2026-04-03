@@ -58,7 +58,7 @@
          class="pp-cell outline-none text-xs text-gray-700 rounded px-1 -mx-1 text-right"
          data-field="project_value"
          data-endpoint="/clients/{{ client.id }}/projects/{{ p.id }}/field"
-         data-placeholder="$0">{% if p.project_value %}${{ "{:,.0f}".format(p.project_value) }}{% endif %}</div>
+         data-placeholder="$0">{% if p.project_value %}{{ p.project_value | currency }}{% endif %}</div>
   </td>
 
   {# Total Premium — read-only #}

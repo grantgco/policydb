@@ -139,19 +139,24 @@ function patchProgramHeader(field, value) {
   });
 }
 
+var _pendingMoveProjectId = null;
 function changeLocation(projectId) {
   var childCount = {{ child_count }};
   // First, update the program's project_id
   patchProgramHeader('project_id', projectId || null);
   // If there are child policies, ask whether to move them too
   if (childCount > 0 && projectId) {
-    if (confirm('Move ' + childCount + ' child polic' + (childCount === 1 ? 'y' : 'ies') + ' to this location too?')) {
-      fetch('/programs/{{ program.program_uid }}/move-children', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'}
-      }).then(function() { window.location.reload(); });
+    if (_pendingMoveProjectId !== projectId) {
+      _pendingMoveProjectId = projectId;
+      showToast('Move ' + childCount + ' child polic' + (childCount === 1 ? 'y' : 'ies') + ' too? Select location again to confirm.', false);
       return;
     }
+    _pendingMoveProjectId = null;
+    fetch('/programs/{{ program.program_uid }}/move-children', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'}
+    }).then(function() { window.location.reload(); });
+    return;
   }
   window.location.reload();
 }

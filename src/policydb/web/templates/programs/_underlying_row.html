@@ -8,11 +8,11 @@
       data-field="carrier" data-placeholder="carrier"
       data-options='{{ carriers | tojson }}' contenteditable="true">{{ p.carrier or '' }}</td>
   <td class="px-3 py-2 text-sm text-gray-800 text-right tabular-nums matrix-cell-editable"
-      data-field="limit_amount" data-placeholder="$0" contenteditable="true">{% if p.limit_amount %}${{ '{:,.0f}'.format(p.limit_amount) }}{% endif %}</td>
+      data-field="limit_amount" data-placeholder="$0" contenteditable="true">{% if p.limit_amount %}{{ p.limit_amount | currency }}{% endif %}</td>
   <td class="px-3 py-2 text-sm text-gray-800 text-right tabular-nums matrix-cell-editable"
-      data-field="deductible" data-placeholder="$0" contenteditable="true">{% if p.deductible and p.deductible != '0' %}${{ '{:,.0f}'.format(p.deductible | float) }}{% endif %}</td>
+      data-field="deductible" data-placeholder="$0" contenteditable="true">{% if p.deductible and p.deductible != '0' %}{{ p.deductible | float | currency }}{% endif %}</td>
   <td class="px-3 py-2 text-sm text-right tabular-nums matrix-cell-editable {{ 'text-gray-400 italic' if is_pkg else 'text-gray-800' }}"
-      data-field="premium" data-placeholder="$0" contenteditable="true">{% if is_pkg %}pkg premium{% elif p.premium %}${{ '{:,.0f}'.format(p.premium) }}{% endif %}</td>
+      data-field="premium" data-placeholder="$0" contenteditable="true">{% if is_pkg %}pkg premium{% elif p.premium %}{{ p.premium | currency }}{% endif %}</td>
   <td class="px-3 py-2 text-sm text-gray-800 matrix-cell-editable"
       data-field="policy_number" data-placeholder="policy #" contenteditable="true">{{ p.policy_number or '' }}</td>
   <td class="px-3 py-2 text-sm text-gray-800 matrix-cell-combo relative"

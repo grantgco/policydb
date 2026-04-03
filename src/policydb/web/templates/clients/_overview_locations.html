@@ -107,7 +107,7 @@
             {% endif %}
           </td>
           <td class="px-3 py-2 no-print">
-            <button type="button" onclick="locDeleteRow({{ client.id }}, {{ loc.id }})"
+            <button type="button" onclick="locDeleteRow({{ client.id }}, {{ loc.id }}, this)"
               class="text-red-300 hover:text-red-500 text-xs">&#10005;</button>
           </td>
         </tr>
@@ -271,8 +271,8 @@
       .then(function() { window.location.reload(); });
   };
 
-  window.locDeleteRow = function(clientId, projectId) {
-    if (!confirm('Delete this location? Policies will be moved to Corporate/Standalone.')) return;
+  window.locDeleteRow = function(clientId, projectId, btn) {
+    if (!confirmDestructive(btn, 'Click again to delete')) return;
     fetch('/clients/' + clientId + '/projects/' + projectId + '/pipeline', {method: 'DELETE'})
       .then(function(r) { return r.json(); })
       .then(function(data) {

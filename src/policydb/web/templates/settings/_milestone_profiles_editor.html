@@ -52,8 +52,8 @@
       <div class="space-y-1">
         {% for rule in milestone_profile_rules %}
         <div class="text-xs text-gray-600">
-          {% if rule.if_premium_gte is defined %}Premium &ge; ${{ '{:,.0f}'.format(rule.if_premium_gte) }}{% endif %}
-          {% if rule.if_premium_lt is defined %}Premium &lt; ${{ '{:,.0f}'.format(rule.if_premium_lt) }}{% endif %}
+          {% if rule.if_premium_gte is defined %}Premium &ge; {{ rule.if_premium_gte | currency }}{% endif %}
+          {% if rule.if_premium_lt is defined %}Premium &lt; {{ rule.if_premium_lt | currency }}{% endif %}
           <span class="text-gray-400">&rarr;</span>
           <span class="font-medium text-gray-800">{{ rule.suggest_profile }}</span>
         </div>

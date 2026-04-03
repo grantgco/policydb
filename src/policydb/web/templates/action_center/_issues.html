@@ -102,7 +102,7 @@
       </select>
       <button type="button" onclick="issueBulkStatus()" class="text-xs bg-blue-600 text-white rounded px-2.5 py-1 hover:bg-blue-700">Apply</button>
       <button type="button" onclick="issueBulkResolve()" class="text-xs bg-green-600 text-white rounded px-2.5 py-1 hover:bg-green-700">Resolve Selected</button>
-      <button type="button" onclick="issueBulkDelete()" class="text-xs bg-red-600 text-white rounded px-2.5 py-1 hover:bg-red-700">Delete Selected</button>
+      <button type="button" onclick="issueBulkDelete(this)" class="text-xs bg-red-600 text-white rounded px-2.5 py-1 hover:bg-red-700">Delete Selected</button>
     </div>
   </div>
 
@@ -208,10 +208,10 @@ function issueDeselectAll() {
 function issueGetSelectedIds() {
   return Array.from(document.querySelectorAll('.issue-bulk-check:checked')).map(function(c) { return c.value; }).join(',');
 }
-function issueBulkDelete() {
+function issueBulkDelete(btn) {
   var ids = issueGetSelectedIds();
   if (!ids) return;
-  if (!confirm('Delete ' + ids.split(',').length + ' issue(s)? This cannot be undone.')) return;
+  if (!confirmDestructive(btn, 'Delete ' + ids.split(',').length + '? Click again')) return;
   htmx.ajax('POST', '/issues/bulk-delete', {target: '#issues-tab', swap: 'outerHTML', values: {issue_ids: ids}});
 }
 function issueBulkResolve() {

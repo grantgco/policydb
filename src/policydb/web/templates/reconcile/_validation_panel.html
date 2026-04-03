@@ -221,7 +221,7 @@ function learnCoverageAlias(idx, raw) {
   var sel = document.getElementById('cov-map-' + idx);
   if (!sel) return;
   var canonical = sel.value;
-  if (!canonical) { alert('Select a coverage type to map to.'); return; }
+  if (!canonical) { showToast('Select a coverage type to map to.', false); return; }
   var form = new FormData();
   form.append('raw', raw);
   form.append('canonical', canonical);
@@ -237,7 +237,7 @@ function learnCarrierAlias(idx, raw) {
   var sel = document.getElementById('car-map-' + idx);
   if (!sel) return;
   var canonical = sel.value;
-  if (!canonical) { alert('Select a carrier to map to.'); return; }
+  if (!canonical) { showToast('Select a carrier to map to.', false); return; }
   var form = new FormData();
   form.append('raw', raw);
   form.append('canonical', canonical);

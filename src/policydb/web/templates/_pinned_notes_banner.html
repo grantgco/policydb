@@ -78,7 +78,7 @@
           <span class="text-[10px] text-gray-400">{{ note.created_at[:10] if note.created_at else '' }}</span>
           <button type="button"
                   class="text-[10px] text-red-500 hover:text-red-700"
-                  onclick="deletePinnedNote({{ note.id }})">Delete</button>
+                  onclick="deletePinnedNote({{ note.id }}, this)">Delete</button>
         </div>
         {% endif %}
       </div>
@@ -216,8 +216,8 @@
   };
 
   // Delete
-  window.deletePinnedNote = function(noteId) {
-    if (!confirm('Delete this pinned note?')) return;
+  window.deletePinnedNote = function(noteId, btn) {
+    if (!confirmDestructive(btn, 'Click again to delete')) return;
     fetch(BASE + '/' + noteId + '?' + QS, { method: 'DELETE' }).then(() => reloadBanner());
   };
 

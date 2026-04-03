@@ -44,10 +44,10 @@
               <button type="submit" class="text-xs text-marsh hover:underline font-medium">+ Add</button>
             </form>
           </div>
-          <form method="post" action="/settings/carrier-aliases/remove-group"
-                onsubmit="return confirm('Remove {{ canonical }} and all its aliases?')">
+          <form method="post" action="/settings/carrier-aliases/remove-group">
             <input type="hidden" name="canonical" value="{{ canonical }}">
-            <button type="submit"
+            <button type="button"
+              onclick="confirmAction(this, 'Remove group?')"
               class="text-xs text-red-400 hover:text-red-600 hover:bg-red-50 rounded px-2 py-0.5 transition-colors whitespace-nowrap">
               Remove group
             </button>
