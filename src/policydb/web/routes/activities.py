@@ -733,6 +733,45 @@ def activity_snooze(request: Request, activity_id: int, days: int = 7, conn=Depe
     })
 
 
+@router.post("/activities/{activity_id}/nudge", response_class=HTMLResponse)
+def activity_nudge(
+    request: Request,
+    activity_id: int,
+    context: str = Form("focus_queue"),
+    conn=Depends(get_db),
+):
+    """Log a nudge follow-up for a waiting activity."""
+    row = conn.execute(
+        "SELECT * FROM activity_log WHERE id = ?", (activity_id,)
+    ).fetchone()
+    if not row:
+        return HTMLResponse("Not found", status_code=404)
+
+    row = dict(row)
+    # Create a new follow-up activity
+    conn.execute("""
+        INSERT INTO activity_log (client_id, policy_id, activity_type, subject, details,
+                                  follow_up_date, activity_date, account_exec, disposition)
+        VALUES (?, ?, 'Email', ?, 'Nudge follow-up sent', ?, date('now'), ?, ?)
+    """, (
+        row["client_id"], row.get("policy_id"),
+        f"Follow-up nudge: {row.get('subject', '')}",
+        (date.today() + timedelta(days=7)).isoformat(),
+        row.get("account_exec", cfg.get("default_account_exec", "Grant")),
+        row.get("disposition", ""),
+    ))
+    # Mark the old one as done
+    conn.execute(
+        "UPDATE activity_log SET follow_up_done = 1 WHERE id = ?", (activity_id,)
+    )
+    conn.commit()
+
+    return HTMLResponse(
+        '<div class="text-xs text-green-600 p-2">Nudge sent ✓</div>',
+        headers={"HX-Trigger": '{"activityLogged": "Nudge sent"}'},
+    )
+
+
 @router.post("/activities/{activity_id}/reschedule", response_class=HTMLResponse)
 def activity_reschedule(request: Request, activity_id: int, new_date: str = Form(...), conn=Depends(get_db)):
     """Reschedule an activity follow-up to a specific date."""

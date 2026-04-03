@@ -489,8 +489,8 @@ def _create_or_enrich_activity(
            (activity_date, client_id, policy_id, program_id, activity_type, subject, details,
             contact_person, contact_id, disposition, source, outlook_message_id,
             email_snippet, issue_id, follow_up_date, follow_up_done,
-            email_from, email_to)
-           VALUES (?, ?, ?, ?, 'Email', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            email_from, email_to, duration_hours)
+           VALUES (?, ?, ?, ?, 'Email', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             email_date,
             client_id,
@@ -509,6 +509,7 @@ def _create_or_enrich_activity(
             0 if is_flagged else 1,  # Only open follow-up for flagged items
             sender,
             recipients,
+            0.1,
         ),
     )
     conn.commit()
@@ -669,8 +670,8 @@ def _run_thread_inheritance(
                (activity_date, client_id, policy_id, program_id, activity_type, subject,
                 details, contact_person, contact_id, source, outlook_message_id,
                 email_snippet, issue_id, follow_up_done,
-                email_from, email_to)
-               VALUES (?, ?, ?, ?, 'Email', ?, ?, ?, ?, 'thread_inherit', ?, ?, ?, 1, ?, ?)""",
+                email_from, email_to, duration_hours)
+               VALUES (?, ?, ?, ?, 'Email', ?, ?, ?, ?, 'thread_inherit', ?, ?, ?, 1, ?, ?, 0.1)""",
             (
                 email_date,
                 inherited_match["client_id"],

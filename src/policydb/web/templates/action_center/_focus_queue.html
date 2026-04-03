@@ -1,0 +1,118 @@
+{# Focus Queue — main content panel.
+   Variables: focus_items (list), waiting_items (list), stats (dict),
+              guide_me (bool), horizon (str), client_id (int),
+              all_clients (list), dispositions (list), activity_types (list)
+#}
+
+{# ─── Top Bar: Time Horizon + Guide Me + Client Filter ─── #}
+<div class="flex items-center justify-between px-5 py-3 bg-white border-b border-[#E8E2D9]" id="fq-top-bar">
+  <div class="flex items-center gap-4">
+    {# Time Horizon segmented control #}
+    <div class="flex bg-[#EDEAE4] rounded-lg overflow-hidden text-[13px]" id="fq-horizon">
+      {% for h in [("0", "Today"), ("7", "This Week"), ("14", "Next 2 Weeks")] %}
+        <button class="px-3.5 py-1.5 transition-colors
+                       {% if horizon == h[0] %}bg-[#000F47] text-white font-semibold{% else %}text-[#6B6860] hover:bg-[#E0DBD3]{% endif %}"
+                hx-get="/action-center/focus?horizon={{ h[0] }}&client_id={{ client_id }}&guide_me={{ guide_me | int }}"
+                hx-target="#fq-content" hx-swap="innerHTML">
+          {{ h[1] }}
+        </button>
+      {% endfor %}
+      <button class="px-3.5 py-1.5 text-[#6B6860] hover:bg-[#E0DBD3] relative"
+              onclick="document.getElementById('fq-custom-date').showPicker()">
+        Custom...
+        <input type="date" id="fq-custom-date" class="absolute opacity-0 w-0 h-0"
+               hx-get="/action-center/focus" hx-target="#fq-content" hx-swap="innerHTML"
+               hx-trigger="change" hx-include="this"
+               name="custom_date"
+               hx-vals='{"client_id": "{{ client_id }}", "guide_me": "{{ guide_me | int }}"}'>
+      </button>
+    </div>
+    <span class="text-[13px] text-[#9B9790]">{{ stats.focus_count }} item{{ 's' if stats.focus_count != 1 }} need{{ '' if stats.focus_count != 1 else 's' }} focus</span>
+  </div>
+
+  <div class="flex items-center gap-3">
+    {# Guide Me toggle #}
+    <div class="flex items-center gap-2 px-3 py-1 rounded-lg cursor-pointer transition-colors
+                {% if guide_me %}bg-purple-50 border border-purple-300{% else %}bg-[#EDEAE4] border border-transparent{% endif %}"
+         id="fq-guide-toggle"
+         hx-get="/action-center/focus?horizon={{ horizon }}&client_id={{ client_id }}&guide_me={{ 0 if guide_me else 1 }}"
+         hx-target="#fq-content" hx-swap="innerHTML">
+      <div class="relative w-8 h-[18px] rounded-full transition-colors
+                  {% if guide_me %}bg-purple-600{% else %}bg-gray-300{% endif %}">
+        <div class="absolute top-0.5 w-3.5 h-3.5 bg-white rounded-full shadow transition-transform
+                    {% if guide_me %}translate-x-[17px]{% else %}translate-x-0.5{% endif %}"></div>
+      </div>
+      <span class="text-[13px] font-semibold {% if guide_me %}text-purple-700{% else %}text-[#6B6860]{% endif %}">
+        Guide Me
+      </span>
+    </div>
+
+    {# Client filter #}
+    <div class="relative">
+      <input type="text" placeholder="All Clients" value="{{ selected_client_name or '' }}"
+             list="fq-client-list" class="text-[13px] text-[#6B6860] px-3 py-1.5 bg-[#EDEAE4] rounded-md border-none w-36 focus:outline-none focus:ring-1 focus:ring-blue-400"
+             hx-get="/action-center/focus" hx-target="#fq-content" hx-swap="innerHTML"
+             hx-trigger="change" name="client_name"
+             hx-vals='{"horizon": "{{ horizon }}", "guide_me": "{{ guide_me | int }}"}'>
+      <datalist id="fq-client-list">
+        <option value="">All Clients</option>
+        {% for c in all_clients %}
+          <option value="{{ c.name }}">{{ c.name }}</option>
+        {% endfor %}
+      </datalist>
+    </div>
+  </div>
+</div>
+
+{# ─── Two-Panel Layout ─── #}
+<div class="flex min-h-[calc(100vh-220px)]" id="fq-panels">
+
+  {# ─── Focus Queue (main area) ─── #}
+  <div class="flex-[7] px-5 py-4 border-r border-[#E8E2D9] overflow-y-auto">
+    <div class="text-[11px] uppercase tracking-wider text-[#9B9790] font-semibold mb-3">Focus Queue</div>
+
+    {# Quick capture #}
+    <form hx-post="/inbox/capture" hx-swap="none" class="mb-4 flex gap-2"
+          hx-on::after-request="this.reset(); htmx.ajax('GET', '/action-center/focus?horizon={{ horizon }}&client_id={{ client_id }}&guide_me={{ guide_me | int }}', {target: '#fq-content', swap: 'innerHTML'})">
+      <input type="text" name="content" placeholder="Quick capture — type a note, task, or reminder..."
+             required class="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:border-teal-400 focus:outline-none focus:ring-1 focus:ring-teal-200">
+      <button type="submit" class="bg-teal-600 text-white text-xs font-semibold px-3 py-2 rounded-lg hover:bg-teal-700">
+        Capture
+      </button>
+    </form>
+
+    {% if focus_items %}
+      {% for item in focus_items %}
+        {% set is_highlighted = guide_me and loop.first %}
+        {% include "action_center/_focus_item.html" %}
+      {% endfor %}
+    {% else %}
+      <div class="text-center py-16 text-[#9B9790]">
+        <div class="text-3xl mb-2">✓</div>
+        <div class="text-sm font-medium">All clear — nothing needs your focus right now.</div>
+      </div>
+    {% endif %}
+  </div>
+
+  {# ─── Waiting Sidebar ─── #}
+  <div class="flex-[3] px-4 py-4 bg-[#FAF8F5] overflow-y-auto">
+    {% include "action_center/_waiting_sidebar.html" %}
+  </div>
+
+</div>
+
+{# ─── JavaScript ─── #}
+<script>
+function fqExpandComplete(rowId, item) {
+  var form = document.getElementById('fq-complete-' + rowId);
+  if (form) { form.classList.remove('hidden'); }
+}
+function fqCollapseComplete(rowId) {
+  var form = document.getElementById('fq-complete-' + rowId);
+  if (form) { form.classList.add('hidden'); }
+}
+function fqToggleMenu(rowId) {
+  var menu = document.getElementById('fq-menu-' + rowId);
+  if (menu) { menu.classList.toggle('hidden'); }
+}
+</script>
