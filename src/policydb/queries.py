@@ -1323,7 +1323,23 @@ def assign_contact_to_policy(conn: sqlite3.Connection, contact_id: int, policy_i
              fields.get("role"), fields.get("title"), fields.get("notes"),
              fields.get("is_placement_colleague", 0)),
         )
-        return cur.lastrowid
+        aid = cur.lastrowid
+    # Auto-star: if this is now the only contact on the policy, mark as placement colleague
+    _auto_star_sole_placement(conn, policy_id)
+    return aid
+
+
+def _auto_star_sole_placement(conn, policy_id: int) -> None:
+    """If a policy has exactly one contact and none are starred, auto-star it."""
+    rows = conn.execute(
+        "SELECT id, is_placement_colleague FROM contact_policy_assignments WHERE policy_id=?",
+        (policy_id,),
+    ).fetchall()
+    if len(rows) == 1 and not rows[0]["is_placement_colleague"]:
+        conn.execute(
+            "UPDATE contact_policy_assignments SET is_placement_colleague=1 WHERE id=?",
+            (rows[0]["id"],),
+        )
 
 
 def remove_contact_from_client(conn: sqlite3.Connection, assignment_id: int) -> None:
