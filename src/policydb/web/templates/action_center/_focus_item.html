@@ -84,6 +84,15 @@
           <span class="text-[10px] text-gray-300 italic">no contact</span>
         {% endif %}
       </div>
+      {# Collapsed activity history — lazy-loaded on expand #}
+      {% if item.policy_uid and item.kind in ('followup', 'issue', 'suggested') %}
+      <details class="mt-1 no-print" ontoggle="if(this.open && !this.dataset.loaded){this.dataset.loaded='1'; htmx.ajax('GET','/policies/{{ item.policy_uid }}/activity-snippet',{target:this.querySelector('.fq-history-body'),swap:'innerHTML'})}">
+        <summary class="text-[10px] text-gray-400 hover:text-gray-600 cursor-pointer select-none list-none">▸ Recent activity</summary>
+        <div class="fq-history-body mt-1 ml-1 pl-2 border-l-2 border-gray-100 text-[11px] text-gray-500 space-y-1 max-h-32 overflow-y-auto">
+          <span class="text-gray-300">Loading...</span>
+        </div>
+      </details>
+      {% endif %}
     </div>
 
     {# Action buttons #}
