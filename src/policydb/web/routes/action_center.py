@@ -951,6 +951,9 @@ def action_center_page(request: Request, tab: str = "", conn=Depends(get_db)):
         all_clients_fq = conn.execute(
             "SELECT id, name FROM clients WHERE archived = 0 ORDER BY name"
         ).fetchall()
+        all_contact_names_fq = [r[0] for r in conn.execute(
+            "SELECT DISTINCT name FROM contacts WHERE name IS NOT NULL AND name != '' ORDER BY name"
+        ).fetchall()]
         tab_ctx = {
             "focus_items": focus_items,
             "waiting_items": waiting_items,
@@ -962,6 +965,7 @@ def action_center_page(request: Request, tab: str = "", conn=Depends(get_db)):
             "selected_client_name": "",
             "dispositions": cfg.get("follow_up_dispositions", []),
             "activity_types": cfg.get("activity_types", []),
+            "all_contact_names": all_contact_names_fq,
         }
     elif initial_tab == "followups":
         tab_ctx = _followups_ctx(conn, window=30, activity_type="", q="")
@@ -1120,6 +1124,11 @@ def action_center_focus(
         if row:
             selected_client_name = row["name"]
 
+    # Contact names for autocomplete in completion form
+    all_contact_names = [r[0] for r in conn.execute(
+        "SELECT DISTINCT name FROM contacts WHERE name IS NOT NULL AND name != '' ORDER BY name"
+    ).fetchall()]
+
     return templates.TemplateResponse(
         "action_center/_focus_queue.html",
         {
@@ -1134,6 +1143,7 @@ def action_center_focus(
             "selected_client_name": selected_client_name,
             "dispositions": cfg.get("follow_up_dispositions", []),
             "activity_types": cfg.get("activity_types", []),
+            "all_contact_names": all_contact_names,
         },
     )
 
