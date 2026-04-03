@@ -2622,6 +2622,55 @@ def policy_tab_details(request: Request, policy_uid: str, conn=Depends(get_db)):
     })
 
 
+@router.get("/{policy_uid}/activity-snippet", response_class=HTMLResponse)
+def policy_activity_snippet(request: Request, policy_uid: str, conn=Depends(get_db)):
+    """Compact activity history for Focus Queue inline expand."""
+    uid = policy_uid.upper()
+    pid_row = conn.execute("SELECT id FROM policies WHERE policy_uid = ?", (uid,)).fetchone()
+    if not pid_row:
+        return HTMLResponse('<span class="text-gray-300">No history</span>')
+    _pid = pid_row["id"]
+    rows = conn.execute(
+        """SELECT a.activity_type, a.subject, a.details, a.activity_date,
+                  a.disposition, a.contact_person, a.source,
+                  a.email_from, a.follow_up_date, a.follow_up_done
+           FROM activity_log a
+           WHERE (a.policy_id = ?
+                  OR (a.issue_id IN (SELECT ipc.issue_id FROM v_issue_policy_coverage ipc WHERE ipc.policy_id = ?)
+                      AND a.item_kind != 'issue')
+                  OR (a.thread_id IS NOT NULL AND a.thread_id IN (
+                        SELECT DISTINCT thread_id FROM activity_log WHERE policy_id = ? AND thread_id IS NOT NULL)))
+           ORDER BY a.activity_date DESC, a.id DESC
+           LIMIT 8""",
+        (_pid, _pid, _pid),
+    ).fetchall()
+    if not rows:
+        return HTMLResponse('<span class="text-gray-300">No activity history</span>')
+    lines = []
+    for r in rows:
+        d = dict(r)
+        date_str = (d.get("activity_date") or "")[:10]
+        atype = d.get("activity_type") or ""
+        subj = d.get("subject") or ""
+        contact = d.get("contact_person") or d.get("email_from") or ""
+        disp = d.get("disposition") or ""
+        done = "✓" if d.get("follow_up_done") else ""
+        detail = f'<span class="text-gray-400">{date_str}</span> '
+        detail += f'<span class="text-gray-500 font-medium">{atype}</span> '
+        if contact:
+            detail += f'<span class="text-gray-400">↳ {contact}</span> '
+        detail += f'<span class="text-gray-600">{subj[:80]}</span>'
+        if disp:
+            detail += f' <span class="text-indigo-400">({disp})</span>'
+        if done:
+            detail += f' <span class="text-green-500">{done}</span>'
+        lines.append(f'<div>{detail}</div>')
+    html = "\n".join(lines)
+    if len(rows) == 8:
+        html += f'<div><a href="/policies/{uid}/edit?tab=activity" class="text-blue-500 hover:underline">View all →</a></div>'
+    return HTMLResponse(html)
+
+
 @router.get("/{policy_uid}/tab/activity", response_class=HTMLResponse)
 def policy_tab_activity(request: Request, policy_uid: str, conn=Depends(get_db)):
     uid = policy_uid.upper()
