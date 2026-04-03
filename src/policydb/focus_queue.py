@@ -926,6 +926,55 @@ def build_focus_queue(
         if email:
             item["contact_email"] = email
 
+    # --- Dedup: suppress lower-priority items when higher-priority exists ---
+    # Priority: activity follow-up > issue > milestone > suggested > policy follow-up
+    _covered_policies: dict[str, str] = {}  # policy_uid -> covering kind
+
+    # Pass 1: activity follow-ups are highest priority
+    for item in all_items:
+        puid = item.get("policy_uid")
+        if not puid:
+            continue
+        if item.get("kind") == "followup" and item.get("source") == "activity":
+            _covered_policies[puid] = "activity"
+
+    # Pass 2: issues cover policies not already covered by activities
+    for item in all_items:
+        puid = item.get("policy_uid")
+        if not puid or puid in _covered_policies:
+            continue
+        if item.get("kind") == "issue":
+            _covered_policies[puid] = "issue"
+
+    # Pass 3: suppress issue items that have a linked follow-up
+    _suppressed_issue_ids: set[int] = set()
+    for item in all_items:
+        if item.get("kind") == "followup" and item.get("linked_issue_uid"):
+            for other in all_items:
+                if (other.get("kind") == "issue"
+                        and other.get("linked_issue_uid") == item["linked_issue_uid"]):
+                    _suppressed_issue_ids.add(id(other))
+
+    # Pass 4: filter
+    deduped: list[dict] = []
+    for item in all_items:
+        puid = item.get("policy_uid")
+        kind = item.get("kind")
+        source = item.get("source")
+
+        if id(item) in _suppressed_issue_ids:
+            continue
+        if kind == "followup" and source == "policy" and puid in _covered_policies:
+            continue
+        if kind == "suggested" and puid in _covered_policies:
+            continue
+        if kind == "milestone" and puid in _covered_policies:
+            continue
+
+        deduped.append(item)
+
+    all_items = deduped
+
     # --- Score all items ---
     for item in all_items:
         item["score"] = _score_item(item)
