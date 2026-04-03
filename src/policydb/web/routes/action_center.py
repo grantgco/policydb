@@ -995,13 +995,18 @@ def action_center_page(request: Request, tab: str = "", conn=Depends(get_db)):
     health_ctx = _portfolio_health_ctx(conn)
     risk_ctx = _risk_alerts_ctx(conn)
     # Accountability counts for sidebar badges
-    act_now_count = (
-        len(tab_ctx.get("triage", []))
-        + len(tab_ctx.get("today_bucket", []))
-        + len(tab_ctx.get("overdue_bucket", []))
-        + len(tab_ctx.get("stale", []))
-    )
-    nudge_due_count = len(tab_ctx.get("nudge_due", []))
+    if "stats" in tab_ctx and "focus_count" in tab_ctx.get("stats", {}):
+        # Focus Queue mode — use focus queue stats
+        act_now_count = tab_ctx["stats"]["focus_count"]
+        nudge_due_count = tab_ctx["stats"].get("nudge_alert_count", 0)
+    else:
+        act_now_count = (
+            len(tab_ctx.get("triage", []))
+            + len(tab_ctx.get("today_bucket", []))
+            + len(tab_ctx.get("overdue_bucket", []))
+            + len(tab_ctx.get("stale", []))
+        )
+        nudge_due_count = len(tab_ctx.get("nudge_due", []))
     review_pending_count = get_pending_review_count(conn)
     # Issues count for tab badge (skip if already computed)
     if "open_issues_count" in tab_ctx:
