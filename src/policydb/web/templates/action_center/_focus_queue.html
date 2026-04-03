@@ -81,6 +81,13 @@
       </button>
     </form>
 
+    {# Shared contact datalist for all completion forms #}
+    {% if all_contact_names is defined %}
+    <datalist id="fq-contacts-list">
+      {% for name in all_contact_names %}<option value="{{ name }}">{% endfor %}
+    </datalist>
+    {% endif %}
+
     {% if focus_items %}
       {% for item in focus_items %}
         {% set is_highlighted = guide_me and loop.first %}
