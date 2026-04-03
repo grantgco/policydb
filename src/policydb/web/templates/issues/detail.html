@@ -188,7 +188,11 @@
             {% if act.email_snippet %}
             <details class="mt-1 ml-14">
               <summary class="text-[10px] text-blue-500 cursor-pointer hover:text-blue-700">view email content</summary>
-              <div class="text-[10px] text-gray-500 mt-1 whitespace-pre-line leading-relaxed max-h-40 overflow-y-auto bg-gray-50 rounded p-2">{{ act.email_snippet }}</div>
+              <div class="text-[10px] text-gray-500 mt-1 bg-gray-50 rounded p-2">
+                {% if act.email_from %}<div class="text-[10px] mb-0.5"><span class="text-gray-400">From:</span> {{ act.email_from }}</div>{% endif %}
+                {% if act.email_to %}<div class="text-[10px] mb-1"><span class="text-gray-400">To:</span> {{ act.email_to }}</div>{% endif %}
+                <div class="whitespace-pre-line leading-relaxed max-h-40 overflow-y-auto">{{ act.email_snippet }}</div>
+              </div>
             </details>
             {% endif %}
             <div class="flex items-center gap-2 mt-1 ml-14 text-[10px]">
