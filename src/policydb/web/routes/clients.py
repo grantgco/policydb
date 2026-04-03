@@ -665,6 +665,57 @@ async def client_quick_add(request: Request, conn=Depends(get_db)):
     return JSONResponse({"ok": True, "row": dict(row)})
 
 
+@router.get("/{client_id}/tab/activity", response_class=HTMLResponse)
+def client_tab_activity(request: Request, client_id: int, conn=Depends(get_db)):
+    """Client Activity tab — activity log, quick-log, escalate."""
+    client = get_client_by_id(conn, client_id, include_archived=True)
+    if not client:
+        return HTMLResponse("Not found", status_code=404)
+    activities = [dict(a) for a in get_activities(conn, client_id=client_id, days=90)]
+    from policydb.web.routes.activities import _attach_pc_emails
+    _attach_pc_emails(conn, activities)
+    _today_iso = datetime.now().strftime("%Y-%m-%d")
+    overdue_followups = sorted(
+        [a for a in activities if a.get("follow_up_date") and not a.get("follow_up_done") and a["follow_up_date"] < _today_iso],
+        key=lambda a: a["follow_up_date"],
+    )
+    upcoming_followups = sorted(
+        [a for a in activities if a.get("follow_up_date") and not a.get("follow_up_done") and a["follow_up_date"] >= _today_iso],
+        key=lambda a: a["follow_up_date"],
+    )
+    _week_cutoff = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
+    due_soon = [a for a in upcoming_followups if a["follow_up_date"] <= _week_cutoff]
+    later_followups = [a for a in upcoming_followups if a["follow_up_date"] > _week_cutoff]
+    history = [a for a in activities if not (a.get("follow_up_date") and not a.get("follow_up_done"))]
+
+    quick_log_templates = cfg.get("quick_log_templates", [])
+    try:
+        primary_contact_name = client["primary_contact"] or ""
+    except (KeyError, IndexError):
+        primary_contact_name = ""
+
+    # Next renewal label
+    _active = [dict(p) for p in get_policies_for_client(conn, client_id) if not p["is_opportunity"]]
+    _today = datetime.now().strftime("%Y-%m-%d")
+    _sorted = sorted([p for p in _active if p.get("expiration_date")], key=lambda p: p["expiration_date"])
+    _future = [p for p in _sorted if p["expiration_date"] >= _today]
+    next_renewal_label = (_future[0].get("policy_type") or "renewal") if _future else ((_sorted[-1].get("policy_type") or "renewal") if _sorted else "renewal")
+
+    return templates.TemplateResponse("clients/_tab_activity.html", {
+        "request": request,
+        "client": client,
+        "overdue_followups": overdue_followups,
+        "due_soon": due_soon,
+        "later_followups": later_followups,
+        "history": history,
+        "activity_types": cfg.get("activity_types", []),
+        "quick_log_templates": quick_log_templates,
+        "primary_contact_name": primary_contact_name,
+        "next_renewal_label": next_renewal_label,
+        "issue_severities": cfg.get("issue_severities", []),
+    })
+
+
 @router.get("/{client_id}/tab/overview", response_class=HTMLResponse)
 def client_tab_overview(request: Request, client_id: int, conn=Depends(get_db)):
     client = get_client_by_id(conn, client_id, include_archived=True)
