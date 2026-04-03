@@ -2643,10 +2643,12 @@ def policy_tab_activity(request: Request, policy_uid: str, conn=Depends(get_db))
            LEFT JOIN activity_log iss ON iss.id = a.issue_id AND iss.item_kind = 'issue'
            WHERE (a.policy_id = ?
                   OR (a.issue_id IN (SELECT ipc.issue_id FROM v_issue_policy_coverage ipc WHERE ipc.policy_id = ?)
-                      AND a.item_kind != 'issue'))
-             AND a.activity_date >= date('now', '-90 days')
-           ORDER BY a.activity_date DESC, a.id DESC""",
-        (_pid, _pid),
+                      AND a.item_kind != 'issue')
+                  OR (a.thread_id IS NOT NULL AND a.thread_id IN (
+                        SELECT DISTINCT thread_id FROM activity_log WHERE policy_id = ? AND thread_id IS NOT NULL)))
+           ORDER BY a.activity_date DESC, a.id DESC
+           LIMIT 200""",
+        (_pid, _pid, _pid),
     ).fetchall()]
     # Tag issue-sourced activities (not directly on this policy)
     for act in activities:
