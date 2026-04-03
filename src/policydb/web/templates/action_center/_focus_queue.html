@@ -32,20 +32,20 @@
 
   <div class="flex items-center gap-3">
     {# Guide Me toggle #}
-    <label class="flex items-center gap-2 px-3 py-1 rounded-lg cursor-pointer transition-colors
-                  {% if guide_me %}bg-purple-50 border border-purple-300{% else %}bg-[#EDEAE4] border border-transparent{% endif %}"
-           id="fq-guide-toggle">
+    <div class="flex items-center gap-2 px-3 py-1 rounded-lg cursor-pointer transition-colors
+                {% if guide_me %}bg-purple-50 border border-purple-300{% else %}bg-[#EDEAE4] border border-transparent{% endif %}"
+         id="fq-guide-toggle"
+         hx-get="/action-center/focus?horizon={{ horizon }}&client_id={{ client_id }}&guide_me={{ 0 if guide_me else 1 }}"
+         hx-target="#fq-content" hx-swap="innerHTML">
       <div class="relative w-8 h-[18px] rounded-full transition-colors
-                  {% if guide_me %}bg-purple-600{% else %}bg-gray-300{% endif %}"
-           hx-get="/action-center/focus?horizon={{ horizon }}&client_id={{ client_id }}&guide_me={{ 0 if guide_me else 1 }}"
-           hx-target="#fq-content" hx-swap="innerHTML">
+                  {% if guide_me %}bg-purple-600{% else %}bg-gray-300{% endif %}">
         <div class="absolute top-0.5 w-3.5 h-3.5 bg-white rounded-full shadow transition-transform
                     {% if guide_me %}translate-x-[17px]{% else %}translate-x-0.5{% endif %}"></div>
       </div>
       <span class="text-[13px] font-semibold {% if guide_me %}text-purple-700{% else %}text-[#6B6860]{% endif %}">
         Guide Me
       </span>
-    </label>
+    </div>
 
     {# Client filter #}
     <div class="relative">
