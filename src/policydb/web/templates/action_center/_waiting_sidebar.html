@@ -18,30 +18,36 @@
 {% for item in waiting_items[:8] %}
   {% set days_waiting = -(item.days_until_deadline or 0) if item.days_until_deadline and item.days_until_deadline < 0 else 0 %}
   {% set is_stale = days_waiting >= 10 %}
+  {% set fu_date = item.follow_up_date or '' %}
   <div class="bg-white rounded-lg px-3 py-2.5 mb-1.5 text-[13px] {% if is_stale %}border border-amber-200{% endif %}">
     <div class="font-semibold text-[#3D3C37] truncate">
       {{ item.client_name }}{% if item.policy_type %} — {{ item.policy_type }}{% endif %}
     </div>
     <div class="text-[12px] text-[#9B9790] mt-0.5 truncate">
-      {{ item.disposition or 'Waiting' }}
-      {% if days_waiting > 0 %} · {{ days_waiting }} day{{ 's' if days_waiting != 1 }}{% endif %}
+      {% if item.subject %}{{ item.subject | truncate(60) }}{% endif %}
     </div>
-    {% if is_stale %}
-      <div class="flex gap-1.5 mt-1.5">
-        <button class="bg-amber-50 text-amber-800 border border-amber-200 text-[11px] font-semibold px-2.5 py-0.5 rounded hover:bg-amber-100"
-                hx-post="/activities/{{ item.id }}/nudge"
-                hx-target="closest div"
-                hx-swap="outerHTML"
-                hx-vals='{"context": "waiting_sidebar"}'>
-          Nudge →
-        </button>
-        <button class="bg-gray-50 text-[#6B6860] text-[11px] px-2.5 py-0.5 rounded hover:bg-gray-100"
-                hx-get="/action-center/focus?horizon={{ horizon }}&client_id={{ client_id }}&guide_me={{ guide_me | int }}&promote={{ item.id }}"
-                hx-target="#fq-content" hx-swap="innerHTML">
-          Pull to Focus
-        </button>
-      </div>
-    {% endif %}
+    <div class="text-[11px] text-[#9B9790] mt-0.5 flex items-center gap-2 flex-wrap">
+      {% if days_waiting > 0 %}
+        <span>{{ days_waiting }}d waiting</span>
+      {% endif %}
+      {% if fu_date %}
+        <span>Re-check: {{ fu_date }}</span>
+      {% endif %}
+    </div>
+    <div class="flex gap-1.5 mt-1.5">
+      <button class="bg-amber-50 text-amber-800 border border-amber-200 text-[11px] font-semibold px-2.5 py-0.5 rounded hover:bg-amber-100"
+              hx-post="/activities/{{ item.id }}/nudge"
+              hx-target="closest div.bg-white"
+              hx-swap="outerHTML"
+              hx-vals='{"context": "waiting_sidebar"}'>
+        Nudge →
+      </button>
+      <button class="bg-gray-50 text-[#6B6860] text-[11px] px-2.5 py-0.5 rounded hover:bg-gray-100"
+              hx-get="/action-center/focus?horizon={{ horizon }}&client_id={{ client_id }}&guide_me={{ guide_me | int }}&promote={{ item.id }}"
+              hx-target="#fq-content" hx-swap="innerHTML">
+        Pull to Focus
+      </button>
+    </div>
   </div>
 {% endfor %}
 
@@ -55,7 +61,11 @@
       {% set days_waiting = -(item.days_until_deadline or 0) if item.days_until_deadline and item.days_until_deadline < 0 else 0 %}
       <div class="bg-white rounded-lg px-3 py-2.5 mb-1.5 text-[13px]">
         <div class="font-semibold text-[#3D3C37] truncate">{{ item.client_name }}{% if item.policy_type %} — {{ item.policy_type }}{% endif %}</div>
-        <div class="text-[12px] text-[#9B9790] mt-0.5">{{ item.disposition or 'Waiting' }}{% if days_waiting > 0 %} · {{ days_waiting }}d{% endif %}</div>
+        <div class="text-[12px] text-[#9B9790] mt-0.5 truncate">{{ item.subject | truncate(60) if item.subject }}</div>
+        <div class="text-[11px] text-[#9B9790] mt-0.5">
+          {% if days_waiting > 0 %}{{ days_waiting }}d waiting{% endif %}
+          {% if item.follow_up_date %} · Re-check: {{ item.follow_up_date }}{% endif %}
+        </div>
       </div>
     {% endfor %}
   </div>
