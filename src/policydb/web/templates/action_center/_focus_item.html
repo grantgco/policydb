@@ -191,11 +191,21 @@
               class="text-xs text-gray-500 hover:text-gray-700 px-2 py-1.5">
         Cancel
       </button>
-      {# Row 2: Note (full width below) #}
-      <div class="w-full mt-1">
+      {# Row 2: Contact + Note #}
+      <div class="w-full mt-1 flex gap-2">
+        <input type="text" name="contact_person" placeholder="Contact..."
+               value="{{ item.contact_person or '' }}"
+               class="text-xs border border-gray-200 rounded px-2 py-1.5 w-36 focus:border-blue-400 focus:outline-none"
+               list="fq-contacts-{{ row_id }}"
+               autocomplete="off">
+        {% if all_contact_names is defined %}
+        <datalist id="fq-contacts-{{ row_id }}">
+          {% for name in all_contact_names %}<option value="{{ name }}">{% endfor %}
+        </datalist>
+        {% endif %}
         <input type="text" name="notes" placeholder="What happened? (optional)"
                value="{% if guide_me %}{{ item.suggested_action_detail }}{% endif %}"
-               class="w-full text-xs border border-gray-200 rounded px-2 py-1.5 focus:border-blue-400 focus:outline-none">
+               class="flex-1 text-xs border border-gray-200 rounded px-2 py-1.5 focus:border-blue-400 focus:outline-none">
       </div>
     </form>
   </div>

@@ -903,6 +903,29 @@ def build_focus_queue(
     for item in opportunities:
         all_items.append(_normalize_opportunity(item, today))
 
+    # --- Auto-suggest contacts from policy team for items missing a contact ---
+    _contact_cache: dict[str, tuple[str, str]] = {}  # policy_uid -> (name, email)
+    for item in all_items:
+        if item.get("contact_person") or item.get("contact_email"):
+            continue
+        puid = item.get("policy_uid")
+        if not puid:
+            continue
+        if puid not in _contact_cache:
+            row = conn.execute("""
+                SELECT co.name, co.email FROM contact_policy_assignments cpa
+                JOIN contacts co ON cpa.contact_id = co.id
+                WHERE cpa.policy_id = (SELECT id FROM policies WHERE policy_uid = ?)
+                ORDER BY cpa.is_placement_colleague DESC, cpa.id ASC
+                LIMIT 1
+            """, (puid,)).fetchone()
+            _contact_cache[puid] = (row["name"], row["email"]) if row else ("", "")
+        name, email = _contact_cache[puid]
+        if name:
+            item["contact_person"] = name
+        if email:
+            item["contact_email"] = email
+
     # --- Score all items ---
     for item in all_items:
         item["score"] = _score_item(item)
