@@ -919,17 +919,29 @@ def build_focus_queue(
             promote = False
             promote_reason = ""
 
+            # Promotion window matches the time horizon you're looking at
+            # "Today" = 7d default, "This Week" = 7d, "Next 2 Weeks" = 14d, etc.
+            promote_window = max(horizon_days, 7)
+
             # Promote if been waiting too long
             if days is not None and days <= -auto_promote_days:
                 promote = True
                 promote_reason = f"Waiting {abs(days)} days — consider nudging"
-            # Promote if deadline/expiration within 7 days (even if still waiting)
-            elif exp_days is not None and exp_days <= 7:
+            # Promote if deadline/expiration within the horizon window
+            elif exp_days is not None and exp_days <= promote_window:
                 promote = True
-                promote_reason = f"⚠ Expires in {exp_days}d — still waiting"
+                if exp_days <= 0:
+                    promote_reason = f"⚠ Expired {abs(exp_days)}d ago — still waiting"
+                else:
+                    promote_reason = f"⚠ Expires in {exp_days}d — still waiting"
+            # Promote if follow-up date is overdue
             elif days is not None and days <= 0:
                 promote = True
                 promote_reason = f"Overdue — still waiting"
+            # Promote if follow-up date falls within horizon
+            elif days is not None and days <= promote_window and horizon_days > 0:
+                promote = True
+                promote_reason = f"Due in {days}d — still waiting"
 
             if promote:
                 item["context_line"] = promote_reason + (" · " + item["context_line"] if item["context_line"] else "")
