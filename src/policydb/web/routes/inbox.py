@@ -413,8 +413,8 @@ async def inbox_batch_process(request: Request, conn=Depends(get_db)):
             """INSERT INTO activity_log
                (activity_date, client_id, policy_id, activity_type, subject, details,
                 account_exec, contact_id, issue_id, email_snippet, outlook_message_id,
-                source, email_from, email_to, follow_up_done)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)""",
+                source, email_from, email_to, follow_up_done, duration_hours)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0.1)""",
             (act_date, client_id, policy_id, activity_type, item_subject,
              f"Batch processed from inbox thread",
              account_exec, item_contact, issue_id, email_snippet,
