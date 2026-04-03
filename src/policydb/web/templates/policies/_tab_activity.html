@@ -152,9 +152,14 @@ function setQuickDate(btn, days) {
   /* Activity filter: All vs Open Follow-ups — section-level show/hide */
   var seg = document.getElementById('pol-activity-filter-seg');
   if (!seg) return;
+  // Force "All" on load (browser may restore previous radio state from cache)
+  var allRadio = document.getElementById('paf-all');
+  if (allRadio) allRadio.checked = true;
+  // Ensure history is visible on load
+  var historySection = document.getElementById('edit-activity-list-history-section');
+  if (historySection) historySection.style.display = '';
   seg.addEventListener('change', function(e) {
     var mode = e.target.value;
-    var historySection = document.getElementById('edit-activity-list-history-section');
     if (historySection) historySection.style.display = (mode === 'open') ? 'none' : '';
   });
 })();
