@@ -841,6 +841,84 @@ def contacts_search(request: Request, q: str = "", context: str = "", target_id:
 
 
 # ---------------------------------------------------------------------------
+# Contact edit slideover
+# ---------------------------------------------------------------------------
+
+@router.get("/{contact_id}/edit-slideover", response_class=HTMLResponse)
+def contact_edit_slideover(request: Request, contact_id: int, conn=Depends(get_db)):
+    """Return the edit slideover partial for a contact."""
+    contact = conn.execute("SELECT * FROM contacts WHERE id = ?", (contact_id,)).fetchone()
+    if not contact:
+        return HTMLResponse("<p class='p-4 text-sm text-gray-400'>Not found.</p>", status_code=404)
+    contact = dict(contact)
+    _attach_expertise(conn, [contact])
+
+    # Client assignments for context
+    client_assignments = [dict(r) for r in conn.execute("""
+        SELECT cca.contact_type, cca.role, cca.title, cca.assignment, cca.notes,
+               c.name AS client_name, c.id AS client_id
+        FROM contact_client_assignments cca
+        JOIN clients c ON cca.client_id = c.id
+        WHERE cca.contact_id = ? AND c.archived = 0
+        ORDER BY c.name
+    """, (contact_id,)).fetchall()]
+
+    # Policy assignments for context
+    policy_assignments = [dict(r) for r in conn.execute("""
+        SELECT cpa.role, cpa.title, cpa.notes,
+               p.policy_uid, p.policy_type, c.name AS client_name
+        FROM contact_policy_assignments cpa
+        JOIN policies p ON cpa.policy_id = p.id
+        JOIN clients c ON p.client_id = c.id
+        WHERE cpa.contact_id = ? AND p.archived = 0
+        ORDER BY c.name, p.policy_type
+    """, (contact_id,)).fetchall()]
+
+    return templates.TemplateResponse("contacts/_edit_contact_slideover.html", {
+        "request": request,
+        "contact": contact,
+        "client_assignments": client_assignments,
+        "policy_assignments": policy_assignments,
+        "expertise_lines": cfg.get("expertise_lines", []),
+        "expertise_industries": cfg.get("expertise_industries", []),
+    })
+
+
+@router.patch("/{contact_id}/field")
+async def contact_patch_field(request: Request, contact_id: int, conn=Depends(get_db)):
+    """Update a single field on a contact (slideover inline edit)."""
+    body = await request.json()
+    if not body:
+        return JSONResponse({"ok": False, "error": "No body"}, status_code=400)
+    field = body.get("field", "")
+    value = body.get("value", "")
+
+    allowed = {"name", "email", "phone", "mobile", "organization", "expertise_notes"}
+    if field not in allowed:
+        return JSONResponse({"ok": False, "error": f"Field '{field}' not editable"}, status_code=400)
+
+    contact = conn.execute("SELECT id FROM contacts WHERE id = ?", (contact_id,)).fetchone()
+    if not contact:
+        return JSONResponse({"ok": False, "error": "Not found"}, status_code=404)
+
+    formatted = (value or "").strip()
+
+    if field == "name" and not formatted:
+        return JSONResponse({"ok": False, "error": "Name cannot be empty"}, status_code=400)
+    if field in ("phone", "mobile"):
+        formatted = format_phone(formatted) if formatted else ""
+    elif field == "email":
+        formatted = clean_email(formatted) or ""
+
+    conn.execute(
+        f"UPDATE contacts SET {field} = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+        (formatted or None, contact_id),
+    )
+    conn.commit()
+    return JSONResponse({"ok": True, "formatted": formatted})
+
+
+# ---------------------------------------------------------------------------
 # Contact detail page
 # ---------------------------------------------------------------------------
 

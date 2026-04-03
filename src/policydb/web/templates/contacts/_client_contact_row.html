@@ -51,10 +51,19 @@
     {% endif %}
   </td>
   <td class="px-4 py-3">
-    <button
-      hx-get="/contacts/client/{{ c.name | path_quote }}/edit"
-      hx-target="#{{ row_id }}"
-      hx-swap="outerHTML"
-      class="text-xs text-marsh hover:underline text-left">Edit</button>
+    <div class="flex items-center gap-2">
+      <button
+        hx-get="/contacts/{{ c.get('id') or c.get('contact_id') }}/edit-slideover"
+        hx-target="#fu-edit-content"
+        hx-swap="innerHTML"
+        onclick="event.preventDefault();event.stopPropagation();openFollowupEdit()"
+        class="text-xs text-gray-400 hover:text-marsh transition-colors p-0.5"
+        title="Quick edit">&#9998;</button>
+      <button
+        hx-get="/contacts/client/{{ c.name | path_quote }}/edit"
+        hx-target="#{{ row_id }}"
+        hx-swap="outerHTML"
+        class="text-xs text-marsh hover:underline text-left">Edit</button>
+    </div>
   </td>
 </tr>
