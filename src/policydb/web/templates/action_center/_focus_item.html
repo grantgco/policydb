@@ -137,9 +137,8 @@
   {# Inline completion form (hidden, expanded by fqExpandComplete) #}
   <div id="fq-complete-{{ row_id }}" class="hidden mt-2.5 p-3 bg-gray-50 rounded-md border border-gray-200">
     <form hx-post="{% if item.kind == 'followup' and item.source == 'activity' %}/activities/{{ item.id }}/followup{% elif item.policy_uid %}/policies/{{ item.policy_uid }}/followup{% else %}/activities/log{% endif %}"
-          hx-target="#fq-{{ row_id }}"
-          hx-swap="outerHTML"
-          hx-on::after-request="if(event.detail.successful) document.getElementById('fq-{{ row_id }}')?.remove()"
+          hx-swap="none"
+          hx-on::after-request="if(event.detail.successful){var el=document.getElementById('fq-{{ row_id }}'); if(el){el.style.transition='opacity 0.3s'; el.style.opacity='0'; setTimeout(function(){el.remove()},300)}}"
           class="flex flex-wrap gap-2 items-end">
       {% if not item.id or item.kind in ('suggested', 'insurance_deadline') %}
         <input type="hidden" name="client_id" value="{{ item.client_id or '' }}">
