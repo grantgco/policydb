@@ -245,38 +245,40 @@
                       class="w-full rounded border-gray-300 text-sm px-3 py-1.5 focus:ring-marsh focus:border-marsh placeholder-gray-300 resize-none"></textarea>
           </div>
 
-          {# Row 3: Disposition pills + follow-up + hours + contact #}
+          {# Row 3: Hours + Re-check in + My move/Waiting toggle + Submit #}
           <div class="flex gap-3 items-end flex-wrap">
-            <div class="flex-1 min-w-[200px]">
-              <label class="block text-[10px] text-gray-400 uppercase tracking-wide mb-1">Disposition</label>
-              <input type="hidden" name="disposition" id="issue-log-disposition" value="">
-              <div id="issue-disposition-pills">
-                {% set gd_issue = grouped_dispositions() %}
-                {% for cat in gd_issue.categories %}
-                <div class="text-[9px] text-gray-400 uppercase tracking-wide mt-1.5 first:mt-0 mb-0.5">{{ cat.label }}</div>
-                <div class="flex gap-1.5 flex-wrap">
-                  {% for d in cat.disps %}
-                  {% set dlabel = d.label if d is mapping else d %}
-                  <button type="button"
-                    onclick="document.getElementById('issue-log-disposition').value=this.dataset.val;this.closest('#issue-disposition-pills').querySelectorAll('button').forEach(b=>b.className='text-xs px-2.5 py-1 border border-gray-200 rounded text-gray-500 hover:bg-gray-50 transition-colors');this.className='text-xs px-2.5 py-1 border border-marsh rounded bg-marsh/10 text-marsh font-medium transition-colors'"
-                    data-val="{{ dlabel }}"
-                    class="text-xs px-2.5 py-1 border border-gray-200 rounded text-gray-500 hover:bg-gray-50 transition-colors">
-                    {{ dlabel }}
-                  </button>
-                  {% endfor %}
+            <div>
+              <label class="block text-[10px] text-gray-400 uppercase tracking-wide mb-1">Hours</label>
+              <input type="number" name="duration_hours" step="0.1" min="0"
+                     placeholder="0.5" class="w-16 rounded border-gray-300 text-sm px-2 py-1.5 focus:ring-marsh focus:border-marsh placeholder-gray-300">
+            </div>
+            <div>
+              <label class="block text-[10px] text-gray-400 uppercase tracking-wide mb-1">Re-check in</label>
+              <div class="flex items-center gap-1">
+                <div class="flex rounded-md overflow-hidden border border-gray-200 text-[11px]">
+                  <button type="button" class="px-2 py-1 hover:bg-blue-50 text-gray-600" onclick="setIssueQuickDate(this, 1)">1d</button>
+                  <button type="button" class="px-2 py-1 hover:bg-blue-50 text-gray-600 border-l border-gray-200" onclick="setIssueQuickDate(this, 3)">3d</button>
+                  <button type="button" class="px-2 py-1 hover:bg-blue-50 bg-blue-50 text-blue-700 font-semibold border-l border-gray-200" onclick="setIssueQuickDate(this, 7)">1w</button>
+                  <button type="button" class="px-2 py-1 hover:bg-blue-50 text-gray-600 border-l border-gray-200" onclick="setIssueQuickDate(this, 14)">2w</button>
+                  <button type="button" class="px-2 py-1 hover:bg-blue-50 text-gray-600 border-l border-gray-200" onclick="setIssueQuickDate(this, 30)">1m</button>
                 </div>
-                {% endfor %}
+                <input type="date" name="follow_up_date"
+                       class="text-xs border border-gray-200 rounded px-2 py-1 focus:border-blue-400 focus:outline-none">
               </div>
             </div>
             <div>
-              <label class="block text-[10px] text-gray-400 uppercase tracking-wide mb-1">Follow-up</label>
-              <input type="date" name="follow_up_date"
-                     class="rounded border-gray-300 text-sm px-2 py-1.5 focus:ring-marsh focus:border-marsh">
-            </div>
-            <div>
-              <label class="block text-[10px] text-gray-400 uppercase tracking-wide mb-1">Hours</label>
-              <input type="number" name="duration_hours" step="any" min="0"
-                     placeholder="0.5" class="w-16 rounded border-gray-300 text-sm px-2 py-1.5 focus:ring-marsh focus:border-marsh placeholder-gray-300">
+              <label class="block text-[10px] text-gray-400 uppercase tracking-wide mb-1">Status</label>
+              <input type="hidden" name="disposition" id="issue-log-disposition" value="">
+              <div class="flex rounded-md overflow-hidden border border-gray-200 text-xs">
+                <button type="button" class="px-3 py-1.5 font-semibold transition-colors bg-blue-600 text-white"
+                        onclick="this.classList.add('bg-blue-600','text-white'); this.classList.remove('bg-white','text-gray-600'); this.nextElementSibling.classList.add('bg-white','text-gray-600'); this.nextElementSibling.classList.remove('bg-amber-500','text-white'); document.getElementById('issue-log-disposition').value=''">
+                  My move
+                </button>
+                <button type="button" class="px-3 py-1.5 font-semibold transition-colors bg-white text-gray-600"
+                        onclick="this.classList.add('bg-amber-500','text-white'); this.classList.remove('bg-white','text-gray-600'); this.previousElementSibling.classList.add('bg-white','text-gray-600'); this.previousElementSibling.classList.remove('bg-blue-600','text-white'); document.getElementById('issue-log-disposition').value='Waiting on Response'">
+                  &#9203; Waiting
+                </button>
+              </div>
             </div>
             <button type="submit"
                     class="text-sm bg-marsh text-white rounded px-5 py-1.5 hover:bg-marsh-light transition-colors font-medium">
@@ -644,6 +646,22 @@
 
 {% include "issues/_link_activities_slideover.html" %}
 {% include "issues/_merge_slideover.html" %}
+
+{# ── Quick date helper for issue log form ── #}
+<script>
+function setIssueQuickDate(btn, days) {
+  var d = new Date(); d.setDate(d.getDate() + days);
+  var form = btn.closest('form');
+  var input = form ? form.querySelector('input[name="follow_up_date"]') : null;
+  if (input) input.value = d.toISOString().split('T')[0];
+  btn.closest('.flex').querySelectorAll('button').forEach(function(b) {
+    b.classList.remove('bg-blue-50', 'text-blue-700', 'font-semibold');
+    b.classList.add('text-gray-600');
+  });
+  btn.classList.add('bg-blue-50', 'text-blue-700', 'font-semibold');
+  btn.classList.remove('text-gray-600');
+}
+</script>
 
 {# ── Contenteditable save-on-blur for description ── #}
 <script>
