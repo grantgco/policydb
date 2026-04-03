@@ -24,6 +24,7 @@ from policydb.queries import (
     get_time_summary,
 )
 from policydb.data_health import get_book_health_summary
+from policydb.focus_queue import build_focus_queue
 
 router = APIRouter()
 
@@ -941,9 +942,28 @@ def action_center_page(request: Request, tab: str = "", conn=Depends(get_db)):
     """Main Action Center page — renders shell with tabs and sidebar."""
     sidebar = _sidebar_ctx(conn)
     # Default tab content: follow-ups (loaded server-side for first render)
-    initial_tab = tab or "followups"
+    initial_tab = tab or "focus"
     tab_ctx = {}
-    if initial_tab == "followups":
+    if initial_tab == "focus":
+        focus_items, waiting_items, fq_stats = build_focus_queue(conn)
+        time_summary = get_time_summary(conn)
+        fq_stats["hours_today"] = time_summary.get("hours_today", 0)
+        all_clients_fq = conn.execute(
+            "SELECT id, name FROM clients WHERE archived = 0 ORDER BY name"
+        ).fetchall()
+        tab_ctx = {
+            "focus_items": focus_items,
+            "waiting_items": waiting_items,
+            "stats": fq_stats,
+            "guide_me": False,
+            "horizon": "0",
+            "client_id": 0,
+            "all_clients": [dict(c) for c in all_clients_fq],
+            "selected_client_name": "",
+            "dispositions": cfg.get("follow_up_dispositions", []),
+            "activity_types": cfg.get("activity_types", []),
+        }
+    elif initial_tab == "followups":
         tab_ctx = _followups_ctx(conn, window=30, activity_type="", q="")
     elif initial_tab == "inbox":
         tab_ctx = _inbox_ctx(conn)
@@ -1027,6 +1047,90 @@ def action_center_page(request: Request, tab: str = "", conn=Depends(get_db)):
 
 
 # ── Tab partials (HTMX) ─────────────────────────────────────────────────────
+
+
+@router.get("/action-center/focus", response_class=HTMLResponse)
+def action_center_focus(
+    request: Request,
+    horizon: str = "0",
+    client_id: int = 0,
+    guide_me: int = 0,
+    client_name: str = "",
+    custom_date: str = "",
+    promote: int = 0,
+    conn=Depends(get_db),
+):
+    """Focus Queue partial — returns the two-panel Focus Queue + Waiting Sidebar."""
+    # Resolve horizon days
+    if custom_date:
+        try:
+            target = datetime.strptime(custom_date, "%Y-%m-%d").date()
+            horizon_days = (target - date.today()).days
+        except ValueError:
+            horizon_days = 0
+    else:
+        horizon_days = int(horizon) if horizon.isdigit() else 0
+
+    # Resolve client_id from name if needed
+    if client_name and not client_id:
+        row = conn.execute(
+            "SELECT id FROM clients WHERE name = ? AND archived = 0", (client_name,)
+        ).fetchone()
+        if row:
+            client_id = row["id"]
+
+    # Build the queue
+    focus_items, waiting_items, stats = build_focus_queue(
+        conn, horizon_days=horizon_days, client_id=client_id
+    )
+
+    # Handle manual promote from waiting sidebar
+    if promote:
+        promoted = None
+        new_waiting = []
+        for w in waiting_items:
+            if w.get("id") == promote:
+                promoted = w
+            else:
+                new_waiting.append(w)
+        if promoted:
+            promoted["accountability"] = "my_action"
+            focus_items.insert(0, promoted)
+            waiting_items = new_waiting
+            stats["focus_count"] += 1
+            stats["waiting_count"] -= 1
+
+    # Add hours today to stats
+    time_summary = get_time_summary(conn)
+    stats["hours_today"] = time_summary.get("hours_today", 0)
+
+    # All clients for filter dropdown
+    all_clients = conn.execute(
+        "SELECT id, name FROM clients WHERE archived = 0 ORDER BY name"
+    ).fetchall()
+
+    selected_client_name = ""
+    if client_id:
+        row = conn.execute("SELECT name FROM clients WHERE id = ?", (client_id,)).fetchone()
+        if row:
+            selected_client_name = row["name"]
+
+    return templates.TemplateResponse(
+        "action_center/_focus_queue.html",
+        {
+            "request": request,
+            "focus_items": focus_items,
+            "waiting_items": waiting_items,
+            "stats": stats,
+            "guide_me": bool(guide_me),
+            "horizon": horizon if not custom_date else str(horizon_days),
+            "client_id": client_id,
+            "all_clients": [dict(c) for c in all_clients],
+            "selected_client_name": selected_client_name,
+            "dispositions": cfg.get("follow_up_dispositions", []),
+            "activity_types": cfg.get("activity_types", []),
+        },
+    )
 
 
 @router.get("/action-center/followups", response_class=HTMLResponse)
