@@ -184,10 +184,6 @@
           <input type="number" name="duration_hours" min="0" step="any" placeholder="hrs"
             class="border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-marsh w-20">
         </div>
-        <div>
-          <label class="block text-xs font-medium text-gray-600 mb-1">Follow-Up</label>
-          <input type="date" name="follow_up_date" class="border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-marsh">
-        </div>
         <button type="submit" class="bg-marsh hover:bg-marsh-light text-white text-xs font-medium px-3 py-1 rounded transition-colors">Log</button>
         <button type="button" onclick="document.getElementById('log-form').classList.add('hidden')"
           class="text-xs text-gray-500 hover:text-gray-700">Cancel</button>
@@ -196,25 +192,35 @@
         <textarea name="details" rows="3" placeholder="Optional notes, context, next steps…"
           class="w-full border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-marsh"></textarea>
       </div>
-      {% if dispositions is defined and dispositions %}
-      <div class="mt-2">
-        <div class="text-[9px] text-gray-400 mb-1">Disposition (optional)</div>
-        <input type="hidden" name="disposition" id="client-log-disp" value="">
-        <div class="disp-cat-group">
-          {% set gd_client = grouped_dispositions() %}
-          {% for cat in gd_client.categories %}
-          <div class="text-[9px] text-gray-400 uppercase tracking-wide mt-1 first:mt-0 mb-0.5">{{ cat.label }}</div>
-          <div class="flex flex-wrap gap-1">
-            {% for d in cat.disps %}
-            <button type="button"
-              onclick="this.closest('.disp-cat-group').querySelectorAll('button').forEach(function(b){b.classList.remove('bg-marsh','text-white');b.classList.add('border-gray-200','text-gray-500');}); this.classList.add('bg-marsh','text-white'); this.classList.remove('border-gray-200','text-gray-500'); document.getElementById('client-log-disp').value='{{ d.label }}'; if({{ d.default_days }}>0){var di=document.querySelector('#client-log-form input[name=follow_up_date]'); if(di && !di.value){var dt=new Date(); dt.setDate(dt.getDate()+{{ d.default_days }}); di.value=dt.toISOString().split('T')[0];}}"
-              class="text-[10px] px-2 py-0.5 rounded border border-gray-200 text-gray-500 hover:border-marsh hover:text-marsh transition-colors cursor-pointer">{{ d.label }}</button>
-            {% endfor %}
+      <div class="mt-2 flex items-center gap-3 flex-wrap">
+        <div>
+          <label class="block text-[10px] text-gray-500 mb-1">Re-check in</label>
+          <div class="flex items-center gap-1">
+            <div class="flex rounded-md overflow-hidden border border-gray-200 text-[11px]">
+              <button type="button" class="px-2 py-1 hover:bg-blue-50 text-gray-600" onclick="setClientQuickDate(this, 1)">1d</button>
+              <button type="button" class="px-2 py-1 hover:bg-blue-50 text-gray-600 border-l border-gray-200" onclick="setClientQuickDate(this, 3)">3d</button>
+              <button type="button" class="px-2 py-1 hover:bg-blue-50 bg-blue-50 text-blue-700 font-semibold border-l border-gray-200" onclick="setClientQuickDate(this, 7)">1w</button>
+              <button type="button" class="px-2 py-1 hover:bg-blue-50 text-gray-600 border-l border-gray-200" onclick="setClientQuickDate(this, 14)">2w</button>
+              <button type="button" class="px-2 py-1 hover:bg-blue-50 text-gray-600 border-l border-gray-200" onclick="setClientQuickDate(this, 30)">1m</button>
+            </div>
+            <input type="date" name="follow_up_date" class="text-xs border border-gray-200 rounded px-2 py-1 focus:border-blue-400 focus:outline-none">
           </div>
-          {% endfor %}
+        </div>
+        <div>
+          <label class="block text-[10px] text-gray-500 mb-1">Status</label>
+          <input type="hidden" name="disposition" id="client-log-disp" value="">
+          <div class="flex rounded-md overflow-hidden border border-gray-200 text-xs">
+            <button type="button" class="px-3 py-1.5 font-semibold transition-colors bg-blue-600 text-white"
+                    onclick="this.classList.add('bg-blue-600','text-white'); this.classList.remove('bg-white','text-gray-600'); this.nextElementSibling.classList.add('bg-white','text-gray-600'); this.nextElementSibling.classList.remove('bg-amber-500','text-white'); document.getElementById('client-log-disp').value=''">
+              My move
+            </button>
+            <button type="button" class="px-3 py-1.5 font-semibold transition-colors bg-white text-gray-600"
+                    onclick="this.classList.add('bg-amber-500','text-white'); this.classList.remove('bg-white','text-gray-600'); this.previousElementSibling.classList.add('bg-white','text-gray-600'); this.previousElementSibling.classList.remove('bg-blue-600','text-white'); document.getElementById('client-log-disp').value='Waiting on Response'">
+              &#9203; Waiting
+            </button>
+          </div>
         </div>
       </div>
-      {% endif %}
     </form>
   </div>
 
@@ -238,6 +244,20 @@
 {% include "clients/_overview_locations.html" %}
 
 <script>
+/* ── Quick-date helper for client log form ─────────────────────── */
+function setClientQuickDate(btn, days) {
+  var d = new Date(); d.setDate(d.getDate() + days);
+  var form = document.getElementById('client-log-form');
+  var input = form ? form.querySelector('input[name="follow_up_date"]') : null;
+  if (input) input.value = d.toISOString().split('T')[0];
+  btn.closest('.flex').querySelectorAll('button').forEach(function(b) {
+    b.classList.remove('bg-blue-50', 'text-blue-700', 'font-semibold');
+    b.classList.add('text-gray-600');
+  });
+  btn.classList.add('bg-blue-50', 'text-blue-700', 'font-semibold');
+  btn.classList.remove('text-gray-600');
+}
+
 /* ── Quick-log pill helpers ───────────────────────────────────────── */
 var _qlPrimaryContact = {{ primary_contact_name | default('') | tojson }};
 var _qlNextRenewal = {{ next_renewal_label | default('renewal') | tojson }};

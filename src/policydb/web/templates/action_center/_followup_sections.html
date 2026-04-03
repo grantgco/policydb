@@ -194,69 +194,51 @@
     </div>
   </div>
 
-  {# ── Inline "What happened?" two-step flow (hidden) ── #}
+  {# ── Inline "What happened?" panel (hidden) ── #}
   {% if not (item.is_milestone is defined and item.is_milestone) %}
-  {% set gd = grouped_dispositions() %}
   <div id="disp-bar-{{ row_id }}" class="hidden">
-    <div class="disp-pill-bar bg-white border border-gray-200 rounded-lg p-3 mx-4 mb-2 mt-1">
+    <div class="bg-white border border-gray-200 rounded-lg p-3 mx-4 mb-2 mt-1">
       <form hx-post="/activities/update-disposition" hx-target="#ac-tab-content" hx-swap="innerHTML">
         <input type="hidden" name="composite_id" value="{{ item.source }}-{{ item.id }}">
-        <input type="hidden" name="disposition" id="disp-val-{{ row_id }}" value="{{ item.disposition or '' }}">
         <input type="hidden" name="context" value="action_center">
 
-        {# Step 1: Grouped outcome pills #}
-        <div id="disp-step1-{{ row_id }}">
-          <div class="text-[10px] text-gray-500 mb-2 font-medium">What happened?</div>
-          <div class="disp-grouped-pills grid grid-cols-3 gap-3" data-activity-type="{{ item.activity_type | default('') }}">
-            {% for cat in gd.categories %}
-            <div>
-              <div class="text-[9px] text-gray-400 font-semibold uppercase tracking-wide mb-1">{{ cat.label }}</div>
-              <div class="flex flex-wrap gap-1">
-                {% for d in cat.disps %}
-                <button type="button" data-label="{{ d.label }}" data-days="{{ d.default_days }}"
-                  data-acc="{{ d.get('accountability', 'my_action') if d is mapping else 'my_action' }}"
-                  onclick="selectGroupedDisp(this, '{{ row_id }}')"
-                  onmouseenter="showDispPreview('{{ row_id }}', {{ d.default_days }}, '{{ d.get('accountability', 'my_action') if d is mapping else 'my_action' }}')"
-                  onmouseleave="hideDispPreview('{{ row_id }}')"
-                  class="disp-pill text-[10px] px-2 py-0.5 rounded border transition-colors cursor-pointer
-                    {% if item.disposition == d.label %}bg-marsh text-white border-marsh{% else %}border-gray-200 text-gray-500 hover:border-marsh hover:text-marsh{% endif %}">{{ d.label }}</button>
-                {% endfor %}
+        <div class="flex gap-3 items-end flex-wrap">
+          <div class="flex-1 min-w-32">
+            <div class="text-[9px] text-gray-400">Note</div>
+            <input type="text" name="note" placeholder="What happened?" class="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:ring-1 focus:ring-marsh">
+          </div>
+          <div>
+            <div class="text-[9px] text-gray-400">Re-check in</div>
+            <div class="flex items-center gap-1">
+              <div class="flex rounded-md overflow-hidden border border-gray-200 text-[11px]">
+                <button type="button" class="px-2 py-1 hover:bg-blue-50 text-gray-600" onclick="setAcDispBarDate(this, 'disp-date-{{ row_id }}', 1, '{{ row_id }}')">1d</button>
+                <button type="button" class="px-2 py-1 hover:bg-blue-50 text-gray-600 border-l border-gray-200" onclick="setAcDispBarDate(this, 'disp-date-{{ row_id }}', 3, '{{ row_id }}')">3d</button>
+                <button type="button" class="px-2 py-1 hover:bg-blue-50 bg-blue-50 text-blue-700 font-semibold border-l border-gray-200" onclick="setAcDispBarDate(this, 'disp-date-{{ row_id }}', 7, '{{ row_id }}')">1w</button>
+                <button type="button" class="px-2 py-1 hover:bg-blue-50 text-gray-600 border-l border-gray-200" onclick="setAcDispBarDate(this, 'disp-date-{{ row_id }}', 14, '{{ row_id }}')">2w</button>
+                <button type="button" class="px-2 py-1 hover:bg-blue-50 text-gray-600 border-l border-gray-200" onclick="setAcDispBarDate(this, 'disp-date-{{ row_id }}', 30, '{{ row_id }}')">1m</button>
               </div>
+              <input type="date" name="follow_up_date" id="disp-date-{{ row_id }}" value="{{ item.follow_up_date }}"
+                class="text-xs border border-gray-200 rounded px-2 py-1 focus:border-blue-400 focus:outline-none"
+                onchange="checkDateVsExpiry(this, '{{ row_id }}', 'disp-cap-{{ row_id }}')">
             </div>
-            {% endfor %}
+            <span id="disp-cap-{{ row_id }}" class="text-[10px] text-amber-600 hidden"></span>
           </div>
-          <div id="disp-preview-{{ row_id }}" class="text-[10px] text-gray-500 mt-2 hidden">
-            <span class="text-gray-400">&rarr;</span> <span id="disp-preview-text-{{ row_id }}"></span>
-          </div>
-        </div>
-
-        {# Step 2: Confirm — date, note, save #}
-        <div id="disp-step2-{{ row_id }}" class="hidden">
-          <div class="flex items-center gap-2 mb-2">
-            <span id="disp-chosen-label-{{ row_id }}" class="text-[11px] font-medium bg-marsh text-white px-2.5 py-0.5 rounded-full"></span>
-            <span id="disp-chosen-acc-{{ row_id }}" class="text-[10px] text-gray-500"></span>
-          </div>
-          <div class="flex gap-3 items-end flex-wrap">
-            <div>
-              <div class="text-[9px] text-gray-400">Follow-up date</div>
-              <div class="flex gap-1 items-center">
-                <input type="date" name="follow_up_date" id="disp-date-{{ row_id }}" value="{{ item.follow_up_date }}"
-                  class="text-xs border border-gray-200 rounded px-2 py-1 focus:ring-1 focus:ring-marsh"
-                  onchange="checkDateVsExpiry(this, '{{ row_id }}', 'disp-cap-{{ row_id }}')">
-                <button type="button" onclick="setDispBarDate('disp-date-{{ row_id }}', 1, '{{ row_id }}')" class="text-[9px] border border-gray-200 rounded px-1 py-0.5 text-gray-400 hover:text-marsh">+1d</button>
-                <button type="button" onclick="setDispBarDate('disp-date-{{ row_id }}', 3, '{{ row_id }}')" class="text-[9px] border border-gray-200 rounded px-1 py-0.5 text-gray-400 hover:text-marsh">+3d</button>
-                <button type="button" onclick="setDispBarDate('disp-date-{{ row_id }}', 7, '{{ row_id }}')" class="text-[9px] border border-gray-200 rounded px-1 py-0.5 text-gray-400 hover:text-marsh">+7d</button>
-              </div>
-              <span id="disp-cap-{{ row_id }}" class="text-[10px] text-amber-600 hidden"></span>
+          <div>
+            <div class="text-[9px] text-gray-400">Status</div>
+            <input type="hidden" name="disposition" id="disp-val-{{ row_id }}" value="{{ item.disposition or '' }}">
+            <div class="flex rounded-md overflow-hidden border border-gray-200 text-xs">
+              <button type="button" class="px-3 py-1.5 font-semibold transition-colors {% if not item.disposition or item.disposition != 'Waiting on Response' %}bg-blue-600 text-white{% else %}bg-white text-gray-600{% endif %}"
+                      onclick="this.classList.add('bg-blue-600','text-white'); this.classList.remove('bg-white','text-gray-600'); this.nextElementSibling.classList.add('bg-white','text-gray-600'); this.nextElementSibling.classList.remove('bg-amber-500','text-white'); document.getElementById('disp-val-{{ row_id }}').value=''">
+                My move
+              </button>
+              <button type="button" class="px-3 py-1.5 font-semibold transition-colors {% if item.disposition == 'Waiting on Response' %}bg-amber-500 text-white{% else %}bg-white text-gray-600{% endif %}"
+                      onclick="this.classList.add('bg-amber-500','text-white'); this.classList.remove('bg-white','text-gray-600'); this.previousElementSibling.classList.add('bg-white','text-gray-600'); this.previousElementSibling.classList.remove('bg-blue-600','text-white'); document.getElementById('disp-val-{{ row_id }}').value='Waiting on Response'">
+                &#9203; Waiting
+              </button>
             </div>
-            <div class="flex-1 min-w-32">
-              <div class="text-[9px] text-gray-400">Note</div>
-              <input type="text" name="note" placeholder="Optional..." class="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:ring-1 focus:ring-marsh">
-            </div>
-            <button type="submit" class="text-xs bg-marsh text-white px-3 py-1.5 rounded hover:bg-[#004a80]">Confirm</button>
-            <button type="button" onclick="backToStep1('{{ row_id }}')" class="text-xs text-gray-400 hover:text-gray-600">Back</button>
-            <button type="button" onclick="toggleDispBar('{{ row_id }}')" class="text-xs text-gray-400">Cancel</button>
           </div>
+          <button type="submit" class="text-xs bg-marsh text-white px-3 py-1.5 rounded hover:bg-[#004a80]">Confirm</button>
+          <button type="button" onclick="toggleDispBar('{{ row_id }}')" class="text-xs text-gray-400">Cancel</button>
         </div>
       </form>
     </div>
@@ -280,58 +262,54 @@
         <input type="hidden" name="context" value="followup_table">
       {% endif %}
 
-        {# Grouped outcome pills #}
-        <input type="hidden" name="disposition" id="ac-disp-val-{{ row_id }}" value="">
-        {% set gd_form = grouped_dispositions() %}
-        <div class="text-[10px] text-gray-500 mb-1 font-medium">What happened?</div>
-        <div class="disp-grouped-pills grid grid-cols-3 gap-3" data-activity-type="{{ item.activity_type | default('') }}">
-          {% for cat in gd_form.categories %}
-          <div>
-            <div class="text-[9px] text-gray-400 font-semibold uppercase tracking-wide mb-1">{{ cat.label }}</div>
-            <div class="flex flex-wrap gap-1">
-              {% for d in cat.disps %}
-              <button type="button" data-label="{{ d.label }}" data-days="{{ d.default_days }}"
-                data-acc="{{ d.get('accountability', 'my_action') if d is mapping else 'my_action' }}"
-                onclick="selectAcDisp(this, '{{ d.label }}', {{ d.default_days }}, '{{ row_id }}')"
-                onmouseenter="showDispPreview('ac-fu-preview-{{ row_id }}', {{ d.default_days }}, '{{ d.get('accountability', 'my_action') if d is mapping else 'my_action' }}')"
-                onmouseleave="hideDispPreview('ac-fu-preview-{{ row_id }}')"
-                class="ac-disp-pill text-[10px] px-2 py-0.5 rounded border border-gray-200 text-gray-500 hover:border-marsh hover:text-marsh transition-colors cursor-pointer">{{ d.label }}</button>
-              {% endfor %}
-            </div>
-          </div>
-          {% endfor %}
-        </div>
-        <div id="ac-fu-preview-{{ row_id }}" class="text-[10px] text-gray-500 mt-1 hidden">
-          <span class="text-gray-400">&rarr;</span> <span id="ac-fu-preview-{{ row_id }}-text"></span>
+        {# Note #}
+        <div>
+          <label class="text-[10px] text-gray-500 block">Note</label>
+          <input type="text" name="notes" placeholder="What happened?"
+            class="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:ring-1 focus:ring-marsh">
         </div>
 
-        {# Hours + Note #}
+        {# Hours #}
         <div class="flex items-center gap-3">
           <div class="w-16">
             <label class="text-[10px] text-gray-500 block">Hours</label>
             <input type="number" name="duration_hours" step="0.1" min="0" placeholder="0"
               class="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:ring-1 focus:ring-marsh">
           </div>
-          <div class="flex-1">
-            <label class="text-[10px] text-gray-500 block">Note</label>
-            <input type="text" name="notes" placeholder="Details..."
-              class="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:ring-1 focus:ring-marsh">
-          </div>
         </div>
 
-        {# Next follow-up shortcuts #}
+        {# Re-check in quick-pick #}
         <div>
-          <label class="text-[10px] text-gray-500 block">Next Follow-Up</label>
-          <div class="flex items-center gap-1.5">
-            <button type="button" onclick="setAcFuDate('{{ row_id }}', 1)" class="text-[10px] text-gray-400 hover:text-marsh border border-gray-200 hover:border-marsh rounded px-1.5 py-0.5 transition-colors">+1d</button>
-            <button type="button" onclick="setAcFuDate('{{ row_id }}', 3)" class="text-[10px] text-gray-400 hover:text-marsh border border-gray-200 hover:border-marsh rounded px-1.5 py-0.5 transition-colors">+3d</button>
-            <button type="button" onclick="setAcFuDate('{{ row_id }}', 7)" class="text-[10px] text-gray-400 hover:text-marsh border border-gray-200 hover:border-marsh rounded px-1.5 py-0.5 transition-colors">+7d</button>
-            <button type="button" onclick="setAcFuDate('{{ row_id }}', 14)" class="text-[10px] text-gray-400 hover:text-marsh border border-gray-200 hover:border-marsh rounded px-1.5 py-0.5 transition-colors">+14d</button>
+          <label class="text-[10px] text-gray-500 block">Re-check in</label>
+          <div class="flex items-center gap-1">
+            <div class="flex rounded-md overflow-hidden border border-gray-200 text-[11px]">
+              <button type="button" class="px-2 py-1 hover:bg-blue-50 text-gray-600" onclick="setAcFuDateQuick(this, '{{ row_id }}', 1)">1d</button>
+              <button type="button" class="px-2 py-1 hover:bg-blue-50 text-gray-600 border-l border-gray-200" onclick="setAcFuDateQuick(this, '{{ row_id }}', 3)">3d</button>
+              <button type="button" class="px-2 py-1 hover:bg-blue-50 bg-blue-50 text-blue-700 font-semibold border-l border-gray-200" onclick="setAcFuDateQuick(this, '{{ row_id }}', 7)">1w</button>
+              <button type="button" class="px-2 py-1 hover:bg-blue-50 text-gray-600 border-l border-gray-200" onclick="setAcFuDateQuick(this, '{{ row_id }}', 14)">2w</button>
+              <button type="button" class="px-2 py-1 hover:bg-blue-50 text-gray-600 border-l border-gray-200" onclick="setAcFuDateQuick(this, '{{ row_id }}', 30)">1m</button>
+            </div>
             <input type="date" name="new_follow_up_date" id="ac-fu-date-{{ row_id }}"
-              class="text-xs border border-gray-200 rounded px-2 py-1 focus:ring-1 focus:ring-marsh"
+              class="text-xs border border-gray-200 rounded px-2 py-1 focus:border-blue-400 focus:outline-none"
               onchange="checkDateVsExpiry(this, '{{ row_id }}', 'ac-fu-cap-{{ row_id }}')">
           </div>
           <span id="ac-fu-cap-{{ row_id }}" class="text-[10px] text-amber-600 hidden"></span>
+        </div>
+
+        {# My move / Waiting toggle #}
+        <div>
+          <label class="text-[10px] text-gray-500 block">Status</label>
+          <input type="hidden" name="disposition" id="ac-disp-val-{{ row_id }}" value="">
+          <div class="flex rounded-md overflow-hidden border border-gray-200 text-xs">
+            <button type="button" class="px-3 py-1.5 font-semibold transition-colors bg-blue-600 text-white"
+                    onclick="this.classList.add('bg-blue-600','text-white'); this.classList.remove('bg-white','text-gray-600'); this.nextElementSibling.classList.add('bg-white','text-gray-600'); this.nextElementSibling.classList.remove('bg-amber-500','text-white'); document.getElementById('ac-disp-val-{{ row_id }}').value=''">
+              My move
+            </button>
+            <button type="button" class="px-3 py-1.5 font-semibold transition-colors bg-white text-gray-600"
+                    onclick="this.classList.add('bg-amber-500','text-white'); this.classList.remove('bg-white','text-gray-600'); this.previousElementSibling.classList.add('bg-white','text-gray-600'); this.previousElementSibling.classList.remove('bg-blue-600','text-white'); document.getElementById('ac-disp-val-{{ row_id }}').value='Waiting on Response'">
+              &#9203; Waiting
+            </button>
+          </div>
         </div>
 
         {# Save / Cancel #}
@@ -411,67 +389,50 @@
     </div>
   </div>
 
-  {# ── Inline triage "What happened?" two-step flow ── #}
-  {% set gd_triage = grouped_dispositions() %}
+  {# ── Inline triage "What happened?" panel ── #}
   <div id="disp-bar-{{ row_id }}" class="hidden">
-    <div class="disp-pill-bar bg-white border border-gray-200 rounded-lg p-3 mx-4 mb-2 mt-1">
+    <div class="bg-white border border-gray-200 rounded-lg p-3 mx-4 mb-2 mt-1">
       <form hx-post="/activities/update-disposition" hx-target="#ac-tab-content" hx-swap="innerHTML">
         <input type="hidden" name="composite_id" value="{{ item.source }}-{{ item.id }}">
-        <input type="hidden" name="disposition" id="disp-val-{{ row_id }}" value="">
         <input type="hidden" name="context" value="action_center">
 
-        {# Step 1: Grouped outcome pills #}
-        <div id="disp-step1-{{ row_id }}">
-          <div class="text-[10px] text-gray-500 mb-2 font-medium">What happened?</div>
-          <div class="disp-grouped-pills grid grid-cols-3 gap-3" data-activity-type="{{ item.activity_type | default('') }}">
-            {% for cat in gd_triage.categories %}
-            <div>
-              <div class="text-[9px] text-gray-400 font-semibold uppercase tracking-wide mb-1">{{ cat.label }}</div>
-              <div class="flex flex-wrap gap-1">
-                {% for d in cat.disps %}
-                <button type="button" data-label="{{ d.label }}" data-days="{{ d.default_days }}"
-                  data-acc="{{ d.get('accountability', 'my_action') if d is mapping else 'my_action' }}"
-                  onclick="selectGroupedDisp(this, '{{ row_id }}')"
-                  onmouseenter="showDispPreview('{{ row_id }}', {{ d.default_days }}, '{{ d.get('accountability', 'my_action') if d is mapping else 'my_action' }}')"
-                  onmouseleave="hideDispPreview('{{ row_id }}')"
-                  class="disp-pill text-[11px] px-2.5 py-1 rounded border border-gray-200 text-gray-600 hover:border-marsh hover:text-marsh hover:bg-blue-50 transition-colors cursor-pointer">{{ d.label }}</button>
-                {% endfor %}
+        <div class="flex gap-3 items-end flex-wrap">
+          <div class="flex-1 min-w-32">
+            <div class="text-[9px] text-gray-400">Note</div>
+            <input type="text" name="note" placeholder="What happened?" class="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:ring-1 focus:ring-marsh">
+          </div>
+          <div>
+            <div class="text-[9px] text-gray-400">Re-check in</div>
+            <div class="flex items-center gap-1">
+              <div class="flex rounded-md overflow-hidden border border-gray-200 text-[11px]">
+                <button type="button" class="px-2 py-1 hover:bg-blue-50 text-gray-600" onclick="setAcDispBarDate(this, 'disp-date-{{ row_id }}', 1, '{{ row_id }}')">1d</button>
+                <button type="button" class="px-2 py-1 hover:bg-blue-50 text-gray-600 border-l border-gray-200" onclick="setAcDispBarDate(this, 'disp-date-{{ row_id }}', 3, '{{ row_id }}')">3d</button>
+                <button type="button" class="px-2 py-1 hover:bg-blue-50 bg-blue-50 text-blue-700 font-semibold border-l border-gray-200" onclick="setAcDispBarDate(this, 'disp-date-{{ row_id }}', 7, '{{ row_id }}')">1w</button>
+                <button type="button" class="px-2 py-1 hover:bg-blue-50 text-gray-600 border-l border-gray-200" onclick="setAcDispBarDate(this, 'disp-date-{{ row_id }}', 14, '{{ row_id }}')">2w</button>
+                <button type="button" class="px-2 py-1 hover:bg-blue-50 text-gray-600 border-l border-gray-200" onclick="setAcDispBarDate(this, 'disp-date-{{ row_id }}', 30, '{{ row_id }}')">1m</button>
               </div>
+              <input type="date" name="follow_up_date" id="disp-date-{{ row_id }}" value="{{ item.follow_up_date }}"
+                class="text-xs border border-gray-200 rounded px-2 py-1 focus:border-blue-400 focus:outline-none"
+                onchange="checkDateVsExpiry(this, '{{ row_id }}', 'disp-cap-{{ row_id }}')">
             </div>
-            {% endfor %}
+            <span id="disp-cap-{{ row_id }}" class="text-[10px] text-amber-600 hidden"></span>
           </div>
-          <div id="disp-preview-{{ row_id }}" class="text-[10px] text-gray-500 mt-2 hidden">
-            <span class="text-gray-400">&rarr;</span> <span id="disp-preview-text-{{ row_id }}"></span>
-          </div>
-        </div>
-
-        {# Step 2: Confirm — date, note, save #}
-        <div id="disp-step2-{{ row_id }}" class="hidden">
-          <div class="flex items-center gap-2 mb-2">
-            <span id="disp-chosen-label-{{ row_id }}" class="text-[11px] font-medium bg-marsh text-white px-2.5 py-0.5 rounded-full"></span>
-            <span id="disp-chosen-acc-{{ row_id }}" class="text-[10px] text-gray-500"></span>
-          </div>
-          <div class="flex gap-3 items-end flex-wrap">
-            <div>
-              <div class="text-[9px] text-gray-400">Follow-up date</div>
-              <div class="flex gap-1 items-center">
-                <input type="date" name="follow_up_date" id="disp-date-{{ row_id }}" value="{{ item.follow_up_date }}"
-                  class="text-xs border border-gray-200 rounded px-2 py-1 focus:ring-1 focus:ring-marsh"
-                  onchange="checkDateVsExpiry(this, '{{ row_id }}', 'disp-cap-{{ row_id }}')">
-                <button type="button" onclick="setDispBarDate('disp-date-{{ row_id }}', 1, '{{ row_id }}')" class="text-[9px] border border-gray-200 rounded px-1 py-0.5 text-gray-400 hover:text-marsh">+1d</button>
-                <button type="button" onclick="setDispBarDate('disp-date-{{ row_id }}', 3, '{{ row_id }}')" class="text-[9px] border border-gray-200 rounded px-1 py-0.5 text-gray-400 hover:text-marsh">+3d</button>
-                <button type="button" onclick="setDispBarDate('disp-date-{{ row_id }}', 7, '{{ row_id }}')" class="text-[9px] border border-gray-200 rounded px-1 py-0.5 text-gray-400 hover:text-marsh">+7d</button>
-              </div>
-              <span id="disp-cap-{{ row_id }}" class="text-[10px] text-amber-600 hidden"></span>
+          <div>
+            <div class="text-[9px] text-gray-400">Status</div>
+            <input type="hidden" name="disposition" id="disp-val-{{ row_id }}" value="">
+            <div class="flex rounded-md overflow-hidden border border-gray-200 text-xs">
+              <button type="button" class="px-3 py-1.5 font-semibold transition-colors bg-blue-600 text-white"
+                      onclick="this.classList.add('bg-blue-600','text-white'); this.classList.remove('bg-white','text-gray-600'); this.nextElementSibling.classList.add('bg-white','text-gray-600'); this.nextElementSibling.classList.remove('bg-amber-500','text-white'); document.getElementById('disp-val-{{ row_id }}').value=''">
+                My move
+              </button>
+              <button type="button" class="px-3 py-1.5 font-semibold transition-colors bg-white text-gray-600"
+                      onclick="this.classList.add('bg-amber-500','text-white'); this.classList.remove('bg-white','text-gray-600'); this.previousElementSibling.classList.add('bg-white','text-gray-600'); this.previousElementSibling.classList.remove('bg-blue-600','text-white'); document.getElementById('disp-val-{{ row_id }}').value='Waiting on Response'">
+                &#9203; Waiting
+              </button>
             </div>
-            <div class="flex-1 min-w-32">
-              <div class="text-[9px] text-gray-400">Note</div>
-              <input type="text" name="note" placeholder="Optional..." class="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:ring-1 focus:ring-marsh">
-            </div>
-            <button type="submit" class="text-xs bg-marsh text-white px-3 py-1.5 rounded hover:bg-[#004a80]">Confirm</button>
-            <button type="button" onclick="backToStep1('{{ row_id }}')" class="text-xs text-gray-400 hover:text-gray-600">Back</button>
-            <button type="button" onclick="toggleDispBar('{{ row_id }}')" class="text-xs text-gray-400">Cancel</button>
           </div>
+          <button type="submit" class="text-xs bg-marsh text-white px-3 py-1.5 rounded hover:bg-[#004a80]">Confirm</button>
+          <button type="button" onclick="toggleDispBar('{{ row_id }}')" class="text-xs text-gray-400">Cancel</button>
         </div>
       </form>
     </div>

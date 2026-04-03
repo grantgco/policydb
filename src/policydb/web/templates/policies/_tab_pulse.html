@@ -489,37 +489,41 @@
         </div>
       </div>
 
-      {# Row 2: Follow-up date + Submit #}
+      {# Row 2: Re-check in + My move/Waiting toggle + Submit #}
       <div class="flex items-end gap-2 flex-wrap">
         <div class="shrink-0">
-          <label class="block text-[10px] text-gray-500 font-semibold uppercase tracking-wider mb-1">Follow-up Date</label>
-          <input type="date" name="follow_up_date" id="pulse-ql-fu-date"
-            class="border border-gray-300 rounded px-2 py-1.5 text-xs text-gray-900 focus:outline-none focus:ring-1 focus:ring-marsh">
+          <label class="block text-[10px] text-gray-500 font-semibold uppercase tracking-wider mb-1">Re-check in</label>
+          <div class="flex items-center gap-1">
+            <div class="flex rounded-md overflow-hidden border border-gray-200 text-[11px]">
+              <button type="button" class="px-2 py-1 hover:bg-blue-50 text-gray-600" onclick="setPulseQuickDate(this, 1)">1d</button>
+              <button type="button" class="px-2 py-1 hover:bg-blue-50 text-gray-600 border-l border-gray-200" onclick="setPulseQuickDate(this, 3)">3d</button>
+              <button type="button" class="px-2 py-1 hover:bg-blue-50 bg-blue-50 text-blue-700 font-semibold border-l border-gray-200" onclick="setPulseQuickDate(this, 7)">1w</button>
+              <button type="button" class="px-2 py-1 hover:bg-blue-50 text-gray-600 border-l border-gray-200" onclick="setPulseQuickDate(this, 14)">2w</button>
+              <button type="button" class="px-2 py-1 hover:bg-blue-50 text-gray-600 border-l border-gray-200" onclick="setPulseQuickDate(this, 30)">1m</button>
+            </div>
+            <input type="date" name="follow_up_date" id="pulse-ql-fu-date"
+              class="text-xs border border-gray-200 rounded px-2 py-1 focus:border-blue-400 focus:outline-none">
+          </div>
+        </div>
+        <div class="shrink-0">
+          <label class="block text-[10px] text-gray-500 font-semibold uppercase tracking-wider mb-1">Status</label>
+          <input type="hidden" name="disposition" id="pulse-ql-disp-val" value="">
+          <div class="flex rounded-md overflow-hidden border border-gray-200 text-xs">
+            <button type="button" class="px-3 py-1.5 font-semibold transition-colors bg-blue-600 text-white"
+                    onclick="this.classList.add('bg-blue-600','text-white'); this.classList.remove('bg-white','text-gray-600'); this.nextElementSibling.classList.add('bg-white','text-gray-600'); this.nextElementSibling.classList.remove('bg-amber-500','text-white'); document.getElementById('pulse-ql-disp-val').value=''">
+              My move
+            </button>
+            <button type="button" class="px-3 py-1.5 font-semibold transition-colors bg-white text-gray-600"
+                    onclick="this.classList.add('bg-amber-500','text-white'); this.classList.remove('bg-white','text-gray-600'); this.previousElementSibling.classList.add('bg-white','text-gray-600'); this.previousElementSibling.classList.remove('bg-blue-600','text-white'); document.getElementById('pulse-ql-disp-val').value='Waiting on Response'">
+              &#9203; Waiting
+            </button>
+          </div>
         </div>
         <div class="flex-1"></div>
         <button type="submit"
           class="bg-marsh text-white px-4 py-1.5 rounded-md font-semibold hover:bg-marsh-light text-xs transition-colors">
           Log Activity
         </button>
-      </div>
-
-      {# Row 3: Disposition pills — shown when follow-up date is set #}
-      <input type="hidden" name="disposition" id="pulse-ql-disp-val" value="">
-      <div id="pulse-ql-disp-row" class="hidden mt-2">
-        <label class="block text-[10px] text-gray-500 font-semibold uppercase tracking-wider mb-1">Disposition</label>
-        <div class="disp-cat-group">
-          {% set gd_pulse = grouped_dispositions() %}
-          {% for cat in gd_pulse.categories %}
-          <div class="text-[9px] text-gray-400 uppercase tracking-wide mt-1 first:mt-0 mb-0.5">{{ cat.label }}</div>
-          <div class="flex flex-wrap gap-1">
-            {% for d in cat.disps %}
-            <button type="button"
-              onclick="var inp=document.getElementById('pulse-ql-disp-val'); inp.value='{{ d.label }}'; this.closest('.disp-cat-group').querySelectorAll('button').forEach(function(b){b.classList.remove('bg-marsh','text-white','border-marsh');b.classList.add('border-gray-300','text-gray-500');}); this.classList.add('bg-marsh','text-white','border-marsh'); this.classList.remove('border-gray-300','text-gray-500');"
-              class="text-[10px] px-2 py-0.5 rounded border border-gray-300 text-gray-500 hover:border-marsh hover:text-marsh transition-colors">{{ d.label }}</button>
-            {% endfor %}
-          </div>
-          {% endfor %}
-        </div>
       </div>
       {# Issue widget — link activity to an open issue #}
       <div class="mt-2"
@@ -531,15 +535,17 @@
 </div>
 
 <script>
-(function() {
-  var fuDate = document.getElementById('pulse-ql-fu-date');
-  var dispRow = document.getElementById('pulse-ql-disp-row');
-  if (fuDate && dispRow) {
-    fuDate.addEventListener('input', function() {
-      dispRow.classList.toggle('hidden', !this.value);
-    });
-  }
-})();
+function setPulseQuickDate(btn, days) {
+  var d = new Date(); d.setDate(d.getDate() + days);
+  var input = document.getElementById('pulse-ql-fu-date');
+  if (input) input.value = d.toISOString().split('T')[0];
+  btn.closest('.flex').querySelectorAll('button').forEach(function(b) {
+    b.classList.remove('bg-blue-50', 'text-blue-700', 'font-semibold');
+    b.classList.add('text-gray-600');
+  });
+  btn.classList.add('bg-blue-50', 'text-blue-700', 'font-semibold');
+  btn.classList.remove('text-gray-600');
+}
 </script>
 
 </div>{# end #tab-pulse-content #}

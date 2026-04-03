@@ -488,6 +488,28 @@ function setDispBarDate(inputId, days, rowId) {
   }
 }
 
+/* ── Quick-pick date with highlight for disposition bars ── */
+function setAcDispBarDate(btn, inputId, days, rowId) {
+  setDispBarDate(inputId, days, rowId);
+  btn.closest('.flex').querySelectorAll('button').forEach(function(b) {
+    b.classList.remove('bg-blue-50', 'text-blue-700', 'font-semibold');
+    b.classList.add('text-gray-600');
+  });
+  btn.classList.add('bg-blue-50', 'text-blue-700', 'font-semibold');
+  btn.classList.remove('text-gray-600');
+}
+
+/* ── Quick-pick date with highlight for inline follow-up forms ── */
+function setAcFuDateQuick(btn, rowId, days) {
+  setAcFuDate(rowId, days);
+  btn.closest('.flex').querySelectorAll('button').forEach(function(b) {
+    b.classList.remove('bg-blue-50', 'text-blue-700', 'font-semibold');
+    b.classList.add('text-gray-600');
+  });
+  btn.classList.add('bg-blue-50', 'text-blue-700', 'font-semibold');
+  btn.classList.remove('text-gray-600');
+}
+
 /* ── Manual date entry warning (change event) ── */
 function checkDateVsExpiry(dateInput, rowId, capSpanId) {
   var expDate = getRowExp(rowId);
