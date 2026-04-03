@@ -1,8 +1,15 @@
 <tr data-row-id="{{ e.id }}" class="matrix-row group hover:bg-gray-50/60 align-top">
   {# Exposure Type #}
   <td class="px-3 py-2.5">
+    {% if e.is_custom %}
+    <div contenteditable="true"
+         class="matrix-cell-editable outline-none font-medium text-gray-800 text-sm rounded px-1 -mx-1 border border-dashed border-purple-200"
+         data-field="exposure_type"
+         data-placeholder="Type name...">{{ e.exposure_type }}</div>
+    <span class="text-[10px] text-purple-400 uppercase">custom</span>
+    {% else %}
     <span class="font-medium text-gray-800 text-sm">{{ e.exposure_type }}</span>
-    {% if e.is_custom %}<span class="ml-1 text-[10px] text-purple-400 uppercase">custom</span>{% endif %}
+    {% endif %}
   </td>
   {# Denominator (Per) #}
   <td class="px-3 py-2.5">
