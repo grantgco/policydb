@@ -1,0 +1,35 @@
+<div class="card overflow-hidden">
+  <!-- Header -->
+  <div class="flex items-center justify-between p-4 border-b border-gray-200 bg-gray-50">
+    <div>
+      <h3 class="text-sm font-semibold text-gray-900">{{ template_name }}</h3>
+      <span class="text-xs text-gray-500">Assembled prompt ready to copy</span>
+    </div>
+    <div class="flex items-center gap-2">
+      <button type="button" id="pb-data-toggle"
+              class="text-xs text-marsh hover:text-marsh-dark underline"
+              onclick="toggleDataOnly()">View Data Only</button>
+      <button type="button"
+              class="btn-primary text-xs px-4 py-1.5"
+              onclick="copyPrompt(this, 'full')">Copy to Clipboard</button>
+    </div>
+  </div>
+
+  <!-- Full prompt view -->
+  <div id="pb-full-view">
+    <pre id="pb-full-text" class="p-5 text-sm leading-relaxed text-gray-800 bg-[#FDFCFA] whitespace-pre-wrap font-mono overflow-x-auto max-h-[600px] overflow-y-auto">{{ full_prompt }}</pre>
+  </div>
+
+  <!-- Data-only view (hidden by default) -->
+  <div id="pb-data-view" class="hidden">
+    <pre id="pb-data-only-text" class="p-5 text-sm leading-relaxed text-gray-800 bg-[#FDFCFA] whitespace-pre-wrap font-mono overflow-x-auto max-h-[600px] overflow-y-auto">{{ data_only }}</pre>
+  </div>
+
+  <!-- Footer -->
+  <div class="flex items-center justify-between p-4 border-t border-gray-200 bg-gray-50">
+    <span class="text-xs text-gray-400">{{ full_prompt | length }} characters</span>
+    <button type="button"
+            class="btn-primary text-xs px-4 py-1.5"
+            onclick="copyPrompt(this, 'full')">Copy to Clipboard</button>
+  </div>
+</div>

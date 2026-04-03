@@ -68,7 +68,7 @@ See the `policydb-design-system` skill for full color palette, typography, warm 
 - Migrations: `src/policydb/migrations/NNN_description.sql` — sequentially numbered
 - Migration runner: `src/policydb/db.py` — `init_db()` runs all migrations and rebuilds views on every server start
 - Views are **always dropped and recreated** on startup — never reference non-existent columns in view SQL
-- Current migration count: 106
+- Current migration count: 135
 
 ### Key Tables
 - `clients` — name, industry, contacts, account exec, scratchpad
@@ -78,6 +78,7 @@ See the `policydb-design-system` skill for full color palette, typography, warm 
 - `activity_log` — activities, follow-ups, notes
 - `policy_milestones` — checklist items per policy
 - `email_templates` — user-managed email form letters with `{{token}}` placeholders
+- `kb_bookmarks` — web bookmarks with BM-NNN UIDs, url, title, category, tags
 - `user_notes` — global dashboard scratchpad (id=1)
 - `client_scratchpad` — per-client freeform notes
 
@@ -148,6 +149,16 @@ Policies with `is_opportunity=1` are excluded from renewal pipeline, stale renew
 ### Auto-Purge
 - `_purge_old_logs()` in `db.py` runs on every server startup after health checks
 - Deletes `audit_log` and `app_log` rows older than `log_retention_days` config (default: 730 = 2 years)
+
+### FTS5 Search Index
+- `search_index` FTS5 virtual table (migration 133), rebuilt on every startup via `rebuild_search_index()` in `queries.py`
+- Tokenizer: `porter unicode61 remove_diacritics 2` (stemming + unicode + diacritic folding + prefix matching)
+- Columns: `entity_type`, `entity_id`, `title` (weight 10), `subtitle` (5), `body` (1), `metadata` (3)
+- Indexed entities: client, policy, activity (2yr), issue (open), contact, program, meeting, location, inbox (6mo), scratchpad
+- **KB excluded** from search index
+- Adding new searchable fields: update `rebuild_search_index()` INSERT for that entity AND `_hydrate()` in `full_text_search()`
+- Fuzzy fallback via RapidFuzz when FTS5 < 3 results (clients, contacts, programs only)
+- Live search dropdown: `/search/live` endpoint, HTMX on navbar input with 300ms debounce
 
 ### Logs UI
 - **Route:** `/logs` — tabbed page (App Log / Audit Log), lazy-loaded via HTMX

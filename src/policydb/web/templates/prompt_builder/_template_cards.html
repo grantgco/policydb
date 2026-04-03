@@ -1,0 +1,28 @@
+{% if templates_list %}
+<div class="grid gap-3 sm:grid-cols-2">
+  {% for t in templates_list %}
+  <div class="pb-tpl-card border border-gray-200 rounded-lg p-4 cursor-pointer hover:border-marsh/50 transition-colors"
+       onclick="selectTemplate({{ t.id }}, this)">
+    <div class="flex items-start justify-between mb-1">
+      <h4 class="text-sm font-semibold text-gray-900">{{ t.name }}</h4>
+      <span class="inline-block px-2 py-0.5 text-[10px] font-medium uppercase rounded-full
+        {% if t.deliverable_type == 'email' %}bg-blue-50 text-blue-700
+        {% elif t.deliverable_type == 'report' %}bg-purple-50 text-purple-700
+        {% elif t.deliverable_type == 'agenda' %}bg-amber-50 text-amber-700
+        {% elif t.deliverable_type == 'narrative' %}bg-green-50 text-green-700
+        {% elif t.deliverable_type == 'memo' %}bg-red-50 text-red-700
+        {% elif t.deliverable_type == 'submission' %}bg-cyan-50 text-cyan-700
+        {% else %}bg-gray-50 text-gray-600{% endif %}">
+        {{ t.deliverable_type }}
+      </span>
+    </div>
+    <p class="text-xs text-gray-500 leading-relaxed">{{ t.description }}</p>
+    {% if t.is_builtin %}
+    <div class="mt-2 text-[10px] text-gray-400 uppercase tracking-wide">Built-in</div>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<p class="text-sm text-gray-400">No templates available for this record type.</p>
+{% endif %}

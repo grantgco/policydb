@@ -1785,6 +1785,33 @@ def init_db(path: Path | None = None) -> None:
         conn.commit()
         logger.info("Migration 132: added email_from/email_to columns")
 
+    if 133 not in applied:
+        conn.executescript((_MIGRATIONS_DIR / "133_search_index.sql").read_text())
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (133, "FTS5 search index virtual table"),
+        )
+        conn.commit()
+        logger.info("Migration 133: created FTS5 search_index table")
+
+    if 134 not in applied:
+        conn.executescript((_MIGRATIONS_DIR / "134_kb_bookmarks.sql").read_text())
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (134, "Bookmark management for Knowledge Base"),
+        )
+        conn.commit()
+        logger.info("Migration 134: kb_bookmarks table")
+
+    if 135 not in applied:
+        conn.executescript((_MIGRATIONS_DIR / "135_prompt_builder.sql").read_text())
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (135, "Prompt builder tables and seed templates"),
+        )
+        conn.commit()
+        logger.info("Migration 135: prompt_templates and prompt_export_log tables")
+
     # Data hygiene: fix 'None' string corruption in text fields (runs every startup, fast no-op if clean)
     conn.execute("UPDATE clients SET cn_number = NULL WHERE cn_number = 'None'")
 
@@ -1868,6 +1895,10 @@ def init_db(path: Path | None = None) -> None:
 
     _create_views(conn)
     conn.commit()
+
+    # Rebuild FTS5 search index (runs every startup, like views)
+    from policydb.queries import rebuild_search_index
+    rebuild_search_index(conn)
 
     # Generate mandated activities (runs every startup, idempotent via tracking table)
     from policydb.queries import generate_mandated_activities
@@ -2332,6 +2363,22 @@ def next_kb_article_uid(conn: sqlite3.Connection) -> str:
     except (IndexError, ValueError):
         n = 1
     return f"KB-{n:03d}"
+
+
+def next_bookmark_uid(conn: sqlite3.Connection) -> str:
+    """Generate next BM-NNN uid."""
+    row = conn.execute(
+        "SELECT uid FROM kb_bookmarks WHERE uid LIKE 'BM-%' "
+        "ORDER BY CAST(SUBSTR(uid, 4) AS INTEGER) DESC LIMIT 1"
+    ).fetchone()
+    if row is None:
+        return "BM-001"
+    last = row["uid"]
+    try:
+        n = int(last.split("-")[1]) + 1
+    except (IndexError, ValueError):
+        n = 1
+    return f"BM-{n:03d}"
 
 
 def next_kb_document_uid(conn: sqlite3.Connection) -> str:

@@ -200,7 +200,8 @@ def _capture_unknown_contacts(
             addresses.append((recip, ""))
 
     skip_domains = set(cfg.get("freemail_domains", []))
-    skip_domains.update(cfg.get("internal_email_domains", []))
+    # internal_email_domains NOT skipped — capture colleagues as suggested contacts.
+    # (Internal domains ARE filtered in _match_by_domain() for client matching.)
     subject = email.get("subject", "")
 
     for addr, display in addresses:
@@ -452,7 +453,7 @@ def _create_or_enrich_activity(
     sender = email.get("sender", "")
     recipients = ", ".join(email.get("recipients", [])[:5])
     # Clean and store readable text snippet
-    snippet = _clean_email_text(email.get("body_snippet", ""))[:2500]
+    snippet = _clean_email_text(email.get("body_snippet", ""))[:5000]
     email_date = email.get("date", "")[:10]  # ISO date portion
     flag_due = email.get("flag_due_date")
 
@@ -679,7 +680,7 @@ def _run_thread_inheritance(
 
         content_lines = (candidate.get("content") or "").split("\n")
         snippet_lines = [l for l in content_lines[4:] if l.strip()]
-        snippet = "\n".join(snippet_lines)[:2500]
+        snippet = "\n".join(snippet_lines)[:5000]
 
         conn.execute(
             """INSERT INTO activity_log
@@ -887,7 +888,7 @@ def _process_email(
         sender = email.get("sender", "")
         folder = email.get("folder", "")
         date_str = (email.get("date", "") or "")[:10]
-        snippet = _clean_email_text(email.get("body_snippet", ""))[:2500]
+        snippet = _clean_email_text(email.get("body_snippet", ""))[:5000]
         label_map = {"flagged": "[Outlook Flagged]", "sent": "[Outlook Sent]", "received": "[Outlook Received]"}
         label = label_map.get(category, "[Outlook]")
         recipients = ", ".join(email.get("recipients", [])[:3])

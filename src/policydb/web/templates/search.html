@@ -7,28 +7,51 @@
   <p class="text-sm text-gray-400 mt-1">{{ total }} result{{ 's' if total != 1 }}</p>
 </div>
 
+{% if query_mode == 'fuzzy' %}
+<div class="bg-amber-50 border border-amber-200 rounded-lg px-4 py-2 mb-4 text-sm text-amber-700">
+  Showing approximate matches — try different keywords for exact results.
+</div>
+{% endif %}
+
 {% if uid_detected %}
 <div class="bg-blue-50 border border-blue-200 rounded-lg px-4 py-2 mb-4 text-sm text-blue-700">
   This looks like a reference tag — <a href="/ref-lookup?q={{ q }}" class="font-medium underline">View full ref tree</a>
 </div>
 {% endif %}
 
+{# --- Macro for snippet display --- #}
+{% macro show_snippet(etype, eid) %}
+  {% set key = (etype, eid|string) %}
+  {% if snippets and snippets.get(key) %}
+    <p class="text-xs text-gray-400 mt-0.5 line-clamp-1">{{ snippets[key] | safe }}</p>
+  {% endif %}
+{% endmacro %}
+
+{# --- Clients --- #}
 {% if results.clients %}
 <div class="bg-white rounded-xl border border-gray-200 mb-4">
-  <div class="px-5 py-3 border-b border-gray-100 text-xs font-semibold text-gray-500 uppercase tracking-wide">Clients</div>
+  <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+    <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Clients</span>
+    <span class="text-[10px] bg-gray-100 text-gray-500 rounded-full px-2 py-0.5">{{ results.clients|length }}</span>
+  </div>
   {% for r in results.clients %}
   <a href="/clients/{{ r.id }}" class="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 border-b border-gray-50 last:border-0">
     <span class="font-medium text-marsh">{{ r.name }}</span>
+    {% if r.cn_number %}<span class="text-[10px] font-mono text-gray-400">{{ r.cn_number }}</span>{% endif %}
     <span class="text-xs text-gray-400">{{ r.industry_segment }}</span>
-    {% if r.notes %}<span class="text-xs text-gray-400 truncate">· {{ r.notes[:80] }}</span>{% endif %}
+    {{ show_snippet('client', r.id) }}
   </a>
   {% endfor %}
 </div>
 {% endif %}
 
+{# --- Policies --- #}
 {% if results.policies %}
 <div class="bg-white rounded-xl border border-gray-200 mb-4">
-  <div class="px-5 py-3 border-b border-gray-100 text-xs font-semibold text-gray-500 uppercase tracking-wide">Policies</div>
+  <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+    <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Policies</span>
+    <span class="text-[10px] bg-gray-100 text-gray-500 rounded-full px-2 py-0.5">{{ results.policies|length }}</span>
+  </div>
   {% for r in results.policies %}
   <a href="/policies/{{ r.policy_uid }}/edit" class="flex items-start gap-3 px-5 py-3 hover:bg-gray-50 border-b border-gray-50 last:border-0">
     <span class="font-mono text-xs text-gray-400 mt-0.5 shrink-0">{{ r.policy_uid }}</span>
@@ -38,16 +61,20 @@
       <span class="text-gray-700">{{ r.policy_type }}</span>
       <span class="text-gray-400 mx-1">/</span>
       <span class="text-gray-500">{{ r.carrier }}</span>
-      {% if r.description %}<p class="text-xs text-gray-400 mt-0.5 line-clamp-1">{{ r.description }}</p>{% endif %}
+      {{ show_snippet('policy', r.policy_uid) }}
     </div>
   </a>
   {% endfor %}
 </div>
 {% endif %}
 
+{# --- Issues --- #}
 {% if results.issues %}
 <div class="bg-white rounded-xl border border-gray-200 mb-4">
-  <div class="px-5 py-3 border-b border-gray-100 text-xs font-semibold text-gray-500 uppercase tracking-wide">Issues</div>
+  <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+    <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Issues</span>
+    <span class="text-[10px] bg-gray-100 text-gray-500 rounded-full px-2 py-0.5">{{ results.issues|length }}</span>
+  </div>
   {% for r in results.issues %}
   <a href="/issues/{{ r.issue_uid }}" class="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 border-b border-gray-50 last:border-0">
     <span class="w-1.5 h-1.5 rounded-full flex-shrink-0
@@ -69,25 +96,88 @@
 </div>
 {% endif %}
 
+{# --- Contacts --- #}
+{% if results.contacts %}
+<div class="bg-white rounded-xl border border-gray-200 mb-4">
+  <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+    <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Contacts</span>
+    <span class="text-[10px] bg-gray-100 text-gray-500 rounded-full px-2 py-0.5">{{ results.contacts|length }}</span>
+  </div>
+  {% for r in results.contacts %}
+  <a href="/contacts/{{ r.id }}" class="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 border-b border-gray-50 last:border-0">
+    <span class="font-medium text-gray-800">{{ r.name }}</span>
+    {% if r.organization %}<span class="text-xs text-gray-400">{{ r.organization }}</span>{% endif %}
+    {% if r.email %}<span class="text-xs text-gray-400 truncate">{{ r.email }}</span>{% endif %}
+    {% if r.phone %}<span class="text-xs text-gray-400 shrink-0">{{ r.phone }}</span>{% endif %}
+  </a>
+  {% endfor %}
+</div>
+{% endif %}
+
+{# --- Programs --- #}
+{% if results.programs %}
+<div class="bg-white rounded-xl border border-gray-200 mb-4">
+  <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+    <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Programs</span>
+    <span class="text-[10px] bg-gray-100 text-gray-500 rounded-full px-2 py-0.5">{{ results.programs|length }}</span>
+  </div>
+  {% for r in results.programs %}
+  <a href="/clients/{{ r.client_id }}/programs/{{ r.program_uid }}" class="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 border-b border-gray-50 last:border-0">
+    <span class="font-mono text-xs text-gray-400 shrink-0">{{ r.program_uid }}</span>
+    <span class="font-medium text-gray-800">{{ r.name }}</span>
+    <span class="text-xs text-gray-400">{{ r.client_name }}</span>
+    {% if r.line_of_business %}<span class="text-xs text-gray-400">· {{ r.line_of_business }}</span>{% endif %}
+  </a>
+  {% endfor %}
+</div>
+{% endif %}
+
+{# --- Activities --- #}
 {% if results.activities %}
-<div class="bg-white rounded-xl border border-gray-200">
-  <div class="px-5 py-3 border-b border-gray-100 text-xs font-semibold text-gray-500 uppercase tracking-wide">Activities</div>
+<div class="bg-white rounded-xl border border-gray-200 mb-4">
+  <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+    <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Activities</span>
+    <span class="text-[10px] bg-gray-100 text-gray-500 rounded-full px-2 py-0.5">{{ results.activities|length }}</span>
+  </div>
   {% for r in results.activities %}
   <div class="flex items-start gap-3 px-5 py-3 border-b border-gray-50 last:border-0">
     <span class="text-xs text-gray-400 mt-0.5 shrink-0">{{ r.activity_date }}</span>
     <div>
       <span class="font-medium text-gray-800">{{ r.client_name }}</span>
-      <span class="text-gray-400 mx-1">·</span>
+      <span class="text-gray-400 mx-1">&middot;</span>
       <span class="text-gray-700">{{ r.subject }}</span>
+      {{ show_snippet('activity', r.id) }}
     </div>
   </div>
   {% endfor %}
 </div>
 {% endif %}
 
+{# --- Meetings --- #}
+{% if results.meetings %}
+<div class="bg-white rounded-xl border border-gray-200 mb-4">
+  <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+    <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Meetings</span>
+    <span class="text-[10px] bg-gray-100 text-gray-500 rounded-full px-2 py-0.5">{{ results.meetings|length }}</span>
+  </div>
+  {% for r in results.meetings %}
+  <a href="/clients/{{ r.client_id }}/meetings/{{ r.id }}" class="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 border-b border-gray-50 last:border-0">
+    <span class="text-xs text-gray-400 shrink-0">{{ r.meeting_date }}</span>
+    <span class="font-medium text-gray-800">{{ r.title }}</span>
+    <span class="text-xs text-gray-400">{{ r.client_name }}</span>
+    {% if r.location %}<span class="text-xs text-gray-400 shrink-0">· {{ r.location }}</span>{% endif %}
+  </a>
+  {% endfor %}
+</div>
+{% endif %}
+
+{# --- Locations --- #}
 {% if results.locations %}
 <div class="bg-white rounded-xl border border-gray-200 mb-4">
-  <div class="px-5 py-3 border-b border-gray-100 text-xs font-semibold text-gray-500 uppercase tracking-wide">Locations</div>
+  <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+    <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Locations</span>
+    <span class="text-[10px] bg-gray-100 text-gray-500 rounded-full px-2 py-0.5">{{ results.locations|length }}</span>
+  </div>
   {% for r in results.locations %}
   <a href="/clients/{{ r.client_id }}/projects/{{ r.id }}" class="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 border-b border-gray-50 last:border-0">
     <span class="text-sm font-medium text-gray-800">{{ r.name }}</span>
@@ -100,35 +190,30 @@
 </div>
 {% endif %}
 
-{% if results.kb_articles or results.kb_documents %}
-<div class="bg-white rounded-xl border border-gray-200">
-  <div class="px-5 py-3 border-b border-gray-100 text-xs font-semibold text-gray-500 uppercase tracking-wide">Knowledge Base</div>
-  {% for r in results.kb_articles %}
-  <a href="/kb/articles/{{ r.uid }}" class="flex items-start gap-3 px-5 py-3 border-b border-gray-50 last:border-0 hover:bg-gray-50">
-    <span class="text-[10px] font-mono bg-gray-100 text-gray-500 rounded px-1.5 py-0.5 mt-0.5 shrink-0">{{ r.uid }}</span>
-    <div>
-      <span class="font-medium text-gray-800">{{ r.title }}</span>
-      <span class="text-gray-400 mx-1">&middot;</span>
-      <span class="text-xs text-gray-500">{{ r.category }}</span>
+{# --- Inbox --- #}
+{% if results.inbox %}
+<div class="bg-white rounded-xl border border-gray-200 mb-4">
+  <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+    <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Inbox</span>
+    <span class="text-[10px] bg-gray-100 text-gray-500 rounded-full px-2 py-0.5">{{ results.inbox|length }}</span>
+  </div>
+  {% for r in results.inbox %}
+  <div class="flex items-start gap-3 px-5 py-3 border-b border-gray-50 last:border-0">
+    <span class="text-[10px] font-mono text-gray-400 mt-0.5 shrink-0">{{ r.inbox_uid }}</span>
+    <div class="min-w-0">
+      <span class="font-medium text-gray-800 truncate block">{{ r.email_subject or (r.content[:80] if r.content else 'Inbox item') }}</span>
+      {% if r.email_from %}<span class="text-xs text-gray-400">from {{ r.email_from }}</span>{% endif %}
     </div>
-  </a>
-  {% endfor %}
-  {% for r in results.kb_documents %}
-  <a href="/kb/documents/{{ r.uid }}" class="flex items-start gap-3 px-5 py-3 border-b border-gray-50 last:border-0 hover:bg-gray-50">
-    <span class="text-[10px] font-mono bg-gray-100 text-gray-500 rounded px-1.5 py-0.5 mt-0.5 shrink-0">{{ r.uid }}</span>
-    <div>
-      <span class="font-medium text-gray-800">{{ r.title }}</span>
-      <span class="text-gray-400 mx-1">&middot;</span>
-      <span class="text-xs text-gray-500">{{ r.filename }}</span>
-    </div>
-  </a>
+    <span class="text-xs text-gray-400 shrink-0 ml-auto">{{ r.created_at[:10] if r.created_at else '' }}</span>
+  </div>
   {% endfor %}
 </div>
 {% endif %}
 
 {% if not total %}
-<div class="bg-white rounded-xl border border-gray-200 px-5 py-8 text-center text-gray-400">
-  No results found for "{{ q }}".
+<div class="bg-white rounded-xl border border-gray-200 px-5 py-8 text-center">
+  <p class="text-gray-400 mb-2">No results found for "{{ q }}".</p>
+  <p class="text-sm text-gray-400">Try fewer words, check spelling, or <a href="/clients" class="text-marsh underline">browse clients</a>.</p>
 </div>
 {% endif %}
 

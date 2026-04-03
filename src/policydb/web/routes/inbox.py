@@ -289,6 +289,7 @@ def inbox_process(
     activity_date: str = Form(""),
     follow_up_date: str = Form(""),
     duration_hours: str = Form(""),
+    disposition: str = Form(""),
     conn=Depends(get_db),
 ):
     """Process inbox item - create activity with contact carryover."""
@@ -313,15 +314,19 @@ def inbox_process(
         email_to = inbox_row["email_to"]
         if outlook_msg_id or (inbox_row["content"] or "").startswith("[Outlook"):
             email_snippet = inbox_row["content"]
+    # Mark follow-up as done if no follow-up date (log-only)
+    follow_up_done = 1 if not follow_up_date else 0
     cursor = conn.execute(
         """INSERT INTO activity_log
            (activity_date, client_id, policy_id, activity_type, subject, details,
-            follow_up_date, account_exec, duration_hours, contact_id, issue_id,
+            follow_up_date, follow_up_done, disposition, account_exec,
+            duration_hours, contact_id, issue_id,
             email_snippet, outlook_message_id, source, email_from, email_to)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (act_date, client_id, policy_id or None, activity_type,
          subject or "Inbox item", details or None,
-         follow_up_date or None, account_exec, dur, contact_id or None,
+         follow_up_date or None, follow_up_done, disposition or None,
+         account_exec, dur, contact_id or None,
          issue_id or None, email_snippet, outlook_msg_id,
          "outlook_sync" if outlook_msg_id else "manual",
          email_from, email_to),

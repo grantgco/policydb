@@ -27,6 +27,16 @@
       {% if r.note_details %}
       <p class="text-xs text-gray-400 italic mt-0.5 line-clamp-2">{{ r.note_details }}</p>
       {% endif %}
+      {% if r.email_snippet is defined and r.email_snippet %}
+      <details class="mt-1">
+        <summary class="text-[10px] text-blue-500 cursor-pointer hover:text-blue-700">view email content</summary>
+        <div class="text-[10px] text-gray-500 mt-1 bg-gray-50 rounded p-2">
+          {% if r.email_from is defined and r.email_from %}<div class="text-[10px] mb-0.5"><span class="text-gray-400">From:</span> {{ r.email_from }}</div>{% endif %}
+          {% if r.email_to is defined and r.email_to %}<div class="text-[10px] mb-1"><span class="text-gray-400">To:</span> {{ r.email_to }}</div>{% endif %}
+          <div class="whitespace-pre-line leading-relaxed max-h-32 overflow-y-auto">{{ r.email_snippet }}</div>
+        </div>
+      </details>
+      {% endif %}
       {% if r.thread_id and r.get('thread_total') %}
       <p class="text-[10px] text-gray-400 mt-0.5">
         <button type="button" onclick="copyRefTag(this, '{{ _ref_tag }}')" class="font-mono text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded hover:bg-blue-100 cursor-pointer transition-colors" title="Click to copy ref tag">{{ _ref_tag }}</button> &middot; attempt {{ r.get('thread_attempt_num', '?') }} of {{ r.thread_total }}
