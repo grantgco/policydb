@@ -572,6 +572,7 @@
                 <a href="/briefing" class="block px-4 py-1.5 text-sm text-gray-700 hover:bg-gray-100 {% if active == 'briefing' %}font-semibold text-marsh{% endif %}">Briefing</a>
                 <a href="/reconcile" class="block px-4 py-1.5 text-sm text-gray-700 hover:bg-gray-100 {% if active == 'reconcile' %}font-semibold text-marsh{% endif %}">Reconcile</a>
                 <a href="/templates" class="block px-4 py-1.5 text-sm text-gray-700 hover:bg-gray-100 {% if active == 'templates' %}font-semibold text-marsh{% endif %}">Templates</a>
+                <a href="/kb?source=bookmark" class="block px-4 py-1.5 text-sm text-gray-700 hover:bg-gray-100 {% if active == 'kb' %}font-semibold text-marsh{% endif %}">Bookmarks</a>
                 <a href="/kb" class="block px-4 py-1.5 text-sm text-gray-700 hover:bg-gray-100 {% if active == 'kb' %}font-semibold text-marsh{% endif %}">Knowledge Base</a>
                 <a href="/settings" class="block px-4 py-1.5 text-sm text-gray-700 hover:bg-gray-100 {% if active == 'settings' %}font-semibold text-marsh{% endif %}">Settings</a>
                 <a href="/logs" class="block px-4 py-1.5 text-sm text-gray-700 hover:bg-gray-100 {% if active == 'logs' %}font-semibold text-marsh{% endif %}">Logs</a>
@@ -587,11 +588,18 @@
           </div>
         </div>
         <div class="flex items-center gap-3">
-          <form action="/search" method="get" class="flex">
-            <input name="q" type="search" placeholder="Search…"
-              class="rounded-md border-0 bg-white/10 text-white placeholder-white/60 px-3 py-1.5 text-sm focus:ring-2 focus:ring-white focus:bg-white/20 outline-none w-48 focus:w-64 transition-all"
-              value="{{ request.query_params.get('q', '') }}">
-          </form>
+          <div class="relative" id="search-container">
+            <form action="/search" method="get" class="flex"
+                  onsubmit="document.getElementById('search-dropdown').innerHTML=''">
+              <input name="q" type="search" placeholder="Search…"
+                class="rounded-md border-0 bg-white/10 text-white placeholder-white/60 px-3 py-1.5 text-sm focus:ring-2 focus:ring-white focus:bg-white/20 outline-none w-48 focus:w-64 transition-all"
+                value="{{ request.query_params.get('q', '') }}"
+                hx-get="/search/live" hx-trigger="keyup changed delay:300ms"
+                hx-target="#search-dropdown" hx-swap="innerHTML"
+                autocomplete="off">
+            </form>
+            <div id="search-dropdown" class="absolute top-full right-0 mt-1 w-[420px] z-[9999]"></div>
+          </div>
         </div>
       </div>
     </div>
@@ -1165,14 +1173,58 @@ window.applyDispContextHints = function() {
 };
 </script>
 
-<!-- Keyboard shortcut: / to focus search -->
+<!-- Keyboard shortcut: / to focus search + live search dropdown dismiss/nav -->
 <script>
-document.addEventListener('keydown', function(e) {
-  if (e.key === '/' && !['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)) {
-    e.preventDefault();
-    document.querySelector('input[name="q"]').focus();
-  }
-});
+(function() {
+  var searchInput = document.querySelector('#search-container input[name="q"]');
+  var dropdown = document.getElementById('search-dropdown');
+
+  // / to focus
+  document.addEventListener('keydown', function(e) {
+    if (e.key === '/' && !['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)
+        && !document.activeElement.hasAttribute('contenteditable')) {
+      e.preventDefault();
+      searchInput.focus();
+    }
+  });
+
+  // Escape to close dropdown, click outside to close
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && dropdown.innerHTML) {
+      dropdown.innerHTML = '';
+      searchInput.blur();
+    }
+  });
+  document.addEventListener('click', function(e) {
+    if (!e.target.closest('#search-container')) {
+      dropdown.innerHTML = '';
+    }
+  });
+
+  // Arrow key navigation in dropdown
+  searchInput.addEventListener('keydown', function(e) {
+    var items = dropdown.querySelectorAll('.search-dropdown-item');
+    if (!items.length) return;
+    var active = dropdown.querySelector('.search-dropdown-item.bg-gray-100');
+    var idx = active ? parseInt(active.dataset.idx) : -1;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (active) active.classList.remove('bg-gray-100');
+      idx = (idx + 1) % items.length;
+      items[idx].classList.add('bg-gray-100');
+      items[idx].scrollIntoView({block: 'nearest'});
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (active) active.classList.remove('bg-gray-100');
+      idx = idx <= 0 ? items.length - 1 : idx - 1;
+      items[idx].classList.add('bg-gray-100');
+      items[idx].scrollIntoView({block: 'nearest'});
+    } else if (e.key === 'Enter' && active) {
+      e.preventDefault();
+      window.location.href = active.href;
+    }
+  });
+})();
 </script>
 
 <!-- Keyboard shortcut: . to focus capture input -->

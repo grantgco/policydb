@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 
 import policydb.config as cfg
-from policydb.db import DB_PATH, next_attachment_uid, next_kb_article_uid
+from policydb.db import DB_PATH, next_attachment_uid, next_bookmark_uid, next_kb_article_uid
 from policydb.web.app import get_db, templates
 
 logger = logging.getLogger(__name__)
@@ -51,7 +51,7 @@ CATEGORY_COLORS = {
 
 _DEFAULT_COLORS = {"bg": "bg-gray-100", "text": "text-gray-600", "border_hex": "#9ca3af"}
 
-_ALLOWED_ENTITY_TYPES = {"kb_article", "attachment", "issue", "policy", "client", "activity", "project"}
+_ALLOWED_ENTITY_TYPES = {"kb_article", "kb_bookmark", "attachment", "issue", "policy", "client", "activity", "project"}
 
 
 def _get_colors(category: str) -> dict:
@@ -140,6 +140,18 @@ async def kb_index(request: Request, conn=Depends(get_db)):
         d["link_count"] = _get_link_count(conn, "attachment", d["id"])
         entries.append(d)
 
+    bookmarks = conn.execute(
+        "SELECT * FROM kb_bookmarks ORDER BY updated_at DESC"
+    ).fetchall()
+    for bm in bookmarks:
+        d = dict(bm)
+        d["entry_type"] = "bookmark"
+        d["tags_list"] = _parse_tags(d.get("tags"))
+        d["colors"] = _get_colors(d["category"])
+        d["source_type"] = "bookmark"
+        d["link_count"] = _get_link_count(conn, "kb_bookmark", d["id"])
+        entries.append(d)
+
     entries.sort(key=lambda e: e.get("updated_at", ""), reverse=True)
 
     return templates.TemplateResponse("kb/index.html", {
@@ -150,6 +162,7 @@ async def kb_index(request: Request, conn=Depends(get_db)):
         "active": "kb",
         "total_articles": len(articles),
         "total_documents": len(documents),
+        "total_bookmarks": len(bookmarks),
     })
 
 
@@ -161,26 +174,28 @@ async def kb_search(
     source_filter: str = Query(""),
     sort: str = Query("updated"),
     linked_type: str = Query(""),
-    linked_id: int = Query(0),
+    linked_id: str = Query(""),
     conn=Depends(get_db),
 ):
+    linked_id_int = int(linked_id) if linked_id and linked_id.isdigit() else 0
     pattern = f"%{q}%"
     entries = []
 
     # If linked-to filter is active, get the set of linked entry IDs
     linked_article_ids = None
     linked_attachment_ids = None
-    if linked_type and linked_id:
+    if linked_type and linked_id_int:
         link_rows = conn.execute(
             "SELECT source_type, source_id, target_type, target_id FROM kb_links "
             "WHERE (source_type = ? AND source_id = ?) OR (target_type = ? AND target_id = ?)",
-            (linked_type, linked_id, linked_type, linked_id),
+            (linked_type, linked_id_int, linked_type, linked_id_int),
         ).fetchall()
         linked_article_ids = set()
         linked_attachment_ids = set()
+        linked_bookmark_ids = set()
         for lr in link_rows:
             lr = dict(lr)
-            if lr["source_type"] == linked_type and lr["source_id"] == linked_id:
+            if lr["source_type"] == linked_type and lr["source_id"] == linked_id_int:
                 other_type, other_id = lr["target_type"], lr["target_id"]
             else:
                 other_type, other_id = lr["source_type"], lr["source_id"]
@@ -188,6 +203,8 @@ async def kb_search(
                 linked_article_ids.add(other_id)
             elif other_type == "attachment":
                 linked_attachment_ids.add(other_id)
+            elif other_type == "kb_bookmark":
+                linked_bookmark_ids.add(other_id)
 
     # Articles
     if source_filter in ("", "article"):
@@ -236,6 +253,29 @@ async def kb_search(
             d["file_info"] = _file_type_info(d.get("mime_type", ""), d.get("filename", ""))
             d["file_size_fmt"] = _format_file_size(d.get("file_size", 0) or 0)
             d["link_count"] = _get_link_count(conn, "attachment", d["id"])
+            entries.append(d)
+
+    # Bookmarks
+    if source_filter in ("", "bookmark"):
+        where = "WHERE (title LIKE ? OR url LIKE ? OR description LIKE ? OR tags LIKE ?)"
+        params = [pattern, pattern, pattern, pattern]
+        if category:
+            where += " AND category = ?"
+            params.append(category)
+        bm_rows = conn.execute(
+            f"SELECT * FROM kb_bookmarks {where} ORDER BY updated_at DESC",
+            params,
+        ).fetchall()
+        linked_bookmark_ids_set = linked_bookmark_ids if linked_type and linked_id_int else None
+        for bm in bm_rows:
+            d = dict(bm)
+            if linked_bookmark_ids_set is not None and d["id"] not in linked_bookmark_ids_set:
+                continue
+            d["entry_type"] = "bookmark"
+            d["source_type"] = "bookmark"
+            d["tags_list"] = _parse_tags(d.get("tags"))
+            d["colors"] = _get_colors(d["category"])
+            d["link_count"] = _get_link_count(conn, "kb_bookmark", d["id"])
             entries.append(d)
 
     # Sort
@@ -686,11 +726,158 @@ async def _render_attachments_partial(request, conn, uid, article_id):
     })
 
 
+# ── Bookmarks CRUD ──────────────────────────────────────────────────────────
+
+
+def _fetch_page_title(url: str) -> str:
+    """Try to fetch the <title> from a URL. Returns empty string on failure."""
+    import re as _re
+    import urllib.request
+
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            # Read first 32KB only — enough for <title>
+            chunk = resp.read(32768).decode("utf-8", errors="ignore")
+            m = _re.search(r"<title[^>]*>(.*?)</title>", chunk, _re.IGNORECASE | _re.DOTALL)
+            if m:
+                return html.unescape(m.group(1)).strip()
+    except Exception:
+        pass
+    return ""
+
+
+@router.post("/bookmarks/new")
+async def create_bookmark(
+    request: Request,
+    url: str = Form(...),
+    title: str = Form(""),
+    category: str = Form("General"),
+    conn=Depends(get_db),
+):
+    url = url.strip()
+    if not url:
+        return RedirectResponse("/kb?source=bookmark", status_code=303)
+
+    # Auto-fetch title if not provided
+    if not title.strip():
+        title = _fetch_page_title(url) or url
+
+    uid = next_bookmark_uid(conn)
+    conn.execute(
+        "INSERT INTO kb_bookmarks (uid, url, title, category) VALUES (?, ?, ?, ?)",
+        (uid, url, title, category),
+    )
+    conn.commit()
+    logger.info("Bookmark created: %s → %s", uid, url)
+
+    # Check if HTMX request — return search results partial
+    if request.headers.get("HX-Request"):
+        return await kb_search(request, "", "", "bookmark", "updated", "", 0, conn)
+    return RedirectResponse("/kb?source=bookmark", status_code=303)
+
+
+@router.get("/bookmarks/{uid}", response_class=HTMLResponse)
+async def bookmark_detail(
+    request: Request,
+    uid: str,
+    conn=Depends(get_db),
+):
+    bookmark = conn.execute("SELECT * FROM kb_bookmarks WHERE uid = ?", (uid,)).fetchone()
+    if not bookmark:
+        return RedirectResponse("/kb", status_code=303)
+
+    bm = dict(bookmark)
+    bm["tags_list"] = _parse_tags(bm.get("tags"))
+    bm["colors"] = _get_colors(bm["category"])
+
+    categories = cfg.get("kb_categories", [])
+    record_links = _get_record_links(conn, "bookmark", bm["id"])
+
+    return templates.TemplateResponse("kb/bookmark.html", {
+        "request": request,
+        "bookmark": bm,
+        "categories": categories,
+        "category_colors": CATEGORY_COLORS,
+        "record_links": record_links,
+        "active": "kb",
+    })
+
+
+@router.post("/bookmarks/{uid}/field")
+async def bookmark_save_field(
+    request: Request,
+    uid: str,
+    conn=Depends(get_db),
+):
+    form = await request.form()
+    field = form.get("field", "")
+    value = form.get("value", "")
+
+    allowed = {"title", "url", "category", "description"}
+    if field not in allowed:
+        return JSONResponse({"ok": False, "error": "Invalid field"})
+
+    conn.execute(f"UPDATE kb_bookmarks SET {field} = ? WHERE uid = ?", (value, uid))
+    conn.commit()
+    return JSONResponse({"ok": True, "formatted": value})
+
+
+@router.post("/bookmarks/{uid}/tags")
+async def bookmark_update_tags(
+    request: Request,
+    uid: str,
+    action: str = Form("add"),
+    tag: str = Form(""),
+    conn=Depends(get_db),
+):
+    bookmark = conn.execute("SELECT id, tags FROM kb_bookmarks WHERE uid = ?", (uid,)).fetchone()
+    if not bookmark:
+        return JSONResponse({"ok": False})
+
+    tags = _parse_tags(bookmark["tags"])
+    tag = tag.strip().lower()
+    if not tag:
+        return JSONResponse({"ok": False})
+
+    if action == "add" and tag not in tags:
+        tags.append(tag)
+    elif action == "remove" and tag in tags:
+        tags.remove(tag)
+
+    conn.execute("UPDATE kb_bookmarks SET tags = ? WHERE uid = ?", (json.dumps(tags), uid))
+    conn.commit()
+
+    bm_dict = dict(bookmark)
+    bm_dict["tags_list"] = tags
+    return templates.TemplateResponse("kb/_tags.html", {
+        "request": request,
+        "entry": bm_dict,
+        "entry_type": "bookmark",
+        "uid": uid,
+    })
+
+
+@router.post("/bookmarks/{uid}/delete")
+async def delete_bookmark(uid: str, conn=Depends(get_db)):
+    bookmark = conn.execute("SELECT id FROM kb_bookmarks WHERE uid = ?", (uid,)).fetchone()
+    if bookmark:
+        conn.execute(
+            "DELETE FROM kb_links WHERE (source_type = 'kb_bookmark' AND source_id = ?) OR (target_type = 'kb_bookmark' AND target_id = ?)",
+            (bookmark["id"], bookmark["id"]),
+        )
+        conn.execute("DELETE FROM kb_bookmarks WHERE id = ?", (bookmark["id"],))
+        conn.commit()
+        logger.info("Bookmark deleted: %s", uid)
+    return RedirectResponse("/kb?source=bookmark", status_code=303)
+
+
 # ── Record Links ─────────────────────────────────────────────────────────────
 
 def _get_record_links(conn, entry_type: str, entry_id: int) -> list[dict]:
     """Get entities linked to a KB entry via kb_links."""
-    source_type = "kb_article" if entry_type == "article" else "attachment"
+    type_map = {"article": "kb_article", "bookmark": "kb_bookmark"}
+    source_type = type_map.get(entry_type, "attachment")
     rows = conn.execute(
         "SELECT id, source_type, source_id, target_type, target_id FROM kb_links "
         "WHERE (source_type = ? AND source_id = ?) OR (target_type = ? AND target_id = ?)",
@@ -745,6 +932,9 @@ async def link_record(
     if entry_type == "article":
         row = conn.execute("SELECT id FROM kb_articles WHERE uid = ?", (uid,)).fetchone()
         source_type = "kb_article"
+    elif entry_type == "bookmark":
+        row = conn.execute("SELECT id FROM kb_bookmarks WHERE uid = ?", (uid,)).fetchone()
+        source_type = "kb_bookmark"
     else:
         row = conn.execute("SELECT id FROM attachments WHERE uid = ?", (uid,)).fetchone()
         source_type = "attachment"
@@ -783,6 +973,8 @@ async def unlink_record(
 
     if entry_type == "article":
         row = conn.execute("SELECT id FROM kb_articles WHERE uid = ?", (uid,)).fetchone()
+    elif entry_type == "bookmark":
+        row = conn.execute("SELECT id FROM kb_bookmarks WHERE uid = ?", (uid,)).fetchone()
     else:
         row = conn.execute("SELECT id FROM attachments WHERE uid = ?", (uid,)).fetchone()
 
@@ -832,6 +1024,15 @@ async def references_panel(
                 ref["category"] = entry["category"]
                 ref["url"] = f"/kb/articles/{entry['uid']}"
                 ref["colors"] = _get_colors(entry["category"])
+        elif ref_type == "kb_bookmark":
+            entry = conn.execute("SELECT uid, title, url, category FROM kb_bookmarks WHERE id = ?", (ref_id,)).fetchone()
+            if entry:
+                ref["uid"] = entry["uid"]
+                ref["title"] = entry["title"]
+                ref["category"] = entry["category"]
+                ref["url"] = f"/kb/bookmarks/{entry['uid']}"
+                ref["external_url"] = entry["url"]
+                ref["colors"] = _get_colors(entry["category"])
         elif ref_type == "attachment":
             entry = conn.execute("SELECT uid, title, category, source FROM attachments WHERE id = ?", (ref_id,)).fetchone()
             if entry:
@@ -879,9 +1080,9 @@ async def references_panel(
         if "title" in ref:
             references.append(ref)
 
-    type_order = ["kb_article", "attachment", "issue", "policy", "client", "activity", "project"]
+    type_order = ["kb_article", "kb_bookmark", "attachment", "issue", "policy", "client", "activity", "project"]
     type_labels = {
-        "kb_article": "Articles", "attachment": "Documents", "issue": "Issues",
+        "kb_article": "Articles", "kb_bookmark": "Bookmarks", "attachment": "Documents", "issue": "Issues",
         "policy": "Policies", "client": "Clients", "activity": "Activities", "project": "Projects",
     }
     grouped = {}
@@ -1014,6 +1215,13 @@ async def search_linkable(
     ).fetchall():
         results.append({"type": "kb_article", "id": r["id"], "label": f"{r['uid']} — {r['title']}", "icon": "article"})
 
+    # KB Bookmarks
+    for r in conn.execute(
+        "SELECT id, uid, title FROM kb_bookmarks WHERE uid LIKE ? OR title LIKE ? OR url LIKE ? ORDER BY updated_at DESC LIMIT 5",
+        (pattern, pattern, pattern),
+    ).fetchall():
+        results.append({"type": "kb_bookmark", "id": r["id"], "label": f"{r['uid']} — {r['title']}", "icon": "bookmark"})
+
     # Attachments
     for r in conn.execute(
         "SELECT id, uid, title FROM attachments WHERE uid LIKE ? OR title LIKE ? ORDER BY updated_at DESC LIMIT 5",
@@ -1036,7 +1244,7 @@ async def search_linkable(
     for r in results:
         safe_label = html.escape(r["label"])
         attr_label = safe_label.replace("'", "&#39;")
-        display_type = html.escape(r["type"].replace("kb_article", "article").replace("attachment", "file"))
+        display_type = html.escape(r["type"].replace("kb_article", "article").replace("kb_bookmark", "bookmark").replace("attachment", "file"))
         html_parts.append(
             f'<button type="button" class="w-full text-left px-3 py-1.5 text-xs hover:bg-gray-50 flex items-center gap-2" '
             f"onclick=\"selectLinkedEntity('{html.escape(r['type'])}', {r['id']}, '{attr_label}');\">"
@@ -1084,9 +1292,14 @@ async def search_entries(
         "WHERE title LIKE ? OR filename LIKE ? ORDER BY updated_at DESC LIMIT 10",
         (pattern, pattern),
     ).fetchall()
+    bookmarks = conn.execute(
+        "SELECT id, uid, title, category, 'bookmark' AS entry_type FROM kb_bookmarks "
+        "WHERE title LIKE ? OR url LIKE ? ORDER BY updated_at DESC LIMIT 10",
+        (pattern, pattern),
+    ).fetchall()
 
     entries = []
-    for row in list(articles) + list(documents):
+    for row in list(articles) + list(documents) + list(bookmarks):
         d = dict(row)
         d["colors"] = _get_colors(d.get("category") or "")
         entries.append(d)
@@ -1109,7 +1322,8 @@ async def link_from_entity(
     conn=Depends(get_db),
 ):
     """Create a KB link from a policy/client page — uses kb_links."""
-    source_type = "kb_article" if entry_type == "article" else "attachment"
+    type_map = {"article": "kb_article", "bookmark": "kb_bookmark"}
+    source_type = type_map.get(entry_type, "attachment")
     try:
         conn.execute(
             "INSERT OR IGNORE INTO kb_links (source_type, source_id, target_type, target_id) VALUES (?, ?, ?, ?)",
