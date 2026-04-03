@@ -3061,17 +3061,18 @@ def policy_tab_pulse(
     open_issues = []
     if _policy_id_row:
         open_issues = [dict(r) for r in conn.execute(
-            """SELECT id, issue_uid, issue_status, issue_severity, is_renewal_issue, subject,
-                      CAST(julianday('now') - julianday(activity_date) AS INTEGER) AS days_open,
+            """SELECT a.id, a.issue_uid, a.issue_status, a.issue_severity, a.is_renewal_issue, a.subject,
+                      CAST(julianday('now') - julianday(a.activity_date) AS INTEGER) AS days_open,
                       (SELECT COUNT(*) FROM activity_log sub WHERE sub.issue_id = a.id) AS activity_count
                FROM activity_log a
-               WHERE a.policy_id = ?
-                 AND a.item_kind = 'issue'
+               WHERE a.item_kind = 'issue'
                  AND a.issue_status NOT IN ('Resolved', 'Closed')
+                 AND (a.policy_id = ?
+                      OR a.id IN (SELECT ipc.issue_id FROM v_issue_policy_coverage ipc WHERE ipc.policy_id = ?))
                ORDER BY CASE a.issue_severity
                    WHEN 'Critical' THEN 1 WHEN 'High' THEN 2
                    WHEN 'Normal' THEN 3 ELSE 4 END""",
-            (_policy_id_row["id"],),
+            (_policy_id_row["id"], _policy_id_row["id"]),
         ).fetchall()]
 
     return templates.TemplateResponse("policies/_tab_pulse.html", {
