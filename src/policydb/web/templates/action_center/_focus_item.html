@@ -1,0 +1,173 @@
+{# Single Focus Queue item row.
+   Variables: item (dict), guide_me (bool), is_highlighted (bool), dispositions (list)
+#}
+{% set border_colors = {
+    'inbox': 'border-blue-500',
+    'suggested': 'border-amber-500',
+    'milestone': 'border-purple-500',
+    'issue': 'border-red-500',
+    'insurance_deadline': 'border-orange-500',
+} %}
+{% set badge_colors = {
+    'Follow-up': 'bg-gray-100 text-gray-700',
+    'Renewal': 'bg-red-50 text-red-700',
+    'Inbox': 'bg-blue-50 text-blue-700',
+    'Milestone': 'bg-purple-50 text-purple-700',
+    'Issue': 'bg-red-50 text-red-700',
+    'Insurance Deadline': 'bg-orange-50 text-orange-700',
+    'Opportunity': 'bg-teal-50 text-teal-700',
+    'Project': 'bg-indigo-50 text-indigo-700',
+    'Client': 'bg-gray-50 text-gray-600',
+} %}
+
+{% set border = border_colors.get(item.kind, 'border-gray-400') %}
+{% set badge_color = badge_colors.get(item.source_label, 'bg-gray-100 text-gray-700') %}
+{% set row_id = item.kind ~ '-' ~ item.id %}
+
+<div id="fq-{{ row_id }}"
+     class="bg-white rounded-lg p-3.5 mb-2 border-l-4 {{ border }} transition-all
+            {% if is_highlighted %}ring-2 ring-purple-300 shadow-md{% else %}shadow-sm hover:shadow{% endif %}"
+     data-score="{{ item.score }}">
+
+  {# Top row: badge + title + action buttons #}
+  <div class="flex justify-between items-start gap-3">
+    <div class="flex-1 min-w-0">
+      <div class="flex items-center gap-2 mb-1 flex-wrap">
+        <span class="text-[11px] font-semibold px-2 py-0.5 rounded {{ badge_color }} whitespace-nowrap">
+          {{ item.source_label | upper }}
+        </span>
+        <span class="text-sm font-semibold text-[#3D3C37] truncate">
+          {% if item.client_name %}{{ item.client_name }}{% endif %}
+          {% if item.policy_type %} — {{ item.policy_type }}{% endif %}
+          {% if item.carrier %} <span class="text-gray-400 font-normal text-xs">({{ item.carrier }})</span>{% endif %}
+        </span>
+        {% if item.is_milestone and item.health in ('at_risk', 'critical') %}
+          <span class="text-[10px] px-1.5 py-0.5 rounded-full {% if item.health == 'critical' %}bg-red-100 text-red-700{% else %}bg-amber-100 text-amber-700{% endif %}">
+            {{ item.health | replace('_', ' ') | title }}
+          </span>
+        {% endif %}
+      </div>
+      {# Subject line #}
+      <div class="text-[13px] text-[#3D3C37] truncate">{{ item.subject }}</div>
+      {# Context line (why it's hot) #}
+      <div class="text-[12px] text-[#6B6860] mt-0.5">{{ item.context_line }}</div>
+    </div>
+
+    {# Action buttons #}
+    <div class="flex gap-2 items-center flex-shrink-0 ml-3">
+      {% if item.kind == 'inbox' and not item.is_matched %}
+        {# Unmatched inbox: show client autocomplete inline #}
+        <div class="flex items-center gap-1">
+          <input type="text" placeholder="Client..."
+                 class="text-xs border border-gray-200 rounded px-2 py-1 w-32 focus:border-blue-400 focus:outline-none"
+                 id="fq-link-{{ item.inbox_id }}"
+                 list="fq-clients-list"
+                 hx-get="/inbox/clients/search"
+                 hx-trigger="keyup changed delay:300ms"
+                 hx-target="#fq-link-results-{{ item.inbox_id }}"
+                 hx-swap="innerHTML">
+          <div id="fq-link-results-{{ item.inbox_id }}" class="hidden"></div>
+        </div>
+      {% endif %}
+
+      <button class="bg-[#0B4BFF] text-white text-xs font-semibold px-3 py-1.5 rounded-md hover:bg-blue-700 whitespace-nowrap"
+              {% if item.kind == 'inbox' %}
+                hx-get="/inbox/{{ item.inbox_id }}/process-slideover"
+                hx-target="#fu-edit-content" hx-swap="innerHTML"
+                onclick="openFollowupEdit()"
+              {% elif item.kind == 'milestone' %}
+                hx-post="/policies/{{ item.policy_uid }}/milestones/{{ item.id }}/complete"
+                hx-target="#fq-{{ row_id }}" hx-swap="outerHTML"
+              {% elif item.kind == 'suggested' %}
+                hx-get="/policies/{{ item.policy_uid }}/row/log?ctx=focus"
+                hx-target="#fq-{{ row_id }}" hx-swap="outerHTML"
+              {% else %}
+                onclick="fqExpandComplete('{{ row_id }}', {{ item | tojson }})"
+              {% endif %}>
+        {{ item.suggested_action }}
+      </button>
+
+      <button class="bg-[#EDEAE4] text-[#6B6860] text-xs px-2 py-1.5 rounded-md hover:bg-gray-200"
+              onclick="fqToggleMenu('{{ row_id }}')">
+        ⋯
+      </button>
+    </div>
+  </div>
+
+  {# Guide Me expanded suggestion (only on highlighted item) #}
+  {% if is_highlighted and guide_me %}
+  <div class="mt-2.5 p-2.5 bg-purple-50 rounded-md text-xs text-purple-700">
+    <strong>→ Suggested:</strong> {{ item.suggested_action_detail }}
+  </div>
+  {% endif %}
+
+  {# Inline completion form (hidden, expanded by fqExpandComplete) #}
+  <div id="fq-complete-{{ row_id }}" class="hidden mt-2.5 p-3 bg-gray-50 rounded-md border border-gray-200">
+    <form hx-post="{% if item.kind == 'followup' and item.source == 'activity' %}/activities/{{ item.id }}/followup{% elif item.policy_uid %}/policies/{{ item.policy_uid }}/followup{% else %}/activities/log{% endif %}"
+          hx-target="#fq-{{ row_id }}" hx-swap="outerHTML"
+          class="flex flex-wrap gap-2 items-end">
+      {% if not item.id or item.kind in ('suggested', 'insurance_deadline') %}
+        <input type="hidden" name="client_id" value="{{ item.client_id or '' }}">
+        <input type="hidden" name="policy_uid" value="{{ item.policy_uid or '' }}">
+      {% endif %}
+      <input type="hidden" name="context" value="focus_queue">
+      <div class="flex flex-col gap-0.5">
+        <label class="text-[10px] uppercase text-gray-400 font-semibold">Note</label>
+        <input type="text" name="notes" placeholder="What happened?"
+               value="{% if guide_me %}{{ item.suggested_action_detail }}{% endif %}"
+               class="text-xs border border-gray-200 rounded px-2 py-1 w-48 focus:border-blue-400 focus:outline-none">
+      </div>
+      <div class="flex flex-col gap-0.5">
+        <label class="text-[10px] uppercase text-gray-400 font-semibold">Next follow-up</label>
+        <input type="date" name="new_follow_up_date"
+               value="{{ item.follow_up_date or '' }}"
+               class="text-xs border border-gray-200 rounded px-2 py-1 focus:border-blue-400 focus:outline-none">
+      </div>
+      <div class="flex flex-col gap-0.5">
+        <label class="text-[10px] uppercase text-gray-400 font-semibold">Ball with</label>
+        <select name="disposition" class="text-xs border border-gray-200 rounded px-2 py-1 focus:border-blue-400 focus:outline-none">
+          <option value="">— Select —</option>
+          {% for d in dispositions %}
+            <option value="{{ d.label }}" {% if d.label == item.disposition %}selected{% endif %}>{{ d.label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <button type="submit" class="bg-green-600 text-white text-xs font-semibold px-3 py-1.5 rounded-md hover:bg-green-700">
+        Done
+      </button>
+      <button type="button" onclick="fqCollapseComplete('{{ row_id }}')"
+              class="text-xs text-gray-500 hover:text-gray-700 px-2 py-1.5">
+        Cancel
+      </button>
+    </form>
+  </div>
+
+  {# Overflow menu (hidden) #}
+  <div id="fq-menu-{{ row_id }}" class="hidden mt-2 p-2 bg-white border border-gray-200 rounded-md shadow-sm">
+    <div class="flex gap-2 text-xs">
+      {% if item.client_id %}
+        <a href="/clients/{{ item.client_id }}" class="text-blue-600 hover:underline">View Client</a>
+      {% endif %}
+      {% if item.policy_uid %}
+        <a href="/policies/{{ item.policy_uid }}" class="text-blue-600 hover:underline">View Policy</a>
+      {% endif %}
+      <button class="text-gray-500 hover:text-gray-700"
+              hx-post="/activities/{{ item.id }}/snooze" hx-vals='{"days": 1}'
+              hx-target="#fq-{{ row_id }}" hx-swap="outerHTML">
+        Snooze 1d
+      </button>
+      <button class="text-gray-500 hover:text-gray-700"
+              hx-post="/activities/{{ item.id }}/snooze" hx-vals='{"days": 7}'
+              hx-target="#fq-{{ row_id }}" hx-swap="outerHTML">
+        Snooze 7d
+      </button>
+      {% if item.kind != 'inbox' %}
+        <button class="text-green-600 hover:text-green-800"
+                hx-post="/activities/{{ item.id }}/complete"
+                hx-target="#fq-{{ row_id }}" hx-swap="delete">
+          Mark Done
+        </button>
+      {% endif %}
+    </div>
+  </div>
+</div>
