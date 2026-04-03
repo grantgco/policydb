@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import re
+
 logger = logging.getLogger("policydb.web.routes.inbox")
 
 from datetime import date
@@ -11,9 +13,56 @@ from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from policydb import config as cfg
+from policydb.email_sync import _normalize_subject
 from policydb.web.app import get_db, templates
 
 router = APIRouter()
+
+
+def _find_thread_siblings(conn, inbox_id: int) -> list[dict]:
+    """Find pending inbox items in the same email thread as the given item.
+
+    Thread match = same normalized subject. Only returns other pending items,
+    excluding the item itself.
+    """
+    item = conn.execute(
+        "SELECT id, email_subject, content FROM inbox WHERE id = ?", (inbox_id,),
+    ).fetchone()
+    if not item:
+        return []
+
+    # Get the subject to normalize
+    subject = item["email_subject"] or ""
+    if not subject:
+        # Parse from content first line for Outlook items
+        content = item["content"] or ""
+        first_line = content.split("\n")[0] if content else ""
+        subject = re.sub(r'^\[Outlook [^\]]*\]\s*', '', first_line)
+
+    norm = _normalize_subject(subject)
+    if not norm:
+        return []
+
+    # Find all other pending inbox items and check normalized subject match
+    candidates = conn.execute(
+        """SELECT id, content, email_subject, email_from, email_date, created_at
+           FROM inbox
+           WHERE status = 'pending' AND id != ?
+           ORDER BY created_at DESC""",
+        (inbox_id,),
+    ).fetchall()
+
+    siblings = []
+    for c in candidates:
+        c_subject = c["email_subject"] or ""
+        if not c_subject:
+            c_content = c["content"] or ""
+            c_first = c_content.split("\n")[0] if c_content else ""
+            c_subject = re.sub(r'^\[Outlook [^\]]*\]\s*', '', c_first)
+        if _normalize_subject(c_subject) == norm:
+            siblings.append(dict(c))
+
+    return siblings
 
 
 @router.get("/inbox/contacts/search")
@@ -274,10 +323,98 @@ def inbox_process(
     )
     conn.commit()
     logger.info("Inbox item %d processed -> activity", inbox_id)
-    uid = conn.execute("SELECT inbox_uid FROM inbox WHERE id=?", (inbox_id,)).fetchone()
+
+    # Check for thread siblings to offer batch apply
+    siblings = _find_thread_siblings(conn, inbox_id)
+    sibling_ids = [s["id"] for s in siblings]
+    import json as _json
+    trigger_data = {"activityLogged": "processed"}
+    if sibling_ids:
+        trigger_data["threadSiblings"] = {
+            "count": len(sibling_ids),
+            "ids": sibling_ids,
+            "client_id": client_id,
+            "policy_id": policy_id or 0,
+            "issue_id": issue_id or 0,
+            "contact_id": contact_id or 0,
+            "activity_type": activity_type,
+            "subject": subject or "Inbox item",
+        }
     return HTMLResponse("", headers={
-        "HX-Trigger": '{"activityLogged": "' + (uid["inbox_uid"] if uid else '') + ' processed - activity created"}'
+        "HX-Trigger": _json.dumps(trigger_data),
     })
+
+
+@router.get("/inbox/{inbox_id}/thread-siblings")
+def inbox_thread_siblings(inbox_id: int, conn=Depends(get_db)):
+    """Return pending inbox items in the same thread as this item."""
+    siblings = _find_thread_siblings(conn, inbox_id)
+    return JSONResponse([{
+        "id": s["id"],
+        "subject": s.get("email_subject") or (s.get("content") or "")[:80],
+        "from": s.get("email_from") or "",
+        "date": s.get("email_date") or s.get("created_at", "")[:10],
+    } for s in siblings])
+
+
+@router.post("/inbox/batch-process")
+async def inbox_batch_process(request: Request, conn=Depends(get_db)):
+    """Batch process multiple inbox items with the same assignment."""
+    from policydb.utils import round_duration
+    body = await request.json()
+    inbox_ids = body.get("inbox_ids", [])
+    client_id = body.get("client_id", 0)
+    policy_id = body.get("policy_id", 0) or None
+    issue_id = body.get("issue_id", 0) or None
+    contact_id = body.get("contact_id", 0) or None
+    activity_type = body.get("activity_type", "Email")
+    subject_override = body.get("subject", "")
+
+    if not inbox_ids or not client_id:
+        return JSONResponse({"ok": False, "error": "Missing inbox_ids or client_id"}, status_code=400)
+
+    account_exec = cfg.get("default_account_exec", "Grant")
+    processed = 0
+
+    for iid in inbox_ids:
+        inbox_row = conn.execute(
+            """SELECT id, content, email_subject, email_date, contact_id,
+                      outlook_message_id, email_from, email_to
+               FROM inbox WHERE id = ? AND status = 'pending'""",
+            (iid,),
+        ).fetchone()
+        if not inbox_row:
+            continue
+
+        item_subject = subject_override or inbox_row["email_subject"] or (inbox_row["content"] or "")[:120]
+        act_date = (inbox_row["email_date"] or "")[:10] or date.today().isoformat()
+        item_contact = contact_id or inbox_row["contact_id"]
+        email_snippet = None
+        outlook_msg_id = inbox_row["outlook_message_id"]
+        if outlook_msg_id or (inbox_row["content"] or "").startswith("[Outlook"):
+            email_snippet = inbox_row["content"]
+
+        cursor = conn.execute(
+            """INSERT INTO activity_log
+               (activity_date, client_id, policy_id, activity_type, subject, details,
+                account_exec, contact_id, issue_id, email_snippet, outlook_message_id,
+                source, email_from, email_to, follow_up_done)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)""",
+            (act_date, client_id, policy_id, activity_type, item_subject,
+             f"Batch processed from inbox thread",
+             account_exec, item_contact, issue_id, email_snippet,
+             outlook_msg_id, "outlook_sync" if outlook_msg_id else "manual",
+             inbox_row["email_from"], inbox_row["email_to"]),
+        )
+        conn.execute(
+            "UPDATE inbox SET status='processed', activity_id=?, processed_at=CURRENT_TIMESTAMP WHERE id=?",
+            (cursor.lastrowid, iid),
+        )
+        processed += 1
+
+    conn.commit()
+    logger.info("Batch processed %d inbox items", processed)
+    return JSONResponse({"ok": True, "processed": processed})
 
 
 @router.post("/inbox/{inbox_id}/dismiss")

@@ -171,4 +171,70 @@ function acCancelDismiss(id) {
     initAtComplete(input, 'ac-capture-contact-id');
   }
 })();
+
+/* Thread sibling carry-down: listen for threadSiblings event from HX-Trigger */
+document.body.addEventListener('threadSiblings', function(e) {
+  var data = e.detail;
+  if (!data || !data.count || !data.ids) return;
+
+  // Remove any existing sibling banner
+  var existing = document.getElementById('thread-sibling-banner');
+  if (existing) existing.remove();
+
+  var banner = document.createElement('div');
+  banner.id = 'thread-sibling-banner';
+  banner.className = 'fixed bottom-4 left-1/2 -translate-x-1/2 z-50 bg-white border border-amber-200 shadow-xl rounded-xl px-5 py-3 flex items-center gap-4 max-w-lg';
+  banner.innerHTML =
+    '<div class="flex-1">' +
+      '<p class="text-sm font-medium text-gray-900">' + data.count + ' similar item' + (data.count > 1 ? 's' : '') + ' in this thread</p>' +
+      '<p class="text-xs text-gray-500 mt-0.5">Apply the same client, policy, and issue assignment?</p>' +
+    '</div>' +
+    '<button type="button" onclick="acBatchApply()" class="text-xs bg-marsh text-white px-4 py-1.5 rounded hover:bg-[#0055a5] transition-colors font-medium whitespace-nowrap">Apply to All</button>' +
+    '<button type="button" onclick="this.closest(\'#thread-sibling-banner\').remove()" class="text-gray-400 hover:text-gray-600 text-lg leading-none">&times;</button>';
+
+  // Store data for the batch apply
+  banner.dataset.payload = JSON.stringify({
+    inbox_ids: data.ids,
+    client_id: data.client_id,
+    policy_id: data.policy_id,
+    issue_id: data.issue_id,
+    contact_id: data.contact_id,
+    activity_type: data.activity_type,
+    subject: data.subject
+  });
+
+  document.body.appendChild(banner);
+
+  // Auto-dismiss after 15 seconds
+  setTimeout(function() {
+    var b = document.getElementById('thread-sibling-banner');
+    if (b) b.remove();
+  }, 15000);
+});
+
+function acBatchApply() {
+  var banner = document.getElementById('thread-sibling-banner');
+  if (!banner) return;
+  var payload = JSON.parse(banner.dataset.payload);
+
+  fetch('/inbox/batch-process', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload)
+  }).then(function(r) { return r.json(); }).then(function(result) {
+    if (result.ok) {
+      // Remove processed items from DOM
+      payload.inbox_ids.forEach(function(id) {
+        var el = document.getElementById('ac-inbox-item-' + id);
+        if (el) el.remove();
+      });
+      banner.remove();
+      if (typeof showToast === 'function') {
+        showToast(result.processed + ' item' + (result.processed > 1 ? 's' : '') + ' processed', true);
+      }
+    } else if (typeof showToast === 'function') {
+      showToast('Batch failed: ' + (result.error || 'unknown'), false);
+    }
+  });
+}
 </script>
