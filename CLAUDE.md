@@ -81,6 +81,8 @@ See the `policydb-design-system` skill for full color palette, typography, warm 
 - `kb_bookmarks` — web bookmarks with BM-NNN UIDs, url, title, category, tags
 - `user_notes` — global dashboard scratchpad (id=1)
 - `client_scratchpad` — per-client freeform notes
+- `prompt_templates` — LLM prompt templates with system_prompt, closing_instruction, required_record_types (JSON), depth_overrides (JSON)
+- `prompt_export_log` — tracks clipboard copy events from Prompt Builder
 
 ### Key Views (in `src/policydb/views.py`)
 - `v_policy_status` — all active non-opportunity policies with urgency, days_to_renewal
@@ -110,6 +112,7 @@ Each route module is in `src/policydb/web/routes/`. Routers registered in `src/p
 | templates.py | /templates | Email template CRUD + compose panel |
 | reconcile.py | /reconcile | Statement reconciliation |
 | inbox.py | /inbox/* | Inbox capture, process, scratchpad process (redirects /inbox -> Action Center) |
+| prompt_builder.py | /prompt-builder | AI Export Prompt Builder — record selection, template management, prompt assembly + copy |
 
 **Note:** `/inbox`, `/followups`, and `/activities` all redirect to `/action-center?tab=...`. The Action Center is the primary UI for daily work management.
 
@@ -277,6 +280,7 @@ Specialized reference docs are available as on-demand skills:
 | `policydb-timeline` | Timeline engine, milestone health, accountability tracking |
 | `policydb-review` | Review queue, slideover, gate conditions, anomaly engine, override flow |
 | `risk-analysis-skill` | Client risk assessment, coverage strategy, exposure analysis |
+| `policydb-prompt-builder` | Prompt Builder assembler registry, depth tiers, template system, data assembly patterns |
 
 ---
 
