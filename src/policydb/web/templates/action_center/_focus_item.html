@@ -84,7 +84,7 @@
                 hx-get="/policies/{{ item.policy_uid }}/row/log?ctx=focus"
                 hx-target="#fq-{{ row_id }}" hx-swap="outerHTML"
               {% else %}
-                onclick="fqExpandComplete('{{ row_id }}', {{ item | tojson }})"
+                onclick="fqExpandComplete('{{ row_id }}')"
               {% endif %}>
         {{ item.suggested_action }}
       </button>
