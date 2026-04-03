@@ -36,34 +36,32 @@
     {# Client #}
     <div>
       <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Client</label>
-      <select name="client_id" id="so-proc-client-{{ item.id }}" required
-        onchange="soLoadClientData({{ item.id }}, this.value)"
+      <input type="text" id="so-proc-client-name-{{ item.id }}"
+        value="{{ item.client_name or '' }}"
+        placeholder="Search clients..."
+        autocomplete="off"
         class="mt-1 w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:ring-1 focus:ring-marsh focus:border-marsh">
-        <option value="">Select client...</option>
-        {% for c in all_clients %}
-        <option value="{{ c.id }}" {% if item.client_id == c.id %}selected{% endif %}>{{ c.name }}</option>
-        {% endfor %}
-      </select>
+      <input type="hidden" name="client_id" id="so-proc-client-{{ item.id }}" value="{{ item.client_id or 0 }}">
     </div>
 
-    {# Policy + Issue (side by side) #}
-    <div class="grid grid-cols-2 gap-3">
-      <div>
-        <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Policy</label>
-        <input type="text" id="so-proc-policy-name-{{ item.id }}"
-          placeholder="Search policies..."
-          autocomplete="off"
-          class="mt-1 w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:ring-1 focus:ring-marsh focus:border-marsh">
-        <input type="hidden" name="policy_id" id="so-proc-policy-{{ item.id }}" value="0">
-      </div>
-      <div>
-        <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Issue</label>
-        <input type="text" id="so-proc-issue-name-{{ item.id }}"
-          placeholder="Search issues..."
-          autocomplete="off"
-          class="mt-1 w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:ring-1 focus:ring-marsh focus:border-marsh">
-        <input type="hidden" name="issue_id" id="so-proc-issue-{{ item.id }}" value="0">
-      </div>
+    {# Policy #}
+    <div>
+      <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Policy</label>
+      <input type="text" id="so-proc-policy-name-{{ item.id }}"
+        placeholder="Search policies..."
+        autocomplete="off"
+        class="mt-1 w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:ring-1 focus:ring-marsh focus:border-marsh">
+      <input type="hidden" name="policy_id" id="so-proc-policy-{{ item.id }}" value="0">
+    </div>
+
+    {# Issue #}
+    <div>
+      <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Issue</label>
+      <input type="text" id="so-proc-issue-name-{{ item.id }}"
+        placeholder="Search issues..."
+        autocomplete="off"
+        class="mt-1 w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:ring-1 focus:ring-marsh focus:border-marsh">
+      <input type="hidden" name="issue_id" id="so-proc-issue-{{ item.id }}" value="0">
     </div>
 
     {# Contact #}
@@ -178,10 +176,9 @@ function soScheduleItem(inboxId) {
     });
 }
 
-function soLoadClientData(inboxId, clientId) {
-  // Clear policy and issue when client changes
-  var els = ['so-proc-policy-name-', 'so-proc-issue-name-'];
-  els.forEach(function(prefix) {
+function soLoadClientData(inboxId) {
+  // Clear policy, issue, and contact when client changes
+  ['so-proc-policy-name-', 'so-proc-issue-name-'].forEach(function(prefix) {
     var el = document.getElementById(prefix + inboxId);
     if (el) el.value = '';
   });
@@ -220,7 +217,8 @@ function soLoadClientData(inboxId, clientId) {
         if (!results.length) return;
         dropdown = document.createElement('div');
         dropdown.className = 'absolute z-50 bg-white border border-gray-200 rounded shadow-lg mt-1 max-h-48 overflow-y-auto';
-        dropdown.style.width = input.offsetWidth + 'px';
+        dropdown.style.minWidth = input.offsetWidth + 'px';
+        dropdown.style.maxWidth = '420px';
         results.forEach(function(item) {
           var row = document.createElement('div');
           row.className = 'px-3 py-1.5 text-sm hover:bg-blue-50 cursor-pointer truncate';
@@ -230,6 +228,7 @@ function soLoadClientData(inboxId, clientId) {
             input.value = opts.fmt(item);
             document.getElementById(hiddenId).value = opts.id(item);
             rmDD();
+            if (opts.onSelect) opts.onSelect(item);
           });
           dropdown.appendChild(row);
         });
@@ -246,6 +245,16 @@ function soLoadClientData(inboxId, clientId) {
   }
 
   wireSearch({
+    inputId: 'so-proc-client-name-' + inboxId,
+    hiddenId: 'so-proc-client-' + inboxId,
+    url: function(q) { return '/inbox/clients/search?q=' + encodeURIComponent(q); },
+    fmt: function(c) { return c.name; },
+    id: function(c) { return c.id; },
+    min: 0,
+    onSelect: function() { soLoadClientData(inboxId); }
+  });
+
+  wireSearch({
     inputId: 'so-proc-policy-name-' + inboxId,
     hiddenId: 'so-proc-policy-' + inboxId,
     url: function(q) { return '/inbox/' + inboxId + '/policies?client_id=' + (getClientId() || '0') + '&q=' + encodeURIComponent(q); },
@@ -258,7 +267,7 @@ function soLoadClientData(inboxId, clientId) {
     inputId: 'so-proc-issue-name-' + inboxId,
     hiddenId: 'so-proc-issue-' + inboxId,
     url: function(q) { return '/inbox/' + inboxId + '/issues?client_id=' + (getClientId() || '0') + '&q=' + encodeURIComponent(q); },
-    fmt: function(iss) { return (iss.uid ? iss.uid + ' - ' : '') + iss.subject; },
+    fmt: function(iss) { return (iss.uid ? iss.uid + ' - ' : '') + iss.subject + (iss.resolved ? ' (Resolved)' : ''); },
     id: function(iss) { return iss.id; },
     min: 0
   });
