@@ -200,6 +200,7 @@ def attach_renewal_issues(conn: sqlite3.Connection, rows: list[dict]) -> None:
         return
 
     ph = ",".join("?" * len(all_keys))
+    # First: find open issues
     issue_rows = conn.execute(f"""
         SELECT renewal_term_key, issue_uid, issue_severity, subject
         FROM activity_log
@@ -210,6 +211,38 @@ def attach_renewal_issues(conn: sqlite3.Connection, rows: list[dict]) -> None:
     """, all_keys).fetchall()
 
     lookup = {r["renewal_term_key"]: dict(r) for r in issue_rows}
+
+    # Second: for any term_keys not found, check for merged issues and follow to target
+    missing_keys = [k for k in all_keys if k not in lookup]
+    if missing_keys:
+        mph = ",".join("?" * len(missing_keys))
+        merged_rows = conn.execute(f"""
+            SELECT id, renewal_term_key, merged_into_id
+            FROM activity_log
+            WHERE is_renewal_issue = 1
+              AND renewal_term_key IN ({mph})
+              AND merged_into_id IS NOT NULL
+              AND item_kind = 'issue'
+        """, missing_keys).fetchall()
+        for mr in merged_rows:
+            # Follow merge chain to find the target
+            cur_id = mr["merged_into_id"]
+            for _ in range(10):
+                target = conn.execute(
+                    "SELECT id, issue_uid, issue_severity, subject, merged_into_id FROM activity_log WHERE id = ?",
+                    (cur_id,),
+                ).fetchone()
+                if not target:
+                    break
+                if target["merged_into_id"]:
+                    cur_id = target["merged_into_id"]
+                else:
+                    lookup[mr["renewal_term_key"]] = {
+                        "issue_uid": target["issue_uid"],
+                        "issue_severity": target["issue_severity"],
+                        "subject": target["subject"],
+                    }
+                    break
 
     for r in rows:
         uid = r.get("policy_uid")
