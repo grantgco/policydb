@@ -465,6 +465,7 @@ def program_tab_activity(
         "client_name": client_name,
         "all_clients": all_clients,
         "issue_severities": cfg.get("issue_severities", []),
+        "activity_types": cfg.get("activity_types", []),
     })
 
 
