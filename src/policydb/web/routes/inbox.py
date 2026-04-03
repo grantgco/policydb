@@ -65,6 +65,21 @@ def _find_thread_siblings(conn, inbox_id: int) -> list[dict]:
     return siblings
 
 
+@router.get("/inbox/clients/search")
+def inbox_client_search(q: str = "", conn=Depends(get_db)):
+    """Search clients by name for inbox autocomplete."""
+    if q:
+        rows = conn.execute(
+            "SELECT id, name FROM clients WHERE archived=0 AND name LIKE ? ORDER BY name LIMIT 20",
+            (f"%{q}%",),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT id, name FROM clients WHERE archived=0 ORDER BY name LIMIT 30"
+        ).fetchall()
+    return JSONResponse([{"id": r["id"], "name": r["name"]} for r in rows])
+
+
 @router.get("/inbox/contacts/search")
 def inbox_contact_search(q: str = "", client_id: int = 0, conn=Depends(get_db)):
     """Search contacts for @ autocomplete, optionally filtered by client."""
@@ -483,29 +498,35 @@ def inbox_client_policies(inbox_id: int, client_id: int = 0, q: str = "", conn=D
 
 @router.get("/inbox/{inbox_id}/issues")
 def inbox_client_issues(inbox_id: int, client_id: int = 0, q: str = "", conn=Depends(get_db)):
-    """Return open issues for a client, optionally filtered by search query."""
+    """Return open + recently resolved issues for a client."""
     if not client_id:
         return JSONResponse([])
+    # Include open issues + resolved within last 30 days (for catching up on correspondence)
+    status_filter = """AND (issue_status IS NULL OR issue_status != 'Resolved'
+                        OR (issue_status = 'Resolved' AND activity_date >= date('now', '-30 days')))"""
     if q:
-        rows = conn.execute("""
-            SELECT id, issue_uid, subject
+        rows = conn.execute(f"""
+            SELECT id, issue_uid, subject, issue_status
             FROM activity_log
             WHERE client_id = ? AND item_kind = 'issue'
               AND merged_into_id IS NULL
-              AND (issue_status IS NULL OR issue_status != 'Resolved')
+              {status_filter}
               AND (subject LIKE ? OR issue_uid LIKE ?)
             ORDER BY activity_date DESC LIMIT 20
         """, (client_id, f"%{q}%", f"%{q}%")).fetchall()
     else:
-        rows = conn.execute("""
-            SELECT id, issue_uid, subject
+        rows = conn.execute(f"""
+            SELECT id, issue_uid, subject, issue_status
             FROM activity_log
             WHERE client_id = ? AND item_kind = 'issue'
               AND merged_into_id IS NULL
-              AND (issue_status IS NULL OR issue_status != 'Resolved')
+              {status_filter}
             ORDER BY activity_date DESC
         """, (client_id,)).fetchall()
-    return JSONResponse([{"id": r["id"], "uid": r["issue_uid"] or "", "subject": r["subject"] or ""} for r in rows])
+    return JSONResponse([{
+        "id": r["id"], "uid": r["issue_uid"] or "", "subject": r["subject"] or "",
+        "resolved": r["issue_status"] == "Resolved",
+    } for r in rows])
 
 
 def get_inbox_pending_count(conn) -> int:
