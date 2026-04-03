@@ -1,3 +1,9 @@
+{% set rrt = (t.required_record_types or '[]') | fromjson if t.required_record_types else [] %}
+{% set dov = (t.depth_overrides or '{}') | fromjson if t.depth_overrides else {} %}
+{% set primary = rrt[0] if rrt else '' %}
+{% set related = rrt[1:] if rrt | length > 1 else [] %}
+{% set form_uid = t.id if t.id else 'new' %}
+
 <div id="tpl-card-{{ t.id }}" class="border border-marsh rounded-lg p-5 bg-white">
   <form {% if editing %}
           hx-post="/prompt-builder/templates/{{ t.id }}/edit"
@@ -8,7 +14,8 @@
           hx-target="#tpl-manage-list"
           hx-swap="innerHTML"
         {% endif %}
-        class="space-y-4">
+        class="space-y-4"
+        onsubmit="return pbBuildFormJSON(this, '{{ form_uid }}');">
 
     <div class="grid grid-cols-2 gap-4">
       <div>
@@ -44,20 +51,78 @@
                 class="form-input w-full mt-1 font-mono text-xs" placeholder="Final directive after the data block...">{{ t.closing_instruction or '' }}</textarea>
     </div>
 
-    <div class="grid grid-cols-2 gap-4">
-      <div>
-        <label class="text-xs font-medium text-gray-600">Required Record Types</label>
-        <input name="required_record_types" value='{{ t.required_record_types or "[]" }}'
-               class="form-input w-full mt-1 font-mono text-xs" placeholder='["client","policies"]'>
-        <p class="text-[10px] text-gray-400 mt-1">JSON array. First element = primary type ({{ record_types | join(', ') }}). Rest = related data blocks.</p>
-      </div>
-      <div>
-        <label class="text-xs font-medium text-gray-600">Depth Overrides</label>
-        <input name="depth_overrides" value='{{ t.depth_overrides or "" }}'
-               class="form-input w-full mt-1 font-mono text-xs" placeholder='{"issues": 1, "follow_ups": 1}'>
-        <p class="text-[10px] text-gray-400 mt-1">JSON dict. Override depth per type: 1=full, 2=summary, 3=reference.</p>
+    <!-- Primary Record Type — pill selector -->
+    <div>
+      <label class="text-xs font-medium text-gray-600 mb-2 block">Primary Record Type</label>
+      <p class="text-[10px] text-gray-400 mb-2">Which record type does the user select when using this template?</p>
+      <div class="flex gap-2">
+        {% for rt in record_types %}
+        <label class="cursor-pointer">
+          <input type="radio" name="pb_primary_type" value="{{ rt }}" class="peer sr-only"
+                 {% if primary == rt %}checked{% endif %}>
+          <span class="px-3 py-1.5 text-xs rounded-full border border-gray-200
+                       peer-checked:bg-marsh peer-checked:text-white peer-checked:border-marsh
+                       transition-colors">{{ rt | capitalize }}</span>
+        </label>
+        {% endfor %}
       </div>
     </div>
+
+    <!-- Related Data Blocks — toggle pills -->
+    <div>
+      <label class="text-xs font-medium text-gray-600 mb-2 block">Include Related Data</label>
+      <p class="text-[10px] text-gray-400 mb-2">Select which related data to include in the assembled prompt.</p>
+      <div class="flex flex-wrap gap-2" id="pb-related-pills-{{ form_uid }}">
+        {% set all_related = ['client','policies','renewals','issues','follow_ups','milestones','contacts'] %}
+        {% for rt in all_related %}
+        <label class="cursor-pointer">
+          <input type="checkbox" name="pb_related_{{ rt }}" value="{{ rt }}" class="peer sr-only"
+                 {% if rt in related %}checked{% endif %}
+                 onchange="pbToggleDepth(this, '{{ form_uid }}', '{{ rt }}')">
+          <span class="px-3 py-1.5 text-xs rounded-full border border-gray-200
+                       peer-checked:bg-blue-50 peer-checked:text-blue-700 peer-checked:border-blue-300
+                       transition-colors">{{ rt | replace('_',' ') | capitalize }}</span>
+        </label>
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- Depth Overrides — per-selected-type depth selector -->
+    <div id="pb-depth-section-{{ form_uid }}" class="{% if not related %}hidden{% endif %}">
+      <label class="text-xs font-medium text-gray-600 mb-2 block">Detail Level per Data Type</label>
+      <p class="text-[10px] text-gray-400 mb-2">Default is Summary. Override to Full for more detail or Reference for minimal.</p>
+      <div class="space-y-1.5" id="pb-depth-rows-{{ form_uid }}">
+        {% for rt in all_related %}
+        <div class="pb-depth-row flex items-center gap-3 {% if rt not in related %}hidden{% endif %}" data-type="{{ rt }}" id="pb-depth-row-{{ form_uid }}-{{ rt }}">
+          <span class="text-xs text-gray-600 w-24">{{ rt | replace('_',' ') | capitalize }}</span>
+          <div class="flex rounded-md overflow-hidden border border-gray-200 text-[11px]">
+            <label class="cursor-pointer">
+              <input type="radio" name="pb_depth_{{ rt }}" value="1" class="peer sr-only"
+                     {% if dov.get(rt) == 1 %}checked{% endif %}>
+              <span class="px-2.5 py-1 peer-checked:bg-green-50 peer-checked:text-green-700 peer-checked:font-semibold
+                           hover:bg-gray-50 transition-colors inline-block">Full</span>
+            </label>
+            <label class="cursor-pointer border-l border-gray-200">
+              <input type="radio" name="pb_depth_{{ rt }}" value="2" class="peer sr-only"
+                     {% if not dov.get(rt) or dov.get(rt) == 2 %}checked{% endif %}>
+              <span class="px-2.5 py-1 peer-checked:bg-blue-50 peer-checked:text-blue-700 peer-checked:font-semibold
+                           hover:bg-gray-50 transition-colors inline-block">Summary</span>
+            </label>
+            <label class="cursor-pointer border-l border-gray-200">
+              <input type="radio" name="pb_depth_{{ rt }}" value="3" class="peer sr-only"
+                     {% if dov.get(rt) == 3 %}checked{% endif %}>
+              <span class="px-2.5 py-1 peer-checked:bg-gray-100 peer-checked:text-gray-600 peer-checked:font-semibold
+                           hover:bg-gray-50 transition-colors inline-block">Reference</span>
+            </label>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- Hidden fields for the actual JSON values (populated by JS on submit) -->
+    <input type="hidden" name="required_record_types" id="pb-rrt-{{ form_uid }}" value='{{ t.required_record_types or "[]" }}'>
+    <input type="hidden" name="depth_overrides" id="pb-dov-{{ form_uid }}" value='{{ t.depth_overrides or "" }}'>
 
     <div class="flex items-center gap-3 pt-2">
       <button type="submit" class="btn-primary text-xs px-4 py-1.5">
@@ -79,3 +144,41 @@
     </div>
   </form>
 </div>
+
+<script>
+function pbToggleDepth(checkbox, formUid, type) {
+  var row = document.getElementById('pb-depth-row-' + formUid + '-' + type);
+  var section = document.getElementById('pb-depth-section-' + formUid);
+  if (checkbox.checked) {
+    row.classList.remove('hidden');
+  } else {
+    row.classList.add('hidden');
+  }
+  // Show/hide depth section based on any checked
+  var anyChecked = document.querySelectorAll('#pb-related-pills-' + formUid + ' input:checked').length > 0;
+  section.classList.toggle('hidden', !anyChecked);
+}
+
+function pbBuildFormJSON(form, formUid) {
+  // Build required_record_types JSON from pills
+  var primary = form.querySelector('input[name="pb_primary_type"]:checked');
+  var types = primary ? [primary.value] : [];
+  form.querySelectorAll('#pb-related-pills-' + formUid + ' input:checked').forEach(function(cb) {
+    types.push(cb.value);
+  });
+  document.getElementById('pb-rrt-' + formUid).value = JSON.stringify(types);
+
+  // Build depth_overrides JSON from radio groups (only include non-default values)
+  var overrides = {};
+  types.slice(1).forEach(function(type) {
+    var radio = form.querySelector('input[name="pb_depth_' + type + '"]:checked');
+    if (radio && radio.value !== '2') { // 2 = Summary (default), only store non-default
+      overrides[type] = parseInt(radio.value);
+    }
+  });
+  var dovStr = Object.keys(overrides).length > 0 ? JSON.stringify(overrides) : '';
+  document.getElementById('pb-dov-' + formUid).value = dovStr;
+
+  return true; // allow form submission
+}
+</script>
