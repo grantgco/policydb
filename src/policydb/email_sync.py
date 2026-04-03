@@ -434,6 +434,7 @@ def _create_or_enrich_activity(
     folder = email.get("folder", "")
     subject = email.get("subject", "")
     sender = email.get("sender", "")
+    recipients = ", ".join(email.get("recipients", [])[:5])
     # Clean and store readable text snippet
     snippet = _clean_email_text(email.get("body_snippet", ""))[:2500]
     email_date = email.get("date", "")[:10]  # ISO date portion
@@ -454,9 +455,10 @@ def _create_or_enrich_activity(
             # Enrich existing activity
             conn.execute(
                 """UPDATE activity_log
-                   SET outlook_message_id=?, email_snippet=?, source='outlook_sync'
+                   SET outlook_message_id=?, email_snippet=?, source='outlook_sync',
+                       email_from=?, email_to=?
                    WHERE id=?""",
-                (message_id, snippet, existing_activity["id"]),
+                (message_id, snippet, sender, recipients, existing_activity["id"]),
             )
             conn.commit()
             return {"action": "enriched", "activity_id": existing_activity["id"]}
@@ -486,8 +488,9 @@ def _create_or_enrich_activity(
         """INSERT INTO activity_log
            (activity_date, client_id, policy_id, program_id, activity_type, subject, details,
             contact_person, contact_id, disposition, source, outlook_message_id,
-            email_snippet, issue_id, follow_up_date, follow_up_done)
-           VALUES (?, ?, ?, ?, 'Email', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            email_snippet, issue_id, follow_up_date, follow_up_done,
+            email_from, email_to)
+           VALUES (?, ?, ?, ?, 'Email', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             email_date,
             client_id,
@@ -504,6 +507,8 @@ def _create_or_enrich_activity(
             issue_id,
             flag_due,
             0 if is_flagged else 1,  # Only open follow-up for flagged items
+            sender,
+            recipients,
         ),
     )
     conn.commit()
@@ -563,14 +568,15 @@ def _run_thread_inheritance(
         if not inbox_uid:
             continue
         inbox_row = conn.execute(
-            "SELECT id, content, outlook_message_id, email_subject, email_date FROM inbox WHERE inbox_uid = ?",
+            "SELECT id, content, outlook_message_id, email_subject, email_date, email_from, email_to FROM inbox WHERE inbox_uid = ?",
             (inbox_uid,),
         ).fetchone()
         if inbox_row:
             inbox_candidates.append(dict(inbox_row))
 
     historical = conn.execute("""
-        SELECT id, content, outlook_message_id, email_subject, email_date
+        SELECT id, content, outlook_message_id, email_subject, email_date,
+               email_from, email_to
         FROM inbox
         WHERE outlook_message_id IS NOT NULL
           AND status = 'pending'
@@ -629,11 +635,19 @@ def _run_thread_inheritance(
         if not email_date:
             email_date = datetime.now().strftime("%Y-%m-%d")
 
-        sender = ""
-        for line in (candidate.get("content") or "").split("\n"):
-            if line.startswith("From: "):
-                sender = line[6:].strip()
-                break
+        # Use dedicated columns if available, fall back to parsing content
+        sender = candidate.get("email_from") or ""
+        email_to = candidate.get("email_to") or ""
+        if not sender:
+            for line in (candidate.get("content") or "").split("\n"):
+                if line.startswith("From: "):
+                    sender = line[6:].strip()
+                    break
+        if not email_to:
+            for line in (candidate.get("content") or "").split("\n"):
+                if line.startswith("To: "):
+                    email_to = line[4:].strip()
+                    break
 
         contact_id = None
         contact_person = sender
@@ -654,8 +668,9 @@ def _run_thread_inheritance(
             """INSERT INTO activity_log
                (activity_date, client_id, policy_id, program_id, activity_type, subject,
                 details, contact_person, contact_id, source, outlook_message_id,
-                email_snippet, issue_id, follow_up_done)
-               VALUES (?, ?, ?, ?, 'Email', ?, ?, ?, ?, 'thread_inherit', ?, ?, ?, 1)""",
+                email_snippet, issue_id, follow_up_done,
+                email_from, email_to)
+               VALUES (?, ?, ?, ?, 'Email', ?, ?, ?, ?, 'thread_inherit', ?, ?, ?, 1, ?, ?)""",
             (
                 email_date,
                 inherited_match["client_id"],
@@ -668,6 +683,8 @@ def _run_thread_inheritance(
                 message_id,
                 snippet,
                 inherited_match.get("issue_id"),
+                sender,
+                email_to,
             ),
         )
 
@@ -862,9 +879,10 @@ def _process_email(
             content += f"\n\n{snippet}"
         conn.execute(
             """INSERT INTO inbox (content, client_id, contact_id, inbox_uid,
-                                  email_subject, email_date, outlook_message_id)
-               VALUES (?, NULL, NULL, '', ?, ?, ?)""",
-            (content, subject, date_str, message_id),
+                                  email_subject, email_date, outlook_message_id,
+                                  email_from, email_to)
+               VALUES (?, NULL, NULL, '', ?, ?, ?, ?, ?)""",
+            (content, subject, date_str, message_id, sender, recipients),
         )
         row_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
         conn.execute("UPDATE inbox SET inbox_uid = ? WHERE id = ?", (f"INB-{row_id}", row_id))

@@ -260,7 +260,11 @@
       {% if a.email_snippet is defined and a.email_snippet %}
       <details class="mt-1">
         <summary class="text-[10px] text-blue-500 cursor-pointer hover:text-blue-700">view email content</summary>
-        <div class="text-[10px] text-gray-500 mt-1 whitespace-pre-line leading-relaxed max-h-32 overflow-y-auto bg-gray-50 rounded p-2">{{ a.email_snippet }}</div>
+        <div class="text-[10px] text-gray-500 mt-1 bg-gray-50 rounded p-2">
+          {% if a.email_from is defined and a.email_from %}<div class="text-[10px] mb-0.5"><span class="text-gray-400">From:</span> {{ a.email_from }}</div>{% endif %}
+          {% if a.email_to is defined and a.email_to %}<div class="text-[10px] mb-1"><span class="text-gray-400">To:</span> {{ a.email_to }}</div>{% endif %}
+          <div class="whitespace-pre-line leading-relaxed max-h-32 overflow-y-auto">{{ a.email_snippet }}</div>
+        </div>
       </details>
       {% endif %}
     </div>

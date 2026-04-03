@@ -59,7 +59,12 @@
         {# Outlook-imported item — show structured header + truncated body #}
         {% set lines = item.content.split('\n') %}
         <p class="text-[13px] font-medium text-gray-900">{{ lines[0] }}</p>
-        {% if lines|length > 1 %}
+        {% if item.email_from or item.email_to %}
+        <div class="text-[11px] text-gray-500 mt-0.5 space-y-0.5">
+          {% if item.email_from %}<div><span class="text-gray-400">From:</span> {{ item.email_from }}</div>{% endif %}
+          {% if item.email_to %}<div><span class="text-gray-400">To:</span> {{ item.email_to }}</div>{% endif %}
+        </div>
+        {% elif lines|length > 1 %}
         <div class="text-[11px] text-gray-500 mt-0.5">{{ lines[1:4]|join(' &middot; ') }}</div>
         {% endif %}
         {% if lines|length > 5 %}
