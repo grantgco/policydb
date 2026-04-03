@@ -13,24 +13,26 @@
 
   {# ── MERGED banner — this issue was merged into another ── #}
   {% if merged_into_issue %}
-  <div class="bg-amber-50 border-2 border-amber-300 rounded-lg px-5 py-4 mb-4">
-    <div class="flex items-center gap-3">
-      <svg class="w-6 h-6 text-amber-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-              d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/>
-      </svg>
-      <div>
-        <div class="text-sm font-semibold text-amber-800">This issue has been merged</div>
-        <div class="text-xs text-amber-700 mt-0.5">
+  <div class="bg-red-50 border-2 border-red-300 rounded-lg px-5 py-5 mb-4 shadow-sm">
+    <div class="flex items-center gap-4">
+      <div class="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
+        <svg class="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/>
+        </svg>
+      </div>
+      <div class="flex-1">
+        <div class="text-base font-bold text-red-800">This issue has been merged</div>
+        <div class="text-sm text-red-700 mt-1">
           All activity now lives under
           <a href="/issues/{{ merged_into_issue.issue_uid }}"
-             class="font-mono font-semibold text-marsh hover:underline">{{ merged_into_issue.issue_uid }}</a>
-          &mdash; {{ merged_into_issue.subject }}
+             class="font-mono font-bold text-[#000F47] hover:underline">{{ merged_into_issue.issue_uid }}</a>
+          — {{ merged_into_issue.subject }}
         </div>
       </div>
       <a href="/issues/{{ merged_into_issue.issue_uid }}"
-         class="ml-auto shrink-0 text-xs font-medium bg-amber-200 hover:bg-amber-300 text-amber-900 rounded px-3 py-1.5 transition-colors">
-        Go to Master Issue &rarr;
+         class="shrink-0 text-sm font-semibold bg-[#000F47] hover:bg-[#0B4BFF] text-white rounded-lg px-4 py-2 transition-colors">
+        Go to Master Issue →
       </a>
     </div>
   </div>
