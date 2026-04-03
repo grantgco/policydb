@@ -50,9 +50,28 @@
         {% endif %}
       </div>
       {# Subject line #}
-      <div class="text-[13px] text-[#3D3C37] truncate">{{ item.subject }}</div>
+      <div class="text-[13px] text-[#3D3C37]">{{ item.subject }}</div>
       {# Context line (why it's hot) #}
+      {% if item.context_line %}
       <div class="text-[12px] text-[#6B6860] mt-0.5">{{ item.context_line }}</div>
+      {% endif %}
+      {# Activity type + disposition detail row #}
+      {% if item.activity_type or item.disposition or item.contact_person %}
+      <div class="flex items-center gap-2 mt-1 flex-wrap">
+        {% if item.activity_type %}
+          <span class="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">{{ item.activity_type }}</span>
+        {% endif %}
+        {% if item.disposition %}
+          <span class="text-[10px] bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded">{{ item.disposition }}</span>
+        {% endif %}
+        {% if item.contact_person %}
+          <span class="text-[10px] text-gray-400">↳ {{ item.contact_person }}</span>
+        {% endif %}
+        {% if item.prev_disposition and item.prev_days_ago %}
+          <span class="text-[10px] text-gray-400">prev: {{ item.prev_disposition }} ({{ item.prev_days_ago }}d ago)</span>
+        {% endif %}
+      </div>
+      {% endif %}
     </div>
 
     {# Action buttons #}
