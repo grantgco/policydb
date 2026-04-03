@@ -303,20 +303,10 @@ function setQuickFuDate(form, days) {
 <div id="bulk-action-bar" class="fixed bottom-4 left-1/2 -translate-x-1/2 bg-gray-900 text-white px-5 py-3 rounded-xl shadow-2xl flex items-center gap-3 z-50 no-print" style="display:none;">
   <span id="bulk-count" class="text-xs font-semibold">0 selected</span>
   <span class="w-px h-5 bg-gray-600"></span>
-  <div class="relative">
-    <button type="button" onclick="document.getElementById('bulk-disp-list').classList.toggle('hidden')"
-      class="text-[10px] bg-marsh text-white px-3 py-1.5 rounded-lg hover:bg-[#004a80]">What happened? &#9662;</button>
-    <div id="bulk-disp-list" class="hidden absolute bottom-full left-0 mb-1 bg-white border border-gray-200 rounded-lg shadow-xl p-2 min-w-56">
-      {% set gd_bulk = grouped_dispositions() %}
-      {% for cat in gd_bulk.categories %}
-      <div class="text-[9px] text-gray-400 uppercase tracking-wide px-3 pt-2 pb-1 font-semibold">{{ cat.label }}</div>
-      {% for d in cat.disps %}
-      <button type="button" onclick="bulkSetDisposition('{{ d.label }}'); document.getElementById('bulk-disp-list').classList.add('hidden');"
-        class="block w-full text-left text-xs text-gray-700 px-3 py-1.5 rounded hover:bg-gray-100">{{ d.label }}</button>
-      {% endfor %}
-      {% endfor %}
-    </div>
-  </div>
+  <button type="button" onclick="bulkSetDisposition('')"
+    class="text-[10px] bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700 font-semibold">My move</button>
+  <button type="button" onclick="bulkSetDisposition('Waiting on Response')"
+    class="text-[10px] bg-amber-500 text-white px-3 py-1.5 rounded-lg hover:bg-amber-600 font-semibold">⏳ Waiting</button>
   <button type="button" onclick="bulkAction('snooze', 'snooze_days', '1')" class="text-[10px] bg-gray-700 text-white px-3 py-1.5 rounded-lg hover:bg-gray-600">+1d</button>
   <button type="button" onclick="bulkAction('snooze', 'snooze_days', '3')" class="text-[10px] bg-gray-700 text-white px-3 py-1.5 rounded-lg hover:bg-gray-600">+3d</button>
   <button type="button" onclick="bulkAction('snooze', 'snooze_days', '7')" class="text-[10px] bg-gray-700 text-white px-3 py-1.5 rounded-lg hover:bg-gray-600">+7d</button>

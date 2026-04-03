@@ -18,14 +18,18 @@
 <div class="flex-1 overflow-y-auto px-5 py-4 space-y-5">
   {# Due date #}
   <div>
-    <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Due Date</label>
-    <div class="flex items-center gap-2 mt-1">
+    <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Re-check in</label>
+    <div class="flex items-center gap-1 mt-1">
+      <div class="flex rounded-md overflow-hidden border border-gray-200 text-[11px]">
+        <button type="button" class="px-2 py-1 hover:bg-blue-50 text-gray-600 iss-date-btn" onclick="setIssDue(1)">1d</button>
+        <button type="button" class="px-2 py-1 hover:bg-blue-50 text-gray-600 border-l border-gray-200 iss-date-btn" onclick="setIssDue(3)">3d</button>
+        <button type="button" class="px-2 py-1 hover:bg-blue-50 bg-blue-50 text-blue-700 font-semibold border-l border-gray-200 iss-date-btn" onclick="setIssDue(7)">1w</button>
+        <button type="button" class="px-2 py-1 hover:bg-blue-50 text-gray-600 border-l border-gray-200 iss-date-btn" onclick="setIssDue(14)">2w</button>
+        <button type="button" class="px-2 py-1 hover:bg-blue-50 text-gray-600 border-l border-gray-200 iss-date-btn" onclick="setIssDue(30)">1m</button>
+      </div>
       <input type="date" id="edit-iss-due" value="{{ iss.due_date or '' }}"
-        class="text-sm border border-gray-300 rounded px-2 py-1.5 focus:ring-1 focus:ring-marsh focus:border-marsh"
+        class="text-sm border border-gray-200 rounded px-2 py-1.5 focus:ring-1 focus:ring-marsh focus:border-marsh"
         onchange="patchIssField({{ iss.id }}, 'due_date', this.value, this)">
-      <button type="button" onclick="setIssDue(1)" class="text-[10px] border border-gray-200 rounded px-1.5 py-0.5 text-gray-400 hover:text-marsh hover:border-marsh">+1d</button>
-      <button type="button" onclick="setIssDue(3)" class="text-[10px] border border-gray-200 rounded px-1.5 py-0.5 text-gray-400 hover:text-marsh hover:border-marsh">+3d</button>
-      <button type="button" onclick="setIssDue(7)" class="text-[10px] border border-gray-200 rounded px-1.5 py-0.5 text-gray-400 hover:text-marsh hover:border-marsh">+7d</button>
     </div>
   </div>
 
@@ -80,6 +84,17 @@ function setIssDue(days) {
   var el = document.getElementById('edit-iss-due');
   el.value = val;
   patchIssField({{ iss.id }}, 'due_date', val, el);
+  document.querySelectorAll('.iss-date-btn').forEach(function(b) {
+    b.classList.remove('bg-blue-50', 'text-blue-700', 'font-semibold');
+    b.classList.add('text-gray-600');
+  });
+  var labels = {1:'1d', 3:'3d', 7:'1w', 14:'2w', 30:'1m'};
+  document.querySelectorAll('.iss-date-btn').forEach(function(b) {
+    if (b.textContent.trim() === labels[days]) {
+      b.classList.add('bg-blue-50', 'text-blue-700', 'font-semibold');
+      b.classList.remove('text-gray-600');
+    }
+  });
 }
 
 function selectIssSev(btn, issId, label) {
