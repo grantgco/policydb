@@ -9,13 +9,9 @@
     <form action="" method="get" id="deck-start-form">
       <div class="mb-5">
         <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Select Client</label>
-        <select name="client_id" id="chart-client-select" required
+        <input type="text" id="chart-client-search" placeholder="Search clients..." autocomplete="off"
           class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-800 focus:ring-marsh focus:border-marsh">
-          <option value="">Choose a client...</option>
-          {% for c in clients %}
-          <option value="{{ c.id }}">{{ c.name }}</option>
-          {% endfor %}
-        </select>
+        <input type="hidden" name="client_id" id="chart-client-id" value="" required>
       </div>
 
       <div class="mb-5">
@@ -43,14 +39,23 @@
 
 <script>
 (function() {
-  var sel = document.getElementById('chart-client-select');
   var btn = document.getElementById('deck-start-btn');
   var form = document.getElementById('deck-start-form');
+  var hiddenId = 'chart-client-id';
 
-  sel.addEventListener('change', function() {
-    btn.disabled = !sel.value;
-    if (sel.value) {
-      form.action = '/charts/' + sel.value + '/deck';
+  initClientAutocomplete('chart-client-search', hiddenId, {
+    onSelect: function(item) {
+      btn.disabled = false;
+      form.action = '/charts/' + item.id + '/deck';
+    }
+  });
+
+  /* Disable button when text is cleared */
+  document.getElementById('chart-client-search').addEventListener('input', function() {
+    if (!this.value.trim()) {
+      document.getElementById(hiddenId).value = '';
+      btn.disabled = true;
+      form.action = '';
     }
   });
 })();

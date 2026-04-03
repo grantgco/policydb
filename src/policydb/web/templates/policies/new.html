@@ -15,11 +15,10 @@
     </div>
     <div class="p-6">
       <label class="field-label">Client <span class="text-red-400">*</span></label>
-      <select name="client_id" class="form-select w-full" required>
-        {% for c in all_clients %}
-        <option value="{{ c.id }}" {% if client and c.id == client.id %}selected{% endif %}>{{ c.name }}</option>
-        {% endfor %}
-      </select>
+      <input type="text" id="new-pol-client-name" placeholder="Search clients..." autocomplete="off"
+        value="{{ client.name if client else '' }}"
+        class="form-select w-full">
+      <input type="hidden" name="client_id" id="new-pol-client-id" value="{{ client.id if client else 0 }}" required>
     </div>
   </div>
 
@@ -399,8 +398,8 @@ document.addEventListener('DOMContentLoaded', function() {
   const CLIENT_SCOPED = new Set(["project_name", "exposure_city"]);
 
   function getClientId() {
-    var sel = document.querySelector('select[name="client_id"]');
-    return sel ? sel.value : 0;
+    var el = document.getElementById('new-pol-client-id');
+    return el ? el.value : 0;
   }
 
   function loadAcField(field) {
@@ -416,22 +415,18 @@ document.addEventListener('DOMContentLoaded', function() {
 
   AC_FIELDS.forEach(loadAcField);
 
-  // Re-load client-scoped lists when client selection changes
-  var clientSel = document.querySelector('select[name="client_id"]');
-  if (clientSel) {
-    clientSel.addEventListener('change', function() {
-      CLIENT_SCOPED.forEach(loadAcField);
-    });
-  }
+  // Wire client autocomplete with cascading reload of client-scoped fields
+  initClientAutocomplete('new-pol-client-name', 'new-pol-client-id', {
+    onSelect: function() { CLIENT_SCOPED.forEach(loadAcField); }
+  });
 
   // Auto-populate location fields when a known project is selected
   var projectInput = document.querySelector('input[name="project_name"]');
-  var clientSelect = document.querySelector('select[name="client_id"]');
   if (projectInput) {
     projectInput.addEventListener('change', function () {
       var name = this.value.trim();
       if (!name) return;
-      var clientId = clientSelect ? clientSelect.value : 0;
+      var clientId = getClientId();
       fetch('/policies/project-defaults?project_name=' + encodeURIComponent(name) + '&client_id=' + clientId)
         .then(function (r) { return r.json(); })
         .then(function (data) {

@@ -24,13 +24,10 @@
       {# Client #}
       <div>
         <label class="block text-[10px] text-gray-500 uppercase mb-1">Client *</label>
-        <select name="client_id" required
+        <input type="text" id="ac-fu-client-name" placeholder="Search clients..." autocomplete="off"
           class="w-full text-xs border border-gray-200 rounded px-2 py-1.5 bg-white focus:ring-1 focus:ring-marsh">
-          <option value="">Select client...</option>
-          {% for c in all_clients %}
-          <option value="{{ c.id }}">{{ c.name }}</option>
-          {% endfor %}
-        </select>
+        <input type="hidden" name="client_id" id="ac-fu-client" required value="">
+        <script>initClientAutocomplete('ac-fu-client-name', 'ac-fu-client');</script>
       </div>
       {# Type #}
       <div>

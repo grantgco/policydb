@@ -23,12 +23,11 @@
   <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
     <div class="sm:col-span-2 lg:col-span-1">
       <label class="field-label">Client <span class="text-red-400">*</span></label>
-      <select name="client_id" required class="form-select w-full">
-        <option value="">— Select client —</option>
-        {% for c in all_clients %}
-        <option value="{{ c.id }}" {% if c.id == selected_client_id %}selected{% endif %}>{{ c.name }}</option>
-        {% endfor %}
-      </select>
+      <input type="text" id="meeting-client-name" placeholder="Search clients..." autocomplete="off"
+        value="{{ all_clients | selectattr('id', 'equalto', selected_client_id) | map(attribute='name') | first | default('') if selected_client_id else '' }}"
+        class="form-select w-full">
+      <input type="hidden" name="client_id" id="meeting-client" value="{{ selected_client_id or 0 }}">
+      <script>initClientAutocomplete('meeting-client-name', 'meeting-client');</script>
     </div>
     <div class="sm:col-span-2">
       <label class="field-label">Title <span class="text-red-400">*</span></label>

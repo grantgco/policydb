@@ -1516,6 +1516,12 @@ def activity_list_old(
     all_clients = conn.execute(
         "SELECT id, name FROM clients WHERE archived=0 ORDER BY name"
     ).fetchall()
+    # Resolve client name for autocomplete pre-fill
+    client_name = ""
+    if client_id:
+        _cl = conn.execute("SELECT name FROM clients WHERE id=?", (client_id,)).fetchone()
+        if _cl:
+            client_name = _cl["name"]
     return templates.TemplateResponse("activities/list.html", {
         "request": request,
         "active": "activities",
@@ -1525,6 +1531,7 @@ def activity_list_old(
         "days": days,
         "activity_type": activity_type,
         "client_id": client_id,
+        "client_name": client_name,
         "activity_types": cfg.get("activity_types", []),
         "all_clients": [dict(c) for c in all_clients],
     })
