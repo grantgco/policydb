@@ -112,16 +112,12 @@
   <input type="number" id="bulk-hours" min="0" step="0.1" placeholder="Hours" class="text-sm border border-gray-300 rounded px-2 py-1 w-20 tabular-nums">
   <input type="text" id="bulk-note" placeholder="Note (required for Abandon)" class="text-sm border border-gray-300 rounded px-2 py-1 w-48">
   <input type="hidden" id="bulk-disposition" value="">
-  <span class="flex flex-wrap gap-0.5 items-center">
-    {% set gd_bulk = grouped_dispositions() %}
-    {% for cat in gd_bulk.categories %}
-    <span class="text-[9px] text-gray-400 uppercase tracking-wide ml-1 first:ml-0 mr-0.5">{{ cat.label }}:</span>
-    {% for d in cat.disps %}
-    <button type="button" onclick="selectBulkDisp(this,'{{ d.label }}')"
-      class="disp-pill text-[10px] px-1.5 py-0.5 rounded border border-gray-200 text-gray-500 hover:border-marsh hover:text-marsh transition-colors">{{ d.label }}</button>
-    {% endfor %}
-    {% endfor %}
-  </span>
+  <div class="flex rounded-md overflow-hidden border border-gray-200 text-xs">
+    <button type="button" onclick="document.getElementById('bulk-disposition').value=''; this.classList.add('bg-blue-600','text-white'); this.classList.remove('bg-white','text-gray-600'); this.nextElementSibling.classList.add('bg-white','text-gray-600'); this.nextElementSibling.classList.remove('bg-amber-500','text-white')"
+      class="px-3 py-1.5 font-semibold transition-colors bg-blue-600 text-white">My move</button>
+    <button type="button" onclick="document.getElementById('bulk-disposition').value='Waiting on Response'; this.classList.add('bg-amber-500','text-white'); this.classList.remove('bg-white','text-gray-600'); this.previousElementSibling.classList.add('bg-white','text-gray-600'); this.previousElementSibling.classList.remove('bg-blue-600','text-white')"
+      class="px-3 py-1.5 font-semibold transition-colors bg-white text-gray-600">⏳ Waiting</button>
+  </div>
   <button onclick="bulkComplete()" class="bg-green-500 hover:bg-green-600 text-white text-sm px-3 py-1.5 rounded transition-colors">Complete Selected</button>
   <button onclick="clearChecks()" class="text-sm text-gray-400 hover:text-gray-600 ml-auto">Clear</button>
 </div>
