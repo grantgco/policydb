@@ -61,6 +61,7 @@ def _parse_ref_tag(tag: str) -> dict:
 
     Examples:
         "CN123456789" → {"cn_number": "123456789"}
+        "CN123456789-L5-POL042" → {"cn_number": "123456789", "project_id": 5, "policy_uid": "POL-042"}
         "CN123456789-POL042" → {"cn_number": "123456789", "policy_uid": "POL-042"}
         "CN123456789-A7F2C3B1" → {"cn_number": "123456789", "issue_uid": "A7F2C3B1"}
     """
@@ -70,6 +71,11 @@ def _parse_ref_tag(tag: str) -> dict:
     cn_match = re.match(r'CN(\d+)', tag)
     if cn_match:
         result["cn_number"] = cn_match.group(1)
+
+    # Extract project/location ID (L followed by digits, e.g., -L5)
+    loc_match = re.search(r'-L(\d+)', tag)
+    if loc_match:
+        result["project_id"] = int(loc_match.group(1))
 
     # Extract program UID (PGM followed by digits)
     pgm_match = re.search(r'(PGM\d+)', tag)
@@ -318,6 +324,16 @@ def _resolve_ref_tag(conn: sqlite3.Connection, tag: str) -> dict | None:
         ).fetchone()
         if client:
             result["client_id"] = client["id"]
+
+    # Layer 1b: Resolve project/location by ID — overwrites CN lookup
+    if "project_id" in parsed:
+        program = conn.execute(
+            "SELECT id, client_id FROM programs WHERE id=?",
+            (parsed["project_id"],),
+        ).fetchone()
+        if program:
+            result["program_id"] = program["id"]
+            result["client_id"] = program["client_id"]
 
     # Layer 2a: Resolve program — its client_id overwrites CN lookup
     if "program_uid" in parsed:
