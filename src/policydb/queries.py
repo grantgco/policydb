@@ -1821,85 +1821,369 @@ def get_premium_history(
 
 # ─── SEARCH ───────────────────────────────────────────────────────────────────
 
-def full_text_search(conn: sqlite3.Connection, query: str) -> dict[str, list[sqlite3.Row]]:
-    pattern = f"%{query}%"
-    clients = conn.execute(
-        """SELECT id, name, industry_segment, primary_contact, notes, cn_number
-           FROM clients WHERE archived = 0
-           AND (name LIKE ? OR notes LIKE ? OR primary_contact LIKE ?
-                OR cn_number LIKE ? OR address LIKE ?)""",
-        (pattern, pattern, pattern, pattern, pattern),
-    ).fetchall()
-    policies = conn.execute(
-        """SELECT policy_uid, client_name, policy_type, carrier, policy_number,
-                  description, notes, project_name
-           FROM v_policy_status
-           WHERE (client_name LIKE ? OR policy_type LIKE ? OR carrier LIKE ?
-                  OR policy_number LIKE ? OR policy_uid LIKE ?
-                  OR project_name LIKE ? OR description LIKE ? OR notes LIKE ?)""",
-        (pattern, pattern, pattern, pattern, pattern, pattern, pattern, pattern),
-    ).fetchall()
-    activities = conn.execute(
-        """SELECT a.id, a.activity_date, c.name AS client_name,
-                  a.activity_type, a.subject, a.details, a.contact_person
-           FROM activity_log a
-           JOIN clients c ON a.client_id = c.id
-           WHERE (a.subject LIKE ? OR a.details LIKE ? OR a.contact_person LIKE ?)""",
-        (pattern, pattern, pattern),
-    ).fetchall()
-    # Knowledge base
-    kb_articles = conn.execute(
-        """SELECT uid, title, category, tags, updated_at
-           FROM kb_articles
-           WHERE title LIKE ? OR content LIKE ? OR tags LIKE ?
-           ORDER BY updated_at DESC LIMIT 10""",
-        (pattern, pattern, pattern),
-    ).fetchall()
-    kb_documents = conn.execute(
-        """SELECT uid, title, category, filename, tags, updated_at
-           FROM attachments
-           WHERE title LIKE ? OR description LIKE ? OR filename LIKE ? OR tags LIKE ?
-           ORDER BY updated_at DESC LIMIT 10""",
-        (pattern, pattern, pattern, pattern),
-    ).fetchall()
-    issues = conn.execute(
-        """SELECT a.id, a.issue_uid, a.subject, a.issue_status, a.issue_severity,
-                  a.activity_date, c.name AS client_name, p.policy_type
-           FROM activity_log a
-           LEFT JOIN clients c ON a.client_id = c.id
-           LEFT JOIN policies p ON a.policy_id = p.id
-           WHERE a.item_kind = 'issue' AND a.issue_id IS NULL
-             AND a.merged_into_id IS NULL
-             AND a.issue_status NOT IN ('Resolved', 'Closed')
-             AND (a.subject LIKE ? OR a.issue_uid LIKE ? OR a.details LIKE ?
-                  OR c.name LIKE ?)
-           ORDER BY
-             CASE a.issue_severity
-               WHEN 'Critical' THEN 0 WHEN 'High' THEN 1
-               WHEN 'Normal' THEN 2 ELSE 3
-             END,
-             a.activity_date DESC
-           LIMIT 20""",
-        (pattern, pattern, pattern, pattern),
-    ).fetchall()
-    locations = conn.execute(
-        """SELECT pr.id, pr.name, pr.address, pr.city, pr.state, pr.zip,
-                  pr.client_id, c.name AS client_name
-           FROM projects pr
-           JOIN clients c ON c.id = pr.client_id
-           WHERE pr.name LIKE ? OR pr.address LIKE ? OR pr.city LIKE ?
-           ORDER BY pr.name LIMIT 20""",
-        (pattern, pattern, pattern),
-    ).fetchall()
-    return {
-        "clients": clients,
-        "policies": policies,
-        "activities": activities,
-        "issues": issues,
-        "locations": locations,
-        "kb_articles": kb_articles,
-        "kb_documents": kb_documents,
-    }
+import re as _re
+import time as _time
+
+
+def rebuild_search_index(conn: sqlite3.Connection) -> None:
+    """Rebuild the FTS5 search index from scratch.  Runs on every startup."""
+    t0 = _time.perf_counter()
+    conn.execute("DELETE FROM search_index")
+
+    # -- Clients --
+    conn.execute("""
+        INSERT INTO search_index (entity_type, entity_id, title, subtitle, body, metadata)
+        SELECT 'client', CAST(id AS TEXT),
+            COALESCE(name, ''),
+            COALESCE(industry_segment, '') || ' ' || COALESCE(account_exec, ''),
+            COALESCE(notes, '') || ' ' || COALESCE(business_description, '')
+                || ' ' || COALESCE(account_priorities, '') || ' ' || COALESCE(renewal_strategy, '')
+                || ' ' || COALESCE(growth_opportunities, ''),
+            COALESCE(cn_number, '') || ' ' || COALESCE(contact_email, '')
+                || ' ' || COALESCE(address, '') || ' ' || COALESCE(primary_contact, '')
+                || ' ' || COALESCE(fein, '')
+        FROM clients WHERE archived = 0
+    """)
+
+    # -- Policies --
+    conn.execute("""
+        INSERT INTO search_index (entity_type, entity_id, title, subtitle, body, metadata)
+        SELECT 'policy', p.policy_uid,
+            COALESCE(c.name, '') || ' ' || COALESCE(p.policy_type, ''),
+            COALESCE(p.carrier, '') || ' ' || COALESCE(p.first_named_insured, ''),
+            COALESCE(p.description, '') || ' ' || COALESCE(p.notes, ''),
+            COALESCE(p.policy_uid, '') || ' ' || COALESCE(p.policy_number, '')
+                || ' ' || COALESCE(p.project_name, '') || ' ' || COALESCE(p.coverage_form, '')
+                || ' ' || COALESCE(p.underwriter_name, '') || ' ' || COALESCE(p.placement_colleague, '')
+                || ' ' || COALESCE(p.account_exec, '')
+        FROM policies p
+        JOIN clients c ON c.id = p.client_id
+        WHERE p.archived = 0
+    """)
+
+    # -- Activities (last 2 years) --
+    conn.execute("""
+        INSERT INTO search_index (entity_type, entity_id, title, subtitle, body, metadata)
+        SELECT 'activity', CAST(a.id AS TEXT),
+            COALESCE(a.subject, ''),
+            COALESCE(c.name, '') || ' ' || COALESCE(a.activity_type, '')
+                || ' ' || COALESCE(a.contact_person, ''),
+            COALESCE(a.details, '') || ' ' || COALESCE(a.email_snippet, ''),
+            COALESCE(a.email_from, '') || ' ' || COALESCE(a.email_to, '')
+        FROM activity_log a
+        LEFT JOIN clients c ON a.client_id = c.id
+        WHERE a.item_kind IS NULL
+          AND a.activity_date >= date('now', '-2 years')
+    """)
+
+    # -- Issues (open parent issues only) --
+    conn.execute("""
+        INSERT INTO search_index (entity_type, entity_id, title, subtitle, body, metadata)
+        SELECT 'issue', CAST(a.id AS TEXT),
+            COALESCE(a.subject, ''),
+            COALESCE(c.name, '') || ' ' || COALESCE(a.issue_severity, '')
+                || ' ' || COALESCE(a.issue_status, ''),
+            COALESCE(a.details, '') || ' ' || COALESCE(a.resolution_notes, ''),
+            COALESCE(a.issue_uid, '') || ' ' || COALESCE(a.root_cause_category, '')
+        FROM activity_log a
+        LEFT JOIN clients c ON a.client_id = c.id
+        WHERE a.item_kind = 'issue' AND a.issue_id IS NULL
+          AND a.merged_into_id IS NULL
+          AND a.issue_status NOT IN ('Resolved', 'Closed')
+    """)
+
+    # -- Contacts --
+    conn.execute("""
+        INSERT INTO search_index (entity_type, entity_id, title, subtitle, body, metadata)
+        SELECT 'contact', CAST(co.id AS TEXT),
+            COALESCE(co.name, ''),
+            COALESCE(co.organization, ''),
+            COALESCE(co.expertise_notes, ''),
+            COALESCE(co.email, '') || ' ' || COALESCE(co.phone, '')
+                || ' ' || COALESCE(co.mobile, '')
+                || ' ' || COALESCE(
+                    (SELECT GROUP_CONCAT(cca.role, ' ')
+                     FROM contact_client_assignments cca
+                     WHERE cca.contact_id = co.id AND cca.role IS NOT NULL), '')
+        FROM contacts co
+    """)
+
+    # -- Programs --
+    conn.execute("""
+        INSERT INTO search_index (entity_type, entity_id, title, subtitle, body, metadata)
+        SELECT 'program', pg.program_uid,
+            COALESCE(pg.name, ''),
+            COALESCE(c.name, '') || ' ' || COALESCE(pg.line_of_business, ''),
+            COALESCE(pg.notes, '') || ' ' || COALESCE(pg.working_notes, ''),
+            COALESCE(pg.program_uid, '') || ' ' || COALESCE(pg.lead_broker, '')
+                || ' ' || COALESCE(pg.account_exec, '')
+        FROM programs pg
+        JOIN clients c ON c.id = pg.client_id
+        WHERE pg.archived = 0
+    """)
+
+    # -- Meetings --
+    conn.execute("""
+        INSERT INTO search_index (entity_type, entity_id, title, subtitle, body, metadata)
+        SELECT 'meeting', CAST(m.id AS TEXT),
+            COALESCE(m.title, ''),
+            COALESCE(c.name, '') || ' ' || COALESCE(m.location, ''),
+            COALESCE(m.notes, '') || ' ' || COALESCE(m.agenda, ''),
+            COALESCE(m.meeting_uid, '')
+                || ' ' || COALESCE(
+                    (SELECT GROUP_CONCAT(ma.name, ' ')
+                     FROM meeting_attendees ma WHERE ma.meeting_id = m.id), '')
+        FROM client_meetings m
+        JOIN clients c ON c.id = m.client_id
+    """)
+
+    # -- Locations / Projects --
+    conn.execute("""
+        INSERT INTO search_index (entity_type, entity_id, title, subtitle, body, metadata)
+        SELECT 'location', CAST(pr.id AS TEXT),
+            COALESCE(pr.name, ''),
+            COALESCE(c.name, ''),
+            COALESCE(pr.notes, '') || ' ' || COALESCE(pr.scope_description, ''),
+            COALESCE(pr.address, '') || ' ' || COALESCE(pr.city, '')
+                || ' ' || COALESCE(pr.state, '') || ' ' || COALESCE(pr.zip, '')
+                || ' ' || COALESCE(pr.general_contractor, '') || ' ' || COALESCE(pr.owner_name, '')
+        FROM projects pr
+        JOIN clients c ON c.id = pr.client_id
+    """)
+
+    # -- Inbox (last 6 months) --
+    conn.execute("""
+        INSERT INTO search_index (entity_type, entity_id, title, subtitle, body, metadata)
+        SELECT 'inbox', CAST(i.id AS TEXT),
+            COALESCE(i.email_subject, SUBSTR(COALESCE(i.content, ''), 1, 100)),
+            COALESCE(i.email_from, ''),
+            COALESCE(i.content, ''),
+            COALESCE(i.inbox_uid, '') || ' ' || COALESCE(i.email_to, '')
+        FROM inbox i
+        WHERE i.created_at >= date('now', '-6 months')
+    """)
+
+    # -- Client scratchpads --
+    conn.execute("""
+        INSERT INTO search_index (entity_type, entity_id, title, subtitle, body, metadata)
+        SELECT 'scratchpad', 'client-' || CAST(cs.client_id AS TEXT),
+            COALESCE(c.name, '') || ' scratchpad',
+            '',
+            COALESCE(cs.content, ''),
+            ''
+        FROM client_scratchpad cs
+        JOIN clients c ON c.id = cs.client_id
+        WHERE cs.content IS NOT NULL AND cs.content != ''
+    """)
+
+    # -- Policy scratchpads --
+    conn.execute("""
+        INSERT INTO search_index (entity_type, entity_id, title, subtitle, body, metadata)
+        SELECT 'scratchpad', 'policy-' || ps.policy_uid,
+            ps.policy_uid || ' scratchpad',
+            '',
+            COALESCE(ps.content, ''),
+            ''
+        FROM policy_scratchpad ps
+        WHERE ps.content IS NOT NULL AND ps.content != ''
+    """)
+
+    conn.commit()
+    elapsed = (_time.perf_counter() - t0) * 1000
+    count = conn.execute("SELECT COUNT(*) FROM search_index").fetchone()[0]
+    logger.info("Search index rebuilt: %d rows in %.0fms", count, elapsed)
+
+
+# FTS5 operator characters to strip from user input
+_FTS5_SPECIAL = _re.compile(r'["\*\{\}\^\(\)]')
+_FTS5_KEYWORDS = {"AND", "OR", "NOT", "NEAR"}
+
+
+def _sanitize_fts_query(query: str) -> str:
+    """Build a safe FTS5 MATCH expression from user input."""
+    # Strip special FTS5 characters
+    q = _FTS5_SPECIAL.sub(" ", query)
+    words = [w for w in q.split() if w.upper() not in _FTS5_KEYWORDS and len(w) >= 1]
+    if not words:
+        return ""
+    # Each word gets prefix matching; multi-word also tries phrase match
+    parts = [f'"{w}"*' for w in words]
+    expr = " OR ".join(parts)
+    if len(words) > 1:
+        phrase = " ".join(words)
+        expr = f'"{phrase}" OR {expr}'
+    return expr
+
+
+def full_text_search(conn: sqlite3.Connection, query: str) -> dict:
+    """Search across all entity types using FTS5 with fuzzy fallback."""
+    match_expr = _sanitize_fts_query(query)
+    if not match_expr:
+        return {
+            "clients": [], "policies": [], "activities": [], "issues": [],
+            "contacts": [], "programs": [], "meetings": [], "locations": [],
+            "inbox": [], "_snippets": {}, "_query_mode": "none",
+        }
+
+    # --- Tier 1: FTS5 search ---
+    snippets: dict[tuple[str, str], str] = {}
+    grouped: dict[str, list[str]] = {}
+    try:
+        # Columns: 0=entity_type, 1=entity_id, 2=title, 3=subtitle, 4=body, 5=metadata
+        rows = conn.execute("""
+            SELECT entity_type, entity_id,
+                   snippet(search_index, 2, '<mark>', '</mark>', '…', 40),
+                   snippet(search_index, 3, '<mark>', '</mark>', '…', 40),
+                   snippet(search_index, 4, '<mark>', '</mark>', '…', 60),
+                   snippet(search_index, 5, '<mark>', '</mark>', '…', 40)
+            FROM search_index
+            WHERE search_index MATCH ?
+            ORDER BY bm25(search_index, 10.0, 5.0, 1.0, 3.0)
+            LIMIT 80
+        """, (match_expr,)).fetchall()
+        for r in rows:
+            etype, eid = r[0], r[1]
+            grouped.setdefault(etype, []).append(eid)
+            # Pick the best snippet — prefer the one that actually has a highlight
+            snip = ""
+            for col in (r[4], r[3], r[5], r[2]):  # body, subtitle, metadata, title
+                if col and "<mark>" in col:
+                    snip = col
+                    break
+            if snip:
+                snippets[(etype, eid)] = snip
+    except Exception:
+        # FTS5 query syntax error — fall through to fuzzy
+        logger.debug("FTS5 MATCH failed for %r, falling back to fuzzy", query)
+        rows = []
+
+    # --- Hydrate results from source tables ---
+    results: dict[str, list] = {}
+
+    def _hydrate(etype: str, sql: str, id_col: str = "id"):
+        ids = grouped.get(etype, [])
+        if not ids:
+            results[etype] = []
+            return
+        placeholders = ",".join("?" * len(ids))
+        full_sql = sql.replace("__IDS__", placeholders)
+        results[etype] = [dict(r) for r in conn.execute(full_sql, ids).fetchall()]
+
+    _hydrate("clients", """
+        SELECT id, name, industry_segment, primary_contact, notes, cn_number
+        FROM clients WHERE CAST(id AS TEXT) IN (__IDS__)
+    """)
+    _hydrate("policies", """
+        SELECT policy_uid, client_name, policy_type, carrier, policy_number,
+               description, notes, project_name, client_id
+        FROM v_policy_status WHERE policy_uid IN (__IDS__)
+    """)
+    _hydrate("activities", """
+        SELECT a.id, a.activity_date, c.name AS client_name,
+               a.activity_type, a.subject, a.details, a.contact_person
+        FROM activity_log a
+        LEFT JOIN clients c ON a.client_id = c.id
+        WHERE CAST(a.id AS TEXT) IN (__IDS__)
+        ORDER BY a.activity_date DESC
+    """)
+    _hydrate("issues", """
+        SELECT a.id, a.issue_uid, a.subject, a.issue_status, a.issue_severity,
+               a.activity_date, c.name AS client_name, p.policy_type
+        FROM activity_log a
+        LEFT JOIN clients c ON a.client_id = c.id
+        LEFT JOIN policies p ON a.policy_id = p.id
+        WHERE CAST(a.id AS TEXT) IN (__IDS__)
+        ORDER BY
+            CASE a.issue_severity
+              WHEN 'Critical' THEN 0 WHEN 'High' THEN 1
+              WHEN 'Normal' THEN 2 ELSE 3
+            END, a.activity_date DESC
+    """)
+    _hydrate("contacts", """
+        SELECT co.id, co.name, co.email, co.phone, co.mobile, co.organization
+        FROM contacts co WHERE CAST(co.id AS TEXT) IN (__IDS__)
+    """)
+    _hydrate("programs", """
+        SELECT pg.program_uid, pg.name, c.name AS client_name,
+               pg.line_of_business, pg.client_id
+        FROM programs pg
+        JOIN clients c ON c.id = pg.client_id
+        WHERE pg.program_uid IN (__IDS__)
+    """)
+    _hydrate("meetings", """
+        SELECT m.id, m.title, c.name AS client_name, m.meeting_date,
+               m.location, m.client_id, m.meeting_uid
+        FROM client_meetings m
+        JOIN clients c ON c.id = m.client_id
+        WHERE CAST(m.id AS TEXT) IN (__IDS__)
+        ORDER BY m.meeting_date DESC
+    """)
+    _hydrate("locations", """
+        SELECT pr.id, pr.name, pr.address, pr.city, pr.state, pr.zip,
+               pr.client_id, c.name AS client_name
+        FROM projects pr
+        JOIN clients c ON c.id = pr.client_id
+        WHERE CAST(pr.id AS TEXT) IN (__IDS__)
+        ORDER BY pr.name
+    """)
+    _hydrate("inbox", """
+        SELECT i.id, i.inbox_uid, i.email_subject, i.email_from, i.content,
+               i.created_at, i.status
+        FROM inbox i WHERE CAST(i.id AS TEXT) IN (__IDS__)
+        ORDER BY i.created_at DESC
+    """)
+
+    # --- Tier 2: Fuzzy fallback ---
+    total_fts = sum(len(v) for v in results.values())
+    query_mode = "fts5"
+
+    if total_fts < 3:
+        _fuzzy_types = {
+            "clients": ("SELECT id, name FROM clients WHERE archived = 0", "name", "id"),
+            "contacts": ("SELECT id, name || ' ' || COALESCE(email, '') || ' ' || COALESCE(organization, '') AS label FROM contacts", "label", "id"),
+            "programs": ("SELECT program_uid AS id, name FROM programs WHERE archived = 0", "name", "id"),
+        }
+        for etype, (sql, name_col, id_col) in _fuzzy_types.items():
+            if results.get(etype):
+                continue  # Already have FTS5 results for this type
+            candidates = {str(r[id_col]): r[name_col] for r in conn.execute(sql).fetchall()}
+            if not candidates:
+                continue
+            matches = process.extract(query, candidates, scorer=fuzz.WRatio, score_cutoff=65, limit=10)
+            if matches:
+                matched_ids = [m[2] for m in matches]  # key = id
+                existing_ids = {str(r.get("id", r.get("policy_uid", r.get("program_uid", "")))) for r in results.get(etype, [])}
+                new_ids = [mid for mid in matched_ids if mid not in existing_ids]
+                if new_ids and etype == "clients":
+                    ph = ",".join("?" * len(new_ids))
+                    fuzzy_rows = conn.execute(f"""
+                        SELECT id, name, industry_segment, primary_contact, notes, cn_number
+                        FROM clients WHERE CAST(id AS TEXT) IN ({ph})
+                    """, new_ids).fetchall()
+                    results["clients"].extend(dict(r) for r in fuzzy_rows)
+                elif new_ids and etype == "contacts":
+                    ph = ",".join("?" * len(new_ids))
+                    fuzzy_rows = conn.execute(f"""
+                        SELECT id, name, email, phone, mobile, organization
+                        FROM contacts WHERE CAST(id AS TEXT) IN ({ph})
+                    """, new_ids).fetchall()
+                    results["contacts"].extend(dict(r) for r in fuzzy_rows)
+                elif new_ids and etype == "programs":
+                    ph = ",".join("?" * len(new_ids))
+                    fuzzy_rows = conn.execute(f"""
+                        SELECT pg.program_uid, pg.name, c.name AS client_name,
+                               pg.line_of_business, pg.client_id
+                        FROM programs pg
+                        JOIN clients c ON c.id = pg.client_id
+                        WHERE pg.program_uid IN ({ph})
+                    """, new_ids).fetchall()
+                    results["programs"].extend(dict(r) for r in fuzzy_rows)
+                if new_ids:
+                    query_mode = "fuzzy"
+
+    results["_snippets"] = snippets
+    results["_query_mode"] = query_mode
+    return results
 
 
 # ─── REVIEW QUERIES ───────────────────────────────────────────────────────────
