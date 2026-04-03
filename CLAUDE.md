@@ -68,7 +68,7 @@ See the `policydb-design-system` skill for full color palette, typography, warm 
 - Migrations: `src/policydb/migrations/NNN_description.sql` — sequentially numbered
 - Migration runner: `src/policydb/db.py` — `init_db()` runs all migrations and rebuilds views on every server start
 - Views are **always dropped and recreated** on startup — never reference non-existent columns in view SQL
-- Current migration count: 106
+- Current migration count: 134
 
 ### Key Tables
 - `clients` — name, industry, contacts, account exec, scratchpad
@@ -78,6 +78,7 @@ See the `policydb-design-system` skill for full color palette, typography, warm 
 - `activity_log` — activities, follow-ups, notes
 - `policy_milestones` — checklist items per policy
 - `email_templates` — user-managed email form letters with `{{token}}` placeholders
+- `kb_bookmarks` — web bookmarks with BM-NNN UIDs, url, title, category, tags
 - `user_notes` — global dashboard scratchpad (id=1)
 - `client_scratchpad` — per-client freeform notes
 
