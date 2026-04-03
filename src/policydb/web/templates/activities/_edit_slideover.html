@@ -1,7 +1,5 @@
 {# Follow-Up Edit Slideover — per-field save on blur via PATCH #}
 
-{% set gd_edit = grouped_dispositions() %}
-
 <div class="flex items-start justify-between px-5 py-4 border-b border-gray-200 flex-shrink-0">
   <div>
     <h2 class="text-sm font-semibold text-gray-900">Edit Follow-Up</h2>
@@ -21,15 +19,18 @@
 <div class="flex-1 overflow-y-auto px-5 py-4 space-y-5">
   {# Follow-up date #}
   <div>
-    <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Follow-up Date</label>
-    <div class="flex items-center gap-2 mt-1">
+    <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Re-check in</label>
+    <div class="flex items-center gap-1 mt-1">
+      <div class="flex rounded-md overflow-hidden border border-gray-200 text-[11px]">
+        <button type="button" class="px-2 py-1 hover:bg-blue-50 text-gray-600 edit-date-btn" onclick="setEditDate(1)">1d</button>
+        <button type="button" class="px-2 py-1 hover:bg-blue-50 text-gray-600 border-l border-gray-200 edit-date-btn" onclick="setEditDate(3)">3d</button>
+        <button type="button" class="px-2 py-1 hover:bg-blue-50 bg-blue-50 text-blue-700 font-semibold border-l border-gray-200 edit-date-btn" onclick="setEditDate(7)">1w</button>
+        <button type="button" class="px-2 py-1 hover:bg-blue-50 text-gray-600 border-l border-gray-200 edit-date-btn" onclick="setEditDate(14)">2w</button>
+        <button type="button" class="px-2 py-1 hover:bg-blue-50 text-gray-600 border-l border-gray-200 edit-date-btn" onclick="setEditDate(30)">1m</button>
+      </div>
       <input type="date" id="edit-fu-date" value="{{ a.follow_up_date or '' }}"
-        class="text-sm border border-gray-300 rounded px-2 py-1.5 focus:ring-1 focus:ring-marsh focus:border-marsh"
+        class="text-sm border border-gray-200 rounded px-2 py-1.5 focus:ring-1 focus:ring-marsh focus:border-marsh"
         onchange="patchEditField({{ a.id }}, 'follow_up_date', this.value, this)">
-      <button type="button" onclick="setEditDate(1)" class="text-[10px] border border-gray-200 rounded px-1.5 py-0.5 text-gray-400 hover:text-marsh hover:border-marsh">+1d</button>
-      <button type="button" onclick="setEditDate(3)" class="text-[10px] border border-gray-200 rounded px-1.5 py-0.5 text-gray-400 hover:text-marsh hover:border-marsh">+3d</button>
-      <button type="button" onclick="setEditDate(7)" class="text-[10px] border border-gray-200 rounded px-1.5 py-0.5 text-gray-400 hover:text-marsh hover:border-marsh">+7d</button>
-      <button type="button" onclick="setEditDate(14)" class="text-[10px] border border-gray-200 rounded px-1.5 py-0.5 text-gray-400 hover:text-marsh hover:border-marsh">+2w</button>
     </div>
   </div>
 
@@ -41,23 +42,20 @@
       onblur="patchEditField({{ a.id }}, 'subject', this.value, this)">
   </div>
 
-  {# Disposition — grouped pills #}
+  {# Status — binary toggle #}
   <div>
-    <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Disposition</label>
-    <div class="mt-1 grid grid-cols-3 gap-3">
-      {% for cat in gd_edit.categories %}
-      <div>
-        <div class="text-[9px] text-gray-400 font-semibold uppercase tracking-wide mb-1">{{ cat.label }}</div>
-        <div class="flex flex-wrap gap-1">
-          {% for d in cat.disps %}
-          <button type="button"
-            onclick="selectEditDisp(this, {{ a.id }}, '{{ d.label }}')"
-            class="edit-disp-pill text-[10px] px-2 py-0.5 rounded border transition-colors cursor-pointer
-              {% if a.disposition == d.label %}bg-marsh text-white border-marsh{% else %}border-gray-200 text-gray-500 hover:border-marsh hover:text-marsh{% endif %}">{{ d.label }}</button>
-          {% endfor %}
-        </div>
-      </div>
-      {% endfor %}
+    <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Status</label>
+    <div class="mt-1 flex rounded-md overflow-hidden border border-gray-200 text-xs w-fit">
+      <button type="button" id="edit-disp-move"
+        class="px-3 py-1.5 font-semibold transition-colors {% if not a.disposition or a.disposition != 'Waiting on Response' %}bg-blue-600 text-white{% else %}bg-white text-gray-600{% endif %}"
+        onclick="this.classList.add('bg-blue-600','text-white'); this.classList.remove('bg-white','text-gray-600'); document.getElementById('edit-disp-wait').classList.add('bg-white','text-gray-600'); document.getElementById('edit-disp-wait').classList.remove('bg-amber-500','text-white'); patchEditField({{ a.id }}, 'disposition', '', this)">
+        My move
+      </button>
+      <button type="button" id="edit-disp-wait"
+        class="px-3 py-1.5 font-semibold transition-colors {% if a.disposition == 'Waiting on Response' %}bg-amber-500 text-white{% else %}bg-white text-gray-600{% endif %}"
+        onclick="this.classList.add('bg-amber-500','text-white'); this.classList.remove('bg-white','text-gray-600'); document.getElementById('edit-disp-move').classList.add('bg-white','text-gray-600'); document.getElementById('edit-disp-move').classList.remove('bg-blue-600','text-white'); patchEditField({{ a.id }}, 'disposition', 'Waiting on Response', this)">
+        ⏳ Waiting
+      </button>
     </div>
   </div>
 
@@ -114,14 +112,18 @@ function setEditDate(days) {
   var el = document.getElementById('edit-fu-date');
   el.value = val;
   patchEditField({{ a.id }}, 'follow_up_date', val, el);
-}
-
-function selectEditDisp(btn, actId, label) {
-  document.querySelectorAll('.edit-disp-pill').forEach(function(p) {
-    p.className = p.className.replace(/bg-marsh text-white border-marsh/g, 'border-gray-200 text-gray-500 hover:border-marsh hover:text-marsh');
+  // Highlight selected button
+  document.querySelectorAll('.edit-date-btn').forEach(function(b) {
+    b.classList.remove('bg-blue-50', 'text-blue-700', 'font-semibold');
+    b.classList.add('text-gray-600');
   });
-  btn.className = btn.className.replace(/border-gray-200 text-gray-500 hover:border-marsh hover:text-marsh/g, 'bg-marsh text-white border-marsh');
-  patchEditField(actId, 'disposition', label, btn);
+  var labels = {1:'1d', 3:'3d', 7:'1w', 14:'2w', 30:'1m'};
+  document.querySelectorAll('.edit-date-btn').forEach(function(b) {
+    if (b.textContent.trim() === labels[days]) {
+      b.classList.add('bg-blue-50', 'text-blue-700', 'font-semibold');
+      b.classList.remove('text-gray-600');
+    }
+  });
 }
 
 function patchEditField(actId, field, value, el) {
