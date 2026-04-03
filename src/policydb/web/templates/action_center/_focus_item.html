@@ -55,20 +55,17 @@
       {% if item.context_line %}
       <div class="text-[12px] text-[#6B6860] mt-0.5">{{ item.context_line }}</div>
       {% endif %}
-      {# Activity type + disposition detail row #}
-      {% if item.activity_type or item.disposition or item.contact_person %}
+      {# Last action + waiting indicator #}
+      {% if item.activity_type or item.contact_person or item.accountability == 'waiting_external' %}
       <div class="flex items-center gap-2 mt-1 flex-wrap">
         {% if item.activity_type %}
-          <span class="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">{{ item.activity_type }}</span>
-        {% endif %}
-        {% if item.disposition %}
-          <span class="text-[10px] bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded">{{ item.disposition }}</span>
+          <span class="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">Last: {{ item.activity_type }}</span>
         {% endif %}
         {% if item.contact_person %}
           <span class="text-[10px] text-gray-400">↳ {{ item.contact_person }}</span>
         {% endif %}
-        {% if item.prev_disposition and item.prev_days_ago %}
-          <span class="text-[10px] text-gray-400">prev: {{ item.prev_disposition }} ({{ item.prev_days_ago }}d ago)</span>
+        {% if item.accountability == 'waiting_external' %}
+          <span class="text-[10px] bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded font-semibold">⏳ Waiting</span>
         {% endif %}
       </div>
       {% endif %}
@@ -144,14 +141,19 @@
                value="{{ item.follow_up_date or '' }}"
                class="text-xs border border-gray-200 rounded px-2 py-1 focus:border-blue-400 focus:outline-none">
       </div>
-      <div class="flex flex-col gap-0.5">
-        <label class="text-[10px] uppercase text-gray-400 font-semibold">Ball with</label>
-        <select name="disposition" class="text-xs border border-gray-200 rounded px-2 py-1 focus:border-blue-400 focus:outline-none">
-          <option value="">— Select —</option>
-          {% for d in dispositions %}
-            <option value="{{ d.label }}" {% if d.label == item.disposition %}selected{% endif %}>{{ d.label }}</option>
-          {% endfor %}
-        </select>
+      {# Waiting toggle — simple binary #}
+      <input type="hidden" name="disposition" id="fq-disp-{{ row_id }}" value="">
+      <div class="flex rounded-md overflow-hidden border border-gray-200 text-xs" id="fq-wait-toggle-{{ row_id }}">
+        <button type="button"
+                class="px-3 py-1.5 font-semibold transition-colors bg-blue-600 text-white"
+                onclick="this.classList.add('bg-blue-600','text-white'); this.classList.remove('bg-white','text-gray-600'); this.nextElementSibling.classList.add('bg-white','text-gray-600'); this.nextElementSibling.classList.remove('bg-amber-500','text-white'); document.getElementById('fq-disp-{{ row_id }}').value=''">
+          My move
+        </button>
+        <button type="button"
+                class="px-3 py-1.5 font-semibold transition-colors bg-white text-gray-600"
+                onclick="this.classList.add('bg-amber-500','text-white'); this.classList.remove('bg-white','text-gray-600'); this.previousElementSibling.classList.add('bg-white','text-gray-600'); this.previousElementSibling.classList.remove('bg-blue-600','text-white'); document.getElementById('fq-disp-{{ row_id }}').value='Waiting on Response'">
+          ⏳ Waiting
+        </button>
       </div>
       <button type="submit" class="bg-green-600 text-white text-xs font-semibold px-3 py-1.5 rounded-md hover:bg-green-700">
         Done
