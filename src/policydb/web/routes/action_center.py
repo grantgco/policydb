@@ -959,7 +959,7 @@ def action_center_page(request: Request, tab: str = "", conn=Depends(get_db)):
             "waiting_items": waiting_items,
             "stats": fq_stats,
             "guide_me": False,
-            "horizon": "0",
+            "horizon": "all",
             "client_id": 0,
             "all_clients": [dict(c) for c in all_clients_fq],
             "selected_client_name": "",
@@ -1071,14 +1071,21 @@ def action_center_focus(
 ):
     """Focus Queue partial — returns the two-panel Focus Queue + Waiting Sidebar."""
     # Resolve horizon days
+    # Special values: "overdue" = -1, "today" = 0, "all" = -999, numeric = N days
     if custom_date:
         try:
             target = datetime.strptime(custom_date, "%Y-%m-%d").date()
             horizon_days = (target - date.today()).days
         except ValueError:
-            horizon_days = 0
+            horizon_days = -999
+    elif horizon == "overdue":
+        horizon_days = -1
+    elif horizon == "today":
+        horizon_days = 0
+    elif horizon == "all":
+        horizon_days = -999
     else:
-        horizon_days = int(horizon) if horizon.isdigit() else 0
+        horizon_days = int(horizon) if horizon.isdigit() else -999
 
     # Resolve client_id from name if needed
     if client_name and not client_id:

@@ -7,14 +7,15 @@
 {# ─── Top Bar: Time Horizon + Guide Me + Client Filter ─── #}
 <div class="flex items-center justify-between px-5 py-3 bg-white border-b border-[#E8E2D9]" id="fq-top-bar">
   <div class="flex items-center gap-4">
-    {# Time Horizon segmented control #}
+    {# Time filter segmented control #}
+    {% set _base = "/action-center/focus?client_id=" ~ client_id ~ "&guide_me=" ~ (guide_me | int) %}
     <div class="flex bg-[#EDEAE4] rounded-lg overflow-hidden text-[13px]" id="fq-horizon">
-      {% for h in [("0", "Today"), ("7", "This Week"), ("14", "Next 2 Weeks")] %}
+      {% for f in [("overdue", "Overdue"), ("today", "Today"), ("7", "This Week"), ("14", "Next 2 Weeks")] %}
         <button class="px-3.5 py-1.5 transition-colors
-                       {% if horizon == h[0] %}bg-[#000F47] text-white font-semibold{% else %}text-[#6B6860] hover:bg-[#E0DBD3]{% endif %}"
-                hx-get="/action-center/focus?horizon={{ h[0] }}&client_id={{ client_id }}&guide_me={{ guide_me | int }}"
+                       {% if horizon == f[0] %}bg-[#000F47] text-white font-semibold{% elif f[0] == 'overdue' and horizon == 'overdue' %}bg-red-600 text-white font-semibold{% else %}text-[#6B6860] hover:bg-[#E0DBD3]{% endif %}"
+                hx-get="{{ _base }}&horizon={{ f[0] }}"
                 hx-target="#fq-content" hx-swap="innerHTML">
-          {{ h[1] }}
+          {{ f[1] }}
         </button>
       {% endfor %}
       <button class="px-3.5 py-1.5 text-[#6B6860] hover:bg-[#E0DBD3] relative"
@@ -25,6 +26,13 @@
                hx-trigger="change" hx-include="this"
                name="custom_date"
                hx-vals='{"client_id": "{{ client_id }}", "guide_me": "{{ guide_me | int }}"}'>
+      </button>
+      {# "All" to clear filters #}
+      <button class="px-3.5 py-1.5 transition-colors
+                     {% if horizon == 'all' %}bg-[#000F47] text-white font-semibold{% else %}text-[#6B6860] hover:bg-[#E0DBD3]{% endif %}"
+              hx-get="{{ _base }}&horizon=all"
+              hx-target="#fq-content" hx-swap="innerHTML">
+        All
       </button>
     </div>
     <span class="text-[13px] text-[#9B9790]">{{ stats.focus_count }} item{{ 's' if stats.focus_count != 1 }} need{{ '' if stats.focus_count != 1 else 's' }} focus</span>
