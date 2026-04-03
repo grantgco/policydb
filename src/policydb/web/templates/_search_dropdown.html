@@ -1,0 +1,40 @@
+{% if items %}
+<div class="bg-white rounded-lg shadow-xl border border-gray-200 overflow-hidden max-h-[400px] overflow-y-auto" id="search-results-list">
+  {% for item in items %}
+  {% set r = item.data %}
+  {% set t = item.type %}
+  <a href="{% if t == 'clients' %}/clients/{{ r.id }}{% elif t == 'policies' %}/policies/{{ r.policy_uid }}/edit{% elif t == 'issues' %}/issues/{{ r.issue_uid }}{% elif t == 'contacts' %}/contacts/{{ r.id }}{% elif t == 'programs' %}/clients/{{ r.client_id }}/programs/{{ r.program_uid }}{% elif t == 'activities' %}#{% elif t == 'meetings' %}/clients/{{ r.client_id }}/meetings/{{ r.id }}{% elif t == 'locations' %}/clients/{{ r.client_id }}/projects/{{ r.id }}{% elif t == 'inbox' %}/action-center?tab=inbox{% endif %}"
+     class="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 border-b border-gray-50 last:border-0 search-dropdown-item"
+     data-idx="{{ loop.index0 }}">
+    <span class="text-[9px] font-semibold uppercase rounded px-1.5 py-0.5 shrink-0
+      {% if t == 'clients' %}bg-blue-100 text-blue-700
+      {% elif t == 'policies' %}bg-indigo-100 text-indigo-700
+      {% elif t == 'issues' %}bg-red-100 text-red-700
+      {% elif t == 'contacts' %}bg-emerald-100 text-emerald-700
+      {% elif t == 'programs' %}bg-purple-100 text-purple-700
+      {% elif t == 'activities' %}bg-gray-100 text-gray-600
+      {% elif t == 'meetings' %}bg-amber-100 text-amber-700
+      {% elif t == 'locations' %}bg-teal-100 text-teal-700
+      {% elif t == 'inbox' %}bg-orange-100 text-orange-700
+      {% endif %}">{{ t[:3] }}</span>
+    <span class="text-sm text-gray-800 truncate">
+      {% if t == 'clients' %}{{ r.name }}
+      {% elif t == 'policies' %}{{ r.client_name }} / {{ r.policy_type }} / {{ r.carrier }}
+      {% elif t == 'issues' %}{{ r.subject }}
+      {% elif t == 'contacts' %}{{ r.name }}{% if r.organization %} · {{ r.organization }}{% endif %}
+      {% elif t == 'programs' %}{{ r.name }} · {{ r.client_name }}
+      {% elif t == 'activities' %}{{ r.subject }}{% if r.client_name %} · {{ r.client_name }}{% endif %}
+      {% elif t == 'meetings' %}{{ r.title }} · {{ r.client_name }}
+      {% elif t == 'locations' %}{{ r.name }} · {{ r.client_name }}
+      {% elif t == 'inbox' %}{{ r.email_subject or (r.content[:60] if r.content else 'Inbox') }}
+      {% endif %}
+    </span>
+  </a>
+  {% endfor %}
+  {% if total > items|length %}
+  <a href="/search?q={{ q | urlencode }}" class="block text-center text-xs text-marsh py-2 hover:bg-gray-50 border-t border-gray-100">
+    View all {{ total }} results
+  </a>
+  {% endif %}
+</div>
+{% endif %}

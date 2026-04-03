@@ -2058,27 +2058,29 @@ def full_text_search(conn: sqlite3.Connection, query: str) -> dict:
         rows = []
 
     # --- Hydrate results from source tables ---
+    # FTS5 stores singular entity_type ('client', 'policy', etc.)
+    # Results dict uses plural keys ('clients', 'policies', etc.)
     results: dict[str, list] = {}
 
-    def _hydrate(etype: str, sql: str, id_col: str = "id"):
-        ids = grouped.get(etype, [])
+    def _hydrate(fts_type: str, result_key: str, sql: str):
+        ids = grouped.get(fts_type, [])
         if not ids:
-            results[etype] = []
+            results[result_key] = []
             return
         placeholders = ",".join("?" * len(ids))
         full_sql = sql.replace("__IDS__", placeholders)
-        results[etype] = [dict(r) for r in conn.execute(full_sql, ids).fetchall()]
+        results[result_key] = [dict(r) for r in conn.execute(full_sql, ids).fetchall()]
 
-    _hydrate("clients", """
+    _hydrate("client", "clients", """
         SELECT id, name, industry_segment, primary_contact, notes, cn_number
         FROM clients WHERE CAST(id AS TEXT) IN (__IDS__)
     """)
-    _hydrate("policies", """
+    _hydrate("policy", "policies", """
         SELECT policy_uid, client_name, policy_type, carrier, policy_number,
                description, notes, project_name, client_id
         FROM v_policy_status WHERE policy_uid IN (__IDS__)
     """)
-    _hydrate("activities", """
+    _hydrate("activity", "activities", """
         SELECT a.id, a.activity_date, c.name AS client_name,
                a.activity_type, a.subject, a.details, a.contact_person
         FROM activity_log a
@@ -2086,7 +2088,7 @@ def full_text_search(conn: sqlite3.Connection, query: str) -> dict:
         WHERE CAST(a.id AS TEXT) IN (__IDS__)
         ORDER BY a.activity_date DESC
     """)
-    _hydrate("issues", """
+    _hydrate("issue", "issues", """
         SELECT a.id, a.issue_uid, a.subject, a.issue_status, a.issue_severity,
                a.activity_date, c.name AS client_name, p.policy_type
         FROM activity_log a
@@ -2099,18 +2101,18 @@ def full_text_search(conn: sqlite3.Connection, query: str) -> dict:
               WHEN 'Normal' THEN 2 ELSE 3
             END, a.activity_date DESC
     """)
-    _hydrate("contacts", """
+    _hydrate("contact", "contacts", """
         SELECT co.id, co.name, co.email, co.phone, co.mobile, co.organization
         FROM contacts co WHERE CAST(co.id AS TEXT) IN (__IDS__)
     """)
-    _hydrate("programs", """
+    _hydrate("program", "programs", """
         SELECT pg.program_uid, pg.name, c.name AS client_name,
                pg.line_of_business, pg.client_id
         FROM programs pg
         JOIN clients c ON c.id = pg.client_id
         WHERE pg.program_uid IN (__IDS__)
     """)
-    _hydrate("meetings", """
+    _hydrate("meeting", "meetings", """
         SELECT m.id, m.title, c.name AS client_name, m.meeting_date,
                m.location, m.client_id, m.meeting_uid
         FROM client_meetings m
@@ -2118,7 +2120,7 @@ def full_text_search(conn: sqlite3.Connection, query: str) -> dict:
         WHERE CAST(m.id AS TEXT) IN (__IDS__)
         ORDER BY m.meeting_date DESC
     """)
-    _hydrate("locations", """
+    _hydrate("location", "locations", """
         SELECT pr.id, pr.name, pr.address, pr.city, pr.state, pr.zip,
                pr.client_id, c.name AS client_name
         FROM projects pr
@@ -2126,7 +2128,7 @@ def full_text_search(conn: sqlite3.Connection, query: str) -> dict:
         WHERE CAST(pr.id AS TEXT) IN (__IDS__)
         ORDER BY pr.name
     """)
-    _hydrate("inbox", """
+    _hydrate("inbox", "inbox", """
         SELECT i.id, i.inbox_uid, i.email_subject, i.email_from, i.content,
                i.created_at, i.status
         FROM inbox i WHERE CAST(i.id AS TEXT) IN (__IDS__)
