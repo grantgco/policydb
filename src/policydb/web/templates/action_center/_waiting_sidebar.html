@@ -1,0 +1,72 @@
+{# Waiting Sidebar — items where ball is with someone else.
+   Variables: waiting_items (list), stats (dict), horizon (str),
+             client_id (int), guide_me (bool)
+#}
+
+<div class="text-[11px] uppercase tracking-wider text-[#9B9790] font-semibold mb-3">
+  Waiting On Others
+  <span class="bg-[#EDEAE4] px-2 py-0.5 rounded-full text-[11px] ml-1">{{ stats.waiting_count }}</span>
+</div>
+
+{# Nudge alert banner #}
+{% if stats.nudge_alert_count > 0 %}
+  <div class="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5 mb-3 text-[12px] text-amber-800">
+    <strong>⚠ {{ stats.nudge_alert_count }} item{{ 's' if stats.nudge_alert_count != 1 }} waiting 10+ days</strong> — may need a nudge
+  </div>
+{% endif %}
+
+{% for item in waiting_items[:8] %}
+  {% set days_waiting = -(item.days_until_deadline or 0) if item.days_until_deadline and item.days_until_deadline < 0 else 0 %}
+  {% set is_stale = days_waiting >= 10 %}
+  <div class="bg-white rounded-lg px-3 py-2.5 mb-1.5 text-[13px] {% if is_stale %}border border-amber-200{% endif %}">
+    <div class="font-semibold text-[#3D3C37] truncate">
+      {{ item.client_name }}{% if item.policy_type %} — {{ item.policy_type }}{% endif %}
+    </div>
+    <div class="text-[12px] text-[#9B9790] mt-0.5 truncate">
+      {{ item.disposition or 'Waiting' }}
+      {% if days_waiting > 0 %} · {{ days_waiting }} day{{ 's' if days_waiting != 1 }}{% endif %}
+    </div>
+    {% if is_stale %}
+      <div class="flex gap-1.5 mt-1.5">
+        <button class="bg-amber-50 text-amber-800 border border-amber-200 text-[11px] font-semibold px-2.5 py-0.5 rounded hover:bg-amber-100"
+                hx-post="/activities/{{ item.id }}/nudge"
+                hx-target="closest div"
+                hx-swap="outerHTML"
+                hx-vals='{"context": "waiting_sidebar"}'>
+          Nudge →
+        </button>
+        <button class="bg-gray-50 text-[#6B6860] text-[11px] px-2.5 py-0.5 rounded hover:bg-gray-100"
+                hx-get="/action-center/focus?horizon={{ horizon }}&client_id={{ client_id }}&guide_me={{ guide_me | int }}&promote={{ item.id }}"
+                hx-target="#fq-content" hx-swap="innerHTML">
+          Pull to Focus
+        </button>
+      </div>
+    {% endif %}
+  </div>
+{% endfor %}
+
+{% if waiting_items | length > 8 %}
+  <div class="text-center py-2 text-[12px] text-[#9B9790] cursor-pointer hover:text-[#6B6860]"
+       onclick="this.nextElementSibling.classList.toggle('hidden'); this.textContent = this.textContent.includes('+') ? 'Show less' : '+ {{ waiting_items | length - 8 }} more items'">
+    + {{ waiting_items | length - 8 }} more items
+  </div>
+  <div class="hidden">
+    {% for item in waiting_items[8:] %}
+      {% set days_waiting = -(item.days_until_deadline or 0) if item.days_until_deadline and item.days_until_deadline < 0 else 0 %}
+      <div class="bg-white rounded-lg px-3 py-2.5 mb-1.5 text-[13px]">
+        <div class="font-semibold text-[#3D3C37] truncate">{{ item.client_name }}{% if item.policy_type %} — {{ item.policy_type }}{% endif %}</div>
+        <div class="text-[12px] text-[#9B9790] mt-0.5">{{ item.disposition or 'Waiting' }}{% if days_waiting > 0 %} · {{ days_waiting }}d{% endif %}</div>
+      </div>
+    {% endfor %}
+  </div>
+{% endif %}
+
+{# Quick stats #}
+<div class="border-t border-[#E8E2D9] mt-3 pt-3">
+  <div class="text-[11px] uppercase tracking-wider text-[#9B9790] font-semibold mb-2">Quick Stats</div>
+  <div class="text-[13px] text-[#6B6860] leading-relaxed space-y-1">
+    <div>📋 {{ stats.focus_count }} in focus</div>
+    <div>⏳ {{ stats.waiting_count }} waiting on others</div>
+    {% if stats.get('hours_today') %}<div>⏱ {{ stats.hours_today }}h logged today</div>{% endif %}
+  </div>
+</div>
