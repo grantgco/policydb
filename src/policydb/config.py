@@ -131,6 +131,7 @@ _DEFAULTS: dict[str, Any] = {
         {"label": "Waiting on Colleague", "default_days": 5, "accountability": "waiting_external", "category": "waiting"},
         {"label": "Waiting on Client", "default_days": 7, "accountability": "waiting_external", "category": "waiting"},
         {"label": "Waiting on Carrier", "default_days": 7, "accountability": "waiting_external", "category": "waiting"},
+        {"label": "Waiting on Response", "default_days": 7, "accountability": "waiting_external", "category": "waiting"},
         {"label": "Connected", "default_days": 0, "accountability": "my_action", "category": "action"},
         {"label": "Received Response", "default_days": 0, "accountability": "my_action", "category": "action"},
         {"label": "Meeting Scheduled", "default_days": 0, "accountability": "scheduled", "category": "completed"},
