@@ -714,6 +714,7 @@ def get_review_gate_status(conn, record_type: str, record_id: int) -> dict:
             "name": "Data Health",
             "passed": passed,
             "detail": f"Score {score}/100 (min {min_health})",
+            "score": score,
         })
     except Exception as e:
         conditions.append({
@@ -794,6 +795,23 @@ def get_review_gate_status(conn, record_type: str, record_id: int) -> dict:
         "passed": overdue_count == 0,
         "detail": f"{overdue_count} overdue follow-up{'s' if overdue_count != 1 else ''}",
     })
+
+    # Enrich conditions with descriptions and action metadata
+    from policydb.review_checks import GATE_CHECK_META
+
+    for cond in conditions:
+        meta = GATE_CHECK_META.get(cond["name"], {})
+        cond["description"] = meta.get("description", cond["detail"])
+        cond["why"] = meta.get("why", "")
+        cond["action_type"] = meta.get("action_type", "followup")
+        cond["quick_fix_type"] = meta.get("quick_fix_type", "")
+        cond["quick_fix_label"] = meta.get("quick_fix_label", meta.get("action_label", ""))
+        cond["followup_label"] = meta.get("followup_label", "Schedule Follow-Up")
+        cond["followup_note"] = meta.get("followup_note", "")
+
+        # Interpolate Data Health description with actual score
+        if cond["name"] == "Data Health" and not cond["passed"]:
+            cond["description"] = f"Policy data is {cond.get('score', '?')}% complete"
 
     return {
         "all_pass": all(c["passed"] for c in conditions),
