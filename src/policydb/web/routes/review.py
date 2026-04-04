@@ -6,6 +6,7 @@ from datetime import date
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
+from starlette.responses import JSONResponse
 
 from policydb import config as cfg
 from policydb.utils import round_duration, parse_currency_with_magnitude
@@ -16,13 +17,21 @@ from policydb.queries import (
     attach_issue_counts,
     get_activities,
     get_client_contacts,
+    get_or_create_review_session,
     get_policy_contacts,
     get_review_queue,
     get_review_stats,
+    get_review_section_items,
+    get_this_week_summary,
+    get_last_completed_review_date,
+    archive_stale_session,
+    update_section_status,
+    complete_review_session,
     mark_reviewed,
     set_review_cycle,
     supersede_followups,
 )
+from policydb.review_checks import WALKTHROUGH_SECTIONS
 from policydb.web.app import get_db, templates
 
 router = APIRouter(prefix="/review")
@@ -219,39 +228,142 @@ def _get_client_review_context(conn, client_id: int) -> dict | None:
     }
 
 
+# ── Session & Walkthrough Routes ─────────────────────────────────────────────
+
+
+@router.get("/session", response_class=HTMLResponse)
+def get_session(request: Request, conn=Depends(get_db)):
+    """Get or create the active review session."""
+    session = get_or_create_review_session(conn)
+    return JSONResponse({"session_id": session["id"], "stale": session.get("stale", False)})
+
+
+@router.post("/session/complete", response_class=HTMLResponse)
+def complete_session(request: Request, conn=Depends(get_db)):
+    """Mark the entire review session as complete."""
+    session = get_or_create_review_session(conn)
+    complete_review_session(conn, session["id"])
+    return RedirectResponse("/review", status_code=303)
+
+
+@router.post("/session/archive", response_class=HTMLResponse)
+def archive_session(request: Request, conn=Depends(get_db)):
+    """Archive a stale session and start fresh."""
+    session = get_or_create_review_session(conn)
+    archive_stale_session(conn, session["id"])
+    get_or_create_review_session(conn)
+    return RedirectResponse("/review", status_code=303)
+
+
+@router.post("/vacation", response_class=HTMLResponse)
+def set_vacation(request: Request, vacation_return_date: str = Form(""), conn=Depends(get_db)):
+    """Set or clear vacation return date on active session."""
+    session = get_or_create_review_session(conn)
+    date_val = vacation_return_date if vacation_return_date else None
+    conn.execute(
+        "UPDATE review_sessions SET vacation_return_date = ? WHERE id = ?",
+        (date_val, session["id"]),
+    )
+    conn.commit()
+    return RedirectResponse("/review", status_code=303)
+
+
+@router.get("/this-week", response_class=HTMLResponse)
+def this_week(request: Request, conn=Depends(get_db)):
+    """This Week activity summary partial."""
+    since = get_last_completed_review_date(conn)
+    summary = get_this_week_summary(conn, since)
+    return templates.TemplateResponse("review/_this_week.html", {"request": request, "summary": summary})
+
+
+@router.get("/section/{section_key}", response_class=HTMLResponse)
+def load_section(request: Request, section_key: str, conn=Depends(get_db)):
+    """Lazy-load a walkthrough section's content."""
+    items = get_review_section_items(conn, section_key)
+    session = get_or_create_review_session(conn)
+    return templates.TemplateResponse("review/_walkthrough_section.html", {
+        "request": request,
+        "section_key": section_key,
+        "items": items,
+        "session": session,
+    })
+
+
+@router.post("/section/{section_key}/complete", response_class=HTMLResponse)
+def section_complete(request: Request, section_key: str, conn=Depends(get_db)):
+    """Mark a section as complete."""
+    import json as _json
+    session = get_or_create_review_session(conn)
+    items = get_review_section_items(conn, section_key)
+    sections = update_section_status(conn, session["id"], section_key, "complete", len(items))
+
+    all_done = all(s.get("status") in ("complete", "skipped") for s in sections.values())
+    if all_done:
+        complete_review_session(conn, session["id"])
+
+    return templates.TemplateResponse("review/_stats_banner.html", {
+        "request": request,
+        "sections": sections,
+        "session": session,
+        "all_done": all_done,
+        "section_defs": WALKTHROUGH_SECTIONS,
+    })
+
+
+@router.post("/section/{section_key}/skip", response_class=HTMLResponse)
+def section_skip(request: Request, section_key: str, conn=Depends(get_db)):
+    """Mark a section as skipped."""
+    session = get_or_create_review_session(conn)
+    sections = update_section_status(conn, session["id"], section_key, "skipped")
+
+    all_done = all(s.get("status") in ("complete", "skipped") for s in sections.values())
+    if all_done:
+        complete_review_session(conn, session["id"])
+
+    return templates.TemplateResponse("review/_stats_banner.html", {
+        "request": request,
+        "sections": sections,
+        "session": session,
+        "all_done": all_done,
+        "section_defs": WALKTHROUGH_SECTIONS,
+    })
+
+
 # ── Page ──────────────────────────────────────────────────────────────────────
 
+
 @router.get("", response_class=HTMLResponse)
-def review_page(request: Request, client_id: int = 0, conn=Depends(get_db)):
-    queue = get_review_queue(conn, client_id=client_id)
-    stats = get_review_stats(conn)
+def review_page(request: Request, conn=Depends(get_db)):
+    """Guided weekly review walkthrough."""
+    import json as _json
+    session = get_or_create_review_session(conn)
+    sections = _json.loads(session.get("sections_json", "{}"))
 
-    policies = _enrich_policy_rows(conn, queue["policies"])
-    opportunities = _enrich_policy_rows(conn, queue["opportunities"])
-    clients = _enrich_client_rows(conn, queue["clients"])
+    section_counts = {}
+    for s in WALKTHROUGH_SECTIONS:
+        if s.get("conditional") and not session.get("vacation_return_date"):
+            continue
+        items = get_review_section_items(conn, s["key"])
+        section_counts[s["key"]] = len(items)
 
-    suggestions = suggest_profile(conn)
-    unassigned_count = len(suggestions)
-
-    all_clients = [dict(c) for c in conn.execute(
-        "SELECT id, name FROM clients WHERE archived = 0 ORDER BY name"
-    ).fetchall()]
+    first_incomplete = None
+    for s in WALKTHROUGH_SECTIONS:
+        if s.get("conditional") and not session.get("vacation_return_date"):
+            continue
+        sec_state = sections.get(s["key"], {})
+        if sec_state.get("status") not in ("complete", "skipped"):
+            first_incomplete = s["key"]
+            break
 
     return templates.TemplateResponse("review/index.html", {
         "request": request,
         "active": "review",
-        "policies": policies,
-        "opportunities": opportunities,
-        "clients": clients,
-        "stats": stats,
-        "suggestions": suggestions,
-        "unassigned_count": unassigned_count,
-        "renewal_statuses": cfg.get("renewal_statuses", []),
-        "cycle_labels": REVIEW_CYCLE_LABELS,
-        "milestone_profiles": cfg.get("milestone_profiles", []),
-        "today": date.today().isoformat(),
-        "all_clients": all_clients,
-        "client_id": client_id,
+        "session": session,
+        "sections": sections,
+        "section_defs": WALKTHROUGH_SECTIONS,
+        "section_counts": section_counts,
+        "first_incomplete": first_incomplete,
+        "all_done": session.get("completed_at") is not None,
     })
 
 
