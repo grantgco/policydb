@@ -4206,3 +4206,257 @@ def get_followups_for_grid(conn: sqlite3.Connection) -> list[dict]:
     """
     rows = conn.execute(sql).fetchall()
     return [dict(r) for r in rows]
+
+
+# ── Review Session Queries ──────────────────────────────────────────────
+
+
+def get_or_create_review_session(conn: sqlite3.Connection) -> dict:
+    """Return the active (incomplete) review session, or create a new one."""
+    import dateparser
+    import json
+    from datetime import datetime
+
+    row = conn.execute(
+        "SELECT * FROM review_sessions WHERE completed_at IS NULL ORDER BY started_at DESC LIMIT 1"
+    ).fetchone()
+    if row:
+        session = dict(row)
+        started = dateparser.parse(session["started_at"])
+        if started and (datetime.now() - started).days > 7:
+            session["stale"] = True
+        else:
+            session["stale"] = False
+        return session
+
+    from policydb.review_checks import WALKTHROUGH_SECTIONS
+
+    sections = {}
+    for s in WALKTHROUGH_SECTIONS:
+        if s.get("conditional"):
+            continue
+        sections[s["key"]] = {"status": "pending", "completed_at": None, "item_count": 0}
+
+    conn.execute(
+        "INSERT INTO review_sessions (sections_json) VALUES (?)",
+        (json.dumps(sections),),
+    )
+    conn.commit()
+    new_row = conn.execute(
+        "SELECT * FROM review_sessions WHERE completed_at IS NULL ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    session = dict(new_row)
+    session["stale"] = False
+    return session
+
+
+def archive_stale_session(conn: sqlite3.Connection, session_id: int) -> None:
+    """Mark a stale session as completed (partial) so a new one can start."""
+    conn.execute(
+        "UPDATE review_sessions SET completed_at = datetime('now') WHERE id = ?",
+        (session_id,),
+    )
+    conn.commit()
+
+
+def update_section_status(
+    conn: sqlite3.Connection, session_id: int, section_key: str, status: str, item_count: int = 0
+) -> dict:
+    """Update a section's status in the session's sections_json."""
+    import json
+    from datetime import datetime
+
+    row = conn.execute("SELECT sections_json FROM review_sessions WHERE id = ?", (session_id,)).fetchone()
+    sections = json.loads(row["sections_json"]) if row else {}
+    sections[section_key] = {
+        "status": status,
+        "completed_at": datetime.now().isoformat() if status == "complete" else None,
+        "item_count": item_count,
+    }
+    conn.execute(
+        "UPDATE review_sessions SET sections_json = ? WHERE id = ?",
+        (json.dumps(sections), session_id),
+    )
+    conn.commit()
+    return sections
+
+
+def complete_review_session(conn: sqlite3.Connection, session_id: int) -> None:
+    """Mark the entire review session as complete."""
+    conn.execute(
+        "UPDATE review_sessions SET completed_at = datetime('now') WHERE id = ?",
+        (session_id,),
+    )
+    conn.commit()
+
+
+def get_last_completed_review_date(conn: sqlite3.Connection) -> str | None:
+    """Return the completed_at timestamp of the most recent finished review session."""
+    row = conn.execute(
+        "SELECT completed_at FROM review_sessions WHERE completed_at IS NOT NULL ORDER BY completed_at DESC LIMIT 1"
+    ).fetchone()
+    return row["completed_at"] if row else None
+
+
+def get_this_week_summary(conn: sqlite3.Connection, since: str | None = None) -> dict:
+    """Return activity summary since last completed review for the This Week section."""
+    if not since:
+        since = "2000-01-01"
+
+    created_policies = conn.execute(
+        "SELECT COUNT(*) as cnt FROM audit_log WHERE table_name = 'policies' AND operation = 'INSERT' AND timestamp > ?",
+        (since,),
+    ).fetchone()["cnt"]
+
+    created_clients = conn.execute(
+        "SELECT COUNT(*) as cnt FROM audit_log WHERE table_name = 'clients' AND operation = 'INSERT' AND timestamp > ?",
+        (since,),
+    ).fetchone()["cnt"]
+
+    issues_closed = conn.execute(
+        """SELECT COUNT(*) as cnt FROM activity_log
+           WHERE item_kind = 'issue' AND issue_status IN ('Resolved', 'Closed')
+             AND activity_date > ?""",
+        (since,),
+    ).fetchone()["cnt"]
+
+    followups_completed = conn.execute(
+        """SELECT COUNT(*) as cnt FROM activity_log
+           WHERE follow_up_done = 1 AND activity_date > ?""",
+        (since,),
+    ).fetchone()["cnt"]
+
+    status_changes = [dict(r) for r in conn.execute(
+        """SELECT al.old_value, al.new_value, p.policy_uid, p.policy_type
+           FROM audit_log al
+           JOIN policies p ON p.id = al.record_id
+           WHERE al.table_name = 'policies' AND al.column_name = 'renewal_status'
+             AND al.timestamp > ?
+           ORDER BY al.timestamp DESC LIMIT 20""",
+        (since,),
+    ).fetchall()]
+
+    contacts_modified = conn.execute(
+        "SELECT COUNT(*) as cnt FROM audit_log WHERE table_name = 'contacts' AND timestamp > ?",
+        (since,),
+    ).fetchone()["cnt"]
+
+    return {
+        "created_policies": created_policies,
+        "created_clients": created_clients,
+        "issues_closed": issues_closed,
+        "followups_completed": followups_completed,
+        "status_changes": status_changes,
+        "contacts_modified": contacts_modified,
+        "since": since,
+    }
+
+
+def get_review_section_items(conn: sqlite3.Connection, section_key: str) -> list[dict]:
+    """Return items for a specific walkthrough section."""
+    from policydb.config import cfg
+
+    if section_key == "overdue_followups":
+        return [dict(r) for r in conn.execute(
+            """SELECT al.*, c.name as client_name
+               FROM activity_log al
+               LEFT JOIN clients c ON al.client_id = c.id
+               WHERE al.follow_up_done = 0 AND al.follow_up_date < date('now')
+                 AND al.item_kind = 'followup'
+               ORDER BY al.follow_up_date ASC"""
+        ).fetchall()]
+
+    if section_key == "upcoming_renewals":
+        window = cfg.get("review_renewal_window_days", 120)
+        return [dict(r) for r in conn.execute(
+            """SELECT p.*, c.name as client_name
+               FROM policies p
+               JOIN clients c ON p.client_id = c.id
+               WHERE p.expiration_date IS NOT NULL
+                 AND p.expiration_date BETWEEN date('now') AND date('now', '+' || ? || ' days')
+                 AND (p.is_opportunity = 0 OR p.is_opportunity IS NULL)
+               ORDER BY p.expiration_date ASC""",
+            (window,),
+        ).fetchall()]
+
+    if section_key == "open_issues":
+        stale_days = cfg.get("review_stale_issue_days", 14)
+        return [dict(r) for r in conn.execute(
+            """SELECT al.*, c.name as client_name
+               FROM activity_log al
+               LEFT JOIN clients c ON al.client_id = c.id
+               WHERE al.item_kind = 'issue'
+                 AND al.issue_status NOT IN ('Resolved', 'Closed')
+                 AND (
+                   al.activity_date < date('now', '-' || ? || ' days')
+                   OR al.due_date IS NULL
+                   OR (al.issue_severity = 'Critical' AND al.activity_date < date('now', '-7 days'))
+                 )
+               ORDER BY
+                 CASE WHEN al.issue_severity = 'Critical' THEN 0 ELSE 1 END,
+                 al.activity_date ASC""",
+            (stale_days,),
+        ).fetchall()]
+
+    if section_key == "client_health":
+        inactive_days = cfg.get("review_inactive_client_days", 180)
+        return [dict(r) for r in conn.execute(
+            """SELECT c.*,
+                 (SELECT COUNT(*) FROM contact_client_assignments cca
+                  JOIN contacts ct ON cca.contact_id = ct.id
+                  WHERE cca.client_id = c.id AND cca.is_primary = 1) as has_primary,
+                 (SELECT MAX(al.activity_date) FROM activity_log al WHERE al.client_id = c.id) as last_activity
+               FROM clients c
+               WHERE c.is_active != 0
+                 AND (
+                   (SELECT COUNT(*) FROM contact_client_assignments cca
+                    JOIN contacts ct ON cca.contact_id = ct.id
+                    WHERE cca.client_id = c.id AND cca.is_primary = 1) = 0
+                   OR (SELECT MAX(al.activity_date) FROM activity_log al WHERE al.client_id = c.id) < date('now', '-' || ? || ' days')
+                   OR (SELECT MAX(al.activity_date) FROM activity_log al WHERE al.client_id = c.id) IS NULL
+                 )
+               ORDER BY c.name""",
+            (inactive_days,),
+        ).fetchall()]
+
+    if section_key == "policy_audit":
+        return [dict(r) for r in conn.execute(
+            """SELECT p.*, c.name as client_name
+               FROM policies p
+               JOIN clients c ON p.client_id = c.id
+               WHERE (p.is_opportunity = 0 OR p.is_opportunity IS NULL)
+                 AND (
+                   p.expiration_date IS NULL
+                   OR p.carrier IS NULL OR p.carrier = ''
+                   OR p.renewal_status IS NULL OR p.renewal_status = ''
+                 )
+               ORDER BY c.name, p.policy_type"""
+        ).fetchall()]
+
+    if section_key == "inbox":
+        return [dict(r) for r in conn.execute(
+            """SELECT * FROM inbox_items
+               WHERE processed = 0
+               ORDER BY received_at DESC"""
+        ).fetchall()]
+
+    return []
+
+
+def should_show_review_reminder(conn: sqlite3.Connection, reminder_day: str) -> bool:
+    """Check if the review reminder banner should show on the dashboard."""
+    import datetime as dt
+
+    today = dt.date.today()
+    day_names = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+    if reminder_day.lower() not in day_names:
+        return False
+    if day_names[today.weekday()] != reminder_day.lower():
+        return False
+
+    monday = today - dt.timedelta(days=today.weekday())
+    row = conn.execute(
+        "SELECT COUNT(*) as cnt FROM review_sessions WHERE completed_at >= ?",
+        (monday.isoformat(),),
+    ).fetchone()
+    return row["cnt"] == 0
