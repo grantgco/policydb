@@ -66,6 +66,12 @@ EDITABLE_LISTS: dict[str, str] = {
     "relationship_risk_levels": "Relationship Risk Levels",
     "risk_review_prompt_categories": "Risk Review Prompt Categories",
     "import_source_names": "Import Source Names",
+    "review_reminder_day": "Review — Reminder Day",
+    "review_stale_issue_days": "Review — Stale Issue Threshold (days)",
+    "review_renewal_urgency_days": "Review — Renewal Urgency Window (days)",
+    "review_renewal_window_days": "Review — Renewal Review Window (days)",
+    "review_inactive_client_days": "Review — Inactive Client Threshold (days)",
+    "review_vacation_pre_marketing_days": "Review — Vacation Pre-Marketing Window (days)",
 }
 
 TAB_LISTS: dict[str, dict[str, str]] = {

@@ -1812,6 +1812,15 @@ def init_db(path: Path | None = None) -> None:
         conn.commit()
         logger.info("Migration 135: prompt_templates and prompt_export_log tables")
 
+    if 136 not in applied:
+        conn.executescript((_MIGRATIONS_DIR / "136_review_sessions.sql").read_text())
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (136, "Review sessions table for guided walkthrough"),
+        )
+        conn.commit()
+        logger.info("Migration 136: review_sessions table")
+
     # Data hygiene: fix 'None' string corruption in text fields (runs every startup, fast no-op if clean)
     conn.execute("UPDATE clients SET cn_number = NULL WHERE cn_number = 'None'")
 
