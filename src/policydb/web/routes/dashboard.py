@@ -23,6 +23,7 @@ from policydb.queries import (
     get_stale_renewals,
     get_suggested_followups,
     full_text_search,
+    should_show_review_reminder,
 )
 from policydb.web.app import get_db, templates
 
@@ -157,6 +158,8 @@ def dashboard(request: Request, conn=Depends(get_db)):
            ORDER BY cs.updated_at DESC LIMIT 5"""
     ).fetchall()]
 
+    show_review_reminder = should_show_review_reminder(conn, cfg.get("review_reminder_day", "monday"))
+
     return templates.TemplateResponse("dashboard.html", {
         "request": request,
         "active": "dashboard",
@@ -182,6 +185,7 @@ def dashboard(request: Request, conn=Depends(get_db)):
         "issues_widget": issues_widget,
         "hours_this_month": hours_this_month,
         "upcoming_meetings": upcoming_meetings,
+        "show_review_reminder": show_review_reminder,
     })
 
 
