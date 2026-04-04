@@ -4460,3 +4460,61 @@ def should_show_review_reminder(conn: sqlite3.Connection, reminder_day: str) -> 
         (monday.isoformat(),),
     ).fetchone()
     return row["cnt"] == 0
+
+
+def get_vacation_checklist(conn: sqlite3.Connection, return_date: str) -> dict:
+    """Generate a pre-departure checklist based on vacation return date."""
+    from policydb.config import cfg
+    pre_marketing_days = cfg.get("review_vacation_pre_marketing_days", 14)
+
+    followups_during = [dict(r) for r in conn.execute(
+        """SELECT al.*, c.name as client_name
+           FROM activity_log al
+           LEFT JOIN clients c ON al.client_id = c.id
+           WHERE al.follow_up_done = 0
+             AND al.follow_up_date BETWEEN date('now') AND ?
+             AND al.item_kind = 'followup'
+           ORDER BY al.follow_up_date ASC""",
+        (return_date,),
+    ).fetchall()]
+
+    issues_during = [dict(r) for r in conn.execute(
+        """SELECT al.*, c.name as client_name
+           FROM activity_log al
+           LEFT JOIN clients c ON al.client_id = c.id
+           WHERE al.item_kind = 'issue'
+             AND al.issue_status NOT IN ('Resolved', 'Closed')
+             AND al.due_date BETWEEN date('now') AND ?
+           ORDER BY al.due_date ASC""",
+        (return_date,),
+    ).fetchall()]
+
+    renewals_near_return = [dict(r) for r in conn.execute(
+        """SELECT p.*, c.name as client_name
+           FROM policies p
+           JOIN clients c ON p.client_id = c.id
+           WHERE p.expiration_date IS NOT NULL
+             AND p.expiration_date BETWEEN ? AND date(?, '+' || ? || ' days')
+             AND (p.is_opportunity = 0 OR p.is_opportunity IS NULL)
+           ORDER BY p.expiration_date ASC""",
+        (return_date, return_date, pre_marketing_days),
+    ).fetchall()]
+
+    milestones_during = [dict(r) for r in conn.execute(
+        """SELECT pt.*, p.policy_uid, p.policy_type, c.name as client_name
+           FROM policy_timeline pt
+           JOIN policies p ON pt.policy_uid = p.policy_uid
+           JOIN clients c ON p.client_id = c.id
+           WHERE pt.completed_date IS NULL
+             AND pt.projected_date BETWEEN date('now') AND ?
+           ORDER BY pt.projected_date ASC""",
+        (return_date,),
+    ).fetchall()]
+
+    return {
+        "return_date": return_date,
+        "followups": followups_during,
+        "issues": issues_during,
+        "renewals": renewals_near_return,
+        "milestones": milestones_during,
+    }

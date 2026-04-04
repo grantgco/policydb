@@ -268,6 +268,17 @@ def set_vacation(request: Request, vacation_return_date: str = Form(""), conn=De
     return RedirectResponse("/review", status_code=303)
 
 
+@router.get("/vacation-checklist", response_class=HTMLResponse)
+def vacation_checklist(request: Request, conn=Depends(get_db)):
+    """Vacation pre-departure checklist partial."""
+    from policydb.queries import get_vacation_checklist
+    session = get_or_create_review_session(conn)
+    if not session.get("vacation_return_date"):
+        return HTMLResponse("<div class='p-4 text-sm text-gray-500'>No vacation date set.</div>")
+    checklist = get_vacation_checklist(conn, session["vacation_return_date"])
+    return templates.TemplateResponse("review/_vacation_checklist.html", {"request": request, "checklist": checklist})
+
+
 @router.get("/this-week", response_class=HTMLResponse)
 def this_week(request: Request, conn=Depends(get_db)):
     """This Week activity summary partial."""
