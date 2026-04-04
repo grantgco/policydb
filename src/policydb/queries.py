@@ -4304,12 +4304,12 @@ def get_this_week_summary(conn: sqlite3.Connection, since: str | None = None) ->
         since = "2000-01-01"
 
     created_policies = conn.execute(
-        "SELECT COUNT(*) as cnt FROM audit_log WHERE table_name = 'policies' AND operation = 'INSERT' AND timestamp > ?",
+        "SELECT COUNT(*) as cnt FROM audit_log WHERE table_name = 'policies' AND operation = 'INSERT' AND changed_at > ?",
         (since,),
     ).fetchone()["cnt"]
 
     created_clients = conn.execute(
-        "SELECT COUNT(*) as cnt FROM audit_log WHERE table_name = 'clients' AND operation = 'INSERT' AND timestamp > ?",
+        "SELECT COUNT(*) as cnt FROM audit_log WHERE table_name = 'clients' AND operation = 'INSERT' AND changed_at > ?",
         (since,),
     ).fetchone()["cnt"]
 
@@ -4326,18 +4326,20 @@ def get_this_week_summary(conn: sqlite3.Connection, since: str | None = None) ->
         (since,),
     ).fetchone()["cnt"]
 
+    # Status changes: audit_log stores old_values/new_values as JSON, so we query
+    # activity_log for renewal status changes instead (more reliable)
     status_changes = [dict(r) for r in conn.execute(
-        """SELECT al.old_value, al.new_value, p.policy_uid, p.policy_type
-           FROM audit_log al
-           JOIN policies p ON p.id = al.record_id
-           WHERE al.table_name = 'policies' AND al.column_name = 'renewal_status'
-             AND al.timestamp > ?
-           ORDER BY al.timestamp DESC LIMIT 20""",
+        """SELECT al.subject, p.policy_uid, p.policy_type, al.activity_date
+           FROM activity_log al
+           JOIN policies p ON al.policy_id = p.id
+           WHERE al.activity_type = 'Status Change'
+             AND al.activity_date > ?
+           ORDER BY al.activity_date DESC LIMIT 20""",
         (since,),
     ).fetchall()]
 
     contacts_modified = conn.execute(
-        "SELECT COUNT(*) as cnt FROM audit_log WHERE table_name = 'contacts' AND timestamp > ?",
+        "SELECT COUNT(*) as cnt FROM audit_log WHERE table_name = 'contacts' AND changed_at > ?",
         (since,),
     ).fetchone()["cnt"]
 
@@ -4354,7 +4356,7 @@ def get_this_week_summary(conn: sqlite3.Connection, since: str | None = None) ->
 
 def get_review_section_items(conn: sqlite3.Connection, section_key: str) -> list[dict]:
     """Return items for a specific walkthrough section."""
-    from policydb.config import cfg
+    import policydb.config as cfg
 
     if section_key == "overdue_followups":
         return [dict(r) for r in conn.execute(
@@ -4407,7 +4409,7 @@ def get_review_section_items(conn: sqlite3.Connection, section_key: str) -> list
                   WHERE cca.client_id = c.id AND cca.is_primary = 1) as has_primary,
                  (SELECT MAX(al.activity_date) FROM activity_log al WHERE al.client_id = c.id) as last_activity
                FROM clients c
-               WHERE c.is_active != 0
+               WHERE c.archived = 0
                  AND (
                    (SELECT COUNT(*) FROM contact_client_assignments cca
                     JOIN contacts ct ON cca.contact_id = ct.id
@@ -4435,9 +4437,9 @@ def get_review_section_items(conn: sqlite3.Connection, section_key: str) -> list
 
     if section_key == "inbox":
         return [dict(r) for r in conn.execute(
-            """SELECT * FROM inbox_items
-               WHERE processed = 0
-               ORDER BY received_at DESC"""
+            """SELECT * FROM inbox
+               WHERE status = 'pending'
+               ORDER BY created_at DESC"""
         ).fetchall()]
 
     return []
@@ -4464,7 +4466,7 @@ def should_show_review_reminder(conn: sqlite3.Connection, reminder_day: str) -> 
 
 def get_vacation_checklist(conn: sqlite3.Connection, return_date: str) -> dict:
     """Generate a pre-departure checklist based on vacation return date."""
-    from policydb.config import cfg
+    import policydb.config as cfg
     pre_marketing_days = cfg.get("review_vacation_pre_marketing_days", 14)
 
     followups_during = [dict(r) for r in conn.execute(

@@ -29,9 +29,8 @@
         <a href="/policies/{{ ch.policy_uid }}" class="text-marsh hover:underline font-medium">{{ ch.policy_uid }}</a>
         <span class="text-gray-400">{{ ch.policy_type or '' }}</span>
         <span class="text-gray-400">&mdash;</span>
-        <span class="text-gray-500">{{ ch.old_value or 'None' }}</span>
-        <span class="text-gray-400">&rarr;</span>
-        <span class="text-gray-800 font-medium">{{ ch.new_value }}</span>
+        <span class="text-gray-800">{{ ch.subject or 'Status change' }}</span>
+        <span class="text-xs text-gray-400 ml-1">{{ ch.activity_date }}</span>
       </div>
       {% endfor %}
     </div>
