@@ -86,7 +86,7 @@ The Focus Queue (`src/policydb/focus_queue.py`) replaces the old 8-bucket follow
 | Follow-ups | `get_all_followups()` | Activity/policy/project/client follow-ups |
 | Suggested | `get_suggested_followups()` | Policies nearing expiration with no follow-up |
 | Insurance deadlines | `get_insurance_deadline_suggestions()` | Projects with approaching `insurance_needed_by` |
-| Inbox | `get_pending_inbox()` | Unprocessed emails and manual captures |
+| Inbox | `get_pending_inbox()` | Unprocessed emails and manual captures (see Inbox Process below) |
 | Issues | `get_open_issues_with_due()` | Open issues with due dates |
 | Milestones | `get_overdue_milestones()` | Timeline milestones due or with prep alerts |
 | Project deadlines | `get_approaching_projects()` | Projects with approaching `target_completion` |
@@ -355,6 +355,34 @@ This prevents double-listing from both direct activity follow-ups AND program-le
 
 ---
 
+## Inbox Process Flow
+
+Inbox items (manual captures or Outlook-synced emails) are processed via a slideover panel.
+
+### Routes
+- `GET /inbox/{id}/process-slideover` — renders the process form
+- `POST /inbox/{id}/process` — creates activity, marks item processed
+- `POST /inbox/{id}/dismiss` — marks item processed without creating an activity
+
+### Three Processing Paths
+| Button | Follow-up? | Behavior |
+|--------|-----------|----------|
+| **Log & Close** | No | Clears follow-up date, sets `follow_up_done=1` — activity logged for record but won't appear in follow-up queues |
+| **Save with Follow-up** | Yes | Creates activity with follow-up date — appears in Focus Queue/Follow-ups |
+| **Schedule** | Yes (required) | Creates a scheduled task with client + follow-up date |
+
+### Key Behavior
+- Follow-up date is **optional** — no pre-selected default
+- `disposition` field (My move / Waiting) is saved to `activity_log.disposition`
+- Email metadata (`email_from`, `email_to`, `outlook_message_id`, `email_snippet`) is carried over from inbox item
+- Contact is auto-carried from inbox item if set via @ tagging
+- After processing, thread siblings are detected for batch-apply
+
+### Log Without Follow-up Pattern
+Activities that don't need follow-up (FYI emails, informational notes) should set `follow_up_done=1` and leave `follow_up_date=NULL`. This keeps them out of follow-up queues while preserving the audit trail. Apply this pattern to any activity creation flow, not just inbox.
+
+---
+
 ## Key Files
 
 | File | Functions |
@@ -364,6 +392,7 @@ This prevents double-listing from both direct activity follow-ups AND program-le
 | `src/policydb/web/routes/action_center.py` | `_classify_item`, `_compute_nudge_tier`, `_followups_ctx`, `_sidebar_ctx` |
 | `src/policydb/web/routes/issues.py` | Issue CRUD, merge/dissolve, resolution, bulk operations |
 | `src/policydb/web/routes/activities.py` | Activity creation, completion, supersession, re-diary |
+| `src/policydb/web/routes/inbox.py` | Inbox capture, process slideover, dismiss, schedule, thread siblings |
 | `src/policydb/timeline_engine.py` | Milestone health computation, severity sync trigger |
 | `src/policydb/views.py` | `v_issue_policy_coverage`, `v_overdue_followups` |
 
