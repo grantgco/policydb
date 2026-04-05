@@ -367,15 +367,38 @@ def _normalize_milestone(item: dict, today: date) -> dict:
 
 
 def _normalize_issue(item: dict, today: date) -> dict:
-    """Normalize an open issue with a due date."""
-    due = item.get("due_date", "")
+    """Normalize an open issue for the Focus Queue.
+
+    Issues WITH a due_date use that directly.  Issues WITHOUT a due_date
+    get a synthetic deadline derived from SLA: created_at + sla_days.
+    This ensures dateless issues naturally escalate as they age past SLA
+    rather than sitting invisible forever.
+    """
+    due = item.get("due_date", "") or item.get("follow_up_date", "")
     days_until = None
+    is_synthetic = False
     if due:
         try:
             d = datetime.strptime(due, "%Y-%m-%d").date()
             days_until = (d - today).days
         except ValueError:
             pass
+    else:
+        # Synthetic deadline from SLA: created_at + sla_days
+        is_synthetic = True
+        created = item.get("created_at", "")
+        severity = item.get("issue_severity", "Normal")
+        sla_map = {s["label"]: s.get("sla_days", 7)
+                   for s in cfg.get("issue_severities", [])}
+        sla_days = sla_map.get(severity, 7)
+        if created:
+            try:
+                created_date = datetime.strptime(created[:10], "%Y-%m-%d").date()
+                synthetic_due = created_date + timedelta(days=sla_days)
+                days_until = (synthetic_due - today).days
+                due = synthetic_due.isoformat()
+            except ValueError:
+                pass
 
     return {
         "id": item.get("id"),
@@ -409,6 +432,7 @@ def _normalize_issue(item: dict, today: date) -> dict:
         "linked_issue_uid": item.get("issue_uid"),
         "linked_issue_subject": item.get("subject"),
         "linked_issue_severity": item.get("issue_severity"),
+        "is_synthetic_deadline": is_synthetic,
         "prev_disposition": None,
         "prev_days_ago": None,
         "contact_person": None,
@@ -637,10 +661,15 @@ def get_pending_inbox(conn: sqlite3.Connection) -> list[dict]:
 
 
 def get_open_issues_with_due(conn: sqlite3.Connection) -> list[dict]:
-    """Get open issues that have due dates, for Focus Queue."""
+    """Get ALL open issues for Focus Queue — with or without due dates.
+
+    Issues without explicit dates get a synthetic deadline computed from
+    SLA days so they naturally escalate as they age past SLA.
+    """
     rows = conn.execute("""
         SELECT a.id, a.subject, a.issue_uid, a.issue_severity,
                a.due_date, a.follow_up_date, a.client_id,
+               a.created_at,
                c.name AS client_name,
                p.policy_uid, p.policy_type
         FROM activity_log a
@@ -648,8 +677,7 @@ def get_open_issues_with_due(conn: sqlite3.Connection) -> list[dict]:
         LEFT JOIN policies p ON a.policy_id = p.id
         WHERE a.item_kind = 'issue'
           AND a.issue_status NOT IN ('Resolved', 'Closed')
-          AND (a.due_date IS NOT NULL OR a.follow_up_date IS NOT NULL)
-        ORDER BY COALESCE(a.due_date, a.follow_up_date) ASC
+        ORDER BY COALESCE(a.due_date, a.follow_up_date, a.created_at) ASC
     """).fetchall()
     return [dict(r) for r in rows]
 
@@ -686,7 +714,7 @@ def get_approaching_projects(conn: sqlite3.Connection, window_days: int = 30) ->
         JOIN clients c ON p.client_id = c.id
         WHERE p.target_completion IS NOT NULL
           AND julianday(p.target_completion) - julianday('now') <= ?
-          AND julianday(p.target_completion) - julianday('now') > -30
+          AND julianday(p.target_completion) - julianday('now') > -60
           AND p.project_type != 'Location'
           AND c.archived = 0
           AND p.status NOT IN ('Complete', 'Closed', 'Cancelled')
@@ -696,11 +724,17 @@ def get_approaching_projects(conn: sqlite3.Connection, window_days: int = 30) ->
 
 
 def get_approaching_opportunities(conn: sqlite3.Connection, window_days: int = 90) -> list[dict]:
-    """Get opportunities with approaching target dates."""
+    """Get ALL active opportunities for Focus Queue.
+
+    Opportunities WITH target dates are filtered by window_days.
+    Opportunities WITHOUT dates are always included so they can't
+    silently vanish — they get a staleness-based deadline in the
+    normalizer.
+    """
     rows = conn.execute("""
         SELECT p.id, p.policy_uid, p.policy_type, p.carrier,
                p.target_effective_date, p.expiration_date,
-               p.client_id, p.renewal_status,
+               p.client_id, p.renewal_status, p.created_at,
                c.name AS client_name,
                COALESCE(p.target_effective_date, p.expiration_date) AS deadline,
                CAST(julianday(COALESCE(p.target_effective_date, p.expiration_date))
@@ -711,12 +745,18 @@ def get_approaching_opportunities(conn: sqlite3.Connection, window_days: int = 9
         JOIN clients c ON p.client_id = c.id
         WHERE p.is_opportunity = 1
           AND p.archived = 0
-          AND COALESCE(p.target_effective_date, p.expiration_date) IS NOT NULL
-          AND julianday(COALESCE(p.target_effective_date, p.expiration_date))
-              - julianday('now') <= ?
-          AND julianday(COALESCE(p.target_effective_date, p.expiration_date))
-              - julianday('now') > -14
-        ORDER BY deadline ASC
+          AND (
+              -- Dated opportunities within window (extended to 30d past-due)
+              (COALESCE(p.target_effective_date, p.expiration_date) IS NOT NULL
+               AND julianday(COALESCE(p.target_effective_date, p.expiration_date))
+                   - julianday('now') <= ?
+               AND julianday(COALESCE(p.target_effective_date, p.expiration_date))
+                   - julianday('now') > -30)
+              OR
+              -- Dateless opportunities — always include
+              COALESCE(p.target_effective_date, p.expiration_date) IS NULL
+          )
+        ORDER BY COALESCE(deadline, p.created_at) ASC
     """, (window_days,)).fetchall()
     return [dict(r) for r in rows]
 
@@ -781,7 +821,14 @@ def _normalize_project_deadline(item: dict, today: date) -> dict:
 
 
 def _normalize_opportunity(item: dict, today: date) -> dict:
-    """Normalize an opportunity with approaching target date."""
+    """Normalize an opportunity for the Focus Queue.
+
+    Opportunities WITH a target date use that directly.
+    Opportunities WITHOUT a target date get a synthetic deadline based
+    on staleness: 14 days after last activity (or creation if no activity).
+    This ensures dateless opportunities escalate into view rather than
+    hiding forever.
+    """
     deadline = item.get("deadline", "") or ""
     days_remaining = item.get("days_remaining")
     last_act = item.get("last_activity_date") or ""
@@ -793,11 +840,27 @@ def _normalize_opportunity(item: dict, today: date) -> dict:
         except ValueError:
             pass
 
+    # Synthetic deadline for dateless opportunities
+    is_synthetic = False
+    if not deadline:
+        is_synthetic = True
+        stale_days = cfg.get("opportunity_staleness_days", 14)
+        anchor = last_act or (item.get("created_at") or "")
+        if anchor:
+            try:
+                anchor_date = datetime.strptime(anchor[:10], "%Y-%m-%d").date()
+                synthetic_due = anchor_date + timedelta(days=stale_days)
+                deadline = synthetic_due.isoformat()
+                days_remaining = (synthetic_due - today).days
+            except ValueError:
+                pass
+
     return {
         "id": item.get("id"),
         "kind": "opportunity",
         "source": "opportunity",
         "source_label": "Opportunity",
+        "is_synthetic_deadline": is_synthetic,
         "client_id": item.get("client_id"),
         "client_name": item.get("client_name", ""),
         "cn_number": item.get("cn_number", ""),
@@ -986,6 +1049,8 @@ def build_focus_queue(
             continue
         if kind == "milestone" and puid in _covered_policies:
             continue
+        if kind == "opportunity" and puid in _covered_policies:
+            continue
 
         deduped.append(item)
 
@@ -998,6 +1063,23 @@ def build_focus_queue(
         action, detail = _build_suggestion(item)
         item["suggested_action"] = action
         item["suggested_action_detail"] = detail
+
+    # --- Assign display categories (3 user-facing buckets) ---
+    # Action: things YOU need to do by a date
+    # Advance: things to move forward proactively
+    # Incoming: things to triage/process
+    _CATEGORY_MAP = {
+        "followup": "action",
+        "issue": "action",
+        "milestone": "action",
+        "insurance_deadline": "action",
+        "project_deadline": "action",
+        "opportunity": "advance",
+        "suggested": "advance",
+        "inbox": "incoming",
+    }
+    for item in all_items:
+        item["display_category"] = _CATEGORY_MAP.get(item.get("kind"), "action")
 
     # --- Split into Focus vs Waiting ---
     focus_items: list[dict] = []
@@ -1065,9 +1147,9 @@ def build_focus_queue(
 
     # --- Apply time horizon filter ---
     # horizon_days semantics:
-    #   -1 = "overdue" (only past-due items)
-    #   0  = "today" (only items due today, NOT overdue)
-    #   >0 = "next N days" (items due within N days, NOT overdue)
+    #   -1   = "overdue" (only past-due items)
+    #   0    = "today" (due today + overdue — never hide overdue)
+    #   >0   = "next N days" (within N days + overdue — strictly additive)
     #   -999 = "all" (no filter)
     if horizon_days == -1:
         # Overdue only
@@ -1077,18 +1159,18 @@ def build_focus_queue(
             and i["days_until_deadline"] < 0
         ]
     elif horizon_days == 0:
-        # Today only (due today, not overdue)
+        # Today: items due today + ALL overdue (never hide overdue)
         focus_items = [
             i for i in focus_items
             if i.get("days_until_deadline") is None  # no-deadline items (inbox) always show
-            or i["days_until_deadline"] == 0
+            or i["days_until_deadline"] <= 0
         ]
     elif horizon_days > 0:
-        # Next N days (excludes overdue)
+        # Next N days — INCLUDES overdue items (wider views are strictly additive)
         focus_items = [
             i for i in focus_items
             if i.get("days_until_deadline") is None
-            or (0 <= i["days_until_deadline"] <= horizon_days)
+            or i["days_until_deadline"] <= horizon_days
         ]
     # else: horizon_days == -999 → "all", no filter
 

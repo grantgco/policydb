@@ -204,6 +204,7 @@ def _build_tab_context(tab: str, conn) -> dict:
         ctx["followup_expiration_buffer_days"] = cfg.get("followup_expiration_buffer_days", 3)
         ctx["stale_auto_close_days"] = cfg.get("stale_auto_close_days", 30)
         ctx["auto_closed_section_days"] = cfg.get("auto_closed_section_days", 7)
+        ctx["opportunity_staleness_days"] = cfg.get("opportunity_staleness_days", 14)
         # activity_types needed by mandated activities editor
         if "lists" not in ctx:
             ctx["lists"] = {}
@@ -653,6 +654,15 @@ def update_stale_auto_close_days(request: Request, value: int = Form(...)):
 def update_auto_closed_section_days(request: Request, value: int = Form(...)):
     full = dict(cfg.load_config())
     full["auto_closed_section_days"] = max(1, min(value, 30))
+    cfg.save_config(full)
+    cfg.reload_config()
+    return RedirectResponse("/settings?tab=follow-ups", status_code=303)
+
+
+@router.post("/config/opportunity-staleness-days")
+def update_opportunity_staleness_days(request: Request, value: int = Form(...)):
+    full = dict(cfg.load_config())
+    full["opportunity_staleness_days"] = max(7, min(value, 90))
     cfg.save_config(full)
     cfg.reload_config()
     return RedirectResponse("/settings?tab=follow-ups", status_code=303)

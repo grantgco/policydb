@@ -28,6 +28,7 @@ _DEFAULTS: dict[str, Any] = {
     },
     "focus_auto_promote_days": 14,
     "focus_nudge_alert_days": 10,
+    "opportunity_staleness_days": 14,
     "google_places_api_key": "",
     "google_places_daily_limit": 1000,
     "default_hourly_rate": 150,

@@ -1,30 +1,30 @@
 {# Single Focus Queue item row.
    Variables: item (dict), guide_me (bool), is_highlighted (bool), dispositions (list)
 #}
-{% set border_colors = {
-    'inbox': 'border-blue-500',
-    'suggested': 'border-amber-500',
-    'milestone': 'border-purple-500',
-    'issue': 'border-red-500',
-    'insurance_deadline': 'border-orange-500',
-    'project_deadline': 'border-indigo-500',
-    'opportunity': 'border-teal-500',
+{# 3 display categories: action (do it), advance (move it forward), incoming (triage it) #}
+{% set category_borders = {
+    'action': 'border-[#000F47]',
+    'advance': 'border-teal-500',
+    'incoming': 'border-amber-500',
 } %}
-{% set badge_colors = {
-    'Follow-up': 'bg-gray-100 text-gray-700',
-    'Renewal': 'bg-red-50 text-red-700',
-    'Inbox': 'bg-blue-50 text-blue-700',
-    'Milestone': 'bg-purple-50 text-purple-700',
-    'Issue': 'bg-red-50 text-red-700',
-    'Insurance Deadline': 'bg-orange-50 text-orange-700',
-    'Opportunity': 'bg-teal-50 text-teal-700',
-    'Project': 'bg-indigo-50 text-indigo-700',
-    'Client': 'bg-gray-50 text-gray-600',
+{% set category_badges = {
+    'action': 'bg-gray-100 text-[#3D3C37]',
+    'advance': 'bg-teal-50 text-teal-700',
+    'incoming': 'bg-amber-50 text-amber-700',
+} %}
+{% set category_labels = {
+    'action': 'ACTION',
+    'advance': 'ADVANCE',
+    'incoming': 'INCOMING',
 } %}
 
-{% set border = border_colors.get(item.kind, 'border-gray-400') %}
-{% set badge_color = badge_colors.get(item.source_label, 'bg-gray-100 text-gray-700') %}
+{% set cat = item.display_category | default('action') %}
+{% set is_overdue = item.days_until_deadline is not none and item.days_until_deadline < 0 %}
+{% set border = 'border-red-500' if is_overdue else category_borders.get(cat, 'border-gray-400') %}
+{% set badge_color = 'bg-red-50 text-red-700' if is_overdue else category_badges.get(cat, 'bg-gray-100 text-gray-700') %}
 {% set row_id = item.kind ~ '-' ~ item.id %}
+{# has_activity_id: true when item.id is a real activity_log row ID (used by both inline form and overflow menu) #}
+{% set has_activity_id = (item.kind == 'followup' and item.source in ('activity', 'project')) or item.kind == 'issue' %}
 
 <div id="fq-{{ row_id }}"
      class="bg-white rounded-lg p-3.5 mb-2 border-l-4 {{ border }} transition-all
@@ -36,8 +36,11 @@
     <div class="flex-1 min-w-0">
       <div class="flex items-center gap-2 mb-1 flex-wrap">
         <span class="text-[11px] font-semibold px-2 py-0.5 rounded {{ badge_color }} whitespace-nowrap">
-          {{ item.source_label | upper }}
+          {% if is_overdue and item.is_synthetic_deadline %}NEEDS ATTENTION{% elif is_overdue %}OVERDUE{% else %}{{ category_labels.get(cat, 'ACTION') }}{% endif %}
         </span>
+        {% if item.source_label and item.source_label not in ('Follow-up',) %}
+        <span class="text-[10px] text-[#9B9790]">{{ item.source_label }}</span>
+        {% endif %}
         {# Ref tag pill — click to copy for emails #}
         {% if item.policy_uid %}
           {% set _item_ref = build_ref_tag(cn_number=item.cn_number|default(''), client_id=item.client_id, policy_uid=item.policy_uid) %}
@@ -64,7 +67,12 @@
       {% endif %}
       {# Context line (why it's hot) #}
       {% if item.context_line %}
-      <div class="text-[12px] text-[#6B6860] mt-0.5">{{ item.context_line }}</div>
+      <div class="text-[12px] text-[#6B6860] mt-0.5">
+        {{ item.context_line }}
+        {% if item.is_synthetic_deadline %}
+          <span class="text-[10px] text-[#9B9790] ml-1" title="Estimated from SLA — no explicit deadline set">(est.)</span>
+        {% endif %}
+      </div>
       {% endif %}
       {# Last action + contact + waiting indicator #}
       <div class="flex items-center gap-2 mt-1 flex-wrap">
@@ -118,8 +126,8 @@
                 hx-target="#fu-edit-content" hx-swap="innerHTML"
                 onclick="openFollowupEdit()"
               {% elif item.kind == 'milestone' %}
-                hx-post="/policies/{{ item.policy_uid }}/milestones/{{ item.id }}/complete"
-                hx-target="#fq-{{ row_id }}" hx-swap="outerHTML"
+                hx-post="/policies/{{ item.policy_uid }}/milestone/{{ item.milestone_name | urlencode }}/complete"
+                hx-target="#fq-{{ row_id }}" hx-swap="delete"
               {% elif item.kind == 'suggested' %}
                 hx-get="/policies/{{ item.policy_uid }}/row/log?ctx=focus"
                 hx-target="#fq-{{ row_id }}" hx-swap="outerHTML"
@@ -144,14 +152,18 @@
   {% endif %}
 
   {# Inline completion form (hidden, expanded by fqExpandComplete) #}
+  {# Route: activity follow-ups re-diary via /activities/{id}/followup.
+     Everything else creates a new activity via /activities/log with client/policy context. #}
   <div id="fq-complete-{{ row_id }}" class="hidden mt-2.5 p-3 bg-gray-50 rounded-md border border-gray-200">
-    <form hx-post="{% if item.kind == 'followup' and item.source == 'activity' %}/activities/{{ item.id }}/followup{% elif item.policy_uid %}/policies/{{ item.policy_uid }}/followup{% else %}/activities/log{% endif %}"
+    <form hx-post="{% if has_activity_id and item.kind == 'followup' %}/activities/{{ item.id }}/followup{% elif has_activity_id and item.kind == 'issue' %}/activities/{{ item.id }}/followup{% elif item.policy_uid %}/policies/{{ item.policy_uid }}/followup{% else %}/activities/log{% endif %}"
           hx-swap="none"
           hx-on::after-request="if(event.detail.successful){var el=document.getElementById('fq-{{ row_id }}'); if(el){el.style.transition='opacity 0.3s'; el.style.opacity='0'; setTimeout(function(){el.remove()},300)}}"
           class="flex flex-wrap gap-2 items-end">
-      {% if not item.id or item.kind in ('suggested', 'insurance_deadline') %}
+      {% if not has_activity_id or item.kind in ('suggested', 'insurance_deadline', 'project_deadline', 'opportunity', 'milestone') %}
         <input type="hidden" name="client_id" value="{{ item.client_id or '' }}">
         <input type="hidden" name="policy_uid" value="{{ item.policy_uid or '' }}">
+        <input type="hidden" name="activity_type" value="{{ item.activity_type or 'Note' }}">
+        <input type="hidden" name="subject" value="{{ item.subject or '' }}">
       {% endif %}
       <input type="hidden" name="context" value="focus_queue">
       {# Row 1: Hours, Re-check, Toggle, Done #}
@@ -212,33 +224,67 @@
     </form>
   </div>
 
-  {# Overflow menu (hidden) #}
+  {# Overflow menu (hidden) — kind-aware actions #}
   <div id="fq-menu-{{ row_id }}" class="hidden mt-2 p-2 bg-white border border-gray-200 rounded-md shadow-sm">
-    <div class="flex gap-2 text-xs">
+    <div class="flex gap-2 text-xs flex-wrap">
       {% if item.client_id %}
         <a href="/clients/{{ item.client_id }}" class="text-blue-600 hover:underline">View Client</a>
       {% endif %}
       {% if item.policy_uid %}
         <a href="/policies/{{ item.policy_uid }}/edit" class="text-blue-600 hover:underline">View Policy</a>
       {% endif %}
-      <button class="text-gray-500 hover:text-gray-700"
-              hx-post="/activities/{{ item.id }}/snooze" hx-vals='{"days": 1}'
-              hx-target="#fq-{{ row_id }}" hx-swap="outerHTML">
-        Snooze 1d
-      </button>
-      <button class="text-gray-500 hover:text-gray-700"
-              hx-post="/activities/{{ item.id }}/snooze" hx-vals='{"days": 7}'
-              hx-target="#fq-{{ row_id }}" hx-swap="outerHTML">
-        Snooze 7d
-      </button>
-      {% if item.kind != 'inbox' %}
+      {% if item.kind == 'project_deadline' or item.kind == 'insurance_deadline' %}
+        <a href="/clients/{{ item.client_id }}?tab=projects" class="text-blue-600 hover:underline">View Project</a>
+      {% endif %}
+
+      {# Snooze/Defer — kind-specific #}
+      {% if has_activity_id %}
+        <button class="text-gray-500 hover:text-gray-700"
+                hx-post="/activities/{{ item.id }}/snooze" hx-vals='{"days": 1}'
+                hx-target="#fq-{{ row_id }}" hx-swap="outerHTML">
+          Snooze 1d
+        </button>
+        <button class="text-gray-500 hover:text-gray-700"
+                hx-post="/activities/{{ item.id }}/snooze" hx-vals='{"days": 7}'
+                hx-target="#fq-{{ row_id }}" hx-swap="outerHTML">
+          Snooze 7d
+        </button>
+      {% elif item.kind == 'milestone' and item.policy_uid and item.milestone_name %}
+        <button class="text-gray-500 hover:text-gray-700"
+                hx-post="/policies/{{ item.policy_uid }}/milestone/{{ item.milestone_name | urlencode }}/defer"
+                hx-vals='{"days": 7}'
+                hx-target="#fq-{{ row_id }}" hx-swap="delete">
+          Defer 1w
+        </button>
+        <button class="text-gray-500 hover:text-gray-700"
+                hx-post="/policies/{{ item.policy_uid }}/milestone/{{ item.milestone_name | urlencode }}/defer"
+                hx-vals='{"days": 14}'
+                hx-target="#fq-{{ row_id }}" hx-swap="delete">
+          Defer 2w
+        </button>
+      {% endif %}
+
+      {# Mark Done — kind-specific resolution paths #}
+      {% if has_activity_id %}
         <button class="text-green-600 hover:text-green-800"
                 hx-post="/activities/{{ item.id }}/complete"
                 hx-target="#fq-{{ row_id }}" hx-swap="delete">
           Mark Done
         </button>
+      {% elif item.kind == 'milestone' %}
+        <button class="text-green-600 hover:text-green-800"
+                hx-post="/policies/{{ item.policy_uid }}/milestone/{{ item.milestone_name | urlencode }}/complete"
+                hx-target="#fq-{{ row_id }}" hx-swap="delete">
+          Complete Milestone
+        </button>
+      {% elif item.kind == 'opportunity' and item.policy_uid %}
+        <a href="/policies/{{ item.policy_uid }}/edit" class="text-green-600 hover:text-green-800 hover:underline">
+          Convert to Policy
+        </a>
       {% endif %}
-      {% if item.kind in ('followup',) and item.id and not item.linked_issue_uid %}
+
+      {# Convert to Issue — only for activity follow-ups #}
+      {% if has_activity_id and item.kind == 'followup' and not item.linked_issue_uid %}
         <button class="text-purple-600 hover:text-purple-800"
                 hx-post="/activities/{{ item.id }}/convert-to-issue"
                 hx-target="#fq-{{ row_id }}" hx-swap="outerHTML"
