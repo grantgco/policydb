@@ -7,7 +7,7 @@
   <span class="inline-flex items-center text-[9px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-600 font-medium">
     {{ tag }}
     <button type="button" class="ml-0.5 text-gray-400 hover:text-red-500"
-            hx-post="/kb/{{ 'articles' if et == 'article' else 'documents' }}/{{ u }}/tags"
+            hx-post="/kb/{{ 'articles' if et == 'article' else ('bookmarks' if et == 'bookmark' else 'documents') }}/{{ u }}/tags"
             hx-vals='{"action":"remove","tag":"{{ tag }}"}'
             hx-target="#tags-container" hx-swap="innerHTML">&times;</button>
   </span>
@@ -16,7 +16,7 @@
   <span class="text-[9px] text-gray-400 italic">No tags</span>
   {% endif %}
 </div>
-<form hx-post="/kb/{{ 'articles' if et == 'article' else 'documents' }}/{{ u }}/tags"
+<form hx-post="/kb/{{ 'articles' if et == 'article' else ('bookmarks' if et == 'bookmark' else 'documents') }}/{{ u }}/tags"
       hx-target="#tags-container" hx-swap="innerHTML"
       onsubmit="return true;">
   <input type="hidden" name="action" value="add">

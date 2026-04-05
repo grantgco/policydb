@@ -1,151 +1,246 @@
 {% extends "base.html" %}
-{% block title %}Weekly Review — Coverage{% endblock %}
+{% block title %}Weekly Review{% endblock %}
 
 {% block content %}
-<div class="space-y-6">
+<div class="flex gap-6 min-h-[calc(100vh-6rem)]">
 
-  <!-- Header + Stats -->
-  <div class="card p-5">
-    <div class="flex items-start justify-between mb-4">
-      <div>
-        <h1 class="text-xl font-bold text-gray-900">Weekly Review</h1>
-        <p class="text-sm text-gray-500 mt-0.5">Cycle through your book and ensure everything is current.</p>
+  {# ── Sidebar Nav ── #}
+  <nav class="w-56 shrink-0 sticky top-20 self-start space-y-1">
+    <h2 class="text-xs font-semibold text-gray-400 uppercase tracking-wider px-3 mb-2">Sections</h2>
+    {% for s in section_defs %}
+      {% if s.get('conditional') and not session.vacation_return_date %}
+        {# skip conditional sections when condition not met #}
+      {% else %}
+        {% set sec = sections.get(s.key, {}) %}
+        {% set count = section_counts.get(s.key, 0) %}
+        <a href="#section-{{ s.key }}"
+           id="nav-{{ s.key }}"
+           class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors
+                  {% if sec.get('status') == 'complete' %}text-green-700 bg-green-50
+                  {% elif sec.get('status') == 'skipped' %}text-gray-400 bg-gray-50
+                  {% elif first_incomplete == s.key %}text-marsh font-semibold bg-blue-50
+                  {% else %}text-gray-600 hover:bg-gray-100{% endif %}">
+          {# Status icon #}
+          {% if sec.get('status') == 'complete' %}
+            <svg class="w-4 h-4 text-green-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+            </svg>
+          {% elif sec.get('status') == 'skipped' %}
+            <span class="w-4 h-4 flex items-center justify-center text-gray-400 shrink-0">&ndash;</span>
+          {% else %}
+            <span class="w-3 h-3 rounded-full border-2 border-gray-300 shrink-0 ml-0.5 mr-0.5"></span>
+          {% endif %}
+          <span class="flex-1">{{ s.label }}</span>
+          {% if count > 0 and sec.get('status') != 'complete' and sec.get('status') != 'skipped' %}
+            <span class="text-xs bg-gray-200 text-gray-600 rounded-full px-1.5 py-0.5 tabular-nums">{{ count }}</span>
+          {% endif %}
+        </a>
+      {% endif %}
+    {% endfor %}
+  </nav>
+
+  {# ── Main Content ── #}
+  <div class="flex-1 space-y-6 min-w-0">
+
+    {# Header Card #}
+    <div class="card p-5">
+      <div class="flex items-start justify-between mb-4">
+        <div>
+          <h1 class="text-xl font-bold text-gray-900">Weekly Review</h1>
+          <p class="text-sm text-gray-500 mt-0.5">Work through each section to keep your book current.</p>
+        </div>
+        <div class="flex items-center gap-3">
+          {% if session.vacation_return_date %}
+            <form hx-post="/review/vacation" hx-swap="none" class="inline">
+              <input type="hidden" name="vacation_return_date" value="">
+              <button type="submit" class="text-xs bg-amber-100 text-amber-700 px-3 py-1.5 rounded-full hover:bg-amber-200 transition-colors font-medium whitespace-nowrap">
+                Vacation: {{ session.vacation_return_date }} &times;
+              </button>
+            </form>
+          {% else %}
+            <div class="relative inline-block">
+              <button onclick="this.nextElementSibling.classList.toggle('hidden')"
+                      class="text-xs bg-gray-100 text-gray-600 px-3 py-1.5 rounded-full hover:bg-gray-200 transition-colors font-medium whitespace-nowrap">
+                Planning Time Off?
+              </button>
+              <div class="hidden absolute right-0 top-full mt-1 bg-white rounded-lg shadow-lg border border-gray-200 p-3 z-10 w-56">
+                <label class="text-xs text-gray-500 block mb-1">Return date</label>
+                <form method="POST" action="/review/vacation" class="flex items-center gap-2">
+                  <input type="date" name="vacation_return_date" required
+                         class="text-xs border border-gray-200 rounded px-2 py-1 flex-1">
+                  <button type="submit"
+                          class="text-xs bg-marsh text-white px-2.5 py-1 rounded hover:opacity-90 transition-opacity">
+                    Set
+                  </button>
+                </form>
+              </div>
+            </div>
+          {% endif %}
+        </div>
       </div>
-      <div class="flex items-center gap-3">
-        {% if unassigned_count is defined and unassigned_count > 0 %}
-        <form hx-post="/review/accept-all-profiles" hx-swap="none" class="inline">
-          <button type="submit" class="text-xs bg-purple-100 text-purple-700 px-3 py-1.5 rounded-full hover:bg-purple-200 transition-colors font-medium whitespace-nowrap">
-            Accept All Profile Suggestions ({{ unassigned_count }})
+      {% include "review/_stats_banner.html" %}
+    </div>
+
+    {# Stale session prompt #}
+    {% if session.get('stale') %}
+    <div class="card p-5 border-l-4 border-amber-400 bg-amber-50">
+      <div class="flex items-center justify-between">
+        <div>
+          <h3 class="text-sm font-semibold text-amber-800">Stale Session</h3>
+          <p class="text-xs text-amber-700 mt-0.5">This review was started more than a week ago. Archive it and start fresh?</p>
+        </div>
+        <form hx-post="/review/session/archive" hx-swap="none" class="inline">
+          <button type="submit" class="text-xs bg-amber-600 text-white px-4 py-1.5 rounded-lg hover:bg-amber-700 transition-colors font-medium">
+            Start Fresh
           </button>
         </form>
-        {% endif %}
-        <select id="review-client-filter"
-          onchange="window.location.href='/review' + (this.value ? '?client_id=' + this.value : '')"
-          class="text-xs border border-gray-200 rounded-md px-2 py-1.5 bg-white focus:ring-1 focus:ring-marsh">
-          <option value="">All Clients</option>
-          {% for c in all_clients %}
-          <option value="{{ c.id }}" {{ 'selected' if client_id == c.id }}>{{ c.name }}</option>
-          {% endfor %}
-        </select>
-        <a href="/renewals" class="text-xs text-marsh hover:underline">Renewals →</a>
       </div>
     </div>
-    {% include "review/_stats_banner.html" %}
-  </div>
+    {% endif %}
 
-  <!-- Policies Section -->
-  {% if policies %}
-  <div class="card-section">
-    <div class="card-header">
-      <span class="section-title flex items-center gap-2">
-        <span class="w-2 h-2 rounded-full bg-orange-400 inline-block"></span>
-        Policies
-      </span>
-      <span class="text-xs text-gray-400">{{ policies | length }} needing review</span>
+    {# Completion card #}
+    {% if all_done %}
+    <div class="card p-8 text-center">
+      <div class="text-4xl mb-3">&#x2705;</div>
+      <h2 class="text-lg font-semibold text-gray-800">Review Complete!</h2>
+      <p class="text-sm text-gray-500 mt-1">You've worked through all sections. Great job staying on top of your book.</p>
+      <form hx-post="/review/session/complete" hx-swap="none" class="mt-4">
+        <button type="submit" class="text-sm bg-marsh text-white px-6 py-2 rounded-lg hover:opacity-90 transition-opacity font-medium">
+          Finish &amp; Close Session
+        </button>
+      </form>
     </div>
-    <div class="overflow-x-auto">
-      <table class="w-full text-sm">
-        <thead class="bg-gray-50 border-b border-gray-200">
-          <tr>
-            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Client / Type</th>
-            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Carrier</th>
-            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Expiration</th>
-            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Status</th>
-            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Profile / Health</th>
-            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Review Cycle</th>
-            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Last Reviewed</th>
-            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Checklist</th>
-            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Follow-Up</th>
-            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for p in policies %}
-            {% include "review/_policy_row.html" %}
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </div>
-  {% endif %}
+    {% endif %}
 
-  <!-- Opportunities Section -->
-  {% if opportunities %}
-  <div class="card-section">
-    <div class="card-header">
-      <span class="section-title flex items-center gap-2">
-        <span class="w-2 h-2 rounded-full bg-blue-400 inline-block"></span>
-        Opportunities
-      </span>
-      <span class="text-xs text-gray-400">{{ opportunities | length }} needing review</span>
-    </div>
-    <div class="overflow-x-auto">
-      <table class="w-full text-sm">
-        <thead class="bg-gray-50 border-b border-gray-200">
-          <tr>
-            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Client / Type</th>
-            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Stage</th>
-            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Target Date</th>
-            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Status</th>
-            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Profile / Health</th>
-            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Review Cycle</th>
-            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Last Reviewed</th>
-            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Checklist</th>
-            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Follow-Up</th>
-            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for p in opportunities %}
-            {% include "review/_policy_row.html" %}
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </div>
-  {% endif %}
+    {# ── Section Containers ── #}
+    {% for s in section_defs %}
+      {% if s.get('conditional') and not session.vacation_return_date %}
+        {# skip #}
+      {% else %}
+        {% set sec = sections.get(s.key, {}) %}
+        {% set count = section_counts.get(s.key, 0) %}
+        <div id="section-{{ s.key }}" class="card">
+          {# Section header #}
+          <div class="card-header flex items-center justify-between">
+            <div class="flex items-center gap-3">
+              {% if sec.get('status') == 'complete' %}
+                <svg class="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                </svg>
+              {% elif sec.get('status') == 'skipped' %}
+                <span class="w-5 h-5 flex items-center justify-center text-gray-400">&ndash;</span>
+              {% else %}
+                <span class="w-4 h-4 rounded-full border-2 border-gray-300"></span>
+              {% endif %}
+              <span class="section-title">{{ s.label }}</span>
+              {% if count > 0 %}
+                <span class="text-xs text-gray-400">{{ count }} item{{ 's' if count != 1 else '' }}</span>
+              {% elif sec.get('status') not in ('complete', 'skipped') %}
+                <span class="text-xs text-green-600">No items</span>
+              {% endif %}
+              {% if s.get('estimated_minutes') and sec.get('status') not in ('complete', 'skipped') %}
+                <span class="text-xs text-gray-400">&middot; ~{{ s.estimated_minutes }} min</span>
+              {% endif %}
+            </div>
+            <div class="flex items-center gap-2">
+              {% if sec.get('status') == 'complete' %}
+                <span class="text-xs text-green-600 font-medium">Done</span>
+              {% elif sec.get('status') == 'skipped' %}
+                <span class="text-xs text-gray-400 font-medium">Skipped</span>
+              {% endif %}
+            </div>
+          </div>
 
-  <!-- Clients Section -->
-  {% if clients %}
-  <div class="card-section">
-    <div class="card-header">
-      <span class="section-title flex items-center gap-2">
-        <span class="w-2 h-2 rounded-full bg-purple-400 inline-block"></span>
-        Clients
-      </span>
-      <span class="text-xs text-gray-400">{{ clients | length }} needing review</span>
-    </div>
-    <div class="overflow-x-auto">
-      <table class="w-full text-sm">
-        <thead class="bg-gray-50 border-b border-gray-200">
-          <tr>
-            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Client</th>
-            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Book</th>
-            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Next Renewal</th>
-            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Review Cycle</th>
-            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Last Reviewed</th>
-            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for c in clients %}
-            {% include "review/_client_row.html" %}
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </div>
-  {% endif %}
+          {# Section content — lazy loaded or auto-completed #}
+          {% if sec.get('status') in ('complete', 'skipped') %}
+            {# Already done — collapsed #}
+          {% elif count == 0 and not s.get('auto_complete') %}
+            {# Zero items — auto-complete via HTMX #}
+            <div class="p-4"
+                 hx-post="/review/section/{{ s.key }}/complete"
+                 hx-trigger="load"
+                 hx-target="#review-stats-banner"
+                 hx-swap="outerHTML">
+              <p class="text-sm text-gray-400 italic">No items to review. Auto-completing...</p>
+            </div>
+          {% elif s.key == 'this_week' %}
+            {# This Week loads from its own endpoint, auto-completes after 5s #}
+            <div class="p-5"
+                 id="this-week-content"
+                 hx-get="/review/this-week"
+                 hx-trigger="revealed"
+                 hx-swap="innerHTML">
+              <div class="animate-pulse flex gap-4">
+                <div class="h-16 w-24 bg-gray-200 rounded"></div>
+                <div class="h-16 w-24 bg-gray-200 rounded"></div>
+                <div class="h-16 w-24 bg-gray-200 rounded"></div>
+              </div>
+            </div>
+            {# Auto-complete timer + manual buttons #}
+            <div class="px-5 pb-4 flex items-center gap-3 border-t border-gray-100 pt-3">
+              <button id="this-week-complete-btn"
+                      hx-post="/review/section/{{ s.key }}/complete"
+                      class="text-xs bg-marsh text-white px-4 py-1.5 rounded-lg hover:opacity-90 transition-opacity font-medium">
+                Mark Section Complete
+              </button>
+              <button hx-post="/review/section/{{ s.key }}/skip"
+                      class="text-xs text-gray-400 hover:text-gray-600 transition-colors font-medium">
+                Skip
+              </button>
+              <span id="this-week-timer" class="text-xs text-gray-400 ml-auto">Auto-completing in 5s</span>
+            </div>
+            <script>
+            (function() {
+              var remaining = 5;
+              var timer = document.getElementById('this-week-timer');
+              var iv = setInterval(function() {
+                remaining--;
+                if (timer) timer.textContent = 'Auto-completing in ' + remaining + 's';
+                if (remaining <= 0) {
+                  clearInterval(iv);
+                  var btn = document.getElementById('this-week-complete-btn');
+                  if (btn) btn.click();
+                }
+              }, 1000);
+              // Cancel timer if user interacts
+              var section = document.getElementById('section-this_week');
+              if (section) {
+                section.addEventListener('click', function() { clearInterval(iv); if (timer) timer.textContent = ''; });
+              }
+            })();
+            </script>
+          {% else %}
+            {# Standard section — lazy load content #}
+            <div class="p-5"
+                 hx-get="/review/section/{{ s.key }}"
+                 hx-trigger="revealed"
+                 hx-swap="innerHTML">
+              <div class="animate-pulse space-y-2">
+                <div class="h-4 bg-gray-200 rounded w-3/4"></div>
+                <div class="h-4 bg-gray-200 rounded w-1/2"></div>
+              </div>
+            </div>
+            {# Complete / Skip buttons #}
+            <div class="px-5 pb-4 flex items-center gap-3 border-t border-gray-100 pt-3">
+              <button hx-post="/review/section/{{ s.key }}/complete"
+                      hx-target="#review-stats-banner"
+                      hx-swap="outerHTML"
+                      class="text-xs bg-marsh text-white px-4 py-1.5 rounded-lg hover:opacity-90 transition-opacity font-medium">
+                Mark Section Complete
+              </button>
+              <button hx-post="/review/section/{{ s.key }}/skip"
+                      hx-target="#review-stats-banner"
+                      hx-swap="outerHTML"
+                      class="text-xs text-gray-400 hover:text-gray-600 transition-colors font-medium">
+                Skip
+              </button>
+            </div>
+          {% endif %}
+        </div>
+      {% endif %}
+    {% endfor %}
 
-  <!-- All clear -->
-  {% if not policies and not opportunities and not clients %}
-  <div class="card p-8 text-center">
-    <div class="text-4xl mb-3">✅</div>
-    <h2 class="text-lg font-semibold text-gray-800">All caught up!</h2>
-    <p class="text-sm text-gray-500 mt-1">No records are due for review right now. Check back later.</p>
   </div>
-  {% endif %}
-
 </div>
 
 {# ── Review Slideover Container ── #}
@@ -188,5 +283,73 @@ document.addEventListener('keydown', function(e) {
     }
   }
 });
+
+// Keyboard shortcuts: J/K = items, N = next section, S = skip, M = mark complete
+document.addEventListener('keydown', function(e) {
+  // Skip if typing in an input/textarea
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
+  // Skip if slideover is open
+  var slideover = document.getElementById('review-slideover-container');
+  if (slideover && slideover.children.length > 0) return;
+
+  var sections = document.querySelectorAll('[id^="section-"]');
+  var activeSection = null;
+  for (var i = 0; i < sections.length; i++) {
+    var btn = sections[i].querySelector('button[hx-post*="/complete"]');
+    if (btn) { activeSection = sections[i]; break; }
+  }
+  if (!activeSection) return;
+
+  var sectionKey = activeSection.id.replace('section-', '');
+
+  if (e.key === 'n' || e.key === 'N') {
+    // Jump to next incomplete section
+    var found = false;
+    for (var j = 0; j < sections.length; j++) {
+      if (found && sections[j].querySelector('button[hx-post*="/complete"]')) {
+        sections[j].scrollIntoView({behavior: 'smooth', block: 'start'});
+        break;
+      }
+      if (sections[j] === activeSection) found = true;
+    }
+    e.preventDefault();
+  } else if (e.key === 's' || e.key === 'S') {
+    var skipBtn = activeSection.querySelector('button[hx-post*="/skip"]');
+    if (skipBtn) skipBtn.click();
+    e.preventDefault();
+  } else if (e.key === 'm' || e.key === 'M') {
+    var completeBtn = activeSection.querySelector('button[hx-post*="/complete"]');
+    if (completeBtn) completeBtn.click();
+    e.preventDefault();
+  } else if (e.key === 'j' || e.key === 'J') {
+    // Next item row within current section
+    var rows = activeSection.querySelectorAll('.divide-y > div, [class*="border-gray-100"]');
+    var focused = activeSection.querySelector('.ring-2');
+    if (focused) {
+      var next = focused.nextElementSibling;
+      if (next) { focused.classList.remove('ring-2', 'ring-marsh/30'); next.classList.add('ring-2', 'ring-marsh/30'); next.scrollIntoView({behavior: 'smooth', block: 'nearest'}); }
+    } else if (rows.length) {
+      rows[0].classList.add('ring-2', 'ring-marsh/30');
+    }
+    e.preventDefault();
+  } else if (e.key === 'k' || e.key === 'K') {
+    var rows2 = activeSection.querySelectorAll('.divide-y > div, [class*="border-gray-100"]');
+    var focused2 = activeSection.querySelector('.ring-2');
+    if (focused2) {
+      var prev = focused2.previousElementSibling;
+      if (prev) { focused2.classList.remove('ring-2', 'ring-marsh/30'); prev.classList.add('ring-2', 'ring-marsh/30'); prev.scrollIntoView({behavior: 'smooth', block: 'nearest'}); }
+    }
+    e.preventDefault();
+  }
+});
+
+function scheduleFollowUp(recordId, note) {
+  // Open quick-log form on the policy row to schedule a follow-up
+  var target = document.getElementById('review-gate-' + recordId);
+  if (target) {
+    htmx.ajax('GET', '/review/policies/' + recordId + '/row/log', {target: target, swap: 'afterend'});
+  }
+}
+
 </script>
 {% endblock %}

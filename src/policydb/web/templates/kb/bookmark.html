@@ -1,0 +1,185 @@
+{% extends "base.html" %}
+{% block title %}{{ bookmark.title }} — Bookmark{% endblock %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto">
+
+  <!-- Breadcrumb -->
+  <div class="mb-4 flex items-center gap-2 text-sm text-gray-400">
+    <a href="/kb" class="hover:text-marsh">Knowledge Base</a>
+    <span>&rsaquo;</span>
+    <a href="/kb?source=bookmark" class="hover:text-cyan-600">Bookmarks</a>
+    <span>&rsaquo;</span>
+    <span class="text-gray-600">{{ bookmark.title }}</span>
+  </div>
+
+  <div class="lg:grid lg:grid-cols-[1fr_320px] gap-6">
+
+    <!-- Left: Content -->
+    <div>
+      <!-- Header -->
+      <div class="mb-4">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="text-[10px] font-mono bg-cyan-50 text-cyan-600 rounded px-1.5 py-0.5">{{ bookmark.uid }}</span>
+          <a href="{{ bookmark.url }}" target="_blank" rel="noopener"
+             class="inline-flex items-center gap-1 text-xs text-cyan-600 hover:text-cyan-700 bg-cyan-50 hover:bg-cyan-100 rounded-lg px-3 py-1.5 font-medium transition-colors">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+            </svg>
+            Open Link
+          </a>
+        </div>
+
+        <!-- Title (contenteditable) -->
+        <div contenteditable="true"
+             class="text-2xl font-bold text-gray-900 outline-none focus:border-b-2 focus:border-cyan-400 pb-1"
+             data-field="title" data-uid="{{ bookmark.uid }}"
+             onblur="saveBookmarkField(this)">{{ bookmark.title }}</div>
+
+        <!-- Category -->
+        <div class="mt-2 flex items-center gap-3">
+          <span class="text-xs text-gray-400">Category:</span>
+          <select class="text-sm border-0 border-b border-gray-200 focus:border-cyan-400 outline-none py-0.5 px-1 {{ bookmark.colors.text }} font-medium bg-transparent"
+                  onchange="saveBookmarkFieldVal('{{ bookmark.uid }}', 'category', this.value); location.reload();">
+            {% for cat in categories %}
+            <option value="{{ cat }}" {{ 'selected' if cat == bookmark.category else '' }}>{{ cat }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+
+      <!-- URL -->
+      <div class="card p-4 mb-4">
+        <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">URL</label>
+        <div contenteditable="true"
+             class="text-sm text-gray-700 outline-none border-b border-transparent focus:border-b-2 focus:border-cyan-400 pb-0.5 break-all"
+             data-field="url" data-uid="{{ bookmark.uid }}"
+             onblur="saveBookmarkField(this)">{{ bookmark.url }}</div>
+        <div class="mt-1.5 text-[10px] text-gray-400">
+          <svg class="w-3 h-3 inline -mt-px" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"/>
+          </svg>
+          {{ bookmark.url | replace('https://', '') | replace('http://', '') | truncate(80) }}
+        </div>
+      </div>
+
+      <!-- Description -->
+      <div class="card p-4 mb-4">
+        <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Description</label>
+        <div contenteditable="true"
+             class="text-sm text-gray-700 outline-none border-b border-transparent focus:border-b-2 focus:border-cyan-400 pb-0.5 min-h-[3rem]"
+             data-field="description" data-uid="{{ bookmark.uid }}"
+             data-placeholder="Add a description..."
+             onblur="saveBookmarkField(this)">{{ bookmark.description }}</div>
+      </div>
+
+      <!-- Delete -->
+      <div class="flex justify-end">
+        <button onclick="confirmDeleteBookmark('{{ bookmark.uid }}', this)" class="text-sm text-red-500 hover:text-red-700">
+          Delete Bookmark
+        </button>
+      </div>
+    </div>
+
+    <!-- Right: Sidebar -->
+    <div class="hidden lg:block">
+      <div class="sticky top-4 space-y-4">
+
+        <!-- Tags -->
+        <div class="card p-3">
+          <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Tags</h3>
+          <div id="tags-container">
+            {% set entry = bookmark %}
+            {% set entry_type = 'bookmark' %}
+            {% set uid = bookmark.uid %}
+            {% include "kb/_tags.html" with context %}
+          </div>
+        </div>
+
+        <!-- References -->
+        <div class="card p-3">
+          <div class="py-0">
+            <div class="flex items-center justify-between mb-2">
+              <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide">References</p>
+              <button type="button" onclick="var el=document.getElementById('ref-picker-{{ bookmark.uid }}');el.classList.toggle('hidden');if(!el.classList.contains('hidden'))el.querySelector('input').focus();"
+                class="text-[10px] text-cyan-600 hover:underline no-print">+ Link</button>
+            </div>
+            <div id="references-panel-kb_bookmark-{{ bookmark.id }}"
+              hx-get="/kb/references/kb_bookmark/{{ bookmark.id }}"
+              hx-trigger="load"
+              hx-swap="innerHTML">
+              <span class="text-xs text-gray-300">Loading...</span>
+            </div>
+            <div id="ref-picker-{{ bookmark.uid }}" class="hidden mt-2 pt-2 border-t border-gray-100 relative">
+              <input type="text" placeholder="Search to link..."
+                hx-get="/kb/search-linkable"
+                hx-trigger="keyup changed delay:300ms"
+                hx-target="#ref-picker-results-{{ bookmark.uid }}"
+                name="q"
+                class="w-full text-xs border border-gray-200 rounded px-2 py-1.5 focus:ring-1 focus:ring-cyan-400 placeholder-gray-300"
+                autocomplete="off">
+              <div id="ref-picker-results-{{ bookmark.uid }}" class="absolute top-full left-0 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg z-50 max-h-48 overflow-y-auto hidden"></div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+function saveBookmarkField(el) {
+  var field = el.getAttribute('data-field');
+  var uid = el.getAttribute('data-uid');
+  var value = el.innerText.trim();
+  fetch('/kb/bookmarks/' + uid + '/field', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    body: 'field=' + encodeURIComponent(field) + '&value=' + encodeURIComponent(value)
+  }).then(function(r) { return r.json(); }).then(function(d) {
+    if (d.ok && typeof flashCell === 'function') flashCell(el, '#cffafe');
+  });
+}
+
+function saveBookmarkFieldVal(uid, field, value) {
+  fetch('/kb/bookmarks/' + uid + '/field', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    body: 'field=' + encodeURIComponent(field) + '&value=' + encodeURIComponent(value)
+  });
+}
+
+function confirmDeleteBookmark(uid, btn) {
+  if (!confirmDestructive(btn, 'Click again to delete')) return;
+  fetch('/kb/bookmarks/' + uid + '/delete', { method: 'POST' })
+    .then(function() { window.location.href = '/kb?source=bookmark'; });
+}
+
+function selectLinkedEntity(type, id, label) {
+  fetch('/kb/links', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    body: new URLSearchParams({
+      source_type: 'kb_bookmark',
+      source_id: '{{ bookmark.id }}',
+      target_type: type,
+      target_id: id,
+      return_panel_for_type: 'kb_bookmark',
+      return_panel_for_id: '{{ bookmark.id }}'
+    })
+  }).then(function(r) { return r.text(); }).then(function(html) {
+    document.getElementById('references-panel-kb_bookmark-{{ bookmark.id }}').innerHTML = html;
+    var picker = document.getElementById('ref-picker-{{ bookmark.uid }}');
+    picker.classList.add('hidden');
+    picker.querySelector('input').value = '';
+  });
+}
+document.body.addEventListener('htmx:afterOnLoad', function(e) {
+  if (e.detail.target && e.detail.target.id && e.detail.target.id.startsWith('ref-picker-results-')) {
+    e.detail.target.classList.toggle('hidden', e.detail.target.innerHTML.trim() === '');
+  }
+});
+</script>
+{% endblock %}

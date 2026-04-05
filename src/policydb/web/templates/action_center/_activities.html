@@ -275,6 +275,8 @@
               {% if a.email_snippet is defined and a.email_snippet %}
               <div>
                 <div class="text-[10px] text-gray-400 uppercase tracking-wide mb-1">Email Content</div>
+                {% if a.email_from is defined and a.email_from %}<div class="text-[10px] text-gray-500 mb-0.5"><span class="text-gray-400">From:</span> {{ a.email_from }}</div>{% endif %}
+                {% if a.email_to is defined and a.email_to %}<div class="text-[10px] text-gray-500 mb-1"><span class="text-gray-400">To:</span> {{ a.email_to }}</div>{% endif %}
                 <div class="text-gray-500 whitespace-pre-line leading-relaxed max-h-40 overflow-y-auto bg-white rounded border border-gray-100 p-2">{{ a.email_snippet }}</div>
               </div>
               {% endif %}

@@ -80,6 +80,16 @@
       {% if item.reason_line %}
       <div class="text-[11px] text-gray-500 mt-0.5 truncate">{{ item.reason_line }}</div>
       {% endif %}
+      {% if item.email_snippet is defined and item.email_snippet %}
+      <details class="mt-1">
+        <summary class="text-[10px] text-blue-500 cursor-pointer hover:text-blue-700">view email content</summary>
+        <div class="text-[10px] text-gray-500 mt-1 bg-gray-50 rounded p-2">
+          {% if item.email_from is defined and item.email_from %}<div class="text-[10px] mb-0.5"><span class="text-gray-400">From:</span> {{ item.email_from }}</div>{% endif %}
+          {% if item.email_to is defined and item.email_to %}<div class="text-[10px] mb-1"><span class="text-gray-400">To:</span> {{ item.email_to }}</div>{% endif %}
+          <div class="whitespace-pre-line leading-relaxed max-h-32 overflow-y-auto">{{ item.email_snippet }}</div>
+        </div>
+      </details>
+      {% endif %}
     </div>
 
     {# Date / info column #}

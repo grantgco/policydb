@@ -1,0 +1,17 @@
+{% if records %}
+<div class="border border-gray-200 rounded-lg divide-y divide-gray-100 max-h-60 overflow-y-auto bg-white">
+  {% for r in records %}
+  <button type="button"
+          class="w-full text-left px-4 py-2.5 hover:bg-gray-50 focus:bg-gray-50 transition-colors"
+          data-record-id="{{ r.id }}" data-record-label="{{ r.label | e }}"
+          onclick="selectRecord(+this.dataset.recordId, this.dataset.recordLabel)">
+    <div class="text-sm font-medium text-gray-900">{{ r.label }}</div>
+    {% if r.detail %}
+    <div class="text-xs text-gray-500">{{ r.detail }}</div>
+    {% endif %}
+  </button>
+  {% endfor %}
+</div>
+{% elif records is defined %}
+<p class="text-sm text-gray-400 py-2">No records found.</p>
+{% endif %}

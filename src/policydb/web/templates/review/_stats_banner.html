@@ -1,34 +1,30 @@
-{% set total = stats.total_needing + stats.reviewed_this_week %}
-{% set pct = ((stats.reviewed_this_week / total * 100) | int) if total > 0 else 0 %}
+{% set total_sections = section_defs | length if section_defs is defined else 0 %}
+{% set completed = namespace(n=0) %}
+{% set skipped = namespace(n=0) %}
+{% if sections is defined %}
+  {% for key, sec in sections.items() %}
+    {% if sec.status is defined and sec.status == 'complete' %}{% set completed.n = completed.n + 1 %}{% endif %}
+    {% if sec.status is defined and sec.status == 'skipped' %}{% set skipped.n = skipped.n + 1 %}{% endif %}
+  {% endfor %}
+{% endif %}
+{% set done = completed.n + skipped.n %}
+{% set pct = ((done / total_sections * 100) | int) if total_sections > 0 else 0 %}
+
 <div id="review-stats-banner"
-     hx-get="/review/stats"
-     hx-trigger="refreshReviewStats from:body"
-     hx-swap="outerHTML"
+     hx-swap-oob="true"
      class="flex flex-col sm:flex-row items-start sm:items-center gap-4">
   <div class="flex-1">
     <div class="flex items-center gap-3 mb-1">
       <span class="text-sm font-semibold text-gray-800">
-        {{ stats.reviewed_this_week }} reviewed this week
+        {{ completed.n }} completed
       </span>
-      <span class="text-xs text-gray-400">·</span>
-      <span class="text-sm text-gray-500">{{ stats.total_needing }} remaining</span>
+      <span class="text-xs text-gray-400">&middot;</span>
+      <span class="text-sm text-gray-500">{{ skipped.n }} skipped</span>
+      <span class="text-xs text-gray-400">&middot;</span>
+      <span class="text-sm text-gray-500">{{ total_sections - done }} remaining</span>
     </div>
     <div class="w-full bg-gray-200 rounded-full h-2">
       <div class="bg-marsh h-2 rounded-full transition-all duration-500" style="width: {{ pct }}%"></div>
     </div>
-  </div>
-  <div class="flex gap-4 text-xs text-gray-500 shrink-0">
-    <span class="flex items-center gap-1">
-      <span class="w-2 h-2 rounded-full bg-orange-400 inline-block"></span>
-      {{ stats.policies_needing }} policies
-    </span>
-    <span class="flex items-center gap-1">
-      <span class="w-2 h-2 rounded-full bg-blue-400 inline-block"></span>
-      {{ stats.opps_needing }} opportunities
-    </span>
-    <span class="flex items-center gap-1">
-      <span class="w-2 h-2 rounded-full bg-purple-400 inline-block"></span>
-      {{ stats.clients_needing }} clients
-    </span>
   </div>
 </div>

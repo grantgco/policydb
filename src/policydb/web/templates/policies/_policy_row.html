@@ -1,4 +1,5 @@
-<tr id="row-{{ p.policy_uid }}" class="hover:bg-gray-50 border-t border-gray-100">
+{% set _dtr = p.days_to_renewal %}
+<tr id="row-{{ p.policy_uid }}" data-urgency-tier="{% if _dtr is not none and _dtr >= 0 and _dtr <= 30 %}critical{% elif _dtr is not none and _dtr >= 31 and _dtr <= 60 %}warning{% elif _dtr is not none and _dtr >= 61 and _dtr <= 90 %}upcoming{% else %}ok{% endif %}" data-renewal-status="{{ (p.renewal_status or '') | lower }}" class="policy-row border-t border-gray-100{% if _dtr is not none and _dtr >= 0 and _dtr <= 30 %} border-l-4 border-l-red-400 bg-red-50/50 hover:bg-red-50/70{% elif _dtr is not none and _dtr >= 31 and _dtr <= 60 %} border-l-4 border-l-amber-400 bg-amber-50/40 hover:bg-amber-50/60{% elif _dtr is not none and _dtr >= 61 and _dtr <= 90 %} border-l-4 border-l-blue-200 hover:bg-blue-50/30{% else %} text-gray-500 hover:bg-gray-50{% endif %}">
   <td class="px-3 py-2 font-mono text-xs text-gray-400">
     <button type="button" onclick="event.stopPropagation(); copyRefTag(this, '{{ build_ref_tag(cn_number=p.cn_number|default(''), client_id=p.client_id, policy_uid=p.policy_uid, project_id=p.project_id|default(0)) }}')"
       class="hover:text-marsh cursor-pointer" title="Copy ref tag">{{ p.policy_uid }}</button>
@@ -11,30 +12,32 @@
     {% endif %}
   </td>
   <td class="px-3 py-2 text-gray-600 max-w-[200px]">
-    <div class="flex items-center gap-1 flex-wrap">
-      {% if p.carrier %}
-        <span contenteditable="true" class="policy-cell font-medium text-gray-700 truncate max-w-[120px]" data-field="carrier" data-uid="{{ p.policy_uid }}" data-placeholder="Carrier" title="{{ p.carrier }}">{{ p.carrier }}</span>
-      {% elif p.is_opportunity %}
-        <span class="text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">TBD</span>
-      {% else %}
-        <span contenteditable="true" class="policy-cell text-gray-400" data-field="carrier" data-uid="{{ p.policy_uid }}" data-placeholder="Carrier">&mdash;</span>
-      {% endif %}
+    {% if p.carrier %}
+      <span contenteditable="true" class="policy-cell font-medium text-gray-700 truncate block" data-field="carrier" data-uid="{{ p.policy_uid }}" data-placeholder="Carrier" title="{{ p.carrier }}">{{ p.carrier }}</span>
+    {% elif p.is_opportunity %}
+      <span class="text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">TBD</span>
+    {% else %}
+      <span contenteditable="true" class="policy-cell text-gray-400" data-field="carrier" data-uid="{{ p.policy_uid }}" data-placeholder="Carrier">&mdash;</span>
+    {% endif %}
+    {% if p.first_named_insured or p.access_point %}
+    <div class="flex items-center gap-1.5 mt-0.5">
       {% if p.first_named_insured %}
-        <span class="text-[10px] bg-blue-50 text-blue-700 px-1 py-0.5 rounded-full whitespace-nowrap truncate max-w-[100px]" title="FNI: {{ p.first_named_insured }}">FNI: {{ p.first_named_insured }}</span>
+        <span class="text-[10px] text-blue-600 truncate max-w-[120px]" title="FNI: {{ p.first_named_insured }}">{{ p.first_named_insured }}</span>
       {% endif %}
       {% if p.access_point %}
-        <span class="text-[10px] bg-gray-100 text-gray-600 px-1 py-0.5 rounded-full whitespace-nowrap truncate max-w-[80px]" title="via {{ p.access_point }}">via {{ p.access_point }}</span>
+        <span class="text-[10px] text-gray-400 truncate max-w-[100px]" title="via {{ p.access_point }}">via {{ p.access_point }}</span>
       {% endif %}
     </div>
+    {% endif %}
   </td>
   <td class="px-3 py-2 whitespace-nowrap">
     <input type="date" value="{{ p.expiration_date }}"
       onchange="policySaveDate(this, '{{ p.policy_uid }}', 'expiration_date')"
       class="text-sm text-gray-700 tabular-nums bg-transparent border-none p-0 focus:outline-none focus:ring-0 cursor-pointer">
-    {% if p.days_to_renewal is not none %}
+    {% if p.days_to_renewal is not none and _dtr is not none and _dtr <= 90 %}
     <span class="{{ p.urgency | urgency_class }} text-xs px-1.5 py-0.5 rounded font-medium">{{ p.days_to_renewal }}d</span>
     {% endif %}
-    {% if p.readiness_label is defined and p.readiness_label %}
+    {% if p.readiness_label is defined and p.readiness_label and _dtr is not none and _dtr <= 90 %}
     <span class="text-xs px-1 py-0.5 rounded inline-block mt-0.5 whitespace-nowrap {{ p.readiness_label | readiness_class }} cursor-help" title="{{ p.readiness_tooltip or '' }}">{{ p.readiness_label }}</span>
     {% endif %}
   </td>

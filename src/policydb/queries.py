@@ -933,7 +933,8 @@ def get_all_followups(
            a.activity_date AS note_date,
            a.program_id,
            pg.name AS program_name,
-           pg.program_uid
+           pg.program_uid,
+           a.email_from, a.email_to, a.email_snippet
     FROM activity_log a
     JOIN clients c ON a.client_id = c.id
     LEFT JOIN policies p ON a.policy_id = p.id
@@ -967,7 +968,8 @@ def get_all_followups(
            a.activity_date AS note_date,
            NULL AS program_id,
            NULL AS program_name,
-           NULL AS program_uid
+           NULL AS program_uid,
+           a.email_from, a.email_to, a.email_snippet
     FROM activity_log a
     JOIN clients c ON a.client_id = c.id
     LEFT JOIN projects pr ON a.project_id = pr.id
@@ -1008,7 +1010,8 @@ def get_all_followups(
             WHERE a2.policy_id = p.id ORDER BY a2.activity_date DESC, a2.id DESC LIMIT 1) AS note_date,
            NULL AS program_id,
            NULL AS program_name,
-           NULL AS program_uid
+           NULL AS program_uid,
+           NULL AS email_from, NULL AS email_to, NULL AS email_snippet
     FROM policies p
     JOIN clients c ON p.client_id = c.id
     WHERE p.follow_up_date IS NOT NULL AND p.archived = 0
@@ -1047,7 +1050,8 @@ def get_all_followups(
            NULL AS note_date,
            NULL AS program_id,
            NULL AS program_name,
-           NULL AS program_uid
+           NULL AS program_uid,
+           NULL AS email_from, NULL AS email_to, NULL AS email_snippet
     FROM clients c
     WHERE c.follow_up_date IS NOT NULL AND c.archived = 0
 
@@ -1817,85 +1821,371 @@ def get_premium_history(
 
 # ─── SEARCH ───────────────────────────────────────────────────────────────────
 
-def full_text_search(conn: sqlite3.Connection, query: str) -> dict[str, list[sqlite3.Row]]:
-    pattern = f"%{query}%"
-    clients = conn.execute(
-        """SELECT id, name, industry_segment, primary_contact, notes, cn_number
-           FROM clients WHERE archived = 0
-           AND (name LIKE ? OR notes LIKE ? OR primary_contact LIKE ?
-                OR cn_number LIKE ? OR address LIKE ?)""",
-        (pattern, pattern, pattern, pattern, pattern),
-    ).fetchall()
-    policies = conn.execute(
-        """SELECT policy_uid, client_name, policy_type, carrier, policy_number,
-                  description, notes, project_name
-           FROM v_policy_status
-           WHERE (client_name LIKE ? OR policy_type LIKE ? OR carrier LIKE ?
-                  OR policy_number LIKE ? OR policy_uid LIKE ?
-                  OR project_name LIKE ? OR description LIKE ? OR notes LIKE ?)""",
-        (pattern, pattern, pattern, pattern, pattern, pattern, pattern, pattern),
-    ).fetchall()
-    activities = conn.execute(
-        """SELECT a.id, a.activity_date, c.name AS client_name,
-                  a.activity_type, a.subject, a.details, a.contact_person
-           FROM activity_log a
-           JOIN clients c ON a.client_id = c.id
-           WHERE (a.subject LIKE ? OR a.details LIKE ? OR a.contact_person LIKE ?)""",
-        (pattern, pattern, pattern),
-    ).fetchall()
-    # Knowledge base
-    kb_articles = conn.execute(
-        """SELECT uid, title, category, tags, updated_at
-           FROM kb_articles
-           WHERE title LIKE ? OR content LIKE ? OR tags LIKE ?
-           ORDER BY updated_at DESC LIMIT 10""",
-        (pattern, pattern, pattern),
-    ).fetchall()
-    kb_documents = conn.execute(
-        """SELECT uid, title, category, filename, tags, updated_at
-           FROM attachments
-           WHERE title LIKE ? OR description LIKE ? OR filename LIKE ? OR tags LIKE ?
-           ORDER BY updated_at DESC LIMIT 10""",
-        (pattern, pattern, pattern, pattern),
-    ).fetchall()
-    issues = conn.execute(
-        """SELECT a.id, a.issue_uid, a.subject, a.issue_status, a.issue_severity,
-                  a.activity_date, c.name AS client_name, p.policy_type
-           FROM activity_log a
-           LEFT JOIN clients c ON a.client_id = c.id
-           LEFT JOIN policies p ON a.policy_id = p.id
-           WHERE a.item_kind = 'issue' AND a.issue_id IS NULL
-             AND a.merged_into_id IS NULL
-             AND a.issue_status NOT IN ('Resolved', 'Closed')
-             AND (a.subject LIKE ? OR a.issue_uid LIKE ? OR a.details LIKE ?
-                  OR c.name LIKE ?)
-           ORDER BY
-             CASE a.issue_severity
-               WHEN 'Critical' THEN 0 WHEN 'High' THEN 1
-               WHEN 'Normal' THEN 2 ELSE 3
-             END,
-             a.activity_date DESC
-           LIMIT 20""",
-        (pattern, pattern, pattern, pattern),
-    ).fetchall()
-    locations = conn.execute(
-        """SELECT pr.id, pr.name, pr.address, pr.city, pr.state, pr.zip,
-                  pr.client_id, c.name AS client_name
-           FROM projects pr
-           JOIN clients c ON c.id = pr.client_id
-           WHERE pr.name LIKE ? OR pr.address LIKE ? OR pr.city LIKE ?
-           ORDER BY pr.name LIMIT 20""",
-        (pattern, pattern, pattern),
-    ).fetchall()
-    return {
-        "clients": clients,
-        "policies": policies,
-        "activities": activities,
-        "issues": issues,
-        "locations": locations,
-        "kb_articles": kb_articles,
-        "kb_documents": kb_documents,
-    }
+import re as _re
+import time as _time
+
+
+def rebuild_search_index(conn: sqlite3.Connection) -> None:
+    """Rebuild the FTS5 search index from scratch.  Runs on every startup."""
+    t0 = _time.perf_counter()
+    conn.execute("DELETE FROM search_index")
+
+    # -- Clients --
+    conn.execute("""
+        INSERT INTO search_index (entity_type, entity_id, title, subtitle, body, metadata)
+        SELECT 'client', CAST(id AS TEXT),
+            COALESCE(name, ''),
+            COALESCE(industry_segment, '') || ' ' || COALESCE(account_exec, ''),
+            COALESCE(notes, '') || ' ' || COALESCE(business_description, '')
+                || ' ' || COALESCE(account_priorities, '') || ' ' || COALESCE(renewal_strategy, '')
+                || ' ' || COALESCE(growth_opportunities, ''),
+            COALESCE(cn_number, '') || ' ' || COALESCE(contact_email, '')
+                || ' ' || COALESCE(address, '') || ' ' || COALESCE(primary_contact, '')
+                || ' ' || COALESCE(fein, '')
+        FROM clients WHERE archived = 0
+    """)
+
+    # -- Policies --
+    conn.execute("""
+        INSERT INTO search_index (entity_type, entity_id, title, subtitle, body, metadata)
+        SELECT 'policy', p.policy_uid,
+            COALESCE(c.name, '') || ' ' || COALESCE(p.policy_type, ''),
+            COALESCE(p.carrier, '') || ' ' || COALESCE(p.first_named_insured, ''),
+            COALESCE(p.description, '') || ' ' || COALESCE(p.notes, ''),
+            COALESCE(p.policy_uid, '') || ' ' || COALESCE(p.policy_number, '')
+                || ' ' || COALESCE(p.project_name, '') || ' ' || COALESCE(p.coverage_form, '')
+                || ' ' || COALESCE(p.underwriter_name, '') || ' ' || COALESCE(p.placement_colleague, '')
+                || ' ' || COALESCE(p.account_exec, '')
+        FROM policies p
+        JOIN clients c ON c.id = p.client_id
+        WHERE p.archived = 0
+    """)
+
+    # -- Activities (last 2 years) --
+    conn.execute("""
+        INSERT INTO search_index (entity_type, entity_id, title, subtitle, body, metadata)
+        SELECT 'activity', CAST(a.id AS TEXT),
+            COALESCE(a.subject, ''),
+            COALESCE(c.name, '') || ' ' || COALESCE(a.activity_type, '')
+                || ' ' || COALESCE(a.contact_person, ''),
+            COALESCE(a.details, '') || ' ' || COALESCE(a.email_snippet, ''),
+            COALESCE(a.email_from, '') || ' ' || COALESCE(a.email_to, '')
+        FROM activity_log a
+        LEFT JOIN clients c ON a.client_id = c.id
+        WHERE a.item_kind IS NULL
+          AND a.activity_date >= date('now', '-2 years')
+    """)
+
+    # -- Issues (open parent issues only) --
+    conn.execute("""
+        INSERT INTO search_index (entity_type, entity_id, title, subtitle, body, metadata)
+        SELECT 'issue', CAST(a.id AS TEXT),
+            COALESCE(a.subject, ''),
+            COALESCE(c.name, '') || ' ' || COALESCE(a.issue_severity, '')
+                || ' ' || COALESCE(a.issue_status, ''),
+            COALESCE(a.details, '') || ' ' || COALESCE(a.resolution_notes, ''),
+            COALESCE(a.issue_uid, '') || ' ' || COALESCE(a.root_cause_category, '')
+        FROM activity_log a
+        LEFT JOIN clients c ON a.client_id = c.id
+        WHERE a.item_kind = 'issue' AND a.issue_id IS NULL
+          AND a.merged_into_id IS NULL
+          AND a.issue_status NOT IN ('Resolved', 'Closed')
+    """)
+
+    # -- Contacts --
+    conn.execute("""
+        INSERT INTO search_index (entity_type, entity_id, title, subtitle, body, metadata)
+        SELECT 'contact', CAST(co.id AS TEXT),
+            COALESCE(co.name, ''),
+            COALESCE(co.organization, ''),
+            COALESCE(co.expertise_notes, ''),
+            COALESCE(co.email, '') || ' ' || COALESCE(co.phone, '')
+                || ' ' || COALESCE(co.mobile, '')
+                || ' ' || COALESCE(
+                    (SELECT GROUP_CONCAT(cca.role, ' ')
+                     FROM contact_client_assignments cca
+                     WHERE cca.contact_id = co.id AND cca.role IS NOT NULL), '')
+        FROM contacts co
+    """)
+
+    # -- Programs --
+    conn.execute("""
+        INSERT INTO search_index (entity_type, entity_id, title, subtitle, body, metadata)
+        SELECT 'program', pg.program_uid,
+            COALESCE(pg.name, ''),
+            COALESCE(c.name, '') || ' ' || COALESCE(pg.line_of_business, ''),
+            COALESCE(pg.notes, '') || ' ' || COALESCE(pg.working_notes, ''),
+            COALESCE(pg.program_uid, '') || ' ' || COALESCE(pg.lead_broker, '')
+                || ' ' || COALESCE(pg.account_exec, '')
+        FROM programs pg
+        JOIN clients c ON c.id = pg.client_id
+        WHERE pg.archived = 0
+    """)
+
+    # -- Meetings --
+    conn.execute("""
+        INSERT INTO search_index (entity_type, entity_id, title, subtitle, body, metadata)
+        SELECT 'meeting', CAST(m.id AS TEXT),
+            COALESCE(m.title, ''),
+            COALESCE(c.name, '') || ' ' || COALESCE(m.location, ''),
+            COALESCE(m.notes, '') || ' ' || COALESCE(m.agenda, ''),
+            COALESCE(m.meeting_uid, '')
+                || ' ' || COALESCE(
+                    (SELECT GROUP_CONCAT(ma.name, ' ')
+                     FROM meeting_attendees ma WHERE ma.meeting_id = m.id), '')
+        FROM client_meetings m
+        JOIN clients c ON c.id = m.client_id
+    """)
+
+    # -- Locations / Projects --
+    conn.execute("""
+        INSERT INTO search_index (entity_type, entity_id, title, subtitle, body, metadata)
+        SELECT 'location', CAST(pr.id AS TEXT),
+            COALESCE(pr.name, ''),
+            COALESCE(c.name, ''),
+            COALESCE(pr.notes, '') || ' ' || COALESCE(pr.scope_description, ''),
+            COALESCE(pr.address, '') || ' ' || COALESCE(pr.city, '')
+                || ' ' || COALESCE(pr.state, '') || ' ' || COALESCE(pr.zip, '')
+                || ' ' || COALESCE(pr.general_contractor, '') || ' ' || COALESCE(pr.owner_name, '')
+        FROM projects pr
+        JOIN clients c ON c.id = pr.client_id
+    """)
+
+    # -- Inbox (last 6 months) --
+    conn.execute("""
+        INSERT INTO search_index (entity_type, entity_id, title, subtitle, body, metadata)
+        SELECT 'inbox', CAST(i.id AS TEXT),
+            COALESCE(i.email_subject, SUBSTR(COALESCE(i.content, ''), 1, 100)),
+            COALESCE(i.email_from, ''),
+            COALESCE(i.content, ''),
+            COALESCE(i.inbox_uid, '') || ' ' || COALESCE(i.email_to, '')
+        FROM inbox i
+        WHERE i.created_at >= date('now', '-6 months')
+    """)
+
+    # -- Client scratchpads --
+    conn.execute("""
+        INSERT INTO search_index (entity_type, entity_id, title, subtitle, body, metadata)
+        SELECT 'scratchpad', 'client-' || CAST(cs.client_id AS TEXT),
+            COALESCE(c.name, '') || ' scratchpad',
+            '',
+            COALESCE(cs.content, ''),
+            ''
+        FROM client_scratchpad cs
+        JOIN clients c ON c.id = cs.client_id
+        WHERE cs.content IS NOT NULL AND cs.content != ''
+    """)
+
+    # -- Policy scratchpads --
+    conn.execute("""
+        INSERT INTO search_index (entity_type, entity_id, title, subtitle, body, metadata)
+        SELECT 'scratchpad', 'policy-' || ps.policy_uid,
+            ps.policy_uid || ' scratchpad',
+            '',
+            COALESCE(ps.content, ''),
+            ''
+        FROM policy_scratchpad ps
+        WHERE ps.content IS NOT NULL AND ps.content != ''
+    """)
+
+    conn.commit()
+    elapsed = (_time.perf_counter() - t0) * 1000
+    count = conn.execute("SELECT COUNT(*) FROM search_index").fetchone()[0]
+    logger.info("Search index rebuilt: %d rows in %.0fms", count, elapsed)
+
+
+# FTS5 operator characters to strip from user input
+_FTS5_SPECIAL = _re.compile(r'["\*\{\}\^\(\)]')
+_FTS5_KEYWORDS = {"AND", "OR", "NOT", "NEAR"}
+
+
+def _sanitize_fts_query(query: str) -> str:
+    """Build a safe FTS5 MATCH expression from user input."""
+    # Strip special FTS5 characters
+    q = _FTS5_SPECIAL.sub(" ", query)
+    words = [w for w in q.split() if w.upper() not in _FTS5_KEYWORDS and len(w) >= 1]
+    if not words:
+        return ""
+    # Each word gets prefix matching; multi-word also tries phrase match
+    parts = [f'"{w}"*' for w in words]
+    expr = " OR ".join(parts)
+    if len(words) > 1:
+        phrase = " ".join(words)
+        expr = f'"{phrase}" OR {expr}'
+    return expr
+
+
+def full_text_search(conn: sqlite3.Connection, query: str) -> dict:
+    """Search across all entity types using FTS5 with fuzzy fallback."""
+    match_expr = _sanitize_fts_query(query)
+    if not match_expr:
+        return {
+            "clients": [], "policies": [], "activities": [], "issues": [],
+            "contacts": [], "programs": [], "meetings": [], "locations": [],
+            "inbox": [], "_snippets": {}, "_query_mode": "none",
+        }
+
+    # --- Tier 1: FTS5 search ---
+    snippets: dict[tuple[str, str], str] = {}
+    grouped: dict[str, list[str]] = {}
+    try:
+        # Columns: 0=entity_type, 1=entity_id, 2=title, 3=subtitle, 4=body, 5=metadata
+        rows = conn.execute("""
+            SELECT entity_type, entity_id,
+                   snippet(search_index, 2, '<mark>', '</mark>', '…', 40),
+                   snippet(search_index, 3, '<mark>', '</mark>', '…', 40),
+                   snippet(search_index, 4, '<mark>', '</mark>', '…', 60),
+                   snippet(search_index, 5, '<mark>', '</mark>', '…', 40)
+            FROM search_index
+            WHERE search_index MATCH ?
+            ORDER BY bm25(search_index, 10.0, 5.0, 1.0, 3.0)
+            LIMIT 80
+        """, (match_expr,)).fetchall()
+        for r in rows:
+            etype, eid = r[0], r[1]
+            grouped.setdefault(etype, []).append(eid)
+            # Pick the best snippet — prefer the one that actually has a highlight
+            snip = ""
+            for col in (r[4], r[3], r[5], r[2]):  # body, subtitle, metadata, title
+                if col and "<mark>" in col:
+                    snip = col
+                    break
+            if snip:
+                snippets[(etype, eid)] = snip
+    except Exception:
+        # FTS5 query syntax error — fall through to fuzzy
+        logger.debug("FTS5 MATCH failed for %r, falling back to fuzzy", query)
+        rows = []
+
+    # --- Hydrate results from source tables ---
+    # FTS5 stores singular entity_type ('client', 'policy', etc.)
+    # Results dict uses plural keys ('clients', 'policies', etc.)
+    results: dict[str, list] = {}
+
+    def _hydrate(fts_type: str, result_key: str, sql: str):
+        ids = grouped.get(fts_type, [])
+        if not ids:
+            results[result_key] = []
+            return
+        placeholders = ",".join("?" * len(ids))
+        full_sql = sql.replace("__IDS__", placeholders)
+        results[result_key] = [dict(r) for r in conn.execute(full_sql, ids).fetchall()]
+
+    _hydrate("client", "clients", """
+        SELECT id, name, industry_segment, primary_contact, notes, cn_number
+        FROM clients WHERE CAST(id AS TEXT) IN (__IDS__)
+    """)
+    _hydrate("policy", "policies", """
+        SELECT policy_uid, client_name, policy_type, carrier, policy_number,
+               description, notes, project_name, client_id
+        FROM v_policy_status WHERE policy_uid IN (__IDS__)
+    """)
+    _hydrate("activity", "activities", """
+        SELECT a.id, a.activity_date, c.name AS client_name,
+               a.activity_type, a.subject, a.details, a.contact_person
+        FROM activity_log a
+        LEFT JOIN clients c ON a.client_id = c.id
+        WHERE CAST(a.id AS TEXT) IN (__IDS__)
+        ORDER BY a.activity_date DESC
+    """)
+    _hydrate("issue", "issues", """
+        SELECT a.id, a.issue_uid, a.subject, a.issue_status, a.issue_severity,
+               a.activity_date, c.name AS client_name, p.policy_type
+        FROM activity_log a
+        LEFT JOIN clients c ON a.client_id = c.id
+        LEFT JOIN policies p ON a.policy_id = p.id
+        WHERE CAST(a.id AS TEXT) IN (__IDS__)
+        ORDER BY
+            CASE a.issue_severity
+              WHEN 'Critical' THEN 0 WHEN 'High' THEN 1
+              WHEN 'Normal' THEN 2 ELSE 3
+            END, a.activity_date DESC
+    """)
+    _hydrate("contact", "contacts", """
+        SELECT co.id, co.name, co.email, co.phone, co.mobile, co.organization
+        FROM contacts co WHERE CAST(co.id AS TEXT) IN (__IDS__)
+    """)
+    _hydrate("program", "programs", """
+        SELECT pg.program_uid, pg.name, c.name AS client_name,
+               pg.line_of_business, pg.client_id
+        FROM programs pg
+        JOIN clients c ON c.id = pg.client_id
+        WHERE pg.program_uid IN (__IDS__)
+    """)
+    _hydrate("meeting", "meetings", """
+        SELECT m.id, m.title, c.name AS client_name, m.meeting_date,
+               m.location, m.client_id, m.meeting_uid
+        FROM client_meetings m
+        JOIN clients c ON c.id = m.client_id
+        WHERE CAST(m.id AS TEXT) IN (__IDS__)
+        ORDER BY m.meeting_date DESC
+    """)
+    _hydrate("location", "locations", """
+        SELECT pr.id, pr.name, pr.address, pr.city, pr.state, pr.zip,
+               pr.client_id, c.name AS client_name
+        FROM projects pr
+        JOIN clients c ON c.id = pr.client_id
+        WHERE CAST(pr.id AS TEXT) IN (__IDS__)
+        ORDER BY pr.name
+    """)
+    _hydrate("inbox", "inbox", """
+        SELECT i.id, i.inbox_uid, i.email_subject, i.email_from, i.content,
+               i.created_at, i.status
+        FROM inbox i WHERE CAST(i.id AS TEXT) IN (__IDS__)
+        ORDER BY i.created_at DESC
+    """)
+
+    # --- Tier 2: Fuzzy fallback ---
+    total_fts = sum(len(v) for v in results.values())
+    query_mode = "fts5"
+
+    if total_fts < 3:
+        _fuzzy_types = {
+            "clients": ("SELECT id, name FROM clients WHERE archived = 0", "name", "id"),
+            "contacts": ("SELECT id, name || ' ' || COALESCE(email, '') || ' ' || COALESCE(organization, '') AS label FROM contacts", "label", "id"),
+            "programs": ("SELECT program_uid AS id, name FROM programs WHERE archived = 0", "name", "id"),
+        }
+        for etype, (sql, name_col, id_col) in _fuzzy_types.items():
+            if results.get(etype):
+                continue  # Already have FTS5 results for this type
+            candidates = {str(r[id_col]): r[name_col] for r in conn.execute(sql).fetchall()}
+            if not candidates:
+                continue
+            matches = process.extract(query, candidates, scorer=fuzz.WRatio, score_cutoff=65, limit=10)
+            if matches:
+                matched_ids = [m[2] for m in matches]  # key = id
+                existing_ids = {str(r.get("id", r.get("policy_uid", r.get("program_uid", "")))) for r in results.get(etype, [])}
+                new_ids = [mid for mid in matched_ids if mid not in existing_ids]
+                if new_ids and etype == "clients":
+                    ph = ",".join("?" * len(new_ids))
+                    fuzzy_rows = conn.execute(f"""
+                        SELECT id, name, industry_segment, primary_contact, notes, cn_number
+                        FROM clients WHERE CAST(id AS TEXT) IN ({ph})
+                    """, new_ids).fetchall()
+                    results["clients"].extend(dict(r) for r in fuzzy_rows)
+                elif new_ids and etype == "contacts":
+                    ph = ",".join("?" * len(new_ids))
+                    fuzzy_rows = conn.execute(f"""
+                        SELECT id, name, email, phone, mobile, organization
+                        FROM contacts WHERE CAST(id AS TEXT) IN ({ph})
+                    """, new_ids).fetchall()
+                    results["contacts"].extend(dict(r) for r in fuzzy_rows)
+                elif new_ids and etype == "programs":
+                    ph = ",".join("?" * len(new_ids))
+                    fuzzy_rows = conn.execute(f"""
+                        SELECT pg.program_uid, pg.name, c.name AS client_name,
+                               pg.line_of_business, pg.client_id
+                        FROM programs pg
+                        JOIN clients c ON c.id = pg.client_id
+                        WHERE pg.program_uid IN ({ph})
+                    """, new_ids).fetchall()
+                    results["programs"].extend(dict(r) for r in fuzzy_rows)
+                if new_ids:
+                    query_mode = "fuzzy"
+
+    results["_snippets"] = snippets
+    results["_query_mode"] = query_mode
+    return results
 
 
 # ─── REVIEW QUERIES ───────────────────────────────────────────────────────────
@@ -3916,3 +4206,334 @@ def get_followups_for_grid(conn: sqlite3.Connection) -> list[dict]:
     """
     rows = conn.execute(sql).fetchall()
     return [dict(r) for r in rows]
+
+
+# ── Review Session Queries ──────────────────────────────────────────────
+
+
+def get_or_create_review_session(conn: sqlite3.Connection) -> dict:
+    """Return the active (incomplete) review session, or create a new one."""
+    import dateparser
+    import json
+    from datetime import datetime
+
+    row = conn.execute(
+        "SELECT * FROM review_sessions WHERE completed_at IS NULL ORDER BY started_at DESC LIMIT 1"
+    ).fetchone()
+    if row:
+        session = dict(row)
+        started = dateparser.parse(session["started_at"])
+        if started and (datetime.now() - started).days > 7:
+            session["stale"] = True
+        else:
+            session["stale"] = False
+        return session
+
+    from policydb.review_checks import WALKTHROUGH_SECTIONS
+
+    sections = {}
+    for s in WALKTHROUGH_SECTIONS:
+        if s.get("conditional"):
+            continue
+        sections[s["key"]] = {"status": "pending", "completed_at": None, "item_count": 0}
+
+    conn.execute(
+        "INSERT INTO review_sessions (sections_json) VALUES (?)",
+        (json.dumps(sections),),
+    )
+    conn.commit()
+    new_row = conn.execute(
+        "SELECT * FROM review_sessions WHERE completed_at IS NULL ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    session = dict(new_row)
+    session["stale"] = False
+    return session
+
+
+def archive_stale_session(conn: sqlite3.Connection, session_id: int) -> None:
+    """Mark a stale session as completed (partial) so a new one can start."""
+    conn.execute(
+        "UPDATE review_sessions SET completed_at = datetime('now') WHERE id = ?",
+        (session_id,),
+    )
+    conn.commit()
+
+
+def update_section_status(
+    conn: sqlite3.Connection, session_id: int, section_key: str, status: str, item_count: int = 0
+) -> dict:
+    """Update a section's status in the session's sections_json."""
+    import json
+    from datetime import datetime
+
+    row = conn.execute("SELECT sections_json FROM review_sessions WHERE id = ?", (session_id,)).fetchone()
+    sections = json.loads(row["sections_json"]) if row else {}
+    sections[section_key] = {
+        "status": status,
+        "completed_at": datetime.now().isoformat() if status == "complete" else None,
+        "item_count": item_count,
+    }
+    conn.execute(
+        "UPDATE review_sessions SET sections_json = ? WHERE id = ?",
+        (json.dumps(sections), session_id),
+    )
+    conn.commit()
+    return sections
+
+
+def complete_review_session(conn: sqlite3.Connection, session_id: int) -> None:
+    """Mark the entire review session as complete."""
+    conn.execute(
+        "UPDATE review_sessions SET completed_at = datetime('now') WHERE id = ?",
+        (session_id,),
+    )
+    conn.commit()
+
+
+def get_last_completed_review_date(conn: sqlite3.Connection) -> str | None:
+    """Return the completed_at timestamp of the most recent finished review session."""
+    row = conn.execute(
+        "SELECT completed_at FROM review_sessions WHERE completed_at IS NOT NULL ORDER BY completed_at DESC LIMIT 1"
+    ).fetchone()
+    return row["completed_at"] if row else None
+
+
+def get_this_week_summary(conn: sqlite3.Connection, since: str | None = None) -> dict:
+    """Return activity summary since last completed review for the This Week section."""
+    if not since:
+        since = "2000-01-01"
+
+    created_policies = conn.execute(
+        "SELECT COUNT(*) as cnt FROM audit_log WHERE table_name = 'policies' AND operation = 'INSERT' AND changed_at > ?",
+        (since,),
+    ).fetchone()["cnt"]
+
+    created_clients = conn.execute(
+        "SELECT COUNT(*) as cnt FROM audit_log WHERE table_name = 'clients' AND operation = 'INSERT' AND changed_at > ?",
+        (since,),
+    ).fetchone()["cnt"]
+
+    issues_closed = conn.execute(
+        """SELECT COUNT(*) as cnt FROM activity_log
+           WHERE item_kind = 'issue' AND issue_status IN ('Resolved', 'Closed')
+             AND activity_date > ?""",
+        (since,),
+    ).fetchone()["cnt"]
+
+    followups_completed = conn.execute(
+        """SELECT COUNT(*) as cnt FROM activity_log
+           WHERE follow_up_done = 1 AND activity_date > ?""",
+        (since,),
+    ).fetchone()["cnt"]
+
+    # Status changes: audit_log stores old_values/new_values as JSON, so we query
+    # activity_log for renewal status changes instead (more reliable)
+    status_changes = [dict(r) for r in conn.execute(
+        """SELECT al.subject, p.policy_uid, p.policy_type, al.activity_date
+           FROM activity_log al
+           JOIN policies p ON al.policy_id = p.id
+           WHERE al.activity_type = 'Status Change'
+             AND al.activity_date > ?
+           ORDER BY al.activity_date DESC LIMIT 20""",
+        (since,),
+    ).fetchall()]
+
+    contacts_modified = conn.execute(
+        "SELECT COUNT(*) as cnt FROM audit_log WHERE table_name = 'contacts' AND changed_at > ?",
+        (since,),
+    ).fetchone()["cnt"]
+
+    return {
+        "created_policies": created_policies,
+        "created_clients": created_clients,
+        "issues_closed": issues_closed,
+        "followups_completed": followups_completed,
+        "status_changes": status_changes,
+        "contacts_modified": contacts_modified,
+        "since": since,
+    }
+
+
+def get_review_section_items(conn: sqlite3.Connection, section_key: str) -> list[dict]:
+    """Return items for a specific walkthrough section."""
+    import policydb.config as cfg
+
+    # Sections loaded via their own dedicated endpoints — skip here
+    if section_key in ("this_week", "vacation_prep"):
+        return [{"_placeholder": True}]  # non-empty so auto-complete doesn't fire
+
+    if section_key == "overdue_followups":
+        return [dict(r) for r in conn.execute(
+            """SELECT al.*, c.name as client_name
+               FROM activity_log al
+               LEFT JOIN clients c ON al.client_id = c.id
+               WHERE al.follow_up_done = 0 AND al.follow_up_date < date('now')
+                 AND al.item_kind = 'followup'
+               ORDER BY al.follow_up_date ASC"""
+        ).fetchall()]
+
+    if section_key == "upcoming_renewals":
+        window = cfg.get("review_renewal_window_days", 120)
+        return [dict(r) for r in conn.execute(
+            """SELECT p.*, c.name as client_name
+               FROM policies p
+               JOIN clients c ON p.client_id = c.id
+               WHERE p.expiration_date IS NOT NULL
+                 AND p.expiration_date BETWEEN date('now') AND date('now', '+' || ? || ' days')
+                 AND (p.is_opportunity = 0 OR p.is_opportunity IS NULL)
+               ORDER BY p.expiration_date ASC""",
+            (window,),
+        ).fetchall()]
+
+    if section_key == "open_issues":
+        stale_days = cfg.get("review_stale_issue_days", 14)
+        urgency_days = cfg.get("review_renewal_urgency_days", 60)
+        return [dict(r) for r in conn.execute(
+            """SELECT al.*, c.name as client_name,
+                 (SELECT MIN(p.expiration_date) FROM policies p
+                  WHERE p.id = al.policy_id
+                    AND p.expiration_date BETWEEN date('now') AND date('now', '+' || ? || ' days')
+                 ) as renewal_expiring_soon
+               FROM activity_log al
+               LEFT JOIN clients c ON al.client_id = c.id
+               WHERE al.item_kind = 'issue'
+                 AND al.issue_status NOT IN ('Resolved', 'Closed')
+                 AND (
+                   al.activity_date < date('now', '-' || ? || ' days')
+                   OR al.due_date IS NULL
+                   OR (al.issue_severity = 'Critical' AND al.activity_date < date('now', '-7 days'))
+                   OR al.policy_id IN (
+                     SELECT p.id FROM policies p
+                     WHERE p.expiration_date BETWEEN date('now') AND date('now', '+' || ? || ' days')
+                   )
+                 )
+               ORDER BY
+                 CASE WHEN al.issue_severity = 'Critical' THEN 0 ELSE 1 END,
+                 CASE WHEN al.policy_id IN (
+                   SELECT p.id FROM policies p
+                   WHERE p.expiration_date BETWEEN date('now') AND date('now', '+' || ? || ' days')
+                 ) THEN 0 ELSE 1 END,
+                 al.activity_date ASC""",
+            (urgency_days, stale_days, urgency_days, urgency_days),
+        ).fetchall()]
+
+    if section_key == "client_health":
+        inactive_days = cfg.get("review_inactive_client_days", 180)
+        return [dict(r) for r in conn.execute(
+            """SELECT c.*,
+                 (SELECT COUNT(*) FROM contact_client_assignments cca
+                  JOIN contacts ct ON cca.contact_id = ct.id
+                  WHERE cca.client_id = c.id AND cca.is_primary = 1) as has_primary,
+                 (SELECT MAX(al.activity_date) FROM activity_log al WHERE al.client_id = c.id) as last_activity
+               FROM clients c
+               WHERE c.archived = 0
+                 AND (
+                   (SELECT COUNT(*) FROM contact_client_assignments cca
+                    JOIN contacts ct ON cca.contact_id = ct.id
+                    WHERE cca.client_id = c.id AND cca.is_primary = 1) = 0
+                   OR (SELECT MAX(al.activity_date) FROM activity_log al WHERE al.client_id = c.id) < date('now', '-' || ? || ' days')
+                   OR (SELECT MAX(al.activity_date) FROM activity_log al WHERE al.client_id = c.id) IS NULL
+                 )
+               ORDER BY c.name""",
+            (inactive_days,),
+        ).fetchall()]
+
+    if section_key == "policy_audit":
+        return [dict(r) for r in conn.execute(
+            """SELECT p.*, c.name as client_name
+               FROM policies p
+               JOIN clients c ON p.client_id = c.id
+               WHERE (p.is_opportunity = 0 OR p.is_opportunity IS NULL)
+                 AND (
+                   p.expiration_date IS NULL
+                   OR p.carrier IS NULL OR p.carrier = ''
+                   OR p.renewal_status IS NULL OR p.renewal_status = ''
+                 )
+               ORDER BY c.name, p.policy_type"""
+        ).fetchall()]
+
+    if section_key == "inbox":
+        return [dict(r) for r in conn.execute(
+            """SELECT * FROM inbox
+               WHERE status = 'pending'
+               ORDER BY created_at DESC"""
+        ).fetchall()]
+
+    return []
+
+
+def should_show_review_reminder(conn: sqlite3.Connection, reminder_day: str) -> bool:
+    """Check if the review reminder banner should show on the dashboard."""
+    import datetime as dt
+
+    today = dt.date.today()
+    day_names = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+    if reminder_day.lower() not in day_names:
+        return False
+    if day_names[today.weekday()] != reminder_day.lower():
+        return False
+
+    monday = today - dt.timedelta(days=today.weekday())
+    row = conn.execute(
+        "SELECT COUNT(*) as cnt FROM review_sessions WHERE completed_at >= ?",
+        (monday.isoformat(),),
+    ).fetchone()
+    return row["cnt"] == 0
+
+
+def get_vacation_checklist(conn: sqlite3.Connection, return_date: str) -> dict:
+    """Generate a pre-departure checklist based on vacation return date."""
+    import policydb.config as cfg
+    pre_marketing_days = cfg.get("review_vacation_pre_marketing_days", 14)
+
+    followups_during = [dict(r) for r in conn.execute(
+        """SELECT al.*, c.name as client_name
+           FROM activity_log al
+           LEFT JOIN clients c ON al.client_id = c.id
+           WHERE al.follow_up_done = 0
+             AND al.follow_up_date BETWEEN date('now') AND ?
+             AND al.item_kind = 'followup'
+           ORDER BY al.follow_up_date ASC""",
+        (return_date,),
+    ).fetchall()]
+
+    issues_during = [dict(r) for r in conn.execute(
+        """SELECT al.*, c.name as client_name
+           FROM activity_log al
+           LEFT JOIN clients c ON al.client_id = c.id
+           WHERE al.item_kind = 'issue'
+             AND al.issue_status NOT IN ('Resolved', 'Closed')
+             AND al.due_date BETWEEN date('now') AND ?
+           ORDER BY al.due_date ASC""",
+        (return_date,),
+    ).fetchall()]
+
+    renewals_near_return = [dict(r) for r in conn.execute(
+        """SELECT p.*, c.name as client_name
+           FROM policies p
+           JOIN clients c ON p.client_id = c.id
+           WHERE p.expiration_date IS NOT NULL
+             AND p.expiration_date BETWEEN ? AND date(?, '+' || ? || ' days')
+             AND (p.is_opportunity = 0 OR p.is_opportunity IS NULL)
+           ORDER BY p.expiration_date ASC""",
+        (return_date, return_date, pre_marketing_days),
+    ).fetchall()]
+
+    milestones_during = [dict(r) for r in conn.execute(
+        """SELECT pt.*, p.policy_uid, p.policy_type, c.name as client_name
+           FROM policy_timeline pt
+           JOIN policies p ON pt.policy_uid = p.policy_uid
+           JOIN clients c ON p.client_id = c.id
+           WHERE pt.completed_date IS NULL
+             AND pt.projected_date BETWEEN date('now') AND ?
+           ORDER BY pt.projected_date ASC""",
+        (return_date,),
+    ).fetchall()]
+
+    return {
+        "return_date": return_date,
+        "followups": followups_during,
+        "issues": issues_during,
+        "renewals": renewals_near_return,
+        "milestones": milestones_during,
+    }

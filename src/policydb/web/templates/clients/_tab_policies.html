@@ -9,6 +9,48 @@
 
 {# ── Policy Groups ── #}
 <div class="mb-6">
+  {# ── Summary Stats Bar ── #}
+  {% if policy_summary is defined and policy_summary.total > 0 %}
+  <div class="flex items-center gap-4 flex-wrap mb-3 px-4 py-2.5 bg-white rounded-lg border border-gray-100 shadow-sm">
+    <div class="flex items-center gap-2">
+      <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Active</span>
+      <span class="text-sm font-bold text-gray-800">{{ policy_summary.total }}</span>
+    </div>
+    {% if policy_summary.premium %}
+    <span class="text-gray-200">|</span>
+    <div class="flex items-center gap-1.5">
+      <span class="text-xs text-gray-400">In-Force Premium</span>
+      <span class="text-sm font-semibold text-gray-700">{{ policy_summary.premium | currency }}</span>
+    </div>
+    {% endif %}
+    {% if policy_summary.expiring_30 %}
+    <span class="text-gray-200">|</span>
+    <button type="button" onclick="filterPolicyRows('critical')" class="flex items-center gap-1.5 hover:bg-red-50 rounded px-1.5 py-0.5 -mx-1.5 -my-0.5 transition-colors cursor-pointer" title="Click to highlight">
+      <span class="w-2 h-2 rounded-full bg-red-400 flex-shrink-0"></span>
+      <span class="text-xs text-red-600 font-medium">{{ policy_summary.expiring_30 }} expiring &le;30d</span>
+    </button>
+    {% endif %}
+    {% if policy_summary.expiring_60 %}
+    <span class="text-gray-200">|</span>
+    <button type="button" onclick="filterPolicyRows('warning')" class="flex items-center gap-1.5 hover:bg-amber-50 rounded px-1.5 py-0.5 -mx-1.5 -my-0.5 transition-colors cursor-pointer" title="Click to highlight">
+      <span class="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0"></span>
+      <span class="text-xs text-amber-600 font-medium">{{ policy_summary.expiring_60 }} expiring 31–60d</span>
+    </button>
+    {% endif %}
+    {% if policy_summary.not_started_90 %}
+    <span class="text-gray-200">|</span>
+    <button type="button" onclick="filterNotStarted()" class="flex items-center gap-1.5 hover:bg-gray-100 rounded px-1.5 py-0.5 -mx-1.5 -my-0.5 transition-colors cursor-pointer" title="Click to highlight">
+      <span class="w-2 h-2 rounded-full bg-gray-400 flex-shrink-0"></span>
+      <span class="text-xs text-gray-500 font-medium">{{ policy_summary.not_started_90 }} not started &le;90d</span>
+    </button>
+    {% endif %}
+    <span id="policy-filter-clear" class="hidden">
+      <span class="text-gray-200">|</span>
+      <button type="button" onclick="clearPolicyFilter()" class="text-xs text-marsh hover:underline">Clear filter</button>
+    </span>
+  </div>
+  {% endif %}
+
   <div class="flex items-center justify-between mb-3">
     <h2 class="font-semibold text-gray-900 text-lg">Policies</h2>
     <div class="flex gap-3 no-print">
@@ -83,6 +125,28 @@
   </tr>
   {% endset %}
 
+  {# ── Jump-Nav Strip (only when multiple groups) ── #}
+  {% if policy_groups | length > 1 %}
+  <div id="policy-jump-nav" class="flex items-center gap-2 mb-3 px-1 py-1.5 overflow-x-auto no-print">
+    {% for project_name, group in policy_groups %}
+    {% set _grp_standalone = group | rejectattr('policy_uid', 'in', program_linked_uids) | list | length %}
+    {% if _grp_standalone > 0 %}
+    {% set _grp_urgent = group | selectattr('days_to_renewal', 'ne', none) | selectattr('days_to_renewal', 'le', 60) | list | length %}
+    <button type="button" onclick="jumpToGroup('pgrp-{{ loop.index0 }}')"
+      class="policy-jump-pill flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-full border border-gray-200 bg-white text-gray-600 hover:border-marsh hover:text-marsh transition-colors whitespace-nowrap flex-shrink-0"
+      data-group-id="pgrp-{{ loop.index0 }}">
+      {% if _grp_urgent > 0 %}<span class="w-1.5 h-1.5 rounded-full {% if group | selectattr('days_to_renewal', 'ne', none) | selectattr('days_to_renewal', 'le', 30) | list | length > 0 %}bg-red-400{% else %}bg-amber-400{% endif %} flex-shrink-0"></span>{% endif %}
+      {{ project_name or 'Corporate' }}
+      <span class="text-gray-400">{{ _grp_standalone }}</span>
+    </button>
+    {% endif %}
+    {% endfor %}
+    <span class="text-gray-200 mx-1">|</span>
+    <button type="button" onclick="toggleCompactMode()" id="compact-toggle"
+      class="text-xs text-gray-400 hover:text-marsh whitespace-nowrap transition-colors">Compact</button>
+  </div>
+  {% endif %}
+
   {# ── Flagged Policies (shown at top when any exist) ── #}
   {% set ns_flagged = namespace(policies=[]) %}
   {% for _, group in policy_groups %}{% for p in group %}{% if p.flagged %}{% set ns_flagged.policies = ns_flagged.policies + [p] %}{% endif %}{% endfor %}{% endfor %}
@@ -119,8 +183,9 @@
   {% endfor %}
 
   {% if ns.standalone > 0 %}
+  {% set _grp_has_urgent = (group | selectattr('days_to_renewal', 'ne', none) | selectattr('days_to_renewal', 'le', 60) | list | length) > 0 %}
   {% if show_header %}
-  <details class="card mb-3 overflow-hidden" open>
+  <details id="pgrp-{{ loop.index0 }}" class="card mb-3 overflow-hidden policy-group" data-has-urgent="{{ 'true' if _grp_has_urgent else 'false' }}" open>
     <summary class="px-4 py-2 bg-gray-50 border-b border-gray-200 cursor-pointer select-none list-none flex items-center gap-2 hover:bg-gray-100 transition-colors">
       <span class="text-xs text-gray-400 details-arrow">▶</span>
       {% set _proj_id = project_ids.get((project_name or '').lower().strip(), 0) if project_ids else 0 %}
@@ -269,25 +334,25 @@
     <table class="w-full text-sm">
       <thead>
         <tr class="text-left text-xs text-gray-500 uppercase tracking-wide bg-gray-50 border-b border-gray-100">
-          <th class="px-4 py-3">UID</th>
-          <th class="px-4 py-3">Line of Business</th>
-          <th class="px-4 py-3">Carrier</th>
-          <th class="px-4 py-3">Project</th>
-          <th class="px-4 py-3">Effective</th>
-          <th class="px-4 py-3">Expired</th>
-          <th class="px-4 py-3 text-right">Premium</th>
+          <th class="px-3 py-2">UID</th>
+          <th class="px-3 py-2">Line of Business</th>
+          <th class="px-3 py-2">Carrier</th>
+          <th class="px-3 py-2">Project</th>
+          <th class="px-3 py-2">Effective</th>
+          <th class="px-3 py-2">Expired</th>
+          <th class="px-3 py-2 text-right">Premium</th>
         </tr>
       </thead>
       <tbody class="divide-y divide-gray-50">
         {% for p in archived_policies %}
         <tr class="hover:bg-gray-50 text-gray-500">
-          <td class="px-4 py-2 font-mono text-xs">{{ p.policy_uid }}</td>
-          <td class="px-4 py-2">{{ p.policy_type }}</td>
-          <td class="px-4 py-2">{{ p.carrier or '—' }}</td>
-          <td class="px-4 py-2 text-xs text-gray-400">{{ p.project_name or '—' }}</td>
-          <td class="px-4 py-2 text-xs whitespace-nowrap">{{ p.effective_date or '—' }}</td>
-          <td class="px-4 py-2 text-xs whitespace-nowrap">{{ p.expiration_date or '—' }}</td>
-          <td class="px-4 py-2 text-right text-xs">{{ p.premium | currency if p.premium else '—' }}</td>
+          <td class="px-3 py-2 font-mono text-xs">{{ p.policy_uid }}</td>
+          <td class="px-3 py-2">{{ p.policy_type }}</td>
+          <td class="px-3 py-2">{{ p.carrier or '—' }}</td>
+          <td class="px-3 py-2 text-xs text-gray-400">{{ p.project_name or '—' }}</td>
+          <td class="px-3 py-2 text-xs whitespace-nowrap">{{ p.effective_date or '—' }}</td>
+          <td class="px-3 py-2 text-xs whitespace-nowrap">{{ p.expiration_date or '—' }}</td>
+          <td class="px-3 py-2 text-right text-xs">{{ p.premium | currency if p.premium else '—' }}</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -297,6 +362,109 @@
 {% endif %}
 
 <script>
+var _activePolicyFilter = null;
+function filterPolicyRows(tier) {
+  var rows = document.querySelectorAll('tr.policy-row');
+  var isToggle = _activePolicyFilter === tier;
+  if (isToggle) { clearPolicyFilter(); return; }
+  _activePolicyFilter = tier;
+  var first = null;
+  rows.forEach(function(row) {
+    if (row.dataset.urgencyTier === tier) {
+      row.style.opacity = '1';
+      if (!first) first = row;
+    } else {
+      row.style.opacity = '0.15';
+    }
+  });
+  document.getElementById('policy-filter-clear').classList.remove('hidden');
+  if (first) first.scrollIntoView({behavior: 'smooth', block: 'center'});
+}
+function filterNotStarted() {
+  var rows = document.querySelectorAll('tr.policy-row');
+  var isToggle = _activePolicyFilter === 'not-started';
+  if (isToggle) { clearPolicyFilter(); return; }
+  _activePolicyFilter = 'not-started';
+  var first = null;
+  rows.forEach(function(row) {
+    var tier = row.dataset.urgencyTier;
+    var status = row.dataset.renewalStatus;
+    if (tier !== 'ok' && (status === '' || status === 'not started')) {
+      row.style.opacity = '1';
+      if (!first) first = row;
+    } else {
+      row.style.opacity = '0.15';
+    }
+  });
+  document.getElementById('policy-filter-clear').classList.remove('hidden');
+  if (first) first.scrollIntoView({behavior: 'smooth', block: 'center'});
+}
+function clearPolicyFilter() {
+  _activePolicyFilter = null;
+  document.querySelectorAll('tr.policy-row').forEach(function(row) { row.style.opacity = ''; });
+  document.getElementById('policy-filter-clear').classList.add('hidden');
+}
+
+document.addEventListener('click', function(e) {
+  if (!e.target.closest('.relative.inline-block')) {
+    document.querySelectorAll('.proj-hdr-wrap .relative.inline-block > div').forEach(function(m) { m.classList.add('hidden'); });
+  }
+});
+
+/* ── Jump-nav + Compact mode ── */
+function jumpToGroup(id) {
+  var el = document.getElementById(id);
+  if (!el) return;
+  if (!el.open) el.open = true;
+  el.scrollIntoView({behavior: 'smooth', block: 'start'});
+  el.classList.add('ring-2', 'ring-marsh/30');
+  setTimeout(function() { el.classList.remove('ring-2', 'ring-marsh/30'); }, 1500);
+}
+
+var _compactMode = false;
+function toggleCompactMode() {
+  _compactMode = !_compactMode;
+  var btn = document.getElementById('compact-toggle');
+  var groups = document.querySelectorAll('details.policy-group');
+  if (_compactMode) {
+    btn.textContent = 'Expand All';
+    btn.classList.add('text-marsh', 'font-medium');
+    btn.classList.remove('text-gray-400');
+    groups.forEach(function(d) {
+      if (d.dataset.hasUrgent === 'true') {
+        d.open = true;
+      } else {
+        d.open = false;
+      }
+    });
+  } else {
+    btn.textContent = 'Compact';
+    btn.classList.remove('text-marsh', 'font-medium');
+    btn.classList.add('text-gray-400');
+    groups.forEach(function(d) { d.open = true; });
+  }
+}
+
+/* Intersection observer — highlight active jump-nav pill */
+(function() {
+  var pills = document.querySelectorAll('.policy-jump-pill');
+  if (!pills.length) return;
+  var observer = new IntersectionObserver(function(entries) {
+    entries.forEach(function(entry) {
+      var pill = document.querySelector('.policy-jump-pill[data-group-id="' + entry.target.id + '"]');
+      if (!pill) return;
+      if (entry.isIntersecting) {
+        pill.classList.add('border-marsh', 'text-marsh', 'bg-marsh/5');
+        pill.classList.remove('border-gray-200', 'text-gray-600', 'bg-white');
+      } else {
+        pill.classList.remove('border-marsh', 'text-marsh', 'bg-marsh/5');
+        pill.classList.add('border-gray-200', 'text-gray-600', 'bg-white');
+      }
+    });
+  }, {rootMargin: '-20% 0px -60% 0px'});
+  document.querySelectorAll('details.policy-group').forEach(function(el) { observer.observe(el); });
+})();
+
 function addFirstProject(clientId) {
   var scrollY = window.scrollY;
   var key = 'scrollRestore_' + window.location.pathname;

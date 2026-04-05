@@ -1,0 +1,46 @@
+{# Single check group for Review Mode — shows description, why, and action #}
+<div class="border border-gray-200 rounded-lg overflow-hidden {% if not cond.passed %}border-red-200 bg-red-50{% endif %}">
+  <button onclick="this.nextElementSibling.classList.toggle('hidden')"
+          class="w-full flex items-center justify-between px-4 py-3 text-sm hover:bg-gray-50 transition-colors text-left">
+    <div class="flex items-center gap-2">
+      {% if cond.passed %}
+        <span class="text-green-500">&#10003;</span>
+      {% else %}
+        <span class="text-red-500">&#10007;</span>
+      {% endif %}
+      <span class="font-medium {% if cond.passed %}text-gray-700{% else %}text-red-700{% endif %}">{{ cond.name }}</span>
+    </div>
+    <span class="text-xs text-gray-400">{{ cond.detail }}</span>
+  </button>
+
+  <div class="{% if cond.passed %}hidden{% endif %} px-4 pb-3 space-y-2">
+    <p class="text-sm text-gray-800">{{ cond.description }}</p>
+    {% if cond.why %}
+    <p class="text-xs text-gray-500 italic">{{ cond.why }}</p>
+    {% endif %}
+
+    <div class="flex items-center gap-2 pt-1">
+      {% if cond.quick_fix_type == 'quick_log' %}
+      <button hx-get="/review/policies/{{ uid }}/row/log"
+              hx-target="closest div"
+              hx-swap="afterend"
+              class="text-xs bg-white border border-gray-300 rounded px-2.5 py-1 hover:bg-gray-50">
+        Quick Log
+      </button>
+      {% elif cond.quick_fix_type == 'link_to_slideover' %}
+      <span class="text-xs text-gray-500">Edit the missing fields below</span>
+      {% elif cond.quick_fix_type == 'dismiss_anomaly' %}
+      <span class="text-xs text-gray-500">Dismiss in Anomalies tab or schedule follow-up</span>
+      {% elif cond.quick_fix_type == 'reschedule_or_complete' %}
+      <span class="text-xs text-gray-500">Reschedule or complete overdue items below</span>
+      {% endif %}
+
+      {% if cond.followup_label %}
+      <button onclick="scheduleFollowUp('{{ uid }}', '{{ cond.followup_note }}')"
+              class="text-xs bg-marsh/10 text-marsh border border-marsh/20 rounded px-2.5 py-1 hover:bg-marsh/20">
+        {{ cond.followup_label }}
+      </button>
+      {% endif %}
+    </div>
+  </div>
+</div>
