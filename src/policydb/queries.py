@@ -4358,6 +4358,10 @@ def get_review_section_items(conn: sqlite3.Connection, section_key: str) -> list
     """Return items for a specific walkthrough section."""
     import policydb.config as cfg
 
+    # Sections loaded via their own dedicated endpoints — skip here
+    if section_key in ("this_week", "vacation_prep"):
+        return [{"_placeholder": True}]  # non-empty so auto-complete doesn't fire
+
     if section_key == "overdue_followups":
         return [dict(r) for r in conn.execute(
             """SELECT al.*, c.name as client_name

@@ -380,10 +380,14 @@ def review_page(request: Request, conn=Depends(get_db)):
 
 @router.get("/stats", response_class=HTMLResponse)
 def review_stats(request: Request, conn=Depends(get_db)):
-    stats = get_review_stats(conn)
+    import json as _json
+    session = get_or_create_review_session(conn)
+    sections = _json.loads(session.get("sections_json", "{}"))
     return templates.TemplateResponse("review/_stats_banner.html", {
         "request": request,
-        "stats": stats,
+        "sections": sections,
+        "section_defs": WALKTHROUGH_SECTIONS,
+        "session": session,
     })
 
 

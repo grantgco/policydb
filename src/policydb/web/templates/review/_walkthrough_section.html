@@ -22,10 +22,10 @@
         <input type="date"
                value="{{ item.follow_up_date }}"
                class="text-xs border border-gray-200 rounded px-2 py-1 w-32"
-               hx-patch="/followups/plan/{{ item.id }}/reschedule"
+               hx-post="/activities/{{ item.id }}/reschedule"
                hx-trigger="change"
                hx-swap="none"
-               name="follow_up_date"
+               name="new_date"
                title="Reschedule">
       </div>
     </div>
@@ -166,8 +166,8 @@
     {% for item in items %}
     <div class="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-gray-50 border border-gray-100">
       <div class="flex-1 min-w-0">
-        <div class="text-sm font-medium text-gray-800 truncate">{{ item.subject or 'Inbox item' }}</div>
-        <div class="text-xs text-gray-500 mt-0.5">Received {{ item.received_at or '' }}</div>
+        <div class="text-sm font-medium text-gray-800 truncate">{{ item.email_subject or item.content[:60] if item.content else 'Inbox item' }}</div>
+        <div class="text-xs text-gray-500 mt-0.5">{{ item.email_from or '' }} &middot; {{ item.created_at[:10] if item.created_at else '' }}</div>
       </div>
       <div class="shrink-0 ml-3">
         <a href="/action-center?tab=inbox"

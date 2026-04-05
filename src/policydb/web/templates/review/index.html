@@ -252,6 +252,14 @@ document.addEventListener('keydown', function(e) {
   }
 });
 
+function scheduleFollowUp(recordId, note) {
+  // Open quick-log form on the policy row to schedule a follow-up
+  var target = document.getElementById('review-gate-' + recordId);
+  if (target) {
+    htmx.ajax('GET', '/review/policies/' + recordId + '/row/log', {target: target, swap: 'afterend'});
+  }
+}
+
 function promptVacation() {
   var d = prompt('When do you return? (YYYY-MM-DD)');
   if (d && /^\d{4}-\d{2}-\d{2}$/.test(d)) {
