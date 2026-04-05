@@ -1242,10 +1242,28 @@ def client_tab_policies(request: Request, client_id: int, conn=Depends(get_db)):
             pipeline_by_status[_s] = []
         pipeline_by_status[_s].append({**dict(pgm), "is_program": True})
 
+    # ── Summary stats for policies header bar ──
+    _total_premium = sum(float(p.get("premium") or 0) for p in policies)
+    _expiring_30 = sum(1 for p in policies if p.get("days_to_renewal") is not None and 0 <= p["days_to_renewal"] <= 30)
+    _expiring_60 = sum(1 for p in policies if p.get("days_to_renewal") is not None and 31 <= p["days_to_renewal"] <= 60)
+    _not_started_90 = sum(
+        1 for p in policies
+        if p.get("days_to_renewal") is not None and 0 <= p["days_to_renewal"] <= 90
+        and (p.get("renewal_status") or "").lower() in ("not started", "")
+    )
+    policy_summary = {
+        "total": len(policies),
+        "premium": _total_premium,
+        "expiring_30": _expiring_30,
+        "expiring_60": _expiring_60,
+        "not_started_90": _not_started_90,
+    }
+
     return templates.TemplateResponse("clients/_tab_policies.html", {
         "request": request,
         "client": dict(client),
         "policy_groups": policy_groups,
+        "policy_summary": policy_summary,
         "pipeline_by_status": pipeline_by_status,
         "program_pipeline": program_pipeline,
         "has_renewal_pipeline": bool(renewal_pipeline_policies) or bool(program_pipeline),
