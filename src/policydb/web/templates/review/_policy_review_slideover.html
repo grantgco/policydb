@@ -101,6 +101,31 @@
   {# ── Scrollable Content ── #}
   <div class="flex-1 overflow-y-auto">
 
+    {# ── Review Mode (default when opened from walkthrough) ── #}
+    {% if gate and gate.conditions %}
+    <div id="review-mode-{{ p.policy_uid }}">
+      {% set failing = gate.conditions | selectattr('passed', 'equalto', false) | list %}
+      {% if failing %}
+      <div class="px-5 py-3 bg-amber-50 border-b border-amber-100">
+        <span class="text-sm font-medium text-amber-800">{{ failing | length }} check{{ 's' if failing | length != 1 else '' }} failing</span>
+      </div>
+      <div class="px-5 py-4 space-y-3 border-b border-gray-200">
+        {% for cond in gate.conditions %}
+          {% set uid = p.policy_uid %}
+          {% include "review/_review_mode_check.html" %}
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="px-5 py-4 bg-green-50 border-b border-green-100 text-center">
+        <div class="text-green-600 font-medium text-sm">All checks passing</div>
+        <div class="text-xs text-green-500 mt-1">
+          Health: {{ gate.conditions[0].detail if gate.conditions else '' }}
+        </div>
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+
     {# ── Section: Status & Key Dates ── #}
     <div class="px-5 py-4 border-b border-gray-100">
       <div class="flex items-center justify-between mb-3">

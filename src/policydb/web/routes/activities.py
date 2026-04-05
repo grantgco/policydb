@@ -8,7 +8,7 @@ logger = logging.getLogger("policydb.web.routes.activities")
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from policydb import config as cfg
@@ -887,17 +887,28 @@ def activity_edit_slideover(activity_id: int, request: Request, conn=Depends(get
     a = _activity_row_dict(conn, activity_id)
     if not a:
         return HTMLResponse("<p class='p-4 text-sm text-gray-400'>Not found.</p>", status_code=404)
+    # Fetch linked issue details if present
+    linked_issue = None
+    if a.get("issue_id"):
+        linked_issue = conn.execute(
+            "SELECT id, issue_uid, subject, issue_severity FROM activity_log "
+            "WHERE id = ? AND item_kind = 'issue'",
+            (a["issue_id"],),
+        ).fetchone()
+        if linked_issue:
+            linked_issue = dict(linked_issue)
     return templates.TemplateResponse("activities/_edit_slideover.html", {
         "request": request,
         "a": a,
         "activity_types": cfg.get("activity_types", []),
+        "linked_issue": linked_issue,
     })
 
 
 # ── Activity field PATCH (Action Center inline editing) ──────────────────────
 
 
-_ACTIVITY_EDITABLE_FIELDS = {"subject", "activity_type", "duration_hours", "disposition", "details", "contact_person", "contact_id", "follow_up_date", "activity_date", "follow_up_done", "client_id", "policy_id"}
+_ACTIVITY_EDITABLE_FIELDS = {"subject", "activity_type", "duration_hours", "disposition", "details", "contact_person", "contact_id", "follow_up_date", "activity_date", "follow_up_done", "client_id", "policy_id", "issue_id"}
 
 
 @router.patch("/activities/{activity_id}/field")
@@ -924,13 +935,29 @@ def patch_activity_field(activity_id: int, request_body: dict = None, conn=Depen
         value = int(value) if value else None
     elif field == "policy_id":
         value = int(value) if value else None
+    elif field == "issue_id":
+        value = int(value) if value else None
 
     conn.execute(f"UPDATE activity_log SET {field} = ? WHERE id = ?", (value or None, activity_id))
     conn.commit()
 
     # Return enriched info for client/policy reassignment
     extra: dict = {}
-    if field == "client_id" and value:
+    if field == "issue_id":
+        if value:
+            issue = conn.execute(
+                "SELECT issue_uid, subject FROM activity_log WHERE id = ? AND item_kind = 'issue'",
+                (value,),
+            ).fetchone()
+            if issue:
+                extra["issue_uid"] = issue["issue_uid"]
+                extra["issue_subject"] = issue["subject"]
+                formatted = f"{issue['issue_uid']} — {issue['subject']}"
+            else:
+                formatted = ""
+        else:
+            formatted = ""
+    elif field == "client_id" and value:
         client = conn.execute("SELECT name FROM clients WHERE id=?", (value,)).fetchone()
         if client:
             extra["client_name"] = client["name"]
@@ -943,6 +970,40 @@ def patch_activity_field(activity_id: int, request_body: dict = None, conn=Depen
             formatted = f"{policy['policy_uid']} {policy['policy_type'] or ''}"
 
     return JSONResponse({"ok": True, "formatted": formatted, **extra})
+
+
+@router.get("/activities/search-issues")
+def search_issues_for_picker(
+    q: str = Query(""),
+    client_id: int = Query(0),
+    conn=Depends(get_db),
+):
+    """Search open issues for the issue picker in the activity edit slideover."""
+    results = []
+    pattern = f"%{q}%"
+    # Prioritize issues for the same client, then all open issues
+    where = "WHERE a.item_kind = 'issue' AND a.issue_status NOT IN ('Resolved', 'Closed')"
+    params = []
+    if q:
+        where += " AND (a.issue_uid LIKE ? OR a.subject LIKE ?)"
+        params.extend([pattern, pattern])
+    order = "ORDER BY (CASE WHEN a.client_id = ? THEN 0 ELSE 1 END), a.created_at DESC"
+    params.append(client_id or 0)
+    rows = conn.execute(
+        f"SELECT a.id, a.issue_uid, a.subject, a.issue_severity, c.name AS client_name "
+        f"FROM activity_log a LEFT JOIN clients c ON c.id = a.client_id "
+        f"{where} {order} LIMIT 15",
+        params,
+    ).fetchall()
+    for r in rows:
+        results.append({
+            "id": r["id"],
+            "issue_uid": r["issue_uid"],
+            "subject": r["subject"],
+            "severity": r["issue_severity"],
+            "client_name": r["client_name"] or "",
+        })
+    return JSONResponse(results)
 
 
 # ── Disposition update (all source types) ────────────────────────────────────

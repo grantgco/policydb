@@ -27,6 +27,16 @@
   </div>
   {% endif %}
 
+  {% if item.content %}
+  {% set _so_body_parts = item.content.split('\n\n', 1) %}
+  {% if _so_body_parts|length > 1 and _so_body_parts[1]|trim %}
+  <details class="px-5 py-2 border-b border-gray-100">
+    <summary class="text-[10px] text-blue-500 cursor-pointer hover:text-blue-700">view email body</summary>
+    <div class="text-[11px] text-gray-500 mt-1 whitespace-pre-line leading-relaxed max-h-40 overflow-y-auto bg-white rounded border border-gray-100 p-2">{{ _so_body_parts[1] }}</div>
+  </details>
+  {% endif %}
+  {% endif %}
+
   <form id="inbox-slideover-form"
         hx-post="/inbox/{{ item.id }}/process"
         hx-swap="none"
@@ -114,19 +124,22 @@
         class="mt-1 w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:ring-1 focus:ring-marsh focus:border-marsh resize-y">{{ item.content }}</textarea>
     </div>
 
-    {# Follow-up #}
+    {# Follow-up (optional — leave blank to just log) #}
     <div>
-      <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Re-check in</label>
+      <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Follow-up <span class="font-normal text-gray-400">(optional)</span></label>
       <div class="flex items-center gap-1 mt-1">
         <div class="flex rounded-md overflow-hidden border border-gray-200 text-[11px]">
           <button type="button" class="px-2 py-1 hover:bg-blue-50 text-gray-600" onclick="soSetFuDateQuick(this, {{ item.id }}, 1)">1d</button>
           <button type="button" class="px-2 py-1 hover:bg-blue-50 text-gray-600 border-l border-gray-200" onclick="soSetFuDateQuick(this, {{ item.id }}, 3)">3d</button>
-          <button type="button" class="px-2 py-1 hover:bg-blue-50 bg-blue-50 text-blue-700 font-semibold border-l border-gray-200" onclick="soSetFuDateQuick(this, {{ item.id }}, 7)">1w</button>
+          <button type="button" class="px-2 py-1 hover:bg-blue-50 text-gray-600 border-l border-gray-200" onclick="soSetFuDateQuick(this, {{ item.id }}, 7)">1w</button>
           <button type="button" class="px-2 py-1 hover:bg-blue-50 text-gray-600 border-l border-gray-200" onclick="soSetFuDateQuick(this, {{ item.id }}, 14)">2w</button>
           <button type="button" class="px-2 py-1 hover:bg-blue-50 text-gray-600 border-l border-gray-200" onclick="soSetFuDateQuick(this, {{ item.id }}, 30)">1m</button>
         </div>
         <input type="date" name="follow_up_date" id="so-proc-fudate-{{ item.id }}"
           class="text-xs border border-gray-200 rounded px-2 py-1 focus:border-blue-400 focus:outline-none">
+        <button type="button" class="text-[10px] text-gray-400 hover:text-red-500 px-1"
+          onclick="document.getElementById('so-proc-fudate-{{ item.id }}').value=''; this.closest('.flex').querySelectorAll('button[onclick^=soSet]').forEach(function(b){b.classList.remove('bg-blue-50','text-blue-700','font-semibold');b.classList.add('text-gray-600');});"
+          title="Clear follow-up">&times;</button>
       </div>
     </div>
 
@@ -151,16 +164,23 @@
 
 {# Footer #}
 <div class="flex-shrink-0 border-t border-gray-200 px-5 py-3 bg-gray-50 flex items-center gap-2">
+  <button type="button"
+    onclick="document.getElementById('so-proc-fudate-{{ item.id }}').value=''; document.getElementById('inbox-slideover-form').requestSubmit();"
+    class="text-xs bg-gray-700 text-white px-4 py-1.5 rounded hover:bg-gray-800 transition-colors font-medium"
+    title="Log activity without follow-up and clear from inbox">
+    Log &amp; Close
+  </button>
   <button type="submit" form="inbox-slideover-form"
-    class="text-xs bg-marsh text-white px-4 py-1.5 rounded hover:bg-[#0055a5] transition-colors font-medium">
-    Save &amp; Process
+    class="text-xs bg-marsh text-white px-4 py-1.5 rounded hover:bg-[#0055a5] transition-colors font-medium"
+    title="Log activity with follow-up date">
+    Save with Follow-up
   </button>
   <button type="button" onclick="soScheduleItem({{ item.id }})"
     class="text-xs bg-amber-100 text-amber-700 px-4 py-1.5 rounded hover:bg-amber-200 transition-colors font-medium">
-    Schedule Task
+    Schedule
   </button>
   <button type="button" onclick="closeFollowupEdit()"
-    class="text-xs text-gray-500 px-3 py-1.5 rounded hover:bg-gray-100 transition-colors">
+    class="text-xs text-gray-500 px-3 py-1.5 rounded hover:bg-gray-100 transition-colors ml-auto">
     Cancel
   </button>
 </div>

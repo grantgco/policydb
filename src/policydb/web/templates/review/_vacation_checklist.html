@@ -1,0 +1,76 @@
+{# Vacation pre-departure checklist #}
+<div class="space-y-4">
+  <p class="text-sm text-purple-700 font-medium">Items needing attention before {{ checklist.return_date }}</p>
+
+  {% if checklist.followups %}
+  <div>
+    <h4 class="text-xs font-semibold text-gray-500 uppercase mb-2">Follow-Ups Due During Absence ({{ checklist.followups | length }})</h4>
+    <div class="divide-y divide-gray-100">
+      {% for fu in checklist.followups %}
+      <div class="py-2 flex items-center justify-between text-sm">
+        <div>
+          <span class="font-medium text-gray-900">{{ fu.subject or fu.notes[:60] if fu.notes else 'Follow-up' }}</span>
+          <span class="text-xs text-gray-500 ml-1">{{ fu.client_name }}</span>
+        </div>
+        <div class="flex items-center gap-2 shrink-0">
+          <span class="text-xs text-amber-600">Due {{ fu.follow_up_date }}</span>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% if checklist.issues %}
+  <div>
+    <h4 class="text-xs font-semibold text-gray-500 uppercase mb-2">Issues Due During Absence ({{ checklist.issues | length }})</h4>
+    <div class="divide-y divide-gray-100">
+      {% for issue in checklist.issues %}
+      <div class="py-2 flex items-center justify-between text-sm">
+        <span class="font-medium text-gray-900">{{ issue.subject or 'Issue' }}</span>
+        <span class="text-xs text-amber-600">Due {{ issue.due_date }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% if checklist.renewals %}
+  <div>
+    <h4 class="text-xs font-semibold text-gray-500 uppercase mb-2">Renewals Near Return ({{ checklist.renewals | length }})</h4>
+    <div class="divide-y divide-gray-100">
+      {% for r in checklist.renewals %}
+      <div class="py-2 flex items-center justify-between text-sm">
+        <div>
+          <a href="/policies/{{ r.policy_uid }}" class="font-medium text-marsh hover:underline">{{ r.policy_uid }}</a>
+          <span class="text-gray-600 ml-1">{{ r.policy_type }}</span>
+          <span class="text-xs text-gray-500 ml-1">{{ r.client_name }}</span>
+        </div>
+        <span class="text-xs text-red-600">Exp {{ r.expiration_date }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% if checklist.milestones %}
+  <div>
+    <h4 class="text-xs font-semibold text-gray-500 uppercase mb-2">Milestone Deadlines During Absence ({{ checklist.milestones | length }})</h4>
+    <div class="divide-y divide-gray-100">
+      {% for m in checklist.milestones %}
+      <div class="py-2 flex items-center justify-between text-sm">
+        <div>
+          <span class="font-medium text-gray-900">{{ m.milestone_name }}</span>
+          <span class="text-xs text-gray-500 ml-1">{{ m.policy_uid }} — {{ m.client_name }}</span>
+        </div>
+        <span class="text-xs text-amber-600">{{ m.projected_date }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% if not checklist.followups and not checklist.issues and not checklist.renewals and not checklist.milestones %}
+  <div class="text-sm text-green-600">All clear for your time off. Nothing needs pre-departure action.</div>
+  {% endif %}
+</div>

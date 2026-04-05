@@ -552,6 +552,40 @@ def complete_timeline_milestone(conn, policy_uid: str, milestone_name: str) -> N
     conn.commit()
 
 
+def defer_timeline_milestone(
+    conn, policy_uid: str, milestone_name: str, days: int = 7
+) -> None:
+    """Defer a milestone by pushing its projected_date forward by N days.
+
+    Also recomputes prep_alert_date and health for the entire timeline.
+    """
+    row = conn.execute("""
+        SELECT id, projected_date FROM policy_timeline
+        WHERE policy_uid = ? AND milestone_name = ? AND completed_date IS NULL
+    """, (policy_uid, milestone_name)).fetchone()
+    if not row:
+        return
+
+    current = datetime.strptime(row["projected_date"], "%Y-%m-%d").date()
+    new_date = current + timedelta(days=days)
+    new_prep = new_date - timedelta(days=cfg.get("milestone_prep_alert_days", 3))
+
+    conn.execute("""
+        UPDATE policy_timeline
+        SET projected_date = ?, prep_alert_date = ?
+        WHERE id = ?
+    """, (new_date.isoformat(), new_prep.isoformat(), row["id"]))
+
+    # Recompute health
+    exp = conn.execute(
+        "SELECT expiration_date FROM policies WHERE policy_uid = ?", (policy_uid,)
+    ).fetchone()
+    if exp and exp["expiration_date"]:
+        _recompute_prep_and_health(conn, policy_uid, exp["expiration_date"])
+
+    conn.commit()
+
+
 # ── Helpers ────────────────────────────────────────────────────────────
 
 

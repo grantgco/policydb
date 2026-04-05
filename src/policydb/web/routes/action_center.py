@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta
 
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, Depends, Form, Request, Response
 from fastapi.responses import HTMLResponse
 
 from policydb.web.app import get_db, templates
@@ -945,7 +945,7 @@ def action_center_page(request: Request, tab: str = "", conn=Depends(get_db)):
     initial_tab = tab or "focus"
     tab_ctx = {}
     if initial_tab == "focus":
-        focus_items, waiting_items, fq_stats = build_focus_queue(conn)
+        focus_items, waiting_items, fq_stats = build_focus_queue(conn, horizon_days=-999)
         time_summary = get_time_summary(conn)
         fq_stats["hours_today"] = time_summary.get("hours_today", 0)
         all_clients_fq = conn.execute(
@@ -1310,6 +1310,21 @@ def complete_timeline_milestone_endpoint(
     ctx = _followups_ctx(conn, window=30, activity_type="", q="")
     ctx["request"] = request
     return templates.TemplateResponse("action_center/_followups.html", ctx)
+
+
+@router.post("/policies/{policy_uid}/milestone/{milestone_name}/defer", response_class=Response)
+def defer_timeline_milestone_endpoint(
+    policy_uid: str,
+    milestone_name: str,
+    days: int = Form(7),
+    conn=Depends(get_db),
+):
+    """Defer a milestone by N days from the Focus Queue."""
+    import urllib.parse
+    from policydb.timeline_engine import defer_timeline_milestone
+    decoded_name = urllib.parse.unquote(milestone_name)
+    defer_timeline_milestone(conn, policy_uid, decoded_name, days=days)
+    return Response(status_code=200)
 
 
 @router.post("/action-center/set-disposition/{activity_id}", response_class=HTMLResponse)

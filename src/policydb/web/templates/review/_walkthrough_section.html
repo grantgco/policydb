@@ -1,0 +1,201 @@
+{# Generic walkthrough section content — loaded via HTMX into section containers #}
+
+{% if section_key == 'this_week' %}
+  {% include "review/_this_week.html" %}
+
+{% elif section_key == 'overdue_followups' %}
+  {% if items %}
+  <div class="space-y-2">
+    {% for item in items %}
+    <div class="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-gray-50 border border-gray-100">
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center gap-2">
+          <span class="text-sm font-medium text-gray-800 truncate">{{ item.subject or 'Follow-up' }}</span>
+          {% if item.client_name %}
+            <span class="text-xs text-gray-400">&middot;</span>
+            <span class="text-xs text-gray-500">{{ item.client_name }}</span>
+          {% endif %}
+        </div>
+        <div class="text-xs text-red-500 mt-0.5">Due {{ item.follow_up_date }}</div>
+      </div>
+      <div class="flex items-center gap-2 shrink-0 ml-3">
+        <input type="date"
+               value="{{ item.follow_up_date }}"
+               class="text-xs border border-gray-200 rounded px-2 py-1 w-32"
+               hx-post="/activities/{{ item.id }}/reschedule"
+               hx-trigger="change"
+               hx-swap="none"
+               name="new_date"
+               title="Reschedule">
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="text-sm text-gray-400 italic">No overdue follow-ups.</p>
+  {% endif %}
+
+{% elif section_key == 'upcoming_renewals' %}
+  {% if items %}
+  <div class="space-y-2">
+    {% for item in items %}
+    <div class="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-gray-50 border border-gray-100">
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center gap-2">
+          <a href="/policies/{{ item.policy_uid }}" class="text-sm font-medium text-marsh hover:underline">{{ item.policy_uid }}</a>
+          <span class="text-xs text-gray-400">&middot;</span>
+          <span class="text-xs text-gray-600">{{ item.policy_type or 'Unknown' }}</span>
+          {% if item.client_name %}
+            <span class="text-xs text-gray-400">&middot;</span>
+            <span class="text-xs text-gray-500">{{ item.client_name }}</span>
+          {% endif %}
+        </div>
+        <div class="text-xs text-gray-500 mt-0.5">Expires {{ item.expiration_date }}</div>
+      </div>
+      <div class="shrink-0 ml-3">
+        <button hx-get="/review/policies/{{ item.policy_uid }}/slideover"
+                hx-target="#review-slideover-container"
+                hx-swap="innerHTML"
+                class="text-xs bg-gray-100 text-gray-600 px-3 py-1 rounded hover:bg-gray-200 transition-colors font-medium">
+          Review
+        </button>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="text-sm text-gray-400 italic">No upcoming renewals in the review window.</p>
+  {% endif %}
+
+{% elif section_key == 'open_issues' %}
+  {% if items %}
+  <div class="space-y-2">
+    {% for item in items %}
+    <div class="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-gray-50 border border-gray-100">
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center gap-2">
+          <span class="text-sm font-medium text-gray-800 truncate">{{ item.subject or 'Issue' }}</span>
+          {% if item.issue_severity %}
+            <span class="text-xs px-1.5 py-0.5 rounded-full font-medium
+              {% if item.issue_severity == 'Critical' %}bg-red-100 text-red-700
+              {% elif item.issue_severity == 'High' %}bg-orange-100 text-orange-700
+              {% else %}bg-yellow-100 text-yellow-700{% endif %}">
+              {{ item.issue_severity }}
+            </span>
+          {% endif %}
+        </div>
+        <div class="flex items-center gap-2 text-xs text-gray-500 mt-0.5">
+          {% if item.client_name %}<span>{{ item.client_name }}</span>{% endif %}
+          {% if item.activity_date %}
+            <span class="text-gray-400">&middot;</span>
+            <span>Last activity {{ item.activity_date }}</span>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="text-sm text-gray-400 italic">No open issues need attention.</p>
+  {% endif %}
+
+{% elif section_key == 'client_health' %}
+  {% if items %}
+  <div class="space-y-2">
+    {% for item in items %}
+    <div class="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-gray-50 border border-gray-100">
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center gap-2">
+          <a href="/clients/{{ item.id }}" class="text-sm font-medium text-marsh hover:underline">{{ item.name }}</a>
+          {% if not item.has_primary %}
+            <span class="text-xs bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full font-medium">No primary contact</span>
+          {% endif %}
+        </div>
+        <div class="text-xs text-gray-500 mt-0.5">
+          {% if item.last_activity %}
+            Last activity {{ item.last_activity }}
+          {% else %}
+            No recorded activity
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="text-sm text-gray-400 italic">All clients look healthy.</p>
+  {% endif %}
+
+{% elif section_key == 'policy_audit' %}
+  {% if items %}
+  <div class="space-y-2">
+    {% for item in items %}
+    <div class="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-gray-50 border border-gray-100">
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center gap-2">
+          <a href="/policies/{{ item.policy_uid }}" class="text-sm font-medium text-marsh hover:underline">{{ item.policy_uid }}</a>
+          <span class="text-xs text-gray-400">&middot;</span>
+          <span class="text-xs text-gray-600">{{ item.policy_type or 'Unknown' }}</span>
+          {% if item.client_name %}
+            <span class="text-xs text-gray-400">&middot;</span>
+            <span class="text-xs text-gray-500">{{ item.client_name }}</span>
+          {% endif %}
+        </div>
+        <div class="flex items-center gap-1 mt-0.5">
+          {% if not item.expiration_date %}
+            <span class="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">Missing expiration</span>
+          {% endif %}
+          {% if not item.carrier %}
+            <span class="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">Missing carrier</span>
+          {% endif %}
+          {% if not item.renewal_status %}
+            <span class="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">Missing status</span>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="text-sm text-gray-400 italic">All policies have required fields populated.</p>
+  {% endif %}
+
+{% elif section_key == 'inbox' %}
+  {% if items %}
+  <div class="space-y-2">
+    {% for item in items %}
+    <div class="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-gray-50 border border-gray-100">
+      <div class="flex-1 min-w-0">
+        <div class="text-sm font-medium text-gray-800 truncate">{{ item.email_subject or item.content[:60] if item.content else 'Inbox item' }}</div>
+        <div class="text-xs text-gray-500 mt-0.5">{{ item.email_from or '' }} &middot; {{ item.created_at[:10] if item.created_at else '' }}</div>
+      </div>
+      <div class="shrink-0 ml-3">
+        <a href="/action-center?tab=inbox"
+           class="text-xs bg-gray-100 text-gray-600 px-3 py-1 rounded hover:bg-gray-200 transition-colors font-medium">
+          Process
+        </a>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="text-sm text-gray-400 italic">Inbox is clear.</p>
+  {% endif %}
+
+{% elif section_key == 'vacation_prep' %}
+  <div class="space-y-3">
+    <p class="text-sm text-gray-600">
+      You're returning <strong>{{ session.vacation_return_date }}</strong>.
+      Review these items before you go:
+    </p>
+    <ul class="text-sm text-gray-600 space-y-1 list-disc list-inside">
+      <li>Delegate urgent follow-ups to colleagues</li>
+      <li>Set out-of-office replies</li>
+      <li>Brief your team on active renewals</li>
+      <li>Clear or reschedule any follow-ups due during your absence</li>
+    </ul>
+  </div>
+
+{% else %}
+  <p class="text-sm text-gray-400 italic">Section content not available.</p>
+{% endif %}

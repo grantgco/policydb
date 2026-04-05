@@ -71,6 +71,34 @@
     </select>
   </div>
 
+  {# Issue link #}
+  <div>
+    <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Issue</label>
+    <div class="mt-1 relative" id="issue-picker-wrap">
+      {% if linked_issue %}
+      <div id="edit-issue-display" class="flex items-center gap-2 text-xs">
+        <a href="/issues/{{ linked_issue.issue_uid }}" target="_blank"
+           class="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-medium
+                  {% if linked_issue.issue_severity == 'Critical' %}bg-red-50 text-red-700
+                  {% elif linked_issue.issue_severity == 'High' %}bg-amber-50 text-amber-700
+                  {% else %}bg-blue-50 text-blue-700{% endif %}">
+          {{ linked_issue.issue_uid }} — {{ linked_issue.subject | truncate(40) }}
+        </a>
+        <button type="button" class="text-gray-400 hover:text-red-500 text-sm"
+                onclick="clearIssueLink({{ a.id }})" title="Remove issue link">&times;</button>
+      </div>
+      {% else %}
+      <div id="edit-issue-display" class="hidden flex items-center gap-2 text-xs"></div>
+      {% endif %}
+      <div id="edit-issue-search-wrap" class="{% if linked_issue %}hidden{% endif %}">
+        <input type="text" id="edit-issue-search" placeholder="Search issues..."
+               class="w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:ring-1 focus:ring-marsh focus:border-marsh"
+               oninput="searchIssuesForLink(this.value, {{ a.client_id or 0 }})" autocomplete="off">
+        <div id="edit-issue-results" class="absolute z-20 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-40 overflow-y-auto hidden"></div>
+      </div>
+    </div>
+  </div>
+
   {# Contact #}
   <div>
     <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Contact</label>
@@ -124,6 +152,50 @@ function setEditDate(days) {
       b.classList.remove('text-gray-600');
     }
   });
+}
+
+var _issueSearchTimer;
+function searchIssuesForLink(q, clientId) {
+  clearTimeout(_issueSearchTimer);
+  var results = document.getElementById('edit-issue-results');
+  if (q.length < 1) { results.classList.add('hidden'); results.innerHTML = ''; return; }
+  _issueSearchTimer = setTimeout(function() {
+    fetch('/activities/search-issues?q=' + encodeURIComponent(q) + '&client_id=' + clientId)
+      .then(function(r) { return r.json(); })
+      .then(function(issues) {
+        if (!issues.length) { results.innerHTML = '<div class="px-3 py-2 text-xs text-gray-400">No open issues found</div>'; results.classList.remove('hidden'); return; }
+        var html = issues.map(function(iss) {
+          var sevClass = iss.severity === 'Critical' ? 'text-red-600' : iss.severity === 'High' ? 'text-amber-600' : 'text-blue-600';
+          return '<button type="button" class="w-full text-left px-3 py-1.5 text-xs hover:bg-gray-50 flex items-center gap-2" onclick="selectIssueLink(' + {{ a.id }} + ',' + iss.id + ',\'' + iss.issue_uid.replace(/'/g,"&#39;") + '\',\'' + iss.subject.replace(/'/g,"&#39;").replace(/"/g,"&quot;") + '\',\'' + iss.severity + '\')">'
+            + '<span class="font-mono text-[9px] ' + sevClass + ' flex-shrink-0">' + iss.issue_uid + '</span>'
+            + '<span class="truncate flex-1">' + iss.subject + '</span>'
+            + '<span class="text-[9px] text-gray-400 flex-shrink-0">' + iss.client_name + '</span>'
+            + '</button>';
+        }).join('');
+        results.innerHTML = html;
+        results.classList.remove('hidden');
+      });
+  }, 250);
+}
+function selectIssueLink(actId, issueId, uid, subject, severity) {
+  patchEditField(actId, 'issue_id', issueId, null);
+  var sevClass = severity === 'Critical' ? 'bg-red-50 text-red-700' : severity === 'High' ? 'bg-amber-50 text-amber-700' : 'bg-blue-50 text-blue-700';
+  var display = document.getElementById('edit-issue-display');
+  display.innerHTML = '<a href="/issues/' + uid + '" target="_blank" class="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-medium ' + sevClass + '">'
+    + uid + ' — ' + subject.substring(0, 40) + '</a>'
+    + '<button type="button" class="text-gray-400 hover:text-red-500 text-sm" onclick="clearIssueLink(' + actId + ')" title="Remove issue link">&times;</button>';
+  display.classList.remove('hidden');
+  document.getElementById('edit-issue-search-wrap').classList.add('hidden');
+  document.getElementById('edit-issue-results').classList.add('hidden');
+}
+function clearIssueLink(actId) {
+  patchEditField(actId, 'issue_id', '', null);
+  document.getElementById('edit-issue-display').classList.add('hidden');
+  document.getElementById('edit-issue-display').innerHTML = '';
+  var wrap = document.getElementById('edit-issue-search-wrap');
+  wrap.classList.remove('hidden');
+  wrap.querySelector('input').value = '';
+  document.getElementById('edit-issue-results').classList.add('hidden');
 }
 
 function patchEditField(actId, field, value, el) {

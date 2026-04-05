@@ -1,0 +1,49 @@
+{# This Week — read-only activity summary since last completed review #}
+{% if summary is not defined %}{% set summary = {} %}{% endif %}
+
+<div class="space-y-4">
+  {# Stat cards #}
+  <div class="grid grid-cols-3 gap-4">
+    <div class="bg-green-50 rounded-lg p-4 text-center">
+      <div class="text-2xl font-bold text-green-700">{{ summary.get('followups_completed', 0) }}</div>
+      <div class="text-xs text-green-600 mt-1">Follow-ups completed</div>
+    </div>
+    <div class="bg-blue-50 rounded-lg p-4 text-center">
+      <div class="text-2xl font-bold text-blue-700">{{ summary.get('issues_closed', 0) }}</div>
+      <div class="text-xs text-blue-600 mt-1">Issues closed</div>
+    </div>
+    <div class="bg-purple-50 rounded-lg p-4 text-center">
+      <div class="text-2xl font-bold text-purple-700">{{ summary.get('created_policies', 0) }}</div>
+      <div class="text-xs text-purple-600 mt-1">Policies created</div>
+    </div>
+  </div>
+
+  {# Status changes #}
+  {% set changes = summary.get('status_changes', []) %}
+  {% if changes %}
+  <div>
+    <h4 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Status Changes</h4>
+    <div class="space-y-1">
+      {% for ch in changes %}
+      <div class="flex items-center gap-2 text-sm">
+        <a href="/policies/{{ ch.policy_uid }}" class="text-marsh hover:underline font-medium">{{ ch.policy_uid }}</a>
+        <span class="text-gray-400">{{ ch.policy_type or '' }}</span>
+        <span class="text-gray-400">&mdash;</span>
+        <span class="text-gray-800">{{ ch.subject or 'Status change' }}</span>
+        <span class="text-xs text-gray-400 ml-1">{{ ch.activity_date }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {# Additional stats line #}
+  <div class="text-xs text-gray-400">
+    {{ summary.get('created_clients', 0) }} client{{ 's' if summary.get('created_clients', 0) != 1 else '' }} created
+    &middot;
+    {{ summary.get('contacts_modified', 0) }} contact change{{ 's' if summary.get('contacts_modified', 0) != 1 else '' }}
+    {% if summary.get('since') and summary.since != '2000-01-01' %}
+      &middot; since {{ summary.since[:10] }}
+    {% endif %}
+  </div>
+</div>

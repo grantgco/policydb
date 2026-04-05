@@ -1,16 +1,56 @@
-{# Review gate condition checklist — returned as HTMX partial #}
+{# Review gate condition checklist — enriched with descriptions and quick-fix affordances #}
 <div id="review-gate-{{ record_id }}" class="p-4 bg-white rounded-lg border border-gray-200 shadow-sm">
   <h3 class="text-sm font-semibold text-gray-900 mb-3">Review Checklist</h3>
-  <div class="space-y-2 mb-4">
+  <div class="space-y-3 mb-4">
     {% for cond in gate.conditions %}
-    <div class="flex items-center gap-2 text-sm">
-      {% if cond.passed %}
-        <span class="text-green-600 text-base">&#10003;</span>
-      {% else %}
-        <span class="text-red-500 text-base">&#10007;</span>
+    <div class="{% if not cond.passed %}bg-red-50 border border-red-100 rounded-lg p-3{% else %}p-2{% endif %}">
+      <div class="flex items-center gap-2 text-sm">
+        {% if cond.passed %}
+          <span class="text-green-600 text-base shrink-0">&#10003;</span>
+          <span class="text-gray-700">{{ cond.name }}</span>
+          <span class="text-xs text-gray-400 ml-auto">{{ cond.detail }}</span>
+        {% else %}
+          <span class="text-red-500 text-base shrink-0">&#10007;</span>
+          <span class="text-red-700 font-medium">{{ cond.name }}</span>
+        {% endif %}
+      </div>
+
+      {% if not cond.passed %}
+      <div class="mt-2 ml-6 space-y-1.5">
+        <p class="text-sm text-red-800">{{ cond.description }}</p>
+        {% if cond.why %}
+        <p class="text-xs text-gray-500 italic">{{ cond.why }}</p>
+        {% endif %}
+        <div class="flex items-center gap-2 mt-2">
+          {% if cond.quick_fix_type == 'quick_log' %}
+          <button hx-get="/review/policies/{{ record_id }}/row/log"
+                  hx-target="#review-gate-{{ record_id }}"
+                  hx-swap="afterend"
+                  class="text-xs bg-white border border-gray-300 rounded px-2.5 py-1 hover:bg-gray-50 transition-colors">
+            Quick Log
+          </button>
+          {% elif cond.quick_fix_type == 'reschedule_or_complete' %}
+          <span class="text-xs text-gray-500">Reschedule or complete overdue items in the slideover</span>
+          {% elif cond.quick_fix_type == 'link_to_slideover' %}
+          <button hx-get="/review/policies/{{ record_id }}/slideover"
+                  hx-target="#review-slideover-container"
+                  hx-swap="innerHTML"
+                  class="text-xs bg-white border border-gray-300 rounded px-2.5 py-1 hover:bg-gray-50 transition-colors">
+            Edit Fields
+          </button>
+          {% elif cond.quick_fix_type == 'dismiss_anomaly' %}
+          <span class="text-xs text-gray-500">Dismiss false positives in the Anomalies tab</span>
+          {% endif %}
+
+          {% if cond.action_type in ('dual', 'followup') and cond.followup_label %}
+          <button onclick="scheduleFollowUp('{{ record_id }}', '{{ cond.followup_note }}')"
+                  class="text-xs bg-marsh/10 text-marsh border border-marsh/20 rounded px-2.5 py-1 hover:bg-marsh/20 transition-colors">
+            {{ cond.followup_label }}
+          </button>
+          {% endif %}
+        </div>
+      </div>
       {% endif %}
-      <span class="{% if cond.passed %}text-gray-700{% else %}text-red-700 font-medium{% endif %}">{{ cond.name }}</span>
-      <span class="text-xs text-gray-400 ml-auto">{{ cond.detail }}</span>
     </div>
     {% endfor %}
   </div>

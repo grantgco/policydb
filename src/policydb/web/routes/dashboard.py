@@ -23,6 +23,7 @@ from policydb.queries import (
     get_stale_renewals,
     get_suggested_followups,
     full_text_search,
+    should_show_review_reminder,
 )
 from policydb.web.app import get_db, templates
 
@@ -157,6 +158,8 @@ def dashboard(request: Request, conn=Depends(get_db)):
            ORDER BY cs.updated_at DESC LIMIT 5"""
     ).fetchall()]
 
+    show_review_reminder = should_show_review_reminder(conn, cfg.get("review_reminder_day", "monday"))
+
     return templates.TemplateResponse("dashboard.html", {
         "request": request,
         "active": "dashboard",
@@ -182,6 +185,7 @@ def dashboard(request: Request, conn=Depends(get_db)):
         "issues_widget": issues_widget,
         "hours_this_month": hours_this_month,
         "upcoming_meetings": upcoming_meetings,
+        "show_review_reminder": show_review_reminder,
     })
 
 
@@ -208,7 +212,12 @@ def save_scratchpad(request: Request, content: str = Form(""), conn=Depends(get_
 
 @router.get("/search", response_class=HTMLResponse)
 def search(request: Request, q: str = "", conn=Depends(get_db)):
-    results = {"clients": [], "policies": [], "activities": []}
+    _empty = {
+        "clients": [], "policies": [], "activities": [], "issues": [],
+        "contacts": [], "programs": [], "meetings": [], "locations": [],
+        "inbox": [], "_snippets": {}, "_query_mode": "none",
+    }
+    results = dict(_empty)
     if q.strip():
         # Check for COR-{id} correspondence thread search
         cor_match = re.match(r'^COR-(\d+)$', q.strip(), re.IGNORECASE)
@@ -235,7 +244,6 @@ def search(request: Request, q: str = "", conn=Depends(get_db)):
             """, (inbox_id,)).fetchone()
             if item:
                 item = dict(item)
-                # If processed with an activity, show the linked activity
                 if item.get("act_id"):
                     linked = conn.execute("""
                         SELECT a.*, c.name AS client_name, p.policy_uid
@@ -245,18 +253,18 @@ def search(request: Request, q: str = "", conn=Depends(get_db)):
                         WHERE a.id = ?
                     """, (item["act_id"],)).fetchall()
                     results["activities"] = [dict(r) for r in linked]
-                # If has a client, show the client
                 if item.get("client_id"):
                     client = conn.execute("SELECT * FROM clients WHERE id = ?", (item["client_id"],)).fetchone()
                     if client:
                         results["clients"] = [dict(client)]
         else:
-            raw = full_text_search(conn, q.strip())
-            results = {k: [dict(r) for r in v] for k, v in raw.items()}
+            results = full_text_search(conn, q.strip())
+    snippets = results.pop("_snippets", {})
+    query_mode = results.pop("_query_mode", "none")
     total = sum(len(v) for v in results.values())
     # Detect UID pattern for ref tree banner
     uid_pattern = bool(re.match(
-        r'^(CN?\d{5,}|POL-|COR-\d+|INB-\d+|A-\d+|CN?\d+-RFI\d+|KB-|KBD-)',
+        r'^(CN?\d{5,}|POL-|COR-\d+|INB-\d+|A-\d+|CN?\d+-RFI\d+|PGM-)',
         q.strip(), re.IGNORECASE
     )) if q.strip() else False
     return templates.TemplateResponse("search.html", {
@@ -266,6 +274,35 @@ def search(request: Request, q: str = "", conn=Depends(get_db)):
         "results": results,
         "total": total,
         "uid_detected": uid_pattern,
+        "snippets": snippets,
+        "query_mode": query_mode,
+    })
+
+
+@router.get("/search/live", response_class=HTMLResponse)
+def search_live(request: Request, q: str = "", conn=Depends(get_db)):
+    """Return compact search dropdown partial for live search-as-you-type."""
+    if not q.strip() or len(q.strip()) < 2:
+        return HTMLResponse("")
+    results = full_text_search(conn, q.strip())
+    snippets = results.pop("_snippets", {})
+    results.pop("_query_mode", None)
+    # Flatten to a ranked list, max 8 items
+    items = []
+    # Priority order for display
+    for etype in ("clients", "policies", "issues", "contacts", "programs",
+                  "activities", "meetings", "locations", "inbox"):
+        for r in results.get(etype, [])[:3]:
+            items.append({"type": etype, "data": r})
+            if len(items) >= 8:
+                break
+        if len(items) >= 8:
+            break
+    return templates.TemplateResponse("_search_dropdown.html", {
+        "request": request,
+        "items": items,
+        "q": q,
+        "total": sum(len(v) for v in results.values()),
     })
 
 

@@ -68,7 +68,7 @@ See the `policydb-design-system` skill for full color palette, typography, warm 
 - Migrations: `src/policydb/migrations/NNN_description.sql` — sequentially numbered
 - Migration runner: `src/policydb/db.py` — `init_db()` runs all migrations and rebuilds views on every server start
 - Views are **always dropped and recreated** on startup — never reference non-existent columns in view SQL
-- Current migration count: 106
+- Current migration count: 135
 
 ### Key Tables
 - `clients` — name, industry, contacts, account exec, scratchpad
@@ -78,8 +78,11 @@ See the `policydb-design-system` skill for full color palette, typography, warm 
 - `activity_log` — activities, follow-ups, notes
 - `policy_milestones` — checklist items per policy
 - `email_templates` — user-managed email form letters with `{{token}}` placeholders
+- `kb_bookmarks` — web bookmarks with BM-NNN UIDs, url, title, category, tags
 - `user_notes` — global dashboard scratchpad (id=1)
 - `client_scratchpad` — per-client freeform notes
+- `prompt_templates` — LLM prompt templates with system_prompt, closing_instruction, required_record_types (JSON), depth_overrides (JSON)
+- `prompt_export_log` — tracks clipboard copy events from Prompt Builder
 
 ### Key Views (in `src/policydb/views.py`)
 - `v_policy_status` — all active non-opportunity policies with urgency, days_to_renewal
@@ -109,6 +112,7 @@ Each route module is in `src/policydb/web/routes/`. Routers registered in `src/p
 | templates.py | /templates | Email template CRUD + compose panel |
 | reconcile.py | /reconcile | Statement reconciliation |
 | inbox.py | /inbox/* | Inbox capture, process, scratchpad process (redirects /inbox -> Action Center) |
+| prompt_builder.py | /prompt-builder | AI Export Prompt Builder — record selection, template management, prompt assembly + copy |
 
 **Note:** `/inbox`, `/followups`, and `/activities` all redirect to `/action-center?tab=...`. The Action Center is the primary UI for daily work management.
 
@@ -148,6 +152,16 @@ Policies with `is_opportunity=1` are excluded from renewal pipeline, stale renew
 ### Auto-Purge
 - `_purge_old_logs()` in `db.py` runs on every server startup after health checks
 - Deletes `audit_log` and `app_log` rows older than `log_retention_days` config (default: 730 = 2 years)
+
+### FTS5 Search Index
+- `search_index` FTS5 virtual table (migration 133), rebuilt on every startup via `rebuild_search_index()` in `queries.py`
+- Tokenizer: `porter unicode61 remove_diacritics 2` (stemming + unicode + diacritic folding + prefix matching)
+- Columns: `entity_type`, `entity_id`, `title` (weight 10), `subtitle` (5), `body` (1), `metadata` (3)
+- Indexed entities: client, policy, activity (2yr), issue (open), contact, program, meeting, location, inbox (6mo), scratchpad
+- **KB excluded** from search index
+- Adding new searchable fields: update `rebuild_search_index()` INSERT for that entity AND `_hydrate()` in `full_text_search()`
+- Fuzzy fallback via RapidFuzz when FTS5 < 3 results (clients, contacts, programs only)
+- Live search dropdown: `/search/live` endpoint, HTMX on navbar input with 300ms debounce
 
 ### Logs UI
 - **Route:** `/logs` — tabbed page (App Log / Audit Log), lazy-loaded via HTMX
@@ -266,6 +280,7 @@ Specialized reference docs are available as on-demand skills:
 | `policydb-timeline` | Timeline engine, milestone health, accountability tracking |
 | `policydb-review` | Review queue, slideover, gate conditions, anomaly engine, override flow |
 | `risk-analysis-skill` | Client risk assessment, coverage strategy, exposure analysis |
+| `policydb-prompt-builder` | Prompt Builder assembler registry, depth tiers, template system, data assembly patterns |
 
 ---
 

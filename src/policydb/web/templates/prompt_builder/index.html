@@ -1,0 +1,225 @@
+{% extends "base.html" %}
+{% block title %}Prompt Builder — Coverage{% endblock %}
+{% block content %}
+
+<div class="flex items-center justify-between mb-6">
+  <h1 class="text-2xl font-heading text-marsh-dark">Prompt Builder</h1>
+</div>
+
+<!-- Tabs -->
+<div class="tab-bar mb-6">
+  <button class="tab-btn active" data-tab="builder" onclick="switchTab(this, 'builder')">Builder</button>
+  <button class="tab-btn" data-tab="manage" onclick="switchTab(this, 'manage')"
+          hx-get="/prompt-builder/templates" hx-target="#tab-manage" hx-swap="innerHTML" hx-trigger="click once">
+    Manage Templates
+  </button>
+</div>
+
+<!-- Tab: Builder -->
+<div id="tab-builder" class="tab-panel">
+
+  <!-- Hidden form inputs for the generate action -->
+  <input type="hidden" id="pb-record-type" name="record_type" value="">
+  <input type="hidden" id="pb-record-id" name="record_id" value="">
+  <input type="hidden" id="pb-template-id" name="template_id" value="">
+
+  <!-- Step 1: Record Type Selector -->
+  <div class="card p-5 mb-4">
+    <label class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3 block">1. Select Record Type</label>
+    <div class="seg-control inline-flex">
+      {% for rt in record_types %}
+      <label class="seg-item">
+        <input type="radio" name="pb_record_type" value="{{ rt }}"
+               onchange="selectRecordType('{{ rt }}')" class="sr-only">
+        <span class="seg-label">{{ rt | capitalize }}</span>
+      </label>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Step 2: Record Search (loaded via HTMX) -->
+  <div id="pb-search-area" class="card p-5 mb-4 hidden">
+    <label class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3 block">2. Search & Select Record</label>
+    <div class="relative">
+      <input type="search" id="pb-search-input" placeholder="Type to search..."
+             class="form-input w-full" name="q"
+             hx-get="/prompt-builder/records"
+             hx-trigger="input changed delay:300ms, search"
+             hx-target="#pb-search-results"
+             hx-swap="innerHTML"
+             autocomplete="off">
+      <div id="pb-search-results" class="mt-2"></div>
+    </div>
+    <div id="pb-selected-record" class="hidden mt-3 p-3 bg-marsh-light/30 rounded-lg border border-marsh/20">
+      <div class="flex items-center justify-between">
+        <div>
+          <span class="text-xs text-gray-500 uppercase">Selected:</span>
+          <span id="pb-selected-label" class="font-medium text-marsh-dark ml-1"></span>
+        </div>
+        <button type="button" class="text-xs text-gray-400 hover:text-red-500" onclick="clearRecordSelection()">Clear</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 3: Template Selection -->
+  <div id="pb-templates-area" class="card p-5 mb-4 hidden">
+    <label class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3 block">3. Choose Template</label>
+    <div id="pb-template-cards"></div>
+  </div>
+
+  <!-- Step 4: Generate Button -->
+  <div id="pb-generate-area" class="hidden mb-4">
+    <button type="button" id="pb-generate-btn"
+            class="btn-primary px-6 py-2.5 text-sm font-semibold"
+            onclick="generatePrompt()">
+      Generate Prompt
+    </button>
+  </div>
+
+  <!-- Step 5: Preview Pane -->
+  <div id="pb-preview-area" class="hidden">
+    <div id="pb-preview-content"></div>
+  </div>
+
+</div>
+
+<!-- Tab: Manage Templates -->
+<div id="tab-manage" class="tab-panel hidden"></div>
+
+<script>
+/* ── Tab switching ────────────────────────────────────────────────────── */
+function switchTab(btn, tab) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.add('hidden'));
+  document.getElementById('tab-' + tab).classList.remove('hidden');
+  sessionStorage.setItem('pb-tab', tab);
+}
+// Restore last tab
+(function() {
+  var saved = sessionStorage.getItem('pb-tab');
+  if (saved === 'manage') {
+    var btn = document.querySelector('[data-tab="manage"]');
+    if (btn) { btn.click(); }
+  }
+})();
+
+/* ── Step 1: Record type selection ────────────────────────────────────── */
+function selectRecordType(type) {
+  document.getElementById('pb-record-type').value = type;
+  document.getElementById('pb-record-id').value = '';
+  document.getElementById('pb-template-id').value = '';
+  document.getElementById('pb-search-area').classList.remove('hidden');
+  document.getElementById('pb-selected-record').classList.add('hidden');
+  document.getElementById('pb-templates-area').classList.add('hidden');
+  document.getElementById('pb-generate-area').classList.add('hidden');
+  document.getElementById('pb-preview-area').classList.add('hidden');
+  var input = document.getElementById('pb-search-input');
+  input.value = '';
+  input.setAttribute('hx-vals', JSON.stringify({type: type}));
+  htmx.process(input);
+  input.focus();
+  // Trigger initial search to show all records
+  htmx.trigger(input, 'search');
+}
+
+/* ── Step 2: Record selection ─────────────────────────────────────────── */
+function selectRecord(id, label) {
+  document.getElementById('pb-record-id').value = id;
+  document.getElementById('pb-selected-label').textContent = label;
+  document.getElementById('pb-selected-record').classList.remove('hidden');
+  document.getElementById('pb-search-results').innerHTML = '';
+
+  // Show template cards
+  var type = document.getElementById('pb-record-type').value;
+  document.getElementById('pb-templates-area').classList.remove('hidden');
+  htmx.ajax('GET', '/prompt-builder/templates-for-type?type=' + encodeURIComponent(type), {
+    target: '#pb-template-cards', swap: 'innerHTML'
+  });
+}
+
+function clearRecordSelection() {
+  document.getElementById('pb-record-id').value = '';
+  document.getElementById('pb-template-id').value = '';
+  document.getElementById('pb-selected-record').classList.add('hidden');
+  document.getElementById('pb-templates-area').classList.add('hidden');
+  document.getElementById('pb-generate-area').classList.add('hidden');
+  document.getElementById('pb-preview-area').classList.add('hidden');
+  document.getElementById('pb-search-input').focus();
+}
+
+/* ── Step 3: Template selection ───────────────────────────────────────── */
+function selectTemplate(id, el) {
+  document.getElementById('pb-template-id').value = id;
+  // Highlight selected card
+  document.querySelectorAll('.pb-tpl-card').forEach(function(c) {
+    c.classList.remove('border-marsh', 'ring-1', 'ring-marsh/30');
+    c.classList.add('border-gray-200');
+  });
+  el.classList.remove('border-gray-200');
+  el.classList.add('border-marsh', 'ring-1', 'ring-marsh/30');
+  // Show generate button
+  document.getElementById('pb-generate-area').classList.remove('hidden');
+}
+
+/* ── Step 4: Generate prompt ──────────────────────────────────────────── */
+function generatePrompt() {
+  var templateId = document.getElementById('pb-template-id').value;
+  var recordType = document.getElementById('pb-record-type').value;
+  var recordId = document.getElementById('pb-record-id').value;
+  if (!templateId || !recordType || !recordId) return;
+
+  document.getElementById('pb-preview-area').classList.remove('hidden');
+  document.getElementById('pb-preview-content').innerHTML = '<p class="text-gray-400 text-sm animate-pulse">Assembling prompt...</p>';
+
+  var formData = new FormData();
+  formData.append('template_id', templateId);
+  formData.append('record_type', recordType);
+  formData.append('record_id', recordId);
+
+  htmx.ajax('POST', '/prompt-builder/preview', {
+    target: '#pb-preview-content', swap: 'innerHTML',
+    values: {template_id: templateId, record_type: recordType, record_id: recordId}
+  });
+}
+
+/* ── Step 5: Copy to clipboard ────────────────────────────────────────── */
+function copyPrompt(btn, mode) {
+  var el = mode === 'data' ? document.getElementById('pb-data-only-text') : document.getElementById('pb-full-text');
+  if (!el) return;
+  var text = el.textContent;
+  navigator.clipboard.writeText(text).then(function() {
+    var orig = btn.textContent;
+    btn.textContent = 'Copied!';
+    btn.classList.add('bg-green-600');
+    setTimeout(function() { btn.textContent = orig; btn.classList.remove('bg-green-600'); }, 1500);
+
+    // Log export
+    var templateId = document.getElementById('pb-template-id').value;
+    var recordType = document.getElementById('pb-record-type').value;
+    var recordId = document.getElementById('pb-record-id').value;
+    var fd = new FormData();
+    fd.append('template_id', templateId);
+    fd.append('record_type', recordType);
+    fd.append('record_id', recordId);
+    fetch('/prompt-builder/log-export', { method: 'POST', body: fd });
+  });
+}
+
+function toggleDataOnly() {
+  var full = document.getElementById('pb-full-view');
+  var data = document.getElementById('pb-data-view');
+  var toggle = document.getElementById('pb-data-toggle');
+  if (data.classList.contains('hidden')) {
+    data.classList.remove('hidden');
+    full.classList.add('hidden');
+    toggle.textContent = 'View Full Prompt';
+  } else {
+    data.classList.add('hidden');
+    full.classList.remove('hidden');
+    toggle.textContent = 'View Data Only';
+  }
+}
+</script>
+
+{% endblock %}
