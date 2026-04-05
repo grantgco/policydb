@@ -4387,8 +4387,13 @@ def get_review_section_items(conn: sqlite3.Connection, section_key: str) -> list
 
     if section_key == "open_issues":
         stale_days = cfg.get("review_stale_issue_days", 14)
+        urgency_days = cfg.get("review_renewal_urgency_days", 60)
         return [dict(r) for r in conn.execute(
-            """SELECT al.*, c.name as client_name
+            """SELECT al.*, c.name as client_name,
+                 (SELECT MIN(p.expiration_date) FROM policies p
+                  WHERE p.id = al.policy_id
+                    AND p.expiration_date BETWEEN date('now') AND date('now', '+' || ? || ' days')
+                 ) as renewal_expiring_soon
                FROM activity_log al
                LEFT JOIN clients c ON al.client_id = c.id
                WHERE al.item_kind = 'issue'
@@ -4397,11 +4402,19 @@ def get_review_section_items(conn: sqlite3.Connection, section_key: str) -> list
                    al.activity_date < date('now', '-' || ? || ' days')
                    OR al.due_date IS NULL
                    OR (al.issue_severity = 'Critical' AND al.activity_date < date('now', '-7 days'))
+                   OR al.policy_id IN (
+                     SELECT p.id FROM policies p
+                     WHERE p.expiration_date BETWEEN date('now') AND date('now', '+' || ? || ' days')
+                   )
                  )
                ORDER BY
                  CASE WHEN al.issue_severity = 'Critical' THEN 0 ELSE 1 END,
+                 CASE WHEN al.policy_id IN (
+                   SELECT p.id FROM policies p
+                   WHERE p.expiration_date BETWEEN date('now') AND date('now', '+' || ? || ' days')
+                 ) THEN 0 ELSE 1 END,
                  al.activity_date ASC""",
-            (stale_days,),
+            (urgency_days, stale_days, urgency_days, urgency_days),
         ).fetchall()]
 
     if section_key == "client_health":

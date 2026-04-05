@@ -303,7 +303,6 @@ def load_section(request: Request, section_key: str, conn=Depends(get_db)):
 @router.post("/section/{section_key}/complete", response_class=HTMLResponse)
 def section_complete(request: Request, section_key: str, conn=Depends(get_db)):
     """Mark a section as complete."""
-    import json as _json
     session = get_or_create_review_session(conn)
     items = get_review_section_items(conn, section_key)
     sections = update_section_status(conn, session["id"], section_key, "complete", len(items))
@@ -312,13 +311,10 @@ def section_complete(request: Request, section_key: str, conn=Depends(get_db)):
     if all_done:
         complete_review_session(conn, session["id"])
 
-    return templates.TemplateResponse("review/_stats_banner.html", {
-        "request": request,
-        "sections": sections,
-        "session": session,
-        "all_done": all_done,
-        "section_defs": WALKTHROUGH_SECTIONS,
-    })
+    # Reload the full page so sidebar, section cards, and progress bar all update
+    resp = HTMLResponse("")
+    resp.headers["HX-Redirect"] = "/review"
+    return resp
 
 
 @router.post("/section/{section_key}/skip", response_class=HTMLResponse)
@@ -331,13 +327,9 @@ def section_skip(request: Request, section_key: str, conn=Depends(get_db)):
     if all_done:
         complete_review_session(conn, session["id"])
 
-    return templates.TemplateResponse("review/_stats_banner.html", {
-        "request": request,
-        "sections": sections,
-        "session": session,
-        "all_done": all_done,
-        "section_defs": WALKTHROUGH_SECTIONS,
-    })
+    resp = HTMLResponse("")
+    resp.headers["HX-Redirect"] = "/review"
+    return resp
 
 
 # ── Page ──────────────────────────────────────────────────────────────────────
