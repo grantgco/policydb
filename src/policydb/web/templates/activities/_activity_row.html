@@ -64,12 +64,6 @@
       {% if a.policy_uid %}<a href="/policies/{{ a.policy_uid }}/edit" class="text-xs font-mono text-marsh hover:underline">{{ a.policy_uid }}</a>{% endif %}
       {% if a.linked_issue_uid %}<a href="/issues/{{ a.linked_issue_uid }}" class="text-[10px] bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded hover:bg-amber-100 transition-colors no-print" title="Linked to issue">{{ a.linked_issue_uid }}</a>{% endif %}
       <span class="text-sm font-medium text-gray-800">{{ a.subject }}</span>
-      {% if a.activity_type == 'Meeting' %}
-      <a href="/meetings?client_id={{ a.client_id }}"
-         class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-indigo-50 text-indigo-600 hover:bg-indigo-100 no-print ml-1">
-        MTG
-      </a>
-      {% endif %}
       {% if a.source is defined and a.source == 'outlook_sync' %}
       <span class="text-[9px] px-1 rounded bg-sky-100 text-sky-600 font-medium">synced</span>
       {% endif %}

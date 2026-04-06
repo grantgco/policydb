@@ -20,7 +20,24 @@
       hx-target="#tags-container" hx-swap="innerHTML"
       onsubmit="return true;">
   <input type="hidden" name="action" value="add">
-  <input type="text" name="tag" placeholder="Add tag..."
+  <input type="text" name="tag" placeholder="Add tag..." list="kb-tag-suggestions"
          class="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:ring-1 focus:ring-marsh outline-none"
+         onfocus="loadTagSuggestions()"
          onkeydown="if(event.key==='Enter'){event.preventDefault(); htmx.trigger(this.closest('form'),'submit');}">
+  <datalist id="kb-tag-suggestions"></datalist>
 </form>
+<script>
+function loadTagSuggestions() {
+  var dl = document.getElementById('kb-tag-suggestions');
+  if (!dl || dl.options.length > 0) return;
+  fetch('/kb/tags/all').then(function(r) { return r.json(); }).then(function(tags) {
+    var dl = document.getElementById('kb-tag-suggestions');
+    if (!dl) return;
+    tags.forEach(function(t) {
+      var opt = document.createElement('option');
+      opt.value = t;
+      dl.appendChild(opt);
+    });
+  });
+}
+</script>

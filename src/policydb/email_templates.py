@@ -804,55 +804,6 @@ def location_context(conn: sqlite3.Connection, client_id: int, project_name: str
     return ctx
 
 
-def meeting_context(conn: sqlite3.Connection, meeting_id: int) -> dict:
-    """Build token dict for meeting email templates."""
-    meeting = conn.execute(
-        """SELECT cm.*, c.name as client_name
-           FROM client_meetings cm
-           JOIN clients c ON c.id = cm.client_id
-           WHERE cm.id = ?""",
-        (meeting_id,),
-    ).fetchone()
-    if not meeting:
-        return {}
-    meeting = dict(meeting)
-
-    attendees = conn.execute(
-        "SELECT name, role FROM meeting_attendees WHERE meeting_id = ?",
-        (meeting_id,),
-    ).fetchall()
-    attendee_names = ", ".join(a["name"] for a in attendees)
-
-    decisions = conn.execute(
-        "SELECT description FROM meeting_decisions WHERE meeting_id = ?",
-        (meeting_id,),
-    ).fetchall()
-    decisions_text = "\n".join(f"- {d['description']}" for d in decisions)
-
-    actions = conn.execute(
-        "SELECT description, assignee, due_date FROM meeting_action_items WHERE meeting_id = ?",
-        (meeting_id,),
-    ).fetchall()
-    actions_text = "\n".join(
-        f"- {a['description']} ({a['assignee'] or 'TBD'}, {a['due_date'] or 'No date'})"
-        for a in actions
-    )
-
-    return {
-        "meeting_title": meeting.get("title", ""),
-        "meeting_date": meeting.get("meeting_date", ""),
-        "meeting_time": meeting.get("meeting_time", ""),
-        "meeting_type": meeting.get("meeting_type", ""),
-        "meeting_location": meeting.get("location", ""),
-        "meeting_duration": str(meeting.get("duration_hours", "") or ""),
-        "client_name": meeting.get("client_name", ""),
-        "attendees": attendee_names,
-        "decisions": decisions_text,
-        "action_items": actions_text,
-        "meeting_notes": (meeting.get("notes", "") or "")[:500],
-    }
-
-
 def timeline_context(conn, policy_uid: str) -> dict:
     """Build token dict from policy_timeline data."""
     from policydb.timeline_engine import get_policy_timeline
@@ -905,7 +856,6 @@ def timeline_context(conn, policy_uid: str) -> dict:
         "milestones_remaining": ", ".join(r["milestone_name"] for r in incomplete),
         "contact_first_name": "",  # Filled from contact context when available
         "nudge_count": "",  # Filled from follow-up thread context when available
-        "meeting_date": "",  # Filled from scheduled follow-up date when available
     }
 
 
@@ -1145,7 +1095,7 @@ _CLIENT_CONTACT_GROUP: list[tuple[str, str]] = [
 
 # Grouped tokens per context — list of (group_name, [(key, label), ...])
 # Consolidated to 2 contexts: policy (includes location, followup, timeline)
-# and client (includes meeting).
+# and client.
 CONTEXT_TOKEN_GROUPS: dict[str, list[tuple[str, list[tuple[str, str]]]]] = {
     "policy": [
         ("Policy", [
@@ -1262,18 +1212,6 @@ CONTEXT_TOKEN_GROUPS: dict[str, list[tuple[str, list[tuple[str, str]]]]] = {
             ("client_policy_count", "Policy Count"),
             ("rfi_due_dates", "RFI Due Dates"),
             ("rfi_outstanding_count", "Outstanding RFIs"),
-        ]),
-        ("Meeting", [
-            ("meeting_title", "Meeting Title"),
-            ("meeting_date", "Meeting Date"),
-            ("meeting_time", "Meeting Time"),
-            ("meeting_type", "Meeting Type"),
-            ("meeting_location", "Location"),
-            ("meeting_duration", "Duration"),
-            ("attendees", "Attendees"),
-            ("decisions", "Decisions"),
-            ("action_items", "Action Items"),
-            ("meeting_notes", "Notes (first 500 chars)"),
         ]),
         ("Compliance", [
             ("compliance_pct", "Compliance %"),

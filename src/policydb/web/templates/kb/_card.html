@@ -3,9 +3,9 @@
 {% set is_bm = entry.entry_type == 'bookmark' %}
 {% set is_dt = entry.source_type == 'devonthink' %}
 
-{# Border color: bookmarks=cyan, articles=blue, DEVONthink=purple, local files=file-type color #}
+{# Border color: bookmarks=blue accent, articles=blue, DEVONthink=purple, local files=file-type color #}
 {% if is_bm %}
-  {% set border_color = '#06b6d4' %}
+  {% set border_color = '#0B4BFF' %}
 {% elif not is_doc %}
   {% set border_color = '#0B4BFF' %}
 {% elif is_dt %}
@@ -26,13 +26,13 @@
 {# Bookmark card — opens URL in new tab, edit icon goes to detail page #}
 <div class="relative block bg-white border border-[#e5e2dc] rounded-lg p-3 hover:shadow-md transition-shadow group" style="border-left: 4px solid {{ border_color }}">
   <a href="{{ entry.url }}" target="_blank" rel="noopener" class="absolute inset-0 z-0" title="Open {{ entry.url }}"></a>
-  <a href="/kb/bookmarks/{{ entry.uid }}" class="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 hover:text-cyan-600" title="Edit bookmark" onclick="event.stopPropagation();">
+  <a href="/kb/bookmarks/{{ entry.uid }}" class="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 hover:text-marsh" title="Edit bookmark" onclick="event.stopPropagation();">
     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
   </a>
 
   {# Row 1: UID + Title + Category + Date #}
   <div class="flex items-center gap-2 relative z-[1] pointer-events-none">
-    <span class="text-[9px] font-mono bg-cyan-50 text-cyan-600 rounded px-1.5 py-0.5 flex-shrink-0">{{ entry.uid }}</span>
+    <span class="text-[9px] font-mono bg-blue-50 text-blue-700 rounded px-1.5 py-0.5 flex-shrink-0">{{ entry.uid }}</span>
     <span class="text-gray-900 font-semibold text-sm flex-1 min-w-0 truncate">{{ entry.title }}</span>
     <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium {{ colors.bg }} {{ colors.text }} flex-shrink-0">
       {{ entry.category }}
@@ -50,7 +50,7 @@
 
   {# Row 2: Globe icon + hostname #}
   <div class="text-xs mt-1 ml-0 relative z-[1] pointer-events-none">
-    <div class="text-cyan-600">
+    <div class="text-blue-600">
       <svg class="w-3 h-3 inline -mt-px" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"/></svg>
       <span class="text-gray-500">{{ entry.url | replace('https://', '') | replace('http://', '') | truncate(60) }}</span>
     </div>

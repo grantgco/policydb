@@ -995,14 +995,6 @@ def client_tab_overview(request: Request, client_id: int, conn=Depends(get_db)):
         """, (client_id,)).fetchall()],
         "today": _today,
         "today_iso": _today,
-        "client_meetings": [dict(r) for r in conn.execute(
-            """SELECT cm.id, cm.title, cm.meeting_date, cm.meeting_time, cm.meeting_type, cm.phase,
-                      (SELECT COUNT(*) FROM meeting_action_items WHERE meeting_id = cm.id AND completed = 0) as open_actions
-               FROM client_meetings cm
-               WHERE cm.client_id = ?
-               ORDER BY cm.meeting_date DESC LIMIT 6""",
-            (client_id,),
-        ).fetchall()],
         "locations": _get_project_locations(conn, client_id),
         "unassigned_count": conn.execute(
             """SELECT COUNT(*) FROM policies
@@ -1539,7 +1531,6 @@ def client_tab_files(
           CASE ra.record_type
             WHEN 'client' THEN 'Client-level'
             WHEN 'policy' THEN (SELECT policy_uid || ' — ' || COALESCE(policy_type, '') FROM policies WHERE id = ra.record_id)
-            WHEN 'meeting' THEN (SELECT COALESCE(title, '') || ' ' || COALESCE(meeting_date, '') FROM client_meetings WHERE id = ra.record_id)
             WHEN 'activity' THEN (SELECT COALESCE(activity_type, '') || ': ' || COALESCE(subject, '') FROM activity_log WHERE id = ra.record_id)
             WHEN 'project' THEN (SELECT name FROM projects WHERE id = ra.record_id)
             WHEN 'rfi_bundle' THEN (SELECT COALESCE(title, 'RFI Bundle') FROM client_request_bundles WHERE id = ra.record_id)
@@ -1548,7 +1539,6 @@ def client_tab_files(
         JOIN record_attachments ra ON ra.attachment_id = a.id
         WHERE (ra.record_type = 'client' AND ra.record_id = :cid)
            OR (ra.record_type = 'policy' AND ra.record_id IN (SELECT id FROM policies WHERE client_id = :cid AND archived = 0))
-           OR (ra.record_type = 'meeting' AND ra.record_id IN (SELECT id FROM client_meetings WHERE client_id = :cid))
            OR (ra.record_type = 'activity' AND ra.record_id IN (SELECT id FROM activity_log WHERE client_id = :cid))
            OR (ra.record_type = 'project' AND ra.record_id IN (SELECT id FROM projects WHERE client_id = :cid))
            OR (ra.record_type = 'rfi_bundle' AND ra.record_id IN (SELECT id FROM client_request_bundles WHERE client_id = :cid))
@@ -1583,8 +1573,6 @@ def client_tab_files(
         if record_type == "policy" and source_label:
             uid = source_label.split(" — ")[0].strip()
             return f"/policies/{uid}/edit"
-        if record_type == "meeting":
-            return f"/meetings/{record_id}"
         if record_type == "project":
             return f"/clients/{client_id}/projects/{record_id}"
         if record_type == "client":
@@ -2158,22 +2146,12 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
         except Exception:
             last_activity_relative = _la["dt"]
 
-    client_meetings = [dict(r) for r in conn.execute(
-        """SELECT cm.id, cm.title, cm.meeting_date, cm.meeting_time, cm.meeting_type, cm.phase,
-                  (SELECT COUNT(*) FROM meeting_action_items WHERE meeting_id = cm.id AND completed = 0) as open_actions
-           FROM client_meetings cm
-           WHERE cm.client_id = ?
-           ORDER BY cm.meeting_date DESC LIMIT 6""",
-        (client_id,),
-    ).fetchall()]
-
     # Attachment rollup count for Files tab badge
     _att_count = conn.execute("""
         SELECT COUNT(DISTINCT a.id) FROM attachments a
         JOIN record_attachments ra ON ra.attachment_id = a.id
         WHERE (ra.record_type = 'client' AND ra.record_id = :cid)
            OR (ra.record_type = 'policy' AND ra.record_id IN (SELECT id FROM policies WHERE client_id = :cid AND archived = 0))
-           OR (ra.record_type = 'meeting' AND ra.record_id IN (SELECT id FROM client_meetings WHERE client_id = :cid))
            OR (ra.record_type = 'activity' AND ra.record_id IN (SELECT id FROM activity_log WHERE client_id = :cid))
            OR (ra.record_type = 'project' AND ra.record_id IN (SELECT id FROM projects WHERE client_id = :cid))
            OR (ra.record_type = 'rfi_bundle' AND ra.record_id IN (SELECT id FROM client_request_bundles WHERE client_id = :cid))
@@ -2278,7 +2256,6 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
         "project_stages": cfg.get("project_stages", []),
         "project_types": cfg.get("project_types", []),
         "timeline_data": _build_timeline_data(_get_project_pipeline(conn, client_id)),
-        "client_meetings": client_meetings,
         "open_issues": [dict(r) for r in conn.execute("""
             SELECT a.id, a.issue_uid, a.subject, a.issue_status, a.issue_severity,
                    a.activity_date, a.issue_sla_days,

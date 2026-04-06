@@ -39,7 +39,7 @@
           <div class="flex items-center gap-2">
             <span class="text-xs text-gray-400">Category:</span>
             <select class="text-sm border-0 border-b border-gray-200 focus:border-marsh outline-none py-0.5 px-1 {{ article.colors.text }} font-medium bg-transparent"
-                    onchange="saveArticleFieldVal('{{ article.uid }}', 'category', this.value); location.reload();">
+                    onchange="saveArticleFieldValFlash(this, '{{ article.uid }}', 'category', this.value)">
               {% for cat in categories %}
               <option value="{{ cat }}" {{ 'selected' if cat == article.category else '' }}>{{ cat }}</option>
               {% endfor %}
@@ -148,6 +148,16 @@ function saveArticleFieldVal(uid, field, value) {
     method: 'POST',
     headers: {'Content-Type': 'application/x-www-form-urlencoded'},
     body: 'field=' + encodeURIComponent(field) + '&value=' + encodeURIComponent(value)
+  });
+}
+
+function saveArticleFieldValFlash(el, uid, field, value) {
+  fetch('/kb/articles/' + uid + '/field', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    body: 'field=' + encodeURIComponent(field) + '&value=' + encodeURIComponent(value)
+  }).then(function(r) { return r.json(); }).then(function(d) {
+    if (d.ok && typeof flashCell === 'function') flashCell(el, '#dbeafe');
   });
 }
 

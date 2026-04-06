@@ -744,7 +744,7 @@ def _risk_alerts_ctx(conn) -> dict:
 # ── Issues context ───────────────────────────────────────────────────────────
 
 
-def _issues_ctx(conn, q: str = "", client_id: int = 0, view_mode: str = "board", issue_type: str = "") -> dict:
+def _issues_ctx(conn, q: str = "", client_id: int = 0, issue_type: str = "") -> dict:
     """Build issues tab context — open and recently resolved issues."""
     today = date.today().isoformat()
     rows = conn.execute("""
@@ -804,12 +804,6 @@ def _issues_ctx(conn, q: str = "", client_id: int = 0, view_mode: str = "board",
     waiting = []
     recently_resolved = []
 
-    # Board buckets — purely status-based
-    board_open = []
-    board_in_hand = []
-    board_waiting = []
-    board_done = []
-
     for issue in issues:
         status = issue.get("issue_status") or "Open"
         severity = issue.get("issue_severity") or "Normal"
@@ -835,16 +829,6 @@ def _issues_ctx(conn, q: str = "", client_id: int = 0, view_mode: str = "board",
             waiting.append(issue)
         else:
             active.append(issue)
-
-        # Board bucketing — status-based only
-        if status in ("Resolved", "Closed"):
-            board_done.append(issue)
-        elif status == "In Hand":
-            board_in_hand.append(issue)
-        elif status == "Waiting":
-            board_waiting.append(issue)
-        else:
-            board_open.append(issue)
 
     open_count = len(critical_overdue) + len(active) + len(waiting)
 
@@ -884,11 +868,6 @@ def _issues_ctx(conn, q: str = "", client_id: int = 0, view_mode: str = "board",
         "issue_type": issue_type,
         "issue_severities": cfg.get("issue_severities", []),
         "issue_lifecycle_states": cfg.get("issue_lifecycle_states", []),
-        "view_mode": view_mode or "table",
-        "board_open": board_open,
-        "board_in_hand": board_in_hand,
-        "board_waiting": board_waiting,
-        "board_done": board_done,
         "sla_breach_count": sla_breach_count,
         "oldest_breach_days": oldest_breach_days,
     }
@@ -1208,11 +1187,10 @@ def ac_issues(
     request: Request,
     q: str = "",
     client_id: int = 0,
-    view_mode: str = "board",
     issue_type: str = "",
     conn=Depends(get_db),
 ):
-    ctx = _issues_ctx(conn, q=q, client_id=client_id, view_mode=view_mode, issue_type=issue_type)
+    ctx = _issues_ctx(conn, q=q, client_id=client_id, issue_type=issue_type)
     ctx["request"] = request
     return templates.TemplateResponse("action_center/_issues.html", ctx)
 

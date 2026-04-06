@@ -18,7 +18,7 @@
            hx-trigger="input changed delay:300ms"
            hx-target="#issues-tab"
            hx-swap="outerHTML"
-           hx-include="#iss-q, #iss-client, #iss-view-mode, #iss-type"
+           hx-include="#iss-q, #iss-client, #iss-type"
            name="q"
            id="iss-q">
     <input type="text" id="iss-client-search" placeholder="All clients" autocomplete="off"
@@ -34,7 +34,6 @@
           values: {
             q: document.getElementById('iss-q').value,
             client_id: item.id,
-            view_mode: document.getElementById('iss-view-mode').value,
             issue_type: document.getElementById('iss-type').value
           }
         });
@@ -48,7 +47,6 @@
           values: {
             q: document.getElementById('iss-q').value,
             client_id: 0,
-            view_mode: document.getElementById('iss-view-mode').value,
             issue_type: document.getElementById('iss-type').value
           }
         });
@@ -62,7 +60,7 @@
       <button hx-get="/action-center/issues"
               hx-target="#issues-tab"
               hx-swap="outerHTML"
-              hx-include="#iss-q, #iss-client, #iss-view-mode"
+              hx-include="#iss-q, #iss-client"
               hx-vals='{"issue_type": "{{ tp[0] }}"}'
               class="text-[11px] px-3 py-1 {% if issue_type == tp[0] %}bg-marsh text-white{% else %}bg-white text-gray-500 hover:bg-gray-50{% endif %} transition-colors {% if not loop.first %}border-l border-gray-200{% endif %}">
         {{ tp[1] }}
@@ -70,35 +68,15 @@
       {% endfor %}
     </div>
 
-    <input type="hidden" name="view_mode" id="iss-view-mode" value="{{ view_mode or 'board' }}">
     <input type="hidden" name="issue_type" id="iss-type" value="{{ issue_type or '' }}">
 
-    {# View toggle + actions #}
+    {# Actions #}
     <div class="ml-auto flex items-center gap-2">
       {# Refresh titles button #}
       <button type="button" onclick="refreshIssueTitles(this)"
               class="text-xs text-gray-400 hover:text-marsh px-2 py-1" title="Refresh renewal issue titles">
         &#x21bb; Titles
       </button>
-
-      <div class="flex border border-gray-200 rounded-md overflow-hidden">
-        <button hx-get="/action-center/issues"
-                hx-target="#issues-tab"
-                hx-swap="outerHTML"
-                hx-include="#iss-q, #iss-client, #iss-type"
-                hx-vals='{"view_mode": "board"}'
-                class="text-[11px] px-3 py-1 {% if view_mode == 'board' %}bg-marsh text-white{% else %}bg-white text-gray-500 hover:bg-gray-50{% endif %} transition-colors">
-          Board
-        </button>
-        <button hx-get="/action-center/issues"
-                hx-target="#issues-tab"
-                hx-swap="outerHTML"
-                hx-include="#iss-q, #iss-client, #iss-type"
-                hx-vals='{"view_mode": "table"}'
-                class="text-[11px] px-3 py-1 border-l border-gray-200 {% if view_mode == 'table' %}bg-marsh text-white{% else %}bg-white text-gray-500 hover:bg-gray-50{% endif %} transition-colors">
-          List
-        </button>
-      </div>
       <button onclick="openIssueCreateSlideover({})"
               class="text-sm bg-marsh text-white rounded px-3 py-1.5 hover:bg-marsh-light">
         + New Issue
@@ -106,11 +84,7 @@
     </div>
   </div>
 
-  {% if view_mode == 'board' %}
-    {% include "action_center/_issues_board.html" %}
-  {% else %}
-
-  {# ── Bulk toolbar (list view only) ── #}
+  {# ── Bulk toolbar ── #}
   <div id="issue-bulk-toolbar" class="hidden bg-gray-50 border border-gray-200 rounded-lg px-4 py-2.5 mb-3 flex items-center gap-3 flex-wrap">
     <span class="text-sm font-medium text-gray-700" id="issue-bulk-count">0 selected</span>
     <button type="button" onclick="issueSelectAll()" class="text-xs text-marsh hover:underline">Select All</button>
@@ -204,7 +178,6 @@
   {% endif %}
 
   {% endif %}
-  {% endif %}{# end view_mode check #}
 </div>
 
 <script>

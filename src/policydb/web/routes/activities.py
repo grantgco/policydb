@@ -515,7 +515,7 @@ def activity_delete(
     context: str = Form(""),
     conn=Depends(get_db),
 ):
-    """Delete an activity log entry. Also clears any linked meeting action items."""
+    """Delete an activity log entry."""
     # Preserve Outlook message ID so email sync won't re-import this email
     row = conn.execute(
         "SELECT outlook_message_id FROM activity_log WHERE id = ?", (activity_id,)
@@ -525,11 +525,7 @@ def activity_delete(
             "INSERT OR IGNORE INTO dismissed_outlook_messages (message_id) VALUES (?)",
             (row["outlook_message_id"],),
         )
-    # Unlink from meeting action items and mandated activity log
-    conn.execute(
-        "UPDATE meeting_action_items SET activity_id = NULL WHERE activity_id = ?",
-        (activity_id,),
-    )
+    # Unlink from mandated activity log
     conn.execute(
         "UPDATE mandated_activity_log SET activity_id = NULL WHERE activity_id = ?",
         (activity_id,),

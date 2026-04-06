@@ -872,6 +872,21 @@ async def delete_bookmark(uid: str, conn=Depends(get_db)):
     return RedirectResponse("/kb?source=bookmark", status_code=303)
 
 
+# ── Tag autocomplete ─────────────────────────────────────────────────────────
+
+
+@router.get("/tags/all", response_class=JSONResponse)
+async def kb_all_tags(conn=Depends(get_db)):
+    """Return deduplicated list of all tags across KB entries for autocomplete."""
+    tags: set[str] = set()
+    for table in ("kb_articles", "kb_bookmarks", "attachments"):
+        rows = conn.execute(f"SELECT tags FROM {table} WHERE tags IS NOT NULL AND tags != ''").fetchall()
+        for r in rows:
+            for t in _parse_tags(r["tags"]):
+                tags.add(t)
+    return sorted(tags, key=str.lower)
+
+
 # ── Record Links ─────────────────────────────────────────────────────────────
 
 def _get_record_links(conn, entry_type: str, entry_id: int) -> list[dict]:

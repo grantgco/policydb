@@ -137,15 +137,6 @@ def dashboard(request: Request, conn=Depends(get_db)):
     hours_this_month = get_dashboard_hours_this_month(conn)
     note_row = conn.execute("SELECT content, updated_at FROM user_notes WHERE id=1").fetchone()
 
-    upcoming_meetings = [dict(r) for r in conn.execute(
-        """SELECT cm.id, cm.title, cm.meeting_date, cm.meeting_time, cm.meeting_type, cm.phase,
-                  c.name as client_name
-           FROM client_meetings cm
-           JOIN clients c ON c.id = cm.client_id
-           WHERE cm.meeting_date >= date('now') AND cm.phase != 'complete'
-           ORDER BY cm.meeting_date ASC, cm.meeting_time ASC
-           LIMIT 3""",
-    ).fetchall()]
     scratchpad_content = note_row["content"] if note_row else ""
     scratchpad_updated = note_row["updated_at"] if note_row else ""
 
@@ -184,7 +175,6 @@ def dashboard(request: Request, conn=Depends(get_db)):
         "open_opportunities": open_opportunities,
         "issues_widget": issues_widget,
         "hours_this_month": hours_this_month,
-        "upcoming_meetings": upcoming_meetings,
         "show_review_reminder": show_review_reminder,
     })
 
@@ -214,8 +204,9 @@ def save_scratchpad(request: Request, content: str = Form(""), conn=Depends(get_
 def search(request: Request, q: str = "", conn=Depends(get_db)):
     _empty = {
         "clients": [], "policies": [], "activities": [], "issues": [],
-        "contacts": [], "programs": [], "meetings": [], "locations": [],
-        "inbox": [], "_snippets": {}, "_query_mode": "none",
+        "contacts": [], "programs": [], "locations": [],
+        "inbox": [], "kb_bookmarks": [], "kb_articles": [],
+        "_snippets": {}, "_query_mode": "none",
     }
     results = dict(_empty)
     if q.strip():
@@ -291,7 +282,7 @@ def search_live(request: Request, q: str = "", conn=Depends(get_db)):
     items = []
     # Priority order for display
     for etype in ("clients", "policies", "issues", "contacts", "programs",
-                  "activities", "meetings", "locations", "inbox"):
+                  "activities", "locations", "inbox", "kb_articles", "kb_bookmarks"):
         for r in results.get(etype, [])[:3]:
             items.append({"type": etype, "data": r})
             if len(items) >= 8:
