@@ -96,6 +96,15 @@
 </div>
 
 <!-- ═══════════════════════════════════════════════════════════════════════
+     REFERENCES
+     ═══════════════════════════════════════════════════════════════════════ -->
+<div class="card px-5 mb-4">
+  {% with ref_entity_type='contact', ref_entity_id=contact.id %}
+    {% include "kb/_references_widget.html" %}
+  {% endwith %}
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
      ASSIGNMENTS CARD
      ═══════════════════════════════════════════════════════════════════════ -->
 <details open class="card mb-4">
@@ -305,7 +314,7 @@
     var value = el.textContent.trim();
     // For name changes, use the rename endpoint
     if (field === 'name' && value && value !== contactName) {
-      fetch('/contacts/' + encodeURIComponent(contactName) + '/rename', {
+      fetch('/contacts/unified/' + encodeURIComponent(contactName) + '/rename', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({new_name: value})

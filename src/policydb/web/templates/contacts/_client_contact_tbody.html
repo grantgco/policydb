@@ -1,5 +1,6 @@
+{% set store = 'client' %}
 {% for c in client_type_contacts %}
-{% include "contacts/_client_contact_row.html" %}
+{% include "contacts/_contact_matrix_row.html" %}
 {% else %}
 <tr><td colspan="6" class="px-4 py-10 text-center text-gray-400">No client contacts found.</td></tr>
 {% endfor %}
