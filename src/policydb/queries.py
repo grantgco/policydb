@@ -450,14 +450,17 @@ def get_program_pipeline(
         dtr = d.get("days_to_renewal")
         if dtr is None:
             dtr = 999
-        if dtr <= 30:
-            d["urgency"] = "CRITICAL"
-        elif dtr <= 60:
-            d["urgency"] = "HIGH"
+        # Use same urgency labels as policies for visual consistency
+        if dtr <= 0:
+            d["urgency"] = "EXPIRED"
         elif dtr <= 90:
-            d["urgency"] = "MEDIUM"
+            d["urgency"] = "URGENT"
+        elif dtr <= 120:
+            d["urgency"] = "WARNING"
+        elif dtr <= 180:
+            d["urgency"] = "UPCOMING"
         else:
-            d["urgency"] = "LOW"
+            d["urgency"] = "OK"
         d["_is_program"] = True
         # Compute followup_overdue for display
         from datetime import date as _date
@@ -1922,21 +1925,6 @@ def rebuild_search_index(conn: sqlite3.Connection) -> None:
         WHERE pg.archived = 0
     """)
 
-    # -- Meetings --
-    conn.execute("""
-        INSERT INTO search_index (entity_type, entity_id, title, subtitle, body, metadata)
-        SELECT 'meeting', CAST(m.id AS TEXT),
-            COALESCE(m.title, ''),
-            COALESCE(c.name, '') || ' ' || COALESCE(m.location, ''),
-            COALESCE(m.notes, '') || ' ' || COALESCE(m.agenda, ''),
-            COALESCE(m.meeting_uid, '')
-                || ' ' || COALESCE(
-                    (SELECT GROUP_CONCAT(ma.name, ' ')
-                     FROM meeting_attendees ma WHERE ma.meeting_id = m.id), '')
-        FROM client_meetings m
-        JOIN clients c ON c.id = m.client_id
-    """)
-
     # -- Locations / Projects --
     conn.execute("""
         INSERT INTO search_index (entity_type, entity_id, title, subtitle, body, metadata)
@@ -1988,6 +1976,29 @@ def rebuild_search_index(conn: sqlite3.Connection) -> None:
         WHERE ps.content IS NOT NULL AND ps.content != ''
     """)
 
+    # -- KB Bookmarks --
+    conn.execute("""
+        INSERT INTO search_index (entity_type, entity_id, title, subtitle, body, metadata)
+        SELECT 'kb_bookmark', b.uid,
+            COALESCE(b.title, ''),
+            COALESCE(b.category, '') || ' ' ||
+                COALESCE(REPLACE(REPLACE(REPLACE(b.url, 'https://', ''), 'http://', ''), 'www.', ''), ''),
+            COALESCE(b.description, ''),
+            COALESCE(b.tags, '') || ' ' || COALESCE(b.uid, '')
+        FROM kb_bookmarks b
+    """)
+
+    # -- KB Articles --
+    conn.execute("""
+        INSERT INTO search_index (entity_type, entity_id, title, subtitle, body, metadata)
+        SELECT 'kb_article', a.uid,
+            COALESCE(a.title, ''),
+            COALESCE(a.category, '') || ' ' || COALESCE(a.source, ''),
+            SUBSTR(COALESCE(a.content, ''), 1, 2000),
+            COALESCE(a.tags, '') || ' ' || COALESCE(a.uid, '')
+        FROM kb_articles a
+    """)
+
     conn.commit()
     elapsed = (_time.perf_counter() - t0) * 1000
     count = conn.execute("SELECT COUNT(*) FROM search_index").fetchone()[0]
@@ -2021,8 +2032,9 @@ def full_text_search(conn: sqlite3.Connection, query: str) -> dict:
     if not match_expr:
         return {
             "clients": [], "policies": [], "activities": [], "issues": [],
-            "contacts": [], "programs": [], "meetings": [], "locations": [],
-            "inbox": [], "_snippets": {}, "_query_mode": "none",
+            "contacts": [], "programs": [], "locations": [],
+            "inbox": [], "kb_bookmarks": [], "kb_articles": [],
+            "_snippets": {}, "_query_mode": "none",
         }
 
     # --- Tier 1: FTS5 search ---
@@ -2112,14 +2124,6 @@ def full_text_search(conn: sqlite3.Connection, query: str) -> dict:
         JOIN clients c ON c.id = pg.client_id
         WHERE pg.program_uid IN (__IDS__)
     """)
-    _hydrate("meeting", "meetings", """
-        SELECT m.id, m.title, c.name AS client_name, m.meeting_date,
-               m.location, m.client_id, m.meeting_uid
-        FROM client_meetings m
-        JOIN clients c ON c.id = m.client_id
-        WHERE CAST(m.id AS TEXT) IN (__IDS__)
-        ORDER BY m.meeting_date DESC
-    """)
     _hydrate("location", "locations", """
         SELECT pr.id, pr.name, pr.address, pr.city, pr.state, pr.zip,
                pr.client_id, c.name AS client_name
@@ -2133,6 +2137,18 @@ def full_text_search(conn: sqlite3.Connection, query: str) -> dict:
                i.created_at, i.status
         FROM inbox i WHERE CAST(i.id AS TEXT) IN (__IDS__)
         ORDER BY i.created_at DESC
+    """)
+    _hydrate("kb_bookmark", "kb_bookmarks", """
+        SELECT b.uid, b.url, b.title, b.description, b.category, b.tags,
+               b.favicon_url
+        FROM kb_bookmarks b WHERE b.uid IN (__IDS__)
+        ORDER BY b.title
+    """)
+    _hydrate("kb_article", "kb_articles", """
+        SELECT a.uid, a.title, a.category, a.source, a.tags,
+               SUBSTR(a.content, 1, 200) AS excerpt
+        FROM kb_articles a WHERE a.uid IN (__IDS__)
+        ORDER BY a.title
     """)
 
     # --- Tier 2: Fuzzy fallback ---

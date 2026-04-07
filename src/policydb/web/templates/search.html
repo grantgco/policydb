@@ -153,24 +153,6 @@
 </div>
 {% endif %}
 
-{# --- Meetings --- #}
-{% if results.meetings %}
-<div class="bg-white rounded-xl border border-gray-200 mb-4">
-  <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
-    <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Meetings</span>
-    <span class="text-[10px] bg-gray-100 text-gray-500 rounded-full px-2 py-0.5">{{ results.meetings|length }}</span>
-  </div>
-  {% for r in results.meetings %}
-  <a href="/clients/{{ r.client_id }}/meetings/{{ r.id }}" class="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 border-b border-gray-50 last:border-0">
-    <span class="text-xs text-gray-400 shrink-0">{{ r.meeting_date }}</span>
-    <span class="font-medium text-gray-800">{{ r.title }}</span>
-    <span class="text-xs text-gray-400">{{ r.client_name }}</span>
-    {% if r.location %}<span class="text-xs text-gray-400 shrink-0">· {{ r.location }}</span>{% endif %}
-  </a>
-  {% endfor %}
-</div>
-{% endif %}
-
 {# --- Locations --- #}
 {% if results.locations %}
 <div class="bg-white rounded-xl border border-gray-200 mb-4">
@@ -206,6 +188,54 @@
     </div>
     <span class="text-xs text-gray-400 shrink-0 ml-auto">{{ r.created_at[:10] if r.created_at else '' }}</span>
   </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{# --- KB Articles --- #}
+{% if results.kb_articles %}
+<div class="bg-white rounded-xl border border-gray-200 mb-4">
+  <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+    <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">KB Articles</span>
+    <span class="text-[10px] bg-gray-100 text-gray-500 rounded-full px-2 py-0.5">{{ results.kb_articles|length }}</span>
+  </div>
+  {% for r in results.kb_articles %}
+  <a href="/kb/articles/{{ r.uid }}" class="flex items-start gap-3 px-5 py-3 hover:bg-gray-50 border-b border-gray-50 last:border-0">
+    <span class="font-mono text-xs text-gray-400 mt-0.5 shrink-0">{{ r.uid }}</span>
+    <div class="min-w-0">
+      <span class="font-medium text-gray-800">{{ r.title }}</span>
+      <span class="text-xs text-gray-400 ml-2">{{ r.category }}</span>
+      {% if r.excerpt %}
+      <p class="text-xs text-gray-400 mt-0.5 line-clamp-1">{{ r.excerpt }}</p>
+      {% endif %}
+      {{ show_snippet('kb_article', r.uid) }}
+    </div>
+  </a>
+  {% endfor %}
+</div>
+{% endif %}
+
+{# --- KB Bookmarks --- #}
+{% if results.kb_bookmarks %}
+<div class="bg-white rounded-xl border border-gray-200 mb-4">
+  <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+    <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">KB Bookmarks</span>
+    <span class="text-[10px] bg-gray-100 text-gray-500 rounded-full px-2 py-0.5">{{ results.kb_bookmarks|length }}</span>
+  </div>
+  {% for r in results.kb_bookmarks %}
+  <a href="/kb/bookmarks/{{ r.uid }}" class="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 border-b border-gray-50 last:border-0">
+    {% if r.favicon_url %}
+    <img src="{{ r.favicon_url }}" alt="" class="w-4 h-4 shrink-0 rounded">
+    {% endif %}
+    <div class="min-w-0">
+      <span class="font-medium text-gray-800">{{ r.title }}</span>
+      <span class="text-xs text-gray-400 ml-2">{{ r.category }}</span>
+      {% if r.description %}
+      <p class="text-xs text-gray-400 mt-0.5 line-clamp-1">{{ r.description }}</p>
+      {% endif %}
+    </div>
+    <span class="text-xs text-gray-400 shrink-0 ml-auto truncate max-w-[200px]">{{ r.url | replace('https://', '') | replace('http://', '') | replace('www.', '') }}</span>
+  </a>
   {% endfor %}
 </div>
 {% endif %}

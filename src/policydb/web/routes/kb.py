@@ -51,7 +51,7 @@ CATEGORY_COLORS = {
 
 _DEFAULT_COLORS = {"bg": "bg-gray-100", "text": "text-gray-600", "border_hex": "#9ca3af"}
 
-_ALLOWED_ENTITY_TYPES = {"kb_article", "kb_bookmark", "attachment", "issue", "policy", "client", "activity", "project"}
+_ALLOWED_ENTITY_TYPES = {"kb_article", "kb_bookmark", "attachment", "issue", "policy", "client", "activity", "project", "contact", "program", "inbox"}
 
 
 def _get_colors(category: str) -> dict:
@@ -872,6 +872,21 @@ async def delete_bookmark(uid: str, conn=Depends(get_db)):
     return RedirectResponse("/kb?source=bookmark", status_code=303)
 
 
+# ── Tag autocomplete ─────────────────────────────────────────────────────────
+
+
+@router.get("/tags/all", response_class=JSONResponse)
+async def kb_all_tags(conn=Depends(get_db)):
+    """Return deduplicated list of all tags across KB entries for autocomplete."""
+    tags: set[str] = set()
+    for table in ("kb_articles", "kb_bookmarks", "attachments"):
+        rows = conn.execute(f"SELECT tags FROM {table} WHERE tags IS NOT NULL AND tags != ''").fetchall()
+        for r in rows:
+            for t in _parse_tags(r["tags"]):
+                tags.add(t)
+    return sorted(tags, key=str.lower)
+
+
 # ── Record Links ─────────────────────────────────────────────────────────────
 
 def _get_record_links(conn, entry_type: str, entry_id: int) -> list[dict]:
@@ -1059,31 +1074,59 @@ async def references_panel(
                 ref["title"] = f"{entry['carrier'] or ''} {entry['policy_type'] or ''}".strip() or entry["policy_uid"]
                 ref["url"] = f"/policies/{entry['policy_uid']}"
         elif ref_type == "issue":
-            entry = conn.execute("SELECT id, issue_uid, subject FROM issues WHERE id = ?", (ref_id,)).fetchone()
+            entry = conn.execute(
+                "SELECT id, issue_uid, subject FROM activity_log WHERE id = ? AND item_kind = 'issue'",
+                (ref_id,),
+            ).fetchone()
             if entry:
                 ref["uid"] = entry["issue_uid"]
                 ref["title"] = entry["subject"]
                 ref["url"] = f"/issues/{entry['issue_uid']}"
         elif ref_type == "activity":
-            entry = conn.execute("SELECT id, summary FROM activity_log WHERE id = ?", (ref_id,)).fetchone()
+            entry = conn.execute("SELECT id, subject, activity_type FROM activity_log WHERE id = ?", (ref_id,)).fetchone()
             if entry:
                 ref["uid"] = f"ACT-{entry['id']}"
-                ref["title"] = entry["summary"] or "Activity"
+                ref["title"] = entry["subject"] or entry["activity_type"] or "Activity"
                 ref["url"] = "#"
         elif ref_type == "project":
-            entry = conn.execute("SELECT id, name FROM projects WHERE id = ?", (ref_id,)).fetchone()
+            entry = conn.execute("SELECT id, name, client_id FROM projects WHERE id = ?", (ref_id,)).fetchone()
             if entry:
                 ref["uid"] = f"PRJ-{entry['id']}"
                 ref["title"] = entry["name"]
-                ref["url"] = f"/clients/projects/{entry['id']}"
+                ref["url"] = f"/clients/{entry['client_id']}/projects/{entry['id']}"
+        elif ref_type == "contact":
+            entry = conn.execute("SELECT id, name, organization FROM contacts WHERE id = ?", (ref_id,)).fetchone()
+            if entry:
+                ref["uid"] = f"CON-{entry['id']}"
+                ref["title"] = entry["name"]
+                if entry["organization"]:
+                    ref["title"] += f" · {entry['organization']}"
+                ref["url"] = f"/contacts/{entry['id']}"
+        elif ref_type == "program":
+            entry = conn.execute(
+                "SELECT pg.id, pg.program_uid, pg.name, pg.client_id "
+                "FROM programs pg WHERE pg.id = ?",
+                (ref_id,),
+            ).fetchone()
+            if entry:
+                ref["uid"] = entry["program_uid"]
+                ref["title"] = entry["name"]
+                ref["url"] = f"/clients/{entry['client_id']}/programs/{entry['program_uid']}"
+        elif ref_type == "inbox":
+            entry = conn.execute("SELECT id, inbox_uid, email_subject FROM inbox WHERE id = ?", (ref_id,)).fetchone()
+            if entry:
+                ref["uid"] = entry["inbox_uid"] or f"INB-{entry['id']}"
+                ref["title"] = entry["email_subject"] or "Inbox item"
+                ref["url"] = "/action-center?tab=inbox"
 
         if "title" in ref:
             references.append(ref)
 
-    type_order = ["kb_article", "kb_bookmark", "attachment", "issue", "policy", "client", "activity", "project"]
+    type_order = ["kb_article", "kb_bookmark", "attachment", "issue", "policy", "client", "contact", "program", "activity", "project", "inbox"]
     type_labels = {
         "kb_article": "Articles", "kb_bookmark": "Bookmarks", "attachment": "Documents", "issue": "Issues",
-        "policy": "Policies", "client": "Clients", "activity": "Activities", "project": "Projects",
+        "policy": "Policies", "client": "Clients", "contact": "Contacts", "program": "Programs",
+        "activity": "Activities", "project": "Projects", "inbox": "Inbox",
     }
     grouped = {}
     for ref in references:
@@ -1235,6 +1278,38 @@ async def search_linkable(
         (pattern,),
     ).fetchall():
         results.append({"type": "project", "id": r["id"], "label": r["name"], "icon": "project"})
+
+    # Contacts
+    for r in conn.execute(
+        "SELECT id, name, organization FROM contacts WHERE name LIKE ? OR organization LIKE ? ORDER BY name LIMIT 5",
+        (pattern, pattern),
+    ).fetchall():
+        label = r["name"]
+        if r["organization"]:
+            label += f" · {r['organization']}"
+        results.append({"type": "contact", "id": r["id"], "label": label, "icon": "contact"})
+
+    # Programs
+    for r in conn.execute(
+        "SELECT pg.id, pg.program_uid, pg.name, c.name AS client_name "
+        "FROM programs pg LEFT JOIN clients c ON c.id = pg.client_id "
+        "WHERE pg.name LIKE ? OR pg.program_uid LIKE ? ORDER BY pg.name LIMIT 5",
+        (pattern, pattern),
+    ).fetchall():
+        label = f"{r['program_uid']} — {r['name']}"
+        if r["client_name"]:
+            label += f" ({r['client_name']})"
+        results.append({"type": "program", "id": r["id"], "label": label, "icon": "program"})
+
+    # Inbox
+    for r in conn.execute(
+        "SELECT id, inbox_uid, email_subject FROM inbox WHERE inbox_uid LIKE ? OR email_subject LIKE ? ORDER BY created_at DESC LIMIT 5",
+        (pattern, pattern),
+    ).fetchall():
+        label = r["inbox_uid"] or f"INB-{r['id']}"
+        if r["email_subject"]:
+            label += f" — {r['email_subject']}"
+        results.append({"type": "inbox", "id": r["id"], "label": label, "icon": "inbox"})
 
     # Render inline HTML for dropdown
     if not results:

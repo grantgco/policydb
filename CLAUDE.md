@@ -157,8 +157,7 @@ Policies with `is_opportunity=1` are excluded from renewal pipeline, stale renew
 - `search_index` FTS5 virtual table (migration 133), rebuilt on every startup via `rebuild_search_index()` in `queries.py`
 - Tokenizer: `porter unicode61 remove_diacritics 2` (stemming + unicode + diacritic folding + prefix matching)
 - Columns: `entity_type`, `entity_id`, `title` (weight 10), `subtitle` (5), `body` (1), `metadata` (3)
-- Indexed entities: client, policy, activity (2yr), issue (open), contact, program, meeting, location, inbox (6mo), scratchpad
-- **KB excluded** from search index
+- Indexed entities: client, policy, activity (2yr), issue (open), contact, program, meeting, location, inbox (6mo), scratchpad, kb_article, kb_bookmark
 - Adding new searchable fields: update `rebuild_search_index()` INSERT for that entity AND `_hydrate()` in `full_text_search()`
 - Fuzzy fallback via RapidFuzz when FTS5 < 3 results (clients, contacts, programs only)
 - Live search dropdown: `/search/live` endpoint, HTMX on navbar input with 300ms debounce

@@ -105,8 +105,8 @@
       <button type="button" onclick="document.getElementById('add-contact-form').classList.add('hidden')"
         class="text-gray-400 hover:text-gray-600 text-lg leading-none">&times;</button>
     </div>
-    <form hx-post="/contacts/new" hx-target="#unified-tbody" hx-swap="innerHTML"
-          hx-on::after-request="if(event.detail.successful){this.reset();document.getElementById('add-contact-form').classList.add('hidden');document.getElementById('dup-warn-new').innerHTML='';}"
+    <form hx-post="/contacts/new" hx-target="body" hx-swap="none"
+          hx-on::after-request="if(event.detail.successful){this.reset();document.getElementById('add-contact-form').classList.add('hidden');document.getElementById('dup-warn-new').innerHTML='';window.location.reload();}"
           class="p-4 space-y-3">
       {# Row 1: Identity #}
       <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -413,8 +413,9 @@
         </tr>
       </thead>
       <tbody class="divide-y divide-gray-50" id="contacts-tbody">
+        {% set store = 'placement' %}
         {% for c in contacts %}
-        {% include "contacts/_placement_matrix_row.html" %}
+        {% include "contacts/_contact_matrix_row.html" %}
         {% else %}
         <tr id="placement-empty"><td colspan="10" class="px-4 py-10 text-center text-gray-400">No placement contacts found.</td></tr>
         {% endfor %}
@@ -455,8 +456,9 @@
         </tr>
       </thead>
       <tbody class="divide-y divide-gray-50" id="internal-tbody">
+        {% set store = 'internal' %}
         {% for c in internal_contacts %}
-        {% include "contacts/_internal_matrix_row.html" %}
+        {% include "contacts/_contact_matrix_row.html" %}
         {% else %}
         <tr id="internal-empty"><td colspan="9" class="px-4 py-10 text-center text-gray-400">No internal team members yet.</td></tr>
         {% endfor %}
@@ -498,8 +500,9 @@
         </tr>
       </thead>
       <tbody class="divide-y divide-gray-50" id="client-contact-tbody">
+        {% set store = 'client' %}
         {% for c in client_type_contacts %}
-        {% include "contacts/_client_matrix_row.html" %}
+        {% include "contacts/_contact_matrix_row.html" %}
         {% else %}
         <tr id="client-contact-empty"><td colspan="10" class="px-4 py-10 text-center text-gray-400">No client contacts found.</td></tr>
         {% endfor %}
@@ -538,35 +541,41 @@ document.querySelectorAll('[id^="assign-clients-"], #new-contact-clients, #new-c
   dl.innerHTML = _clientOpts;
 });
 
-{# ── Tab switching ── #}
+{# ── Tab switching with sessionStorage persistence ── #}
 (function() {
   var tabs = document.querySelectorAll('#contact-tabs .tab-btn');
   var panels = document.querySelectorAll('.tab-panel');
+  var STORAGE_KEY = 'contacts_active_tab';
+  function activateTab(tabKey) {
+    tabs.forEach(function(t) { t.classList.toggle('active', t.dataset.tab === tabKey); });
+    panels.forEach(function(p) { p.classList.toggle('hidden', p.dataset.panel !== tabKey); });
+    try { sessionStorage.setItem(STORAGE_KEY, tabKey); } catch(e) {}
+  }
   tabs.forEach(function(tab) {
-    tab.addEventListener('click', function() {
-      tabs.forEach(function(t) { t.classList.remove('active'); });
-      tab.classList.add('active');
-      panels.forEach(function(p) {
-        if (p.dataset.panel === tab.dataset.tab) p.classList.remove('hidden');
-        else p.classList.add('hidden');
-      });
-    });
+    tab.addEventListener('click', function() { activateTab(tab.dataset.tab); });
   });
+  var saved = null;
+  try { saved = sessionStorage.getItem(STORAGE_KEY); } catch(e) {}
+  if (saved && document.querySelector('.tab-panel[data-panel="' + saved + '"]')) activateTab(saved);
 })();
+
+{# ── Shared utilities (defined once, used by all tabs) ── #}
+function _escapeHtml(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function _flashCell(el) {
+  el.style.transition = 'background-color 0.3s ease'; el.style.backgroundColor = '#d1fae5';
+  setTimeout(function() { el.style.backgroundColor = ''; setTimeout(function() { el.style.transition = ''; }, 300); }, 800);
+}
+function _placeCursorAtEnd(el) {
+  var r = document.createRange(), s = window.getSelection();
+  r.selectNodeContents(el); r.collapse(false); s.removeAllRanges(); s.addRange(r);
+}
 
 {# ── Unified "All People" table controller ── #}
 (function() {
   var tbody = document.getElementById('unified-tbody');
   if (!tbody) return;
 
-  function flashCell(el) {
-    el.style.transition = 'background-color 0.3s ease';
-    el.style.backgroundColor = '#d1fae5';
-    setTimeout(function() { el.style.backgroundColor = ''; setTimeout(function() { el.style.transition = ''; }, 300); }, 800);
-  }
-
   function saveCell(name, field, value, cb) {
-    {# Unified contacts use the /unified/{name}/cell endpoint for all fields #}
     fetch('/contacts/unified/' + encodeURIComponent(name) + '/cell', {
       method: 'PATCH',
       headers: {'Content-Type': 'application/json'},
@@ -579,9 +588,6 @@ document.querySelectorAll('[id^="assign-clients-"], #new-contact-clients, #new-c
     });
   }
 
-  function escapeHtml(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
-
-  {# ── Email click-to-input ── #}
   function openEmailInput(td) {
     if (td.querySelector('.ucell-email-input')) return;
     var display = td.querySelector('.cell-display');
@@ -606,8 +612,8 @@ document.querySelectorAll('[id^="assign-clients-"], #new-contact-clients, #new-c
             if (data.ok) {
               var formatted = data.formatted || val;
               if (formatted) {
-                display.innerHTML = '<a href="mailto:' + escapeHtml(formatted) + '" class="text-marsh hover:underline truncate block max-w-full" onclick="event.stopPropagation()">' + escapeHtml(formatted) + '</a>';
-                if (formatted !== val) flashCell(display);
+                display.innerHTML = '<a href="mailto:' + _escapeHtml(formatted) + '" class="text-marsh hover:underline truncate block max-w-full" onclick="event.stopPropagation()">' + _escapeHtml(formatted) + '</a>';
+                if (formatted !== val) _flashCell(display);
               } else {
                 display.innerHTML = '<span class="text-gray-300">\u2014</span>';
               }
@@ -644,18 +650,18 @@ document.querySelectorAll('[id^="assign-clients-"], #new-contact-clients, #new-c
     var field = cell.dataset.field;
     if (field === 'name') {
       if (val) {
-        fetch('/contacts/' + encodeURIComponent(name) + '/rename', {
+        fetch('/contacts/unified/' + encodeURIComponent(name) + '/rename', {
           method: 'POST', headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({new_name: val})
         }).then(function(r) { return r.json(); }).then(function(data) {
-          if (data.ok) { row.dataset.contactName = data.new_name; flashCell(cell); }
+          if (data.ok) { row.dataset.contactName = data.new_name; _flashCell(cell); }
         });
       } else { cell.textContent = orig; }
     } else {
       saveCell(name, field, val, function(data) {
         if (data.ok && data.formatted) {
           cell.textContent = data.formatted;
-          if (data.formatted !== val) flashCell(cell);
+          if (data.formatted !== val) _flashCell(cell);
         }
       });
     }
@@ -674,17 +680,8 @@ document.querySelectorAll('[id^="assign-clients-"], #new-contact-clients, #new-c
   });
 })();
 
-{# ── Existing matrix controllers for context tabs (Placement / Internal / Client) ── #}
+{# ── Matrix controllers for context tabs (Placement / Internal / Client) ── #}
 (function() {
-  function escapeHtml(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
-  function placeCursorAtEnd(el) {
-    var r = document.createRange(), s = window.getSelection();
-    r.selectNodeContents(el); r.collapse(false); s.removeAllRanges(); s.addRange(r);
-  }
-  function flashCell(el) {
-    el.style.transition = 'background-color 0.3s ease'; el.style.backgroundColor = '#d1fae5';
-    setTimeout(function() { el.style.backgroundColor = ''; setTimeout(function() { el.style.transition = ''; }, 300); }, 800);
-  }
 
   function initContactMatrix(cfg) {
     var tbody = document.getElementById(cfg.tbodyId);
@@ -742,7 +739,7 @@ document.querySelectorAll('[id^="assign-clients-"], #new-contact-clients, #new-c
     }
 
     function focusCell(cell) {
-      if (cell.classList.contains('contact-cell-editable')) { cell.focus(); placeCursorAtEnd(cell); }
+      if (cell.classList.contains('contact-cell-editable')) { cell.focus(); _placeCursorAtEnd(cell); }
       else if (cell.classList.contains('contact-cell-combo')) { openCombobox(cell); }
       else if (cell.classList.contains('contact-cell-email')) { openEmailInput(cell); }
     }
@@ -754,7 +751,7 @@ document.querySelectorAll('[id^="assign-clients-"], #new-contact-clients, #new-c
       if (currentValue === '\u2014') currentValue = '';
       var input = document.createElement('input'); input.type = 'text'; input.className = 'contact-combo-input'; input.value = currentValue; input.setAttribute('autocomplete', 'off');
       var list = document.createElement('div'); list.className = 'contact-combo-dropdown'; var activeIdx = -1;
-      function highlightMatch(text, query) { if (!query) return escapeHtml(text); var i = text.toLowerCase().indexOf(query.toLowerCase()); if (i < 0) return escapeHtml(text); return escapeHtml(text.substring(0, i)) + '<mark>' + escapeHtml(text.substring(i, i + query.length)) + '</mark>' + escapeHtml(text.substring(i + query.length)); }
+      function highlightMatch(text, query) { if (!query) return _escapeHtml(text); var i = text.toLowerCase().indexOf(query.toLowerCase()); if (i < 0) return _escapeHtml(text); return _escapeHtml(text.substring(0, i)) + '<mark>' + _escapeHtml(text.substring(i, i + query.length)) + '</mark>' + _escapeHtml(text.substring(i + query.length)); }
       function renderList(query) { list.innerHTML = ''; activeIdx = -1; var q = (query || '').trim().toLowerCase(); allOptions.filter(function(o) { return !q || o.toLowerCase().indexOf(q) >= 0; }).forEach(function(opt) { var item = document.createElement('div'); item.className = 'combo-item'; item.innerHTML = highlightMatch(opt, query); item.dataset.value = opt; item.addEventListener('mousedown', function(e) { e.preventDefault(); selectVal(opt); }); list.appendChild(item); }); }
       function setActive(idx) { var items = list.querySelectorAll('.combo-item'); items.forEach(function(it) { it.classList.remove('active'); }); if (idx >= 0 && idx < items.length) { activeIdx = idx; items[idx].classList.add('active'); items[idx].scrollIntoView({block:'nearest'}); } else activeIdx = -1; }
       function selectVal(val) { closeCombo(val, true); }
@@ -762,7 +759,7 @@ document.querySelectorAll('[id^="assign-clients-"], #new-contact-clients, #new-c
       input.addEventListener('input', function() { renderList(input.value); });
       input.addEventListener('keydown', function(e) { var items = list.querySelectorAll('.combo-item'); if (e.key === 'ArrowDown') { e.preventDefault(); setActive(Math.min(activeIdx + 1, items.length - 1)); } else if (e.key === 'ArrowUp') { e.preventDefault(); setActive(Math.max(activeIdx - 1, 0)); } else if (e.key === 'Enter') { e.preventDefault(); selectVal(activeIdx >= 0 && items[activeIdx] ? items[activeIdx].dataset.value : input.value); } else if (e.key === 'Tab') { e.preventDefault(); var v = activeIdx >= 0 && items[activeIdx] ? items[activeIdx].dataset.value : input.value; closeCombo(v, true); navigateCell(td, !e.shiftKey); } else if (e.key === 'Escape') { e.preventDefault(); closeCombo(currentValue, false); } });
       var closed = false; input.addEventListener('blur', function() { if (!closed) { closed = true; closeCombo(input.value, true); } });
-      function closeCombo(val, save) { closed = true; td.classList.remove('cell-active'); input.remove(); list.remove(); if (display) { display.style.display = ''; var trimmed = (val || '').trim(); if (save && trimmed !== currentValue) { var name = td.closest('tr').dataset.contactName; if (trimmed) { if (field === 'role') { display.innerHTML = '<span class="text-xs text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded">' + escapeHtml(trimmed) + '</span>'; } else { display.innerHTML = '<span class="text-gray-600 text-xs">' + escapeHtml(trimmed) + '</span>'; } } else { display.innerHTML = '<span class="text-gray-300 text-xs">\u2014</span>'; } saveCell(name, field, trimmed); } } }
+      function closeCombo(val, save) { closed = true; td.classList.remove('cell-active'); input.remove(); list.remove(); if (display) { display.style.display = ''; var trimmed = (val || '').trim(); if (save && trimmed !== currentValue) { var name = td.closest('tr').dataset.contactName; if (trimmed) { if (field === 'role') { display.innerHTML = '<span class="text-xs text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded">' + _escapeHtml(trimmed) + '</span>'; } else { display.innerHTML = '<span class="text-gray-600 text-xs">' + _escapeHtml(trimmed) + '</span>'; } } else { display.innerHTML = '<span class="text-gray-300 text-xs">\u2014</span>'; } saveCell(name, field, trimmed); } } }
     }
 
     function openEmailInput(td) {
@@ -772,20 +769,20 @@ document.querySelectorAll('[id^="assign-clients-"], #new-contact-clients, #new-c
       var input = document.createElement('input'); input.type = 'email'; input.className = 'contact-email-input'; input.value = currentEmail; input.setAttribute('autocomplete', 'off');
       if (display) display.style.display = 'none'; td.appendChild(input); input.focus(); input.select();
       var closed = false;
-      function close(save) { if (closed) return; closed = true; var val = input.value.trim(); input.remove(); if (display) { display.style.display = ''; if (save && val !== currentEmail) { var name = td.closest('tr').dataset.contactName; saveCell(name, 'email', val, function(data) { if (data.ok) { var formatted = data.formatted || val; if (formatted) { display.innerHTML = '<a href="mailto:' + escapeHtml(formatted) + '" class="text-marsh hover:underline" onclick="event.stopPropagation()">' + escapeHtml(formatted) + '</a>'; if (formatted !== val) flashCell(display); } else { display.innerHTML = '<span class="text-gray-300">\u2014</span>'; } } }); } } }
+      function close(save) { if (closed) return; closed = true; var val = input.value.trim(); input.remove(); if (display) { display.style.display = ''; if (save && val !== currentEmail) { var name = td.closest('tr').dataset.contactName; saveCell(name, 'email', val, function(data) { if (data.ok) { var formatted = data.formatted || val; if (formatted) { display.innerHTML = '<a href="mailto:' + _escapeHtml(formatted) + '" class="text-marsh hover:underline" onclick="event.stopPropagation()">' + _escapeHtml(formatted) + '</a>'; if (formatted !== val) _flashCell(display); } else { display.innerHTML = '<span class="text-gray-300">\u2014</span>'; } } }); } } }
       input.addEventListener('blur', function() { close(true); });
       input.addEventListener('keydown', function(e) { if (e.key === 'Enter') { e.preventDefault(); close(true); } else if (e.key === 'Tab') { e.preventDefault(); close(true); navigateCell(td, !e.shiftKey); } else if (e.key === 'Escape') { e.preventDefault(); close(false); } });
     }
 
     tbody.addEventListener('focusin', function(e) { var cell = e.target.closest('.contact-cell-editable'); if (cell) cell.dataset.original = cell.textContent; });
-    tbody.addEventListener('focusout', function(e) { var cell = e.target.closest('.contact-cell-editable'); if (!cell) return; var newVal = cell.textContent.trim(), origVal = (cell.dataset.original || '').trim(); if (newVal === origVal) return; var row = cell.closest('tr'), name = row.dataset.contactName, field = cell.dataset.field; if (cell.classList.contains('contact-cell-name')) { if (newVal) { renameName(name, newVal, row); } else { cell.textContent = origVal; } } else { saveCell(name, field, newVal, function(data) { if (data.ok && data.formatted) { cell.textContent = data.formatted; if (data.formatted !== newVal) flashCell(cell); } }); } });
+    tbody.addEventListener('focusout', function(e) { var cell = e.target.closest('.contact-cell-editable'); if (!cell) return; var newVal = cell.textContent.trim(), origVal = (cell.dataset.original || '').trim(); if (newVal === origVal) return; var row = cell.closest('tr'), name = row.dataset.contactName, field = cell.dataset.field; if (cell.classList.contains('contact-cell-name')) { if (newVal) { renameName(name, newVal, row); } else { cell.textContent = origVal; } } else { saveCell(name, field, newVal, function(data) { if (data.ok && data.formatted) { cell.textContent = data.formatted; if (data.formatted !== newVal) _flashCell(cell); } }); } });
     tbody.addEventListener('click', function(e) { var combo = e.target.closest('.contact-cell-combo'); if (combo && tbody.contains(combo)) { openCombobox(combo); return; } var email = e.target.closest('.contact-cell-email'); if (email && tbody.contains(email) && !e.target.closest('a')) { openEmailInput(email); } });
     tbody.addEventListener('keydown', function(e) { var cell = e.target.closest('.contact-cell-editable'); if (!cell) return; if (e.key === 'Tab') { e.preventDefault(); cell.blur(); navigateCell(cell, !e.shiftKey); } else if (e.key === 'Enter') { e.preventDefault(); cell.blur(); navigateCell(cell, true); } else if (e.key === 'Escape') { e.preventDefault(); cell.textContent = cell.dataset.original || ''; cell.blur(); } });
     tbody.addEventListener('paste', function(e) { var cell = e.target.closest('.contact-cell-editable'); if (cell) { e.preventDefault(); document.execCommand('insertText', false, (e.clipboardData || window.clipboardData).getData('text/plain')); } });
     return { createNewRow: createNewRow };
   }
 
-  var placements = initContactMatrix({ tbodyId: 'contacts-tbody', patchBase: '/contacts', addRowUrl: '/contacts/add-row' });
+  var placements = initContactMatrix({ tbodyId: 'contacts-tbody', patchBase: '/contacts/placement', addRowUrl: '/contacts/add-row' });
   var internals = initContactMatrix({ tbodyId: 'internal-tbody', patchBase: '/contacts/internal', addRowUrl: '/contacts/internal/add-row' });
   var clients = initContactMatrix({ tbodyId: 'client-contact-tbody', patchBase: '/contacts/client', addRowUrl: '/contacts/client/add-row' });
 

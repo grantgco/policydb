@@ -82,17 +82,6 @@
         <button type="submit"
           class="text-xs bg-marsh text-white px-3 py-1 rounded hover:bg-marsh-light">Assign</button>
       </form>
-      {% elif context == 'meeting_attendee' %}
-      <form hx-post="/meetings/{{ target_id }}/attendees/add"
-            hx-target="#attendees-section" hx-swap="innerHTML"
-            class="flex items-center gap-2 shrink-0">
-        <input type="hidden" name="name" value="{{ r.name }}">
-        <input type="hidden" name="contact_id" value="{{ r.id }}">
-        <input type="hidden" name="role" value="{{ r.role or r.title or '' }}">
-        <input type="hidden" name="is_internal" value="{% if 'team' in (r.sources or '') %}1{% else %}0{% endif %}">
-        <button type="submit"
-          class="text-xs bg-marsh text-white px-3 py-1 rounded hover:bg-marsh-light">Add</button>
-      </form>
       {% endif %}
     </div>
   </div>

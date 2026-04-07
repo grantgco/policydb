@@ -49,7 +49,7 @@ _MIME_MAP = {
     ".csv": "text/csv",
 }
 
-_VALID_RECORD_TYPES = {"policy", "client", "activity", "rfi_bundle", "kb_article", "meeting", "project", "issue"}
+_VALID_RECORD_TYPES = {"policy", "client", "activity", "rfi_bundle", "kb_article", "project", "issue"}
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────

@@ -15,7 +15,6 @@ from policydb.email_templates import (
     client_context,
     location_context,
     followup_context,
-    meeting_context,
     timeline_context,
     issue_context,
     CONTEXT_TOKEN_GROUPS,

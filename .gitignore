@@ -5,6 +5,7 @@ dist/
 build/
 .DS_Store
 *.zip
+*.png
 .superpowers/
 .worktrees/
 .claude/worktrees/

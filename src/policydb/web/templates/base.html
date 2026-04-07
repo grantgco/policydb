@@ -141,9 +141,9 @@
       r.selectNodeContents(el); r.collapse(false); s.removeAllRanges(); s.addRange(r);
     }
 
-    function flashCell(el) {
+    function flashCell(el, color) {
       el.style.transition = 'background-color 0.3s ease';
-      el.style.backgroundColor = '#d1fae5';
+      el.style.backgroundColor = color || '#d1fae5';
       setTimeout(function() {
         el.style.backgroundColor = '';
         setTimeout(function() { el.style.transition = ''; }, 300);
@@ -560,14 +560,13 @@
 
             <!-- Tools dropdown -->
             <div class="relative" onmouseenter="openNavDrop(this)" onmouseleave="closeNavDrop(this)">
-              <button class="nav-link flex items-center gap-1 {% if active in ['briefing','reconcile','templates','settings','ref-lookup','review','meetings','charts','manual-charts','exports','kb','prompt-builder'] %}bg-marsh-light border-b-2 border-[#c8a96e]{% endif %}">
+              <button class="nav-link flex items-center gap-1 {% if active in ['briefing','reconcile','templates','settings','ref-lookup','review','charts','manual-charts','exports','kb','prompt-builder'] %}bg-marsh-light border-b-2 border-[#c8a96e]{% endif %}">
                 Tools
                 <svg class="w-3 h-3 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
               </button>
               <div class="nav-drop-panel hidden absolute left-0 top-full mt-0.5 w-40 bg-white rounded-md shadow-lg border border-gray-200 py-1 z-50">
                 <a href="/charts" class="block px-4 py-1.5 text-sm text-gray-700 hover:bg-gray-100 {% if active == 'charts' %}font-semibold text-marsh{% endif %}">Chart Deck</a>
                 <a href="/charts/manual" class="block px-4 py-1.5 text-sm text-gray-700 hover:bg-gray-100 {% if active == 'manual-charts' %}font-semibold text-marsh{% endif %}">Manual Charts</a>
-                <a href="/meetings" class="block px-4 py-1.5 text-sm text-gray-700 hover:bg-gray-100 {% if active == 'meetings' %}font-semibold text-marsh{% endif %}">Meetings</a>
                 <a href="/review" class="block px-4 py-1.5 text-sm text-gray-700 hover:bg-gray-100 {% if active == 'review' %}font-semibold text-marsh{% endif %}">Review</a>
                 <a href="/briefing" class="block px-4 py-1.5 text-sm text-gray-700 hover:bg-gray-100 {% if active == 'briefing' %}font-semibold text-marsh{% endif %}">Briefing</a>
                 <a href="/reconcile" class="block px-4 py-1.5 text-sm text-gray-700 hover:bg-gray-100 {% if active == 'reconcile' %}font-semibold text-marsh{% endif %}">Reconcile</a>

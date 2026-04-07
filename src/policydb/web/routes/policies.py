@@ -1267,9 +1267,10 @@ def _attach_readiness_score(conn, rows: list[dict]) -> list[dict]:
         parts.append(f"Checklist: {c_pts}/{w_checklist} ({done}/{total})")
 
         # Recent activity — config-driven tiers
-        last_act = last_activity_map.get(p.get("id"))
+        last_act = last_activity_map.get(p.get("id")) or p.get("last_activity_date")
         a_pts = 0
         a_desc = "none"
+        days_since = None
         if last_act:
             try:
                 days_since = (today - _date.fromisoformat(last_act)).days
@@ -1280,6 +1281,9 @@ def _attach_readiness_score(conn, rows: list[dict]) -> list[dict]:
                         break
             except (ValueError, TypeError):
                 pass
+        # Expose last touch data to templates
+        p["last_activity_date"] = last_act
+        p["days_since_touch"] = days_since
         score += a_pts
         parts.append(f"Activity: {a_pts}/{w_activity} ({a_desc})")
 
@@ -2754,24 +2758,6 @@ def policy_tab_activity(request: Request, policy_uid: str, conn=Depends(get_db))
         "SELECT DISTINCT name FROM contacts WHERE name IS NOT NULL AND name != '' ORDER BY name"
     ).fetchall()]
 
-    linked_meetings = [dict(r) for r in conn.execute(
-        """SELECT cm.id, cm.title, cm.meeting_date, cm.meeting_uid
-           FROM meeting_policies mp
-           JOIN client_meetings cm ON cm.id = mp.meeting_id
-           WHERE mp.policy_uid = ?
-           ORDER BY cm.meeting_date DESC""",
-        (uid,),
-    ).fetchall()]
-
-    linked_decisions = [dict(r) for r in conn.execute(
-        """SELECT md.description, md.confirmed, cm.title as meeting_title, cm.id as meeting_id
-           FROM meeting_decisions md
-           JOIN client_meetings cm ON cm.id = md.meeting_id
-           WHERE md.policy_uid = ?
-           ORDER BY md.created_at DESC""",
-        (uid,),
-    ).fetchall()]
-
     return templates.TemplateResponse("policies/_tab_activity.html", {
         "request": request,
         "policy": policy_dict,
@@ -2785,8 +2771,6 @@ def policy_tab_activity(request: Request, policy_uid: str, conn=Depends(get_db))
         "all_contact_names": all_contact_names,
         "policy_total_hours": get_policy_total_hours(conn, policy_dict["id"]),
         "dispositions": cfg.get("follow_up_dispositions", []),
-        "linked_meetings": linked_meetings,
-        "linked_decisions": linked_decisions,
         "client": _client_info,
         "issue_severities": cfg.get("issue_severities", []),
         "all_clients": [{"id": _client_info["id"], "name": _client_info["name"]}],
@@ -4593,9 +4577,7 @@ def policy_delete(policy_uid: str, conn=Depends(get_db)):
     conn.execute("DELETE FROM policy_milestones WHERE policy_uid = ?", (uid,))
     conn.execute("DELETE FROM policy_scratchpad WHERE policy_uid = ?", (uid,))
     conn.execute("DELETE FROM contact_policy_assignments WHERE policy_id = ?", (pid,))
-    conn.execute("DELETE FROM meeting_policies WHERE policy_uid = ?", (uid,))
     conn.execute("UPDATE activity_log SET policy_id = NULL WHERE policy_id = ?", (pid,))
-    conn.execute("UPDATE meeting_action_items SET policy_uid = NULL WHERE policy_uid = ?", (uid,))
     # Unlink any policies linked to this as a program
     conn.execute("UPDATE policies SET program_id = NULL WHERE program_id = ?", (pid,))
     conn.execute("DELETE FROM policies WHERE policy_uid = ?", (uid,))
