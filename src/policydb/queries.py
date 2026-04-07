@@ -450,14 +450,17 @@ def get_program_pipeline(
         dtr = d.get("days_to_renewal")
         if dtr is None:
             dtr = 999
-        if dtr <= 30:
-            d["urgency"] = "CRITICAL"
-        elif dtr <= 60:
-            d["urgency"] = "HIGH"
+        # Use same urgency labels as policies for visual consistency
+        if dtr <= 0:
+            d["urgency"] = "EXPIRED"
         elif dtr <= 90:
-            d["urgency"] = "MEDIUM"
+            d["urgency"] = "URGENT"
+        elif dtr <= 120:
+            d["urgency"] = "WARNING"
+        elif dtr <= 180:
+            d["urgency"] = "UPCOMING"
         else:
-            d["urgency"] = "LOW"
+            d["urgency"] = "OK"
         d["_is_program"] = True
         # Compute followup_overdue for display
         from datetime import date as _date

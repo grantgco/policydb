@@ -1,71 +1,151 @@
-<tr id="renew-row-{{ p.policy_uid }}" class="hover:bg-gray-50">
-  <td class="px-3 py-3 w-8">
+<tr id="renew-row-{{ p.policy_uid }}" class="hover:bg-gray-50 text-xs">
+  <td class="px-2 py-1.5 w-8">
     <input type="checkbox" class="renewal-check rounded border-gray-300" value="{{ p.policy_uid }}"
       onchange="updateRenewalBulkBar()">
   </td>
-  <td class="px-4 py-3">
-    <a href="/clients/{{ p.client_id }}" class="font-medium text-marsh hover:underline">{{ p.client_name }}</a>
-    {% if p.project_name %}<span class="text-xs text-gray-400 ml-1">&middot; {{ p.project_name }}</span>{% endif %}
-    <div class="flex items-center gap-1.5">
-      <p class="text-xs">
-        <span contenteditable="true" class="policy-cell text-gray-500" data-field="policy_type" data-uid="{{ p.policy_uid }}" data-placeholder="Line of business">{{ p.policy_type }}</span>
-      </p>
+  {# Client / Line #}
+  <td class="px-2 py-1.5">
+    <a href="/clients/{{ p.client_id }}" class="font-medium text-marsh hover:underline text-xs">{{ p.client_name }}</a>
+    {% if p.project_name %}<span class="text-gray-400 ml-0.5">&middot; {{ p.project_name }}</span>{% endif %}
+    <div class="flex items-center gap-1">
+      <span contenteditable="true" class="policy-cell text-gray-500" data-field="policy_type" data-uid="{{ p.policy_uid }}" data-placeholder="LOB">{{ p.policy_type }}</span>
       <button type="button" onclick="copyRefTag(this, '{{ build_ref_tag(cn_number=p.cn_number|default(''), client_id=p.client_id, policy_uid=p.policy_uid, project_id=p.project_id|default(0)) }}')"
-        class="text-xs font-mono text-gray-300 hover:text-marsh" title="Copy ref tag">{{ p.policy_uid }}</button>
+        class="font-mono text-gray-300 hover:text-marsh" title="Copy ref tag">{{ p.policy_uid }}</button>
     </div>
   </td>
-  <td class="px-4 py-3 text-gray-600 text-xs">
-    <span contenteditable="true" class="policy-cell" data-field="carrier" data-uid="{{ p.policy_uid }}" data-placeholder="Carrier">{{ p.carrier }}</span>
-    {% if p.access_point %}<p class="text-gray-400 mt-0.5">via {{ p.access_point }}</p>{% endif %}
+  {# Carrier #}
+  <td class="px-2 py-1.5 text-gray-600">
+    <span contenteditable="true" class="policy-cell" data-field="carrier" data-uid="{{ p.policy_uid }}" data-placeholder="Carrier">{{ p.carrier or '' }}</span>
+    {% if not p.carrier %}<span class="text-amber-400" title="Missing carrier">&#9888;</span>{% endif %}
+    {% if p.access_point %}<span class="text-gray-400 block">via {{ p.access_point }}</span>{% endif %}
   </td>
-  <td class="px-4 py-3 whitespace-nowrap">
+  {# Expires #}
+  <td class="px-2 py-1.5 whitespace-nowrap">
     <input type="date" value="{{ p.expiration_date }}"
       onchange="policySaveDate(this, '{{ p.policy_uid }}', 'expiration_date')"
-      class="text-sm text-gray-900 tabular-nums bg-transparent border-none p-0 focus:outline-none focus:ring-0 cursor-pointer">
-    <span class="text-xs text-gray-400">{{ p.days_to_renewal }}d</span>
+      class="text-xs text-gray-900 tabular-nums bg-transparent border-none p-0 focus:outline-none focus:ring-0 cursor-pointer w-[100px]">
+    <span class="text-gray-400 tabular-nums">{{ p.days_to_renewal }}d</span>
   </td>
-  <td class="px-4 py-3 text-right tabular-nums text-gray-700">
+  {# Premium #}
+  <td class="px-2 py-1.5 text-right tabular-nums text-gray-700 whitespace-nowrap">
     <span contenteditable="true" class="policy-cell" data-field="premium" data-uid="{{ p.policy_uid }}" data-placeholder="$0">{{ p.premium | currency }}</span>
+    {% if not p.premium or p.premium == 0 %}<span class="text-amber-400 ml-0.5" title="Missing premium">&#9888;</span>{% endif %}
   </td>
-  <td class="px-4 py-3">
-    <span class="{{ p.urgency | urgency_class }} text-xs font-semibold px-2 py-0.5 rounded">{{ p.urgency }}</span>
-    {% if p.readiness_label is defined %}
-    <span class="text-xs px-1.5 py-0.5 rounded ml-1 whitespace-nowrap {{ p.readiness_label | readiness_class }} cursor-help" title="{{ p.readiness_tooltip or '' }}">{{ p.readiness_label }}</span>
+  {# Urgency + Readiness micro-bar #}
+  <td class="px-2 py-1.5">
+    <span class="{{ p.urgency | urgency_class }} font-semibold px-1.5 py-0.5 rounded">{{ p.urgency }}</span>
+    {% if p.readiness_score is defined and p.readiness_score is not none %}
+    {% set rs = p.readiness_score %}
+    {% set bar_color = 'bg-green-500' if rs >= 75 else 'bg-blue-500' if rs >= 50 else 'bg-amber-500' if rs >= 25 else 'bg-red-500' %}
+    <div class="mt-1 relative">
+      <button type="button" class="flex items-center gap-1 readiness-toggle" onclick="this.nextElementSibling.classList.toggle('hidden')">
+        <div class="w-12 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+          <div class="{{ bar_color }} h-full rounded-full" style="width:{{ rs }}%"></div>
+        </div>
+        <span class="text-[10px] tabular-nums text-gray-500">{{ rs }}</span>
+      </button>
+      <div class="hidden absolute z-30 left-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg p-2 w-52 text-[10px] readiness-popover">
+        <div class="font-semibold text-gray-700 mb-1">Readiness: {{ rs }}/100</div>
+        {% for line in (p.readiness_tooltip or '').split('\n') if line and not line.startswith('Score:') %}
+        {% set parts = line.split(': ', 1) %}
+        {% set label = parts[0] %}
+        {% set detail = parts[1] if parts|length > 1 else '' %}
+        {% set score_parts = detail.split(' ', 1) %}
+        {% set frac = score_parts[0] if score_parts else '' %}
+        {% set extra = score_parts[1] if score_parts|length > 1 else '' %}
+        <div class="flex items-center justify-between py-0.5 border-t border-gray-100 group/factor">
+          <span class="text-gray-600">{{ label }}</span>
+          <div class="flex items-center gap-1">
+            <span class="tabular-nums font-medium text-gray-800">{{ frac }} <span class="text-gray-400 font-normal">{{ extra }}</span></span>
+            {% if label == 'Activity' %}
+            <button type="button" hx-get="/policies/{{ p.policy_uid }}/renew/log" hx-target="#renew-row-{{ p.policy_uid }}" hx-swap="outerHTML"
+              class="text-amber-600 hover:underline opacity-0 group-hover/factor:opacity-100" title="Log activity">+</button>
+            {% elif label == 'Checklist' %}
+            <button type="button" class="ms-trigger text-marsh hover:underline opacity-0 group-hover/factor:opacity-100" data-uid="{{ p.policy_uid }}" title="Open checklist">&#9998;</button>
+            {% elif label == 'Follow-up' %}
+            <button type="button" onclick="var r=this.closest('tr');var inputs=r.querySelectorAll('input[type=date]');var c=inputs[inputs.length-1];if(c){c.showPicker();}" class="text-blue-600 hover:underline opacity-0 group-hover/factor:opacity-100" title="Set follow-up">&#128197;</button>
+            {% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+    {% if p.timeline_health and p.timeline_health in ('critical', 'at_risk') %}
+    <span class="block mt-0.5 text-[10px] text-red-500 font-medium" title="Timeline: {{ p.timeline_health }}">&#x25CF; {{ p.timeline_health | replace('_', ' ') | title }}</span>
     {% endif %}
   </td>
-  <td class="px-4 py-3">
+  {# Status + Issues #}
+  <td class="px-2 py-1.5">
     {% include "policies/_status_badge.html" %}
-    {% if p.renewal_issue_uid %}
-    <div class="mt-1">{% with linked_issue_uid=p.renewal_issue_uid, linked_issue_subject=p.renewal_issue_subject|default('Renewal Issue'), linked_issue_severity=p.renewal_issue_severity %}{% include "_issue_badge.html" %}{% endwith %}</div>
+    {% if p.open_issue_count %}
+    <div class="mt-0.5 flex items-center gap-1">
+      {% set sev_color = {'Critical': 'bg-red-500', 'High': 'bg-amber-500', 'Normal': 'bg-blue-500', 'Low': 'bg-gray-400'} %}
+      <span class="inline-block w-1.5 h-1.5 rounded-full {{ sev_color.get(p.max_issue_severity, 'bg-gray-400') }}"></span>
+      {% if p.renewal_issue_uid %}
+      <a href="/action-center?tab=issues&q={{ p.renewal_issue_uid }}" class="text-red-600 hover:underline font-medium" title="{{ p.renewal_issue_subject or 'Issue' }}">{{ p.open_issue_count }} issue{{ 's' if p.open_issue_count != 1 }}</a>
+      {% else %}
+      <span class="text-red-600 font-medium">{{ p.open_issue_count }} issue{{ 's' if p.open_issue_count != 1 }}</span>
+      {% endif %}
+    </div>
+    {% elif p.renewal_issue_uid %}
+    <div class="mt-0.5">{% with linked_issue_uid=p.renewal_issue_uid, linked_issue_subject=p.renewal_issue_subject|default('Renewal Issue'), linked_issue_severity=p.renewal_issue_severity %}{% include "_issue_badge.html" %}{% endwith %}</div>
     {% endif %}
   </td>
-  <td class="px-4 py-3">
+  {# Checklist #}
+  <td class="px-2 py-1.5 text-center">
     {% if p.milestone_total %}
-    <button type="button" class="ms-trigger text-xs {% if p.milestone_done == p.milestone_total %}text-green-600{% elif p.milestone_done > 0 %}text-amber-600{% else %}text-gray-400{% endif %} tabular-nums hover:underline cursor-pointer" data-uid="{{ p.policy_uid }}">{{ p.milestone_done }}/{{ p.milestone_total }}</button>
-    {% else %}<span class="text-gray-300 text-xs">&mdash;</span>{% endif %}
+    <button type="button" class="ms-trigger {% if p.milestone_done == p.milestone_total %}text-green-600{% elif p.milestone_done > 0 %}text-amber-600{% else %}text-gray-400{% endif %} tabular-nums hover:underline cursor-pointer" data-uid="{{ p.policy_uid }}">{{ p.milestone_done }}/{{ p.milestone_total }}</button>
+    {% else %}<span class="text-gray-300">&mdash;</span>{% endif %}
   </td>
-  <td class="px-4 py-3 text-xs text-gray-500">{{ p.placement_colleague or '—' }}
+  {# Policy Team #}
+  <td class="px-2 py-1.5 text-gray-500">
+    {{ p.placement_colleague or '' }}
+    {% if not p.placement_colleague %}<span class="text-amber-400" title="No placement colleague">&#9888;</span>{% endif %}
     {% if p.underwriter_name %}<span class="block text-gray-400">{{ p.underwriter_name }}</span>{% endif %}
   </td>
-  <td class="px-4 py-3 text-xs whitespace-nowrap">
-    {% if p.follow_up_date %}
-    <span class="{{ 'text-red-500 font-medium' if p.followup_overdue else 'text-gray-500' }}">{{ p.follow_up_date }}</span>
-    {% else %}&mdash;{% endif %}
-  </td>
-  <td class="px-4 py-3 flex items-center gap-3">
-    <button
+  {# Last Touch — clickable to trigger inline log #}
+  <td class="px-2 py-1.5 whitespace-nowrap tabular-nums text-center">
+    <button type="button"
       hx-get="/policies/{{ p.policy_uid }}/renew/log"
       hx-target="#renew-row-{{ p.policy_uid }}"
       hx-swap="outerHTML"
-      class="text-xs text-amber-600 hover:underline">Log</button>
-    {% if p.placement_colleague_email %}
-    <button type="button" onclick="openComposeSlideover({context:'policy', policy_uid:'{{ p.policy_uid }}', client_id:{{ p.client_id }}, to_email:'{{ p.placement_colleague_email }}'})"
-      class="text-gray-300 hover:text-marsh transition-colors text-sm no-print" title="Compose email">&#9993;</button>
+      class="cursor-pointer hover:underline"
+      title="Click to log activity">
+    {% if p.days_since_touch is not none %}
+      {% if p.days_since_touch <= 7 %}
+      <span class="text-green-600 font-medium">{{ p.days_since_touch }}d</span>
+      {% elif p.days_since_touch <= 21 %}
+      <span class="text-amber-600">{{ p.days_since_touch }}d</span>
+      {% else %}
+      <span class="text-red-500 font-bold">{{ p.days_since_touch }}d</span>
+      {% endif %}
+    {% else %}
+    <span class="text-red-400 font-bold">&#8212;</span>
     {% endif %}
-    <a href="/policies/{{ p.policy_uid }}/edit" class="text-xs text-gray-400 hover:underline">Full &rarr;</a>
-    <a href="/policies/{{ p.policy_uid }}/export" onclick="event.stopPropagation()"
-      class="text-gray-300 hover:text-marsh text-xs no-print" title="Export policy XLSX">&#8615;</a>
-    <button type="button" onclick="copyRefTag(this, '{{ build_ref_tag(cn_number=p.cn_number|default(''), client_id=p.client_id, policy_uid=p.policy_uid, project_id=p.project_id|default(0)) }}')"
-      class="text-gray-300 hover:text-marsh text-xs" title="Copy email ref tag">&#10697;</button>
+    </button>
+  </td>
+  {# Follow-Up — inline date picker #}
+  <td class="px-2 py-1.5 whitespace-nowrap">
+    <input type="date" value="{{ p.follow_up_date or '' }}"
+      onchange="policySaveDate(this, '{{ p.policy_uid }}', 'follow_up_date')"
+      class="text-xs tabular-nums bg-transparent border-none p-0 focus:outline-none focus:ring-0 cursor-pointer w-[100px] {{ 'text-red-500 font-medium' if p.followup_overdue else 'text-gray-500' }}">
+  </td>
+  {# Actions #}
+  <td class="px-2 py-1.5 whitespace-nowrap">
+    <div class="flex items-center gap-2">
+      <button
+        hx-get="/policies/{{ p.policy_uid }}/renew/log"
+        hx-target="#renew-row-{{ p.policy_uid }}"
+        hx-swap="outerHTML"
+        class="text-amber-600 hover:underline font-medium">Log</button>
+      {% if p.placement_colleague_email %}
+      <button type="button" onclick="openComposeSlideover({context:'policy', policy_uid:'{{ p.policy_uid }}', client_id:{{ p.client_id }}, to_email:'{{ p.placement_colleague_email }}'})"
+        class="text-gray-300 hover:text-marsh transition-colors no-print" title="Compose email">&#9993;</button>
+      {% endif %}
+      <a href="/policies/{{ p.policy_uid }}/edit" class="text-gray-400 hover:underline">Full &rarr;</a>
+      <a href="/policies/{{ p.policy_uid }}/export" onclick="event.stopPropagation()"
+        class="text-gray-300 hover:text-marsh no-print" title="Export XLSX">&#8615;</a>
+    </div>
   </td>
 </tr>

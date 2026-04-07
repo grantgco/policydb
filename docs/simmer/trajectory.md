@@ -1,28 +1,29 @@
-# Simmer: Contacts Listing & Capture — Final Trajectory
+# Simmer: Renewals Pipeline — Final Trajectory (6 iterations)
 
-| Iter | Capture | Density | Nav | Maint | Composite | Key Change |
-|------|---------|---------|-----|-------|-----------|------------|
-| 0    | 5.3     | 6.7     | 6.0 | 3.0   | 5.2       | seed       |
-| 1    | 5.6     | 6.8     | 6.3 | 4.8   | 5.9       | consolidated cell-save/rename, form fix, tab persistence, JS dedup |
-| 2    | 5.6     | 6.8     | 6.3 | 5.4   | 6.1       | unified matrix row template (3→1), consolidated delete (3→1) |
-| 3    | 5.6     | 6.8     | 6.3 | 6.0   | 6.2       | row-restore + tbody use unified template, 6 legacy templates orphaned |
+| Iter | Density | Issues | Action | Review | Composite | Key Change |
+|------|---------|--------|--------|--------|-----------|------------|
+| 0    | 5.0     | 5.0    | 6.7    | 3.3    | 4.9       | seed       |
+| 1    | 7.2     | 6.7    | 6.8    | 6.0    | 6.7       | Last Touch, issue counts, tighter padding, missing data flags |
+| 2    | 7.5     | 7.3    | 7.2    | 7.0    | 7.3       | Issues filter, sortable/clickable Touch, numeric sort fix |
+| 3    | 7.8     | 7.5    | 7.8    | 7.5    | 7.7       | Readiness micro-bar, Missing Data filter, bulk Set Follow-Up |
+| 4    | 8.2     | 8.0    | 8.5    | 8.0    | 8.2       | Stale filter, readiness popover, bulk status, program harmonization |
+| 5+6  | 8.5     | 8.5    | 8.8    | 8.5    | 8.6       | Actionable popover, filter consolidation, inline follow-up, program issue fix |
 
-**Best: Iteration 3 (6.2/10)**
+**Best: Iteration 6 (8.6/10). Up from 4.9 seed (+76%).**
 
 ## Cumulative Impact
 
 | Metric | Seed | Final | Change |
 |--------|------|-------|--------|
-| Routes file | 1931 lines | 1753 lines | -178 (-9%) |
-| Route count | 36 endpoints | 28 endpoints | -8 (-22%) |
-| Row templates | 6 files (652 lines) | 1 file (172 lines) | -480 (-74%) |
-| JS utils | 3x flashCell, 2x escapeHtml | 1x each (global) | deduped |
-| Bugs fixed | 2 (form target mismatch, __escapeHtml typo) | — | — |
+| Filter axes | 3 | 7 (window, urgency, status, issues, gaps, touch, client) | +4 |
+| Sortable columns | 5 | 7 | +2 |
+| Data signals per row | ~10 | ~18 | +8 |
+| Bulk actions | 2 | 4 (milestone, log, follow-up, status) | +2 |
+| Row density | px-4 py-3, text-sm | px-2 py-1.5, text-xs | ~40% tighter |
+| Program parity | Partial (different urgency, no readiness, no touch) | Full (same labels, readiness bar, touch, issue counts) | Complete |
+| Filter bar height | 4 rows | 3 rows (Focus consolidated) | -1 row |
 
-## Remaining Opportunities (from judge board)
-
-1. **Delete 6 orphaned legacy templates** — they're unreferenced but still on disk
-2. **Refactor contacts_list()** — 252-line monolith with 4x filter logic; split into lazy-loaded tabs
-3. **Consolidate add-row + create endpoints** — 6 endpoints with near-identical logic
-4. **Improve capture with store picker** — New Contact form only creates placement; Quick Add creates stubs
-5. **Unify JS controllers** — unified "All People" and matrix controllers are ~90% identical (~100 lines each)
+## Remaining Opportunities
+1. Program readiness popover action buttons (parity with policies)
+2. Program follow-up inline date picker
+3. "Clear All Filters" button when compound filters active
