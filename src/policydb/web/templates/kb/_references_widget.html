@@ -1,0 +1,51 @@
+{# Reusable KB References widget — include on any entity page.
+   Required context: ref_entity_type (string), ref_entity_id (int) #}
+<div class="py-3 border-b border-gray-100">
+  <div class="flex items-center justify-between mb-2">
+    <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide">References</p>
+    <button type="button" onclick="var el=document.getElementById('ref-picker-{{ ref_entity_type }}-{{ ref_entity_id }}');el.classList.toggle('hidden');if(!el.classList.contains('hidden'))el.querySelector('input').focus();"
+      class="text-[10px] text-marsh hover:underline no-print">+ Link</button>
+  </div>
+  <div id="references-panel-{{ ref_entity_type }}-{{ ref_entity_id }}"
+    hx-get="/kb/references/{{ ref_entity_type }}/{{ ref_entity_id }}"
+    hx-trigger="load"
+    hx-swap="innerHTML">
+    <span class="text-xs text-gray-300">Loading...</span>
+  </div>
+  <div id="ref-picker-{{ ref_entity_type }}-{{ ref_entity_id }}" class="hidden mt-2 pt-2 border-t border-gray-100 relative">
+    <input type="text" placeholder="Search to link..."
+      hx-get="/kb/search-linkable"
+      hx-trigger="keyup changed delay:300ms"
+      hx-target="#ref-picker-results-{{ ref_entity_type }}-{{ ref_entity_id }}"
+      name="q"
+      class="w-full text-xs border border-gray-200 rounded px-2 py-1.5 focus:ring-1 focus:ring-marsh placeholder-gray-300"
+      autocomplete="off">
+    <div id="ref-picker-results-{{ ref_entity_type }}-{{ ref_entity_id }}" class="absolute top-full left-0 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg z-50 max-h-48 overflow-y-auto hidden"></div>
+  </div>
+</div>
+<script>
+(function() {
+  var _et = '{{ ref_entity_type }}', _eid = {{ ref_entity_id }};
+  window.selectLinkedEntity = function(type, id, label) {
+    fetch('/kb/links', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: new URLSearchParams({
+        source_type: _et, source_id: _eid,
+        target_type: type, target_id: id,
+        return_panel_for_type: _et, return_panel_for_id: _eid
+      })
+    }).then(function(r) { return r.text(); }).then(function(html) {
+      document.getElementById('references-panel-' + _et + '-' + _eid).innerHTML = html;
+      var picker = document.getElementById('ref-picker-' + _et + '-' + _eid);
+      picker.classList.add('hidden');
+      picker.querySelector('input').value = '';
+    });
+  };
+  document.body.addEventListener('htmx:afterOnLoad', function(e) {
+    if (e.detail.target && e.detail.target.id && e.detail.target.id.startsWith('ref-picker-results-')) {
+      e.detail.target.classList.toggle('hidden', e.detail.target.innerHTML.trim() === '');
+    }
+  });
+})();
+</script>

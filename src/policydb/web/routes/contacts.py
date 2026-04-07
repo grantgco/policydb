@@ -1018,9 +1018,14 @@ _CLIENT_ASSIGNMENT_FIELDS = {"title", "role", "notes"}
 _POLICY_ASSIGNMENT_FIELDS = {"role", "title", "notes"}
 
 
-@router.patch("/unified/{name}/cell")
-async def unified_contact_cell(request: Request, name: str, conn=Depends(get_db)):
-    """Save a single cell value for a contact across ALL assignment types (unified view)."""
+@router.patch("/{store}/{name}/cell")
+async def contact_cell(request: Request, store: str, name: str, conn=Depends(get_db)):
+    """Save a single cell value for a contact. Store controls which junction table is updated.
+
+    Stores: unified (all), client, internal, placement.
+    """
+    if store not in ("unified", "client", "internal", "placement"):
+        return JSONResponse({"ok": False, "error": "Invalid store"}, status_code=400)
     body = await request.json()
     field, value = body.get("field", ""), body.get("value", "")
     allowed = {"title", "role", "email", "phone", "mobile", "organization", "notes"}
@@ -1041,56 +1046,46 @@ async def unified_contact_cell(request: Request, name: str, conn=Depends(get_db)
             f"UPDATE contacts SET {field}=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
             (formatted or None, contact_id),
         )
-    # Update across both junction tables for assignment-level fields
-    if field in _POLICY_ASSIGNMENT_FIELDS:
-        conn.execute(
-            f"UPDATE contact_policy_assignments SET {field}=? WHERE contact_id=?",
-            (formatted or None, contact_id),
-        )
-    if field in _CLIENT_ASSIGNMENT_FIELDS:
-        conn.execute(
-            f"UPDATE contact_client_assignments SET {field}=? WHERE contact_id=?",
-            (formatted or None, contact_id),
-        )
+
+    if store == "unified":
+        if field in _POLICY_ASSIGNMENT_FIELDS:
+            conn.execute(
+                f"UPDATE contact_policy_assignments SET {field}=? WHERE contact_id=?",
+                (formatted or None, contact_id),
+            )
+        if field in _CLIENT_ASSIGNMENT_FIELDS:
+            conn.execute(
+                f"UPDATE contact_client_assignments SET {field}=? WHERE contact_id=?",
+                (formatted or None, contact_id),
+            )
+    elif store == "client":
+        if field in _CLIENT_ASSIGNMENT_FIELDS:
+            conn.execute(
+                f"UPDATE contact_client_assignments SET {field}=? WHERE contact_id=? AND contact_type='client'",
+                (formatted or None, contact_id),
+            )
+    elif store == "internal":
+        if field in _CLIENT_ASSIGNMENT_FIELDS:
+            conn.execute(
+                f"UPDATE contact_client_assignments SET {field}=? WHERE contact_id=? AND contact_type='internal'",
+                (formatted or None, contact_id),
+            )
+    elif store == "placement":
+        if field in _POLICY_ASSIGNMENT_FIELDS:
+            conn.execute(
+                f"UPDATE contact_policy_assignments SET {field}=? WHERE contact_id=?",
+                (formatted or None, contact_id),
+            )
+
     conn.commit()
     return JSONResponse({"ok": True, "formatted": formatted})
 
 
-@router.patch("/client/{name}/cell")
-async def client_type_contact_cell(request: Request, name: str, conn=Depends(get_db)):
-    """Save a single cell value for a client-type contact."""
-    body = await request.json()
-    field, value = body.get("field", ""), body.get("value", "")
-    allowed = {"title", "role", "email", "phone", "mobile", "organization", "notes"}
-    if field not in allowed:
-        return JSONResponse({"ok": False, "error": "Invalid field"}, status_code=400)
-    formatted = value.strip()
-    if field in ("phone", "mobile"):
-        formatted = format_phone(formatted) if formatted else ""
-    elif field == "email":
-        formatted = clean_email(formatted) or ""
-
-    contact_id = _resolve_contact_id(conn, name)
-    if not contact_id:
-        return JSONResponse({"ok": False, "error": "Contact not found"}, status_code=404)
-
-    if field in _CONTACTS_TABLE_FIELDS:
-        conn.execute(
-            f"UPDATE contacts SET {field}=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
-            (formatted or None, contact_id),
-        )
-    if field in _CLIENT_ASSIGNMENT_FIELDS:
-        conn.execute(
-            f"UPDATE contact_client_assignments SET {field}=? WHERE contact_id=? AND contact_type='client'",
-            (formatted or None, contact_id),
-        )
-    conn.commit()
-    return JSONResponse({"ok": True, "formatted": formatted})
-
-
-@router.post("/client/{name}/rename")
-async def client_type_contact_rename(request: Request, name: str, conn=Depends(get_db)):
-    """Rename a client-type contact."""
+@router.post("/{store}/{name}/rename")
+async def contact_rename(request: Request, store: str, name: str, conn=Depends(get_db)):
+    """Rename a contact (store param is accepted for URL consistency but rename is always global)."""
+    if store not in ("unified", "client", "internal", "placement"):
+        return JSONResponse({"ok": False, "error": "Invalid store"}, status_code=400)
     body = await request.json()
     new_name = (body.get("new_name", "") or "").strip()
     if not new_name:
@@ -1127,62 +1122,11 @@ def client_type_contact_add_row(request: Request, conn=Depends(get_db)):
          "notes": None,
          "email": None, "phone": None, "mobile": None, "organization": None,
          "client_count": 0, "clients": []}
-    return templates.TemplateResponse("contacts/_client_matrix_row.html", {
-        "request": request, "c": c, "contact_roles": cfg.get("contact_roles", []),
+    return templates.TemplateResponse("contacts/_contact_matrix_row.html", {
+        "request": request, "c": c, "store": "client",
+        "contact_roles": cfg.get("contact_roles", []),
         "all_orgs": all_orgs,
     })
-
-
-@router.patch("/internal/{name}/cell")
-async def internal_contact_cell(request: Request, name: str, conn=Depends(get_db)):
-    """Save a single cell value for an internal contact."""
-    body = await request.json()
-    field, value = body.get("field", ""), body.get("value", "")
-    allowed = {"title", "role", "email", "phone", "mobile", "organization", "notes"}
-    if field not in allowed:
-        return JSONResponse({"ok": False, "error": "Invalid field"}, status_code=400)
-    formatted = value.strip()
-    if field in ("phone", "mobile"):
-        formatted = format_phone(formatted) if formatted else ""
-    elif field == "email":
-        formatted = clean_email(formatted) or ""
-
-    contact_id = _resolve_contact_id(conn, name)
-    if not contact_id:
-        return JSONResponse({"ok": False, "error": "Contact not found"}, status_code=404)
-
-    if field in _CONTACTS_TABLE_FIELDS:
-        conn.execute(
-            f"UPDATE contacts SET {field}=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
-            (formatted or None, contact_id),
-        )
-    if field in _CLIENT_ASSIGNMENT_FIELDS:
-        conn.execute(
-            f"UPDATE contact_client_assignments SET {field}=? WHERE contact_id=? AND contact_type='internal'",
-            (formatted or None, contact_id),
-        )
-    conn.commit()
-    return JSONResponse({"ok": True, "formatted": formatted})
-
-
-@router.post("/internal/{name}/rename")
-async def internal_contact_rename(request: Request, name: str, conn=Depends(get_db)):
-    """Rename an internal contact."""
-    body = await request.json()
-    new_name = (body.get("new_name", "") or "").strip()
-    if not new_name:
-        return JSONResponse({"ok": False, "error": "Name cannot be empty"}, status_code=400)
-
-    contact_id = _resolve_contact_id(conn, name)
-    if not contact_id:
-        return JSONResponse({"ok": False, "error": "Contact not found"}, status_code=404)
-
-    conn.execute(
-        "UPDATE contacts SET name=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
-        (new_name, contact_id),
-    )
-    conn.commit()
-    return JSONResponse({"ok": True, "new_name": new_name})
 
 
 @router.post("/internal/add-row", response_class=HTMLResponse)
@@ -1201,8 +1145,9 @@ def internal_contact_add_row(request: Request, conn=Depends(get_db)):
          "notes": None,
          "email": None, "phone": None, "mobile": None, "client_count": 0,
          "policy_count": 0, "clients": [], "policies": []}
-    return templates.TemplateResponse("contacts/_internal_matrix_row.html", {
-        "request": request, "c": c, "contact_roles": cfg.get("contact_roles", []),
+    return templates.TemplateResponse("contacts/_contact_matrix_row.html", {
+        "request": request, "c": c, "store": "internal",
+        "contact_roles": cfg.get("contact_roles", []),
     })
 
 
@@ -1229,11 +1174,13 @@ def client_type_contact_row(request: Request, name: str, conn=Depends(get_db)):
     c = dict(row)
     c["clients"] = _client_type_contact_clients(conn, c["contact_id"])
     _attach_expertise(conn, [c])
-    return templates.TemplateResponse("contacts/_client_contact_row.html", {
-        "request": request,
-        "c": c,
-        "expertise_lines": cfg.get("expertise_lines", []),
-        "expertise_industries": cfg.get("expertise_industries", []),
+    all_orgs = sorted({r["organization"] for r in conn.execute(
+        "SELECT DISTINCT organization FROM contacts WHERE organization IS NOT NULL AND organization != ''"
+    ).fetchall()})
+    return templates.TemplateResponse("contacts/_contact_matrix_row.html", {
+        "request": request, "c": c, "store": "client",
+        "contact_roles": cfg.get("contact_roles", []),
+        "all_orgs": all_orgs,
     })
 
 
@@ -1287,62 +1234,6 @@ def client_type_contact_create(
     })
 
 
-# ---------------------------------------------------------------------------
-# Placement contact cell-save, rename, add-row, edit, row endpoints
-# ---------------------------------------------------------------------------
-
-@router.patch("/{name}/cell")
-async def placement_contact_cell(request: Request, name: str, conn=Depends(get_db)):
-    """Save a single cell value for a placement contact."""
-    body = await request.json()
-    field, value = body.get("field", ""), body.get("value", "")
-    allowed = {"organization", "role", "email", "phone", "mobile", "title", "notes"}
-    if field not in allowed:
-        return JSONResponse({"ok": False, "error": "Invalid field"}, status_code=400)
-    formatted = value.strip()
-    if field in ("phone", "mobile"):
-        formatted = format_phone(formatted) if formatted else ""
-    elif field == "email":
-        formatted = clean_email(formatted) or ""
-
-    contact_id = _resolve_contact_id(conn, name)
-    if not contact_id:
-        return JSONResponse({"ok": False, "error": "Contact not found"}, status_code=404)
-
-    if field in _CONTACTS_TABLE_FIELDS:
-        conn.execute(
-            f"UPDATE contacts SET {field}=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
-            (formatted or None, contact_id),
-        )
-    if field in _POLICY_ASSIGNMENT_FIELDS:
-        conn.execute(
-            f"UPDATE contact_policy_assignments SET {field}=? WHERE contact_id=?",
-            (formatted or None, contact_id),
-        )
-    conn.commit()
-    return JSONResponse({"ok": True, "formatted": formatted})
-
-
-@router.post("/{name}/rename")
-async def placement_contact_rename(request: Request, name: str, conn=Depends(get_db)):
-    """Rename a placement contact."""
-    body = await request.json()
-    new_name = (body.get("new_name", "") or "").strip()
-    if not new_name:
-        return JSONResponse({"ok": False, "error": "Name cannot be empty"}, status_code=400)
-
-    contact_id = _resolve_contact_id(conn, name)
-    if not contact_id:
-        return JSONResponse({"ok": False, "error": "Contact not found"}, status_code=404)
-
-    conn.execute(
-        "UPDATE contacts SET name=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
-        (new_name, contact_id),
-    )
-    conn.commit()
-    return JSONResponse({"ok": True, "new_name": new_name})
-
-
 @router.post("/add-row", response_class=HTMLResponse)
 def placement_contact_add_row(request: Request, conn=Depends(get_db)):
     """Create a new placement contact row and return matrix row HTML."""
@@ -1361,8 +1252,9 @@ def placement_contact_add_row(request: Request, conn=Depends(get_db)):
     c = {"name": "New Contact", "contact_id": contact_id, "organization": None, "role": None,
          "title": None, "notes": None,
          "email": None, "phone": None, "mobile": None, "policy_count": 0, "policies": []}
-    return templates.TemplateResponse("contacts/_placement_matrix_row.html", {
-        "request": request, "c": c, "contact_roles": cfg.get("contact_roles", []),
+    return templates.TemplateResponse("contacts/_contact_matrix_row.html", {
+        "request": request, "c": c, "store": "placement",
+        "contact_roles": cfg.get("contact_roles", []),
         "all_orgs": all_orgs,
     })
 
@@ -1388,11 +1280,9 @@ def internal_contact_row(request: Request, name: str, conn=Depends(get_db)):
     c["also_on_policies"] = _internal_contact_policies(conn, c["contact_id"])
     c["policy_cross_count"] = len(c["also_on_policies"])
     _attach_expertise(conn, [c])
-    return templates.TemplateResponse("contacts/_internal_row.html", {
-        "request": request,
-        "c": c,
-        "expertise_lines": cfg.get("expertise_lines", []),
-        "expertise_industries": cfg.get("expertise_industries", []),
+    return templates.TemplateResponse("contacts/_contact_matrix_row.html", {
+        "request": request, "c": c, "store": "internal",
+        "contact_roles": cfg.get("contact_roles", []),
     })
 
 
@@ -1416,11 +1306,13 @@ def contact_row(request: Request, name: str, conn=Depends(get_db)):
     c = dict(row)
     c["policies"] = _contact_policies(conn, c["contact_id"])
     _attach_expertise(conn, [c])
-    return templates.TemplateResponse("contacts/_row.html", {
-        "request": request,
-        "c": c,
-        "expertise_lines": cfg.get("expertise_lines", []),
-        "expertise_industries": cfg.get("expertise_industries", []),
+    all_orgs = sorted({r["organization"] for r in conn.execute(
+        "SELECT DISTINCT organization FROM contacts WHERE organization IS NOT NULL AND organization != ''"
+    ).fetchall()})
+    return templates.TemplateResponse("contacts/_contact_matrix_row.html", {
+        "request": request, "c": c, "store": "placement",
+        "contact_roles": cfg.get("contact_roles", []),
+        "all_orgs": all_orgs,
     })
 
 
@@ -1462,12 +1354,8 @@ def contact_create(
             (contact_id, policy_id, role.strip() or None),
         )
     conn.commit()
-    # Return the full updated list
-    contacts = _get_all_contacts(conn)
-    return templates.TemplateResponse("contacts/_placement_tbody.html", {
-        "request": request,
-        "contacts": contacts,
-    })
+    # Form uses hx-swap="none" + page reload on success
+    return HTMLResponse("")
 
 
 @router.post("/internal/new", response_class=HTMLResponse)
@@ -1641,19 +1529,24 @@ def unified_contact_delete(request: Request, name: str, conn=Depends(get_db)):
 
 
 # ---------------------------------------------------------------------------
-# Delete endpoints — remove assignments for a contact by name from a store
+# Delete endpoint — remove store-specific assignments, clean up if orphaned
 # ---------------------------------------------------------------------------
 
-@router.post("/{name}/delete", response_class=HTMLResponse)
-def placement_contact_delete(request: Request, name: str, conn=Depends(get_db)):
-    """Delete all policy assignments for this contact. If no other assignments remain, delete the contact."""
+_DELETE_SQL = {
+    "placement": "DELETE FROM contact_policy_assignments WHERE contact_id = ?",
+    "internal": "DELETE FROM contact_client_assignments WHERE contact_id = ? AND contact_type='internal'",
+    "client": "DELETE FROM contact_client_assignments WHERE contact_id = ? AND contact_type='client'",
+}
+
+
+@router.post("/{store}/{name}/delete")
+def store_contact_delete(request: Request, store: str, name: str, conn=Depends(get_db)):
+    """Delete store-specific assignments for a contact. If no assignments remain, delete the contact."""
+    if store not in _DELETE_SQL:
+        return JSONResponse({"ok": False, "error": "Invalid store"}, status_code=400)
     contact_id = _resolve_contact_id(conn, name)
     if contact_id:
-        conn.execute(
-            "DELETE FROM contact_policy_assignments WHERE contact_id = ?",
-            (contact_id,),
-        )
-        # If no assignments remain anywhere, remove the contact record too
+        conn.execute(_DELETE_SQL[store], (contact_id,))
         remaining = conn.execute(
             """SELECT 1 FROM contact_client_assignments WHERE contact_id = ?
                UNION ALL
@@ -1663,78 +1556,7 @@ def placement_contact_delete(request: Request, name: str, conn=Depends(get_db)):
         if not remaining:
             conn.execute("DELETE FROM contacts WHERE id = ?", (contact_id,))
     conn.commit()
-    contacts = _get_all_contacts(conn)
-    all_orgs = sorted({c["organization"] for c in contacts if c.get("organization")})
-    return templates.TemplateResponse("contacts/_placement_tbody.html", {
-        "request": request,
-        "contacts": contacts,
-        "contact_roles": cfg.get("contact_roles", []),
-        "all_orgs": all_orgs,
-    })
-
-
-@router.post("/internal/{name}/delete", response_class=HTMLResponse)
-def internal_contact_delete(request: Request, name: str, conn=Depends(get_db)):
-    """Delete all internal client assignments for this contact."""
-    contact_id = _resolve_contact_id(conn, name)
-    if contact_id:
-        conn.execute(
-            "DELETE FROM contact_client_assignments WHERE contact_id = ? AND contact_type='internal'",
-            (contact_id,),
-        )
-        # If no assignments remain anywhere, remove the contact record too
-        remaining = conn.execute(
-            """SELECT 1 FROM contact_client_assignments WHERE contact_id = ?
-               UNION ALL
-               SELECT 1 FROM contact_policy_assignments WHERE contact_id = ?""",
-            (contact_id, contact_id),
-        ).fetchone()
-        if not remaining:
-            conn.execute("DELETE FROM contacts WHERE id = ?", (contact_id,))
-    conn.commit()
-    internal = _get_internal_contacts(conn)
-    all_clients_json = _json.dumps([
-        {"id": r["id"], "name": r["name"]}
-        for r in conn.execute("SELECT id, name FROM clients WHERE archived=0 ORDER BY name").fetchall()
-    ])
-    return templates.TemplateResponse("contacts/_internal_tbody.html", {
-        "request": request,
-        "internal_contacts": internal,
-        "all_clients_json": all_clients_json,
-        "contact_roles": cfg.get("contact_roles", []),
-    })
-
-
-@router.post("/client/{name}/delete", response_class=HTMLResponse)
-def client_type_contact_delete(request: Request, name: str, conn=Depends(get_db)):
-    """Delete all client-type client assignments for this contact."""
-    contact_id = _resolve_contact_id(conn, name)
-    if contact_id:
-        conn.execute(
-            "DELETE FROM contact_client_assignments WHERE contact_id = ? AND contact_type='client'",
-            (contact_id,),
-        )
-        # If no assignments remain anywhere, remove the contact record too
-        remaining = conn.execute(
-            """SELECT 1 FROM contact_client_assignments WHERE contact_id = ?
-               UNION ALL
-               SELECT 1 FROM contact_policy_assignments WHERE contact_id = ?""",
-            (contact_id, contact_id),
-        ).fetchone()
-        if not remaining:
-            conn.execute("DELETE FROM contacts WHERE id = ?", (contact_id,))
-    conn.commit()
-    client_type = _get_client_type_contacts(conn)
-    all_clients_json = _json.dumps([
-        {"id": r["id"], "name": r["name"]}
-        for r in conn.execute("SELECT id, name FROM clients WHERE archived=0 ORDER BY name").fetchall()
-    ])
-    return templates.TemplateResponse("contacts/_client_contact_tbody.html", {
-        "request": request,
-        "client_type_contacts": client_type,
-        "all_clients_json": all_clients_json,
-        "contact_roles": cfg.get("contact_roles", []),
-    })
+    return JSONResponse({"ok": True})
 
 
 # ---------------------------------------------------------------------------

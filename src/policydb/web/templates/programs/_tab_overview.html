@@ -301,3 +301,10 @@
   };
 })();
 </script>
+
+{# ── References ── #}
+<div class="card px-5 mt-4">
+  {% with ref_entity_type='program', ref_entity_id=program.id %}
+    {% include "kb/_references_widget.html" %}
+  {% endwith %}
+</div>

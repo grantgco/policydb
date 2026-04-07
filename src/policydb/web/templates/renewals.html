@@ -2,7 +2,11 @@
 {% from "_sort_th.html" import th as sort_th %}
 {% block title %}Renewals — Coverage{% endblock %}
 {% block content %}
-{%- set sparams = 'window=' ~ window ~ '&urgency=' ~ urgency ~ '&status=' ~ (status | urlencode) ~ '&client_id=' ~ (client_id or '') -%}
+<style>
+  /* Tighten sort-th macro padding for renewals pipeline density */
+  #renewals-table thead th { padding: 0.5rem 0.5rem !important; }
+</style>
+{%- set sparams = 'window=' ~ window ~ '&urgency=' ~ urgency ~ '&status=' ~ (status | urlencode) ~ '&issues=' ~ (issues or '') ~ '&gaps=' ~ (gaps or '') ~ '&touch=' ~ (touch or '') ~ '&client_id=' ~ (client_id or 0) -%}
 
 <div class="mb-6">
   <div class="flex items-center justify-between mb-3">
@@ -11,14 +15,14 @@
       <p class="text-sm text-gray-500 mt-1">{{ rows | length }} polic{{ 'y' if rows|length == 1 else 'ies' }} · next {{ window }} days{% if urgency %} · {{ urgency }}{% endif %}{% if status %} · {{ status }}{% endif %}{% if selected_client_name %} · {{ selected_client_name }}{% endif %}</p>
     </div>
     <div class="flex gap-2 items-center">
-      <a href="/renewals?window=90&urgency={{ urgency }}&status={{ status | urlencode }}&sort={{ sort }}&dir={{ dir }}&client_id={{ client_id or '' }}" class="btn-filter {{ 'active' if window == 90 else '' }}">90d</a>
-      <a href="/renewals?window=120&urgency={{ urgency }}&status={{ status | urlencode }}&sort={{ sort }}&dir={{ dir }}&client_id={{ client_id or '' }}" class="btn-filter {{ 'active' if window == 120 else '' }}">120d</a>
-      <a href="/renewals?window=180&urgency={{ urgency }}&status={{ status | urlencode }}&sort={{ sort }}&dir={{ dir }}&client_id={{ client_id or '' }}" class="btn-filter {{ 'active' if window == 180 else '' }}">180d</a>
+      <a href="/renewals?window=90&urgency={{ urgency }}&status={{ status | urlencode }}&sort={{ sort }}&dir={{ dir }}&client_id={{ client_id or 0 }}" class="btn-filter {{ 'active' if window == 90 else '' }}">90d</a>
+      <a href="/renewals?window=120&urgency={{ urgency }}&status={{ status | urlencode }}&sort={{ sort }}&dir={{ dir }}&client_id={{ client_id or 0 }}" class="btn-filter {{ 'active' if window == 120 else '' }}">120d</a>
+      <a href="/renewals?window=180&urgency={{ urgency }}&status={{ status | urlencode }}&sort={{ sort }}&dir={{ dir }}&client_id={{ client_id or 0 }}" class="btn-filter {{ 'active' if window == 180 else '' }}">180d</a>
       <span class="border-l border-gray-200 h-6 mx-1"></span>
       <a href="/renewals/calendar" class="btn-filter">Calendar</a>
       <span class="border-l border-gray-200 h-6 mx-1"></span>
       <button type="button"
-        onclick="copyPolicyTable('/renewals/copy-table?window={{ window }}&status={{ status | urlencode }}&client_id={{ client_id or '' }}', this)"
+        onclick="copyPolicyTable('/renewals/copy-table?window={{ window }}&status={{ status | urlencode }}&client_id={{ client_id or 0 }}', this)"
         class="border border-gray-300 hover:border-marsh text-gray-700 hover:text-marsh text-sm font-medium px-3 py-1.5 rounded-lg transition-colors">Copy Table</button>
       <a href="/renewals/export?window={{ window }}&fmt=csv" class="border border-gray-300 hover:border-marsh text-gray-700 hover:text-marsh text-sm font-medium px-3 py-1.5 rounded-lg transition-colors">CSV ↓</a>
       <a href="/renewals/export?window={{ window }}&fmt=xlsx" class="border border-green-600 hover:bg-green-600 text-green-700 hover:text-white text-sm font-medium px-3 py-1.5 rounded-lg transition-colors">XLSX ↓</a>
@@ -27,51 +31,66 @@
   <!-- Urgency filter -->
   <div class="flex gap-1.5 flex-wrap items-center mb-1.5">
     <span class="text-xs text-gray-400 w-14 shrink-0">Urgency:</span>
-    <a href="/renewals?window={{ window }}&status={{ status | urlencode }}&sort={{ sort }}&dir={{ dir }}&client_id={{ client_id or '' }}" class="btn-filter {{ 'active' if not urgency else '' }}">All</a>
+    <a href="/renewals?window={{ window }}&status={{ status | urlencode }}&sort={{ sort }}&dir={{ dir }}&client_id={{ client_id or 0 }}" class="btn-filter {{ 'active' if not urgency else '' }}">All</a>
     {% for u in ['EXPIRED', 'URGENT', 'WARNING', 'UPCOMING'] %}
-    <a href="/renewals?window={{ window }}&urgency={{ u }}&status={{ status | urlencode }}&sort={{ sort }}&dir={{ dir }}&client_id={{ client_id or '' }}" class="btn-filter {{ 'active' if urgency == u else '' }}">{{ u }}</a>
+    <a href="/renewals?window={{ window }}&urgency={{ u }}&status={{ status | urlencode }}&sort={{ sort }}&dir={{ dir }}&client_id={{ client_id or 0 }}" class="btn-filter {{ 'active' if urgency == u else '' }}">{{ u }}</a>
     {% endfor %}
   </div>
   <!-- Status filter -->
   <div class="flex gap-1.5 flex-wrap items-center mb-1.5">
     <span class="text-xs text-gray-400 w-14 shrink-0">Status:</span>
-    <a href="/renewals?window={{ window }}&urgency={{ urgency }}&sort={{ sort }}&dir={{ dir }}&client_id={{ client_id or '' }}" class="btn-filter {{ 'active' if not status else '' }}">All</a>
+    <a href="/renewals?window={{ window }}&urgency={{ urgency }}&sort={{ sort }}&dir={{ dir }}&client_id={{ client_id or 0 }}" class="btn-filter {{ 'active' if not status else '' }}">All</a>
     {% for s in renewal_statuses %}
-    <a href="/renewals?window={{ window }}&urgency={{ urgency }}&status={{ s | urlencode }}&sort={{ sort }}&dir={{ dir }}&client_id={{ client_id or '' }}" class="btn-filter {{ 'active' if status == s else '' }}">{{ s }}</a>
+    <a href="/renewals?window={{ window }}&urgency={{ urgency }}&status={{ s | urlencode }}&sort={{ sort }}&dir={{ dir }}&client_id={{ client_id or 0 }}" class="btn-filter {{ 'active' if status == s else '' }}">{{ s }}</a>
     {% endfor %}
+  </div>
+  <!-- Focus filters: Issues / Data / Touch — compact single row -->
+  {%- set fbase = '/renewals?window=' ~ window ~ '&urgency=' ~ urgency ~ '&status=' ~ (status | urlencode) ~ '&sort=' ~ sort ~ '&dir=' ~ dir ~ '&client_id=' ~ (client_id or 0) -%}
+  <div class="flex gap-1.5 flex-wrap items-center mb-1.5">
+    <span class="text-xs text-gray-400 w-14 shrink-0">Focus:</span>
+    <a href="{{ fbase }}" class="btn-filter {{ 'active' if not issues and not gaps and not touch else '' }}">All</a>
+    <span class="text-gray-200 mx-0.5">|</span>
+    <a href="{{ fbase }}&issues=has_issues&gaps={{ gaps }}&touch={{ touch }}" class="btn-filter {{ 'active' if issues == 'has_issues' else '' }}">Has Issues</a>
+    <a href="{{ fbase }}&issues=no_issues&gaps={{ gaps }}&touch={{ touch }}" class="btn-filter {{ 'active' if issues == 'no_issues' else '' }}">No Issues</a>
+    <span class="text-gray-200 mx-0.5">|</span>
+    <a href="{{ fbase }}&issues={{ issues }}&gaps=missing&touch={{ touch }}" class="btn-filter {{ 'active' if gaps == 'missing' else '' }}">Missing Data</a>
+    <span class="text-gray-200 mx-0.5">|</span>
+    <a href="{{ fbase }}&issues={{ issues }}&gaps={{ gaps }}&touch=stale" class="btn-filter {{ 'active' if touch == 'stale' else '' }}">Stale &gt;21d</a>
+    <a href="{{ fbase }}&issues={{ issues }}&gaps={{ gaps }}&touch=recent" class="btn-filter {{ 'active' if touch == 'recent' else '' }}">Recent &le;7d</a>
   </div>
   <!-- Client filter -->
   <div class="flex gap-1.5 items-center">
     <span class="text-xs text-gray-400 w-14 shrink-0">Client:</span>
     <input type="text" list="renew-client-opts" value="{{ selected_client_name }}" placeholder="All Clients"
            class="text-xs border border-gray-200 rounded px-2 py-1 w-56 focus:outline-none focus:ring-1 focus:ring-marsh"
-           onchange="var o=document.querySelector('#renew-client-opts option[value=&quot;'+this.value+'&quot;]');var cid=o?o.dataset.cid:'';window.location='/renewals?window={{ window }}&urgency={{ urgency }}&status={{ status | urlencode }}&sort={{ sort }}&dir={{ dir }}&client_id='+cid">
+           onchange="var o=document.querySelector('#renew-client-opts option[value=&quot;'+this.value+'&quot;]');var cid=o?o.dataset.cid:'';window.location='/renewals?window={{ window }}&urgency={{ urgency }}&status={{ status | urlencode }}&issues={{ issues }}&gaps={{ gaps }}&touch={{ touch }}&sort={{ sort }}&dir={{ dir }}&client_id='+cid">
     <datalist id="renew-client-opts">
       {% for c in all_clients %}
       <option value="{{ c.name }}" data-cid="{{ c.id }}">{{ c.name }}</option>
       {% endfor %}
     </datalist>
     {% if client_id %}
-    <a href="/renewals?window={{ window }}&urgency={{ urgency }}&status={{ status | urlencode }}&sort={{ sort }}&dir={{ dir }}" class="text-xs text-gray-400 hover:text-red-500">&times; Clear</a>
+    <a href="/renewals?window={{ window }}&urgency={{ urgency }}&status={{ status | urlencode }}&issues={{ issues }}&gaps={{ gaps }}&touch={{ touch }}&sort={{ sort }}&dir={{ dir }}" class="text-xs text-gray-400 hover:text-red-500">&times; Clear</a>
     {% endif %}
   </div>
 </div>
 
 <div class="card overflow-hidden">
-  <table class="w-full text-sm">
+  <table class="w-full text-xs" id="renewals-table">
     <thead>
       <tr class="border-b border-gray-100 text-left text-xs text-gray-400 uppercase tracking-wide bg-gray-50">
-        <th class="px-3 py-3 w-8"><input type="checkbox" class="rounded border-gray-300" onchange="toggleAllRenewalChecks(this)"></th>
+        <th class="px-2 py-2 w-8"><input type="checkbox" class="rounded border-gray-300" onchange="toggleAllRenewalChecks(this)"></th>
         {{ sort_th('Client / Line', 'client_name',    sort, dir, '/renewals', sparams) }}
         {{ sort_th('Carrier',       'carrier',         sort, dir, '/renewals', sparams) }}
         {{ sort_th('Expires',       'expiration_date', sort, dir, '/renewals', sparams) }}
         {{ sort_th('Premium',       'premium',         sort, dir, '/renewals', sparams, align='right') }}
         {{ sort_th('Urgency',       'days_to_renewal', sort, dir, '/renewals', sparams) }}
-        <th class="px-4 py-3 text-xs text-gray-400 uppercase tracking-wide">Status</th>
-        <th class="px-4 py-3 text-xs text-gray-400 uppercase tracking-wide">Checklist</th>
-        <th class="px-4 py-3 text-xs text-gray-400 uppercase tracking-wide">Policy Team</th>
+        <th class="px-2 py-2 text-xs text-gray-400 uppercase tracking-wide">Status</th>
+        <th class="px-2 py-2 text-xs text-gray-400 uppercase tracking-wide text-center">Chk</th>
+        <th class="px-2 py-2 text-xs text-gray-400 uppercase tracking-wide">Team</th>
+        {{ sort_th('Touch', 'days_since_touch', sort, dir, '/renewals', sparams) }}
         {{ sort_th('Follow-Up',     'follow_up_date',  sort, dir, '/renewals', sparams) }}
-        <th class="px-4 py-3"></th>
+        <th class="px-2 py-2"></th>
       </tr>
     </thead>
     <tbody class="divide-y divide-gray-100">
@@ -82,7 +101,7 @@
           {% include "policies/_policy_renew_row.html" %}
         {% endif %}
       {% else %}
-      <tr><td colspan="11" class="px-4 py-10 text-center text-gray-400">No renewals in this window.</td></tr>
+      <tr><td colspan="12" class="px-4 py-10 text-center text-gray-400">No renewals in this window.</td></tr>
       {% endfor %}
     </tbody>
   </table>
@@ -141,6 +160,17 @@
     <button onclick="bulkMilestone('incomplete')" class="bg-gray-400 hover:bg-gray-500 text-white text-sm px-3 py-1.5 rounded transition-colors">Mark Incomplete</button>
     <span class="border-l border-gray-200 h-6 mx-1"></span>
     <button onclick="toggleBulkLogPanel()" class="bg-amber-500 hover:bg-amber-600 text-white text-sm px-3 py-1.5 rounded transition-colors">Log Activity</button>
+    <span class="border-l border-gray-200 h-6 mx-1"></span>
+    <input type="date" id="bulk-followup-date" class="text-sm border border-gray-300 rounded px-2 py-1.5" title="Set follow-up date for selected">
+    <button onclick="bulkSetFollowUp()" class="bg-blue-500 hover:bg-blue-600 text-white text-sm px-3 py-1.5 rounded transition-colors">Set Follow-Up</button>
+    <span class="border-l border-gray-200 h-6 mx-1"></span>
+    <select id="bulk-status" class="text-sm border border-gray-300 rounded px-2 py-1.5">
+      <option value="">Set status…</option>
+      {% for s in renewal_statuses %}
+      <option value="{{ s }}">{{ s }}</option>
+      {% endfor %}
+    </select>
+    <button onclick="bulkSetStatus()" class="bg-marsh hover:bg-marsh-light text-white text-sm px-3 py-1.5 rounded transition-colors">Apply</button>
     <button onclick="clearRenewalChecks()" class="text-sm text-gray-400 hover:text-gray-600 ml-auto">Clear</button>
   </div>
 </div>
@@ -227,6 +257,49 @@ function bulkLog() {
     document.getElementById('bulk-log-followup').value = '';
     document.getElementById('bulk-log-duration').value = '';
     document.getElementById('bulk-log-panel').classList.add('hidden');
+    clearRenewalChecks();
+  });
+}
+
+// Close readiness popovers when clicking outside
+document.addEventListener('click', function(e) {
+  if (!e.target.closest('.readiness-toggle') && !e.target.closest('.readiness-popover')) {
+    document.querySelectorAll('.readiness-popover').forEach(function(d) { d.classList.add('hidden'); });
+  }
+});
+
+function bulkSetStatus() {
+  var uids = getCheckedRenewalUids();
+  var status = document.getElementById('bulk-status').value;
+  if (!uids.length) { showToast('Select at least one policy.', false); return; }
+  if (!status) { showToast('Pick a status.', false); return; }
+  Promise.all(uids.map(function(uid) {
+    return htmx.ajax('POST', '/policies/' + uid + '/status', {
+      target: 'body', swap: 'none',
+      values: { renewal_status: status }
+    });
+  })).then(function() {
+    uids.forEach(function(uid) {
+      htmx.ajax('GET', '/policies/' + uid + '/renew/row', { target: '#renew-row-' + uid, swap: 'outerHTML' });
+    });
+    document.getElementById('bulk-status').value = '';
+    clearRenewalChecks();
+  });
+}
+
+function bulkSetFollowUp() {
+  var uids = getCheckedRenewalUids();
+  var dt = document.getElementById('bulk-followup-date').value;
+  if (!uids.length) { showToast('Select at least one policy.', false); return; }
+  if (!dt) { showToast('Pick a follow-up date.', false); return; }
+  htmx.ajax('POST', '/renewals/bulk/follow-up', {
+    target: 'body', swap: 'none',
+    values: { policy_uids: uids.join(','), follow_up_date: dt }
+  }).then(function() {
+    uids.forEach(function(uid) {
+      htmx.ajax('GET', '/policies/' + uid + '/renew/row', { target: '#renew-row-' + uid, swap: 'outerHTML' });
+    });
+    document.getElementById('bulk-followup-date').value = '';
     clearRenewalChecks();
   });
 }

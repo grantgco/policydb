@@ -1796,12 +1796,13 @@ def renewals_copy_table(window: int = 180, status: str = "", client_id: int = 0,
 
 _RENEWAL_SORT_FIELDS = {
     "client_name", "carrier", "expiration_date", "days_to_renewal",
-    "premium", "renewal_status", "follow_up_date",
+    "premium", "renewal_status", "follow_up_date", "days_since_touch",
 }
 
 @router.get("/renewals", response_class=HTMLResponse)
 def renewals(request: Request, window: int = 180, urgency: str = "", status: str = "",
-             sort: str = "expiration_date", dir: str = "asc", client_id: int = 0, conn=Depends(get_db)):
+             sort: str = "expiration_date", dir: str = "asc", client_id: int = 0,
+             issues: str = "", gaps: str = "", touch: str = "", conn=Depends(get_db)):
     excluded = cfg.get("renewal_statuses_excluded", [])
     filter_client_ids = [client_id] if client_id else None
     rows = get_renewal_pipeline(
@@ -1849,14 +1850,141 @@ def renewals(request: Request, window: int = 180, urgency: str = "", status: str
     for pgm in program_rows:
         pgm["expiration_date"] = pgm["earliest_expiration"]
         pgm["premium"] = pgm["total_premium"]
+        # Gather child policy IDs for aggregate readiness
+        child_rows = conn.execute(
+            "SELECT id FROM policies WHERE program_id=? AND archived=0",
+            (pgm["program_id"],),
+        ).fetchall()
+        pgm["_child_ids"] = [c["id"] for c in child_rows]
+        # Aggregate last activity across all children
+        if pgm["_child_ids"]:
+            ph = ",".join("?" * len(pgm["_child_ids"]))
+            la = conn.execute(
+                f"SELECT MAX(activity_date) AS last_date FROM activity_log WHERE policy_id IN ({ph})",
+                pgm["_child_ids"],
+            ).fetchone()
+            pgm["last_activity_date"] = la["last_date"] if la else None
+            from datetime import date as _date
+            if pgm["last_activity_date"]:
+                try:
+                    pgm["days_since_touch"] = (_date.today() - _date.fromisoformat(pgm["last_activity_date"])).days
+                except (ValueError, TypeError):
+                    pgm["days_since_touch"] = None
+            else:
+                pgm["days_since_touch"] = None
+        else:
+            pgm["last_activity_date"] = None
+            pgm["days_since_touch"] = None
+        # Compute readiness score for programs (no checklist — scaled to 100)
+        from policydb import config as cfg_mod
+        w = cfg_mod.get("readiness_weights", {})
+        w_status = w.get("status", 40)
+        w_activity = w.get("activity", 15)
+        w_followup = w.get("followup", 10)
+        w_placement = w.get("placement", 10)
+        # Programs skip checklist — scale remaining weights to 100
+        raw_total = w_status + w_activity + w_followup + w_placement
+        scale = 100 / raw_total if raw_total > 0 else 1
+        score = 0
+        parts = []
+        # Status
+        st = pgm.get("renewal_status") or "Not Started"
+        st_pcts = cfg_mod.get("readiness_status_scores", {})
+        s_pts = int(w_status * st_pcts.get(st, 25) / 100)
+        score += s_pts
+        parts.append(f"Status: {s_pts}/{w_status} ({st})")
+        # Activity
+        a_pts = 0
+        a_desc = "none"
+        if pgm["days_since_touch"] is not None:
+            a_desc = f"{pgm['days_since_touch']}d ago"
+            for tier in cfg_mod.get("readiness_activity_tiers", []):
+                if pgm["days_since_touch"] <= tier.get("days", 0):
+                    a_pts = int(w_activity * tier.get("pct", 0) / 100)
+                    break
+        score += a_pts
+        parts.append(f"Activity: {a_pts}/{w_activity} ({a_desc})")
+        # Follow-up
+        f_pts = w_followup if pgm.get("follow_up_date") else 0
+        score += f_pts
+        parts.append(f"Follow-up: {f_pts}/{w_followup}")
+        # Placement
+        pc_pts = w_placement if pgm.get("placement_colleague") else 0
+        score += pc_pts
+        parts.append(f"Placement: {pc_pts}/{w_placement}")
+        pgm["readiness_score"] = min(int(score * scale), 100)
+        rt = cfg_mod.get("readiness_thresholds", {})
+        pgm["readiness_label"] = (
+            "READY" if pgm["readiness_score"] >= rt.get("ready", 75) else
+            "ON TRACK" if pgm["readiness_score"] >= rt.get("on_track", 50) else
+            "AT RISK" if pgm["readiness_score"] >= rt.get("at_risk", 25) else
+            "CRITICAL"
+        )
+        pgm["readiness_tooltip"] = f"Score: {pgm['readiness_score']}/100\n" + "\n".join(parts)
         pipeline.append(pgm)
 
     attach_renewal_issues(conn, pipeline)
+    from policydb.queries import attach_issue_counts
+    # Attach issue counts separately for policies (by id) and programs (no policy id)
+    policy_rows = [r for r in pipeline if not r.get("_is_program")]
+    attach_issue_counts(conn, policy_rows, id_field="id", scope="policy")
+    # Programs: count issues via child policies AND renewal_term_key
+    for pgm in pipeline:
+        if not pgm.get("_is_program"):
+            continue
+        child_ids = pgm.get("_child_ids", [])
+        term_key = f"program:{pgm['program_uid']}"
+        # Build a UNION query: issues on child policy_ids OR issues on renewal_term_key
+        parts_sql = []
+        params: list = []
+        if child_ids:
+            ph = ",".join("?" * len(child_ids))
+            parts_sql.append(
+                f"SELECT issue_severity FROM activity_log WHERE item_kind='issue' AND policy_id IN ({ph}) AND issue_status NOT IN ('Resolved','Closed')"
+            )
+            params.extend(child_ids)
+        parts_sql.append(
+            "SELECT issue_severity FROM activity_log WHERE item_kind='issue' AND is_renewal_issue=1 AND renewal_term_key=? AND issue_status NOT IN ('Resolved','Closed')"
+        )
+        params.append(term_key)
+        union_sql = " UNION ALL ".join(parts_sql)
+        row = conn.execute(
+            f"""SELECT COUNT(*) AS cnt,
+                       MIN(CASE issue_severity WHEN 'Critical' THEN 1 WHEN 'High' THEN 2
+                           WHEN 'Normal' THEN 3 ELSE 4 END) AS sev_rank
+                FROM ({union_sql})""",
+            params,
+        ).fetchone()
+        sev_map = {1: "Critical", 2: "High", 3: "Normal", 4: "Low"}
+        pgm["open_issue_count"] = row["cnt"] if row["cnt"] else 0
+        pgm["max_issue_severity"] = sev_map.get(row["sev_rank"]) if row["cnt"] else None
+
+    # Filter by issue presence
+    if issues == "has_issues":
+        pipeline = [r for r in pipeline if r.get("open_issue_count", 0) > 0]
+    elif issues == "no_issues":
+        pipeline = [r for r in pipeline if r.get("open_issue_count", 0) == 0]
+
+    # Filter by missing data gaps (skip program rows)
+    if gaps == "missing":
+        pipeline = [
+            r for r in pipeline
+            if r.get("_is_program") or (not r.get("carrier") or not r.get("premium") or not r.get("placement_colleague"))
+        ]
+
+    # Filter by touch staleness (skip program rows)
+    if touch == "stale":
+        pipeline = [r for r in pipeline if r.get("_is_program") or r.get("days_since_touch") is None or r.get("days_since_touch", 0) > 21]
+    elif touch == "recent":
+        pipeline = [r for r in pipeline if r.get("_is_program") or (r.get("days_since_touch") is not None and r.get("days_since_touch", 999) <= 7)]
 
     sort_field = sort if sort in _RENEWAL_SORT_FIELDS else "expiration_date"
     reverse = dir == "desc"
+    # Numeric fields need numeric sentinel; string fields use ""
+    _numeric_sorts = {"days_to_renewal", "premium", "days_since_touch"}
+    _sentinel = float("inf") if sort_field in _numeric_sorts else ""
     pipeline.sort(
-        key=lambda r: (r.get(sort_field) is None, r.get(sort_field) or ""),
+        key=lambda r: (r.get(sort_field) is None, r.get(sort_field) if r.get(sort_field) is not None else _sentinel),
         reverse=reverse,
     )
 
@@ -1886,6 +2014,9 @@ def renewals(request: Request, window: int = 180, urgency: str = "", status: str
         "window": window,
         "urgency": urgency,
         "status": status,
+        "issues": issues,
+        "gaps": gaps,
+        "touch": touch,
         "sort": sort_field,
         "dir": dir,
         "client_id": client_id,
@@ -2016,6 +2147,38 @@ def bulk_log(
     count = sum(1 for uid in policy_uids.split(",") if uid.strip())
     resp = HTMLResponse("")
     resp.headers["HX-Trigger"] = '{"activityLogged": "' + f'Activity logged to {count} policies' + '"}'
+    return resp
+
+
+@router.post("/renewals/bulk/follow-up", response_class=HTMLResponse)
+def bulk_follow_up(
+    request: Request,
+    policy_uids: str = Form(...),
+    follow_up_date: str = Form(...),
+    conn=Depends(get_db),
+):
+    """Set follow-up date for multiple selected renewal policies."""
+    fu = follow_up_date.strip()
+    if not fu:
+        return HTMLResponse("")
+    count = 0
+    for uid in policy_uids.split(","):
+        uid = uid.strip().upper()
+        if not uid:
+            continue
+        policy = conn.execute(
+            "SELECT id FROM policies WHERE policy_uid = ?", (uid,)
+        ).fetchone()
+        if not policy:
+            continue
+        conn.execute(
+            "UPDATE policies SET follow_up_date = ? WHERE id = ?",
+            (fu, policy["id"]),
+        )
+        count += 1
+    conn.commit()
+    resp = HTMLResponse("")
+    resp.headers["HX-Trigger"] = '{"activityLogged": "' + f'Follow-up set for {count} policies' + '"}'
     return resp
 
 

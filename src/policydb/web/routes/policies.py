@@ -1267,9 +1267,10 @@ def _attach_readiness_score(conn, rows: list[dict]) -> list[dict]:
         parts.append(f"Checklist: {c_pts}/{w_checklist} ({done}/{total})")
 
         # Recent activity — config-driven tiers
-        last_act = last_activity_map.get(p.get("id"))
+        last_act = last_activity_map.get(p.get("id")) or p.get("last_activity_date")
         a_pts = 0
         a_desc = "none"
+        days_since = None
         if last_act:
             try:
                 days_since = (today - _date.fromisoformat(last_act)).days
@@ -1280,6 +1281,9 @@ def _attach_readiness_score(conn, rows: list[dict]) -> list[dict]:
                         break
             except (ValueError, TypeError):
                 pass
+        # Expose last touch data to templates
+        p["last_activity_date"] = last_act
+        p["days_since_touch"] = days_since
         score += a_pts
         parts.append(f"Activity: {a_pts}/{w_activity} ({a_desc})")
 
