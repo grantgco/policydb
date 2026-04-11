@@ -84,8 +84,15 @@ def generate_policy_timelines(conn, policy_uid: str | None = None) -> None:
     mandated = cfg.get("mandated_activities", [])
 
     if policy_uid:
-        # Single-policy regeneration
-        conn.execute("DELETE FROM policy_timeline WHERE policy_uid = ?", (policy_uid,))
+        # Single-policy regeneration: preserve the same completed/triaged rows
+        # that the full-regen path preserves, so completed history is not lost.
+        conn.execute("""
+            DELETE FROM policy_timeline
+            WHERE policy_uid = ?
+              AND completed_date IS NULL
+              AND (accountability IS NULL OR accountability = 'my_action')
+              AND (waiting_on IS NULL OR waiting_on = '')
+        """, (policy_uid,))
         rows = conn.execute("""
             SELECT policy_uid, effective_date, expiration_date,
                    milestone_profile, program_id

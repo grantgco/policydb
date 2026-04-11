@@ -690,7 +690,7 @@ def policy_context(conn: sqlite3.Connection, policy_uid: str) -> dict:
     ctx["exposure_denominator"] = str(primary["denominator"]) if primary and primary.get("denominator") is not None else ""
     ctx["exposure_rate"] = "${:,.2f}".format(primary["rate"]) if primary and primary["rate"] is not None else ""
     ctx["exposure_rate_label"] = (
-        f"${primary['rate']:,.2f} per ${primary['denominator']:,} of {primary['exposure_type'].lower()}"
+        f"${primary['rate']:,.2f} per ${primary['denominator']:,} of {(primary['exposure_type'] or '').lower()}"
         if primary and primary["rate"] is not None and primary.get("denominator") else ""
     )
 

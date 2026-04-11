@@ -42,8 +42,9 @@ def _normalize_followup(item: dict, today: date) -> dict:
         except ValueError:
             pass
 
-    # Map disposition to accountability
-    accountability = item.get("accountability") or "my_action"
+    # Map disposition to accountability.  Use the raw DB value (may be None/empty),
+    # then fall back to _resolve_accountability if not already set.
+    accountability = item.get("accountability")
     disposition = item.get("disposition") or ""
     if not accountability or accountability == "":
         accountability = _resolve_accountability(disposition)
