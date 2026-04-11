@@ -825,6 +825,8 @@ def auto_close_followups(
 
     At least one of policy_id or issue_id must be provided.
     """
+    if policy_id is None and issue_id is None:
+        raise ValueError("auto_close_followups requires at least one of policy_id or issue_id")
     clauses = [
         "follow_up_done = 0",
         "follow_up_date IS NOT NULL",
