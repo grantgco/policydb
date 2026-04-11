@@ -262,12 +262,12 @@
       {% if item.source == 'policy' %}
       <form hx-post="/policies/{{ item.policy_uid }}/followup"
             hx-target="#{{ row_id }}" hx-swap="outerHTML"
-            hx-on::after-request="var f=document.getElementById('ac-fu-form-{{ row_id }}');if(f)f.remove();"
+            hx-on::after-request="if(event.detail.successful){var f=document.getElementById('ac-fu-form-{{ row_id }}');if(f)f.remove()}else{if(typeof showToast==='function')showToast('Save failed',false)}"
             class="space-y-2">
       {% else %}
       <form hx-post="/activities/{{ item.id }}/followup"
             hx-target="#{{ row_id }}" hx-swap="outerHTML"
-            hx-on::after-request="var f=document.getElementById('ac-fu-form-{{ row_id }}');if(f)f.remove();"
+            hx-on::after-request="if(event.detail.successful){var f=document.getElementById('ac-fu-form-{{ row_id }}');if(f)f.remove()}else{if(typeof showToast==='function')showToast('Save failed',false)}"
             class="space-y-2">
         <input type="hidden" name="context" value="followup_table">
       {% endif %}

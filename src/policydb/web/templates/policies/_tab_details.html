@@ -176,8 +176,19 @@ textarea.field-inline { resize: none; }
       </div>
 
       <div>
-        <label class="field-label">Policy Number</label>
-        <input type="text" data-field="policy_number" value="{{ policy.policy_number or '' }}" class="form-input field-inline w-full">
+        <div class="flex items-center justify-between mb-0.5">
+          <label class="field-label">Policy Number</label>
+          <label class="flex items-center gap-1 text-[10px] text-gray-400 cursor-pointer select-none">
+            <input type="checkbox" data-field="policy_number_unknown"
+              {% if policy.policy_number_unknown %}checked{% endif %}
+              class="rounded border-gray-300 h-3 w-3"
+              onchange="var inp=this.closest('div').parentElement.querySelector('[data-field=policy_number]');inp.disabled=this.checked;if(this.checked){inp.value='';inp.classList.add('bg-gray-100')}else{inp.classList.remove('bg-gray-100')}">
+            Not known
+          </label>
+        </div>
+        <input type="text" data-field="policy_number" value="{{ policy.policy_number or '' }}"
+          class="form-input field-inline w-full{% if policy.policy_number_unknown %} bg-gray-100{% endif %}"
+          {% if policy.policy_number_unknown %}disabled{% endif %}>
       </div>
 
       <div>

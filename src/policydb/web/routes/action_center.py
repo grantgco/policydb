@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime, timedelta
+
+logger = logging.getLogger("policydb.action_center")
 
 from fastapi import APIRouter, Depends, Form, Request, Response
 from fastapi.responses import HTMLResponse
@@ -189,7 +192,7 @@ def _followups_ctx(conn, window: int, activity_type: str, q: str,
         from policydb.queries import auto_close_stale_followups
         auto_close_stale_followups(conn)
     except Exception:
-        pass
+        logger.debug("auto_close_stale_followups failed", exc_info=True)
     overdue_raw, upcoming_raw = get_all_followups(conn, window=window, client_ids=filter_client_ids)
     suggested = get_suggested_followups(conn, excluded_statuses=excluded, client_ids=filter_client_ids)
     insurance_suggestions = get_insurance_deadline_suggestions(conn, client_ids=filter_client_ids)
@@ -340,7 +343,7 @@ def _followups_ctx(conn, window: int, activity_type: str, q: str,
         """).fetchall()
         _activity_policy_uids.update(r["policy_uid"] for r in _covered_uids)
     except Exception:
-        pass  # Graceful degradation — dedup still works for direct matches
+        logger.debug("Focus queue dedup query failed", exc_info=True)
     try:
         _ms_params = [today_str]
         _ms_excl_sql = ""
@@ -391,7 +394,7 @@ def _followups_ctx(conn, window: int, activity_type: str, q: str,
             elif days_past > 0:
                 buckets["overdue"].append(item)
     except Exception:
-        pass  # policy_timeline may not exist yet
+        logger.debug("policy_timeline query failed", exc_info=True)
 
     # Prep coming — timeline milestones whose prep_alert_date has arrived
     # Only include milestones whose projected_date is still in the future
@@ -476,7 +479,7 @@ def _followups_ctx(conn, window: int, activity_type: str, q: str,
             else:
                 buckets["watching"].append(item)
     except Exception:
-        pass  # Degrade gracefully if columns don't exist yet
+        logger.debug("Issues query failed", exc_info=True)
 
     # ── Recently auto-closed items ──────────────────────────────────
     auto_closed_days = cfg.get("auto_closed_section_days", 7)
@@ -501,7 +504,7 @@ def _followups_ctx(conn, window: int, activity_type: str, q: str,
             recently_auto_closed = [r for r in recently_auto_closed
                                     if q.lower() in (r.get("client_name") or "").lower()]
     except Exception:
-        pass
+        logger.debug("Auto-closed items query failed", exc_info=True)
 
     # Count items auto-closed today for the alert banner
     auto_closed_today_count = sum(
@@ -713,7 +716,7 @@ def _portfolio_health_ctx(conn) -> dict:
             h = rank_map.get(r["worst_rank"], "on_track")
             counts[h] = counts.get(h, 0) + 1
     except Exception:
-        pass  # policy_timeline may not exist yet
+        logger.debug("policy_timeline query failed", exc_info=True)
     return {"health_counts": [(k, v) for k, v in counts.items()]}
 
 
@@ -737,7 +740,7 @@ def _risk_alerts_ctx(conn) -> dict:
         """).fetchall()
         alerts = [dict(r) for r in rows]
     except Exception:
-        pass  # policy_timeline may not exist yet
+        logger.debug("policy_timeline query failed", exc_info=True)
     return {"risk_alerts": alerts}
 
 
@@ -1239,7 +1242,8 @@ def acknowledge_alert(request: Request, policy_uid: str, conn=Depends(get_db)):
         """, (now, policy_uid))
         conn.commit()
     except Exception:
-        pass
+        logger.exception("Failed to acknowledge alert for %s", policy_uid)
+        return HTMLResponse("Acknowledge failed", status_code=500)
     # Return the updated alert row
     try:
         row = conn.execute("""
@@ -1263,8 +1267,8 @@ def acknowledge_alert(request: Request, policy_uid: str, conn=Depends(get_db)):
                 {"request": request, "alert": alert},
             )
     except Exception:
-        pass
-    # Fallback: return empty (row disappears)
+        logger.debug("Could not fetch alert row for %s after acknowledge", policy_uid)
+    # Fallback: return empty (row disappears — acknowledged successfully)
     return HTMLResponse("")
 
 

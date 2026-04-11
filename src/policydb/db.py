@@ -149,12 +149,15 @@ def _auto_backup(db_path: Path, max_backups: int = 30) -> None:
 
     # Checkpoint WAL before copying to ensure consistency.
     # At startup this is redundant (closing the last connection triggers a passive checkpoint) but harmless.
+    ckpt_conn = None
     try:
         ckpt_conn = sqlite3.connect(str(db_path))
         ckpt_conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-        ckpt_conn.close()
     except Exception as e:
         logger.warning("Backup WAL checkpoint failed: %s", e)
+    finally:
+        if ckpt_conn:
+            ckpt_conn.close()
 
     ts = datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")
     backup_path = backup_dir / f"policydb_{ts}.sqlite"
@@ -312,7 +315,18 @@ def init_db(path: Path | None = None) -> None:
     ensure_dirs()
     db_path = path or DB_PATH
     conn = get_connection(path)
+    try:
+        _init_db_inner(conn, db_path)
+    finally:
+        conn.close()
 
+    # Auto-backup (runs after connection is closed so the file is fully flushed)
+    from policydb import config as _cfg
+    _auto_backup(db_path, max_backups=_cfg.get("backup_retention_count", 30))
+
+
+def _init_db_inner(conn: sqlite3.Connection, db_path: Path) -> None:
+    """Core init_db logic — separated so init_db can wrap in try/finally."""
     # Recover from a partial migration-024: policies was dropped and renamed to
     # policies_new but the RENAME never completed. Do this before reading
     # applied versions so the rest of init_db can proceed normally.
@@ -1834,6 +1848,15 @@ def init_db(path: Path | None = None) -> None:
         conn.commit()
         logger.info("Migration 139: created uid_sequence table")
 
+    if 140 not in applied:
+        conn.executescript((_MIGRATIONS_DIR / "140_policy_number_unknown.sql").read_text())
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (140, "Add policy_number_unknown flag"),
+        )
+        conn.commit()
+        logger.info("Migration 140: added policy_number_unknown column")
+
     # Data hygiene: fix 'None' string corruption in text fields (runs every startup, fast no-op if clean)
     conn.execute("UPDATE clients SET cn_number = NULL WHERE cn_number = 'None'")
 
@@ -2099,11 +2122,6 @@ def init_db(path: Path | None = None) -> None:
     _wal = str(db_path) + "-wal"
     _HEALTH_STATUS["wal_size"] = os.path.getsize(_wal) if os.path.exists(_wal) else 0
 
-    conn.close()
-
-    # Auto-backup (runs after connection is closed so the file is fully flushed)
-    from policydb import config as _cfg
-    _auto_backup(db_path, max_backups=_cfg.get("backup_retention_count", 30))
 
 
 def _purge_old_logs(conn: sqlite3.Connection) -> None:

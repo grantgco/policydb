@@ -533,3 +533,52 @@ def compose_render(
         )
 
     return JSONResponse({"subject": rendered_subject, "body": rendered_body})
+
+
+# ── Copy policy table for compose panel ──────────────────────────────────────
+
+
+@router.get("/copy-table", response_class=JSONResponse)
+def compose_copy_table(
+    conn=Depends(get_db),
+    issue_uid: str = Query(""),
+    policy_uid: str = Query(""),
+    client_id: int = Query(0),
+    project_name: str = Query(""),
+):
+    """Return {"html": ..., "text": ...} for clipboard copy of linked policies."""
+    from policydb.email_templates import build_policy_table, _render_policy_table_html, _render_policy_table_text
+
+    rows = None
+
+    if issue_uid:
+        issue_row = conn.execute(
+            "SELECT client_id, policy_id, program_id FROM activity_log WHERE issue_uid=? AND item_kind='issue'",
+            (issue_uid,),
+        ).fetchone()
+        if issue_row:
+            if not client_id:
+                client_id = issue_row["client_id"] or 0
+            if issue_row["program_id"]:
+                rows = [dict(r) for r in conn.execute(
+                    """SELECT policy_type, carrier, access_point, policy_number,
+                              effective_date, expiration_date, premium, limit_amount, description
+                       FROM policies WHERE program_id=? AND archived=0 ORDER BY policy_type""",
+                    (issue_row["program_id"],),
+                ).fetchall()]
+            elif issue_row["policy_id"]:
+                rows = [dict(r) for r in conn.execute(
+                    """SELECT policy_type, carrier, access_point, policy_number,
+                              effective_date, expiration_date, premium, limit_amount, description
+                       FROM policies WHERE id=? AND archived=0""",
+                    (issue_row["policy_id"],),
+                ).fetchall()]
+
+    if rows is not None:
+        return JSONResponse({"html": _render_policy_table_html(rows), "text": _render_policy_table_text(rows)})
+
+    if client_id:
+        result = build_policy_table(conn, client_id, project_name or None)
+        return JSONResponse(result)
+
+    return JSONResponse({"html": "", "text": ""}, status_code=400)

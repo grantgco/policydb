@@ -115,15 +115,23 @@
   </div>
 
   {# ── Actions (sticky bottom) ── #}
-  <div class="shrink-0 border-t p-4 flex items-center gap-3 bg-white">
-    <button type="button" onclick="copyComposeAll()"
-            class="flex-1 text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg py-2 transition-colors">
-      Copy All
+  <div class="shrink-0 border-t p-4 flex flex-col gap-2 bg-white">
+    <div class="flex items-center gap-3">
+      <button type="button" onclick="copyComposeAll()"
+              class="flex-1 text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg py-2 transition-colors">
+        Copy All
+      </button>
+      <button type="button" id="compose-outlook-btn" onclick="createOutlookDraft()"
+              class="flex-1 text-xs font-medium text-white bg-marsh hover:bg-marsh-light rounded-lg py-2 transition-colors">
+        Create Draft in Outlook &rarr;
+      </button>
+    </div>
+    {% if policy_uid or project_name or issue_uid %}
+    <button type="button" onclick="copyComposeTable()"
+            class="w-full text-[11px] font-medium text-gray-500 hover:text-gray-700 hover:bg-gray-50 rounded py-1.5 transition-colors">
+      Copy Policy Table
     </button>
-    <button type="button" id="compose-outlook-btn" onclick="createOutlookDraft()"
-            class="flex-1 text-xs font-medium text-white bg-marsh hover:bg-marsh-light rounded-lg py-2 transition-colors">
-      Create Draft in Outlook &rarr;
-    </button>
+    {% endif %}
   </div>
 </div>
 
@@ -258,6 +266,28 @@
     navigator.clipboard.writeText(text).then(function() {
       if (typeof showToast === 'function') showToast('Copied to clipboard', true);
     });
+  };
+
+  window.copyComposeTable = function() {
+    var params = new URLSearchParams();
+    if (composeParams.issue_uid) params.set('issue_uid', composeParams.issue_uid);
+    if (composeParams.policy_uid) params.set('policy_uid', composeParams.policy_uid);
+    if (composeParams.client_id) params.set('client_id', composeParams.client_id);
+    if (composeParams.project_name) params.set('project_name', composeParams.project_name);
+    fetch('/compose/copy-table?' + params.toString())
+      .then(function(r) { if (!r.ok) throw r; return r.json(); })
+      .then(function(data) {
+        if (!data.html && !data.text) {
+          if (typeof showToast === 'function') showToast('No policies found', false);
+          return;
+        }
+        var blob = new Blob([data.html], {type: 'text/html'});
+        var textBlob = new Blob([data.text], {type: 'text/plain'});
+        navigator.clipboard.write([new ClipboardItem({'text/html': blob, 'text/plain': textBlob})]).then(function() {
+          if (typeof showToast === 'function') showToast('Policy table copied', true);
+        });
+      })
+      .catch(function() { if (typeof showToast === 'function') showToast('Copy failed', false); });
   };
 
   window.createOutlookDraft = function() {

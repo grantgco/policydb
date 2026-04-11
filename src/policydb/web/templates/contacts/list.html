@@ -106,7 +106,7 @@
         class="text-gray-400 hover:text-gray-600 text-lg leading-none">&times;</button>
     </div>
     <form hx-post="/contacts/new" hx-target="body" hx-swap="none"
-          hx-on::after-request="if(event.detail.successful){this.reset();document.getElementById('add-contact-form').classList.add('hidden');document.getElementById('dup-warn-new').innerHTML='';window.location.reload();}"
+          hx-on::after-request="if(event.detail.successful){this.reset();document.getElementById('add-contact-form').classList.add('hidden');document.getElementById('dup-warn-new').innerHTML='';window.location.reload()}else{if(typeof showToast==='function')showToast('Save failed',false)}"
           class="p-4 space-y-3">
       {# Row 1: Identity #}
       <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">

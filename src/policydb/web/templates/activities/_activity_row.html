@@ -173,7 +173,7 @@
   <form hx-post="/activities/{{ a.id }}/followup"
         hx-target="closest ul"
         hx-swap="afterbegin"
-        hx-on::after-request="if(event.detail.successful){ this.closest('li').classList.add('hidden'); htmx.ajax('GET', '/activities/{{ a.id }}/row', {target: '#activity-{{ a.id }}', swap: 'outerHTML'}); }"
+        hx-on::after-request="if(event.detail.successful){ this.closest('li').classList.add('hidden'); htmx.ajax('GET', '/activities/{{ a.id }}/row', {target: '#activity-{{ a.id }}', swap: 'outerHTML'}); }else{if(typeof showToast==='function')showToast('Save failed',false)}"
         class="space-y-2">
 
     {# Reference tag — copyable from within the form #}

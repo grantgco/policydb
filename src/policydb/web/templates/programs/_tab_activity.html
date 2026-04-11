@@ -16,7 +16,7 @@
     <form hx-post="/programs/{{ program.program_uid }}/log"
           hx-target="#pgm-activity-list"
           hx-swap="afterbegin"
-          hx-on::after-request="this.reset(); document.getElementById('pgm-log-form').classList.add('hidden'); document.getElementById('pgm-log-toggle-btn').textContent = '+ Log'"
+          hx-on::after-request="if(event.detail.successful){this.reset(); document.getElementById('pgm-log-form').classList.add('hidden'); document.getElementById('pgm-log-toggle-btn').textContent = '+ Log'}else{if(typeof showToast==='function')showToast('Save failed',false)}"
           class="border-l-4 border-marsh bg-green-50/30 pl-3 pr-2 py-2 rounded-r">
       <input type="hidden" name="client_id" value="{{ program.client_id }}">
       <input type="hidden" name="program_id" value="{{ program.id }}">

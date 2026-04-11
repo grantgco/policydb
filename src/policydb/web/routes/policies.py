@@ -3706,7 +3706,7 @@ async def policy_cell_save(request: Request, policy_uid: str, conn=Depends(get_d
     date_fields = {
         "effective_date", "expiration_date", "follow_up_date", "target_effective_date",
     }
-    bool_fields = {"is_bor", "is_standalone", "flagged"}
+    bool_fields = {"is_bor", "is_standalone", "flagged", "policy_number_unknown"}
     text_fields = {
         "policy_number", "first_named_insured", "access_point", "description",
         "notes", "placement_notation", "exposure_address", "exposure_basis",

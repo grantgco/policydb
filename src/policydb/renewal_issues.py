@@ -104,7 +104,14 @@ def ensure_renewal_issues(conn, policy_uid: str | None = None) -> None:
             WHERE p.policy_uid = ?
         """, (policy_uid,)).fetchall()
     else:
-        policy_rows = conn.execute("""
+        excluded_statuses = cfg.get("renewal_statuses_excluded", [])
+        excl_sql = ""
+        excl_params: list = [today.isoformat(), horizon.isoformat()]
+        if excluded_statuses:
+            ph = ",".join("?" * len(excluded_statuses))
+            excl_sql = f" AND (p.renewal_status IS NULL OR p.renewal_status NOT IN ({ph}))"
+            excl_params.extend(excluded_statuses)
+        policy_rows = conn.execute(f"""
             SELECT p.policy_uid, p.expiration_date, p.policy_type, p.id AS policy_id,
                    c.name AS client_name, p.client_id, p.program_id,
                    pr.name AS location_name
@@ -116,7 +123,8 @@ def ensure_renewal_issues(conn, policy_uid: str | None = None) -> None:
               AND p.expiration_date IS NOT NULL
               AND p.expiration_date >= ?
               AND p.expiration_date <= ?
-        """, (today.isoformat(), horizon.isoformat())).fetchall()
+              {excl_sql}
+        """, excl_params).fetchall()
 
     for pol in policy_rows:
         # Skip child policies in active programs — they roll up to program issue

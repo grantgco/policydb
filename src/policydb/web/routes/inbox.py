@@ -136,10 +136,13 @@ def scratchpad_clear(source: str = Form(...), source_id: str = Form(""), scope_i
     if source == "dashboard":
         conn.execute("UPDATE user_notes SET content='', updated_at=CURRENT_TIMESTAMP WHERE id=1")
     elif source == "client":
-        cid = int(sid.split("/")[-1]) if "/" in sid else int(sid)
+        try:
+            cid = int(sid.split("/")[-1]) if "/" in sid else int(sid)
+        except (ValueError, IndexError):
+            return HTMLResponse("Invalid client ID", status_code=400)
         conn.execute("UPDATE client_scratchpad SET content='', updated_at=CURRENT_TIMESTAMP WHERE client_id=?", (cid,))
     elif source == "policy":
-        uid = sid.split("/")[2] if "/" in sid else sid
+        uid = sid.split("/")[2] if sid.count("/") >= 2 else sid
         conn.execute("UPDATE policy_scratchpad SET content='', updated_at=CURRENT_TIMESTAMP WHERE policy_uid=?", (uid,))
     conn.commit()
     return HTMLResponse("", headers={
@@ -446,8 +449,9 @@ def inbox_dismiss(inbox_id: int, conn=Depends(get_db)):
     )
     conn.commit()
     uid = conn.execute("SELECT inbox_uid FROM inbox WHERE id=?", (inbox_id,)).fetchone()
+    uid_str = (uid["inbox_uid"] or "") if uid else ""
     return HTMLResponse("", headers={
-        "HX-Trigger": '{"activityLogged": "' + (uid["inbox_uid"] if uid else '') + ' dismissed"}'
+        "HX-Trigger": '{"activityLogged": "' + uid_str + ' dismissed"}'
     })
 
 
@@ -475,8 +479,9 @@ def inbox_schedule(
     )
     conn.commit()
     uid = conn.execute("SELECT inbox_uid FROM inbox WHERE id=?", (inbox_id,)).fetchone()
+    uid_str = (uid["inbox_uid"] or "") if uid else ""
     return HTMLResponse("", headers={
-        "HX-Trigger": '{"activityLogged": "' + (uid["inbox_uid"] if uid else '') + ' scheduled"}'
+        "HX-Trigger": '{"activityLogged": "' + uid_str + ' scheduled"}'
     })
 
 

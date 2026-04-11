@@ -3,7 +3,7 @@
 {# ── Capture Area ── #}
 <div class="bg-teal-50 border-b border-teal-100 rounded-t-lg px-4 py-3 mb-4 no-print">
   <form hx-post="/inbox/capture" hx-swap="none"
-        hx-on::after-request="if(event.detail.successful){this.reset();document.getElementById('ac-capture-contact-id').value='0';htmx.ajax('GET','/action-center/inbox{% if show_processed %}?show_processed=1{% endif %}',{target:'#ac-tab-content',swap:'innerHTML'})}"
+        hx-on::after-request="if(event.detail.successful){this.reset();document.getElementById('ac-capture-contact-id').value='0';htmx.ajax('GET','/action-center/inbox{% if show_processed %}?show_processed=1{% endif %}',{target:'#ac-tab-content',swap:'innerHTML'})}else{if(typeof showToast==='function')showToast('Capture failed',false)}"
         class="flex items-center gap-3">
     <input type="text" name="content" id="ac-capture-input"
       placeholder="Capture a note, task, or reminder... (@ to tag a contact)"

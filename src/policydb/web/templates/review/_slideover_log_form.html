@@ -1,0 +1,67 @@
+{# Inline log form for the review slideover — div-based, not table-row-based #}
+<div id="review-slideover-log-form" class="mx-5 my-3 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+  <form hx-post="/review/policies/{{ p.policy_uid }}/slideover/log"
+        hx-target="#slideover-activity-{{ p.policy_uid }}"
+        hx-swap="innerHTML"
+        hx-on::after-request="if(event.detail.successful){document.getElementById('review-slideover-log-form')?.remove()}else{if(typeof showToast==='function')showToast('Save failed',false)}">
+
+    <input type="hidden" name="client_id" value="{{ p.client_id }}">
+    <input type="hidden" name="policy_id" value="{{ p.id }}">
+
+    {% if quick_templates %}
+    <div class="flex flex-wrap gap-1 mb-3">
+      {% for qt in quick_templates %}
+      <button type="button"
+        onclick="this.closest('form').querySelector('[name=activity_type]').value='{{ qt.type }}'; this.closest('form').querySelector('[name=subject]').value='{{ qt.subject }}'"
+        class="text-[11px] bg-white text-gray-600 hover:bg-marsh hover:text-white px-2 py-0.5 rounded border border-gray-200 transition-colors">
+        {{ qt.label }}
+      </button>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <div class="grid grid-cols-2 gap-3 mb-3">
+      <div>
+        <label class="block text-[10px] text-gray-500 uppercase mb-0.5">Type</label>
+        <select name="activity_type"
+          class="text-xs border border-gray-200 rounded px-2 py-1 w-full focus:outline-none focus:ring-1 focus:ring-marsh bg-white">
+          {% for t in activity_types %}
+          <option value="{{ t }}">{{ t }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="block text-[10px] text-gray-500 uppercase mb-0.5">Duration</label>
+        <input type="number" name="duration_hours" min="0" step="any" placeholder="hrs"
+          class="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-marsh">
+      </div>
+    </div>
+
+    <div class="mb-3">
+      <label class="block text-[10px] text-gray-500 uppercase mb-0.5">Subject <span class="text-red-400">*</span></label>
+      <input type="text" name="subject" required placeholder="Activity subject…" value="{{ default_subject or '' }}"
+        class="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-marsh">
+    </div>
+
+    <div class="mb-3">
+      <label class="block text-[10px] text-gray-500 uppercase mb-0.5">Details</label>
+      <input type="text" name="details" placeholder="Optional details…"
+        class="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-marsh">
+    </div>
+
+    <div class="mb-3">
+      <label class="block text-[10px] text-gray-500 uppercase mb-0.5">Follow-up</label>
+      <input type="date" name="follow_up_date"
+        class="text-xs border border-gray-200 rounded px-2 py-1 w-full focus:outline-none focus:ring-1 focus:ring-marsh">
+    </div>
+
+    <div class="flex items-center gap-3">
+      <button type="submit"
+        class="text-xs bg-amber-500 text-white px-3 py-1.5 rounded hover:bg-amber-600 transition-colors font-medium">Log</button>
+      <button type="button"
+        onclick="this.closest('#review-slideover-log-form').remove()"
+        class="text-xs text-gray-400 hover:text-gray-600 px-2 py-1.5">Cancel</button>
+      <span class="text-xs text-gray-400 ml-auto font-mono">{{ p.policy_uid }}</span>
+    </div>
+  </form>
+</div>

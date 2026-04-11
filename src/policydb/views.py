@@ -77,6 +77,7 @@ SELECT
          ELSE CAST(julianday(p.expiration_date) - julianday('now') AS INTEGER)
     END AS days_to_renewal,
     CASE WHEN p.is_opportunity = 1 THEN 'OPPORTUNITY'
+         WHEN p.expiration_date IS NULL THEN 'NO_DATE'
          WHEN julianday(p.expiration_date) - julianday('now') <= 0 THEN 'EXPIRED'
          WHEN julianday(p.expiration_date) - julianday('now') <= 90 THEN 'URGENT'
          WHEN julianday(p.expiration_date) - julianday('now') <= 120 THEN 'WARNING'
@@ -240,6 +241,7 @@ SELECT
     p.expiration_date,
     CAST(julianday(p.expiration_date) - julianday('now') AS INTEGER) AS days_to_renewal,
     CASE
+        WHEN p.expiration_date IS NULL THEN 'NO_DATE'
         WHEN julianday(p.expiration_date) - julianday('now') <= 0 THEN 'EXPIRED'
         WHEN julianday(p.expiration_date) - julianday('now') <= 90 THEN 'URGENT'
         WHEN julianday(p.expiration_date) - julianday('now') <= 120 THEN 'WARNING'
@@ -391,6 +393,7 @@ SELECT
          ELSE CAST(julianday(p.expiration_date) - julianday('now') AS INTEGER)
     END AS days_to_renewal,
     CASE WHEN p.is_opportunity = 1 THEN 'OPPORTUNITY'
+         WHEN p.expiration_date IS NULL THEN 'NO_DATE'
          WHEN julianday(p.expiration_date) - julianday('now') <= 0 THEN 'EXPIRED'
          WHEN julianday(p.expiration_date) - julianday('now') <= 90 THEN 'URGENT'
          WHEN julianday(p.expiration_date) - julianday('now') <= 120 THEN 'WARNING'

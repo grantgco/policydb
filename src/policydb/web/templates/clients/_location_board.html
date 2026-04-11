@@ -156,7 +156,8 @@ function handleLocationDrop(zone, e, projectId, clientId) {
     body: fd
   }).then(function(r) {
     if (r.ok) window.location.reload();
-  });
+    else if (typeof showToast === 'function') showToast('Assign failed', false);
+  }).catch(function() { if (typeof showToast === 'function') showToast('Network error', false); });
 }
 
 /* Unassign a policy from its location */
@@ -169,7 +170,8 @@ function unassignPolicy(policyUid, clientId) {
     body: fd
   }).then(function(r) {
     if (r.ok) window.location.reload();
-  });
+    else if (typeof showToast === 'function') showToast('Unassign failed', false);
+  }).catch(function() { if (typeof showToast === 'function') showToast('Network error', false); });
 }
 
 /* Create a new location via the inline form */
@@ -183,7 +185,8 @@ function createLocation(e, clientId) {
     body: fd
   }).then(function(r) {
     if (r.ok) window.location.reload();
-  });
+    else if (typeof showToast === 'function') showToast('Create failed', false);
+  }).catch(function() { if (typeof showToast === 'function') showToast('Network error', false); });
 }
 
 /* Bulk assign all policies that share an exposure address to a location */
@@ -203,7 +206,8 @@ function bulkAssignAddress(address, projectId, clientId) {
     body: fd
   }).then(function(r) {
     if (r.ok) window.location.reload();
-  });
+    else if (typeof showToast === 'function') showToast('Bulk assign failed', false);
+  }).catch(function() { if (typeof showToast === 'function') showToast('Network error', false); });
 }
 
 /* Create location from address and assign matching policies */
@@ -217,11 +221,9 @@ function createAndAssignAddress(address, clientId) {
     body: fd
   }).then(function(r) {
     if (r.ok) {
-      // After creation, bulk-assign by address
-      // Reload to see the new location and re-trigger suggestion
       window.location.reload();
-    }
-  });
+    } else if (typeof showToast === 'function') showToast('Create failed', false);
+  }).catch(function() { if (typeof showToast === 'function') showToast('Network error', false); });
 }
 </script>
 {% endblock %}

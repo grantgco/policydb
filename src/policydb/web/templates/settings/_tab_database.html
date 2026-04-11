@@ -98,7 +98,7 @@
                   hx-post="/settings/config/outlook-reset-sync"
                   hx-confirm="Reset sync history? Next sync will use the lookback window to scan older emails. Already-imported emails won't be duplicated."
                   hx-swap="none"
-                  hx-on::after-request="if(event.detail.successful){location.reload()}"
+                  hx-on::after-request="if(event.detail.successful){location.reload()}else{if(typeof showToast==='function')showToast('Reset failed',false)}"
                   class="text-[10px] text-red-500 hover:text-red-700 hover:underline">Reset</button>
           {% else %}
           <span class="text-[10px] text-gray-400">No sync yet</span>

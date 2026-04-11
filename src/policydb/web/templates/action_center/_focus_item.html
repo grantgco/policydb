@@ -157,7 +157,7 @@
   <div id="fq-complete-{{ row_id }}" class="hidden mt-2.5 p-3 bg-gray-50 rounded-md border border-gray-200">
     <form hx-post="{% if has_activity_id and item.kind == 'followup' %}/activities/{{ item.id }}/followup{% elif has_activity_id and item.kind == 'issue' %}/activities/{{ item.id }}/followup{% elif item.policy_uid %}/policies/{{ item.policy_uid }}/followup{% else %}/activities/log{% endif %}"
           hx-swap="none"
-          hx-on::after-request="if(event.detail.successful){var el=document.getElementById('fq-{{ row_id }}'); if(el){el.style.transition='opacity 0.3s'; el.style.opacity='0'; setTimeout(function(){el.remove()},300)}}"
+          hx-on::after-request="if(event.detail.successful){var el=document.getElementById('fq-{{ row_id }}'); if(el){el.style.transition='opacity 0.3s'; el.style.opacity='0'; setTimeout(function(){el.remove()},300)}}else{if(typeof showToast==='function')showToast('Save failed',false)}"
           class="flex flex-wrap gap-2 items-end">
       {% if not has_activity_id or item.kind in ('suggested', 'insurance_deadline', 'project_deadline', 'opportunity', 'milestone') %}
         <input type="hidden" name="client_id" value="{{ item.client_id or '' }}">

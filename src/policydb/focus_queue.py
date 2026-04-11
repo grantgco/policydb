@@ -38,7 +38,7 @@ def _normalize_followup(item: dict, today: date) -> dict:
     if last_act:
         try:
             d = datetime.strptime(last_act[:10], "%Y-%m-%d").date()
-            days_since_activity = (today - d).days
+            days_since_activity = max(0, (today - d).days)
         except ValueError:
             pass
 

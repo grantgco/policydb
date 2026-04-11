@@ -40,7 +40,7 @@
   <form id="inbox-slideover-form"
         hx-post="/inbox/{{ item.id }}/process"
         hx-swap="none"
-        hx-on::after-request="if(event.detail.successful){closeFollowupEdit();document.getElementById('ac-inbox-item-{{ item.id }}')?.remove();}"
+        hx-on::after-request="if(event.detail.successful){closeFollowupEdit();document.getElementById('ac-inbox-item-{{ item.id }}')?.remove()}else{if(typeof showToast==='function')showToast('Process failed',false)}"
         class="px-5 py-4 space-y-4">
 
     {# Client #}

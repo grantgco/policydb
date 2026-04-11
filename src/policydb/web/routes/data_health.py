@@ -123,7 +123,7 @@ def blitz_save(
         "attachment_point", "description", "access_point",
         "opportunity_status", "target_effective_date",
         "prior_premium", "exposure_amount", "coverage_form",
-        "layer_position", "notes",
+        "layer_position", "notes", "policy_number_unknown",
     }
     _CLIENT_COLUMNS = {
         "industry_segment", "account_exec", "cn_number", "name",
@@ -151,9 +151,13 @@ def blitz_save(
             (save_value, record_id),
         )
     else:
+        try:
+            client_id = int(record_id)
+        except (ValueError, TypeError):
+            return JSONResponse({"error": "Invalid client ID"}, status_code=400)
         conn.execute(
             f"UPDATE clients SET {field} = ? WHERE id = ?",  # noqa: S608
-            (save_value, int(record_id)),
+            (save_value, client_id),
         )
     conn.commit()
 

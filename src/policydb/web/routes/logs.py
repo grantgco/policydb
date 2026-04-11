@@ -58,7 +58,7 @@ def app_log_partial(
         clauses.append("logged_at >= ?")
         params.append(date_from)
     if date_to:
-        clauses.append("logged_at <= ? || ' 23:59:59'")
+        clauses.append("logged_at < date(?, '+1 day')")
         params.append(date_to)
     if search:
         clauses.append("(message LIKE ? OR path LIKE ? OR logger_name LIKE ?)")
@@ -149,7 +149,7 @@ def audit_log_partial(
         clauses.append("changed_at >= ?")
         params.append(date_from)
     if date_to:
-        clauses.append("changed_at <= ? || ' 23:59:59'")
+        clauses.append("changed_at < date(?, '+1 day')")
         params.append(date_to)
 
     where = ""

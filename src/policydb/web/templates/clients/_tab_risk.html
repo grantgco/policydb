@@ -1,10 +1,42 @@
-{# Client Risk & Compliance Tab — risk profile + information requests #}
+{# Client Risk & Compliance Tab — risk profile + information requests + guided prompts #}
 <div id="tab-risk-content">
 
 <!-- Risk & Exposure Profile -->
 <div class="mb-6">
 {% include "clients/_risks.html" %}
 </div>
+
+<!-- Risk Review Prompts -->
+{% if risk_prompts %}
+<div class="mb-6">
+  <details class="group" open>
+    <summary class="flex items-center gap-2 cursor-pointer select-none mb-3">
+      <h3 class="text-sm font-semibold text-gray-700">Guided Risk Review</h3>
+      <span class="text-[10px] text-gray-400 font-normal">{{ risk_prompts | length }} prompts</span>
+    </summary>
+    <div class="space-y-2">
+      {% for prompt in risk_prompts %}
+      <div class="flex items-start gap-3 p-3 rounded-lg border border-gray-100 bg-white hover:border-gray-200 transition-colors">
+        <span class="mt-0.5 flex-shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded
+          {% if prompt.priority == 'High' %}bg-red-50 text-red-600
+          {% elif prompt.priority == 'Medium' %}bg-amber-50 text-amber-600
+          {% else %}bg-gray-50 text-gray-500{% endif %}">{{ prompt.priority }}</span>
+        <div class="flex-1 min-w-0">
+          <p class="text-sm text-gray-800 leading-snug">{{ prompt.question }}</p>
+          <div class="flex items-center gap-2 mt-1">
+            <span class="text-[10px] text-gray-400">{{ prompt.category }}</span>
+            {% if prompt.relevance %}
+            <span class="text-[10px] text-gray-300">|</span>
+            <span class="text-[10px] text-gray-400">{{ prompt.relevance }}</span>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </details>
+</div>
+{% endif %}
 
 <!-- Information Requests -->
 <div class="mb-6">

@@ -118,6 +118,10 @@ def compute_health_score(
     fields = field_config.get(record_type, [])
     applicable = [f for f in fields if stage in f.get("stages", [])]
 
+    # Skip policy_number from scoring when the user has flagged it as unknown
+    if record_type == "policy" and record.get("policy_number_unknown"):
+        applicable = [f for f in applicable if f["field"] != "policy_number"]
+
     if not applicable:
         return {"score": 100, "missing": [], "stale": [], "filled": 0, "total": 0}
 

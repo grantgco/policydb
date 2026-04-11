@@ -1134,9 +1134,9 @@ def delete_issue(
     conn.execute("DELETE FROM activity_log WHERE id = ? AND item_kind = 'issue'", (issue_id,))
     conn.commit()
 
-    # If called from detail page (hx-target=body), redirect to issues list
+    # If called from detail page (hx-target=body), redirect via HX-Redirect
     if request.headers.get("hx-target") == "body":
-        return RedirectResponse("/action-center?tab=issues", status_code=303)
+        return HTMLResponse("", headers={"HX-Redirect": "/action-center?tab=issues"})
 
     # Return refreshed issues tab (called from list row)
     from policydb.web.routes.action_center import _issues_ctx

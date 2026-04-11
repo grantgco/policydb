@@ -56,7 +56,7 @@
     <form hx-post="/settings/list/add"
           hx-target="#list-{{ key }}"
           hx-swap="outerHTML"
-          hx-on::after-request="this.reset()"
+          hx-on::after-request="if(event.detail.successful){this.reset()}else{if(typeof showToast==='function')showToast('Add failed',false)}"
           class="flex gap-2">
       <input type="hidden" name="key" value="{{ key }}">
       <input type="text" name="item" required placeholder="Add new option…"

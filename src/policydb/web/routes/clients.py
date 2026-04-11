@@ -1446,10 +1446,26 @@ def client_tab_risk(request: Request, client_id: int, conn=Depends(get_db)):
         ).fetchall()]
 
     # Policy UID options for linking
-    policy_uid_options = [{"uid": r["policy_uid"], "label": f"{r['policy_uid']} — {r['policy_type']}"} for r in conn.execute(
+    policy_rows = conn.execute(
         "SELECT policy_uid, policy_type FROM policies WHERE client_id=? AND archived=0 ORDER BY policy_type",
         (client_id,),
-    ).fetchall()]
+    ).fetchall()
+    policy_uid_options = [{"uid": r["policy_uid"], "label": f"{r['policy_uid']} — {r['policy_type']}"} for r in policy_rows]
+
+    # Risk review prompts — industry-aware, coverage-gap-aware guided questions
+    risk_prompts = []
+    try:
+        from policydb.compliance import get_risk_review_prompts
+        cfg_prompts = cfg.get("risk_review_prompts", [])
+        if cfg_prompts:
+            risk_prompts = get_risk_review_prompts(
+                client=dict(client),
+                locations=[],
+                policies=[dict(r) for r in policy_rows],
+                cfg_prompts=cfg_prompts,
+            )
+    except Exception:
+        pass
 
     return templates.TemplateResponse("clients/_tab_risk.html", {
         "request": request,
@@ -1466,6 +1482,7 @@ def client_tab_risk(request: Request, client_id: int, conn=Depends(get_db)):
         "policy_uid_options": policy_uid_options,
         "bundles": _get_request_bundles(conn, client_id),
         "today_iso": datetime.now().strftime("%Y-%m-%d"),
+        "risk_prompts": risk_prompts,
     })
 
 

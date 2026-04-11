@@ -19,7 +19,7 @@
       class="text-gray-400 hover:text-gray-600 text-sm">&times;</button>
   </div>
   <form hx-post="/activities/log" hx-swap="none"
-        hx-on::after-request="if(event.detail.successful){this.reset();document.getElementById('ac-new-followup').style.display='none';htmx.ajax('GET','/action-center/followups',{target:'#ac-tab-content'});htmx.ajax('GET','/action-center/sidebar',{target:'#action-center-sidebar'})}">
+        hx-on::after-request="if(event.detail.successful){this.reset();document.getElementById('ac-new-followup').style.display='none';htmx.ajax('GET','/action-center/followups',{target:'#ac-tab-content'});htmx.ajax('GET','/action-center/sidebar',{target:'#action-center-sidebar'})}else{if(typeof showToast==='function')showToast('Save failed',false)}">
     <div class="grid grid-cols-2 gap-3 mb-3">
       {# Client #}
       <div>

@@ -175,7 +175,8 @@ def _rule_stale_followup_backlog(conn, thresholds: dict) -> list[tuple]:
         """SELECT COUNT(*) AS cnt FROM activity_log
            WHERE follow_up_done = 0
              AND follow_up_date IS NOT NULL
-             AND DATE(follow_up_date) <= DATE(?)""",
+             AND DATE(follow_up_date) <= DATE(?)
+             AND (auto_close_reason IS NULL OR auto_close_reason = '')""",
         (today,),
     ).fetchone()
     count = row["cnt"] if row else 0

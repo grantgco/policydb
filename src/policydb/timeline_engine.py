@@ -528,7 +528,7 @@ def complete_timeline_milestone(conn, policy_uid: str, milestone_name: str) -> N
             """, (policy_row["id"],)).fetchall()
             for fu in open_fus:
                 fu_subj = (fu["subject"] or "").lower()
-                if fuzz.ratio(fu_subj, milestone_name.lower()) >= 80:
+                if fuzz.ratio(fu_subj, milestone_name.lower()) >= 85:
                     conn.execute("""
                         UPDATE activity_log
                         SET follow_up_done = 1,
