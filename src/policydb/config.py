@@ -818,6 +818,24 @@ _DEFAULTS: dict[str, Any] = {
 _config: dict[str, Any] | None = None
 
 
+def _deep_merge(base: dict, override: dict) -> dict:
+    """Recursively merge *override* into *base*, preserving unspecified sub-keys.
+
+    A shallow merge (``{**base, **override}``) replaces an entire nested dict
+    with the partial override, silently discarding all sibling default values
+    that the user did not explicitly repeat. This recursive version walks into
+    nested dicts so that a partial ``anomaly_thresholds`` override in
+    config.yaml only replaces the keys the user specified.
+    """
+    result = dict(base)
+    for key, val in override.items():
+        if isinstance(val, dict) and isinstance(result.get(key), dict):
+            result[key] = _deep_merge(result[key], val)
+        else:
+            result[key] = val
+    return result
+
+
 def load_config() -> dict[str, Any]:
     global _config
     if _config is not None:
@@ -827,13 +845,7 @@ def load_config() -> dict[str, Any]:
         try:
             with open(CONFIG_PATH) as f:
                 user = yaml.safe_load(f) or {}
-            # Deep merge all dict-type config keys so partial overrides
-            # don't lose default values for unspecified sub-keys
-            for key, val in user.items():
-                if isinstance(val, dict) and isinstance(result.get(key), dict):
-                    result[key] = {**result[key], **val}
-                else:
-                    result[key] = val
+            result = _deep_merge(result, user)
         except Exception as e:
             import logging
             logging.getLogger("policydb").warning("Failed to load config.yaml: %s", e)

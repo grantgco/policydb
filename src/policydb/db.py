@@ -350,7 +350,7 @@ def init_db(path: Path | None = None) -> None:
     # Back up the database once before running any pending migrations.
     # This gives a clean restore point regardless of which migration fails.
 
-    _KNOWN_MIGRATIONS = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119,120,121,122,123,124,125,126,127,128,129,130,131,132}
+    _KNOWN_MIGRATIONS = set(range(1, 140))  # update upper bound when adding new migrations
 
     if _KNOWN_MIGRATIONS - applied:
         _backup_db(conn, db_path)
@@ -535,21 +535,21 @@ def init_db(path: Path | None = None) -> None:
         )
         conn.commit()
 
-    if 22 not in applied:
-        sql = (_MIGRATIONS_DIR / "022_add_opportunity_fields.sql").read_text()
-        conn.executescript(sql)
-        conn.execute(
-            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
-            (22, "Add is_opportunity, opportunity_status, target_effective_date to policies"),
-        )
-        conn.commit()
-
     if 21 not in applied:
         sql = (_MIGRATIONS_DIR / "021_add_first_named_insured.sql").read_text()
         conn.executescript(sql)
         conn.execute(
             "INSERT INTO schema_version (version, description) VALUES (?, ?)",
             (21, "Add first_named_insured column to policies"),
+        )
+        conn.commit()
+
+    if 22 not in applied:
+        sql = (_MIGRATIONS_DIR / "022_add_opportunity_fields.sql").read_text()
+        conn.executescript(sql)
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (22, "Add is_opportunity, opportunity_status, target_effective_date to policies"),
         )
         conn.commit()
 
@@ -1816,6 +1816,24 @@ def init_db(path: Path | None = None) -> None:
         conn.commit()
         logger.info("Migration 137: dropped meeting tables")
 
+    if 138 not in applied:
+        conn.executescript((_MIGRATIONS_DIR / "138_add_core_indexes.sql").read_text())
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (138, "Add indexes on activity_log(client_id, policy_id) and policies(client_id, expiration_date, renewal_status)"),
+        )
+        conn.commit()
+        logger.info("Migration 138: added core performance indexes")
+
+    if 139 not in applied:
+        conn.executescript((_MIGRATIONS_DIR / "139_uid_sequence.sql").read_text())
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (139, "Add uid_sequence table for concurrency-safe UID generation"),
+        )
+        conn.commit()
+        logger.info("Migration 139: created uid_sequence table")
+
     # Data hygiene: fix 'None' string corruption in text fields (runs every startup, fast no-op if clean)
     conn.execute("UPDATE clients SET cn_number = NULL WHERE cn_number = 'None'")
 
@@ -1838,6 +1856,31 @@ def init_db(path: Path | None = None) -> None:
         WHERE source_id IS NOT NULL
           AND source_id NOT IN (SELECT id FROM requirement_sources)
     """)
+
+    # Data hygiene: null-out linked_policy_uid on coverage_requirements when the referenced
+    # policy no longer exists (no FK enforced at schema level)
+    conn.execute("""
+        UPDATE coverage_requirements
+        SET linked_policy_uid = NULL
+        WHERE linked_policy_uid IS NOT NULL
+          AND linked_policy_uid NOT IN (SELECT policy_uid FROM policies)
+    """)
+
+    # Data hygiene: remove anomaly rows whose parent client or policy has been deleted
+    # (anomalies table has no ON DELETE CASCADE constraint)
+    try:
+        conn.execute("""
+            DELETE FROM anomalies
+            WHERE client_id IS NOT NULL
+              AND client_id NOT IN (SELECT id FROM clients)
+        """)
+        conn.execute("""
+            DELETE FROM anomalies
+            WHERE policy_id IS NOT NULL
+              AND policy_id NOT IN (SELECT id FROM policies)
+        """)
+    except Exception:
+        pass  # Table may not exist on older schemas
 
     # Backfill project addresses from linked policies (idempotent — only fills empty project addresses)
     conn.execute("""
@@ -2322,14 +2365,49 @@ def _create_views(conn: sqlite3.Connection) -> None:
 
 
 def next_policy_uid(conn: sqlite3.Connection) -> str:
-    """Generate next POL-NNN uid."""
+    """Generate next POL-NNN uid using an atomic sequence table.
+
+    Uses the uid_sequence table (added in migration 139) so that concurrent
+    requests cannot race to the same value.  Before incrementing, the sequence
+    is synced to the current table maximum so that out-of-band inserts (e.g.,
+    bulk imports) are always respected.  Falls back to SELECT MAX for databases
+    that haven't yet run migration 139.
+    """
+    try:
+        # Sync sequence up to the current table max (handles out-of-band inserts)
+        conn.execute("""
+            UPDATE uid_sequence
+            SET next_val = CASE
+                WHEN (
+                    SELECT COALESCE(MAX(CAST(SUBSTR(policy_uid, 5) AS INTEGER)), 0)
+                    FROM policies WHERE policy_uid LIKE 'POL-%'
+                ) > next_val
+                THEN (
+                    SELECT COALESCE(MAX(CAST(SUBSTR(policy_uid, 5) AS INTEGER)), 0)
+                    FROM policies WHERE policy_uid LIKE 'POL-%'
+                )
+                ELSE next_val
+            END
+            WHERE prefix = 'POL'
+        """)
+        conn.execute(
+            "UPDATE uid_sequence SET next_val = next_val + 1 WHERE prefix = 'POL'"
+        )
+        row = conn.execute(
+            "SELECT next_val FROM uid_sequence WHERE prefix = 'POL'"
+        ).fetchone()
+        if row is not None:
+            return f"POL-{row[0]:03d}"
+    except Exception:
+        pass
+    # Fallback for pre-migration-139 databases
     row = conn.execute(
         "SELECT policy_uid FROM policies WHERE policy_uid LIKE 'POL-%' "
         "ORDER BY CAST(SUBSTR(policy_uid, 5) AS INTEGER) DESC LIMIT 1"
     ).fetchone()
     if row is None:
         return "POL-001"
-    last = row["policy_uid"]  # e.g. "POL-042"
+    last = row["policy_uid"]
     try:
         n = int(last.split("-")[1]) + 1
     except (IndexError, ValueError):
@@ -2338,14 +2416,49 @@ def next_policy_uid(conn: sqlite3.Connection) -> str:
 
 
 def next_program_uid(conn: sqlite3.Connection) -> str:
-    """Generate next PGM-NNN uid."""
+    """Generate next PGM-NNN uid using an atomic sequence table.
+
+    Uses the uid_sequence table (added in migration 139) so that concurrent
+    requests cannot race to the same value.  Before incrementing, the sequence
+    is synced to the current table maximum so that out-of-band inserts (e.g.,
+    bulk imports) are always respected.  Falls back to SELECT MAX for databases
+    that haven't yet run migration 139.
+    """
+    try:
+        # Sync sequence up to the current table max (handles out-of-band inserts)
+        conn.execute("""
+            UPDATE uid_sequence
+            SET next_val = CASE
+                WHEN (
+                    SELECT COALESCE(MAX(CAST(SUBSTR(program_uid, 5) AS INTEGER)), 0)
+                    FROM programs WHERE program_uid LIKE 'PGM-%'
+                ) > next_val
+                THEN (
+                    SELECT COALESCE(MAX(CAST(SUBSTR(program_uid, 5) AS INTEGER)), 0)
+                    FROM programs WHERE program_uid LIKE 'PGM-%'
+                )
+                ELSE next_val
+            END
+            WHERE prefix = 'PGM'
+        """)
+        conn.execute(
+            "UPDATE uid_sequence SET next_val = next_val + 1 WHERE prefix = 'PGM'"
+        )
+        row = conn.execute(
+            "SELECT next_val FROM uid_sequence WHERE prefix = 'PGM'"
+        ).fetchone()
+        if row is not None:
+            return f"PGM-{row[0]:03d}"
+    except Exception:
+        pass
+    # Fallback for pre-migration-139 databases
     row = conn.execute(
         "SELECT program_uid FROM programs WHERE program_uid LIKE 'PGM-%' "
         "ORDER BY CAST(SUBSTR(program_uid, 5) AS INTEGER) DESC LIMIT 1"
     ).fetchone()
     if row is None:
         return "PGM-001"
-    last = row["program_uid"]  # e.g. "PGM-042"
+    last = row["program_uid"]
     try:
         n = int(last.split("-")[1]) + 1
     except (IndexError, ValueError):
