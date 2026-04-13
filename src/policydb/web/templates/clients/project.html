@@ -38,45 +38,27 @@
     {# ── Pinned Notes Banner ── #}
     {% include "_pinned_notes_banner.html" %}
 
-    <div class="card p-4">
+    {# ── Working Notes Scratchpad (with activity conversion) ── #}
+    {% include "clients/_project_scratchpad.html" %}
+
+    <div class="card p-4 mt-4">
       <textarea id="proj-notes-ta" rows="20"
         class="w-full text-sm text-gray-800 bg-transparent resize-none focus:outline-none">{{ project.notes or '' }}</textarea>
     </div>
 
-    {# ── Project Exposures ── #}
-    <div class="mt-6" id="project-exposures-section"
-         hx-get="/clients/{{ client.id }}/projects/{{ project.id }}/exposures"
-         hx-trigger="load"
-         hx-swap="innerHTML">
-      <div class="text-center py-6 text-gray-300 text-xs">Loading exposures...</div>
-    </div>
-
-    {# ── Compliance / Contract Review ── #}
-    <div class="mt-6" id="project-compliance-section"
-         hx-get="/compliance/client/{{ client.id }}/location/{{ project.id }}/embed"
-         hx-trigger="load"
-         hx-swap="innerHTML">
-      <div class="text-center py-6 text-gray-300 text-xs">Loading compliance review...</div>
-    </div>
-
-  </div>
-
-  {# ── Right sidebar ── #}
-  <div class="sm:w-72 shrink-0 space-y-4">
-
-    {# Policies #}
-    <div class="card overflow-hidden">
+    {# ── Policies at this location (moved from right sidebar) ── #}
+    <div class="card overflow-hidden mt-6">
       <div class="px-4 py-2.5 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
-        <span class="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">
+        <span class="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">
           Policies at this location
           <span class="text-gray-400 normal-case">({{ policies | length }})</span>
         </span>
-        <div class="flex gap-2 no-print">
+        <div class="flex gap-3 no-print">
           <button type="button"
             onclick="copyPolicyTable('/clients/{{ client.id }}/copy-table?project={{ project.name | urlencode }}', this)"
-            class="text-[10px] text-gray-400 hover:text-marsh">Copy Table</button>
+            class="text-[11px] text-gray-500 hover:text-marsh">Copy Table</button>
           <a href="/policies/new?client={{ client.id }}&project={{ project.id }}"
-             class="text-[10px] text-marsh hover:underline">+ Add Policy</a>
+             class="text-[11px] text-marsh hover:underline">+ Add Policy</a>
         </div>
       </div>
       {% if policies %}
@@ -132,7 +114,6 @@
             </tr>
             {% endfor %}
           </tbody>
-          {% if policies %}
           <tfoot>
             <tr class="bg-gray-50/50 border-t border-gray-200">
               <td colspan="4" class="px-3 py-2 text-xs font-medium text-gray-500">Total</td>
@@ -142,7 +123,6 @@
               <td colspan="2"></td>
             </tr>
           </tfoot>
-          {% endif %}
         </table>
       </div>
       {% else %}
@@ -152,6 +132,90 @@
       </div>
       {% endif %}
     </div>
+
+    {# ── Issues assigned to this location ── #}
+    <div class="card overflow-hidden mt-6">
+      <div class="px-4 py-2.5 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
+        <span class="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">
+          Issues
+          <span class="text-gray-400 normal-case">({{ open_project_issues | length }})</span>
+        </span>
+        <button type="button"
+          onclick='openIssueCreateSlideover({client_id: {{ client.id }}, client_name: {{ client.name | tojson }} })'
+          class="text-[11px] text-marsh hover:underline no-print">+ New Issue</button>
+      </div>
+      {% if open_project_issues %}
+      <ul class="divide-y divide-gray-100">
+        {% for iss in open_project_issues %}
+        <li class="px-4 py-2.5 hover:bg-gray-50">
+          <div class="flex items-start gap-3">
+            <span class="text-[10px] font-mono px-1.5 py-0.5 rounded shrink-0 mt-0.5
+              {% if iss.issue_severity == 'Critical' %}bg-red-100 text-red-700
+              {% elif iss.issue_severity == 'High' %}bg-amber-100 text-amber-700
+              {% elif iss.issue_severity == 'Normal' %}bg-blue-100 text-blue-700
+              {% else %}bg-gray-100 text-gray-600{% endif %}">
+              {{ iss.issue_severity or 'Normal' }}
+            </span>
+            <div class="flex-1 min-w-0">
+              <a href="/issues/{{ iss.issue_uid }}"
+                 class="text-sm text-gray-900 hover:text-marsh truncate block">{{ iss.subject }}</a>
+              <div class="flex items-center gap-2 text-[10px] text-gray-400 mt-0.5">
+                <span class="font-mono">{{ iss.issue_uid }}</span>
+                {% if iss.policy_uid %}
+                <span>·</span>
+                <a href="/policies/{{ iss.policy_uid }}/edit" class="hover:text-marsh">{{ iss.policy_uid }}{% if iss.policy_type %} · {{ iss.policy_type }}{% endif %}</a>
+                {% endif %}
+                <span>·</span>
+                <span>{{ iss.days_open or 0 }}d open</span>
+                {% if iss.issue_status %}<span>·</span><span>{{ iss.issue_status }}</span>{% endif %}
+              </div>
+            </div>
+          </div>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <div class="px-4 py-6 text-center">
+        <p class="text-xs text-gray-400 italic">No open issues at this location.</p>
+      </div>
+      {% endif %}
+    </div>
+
+    {# ── Files & Attachments (moved from right sidebar) ── #}
+    <div class="card mt-6">
+      <div class="px-4 py-2.5 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
+        <span class="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">
+          Files
+          {% if attachment_count %}<span class="text-gray-400 normal-case">({{ attachment_count }})</span>{% endif %}
+        </span>
+      </div>
+      <div class="p-4" id="project-files-panel"
+           hx-get="/api/attachments/panel?record_type=project&record_id={{ project.id }}"
+           hx-trigger="load" hx-swap="innerHTML">
+        <p class="text-xs text-gray-400 italic">Loading files...</p>
+      </div>
+    </div>
+
+    {# ── Project Exposures ── #}
+    <div class="mt-6" id="project-exposures-section"
+         hx-get="/clients/{{ client.id }}/projects/{{ project.id }}/exposures"
+         hx-trigger="load"
+         hx-swap="innerHTML">
+      <div class="text-center py-6 text-gray-300 text-xs">Loading exposures...</div>
+    </div>
+
+    {# ── Compliance / Contract Review ── #}
+    <div class="mt-6" id="project-compliance-section"
+         hx-get="/compliance/client/{{ client.id }}/location/{{ project.id }}/embed"
+         hx-trigger="load"
+         hx-swap="innerHTML">
+      <div class="text-center py-6 text-gray-300 text-xs">Loading compliance review...</div>
+    </div>
+
+  </div>
+
+  {# ── Right sidebar ── #}
+  <div class="sm:w-72 shrink-0 space-y-4">
 
     {# Programs at this location #}
     <div class="card p-4">
@@ -318,14 +382,6 @@
     </div>
     {% endif %}
 
-    {# Files & Attachments #}
-    <div class="card p-4">
-      <div hx-get="/api/attachments/panel?record_type=project&record_id={{ project.id }}"
-           hx-trigger="load" hx-swap="innerHTML">
-        <p class="text-xs text-gray-400 italic">Loading...</p>
-      </div>
-    </div>
-
     {# References #}
     <div class="card p-4">
       <div class="flex items-center justify-between mb-2">
@@ -372,6 +428,9 @@
 
   </div>
 </div>
+
+{# Issue Create Slideover (for the "+ New Issue" button on the Issues card) #}
+{% include "_issue_create_slideover.html" %}
 
 <script>
 /* References panel */

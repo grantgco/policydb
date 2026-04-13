@@ -940,6 +940,25 @@ def issue_detail(
     # Linked policies: direct FK + program siblings + junction table
     linked_policies = _get_linked_policies(conn, issue_id, issue)
 
+    # Build bind subjects from linked policies. Group policies that share a
+    # program_uid into a single program: token (so program children render as
+    # one section); emit standalone policies as their own policy: tokens.
+    _bind_tokens: list[str] = []
+    _seen_programs: set[str] = set()
+    _seen_standalone: set[str] = set()
+    for lp in linked_policies:
+        pgm_uid = lp.get("program_uid")
+        if pgm_uid:
+            if pgm_uid not in _seen_programs:
+                _seen_programs.add(pgm_uid)
+                _bind_tokens.append(f"program:{pgm_uid}")
+        else:
+            pol_uid = lp.get("policy_uid")
+            if pol_uid and pol_uid not in _seen_standalone:
+                _seen_standalone.add(pol_uid)
+                _bind_tokens.append(f"policy:{pol_uid}")
+    bind_subjects_csv = ",".join(_bind_tokens)
+
     ctx = {
         "request": request,
         "active": "action-center",
@@ -949,6 +968,7 @@ def issue_detail(
         "merged_from_issues": merged_from_issues,
         "merged_from_flash": merged_from or "",
         "linked_policies": linked_policies,
+        "bind_subjects_csv": bind_subjects_csv,
         "issue_lifecycle_states": cfg.get("issue_lifecycle_states", []),
         "issue_severities": cfg.get("issue_severities", []),
         "issue_resolution_types": cfg.get("issue_resolution_types", []),

@@ -1823,7 +1823,7 @@ function policyStatusPill(btn, uid, status) {
 {# ── Follow-up edit slideover ── #}
 <div id="fu-edit-backdrop" class="fixed inset-0 bg-black/30 z-40 hidden" onclick="closeFollowupEdit()"></div>
 <div id="fu-edit-panel" class="fixed top-0 right-0 bottom-0 w-[480px] max-sm:w-full z-50 hidden flex-col bg-white shadow-xl">
-  <div id="fu-edit-content"></div>
+  <div id="fu-edit-content" class="flex-1 min-h-0 flex flex-col"></div>
 </div>
 <script>
 function openFollowupEdit() {

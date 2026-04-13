@@ -3222,12 +3222,34 @@ def client_edit_form(request: Request, client_id: int, conn=Depends(get_db)):
     if not client:
         return HTMLResponse("Client not found", status_code=404)
     from policydb.queries import REVIEW_CYCLE_LABELS as _REVIEW_CYCLE_LABELS
+
+    scratch_row = conn.execute(
+        "SELECT content, updated_at FROM client_scratchpad WHERE client_id=?",
+        (client_id,),
+    ).fetchone()
+    client_scratchpad = scratch_row["content"] if scratch_row else ""
+    client_scratchpad_updated = scratch_row["updated_at"] if scratch_row else ""
+
+    open_issues = [dict(r) for r in conn.execute(
+        """SELECT a.id, a.issue_uid, a.subject
+           FROM activity_log a
+           WHERE a.client_id = ? AND a.item_kind = 'issue' AND a.issue_id IS NULL
+             AND a.merged_into_id IS NULL
+             AND (a.issue_status IS NULL OR a.issue_status NOT IN ('Resolved', 'Closed'))
+           ORDER BY a.activity_date DESC""",
+        (client_id,),
+    ).fetchall()]
+
     return templates.TemplateResponse("clients/edit.html", {
         "request": request,
         "active": "clients",
         "client": dict(client),
         "industry_segments": cfg.get("industry_segments"),
         "cycle_labels": _REVIEW_CYCLE_LABELS,
+        "client_scratchpad": client_scratchpad,
+        "client_scratchpad_updated": client_scratchpad_updated,
+        "activity_types": cfg.get("activity_types"),
+        "open_issues": open_issues,
     })
 
 
@@ -4037,6 +4059,36 @@ def project_notes_autosave(
     return JSONResponse({"ok": True, "saved_at": saved_at})
 
 
+@router.post("/{client_id}/projects/{project_id}/scratchpad")
+def project_scratchpad_autosave(
+    client_id: int,
+    project_id: int,
+    content: str = Form(""),
+    conn=Depends(get_db),
+):
+    """Auto-save the project's working-notes scratchpad (upsert)."""
+    from fastapi import HTTPException
+    row = conn.execute(
+        "SELECT 1 FROM projects WHERE id = ? AND client_id = ?",
+        (project_id, client_id),
+    ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Project not found")
+    conn.execute(
+        """INSERT INTO project_scratchpad (project_id, content, updated_at)
+           VALUES (?, ?, CURRENT_TIMESTAMP)
+           ON CONFLICT(project_id) DO UPDATE SET
+               content = excluded.content,
+               updated_at = CURRENT_TIMESTAMP""",
+        (project_id, content),
+    )
+    conn.commit()
+    saved_at = babel_format_datetime(
+        datetime.now(), "MMM d 'at' h:mma", locale="en_US"
+    ).replace("AM", "am").replace("PM", "pm")
+    return JSONResponse({"ok": True, "saved_at": saved_at})
+
+
 @router.get("/{client_id}/projects/{project_id}", response_class=HTMLResponse)
 def project_detail(
     client_id: int,
@@ -4096,6 +4148,50 @@ def project_detail(
     from policydb.queries import get_programs_for_project
     location_programs = get_programs_for_project(conn, project_id)
 
+    # Project scratchpad (working notes with activity conversion)
+    scratch_row = conn.execute(
+        "SELECT content, updated_at FROM project_scratchpad WHERE project_id = ?",
+        (project_id,),
+    ).fetchone()
+    project_scratchpad = scratch_row["content"] if scratch_row else ""
+    project_scratchpad_updated = scratch_row["updated_at"] if scratch_row else ""
+
+    # Open issues assigned to this location (direct project_id + linked policies'
+    # issues), deduped by activity_log id, newest first.
+    policy_ids = [p["id"] for p in policies]
+    _placeholders = ",".join("?" * len(policy_ids)) if policy_ids else ""
+    _where_parts = ["(a.project_id = ?)"]
+    _params: list = [project_id]
+    if policy_ids:
+        _where_parts.append(f"(a.policy_id IN ({_placeholders}))")
+        _params.extend(policy_ids)
+    _where = " OR ".join(_where_parts)
+    open_project_issues = [dict(r) for r in conn.execute(
+        f"""SELECT a.id, a.issue_uid, a.subject, a.issue_status, a.issue_severity,
+                   a.activity_date, a.policy_id, a.is_renewal_issue,
+                   p.policy_uid, p.policy_type,
+                   CAST(julianday(date('now')) - julianday(a.activity_date) AS INTEGER) AS days_open
+            FROM activity_log a
+            LEFT JOIN policies p ON p.id = a.policy_id
+            WHERE a.item_kind = 'issue'
+              AND a.client_id = ?
+              AND ({_where})
+              AND a.merged_into_id IS NULL
+              AND (a.issue_status IS NULL OR a.issue_status NOT IN ('Resolved', 'Closed'))
+            ORDER BY CASE a.issue_severity
+                       WHEN 'Critical' THEN 1 WHEN 'High' THEN 2
+                       WHEN 'Normal' THEN 3 ELSE 4 END,
+                     a.activity_date DESC""",  # noqa: S608 — placeholders built from static counts
+        [client_id, *_params],
+    ).fetchall()]
+
+    # Attachment count for the Files card header
+    attachment_count = conn.execute(
+        """SELECT COUNT(DISTINCT ra.attachment_id) FROM record_attachments ra
+           WHERE ra.record_type = 'project' AND ra.record_id = ?""",
+        (project_id,),
+    ).fetchone()[0]
+
     return templates.TemplateResponse(
         "clients/project.html",
         {
@@ -4110,6 +4206,11 @@ def project_detail(
             "pinned_scope": "project",
             "pinned_scope_id": str(project_id),
             "pinned_client_id": str(client_id),
+            "project_scratchpad": project_scratchpad,
+            "project_scratchpad_updated": project_scratchpad_updated,
+            "open_project_issues": open_project_issues,
+            "attachment_count": attachment_count,
+            "activity_types": cfg.get("activity_types", []),
         },
     )
 
