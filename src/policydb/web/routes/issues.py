@@ -795,12 +795,15 @@ def issue_detail(
     conn=Depends(get_db),
 ):
     """Full issue detail page with activity timeline."""
+    # Pull location from the issue's policy OR its program (program-level
+    # renewal issues have no policy_id but the program carries project_id).
     issue = conn.execute("""
         SELECT a.*, c.name AS client_name,
                p.policy_uid, p.policy_type, p.carrier, p.expiration_date,
                p.is_opportunity, p.opportunity_status, p.target_effective_date,
                p.premium AS policy_premium,
-               pr.name AS location_name,
+               COALESCE(pr.name, pr2.name) AS location_name,
+               COALESCE(pr.id, pr2.id) AS location_project_id,
                CASE WHEN a.resolved_date IS NOT NULL
                     THEN julianday(a.resolved_date) - julianday(a.activity_date)
                     ELSE julianday(date('now')) - julianday(a.activity_date)
@@ -813,6 +816,8 @@ def issue_detail(
         LEFT JOIN clients c ON c.id = a.client_id
         LEFT JOIN policies p ON p.id = a.policy_id
         LEFT JOIN projects pr ON pr.id = p.project_id
+        LEFT JOIN programs pg ON pg.id = a.program_id
+        LEFT JOIN projects pr2 ON pr2.id = pg.project_id
         WHERE a.issue_uid = ? AND a.item_kind = 'issue'
     """, (issue_uid,)).fetchone()
 
@@ -1148,6 +1153,42 @@ def delete_issue(
 # ── Merge issues ────────────────────────────────────────────────────────────
 
 
+def _merge_source_into_target(conn, src_id: int, target_id: int, today: str) -> int:
+    """Relink a single source issue into a target issue, returning auto-closed count."""
+    closed = auto_close_followups(
+        conn, issue_id=src_id, reason="issue_merged",
+        closed_by="issue_merge", before_date=today,
+    )
+    # Relink child activities to target (tag with source for dissolve)
+    conn.execute(
+        "UPDATE activity_log SET issue_id = ?, merged_from_issue_id = ? WHERE issue_id = ?",
+        (target_id, src_id, src_id),
+    )
+    # Move header-level attachments from source to target, tagging each with
+    # source for dissolve restore. UPDATE OR IGNORE skips collisions; the
+    # follow-up DELETE clears leftover source rows.
+    conn.execute("""
+        UPDATE OR IGNORE record_attachments
+        SET record_id = ?, merged_from_issue_id = ?
+        WHERE record_type = 'issue' AND record_id = ?
+    """, (target_id, src_id, src_id))
+    conn.execute(
+        "DELETE FROM record_attachments WHERE record_type = 'issue' AND record_id = ?",
+        (src_id,),
+    )
+    # Close source issue as merged
+    conn.execute("""
+        UPDATE activity_log
+        SET issue_status = 'Closed',
+            resolution_type = 'Duplicate',
+            resolution_notes = 'Merged into ' || (SELECT issue_uid FROM activity_log WHERE id = ?),
+            resolved_date = ?,
+            merged_into_id = ?
+        WHERE id = ? AND item_kind = 'issue'
+    """, (target_id, today, target_id, src_id))
+    return closed
+
+
 @router.post("/issues/{target_id}/merge", response_class=HTMLResponse)
 def merge_issues(
     target_id: int,
@@ -1170,33 +1211,60 @@ def merge_issues(
             parsed_ids.append(int(v))
 
     today = date.today().isoformat()
-    total_closed = 0
     for src_id in parsed_ids:
         if src_id == target_id:
             continue
-        # Auto-close stale follow-ups on source before relink
-        total_closed += auto_close_followups(
-            conn, issue_id=src_id, reason="issue_merged",
-            closed_by="issue_merge", before_date=today,
-        )
-        # Relink child activities to target (tag with source for dissolve)
-        conn.execute(
-            "UPDATE activity_log SET issue_id = ?, merged_from_issue_id = ? WHERE issue_id = ?",
-            (target_id, src_id, src_id),
-        )
-        # Close source issue as merged
-        conn.execute("""
-            UPDATE activity_log
-            SET issue_status = 'Closed',
-                resolution_type = 'Duplicate',
-                resolution_notes = 'Merged into ' || (SELECT issue_uid FROM activity_log WHERE id = ?),
-                resolved_date = ?,
-                merged_into_id = ?
-            WHERE id = ? AND item_kind = 'issue'
-        """, (target_id, today, target_id, src_id))
+        _merge_source_into_target(conn, src_id, target_id, today)
 
     conn.commit()
     return RedirectResponse(f"/issues/{target['issue_uid']}", status_code=303)
+
+
+# ── Consolidate by location ─────────────────────────────────────────────────
+
+
+@router.post("/issues/consolidate")
+def consolidate_location(
+    request: Request,
+    client_id: int = Form(...),
+    project_id: int = Form(...),
+    conn=Depends(get_db),
+):
+    """Merge all open standalone renewal issues at one location into a single issue.
+
+    Target is the issue with the earliest expiration date (tiebreak: lowest id).
+    Responds with HX-Redirect when called from HTMX, 303 otherwise.
+    """
+    rows = conn.execute("""
+        SELECT a.id, p.expiration_date
+        FROM activity_log a
+        JOIN policies p ON p.id = a.policy_id
+        WHERE a.item_kind = 'issue'
+          AND a.is_renewal_issue = 1
+          AND a.issue_status NOT IN ('Resolved', 'Closed')
+          AND a.merged_into_id IS NULL
+          AND a.program_id IS NULL
+          AND a.client_id = ?
+          AND p.project_id = ?
+        ORDER BY p.expiration_date ASC, a.id ASC
+    """, (client_id, project_id)).fetchall()
+
+    target_uid = None
+    if len(rows) >= 2:
+        target_id = rows[0]["id"]
+        today = date.today().isoformat()
+        for r in rows[1:]:
+            _merge_source_into_target(conn, r["id"], target_id, today)
+        conn.commit()
+        target_row = conn.execute(
+            "SELECT issue_uid FROM activity_log WHERE id = ?", (target_id,)
+        ).fetchone()
+        target_uid = target_row["issue_uid"] if target_row else None
+
+    redirect_url = f"/issues/{target_uid}" if target_uid else "/action-center?tab=issues"
+    if request.headers.get("HX-Request"):
+        return HTMLResponse("", headers={"HX-Redirect": redirect_url})
+    return RedirectResponse(redirect_url, status_code=303)
 
 
 # ── Dissolve merge ─────────────────────────────────────────────────────────
@@ -1228,6 +1296,19 @@ def dissolve_merge(
     conn.execute(
         "UPDATE activity_log SET issue_id = ?, merged_from_issue_id = NULL WHERE issue_id = ? AND merged_from_issue_id = ?",
         (source_id, target_id, source_id),
+    )
+
+    # Move header-level attachments back to source, undoing the merge.
+    # UPDATE OR IGNORE + DELETE handles the case where the source issue
+    # separately re-acquired the same attachment after the merge.
+    conn.execute("""
+        UPDATE OR IGNORE record_attachments
+        SET record_id = ?, merged_from_issue_id = NULL
+        WHERE record_type = 'issue' AND record_id = ? AND merged_from_issue_id = ?
+    """, (source_id, target_id, source_id))
+    conn.execute(
+        "DELETE FROM record_attachments WHERE record_type = 'issue' AND record_id = ? AND merged_from_issue_id = ?",
+        (target_id, source_id),
     )
 
     # Reopen source issue

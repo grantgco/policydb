@@ -111,6 +111,11 @@
       class="text-xs bg-white text-gray-700 hover:bg-gray-50 border border-gray-300 px-3 py-1.5 rounded-lg font-medium transition-colors">
       VACUUM
     </button>
+    <button type="button" onclick="dbPurgeMergedTombstones()"
+      class="text-xs bg-white text-gray-700 hover:bg-gray-50 border border-gray-300 px-3 py-1.5 rounded-lg font-medium transition-colors"
+      title="Delete closed-and-merged renewal issues whose parent is also terminal">
+      Purge Merged Tombstones
+    </button>
     <a href="/settings/db/download"
       class="text-xs bg-white text-gray-700 hover:bg-gray-50 border border-gray-300 px-3 py-1.5 rounded-lg font-medium transition-colors inline-block">
       Download DB
@@ -182,6 +187,20 @@ function dbBackupNow() {
 function dbVacuum() {
   _dbSetStatus('Running VACUUM…', 'text-gray-500');
   fetch('/settings/db/vacuum', { method: 'POST' })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.ok) {
+        _dbSetStatus(d.message, 'text-green-600');
+      } else {
+        _dbSetStatus('Error: ' + d.error, 'text-red-600');
+      }
+    })
+    .catch(function(e) { _dbSetStatus('Request failed.', 'text-red-600'); });
+}
+
+function dbPurgeMergedTombstones() {
+  _dbSetStatus('Purging merged tombstones…', 'text-gray-500');
+  fetch('/settings/db/purge-merged-tombstones', { method: 'POST' })
     .then(function(r) { return r.json(); })
     .then(function(d) {
       if (d.ok) {

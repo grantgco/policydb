@@ -71,7 +71,12 @@
     {% endif %}
     {% if issue.location_name %}
       <span class="text-gray-300">&middot;</span>
+      {% if issue.location_project_id %}
+      <a href="/clients/{{ issue.client_id }}/projects/{{ issue.location_project_id }}"
+         class="text-marsh hover:underline">{{ issue.location_name }}</a>
+      {% else %}
       <span class="text-gray-500">{{ issue.location_name }}</span>
+      {% endif %}
     {% endif %}
     <span class="text-gray-300">&middot;</span>
     {% if issue.is_renewal_issue %}
@@ -373,7 +378,14 @@
         <a href="/policies/{{ issue.policy_uid }}/edit" class="block text-[10px] text-marsh hover:underline mt-1">Review Policy &rarr;</a>
         {% endif %}
         {% if issue.location_name %}
-        <div class="text-xs text-gray-500 mt-1">{{ issue.location_name }}</div>
+        <div class="text-xs mt-1">
+          {% if issue.location_project_id %}
+          <a href="/clients/{{ issue.client_id }}/projects/{{ issue.location_project_id }}"
+             class="text-marsh hover:underline">{{ issue.location_name }} &rarr;</a>
+          {% else %}
+          <span class="text-gray-500">{{ issue.location_name }}</span>
+          {% endif %}
+        </div>
         {% endif %}
         {% if issue.is_renewal_issue %}
         <div class="text-xs text-gray-500 mt-2">{{ days }}d open</div>

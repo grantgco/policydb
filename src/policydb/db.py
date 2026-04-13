@@ -364,7 +364,7 @@ def _init_db_inner(conn: sqlite3.Connection, db_path: Path) -> None:
     # Back up the database once before running any pending migrations.
     # This gives a clean restore point regardless of which migration fails.
 
-    _KNOWN_MIGRATIONS = set(range(1, 140))  # update upper bound when adding new migrations
+    _KNOWN_MIGRATIONS = set(range(1, 142))  # update upper bound when adding new migrations
 
     if _KNOWN_MIGRATIONS - applied:
         _backup_db(conn, db_path)
@@ -1857,6 +1857,17 @@ def _init_db_inner(conn: sqlite3.Connection, db_path: Path) -> None:
         conn.commit()
         logger.info("Migration 140: added policy_number_unknown column")
 
+    if 141 not in applied:
+        conn.executescript(
+            (_MIGRATIONS_DIR / "141_record_attachments_merge_tracking.sql").read_text()
+        )
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (141, "Track merged-from issue on record_attachments for dissolve restore"),
+        )
+        conn.commit()
+        logger.info("Migration 141: added merged_from_issue_id to record_attachments")
+
     # Data hygiene: fix 'None' string corruption in text fields (runs every startup, fast no-op if clean)
     conn.execute("UPDATE clients SET cn_number = NULL WHERE cn_number = 'None'")
 
@@ -2116,6 +2127,7 @@ def _init_db_inner(conn: sqlite3.Connection, db_path: Path) -> None:
 
     # Purge old log entries
     _purge_old_logs(conn)
+    _purge_merged_tombstones(conn)
 
     # DB size
     _HEALTH_STATUS["db_size"] = os.path.getsize(db_path) if os.path.exists(db_path) else 0
@@ -2197,6 +2209,92 @@ def _purge_old_logs(conn: sqlite3.Connection) -> None:
                 logger.info("VACUUM completed after large purge (%d rows)", total)
             except Exception as e:
                 logger.warning("VACUUM failed after purge: %s", e)
+
+
+def purge_merged_tombstones(conn: sqlite3.Connection) -> int:
+    """Delete closed-and-merged renewal issues older than retention, when the
+    merge target is itself Resolved/Closed or missing.
+
+    Safety interlock: a tombstone is only swept once its "parent" renewal is
+    also terminal. This preserves the duplicate-prevention behavior in
+    renewal_issues._create_renewal_issue_if_needed for still-active merges.
+
+    Returns the number of rows deleted.
+    """
+    from datetime import date, timedelta
+    from policydb import config as _purge_cfg
+
+    retention_days = _purge_cfg.get("merged_issue_retention_days", 90)
+    cutoff = (date.today() - timedelta(days=retention_days)).isoformat()
+
+    try:
+        ids = [r[0] for r in conn.execute("""
+            SELECT src.id FROM activity_log src
+            WHERE src.item_kind = 'issue'
+              AND src.is_renewal_issue = 1
+              AND src.issue_status = 'Closed'
+              AND src.merged_into_id IS NOT NULL
+              AND src.created_at < ?
+              AND NOT EXISTS (
+                  SELECT 1 FROM activity_log tgt
+                  WHERE tgt.id = src.merged_into_id
+                    AND tgt.item_kind = 'issue'
+                    AND tgt.issue_status NOT IN ('Resolved', 'Closed')
+              )
+        """, (cutoff,)).fetchall()]
+        if not ids:
+            return 0
+
+        # Null out FK references before DELETE. Purging is a one-way operation
+        # (dissolve is already foreclosed because the merge target is terminal),
+        # so losing these "merged_from" breadcrumbs is intentional.
+        placeholders = ",".join("?" * len(ids))
+        conn.execute(
+            f"UPDATE activity_log SET merged_from_issue_id = NULL "
+            f"WHERE merged_from_issue_id IN ({placeholders})",
+            ids,
+        )
+        conn.execute(
+            f"UPDATE activity_log SET issue_id = NULL "
+            f"WHERE issue_id IN ({placeholders})",
+            ids,
+        )
+        conn.execute(
+            f"UPDATE record_attachments SET merged_from_issue_id = NULL "
+            f"WHERE merged_from_issue_id IN ({placeholders})",
+            ids,
+        )
+        conn.execute(
+            f"UPDATE inbox SET activity_id = NULL "
+            f"WHERE activity_id IN ({placeholders})",
+            ids,
+        )
+        conn.execute(
+            f"UPDATE mandated_activity_log SET activity_id = NULL "
+            f"WHERE activity_id IN ({placeholders})",
+            ids,
+        )
+
+        cur = conn.execute(
+            f"DELETE FROM activity_log WHERE id IN ({placeholders})",
+            ids,
+        )
+        deleted = cur.rowcount or 0
+        if deleted:
+            conn.commit()
+        return deleted
+    except Exception as e:
+        logger.warning("Merged tombstone purge failed (non-fatal): %s", e)
+        conn.rollback()
+        return 0
+
+
+def _purge_merged_tombstones(conn: sqlite3.Connection) -> None:
+    """Startup wrapper for purge_merged_tombstones — logs but never blocks."""
+    deleted = purge_merged_tombstones(conn)
+    if deleted:
+        logger.info("Merged tombstone purge: %d rows removed", deleted)
+        _HEALTH_STATUS["last_purge_merged_tombstones"] = deleted
 
 
 def _migrate_unified_contacts(conn: sqlite3.Connection) -> None:

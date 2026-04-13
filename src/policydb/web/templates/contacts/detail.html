@@ -27,7 +27,12 @@
           data-field="name"
           data-placeholder="Contact name"
           onblur="saveContactField(this, 'name')">{{ contact.name }}</h1>
-      <p class="text-sm text-gray-500 mt-1 cd-editable"
+      <p class="text-sm text-gray-700 mt-1 cd-editable"
+         contenteditable="true"
+         data-field="title"
+         data-placeholder="Job title"
+         onblur="saveContactField(this, 'title')">{{ contact.title or '' }}</p>
+      <p class="text-sm text-gray-500 mt-0.5 cd-editable"
          contenteditable="true"
          data-field="organization"
          data-placeholder="Organization"
@@ -327,8 +332,10 @@
       });
       return;
     }
-    // For organization, use the unified cell endpoint
-    if (field === 'organization') {
+    // Organization and title both save via the unified cell endpoint.
+    // Title is stored per-assignment in the junction tables; the unified
+    // store updates all assignments at once.
+    if (field === 'organization' || field === 'title') {
       fetch('/contacts/unified/' + encodeURIComponent(contactName) + '/cell', {
         method: 'PATCH',
         headers: {'Content-Type': 'application/json'},

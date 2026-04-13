@@ -9,6 +9,50 @@
   </div>
   {% endif %}
 
+  {# ── Consolidation suggestions ── #}
+  {% if consolidation_suggestions %}
+  <div class="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 mb-4">
+    <div class="flex items-center gap-2 mb-2">
+      <span class="text-xs font-semibold text-amber-800 uppercase tracking-wide">
+        Consolidate by Location
+      </span>
+      <span class="text-[11px] text-amber-600">
+        {{ consolidation_suggestions|length }}
+        {{ 'location has' if consolidation_suggestions|length == 1 else 'locations have' }}
+        multiple open renewal issues
+      </span>
+    </div>
+    <div class="space-y-1.5">
+      {% for cluster in consolidation_suggestions %}
+      <div class="flex items-center gap-3 bg-white border border-amber-100 rounded px-3 py-2">
+        <div class="flex-1 min-w-0">
+          <div class="text-sm font-medium text-gray-800 truncate">
+            <a href="/clients/{{ cluster.client_id }}" class="hover:underline">{{ cluster.client_name }}</a>
+            <span class="text-gray-300 mx-1">&middot;</span>
+            <a href="/clients/{{ cluster.client_id }}/projects/{{ cluster.project_id }}"
+               class="text-marsh hover:underline">{{ cluster.location_name }}</a>
+          </div>
+          <div class="text-[11px] text-gray-500 mt-0.5 truncate">
+            {% for iss in cluster.issues %}
+              <span class="font-mono">{{ iss.policy_uid }}</span>{% if iss.policy_type %} {{ iss.policy_type }}{% endif %}{% if not loop.last %} &middot; {% endif %}
+            {% endfor %}
+          </div>
+        </div>
+        <button type="button"
+                hx-post="/issues/consolidate"
+                hx-vals='{"client_id": {{ cluster.client_id }}, "project_id": {{ cluster.project_id }}}'
+                hx-target="body"
+                hx-swap="outerHTML"
+                hx-confirm="Merge {{ cluster.issues|length }} renewal issues at {{ cluster.location_name }} into one?"
+                class="shrink-0 text-xs bg-amber-600 text-white rounded px-3 py-1.5 hover:bg-amber-700 transition-colors">
+          Consolidate {{ cluster.issues|length }} &rarr; 1
+        </button>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
   {# ── Filter bar ── #}
   <div class="flex items-center gap-3 mb-4 flex-wrap">
     <input type="search" placeholder="Search issues…"

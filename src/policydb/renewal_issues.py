@@ -185,11 +185,22 @@ def _create_renewal_issue_if_needed(
     due_date: str | None = None,
 ) -> None:
     """Create a renewal issue if one doesn't already exist for this term key."""
+    # Skip if an open issue already owns this term_key, OR if a closed-and-merged
+    # issue with this term_key still points at an open merge target — otherwise
+    # the generator would recreate an issue the user deliberately merged away.
     existing = conn.execute("""
-        SELECT id FROM activity_log
-        WHERE is_renewal_issue = 1
-          AND renewal_term_key = ?
-          AND issue_status NOT IN ('Resolved', 'Closed')
+        SELECT src.id FROM activity_log src
+        WHERE src.is_renewal_issue = 1
+          AND src.renewal_term_key = ?
+          AND (
+              src.issue_status NOT IN ('Resolved', 'Closed')
+              OR EXISTS (
+                  SELECT 1 FROM activity_log tgt
+                  WHERE tgt.id = src.merged_into_id
+                    AND tgt.item_kind = 'issue'
+                    AND tgt.issue_status NOT IN ('Resolved', 'Closed')
+              )
+          )
     """, (term_key,)).fetchone()
     if existing:
         return
