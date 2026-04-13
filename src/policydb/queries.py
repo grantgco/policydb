@@ -925,6 +925,46 @@ def get_policy_total_hours(conn: sqlite3.Connection, policy_id: int) -> float:
     return float(row["t"])
 
 
+def compute_nudge_tier(
+    conn,
+    policy_uid: str,
+    dispositions: list[dict] | None = None,
+) -> tuple[int, str]:
+    """Count ``waiting_external`` activities for a policy in the last 90 days.
+
+    Returns ``(count, tier)`` where tier is one of ``normal``, ``elevated``,
+    or ``urgent``. ``count`` is the total waiting-disposition activities we've
+    logged against the policy (minimum 1) and determines the tier.
+
+    Shared by the legacy Follow-ups tab (action_center._followups_ctx) and
+    the Focus Queue so both views report the same escalation level.
+    """
+    if dispositions is None:
+        dispositions = cfg.get("follow_up_dispositions", [])
+    waiting_labels = [
+        d["label"] for d in dispositions
+        if d.get("accountability") == "waiting_external"
+    ]
+    if not waiting_labels or not policy_uid:
+        return 1, "normal"
+
+    placeholders = ",".join("?" * len(waiting_labels))
+    count = conn.execute(
+        f"""SELECT COUNT(*) FROM activity_log a
+            WHERE (a.policy_id = (SELECT id FROM policies WHERE policy_uid = ?)
+                   OR (a.issue_id IN (SELECT ipc.issue_id FROM v_issue_policy_coverage ipc
+                                      WHERE ipc.policy_id = (SELECT id FROM policies WHERE policy_uid = ?))
+                       AND a.item_kind != 'issue'))
+              AND a.disposition IN ({placeholders})
+              AND a.activity_date >= date('now', '-90 days')""",
+        [policy_uid, policy_uid] + waiting_labels,
+    ).fetchone()[0]
+
+    count = max(count, 1)
+    tier = "urgent" if count >= 3 else "elevated" if count >= 2 else "normal"
+    return count, tier
+
+
 def auto_close_followups(
     conn,
     *,

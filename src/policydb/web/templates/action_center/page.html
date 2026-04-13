@@ -29,14 +29,10 @@
             <span class="tab-badge" style="background:#ef4444;color:white">{{ _focus_badge }}</span>
           {% endif %}
         </button>
-        <button class="tab-btn" data-tab="followups" data-tab-url="/action-center/followups">
-          Follow-ups
-          {% if _fu_badge %}
-            <span class="tab-badge" style="background:#ef4444;color:white">{{ _fu_badge }}</span>
-          {% elif overdue is defined and overdue|length %}
-            <span class="tab-badge" style="background:#ef4444;color:white">{{ overdue|length }}</span>
-          {% endif %}
-        </button>
+
+        {# The legacy Follow-ups tab has been retired — the Focus Queue is the single
+           source of truth for active work. /action-center/followups still redirects so
+           deep-links keep working. #}
 
         {# ── More ▾ dropdown ── #}
         <div class="relative" style="margin-left:auto;">

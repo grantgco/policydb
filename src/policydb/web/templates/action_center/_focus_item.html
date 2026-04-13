@@ -74,10 +74,121 @@
         {% endif %}
       </div>
       {% endif %}
+      {# Suggested next action — always visible (Guide Me mode shows an upscaled version below).
+         This is the "where should this be directed" hint that used to be hidden behind a toggle. #}
+      {% if item.suggested_action_detail and not (is_highlighted and guide_me) %}
+      <div class="text-[12px] text-[#0B4BFF] mt-0.5">
+        → {{ item.suggested_action_detail }}
+      </div>
+      {% endif %}
+      {# ─── Metrics strip ───────────────────────────────────────────
+         Data-dense horizontal row of compact chips. Each chip is only rendered
+         when its underlying signal is meaningful, so the row naturally grows
+         with how much the system "knows" about the item. #}
+      {% set _d = item.days_until_deadline %}
+      {% set _show_overdue = _d is not none and _d < 0 %}
+      {% set _show_due_in = _d is not none and _d >= 0 and _d <= 30 %}
+      {% set _show_fu_expiry = item.days_fu_to_expiry is not none and item.days_fu_to_expiry <= 14 %}
+      {% set _show_hours = item.policy_hours_30d and item.policy_hours_30d > 0 %}
+      {% set _show_nudge = item.nudge_count and item.nudge_count >= 2 %}
+      {% set _show_cadence = item.cadence %}
+      {% set _show_linked_issue = item.linked_issue_uid %}
+      {% set _show_program = item.program_name %}
+      {% set _show_project = item.project_name and not item.program_name %}
+      {% set _show_renewal_status = item.renewal_status %}
+      {% if _show_overdue or _show_due_in or _show_fu_expiry or _show_hours or _show_nudge or _show_cadence or _show_linked_issue or _show_program or _show_project or _show_renewal_status %}
+      <div class="flex items-center gap-1.5 mt-1 flex-wrap text-[10px] font-medium">
+        {# Urgency: overdue or upcoming #}
+        {% if _show_overdue %}
+          <span class="bg-red-50 text-red-700 border border-red-200 px-1.5 py-0.5 rounded" title="Days past follow-up date">
+            +{{ -_d }}d over
+          </span>
+        {% elif _show_due_in %}
+          <span class="bg-blue-50 text-blue-700 border border-blue-200 px-1.5 py-0.5 rounded" title="Days until follow-up is due">
+            {% if _d == 0 %}today{% else %}in {{ _d }}d{% endif %}
+          </span>
+        {% endif %}
+        {# Follow-up runway to expiration #}
+        {% if _show_fu_expiry %}
+          {% set _fx = item.days_fu_to_expiry %}
+          <span class="bg-amber-50 text-amber-800 border border-amber-200 px-1.5 py-0.5 rounded"
+                title="Days between follow-up and policy expiration">
+            {% if _fx < 0 %}exp {{ -_fx }}d ago{% elif _fx == 0 %}expires today{% else %}exp in {{ _fx }}d{% endif %}
+          </span>
+        {% endif %}
+        {# Cadence vs. disposition default_days #}
+        {% if _show_cadence %}
+          {% if item.cadence == 'on_cadence' %}
+            <span class="bg-green-50 text-green-700 border border-green-200 px-1.5 py-0.5 rounded" title="Follow-up is on cadence with the disposition's expected interval">on cadence</span>
+          {% elif item.cadence == 'mild' %}
+            <span class="bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded" title="Mild drift past the disposition's expected interval">drifting</span>
+          {% else %}
+            <span class="bg-red-50 text-red-700 border border-red-200 px-1.5 py-0.5 rounded" title="Past 2× the disposition's expected interval">2× cadence</span>
+          {% endif %}
+        {% endif %}
+        {# Nudge tier #}
+        {% if _show_nudge %}
+          {% if item.escalation_tier == 'urgent' %}
+            <span class="bg-red-100 text-red-800 px-1.5 py-0.5 rounded font-semibold" title="Third+ nudge sent on this policy in the last 90 days">
+              ⚠ nudge #{{ item.nudge_count }}
+            </span>
+          {% else %}
+            <span class="bg-amber-50 text-amber-800 px-1.5 py-0.5 rounded" title="{{ item.nudge_count }} waiting-disposition activities in the last 90 days">
+              nudge #{{ item.nudge_count }}
+            </span>
+          {% endif %}
+        {% endif %}
+        {# Linked issue badge #}
+        {% if _show_linked_issue %}
+          {% set _sev = item.linked_issue_severity or 'Normal' %}
+          <span class="{% if _sev in ('Critical','High') %}bg-red-50 text-red-700 border border-red-200{% else %}bg-purple-50 text-purple-700 border border-purple-200{% endif %} px-1.5 py-0.5 rounded"
+                title="{{ item.linked_issue_subject or '' }}">
+            ⊗ {{ item.linked_issue_uid }}
+          </span>
+        {% endif %}
+        {# Hours logged on this policy last 30d #}
+        {% if _show_hours %}
+          <span class="bg-gray-50 text-gray-600 border border-gray-200 px-1.5 py-0.5 rounded" title="Hours logged on this policy in the last 30 days">
+            ⏱ {{ '%.1f'|format(item.policy_hours_30d) }}h / 30d
+          </span>
+        {% endif %}
+        {# Program / project context #}
+        {% if _show_program %}
+          <span class="bg-[#EDEAE4] text-[#6B6860] px-1.5 py-0.5 rounded truncate max-w-[180px]" title="Program: {{ item.program_name }}">
+            ⌘ {{ item.program_name }}
+          </span>
+        {% elif _show_project %}
+          <span class="bg-[#EDEAE4] text-[#6B6860] px-1.5 py-0.5 rounded truncate max-w-[180px]" title="Project/location: {{ item.project_name }}">
+            ⌘ {{ item.project_name }}
+          </span>
+        {% endif %}
+        {# Renewal status inline #}
+        {% if _show_renewal_status %}
+          <span class="bg-gray-50 text-gray-500 border border-gray-200 px-1.5 py-0.5 rounded">
+            {{ item.renewal_status }}
+          </span>
+        {% endif %}
+      </div>
+      {% endif %}
+      {# Prior disposition summary — "what happened last time" #}
+      {% if item.prev_disposition %}
+      <div class="text-[11px] text-[#9B9790] mt-0.5">
+        prev: <span class="text-[#6B6860]">{{ item.prev_disposition }}</span>
+        {% if item.prev_days_ago is not none %} · {{ item.prev_days_ago }}d ago{% endif %}
+        {% if item.disposition %} → now: <span class="text-[#6B6860]">{{ item.disposition }}</span>{% endif %}
+      </div>
+      {% elif item.disposition %}
+      <div class="text-[11px] text-[#9B9790] mt-0.5">
+        disposition: <span class="text-[#6B6860]">{{ item.disposition }}</span>
+      </div>
+      {% endif %}
       {# Last action + contact + waiting indicator #}
       <div class="flex items-center gap-2 mt-1 flex-wrap">
         {% if item.activity_type %}
           <span class="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">Last: {{ item.activity_type }}</span>
+        {% endif %}
+        {% if item.days_since_activity is not none and item.days_since_activity > 0 %}
+          <span class="text-[10px] text-gray-400" title="Days since the most recent activity on this item">{{ item.days_since_activity }}d since last touch</span>
         {% endif %}
         {% if item.contact_person %}
           <span class="text-[10px] text-gray-500">↳ {{ item.contact_person }}</span>
@@ -120,6 +231,11 @@
         </div>
       {% endif %}
 
+      {# Primary action. For activity-backed items this is a Send Nudge / Follow Up /
+         Review button that expands the inline completion form. Items promoted from the
+         Waiting sidebar also hit this branch because build_focus_queue already sets
+         their suggested_action to "Send Nudge" or "Escalate" — re-diary from the
+         inline form IS the nudge. Kind-specific branches handle inbox/milestone/suggested. #}
       <button class="bg-[#0B4BFF] text-white text-xs font-semibold px-3 py-1.5 rounded-md hover:bg-blue-700 whitespace-nowrap"
               {% if item.kind == 'inbox' %}
                 hx-get="/inbox/{{ item.inbox_id }}/process-slideover"
@@ -136,6 +252,36 @@
               {% endif %}>
         {{ item.suggested_action }}
       </button>
+
+      {# Clear — one-click "this is handled, take it off my list".
+         For activity-backed items, posts to /activities/{id}/abandon which marks
+         the row done with an [Abandoned] prefix and closes sibling follow-ups.
+         For other kinds, routes to the kind-specific clearer. #}
+      {% if has_activity_id %}
+        <button class="text-[11px] text-[#B05454] hover:text-[#8B3A3A] hover:bg-red-50 px-2 py-1.5 rounded-md"
+                hx-post="/activities/{{ item.id }}/abandon"
+                hx-target="#fq-{{ row_id }}" hx-swap="delete"
+                hx-confirm="Mark this as handled and remove from Focus Queue?"
+                title="Clear — mark handled and remove">
+          Clear
+        </button>
+      {% elif item.kind == 'suggested' and item.policy_uid %}
+        <button class="text-[11px] text-[#B05454] hover:text-[#8B3A3A] hover:bg-red-50 px-2 py-1.5 rounded-md"
+                hx-post="/policies/{{ item.policy_uid }}/clear-followup"
+                hx-target="#fq-{{ row_id }}" hx-swap="delete"
+                hx-confirm="Clear the renewal follow-up suggestion for this policy?"
+                title="Clear — no follow-up needed">
+          Clear
+        </button>
+      {% elif item.kind == 'inbox' %}
+        <button class="text-[11px] text-[#B05454] hover:text-[#8B3A3A] hover:bg-red-50 px-2 py-1.5 rounded-md"
+                hx-post="/inbox/{{ item.inbox_id }}/dismiss"
+                hx-target="#fq-{{ row_id }}" hx-swap="delete"
+                hx-confirm="Dismiss this inbox item?"
+                title="Dismiss">
+          Clear
+        </button>
+      {% endif %}
 
       <button class="bg-[#EDEAE4] text-[#6B6860] text-xs px-2 py-1.5 rounded-md hover:bg-gray-200"
               onclick="fqToggleMenu('{{ row_id }}')">

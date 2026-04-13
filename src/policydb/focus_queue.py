@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 from datetime import date, datetime, timedelta
 
 import policydb.config as cfg
 from policydb.queries import (
+    auto_close_stale_followups,
     get_all_followups,
     get_insurance_deadline_suggestions,
     get_suggested_followups,
 )
+
+logger = logging.getLogger("policydb.focus_queue")
 
 
 # ---------------------------------------------------------------------------
@@ -72,6 +76,7 @@ def _normalize_followup(item: dict, today: date) -> dict:
         "policy_uid": item.get("policy_uid"),
         "policy_type": item.get("policy_type"),
         "carrier": item.get("carrier"),
+        "renewal_status": item.get("renewal_status"),
         "subject": item.get("subject") or item.get("reason_line") or "",
         "follow_up_date": fu_date,
         "expiration_date": exp_date,
@@ -84,6 +89,8 @@ def _normalize_followup(item: dict, today: date) -> dict:
         "escalation_tier": item.get("escalation_tier"),
         "nudge_count": item.get("nudge_count", 0),
         "cadence": item.get("cadence"),
+        "days_fu_to_expiry": None,
+        "policy_hours_30d": 0.0,
         "is_milestone": item.get("is_milestone", False),
         "milestone_name": item.get("milestone_name"),
         "project_id": item.get("project_id"),
@@ -912,6 +919,53 @@ def _normalize_opportunity(item: dict, today: date) -> dict:
     }
 
 
+def _dedup_activity_siblings(all_items: list[dict]) -> tuple[list[dict], int]:
+    """Collapse multiple pending activity follow-ups on the same policy.
+
+    When two or more normalized Focus Queue items share the same ``policy_uid``
+    and both have ``kind == 'followup'`` with ``source in ('activity','project')``,
+    keep the one with the *earliest* ``follow_up_date`` (the most urgent /
+    oldest-unresolved), tie-breaking on highest id (most recently written).
+    Drop the rest.
+
+    Why earliest and not latest: the write-side invariant (Step 1 of this
+    cleanup) guarantees new follow-ups supersede old ones, so any surviving
+    duplicates are legacy data where the user manually created overlapping
+    rows. In that case the oldest one represents the real bottleneck, and
+    it is also more likely to survive the downstream time-horizon filter
+    (``horizon_days <= 0`` drops future-dated items).
+
+    Returns ``(kept_items, dropped_count)``.
+    """
+    # Group activity/project followups by policy_uid
+    by_policy: dict[str, list[dict]] = {}
+    other: list[dict] = []
+    for item in all_items:
+        if (item.get("kind") == "followup"
+                and item.get("source") in ("activity", "project")
+                and item.get("policy_uid")):
+            by_policy.setdefault(item["policy_uid"], []).append(item)
+        else:
+            other.append(item)
+
+    kept: list[dict] = list(other)
+    dropped = 0
+    for puid, group in by_policy.items():
+        if len(group) == 1:
+            kept.append(group[0])
+            continue
+        # Winner: earliest follow_up_date (most urgent). Put items with no
+        # date at the end. Tie-break on largest id (most recently written).
+        def _sort_key(x: dict) -> tuple:
+            fu = x.get("follow_up_date") or "9999-99-99"
+            return (fu, -(x.get("id") or 0))
+        group.sort(key=_sort_key)
+        kept.append(group[0])
+        dropped += len(group) - 1
+
+    return kept, dropped
+
+
 def build_focus_queue(
     conn: sqlite3.Connection,
     horizon_days: int = 0,
@@ -935,6 +989,14 @@ def build_focus_queue(
     excluded = cfg.get("renewal_statuses_excluded", [])
     auto_promote_days = cfg.get("focus_auto_promote_days", 14)
     nudge_alert_days = cfg.get("focus_nudge_alert_days", 10)
+
+    # Run the stale sweeper before gathering sources so users who never visit
+    # the legacy Follow-ups tab still get stale auto-close. Idempotent —
+    # already safe to call from multiple request paths.
+    try:
+        auto_close_stale_followups(conn)
+    except Exception:
+        logger.debug("auto_close_stale_followups failed", exc_info=True)
 
     client_ids = [client_id] if client_id else None
 
@@ -983,6 +1045,50 @@ def build_focus_queue(
     for item in opportunities:
         all_items.append(_normalize_opportunity(item, today))
 
+    # --- Enrich activity follow-ups with linked issue data ---
+    # _normalize_followup hard-codes linked_issue_uid=None because
+    # get_all_followups doesn't JOIN the issue row. Without this enrichment,
+    # Dedup Pass 3 (suppress issue rows whose follow-up already shows) is dead
+    # code and duplicate rows appear: one for the activity, one for the issue.
+    activity_ids = [
+        item["id"] for item in all_items
+        if item.get("kind") == "followup"
+        and item.get("source") in ("activity", "project")
+        and item.get("id")
+    ]
+    if activity_ids:
+        ph = ",".join("?" * len(activity_ids))
+        issue_link_rows = conn.execute(
+            f"""SELECT a.id AS activity_id, a.issue_id,
+                       iss.issue_uid AS linked_issue_uid,
+                       iss.subject AS linked_issue_subject,
+                       iss.issue_severity AS linked_issue_severity
+                FROM activity_log a
+                LEFT JOIN activity_log iss ON a.issue_id = iss.id AND iss.item_kind = 'issue'
+                WHERE a.id IN ({ph})""",
+            activity_ids,
+        ).fetchall()
+        _issue_link_map = {r["activity_id"]: dict(r) for r in issue_link_rows}
+        for item in all_items:
+            if (item.get("kind") == "followup"
+                    and item.get("source") in ("activity", "project")
+                    and item.get("id")):
+                link = _issue_link_map.get(item["id"])
+                if link and link.get("linked_issue_uid"):
+                    item["linked_issue_uid"] = link["linked_issue_uid"]
+                    item["linked_issue_subject"] = link["linked_issue_subject"]
+                    item["linked_issue_severity"] = link["linked_issue_severity"]
+
+    # --- Dedup sibling activity follow-ups on the same policy ---
+    # Defensive read-side fix: when two or more pending activity follow-ups
+    # exist for the same policy, only the most recent survives into Focus.
+    all_items, _sibling_dropped = _dedup_activity_siblings(all_items)
+    if _sibling_dropped:
+        logger.info(
+            "Focus Queue: dropped %d duplicate sibling activity follow-up(s) at render time",
+            _sibling_dropped,
+        )
+
     # --- Auto-suggest contacts from policy team for items missing a contact ---
     _contact_cache: dict[str, tuple[str, str]] = {}  # policy_uid -> (name, email)
     for item in all_items:
@@ -1005,6 +1111,94 @@ def build_focus_queue(
             item["contact_person"] = name
         if email:
             item["contact_email"] = email
+
+    # --- Metric enrichment: nudge tier, cadence, hours_30d, fu_to_expiry ---
+    # Previously computed only in _followups_ctx for the legacy Follow-ups tab.
+    # Moving the work here gives Focus Queue rows parity on every "how long has
+    # this been drifting" signal.
+    _policy_uids_with_activity = sorted({
+        item.get("policy_uid") for item in all_items
+        if item.get("policy_uid")
+        and item.get("kind") == "followup"
+        and item.get("source") in ("activity", "project")
+    })
+
+    # Batch-fetch hours logged on each policy in the last 30 days
+    _hours_30d: dict[str, float] = {}
+    if _policy_uids_with_activity:
+        ph = ",".join("?" * len(_policy_uids_with_activity))
+        for row in conn.execute(f"""
+            SELECT p.policy_uid,
+                   COALESCE(SUM(a.duration_hours), 0) AS hours
+            FROM policies p
+            LEFT JOIN activity_log a ON a.policy_id = p.id
+                AND a.duration_hours IS NOT NULL
+                AND a.activity_date >= date('now', '-30 days')
+            WHERE p.policy_uid IN ({ph})
+            GROUP BY p.policy_uid
+        """, _policy_uids_with_activity).fetchall():
+            _hours_30d[row["policy_uid"]] = float(row["hours"] or 0)
+
+    # Nudge tier cache — one compute_nudge_tier call per unique policy
+    _nudge_cache: dict[str, tuple[int, str]] = {}
+
+    # Disposition default_days map for cadence scoring
+    _disp_days_map: dict[str, int] = {}
+    for _d in cfg.get("follow_up_dispositions", []):
+        _label = (_d.get("label") or "").lower()
+        _dd = _d.get("default_days", 0)
+        if _dd and _dd > 0:
+            _disp_days_map[_label] = _dd
+
+    from policydb.queries import compute_nudge_tier
+
+    for item in all_items:
+        puid = item.get("policy_uid")
+
+        # Hours logged on the policy over the last 30 days
+        if puid:
+            item["policy_hours_30d"] = _hours_30d.get(puid, 0.0)
+
+        # Days from follow-up date to policy expiration (negative = already expired)
+        fu = item.get("follow_up_date") or ""
+        exp = item.get("expiration_date") or ""
+        if fu and exp:
+            try:
+                _fu_d = datetime.strptime(fu[:10], "%Y-%m-%d").date()
+                _exp_d = datetime.strptime(exp[:10], "%Y-%m-%d").date()
+                item["days_fu_to_expiry"] = (_exp_d - _fu_d).days
+            except ValueError:
+                pass
+
+        # Nudge tier for waiting items (activity follow-ups only)
+        if (item.get("kind") == "followup"
+                and item.get("source") in ("activity", "project")
+                and item.get("accountability") == "waiting_external"
+                and puid):
+            if puid not in _nudge_cache:
+                try:
+                    _nudge_cache[puid] = compute_nudge_tier(conn, puid)
+                except Exception:
+                    logger.debug("compute_nudge_tier failed for %s", puid, exc_info=True)
+                    _nudge_cache[puid] = (1, "normal")
+            count, tier = _nudge_cache[puid]
+            item["nudge_count"] = count
+            item["escalation_tier"] = tier
+
+        # Cadence vs. disposition default_days (activity/project only)
+        if (item.get("kind") == "followup"
+                and item.get("source") in ("activity", "project")):
+            disp_label = (item.get("disposition") or "").lower()
+            default_days = _disp_days_map.get(disp_label, 0)
+            if default_days > 0:
+                # days_until_deadline < 0 means overdue; cadence_over uses absolute overdue
+                days_over = max(0, -(item.get("days_until_deadline") or 0))
+                if days_over <= default_days:
+                    item["cadence"] = "on_cadence"
+                elif days_over <= default_days * 2:
+                    item["cadence"] = "mild"
+                else:
+                    item["cadence"] = "severe"
 
     # --- Dedup: suppress lower-priority items when higher-priority exists ---
     # Priority: activity follow-up > issue > milestone > suggested > policy follow-up
