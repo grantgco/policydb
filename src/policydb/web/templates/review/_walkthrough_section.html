@@ -92,6 +92,16 @@
           {% endif %}
         </div>
       </div>
+      <div class="shrink-0 ml-3">
+        <button type="button"
+                hx-get="/issues/{{ item.id }}/edit-slideover"
+                hx-target="#fu-edit-content"
+                hx-swap="innerHTML"
+                hx-on::after-request="openFollowupEdit()"
+                class="text-xs bg-gray-100 text-gray-600 px-3 py-1 rounded hover:bg-gray-200 transition-colors font-medium">
+          Edit
+        </button>
+      </div>
     </div>
     {% endfor %}
   </div>
@@ -106,7 +116,11 @@
     <div class="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-gray-50 border border-gray-100">
       <div class="flex-1 min-w-0">
         <div class="flex items-center gap-2">
-          <a href="/clients/{{ item.id }}" class="text-sm font-medium text-marsh hover:underline">{{ item.name }}</a>
+          <button type="button"
+                  hx-get="/review/clients/{{ item.id }}/slideover"
+                  hx-target="#review-slideover-container"
+                  hx-swap="innerHTML"
+                  class="text-sm font-medium text-marsh hover:underline text-left">{{ item.name }}</button>
           {% if not item.has_primary %}
             <span class="text-xs bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full font-medium">No primary contact</span>
           {% endif %}
@@ -118,6 +132,15 @@
             No recorded activity
           {% endif %}
         </div>
+      </div>
+      <div class="shrink-0 ml-3">
+        <button type="button"
+                hx-get="/review/clients/{{ item.id }}/slideover"
+                hx-target="#review-slideover-container"
+                hx-swap="innerHTML"
+                class="text-xs bg-gray-100 text-gray-600 px-3 py-1 rounded hover:bg-gray-200 transition-colors font-medium">
+          Review
+        </button>
       </div>
     </div>
     {% endfor %}
@@ -133,7 +156,11 @@
     <div class="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-gray-50 border border-gray-100">
       <div class="flex-1 min-w-0">
         <div class="flex items-center gap-2">
-          <a href="/policies/{{ item.policy_uid }}" class="text-sm font-medium text-marsh hover:underline">{{ item.policy_uid }}</a>
+          <button type="button"
+                  hx-get="/review/policies/{{ item.policy_uid }}/slideover"
+                  hx-target="#review-slideover-container"
+                  hx-swap="innerHTML"
+                  class="text-sm font-medium text-marsh hover:underline text-left">{{ item.policy_uid }}</button>
           <span class="text-xs text-gray-400">&middot;</span>
           <span class="text-xs text-gray-600">{{ item.policy_type or 'Unknown' }}</span>
           {% if item.client_name %}
@@ -153,6 +180,15 @@
           {% endif %}
         </div>
       </div>
+      <div class="shrink-0 ml-3">
+        <button type="button"
+                hx-get="/review/policies/{{ item.policy_uid }}/slideover"
+                hx-target="#review-slideover-container"
+                hx-swap="innerHTML"
+                class="text-xs bg-gray-100 text-gray-600 px-3 py-1 rounded hover:bg-gray-200 transition-colors font-medium">
+          Review
+        </button>
+      </div>
     </div>
     {% endfor %}
   </div>
@@ -164,16 +200,20 @@
   {% if items %}
   <div class="space-y-2">
     {% for item in items %}
-    <div class="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-gray-50 border border-gray-100">
+    <div id="ac-inbox-item-{{ item.id }}" class="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-gray-50 border border-gray-100">
       <div class="flex-1 min-w-0">
         <div class="text-sm font-medium text-gray-800 truncate">{{ item.email_subject or item.content[:60] if item.content else 'Inbox item' }}</div>
         <div class="text-xs text-gray-500 mt-0.5">{{ item.email_from or '' }} &middot; {{ item.created_at[:10] if item.created_at else '' }}</div>
       </div>
       <div class="shrink-0 ml-3">
-        <a href="/action-center?tab=inbox"
-           class="text-xs bg-gray-100 text-gray-600 px-3 py-1 rounded hover:bg-gray-200 transition-colors font-medium">
+        <button type="button"
+                hx-get="/inbox/{{ item.id }}/process-slideover"
+                hx-target="#fu-edit-content"
+                hx-swap="innerHTML"
+                hx-on::after-request="openFollowupEdit()"
+                class="text-xs bg-gray-100 text-gray-600 px-3 py-1 rounded hover:bg-gray-200 transition-colors font-medium">
           Process
-        </a>
+        </button>
       </div>
     </div>
     {% endfor %}
