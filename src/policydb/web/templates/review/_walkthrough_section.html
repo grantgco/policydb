@@ -39,7 +39,7 @@
   {% if items %}
   <div class="space-y-2">
     {% for item in items %}
-    <div class="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-gray-50 border border-gray-100">
+    <div id="review-walkthrough-policy-{{ item.policy_uid }}" class="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-gray-50 border border-gray-100">
       <div class="flex-1 min-w-0">
         <div class="flex items-center gap-2">
           <a href="/policies/{{ item.policy_uid }}" class="text-sm font-medium text-marsh hover:underline">{{ item.policy_uid }}</a>
@@ -113,7 +113,7 @@
   {% if items %}
   <div class="space-y-2">
     {% for item in items %}
-    <div class="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-gray-50 border border-gray-100">
+    <div id="review-walkthrough-client-{{ item.id }}" class="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-gray-50 border border-gray-100">
       <div class="flex-1 min-w-0">
         <div class="flex items-center gap-2">
           <button type="button"
@@ -153,7 +153,7 @@
   {% if items %}
   <div class="space-y-2">
     {% for item in items %}
-    <div class="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-gray-50 border border-gray-100">
+    <div id="review-walkthrough-policy-{{ item.policy_uid }}" class="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-gray-50 border border-gray-100">
       <div class="flex-1 min-w-0">
         <div class="flex items-center gap-2">
           <button type="button"

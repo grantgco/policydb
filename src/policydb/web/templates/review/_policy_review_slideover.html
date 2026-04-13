@@ -329,7 +329,7 @@
         <a href="/policies/{{ p.policy_uid }}/edit" class="text-xs text-gray-400 hover:underline">Full Page</a>
         {% if gate.all_pass %}
         <button hx-post="/review/policies/{{ p.policy_uid }}/slideover/reviewed"
-                hx-target="#review-row-{{ p.policy_uid }}" hx-swap="outerHTML"
+                hx-target="body" hx-swap="none"
                 class="text-sm bg-marsh text-white px-4 py-2 rounded-lg hover:bg-marsh-light transition-colors font-medium">
           Mark Reviewed
         </button>
@@ -345,7 +345,7 @@
     {% if not gate.all_pass %}
     <div id="review-override-form-{{ p.policy_uid }}" class="hidden mt-3 pt-3 border-t border-gray-100">
       <form hx-post="/review/policies/{{ p.policy_uid }}/slideover/reviewed"
-            hx-target="#review-row-{{ p.policy_uid }}" hx-swap="outerHTML"
+            hx-target="body" hx-swap="none"
             class="flex items-center gap-2">
         <input type="text" name="override_reason" required placeholder="Why is this OK to review now?"
                class="flex-1 text-sm border border-gray-300 rounded-lg px-3 py-1.5 focus:ring-marsh focus:outline-none">

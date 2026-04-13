@@ -871,12 +871,17 @@ def policy_slideover_mark_reviewed(
 
     suggestions = suggest_profile(conn)
 
-    # Render the updated table row (OOB swap)
+    # Render the updated table row as an OOB swap so it updates wherever it
+    # exists (review queue page) without breaking on pages that lack the row
+    # (weekly-review walkthrough). Wrap in <template> so the HTML fragment
+    # parser accepts the <tr> without a surrounding <table> context.
     row_html = templates.TemplateResponse(
         "review/_policy_row.html",
         _policy_row_context(request, r, reviewed=True, needs_followup=needs_followup,
                             suggestions=suggestions),
     ).body.decode()
+    row_html = row_html.replace('<tr id="review-row-', '<tr hx-swap-oob="true" id="review-row-', 1)
+    row_html = f"<template>{row_html}</template>"
 
     # Render the slideover footer in reviewed state
     footer_html = f"""
@@ -890,8 +895,12 @@ def policy_slideover_mark_reviewed(
     </div>
     """
 
+    import json as _json
     resp = HTMLResponse(row_html + footer_html)
-    resp.headers["HX-Trigger"] = "refreshReviewStats"
+    resp.headers["HX-Trigger"] = _json.dumps({
+        "refreshReviewStats": True,
+        "reviewRowCleared": f"#review-walkthrough-policy-{uid}",
+    })
     return resp
 
 
@@ -993,13 +1002,17 @@ def client_slideover_mark_reviewed(
     if not row:
         return HTMLResponse("")
 
-    # OOB row update
+    # Render row as OOB so it updates wherever present (queue) without
+    # requiring the target on the walkthrough page. Wrap in <template> so the
+    # HTML parser accepts <tr> without a <table> context.
     row_html = templates.TemplateResponse("review/_client_row.html", {
         "request": request,
         "c": dict(row),
         "cycle_labels": REVIEW_CYCLE_LABELS,
         "reviewed": True,
     }).body.decode()
+    row_html = row_html.replace('<tr id="review-client-', '<tr hx-swap-oob="true" id="review-client-', 1)
+    row_html = f"<template>{row_html}</template>"
 
     footer_html = """
     <div id="client-review-slideover-footer" hx-swap-oob="innerHTML:#client-review-slideover-footer">
@@ -1012,8 +1025,12 @@ def client_slideover_mark_reviewed(
     </div>
     """
 
+    import json as _json
     resp = HTMLResponse(row_html + footer_html)
-    resp.headers["HX-Trigger"] = "refreshReviewStats"
+    resp.headers["HX-Trigger"] = _json.dumps({
+        "refreshReviewStats": True,
+        "reviewRowCleared": f"#review-walkthrough-client-{client_id}",
+    })
     return resp
 
 
