@@ -1,0 +1,308 @@
+{# ─────────────────────────────────────────────────────────────────────────
+ # Scope Rollup panel — shared by issue detail + program detail.
+ #
+ # Expects one of these in template context:
+ #   issue_rollup  — set on the issue detail page
+ #   program_rollup — set on the program detail page
+ # One or the other, not both. Resolves into local `rollup` below.
+ #
+ # Optional context vars:
+ #   rollup_client_id — used for "View →" RFI link target
+ #   rollup_hide_nested — truthy to hide the nested issues sub-section
+ #                        (program page sets this because program-level open
+ #                         issues already have a dedicated section)
+ ────────────────────────────────────────────────────────────────────────── #}
+{% set rollup = issue_rollup if issue_rollup is defined and issue_rollup else (program_rollup if program_rollup is defined and program_rollup else None) %}
+{% if rollup and rollup.policies %}
+{% set _fin = rollup.financials %}
+{% set _rfi = rollup.rfi %}
+{% set _check = rollup.checklist %}
+{% set _wait = rollup.timeline_accountability.waiting %}
+{% set _rstat = rollup.renewal_status %}
+{% set _fu = rollup.open_followups %}
+{% set _contacts = rollup.contacts %}
+{% set _notes = rollup.working_notes %}
+{% set _nested = rollup.nested_issues %}
+{% set _multi = rollup.policies | length > 1 %}
+
+<div class="card">
+  <div class="px-4 py-2.5 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
+    <span class="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Scope Rollup</span>
+    <span class="text-[10px] text-gray-400 normal-case">{{ rollup.policies | length }} polic{{ 'y' if rollup.policies | length == 1 else 'ies' }}</span>
+  </div>
+
+  {# ── Stat cards ── #}
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-2 p-3 border-b border-gray-100">
+    {# Open RFIs #}
+    <div class="bg-white border border-gray-200 rounded-md px-3 py-2">
+      <div class="text-[10px] text-gray-400 uppercase tracking-wide mb-0.5">Open RFIs</div>
+      <div class="flex items-baseline gap-1">
+        <span class="text-base font-semibold text-gray-800 tabular-nums">{{ _rfi.received_items }}<span class="text-gray-400">/{{ _rfi.total_items }}</span></span>
+        <span class="text-[10px] text-gray-500">items</span>
+      </div>
+      {% if _rfi.overdue_items %}
+      <div class="text-[10px] text-red-600 mt-0.5 font-medium">{{ _rfi.overdue_items }} overdue</div>
+      {% elif _rfi.total_items == 0 %}
+      <div class="text-[10px] text-gray-300 mt-0.5">No requests</div>
+      {% else %}
+      <div class="text-[10px] text-gray-400 mt-0.5">{{ _rfi.open_bundles }} open bundle{{ '' if _rfi.open_bundles == 1 else 's' }}</div>
+      {% endif %}
+      {% if rollup_client_id %}
+      <a href="/clients/{{ rollup_client_id }}?tab=requests" class="block text-[10px] text-marsh hover:underline mt-1">View →</a>
+      {% endif %}
+    </div>
+
+    {# Checklist #}
+    <div class="bg-white border border-gray-200 rounded-md px-3 py-2">
+      <div class="text-[10px] text-gray-400 uppercase tracking-wide mb-0.5">Checklist</div>
+      <div class="flex items-baseline gap-1">
+        <span class="text-base font-semibold text-gray-800 tabular-nums">{{ _check.done_total }}<span class="text-gray-400">/{{ _check.item_total }}</span></span>
+        <span class="text-[10px] text-gray-500">steps</span>
+      </div>
+      <div class="mt-1 h-1 bg-gray-100 rounded-full overflow-hidden">
+        <div class="h-full bg-emerald-400 transition-all" style="width: {{ _check.percent }}%"></div>
+      </div>
+    </div>
+
+    {# Waiting On #}
+    <div class="bg-white border border-gray-200 rounded-md px-3 py-2">
+      <div class="text-[10px] text-gray-400 uppercase tracking-wide mb-0.5">Waiting On</div>
+      {% if _wait %}
+        {% set _top_label, _top_count = (_wait.items() | list | sort(attribute=1, reverse=true))[0] %}
+        <div class="flex items-baseline gap-1">
+          <span class="text-sm font-semibold text-gray-800 truncate">{{ _top_label }}</span>
+          <span class="text-sm text-amber-600 tabular-nums">({{ _top_count }})</span>
+        </div>
+        {% if _wait | length > 1 %}
+        <div class="text-[10px] text-gray-400 mt-0.5">+{{ (_wait | length) - 1 }} more</div>
+        {% endif %}
+      {% else %}
+        <div class="text-sm text-gray-400">—</div>
+        <div class="text-[10px] text-gray-300 mt-0.5">All in hand</div>
+      {% endif %}
+    </div>
+
+    {# Renewal Status #}
+    <div class="bg-white border border-gray-200 rounded-md px-3 py-2">
+      <div class="text-[10px] text-gray-400 uppercase tracking-wide mb-0.5">Renewal Status</div>
+      {% if _rstat %}
+        {% set _top_s, _top_n = (_rstat.items() | list | sort(attribute=1, reverse=true))[0] %}
+        <div class="flex items-baseline gap-1">
+          <span class="text-sm font-semibold text-gray-800 truncate">{{ _top_s }}</span>
+          <span class="text-sm text-gray-500 tabular-nums">({{ _top_n }}/{{ rollup.policies | length }})</span>
+        </div>
+        {% if _rstat | length > 1 %}
+        <div class="flex flex-wrap gap-1 mt-1">
+          {% for _s, _n in _rstat.items() %}
+          {% if _s != _top_s %}
+          <span class="text-[9px] text-gray-500">{{ _s }} {{ _n }}</span>
+          {% endif %}
+          {% endfor %}
+        </div>
+        {% endif %}
+      {% endif %}
+    </div>
+  </div>
+
+  {# ── Per-policy breakdown table ── #}
+  {% if _multi %}
+  <div class="overflow-x-auto border-b border-gray-100">
+    <table class="w-full text-xs">
+      <thead class="bg-gray-50">
+        <tr class="text-[10px] text-gray-400 uppercase tracking-wide">
+          <th class="text-left px-3 py-1.5 font-medium">Policy</th>
+          <th class="text-left px-3 py-1.5 font-medium">Type</th>
+          <th class="text-right px-3 py-1.5 font-medium">RFI</th>
+          <th class="text-right px-3 py-1.5 font-medium">Checklist</th>
+          <th class="text-left px-3 py-1.5 font-medium">Status</th>
+          <th class="text-right px-3 py-1.5 font-medium">F/U</th>
+          <th class="text-left px-3 py-1.5 font-medium">Health</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in rollup.policies %}
+        {% set _pr = _check.by_policy[p.policy_uid] if p.policy_uid in _check.by_policy else {'done':0,'total':0} %}
+        {% set _rfi_p = _rfi.by_policy.get(p.policy_uid, {'open':0,'received':0,'total':0,'overdue':0}) %}
+        {% set _fu_count = namespace(n=0, overdue=0) %}
+        {% for f in _fu.by_policy %}{% if f.policy_uid == p.policy_uid %}{% set _fu_count.n = _fu_count.n + 1 %}{% if f.days_overdue > 0 %}{% set _fu_count.overdue = _fu_count.overdue + 1 %}{% endif %}{% endif %}{% endfor %}
+        <tr class="border-t border-gray-100 hover:bg-gray-50">
+          <td class="px-3 py-1.5">
+            <a href="/policies/{{ p.policy_uid }}/edit" class="font-mono text-marsh hover:underline">{{ p.policy_uid }}</a>
+          </td>
+          <td class="px-3 py-1.5 text-gray-700 truncate max-w-[140px]">{{ p.policy_type or '—' }}</td>
+          <td class="px-3 py-1.5 text-right tabular-nums">
+            {% if _rfi_p.total %}
+              <span class="{% if _rfi_p.overdue %}text-red-600 font-medium{% elif _rfi_p.open %}text-amber-700{% else %}text-gray-500{% endif %}">{{ _rfi_p.received }}/{{ _rfi_p.total }}</span>
+            {% else %}
+              <span class="text-gray-300">—</span>
+            {% endif %}
+          </td>
+          <td class="px-3 py-1.5 text-right tabular-nums text-gray-700">{{ _pr.done }}/{{ _pr.total }}</td>
+          <td class="px-3 py-1.5">
+            {% if p.renewal_status %}
+            <span class="text-[10px] px-1.5 py-0.5 rounded-full
+              {% if p.renewal_status == 'Bound' %}bg-green-100 text-green-700
+              {% elif p.renewal_status == 'In Progress' %}bg-blue-100 text-blue-700
+              {% else %}bg-gray-100 text-gray-600{% endif %}">{{ p.renewal_status }}</span>
+            {% endif %}
+          </td>
+          <td class="px-3 py-1.5 text-right tabular-nums">
+            {% if _fu_count.n %}
+              <span class="{% if _fu_count.overdue %}text-red-600 font-medium{% else %}text-gray-600{% endif %}">
+                {{ _fu_count.n }}{% if _fu_count.overdue %} <span class="text-[9px]">({{ _fu_count.overdue }} od)</span>{% endif %}
+              </span>
+            {% else %}
+              <span class="text-gray-300">—</span>
+            {% endif %}
+          </td>
+          <td class="px-3 py-1.5">
+            {% set _h = p.worst_health or '' %}
+            {% if _h == 'critical' %}
+              <span class="inline-flex items-center gap-1 text-[10px] text-red-700"><span class="w-1.5 h-1.5 rounded-full bg-red-500"></span>Critical</span>
+            {% elif _h == 'at_risk' %}
+              <span class="inline-flex items-center gap-1 text-[10px] text-amber-700"><span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>At Risk</span>
+            {% elif _h in ('compressed', 'drifting') %}
+              <span class="inline-flex items-center gap-1 text-[10px] text-blue-700"><span class="w-1.5 h-1.5 rounded-full bg-blue-400"></span>{{ _h | replace('_', ' ') | title }}</span>
+            {% elif _h == 'on_track' %}
+              <span class="inline-flex items-center gap-1 text-[10px] text-green-700"><span class="w-1.5 h-1.5 rounded-full bg-green-500"></span>On Track</span>
+            {% else %}
+              <span class="text-gray-300">—</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  {# ── Open Follow-ups sub-section ── #}
+  {% if _fu.total %}
+  <div class="px-4 py-3 border-b border-gray-100">
+    <div class="flex items-center justify-between mb-2">
+      <span class="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Open Follow-ups</span>
+      <span class="text-[10px] text-gray-400">
+        {{ _fu.total }} total{% if _fu.overdue %} &middot; <span class="text-red-600 font-medium">{{ _fu.overdue }} overdue</span>{% endif %}
+      </span>
+    </div>
+    <div class="space-y-1">
+      {% for f in _fu.by_policy %}
+      <div class="flex items-center gap-2 text-xs">
+        <a href="/policies/{{ f.policy_uid }}/edit" class="font-mono text-[10px] text-marsh hover:underline shrink-0">{{ f.policy_uid }}</a>
+        <span class="text-[9px] text-gray-400 uppercase tracking-wide shrink-0">{{ f.source }}</span>
+        <span class="text-gray-700 truncate flex-1">{{ f.subject }}</span>
+        {% if f.days_overdue > 0 %}
+        <span class="text-red-600 font-medium text-[10px] shrink-0">⚠ {{ f.days_overdue }}d overdue</span>
+        {% else %}
+        <span class="text-gray-500 text-[10px] shrink-0">Due {{ f.follow_up_date }}</span>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {# ── Contacts sub-section ── #}
+  {% if _contacts.placement_colleagues or _contacts.underwriters %}
+  <div class="px-4 py-3 border-b border-gray-100">
+    <div class="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-2">Scope Contacts</div>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+      {% if _contacts.placement_colleagues %}
+      <div>
+        <div class="text-[9px] text-gray-400 uppercase tracking-wide mb-1">Placement Colleagues</div>
+        <div class="flex flex-wrap gap-1">
+          {% for c in _contacts.placement_colleagues %}
+          <a {% if c.email %}href="mailto:{{ c.email }}"{% endif %}
+             title="{{ c.policy_uids | join(', ') }}{% if c.email %} — {{ c.email }}{% endif %}"
+             class="inline-flex items-center gap-1 text-[10px] bg-blue-50 text-blue-700 border border-blue-200 rounded-full px-2 py-0.5 hover:bg-blue-100 transition-colors">
+            {{ c.name }}
+            <span class="font-semibold tabular-nums text-blue-500">· {{ c.policy_uids | length }}</span>
+          </a>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+      {% if _contacts.underwriters %}
+      <div>
+        <div class="text-[9px] text-gray-400 uppercase tracking-wide mb-1">Underwriters</div>
+        <div class="flex flex-wrap gap-1">
+          {% for c in _contacts.underwriters %}
+          <a {% if c.email %}href="mailto:{{ c.email }}"{% endif %}
+             title="{{ c.policy_uids | join(', ') }}{% if c.carrier %} — {{ c.carrier }}{% endif %}{% if c.email %} — {{ c.email }}{% endif %}"
+             class="inline-flex items-center gap-1 text-[10px] bg-violet-50 text-violet-700 border border-violet-200 rounded-full px-2 py-0.5 hover:bg-violet-100 transition-colors">
+            {{ c.name }}{% if c.carrier %} <span class="text-violet-400">· {{ c.carrier }}</span>{% endif %}
+            <span class="font-semibold tabular-nums text-violet-500">· {{ c.policy_uids | length }}</span>
+          </a>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  {# ── Working Notes sub-section (collapsed by default) ── #}
+  {% if _notes %}
+  <details class="px-4 py-3 border-b border-gray-100">
+    <summary class="flex items-center justify-between cursor-pointer text-[10px] font-semibold text-gray-500 uppercase tracking-wide hover:text-gray-700">
+      <span>Working Notes ({{ _notes | length }})</span>
+      <span class="text-gray-300 text-[9px] normal-case">click to expand</span>
+    </summary>
+    <div class="mt-2 space-y-3">
+      {% for n in _notes %}
+      <div>
+        <div class="flex items-center gap-2 mb-1">
+          <a href="/policies/{{ n.policy_uid }}/edit" class="font-mono text-[10px] text-marsh hover:underline">{{ n.policy_uid }}</a>
+          <span class="text-[10px] text-gray-500">{{ n.policy_type or '' }}</span>
+        </div>
+        {% if n.notes %}
+        <div class="text-xs text-gray-700 whitespace-pre-wrap font-mono bg-gray-50 rounded px-2 py-1.5 border border-gray-100">{{ n.notes }}</div>
+        {% endif %}
+        {% if n.project_scratchpad %}
+        <div class="text-xs text-gray-700 whitespace-pre-wrap font-mono bg-amber-50/40 rounded px-2 py-1.5 border border-amber-100 mt-1">
+          <span class="text-[9px] text-amber-700 uppercase tracking-wide block mb-0.5">Project note</span>
+          {{ n.project_scratchpad }}
+        </div>
+        {% endif %}
+        {% if n.has_more %}
+        <a href="/policies/{{ n.policy_uid }}/edit" class="text-[10px] text-marsh hover:underline">Read more →</a>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </details>
+  {% endif %}
+
+  {# ── Nested Issues sub-section ── #}
+  {% if _nested and not rollup_hide_nested %}
+  <div class="px-4 py-3">
+    <div class="flex items-center justify-between mb-2">
+      <span class="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Other Open Issues</span>
+      <span class="text-[10px] text-gray-400">{{ _nested | length }} touching scope</span>
+    </div>
+    <div class="space-y-1">
+      {% for ni in _nested %}
+      <div class="flex items-center gap-2 text-xs">
+        {% set sev = ni.issue_severity or 'Normal' %}
+        <span class="w-2 h-2 rounded-full shrink-0
+          {% if sev == 'Critical' %}bg-red-500
+          {% elif sev == 'High' %}bg-amber-500
+          {% elif sev == 'Normal' %}bg-blue-400
+          {% else %}bg-gray-300{% endif %}"></span>
+        <a href="/issues/{{ ni.issue_uid }}" class="font-mono text-[10px] text-marsh hover:underline shrink-0">{{ ni.issue_uid }}</a>
+        <span class="text-gray-700 truncate flex-1">{{ ni.subject }}</span>
+        {% if ni.issue_status %}
+        <span class="text-[9px] px-1.5 py-0.5 rounded-full shrink-0
+          {% if ni.issue_status == 'Open' %}bg-blue-50 text-blue-700
+          {% elif ni.issue_status == 'Waiting' %}bg-amber-50 text-amber-700
+          {% elif ni.issue_status == 'In Hand' %}bg-purple-50 text-purple-700
+          {% else %}bg-gray-50 text-gray-600{% endif %}">{{ ni.issue_status }}</span>
+        {% endif %}
+        <span class="text-[9px] text-gray-400 shrink-0">{{ ni.policy_uids | join(', ') }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endif %}

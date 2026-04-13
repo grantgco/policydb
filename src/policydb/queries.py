@@ -4669,3 +4669,745 @@ def get_vacation_checklist(conn: sqlite3.Connection, return_date: str) -> dict:
         "renewals": renewals_near_return,
         "milestones": milestones_during,
     }
+
+
+# ─── SCOPE ROLLUPS (issue + program detail) ──────────────────────────────────
+#
+# Shared rollup helpers that aggregate workflow data across a set of linked
+# policies. Used by both the renewal issue detail page and the program detail
+# page so the same numbers surface in both places.
+
+_POL_ROLLUP_COLS = """
+    p.id, p.policy_uid, p.policy_type, p.carrier, p.premium,
+    p.exposure_amount, p.exposure_basis,
+    p.expiration_date, p.renewal_status, p.is_opportunity,
+    p.follow_up_date AS policy_follow_up_date,
+    p.placement_colleague, p.placement_colleague_email,
+    p.underwriter_name, p.underwriter_contact,
+    p.program_id, pr.name AS location_name,
+    pg.program_uid, pg.name AS program_name
+"""
+_POL_ROLLUP_JOINS = """
+    LEFT JOIN projects pr ON pr.id = p.project_id
+    LEFT JOIN programs pg ON pg.id = p.program_id
+"""
+
+
+def get_linked_policies_for_issue(conn: sqlite3.Connection, issue_id: int) -> list[dict]:
+    """Gather all policies linked to an issue.
+
+    Covers four linkage sources, in priority order:
+      1. Direct FK (activity_log.policy_id on the issue header row)
+      2. Program siblings (all non-archived child policies of issue's program_id)
+      3. Junction table rows (issue_policies)
+      4. Policies inherited from merged-in source issues (merged_into_id == issue_id)
+
+    Returns a list of dicts (deduped by policy id) with the columns listed in
+    _POL_ROLLUP_COLS plus _junction / _from_merge markers.
+    """
+    issue = conn.execute(
+        "SELECT id, policy_id, program_id FROM activity_log WHERE id = ? AND item_kind = 'issue'",
+        (issue_id,),
+    ).fetchone()
+    if not issue:
+        return []
+
+    linked: list[dict] = []
+    seen_ids: set[int] = set()
+
+    # 1. Direct FK
+    if issue["policy_id"]:
+        for r in conn.execute(
+            f"SELECT {_POL_ROLLUP_COLS} FROM policies p {_POL_ROLLUP_JOINS} "  # noqa: S608
+            f"WHERE p.id = ? AND p.archived = 0",
+            (issue["policy_id"],),
+        ).fetchall():
+            d = dict(r)
+            if d["id"] not in seen_ids:
+                seen_ids.add(d["id"])
+                linked.append(d)
+
+    # 2. Program siblings
+    if issue["program_id"]:
+        for r in conn.execute(
+            f"SELECT {_POL_ROLLUP_COLS} FROM policies p {_POL_ROLLUP_JOINS} "  # noqa: S608
+            f"WHERE p.program_id = ? AND p.archived = 0 ORDER BY p.policy_type",
+            (issue["program_id"],),
+        ).fetchall():
+            d = dict(r)
+            if d["id"] not in seen_ids:
+                seen_ids.add(d["id"])
+                linked.append(d)
+
+    # 3. Junction table
+    for r in conn.execute(
+        f"SELECT {_POL_ROLLUP_COLS} FROM issue_policies ip "  # noqa: S608
+        f"JOIN policies p ON p.id = ip.policy_id {_POL_ROLLUP_JOINS} "
+        f"WHERE ip.issue_id = ? AND p.archived = 0 ORDER BY p.policy_uid",
+        (issue_id,),
+    ).fetchall():
+        d = dict(r)
+        if d["id"] not in seen_ids:
+            d["_junction"] = True
+            seen_ids.add(d["id"])
+            linked.append(d)
+
+    # 4. Inherit from merged-in source issues
+    merged_sources = conn.execute(
+        "SELECT id, policy_id, program_id FROM activity_log "
+        "WHERE merged_into_id = ? AND item_kind = 'issue'",
+        (issue_id,),
+    ).fetchall()
+    for src in merged_sources:
+        if src["policy_id"]:
+            for r in conn.execute(
+                f"SELECT {_POL_ROLLUP_COLS} FROM policies p {_POL_ROLLUP_JOINS} "  # noqa: S608
+                f"WHERE p.id = ? AND p.archived = 0",
+                (src["policy_id"],),
+            ).fetchall():
+                d = dict(r)
+                if d["id"] not in seen_ids:
+                    d["_from_merge"] = True
+                    seen_ids.add(d["id"])
+                    linked.append(d)
+        if src["program_id"]:
+            for r in conn.execute(
+                f"SELECT {_POL_ROLLUP_COLS} FROM policies p {_POL_ROLLUP_JOINS} "  # noqa: S608
+                f"WHERE p.program_id = ? AND p.archived = 0 ORDER BY p.policy_type",
+                (src["program_id"],),
+            ).fetchall():
+                d = dict(r)
+                if d["id"] not in seen_ids:
+                    d["_from_merge"] = True
+                    seen_ids.add(d["id"])
+                    linked.append(d)
+        for r in conn.execute(
+            f"SELECT {_POL_ROLLUP_COLS} FROM issue_policies ip "  # noqa: S608
+            f"JOIN policies p ON p.id = ip.policy_id {_POL_ROLLUP_JOINS} "
+            f"WHERE ip.issue_id = ? AND p.archived = 0 ORDER BY p.policy_uid",
+            (src["id"],),
+        ).fetchall():
+            d = dict(r)
+            if d["id"] not in seen_ids:
+                d["_from_merge"] = True
+                seen_ids.add(d["id"])
+                linked.append(d)
+
+    return linked
+
+
+def get_linked_policies_for_program(conn: sqlite3.Connection, program_id: int) -> list[dict]:
+    """All non-archived policies in a program, with the same column shape as
+    get_linked_policies_for_issue() so the rollup helpers can consume either."""
+    return [
+        dict(r)
+        for r in conn.execute(
+            f"SELECT {_POL_ROLLUP_COLS} FROM policies p {_POL_ROLLUP_JOINS} "  # noqa: S608
+            f"WHERE p.program_id = ? AND p.archived = 0 "
+            f"ORDER BY p.policy_type, p.policy_uid",
+            (program_id,),
+        ).fetchall()
+    ]
+
+
+def get_milestone_progress_for_policies(
+    conn: sqlite3.Connection, policy_uids: list[str]
+) -> dict[str, dict]:
+    """Return {policy_uid: {done, total, weighted_done, weighted_total, percent}}
+    for the given policies. Pure lookup — does not mutate any rows.
+
+    Used by both _attach_milestone_progress() (mutating wrapper, for pipeline
+    rows) and the issue rollup helpers.
+    """
+    all_milestones = cfg.get("renewal_milestones", [])
+    milestone_weights = cfg.get("readiness_milestone_weights", {})
+    total = len(all_milestones)
+    weighted_total = sum(milestone_weights.get(m, 1) for m in all_milestones)
+
+    if not policy_uids or not total:
+        return {
+            uid: {
+                "done": 0,
+                "total": total,
+                "weighted_done": 0,
+                "weighted_total": weighted_total,
+                "percent": 0,
+            }
+            for uid in policy_uids
+        }
+
+    placeholders = ",".join("?" * len(policy_uids))
+    ms_ph = ",".join("?" * len(all_milestones))
+    rows = conn.execute(
+        f"SELECT policy_uid, milestone FROM policy_milestones "  # noqa: S608
+        f"WHERE policy_uid IN ({placeholders}) AND milestone IN ({ms_ph}) AND completed = 1",
+        list(policy_uids) + list(all_milestones),
+    ).fetchall()
+    completed_by_policy: dict[str, set[str]] = {}
+    for r in rows:
+        completed_by_policy.setdefault(r["policy_uid"], set()).add(r["milestone"])
+
+    result: dict[str, dict] = {}
+    for uid in policy_uids:
+        completed = completed_by_policy.get(uid, set())
+        done = len(completed)
+        weighted_done = sum(milestone_weights.get(m, 1) for m in completed)
+        result[uid] = {
+            "done": done,
+            "total": total,
+            "weighted_done": weighted_done,
+            "weighted_total": weighted_total,
+            "percent": int(round(100 * done / total)) if total else 0,
+        }
+    return result
+
+
+def get_linked_policy_contacts(
+    conn: sqlite3.Connection, policy_ids: list[int]
+) -> dict[str, list[dict]]:
+    """Return distinct placement colleagues and underwriters across a set of
+    policies, each annotated with the policy UIDs they touch.
+
+    Pulls from two sources:
+      1. contact_policy_assignments + contacts (authoritative)
+      2. policies.placement_colleague / underwriter_name string fields
+         (legacy fallback — merged by lowercase name when contact_id is absent)
+    """
+    if not policy_ids:
+        return {"placement_colleagues": [], "underwriters": []}
+
+    placeholders = ",".join("?" * len(policy_ids))
+    pc_acc: dict[tuple, dict] = {}
+    uw_acc: dict[tuple, dict] = {}
+
+    # Source 1: contact_policy_assignments
+    rows = conn.execute(
+        f"""SELECT cpa.policy_id, p.policy_uid, p.carrier,
+                   co.name, co.email, co.phone, co.mobile,
+                   cpa.role, cpa.is_placement_colleague
+            FROM contact_policy_assignments cpa
+            JOIN contacts co ON co.id = cpa.contact_id
+            JOIN policies p ON p.id = cpa.policy_id
+            WHERE cpa.policy_id IN ({placeholders}) AND p.archived = 0""",  # noqa: S608
+        policy_ids,
+    ).fetchall()
+    for r in rows:
+        name = (r["name"] or "").strip()
+        if not name:
+            continue
+        email = (r["email"] or "").strip().lower()
+        key = (name.lower(), email)
+        role = (r["role"] or "").strip().lower()
+        is_pc = r["is_placement_colleague"] or role in ("placement", "broker", "placement colleague")
+        is_uw = role in ("underwriter", "uw")
+
+        bucket = None
+        if is_pc:
+            bucket = pc_acc
+        elif is_uw:
+            bucket = uw_acc
+        if bucket is None:
+            continue
+        entry = bucket.setdefault(
+            key,
+            {
+                "name": name,
+                "email": r["email"] or "",
+                "phone": r["phone"] or r["mobile"] or "",
+                "carrier": r["carrier"] or "",
+                "policy_uids": [],
+            },
+        )
+        if r["policy_uid"] not in entry["policy_uids"]:
+            entry["policy_uids"].append(r["policy_uid"])
+
+    # Source 2: legacy string fields on policies
+    legacy_rows = conn.execute(
+        f"""SELECT p.policy_uid, p.carrier,
+                   p.placement_colleague, p.placement_colleague_email,
+                   p.underwriter_name, p.underwriter_contact
+            FROM policies p
+            WHERE p.id IN ({placeholders}) AND p.archived = 0""",  # noqa: S608
+        policy_ids,
+    ).fetchall()
+    for r in legacy_rows:
+        pc_name = (r["placement_colleague"] or "").strip()
+        if pc_name:
+            email = (r["placement_colleague_email"] or "").strip().lower()
+            key = (pc_name.lower(), email)
+            entry = pc_acc.setdefault(
+                key,
+                {
+                    "name": pc_name,
+                    "email": r["placement_colleague_email"] or "",
+                    "phone": "",
+                    "carrier": r["carrier"] or "",
+                    "policy_uids": [],
+                },
+            )
+            if r["policy_uid"] not in entry["policy_uids"]:
+                entry["policy_uids"].append(r["policy_uid"])
+        uw_name = (r["underwriter_name"] or "").strip()
+        if uw_name:
+            uw_contact = (r["underwriter_contact"] or "").strip()
+            key = (uw_name.lower(), uw_contact.lower())
+            entry = uw_acc.setdefault(
+                key,
+                {
+                    "name": uw_name,
+                    "email": uw_contact if "@" in uw_contact else "",
+                    "phone": "" if "@" in uw_contact else uw_contact,
+                    "carrier": r["carrier"] or "",
+                    "policy_uids": [],
+                },
+            )
+            if r["policy_uid"] not in entry["policy_uids"]:
+                entry["policy_uids"].append(r["policy_uid"])
+
+    def _sort_list(acc: dict) -> list[dict]:
+        items = list(acc.values())
+        items.sort(key=lambda e: (-len(e["policy_uids"]), e["name"].lower()))
+        return items
+
+    return {
+        "placement_colleagues": _sort_list(pc_acc),
+        "underwriters": _sort_list(uw_acc),
+    }
+
+
+def _rollup_rfi(conn: sqlite3.Connection, policy_uids: list[str]) -> dict:
+    """RFI aggregate across a set of policies."""
+    empty = {
+        "open_bundles": 0,
+        "total_items": 0,
+        "received_items": 0,
+        "overdue_items": 0,
+        "by_policy": {},
+    }
+    if not policy_uids:
+        return empty
+    placeholders = ",".join("?" * len(policy_uids))
+    rows = conn.execute(
+        f"""SELECT i.policy_uid, i.received, b.status AS bundle_status, b.send_by_date,
+                   b.id AS bundle_id
+            FROM client_request_items i
+            JOIN client_request_bundles b ON b.id = i.bundle_id
+            WHERE i.policy_uid IN ({placeholders})""",  # noqa: S608
+        policy_uids,
+    ).fetchall()
+    today = date.today().isoformat()
+    open_bundles: set[int] = set()
+    by_policy: dict[str, dict] = {}
+    total = 0
+    received = 0
+    overdue = 0
+    for r in rows:
+        uid = r["policy_uid"]
+        bucket = by_policy.setdefault(uid, {"open": 0, "received": 0, "total": 0, "overdue": 0})
+        bucket["total"] += 1
+        total += 1
+        if r["received"]:
+            bucket["received"] += 1
+            received += 1
+        else:
+            bucket["open"] += 1
+            if r["send_by_date"] and r["send_by_date"] < today:
+                bucket["overdue"] += 1
+                overdue += 1
+            if (r["bundle_status"] or "").lower() != "complete":
+                open_bundles.add(r["bundle_id"])
+    return {
+        "open_bundles": len(open_bundles),
+        "total_items": total,
+        "received_items": received,
+        "overdue_items": overdue,
+        "by_policy": by_policy,
+    }
+
+
+def _rollup_timeline_accountability(
+    conn: sqlite3.Connection, policy_uids: list[str]
+) -> dict:
+    """Count open timeline milestones grouped by accountability/waiting_on."""
+    result = {"waiting": {}, "my_action": 0, "scheduled": 0, "total_open": 0}
+    if not policy_uids:
+        return result
+    placeholders = ",".join("?" * len(policy_uids))
+    rows = conn.execute(
+        f"""SELECT accountability, waiting_on, COUNT(*) AS n
+            FROM policy_timeline
+            WHERE policy_uid IN ({placeholders}) AND completed_date IS NULL
+            GROUP BY accountability, waiting_on""",  # noqa: S608
+        policy_uids,
+    ).fetchall()
+    for r in rows:
+        n = r["n"] or 0
+        result["total_open"] += n
+        acct = r["accountability"] or ""
+        if acct == "waiting_external":
+            label = (r["waiting_on"] or "External").strip() or "External"
+            result["waiting"][label] = result["waiting"].get(label, 0) + n
+        elif acct == "scheduled":
+            result["scheduled"] += n
+        else:
+            result["my_action"] += n
+    return result
+
+
+def _rollup_open_followups(
+    conn: sqlite3.Connection,
+    policy_ids: list[int],
+    exclude_issue_id: Optional[int] = None,
+) -> dict:
+    """Open follow-ups attached to the given policies, excluding any already
+    linked to `exclude_issue_id` (to avoid duplicating what the issue's
+    activity thread already shows).
+
+    Returns {total, overdue, by_policy: [...]}. Each by_policy entry has:
+        policy_uid, policy_type, follow_up_date, days_overdue, source, subject.
+
+    Applies the same dedup rule as get_all_followups(): policy-source rows are
+    suppressed when an activity-source row exists on the same policy.
+    """
+    result = {"total": 0, "overdue": 0, "by_policy": []}
+    if not policy_ids:
+        return result
+    placeholders = ",".join("?" * len(policy_ids))
+    today = date.today()
+
+    # Activity-source follow-ups
+    params: list = list(policy_ids)
+    exclude_clause = ""
+    if exclude_issue_id is not None:
+        exclude_clause = " AND (a.issue_id IS NULL OR a.issue_id != ?)"
+        params.append(exclude_issue_id)
+    activity_rows = conn.execute(
+        f"""SELECT a.id, a.policy_id, a.follow_up_date, a.subject, a.activity_type,
+                   a.disposition, p.policy_uid, p.policy_type
+            FROM activity_log a
+            JOIN policies p ON p.id = a.policy_id
+            WHERE a.follow_up_done = 0
+              AND a.follow_up_date IS NOT NULL
+              AND a.item_kind = 'followup'
+              AND a.policy_id IN ({placeholders})
+              {exclude_clause}
+            ORDER BY a.follow_up_date""",  # noqa: S608
+        params,
+    ).fetchall()
+    seen_policy_ids: set[int] = set()
+    for r in activity_rows:
+        seen_policy_ids.add(r["policy_id"])
+        fu = r["follow_up_date"]
+        days_overdue = 0
+        try:
+            days_overdue = (today - date.fromisoformat(fu)).days
+        except (ValueError, TypeError):
+            pass
+        entry = {
+            "policy_uid": r["policy_uid"],
+            "policy_type": r["policy_type"],
+            "follow_up_date": fu,
+            "days_overdue": days_overdue,
+            "source": "activity",
+            "subject": r["subject"] or r["activity_type"] or "Follow-up",
+            "disposition": r["disposition"] or "",
+        }
+        result["by_policy"].append(entry)
+        result["total"] += 1
+        if days_overdue > 0:
+            result["overdue"] += 1
+
+    # Policy-source follow-ups (suppressed where an activity-source row exists)
+    remaining = [pid for pid in policy_ids if pid not in seen_policy_ids]
+    if remaining:
+        ph = ",".join("?" * len(remaining))
+        policy_rows = conn.execute(
+            f"""SELECT p.policy_uid, p.policy_type, p.follow_up_date
+                FROM policies p
+                WHERE p.id IN ({ph})
+                  AND p.follow_up_date IS NOT NULL
+                ORDER BY p.follow_up_date""",  # noqa: S608
+            remaining,
+        ).fetchall()
+        for r in policy_rows:
+            fu = r["follow_up_date"]
+            days_overdue = 0
+            try:
+                days_overdue = (today - date.fromisoformat(fu)).days
+            except (ValueError, TypeError):
+                pass
+            entry = {
+                "policy_uid": r["policy_uid"],
+                "policy_type": r["policy_type"],
+                "follow_up_date": fu,
+                "days_overdue": days_overdue,
+                "source": "policy",
+                "subject": "Policy follow-up",
+                "disposition": "",
+            }
+            result["by_policy"].append(entry)
+            result["total"] += 1
+            if days_overdue > 0:
+                result["overdue"] += 1
+
+    result["by_policy"].sort(key=lambda e: (-e["days_overdue"], e["follow_up_date"]))
+    return result
+
+
+def _rollup_working_notes(
+    conn: sqlite3.Connection, policy_ids: list[int], truncate_at: int = 400
+) -> list[dict]:
+    """Aggregate policy scratchpad + project scratchpad for each policy.
+
+    Returns a list of {policy_uid, policy_type, notes, project_scratchpad,
+    has_more} entries, one per policy that has any non-empty content.
+    """
+    if not policy_ids:
+        return []
+    placeholders = ",".join("?" * len(policy_ids))
+    rows = conn.execute(
+        f"""SELECT p.policy_uid, p.policy_type,
+                   ps.content AS scratchpad,
+                   prj.content AS project_scratch
+            FROM policies p
+            LEFT JOIN policy_scratchpad ps ON ps.policy_uid = p.policy_uid
+            LEFT JOIN project_scratchpad prj ON prj.project_id = p.project_id
+            WHERE p.id IN ({placeholders}) AND p.archived = 0""",  # noqa: S608
+        policy_ids,
+    ).fetchall()
+
+    out: list[dict] = []
+    for r in rows:
+        notes = (r["scratchpad"] or "").strip()
+        prj = (r["project_scratch"] or "").strip()
+        if not notes and not prj:
+            continue
+        has_more = False
+        if len(notes) > truncate_at:
+            notes = notes[:truncate_at].rstrip() + "…"
+            has_more = True
+        if len(prj) > truncate_at:
+            prj = prj[:truncate_at].rstrip() + "…"
+            has_more = True
+        out.append(
+            {
+                "policy_uid": r["policy_uid"],
+                "policy_type": r["policy_type"],
+                "notes": notes,
+                "project_scratchpad": prj,
+                "has_more": has_more,
+            }
+        )
+    return out
+
+
+def _rollup_nested_issues(
+    conn: sqlite3.Connection, policy_ids: list[int], exclude_issue_id: int
+) -> list[dict]:
+    """Other open issues touching the given policies, excluding one.
+
+    Uses v_issue_policy_coverage so program-level and merged issues are
+    covered correctly.
+    """
+    if not policy_ids:
+        return []
+    placeholders = ",".join("?" * len(policy_ids))
+    rows = conn.execute(
+        f"""SELECT DISTINCT a.id, a.issue_uid, a.subject,
+                   a.issue_status, a.issue_severity, a.is_renewal_issue,
+                   a.due_date, a.activity_date
+            FROM activity_log a
+            JOIN v_issue_policy_coverage ipc ON ipc.issue_id = a.id
+            WHERE ipc.policy_id IN ({placeholders})
+              AND a.item_kind = 'issue'
+              AND (a.issue_status IS NULL OR a.issue_status NOT IN ('Resolved', 'Closed'))
+              AND a.id != ?
+            ORDER BY
+                CASE a.issue_severity
+                    WHEN 'Critical' THEN 0
+                    WHEN 'High' THEN 1
+                    WHEN 'Normal' THEN 2
+                    WHEN 'Low' THEN 3
+                    ELSE 4
+                END,
+                a.activity_date DESC""",  # noqa: S608
+        list(policy_ids) + [exclude_issue_id],
+    ).fetchall()
+    if not rows:
+        return []
+
+    # Back-fill affected policy_uids per issue via a second small query
+    issue_ids = [r["id"] for r in rows]
+    iph = ",".join("?" * len(issue_ids))
+    pph = ",".join("?" * len(policy_ids))
+    coverage = conn.execute(
+        f"""SELECT ipc.issue_id, p.policy_uid
+            FROM v_issue_policy_coverage ipc
+            JOIN policies p ON p.id = ipc.policy_id
+            WHERE ipc.issue_id IN ({iph}) AND ipc.policy_id IN ({pph})
+            ORDER BY p.policy_uid""",  # noqa: S608
+        issue_ids + policy_ids,
+    ).fetchall()
+    uids_by_issue: dict[int, list[str]] = {}
+    for r in coverage:
+        uids_by_issue.setdefault(r["issue_id"], []).append(r["policy_uid"])
+
+    out: list[dict] = []
+    for r in rows:
+        d = dict(r)
+        d["policy_uids"] = uids_by_issue.get(r["id"], [])
+        out.append(d)
+    return out
+
+
+def _rollup_financials(linked: list[dict]) -> dict:
+    """Premium / exposure totals from already-fetched linked policy rows."""
+    terminal = set(cfg.get("renewal_terminal_statuses", ["Bound", "Lost", "Non-Renewed", "Declined"]))
+    total_premium = 0.0
+    total_exposure = 0.0
+    premium_at_risk = 0.0
+    terminal_count = 0
+    for p in linked:
+        premium = p.get("premium") or 0
+        total_premium += premium
+        exposure = p.get("exposure_amount") or 0
+        total_exposure += exposure
+        if (p.get("renewal_status") or "") in terminal:
+            terminal_count += 1
+        else:
+            premium_at_risk += premium
+    return {
+        "total_premium": total_premium,
+        "total_exposure": total_exposure,
+        "premium_at_risk": premium_at_risk,
+        "policy_count": len(linked),
+        "at_risk_count": len(linked) - terminal_count,
+        "bound_count": terminal_count,
+    }
+
+
+def _rollup_renewal_status(linked: list[dict]) -> dict[str, int]:
+    """Counter of renewal_status across linked policies."""
+    counts: dict[str, int] = {}
+    for p in linked:
+        label = (p.get("renewal_status") or "Not Started").strip() or "Not Started"
+        counts[label] = counts.get(label, 0) + 1
+    return counts
+
+
+def _worst_health(healths: list[str]) -> str:
+    """Return the worst milestone health from a list."""
+    order = ["critical", "at_risk", "compressed", "drifting", "on_track", ""]
+    present = {h for h in healths if h}
+    for h in order:
+        if h in present:
+            return h
+    return ""
+
+
+def _rollup_per_policy_health(
+    conn: sqlite3.Connection, policy_uids: list[str]
+) -> dict[str, str]:
+    """Return {policy_uid: worst_health_label} based on open timeline rows."""
+    if not policy_uids:
+        return {}
+    placeholders = ",".join("?" * len(policy_uids))
+    rows = conn.execute(
+        f"""SELECT policy_uid, health
+            FROM policy_timeline
+            WHERE policy_uid IN ({placeholders}) AND completed_date IS NULL""",  # noqa: S608
+        policy_uids,
+    ).fetchall()
+    by_uid: dict[str, list[str]] = {}
+    for r in rows:
+        by_uid.setdefault(r["policy_uid"], []).append(r["health"] or "")
+    return {uid: _worst_health(healths) for uid, healths in by_uid.items()}
+
+
+def _enrich_linked_policies(conn, linked: list[dict]) -> None:
+    """Attach milestone_progress and worst_health to each linked policy row."""
+    if not linked:
+        return
+    uids = [p["policy_uid"] for p in linked if p.get("policy_uid")]
+    progress = get_milestone_progress_for_policies(conn, uids)
+    health_by_uid = _rollup_per_policy_health(conn, uids)
+    for p in linked:
+        uid = p.get("policy_uid")
+        p["milestone_progress"] = progress.get(uid, {"done": 0, "total": 0, "percent": 0})
+        p["worst_health"] = health_by_uid.get(uid, "")
+
+
+def _build_rollup(
+    conn: sqlite3.Connection, linked: list[dict], exclude_issue_id: Optional[int]
+) -> dict:
+    """Build the rollup dict from an already-materialized linked policy list.
+
+    Shared by get_issue_rollup() and get_program_rollup() so both entry points
+    produce the same shape. Caller is responsible for providing `linked`.
+    """
+    _enrich_linked_policies(conn, linked)
+
+    policy_ids = [p["id"] for p in linked]
+    policy_uids = [p["policy_uid"] for p in linked if p.get("policy_uid")]
+
+    rfi = _rollup_rfi(conn, policy_uids)
+    timeline_acct = _rollup_timeline_accountability(conn, policy_uids)
+    renewal_status = _rollup_renewal_status(linked)
+    financials = _rollup_financials(linked)
+    open_followups = _rollup_open_followups(conn, policy_ids, exclude_issue_id)
+    contacts = get_linked_policy_contacts(conn, policy_ids)
+    working_notes = _rollup_working_notes(conn, policy_ids)
+
+    # Checklist aggregate
+    total_done = sum(p["milestone_progress"]["done"] for p in linked)
+    total_items = sum(p["milestone_progress"]["total"] for p in linked)
+    checklist = {
+        "by_policy": {p["policy_uid"]: p["milestone_progress"] for p in linked},
+        "done_total": total_done,
+        "item_total": total_items,
+        "percent": int(round(100 * total_done / total_items)) if total_items else 0,
+    }
+
+    # Worst health across all linked policies (single badge for the top stat)
+    worst = _worst_health([p.get("worst_health", "") for p in linked])
+
+    return {
+        "policies": linked,
+        "rfi": rfi,
+        "checklist": checklist,
+        "timeline_accountability": timeline_acct,
+        "renewal_status": renewal_status,
+        "open_followups": open_followups,
+        "contacts": contacts,
+        "nested_issues": [],  # populated by issue variant only
+        "financials": financials,
+        "working_notes": working_notes,
+        "worst_health": worst,
+    }
+
+
+def get_issue_rollup(conn: sqlite3.Connection, issue_id: int) -> dict:
+    """Aggregate workflow state across all policies linked to an issue.
+
+    Returns a dict with keys: policies, rfi, checklist, timeline_accountability,
+    renewal_status, open_followups, contacts, nested_issues, financials,
+    working_notes, worst_health. See the plan at
+    .claude/plans/stateless-launching-valiant.md for the full shape.
+    """
+    linked = get_linked_policies_for_issue(conn, issue_id)
+    rollup = _build_rollup(conn, linked, exclude_issue_id=issue_id)
+    rollup["nested_issues"] = _rollup_nested_issues(
+        conn, [p["id"] for p in linked], issue_id
+    )
+    return rollup
+
+
+def get_program_rollup(conn: sqlite3.Connection, program_id: int) -> dict:
+    """Aggregate workflow state across all child policies of a program.
+
+    Same shape as get_issue_rollup() except `nested_issues` is always empty —
+    program-level issues already surface via a dedicated section on the program
+    detail page.
+    """
+    linked = get_linked_policies_for_program(conn, program_id)
+    return _build_rollup(conn, linked, exclude_issue_id=None)

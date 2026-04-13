@@ -11,7 +11,11 @@ from rapidfuzz import fuzz
 
 import policydb.config as cfg
 from policydb.db import generate_issue_uid
-from policydb.queries import auto_close_followups
+from policydb.queries import (
+    auto_close_followups,
+    get_issue_rollup,
+    get_linked_policies_for_issue,
+)
 from policydb.utils import round_duration
 from policydb.web.app import get_db, templates
 
@@ -665,10 +669,7 @@ def remove_issue_policy(issue_id: int, policy_id: int, conn=Depends(get_db)):
 
 def _render_linked_policies_panel(issue_id: int, conn) -> HTMLResponse:
     """Return the updated linked-policies panel partial."""
-    issue = conn.execute(
-        "SELECT policy_id, program_id FROM activity_log WHERE id = ?", (issue_id,)
-    ).fetchone()
-    linked = _get_linked_policies(conn, issue_id, issue)
+    linked = get_linked_policies_for_issue(conn, issue_id)
     html_parts = []
     for p in linked:
         is_junction = p.get("_junction")
@@ -724,107 +725,6 @@ def _render_linked_policies_panel(issue_id: int, conn) -> HTMLResponse:
     )
     body = f'<div class="divide-y divide-gray-100">{"".join(html_parts)}</div>' if html_parts else ""
     return HTMLResponse(header + body)
-
-
-def _get_linked_policies(conn, issue_id: int, issue) -> list[dict]:
-    """Gather all linked policies: direct FK + program + junction table."""
-    linked = []
-    seen_ids = set()
-
-    _pol_cols = """
-        p.id, p.policy_uid, p.policy_type, p.carrier, p.premium,
-        p.expiration_date, p.renewal_status, p.is_opportunity,
-        p.program_id, pr.name AS location_name,
-        pg.program_uid, pg.name AS program_name
-    """
-    _pol_joins = """
-        LEFT JOIN projects pr ON pr.id = p.project_id
-        LEFT JOIN programs pg ON pg.id = p.program_id
-    """
-
-    # Direct FK
-    if issue and issue["policy_id"]:
-        rows = conn.execute(f"""
-            SELECT {_pol_cols} FROM policies p {_pol_joins}
-            WHERE p.id = ? AND p.archived = 0
-        """, (issue["policy_id"],)).fetchall()
-        for r in rows:
-            d = dict(r)
-            seen_ids.add(d["id"])
-            linked.append(d)
-
-    # Program siblings
-    if issue and issue["program_id"]:
-        rows = conn.execute(f"""
-            SELECT {_pol_cols} FROM policies p {_pol_joins}
-            WHERE p.program_id = ? AND p.archived = 0
-            ORDER BY p.policy_type
-        """, (issue["program_id"],)).fetchall()
-        for r in rows:
-            d = dict(r)
-            if d["id"] not in seen_ids:
-                seen_ids.add(d["id"])
-                linked.append(d)
-
-    # Junction table
-    rows = conn.execute(f"""
-        SELECT {_pol_cols} FROM issue_policies ip
-        JOIN policies p ON p.id = ip.policy_id
-        {_pol_joins}
-        WHERE ip.issue_id = ? AND p.archived = 0
-        ORDER BY p.policy_uid
-    """, (issue_id,)).fetchall()
-    for r in rows:
-        d = dict(r)
-        if d["id"] not in seen_ids:
-            d["_junction"] = True
-            seen_ids.add(d["id"])
-            linked.append(d)
-
-    # Inherit from merged-in source issues (direct FK + program + junction)
-    merged_sources = conn.execute("""
-        SELECT id, policy_id, program_id FROM activity_log
-        WHERE merged_into_id = ? AND item_kind = 'issue'
-    """, (issue_id,)).fetchall()
-    for src in merged_sources:
-        if src["policy_id"]:
-            rows = conn.execute(f"""
-                SELECT {_pol_cols} FROM policies p {_pol_joins}
-                WHERE p.id = ? AND p.archived = 0
-            """, (src["policy_id"],)).fetchall()
-            for r in rows:
-                d = dict(r)
-                if d["id"] not in seen_ids:
-                    d["_from_merge"] = True
-                    seen_ids.add(d["id"])
-                    linked.append(d)
-        if src["program_id"]:
-            rows = conn.execute(f"""
-                SELECT {_pol_cols} FROM policies p {_pol_joins}
-                WHERE p.program_id = ? AND p.archived = 0
-                ORDER BY p.policy_type
-            """, (src["program_id"],)).fetchall()
-            for r in rows:
-                d = dict(r)
-                if d["id"] not in seen_ids:
-                    d["_from_merge"] = True
-                    seen_ids.add(d["id"])
-                    linked.append(d)
-        rows = conn.execute(f"""
-            SELECT {_pol_cols} FROM issue_policies ip
-            JOIN policies p ON p.id = ip.policy_id
-            {_pol_joins}
-            WHERE ip.issue_id = ? AND p.archived = 0
-            ORDER BY p.policy_uid
-        """, (src["id"],)).fetchall()
-        for r in rows:
-            d = dict(r)
-            if d["id"] not in seen_ids:
-                d["_from_merge"] = True
-                seen_ids.add(d["id"])
-                linked.append(d)
-
-    return linked
 
 
 # ── Issue detail page ────────────────────────────────────────────────────────
@@ -937,8 +837,11 @@ def issue_detail(
                 ORDER BY pt.ideal_date
             """, (issue["program_id"],)).fetchall()]
 
-    # Linked policies: direct FK + program siblings + junction table
-    linked_policies = _get_linked_policies(conn, issue_id, issue)
+    # Linked policies + scope rollup (RFI, checklist, timeline accountability,
+    # renewal status, open follow-ups, contacts, working notes, nested issues).
+    # Single call replaces the old _get_linked_policies() helper.
+    issue_rollup = get_issue_rollup(conn, issue_id)
+    linked_policies = issue_rollup["policies"]
 
     # Build bind subjects from linked policies. Group policies that share a
     # program_uid into a single program: token (so program children render as
@@ -968,6 +871,7 @@ def issue_detail(
         "merged_from_issues": merged_from_issues,
         "merged_from_flash": merged_from or "",
         "linked_policies": linked_policies,
+        "issue_rollup": issue_rollup,
         "bind_subjects_csv": bind_subjects_csv,
         "issue_lifecycle_states": cfg.get("issue_lifecycle_states", []),
         "issue_severities": cfg.get("issue_severities", []),

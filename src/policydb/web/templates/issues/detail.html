@@ -114,6 +114,17 @@
     {% endif %}
     <span class="text-gray-300">&middot;</span>
     <span>{{ activities|length }} activit{{ 'y' if activities|length == 1 else 'ies' }}{% if total_hours %} &middot; {{ total_hours | format_hours }}{% endif %}</span>
+    {% if issue_rollup and issue_rollup.financials.policy_count %}
+    {% set _fin = issue_rollup.financials %}
+    <span class="text-gray-300">&middot;</span>
+    <span class="text-gray-600 tabular-nums">
+      {{ _fin.total_premium | currency_short }} prem
+      {% if _fin.total_exposure %}&middot; {{ _fin.total_exposure | currency_short }} exp{% endif %}
+      {% if _fin.policy_count > 1 %}
+      &middot; <span class="{% if _fin.at_risk_count > 0 %}text-amber-700 font-medium{% else %}text-green-700{% endif %}">{{ _fin.at_risk_count }}/{{ _fin.policy_count }} at risk</span>
+      {% endif %}
+    </span>
+    {% endif %}
   </div>
 
   {# ── Status pill control ── #}
@@ -378,6 +389,12 @@
         </div>
       </div>
 
+      {# ── Scope Rollup ── #}
+      {% if issue_rollup and linked_policies %}
+      {% set rollup_client_id = issue.client_id %}
+      {% include "issues/_scope_rollup.html" %}
+      {% endif %}
+
       {# ── Files & Attachments ── #}
       <div class="card p-4">
         <div class="text-[10px] text-gray-400 uppercase tracking-wide mb-2">Files & Attachments</div>
@@ -483,6 +500,17 @@
           <span class="text-[10px] text-emerald-800 uppercase tracking-wide font-semibold">Timeline Milestones</span>
           <span class="inline-flex items-center text-[9px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full px-1.5 py-0.5">Renewal Issue</span>
         </div>
+        {% if issue_rollup and issue_rollup.timeline_accountability.waiting %}
+        <div class="flex flex-wrap gap-1 mb-2">
+          {% for label, n in issue_rollup.timeline_accountability.waiting.items() %}
+          <span class="inline-flex items-center gap-1 text-[10px] bg-amber-50 text-amber-700 border border-amber-200 rounded-full px-2 py-0.5">
+            <svg class="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 20 20"><circle cx="10" cy="10" r="6"/></svg>
+            {{ label }}
+            <span class="font-semibold tabular-nums">{{ n }}</span>
+          </span>
+          {% endfor %}
+        </div>
+        {% endif %}
         <div class="text-[10px] text-gray-400 mb-2">Severity auto-managed by timeline health</div>
         <div class="space-y-1.5">
           {% for ms in timeline_milestones %}
