@@ -498,6 +498,11 @@ def inbox_dismiss(inbox_id: int, conn=Depends(get_db)):
     })
 
 
+# SQLite default SQLITE_MAX_VARIABLE_NUMBER is 999 on older builds, 32766 on
+# newer. Stay well below the lower bound to be safe with parameterized IN clauses.
+_BULK_CHUNK = 500
+
+
 @router.post("/inbox/bulk-dismiss")
 async def inbox_bulk_dismiss(request: Request, conn=Depends(get_db)):
     """Bulk dismiss inbox items.
@@ -513,9 +518,33 @@ async def inbox_bulk_dismiss(request: Request, conn=Depends(get_db)):
     For any Outlook-sourced rows, message_ids are also written to
     `dismissed_outlook_messages` so the next sync doesn't re-import them.
     """
-    body = await request.json()
-    inbox_ids = body.get("inbox_ids") or []
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Invalid JSON body"}, status_code=400)
+
+    if not isinstance(body, dict):
+        return JSONResponse({"ok": False, "error": "Body must be a JSON object"}, status_code=400)
+
+    raw_ids = body.get("inbox_ids") or []
     scope = (body.get("scope") or "").strip()
+
+    # Validate inbox_ids shape — must be a list of integers (or coercible)
+    inbox_ids: list[int] = []
+    if raw_ids:
+        if not isinstance(raw_ids, list):
+            return JSONResponse(
+                {"ok": False, "error": "inbox_ids must be a list of integers"},
+                status_code=400,
+            )
+        for x in raw_ids:
+            try:
+                inbox_ids.append(int(x))
+            except (TypeError, ValueError):
+                return JSONResponse(
+                    {"ok": False, "error": "inbox_ids must contain only integers"},
+                    status_code=400,
+                )
 
     if not inbox_ids and not scope:
         return JSONResponse({"ok": False, "error": "Provide inbox_ids or scope"}, status_code=400)
@@ -539,13 +568,18 @@ async def inbox_bulk_dismiss(request: Request, conn=Depends(get_db)):
                WHERE status = 'pending'"""
         ).fetchall()
     elif inbox_ids:
-        # Use parameterized IN with a generated placeholder list
-        placeholders = ",".join("?" * len(inbox_ids))
-        rows = conn.execute(
-            f"""SELECT id, outlook_message_id FROM inbox
-                WHERE status = 'pending' AND id IN ({placeholders})""",
-            list(inbox_ids),
-        ).fetchall()
+        # Chunk the IN-clause to avoid hitting SQLITE_MAX_VARIABLE_NUMBER on
+        # large lists. SELECT-then-aggregate so the bulk-dismiss numbers below
+        # operate on a single combined row set.
+        rows = []
+        for i in range(0, len(inbox_ids), _BULK_CHUNK):
+            chunk = inbox_ids[i:i + _BULK_CHUNK]
+            placeholders = ",".join("?" * len(chunk))
+            rows.extend(conn.execute(
+                f"""SELECT id, outlook_message_id FROM inbox
+                    WHERE status = 'pending' AND id IN ({placeholders})""",
+                chunk,
+            ).fetchall())
     else:
         return JSONResponse({"ok": False, "error": "Unknown scope"}, status_code=400)
 
@@ -555,20 +589,24 @@ async def inbox_bulk_dismiss(request: Request, conn=Depends(get_db)):
     target_ids = [r["id"] for r in rows]
     msg_ids = [r["outlook_message_id"] for r in rows if r["outlook_message_id"]]
 
-    # Block re-import on next sync
-    for mid in msg_ids:
-        conn.execute(
+    # Block re-import on next sync (executemany batches the inserts)
+    if msg_ids:
+        conn.executemany(
             "INSERT OR IGNORE INTO dismissed_outlook_messages (message_id) VALUES (?)",
-            (mid,),
+            [(m,) for m in msg_ids],
         )
 
-    placeholders = ",".join("?" * len(target_ids))
-    conn.execute(
-        f"""UPDATE inbox
-            SET status='processed', processed_at=CURRENT_TIMESTAMP
-            WHERE id IN ({placeholders})""",
-        target_ids,
-    )
+    # Chunk the UPDATE the same way as the SELECT to stay under the parameter
+    # limit on huge dismiss operations.
+    for i in range(0, len(target_ids), _BULK_CHUNK):
+        chunk = target_ids[i:i + _BULK_CHUNK]
+        placeholders = ",".join("?" * len(chunk))
+        conn.execute(
+            f"""UPDATE inbox
+                SET status='processed', processed_at=CURRENT_TIMESTAMP
+                WHERE id IN ({placeholders})""",
+            chunk,
+        )
     conn.commit()
     logger.info("Bulk-dismissed %d inbox items (scope=%s)", len(target_ids), scope or "explicit_ids")
     return JSONResponse({"ok": True, "dismissed": len(target_ids)})

@@ -199,23 +199,66 @@ function acCancelDismiss(id) {
       'Dismiss</button>';
 }
 
-/* Bulk dismiss inbox items by scope. Re-import is blocked via dismissed_outlook_messages. */
+/* Bulk dismiss inbox items by scope. Re-import is blocked via dismissed_outlook_messages.
+ *
+ * Two-step inline confirm to match the single-row dismiss pattern (no native
+ * confirm() — see CLAUDE.md design rules), single-flight guard so a double-click
+ * can't fire the request twice, and a .catch() that surfaces network errors as
+ * a toast instead of silently doing nothing.
+ */
+window._acBulkDismissInFlight = window._acBulkDismissInFlight || false;
+
 function acBulkDismiss(scope, count) {
-  var label = {
+  if (window._acBulkDismissInFlight) return;
+  var menu = document.getElementById('ac-bulk-dismiss-menu');
+  var labels = {
     'outlook_unmatched': 'unmatched Outlook item',
     'outlook_all': 'Outlook item',
     'all_pending': 'pending item'
-  }[scope] || 'item';
-  var msg = 'Dismiss ' + count + ' ' + label + (count !== 1 ? 's' : '') + '?';
-  if (scope === 'all_pending') msg += '\n\nThis includes manual notes you\'ve captured.';
-  if (!confirm(msg)) return;
+  };
+  var label = labels[scope] || 'item';
+  var noun = label + (count !== 1 ? 's' : '');
+
+  // Show inline confirm row inside the dropdown menu
+  if (!menu) return;
+  var existing = menu.querySelector('.ac-bulk-confirm');
+  if (existing) existing.remove();
+  var row = document.createElement('div');
+  row.className = 'ac-bulk-confirm px-3 py-2 border-t border-gray-100 text-xs text-gray-700 flex items-center gap-2';
+  var warn = (scope === 'all_pending') ? ' (incl. manual notes)' : '';
+  var safeLabel = noun.replace(/[<>&"]/g, '');
+  row.appendChild(document.createTextNode('Dismiss ' + count + ' ' + safeLabel + warn + '?'));
+  var yes = document.createElement('button');
+  yes.type = 'button';
+  yes.className = 'text-red-600 hover:text-red-800 font-medium px-1';
+  yes.textContent = 'Yes';
+  yes.addEventListener('click', function() { _acBulkDismissExecute(scope); });
+  row.appendChild(yes);
+  var no = document.createElement('button');
+  no.type = 'button';
+  no.className = 'text-gray-400 hover:text-gray-600 px-1';
+  no.textContent = 'No';
+  no.addEventListener('click', function() { row.remove(); });
+  row.appendChild(no);
+  menu.appendChild(row);
+}
+
+function _acBulkDismissExecute(scope) {
+  if (window._acBulkDismissInFlight) return;
+  window._acBulkDismissInFlight = true;
   var menu = document.getElementById('ac-bulk-dismiss-menu');
   if (menu) menu.removeAttribute('open');
+
   fetch('/inbox/bulk-dismiss', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({scope: scope})
-  }).then(function(r) { return r.json(); }).then(function(result) {
+  })
+  .then(function(r) {
+    // Tolerate non-JSON 4xx/5xx bodies — fall back to status text
+    return r.json().catch(function() { return {ok: false, error: 'HTTP ' + r.status}; });
+  })
+  .then(function(result) {
     if (result.ok) {
       if (typeof showToast === 'function') {
         showToast(result.dismissed + ' item' + (result.dismissed !== 1 ? 's' : '') + ' dismissed', true);
@@ -226,6 +269,14 @@ function acBulkDismiss(scope, count) {
     } else if (typeof showToast === 'function') {
       showToast('Bulk dismiss failed: ' + (result.error || 'unknown'), false);
     }
+  })
+  .catch(function(err) {
+    if (typeof showToast === 'function') {
+      showToast('Bulk dismiss failed: ' + (err && err.message ? err.message : 'network error'), false);
+    }
+  })
+  .finally(function() {
+    window._acBulkDismissInFlight = false;
   });
 }
 

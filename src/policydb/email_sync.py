@@ -520,13 +520,16 @@ def _create_or_enrich_activity(
     # Can't create activity without a client
     if not client_id:
         return {"action": "skipped", "activity_id": 0, "reason": "no_client"}
-    folder = email.get("folder", "")
-    subject = email.get("subject", "")
-    sender = email.get("sender", "")
-    recipients = ", ".join(email.get("recipients", [])[:5])
+    # Defensive `or ""` on every field that goes through string ops — the
+    # AppleScript bridge always emits strings in practice, but a malformed
+    # JSON parse fallback or future change could surface None and crash.
+    folder = email.get("folder") or ""
+    subject = email.get("subject") or ""
+    sender = email.get("sender") or ""
+    recipients = ", ".join((email.get("recipients") or [])[:5])
     # Clean and store readable text snippet
-    snippet = _clean_email_text(email.get("body_snippet", ""))[:5000]
-    email_date = email.get("date", "")[:10]  # ISO date portion
+    snippet = _clean_email_text(email.get("body_snippet") or "")[:5000]
+    email_date = (email.get("date") or "")[:10]  # ISO date portion
     flag_due = email.get("flag_due_date")
 
     is_sent = folder.lower() in ("sent items", "sent")
@@ -941,8 +944,8 @@ def _process_email(
 ) -> None:
     """Process a single email: extract ref tags, match, create/enrich activity."""
     # Strip HTML tags from body before searching for ref tags
-    body = _HTML_TAG_RE.sub('', email.get("body_snippet", ""))
-    combined_text = email.get("subject", "") + " " + body
+    body = _HTML_TAG_RE.sub('', email.get("body_snippet") or "")
+    combined_text = (email.get("subject") or "") + " " + body
     # Dedup tags so we don't resolve the same tag twice when it appears in both
     # subject and body.
     tags = list(dict.fromkeys(_extract_ref_tags(combined_text)))
@@ -995,14 +998,14 @@ def _process_email(
             if existing_inbox:
                 results["skipped"] += 1
                 return
-        subject = email.get("subject", "")
-        sender = email.get("sender", "")
-        folder = email.get("folder", "")
-        date_str = (email.get("date", "") or "")[:10]
-        snippet = _clean_email_text(email.get("body_snippet", ""))[:5000]
+        subject = email.get("subject") or ""
+        sender = email.get("sender") or ""
+        folder = email.get("folder") or ""
+        date_str = (email.get("date") or "")[:10]
+        snippet = _clean_email_text(email.get("body_snippet") or "")[:5000]
         label_map = {"flagged": "[Outlook Flagged]", "sent": "[Outlook Sent]", "received": "[Outlook Received]"}
         label = label_map.get(category, "[Outlook]")
-        recipients = ", ".join(email.get("recipients", [])[:3])
+        recipients = ", ".join((email.get("recipients") or [])[:3])
         content = f"{label} {subject}\nFrom: {sender}\nTo: {recipients}\nFolder: {folder}\nDate: {date_str}"
         if snippet:
             content += f"\n\n{snippet}"
