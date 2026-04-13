@@ -1742,18 +1742,41 @@ def renewals_calendar(request: Request, conn=Depends(get_db)):
 
 
 @router.get("/renewals/export")
-def renewals_export(window: int = 180, fmt: str = "xlsx", conn=Depends(get_db)):
+def renewals_export(
+    window: int = 180,
+    fmt: str = "xlsx",
+    urgency: str = "",
+    status: str = "",
+    client_id: int = 0,
+    conn=Depends(get_db),
+):
     from fastapi.responses import Response
     from policydb.exporter import export_renewals_csv, export_renewals_xlsx
+    excluded = cfg.get("renewal_statuses_excluded", [])
+    filter_client_ids = [client_id] if client_id else None
     today = date.today().isoformat()
     if fmt == "xlsx":
-        content = export_renewals_xlsx(conn, window_days=window)
+        content = export_renewals_xlsx(
+            conn,
+            window_days=window,
+            urgency=urgency or None,
+            renewal_status=status or None,
+            excluded_statuses=excluded,
+            client_ids=filter_client_ids,
+        )
         return Response(
             content=content,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             headers={"Content-Disposition": f'attachment; filename="renewals_{today}.xlsx"'},
         )
-    content = export_renewals_csv(conn, window_days=window)
+    content = export_renewals_csv(
+        conn,
+        window_days=window,
+        urgency=urgency or None,
+        renewal_status=status or None,
+        excluded_statuses=excluded,
+        client_ids=filter_client_ids,
+    )
     return Response(
         content=content,
         media_type="text/csv",
@@ -1762,34 +1785,57 @@ def renewals_export(window: int = 180, fmt: str = "xlsx", conn=Depends(get_db)):
 
 
 @router.get("/renewals/copy-table")
-def renewals_copy_table(window: int = 180, status: str = "", client_id: int = 0, conn=Depends(get_db)):
+def renewals_copy_table(
+    window: int = 180,
+    urgency: str = "",
+    status: str = "",
+    client_id: int = 0,
+    conn=Depends(get_db),
+):
     """Return HTML + plain-text renewal pipeline table for clipboard copy."""
     from fastapi.responses import JSONResponse
     from policydb.email_templates import build_policy_table
+    from policydb.queries import get_renewal_pipeline_merged
     excluded = cfg.get("renewal_statuses_excluded", [])
     filter_client_ids = [client_id] if client_id else None
-    pipeline = get_renewal_pipeline(
+    pipeline = get_renewal_pipeline_merged(
         conn,
         window_days=window,
+        urgency=urgency or None,
         renewal_status=status or None,
         excluded_statuses=excluded,
         client_ids=filter_client_ids,
     )
-    # Convert pipeline rows to the standard table row format
+    # Convert merged pipeline rows to the standard table row format.
+    # Programs are mapped to program-level rollup rows so they appear
+    # alongside standalone policies in the pasted table.
     rows = []
     for r in pipeline:
-        rd = dict(r)
-        rows.append({
-            "policy_type": rd.get("policy_type") or "",
-            "carrier": rd.get("carrier") or "",
-            "access_point": rd.get("access_point") or "",
-            "policy_number": rd.get("policy_number") or "",
-            "effective_date": rd.get("effective_date") or "",
-            "expiration_date": rd.get("expiration_date") or "",
-            "premium": rd.get("premium"),
-            "limit_amount": rd.get("limit_amount"),
-            "description": rd.get("description") or "",
-        })
+        if r.get("_is_program"):
+            count = r.get("policy_count") or 0
+            rows.append({
+                "policy_type": f"{r.get('program_name') or ''} (Program)",
+                "carrier": r.get("carriers_list") or "",
+                "access_point": "",
+                "policy_number": r.get("program_uid") or "",
+                "effective_date": "",
+                "expiration_date": r.get("earliest_expiration") or "",
+                "premium": r.get("total_premium"),
+                "limit_amount": None,
+                "description": f"{count} polic{'y' if count == 1 else 'ies'}",
+            })
+        else:
+            rows.append({
+                "policy_type": r.get("policy_type") or "",
+                "carrier": r.get("carrier") or "",
+                "access_point": r.get("access_point") or "",
+                "policy_number": r.get("policy_number") or "",
+                "effective_date": r.get("effective_date") or "",
+                "expiration_date": r.get("expiration_date") or "",
+                "premium": r.get("premium"),
+                "limit_amount": r.get("limit_amount"),
+                "description": r.get("description") or "",
+            })
     result = build_policy_table(conn, client_id=0, rows=rows)
     return JSONResponse(result)
 
@@ -2059,18 +2105,65 @@ def bulk_reschedule(
     return resp
 
 
+def _parse_subject_tokens(raw: str) -> tuple[list[str], list[str]]:
+    """Split a tokenized 'policy:POL-001,program:PGM-001' list into two lists.
+
+    Returns (policy_uids, program_uids). Unprefixed tokens default to policy
+    to preserve backwards compatibility with the legacy policy_uids param.
+    """
+    policy_uids: list[str] = []
+    program_uids: list[str] = []
+    for token in (raw or "").split(","):
+        token = token.strip()
+        if not token:
+            continue
+        if ":" in token:
+            kind, uid = token.split(":", 1)
+            kind = kind.strip().lower()
+            uid = uid.strip().upper()
+            if not uid:
+                continue
+            if kind == "program":
+                program_uids.append(uid)
+            else:
+                policy_uids.append(uid)
+        else:
+            policy_uids.append(token.upper())
+    return policy_uids, program_uids
+
+
 @router.post("/renewals/bulk-milestones", response_class=HTMLResponse)
 def bulk_milestones(
     request: Request,
-    policy_uids: str = Form(...),
     milestone: str = Form(...),
     action: str = Form(...),
+    subjects: str = Form(""),
+    policy_uids: str = Form(""),
     conn=Depends(get_db),
 ):
-    """Bulk mark a milestone complete or incomplete for multiple policies."""
+    """Bulk mark a milestone complete/incomplete for policies and programs.
+
+    Programs fan out to all active child policies — programs themselves do
+    not have a milestone table, so marking a milestone on a program applies
+    it to every child policy.
+    """
+    raw = subjects or policy_uids
+    pol_uids, pgm_uids = _parse_subject_tokens(raw)
+
+    # Fan out program uids to their child policy uids
+    if pgm_uids:
+        ph = ",".join("?" * len(pgm_uids))
+        children = conn.execute(
+            f"""SELECT p.policy_uid FROM policies p
+                JOIN programs pg ON pg.id = p.program_id
+                WHERE pg.program_uid IN ({ph}) AND p.archived = 0""",
+            pgm_uids,
+        ).fetchall()
+        for c in children:
+            pol_uids.append(c["policy_uid"])
+
     now = datetime.now().isoformat()
-    for uid in policy_uids.split(","):
-        uid = uid.strip().upper()
+    for uid in pol_uids:
         if not uid:
             continue
         existing = conn.execute(
@@ -2101,31 +2194,27 @@ def bulk_milestones(
 @router.post("/renewals/bulk/log", response_class=HTMLResponse)
 def bulk_log(
     request: Request,
-    policy_uids: str = Form(...),
     activity_type: str = Form(...),
     subject: str = Form(...),
     contact_person: str = Form(""),
     details: str = Form(""),
     follow_up_date: str = Form(""),
     duration_hours: str = Form(""),
+    subjects: str = Form(""),
+    policy_uids: str = Form(""),
     conn=Depends(get_db),
 ):
-    """Bulk log an activity to multiple selected renewal policies."""
-    def _float(v):
-        try:
-            return float(v) if str(v).strip() else None
-        except ValueError:
-            return None
-
+    """Bulk log an activity to multiple selected renewal rows (policies + programs)."""
     today = date.today().isoformat()
     account_exec = cfg.get("default_account_exec", "Grant")
     dur = round_duration(duration_hours)
     fu = follow_up_date.strip() or None
 
-    for uid in policy_uids.split(","):
-        uid = uid.strip().upper()
-        if not uid:
-            continue
+    raw = subjects or policy_uids
+    pol_uids, pgm_uids = _parse_subject_tokens(raw)
+    count = 0
+
+    for uid in pol_uids:
         policy = conn.execute(
             "SELECT id, client_id FROM policies WHERE policy_uid = ?", (uid,)
         ).fetchone()
@@ -2143,29 +2232,51 @@ def bulk_log(
         if fu:
             from policydb.queries import supersede_followups
             supersede_followups(conn, policy["id"], fu)
+        count += 1
+
+    for uid in pgm_uids:
+        program = conn.execute(
+            "SELECT id, client_id FROM programs WHERE program_uid = ?", (uid,)
+        ).fetchone()
+        if not program:
+            continue
+        conn.execute(
+            """INSERT INTO activity_log
+               (activity_date, client_id, program_id, activity_type, contact_person,
+                subject, details, follow_up_date, duration_hours, account_exec)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (today, program["client_id"], program["id"], activity_type,
+             contact_person.strip() or None, subject.strip(), details.strip() or None,
+             fu, dur, account_exec),
+        )
+        if fu:
+            conn.execute(
+                "UPDATE programs SET follow_up_date=? WHERE id=?",
+                (fu, program["id"]),
+            )
+        count += 1
+
     conn.commit()
-    count = sum(1 for uid in policy_uids.split(",") if uid.strip())
     resp = HTMLResponse("")
-    resp.headers["HX-Trigger"] = '{"activityLogged": "' + f'Activity logged to {count} policies' + '"}'
+    resp.headers["HX-Trigger"] = '{"activityLogged": "' + f'Activity logged to {count} rows' + '"}'
     return resp
 
 
 @router.post("/renewals/bulk/follow-up", response_class=HTMLResponse)
 def bulk_follow_up(
     request: Request,
-    policy_uids: str = Form(...),
     follow_up_date: str = Form(...),
+    subjects: str = Form(""),
+    policy_uids: str = Form(""),
     conn=Depends(get_db),
 ):
-    """Set follow-up date for multiple selected renewal policies."""
+    """Set follow-up date for multiple selected renewal rows (policies + programs)."""
     fu = follow_up_date.strip()
     if not fu:
         return HTMLResponse("")
+    pol_uids, pgm_uids = _parse_subject_tokens(subjects or policy_uids)
     count = 0
-    for uid in policy_uids.split(","):
-        uid = uid.strip().upper()
-        if not uid:
-            continue
+    for uid in pol_uids:
         policy = conn.execute(
             "SELECT id FROM policies WHERE policy_uid = ?", (uid,)
         ).fetchone()
@@ -2176,9 +2287,20 @@ def bulk_follow_up(
             (fu, policy["id"]),
         )
         count += 1
+    for uid in pgm_uids:
+        program = conn.execute(
+            "SELECT id FROM programs WHERE program_uid = ?", (uid,)
+        ).fetchone()
+        if not program:
+            continue
+        conn.execute(
+            "UPDATE programs SET follow_up_date = ? WHERE id = ?",
+            (fu, program["id"]),
+        )
+        count += 1
     conn.commit()
     resp = HTMLResponse("")
-    resp.headers["HX-Trigger"] = '{"activityLogged": "' + f'Follow-up set for {count} policies' + '"}'
+    resp.headers["HX-Trigger"] = '{"activityLogged": "' + f'Follow-up set for {count} rows' + '"}'
     return resp
 
 

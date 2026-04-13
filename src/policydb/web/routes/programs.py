@@ -1290,27 +1290,66 @@ async def patch_child_cell(request: Request, program_uid: str, policy_id: int,
 # ---------------------------------------------------------------------------
 
 def _build_program_row_context(conn, program_uid: str) -> dict:
-    """Build a program row dict matching get_program_pipeline() output for template rendering."""
+    """Build a program row dict matching get_program_pipeline() output for template rendering.
+
+    The _program_renew_row.html template reads `days_since_touch` without
+    an `is defined` guard, so every code path returning from this helper
+    must populate that key (None when there's no activity).
+    """
     from policydb.queries import get_program_pipeline
     all_pgms = get_program_pipeline(conn, window_days=9999)
+    found = None
     for pgm in all_pgms:
         if pgm.get("program_uid") == program_uid:
             pgm["expiration_date"] = pgm["earliest_expiration"]
             pgm["premium"] = pgm["total_premium"]
-            return pgm
-    # Fallback: build minimal context from DB
-    program = get_program_by_uid(conn, program_uid)
-    if not program:
-        return {}
-    d = dict(program)
-    client = conn.execute("SELECT name, cn_number FROM clients WHERE id=?", (d["client_id"],)).fetchone()
-    d["client_name"] = client["name"] if client else ""
-    d["cn_number"] = client["cn_number"] if client else ""
-    d["program_name"] = d["name"]
-    d["_is_program"] = True
-    d["program_id"] = d["id"]
-    d["followup_overdue"] = bool(d.get("follow_up_date") and d["follow_up_date"] < date.today().isoformat())
-    return d
+            found = pgm
+            break
+
+    if found is None:
+        program = get_program_by_uid(conn, program_uid)
+        if not program:
+            return {}
+        d = dict(program)
+        client = conn.execute(
+            "SELECT name, cn_number FROM clients WHERE id=?", (d["client_id"],)
+        ).fetchone()
+        d["client_name"] = client["name"] if client else ""
+        d["cn_number"] = client["cn_number"] if client else ""
+        d["program_name"] = d["name"]
+        d["_is_program"] = True
+        d["program_id"] = d["id"]
+        d["followup_overdue"] = bool(
+            d.get("follow_up_date") and d["follow_up_date"] < date.today().isoformat()
+        )
+        found = d
+
+    # Aggregate last activity across all child policies (matches the inline
+    # decoration in the /renewals route so row refreshes match initial render)
+    child_rows = conn.execute(
+        "SELECT id FROM policies WHERE program_id=? AND archived=0",
+        (found.get("program_id") or found.get("id"),),
+    ).fetchall()
+    child_ids = [c["id"] for c in child_rows]
+    last_date = None
+    if child_ids:
+        ph = ",".join("?" * len(child_ids))
+        row = conn.execute(
+            f"SELECT MAX(activity_date) AS last_date FROM activity_log WHERE policy_id IN ({ph})",
+            child_ids,
+        ).fetchone()
+        last_date = row["last_date"] if row else None
+    found["last_activity_date"] = last_date
+    if last_date:
+        try:
+            found["days_since_touch"] = (
+                date.today() - date.fromisoformat(last_date)
+            ).days
+        except (ValueError, TypeError):
+            found["days_since_touch"] = None
+    else:
+        found["days_since_touch"] = None
+    return found
 
 
 @router.get("/programs/{program_uid}/renew/log", response_class=HTMLResponse)

@@ -470,6 +470,94 @@ def get_program_pipeline(
     return result
 
 
+def get_renewal_pipeline_merged(
+    conn: sqlite3.Connection,
+    window_days: int = 180,
+    urgency: Optional[str] = None,
+    renewal_status: Optional[str] = None,
+    excluded_statuses: Optional[list] = None,
+    client_ids: list[int] | None = None,
+) -> list[dict]:
+    """Return merged renewal pipeline — standalone policies + program rollups.
+
+    When a program falls within the window, its child policies are excluded
+    and a single program rollup row is included instead. Program rows carry
+    `_is_program=True` and are given `expiration_date` / `premium` aliases
+    (copied from `earliest_expiration` / `total_premium`) so the two row
+    shapes can be rendered and sorted uniformly.
+
+    This is the canonical merged-pipeline query used by the /renewals page,
+    exports, and copy-table. Callers that need readiness scores, mailto
+    subjects, or milestone progress attach those decorations separately.
+    """
+    policy_rows = get_renewal_pipeline(
+        conn,
+        window_days=window_days,
+        urgency=urgency,
+        renewal_status=renewal_status,
+        excluded_statuses=excluded_statuses,
+        client_ids=client_ids,
+    )
+
+    # Programs pipeline — get_program_pipeline only supports single client_id
+    if client_ids and len(client_ids) == 1:
+        program_rows = get_program_pipeline(
+            conn, client_id=client_ids[0], window_days=window_days
+        )
+    else:
+        program_rows = get_program_pipeline(
+            conn, client_id=None, window_days=window_days
+        )
+        if client_ids:
+            allowed = set(client_ids)
+            program_rows = [p for p in program_rows if p.get("client_id") in allowed]
+
+    # Apply the same urgency / renewal_status / excluded_statuses filters
+    # that v_renewal_pipeline applies to policies
+    if urgency:
+        u = urgency.upper()
+        program_rows = [p for p in program_rows if (p.get("urgency") or "").upper() == u]
+    if renewal_status:
+        program_rows = [p for p in program_rows if p.get("renewal_status") == renewal_status]
+    if excluded_statuses:
+        excl = set(excluded_statuses)
+        program_rows = [
+            p for p in program_rows
+            if (p.get("renewal_status") or "") not in excl
+        ]
+
+    # Build set of policy UIDs that belong to active programs so we can
+    # exclude them from the standalone policy list
+    program_policy_uids: set[str] = set()
+    if program_rows:
+        pids = [p["program_id"] for p in program_rows]
+        ph = ",".join("?" * len(pids))
+        children = conn.execute(
+            f"SELECT policy_uid FROM policies WHERE program_id IN ({ph}) AND archived=0",
+            pids,
+        ).fetchall()
+        program_policy_uids = {c["policy_uid"] for c in children}
+
+    merged: list[dict] = []
+    for p in policy_rows:
+        d = dict(p)
+        if d.get("policy_uid") in program_policy_uids:
+            continue
+        d["_is_program"] = False
+        merged.append(d)
+
+    for pgm in program_rows:
+        pd = dict(pgm)
+        # Alias keys so program rows sort/render alongside policy rows
+        pd["expiration_date"] = pd.get("earliest_expiration")
+        pd["premium"] = pd.get("total_premium")
+        pd["_is_program"] = True
+        merged.append(pd)
+
+    merged.sort(key=lambda r: r.get("expiration_date") or "9999-12-31")
+    return merged
+
+
 def get_escalation_alerts(
     conn: sqlite3.Connection,
     excluded_statuses: Optional[list] = None,

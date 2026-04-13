@@ -123,10 +123,10 @@ def export_llm_client_md(conn: sqlite3.Connection, client_id: int) -> str:
         "SELECT * FROM v_policy_status WHERE client_id = ? ORDER BY policy_type, layer_position",
         (client_id,),
     ).fetchall()
-    pipeline = conn.execute(
-        "SELECT * FROM v_renewal_pipeline WHERE client_name = ? ORDER BY expiration_date",
-        (client["name"],),
-    ).fetchall()
+    from policydb.queries import get_renewal_pipeline_merged
+    pipeline = get_renewal_pipeline_merged(
+        conn, window_days=180, client_ids=[client_id]
+    )
     activities = conn.execute(
         """SELECT a.*, c.name AS client_name, p.policy_uid, p.policy_type AS policy_type_ref
            FROM activity_log a
@@ -238,9 +238,15 @@ def export_llm_client_md(conn: sqlite3.Connection, client_id: int) -> str:
         f"estimated_annual_revenue: {fmt_currency(total_revenue)}",
     ]
     if next_pol:
+        if next_pol.get("_is_program"):
+            _uid = next_pol.get("program_uid") or ""
+            _label = f"{next_pol.get('program_name') or ''} [Program]"
+        else:
+            _uid = next_pol.get("policy_uid") or ""
+            _label = next_pol.get("policy_type") or ""
         lines.append(
-            f'next_renewal: "{next_pol["expiration_date"]} ({next_pol["days_to_renewal"]}d'
-            f' — {next_pol["policy_uid"]}, {next_pol["policy_type"]})"'
+            f'next_renewal: "{next_pol.get("expiration_date") or ""} ({next_pol.get("days_to_renewal")}d'
+            f' — {_uid}, {_label})"'
         )
     lines += ["---", ""]
 
@@ -374,10 +380,18 @@ def export_llm_client_md(conn: sqlite3.Connection, client_id: int) -> str:
         "",
     ]
     if next_pol:
+        if next_pol.get("_is_program"):
+            _label = f"{next_pol.get('program_name') or ''} [Program]"
+            _uid = next_pol.get("program_uid") or ""
+            _carrier = next_pol.get("carriers_list") or ""
+        else:
+            _label = next_pol.get("policy_type") or ""
+            _uid = next_pol.get("policy_uid") or ""
+            _carrier = next_pol.get("carrier") or ""
         lines += [
-            f"Next renewal: **{next_pol['policy_type']}** ({next_pol['policy_uid']}) with "
-            f"{next_pol['carrier']} — expires {next_pol['expiration_date']}, "
-            f"{next_pol['days_to_renewal']} days out.",
+            f"Next renewal: **{_label}** ({_uid}) with "
+            f"{_carrier} — expires {next_pol.get('expiration_date') or ''}, "
+            f"{next_pol.get('days_to_renewal')} days out.",
             "",
         ]
 
@@ -386,15 +400,21 @@ def export_llm_client_md(conn: sqlite3.Connection, client_id: int) -> str:
         lines += [
             "## Renewal Pipeline (Next 180 Days)",
             "",
-            "| Policy | Line of Business | Carrier | Expires | Days | Premium | Urgency | Status | Colleague |",
-            "|--------|------------------|---------|---------|------|---------|---------|--------|-----------|",
+            "| Type | UID | Line / Program | Carrier(s) | Expires | Days | Premium | Urgency | Status | Colleague |",
+            "|------|-----|----------------|------------|---------|------|---------|---------|--------|-----------|",
         ]
         for r in pipeline:
+            if r.get("_is_program"):
+                t, uid, line = "Program", r.get("program_uid") or "", r.get("program_name") or ""
+                carrier = r.get("carriers_list") or ""
+            else:
+                t, uid, line = "Policy", r.get("policy_uid") or "", r.get("policy_type") or ""
+                carrier = r.get("carrier") or ""
             lines.append(
-                f"| {r['policy_uid']} | {r['policy_type']} | {r['carrier']}"
-                f" | {r['expiration_date']} | {r['days_to_renewal']}"
-                f" | {fmt_currency(r['premium'])} | {r['urgency']}"
-                f" | {r['renewal_status']} | {r['placement_colleague'] or '—'} |"
+                f"| {t} | {uid} | {line} | {carrier}"
+                f" | {r.get('expiration_date') or ''} | {r.get('days_to_renewal')}"
+                f" | {fmt_currency(r.get('premium') or 0)} | {r.get('urgency') or ''}"
+                f" | {r.get('renewal_status') or ''} | {r.get('placement_colleague') or '—'} |"
             )
         lines.append("")
 
@@ -709,11 +729,10 @@ def export_llm_client_json(conn: sqlite3.Connection, client_id: int) -> str:
 # ─── LLM BOOK EXPORT ─────────────────────────────────────────────────────────
 
 def export_llm_book_md(conn: sqlite3.Connection) -> str:
+    from policydb.queries import get_renewal_pipeline_merged
     clients = conn.execute("SELECT * FROM v_client_summary ORDER BY name").fetchall()
     all_policies = conn.execute("SELECT * FROM v_policy_status").fetchall()
-    pipeline = conn.execute(
-        "SELECT * FROM v_renewal_pipeline ORDER BY expiration_date"
-    ).fetchall()
+    pipeline = get_renewal_pipeline_merged(conn, window_days=180)
     overdue = conn.execute("SELECT * FROM v_overdue_followups").fetchall()
 
     total_premium = sum(c["total_premium"] for c in clients)
@@ -775,14 +794,18 @@ def export_llm_book_md(conn: sqlite3.Connection) -> str:
     lines.append("")
 
     # Stale renewals
-    stale = [
-        p for p in pipeline
-        if p["renewal_status"] == "Not Started"
-    ]
+    stale = [p for p in pipeline if p.get("renewal_status") == "Not Started"]
     if stale:
         lines += ["## Stale Renewals (Not Started — Within 180d)", ""]
         for p in stale:
-            lines.append(f"- {p['client_name']} / {p['policy_type']} ({p['policy_uid']}) — expires {p['expiration_date']}, {p['days_to_renewal']}d")
+            if p.get("_is_program"):
+                label = f"{p.get('program_name') or ''} [Program] ({p.get('program_uid') or ''})"
+            else:
+                label = f"{p.get('policy_type') or ''} ({p.get('policy_uid') or ''})"
+            lines.append(
+                f"- {p.get('client_name') or ''} / {label}"
+                f" — expires {p.get('expiration_date') or ''}, {p.get('days_to_renewal')}d"
+            )
         lines.append("")
 
     # Overdue follow-ups
@@ -796,16 +819,17 @@ def export_llm_book_md(conn: sqlite3.Connection) -> str:
 
 
 def export_llm_book_json(conn: sqlite3.Connection) -> str:
+    from policydb.queries import get_renewal_pipeline_merged
     clients = conn.execute("SELECT * FROM v_client_summary ORDER BY name").fetchall()
     all_policies = conn.execute("SELECT * FROM v_policy_status").fetchall()
-    pipeline = conn.execute("SELECT * FROM v_renewal_pipeline ORDER BY expiration_date").fetchall()
+    pipeline = get_renewal_pipeline_merged(conn, window_days=180)
     overdue = conn.execute("SELECT * FROM v_overdue_followups").fetchall()
 
     return json.dumps({
         "metadata": {"export_type": "book_of_business", "date": _today()},
         "clients": [dict(c) for c in clients],
         "policies": [dict(p) for p in all_policies],
-        "renewal_pipeline": [dict(p) for p in pipeline],
+        "renewal_pipeline": [_renewal_export_row(p) for p in pipeline],
         "overdue_followups": [dict(o) for o in overdue],
     }, indent=2, default=str)
 
@@ -839,78 +863,167 @@ def export_client_csv(conn: sqlite3.Connection, client_id: int) -> str:
 
 # ─── RENEWAL EXPORT ───────────────────────────────────────────────────────────
 
-def export_renewals_md(conn: sqlite3.Connection, window_days: int = 180) -> str:
-    rows = conn.execute(
-        """SELECT * FROM v_renewal_pipeline WHERE days_to_renewal <= ?
-           ORDER BY expiration_date""",
-        (window_days,),
-    ).fetchall()
+def _renewal_export_row(row: dict) -> dict:
+    """Normalize a merged renewal pipeline row (policy or program) for export.
 
-    # Build policy_contacts map keyed by policy_uid
+    Both shapes are flattened to the same column set so CSV/XLSX/copy-table
+    can render them uniformly. The "Type" column distinguishes rows so that
+    exported files match what appears on the /renewals page.
+    """
+    is_pgm = bool(row.get("_is_program"))
+    if is_pgm:
+        return {
+            "Type": "Program",
+            "UID": row.get("program_uid") or "",
+            "Client": row.get("client_name") or "",
+            "Line / Program": row.get("program_name") or "",
+            "Policies": row.get("policy_count") or 0,
+            "Carrier(s)": row.get("carriers_list") or "",
+            "Expires": row.get("earliest_expiration") or row.get("expiration_date") or "",
+            "Days to Renewal": row.get("days_to_renewal"),
+            "Urgency": row.get("urgency") or "",
+            "Premium": row.get("total_premium") or row.get("premium") or 0,
+            "Renewal Status": row.get("renewal_status") or "",
+            "Placement Colleague": row.get("placement_colleague") or "",
+            "Follow-Up": row.get("follow_up_date") or "",
+        }
+    return {
+        "Type": "Policy",
+        "UID": row.get("policy_uid") or "",
+        "Client": row.get("client_name") or "",
+        "Line / Program": row.get("policy_type") or "",
+        "Policies": 1,
+        "Carrier(s)": row.get("carrier") or "",
+        "Expires": row.get("expiration_date") or "",
+        "Days to Renewal": row.get("days_to_renewal"),
+        "Urgency": row.get("urgency") or "",
+        "Premium": row.get("premium") or 0,
+        "Renewal Status": row.get("renewal_status") or "",
+        "Placement Colleague": row.get("placement_colleague") or "",
+        "Follow-Up": row.get("follow_up_date") or "",
+    }
+
+
+def export_renewals_md(
+    conn: sqlite3.Connection,
+    window_days: int = 180,
+    *,
+    urgency: str | None = None,
+    renewal_status: str | None = None,
+    excluded_statuses: list | None = None,
+    client_ids: list[int] | None = None,
+) -> str:
+    from policydb.queries import get_renewal_pipeline_merged
+    rows = get_renewal_pipeline_merged(
+        conn,
+        window_days=window_days,
+        urgency=urgency,
+        renewal_status=renewal_status,
+        excluded_statuses=excluded_statuses,
+        client_ids=client_ids,
+    )
+
+    # Placement team lookup keyed by policy_uid (programs roll up via placement_colleague)
     pc_rows = conn.execute(
-        """SELECT p.policy_uid, co.name, cpa.role, co.email
+        """SELECT p.policy_uid, co.name
            FROM contact_policy_assignments cpa
            JOIN contacts co ON cpa.contact_id = co.id
            JOIN policies p ON cpa.policy_id = p.id
-           WHERE p.policy_uid IN (SELECT policy_uid FROM v_renewal_pipeline WHERE days_to_renewal <= ?)
-           ORDER BY co.name""",
-        (window_days,),
+           WHERE cpa.is_placement_colleague = 1
+           ORDER BY co.name"""
     ).fetchall()
     from collections import defaultdict as _ddr
     pc_map: dict = _ddr(list)
     for pc in pc_rows:
         pc_map[pc["policy_uid"]].append(pc["name"])
 
-    total = sum(r["premium"] or 0 for r in rows)
+    total = sum((r.get("premium") or 0) for r in rows)
+    policy_count = sum(1 for r in rows if not r.get("_is_program"))
+    program_count = sum(1 for r in rows if r.get("_is_program"))
     lines = [
         f"# Renewal Pipeline — Next {window_days} Days",
         "",
         f"**As of:** {_today()}  ",
-        f"**Policies:** {len(rows)}  ",
+        f"**Policies:** {policy_count} · **Programs:** {program_count}  ",
         f"**Premium at Risk:** {fmt_currency(total)}",
         "",
-        "| UID | Client | Line | Carrier | Expires | Days | Urgency | Premium | Status | Team |",
-        "|-----|--------|------|---------|---------|------|---------|---------|--------|------|",
+        "| Type | UID | Client | Line / Program | Carrier(s) | Expires | Days | Urgency | Premium | Status | Team |",
+        "|------|-----|--------|----------------|------------|---------|------|---------|---------|--------|------|",
     ]
     for r in rows:
-        team = pc_map.get(r["policy_uid"])
-        team_str = "; ".join(team) if team else (r["placement_colleague"] or "—")
+        if r.get("_is_program"):
+            uid = r.get("program_uid") or ""
+            line = r.get("program_name") or ""
+            carrier = r.get("carriers_list") or ""
+            team_str = r.get("placement_colleague") or "—"
+            type_label = "Program"
+        else:
+            uid = r.get("policy_uid") or ""
+            line = r.get("policy_type") or ""
+            carrier = r.get("carrier") or ""
+            team = pc_map.get(uid)
+            team_str = "; ".join(team) if team else (r.get("placement_colleague") or "—")
+            type_label = "Policy"
         lines.append(
-            f"| {r['policy_uid']} | {r['client_name']} | {r['policy_type']}"
-            f" | {r['carrier']} | {r['expiration_date']} | {r['days_to_renewal']}"
-            f" | {r['urgency']} | {fmt_currency(r['premium'])}"
-            f" | {r['renewal_status']} | {team_str} |"
+            f"| {type_label} | {uid} | {r.get('client_name') or ''} | {line}"
+            f" | {carrier} | {r.get('expiration_date') or ''} | {r.get('days_to_renewal')}"
+            f" | {r.get('urgency') or ''} | {fmt_currency(r.get('premium') or 0)}"
+            f" | {r.get('renewal_status') or ''} | {team_str} |"
         )
     return "\n".join(lines)
 
 
-def export_renewals_json(conn: sqlite3.Connection, window_days: int = 180) -> str:
-    rows = conn.execute(
-        """SELECT * FROM v_renewal_pipeline WHERE days_to_renewal <= ?
-           ORDER BY expiration_date""",
-        (window_days,),
-    ).fetchall()
+def export_renewals_json(
+    conn: sqlite3.Connection,
+    window_days: int = 180,
+    *,
+    urgency: str | None = None,
+    renewal_status: str | None = None,
+    excluded_statuses: list | None = None,
+    client_ids: list[int] | None = None,
+) -> str:
+    from policydb.queries import get_renewal_pipeline_merged
+    rows = get_renewal_pipeline_merged(
+        conn,
+        window_days=window_days,
+        urgency=urgency,
+        renewal_status=renewal_status,
+        excluded_statuses=excluded_statuses,
+        client_ids=client_ids,
+    )
     return json.dumps({
         "window_days": window_days,
         "export_date": _today(),
-        "renewals": [dict(r) for r in rows],
+        "renewals": [_renewal_export_row(r) for r in rows],
     }, indent=2, default=str)
 
 
-def export_renewals_csv(conn: sqlite3.Connection, window_days: int = 180) -> str:
-    rows = conn.execute(
-        """SELECT * FROM v_renewal_pipeline WHERE days_to_renewal <= ?
-           ORDER BY expiration_date""",
-        (window_days,),
-    ).fetchall()
-    if not rows:
+def export_renewals_csv(
+    conn: sqlite3.Connection,
+    window_days: int = 180,
+    *,
+    urgency: str | None = None,
+    renewal_status: str | None = None,
+    excluded_statuses: list | None = None,
+    client_ids: list[int] | None = None,
+) -> str:
+    from policydb.queries import get_renewal_pipeline_merged
+    merged = get_renewal_pipeline_merged(
+        conn,
+        window_days=window_days,
+        urgency=urgency,
+        renewal_status=renewal_status,
+        excluded_statuses=excluded_statuses,
+        client_ids=client_ids,
+    )
+    if not merged:
         return ""
+    rows = [_renewal_export_row(r) for r in merged]
     buf = io.StringIO()
-    cols = list(rows[0].keys())
-    writer = csv.DictWriter(buf, fieldnames=cols)
+    writer = csv.DictWriter(buf, fieldnames=list(rows[0].keys()))
     writer.writeheader()
     for r in rows:
-        writer.writerow(dict(r))
+        writer.writerow(r)
     return buf.getvalue()
 
 
@@ -1296,15 +1409,28 @@ def export_full_xlsx(conn: sqlite3.Connection, client_id: int, client_name: str)
     return _wb_to_bytes(wb)
 
 
-def export_renewals_xlsx(conn: sqlite3.Connection, window_days: int = 180) -> bytes:
-    rows = conn.execute(
-        """SELECT * FROM v_renewal_pipeline WHERE days_to_renewal <= ?
-           ORDER BY expiration_date""",
-        (window_days,),
-    ).fetchall()
+def export_renewals_xlsx(
+    conn: sqlite3.Connection,
+    window_days: int = 180,
+    *,
+    urgency: str | None = None,
+    renewal_status: str | None = None,
+    excluded_statuses: list | None = None,
+    client_ids: list[int] | None = None,
+) -> bytes:
+    from policydb.queries import get_renewal_pipeline_merged
+    merged = get_renewal_pipeline_merged(
+        conn,
+        window_days=window_days,
+        urgency=urgency,
+        renewal_status=renewal_status,
+        excluded_statuses=excluded_statuses,
+        client_ids=client_ids,
+    )
+    rows = [_renewal_export_row(r) for r in merged]
     wb = Workbook()
     wb.remove(wb.active)
-    _write_sheet(wb, f"Renewals — Next {window_days}d", [dict(r) for r in rows])
+    _write_sheet(wb, f"Renewals — Next {window_days}d", rows)
     return _wb_to_bytes(wb)
 
 
