@@ -145,7 +145,63 @@ def assemble_client(conn: sqlite3.Connection, record_id: int, depth: int = DEPTH
     lines.append(_field("Broker Fee", r.get("broker_fee"), "currency"))
     lines.append(_field("Renewal Month", r.get("renewal_month")))
     lines.append(_field("Preferred Contact Method", r.get("preferred_contact_method")))
+    lines.append(_field("Contact Mobile", r.get("contact_mobile")))
+    if r.get("is_prospect"):
+        lines.append(_field("Prospect", "Yes"))
     lines.append(_field("Notes", r.get("notes")))
+
+    # Service block
+    service_parts = []
+    service_parts.append(_field("Hourly Rate", r.get("hourly_rate"), "currency"))
+    service_parts.append(_field("Review Cycle", r.get("review_cycle")))
+    service_parts.append(_field("Last Reviewed", r.get("last_reviewed_at"), "date"))
+    service_parts.append(_field("Follow-Up Date", r.get("follow_up_date"), "date"))
+    service_block = "".join(service_parts)
+    if service_block:
+        lines.append("\n### Service\n")
+        lines.append(service_block)
+
+    # Strategy block — account_priorities, renewal_strategy, growth_opportunities, etc.
+    strategy_parts = []
+    strategy_parts.append(_field("Account Priorities", r.get("account_priorities")))
+    strategy_parts.append(_field("Renewal Strategy", r.get("renewal_strategy")))
+    strategy_parts.append(_field("Growth Opportunities", r.get("growth_opportunities")))
+    strategy_parts.append(_field("Relationship Risk", r.get("relationship_risk")))
+    strategy_parts.append(_field("Service Model", r.get("service_model")))
+    strategy_parts.append(_field("Stewardship Date", r.get("stewardship_date"), "date"))
+    strategy_block = "".join(strategy_parts)
+    if strategy_block:
+        lines.append("\n### Strategy\n")
+        lines.append(strategy_block)
+
+    # Client scratchpad
+    sp_row = conn.execute(
+        "SELECT content, updated_at FROM client_scratchpad WHERE client_id = ?",
+        (record_id,),
+    ).fetchone()
+    if sp_row and (sp_row["content"] or "").strip():
+        lines.append("\n### Client Scratchpad\n")
+        lines.append(sp_row["content"].strip() + "\n")
+        if sp_row["updated_at"]:
+            lines.append(f"\n*Updated: {_fmt_date(sp_row['updated_at'][:10])}*\n")
+
+    # Recent saved notes (scope='client'). scope_id is TEXT so bind as string.
+    notes = conn.execute(
+        """SELECT content, created_at FROM saved_notes
+           WHERE scope = 'client' AND scope_id = ?
+           ORDER BY created_at DESC LIMIT 5""",
+        (str(record_id),),
+    ).fetchall()
+    if notes:
+        lines.append("\n### Recent Notes\n")
+        for n in notes:
+            content = (n["content"] or "").strip()
+            if not content:
+                continue
+            date_str = _fmt_date((n["created_at"] or "")[:10]) if n["created_at"] else ""
+            prefix = f"- *{date_str}:* " if date_str else "- "
+            lines.append(f"{prefix}{content}\n")
+
     return "".join(lines)
 
 
@@ -197,11 +253,105 @@ def assemble_policy(conn: sqlite3.Connection, record_id: int, depth: int = DEPTH
     lines.append(_field("Deductible", r.get("deductible"), "currency"))
     lines.append(_field("Coverage Form", r.get("coverage_form")))
     lines.append(_field("Layer Position", r.get("layer_position")))
+    lines.append(_field("Layer Notation", r.get("layer_notation")))
+    lines.append(_field("Attachment Point", r.get("attachment_point"), "currency"))
+    lines.append(_field("Participation Of", r.get("participation_of"), "currency"))
     lines.append(_field("Renewal Status", r.get("renewal_status")))
     lines.append(_field("Commission Rate", f"{r['commission_rate']}%" if r.get("commission_rate") else None))
     lines.append(_field("Access Point", r.get("access_point")))
     lines.append(_field("Description", r.get("description")))
     lines.append(_field("Notes", r.get("notes")))
+
+    # Exposure block
+    exp_parts = []
+    exp_parts.append(_field("Exposure Basis", r.get("exposure_basis")))
+    if r.get("exposure_amount") and r.get("exposure_unit"):
+        try:
+            exp_parts.append(_field("Exposure", f"{float(r['exposure_amount']):,.0f} {r['exposure_unit']}"))
+        except (TypeError, ValueError):
+            exp_parts.append(_field("Exposure Amount", r.get("exposure_amount")))
+    elif r.get("exposure_amount"):
+        exp_parts.append(_field("Exposure Amount", r.get("exposure_amount"), "currency"))
+    addr_parts = [r.get("exposure_address"), r.get("exposure_city"), r.get("exposure_state"), r.get("exposure_zip")]
+    addr_line = ", ".join(p for p in addr_parts if p)
+    if addr_line:
+        exp_parts.append(_field("Exposure Location", addr_line))
+    exp_block = "".join(exp_parts)
+    if exp_block:
+        lines.append("\n### Exposure\n")
+        lines.append(exp_block)
+
+    # Opportunity block (only if this is an opportunity)
+    if r.get("is_opportunity"):
+        lines.append("\n### Opportunity\n")
+        lines.append(_field("Opportunity Status", r.get("opportunity_status")))
+        lines.append(_field("Target Effective Date", r.get("target_effective_date"), "date"))
+
+    # Program block
+    if r.get("is_program") or r.get("program_id"):
+        lines.append("\n### Program\n")
+        if r.get("is_program"):
+            lines.append(_field("Program Lead", "Yes"))
+        if r.get("program_id"):
+            prog = conn.execute(
+                "SELECT name, program_uid FROM programs WHERE id = ?",
+                (r["program_id"],),
+            ).fetchone()
+            if prog:
+                lines.append(_field("Program", prog["name"] or prog["program_uid"]))
+        lines.append(_field("Program Carriers", r.get("program_carriers")))
+        lines.append(_field("Carrier Count", r.get("program_carrier_count")))
+
+    # Project link
+    if r.get("project_id"):
+        proj = conn.execute(
+            "SELECT name FROM projects WHERE id = ?", (r["project_id"],)
+        ).fetchone()
+        if proj and proj["name"]:
+            lines.append(_field("Project", proj["name"]))
+
+    # Lifecycle block
+    lifecycle_parts = []
+    lifecycle_parts.append(_field("Bound Date", r.get("bound_date"), "date"))
+    lifecycle_parts.append(_field("Milestone Profile", r.get("milestone_profile")))
+    lifecycle_parts.append(_field("Follow-Up Date", r.get("follow_up_date"), "date"))
+    if r.get("flagged"):
+        lifecycle_parts.append(_field("Flagged", "Yes"))
+    lifecycle_parts.append(_field("Last Reviewed", r.get("last_reviewed_at"), "date"))
+    lifecycle_parts.append(_field("Review Cycle", r.get("review_cycle")))
+    lifecycle_block = "".join(lifecycle_parts)
+    if lifecycle_block:
+        lines.append("\n### Lifecycle\n")
+        lines.append(lifecycle_block)
+
+    # Policy scratchpad
+    sp_row = conn.execute(
+        "SELECT content, updated_at FROM policy_scratchpad WHERE policy_uid = ?",
+        (r.get("policy_uid"),),
+    ).fetchone()
+    if sp_row and (sp_row["content"] or "").strip():
+        lines.append("\n### Policy Scratchpad\n")
+        lines.append(sp_row["content"].strip() + "\n")
+        if sp_row["updated_at"]:
+            lines.append(f"\n*Updated: {_fmt_date(sp_row['updated_at'][:10])}*\n")
+
+    # Recent saved notes (scope='policy', scope_id=policy_uid)
+    if r.get("policy_uid"):
+        notes = conn.execute(
+            """SELECT content, created_at FROM saved_notes
+               WHERE scope = 'policy' AND scope_id = ?
+               ORDER BY created_at DESC LIMIT 5""",
+            (r["policy_uid"],),
+        ).fetchall()
+        if notes:
+            lines.append("\n### Recent Notes\n")
+            for n in notes:
+                content = (n["content"] or "").strip()
+                if not content:
+                    continue
+                date_str = _fmt_date((n["created_at"] or "")[:10]) if n["created_at"] else ""
+                prefix = f"- *{date_str}:* " if date_str else "- "
+                lines.append(f"{prefix}{content}\n")
 
     # Sub-coverages
     subs = conn.execute(
@@ -262,7 +412,8 @@ def assemble_renewal(conn: sqlite3.Connection, record_id: int, depth: int = DEPT
 
     # Timeline milestones
     milestones = conn.execute(
-        """SELECT milestone_name, ideal_date, projected_date, completed_date, health, accountability, waiting_on
+        """SELECT milestone_name, ideal_date, projected_date, completed_date,
+                  health, accountability, waiting_on, prep_alert_date
            FROM policy_timeline WHERE policy_uid = ? ORDER BY ideal_date""",
         (policy_uid,),
     ).fetchall()
@@ -273,11 +424,15 @@ def assemble_renewal(conn: sqlite3.Connection, record_id: int, depth: int = DEPT
             line = f"- **{m['milestone_name']}:** target {_fmt_date(m['ideal_date'])}"
             if m["completed_date"]:
                 line += f", completed {_fmt_date(m['completed_date'])}"
-            elif m["projected_date"] != m["ideal_date"]:
+            elif m["projected_date"] and m["projected_date"] != m["ideal_date"]:
                 line += f", projected {_fmt_date(m['projected_date'])}"
             line += f" [{status}]"
+            if m["accountability"]:
+                line += f" [acct: {m['accountability']}]"
             if m["waiting_on"]:
                 line += f" (waiting on: {m['waiting_on']})"
+            if m["prep_alert_date"] and not m["completed_date"]:
+                line += f" (prep alert: {_fmt_date(m['prep_alert_date'])})"
             lines.append(line + "\n")
 
     # Milestone checklist
@@ -334,9 +489,66 @@ def assemble_issue(conn: sqlite3.Connection, record_id: int, depth: int = DEPTH_
     lines.append(_field("Resolution Notes", r.get("resolution_notes")))
     lines.append(_field("Root Cause", r.get("root_cause_category")))
 
-    # Linked activities
+    # Days open (computed)
+    try:
+        created = r.get("activity_date")
+        if created:
+            start = date.fromisoformat(created[:10])
+            if r.get("resolved_date"):
+                end = date.fromisoformat(r["resolved_date"][:10])
+            else:
+                end = date.today()
+            days_open = (end - start).days
+            lines.append(_field("Days Open", days_open))
+    except (ValueError, TypeError):
+        pass
+
+    # Auto-close / merge tracking
+    if r.get("auto_close_reason"):
+        lines.append(_field("Auto-Close Reason", r.get("auto_close_reason")))
+        lines.append(_field("Auto-Closed At", r.get("auto_closed_at"), "date"))
+    if r.get("merged_into_id"):
+        tgt = conn.execute(
+            "SELECT issue_uid FROM activity_log WHERE id = ?", (r["merged_into_id"],)
+        ).fetchone()
+        if tgt:
+            lines.append(_field("Merged Into", tgt["issue_uid"]))
+    if r.get("merged_from_issue_id"):
+        src = conn.execute(
+            "SELECT issue_uid FROM activity_log WHERE id = ?", (r["merged_from_issue_id"],)
+        ).fetchone()
+        if src:
+            lines.append(_field("Merged From", src["issue_uid"]))
+
+    # Linked policies — prefer junction table, fall back to single policy_id
+    linked = conn.execute(
+        """SELECT p.policy_uid, p.policy_type, p.carrier, p.expiration_date
+           FROM issue_policies ip
+           JOIN policies p ON p.id = ip.policy_id
+           WHERE ip.issue_id = ?
+           ORDER BY p.expiration_date""",
+        (record_id,),
+    ).fetchall()
+    if not linked and r.get("policy_id"):
+        linked = conn.execute(
+            """SELECT policy_uid, policy_type, carrier, expiration_date
+               FROM policies WHERE id = ?""",
+            (r["policy_id"],),
+        ).fetchall()
+    if linked:
+        lines.append("\n### Linked Policies\n")
+        for p in linked:
+            line = f"- **{p['policy_uid']}** — {p['policy_type'] or ''}"
+            if p["carrier"]:
+                line += f" | {p['carrier']}"
+            if p["expiration_date"]:
+                line += f" | Exp: {_fmt_date(p['expiration_date'])}"
+            lines.append(line + "\n")
+
+    # Linked activities (with email metadata)
     activities = conn.execute(
-        """SELECT activity_date, activity_type, subject, details, contact_person, disposition
+        """SELECT activity_date, activity_type, subject, details, contact_person,
+                  disposition, email_from, email_to, email_snippet
            FROM activity_log WHERE issue_id = ? AND item_kind != 'issue'
            ORDER BY activity_date DESC""",
         (record_id,),
@@ -348,7 +560,23 @@ def assemble_issue(conn: sqlite3.Connection, record_id: int, depth: int = DEPTH_
             line = f"- {_fmt_date(a['activity_date'])} — {a['activity_type']}: {a['subject']}"
             if a["disposition"]:
                 line += f" [{a['disposition']}]"
-            items.append(line + "\n")
+            if a["contact_person"]:
+                line += f" (contact: {a['contact_person']})"
+            line += "\n"
+            # Email metadata on a second indented line
+            if a["email_from"] or a["email_to"]:
+                from_to = []
+                if a["email_from"]:
+                    from_to.append(f"From: {a['email_from']}")
+                if a["email_to"]:
+                    from_to.append(f"To: {a['email_to']}")
+                line += "  > " + " | ".join(from_to) + "\n"
+            if a["email_snippet"]:
+                snippet = a["email_snippet"].strip().replace("\n", " ")
+                if len(snippet) > 200:
+                    snippet = snippet[:200] + "…"
+                line += f"  > \"{snippet}\"\n"
+            items.append(line)
         for item in _truncated_list(items, 10, "activities"):
             lines.append(item)
 
@@ -668,6 +896,495 @@ def assemble_contacts(conn: sqlite3.Connection, record_id: int, depth: int = DEP
     return "".join(lines)
 
 
+# ── Briefing / "Status & What's Next" assemblers ────────────────────────────
+#
+# These assemblers are scope-aware — they pick the most specific scope from the
+# resolved keys dict (issue > policy > client) and run parallel SQL against the
+# underlying tables. They intentionally do NOT call focus_queue.build_focus_queue()
+# so that briefing formatting can drift from Action Center scoring.
+
+def _accountability_map() -> dict:
+    """Map disposition label → accountability ('waiting_external' | 'my_action' | ...).
+
+    Mirrors the pattern used by queries.get_all_followups(). Imported lazily to
+    avoid a hard dependency on the config module at import time.
+    """
+    try:
+        from policydb import config as _cfg
+        dispositions = _cfg.get("follow_up_dispositions", []) or []
+    except Exception:
+        return {}
+    result = {}
+    for d in dispositions:
+        if isinstance(d, dict) and d.get("label"):
+            result[d["label"]] = d.get("accountability") or "my_action"
+    return result
+
+
+@register("focus_items")
+def assemble_focus_items(
+    conn: sqlite3.Connection, record_id: int = 0, depth: int = DEPTH_FULL, **kwargs
+) -> str:
+    """Assemble a scoped focus queue — overdue / today / this week / waiting / scheduled.
+
+    Scope priority: issue_id > policy_id > client_id. Runs four parallel SQL
+    passes and buckets the results in Python. Returns '' when there is nothing
+    to show so _assemble_related_block skips the section.
+    """
+    client_id = kwargs.get("client_id")
+    policy_id = kwargs.get("policy_id")
+    policy_uid = kwargs.get("policy_uid")
+    issue_id = kwargs.get("issue_id")
+
+    if not (client_id or policy_id or issue_id):
+        return ""
+
+    acct_map = _accountability_map()
+    today = date.today()
+    items: list[dict] = []
+
+    # 1. Open activity follow-ups (scoped to the most specific key)
+    fu_clause = ""
+    fu_params: tuple = ()
+    if issue_id:
+        fu_clause = "a.issue_id = ?"
+        fu_params = (issue_id,)
+    elif policy_id:
+        fu_clause = "a.policy_id = ?"
+        fu_params = (policy_id,)
+    elif client_id:
+        fu_clause = "a.client_id = ?"
+        fu_params = (client_id,)
+    fu_rows = conn.execute(
+        f"""SELECT a.id, a.subject, a.follow_up_date, a.disposition,
+                   a.contact_person, a.email_from, a.activity_type,
+                   CAST(julianday('now') - julianday(a.follow_up_date) AS INTEGER) AS days_overdue
+            FROM activity_log a
+            WHERE a.follow_up_done = 0
+              AND a.follow_up_date IS NOT NULL
+              AND a.item_kind != 'issue'
+              AND (a.auto_close_reason IS NULL OR a.auto_close_reason = '')
+              AND {fu_clause}
+            ORDER BY a.follow_up_date ASC""",
+        fu_params,
+    ).fetchall()
+    for r in fu_rows:
+        items.append({
+            "kind": "followup",
+            "date": r["follow_up_date"],
+            "days_overdue": r["days_overdue"] or 0,
+            "subject": r["subject"] or "(no subject)",
+            "disposition": r["disposition"],
+            "accountability": acct_map.get(r["disposition"] or "", "my_action"),
+            "contact": r["contact_person"],
+        })
+
+    # 2. Policy-level follow-ups (only when the row has a native follow_up_date)
+    if policy_id:
+        pf_rows = conn.execute(
+            """SELECT id, policy_uid, carrier, policy_type, follow_up_date,
+                      CAST(julianday('now') - julianday(follow_up_date) AS INTEGER) AS days_overdue
+               FROM policies
+               WHERE follow_up_date IS NOT NULL AND archived = 0 AND id = ?""",
+            (policy_id,),
+        ).fetchall()
+    elif client_id:
+        pf_rows = conn.execute(
+            """SELECT id, policy_uid, carrier, policy_type, follow_up_date,
+                      CAST(julianday('now') - julianday(follow_up_date) AS INTEGER) AS days_overdue
+               FROM policies
+               WHERE follow_up_date IS NOT NULL AND archived = 0 AND client_id = ?""",
+            (client_id,),
+        ).fetchall()
+    else:
+        pf_rows = []
+    for r in pf_rows:
+        items.append({
+            "kind": "policy_followup",
+            "date": r["follow_up_date"],
+            "days_overdue": r["days_overdue"] or 0,
+            "subject": f"{r['policy_uid']} {r['policy_type'] or ''} — {r['carrier'] or ''}".strip(),
+            "disposition": None,
+            "accountability": "my_action",
+            "contact": None,
+        })
+
+    # 3. Open issues in scope (for policy scope, UNION direct + junction)
+    if issue_id:
+        iss_rows = []  # skip — we ARE the issue
+    elif policy_id:
+        iss_rows = conn.execute(
+            """SELECT DISTINCT a.id, a.issue_uid, a.subject, a.issue_status,
+                      a.issue_severity, a.due_date, a.activity_date,
+                      CAST(julianday('now') - julianday(COALESCE(a.due_date, a.activity_date)) AS INTEGER) AS days_overdue
+               FROM activity_log a
+               LEFT JOIN issue_policies ip ON ip.issue_id = a.id
+               WHERE a.item_kind = 'issue'
+                 AND a.issue_status NOT IN ('Closed', 'Resolved')
+                 AND (a.policy_id = ? OR ip.policy_id = ?)
+               ORDER BY COALESCE(a.due_date, a.activity_date) ASC""",
+            (policy_id, policy_id),
+        ).fetchall()
+    elif client_id:
+        iss_rows = conn.execute(
+            """SELECT id, issue_uid, subject, issue_status, issue_severity,
+                      due_date, activity_date,
+                      CAST(julianday('now') - julianday(COALESCE(due_date, activity_date)) AS INTEGER) AS days_overdue
+               FROM activity_log
+               WHERE item_kind = 'issue'
+                 AND issue_status NOT IN ('Closed', 'Resolved')
+                 AND client_id = ?
+               ORDER BY COALESCE(due_date, activity_date) ASC""",
+            (client_id,),
+        ).fetchall()
+    else:
+        iss_rows = []
+    for r in iss_rows:
+        items.append({
+            "kind": "issue",
+            "date": r["due_date"] or r["activity_date"],
+            "days_overdue": r["days_overdue"] or 0,
+            "subject": f"{r['issue_uid']}: {r['subject']}",
+            "disposition": r["issue_status"],
+            "accountability": "my_action",
+            "severity": r["issue_severity"],
+            "contact": None,
+        })
+
+    # 4. Overdue / upcoming timeline milestones
+    if policy_uid:
+        ms_rows = conn.execute(
+            """SELECT pt.milestone_name, pt.ideal_date, pt.projected_date,
+                      pt.prep_alert_date, pt.accountability, pt.waiting_on, p.policy_uid,
+                      CAST(julianday('now') - julianday(pt.ideal_date) AS INTEGER) AS days_overdue
+               FROM policy_timeline pt
+               JOIN policies p ON p.policy_uid = pt.policy_uid
+               WHERE pt.completed_date IS NULL
+                 AND p.archived = 0
+                 AND pt.ideal_date <= date('now','+30 days')
+                 AND pt.policy_uid = ?
+               ORDER BY pt.ideal_date ASC""",
+            (policy_uid,),
+        ).fetchall()
+    elif client_id:
+        ms_rows = conn.execute(
+            """SELECT pt.milestone_name, pt.ideal_date, pt.projected_date,
+                      pt.prep_alert_date, pt.accountability, pt.waiting_on, p.policy_uid,
+                      CAST(julianday('now') - julianday(pt.ideal_date) AS INTEGER) AS days_overdue
+               FROM policy_timeline pt
+               JOIN policies p ON p.policy_uid = pt.policy_uid
+               WHERE pt.completed_date IS NULL
+                 AND p.archived = 0
+                 AND pt.ideal_date <= date('now','+30 days')
+                 AND p.client_id = ?
+               ORDER BY pt.ideal_date ASC""",
+            (client_id,),
+        ).fetchall()
+    else:
+        ms_rows = []
+    for r in ms_rows:
+        items.append({
+            "kind": "milestone",
+            "date": r["ideal_date"],
+            "days_overdue": r["days_overdue"] or 0,
+            "subject": f"{r['policy_uid']} — {r['milestone_name']}",
+            "disposition": None,
+            "accountability": r["accountability"] or "my_action",
+            "waiting_on": r["waiting_on"],
+            "contact": None,
+        })
+
+    if not items:
+        return ""
+
+    # Bucket in Python
+    buckets = {
+        "Overdue": [],
+        "Today": [],
+        "This Week": [],
+        "Waiting on External": [],
+        "Scheduled": [],
+    }
+    for it in items:
+        d = it["days_overdue"] or 0
+        if it["accountability"] == "waiting_external":
+            buckets["Waiting on External"].append(it)
+        elif d > 0:
+            buckets["Overdue"].append(it)
+        elif d == 0:
+            buckets["Today"].append(it)
+        elif -7 <= d < 0:
+            buckets["This Week"].append(it)
+        else:
+            buckets["Scheduled"].append(it)
+
+    # Sort each bucket: most overdue first
+    for k in buckets:
+        buckets[k].sort(key=lambda x: -1 * (x.get("days_overdue") or 0))
+
+    lines = ["## Focus Items\n"]
+    any_shown = False
+    for bucket_name in ["Overdue", "Today", "This Week", "Waiting on External", "Scheduled"]:
+        bucket = buckets[bucket_name]
+        if not bucket:
+            continue
+        any_shown = True
+        lines.append(f"\n### {bucket_name}\n")
+        rows_md = []
+        for it in bucket:
+            date_str = _fmt_date(it["date"]) if it["date"] else ""
+            days = it["days_overdue"] or 0
+            if days > 0:
+                days_str = f"{days}d overdue"
+            elif days == 0:
+                days_str = "today"
+            else:
+                days_str = f"in {-days}d"
+            tag = f"[{it['kind']}]"
+            if it.get("severity"):
+                tag += f" [{it['severity']}]"
+            line = f"- **{date_str}** — {it['subject']} ({days_str}) {tag}"
+            if it.get("waiting_on"):
+                line += f" (waiting on: {it['waiting_on']})"
+            if it.get("disposition") and it["kind"] not in ("issue",):
+                line += f" [{it['disposition']}]"
+            if it.get("contact"):
+                line += f" (contact: {it['contact']})"
+            rows_md.append(line + "\n")
+        for r in _truncated_list(rows_md, 15, "items"):
+            lines.append(r)
+
+    if not any_shown:
+        return ""
+    return "".join(lines)
+
+
+@register("deliverables_due")
+def assemble_deliverables_due(
+    conn: sqlite3.Connection, record_id: int = 0, depth: int = DEPTH_FULL, **kwargs
+) -> str:
+    """Assemble deliverables due: upcoming policy_timeline milestones + open RFI bundles.
+
+    Bucketed Overdue / Due This Week / Coming Up. Scoped by policy_uid or
+    client_id (or both when policy scope implies a client).
+    """
+    client_id = kwargs.get("client_id")
+    policy_uid = kwargs.get("policy_uid")
+
+    if not (client_id or policy_uid):
+        return ""
+
+    milestones: list = []
+    if policy_uid:
+        milestones = conn.execute(
+            """SELECT pt.milestone_name, pt.ideal_date, pt.projected_date,
+                      pt.prep_alert_date, pt.accountability, pt.waiting_on,
+                      p.policy_uid, p.policy_type, p.carrier,
+                      CAST(julianday('now') - julianday(pt.ideal_date) AS INTEGER) AS days_overdue
+               FROM policy_timeline pt
+               JOIN policies p ON p.policy_uid = pt.policy_uid
+               WHERE pt.completed_date IS NULL
+                 AND p.archived = 0
+                 AND (pt.prep_alert_date <= date('now','+14 days')
+                      OR pt.ideal_date <= date('now','+30 days'))
+                 AND pt.policy_uid = ?
+               ORDER BY pt.ideal_date ASC""",
+            (policy_uid,),
+        ).fetchall()
+    elif client_id:
+        milestones = conn.execute(
+            """SELECT pt.milestone_name, pt.ideal_date, pt.projected_date,
+                      pt.prep_alert_date, pt.accountability, pt.waiting_on,
+                      p.policy_uid, p.policy_type, p.carrier,
+                      CAST(julianday('now') - julianday(pt.ideal_date) AS INTEGER) AS days_overdue
+               FROM policy_timeline pt
+               JOIN policies p ON p.policy_uid = pt.policy_uid
+               WHERE pt.completed_date IS NULL
+                 AND p.archived = 0
+                 AND (pt.prep_alert_date <= date('now','+14 days')
+                      OR pt.ideal_date <= date('now','+30 days'))
+                 AND p.client_id = ?
+               ORDER BY pt.ideal_date ASC""",
+            (client_id,),
+        ).fetchall()
+
+    rfi_rows: list = []
+    if client_id:
+        rfi_rows = conn.execute(
+            """SELECT id, title, status, send_by_date, created_at, rfi_uid,
+                      (SELECT COUNT(*) FROM client_request_items
+                       WHERE bundle_id = crb.id AND received = 0) AS open_items,
+                      CAST(julianday('now') - julianday(send_by_date) AS INTEGER) AS days_overdue
+               FROM client_request_bundles crb
+               WHERE status IN ('open','sent','partial') AND client_id = ?
+               ORDER BY COALESCE(send_by_date, created_at) ASC""",
+            (client_id,),
+        ).fetchall()
+
+    if not milestones and not rfi_rows:
+        return ""
+
+    # Bucket
+    buckets: dict[str, list[str]] = {"Overdue": [], "Due This Week": [], "Coming Up": []}
+
+    def _bucket_for(days: int | None) -> str:
+        if days is None:
+            return "Coming Up"
+        if days > 0:
+            return "Overdue"
+        if -7 <= days <= 0:
+            return "Due This Week"
+        return "Coming Up"
+
+    for m in milestones:
+        days = m["days_overdue"]
+        bucket = _bucket_for(days)
+        line = f"- {m['policy_uid']} — **{m['milestone_name']}** (ideal {_fmt_date(m['ideal_date'])})"
+        if m["accountability"]:
+            line += f" [acct: {m['accountability']}]"
+        if m["waiting_on"]:
+            line += f" (waiting on: {m['waiting_on']})"
+        buckets[bucket].append(line + "\n")
+
+    for r in rfi_rows:
+        days = r["days_overdue"] if r["send_by_date"] else None
+        bucket = _bucket_for(days)
+        line = f"- RFI **{r['rfi_uid'] or r['id']}**: {r['title']}"
+        if r["open_items"]:
+            line += f" — {r['open_items']} items open"
+        if r["send_by_date"]:
+            line += f", due {_fmt_date(r['send_by_date'])}"
+        line += f" [{r['status']}]"
+        buckets[bucket].append(line + "\n")
+
+    lines = ["## Deliverables Due\n"]
+    any_shown = False
+    for bucket_name in ["Overdue", "Due This Week", "Coming Up"]:
+        rows = buckets[bucket_name]
+        if not rows:
+            continue
+        any_shown = True
+        lines.append(f"\n### {bucket_name}\n")
+        for r in _truncated_list(rows, 15, "deliverables"):
+            lines.append(r)
+    if not any_shown:
+        return ""
+    return "".join(lines)
+
+
+@register("recent_activity_log")
+def assemble_recent_activity_log(
+    conn: sqlite3.Connection, record_id: int = 0, depth: int = DEPTH_FULL, **kwargs
+) -> str:
+    """Assemble the last 10 activities scoped to issue/policy/client."""
+    client_id = kwargs.get("client_id")
+    policy_id = kwargs.get("policy_id")
+    issue_id = kwargs.get("issue_id")
+
+    if issue_id:
+        where = "a.issue_id = ?"
+        params: tuple = (issue_id,)
+    elif policy_id:
+        where = "a.policy_id = ?"
+        params = (policy_id,)
+    elif client_id:
+        where = "a.client_id = ?"
+        params = (client_id,)
+    else:
+        return ""
+
+    rows = conn.execute(
+        f"""SELECT a.activity_date, a.activity_type, a.subject, a.disposition,
+                   a.contact_person, a.email_from, a.email_to, a.email_snippet,
+                   a.policy_id, p.policy_uid
+            FROM activity_log a
+            LEFT JOIN policies p ON p.id = a.policy_id
+            WHERE a.item_kind != 'issue' AND {where}
+            ORDER BY a.activity_date DESC, a.id DESC
+            LIMIT 10""",
+        params,
+    ).fetchall()
+
+    if not rows:
+        return ""
+
+    lines = ["## Recent Activity\n"]
+    for r in rows:
+        line = f"- {_fmt_date(r['activity_date'])} — {r['activity_type'] or 'Activity'}: {r['subject'] or '(no subject)'}"
+        if r["policy_uid"] and not issue_id and not policy_id:
+            line += f" [{r['policy_uid']}]"
+        if r["disposition"]:
+            line += f" [{r['disposition']}]"
+        if r["contact_person"]:
+            line += f" (contact: {r['contact_person']})"
+        line += "\n"
+        if r["email_from"]:
+            line += f"  > From {r['email_from']}"
+            if r["email_to"]:
+                line += f" → {r['email_to']}"
+            line += "\n"
+        if r["email_snippet"]:
+            snippet = r["email_snippet"].strip().replace("\n", " ")
+            if len(snippet) > 160:
+                snippet = snippet[:160] + "…"
+            line += f"  > \"{snippet}\"\n"
+        lines.append(line)
+
+    return "".join(lines)
+
+
+@register("pending_emails")
+def assemble_pending_emails(
+    conn: sqlite3.Connection, record_id: int = 0, depth: int = DEPTH_FULL, **kwargs
+) -> str:
+    """Assemble pending email actions — follow-ups that imply an email needs to go out."""
+    client_id = kwargs.get("client_id")
+    policy_id = kwargs.get("policy_id")
+    issue_id = kwargs.get("issue_id")
+
+    if issue_id:
+        where = "a.issue_id = ?"
+        params: tuple = (issue_id,)
+    elif policy_id:
+        where = "a.policy_id = ?"
+        params = (policy_id,)
+    elif client_id:
+        where = "a.client_id = ?"
+        params = (client_id,)
+    else:
+        return ""
+
+    rows = conn.execute(
+        f"""SELECT a.id, a.activity_date, a.subject, a.follow_up_date, a.disposition,
+                   a.contact_person, a.email_to, a.email_from, a.activity_type
+            FROM activity_log a
+            WHERE a.item_kind != 'issue'
+              AND a.follow_up_done = 0
+              AND a.follow_up_date IS NOT NULL
+              AND (a.auto_close_reason IS NULL OR a.auto_close_reason = '')
+              AND (LOWER(COALESCE(a.disposition,'')) LIKE '%email%'
+                   OR LOWER(COALESCE(a.activity_type,'')) = 'email'
+                   OR LOWER(COALESCE(a.disposition,'')) IN
+                      ('needs_email_sent','awaiting_response','sent email','follow up email'))
+              AND {where}
+            ORDER BY a.follow_up_date ASC""",
+        params,
+    ).fetchall()
+
+    if not rows:
+        return ""
+
+    lines = ["## Pending Emails\n"]
+    for r in rows:
+        recipient = r["email_to"] or r["contact_person"] or "(unknown)"
+        date_str = _fmt_date(r["follow_up_date"]) if r["follow_up_date"] else ""
+        line = f"- **{date_str}** — To {recipient}: {r['subject'] or '(no subject)'}"
+        if r["disposition"]:
+            line += f" [{r['disposition']}]"
+        lines.append(line + "\n")
+    return "".join(lines)
+
+
 # ── Relationship key resolution ──────────────────────────────────────────────
 
 def _resolve_keys(conn: sqlite3.Connection, primary_type: str, record_id: int) -> dict:
@@ -738,6 +1455,14 @@ def _assemble_related_block(
         if not rid:
             return ""
         return assemble_contacts(conn, rid, depth, policy_id=keys.get("policy_id"))
+    elif record_type == "focus_items":
+        return assemble_focus_items(conn, 0, depth, **keys)
+    elif record_type == "deliverables_due":
+        return assemble_deliverables_due(conn, 0, depth, **keys)
+    elif record_type == "recent_activity_log":
+        return assemble_recent_activity_log(conn, 0, depth, **keys)
+    elif record_type == "pending_emails":
+        return assemble_pending_emails(conn, 0, depth, **keys)
     else:
         return ""
 
