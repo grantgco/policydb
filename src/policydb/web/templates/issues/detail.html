@@ -49,12 +49,27 @@
   {% endif %}
 
   {# ── Title (click-to-edit) ── #}
-  <h1 class="text-xl font-semibold text-gray-900 mb-1 cursor-pointer hover:bg-gray-50 rounded px-1 -mx-1 transition-colors"
-      contenteditable="true"
-      spellcheck="false"
-      data-original="{{ issue.subject }}"
-      onblur="saveIssueSubject(this)"
-      onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}">{{ issue.subject }}</h1>
+  <div class="flex items-start justify-between gap-3 mb-1">
+    <h1 class="text-xl font-semibold text-gray-900 cursor-pointer hover:bg-gray-50 rounded px-1 -mx-1 transition-colors flex-1"
+        contenteditable="true"
+        spellcheck="false"
+        data-original="{{ issue.subject }}"
+        onblur="saveIssueSubject(this)"
+        onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}">{{ issue.subject }}</h1>
+    {% if issue.is_renewal_issue and issue.renewal_term_key %}
+      {% set _rtk = issue.renewal_term_key %}
+      {% if _rtk.startswith('program:') %}
+        {% set _bind_subjects = _rtk %}
+      {% else %}
+        {% set _bind_subjects = 'policy:' + _rtk %}
+      {% endif %}
+      <button type="button"
+        onclick="openBindOrderSlideover('{{ _bind_subjects }}')"
+        class="shrink-0 px-3 py-1.5 text-xs font-medium rounded-lg bg-marsh hover:bg-marsh/90 text-white transition-colors">
+        Bind Order
+      </button>
+    {% endif %}
+  </div>
 
   {# ── Metadata row ── #}
   {% set days = (issue.days_open or 0)|int %}

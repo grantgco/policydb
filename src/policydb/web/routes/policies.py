@@ -3765,23 +3765,44 @@ async def policy_cell_save(request: Request, policy_uid: str, conn=Depends(get_d
         ).fetchone()
         prior_status = prior_row["renewal_status"] if prior_row else "Not Started"
         is_opp = prior_row["is_opportunity"] if prior_row else 0
+        resolve_statuses = cfg.get("renewal_issue_resolve_statuses", ["Bound"])
 
+        # Bound transition fires the full cascade through bind_order helper.
+        # Guard: if the row needs to be renewed before binding (expired term, etc.),
+        # block the silent-bound write and force the user through the Bind Order panel.
+        if val in resolve_statuses and not is_opp:
+            from policydb.bind_order import (
+                resolve_child_state,
+                _handle_bound_transition,
+                _generate_post_bind_followups,
+            )
+            from datetime import date as _date
+            try:
+                state = resolve_child_state(conn, uid)
+            except ValueError:
+                state = "ready_to_bind"
+            if state == "needs_renew":
+                return JSONResponse(
+                    {"ok": False, "error": "This policy still needs to be renewed first. Use the Bind Order action to roll the term forward and bind in one step."},
+                    status_code=400,
+                )
+            today_iso = _date.today().isoformat()
+            _handle_bound_transition(conn, uid, today_iso, bind_note=None)
+            _generate_post_bind_followups(
+                conn,
+                client_id=policy["client_id"],
+                bind_date=today_iso,
+                policy_id=policy["id"],
+            )
+            conn.commit()
+            return JSONResponse({"ok": True, "formatted": val})
+
+        # Non-bound status writes — straight UPDATE
         conn.execute("UPDATE policies SET renewal_status = ? WHERE policy_uid = ?", (val or None, uid))
         formatted = val
-
-        resolve_statuses = cfg.get("renewal_issue_resolve_statuses", ["Bound"])
         # Clear bound_date when moving away from terminal status
         if val not in resolve_statuses and prior_status in resolve_statuses:
             conn.execute("UPDATE policies SET bound_date=NULL WHERE policy_uid=?", (uid,))
-        # Signal confirmation banner for terminal status (skip opportunities)
-        if val in resolve_statuses and not is_opp:
-            conn.commit()
-            return JSONResponse({
-                "ok": True, "formatted": formatted,
-                "bound_confirm": True,
-                "policy_uid": uid,
-                "prior_status": prior_status,
-            })
     elif field == "opportunity_status":
         val = value.strip()
         conn.execute("UPDATE policies SET opportunity_status = ? WHERE policy_uid = ?", (val or None, uid))
@@ -4172,7 +4193,14 @@ def policy_bound_confirm(
     policy_uid: str,
     conn=Depends(get_db),
 ):
-    """Execute all bound automations after user confirms."""
+    """Execute all bound automations after user confirms (status badge banner path).
+
+    Refactored to delegate to bind_order._handle_bound_transition() — the single
+    choke point shared with the Bind Order panel and the cell-edit fast path.
+    """
+    from datetime import date as _date
+    from policydb.bind_order import _handle_bound_transition, _generate_post_bind_followups
+
     uid = policy_uid.upper()
     policy = conn.execute(
         "SELECT id, client_id, policy_uid, is_opportunity, program_id, expiration_date FROM policies WHERE policy_uid=?",
@@ -4181,49 +4209,20 @@ def policy_bound_confirm(
     if not policy:
         return HTMLResponse("", status_code=404)
 
-    # Guard: skip automations for opportunities
+    # Guard: skip automations for opportunities (preserves prior behavior)
     if policy["is_opportunity"]:
         return HTMLResponse('<div id="bound-confirm-prompt" hx-swap-oob="innerHTML"></div>')
 
-    policy_id = policy["id"]
-
-    # 1. Record bound_date
-    conn.execute("UPDATE policies SET bound_date=date('now') WHERE policy_uid=?", (uid,))
-
-    # 2. Log activity
-    conn.execute(
-        """INSERT INTO activity_log (client_id, policy_id, activity_type, subject, created_at)
-           VALUES (?, ?, 'Milestone', 'Renewal bound', datetime('now'))""",
-        (policy["client_id"], policy_id),
+    today_iso = _date.today().isoformat()
+    _handle_bound_transition(conn, uid, today_iso, bind_note=None)
+    _generate_post_bind_followups(
+        conn,
+        client_id=policy["client_id"],
+        bind_date=today_iso,
+        policy_id=policy["id"],
     )
-
-    # 3. Complete remaining timeline milestones (skip if program child)
-    if not policy["program_id"]:
-        from policydb.timeline_engine import complete_timeline_milestone
-        incomplete = conn.execute(
-            "SELECT milestone_name FROM policy_timeline WHERE policy_uid=? AND completed_date IS NULL",
-            (uid,),
-        ).fetchall()
-        for m in incomplete:
-            complete_timeline_milestone(conn, uid, m["milestone_name"])
-
-    # 4. Close all pending follow-ups
-    conn.execute(
-        """UPDATE activity_log
-           SET follow_up_done=1, auto_close_reason='renewal_bound',
-               auto_closed_at=datetime('now'), auto_closed_by='bound_status_change'
-           WHERE policy_id=? AND follow_up_done=0 AND follow_up_date IS NOT NULL""",
-        (policy_id,),
-    )
-    conn.execute("UPDATE policies SET follow_up_date=NULL WHERE policy_uid=?", (uid,))
-
-    # 5. Auto-resolve renewal issues + cascade
-    from policydb.renewal_issues import auto_resolve_renewal_issue, cascade_program_renewal_close
-    auto_resolve_renewal_issue(conn, policy_uid=uid)
-    cascade_program_renewal_close(conn, uid)
-
     conn.commit()
-    logger.info("Policy %s bound automations complete", uid)
+    logger.info("Policy %s bound automations complete (banner path)", uid)
 
     # Check if eligible for renewal term prompt
     has_successor = conn.execute(

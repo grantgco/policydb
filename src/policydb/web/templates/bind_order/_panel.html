@@ -1,0 +1,299 @@
+{# Bind Order — slideover panel.
+   Renders one section per subject (program or standalone policy) with checkable
+   children, per-subject term dates, optional disposition for unchecked children.
+   Submitted as JSON to POST /bind-order/submit via window.submitBindOrder().
+
+   Expects:
+     panel: BindPanelData (bind_date, sections[], errors[])
+       sections[]: SubjectPanelSection
+         children[]: ChildPanelRow (state: needs_renew | ready_to_bind | already_bound)
+#}
+
+{# Backdrop #}
+<div id="bind-order-backdrop"
+     class="fixed inset-0 bg-black/30 z-40"
+     onclick="closeBindOrderSlideover()"></div>
+
+{# Panel — wider than compose to accommodate child tables #}
+<div id="bind-order-panel"
+     class="fixed top-0 right-0 bottom-0 w-[640px] max-sm:w-full bg-white shadow-xl z-50 flex flex-col">
+
+  <div class="flex items-center justify-between p-4 border-b shrink-0">
+    <div>
+      <h2 class="text-base font-semibold text-gray-900">Bind Order</h2>
+      <p class="text-xs text-gray-500 mt-0.5">Renew + bind in one action — review children, set new term dates, capture the bind note.</p>
+    </div>
+    <button onclick="closeBindOrderSlideover()"
+            class="text-gray-400 hover:text-gray-600 transition-colors"
+            aria-label="Close panel">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+      </svg>
+    </button>
+  </div>
+
+  {% if panel.errors %}
+    <div class="border-b border-amber-100 bg-amber-50 px-4 py-2">
+      {% for err in panel.errors %}
+      <div class="text-xs text-amber-800">{{ err }}</div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  <div class="flex-1 overflow-y-auto p-4 space-y-5" id="bind-order-body">
+
+    {# ── Top-level shared fields ── #}
+    <div class="grid grid-cols-2 gap-3">
+      <div>
+        <label class="text-[11px] font-medium text-gray-500 uppercase tracking-wide block mb-1">Bind Date</label>
+        <input type="date" id="bo-bind-date"
+               value="{{ panel.bind_date }}"
+               class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-marsh">
+      </div>
+      <div>
+        <label class="text-[11px] font-medium text-gray-500 uppercase tracking-wide block mb-1">Subjects</label>
+        <div class="text-sm text-gray-700 py-2">{{ panel.sections|length }} {{ 'item' if panel.sections|length == 1 else 'items' }}</div>
+      </div>
+    </div>
+
+    <div>
+      <label class="text-[11px] font-medium text-gray-500 uppercase tracking-wide block mb-1">Bind Note (optional)</label>
+      <textarea id="bo-bind-note" rows="2"
+                placeholder="e.g., Per Sarah Jones email 2026-04-10 — bind all lines"
+                class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-marsh resize-none"></textarea>
+    </div>
+
+    {# ── Subject sections ── #}
+    {% for section in panel.sections %}
+    <div class="border border-gray-200 rounded-lg overflow-hidden bo-section"
+         data-subject-type="{{ section.subject_type }}"
+         data-subject-uid="{{ section.subject_uid }}">
+
+      <div class="bg-gray-50 px-3 py-2 border-b border-gray-200 flex items-baseline justify-between">
+        <div>
+          <span class="text-[10px] uppercase tracking-wide text-gray-400 font-medium">
+            {{ section.subject_type }}
+          </span>
+          <span class="text-sm font-semibold text-gray-900 ml-2">{{ section.display_name }}</span>
+          <span class="text-xs text-gray-400 ml-2">{{ section.subject_uid }}</span>
+        </div>
+        <div class="text-xs text-gray-500">
+          {{ section.children|length }} {{ 'policy' if section.children|length == 1 else 'policies' }}
+        </div>
+      </div>
+
+      <div class="px-3 py-2 grid grid-cols-2 gap-3 border-b border-gray-100 bg-white">
+        <div>
+          <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wide block mb-1">New Effective</label>
+          <input type="date" class="bo-eff w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-marsh"
+                 value="{{ section.new_effective }}">
+        </div>
+        <div>
+          <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wide block mb-1">New Expiration</label>
+          <input type="date" class="bo-exp w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-marsh"
+                 value="{{ section.new_expiration }}">
+        </div>
+      </div>
+
+      <table class="w-full text-xs">
+        <thead class="bg-gray-50/50 border-b border-gray-100">
+          <tr class="text-left text-gray-500">
+            <th class="py-1.5 pl-3 pr-2 w-8"></th>
+            <th class="py-1.5 pr-2">Policy</th>
+            <th class="py-1.5 pr-2">LOB</th>
+            <th class="py-1.5 pr-2">Carrier</th>
+            <th class="py-1.5 pr-2 text-right">Premium</th>
+            <th class="py-1.5 pr-3">State</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-50">
+          {% for child in section.children %}
+          {% set is_locked = (child.state == 'already_bound') %}
+          <tr class="bo-child-row hover:bg-gray-50/30 {{ 'opacity-60' if is_locked else '' }}"
+              data-policy-uid="{{ child.policy_uid }}"
+              data-state="{{ child.state }}">
+            <td class="py-1.5 pl-3 pr-2">
+              <input type="checkbox" class="bo-check rounded border-gray-300 text-marsh focus:ring-marsh"
+                     {{ 'checked' if not is_locked else '' }}
+                     {{ 'disabled' if is_locked else '' }}
+                     onchange="onBindChildToggle(this)">
+            </td>
+            <td class="py-1.5 pr-2">
+              <span class="font-medium text-gray-700">{{ child.policy_uid }}</span>
+            </td>
+            <td class="py-1.5 pr-2 text-gray-600">{{ child.policy_type or '—' }}</td>
+            <td class="py-1.5 pr-2 text-gray-600">{{ child.carrier or '—' }}</td>
+            <td class="py-1.5 pr-2 text-right">
+              <input type="text" class="bo-premium w-24 text-xs text-right border border-transparent hover:border-gray-200 focus:border-marsh focus:outline-none rounded px-1 py-0.5"
+                     value="{{ '${:,.0f}'.format(child.premium) if child.premium else '' }}"
+                     placeholder="—"
+                     {{ 'disabled' if is_locked else '' }}>
+            </td>
+            <td class="py-1.5 pr-3">
+              {% if child.state == 'needs_renew' %}
+                <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-100">needs renew</span>
+              {% elif child.state == 'ready_to_bind' %}
+                <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-50 text-blue-700 border border-blue-100">ready to bind</span>
+              {% else %}
+                <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-500 border border-gray-200">already bound</span>
+              {% endif %}
+            </td>
+          </tr>
+          {# Disposition row appears when checkbox is unchecked #}
+          <tr class="bo-dispo-row hidden bg-amber-50/30">
+            <td></td>
+            <td colspan="5" class="py-1.5 pr-3">
+              <div class="flex items-center gap-2">
+                <span class="text-[11px] text-gray-500">Disposition:</span>
+                <select class="bo-dispo text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-marsh">
+                  <option value="">— pick one —</option>
+                  <option value="Declined">Declined</option>
+                  <option value="Lost">Lost</option>
+                  <option value="Non-Renewed">Non-Renewed</option>
+                  <option value="Defer">Defer (keep working)</option>
+                </select>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endfor %}
+
+  </div>
+
+  {# ── Action bar ── #}
+  <div class="border-t border-gray-200 px-4 py-3 flex items-center justify-between shrink-0 bg-white">
+    <button onclick="closeBindOrderSlideover()"
+            class="text-sm text-gray-500 hover:text-gray-700 px-3 py-1.5 rounded">
+      Cancel
+    </button>
+    <button id="bo-confirm-btn" onclick="submitBindOrder()"
+            class="bg-marsh hover:bg-marsh/90 text-white text-sm font-medium px-4 py-1.5 rounded-lg transition-colors">
+      Confirm Bind
+    </button>
+  </div>
+</div>
+
+<script>
+(function() {
+  // Toggle the disposition row when a child checkbox changes
+  window.onBindChildToggle = function(cb) {
+    var row = cb.closest('tr.bo-child-row');
+    var dispoRow = row.nextElementSibling;
+    if (!dispoRow || !dispoRow.classList.contains('bo-dispo-row')) return;
+    if (cb.checked) {
+      dispoRow.classList.add('hidden');
+    } else {
+      dispoRow.classList.remove('hidden');
+    }
+    updateBindConfirmBtn();
+  };
+
+  function updateBindConfirmBtn() {
+    var btn = document.getElementById('bo-confirm-btn');
+    if (!btn) return;
+    // Confirm enabled if at least one child is checked OR every unchecked has a disposition
+    var anyChecked = false;
+    var allUncheckedHaveDispo = true;
+    document.querySelectorAll('.bo-child-row').forEach(function(row) {
+      var cb = row.querySelector('.bo-check');
+      if (!cb || cb.disabled) return;
+      if (cb.checked) {
+        anyChecked = true;
+      } else {
+        var dispo = row.nextElementSibling && row.nextElementSibling.querySelector('.bo-dispo');
+        if (!dispo || !dispo.value) {
+          allUncheckedHaveDispo = false;
+        }
+      }
+    });
+    btn.disabled = !(anyChecked || allUncheckedHaveDispo);
+    btn.classList.toggle('opacity-50', btn.disabled);
+    btn.classList.toggle('cursor-not-allowed', btn.disabled);
+  }
+
+  // Hook disposition selects
+  document.querySelectorAll('.bo-dispo').forEach(function(sel) {
+    sel.addEventListener('change', updateBindConfirmBtn);
+  });
+
+  function parseCurrency(s) {
+    if (!s) return null;
+    var cleaned = String(s).replace(/[\$,\s]/g, '');
+    if (!cleaned) return null;
+    var n = parseFloat(cleaned);
+    return isNaN(n) ? null : n;
+  }
+
+  window.submitBindOrder = function() {
+    var btn = document.getElementById('bo-confirm-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Binding…'; }
+
+    var bindDate = document.getElementById('bo-bind-date').value;
+    var bindNote = document.getElementById('bo-bind-note').value;
+
+    var subjects = [];
+    document.querySelectorAll('.bo-section').forEach(function(section) {
+      var subjectType = section.dataset.subjectType;
+      var subjectUid = section.dataset.subjectUid;
+      var newEff = section.querySelector('.bo-eff').value;
+      var newExp = section.querySelector('.bo-exp').value;
+      var children = [];
+      section.querySelectorAll('.bo-child-row').forEach(function(row) {
+        var cb = row.querySelector('.bo-check');
+        if (!cb) return;
+        var checked = cb.checked && !cb.disabled;
+        var dispoSel = row.nextElementSibling && row.nextElementSibling.querySelector('.bo-dispo');
+        var dispo = dispoSel ? dispoSel.value : null;
+        var premInput = row.querySelector('.bo-premium');
+        var premVal = premInput ? parseCurrency(premInput.value) : null;
+        // Skip already-bound rows entirely (no payload — they're informational)
+        if (cb.disabled) return;
+        children.push({
+          policy_uid: row.dataset.policyUid,
+          checked: checked,
+          disposition: checked ? 'Bound' : (dispo || 'Defer'),
+          new_premium: checked ? premVal : null,
+        });
+      });
+      subjects.push({
+        subject_type: subjectType,
+        subject_uid: subjectUid,
+        new_effective: newEff,
+        new_expiration: newExp,
+        children: children,
+      });
+    });
+
+    fetch('/bind-order/submit', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        bind_date: bindDate,
+        bind_note: bindNote,
+        subjects: subjects,
+      }),
+    }).then(function(r) {
+      return r.json().then(function(data) { return {ok: r.ok, status: r.status, data: data}; });
+    }).then(function(res) {
+      if (res.ok && res.data.ok) {
+        if (typeof showToast === 'function') showToast(res.data.toast_message || 'Bind order complete', true);
+        closeBindOrderSlideover();
+        // Soft refresh: reload after a short delay to surface new state
+        setTimeout(function() { window.location.reload(); }, 600);
+      } else {
+        var msg = (res.data && (res.data.detail || res.data.error)) || ('HTTP ' + res.status);
+        if (typeof showToast === 'function') showToast('Bind failed: ' + msg, false);
+        if (btn) { btn.disabled = false; btn.textContent = 'Confirm Bind'; }
+      }
+    }).catch(function(err) {
+      if (typeof showToast === 'function') showToast('Network error: ' + err, false);
+      if (btn) { btn.disabled = false; btn.textContent = 'Confirm Bind'; }
+    });
+  };
+
+  updateBindConfirmBtn();
+})();
+</script>

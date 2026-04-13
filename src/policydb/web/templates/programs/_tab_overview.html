@@ -39,9 +39,9 @@
     <div class="flex items-center gap-3">
       <span class="text-xs text-gray-400">{{ children | length }} assigned</span>
       {% if children %}
-      <button type="button" id="renew-program-btn"
+      <button type="button" id="bind-order-program-btn"
         class="no-print text-xs font-medium text-white bg-marsh px-3 py-1 rounded hover:bg-marsh/90 transition-colors"
-        onclick="renewProgram(this)">Renew Program</button>
+        onclick="openBindOrderSlideover('program:{{ program.program_uid }}')">Bind Order</button>
       {% endif %}
     </div>
   </div>
