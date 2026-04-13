@@ -116,8 +116,13 @@ def _enrich_last_activity(clients: list[dict]) -> None:
     today = _date.today()
     for c in clients:
         raw = c.get("last_activity_date")
+        d = None
         if raw:
-            d = _date.fromisoformat(raw)
+            try:
+                d = _date.fromisoformat(str(raw)[:10])
+            except (TypeError, ValueError):
+                d = None
+        if d is not None:
             delta = (today - d).days
             rel = _relative_days(delta)
             if rel is None:
@@ -140,7 +145,7 @@ def _enrich_last_activity(clients: list[dict]) -> None:
 
 def _apply_client_filters(clients, segment="", urgent="", inactive="", prospect=""):
     if segment:
-        clients = [c for c in clients if c["industry_segment"] == segment]
+        clients = [c for c in clients if c.get("industry_segment") == segment]
     if urgent:
         clients = [c for c in clients if (c.get("next_renewal_days") or 999) <= 90]
     if inactive:

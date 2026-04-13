@@ -33,14 +33,25 @@ URGENCY_ORDER = ["EXPIRED", "URGENT", "WARNING", "UPCOMING", "OK"]
 
 
 def _attach_client_ids(conn, rows: list[dict]) -> list[dict]:
-    result = []
+    """Attach client_id to each row by looking up its client_name.
+
+    Pre-loads every (name → id) mapping in one query to avoid the N+1
+    pattern this function used to do.  Rows with a missing/unknown
+    client_name fall back to client_id=0 so callers can still link
+    safely.
+    """
+    rows = list(rows)
+    if not rows:
+        return rows
+    name_map = {
+        r["name"]: r["id"]
+        for r in conn.execute(
+            "SELECT id, name FROM clients WHERE archived = 0"
+        ).fetchall()
+    }
     for d in rows:
-        client_row = conn.execute(
-            "SELECT id FROM clients WHERE name = ?", (d["client_name"],)
-        ).fetchone()
-        d["client_id"] = client_row["id"] if client_row else 0
-        result.append(d)
-    return result
+        d["client_id"] = name_map.get(d.get("client_name") or "", 0)
+    return rows
 
 
 @router.get("/dashboard/pipeline", response_class=HTMLResponse)

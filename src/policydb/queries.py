@@ -2110,6 +2110,9 @@ def rebuild_search_index(conn: sqlite3.Connection) -> None:
     """)
 
     # -- Client scratchpads --
+    # Skip scratchpads whose owning client is archived — otherwise an
+    # archived client will resurface in search via its scratchpad even
+    # though its main client row is excluded from the index.
     conn.execute("""
         INSERT INTO search_index (entity_type, entity_id, title, subtitle, body, metadata)
         SELECT 'scratchpad', 'client-' || CAST(cs.client_id AS TEXT),
@@ -2120,9 +2123,12 @@ def rebuild_search_index(conn: sqlite3.Connection) -> None:
         FROM client_scratchpad cs
         JOIN clients c ON c.id = cs.client_id
         WHERE cs.content IS NOT NULL AND cs.content != ''
+          AND c.archived = 0
     """)
 
     # -- Policy scratchpads --
+    # Skip scratchpads whose owning policy is archived (and whose owning
+    # client is archived) for the same reason as above.
     conn.execute("""
         INSERT INTO search_index (entity_type, entity_id, title, subtitle, body, metadata)
         SELECT 'scratchpad', 'policy-' || ps.policy_uid,
@@ -2131,7 +2137,11 @@ def rebuild_search_index(conn: sqlite3.Connection) -> None:
             COALESCE(ps.content, ''),
             ''
         FROM policy_scratchpad ps
+        JOIN policies p ON p.policy_uid = ps.policy_uid
+        JOIN clients c ON c.id = p.client_id
         WHERE ps.content IS NOT NULL AND ps.content != ''
+          AND p.archived = 0
+          AND c.archived = 0
     """)
 
     # -- KB Bookmarks --

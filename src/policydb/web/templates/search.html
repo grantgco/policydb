@@ -207,14 +207,14 @@
     <span class="text-[10px] bg-gray-100 text-gray-500 rounded-full px-2 py-0.5">{{ results.inbox|length }}</span>
   </div>
   {% for r in results.inbox %}
-  <div class="flex items-start gap-3 px-5 py-3 border-b border-gray-50 last:border-0">
+  <a href="/action-center?tab=inbox" class="flex items-start gap-3 px-5 py-3 hover:bg-gray-50 border-b border-gray-50 last:border-0">
     <span class="text-[10px] font-mono text-gray-400 mt-0.5 shrink-0">{{ r.inbox_uid }}</span>
     <div class="min-w-0">
       <span class="font-medium text-gray-800 truncate block">{{ r.email_subject or (r.content[:80] if r.content else 'Inbox item') }}</span>
       {% if r.email_from %}<span class="text-xs text-gray-400">from {{ r.email_from }}</span>{% endif %}
     </div>
     <span class="text-xs text-gray-400 shrink-0 ml-auto">{{ r.created_at[:10] if r.created_at else '' }}</span>
-  </div>
+  </a>
   {% endfor %}
 </div>
 {% endif %}
