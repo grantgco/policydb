@@ -7,6 +7,14 @@
   <span><strong class="text-gray-700">{{ aggregates.total_premium | currency }}</strong> total premium</span>
 </div>
 
+{# -- Workflow Snapshot (Scope Rollup) -- #}
+{% if program_rollup and program_rollup.policies %}
+<div class="mb-4">
+  {% set rollup_hide_nested = true %}
+  {% include "issues/_scope_rollup.html" %}
+</div>
+{% endif %}
+
 {# -- Renewal Issue Banner (if active) -- #}
 {% if renewal_issue %}
 {% set ri_sev = renewal_issue.issue_severity or 'Normal' %}

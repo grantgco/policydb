@@ -23,6 +23,7 @@ from policydb.queries import (
     get_or_create_contact, get_program_contacts, assign_contact_to_program,
     remove_contact_from_program, set_program_placement_colleague,
     get_program_underwriter_rollup,
+    get_program_rollup,
 )
 from policydb.web.app import get_db, templates
 
@@ -221,6 +222,8 @@ def program_tab_overview(
         LIMIT 1
     """, (f"program:{program_uid}",)).fetchone()
 
+    program_rollup = get_program_rollup(conn, program["id"])
+
     return templates.TemplateResponse("programs/_tab_overview.html", {
         "request": request,
         "program": program,
@@ -236,6 +239,8 @@ def program_tab_overview(
         "all_clients": all_clients,
         "issue_severities": cfg.get("issue_severities", []),
         "renewal_issue": dict(renewal_issue) if renewal_issue else None,
+        "program_rollup": program_rollup,
+        "rollup_client_id": program["client_id"],
     })
 
 
