@@ -7,12 +7,25 @@
  # One or the other, not both. Resolves into local `rollup` below.
  #
  # Optional context vars:
- #   rollup_client_id — used for "View →" RFI link target
+ #   rollup_client_id — used as a fallback for the "View →" RFI link target
+ #   rollup_rfi_href  — full URL for the "View →" RFI link (scoped page);
+ #                      auto-derived from issue/program context if not set
  #   rollup_hide_nested — truthy to hide the nested issues sub-section
  #                        (program page sets this because program-level open
  #                         issues already have a dedicated section)
  ────────────────────────────────────────────────────────────────────────── #}
 {% set rollup = issue_rollup if issue_rollup is defined and issue_rollup else (program_rollup if program_rollup is defined and program_rollup else None) %}
+{% if rollup_rfi_href is not defined or not rollup_rfi_href %}
+  {% if issue_rollup is defined and issue_rollup and issue is defined %}
+    {% set rollup_rfi_href = '/issues/' ~ issue.issue_uid ~ '/rfi' %}
+  {% elif program_rollup is defined and program_rollup and program is defined %}
+    {% set rollup_rfi_href = '/programs/' ~ program.program_uid ~ '/rfi' %}
+  {% elif rollup_client_id %}
+    {% set rollup_rfi_href = '/clients/' ~ rollup_client_id ~ '?tab=requests' %}
+  {% else %}
+    {% set rollup_rfi_href = '' %}
+  {% endif %}
+{% endif %}
 {% if rollup and rollup.policies %}
 {% set _fin = rollup.financials %}
 {% set _rfi = rollup.rfi %}
@@ -47,8 +60,8 @@
       {% else %}
       <div class="text-[10px] text-gray-400 mt-0.5">{{ _rfi.open_bundles }} open bundle{{ '' if _rfi.open_bundles == 1 else 's' }}</div>
       {% endif %}
-      {% if rollup_client_id %}
-      <a href="/clients/{{ rollup_client_id }}?tab=requests" class="block text-[10px] text-marsh hover:underline mt-1">View →</a>
+      {% if rollup_rfi_href %}
+      <a href="{{ rollup_rfi_href }}" class="block text-[10px] text-marsh hover:underline mt-1">View →</a>
       {% endif %}
     </div>
 

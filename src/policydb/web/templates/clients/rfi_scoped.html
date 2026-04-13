@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+{% block title %}RFI — {{ scope_label }}{% endblock %}
+
+{% block content %}
+<div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+
+  {# ── Breadcrumb ── #}
+  <div class="flex items-center gap-2 text-xs text-gray-500 mb-2">
+    <a href="{{ scope_back_url }}" class="hover:text-marsh">&larr; {{ scope_back_label }}</a>
+    <span class="text-gray-300">|</span>
+    <a href="/clients/{{ client.id }}" class="hover:text-marsh">{{ client.name }}</a>
+    <span class="text-gray-300">|</span>
+    <span class="text-gray-700">RFI (filtered)</span>
+  </div>
+
+  {# ── Page header ── #}
+  <div class="flex items-start justify-between gap-4 mb-4">
+    <div class="flex-1 min-w-0">
+      <h1 class="text-xl font-semibold text-gray-900">Information Requests</h1>
+      <div class="text-sm text-gray-500 mt-0.5">
+        Filtered to <span class="font-medium text-gray-700">{{ scope_label }}</span>
+      </div>
+    </div>
+    <a href="/clients/{{ client.id }}?tab=requests"
+       class="shrink-0 text-xs text-marsh hover:underline self-center">View all client RFIs &rarr;</a>
+  </div>
+
+  {# ── Scope banner ── #}
+  {% set _total_items = bundles | sum(attribute='scoped_total') %}
+  {% set _done_items = bundles | sum(attribute='scoped_done') %}
+  {% set _pct = (_done_items / _total_items * 100) | round(0) | int if _total_items > 0 else 0 %}
+  <div class="bg-amber-50/60 border border-amber-200 rounded-lg px-4 py-3 mb-4">
+    <div class="flex items-center justify-between gap-4 flex-wrap">
+      <div class="text-xs text-amber-900">
+        <span class="font-semibold">{{ bundles | length }}</span> bundle{{ 's' if bundles | length != 1 else '' }}
+        with items in scope &middot;
+        <span class="font-semibold tabular-nums">{{ _done_items }}/{{ _total_items }}</span> items received
+        {% if scope_policies %}
+        &middot; across <span class="font-semibold">{{ scope_policies | length }}</span> polic{{ 'y' if scope_policies | length == 1 else 'ies' }}
+        {% endif %}
+      </div>
+      {% if _total_items > 0 %}
+      <div class="flex items-center gap-2 shrink-0">
+        <div class="w-32 bg-amber-100 rounded-full h-2">
+          <div class="bg-amber-500 rounded-full h-2 transition-all" style="width: {{ _pct }}%"></div>
+        </div>
+        <span class="text-[10px] text-amber-800 tabular-nums">{{ _pct }}%</span>
+      </div>
+      {% endif %}
+    </div>
+    {% if scope_policies %}
+    <div class="flex flex-wrap gap-1 mt-2">
+      {% for p in scope_policies %}
+      <a href="/policies/{{ p.policy_uid }}/edit"
+         class="inline-flex items-center gap-1 text-[10px] bg-white border border-amber-200 text-amber-800 rounded-full px-2 py-0.5 hover:bg-amber-100">
+        <span class="font-mono">{{ p.policy_uid }}</span>
+        <span class="text-amber-400">·</span>
+        <span>{{ p.policy_type or '' }}</span>
+      </a>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+
+  {# ── Bundles ── #}
+  {% if bundles %}
+  <div class="space-y-3">
+    {% for b in bundles %}
+    <div class="card">
+      {# Bundle header #}
+      <div class="flex items-center gap-3 px-4 py-2.5 bg-gray-50/50 border-b border-gray-100">
+        {% if b.rfi_uid %}
+        <button type="button" onclick="copyRefTag(this, '{{ b.rfi_uid }}')"
+          class="text-xs font-mono font-semibold text-marsh hover:text-marsh-light shrink-0 no-print"
+          title="Click to copy">{{ b.rfi_uid }}</button>
+        {% endif %}
+        <span class="text-sm font-medium text-gray-800 flex-1 min-w-0 truncate">{{ b.title }}</span>
+        {% if b.status == 'open' %}
+          <span class="text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded font-medium">Open</span>
+          {% if not b.send_by_date %}
+          <span class="text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded font-medium" title="Open to set a send-by date">⚠ No deadline</span>
+          {% elif b.send_by_date < today_iso %}
+          <span class="text-[10px] bg-red-100 text-red-600 px-2 py-0.5 rounded font-medium whitespace-nowrap">⚠ Overdue &middot; due {{ b.send_by_date }}</span>
+          {% else %}
+          <span class="text-[10px] text-gray-400 whitespace-nowrap">due {{ b.send_by_date }}</span>
+          {% endif %}
+        {% elif b.status == 'sent' %}
+          <span class="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-medium">Sent</span>
+        {% elif b.status == 'partial' %}
+          <span class="text-[10px] bg-purple-100 text-purple-700 px-2 py-0.5 rounded font-medium">Partial</span>
+        {% elif b.status == 'complete' %}
+          <span class="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded font-medium">Complete</span>
+        {% endif %}
+        <span class="text-xs text-gray-400 tabular-nums shrink-0">{{ b.scoped_done }}/{{ b.scoped_total }} in scope</span>
+        {% if b.scoped_total > 0 %}
+        <div class="w-16 bg-gray-200 rounded-full h-1.5 shrink-0">
+          <div class="bg-green-500 rounded-full h-1.5 transition-all" style="width: {{ b.scoped_pct }}%"></div>
+        </div>
+        {% endif %}
+        <a href="/clients/{{ client.id }}/requests/{{ b.id }}"
+           class="text-[10px] text-marsh hover:underline no-print shrink-0">Open full bundle &rarr;</a>
+      </div>
+
+      {# In-scope items #}
+      <div class="p-4 space-y-2">
+        {% for item in b['items'] %}
+        {% set bundle = b %}
+        {% include "clients/_request_item.html" %}
+        {% endfor %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="card p-8 text-center">
+    <p class="text-sm text-gray-500">
+      No RFI items are linked to the policies in this scope.
+    </p>
+    <a href="/clients/{{ client.id }}?tab=requests"
+       class="inline-block mt-3 text-xs text-marsh hover:underline">Create a bundle on the client page &rarr;</a>
+  </div>
+  {% endif %}
+</div>
+
+{# Contenteditable save handler — mirrors the one in _request_policy_view.html so
+   description and notes fields persist on blur. Scoped to the page root. #}
+<script>
+(function() {
+  var root = document.querySelector('main') || document.body;
+  var CID = '{{ client.id }}';
+
+  root.addEventListener('focusout', function(e) {
+    var cell = e.target.closest('[data-field]');
+    if (!cell || !cell.hasAttribute('contenteditable')) return;
+    var itemEl = cell.closest('[data-item-id]');
+    if (!itemEl) return;
+    var itemId = itemEl.dataset.itemId;
+    var bundleEl = itemEl.closest('.card');
+    // Find bundle id from the "Open full bundle" link href
+    var bid = '';
+    if (bundleEl) {
+      var link = bundleEl.querySelector('a[href*="/requests/"]');
+      if (link) {
+        var m = link.getAttribute('href').match(/\/requests\/(\d+)/);
+        if (m) bid = m[1];
+      }
+    }
+    if (!bid) return;
+    var field = cell.dataset.field;
+    var val = cell.innerText.trim();
+    if (val === (cell.dataset.original || '')) return;
+    fetch('/clients/' + CID + '/requests/' + bid + '/items/' + itemId, {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({field: field, value: val})
+    });
+  });
+
+  root.addEventListener('focusin', function(e) {
+    var cell = e.target.closest('[data-field]');
+    if (cell && cell.hasAttribute('contenteditable')) {
+      cell.dataset.original = cell.innerText.trim();
+    }
+  });
+})();
+</script>
+{% endblock %}
