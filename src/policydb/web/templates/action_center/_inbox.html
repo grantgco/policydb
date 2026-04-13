@@ -18,21 +18,54 @@
 </div>
 
 {# ── Pending Header ── #}
+{% set pending_outlook = pending | selectattr('outlook_message_id') | list %}
+{% set pending_outlook_unmatched = pending_outlook | rejectattr('client_id') | list %}
 <div class="flex items-center justify-between mb-3 px-1">
   <div class="flex items-center gap-2">
     <h3 class="text-sm font-bold text-gray-700">Pending</h3>
     {% if pending %}
     <span class="bg-teal-100 text-teal-700 text-xs font-semibold px-2 py-0.5 rounded-full">{{ pending | length }} item{{ 's' if pending | length != 1 else '' }}</span>
     {% endif %}
+    {% if pending_outlook %}
+    <span class="text-[10px] text-gray-400">({{ pending_outlook | length }} from Outlook)</span>
+    {% endif %}
   </div>
-  <label class="flex items-center gap-1.5 cursor-pointer no-print">
-    <input type="checkbox" {% if show_processed %}checked{% endif %}
-      hx-get="/action-center/inbox?show_processed={{ '0' if show_processed else '1' }}"
-      hx-target="#ac-tab-content"
-      hx-swap="innerHTML"
-      class="rounded border-gray-300 text-marsh focus:ring-marsh">
-    <span class="text-xs text-gray-500">Show processed</span>
-  </label>
+  <div class="flex items-center gap-3 no-print">
+    {% if pending_outlook %}
+    <details class="relative" id="ac-bulk-dismiss-menu">
+      <summary class="text-xs text-gray-500 hover:text-gray-700 cursor-pointer select-none list-none">
+        Bulk dismiss &#9662;
+      </summary>
+      <div class="absolute right-0 mt-1 w-72 bg-white border border-gray-200 rounded-lg shadow-lg z-20 py-1 text-xs">
+        {% if pending_outlook_unmatched %}
+        <button type="button" onclick="acBulkDismiss('outlook_unmatched', {{ pending_outlook_unmatched | length }})"
+          class="w-full text-left px-3 py-2 hover:bg-gray-50 text-gray-700">
+          Dismiss <span class="font-semibold">{{ pending_outlook_unmatched | length }}</span> unmatched Outlook item{{ 's' if pending_outlook_unmatched | length != 1 else '' }}
+          <div class="text-[10px] text-gray-400 mt-0.5">Outlook items with no client assigned</div>
+        </button>
+        {% endif %}
+        <button type="button" onclick="acBulkDismiss('outlook_all', {{ pending_outlook | length }})"
+          class="w-full text-left px-3 py-2 hover:bg-gray-50 text-gray-700">
+          Dismiss all <span class="font-semibold">{{ pending_outlook | length }}</span> Outlook item{{ 's' if pending_outlook | length != 1 else '' }}
+          <div class="text-[10px] text-gray-400 mt-0.5">Includes matched + unmatched. Won't be re-imported.</div>
+        </button>
+        <button type="button" onclick="acBulkDismiss('all_pending', {{ pending | length }})"
+          class="w-full text-left px-3 py-2 hover:bg-gray-50 text-red-600 border-t border-gray-100">
+          Dismiss all <span class="font-semibold">{{ pending | length }}</span> pending item{{ 's' if pending | length != 1 else '' }}
+          <div class="text-[10px] text-gray-400 mt-0.5">Manual notes + Outlook items</div>
+        </button>
+      </div>
+    </details>
+    {% endif %}
+    <label class="flex items-center gap-1.5 cursor-pointer">
+      <input type="checkbox" {% if show_processed %}checked{% endif %}
+        hx-get="/action-center/inbox?show_processed={{ '0' if show_processed else '1' }}"
+        hx-target="#ac-tab-content"
+        hx-swap="innerHTML"
+        class="rounded border-gray-300 text-marsh focus:ring-marsh">
+      <span class="text-xs text-gray-500">Show processed</span>
+    </label>
+  </div>
 </div>
 
 {# ── Empty State ── #}
@@ -164,6 +197,36 @@ function acCancelDismiss(id) {
     '<button type="button" onclick="acShowDismissConfirm(' + id + ')" ' +
       'class="text-xs bg-gray-100 text-gray-500 px-3 py-1 rounded hover:bg-gray-200 transition-colors">' +
       'Dismiss</button>';
+}
+
+/* Bulk dismiss inbox items by scope. Re-import is blocked via dismissed_outlook_messages. */
+function acBulkDismiss(scope, count) {
+  var label = {
+    'outlook_unmatched': 'unmatched Outlook item',
+    'outlook_all': 'Outlook item',
+    'all_pending': 'pending item'
+  }[scope] || 'item';
+  var msg = 'Dismiss ' + count + ' ' + label + (count !== 1 ? 's' : '') + '?';
+  if (scope === 'all_pending') msg += '\n\nThis includes manual notes you\'ve captured.';
+  if (!confirm(msg)) return;
+  var menu = document.getElementById('ac-bulk-dismiss-menu');
+  if (menu) menu.removeAttribute('open');
+  fetch('/inbox/bulk-dismiss', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({scope: scope})
+  }).then(function(r) { return r.json(); }).then(function(result) {
+    if (result.ok) {
+      if (typeof showToast === 'function') {
+        showToast(result.dismissed + ' item' + (result.dismissed !== 1 ? 's' : '') + ' dismissed', true);
+      }
+      // Reload the inbox tab — preserve the show_processed toggle state
+      var reloadUrl = '/action-center/inbox{% if show_processed %}?show_processed=1{% endif %}';
+      htmx.ajax('GET', reloadUrl, {target: '#ac-tab-content', swap: 'innerHTML'});
+    } else if (typeof showToast === 'function') {
+      showToast('Bulk dismiss failed: ' + (result.error || 'unknown'), false);
+    }
+  });
 }
 
 /* Wire up @ contact autocomplete on the inbox tab capture input */
