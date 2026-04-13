@@ -178,12 +178,20 @@ async def kb_search(
     conn=Depends(get_db),
 ):
     linked_id_int = int(linked_id) if linked_id and linked_id.isdigit() else 0
-    pattern = f"%{q}%"
+    # Escape LIKE wildcards in the user query so '%', '_' and '\\' are
+    # matched literally rather than as wildcards.  We use ESCAPE '\\' on
+    # every LIKE clause below.
+    _escaped_q = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    pattern = f"%{_escaped_q}%"
     entries = []
 
-    # If linked-to filter is active, get the set of linked entry IDs
+    # If linked-to filter is active, get the set of linked entry IDs.
+    # All three *_ids vars are always initialized to None so downstream
+    # code can reference them without worrying about whether the
+    # linked-filter branch ran.
     linked_article_ids = None
     linked_attachment_ids = None
+    linked_bookmark_ids = None
     if linked_type and linked_id_int:
         link_rows = conn.execute(
             "SELECT source_type, source_id, target_type, target_id FROM kb_links "
@@ -208,19 +216,27 @@ async def kb_search(
 
     # Articles
     if source_filter in ("", "article"):
-        where = "WHERE (title LIKE ? OR content LIKE ? OR tags LIKE ?)"
-        params = [pattern, pattern, pattern]
-        if category:
-            where += " AND category = ?"
-            params.append(category)
-        articles = conn.execute(
-            f"SELECT * FROM kb_articles {where} ORDER BY updated_at DESC",
-            params,
-        ).fetchall()
+        # When a linked-to filter is active, we want to search WITHIN the
+        # linked set rather than top-200-by-date and then filter — otherwise
+        # a linked entry that isn't in the most-recent 200 simply vanishes.
+        if linked_article_ids is not None and not linked_article_ids:
+            articles = []  # filter active but nothing linked
+        else:
+            where = "WHERE (title LIKE ? ESCAPE '\\' OR content LIKE ? ESCAPE '\\' OR tags LIKE ? ESCAPE '\\')"
+            params = [pattern, pattern, pattern]
+            if category:
+                where += " AND category = ?"
+                params.append(category)
+            if linked_article_ids is not None:
+                ph = ",".join("?" * len(linked_article_ids))
+                where += f" AND id IN ({ph})"
+                params.extend(linked_article_ids)
+            articles = conn.execute(
+                f"SELECT * FROM kb_articles {where} ORDER BY updated_at DESC LIMIT 200",
+                params,
+            ).fetchall()
         for a in articles:
             d = dict(a)
-            if linked_article_ids is not None and d["id"] not in linked_article_ids:
-                continue
             d["entry_type"] = "article"
             d["source_type"] = "article"
             d["tags_list"] = _parse_tags(d.get("tags"))
@@ -230,22 +246,27 @@ async def kb_search(
 
     # Attachments (local and devonthink)
     if source_filter in ("", "local", "devonthink"):
-        where = "WHERE (title LIKE ? OR description LIKE ? OR filename LIKE ? OR tags LIKE ?)"
-        params = [pattern, pattern, pattern, pattern]
-        if category:
-            where += " AND category = ?"
-            params.append(category)
-        if source_filter in ("local", "devonthink"):
-            where += " AND source = ?"
-            params.append(source_filter)
-        documents = conn.execute(
-            f"SELECT * FROM attachments {where} ORDER BY updated_at DESC",
-            params,
-        ).fetchall()
+        if linked_attachment_ids is not None and not linked_attachment_ids:
+            documents = []
+        else:
+            where = "WHERE (title LIKE ? ESCAPE '\\' OR description LIKE ? ESCAPE '\\' OR filename LIKE ? ESCAPE '\\' OR tags LIKE ? ESCAPE '\\')"
+            params = [pattern, pattern, pattern, pattern]
+            if category:
+                where += " AND category = ?"
+                params.append(category)
+            if source_filter in ("local", "devonthink"):
+                where += " AND source = ?"
+                params.append(source_filter)
+            if linked_attachment_ids is not None:
+                ph = ",".join("?" * len(linked_attachment_ids))
+                where += f" AND id IN ({ph})"
+                params.extend(linked_attachment_ids)
+            documents = conn.execute(
+                f"SELECT * FROM attachments {where} ORDER BY updated_at DESC LIMIT 200",
+                params,
+            ).fetchall()
         for doc in documents:
             d = dict(doc)
-            if linked_attachment_ids is not None and d["id"] not in linked_attachment_ids:
-                continue
             d["entry_type"] = "document"
             d["source_type"] = d.get("source", "local")
             d["tags_list"] = _parse_tags(d.get("tags"))
@@ -257,20 +278,25 @@ async def kb_search(
 
     # Bookmarks
     if source_filter in ("", "bookmark"):
-        where = "WHERE (title LIKE ? OR url LIKE ? OR description LIKE ? OR tags LIKE ?)"
-        params = [pattern, pattern, pattern, pattern]
-        if category:
-            where += " AND category = ?"
-            params.append(category)
-        bm_rows = conn.execute(
-            f"SELECT * FROM kb_bookmarks {where} ORDER BY updated_at DESC",
-            params,
-        ).fetchall()
         linked_bookmark_ids_set = linked_bookmark_ids if linked_type and linked_id_int else None
+        if linked_bookmark_ids_set is not None and not linked_bookmark_ids_set:
+            bm_rows = []
+        else:
+            where = "WHERE (title LIKE ? ESCAPE '\\' OR url LIKE ? ESCAPE '\\' OR description LIKE ? ESCAPE '\\' OR tags LIKE ? ESCAPE '\\')"
+            params = [pattern, pattern, pattern, pattern]
+            if category:
+                where += " AND category = ?"
+                params.append(category)
+            if linked_bookmark_ids_set is not None:
+                ph = ",".join("?" * len(linked_bookmark_ids_set))
+                where += f" AND id IN ({ph})"
+                params.extend(linked_bookmark_ids_set)
+            bm_rows = conn.execute(
+                f"SELECT * FROM kb_bookmarks {where} ORDER BY updated_at DESC LIMIT 200",
+                params,
+            ).fetchall()
         for bm in bm_rows:
             d = dict(bm)
-            if linked_bookmark_ids_set is not None and d["id"] not in linked_bookmark_ids_set:
-                continue
             d["entry_type"] = "bookmark"
             d["source_type"] = "bookmark"
             d["tags_list"] = _parse_tags(d.get("tags"))

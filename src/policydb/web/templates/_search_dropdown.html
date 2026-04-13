@@ -3,7 +3,7 @@
   {% for item in items %}
   {% set r = item.data %}
   {% set t = item.type %}
-  <a href="{% if t == 'clients' %}/clients/{{ r.id }}{% elif t == 'policies' %}/policies/{{ r.policy_uid }}/edit{% elif t == 'issues' %}/issues/{{ r.issue_uid }}{% elif t == 'contacts' %}/contacts/{{ r.id }}{% elif t == 'programs' %}/clients/{{ r.client_id }}/programs/{{ r.program_uid }}{% elif t == 'activities' %}#{% elif t == 'locations' %}/clients/{{ r.client_id }}/projects/{{ r.id }}{% elif t == 'inbox' %}/action-center?tab=inbox{% elif t == 'kb_articles' %}/kb/articles/{{ r.uid }}{% elif t == 'kb_bookmarks' %}/kb/bookmarks/{{ r.uid }}{% endif %}"
+  <a href="{% if t == 'clients' %}/clients/{{ r.id }}{% elif t == 'policies' %}/policies/{{ r.policy_uid }}/edit{% elif t == 'issues' %}/issues/{{ r.issue_uid }}{% elif t == 'contacts' %}/contacts/{{ r.id }}{% elif t == 'programs' %}/clients/{{ r.client_id }}/programs/{{ r.program_uid }}{% elif t == 'activities' %}/clients/{{ r.client_id }}#activity-{{ r.id }}{% elif t == 'locations' %}/clients/{{ r.client_id }}/projects/{{ r.id }}{% elif t == 'scratchpads' %}{{ r.link }}{% elif t == 'inbox' %}/action-center?tab=inbox{% elif t == 'kb_articles' %}/kb/articles/{{ r.uid }}{% elif t == 'kb_bookmarks' %}/kb/bookmarks/{{ r.uid }}{% endif %}"
      class="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 border-b border-gray-50 last:border-0 search-dropdown-item"
      data-idx="{{ loop.index0 }}">
     <span class="text-[9px] font-semibold uppercase rounded px-1.5 py-0.5 shrink-0
@@ -14,10 +14,11 @@
       {% elif t == 'programs' %}bg-purple-100 text-purple-700
       {% elif t == 'activities' %}bg-gray-100 text-gray-600
       {% elif t == 'locations' %}bg-teal-100 text-teal-700
+      {% elif t == 'scratchpads' %}bg-yellow-100 text-yellow-700
       {% elif t == 'inbox' %}bg-orange-100 text-orange-700
       {% elif t == 'kb_articles' %}bg-amber-100 text-amber-700
       {% elif t == 'kb_bookmarks' %}bg-blue-100 text-blue-700
-      {% endif %}">{% if t == 'kb_articles' %}KB{% elif t == 'kb_bookmarks' %}BM{% else %}{{ t[:3] }}{% endif %}</span>
+      {% endif %}">{% if t == 'kb_articles' %}KB{% elif t == 'kb_bookmarks' %}BM{% elif t == 'scratchpads' %}NOT{% else %}{{ t[:3] }}{% endif %}</span>
     <span class="text-sm text-gray-800 truncate">
       {% if t == 'clients' %}{{ r.name }}
       {% elif t == 'policies' %}{{ r.client_name }} / {{ r.policy_type }} / {{ r.carrier }}
@@ -26,6 +27,7 @@
       {% elif t == 'programs' %}{{ r.name }} · {{ r.client_name }}
       {% elif t == 'activities' %}{{ r.subject }}{% if r.client_name %} · {{ r.client_name }}{% endif %}
       {% elif t == 'locations' %}{{ r.name }} · {{ r.client_name }}
+      {% elif t == 'scratchpads' %}{{ r.client_name }}{% if r.scratch_type == 'policy' %} · {{ r.policy_type }} ({{ r.policy_uid }}){% endif %} — note
       {% elif t == 'inbox' %}{{ r.email_subject or (r.content[:60] if r.content else 'Inbox') }}
       {% elif t == 'kb_articles' %}{{ r.title }}{% if r.category %} · {{ r.category }}{% endif %}
       {% elif t == 'kb_bookmarks' %}{{ r.title }}{% if r.category %} · {{ r.category }}{% endif %}

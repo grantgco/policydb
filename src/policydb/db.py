@@ -364,7 +364,7 @@ def _init_db_inner(conn: sqlite3.Connection, db_path: Path) -> None:
     # Back up the database once before running any pending migrations.
     # This gives a clean restore point regardless of which migration fails.
 
-    _KNOWN_MIGRATIONS = set(range(1, 145))  # update upper bound when adding new migrations
+    _KNOWN_MIGRATIONS = set(range(1, 146))  # update upper bound when adding new migrations
 
     if _KNOWN_MIGRATIONS - applied:
         _backup_db(conn, db_path)
@@ -1887,13 +1887,22 @@ def _init_db_inner(conn: sqlite3.Connection, db_path: Path) -> None:
         logger.info("Migration 143: added project_scratchpad table")
 
     if 144 not in applied:
-        conn.executescript((_MIGRATIONS_DIR / "144_briefing_templates.sql").read_text())
+        conn.executescript((_MIGRATIONS_DIR / "144_email_direction.sql").read_text())
         conn.execute(
             "INSERT INTO schema_version (version, description) VALUES (?, ?)",
-            (144, "Seed Status & What's Next briefing prompt templates"),
+            (144, "Add email_direction column to activity_log and inbox"),
         )
         conn.commit()
-        logger.info("Migration 144: seeded briefing prompt templates")
+        logger.info("Migration 144: added email_direction column")
+
+    if 145 not in applied:
+        conn.executescript((_MIGRATIONS_DIR / "145_briefing_templates.sql").read_text())
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (145, "Seed Status & What's Next briefing prompt templates"),
+        )
+        conn.commit()
+        logger.info("Migration 145: seeded briefing prompt templates")
 
     # Data hygiene: fix 'None' string corruption in text fields (runs every startup, fast no-op if clean)
     conn.execute("UPDATE clients SET cn_number = NULL WHERE cn_number = 'None'")
