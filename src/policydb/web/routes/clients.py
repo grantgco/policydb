@@ -411,6 +411,11 @@ def client_search(
     clients = _apply_client_filters(clients, segment, urgent, inactive, prospect)
     clients = _sort_clients(clients, sort, dir)
     _enrich_last_activity(clients)
+    # _table_rows.html renders the health badge for each row, which requires
+    # the health_score / health_missing / health_stale fields populated by
+    # score_client(). Without this the partial crashes with UndefinedError.
+    for c in clients:
+        score_client(conn, c, include_staleness=False)
     return templates.TemplateResponse("clients/_table_rows.html", {
         "request": request,
         "clients": clients,

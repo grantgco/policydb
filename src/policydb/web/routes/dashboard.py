@@ -54,7 +54,7 @@ def dashboard_pipeline(request: Request, window: int = 90, status: str = "", con
     ))
     attach_renewal_issues(conn, pipeline)
     suggested_uids = {r["policy_uid"] for r in get_suggested_followups(conn, excluded_statuses=excluded)}
-    return templates.TemplateResponse("policies/_pipeline_table.html", {
+    return templates.TemplateResponse("dashboard/_pipeline_section.html", {
         "request": request,
         "pipeline": pipeline,
         "window": window,
@@ -163,8 +163,8 @@ def dashboard(request: Request, conn=Depends(get_db)):
         "urgent_count": urgent_count,
         "urgency_breakdown": urgency_breakdown,
         "renewal_statuses": cfg.get("renewal_statuses"),
-        "dash_window": 90,
-        "dash_status": "",
+        "window": 90,
+        "status": "",
         "scratchpad_content": scratchpad_content,
         "scratchpad_updated": scratchpad_updated,
         "recent_client_notes": recent_client_notes,
@@ -206,6 +206,7 @@ def search(request: Request, q: str = "", conn=Depends(get_db)):
         "clients": [], "policies": [], "activities": [], "issues": [],
         "contacts": [], "programs": [], "locations": [],
         "inbox": [], "kb_bookmarks": [], "kb_articles": [],
+        "scratchpads": [],
         "_snippets": {}, "_query_mode": "none",
     }
     results = dict(_empty)
@@ -282,7 +283,8 @@ def search_live(request: Request, q: str = "", conn=Depends(get_db)):
     items = []
     # Priority order for display
     for etype in ("clients", "policies", "issues", "contacts", "programs",
-                  "activities", "locations", "inbox", "kb_articles", "kb_bookmarks"):
+                  "activities", "locations", "scratchpads", "inbox",
+                  "kb_articles", "kb_bookmarks"):
         for r in results.get(etype, [])[:3]:
             items.append({"type": etype, "data": r})
             if len(items) >= 8:

@@ -214,7 +214,7 @@ async def kb_search(
             where += " AND category = ?"
             params.append(category)
         articles = conn.execute(
-            f"SELECT * FROM kb_articles {where} ORDER BY updated_at DESC",
+            f"SELECT * FROM kb_articles {where} ORDER BY updated_at DESC LIMIT 200",
             params,
         ).fetchall()
         for a in articles:
@@ -239,7 +239,7 @@ async def kb_search(
             where += " AND source = ?"
             params.append(source_filter)
         documents = conn.execute(
-            f"SELECT * FROM attachments {where} ORDER BY updated_at DESC",
+            f"SELECT * FROM attachments {where} ORDER BY updated_at DESC LIMIT 200",
             params,
         ).fetchall()
         for doc in documents:
@@ -263,7 +263,7 @@ async def kb_search(
             where += " AND category = ?"
             params.append(category)
         bm_rows = conn.execute(
-            f"SELECT * FROM kb_bookmarks {where} ORDER BY updated_at DESC",
+            f"SELECT * FROM kb_bookmarks {where} ORDER BY updated_at DESC LIMIT 200",
             params,
         ).fetchall()
         linked_bookmark_ids_set = linked_bookmark_ids if linked_type and linked_id_int else None
