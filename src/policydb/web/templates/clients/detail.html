@@ -83,6 +83,11 @@
           Issues
           {% if open_issues %}<span class="tab-badge" style="background:#3b82f6;color:white">{{ open_issues | length }}</span>{% endif %}
         </button>
+        <button class="tab-btn" data-tab="recurring"
+          data-tab-url="/clients/{{ client.id }}/tab/recurring">
+          Recurring
+          {% if recurring_count %}<span class="tab-badge">{{ recurring_count }}</span>{% endif %}
+        </button>
         <button class="tab-btn" data-tab="files"
           data-tab-url="/clients/{{ client.id }}/tab/files">
           Files

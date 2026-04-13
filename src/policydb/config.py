@@ -639,6 +639,31 @@ _DEFAULTS: dict[str, Any] = {
             "subject": "Confirm final policy document received",
         },
     ],
+    # ── Recurring Events ─────────────────────────────────────────────
+    # Cadence labels used by recurring_events.cadence. _advance() in
+    # recurring_events.py hard-codes how each label steps forward; adding a
+    # new label here requires a corresponding case there.
+    "recurring_event_cadences": [
+        "Daily",
+        "Weekly",
+        "Biweekly",
+        "Monthly",
+        "Quarterly",
+        "Semi-Annual",
+        "Annual",
+    ],
+    # Classification labels for recurring_events.event_type (UI filtering only)
+    "recurring_event_types": [
+        "Call",
+        "Deliverable",
+        "Meeting",
+        "Review",
+        "Report",
+    ],
+    # How far ahead the generator looks when materializing issue instances
+    "recurring_event_generation_horizon_days": 14,
+    # Safety cap on instances materialized per template per generation pass
+    "recurring_event_max_catchup": 12,
     "email_subject_request": "{{client_name}} \u2014 {{rfi_uid}} {{request_title}}",
     "email_subject_request_all": "{{client_name}} \u2014 Outstanding Information Requests",
     "email_subject_rfi_notify": "FYI: {{client_name}} \u2014 {{rfi_uid}} Items Received",

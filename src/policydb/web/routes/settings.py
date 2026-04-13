@@ -65,6 +65,8 @@ EDITABLE_LISTS: dict[str, str] = {
     "relationship_risk_levels": "Relationship Risk Levels",
     "risk_review_prompt_categories": "Risk Review Prompt Categories",
     "import_source_names": "Import Source Names",
+    "recurring_event_cadences": "Recurring Event Cadences",
+    "recurring_event_types": "Recurring Event Types",
 }
 
 # Scalar config keys for review thresholds — edited via anomaly_thresholds
@@ -79,6 +81,8 @@ TAB_LISTS: dict[str, dict[str, str]] = {
         "critical_milestones": "Critical Milestones",
         "activity_types": "Activity Types",
             "request_categories": "Request Categories",
+        "recurring_event_cadences": "Recurring Event Cadences",
+        "recurring_event_types": "Recurring Event Types",
     },
     "readiness": {},
     "carriers": {

@@ -1,0 +1,197 @@
+{# Client Recurring Events Tab — schedule templates + upcoming/resolved instances #}
+<div id="client-recurring-tab">
+
+  {# Header #}
+  <div class="flex items-center justify-between mb-4">
+    <div class="flex items-center gap-2">
+      <h2 class="text-sm font-semibold text-gray-900">Recurring Events</h2>
+      {% set active_count = templates_rows | selectattr('active') | list | length %}
+      {% if active_count %}
+      <span class="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">{{ active_count }} active</span>
+      {% endif %}
+      {% set paused_count = templates_rows | length - active_count %}
+      {% if paused_count %}
+      <span class="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">{{ paused_count }} paused</span>
+      {% endif %}
+    </div>
+    <button type="button"
+      hx-get="/recurring-events/new?client_id={{ client.id }}"
+      hx-target="#recurring-slideover-content"
+      hx-swap="innerHTML"
+      onclick="openRecurringSlideover()"
+      class="text-xs bg-marsh text-white px-3 py-1.5 rounded font-medium hover:bg-marsh-light transition-colors no-print">+ New Recurring Event</button>
+  </div>
+
+  {# ── Templates list ── #}
+  {% if templates_rows %}
+  <div class="space-y-2 mb-6">
+    {% for t in templates_rows %}
+    <div class="card px-4 py-3 flex items-center gap-3 {% if not t.active %}opacity-60 bg-gray-50{% endif %}">
+      {# Cadence badge #}
+      <div class="flex-shrink-0 flex flex-col items-center justify-center w-14 text-center">
+        <div class="text-[10px] uppercase text-gray-400 font-semibold">{{ t.cadence }}</div>
+        {% if t.interval_n and t.interval_n > 1 %}
+        <div class="text-[10px] text-gray-400">&times;{{ t.interval_n }}</div>
+        {% endif %}
+      </div>
+
+      {# Name + details #}
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center gap-2">
+          <span class="text-sm font-medium text-gray-900 truncate">{{ t.name }}</span>
+          <button type="button" onclick="copyRefTag(this,'{{ t.recurring_uid }}')"
+            class="inline-flex items-center text-[10px] font-mono text-gray-400 hover:text-marsh bg-gray-50 border border-gray-200 hover:border-marsh/40 rounded-full px-1.5 py-0.5 cursor-pointer transition-colors whitespace-nowrap no-print flex-shrink-0"
+            title="Click to copy recurring event ref tag">{{ t.recurring_uid }}</button>
+          {% if not t.active %}
+          <span class="text-[10px] text-gray-400 italic">Paused</span>
+          {% endif %}
+        </div>
+        <div class="flex items-center gap-2 text-xs text-gray-500 mt-0.5 flex-wrap">
+          {% if t.event_type %}<span class="text-gray-600">{{ t.event_type }}</span><span class="text-gray-300">&middot;</span>{% endif %}
+          <span>Next: <span class="font-medium text-gray-700">{{ t.next_occurrence }}</span></span>
+          {% if t.lead_days %}
+          <span class="text-gray-300">&middot;</span>
+          <span>Lead {{ t.lead_days }}d</span>
+          {% endif %}
+          <span class="text-gray-300">&middot;</span>
+          <span>{{ t.default_severity }}</span>
+          {% if t.policy_uid %}
+          <span class="text-gray-300">&middot;</span>
+          <a href="/policies/{{ t.policy_uid }}/edit" class="text-marsh hover:underline">{{ t.policy_uid }}{% if t.policy_type %} {{ t.policy_type }}{% endif %}</a>
+          {% endif %}
+          {% if t.open_instance_count and t.open_instance_count > 0 %}
+          <span class="text-gray-300">&middot;</span>
+          <span class="text-blue-600 font-medium">{{ t.open_instance_count }} open</span>
+          {% endif %}
+        </div>
+      </div>
+
+      {# Actions #}
+      <div class="flex items-center gap-1 flex-shrink-0 no-print">
+        <button type="button"
+          hx-get="/recurring-events/{{ t.id }}/edit"
+          hx-target="#recurring-slideover-content"
+          hx-swap="innerHTML"
+          onclick="openRecurringSlideover()"
+          class="text-xs text-gray-400 hover:text-marsh transition-colors px-1.5"
+          title="Edit schedule">&#9998;</button>
+        <button type="button"
+          hx-post="/recurring-events/{{ t.id }}/{{ 'deactivate' if t.active else 'activate' }}"
+          hx-target="#client-recurring-tab"
+          hx-swap="outerHTML"
+          class="text-xs text-gray-400 hover:text-marsh transition-colors px-1.5"
+          title="{{ 'Pause schedule' if t.active else 'Resume schedule' }}">
+          {% if t.active %}&#10073;&#10073;{% else %}&#9654;{% endif %}
+        </button>
+        <button type="button"
+          hx-post="/recurring-events/{{ t.id }}/delete"
+          hx-target="#client-recurring-tab"
+          hx-swap="outerHTML"
+          hx-confirm="Delete this recurring schedule? Existing open instances will remain."
+          class="text-xs text-gray-400 hover:text-red-600 transition-colors px-1.5"
+          title="Delete schedule">&times;</button>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="text-center py-8 mb-6 border border-dashed border-gray-200 rounded">
+    <div class="text-gray-300 text-3xl mb-2">&#8634;</div>
+    <p class="text-sm text-gray-400">No recurring schedules yet.</p>
+    <p class="text-xs text-gray-400 mt-1">Add a weekly call, monthly report, quarterly stewardship, etc.</p>
+  </div>
+  {% endif %}
+
+  {# ── Upcoming instances ── #}
+  {% if upcoming %}
+  <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Upcoming</h3>
+  <div class="space-y-1.5 mb-6">
+    {% for u in upcoming %}
+    {% set sev = u.issue_severity or 'Normal' %}
+    <div class="card px-3 py-2 flex items-center gap-3 hover:bg-gray-50 transition-colors">
+      <span class="w-2 h-2 rounded-full flex-shrink-0
+        {% if sev == 'Critical' %}bg-red-500
+        {% elif sev == 'High' %}bg-amber-500
+        {% elif sev == 'Normal' %}bg-blue-500
+        {% else %}bg-gray-400{% endif %}"
+        title="{{ sev }}"></span>
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center gap-2">
+          <a href="/issues/{{ u.issue_uid }}" class="text-sm text-gray-900 hover:text-marsh hover:underline truncate">{{ u.subject }}</a>
+          <span class="text-[10px] font-mono text-gray-400">{{ u.issue_uid }}</span>
+        </div>
+        <div class="text-xs text-gray-500 mt-0.5">
+          <span>Due <span class="font-medium">{{ u.due_date }}</span></span>
+          {% if u.days_until_due is not none %}
+          <span class="text-gray-300">&middot;</span>
+          <span class="{% if u.days_until_due < 0 %}text-red-600 font-medium{% elif u.days_until_due <= 2 %}text-amber-600{% endif %}">
+            {% if u.days_until_due < 0 %}{{ (0 - u.days_until_due) }}d overdue
+            {% elif u.days_until_due == 0 %}today
+            {% else %}in {{ u.days_until_due }}d{% endif %}
+          </span>
+          {% endif %}
+          <span class="text-gray-300">&middot;</span>
+          <span class="text-gray-400">{{ u.template_name }}</span>
+        </div>
+      </div>
+      <button type="button"
+        hx-post="/recurring-events/instance/{{ u.id }}/skip"
+        hx-target="#client-recurring-tab"
+        hx-swap="outerHTML"
+        hx-confirm="Skip this occurrence? It will be closed as Withdrawn and the next one will be scheduled."
+        class="text-xs text-gray-400 hover:text-amber-600 transition-colors no-print flex-shrink-0"
+        title="Skip this occurrence">Skip</button>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {# ── Recently resolved history ── #}
+  {% if recent_resolved %}
+  <details class="mb-4">
+    <summary class="text-xs font-semibold text-gray-500 uppercase tracking-wide cursor-pointer hover:text-gray-700 mb-2">
+      History ({{ recent_resolved | length }} resolved, last 60 days)
+    </summary>
+    <div class="space-y-1">
+      {% for r in recent_resolved %}
+      <div class="px-3 py-1.5 flex items-center gap-3 text-xs text-gray-500">
+        <span class="w-1.5 h-1.5 rounded-full bg-gray-300 flex-shrink-0"></span>
+        <a href="/issues/{{ r.issue_uid }}" class="truncate hover:text-marsh hover:underline">{{ r.subject }}</a>
+        {% if r.resolution_type %}
+        <span class="text-gray-300">&middot;</span>
+        <span>{{ r.resolution_type }}</span>
+        {% endif %}
+        {% if r.resolved_date %}
+        <span class="text-gray-300">&middot;</span>
+        <span>{{ r.resolved_date }}</span>
+        {% endif %}
+        <span class="text-gray-300">&middot;</span>
+        <span class="text-gray-400">{{ r.template_name }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </details>
+  {% endif %}
+
+</div>
+
+{# Slideover container — shared across open/edit #}
+<div id="recurring-slideover"
+     class="fixed inset-0 z-50 hidden"
+     onclick="if(event.target===this) closeRecurringSlideover()">
+  <div class="absolute inset-0 bg-black/30"></div>
+  <div class="absolute right-0 top-0 h-full w-full max-w-lg bg-white shadow-xl overflow-y-auto">
+    <div id="recurring-slideover-content" class="p-5"></div>
+  </div>
+</div>
+
+<script>
+function openRecurringSlideover() {
+  var el = document.getElementById('recurring-slideover');
+  if (el) el.classList.remove('hidden');
+}
+function closeRecurringSlideover() {
+  var el = document.getElementById('recurring-slideover');
+  if (el) el.classList.add('hidden');
+}
+</script>

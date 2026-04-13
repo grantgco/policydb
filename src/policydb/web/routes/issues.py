@@ -238,6 +238,16 @@ def resolve_issue(
     closed = auto_close_followups(
         conn, issue_id=issue_id, reason="issue_resolved", closed_by="issue_resolve",
     )
+
+    # If this is a recurring event instance, advance the template's
+    # next_occurrence so the next occurrence appears in the Focus Queue
+    # on the next build pass.
+    try:
+        from policydb.recurring_events import advance_template_for_completion
+        advance_template_for_completion(conn, issue_id)
+    except Exception:
+        pass
+
     conn.commit()
 
     # Redirect to action center issues tab after resolve

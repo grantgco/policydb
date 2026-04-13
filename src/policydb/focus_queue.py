@@ -431,6 +431,8 @@ def _normalize_issue(item: dict, today: date) -> dict:
         "escalation_tier": None,
         "nudge_count": 0,
         "cadence": None,
+        "days_fu_to_expiry": None,
+        "policy_hours_30d": 0.0,
         "is_milestone": False,
         "milestone_name": None,
         "project_id": None,
@@ -997,6 +999,14 @@ def build_focus_queue(
         auto_close_stale_followups(conn)
     except Exception:
         logger.debug("auto_close_stale_followups failed", exc_info=True)
+
+    # Materialize any due recurring event instances as issue rows so they show
+    # up in this build pass. Idempotent and cheap.
+    try:
+        from policydb.recurring_events import generate_due_recurring_instances
+        generate_due_recurring_instances(conn)
+    except Exception:
+        logger.debug("generate_due_recurring_instances failed", exc_info=True)
 
     client_ids = [client_id] if client_id else None
 
