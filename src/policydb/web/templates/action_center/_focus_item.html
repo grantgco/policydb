@@ -74,6 +74,13 @@
         {% endif %}
       </div>
       {% endif %}
+      {# Suggested next action — always visible (Guide Me mode shows an upscaled version below).
+         This is the "where should this be directed" hint that used to be hidden behind a toggle. #}
+      {% if item.suggested_action_detail and not (is_highlighted and guide_me) %}
+      <div class="text-[12px] text-[#0B4BFF] mt-0.5">
+        → {{ item.suggested_action_detail }}
+      </div>
+      {% endif %}
       {# Last action + contact + waiting indicator #}
       <div class="flex items-center gap-2 mt-1 flex-wrap">
         {% if item.activity_type %}
@@ -120,6 +127,11 @@
         </div>
       {% endif %}
 
+      {# Primary action. For activity-backed items this is a Send Nudge / Follow Up /
+         Review button that expands the inline completion form. Items promoted from the
+         Waiting sidebar also hit this branch because build_focus_queue already sets
+         their suggested_action to "Send Nudge" or "Escalate" — re-diary from the
+         inline form IS the nudge. Kind-specific branches handle inbox/milestone/suggested. #}
       <button class="bg-[#0B4BFF] text-white text-xs font-semibold px-3 py-1.5 rounded-md hover:bg-blue-700 whitespace-nowrap"
               {% if item.kind == 'inbox' %}
                 hx-get="/inbox/{{ item.inbox_id }}/process-slideover"
@@ -136,6 +148,36 @@
               {% endif %}>
         {{ item.suggested_action }}
       </button>
+
+      {# Clear — one-click "this is handled, take it off my list".
+         For activity-backed items, posts to /activities/{id}/abandon which marks
+         the row done with an [Abandoned] prefix and closes sibling follow-ups.
+         For other kinds, routes to the kind-specific clearer. #}
+      {% if has_activity_id %}
+        <button class="text-[11px] text-[#B05454] hover:text-[#8B3A3A] hover:bg-red-50 px-2 py-1.5 rounded-md"
+                hx-post="/activities/{{ item.id }}/abandon"
+                hx-target="#fq-{{ row_id }}" hx-swap="delete"
+                hx-confirm="Mark this as handled and remove from Focus Queue?"
+                title="Clear — mark handled and remove">
+          Clear
+        </button>
+      {% elif item.kind == 'suggested' and item.policy_uid %}
+        <button class="text-[11px] text-[#B05454] hover:text-[#8B3A3A] hover:bg-red-50 px-2 py-1.5 rounded-md"
+                hx-post="/policies/{{ item.policy_uid }}/clear-followup"
+                hx-target="#fq-{{ row_id }}" hx-swap="delete"
+                hx-confirm="Clear the renewal follow-up suggestion for this policy?"
+                title="Clear — no follow-up needed">
+          Clear
+        </button>
+      {% elif item.kind == 'inbox' %}
+        <button class="text-[11px] text-[#B05454] hover:text-[#8B3A3A] hover:bg-red-50 px-2 py-1.5 rounded-md"
+                hx-post="/inbox/{{ item.inbox_id }}/dismiss"
+                hx-target="#fq-{{ row_id }}" hx-swap="delete"
+                hx-confirm="Dismiss this inbox item?"
+                title="Dismiss">
+          Clear
+        </button>
+      {% endif %}
 
       <button class="bg-[#EDEAE4] text-[#6B6860] text-xs px-2 py-1.5 rounded-md hover:bg-gray-200"
               onclick="fqToggleMenu('{{ row_id }}')">

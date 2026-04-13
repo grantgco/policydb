@@ -963,8 +963,11 @@ def _data_health_ctx(conn) -> dict:
 def action_center_page(request: Request, tab: str = "", conn=Depends(get_db)):
     """Main Action Center page — renders shell with tabs and sidebar."""
     sidebar = _sidebar_ctx(conn)
-    # Default tab content: follow-ups (loaded server-side for first render)
+    # Default tab content: Focus Queue (loaded server-side for first render).
+    # The legacy Follow-ups tab has been retired; aliased to focus.
     initial_tab = tab or "focus"
+    if initial_tab == "followups":
+        initial_tab = "focus"
     tab_ctx = {}
     if initial_tab == "focus":
         focus_items, waiting_items, fq_stats = build_focus_queue(conn, horizon_days=-999)
@@ -989,8 +992,6 @@ def action_center_page(request: Request, tab: str = "", conn=Depends(get_db)):
             "activity_types": cfg.get("activity_types", []),
             "all_contact_names": all_contact_names_fq,
         }
-    elif initial_tab == "followups":
-        tab_ctx = _followups_ctx(conn, window=30, activity_type="", q="")
     elif initial_tab == "inbox":
         tab_ctx = _inbox_ctx(conn)
     elif initial_tab == "activities":
@@ -1178,17 +1179,17 @@ def action_center_focus(
 
 
 @router.get("/action-center/followups", response_class=HTMLResponse)
-def ac_followups(
-    request: Request,
-    window: int = 30,
-    activity_type: str = "",
-    q: str = "",
-    client_id: int = 0,
-    conn=Depends(get_db),
-):
-    ctx = _followups_ctx(conn, window, activity_type, q, client_id=client_id)
-    ctx["request"] = request
-    return templates.TemplateResponse("action_center/_followups.html", ctx)
+def ac_followups(request: Request):
+    """Legacy Follow-ups tab partial. Retired — redirects to Focus Queue.
+
+    We keep the route alive so deep-links and HTMX loads from older cached
+    pages do not 404. The full Follow-ups bucket view is superseded by the
+    Focus Queue, which is the single source of truth for active work.
+    """
+    return HTMLResponse(
+        "",
+        headers={"HX-Redirect": "/action-center?tab=focus"},
+    )
 
 
 @router.get("/action-center/inbox", response_class=HTMLResponse)

@@ -324,6 +324,13 @@ def activity_complete(
     if abandon and note:
         note = f"[Abandoned] {note}"
 
+    # Fetch the activity's policy_id / issue_id before we mark it done — we use
+    # these to close sibling pending follow-ups so the Focus Queue doesn't
+    # show duplicate rows for the same policy/issue.
+    sibling_row = conn.execute(
+        "SELECT policy_id, issue_id FROM activity_log WHERE id=?", (activity_id,)
+    ).fetchone()
+
     # Mark done
     conn.execute(
         "UPDATE activity_log SET follow_up_done=1 WHERE id=?", (activity_id,)
@@ -349,6 +356,30 @@ def activity_complete(
             "UPDATE activity_log SET details=CASE WHEN details IS NOT NULL AND details!='' THEN details||char(10)||? ELSE ? END WHERE id=?",
             (note, note, activity_id),
         )
+
+    # Close any sibling pending follow-ups on the same policy or issue. This is
+    # the dedup invariant already held by /activities/{id}/followup: after a
+    # completion there should be at most one pending follow-up left for the
+    # policy/issue. Without this, "Mark Done" via the overflow menu left sibling
+    # rows alive and they reappeared on the next Focus Queue render.
+    from policydb.queries import auto_close_followups
+    if sibling_row:
+        if sibling_row["policy_id"]:
+            auto_close_followups(
+                conn,
+                policy_id=sibling_row["policy_id"],
+                reason="superseded",
+                closed_by="activity_complete",
+                exclude_id=activity_id,
+            )
+        elif sibling_row["issue_id"]:
+            auto_close_followups(
+                conn,
+                issue_id=sibling_row["issue_id"],
+                reason="superseded",
+                closed_by="activity_complete",
+                exclude_id=activity_id,
+            )
 
     # If this is a mandated activity, update the linked milestone
     mandated = conn.execute(
@@ -381,6 +412,77 @@ def activity_complete(
     })
     resp.headers["HX-Trigger"] = '{"reorderActivities": "", "activityLogged": "Activity updated"}'
     return resp
+
+
+@router.post("/activities/{activity_id}/abandon", response_class=HTMLResponse)
+def activity_abandon(
+    request: Request,
+    activity_id: int,
+    note: str = Form(""),
+    conn=Depends(get_db),
+):
+    """One-click "Clear" from the Focus Queue.
+
+    Marks the activity done with an ``[Abandoned]`` note prefix, closes
+    sibling follow-ups on the same policy/issue, and returns an empty HTMX
+    response so the Focus Queue row is removed. Mandated milestones stay
+    incomplete — the abandon path is explicit about that.
+    """
+    final_note = f"[Abandoned] {(note or 'Cleared from Focus Queue').strip()}"
+
+    # Fetch sibling keys and item_kind before we modify the row
+    sibling_row = conn.execute(
+        "SELECT policy_id, issue_id, item_kind FROM activity_log WHERE id=?", (activity_id,)
+    ).fetchone()
+    if not sibling_row:
+        return HTMLResponse("", status_code=404)
+
+    conn.execute(
+        "UPDATE activity_log SET follow_up_done=1 WHERE id=?", (activity_id,)
+    )
+    conn.execute(
+        "UPDATE activity_log SET details=CASE WHEN details IS NOT NULL AND details!='' "
+        "THEN details||char(10)||? ELSE ? END WHERE id=?",
+        (final_note, final_note, activity_id),
+    )
+
+    # For issue rows, also move the status to Closed so get_open_issues_with_due
+    # stops pulling them back into the Focus Queue on the next render.
+    if sibling_row["item_kind"] == "issue":
+        conn.execute(
+            "UPDATE activity_log SET issue_status='Closed', resolved_date=date('now'), "
+            "resolution_type=COALESCE(resolution_type, 'Withdrawn') "
+            "WHERE id=?",
+            (activity_id,),
+        )
+
+    # Close sibling follow-ups on the same policy/issue (dedup invariant)
+    from policydb.queries import auto_close_followups
+    if sibling_row["policy_id"]:
+        auto_close_followups(
+            conn,
+            policy_id=sibling_row["policy_id"],
+            reason="superseded",
+            closed_by="activity_abandon",
+            exclude_id=activity_id,
+        )
+    elif sibling_row["issue_id"]:
+        auto_close_followups(
+            conn,
+            issue_id=sibling_row["issue_id"],
+            reason="superseded",
+            closed_by="activity_abandon",
+            exclude_id=activity_id,
+        )
+
+    conn.commit()
+    logger.info("Follow-up %d abandoned from Focus Queue", activity_id)
+    return HTMLResponse(
+        "",
+        headers={
+            "HX-Trigger": '{"refreshFollowups": "", "activityLogged": "Cleared"}',
+        },
+    )
 
 
 def _activity_row_dict(conn, activity_id: int) -> dict | None:
