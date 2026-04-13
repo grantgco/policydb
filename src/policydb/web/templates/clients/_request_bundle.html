@@ -142,24 +142,44 @@
 
 <script>
 /* Global: toggle the lazy-loaded attachment panel under an RFI item.
-   First click fetches the panel via HTMX; subsequent clicks just show/hide it. */
+   Always re-fetches on open so the panel stays fresh after detaches made
+   elsewhere, and so a failed first-load naturally retries on the next click. */
 if (typeof window.toggleItemAttachments !== 'function') {
   window.toggleItemAttachments = function(itemId) {
     var host = document.getElementById('item-att-' + itemId);
     if (!host) return;
-    var isHidden = host.classList.contains('hidden');
+    var willShow = host.classList.contains('hidden');
     host.classList.toggle('hidden');
-    if (isHidden && host.dataset.loaded !== 'true') {
-      if (window.htmx) {
-        window.htmx.ajax(
-          'GET',
-          '/api/attachments/panel?record_type=rfi_item&record_id=' + itemId,
-          {target: '#item-att-' + itemId, swap: 'innerHTML'}
-        );
-        host.dataset.loaded = 'true';
-      }
+    if (willShow && window.htmx) {
+      window.htmx.ajax(
+        'GET',
+        '/api/attachments/panel?record_type=rfi_item&record_id=' + itemId,
+        {target: '#item-att-' + itemId, swap: 'innerHTML'}
+      );
     }
   };
+}
+
+/* Keep each item's paperclip count badge in sync with its panel after any
+   HTMX swap inside that item's attachment container. Handles both first
+   load (target = #item-att-N) and subsequent panel refreshes after
+   attach/detach (target = #attachments-panel-rfi_item-N). Installed once. */
+if (!window.__rfiItemBadgeListenerInstalled) {
+  window.__rfiItemBadgeListenerInstalled = true;
+  document.body.addEventListener('htmx:afterSwap', function(evt) {
+    var target = evt.detail && evt.detail.target;
+    if (!target) return;
+    var container = (target.id && target.id.indexOf('item-att-') === 0)
+      ? target
+      : (target.closest && target.closest('[id^="item-att-"]'));
+    if (!container || !container.id) return;
+    var itemId = container.id.replace('item-att-', '');
+    var count = container.querySelectorAll('[id^="att-card-"]').length;
+    var badge = document.getElementById('item-att-count-' + itemId);
+    if (badge) {
+      badge.textContent = count > 0 ? count : 'Attach';
+    }
+  });
 }
 
 (function() {

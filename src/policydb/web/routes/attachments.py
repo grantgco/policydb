@@ -429,9 +429,8 @@ def download_attachments_zip(
     with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
         # Header
         if record_type == "rfi_bundle" and bundle_meta:
-            manifest_lines.append(
-                f"RFI: {bundle_meta['rfi_uid'] or ''} — {bundle_meta['title'] or ''}".strip(" —")
-            )
+            parts = [p for p in (bundle_meta["rfi_uid"], bundle_meta["title"]) if p]
+            manifest_lines.append("RFI: " + (" — ".join(parts) if parts else f"Bundle #{record_id}"))
         else:
             manifest_lines.append(f"{record_type.upper()} #{record_id}")
         manifest_lines.append("=" * 60)
