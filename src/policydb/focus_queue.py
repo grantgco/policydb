@@ -76,6 +76,7 @@ def _normalize_followup(item: dict, today: date) -> dict:
         "policy_uid": item.get("policy_uid"),
         "policy_type": item.get("policy_type"),
         "carrier": item.get("carrier"),
+        "renewal_status": item.get("renewal_status"),
         "subject": item.get("subject") or item.get("reason_line") or "",
         "follow_up_date": fu_date,
         "expiration_date": exp_date,
@@ -88,6 +89,8 @@ def _normalize_followup(item: dict, today: date) -> dict:
         "escalation_tier": item.get("escalation_tier"),
         "nudge_count": item.get("nudge_count", 0),
         "cadence": item.get("cadence"),
+        "days_fu_to_expiry": None,
+        "policy_hours_30d": 0.0,
         "is_milestone": item.get("is_milestone", False),
         "milestone_name": item.get("milestone_name"),
         "project_id": item.get("project_id"),
@@ -1108,6 +1111,94 @@ def build_focus_queue(
             item["contact_person"] = name
         if email:
             item["contact_email"] = email
+
+    # --- Metric enrichment: nudge tier, cadence, hours_30d, fu_to_expiry ---
+    # Previously computed only in _followups_ctx for the legacy Follow-ups tab.
+    # Moving the work here gives Focus Queue rows parity on every "how long has
+    # this been drifting" signal.
+    _policy_uids_with_activity = sorted({
+        item.get("policy_uid") for item in all_items
+        if item.get("policy_uid")
+        and item.get("kind") == "followup"
+        and item.get("source") in ("activity", "project")
+    })
+
+    # Batch-fetch hours logged on each policy in the last 30 days
+    _hours_30d: dict[str, float] = {}
+    if _policy_uids_with_activity:
+        ph = ",".join("?" * len(_policy_uids_with_activity))
+        for row in conn.execute(f"""
+            SELECT p.policy_uid,
+                   COALESCE(SUM(a.duration_hours), 0) AS hours
+            FROM policies p
+            LEFT JOIN activity_log a ON a.policy_id = p.id
+                AND a.duration_hours IS NOT NULL
+                AND a.activity_date >= date('now', '-30 days')
+            WHERE p.policy_uid IN ({ph})
+            GROUP BY p.policy_uid
+        """, _policy_uids_with_activity).fetchall():
+            _hours_30d[row["policy_uid"]] = float(row["hours"] or 0)
+
+    # Nudge tier cache — one compute_nudge_tier call per unique policy
+    _nudge_cache: dict[str, tuple[int, str]] = {}
+
+    # Disposition default_days map for cadence scoring
+    _disp_days_map: dict[str, int] = {}
+    for _d in cfg.get("follow_up_dispositions", []):
+        _label = (_d.get("label") or "").lower()
+        _dd = _d.get("default_days", 0)
+        if _dd and _dd > 0:
+            _disp_days_map[_label] = _dd
+
+    from policydb.queries import compute_nudge_tier
+
+    for item in all_items:
+        puid = item.get("policy_uid")
+
+        # Hours logged on the policy over the last 30 days
+        if puid:
+            item["policy_hours_30d"] = _hours_30d.get(puid, 0.0)
+
+        # Days from follow-up date to policy expiration (negative = already expired)
+        fu = item.get("follow_up_date") or ""
+        exp = item.get("expiration_date") or ""
+        if fu and exp:
+            try:
+                _fu_d = datetime.strptime(fu[:10], "%Y-%m-%d").date()
+                _exp_d = datetime.strptime(exp[:10], "%Y-%m-%d").date()
+                item["days_fu_to_expiry"] = (_exp_d - _fu_d).days
+            except ValueError:
+                pass
+
+        # Nudge tier for waiting items (activity follow-ups only)
+        if (item.get("kind") == "followup"
+                and item.get("source") in ("activity", "project")
+                and item.get("accountability") == "waiting_external"
+                and puid):
+            if puid not in _nudge_cache:
+                try:
+                    _nudge_cache[puid] = compute_nudge_tier(conn, puid)
+                except Exception:
+                    logger.debug("compute_nudge_tier failed for %s", puid, exc_info=True)
+                    _nudge_cache[puid] = (1, "normal")
+            count, tier = _nudge_cache[puid]
+            item["nudge_count"] = count
+            item["escalation_tier"] = tier
+
+        # Cadence vs. disposition default_days (activity/project only)
+        if (item.get("kind") == "followup"
+                and item.get("source") in ("activity", "project")):
+            disp_label = (item.get("disposition") or "").lower()
+            default_days = _disp_days_map.get(disp_label, 0)
+            if default_days > 0:
+                # days_until_deadline < 0 means overdue; cadence_over uses absolute overdue
+                days_over = max(0, -(item.get("days_until_deadline") or 0))
+                if days_over <= default_days:
+                    item["cadence"] = "on_cadence"
+                elif days_over <= default_days * 2:
+                    item["cadence"] = "mild"
+                else:
+                    item["cadence"] = "severe"
 
     # --- Dedup: suppress lower-priority items when higher-priority exists ---
     # Priority: activity follow-up > issue > milestone > suggested > policy follow-up

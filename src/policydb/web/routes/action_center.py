@@ -33,35 +33,8 @@ router = APIRouter()
 
 
 # ── Nudge escalation ─────────────────────────────────────────────────────────
-
-
-def _compute_nudge_tier(conn, policy_uid: str, dispositions: list[dict]) -> tuple[int, str]:
-    """Count waiting_external activities for a policy in last 90 days.
-
-    Returns (count, tier) where tier is 'normal', 'elevated', or 'urgent'.
-    """
-    waiting_labels = [
-        d["label"] for d in dispositions
-        if d.get("accountability") == "waiting_external"
-    ]
-    if not waiting_labels or not policy_uid:
-        return 1, "normal"
-
-    placeholders = ",".join("?" * len(waiting_labels))
-    count = conn.execute(
-        f"""SELECT COUNT(*) FROM activity_log a
-            WHERE (a.policy_id = (SELECT id FROM policies WHERE policy_uid = ?)
-                   OR (a.issue_id IN (SELECT ipc.issue_id FROM v_issue_policy_coverage ipc
-                                      WHERE ipc.policy_id = (SELECT id FROM policies WHERE policy_uid = ?))
-                       AND a.item_kind != 'issue'))
-              AND a.disposition IN ({placeholders})
-              AND a.activity_date >= date('now', '-90 days')""",
-        [policy_uid, policy_uid] + waiting_labels,
-    ).fetchone()[0]
-
-    count = max(count, 1)
-    tier = "urgent" if count >= 3 else "elevated" if count >= 2 else "normal"
-    return count, tier
+# _compute_nudge_tier was moved to policydb.queries.compute_nudge_tier so the
+# Focus Queue can reuse the same escalation model.
 
 
 # ── Classification ───────────────────────────────────────────────────────────
@@ -287,7 +260,8 @@ def _followups_ctx(conn, window: int, activity_type: str, q: str,
 
     # Compute nudge escalation tiers for nudge_due items
     for item in buckets["nudge_due"]:
-        count, tier = _compute_nudge_tier(conn, item.get("policy_uid"), dispositions)
+        from policydb.queries import compute_nudge_tier
+        count, tier = compute_nudge_tier(conn, item.get("policy_uid"), dispositions)
         item["nudge_count"] = count
         item["escalation_tier"] = tier
 

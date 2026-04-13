@@ -1,19 +1,21 @@
-"""Tests for Focus Queue follow-up dedup invariants.
+"""Tests for Focus Queue follow-up dedup + metric enrichment invariants.
 
 Covers:
 1. ``activity_complete`` closes sibling pending follow-ups on the same policy.
-2. ``_dedup_activity_siblings`` keeps only the most recent follow-up per policy.
+2. ``_dedup_activity_siblings`` keeps only the most urgent follow-up per policy.
 3. ``activity_abandon`` marks the row done with an ``[Abandoned]`` prefix and
    closes siblings.
+4. ``build_focus_queue`` enriches activity items with nudge tier, cadence,
+   hours logged in last 30 days, and days-from-follow-up-to-expiry.
 """
 
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
 
 from policydb.db import get_connection, init_db
-from policydb.focus_queue import _dedup_activity_siblings
+from policydb.focus_queue import _dedup_activity_siblings, build_focus_queue
 
 
 @pytest.fixture
@@ -235,4 +237,130 @@ def test_activity_abandon_also_supersedes_siblings(tmp_db, app_client):
     assert r2["follow_up_done"] == 1
     assert r2["auto_close_reason"] == "superseded"
     assert r2["auto_closed_by"] == "activity_abandon"
+
+
+# ── Metric enrichment ────────────────────────────────────────────────────────
+
+
+def _find_fu_item(focus_items, subject):
+    for item in focus_items:
+        if item.get("subject") == subject and item.get("kind") == "followup":
+            return item
+    return None
+
+
+def test_focus_item_exposes_hours_logged_30d(tmp_db):
+    """An activity follow-up on a policy with logged hours should surface
+    ``policy_hours_30d`` so the Focus Queue can render the chip."""
+    conn = get_connection(tmp_db)
+    cid, pid = _seed_client_and_policy(conn)
+    overdue = (date.today() - timedelta(days=2)).isoformat()
+    # Pending follow-up
+    _insert_followup(conn, cid, pid, "hours test fu", overdue)
+    # Separate logged activity on the same policy with duration_hours
+    conn.execute(
+        "INSERT INTO activity_log (activity_date, client_id, policy_id, activity_type, "
+        "subject, duration_hours, follow_up_done, item_kind, account_exec) "
+        "VALUES (?, ?, ?, 'Call', 'time log', 2.5, 1, 'followup', 'Grant')",
+        (date.today().isoformat(), cid, pid),
+    )
+    conn.commit()
+
+    focus, _waiting, _stats = build_focus_queue(conn, horizon_days=-999)
+    item = _find_fu_item(focus, "hours test fu")
+    assert item is not None
+    assert item["policy_hours_30d"] == pytest.approx(2.5)
+    conn.close()
+
+
+def test_focus_item_computes_days_fu_to_expiry(tmp_db):
+    conn = get_connection(tmp_db)
+    conn.execute(
+        "INSERT INTO clients (name, industry_segment) VALUES ('Expiry Test', 'Test')"
+    )
+    cid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    fu = (date.today() - timedelta(days=1)).isoformat()
+    exp = (date.today() + timedelta(days=9)).isoformat()
+    conn.execute(
+        "INSERT INTO policies (policy_uid, client_id, policy_type, carrier, effective_date, expiration_date) "
+        "VALUES ('POL-EXP', ?, 'GL', 'Test', '2026-01-01', ?)",
+        (cid, exp),
+    )
+    pid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    _insert_followup(conn, cid, pid, "expiry test fu", fu)
+    conn.commit()
+
+    focus, _waiting, _stats = build_focus_queue(conn, horizon_days=-999)
+    item = _find_fu_item(focus, "expiry test fu")
+    assert item is not None
+    # fu = today-1, exp = today+9 → 10 days runway
+    assert item["days_fu_to_expiry"] == 10
+    conn.close()
+
+
+def test_focus_item_cadence_classifies_disposition_drift(tmp_db):
+    """``cadence`` should be ``on_cadence`` / ``drifting`` / ``2x cadence``
+    based on how far past the disposition's ``default_days`` we are."""
+    conn = get_connection(tmp_db)
+    cid, pid = _seed_client_and_policy(conn)
+    # "Sent Email" disposition has default_days=7
+    # Set follow_up_date to 10 days ago → 10 days overdue → mild drift
+    ten_ago = (date.today() - timedelta(days=10)).isoformat()
+    conn.execute(
+        "INSERT INTO activity_log (activity_date, client_id, policy_id, activity_type, "
+        "subject, follow_up_date, disposition, follow_up_done, item_kind, account_exec) "
+        "VALUES (?, ?, ?, 'Email', 'drifting fu', ?, 'Sent Email', 0, 'followup', 'Grant')",
+        (date.today().isoformat(), cid, pid, ten_ago),
+    )
+    conn.commit()
+
+    focus, _waiting, _stats = build_focus_queue(conn, horizon_days=-999)
+    # Waiting external goes to waiting bucket unless promoted. Check both.
+    all_items = focus + _waiting
+    item = None
+    for i in all_items:
+        if i.get("subject") == "drifting fu":
+            item = i
+            break
+    assert item is not None
+    # days_over = 10, default_days = 7, 7 < 10 <= 14 → mild drift
+    assert item["cadence"] == "mild"
+    conn.close()
+
+
+def test_focus_item_nudge_count_accumulates(tmp_db):
+    """Multiple waiting-external activities on a policy should bump
+    ``nudge_count`` / ``escalation_tier``."""
+    conn = get_connection(tmp_db)
+    cid, pid = _seed_client_and_policy(conn)
+    today_iso = date.today().isoformat()
+    # Three prior waiting-external activities in the last 90 days
+    for subject in ("first nudge", "second nudge", "third nudge"):
+        conn.execute(
+            "INSERT INTO activity_log (activity_date, client_id, policy_id, activity_type, "
+            "subject, disposition, follow_up_done, item_kind, account_exec) "
+            "VALUES (?, ?, ?, 'Email', ?, 'Sent Email', 1, 'followup', 'Grant')",
+            (today_iso, cid, pid, subject),
+        )
+    # Current pending follow-up with waiting-external disposition
+    conn.execute(
+        "INSERT INTO activity_log (activity_date, client_id, policy_id, activity_type, "
+        "subject, follow_up_date, disposition, follow_up_done, item_kind, account_exec) "
+        "VALUES (?, ?, ?, 'Email', 'current nudge', ?, 'Sent Email', 0, 'followup', 'Grant')",
+        (today_iso, cid, pid, (date.today() - timedelta(days=1)).isoformat()),
+    )
+    conn.commit()
+
+    focus, waiting, _stats = build_focus_queue(conn, horizon_days=-999)
+    all_items = focus + waiting
+    item = None
+    for i in all_items:
+        if i.get("subject") == "current nudge":
+            item = i
+            break
+    assert item is not None
+    # 4 total waiting-disposition activities (3 historic + 1 current) → urgent
+    assert item["nudge_count"] >= 3
+    assert item["escalation_tier"] == "urgent"
+    conn.close()
     conn.close()
