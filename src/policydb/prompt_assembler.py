@@ -572,7 +572,7 @@ def assemble_issue(conn: sqlite3.Connection, record_id: int, depth: int = DEPTH_
                     from_to.append(f"To: {a['email_to']}")
                 line += "  > " + " | ".join(from_to) + "\n"
             if a["email_snippet"]:
-                snippet = a["email_snippet"].strip().replace("\n", " ")
+                snippet = a["email_snippet"].strip().replace("\r", " ").replace("\n", " ")
                 if len(snippet) > 200:
                     snippet = snippet[:200] + "…"
                 line += f"  > \"{snippet}\"\n"
@@ -940,7 +940,6 @@ def assemble_focus_items(
         return ""
 
     acct_map = _accountability_map()
-    today = date.today()
     items: list[dict] = []
 
     # 1. Open activity follow-ups (scoped to the most specific key)
@@ -963,7 +962,7 @@ def assemble_focus_items(
             WHERE a.follow_up_done = 0
               AND a.follow_up_date IS NOT NULL
               AND a.item_kind != 'issue'
-              AND (a.auto_close_reason IS NULL OR a.auto_close_reason = '')
+              AND a.auto_close_reason IS NULL
               AND {fu_clause}
             ORDER BY a.follow_up_date ASC""",
         fu_params,
@@ -979,8 +978,12 @@ def assemble_focus_items(
             "contact": r["contact_person"],
         })
 
-    # 2. Policy-level follow-ups (only when the row has a native follow_up_date)
-    if policy_id:
+    # 2. Policy-level follow-ups (only when the row has a native follow_up_date).
+    #    Skip at issue scope — follow-ups on every policy for this client are
+    #    off-topic when the user is triaging a single issue.
+    if issue_id:
+        pf_rows = []
+    elif policy_id:
         pf_rows = conn.execute(
             """SELECT id, policy_uid, carrier, policy_type, follow_up_date,
                       CAST(julianday('now') - julianday(follow_up_date) AS INTEGER) AS days_overdue
@@ -1051,7 +1054,10 @@ def assemble_focus_items(
             "contact": None,
         })
 
-    # 4. Overdue / upcoming timeline milestones
+    # 4. Overdue / upcoming timeline milestones.
+    #    At issue scope we deliberately skip the client-wide fallback: issue
+    #    focus items should be about the issue itself, not flooded with every
+    #    milestone on every policy for the same client.
     if policy_uid:
         ms_rows = conn.execute(
             """SELECT pt.milestone_name, pt.ideal_date, pt.projected_date,
@@ -1066,7 +1072,7 @@ def assemble_focus_items(
                ORDER BY pt.ideal_date ASC""",
             (policy_uid,),
         ).fetchall()
-    elif client_id:
+    elif client_id and not issue_id:
         ms_rows = conn.execute(
             """SELECT pt.milestone_name, pt.ideal_date, pt.projected_date,
                       pt.prep_alert_date, pt.accountability, pt.waiting_on, p.policy_uid,
@@ -1324,7 +1330,7 @@ def assemble_recent_activity_log(
                 line += f" → {r['email_to']}"
             line += "\n"
         if r["email_snippet"]:
-            snippet = r["email_snippet"].strip().replace("\n", " ")
+            snippet = r["email_snippet"].strip().replace("\r", " ").replace("\n", " ")
             if len(snippet) > 160:
                 snippet = snippet[:160] + "…"
             line += f"  > \"{snippet}\"\n"
@@ -1361,7 +1367,7 @@ def assemble_pending_emails(
             WHERE a.item_kind != 'issue'
               AND a.follow_up_done = 0
               AND a.follow_up_date IS NOT NULL
-              AND (a.auto_close_reason IS NULL OR a.auto_close_reason = '')
+              AND a.auto_close_reason IS NULL
               AND (LOWER(COALESCE(a.disposition,'')) LIKE '%email%'
                    OR LOWER(COALESCE(a.activity_type,'')) = 'email'
                    OR LOWER(COALESCE(a.disposition,'')) IN
@@ -1409,6 +1415,14 @@ def _resolve_keys(conn: sqlite3.Connection, primary_type: str, record_id: int) -
         if row:
             keys["client_id"] = row["client_id"]
             keys["policy_id"] = row["policy_id"]
+            # Resolve policy_uid so milestone/deliverables queries can scope
+            # narrowly instead of falling back to client-wide.
+            if row["policy_id"]:
+                pol = conn.execute(
+                    "SELECT policy_uid FROM policies WHERE id = ?", (row["policy_id"],)
+                ).fetchone()
+                if pol:
+                    keys["policy_uid"] = pol["policy_uid"]
 
     return keys
 
