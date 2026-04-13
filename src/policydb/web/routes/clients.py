@@ -1566,8 +1566,14 @@ def client_tab_files(
             WHEN 'policy' THEN (SELECT policy_uid || ' — ' || COALESCE(policy_type, '') FROM policies WHERE id = ra.record_id)
             WHEN 'activity' THEN (SELECT COALESCE(activity_type, '') || ': ' || COALESCE(subject, '') FROM activity_log WHERE id = ra.record_id)
             WHEN 'project' THEN (SELECT name FROM projects WHERE id = ra.record_id)
-            WHEN 'rfi_bundle' THEN (SELECT COALESCE(title, 'RFI Bundle') FROM client_request_bundles WHERE id = ra.record_id)
-          END AS source_label
+            WHEN 'rfi_bundle' THEN (SELECT COALESCE(rfi_uid, '') || CASE WHEN rfi_uid IS NOT NULL AND rfi_uid <> '' THEN ' — ' ELSE '' END || COALESCE(title, 'RFI Bundle') FROM client_request_bundles WHERE id = ra.record_id)
+            WHEN 'rfi_item' THEN (SELECT COALESCE(cri.description, 'RFI Item') FROM client_request_items cri WHERE cri.id = ra.record_id)
+          END AS source_label,
+          CASE ra.record_type
+            WHEN 'rfi_bundle' THEN ra.record_id
+            WHEN 'rfi_item' THEN (SELECT cri.bundle_id FROM client_request_items cri WHERE cri.id = ra.record_id)
+            ELSE NULL
+          END AS rfi_bundle_id
         FROM attachments a
         JOIN record_attachments ra ON ra.attachment_id = a.id
         WHERE (ra.record_type = 'client' AND ra.record_id = :cid)
@@ -1575,6 +1581,11 @@ def client_tab_files(
            OR (ra.record_type = 'activity' AND ra.record_id IN (SELECT id FROM activity_log WHERE client_id = :cid))
            OR (ra.record_type = 'project' AND ra.record_id IN (SELECT id FROM projects WHERE client_id = :cid))
            OR (ra.record_type = 'rfi_bundle' AND ra.record_id IN (SELECT id FROM client_request_bundles WHERE client_id = :cid))
+           OR (ra.record_type = 'rfi_item' AND ra.record_id IN (
+               SELECT cri.id FROM client_request_items cri
+               JOIN client_request_bundles crb ON crb.id = cri.bundle_id
+               WHERE crb.client_id = :cid
+           ))
         ORDER BY ra.record_type, source_label, ra.sort_order
         LIMIT 500
     """, {"cid": client_id}).fetchall()
@@ -1602,7 +1613,7 @@ def client_tab_files(
         a["size_display"] = _size_display(a.get("file_size"))
 
     # Build link URLs for source records
-    def _link_url(record_type, record_id, source_label):
+    def _link_url(record_type, record_id, source_label, rfi_bundle_id):
         if record_type == "policy" and source_label:
             uid = source_label.split(" — ")[0].strip()
             return f"/policies/{uid}/edit"
@@ -1610,10 +1621,16 @@ def client_tab_files(
             return f"/clients/{client_id}/projects/{record_id}"
         if record_type == "client":
             return f"/clients/{client_id}"
+        if record_type == "rfi_bundle":
+            return f"/clients/{client_id}/requests/{record_id}"
+        if record_type == "rfi_item" and rfi_bundle_id:
+            return f"/clients/{client_id}/requests/{rfi_bundle_id}#req-item-{record_id}"
         return ""
 
     for a in all_atts:
-        a["link_url"] = _link_url(a["record_type"], a["record_id"], a.get("source_label", ""))
+        a["link_url"] = _link_url(
+            a["record_type"], a["record_id"], a.get("source_label", ""), a.get("rfi_bundle_id")
+        )
 
     total_count = len(all_atts)
     record_types = sorted({a["record_type"] for a in all_atts})
@@ -2188,6 +2205,11 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
            OR (ra.record_type = 'activity' AND ra.record_id IN (SELECT id FROM activity_log WHERE client_id = :cid))
            OR (ra.record_type = 'project' AND ra.record_id IN (SELECT id FROM projects WHERE client_id = :cid))
            OR (ra.record_type = 'rfi_bundle' AND ra.record_id IN (SELECT id FROM client_request_bundles WHERE client_id = :cid))
+           OR (ra.record_type = 'rfi_item' AND ra.record_id IN (
+               SELECT cri.id FROM client_request_items cri
+               JOIN client_request_bundles crb ON crb.id = cri.bundle_id
+               WHERE crb.client_id = :cid
+           ))
     """, {"cid": client_id}).fetchone()[0]
 
     from policydb.queries import REVIEW_CYCLE_LABELS as _REVIEW_CYCLE_LABELS
@@ -4997,6 +5019,24 @@ def _enrich_request_items(conn, items: list[dict]) -> list[dict]:
     return items
 
 
+def _attach_item_attachment_counts(conn, items: list[dict]) -> None:
+    """Populate item['attachment_count'] for a list of RFI items via one batched query."""
+    if not items:
+        return
+    item_ids = [i["id"] for i in items]
+    placeholders = ",".join("?" * len(item_ids))
+    rows = conn.execute(
+        f"""SELECT record_id AS item_id, COUNT(*) AS n
+            FROM record_attachments
+            WHERE record_type='rfi_item' AND record_id IN ({placeholders})
+            GROUP BY record_id""",
+        item_ids,
+    ).fetchall()
+    counts = {r["item_id"]: r["n"] for r in rows}
+    for item in items:
+        item["attachment_count"] = counts.get(item["id"], 0)
+
+
 def _bundle_response(request, conn, client_id: int, bundle_id: int):
     bundle = conn.execute(
         "SELECT * FROM client_request_bundles WHERE id=? AND client_id=?",
@@ -5008,6 +5048,15 @@ def _bundle_response(request, conn, client_id: int, bundle_id: int):
         "SELECT * FROM client_request_items WHERE bundle_id=? ORDER BY received ASC, sort_order ASC, id ASC",
         (bundle_id,),
     ).fetchall()])
+    _attach_item_attachment_counts(conn, items)
+    # Total attachment count for the Download ZIP button — bundle-level + sum of item counts
+    bundle_att_count = conn.execute(
+        "SELECT COUNT(*) FROM record_attachments WHERE record_type='rfi_bundle' AND record_id=?",
+        (bundle_id,),
+    ).fetchone()[0]
+    item_att_total = sum(i.get("attachment_count", 0) for i in items)
+    bundle_dict = dict(bundle)
+    bundle_dict["total_attachment_count"] = bundle_att_count + item_att_total
     client = conn.execute("SELECT id, name FROM clients WHERE id=?", (client_id,)).fetchone()
     # Get policies for this client (for linking items to policies)
     policies = [dict(r) for r in conn.execute(
@@ -5017,7 +5066,7 @@ def _bundle_response(request, conn, client_id: int, bundle_id: int):
     return templates.TemplateResponse("clients/_request_bundle.html", {
         "request": request,
         "client": dict(client) if client else {"id": client_id, "name": ""},
-        "bundle": dict(bundle),
+        "bundle": bundle_dict,
         "items": items,
         "policies": policies,
         "request_categories": cfg.get("request_categories", []),
@@ -5208,6 +5257,7 @@ def toggle_request_item(
         "SELECT * FROM client_request_items WHERE id=?", (item_id,)
     ).fetchone())
     _enrich_request_items(conn, [updated_item])
+    _attach_item_attachment_counts(conn, [updated_item])
     bundle = conn.execute(
         "SELECT * FROM client_request_bundles WHERE id=? AND client_id=?",
         (bundle_id, client_id),
@@ -5255,12 +5305,30 @@ def delete_request_item(
     item_id: int,
     conn=Depends(get_db),
 ):
+    # Re-parent any item-level attachments up to the bundle so history is
+    # preserved ("we sent this type of application for this RFI before").
+    # INSERT OR IGNORE protects the UNIQUE(attachment_id, record_type, record_id)
+    # constraint in the case where the same file is already linked at the bundle
+    # level — the existing bundle link wins, the item link is dropped.
+    conn.execute(
+        """INSERT OR IGNORE INTO record_attachments (attachment_id, record_type, record_id, sort_order, created_at)
+           SELECT attachment_id, 'rfi_bundle', ?, sort_order, created_at
+           FROM record_attachments
+           WHERE record_type='rfi_item' AND record_id=?""",
+        (bundle_id, item_id),
+    )
+    conn.execute(
+        "DELETE FROM record_attachments WHERE record_type='rfi_item' AND record_id=?",
+        (item_id,),
+    )
     conn.execute(
         "DELETE FROM client_request_items WHERE id=? AND bundle_id=?",
         (item_id, bundle_id),
     )
     conn.commit()
-    return HTMLResponse("")
+    # Trigger a refresh of the bundle-level attachment panel so any promoted
+    # files appear immediately. The listener lives in _request_bundle.html.
+    return HTMLResponse("", headers={"HX-Trigger": "refreshBundleAttachments"})
 
 
 @router.post(

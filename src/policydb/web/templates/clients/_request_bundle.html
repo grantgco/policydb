@@ -58,6 +58,14 @@
        class="text-xs text-marsh hover:text-blue-800 border border-blue-200 hover:border-blue-300 rounded px-2 py-1 transition-colors no-print">Copy Table</button>
     <a href="/clients/{{ client.id }}/requests/{{ bundle.id }}/export"
        class="text-xs text-green-600 hover:text-green-700 border border-green-200 hover:border-green-300 rounded px-2 py-1 transition-colors no-print">Export XLSX</a>
+    {% if bundle.total_attachment_count and bundle.total_attachment_count > 0 %}
+    <a href="/api/attachments/zip?record_type=rfi_bundle&record_id={{ bundle.id }}"
+       class="text-xs text-marsh hover:text-marsh-light border border-marsh/30 hover:border-marsh rounded px-2 py-1 transition-colors no-print inline-flex items-center gap-1"
+       title="Download all attached files (bundle + items) as a zip archive">
+       <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3"/></svg>
+       Download ZIP ({{ bundle.total_attachment_count }})
+    </a>
+    {% endif %}
     <span class="flex-1"></span>
     {% if bundle.status != 'complete' %}
     <form hx-post="/clients/{{ client.id }}/requests/{{ bundle.id }}/status"
@@ -119,16 +127,61 @@
   <p class="text-[10px] text-gray-400 mt-2">Sent {{ bundle.sent_at[:16] }}</p>
   {% endif %}
 
-  {# ── Files & Attachments ── #}
+  {# ── Files & Attachments ──
+     Also listens for refreshBundleAttachments (fired after an RFI item is
+     deleted) so any attachments that were re-parented from the deleted item
+     up to the bundle appear immediately without a full page reload. #}
   <div class="mt-4 pt-3 border-t border-gray-200"
     hx-get="/api/attachments/panel?record_type=rfi_bundle&record_id={{ bundle.id }}"
-    hx-trigger="load" hx-swap="innerHTML">
+    hx-trigger="load, refreshBundleAttachments from:body"
+    hx-swap="innerHTML">
     <p class="text-xs text-gray-400 italic">Loading attachments...</p>
   </div>
 
 </div>
 
 <script>
+/* Global: toggle the lazy-loaded attachment panel under an RFI item.
+   Always re-fetches on open so the panel stays fresh after detaches made
+   elsewhere, and so a failed first-load naturally retries on the next click. */
+if (typeof window.toggleItemAttachments !== 'function') {
+  window.toggleItemAttachments = function(itemId) {
+    var host = document.getElementById('item-att-' + itemId);
+    if (!host) return;
+    var willShow = host.classList.contains('hidden');
+    host.classList.toggle('hidden');
+    if (willShow && window.htmx) {
+      window.htmx.ajax(
+        'GET',
+        '/api/attachments/panel?record_type=rfi_item&record_id=' + itemId,
+        {target: '#item-att-' + itemId, swap: 'innerHTML'}
+      );
+    }
+  };
+}
+
+/* Keep each item's paperclip count badge in sync with its panel after any
+   HTMX swap inside that item's attachment container. Handles both first
+   load (target = #item-att-N) and subsequent panel refreshes after
+   attach/detach (target = #attachments-panel-rfi_item-N). Installed once. */
+if (!window.__rfiItemBadgeListenerInstalled) {
+  window.__rfiItemBadgeListenerInstalled = true;
+  document.body.addEventListener('htmx:afterSwap', function(evt) {
+    var target = evt.detail && evt.detail.target;
+    if (!target) return;
+    var container = (target.id && target.id.indexOf('item-att-') === 0)
+      ? target
+      : (target.closest && target.closest('[id^="item-att-"]'));
+    if (!container || !container.id) return;
+    var itemId = container.id.replace('item-att-', '');
+    var count = container.querySelectorAll('[id^="att-card-"]').length;
+    var badge = document.getElementById('item-att-count-' + itemId);
+    if (badge) {
+      badge.textContent = count > 0 ? count : 'Attach';
+    }
+  });
+}
+
 (function() {
   var BID = "{{ bundle.id }}";
   var CID = "{{ client.id }}";
