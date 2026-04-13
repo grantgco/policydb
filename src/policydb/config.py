@@ -639,6 +639,7 @@ _DEFAULTS: dict[str, Any] = {
     "migration_backup_retention_count": 10,
     "log_level": "INFO",
     "log_retention_days": 730,
+    "merged_issue_retention_days": 90,
     "default_review_activity_type": "Other",
     "review_session_gap_minutes": 30,
     "review_dismiss_days": 7,

@@ -931,6 +931,18 @@ def contact_detail(request: Request, contact_id: int, conn=Depends(get_db)):
     contact = dict(contact)
     _attach_expertise(conn, [contact])
 
+    # Representative title from junction tables (title lives per-assignment)
+    title_row = conn.execute(
+        """SELECT title FROM contact_client_assignments
+                WHERE contact_id = ? AND title IS NOT NULL AND TRIM(title) != ''
+           UNION ALL
+           SELECT title FROM contact_policy_assignments
+                WHERE contact_id = ? AND title IS NOT NULL AND TRIM(title) != ''
+           LIMIT 1""",
+        (contact_id, contact_id),
+    ).fetchone()
+    contact["title"] = title_row["title"] if title_row else ""
+
     # ── Policy assignments ────────────────────────────────────────────────
     policy_assignments = [dict(r) for r in conn.execute("""
         SELECT cpa.*, p.policy_uid, p.policy_type, p.carrier, p.renewal_status,

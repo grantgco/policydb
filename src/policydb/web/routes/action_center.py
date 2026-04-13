@@ -858,6 +858,45 @@ def _issues_ctx(conn, q: str = "", client_id: int = 0, issue_type: str = "") -> 
         if _cl:
             client_name = _cl["name"]
 
+    # ── Consolidation suggestions: open standalone renewal issues sharing (client, project) ──
+    cluster_rows = conn.execute("""
+        SELECT a.client_id, c.name AS client_name,
+               pr.id AS project_id, pr.name AS location_name,
+               a.id AS issue_id, a.issue_uid, a.subject,
+               p.policy_uid, p.policy_type, p.expiration_date
+        FROM activity_log a
+        JOIN clients c ON c.id = a.client_id
+        JOIN policies p ON p.id = a.policy_id
+        JOIN projects pr ON pr.id = p.project_id
+        WHERE a.item_kind = 'issue'
+          AND a.is_renewal_issue = 1
+          AND a.issue_status NOT IN ('Resolved', 'Closed')
+          AND a.merged_into_id IS NULL
+          AND a.program_id IS NULL
+        ORDER BY c.name, pr.name, p.expiration_date ASC, a.id ASC
+    """).fetchall()
+
+    clusters: dict[tuple[int, int], dict] = {}
+    for r in cluster_rows:
+        key = (r["client_id"], r["project_id"])
+        if key not in clusters:
+            clusters[key] = {
+                "client_id": r["client_id"],
+                "client_name": r["client_name"],
+                "project_id": r["project_id"],
+                "location_name": r["location_name"],
+                "issues": [],
+            }
+        clusters[key]["issues"].append({
+            "id": r["issue_id"],
+            "issue_uid": r["issue_uid"],
+            "subject": r["subject"],
+            "policy_uid": r["policy_uid"],
+            "policy_type": r["policy_type"],
+            "expiration_date": r["expiration_date"],
+        })
+    consolidation_suggestions = [c for c in clusters.values() if len(c["issues"]) >= 2]
+
     return {
         "critical_overdue": critical_overdue,
         "active_issues": active,
@@ -873,6 +912,7 @@ def _issues_ctx(conn, q: str = "", client_id: int = 0, issue_type: str = "") -> 
         "issue_lifecycle_states": cfg.get("issue_lifecycle_states", []),
         "sla_breach_count": sla_breach_count,
         "oldest_breach_days": oldest_breach_days,
+        "consolidation_suggestions": consolidation_suggestions,
     }
 
 

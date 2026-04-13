@@ -1155,6 +1155,24 @@ def db_vacuum(conn=Depends(get_db)):
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
 
+@router.post("/db/purge-merged-tombstones")
+def db_purge_merged_tombstones(conn=Depends(get_db)):
+    """Delete closed-and-merged renewal issues whose merge target is also terminal."""
+    from policydb.db import purge_merged_tombstones
+    try:
+        deleted = purge_merged_tombstones(conn)
+        retention = cfg.get("merged_issue_retention_days", 90)
+        msg = (
+            f"Removed {deleted} merged tombstone{'s' if deleted != 1 else ''} "
+            f"older than {retention} days."
+            if deleted
+            else "No eligible tombstones to purge."
+        )
+        return JSONResponse({"ok": True, "deleted": deleted, "message": msg})
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+
 @router.get("/db/download")
 def db_download(conn=Depends(get_db)):
     """Checkpoint WAL and serve the database file as a download."""
