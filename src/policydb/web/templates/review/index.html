@@ -32,7 +32,7 @@
           {% endif %}
           <span class="flex-1">{{ s.label }}</span>
           {% if count > 0 and sec.get('status') != 'complete' and sec.get('status') != 'skipped' %}
-            <span class="text-xs bg-gray-200 text-gray-600 rounded-full px-1.5 py-0.5 tabular-nums">{{ count }}</span>
+            <span data-review-count-nav="{{ s.key }}" class="text-xs bg-gray-200 text-gray-600 rounded-full px-1.5 py-0.5 tabular-nums">{{ count }}</span>
           {% endif %}
         </a>
       {% endif %}
@@ -134,9 +134,9 @@
               {% endif %}
               <span class="section-title">{{ s.label }}</span>
               {% if count > 0 %}
-                <span class="text-xs text-gray-400">{{ count }} item{{ 's' if count != 1 else '' }}</span>
+                <span data-review-count-header="{{ s.key }}" class="text-xs text-gray-400">{{ count }} item{{ 's' if count != 1 else '' }}</span>
               {% elif sec.get('status') not in ('complete', 'skipped') %}
-                <span class="text-xs text-green-600">No items</span>
+                <span data-review-count-header="{{ s.key }}" class="text-xs text-green-600">No items</span>
               {% endif %}
               {% if s.get('estimated_minutes') and sec.get('status') not in ('complete', 'skipped') %}
                 <span class="text-xs text-gray-400">&middot; ~{{ s.estimated_minutes }} min</span>
@@ -348,6 +348,48 @@ function scheduleFollowUp(recordId, note) {
   var target = document.getElementById('review-gate-' + recordId);
   if (target) {
     htmx.ajax('GET', '/review/policies/' + recordId + '/row/log', {target: target, swap: 'afterend'});
+  }
+}
+
+// Remove walkthrough rows + update counts when slideovers dispatch items.
+// Fired via HX-Trigger header from mark-reviewed / process endpoints.
+document.body.addEventListener('reviewRowCleared', function(e) {
+  var detail = e.detail || {};
+  var selector = detail.value || detail.selector || detail;
+  if (typeof selector !== 'string' || !selector) return;
+  var rows = document.querySelectorAll(selector);
+  var sections = new Set();
+  rows.forEach(function(row) {
+    var section = row.closest('[id^="section-"]');
+    if (section) sections.add(section);
+    row.remove();
+  });
+  if (window.closeReviewSlideover) closeReviewSlideover();
+  if (window.closeFollowupEdit) closeFollowupEdit();
+  sections.forEach(updateReviewSectionCount);
+});
+
+function updateReviewSectionCount(section) {
+  var sectionKey = section.id.replace('section-', '');
+  var remaining = section.querySelectorAll('[id^="review-walkthrough-"], [id^="ac-inbox-item-"]').length;
+  var navBadge = document.querySelector('[data-review-count-nav="' + sectionKey + '"]');
+  var headerCount = document.querySelector('[data-review-count-header="' + sectionKey + '"]');
+  if (navBadge) {
+    if (remaining > 0) navBadge.textContent = remaining;
+    else navBadge.style.display = 'none';
+  }
+  if (headerCount) {
+    if (remaining > 0) {
+      headerCount.textContent = remaining + ' item' + (remaining === 1 ? '' : 's');
+    } else {
+      headerCount.textContent = 'No items';
+      headerCount.classList.remove('text-gray-400');
+      headerCount.classList.add('text-green-600');
+    }
+  }
+  if (remaining === 0) {
+    var completeBtn = section.querySelector('button[hx-post*="/complete"]');
+    if (completeBtn) setTimeout(function() { completeBtn.click(); }, 400);
   }
 }
 

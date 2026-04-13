@@ -351,7 +351,10 @@ def inbox_process(
     siblings = _find_thread_siblings(conn, inbox_id)
     sibling_ids = [s["id"] for s in siblings]
     import json as _json
-    trigger_data = {"activityLogged": "processed"}
+    trigger_data = {
+        "activityLogged": "processed",
+        "reviewRowCleared": f"#ac-inbox-item-{inbox_id}",
+    }
     if sibling_ids:
         trigger_data["threadSiblings"] = {
             "count": len(sibling_ids),

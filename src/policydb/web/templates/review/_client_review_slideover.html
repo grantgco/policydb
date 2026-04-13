@@ -266,7 +266,7 @@
     <div class="flex items-center justify-between">
       <a href="/clients/{{ c.id }}" class="text-xs text-gray-400 hover:underline">Open Client Page</a>
       <button hx-post="/review/clients/{{ c.id }}/slideover/reviewed"
-              hx-target="#review-client-{{ c.id }}" hx-swap="outerHTML"
+              hx-target="body" hx-swap="none"
               class="text-sm bg-marsh text-white px-4 py-2 rounded-lg hover:bg-marsh-light transition-colors font-medium">
         Mark Reviewed
       </button>
