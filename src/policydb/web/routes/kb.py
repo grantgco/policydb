@@ -185,9 +185,13 @@ async def kb_search(
     pattern = f"%{_escaped_q}%"
     entries = []
 
-    # If linked-to filter is active, get the set of linked entry IDs
+    # If linked-to filter is active, get the set of linked entry IDs.
+    # All three *_ids vars are always initialized to None so downstream
+    # code can reference them without worrying about whether the
+    # linked-filter branch ran.
     linked_article_ids = None
     linked_attachment_ids = None
+    linked_bookmark_ids = None
     if linked_type and linked_id_int:
         link_rows = conn.execute(
             "SELECT source_type, source_id, target_type, target_id FROM kb_links "

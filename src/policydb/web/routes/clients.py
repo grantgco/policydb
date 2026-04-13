@@ -124,6 +124,12 @@ def _enrich_last_activity(clients: list[dict]) -> None:
                 d = None
         if d is not None:
             delta = (today - d).days
+            # A future-dated last_activity_date (delta < 0) is typically
+            # bad data or a scheduled activity that leaked into the
+            # "last activity" field.  Treat it as "today" rather than
+            # rendering "-5d ago", which is meaningless to users.
+            if delta < 0:
+                delta = 0
             rel = _relative_days(delta)
             if rel is None:
                 # >90 days — show abbreviated date like "Mar 12"

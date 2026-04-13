@@ -33,24 +33,36 @@ URGENCY_ORDER = ["EXPIRED", "URGENT", "WARNING", "UPCOMING", "OK"]
 
 
 def _attach_client_ids(conn, rows: list[dict]) -> list[dict]:
-    """Attach client_id to each row by looking up its client_name.
+    """Attach client_id to each row.
 
-    Pre-loads every (name → id) mapping in one query to avoid the N+1
-    pattern this function used to do.  Rows with a missing/unknown
-    client_name fall back to client_id=0 so callers can still link
-    safely.
+    Prefers an existing client_id already on the row — the pipeline
+    views (``v_renewal_pipeline`` etc.) already expose it, so we skip
+    the lookup entirely in the common case.  Falls back to a single
+    bulk ``(name → id)`` lookup for legacy callers that only supply
+    ``client_name``.
+
+    The lookup intentionally does **not** filter archived clients:
+    pipeline views may still surface a policy whose owning client is
+    archived (the view only filters ``p.archived = 0``), and dropping
+    the id would turn the row's "Client" link into a broken
+    ``/clients/0`` href.  Rows with no match fall back to
+    ``client_id=0`` so callers can still render safely.
     """
     rows = list(rows)
     if not rows:
         return rows
-    name_map = {
-        r["name"]: r["id"]
-        for r in conn.execute(
-            "SELECT id, name FROM clients WHERE archived = 0"
-        ).fetchall()
-    }
+    # Fast path: if every row already has a client_id, no lookup needed.
+    missing = [r for r in rows if not r.get("client_id")]
+    if missing:
+        name_map = {
+            r["name"]: r["id"]
+            for r in conn.execute("SELECT id, name FROM clients").fetchall()
+        }
+        for d in missing:
+            d["client_id"] = name_map.get(d.get("client_name") or "", 0)
+    # Ensure every row at least has the key, even when nothing matched.
     for d in rows:
-        d["client_id"] = name_map.get(d.get("client_name") or "", 0)
+        d.setdefault("client_id", 0)
     return rows
 
 
