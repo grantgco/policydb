@@ -1,0 +1,40 @@
+{# Post-Bind Activities — table rows partial (used by editor + HTMX add/remove responses) #}
+{% for r in post_bind_activities %}
+<tr class="border-b border-gray-50 hover:bg-gray-50/50 group" data-pba-idx="{{ loop.index0 }}">
+  <td class="py-1.5 pr-2">
+    <span class="text-gray-800 font-medium cursor-text pba-cell" contenteditable="true"
+      data-field="name" data-idx="{{ loop.index0 }}"
+      data-original="{{ r.name }}">{{ r.name }}</span>
+  </td>
+  <td class="py-1.5 pr-2">
+    <span class="text-gray-700 cursor-text pba-cell" contenteditable="true"
+      data-field="days_after_bind" data-idx="{{ loop.index0 }}"
+      data-original="{{ r.days_after_bind }}">{{ r.days_after_bind }}</span>
+  </td>
+  <td class="py-1.5 pr-2">
+    <select class="text-xs border border-gray-200 rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-marsh bg-transparent"
+      data-field="activity_type" data-idx="{{ loop.index0 }}"
+      onchange="savePbaField(this, '{{ loop.index0 }}', 'activity_type', this.value)">
+      <option value="Follow-up" {{ 'selected' if r.get('activity_type') == 'Follow-up' }}>Follow-up</option>
+      {% for at in activity_types %}
+      <option value="{{ at }}" {{ 'selected' if r.get('activity_type') == at }}>{{ at }}</option>
+      {% endfor %}
+    </select>
+  </td>
+  <td class="py-1.5 pr-2">
+    <span class="text-gray-600 cursor-text pba-cell truncate max-w-[260px] inline-block" contenteditable="true"
+      data-field="subject" data-idx="{{ loop.index0 }}"
+      data-original="{{ r.get('subject', '') }}"
+      data-placeholder="Auto-generated">{{ r.get('subject', '') }}</span>
+  </td>
+  <td class="py-1.5">
+    <form hx-post="/settings/post-bind-activities/remove" hx-target="#pba-editor-body" hx-swap="innerHTML"
+      class="inline opacity-0 group-hover:opacity-100 transition-opacity">
+      <input type="hidden" name="name" value="{{ r.name }}">
+      <button type="submit" class="text-red-400 hover:text-red-600">&times;</button>
+    </form>
+  </td>
+</tr>
+{% else %}
+<tr><td colspan="5" class="py-4 text-gray-400 text-center">No post-bind activities configured.</td></tr>
+{% endfor %}

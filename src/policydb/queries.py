@@ -583,12 +583,26 @@ def get_renewal_calendar(
 
 # ─── RENEWAL TERM CREATION ────────────────────────────────────────────────────
 
-def renew_policy(conn: sqlite3.Connection, uid: str) -> str:
+def renew_policy(
+    conn: sqlite3.Connection,
+    uid: str,
+    *,
+    new_effective: str | date | None = None,
+    new_expiration: str | date | None = None,
+    new_premium: float | None = None,
+) -> str:
     """Create a new annual term from an existing policy.
 
     Copies all fields from the prior term, advances dates by one year,
     archives the old record, snapshots premium to premium_history, and
     returns the new policy_uid.
+
+    Optional overrides (used by Bind Order panel):
+      new_effective / new_expiration: ISO date string or date object — override
+        the auto-computed term dates. If only one is provided, the other is
+        still auto-computed (effective = old.expiration; expiration = new_eff + term).
+      new_premium: override the premium on the new term row. If None, the new
+        row inherits the old row's premium (default behavior).
     """
     from policydb.db import next_policy_uid
 
@@ -596,16 +610,28 @@ def renew_policy(conn: sqlite3.Connection, uid: str) -> str:
     if old is None:
         raise ValueError(f"Policy {uid} not found")
 
-    # Advance dates by one year with Feb-29 fallback
+    def _coerce_date(value):
+        if value is None:
+            return None
+        if isinstance(value, date):
+            return value
+        return date.fromisoformat(value)
+
+    # Advance dates by one year with Feb-29 fallback (used as defaults if no override)
     exp = date.fromisoformat(old["expiration_date"])
-    new_eff = exp
+    auto_new_eff = exp
     try:
-        new_exp = exp.replace(year=exp.year + 1)
+        auto_new_exp = exp.replace(year=exp.year + 1)
     except ValueError:
         # Feb 29 → Feb 28 in non-leap year (industry standard: stay in month)
-        new_exp = exp.replace(year=exp.year + 1, day=exp.day - 1)
+        auto_new_exp = exp.replace(year=exp.year + 1, day=exp.day - 1)
+
+    new_eff = _coerce_date(new_effective) or auto_new_eff
+    new_exp = _coerce_date(new_expiration) or auto_new_exp
 
     new_uid = next_policy_uid(conn)
+
+    premium_value = new_premium if new_premium is not None else old["premium"]
 
     conn.execute(
         """INSERT INTO policies
@@ -621,7 +647,7 @@ def renew_policy(conn: sqlite3.Connection, uid: str) -> str:
         (
             new_uid, old["client_id"], old["policy_type"], old["carrier"], None,
             new_eff.isoformat(), new_exp.isoformat(),
-            old["premium"], old["premium"],  # premium carries over; prior_premium = old premium
+            premium_value, old["premium"],  # prior_premium snapshot stays = old premium
             old["limit_amount"], old["deductible"], old["description"], old["coverage_form"],
             old["layer_position"] or "Primary", old["tower_group"], old["is_standalone"],
             "Not Started", old["commission_rate"], old["account_exec"], None,

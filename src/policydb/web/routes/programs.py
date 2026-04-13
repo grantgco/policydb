@@ -1581,58 +1581,81 @@ def program_bound_confirm(
     program_uid: str,
     conn: sqlite3.Connection = Depends(get_db),
 ):
-    """Execute all bound automations for a program after user confirms."""
+    """Execute all bound automations for a program (status badge banner path).
+
+    Fast path: marks every active child policy bound using today's date and the
+    panel-default new term dates. For richer control (selective children, custom
+    dates, bind notes) the user goes through the Bind Order panel instead.
+    """
+    from datetime import date as _date
+    from policydb.bind_order import (
+        BindChildPayload,
+        BindOrderPayload,
+        BindSubject,
+        BindSubjectPayload,
+        execute_bind_order,
+        preview_bind_panel,
+    )
+
     program = get_program_by_uid(conn, program_uid)
     if not program:
         return HTMLResponse("", status_code=404)
 
     program_id = program["id"]
 
-    # 1. Record bound_date
-    conn.execute("UPDATE programs SET bound_date=date('now') WHERE program_uid=?", (program_uid,))
+    # Build a default payload by previewing the panel — this gives us computed dates + child list
+    panel = preview_bind_panel(conn, [BindSubject(subject_type="program", subject_uid=program_uid)])
+    if not panel.sections:
+        # No active children — log a bare program-level "Renewal bound" entry and bail
+        conn.execute("UPDATE programs SET bound_date=date('now'), renewal_status='Bound' WHERE program_uid=?", (program_uid,))
+        conn.execute(
+            """INSERT INTO activity_log (client_id, program_id, activity_type, subject, created_at)
+               VALUES (?, ?, 'Milestone', 'Renewal bound', datetime('now'))""",
+            (program["client_id"], program_id),
+        )
+        conn.commit()
+        return HTMLResponse("")
 
-    # 2. Log activity
-    conn.execute(
-        """INSERT INTO activity_log (client_id, program_id, activity_type, subject, created_at)
-           VALUES (?, ?, 'Milestone', 'Renewal bound', datetime('now'))""",
-        (program["client_id"], program_id),
+    section = panel.sections[0]
+    payload = BindOrderPayload(
+        bind_date=_date.today().isoformat(),
+        bind_note="",
+        subjects=[BindSubjectPayload(
+            subject_type="program",
+            subject_uid=program_uid,
+            new_effective=section.new_effective,
+            new_expiration=section.new_expiration,
+            children=[
+                BindChildPayload(
+                    policy_uid=child.policy_uid,
+                    checked=(child.state != "already_bound"),
+                    disposition="Bound",
+                    new_premium=None,
+                )
+                for child in section.children
+            ],
+        )],
     )
 
-    # 3. Complete remaining timeline milestones for the program
-    from policydb.timeline_engine import complete_timeline_milestone
-    incomplete = conn.execute(
-        "SELECT milestone_name FROM policy_timeline WHERE policy_uid=? AND completed_date IS NULL",
-        (program_uid,),
-    ).fetchall()
-    for m in incomplete:
-        complete_timeline_milestone(conn, program_uid, m["milestone_name"])
+    try:
+        execute_bind_order(conn, payload)
+    except Exception as exc:
+        conn.rollback()
+        logger.exception("Program %s fast-path bind failed: %s", program_uid, exc)
+        return HTMLResponse(
+            f'<div id="bound-confirm-prompt" hx-swap-oob="innerHTML">'
+            f'<div class="text-xs text-red-600 p-2">Bind failed: {exc}</div></div>'
+        )
 
-    # 4. Close all pending follow-ups for this program
-    conn.execute(
-        """UPDATE activity_log
-           SET follow_up_done=1, auto_close_reason='renewal_bound',
-               auto_closed_at=datetime('now'), auto_closed_by='bound_status_change'
-           WHERE program_id=? AND follow_up_done=0 AND follow_up_date IS NOT NULL""",
-        (program_id,),
-    )
-    conn.execute("UPDATE programs SET follow_up_date=NULL WHERE program_uid=?", (program_uid,))
+    logger.info("Program %s bound (banner fast path)", program_uid)
 
-    # 5. Auto-resolve renewal issues
-    from policydb.renewal_issues import auto_resolve_renewal_issue
-    auto_resolve_renewal_issue(conn, program_uid=program_uid)
-
-    conn.commit()
-    logger.info("Program %s bound automations complete", program_uid)
-
-    # Check if eligible for renewal prompt
+    # Show renewal prompt offering to also create the next term row (preserves prior UX)
     children = get_program_child_policies(conn, program_id)
-    has_children = bool(children)
-    if has_children:
+    if children:
         return templates.TemplateResponse("programs/_program_bound_renew_prompt.html", {
             "request": request,
             "program_uid": program_uid,
         })
-
     return HTMLResponse("")
 
 

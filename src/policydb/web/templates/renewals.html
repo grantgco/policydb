@@ -171,6 +171,8 @@
       {% endfor %}
     </select>
     <button onclick="bulkSetStatus()" class="bg-marsh hover:bg-marsh-light text-white text-sm px-3 py-1.5 rounded transition-colors">Apply</button>
+    <span class="border-l border-gray-200 h-6 mx-1"></span>
+    <button onclick="bulkBindOrder()" class="bg-marsh hover:bg-marsh-light text-white text-sm px-3 py-1.5 rounded transition-colors">Bind Selected</button>
     <button onclick="clearRenewalChecks()" class="text-sm text-gray-400 hover:text-gray-600 ml-auto">Clear</button>
   </div>
 </div>
@@ -302,6 +304,21 @@ function bulkSetFollowUp() {
     document.getElementById('bulk-followup-date').value = '';
     clearRenewalChecks();
   });
+}
+
+function bulkBindOrder() {
+  // Collect checked rows + their subject type (program vs policy) into the
+  // bind-order panel `subjects` query param.
+  var tokens = [];
+  document.querySelectorAll('.renewal-check:checked').forEach(function(cb) {
+    var subjectType = cb.dataset.subjectType || 'policy';
+    tokens.push(subjectType + ':' + cb.value);
+  });
+  if (!tokens.length) {
+    showToast('Select at least one row to bind.', false);
+    return;
+  }
+  openBindOrderSlideover(tokens.join(','));
 }
 </script>
 

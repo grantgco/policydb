@@ -189,6 +189,7 @@ def _build_tab_context(tab: str, conn) -> dict:
 
     if tab == "workflow":
         ctx["mandated_activities"] = cfg.get("mandated_activities", [])
+        ctx["post_bind_activities"] = cfg.get("post_bind_activities", [])
         ctx["milestone_profiles"] = cfg.get("milestone_profiles", [])
         ctx["milestone_profile_rules"] = cfg.get("milestone_profile_rules", [])
         ctx["timeline_engine"] = cfg.get("timeline_engine", {})
@@ -967,6 +968,67 @@ async def save_mandated_activity(request: Request, index: int):
                 activities[index][key] = val
         full = dict(cfg.load_config())
         full["mandated_activities"] = activities
+        cfg.save_config(full)
+        cfg.reload_config()
+    return HTMLResponse('<span class="text-green-600 text-xs">&#10003;</span>')
+
+
+# ── Post-Bind Activities ─────────────────────────────────────────────────────
+
+@router.post("/post-bind-activities/add", response_class=HTMLResponse)
+def post_bind_activity_add(
+    request: Request,
+    name: str = Form(...),
+    days_after_bind: int = Form(7),
+    activity_type: str = Form("Follow-up"),
+    subject: str = Form(""),
+):
+    full = dict(cfg.load_config())
+    rules = list(full.get("post_bind_activities", []))
+    rules.append({
+        "name": name.strip(),
+        "days_after_bind": days_after_bind,
+        "activity_type": activity_type,
+        "subject": subject.strip() or name.strip(),
+    })
+    full["post_bind_activities"] = rules
+    cfg.save_config(full)
+    cfg.reload_config()
+    return _render_post_bind_activities(request)
+
+
+@router.post("/post-bind-activities/remove", response_class=HTMLResponse)
+def post_bind_activity_remove(request: Request, name: str = Form(...)):
+    full = dict(cfg.load_config())
+    rules = [r for r in full.get("post_bind_activities", []) if r.get("name") != name]
+    full["post_bind_activities"] = rules
+    cfg.save_config(full)
+    cfg.reload_config()
+    return _render_post_bind_activities(request)
+
+
+def _render_post_bind_activities(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse("settings/_post_bind_activities_rows.html", {
+        "request": request,
+        "post_bind_activities": cfg.get("post_bind_activities", []),
+        "activity_types": cfg.get("activity_types", []),
+    })
+
+
+@router.patch("/post-bind-activities/{index}", response_class=HTMLResponse)
+async def save_post_bind_activity(request: Request, index: int):
+    """PATCH a single field on a post-bind activity by index."""
+    form = await request.form()
+    activities = list(cfg.get("post_bind_activities", []))
+    if 0 <= index < len(activities):
+        for key in ("name", "days_after_bind", "activity_type", "subject"):
+            if key in form:
+                val = form[key]
+                if key == "days_after_bind":
+                    val = int(val) if val else 0
+                activities[index][key] = val
+        full = dict(cfg.load_config())
+        full["post_bind_activities"] = activities
         cfg.save_config(full)
         cfg.reload_config()
     return HTMLResponse('<span class="text-green-600 text-xs">&#10003;</span>')

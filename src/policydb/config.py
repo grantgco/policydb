@@ -610,6 +610,35 @@ _DEFAULTS: dict[str, Any] = {
             "subject": "Confirm policy issued — {{policy_type}}",
         },
     ],
+    # Post-bind stewardship follow-ups generated when a Bind Order is submitted.
+    # Anchored on bind_date. Generated once per subject (program OR standalone policy).
+    # Editable in Settings (mirror of mandated_activities).
+    "post_bind_activities": [
+        {
+            "name": "Binder received from carrier",
+            "days_after_bind": 5,
+            "activity_type": "Follow-up",
+            "subject": "Confirm binder received from carrier",
+        },
+        {
+            "name": "Binder sent to client",
+            "days_after_bind": 7,
+            "activity_type": "Follow-up",
+            "subject": "Send binder to client",
+        },
+        {
+            "name": "Invoice issued to client",
+            "days_after_bind": 7,
+            "activity_type": "Follow-up",
+            "subject": "Issue invoice to client",
+        },
+        {
+            "name": "Final policy document received",
+            "days_after_bind": 30,
+            "activity_type": "Follow-up",
+            "subject": "Confirm final policy document received",
+        },
+    ],
     "email_subject_request": "{{client_name}} \u2014 {{rfi_uid}} {{request_title}}",
     "email_subject_request_all": "{{client_name}} \u2014 Outstanding Information Requests",
     "email_subject_rfi_notify": "FYI: {{client_name}} \u2014 {{rfi_uid}} Items Received",

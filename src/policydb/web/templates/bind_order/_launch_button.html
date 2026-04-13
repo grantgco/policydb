@@ -1,0 +1,10 @@
+{# Bind Order launch button — shared partial.
+   Expects: `subjects` (string, e.g., "program:PGM-042" or "policy:POL-017"),
+            optional `label` (default "Bind Order"),
+            optional `cls` (CSS classes for the button).
+#}
+{% set _label = label or 'Bind Order' %}
+{% set _cls = cls or 'bg-marsh hover:bg-marsh/90 text-white text-xs font-medium px-3 py-1.5 rounded-lg transition-colors' %}
+<button type="button"
+        onclick="openBindOrderSlideover('{{ subjects }}')"
+        class="{{ _cls }}">{{ _label }}</button>
