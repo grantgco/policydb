@@ -33,6 +33,13 @@
         {% if item.received and item.received_at %}
         <span class="text-[10px] text-green-600">received {{ item.received_at[:10] }}</span>
         {% endif %}
+        <button type="button"
+          onclick="toggleItemAttachments({{ item.id }})"
+          class="text-[10px] text-gray-400 hover:text-marsh inline-flex items-center gap-0.5 no-print"
+          title="{% if item.attachment_count and item.attachment_count > 0 %}Show/hide attached files{% else %}Attach a file{% endif %}">
+          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/></svg>
+          {% if item.attachment_count and item.attachment_count > 0 %}{{ item.attachment_count }}{% else %}Attach{% endif %}
+        </button>
       </div>
     </div>
     <button
@@ -49,4 +56,7 @@
          data-placeholder="Response or notes..."
          style="min-height: 1.5rem; white-space: pre-line; word-break: break-word;">{{ item.notes or '' }}</div>
   </div>
+  {# Row 3: Lazy-loaded attachment panel — hidden until the paperclip is clicked #}
+  <div id="item-att-{{ item.id }}" class="hidden ml-8 mt-2 no-print"
+       data-loaded="false"></div>
 </div>
