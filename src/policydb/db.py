@@ -1877,6 +1877,15 @@ def _init_db_inner(conn: sqlite3.Connection, db_path: Path) -> None:
         conn.commit()
         logger.info("Migration 142: added bind_events and bind_event_children tables")
 
+    if 143 not in applied:
+        conn.executescript((_MIGRATIONS_DIR / "143_project_scratchpad.sql").read_text())
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (143, "Add project_scratchpad table for per-project working notes"),
+        )
+        conn.commit()
+        logger.info("Migration 143: added project_scratchpad table")
+
     # Data hygiene: fix 'None' string corruption in text fields (runs every startup, fast no-op if clean)
     conn.execute("UPDATE clients SET cn_number = NULL WHERE cn_number = 'None'")
 

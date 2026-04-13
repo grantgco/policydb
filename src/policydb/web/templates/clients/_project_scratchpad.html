@@ -1,0 +1,124 @@
+<div id="project-scratchpad-{{ project.id }}" class="card p-4">
+  <div class="flex items-center justify-between mb-2">
+    <h2 class="font-semibold text-gray-900 text-sm flex items-center gap-2">
+      <svg class="w-4 h-4 text-marsh" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+      </svg>
+      Working Notes
+    </h2>
+    <span id="proj-scratch-ts-{{ project.id }}" class="text-xs text-gray-400 italic">
+      {% if project_scratchpad_updated %}saved {{ project_scratchpad_updated[:16] }}{% endif %}
+    </span>
+  </div>
+  <textarea
+    id="proj-scratch-ta-{{ project.id }}"
+    name="content"
+    rows="4"
+    placeholder="Working notes about this location — type here, then log as an activity when ready…"
+    class="w-full text-sm text-gray-800 bg-transparent resize-none focus:outline-none placeholder-gray-300 leading-relaxed">{{ project_scratchpad }}</textarea>
+  <div class="flex justify-end gap-1 mt-1">
+    <button type="button" id="proj-scratch-log-{{ project.id }}"
+      onclick="logProjectScratch('{{ project.id }}')"
+      {% if not project_scratchpad or not project_scratchpad.strip() %}disabled{% endif %}
+      class="text-xs bg-marsh text-white px-3 py-1 rounded hover:bg-marsh-light disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+      Log as Activity
+    </button>
+    <button type="button" id="proj-scratch-clear-{{ project.id }}"
+      onclick="clearProjectScratch('{{ project.id }}')"
+      {% if not project_scratchpad or not project_scratchpad.strip() %}disabled{% endif %}
+      class="text-xs text-gray-400 border border-gray-200 px-3 py-1 rounded hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+      Clear
+    </button>
+  </div>
+</div>
+
+<script>
+(function() {
+  var PID = "{{ project.id }}";
+  var CID = "{{ client.id }}";
+  var ta = document.getElementById('proj-scratch-ta-' + PID);
+  var ts = document.getElementById('proj-scratch-ts-' + PID);
+  var logBtn = document.getElementById('proj-scratch-log-' + PID);
+  var clearBtn = document.getElementById('proj-scratch-clear-' + PID);
+  if (!ta) return;
+
+  function updateBtns() {
+    var hasContent = (ta.value || '').trim().length > 0;
+    if (logBtn) logBtn.disabled = !hasContent;
+    if (clearBtn) clearBtn.disabled = !hasContent;
+  }
+
+  var saveTimer = null;
+  var saving = false;
+  function autoSave() {
+    if (saving) return;
+    saving = true;
+    var fd = new FormData();
+    fd.set('content', ta.value);
+    fetch('/clients/' + CID + '/projects/' + PID + '/scratchpad', {
+      method: 'POST', body: fd,
+      headers: {'Accept': 'application/json'}
+    }).then(function(r) { return r.json(); }).then(function(data) {
+      if (data.ok && ts) ts.textContent = 'saved ' + data.saved_at;
+    }).catch(function() {}).finally(function() { saving = false; });
+  }
+
+  ta.addEventListener('input', function() {
+    updateBtns();
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(autoSave, 800);
+  });
+
+  window.logProjectScratch = function(projectId) {
+    var el = document.getElementById('proj-scratch-ta-' + projectId);
+    if (!el || !el.value.trim()) return;
+    var fd = new FormData();
+    fd.set('source', 'project');
+    fd.set('scope_id', projectId);
+    fd.set('activity_type', 'Note');
+    fd.set('subject', 'Working note');
+    fd.set('details', el.value.trim());
+    fetch('/inbox/scratchpad/process', {
+      method: 'POST', body: fd,
+      headers: {'Accept': 'application/json'}
+    }).then(function(r) { return r.json(); }).then(function(data) {
+      if (data && data.ok) {
+        el.value = '';
+        var _log = document.getElementById('proj-scratch-log-' + projectId);
+        var _clr = document.getElementById('proj-scratch-clear-' + projectId);
+        if (_log) _log.disabled = true;
+        if (_clr) _clr.disabled = true;
+        var _ts = document.getElementById('proj-scratch-ts-' + projectId);
+        if (_ts) _ts.textContent = 'processed';
+        if (typeof showToast === 'function') showToast('Note logged as activity', true);
+      } else if (typeof showToast === 'function') {
+        showToast((data && data.error) || 'Failed to log activity', false);
+      }
+    }).catch(function() {
+      if (typeof showToast === 'function') showToast('Failed to log activity', false);
+    });
+  };
+
+  window.clearProjectScratch = function(projectId) {
+    var el = document.getElementById('proj-scratch-ta-' + projectId);
+    if (!el) return;
+    var fd = new FormData();
+    fd.set('source', 'project');
+    fd.set('scope_id', projectId);
+    fetch('/inbox/scratchpad/clear', {method: 'POST', body: fd})
+      .then(function(r) {
+        if (r.ok) {
+          el.value = '';
+          var _log = document.getElementById('proj-scratch-log-' + projectId);
+          var _clr = document.getElementById('proj-scratch-clear-' + projectId);
+          if (_log) _log.disabled = true;
+          if (_clr) _clr.disabled = true;
+          var _ts = document.getElementById('proj-scratch-ts-' + projectId);
+          if (_ts) _ts.textContent = 'cleared';
+          if (typeof showToast === 'function') showToast('Scratchpad cleared', true);
+        }
+      })
+      .catch(function() { if (typeof showToast === 'function') showToast('Failed to clear', false); });
+  };
+})();
+</script>

@@ -144,6 +144,12 @@ def scratchpad_clear(source: str = Form(...), source_id: str = Form(""), scope_i
     elif source == "policy":
         uid = sid.split("/")[2] if sid.count("/") >= 2 else sid
         conn.execute("UPDATE policy_scratchpad SET content='', updated_at=CURRENT_TIMESTAMP WHERE policy_uid=?", (uid,))
+    elif source == "project":
+        try:
+            pid = int(sid.split("/")[-1]) if "/" in sid else int(sid)
+        except (ValueError, IndexError):
+            return HTMLResponse("Invalid project ID", status_code=400)
+        conn.execute("UPDATE project_scratchpad SET content='', updated_at=CURRENT_TIMESTAMP WHERE project_id=?", (pid,))
     conn.commit()
     return HTMLResponse("", headers={
         "HX-Trigger": '{"activityLogged": "Scratchpad cleared"}'
@@ -170,6 +176,7 @@ def scratchpad_process(
     sid = scope_id or source_id
     resolved_client_id = client_id
     resolved_policy_uid = None
+    resolved_project_id = 0
     content_for_note = details or ""
 
     if source == "client" and not resolved_client_id:
@@ -190,6 +197,19 @@ def scratchpad_process(
             resolved_client_id = row["client_id"]
         if not content_for_note:
             row2 = conn.execute("SELECT content FROM policy_scratchpad WHERE policy_uid=?", (resolved_policy_uid,)).fetchone()
+            if row2:
+                content_for_note = row2["content"] or ""
+    elif source == "project":
+        try:
+            resolved_project_id = int(sid.split("/")[-1]) if "/" in sid else int(sid)
+        except (ValueError, IndexError):
+            resolved_project_id = 0
+        if resolved_project_id and not resolved_client_id:
+            row = conn.execute("SELECT client_id FROM projects WHERE id=?", (resolved_project_id,)).fetchone()
+            if row:
+                resolved_client_id = row["client_id"]
+        if resolved_project_id and not content_for_note:
+            row2 = conn.execute("SELECT content FROM project_scratchpad WHERE project_id=?", (resolved_project_id,)).fetchone()
             if row2:
                 content_for_note = row2["content"] or ""
     elif source == "dashboard" and not content_for_note:
@@ -217,10 +237,11 @@ def scratchpad_process(
     # 1. Create activity
     cursor = conn.execute(
         """INSERT INTO activity_log
-           (activity_date, client_id, policy_id, activity_type, subject, details,
+           (activity_date, client_id, policy_id, project_id, activity_type, subject, details,
             follow_up_date, account_exec, duration_hours)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (date.today().isoformat(), resolved_client_id or None, resolved_policy_id or None, activity_type,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (date.today().isoformat(), resolved_client_id or None, resolved_policy_id or None,
+         resolved_project_id or None, activity_type,
          subject or "Scratchpad note", content_for_note or None,
          follow_up_date or None, account_exec, dur),
     )
@@ -238,6 +259,8 @@ def scratchpad_process(
     elif source == "policy":
         puid = resolved_policy_uid or (sid.split("/")[2] if "/" in sid else sid)
         conn.execute("UPDATE policy_scratchpad SET content='', updated_at=CURRENT_TIMESTAMP WHERE policy_uid=?", (puid,))
+    elif source == "project" and resolved_project_id:
+        conn.execute("UPDATE project_scratchpad SET content='', updated_at=CURRENT_TIMESTAMP WHERE project_id=?", (resolved_project_id,))
 
     conn.commit()
 
