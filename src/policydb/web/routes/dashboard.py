@@ -33,14 +33,37 @@ URGENCY_ORDER = ["EXPIRED", "URGENT", "WARNING", "UPCOMING", "OK"]
 
 
 def _attach_client_ids(conn, rows: list[dict]) -> list[dict]:
-    result = []
+    """Attach client_id to each row.
+
+    Prefers an existing client_id already on the row — the pipeline
+    views (``v_renewal_pipeline`` etc.) already expose it, so we skip
+    the lookup entirely in the common case.  Falls back to a single
+    bulk ``(name → id)`` lookup for legacy callers that only supply
+    ``client_name``.
+
+    The lookup intentionally does **not** filter archived clients:
+    pipeline views may still surface a policy whose owning client is
+    archived (the view only filters ``p.archived = 0``), and dropping
+    the id would turn the row's "Client" link into a broken
+    ``/clients/0`` href.  Rows with no match fall back to
+    ``client_id=0`` so callers can still render safely.
+    """
+    rows = list(rows)
+    if not rows:
+        return rows
+    # Fast path: if every row already has a client_id, no lookup needed.
+    missing = [r for r in rows if not r.get("client_id")]
+    if missing:
+        name_map = {
+            r["name"]: r["id"]
+            for r in conn.execute("SELECT id, name FROM clients").fetchall()
+        }
+        for d in missing:
+            d["client_id"] = name_map.get(d.get("client_name") or "", 0)
+    # Ensure every row at least has the key, even when nothing matched.
     for d in rows:
-        client_row = conn.execute(
-            "SELECT id FROM clients WHERE name = ?", (d["client_name"],)
-        ).fetchone()
-        d["client_id"] = client_row["id"] if client_row else 0
-        result.append(d)
-    return result
+        d.setdefault("client_id", 0)
+    return rows
 
 
 @router.get("/dashboard/pipeline", response_class=HTMLResponse)
@@ -54,7 +77,7 @@ def dashboard_pipeline(request: Request, window: int = 90, status: str = "", con
     ))
     attach_renewal_issues(conn, pipeline)
     suggested_uids = {r["policy_uid"] for r in get_suggested_followups(conn, excluded_statuses=excluded)}
-    return templates.TemplateResponse("policies/_pipeline_table.html", {
+    return templates.TemplateResponse("dashboard/_pipeline_section.html", {
         "request": request,
         "pipeline": pipeline,
         "window": window,
@@ -163,8 +186,8 @@ def dashboard(request: Request, conn=Depends(get_db)):
         "urgent_count": urgent_count,
         "urgency_breakdown": urgency_breakdown,
         "renewal_statuses": cfg.get("renewal_statuses"),
-        "dash_window": 90,
-        "dash_status": "",
+        "window": 90,
+        "status": "",
         "scratchpad_content": scratchpad_content,
         "scratchpad_updated": scratchpad_updated,
         "recent_client_notes": recent_client_notes,
@@ -206,6 +229,7 @@ def search(request: Request, q: str = "", conn=Depends(get_db)):
         "clients": [], "policies": [], "activities": [], "issues": [],
         "contacts": [], "programs": [], "locations": [],
         "inbox": [], "kb_bookmarks": [], "kb_articles": [],
+        "scratchpads": [],
         "_snippets": {}, "_query_mode": "none",
     }
     results = dict(_empty)
@@ -282,7 +306,8 @@ def search_live(request: Request, q: str = "", conn=Depends(get_db)):
     items = []
     # Priority order for display
     for etype in ("clients", "policies", "issues", "contacts", "programs",
-                  "activities", "locations", "inbox", "kb_articles", "kb_bookmarks"):
+                  "activities", "locations", "scratchpads", "inbox",
+                  "kb_articles", "kb_bookmarks"):
         for r in results.get(etype, [])[:3]:
             items.append({"type": etype, "data": r})
             if len(items) >= 8:

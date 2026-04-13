@@ -1,0 +1,35 @@
+{# Renewal pipeline filter controls + table.
+   Returned by /dashboard/pipeline so HTMX swaps controls + body together,
+   keeping the active filter button state in sync with the data. #}
+<div class="px-5 pt-3 pb-2 border-b border-gray-100">
+  <div class="flex items-center justify-between mb-3">
+    <h2 class="font-semibold text-gray-900">Renewal Pipeline</h2>
+    <a href="/renewals" class="text-xs text-marsh hover:underline">View all →</a>
+  </div>
+  <!-- Window + status filters (HTMX-driven) -->
+  <div id="dash-pipeline-controls" class="flex flex-wrap gap-1.5 items-center">
+    {% for w in [90, 120, 180] %}
+    <button
+      hx-get="/dashboard/pipeline?window={{ w }}&status={{ status | urlencode }}"
+      hx-target="#dash-pipeline-section"
+      hx-swap="innerHTML"
+      class="btn-filter {{ 'active' if window == w else '' }}">{{ w }}d</button>
+    {% endfor %}
+    <span class="border-l border-gray-200 h-6 mx-1"></span>
+    <button
+      hx-get="/dashboard/pipeline?window={{ window }}"
+      hx-target="#dash-pipeline-section"
+      hx-swap="innerHTML"
+      class="btn-filter {{ 'active' if not status else '' }}">All</button>
+    {% for s in renewal_statuses %}
+    <button
+      hx-get="/dashboard/pipeline?window={{ window }}&status={{ s | urlencode }}"
+      hx-target="#dash-pipeline-section"
+      hx-swap="innerHTML"
+      class="btn-filter {{ 'active' if status == s else '' }}">{{ s }}</button>
+    {% endfor %}
+  </div>
+</div>
+<div id="dash-pipeline-body">
+  {% include "policies/_pipeline_table.html" %}
+</div>

@@ -116,9 +116,20 @@ def _enrich_last_activity(clients: list[dict]) -> None:
     today = _date.today()
     for c in clients:
         raw = c.get("last_activity_date")
+        d = None
         if raw:
-            d = _date.fromisoformat(raw)
+            try:
+                d = _date.fromisoformat(str(raw)[:10])
+            except (TypeError, ValueError):
+                d = None
+        if d is not None:
             delta = (today - d).days
+            # A future-dated last_activity_date (delta < 0) is typically
+            # bad data or a scheduled activity that leaked into the
+            # "last activity" field.  Treat it as "today" rather than
+            # rendering "-5d ago", which is meaningless to users.
+            if delta < 0:
+                delta = 0
             rel = _relative_days(delta)
             if rel is None:
                 # >90 days — show abbreviated date like "Mar 12"
@@ -140,7 +151,7 @@ def _enrich_last_activity(clients: list[dict]) -> None:
 
 def _apply_client_filters(clients, segment="", urgent="", inactive="", prospect=""):
     if segment:
-        clients = [c for c in clients if c["industry_segment"] == segment]
+        clients = [c for c in clients if c.get("industry_segment") == segment]
     if urgent:
         clients = [c for c in clients if (c.get("next_renewal_days") or 999) <= 90]
     if inactive:
@@ -411,6 +422,11 @@ def client_search(
     clients = _apply_client_filters(clients, segment, urgent, inactive, prospect)
     clients = _sort_clients(clients, sort, dir)
     _enrich_last_activity(clients)
+    # _table_rows.html renders the health badge for each row, which requires
+    # the health_score / health_missing / health_stale fields populated by
+    # score_client(). Without this the partial crashes with UndefinedError.
+    for c in clients:
+        score_client(conn, c, include_staleness=False)
     return templates.TemplateResponse("clients/_table_rows.html", {
         "request": request,
         "clients": clients,

@@ -2021,6 +2021,8 @@ def rebuild_search_index(conn: sqlite3.Connection) -> None:
     """)
 
     # -- Activities (last 2 years) --
+    # Includes plain activities (item_kind IS NULL) and follow-ups; issue
+    # rows (item_kind='issue') are indexed separately as their own entity.
     conn.execute("""
         INSERT INTO search_index (entity_type, entity_id, title, subtitle, body, metadata)
         SELECT 'activity', CAST(a.id AS TEXT),
@@ -2031,7 +2033,7 @@ def rebuild_search_index(conn: sqlite3.Connection) -> None:
             COALESCE(a.email_from, '') || ' ' || COALESCE(a.email_to, '')
         FROM activity_log a
         LEFT JOIN clients c ON a.client_id = c.id
-        WHERE a.item_kind IS NULL
+        WHERE (a.item_kind IS NULL OR a.item_kind = 'followup')
           AND a.activity_date >= date('now', '-2 years')
     """)
 
@@ -2108,6 +2110,9 @@ def rebuild_search_index(conn: sqlite3.Connection) -> None:
     """)
 
     # -- Client scratchpads --
+    # Skip scratchpads whose owning client is archived — otherwise an
+    # archived client will resurface in search via its scratchpad even
+    # though its main client row is excluded from the index.
     conn.execute("""
         INSERT INTO search_index (entity_type, entity_id, title, subtitle, body, metadata)
         SELECT 'scratchpad', 'client-' || CAST(cs.client_id AS TEXT),
@@ -2118,9 +2123,12 @@ def rebuild_search_index(conn: sqlite3.Connection) -> None:
         FROM client_scratchpad cs
         JOIN clients c ON c.id = cs.client_id
         WHERE cs.content IS NOT NULL AND cs.content != ''
+          AND c.archived = 0
     """)
 
     # -- Policy scratchpads --
+    # Skip scratchpads whose owning policy is archived (and whose owning
+    # client is archived) for the same reason as above.
     conn.execute("""
         INSERT INTO search_index (entity_type, entity_id, title, subtitle, body, metadata)
         SELECT 'scratchpad', 'policy-' || ps.policy_uid,
@@ -2129,7 +2137,11 @@ def rebuild_search_index(conn: sqlite3.Connection) -> None:
             COALESCE(ps.content, ''),
             ''
         FROM policy_scratchpad ps
+        JOIN policies p ON p.policy_uid = ps.policy_uid
+        JOIN clients c ON c.id = p.client_id
         WHERE ps.content IS NOT NULL AND ps.content != ''
+          AND p.archived = 0
+          AND c.archived = 0
     """)
 
     # -- KB Bookmarks --
@@ -2190,6 +2202,7 @@ def full_text_search(conn: sqlite3.Connection, query: str) -> dict:
             "clients": [], "policies": [], "activities": [], "issues": [],
             "contacts": [], "programs": [], "locations": [],
             "inbox": [], "kb_bookmarks": [], "kb_articles": [],
+            "scratchpads": [],
             "_snippets": {}, "_query_mode": "none",
         }
 
@@ -2249,7 +2262,7 @@ def full_text_search(conn: sqlite3.Connection, query: str) -> dict:
         FROM v_policy_status WHERE policy_uid IN (__IDS__)
     """)
     _hydrate("activity", "activities", """
-        SELECT a.id, a.activity_date, c.name AS client_name,
+        SELECT a.id, a.activity_date, a.client_id, c.name AS client_name,
                a.activity_type, a.subject, a.details, a.contact_person
         FROM activity_log a
         LEFT JOIN clients c ON a.client_id = c.id
@@ -2306,6 +2319,47 @@ def full_text_search(conn: sqlite3.Connection, query: str) -> dict:
         FROM kb_articles a WHERE a.uid IN (__IDS__)
         ORDER BY a.title
     """)
+
+    # Scratchpads use composite IDs (client-{id} or policy-{uid}) so they
+    # need a custom hydration path rather than the generic _hydrate helper.
+    scratchpad_ids = grouped.get("scratchpad", [])
+    results["scratchpads"] = []
+    for sid in scratchpad_ids:
+        if sid.startswith("client-"):
+            try:
+                cid = int(sid[len("client-"):])
+            except ValueError:
+                continue
+            row = conn.execute(
+                "SELECT cs.client_id, c.name AS client_name, "
+                "       SUBSTR(cs.content, 1, 200) AS excerpt "
+                "FROM client_scratchpad cs "
+                "JOIN clients c ON c.id = cs.client_id "
+                "WHERE cs.client_id = ?",
+                (cid,),
+            ).fetchone()
+            if row:
+                d = dict(row)
+                d["scratch_type"] = "client"
+                d["link"] = f"/clients/{d['client_id']}"
+                results["scratchpads"].append(d)
+        elif sid.startswith("policy-"):
+            puid = sid[len("policy-"):]
+            row = conn.execute(
+                "SELECT ps.policy_uid, p.client_id, c.name AS client_name, "
+                "       p.policy_type, p.carrier, "
+                "       SUBSTR(ps.content, 1, 200) AS excerpt "
+                "FROM policy_scratchpad ps "
+                "JOIN policies p ON p.policy_uid = ps.policy_uid "
+                "JOIN clients c ON c.id = p.client_id "
+                "WHERE ps.policy_uid = ?",
+                (puid,),
+            ).fetchone()
+            if row:
+                d = dict(row)
+                d["scratch_type"] = "policy"
+                d["link"] = f"/policies/{d['policy_uid']}/edit"
+                results["scratchpads"].append(d)
 
     # --- Tier 2: Fuzzy fallback ---
     total_fts = sum(len(v) for v in results.values())
