@@ -15,6 +15,7 @@ from policydb.queries import (
     auto_close_followups,
     get_issue_rollup,
     get_linked_policies_for_issue,
+    get_scoped_rfi_bundles,
 )
 from policydb.utils import round_duration
 from policydb.web.app import get_db, templates
@@ -885,6 +886,51 @@ def issue_detail(
         "checklist_items": _get_issue_checklist(conn, issue_id),
     }
     return templates.TemplateResponse("issues/detail.html", ctx)
+
+
+# ── Scoped RFI view: filtered to the issue's linked policies ────────────────
+
+
+@router.get("/issues/{issue_uid}/rfi", response_class=HTMLResponse)
+def issue_rfi_scoped(
+    issue_uid: str,
+    request: Request,
+    conn=Depends(get_db),
+):
+    """Filtered RFI list scoped to the policies linked to this issue.
+
+    Rendered as a standalone page reachable from the Scope Rollup "View →"
+    link on the issue detail page. Bundles with no items in scope are
+    omitted so the user sees only what's relevant.
+    """
+    issue = conn.execute(
+        """SELECT a.id, a.issue_uid, a.subject, a.client_id,
+                  c.name AS client_name
+           FROM activity_log a
+           LEFT JOIN clients c ON c.id = a.client_id
+           WHERE a.issue_uid = ? AND a.item_kind = 'issue'""",
+        (issue_uid,),
+    ).fetchone()
+    if not issue:
+        return RedirectResponse("/action-center?tab=issues", status_code=303)
+
+    linked = get_linked_policies_for_issue(conn, issue["id"])
+    scope_uids = [p["policy_uid"] for p in linked if p.get("policy_uid")]
+    bundles = get_scoped_rfi_bundles(conn, issue["client_id"], scope_uids) if scope_uids else []
+
+    ctx = {
+        "request": request,
+        "active": "action-center",
+        "client": {"id": issue["client_id"], "name": issue["client_name"]},
+        "bundles": bundles,
+        "scope_label": f"Issue {issue['issue_uid']} — {issue['subject']}",
+        "scope_back_url": f"/issues/{issue['issue_uid']}",
+        "scope_back_label": "Back to issue",
+        "scope_policies": linked,
+        "today_iso": date.today().isoformat(),
+        "request_categories": cfg.get("request_categories", []),
+    }
+    return templates.TemplateResponse("clients/rfi_scoped.html", ctx)
 
 
 # ── Log activity against issue ───────────────────────────────────────────────

@@ -24,6 +24,8 @@ from policydb.queries import (
     remove_contact_from_program, set_program_placement_colleague,
     get_program_underwriter_rollup,
     get_program_rollup,
+    get_linked_policies_for_program,
+    get_scoped_rfi_bundles,
 )
 from policydb.web.app import get_db, templates
 
@@ -109,6 +111,36 @@ async def create_program_v2(
     logger.info("Created program v2 '%s' (%s) for client %d", name, uid, client_id)
 
     return JSONResponse({"ok": True, "redirect": f"/programs/{uid}"})
+
+
+@router.get("/programs/{program_uid}/rfi", response_class=HTMLResponse)
+def program_rfi_scoped(
+    request: Request,
+    program_uid: str,
+    conn: sqlite3.Connection = Depends(get_db),
+):
+    """Filtered RFI list scoped to all child policies of a program."""
+    program = get_program_by_uid(conn, program_uid)
+    if not program:
+        return HTMLResponse("Program not found", status_code=404)
+    client = conn.execute(
+        "SELECT id, name FROM clients WHERE id = ?", (program["client_id"],)
+    ).fetchone()
+    linked = get_linked_policies_for_program(conn, program["id"])
+    scope_uids = [p["policy_uid"] for p in linked if p.get("policy_uid")]
+    bundles = get_scoped_rfi_bundles(conn, program["client_id"], scope_uids) if scope_uids else []
+    return templates.TemplateResponse("clients/rfi_scoped.html", {
+        "request": request,
+        "active": "clients",
+        "client": dict(client) if client else {"id": program["client_id"], "name": ""},
+        "bundles": bundles,
+        "scope_label": f"Program {program['program_uid']} — {program['name']}",
+        "scope_back_url": f"/programs/{program['program_uid']}",
+        "scope_back_label": "Back to program",
+        "scope_policies": linked,
+        "today_iso": date.today().isoformat(),
+        "request_categories": cfg.get("request_categories", []),
+    })
 
 
 @router.get("/programs/{program_uid}", response_class=HTMLResponse)

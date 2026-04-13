@@ -5411,3 +5411,96 @@ def get_program_rollup(conn: sqlite3.Connection, program_id: int) -> dict:
     """
     linked = get_linked_policies_for_program(conn, program_id)
     return _build_rollup(conn, linked, exclude_issue_id=None)
+
+
+def get_scoped_rfi_bundles(
+    conn: sqlite3.Connection, client_id: int, policy_uids: list[str]
+) -> list[dict]:
+    """Return client request bundles with items filtered to a set of policies.
+
+    Bundles with zero in-scope items are omitted so the scoped page only
+    surfaces bundles that actually touch the scope. Each returned bundle has
+    an `items` list (in-scope items only), plus `scoped_total`, `scoped_done`,
+    and `scoped_pct` counts computed over the filtered set.
+    """
+    if not policy_uids:
+        return []
+
+    uid_ph = ",".join("?" * len(policy_uids))
+    rows = conn.execute(
+        f"""SELECT b.id AS bundle_id, b.rfi_uid, b.title, b.status, b.send_by_date,
+                   b.created_at, b.updated_at, b.sent_at, b.notes AS bundle_notes,
+                   b.client_id,
+                   i.id AS item_id, i.description, i.policy_uid, i.project_name,
+                   i.category, i.received, i.received_at, i.notes, i.sort_order,
+                   p.policy_type, p.carrier
+            FROM client_request_bundles b
+            JOIN client_request_items i ON i.bundle_id = b.id
+            LEFT JOIN policies p ON p.policy_uid = i.policy_uid
+            WHERE b.client_id = ?
+              AND i.policy_uid IN ({uid_ph})
+            ORDER BY
+                CASE b.status WHEN 'open' THEN 0 WHEN 'sent' THEN 1 WHEN 'partial' THEN 2 ELSE 3 END,
+                b.updated_at DESC,
+                i.received ASC, i.sort_order ASC, i.id ASC""",  # noqa: S608
+        [client_id] + list(policy_uids),
+    ).fetchall()
+
+    bundles_by_id: dict[int, dict] = {}
+    for r in rows:
+        bid = r["bundle_id"]
+        b = bundles_by_id.get(bid)
+        if b is None:
+            b = {
+                "id": bid,
+                "rfi_uid": r["rfi_uid"],
+                "title": r["title"],
+                "status": r["status"],
+                "send_by_date": r["send_by_date"],
+                "created_at": r["created_at"],
+                "updated_at": r["updated_at"],
+                "sent_at": r["sent_at"],
+                "notes": r["bundle_notes"],
+                "client_id": r["client_id"],
+                "items": [],
+                "scoped_total": 0,
+                "scoped_done": 0,
+            }
+            bundles_by_id[bid] = b
+        b["items"].append(
+            {
+                "id": r["item_id"],
+                "description": r["description"],
+                "policy_uid": r["policy_uid"],
+                "project_name": r["project_name"],
+                "category": r["category"],
+                "received": r["received"],
+                "received_at": r["received_at"],
+                "notes": r["notes"],
+                "sort_order": r["sort_order"],
+                "policy_type": r["policy_type"],
+                "carrier": r["carrier"],
+            }
+        )
+        b["scoped_total"] += 1
+        if r["received"]:
+            b["scoped_done"] += 1
+
+    out: list[dict] = []
+    for b in bundles_by_id.values():
+        b["scoped_pct"] = int(round(100 * b["scoped_done"] / b["scoped_total"])) if b["scoped_total"] else 0
+        out.append(b)
+    out.sort(
+        key=lambda b: (
+            {"open": 0, "sent": 1, "partial": 2}.get(b["status"], 3),
+            b.get("updated_at") or "",
+        ),
+        reverse=False,
+    )
+    # Within each status bucket we want newest-updated first; do a stable
+    # secondary sort on updated_at desc to achieve that.
+    out.sort(key=lambda b: (b.get("updated_at") or ""), reverse=True)
+    out.sort(
+        key=lambda b: {"open": 0, "sent": 1, "partial": 2}.get(b["status"], 3)
+    )
+    return out
