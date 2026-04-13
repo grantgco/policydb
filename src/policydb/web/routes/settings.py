@@ -62,6 +62,7 @@ EDITABLE_LISTS: dict[str, str] = {
     "attachment_categories": "Attachment Categories",
     "freemail_domains": "Freemail Domains (Skip for Client Matching)",
     "internal_email_domains": "Internal Email Domains (Skip for Client Matching)",
+    "automated_email_prefixes": "Automated Email Prefixes (Skip for Contact Capture)",
     "relationship_risk_levels": "Relationship Risk Levels",
     "risk_review_prompt_categories": "Risk Review Prompt Categories",
     "import_source_names": "Import Source Names",
@@ -118,6 +119,7 @@ TAB_LISTS: dict[str, dict[str, str]] = {
         "service_model_options": "Service Model Options",
         "freemail_domains": "Freemail Domains (Skip for Client Matching)",
         "internal_email_domains": "Internal Email Domains (Skip for Client Matching)",
+        "automated_email_prefixes": "Automated Email Prefixes (Skip for Contact Capture)",
     },
     "issues": {
         "issue_lifecycle_states": "Issue Lifecycle States",

@@ -13,16 +13,21 @@ The Activity Review Engine detects work sessions that happened (audit trail evid
 
 ## System vs User Activity — Critical Filtering Rule
 
-Every query that counts or checks activities for review/anomaly purposes MUST exclude system-generated activities. Three filter conditions:
+Every query that counts or checks activities for review/anomaly purposes MUST exclude system-generated activities. The canonical filter:
 
 ```sql
 AND activity_type NOT IN ('Milestone')
-AND source = 'manual'
+AND (source IN ('manual', 'outlook_sync', 'thread_inherit') OR source IS NULL)
 ```
 
 **System-generated activity types to exclude:**
 - `activity_type = 'Milestone'` — auto-logged when policy status changes to Bound
-- `source = 'outlook_sync'` — auto-imported from Outlook email sweep
+
+**Activity sources that DO count as user work:**
+- `source = 'manual'` — user logged it themselves
+- `source = 'outlook_sync'` — synced email from Outlook (real client contact)
+- `source = 'thread_inherit'` — promoted from inbox via post-sync thread inheritance (still real correspondence)
+- `source IS NULL` — pre-migration-122 rows (predate the column)
 
 **System-generated audit operations to exclude:**
 - `(policy_milestones, INSERT)` — renewal checklist items auto-populated by system
@@ -31,16 +36,15 @@ AND source = 'manual'
 **User operations to KEEP:**
 - `(policy_milestones, UPDATE)` — user checking off a milestone = real work
 - All `clients`, `policies`, `contacts` operations — user is editing data
-- `source = 'manual'` activities — user logged it themselves
 
 ### Where Filtering Applies
 
 | Location | Function | What to filter |
 |----------|----------|----------------|
 | `activity_review.py` | Entry list building | Exclude `_SYSTEM_OPS` from audit entries |
-| `activity_review.py` | `_has_covering_activity()` | Only count `source='manual'` and non-Milestone |
-| `anomaly_engine.py` | Review gate "Recent Activity" | Only count user activities |
-| `anomaly_engine.py` | `_rule_no_activity()` | Only count user activities for staleness |
+| `activity_review.py` | `_has_covering_activity()` | Only count `source IN ('manual', 'outlook_sync', 'thread_inherit')` and non-Milestone |
+| `anomaly_engine.py` | Review gate "Recent Activity" | Only count user activities (manual / outlook_sync / thread_inherit / NULL) |
+| `anomaly_engine.py` | `_rule_no_activity()` | Same filter |
 
 ## Architecture
 

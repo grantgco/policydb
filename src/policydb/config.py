@@ -843,6 +843,15 @@ _DEFAULTS: dict[str, Any] = {
     "internal_email_domains": [
         "marsh.com", "marshpm.com", "mmc.com",
     ],
+    "automated_email_prefixes": [
+        "noreply", "no-reply", "no_reply",
+        "donotreply", "do-not-reply", "do_not_reply",
+        "mailer-daemon", "postmaster",
+        "bounce", "bounces",
+        "notification", "notifications",
+        "alert", "alerts",
+        "automated", "system",
+    ],
 }
 
 _config: dict[str, Any] | None = None
