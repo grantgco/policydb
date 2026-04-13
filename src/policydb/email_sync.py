@@ -21,6 +21,35 @@ logger = logging.getLogger(__name__)
 _REF_TAG_RE = re.compile(r'\[PDB:([^\]]+)\]')
 _HTML_TAG_RE = re.compile(r'<[^>]+>')
 
+# Default automated/noreply local-part prefixes — overridable via
+# cfg.get("automated_email_prefixes"). Match is anchored on local part.
+_DEFAULT_AUTOMATED_PREFIXES = (
+    "noreply", "no-reply", "no_reply", "donotreply", "do-not-reply", "do_not_reply",
+    "mailer-daemon", "postmaster", "bounce", "bounces", "notification", "notifications",
+    "alert", "alerts", "automated", "system", "info", "support", "newsletter",
+)
+
+
+def _is_automated_sender(address: str) -> bool:
+    """Return True if the email address looks like an automated/noreply sender.
+
+    Matches the local part (before @) against a list of common automated prefixes,
+    plus any '+' suffix conventions (e.g. 'bounces+abc123@example.com').
+    """
+    if not address or "@" not in address:
+        return False
+    local = address.strip().lower().rsplit("@", 1)[0]
+    # Strip '+suffix' so 'bounces+abc123' → 'bounces'
+    base = local.split("+", 1)[0]
+    prefixes = cfg.get("automated_email_prefixes", list(_DEFAULT_AUTOMATED_PREFIXES))
+    for p in prefixes:
+        p_norm = (p or "").strip().lower()
+        if not p_norm:
+            continue
+        if base == p_norm or base.startswith(p_norm + "."):
+            return True
+    return False
+
 
 def _extract_ref_tags(text: str) -> list[str]:
     """Extract all [PDB:...] ref tags from text."""
@@ -38,11 +67,12 @@ _EXTERNAL_RE = re.compile(
 def _normalize_subject(subject: str) -> str:
     """Normalize an email subject for thread comparison.
 
-    Strips Re:/Fwd:/FW: prefixes (repeated/nested), external sender warnings,
-    the "Received: " prefix added by sync, collapses whitespace, lowercases.
+    Strips Re:/Fwd:/FW: prefixes (repeated/nested) and external sender warnings,
+    collapses whitespace, lowercases. Also tolerates legacy "Received: " prefixes
+    from rows imported before email_direction column existed (migration 144).
     """
     s = subject or ""
-    # Strip "Received: " prefix added by _create_or_enrich_activity
+    # Strip legacy "Received: " prefix (pre-migration-144 data)
     if s.startswith("Received: "):
         s = s[10:]
     # Strip external sender warnings
@@ -128,11 +158,55 @@ def _extract_domain(email_or_url: str) -> str:
     return s
 
 
-def _match_by_domain(conn: sqlite3.Connection, email_addresses: list[str]) -> dict | None:
+def _build_domain_index(conn: sqlite3.Connection) -> dict[str, set[int]]:
+    """Build a {domain: {client_id, ...}} map once per sync.
+
+    Indexes both client website domains and contact email domains, restricted to
+    non-archived clients. Used by `_match_by_domain` to avoid an N+1 query
+    pattern across hundreds of emails.
+    """
+    index: dict[str, set[int]] = {}
+
+    # Client website domains
+    for row in conn.execute(
+        """SELECT id, website FROM clients
+           WHERE archived = 0 AND website IS NOT NULL AND website != ''"""
+    ).fetchall():
+        d = _extract_domain(row["website"])
+        if d:
+            index.setdefault(d, set()).add(row["id"])
+
+    # Contact email domains via assignments — only for active clients
+    for row in conn.execute(
+        """SELECT DISTINCT LOWER(TRIM(co.email)) AS email, cca.client_id
+           FROM contacts co
+           JOIN contact_client_assignments cca ON co.id = cca.contact_id
+           JOIN clients c ON cca.client_id = c.id
+           WHERE c.archived = 0
+             AND co.email IS NOT NULL AND co.email != ''"""
+    ).fetchall():
+        email = row["email"] or ""
+        if "@" in email:
+            d = email.rsplit("@", 1)[1]
+            if d:
+                index.setdefault(d, set()).add(row["client_id"])
+
+    return index
+
+
+def _match_by_domain(
+    conn: sqlite3.Connection,
+    email_addresses: list[str],
+    domain_index: dict[str, set[int]] | None = None,
+) -> dict | None:
     """Tier 2: match email addresses to a client by domain.
 
-    Checks client website fields and contact email domains.
-    Returns match dict with tier=2 or None if no unique match.
+    Uses a pre-built domain index when available (built once per sync via
+    `_build_domain_index`). Falls back to building one on-demand when called
+    outside a sync context (e.g. ad-hoc inbox routing). Skips freemail and
+    internal domains. Excludes archived clients.
+
+    Returns a match dict with tier=2 or None if no unique match.
     """
     skip_domains = set(cfg.get("freemail_domains", []))
     skip_domains.update(cfg.get("internal_email_domains", []))
@@ -145,29 +219,12 @@ def _match_by_domain(conn: sqlite3.Connection, email_addresses: list[str]) -> di
     if not domains:
         return None
 
-    matched_clients: dict[int, str] = {}  # client_id -> match source
+    if domain_index is None:
+        domain_index = _build_domain_index(conn)
 
+    matched_clients: set[int] = set()
     for domain in domains:
-        # 1. Match against client website field
-        rows = conn.execute(
-            "SELECT id, website FROM clients WHERE website IS NOT NULL AND website != ''",
-        ).fetchall()
-        for row in rows:
-            client_domain = _extract_domain(row["website"])
-            if client_domain == domain:
-                matched_clients[row["id"]] = "website"
-
-        # 2. Match against contact email domains via assignments
-        contact_rows = conn.execute(
-            """SELECT DISTINCT cca.client_id
-               FROM contacts co
-               JOIN contact_client_assignments cca ON co.id = cca.contact_id
-               WHERE LOWER(TRIM(co.email)) LIKE ?""",
-            (f"%@{domain}",),
-        ).fetchall()
-        for cr in contact_rows:
-            if cr["client_id"] not in matched_clients:
-                matched_clients[cr["client_id"]] = "contact_domain"
+        matched_clients.update(domain_index.get(domain, set()))
 
     if len(matched_clients) == 1:
         client_id = next(iter(matched_clients))
@@ -175,7 +232,10 @@ def _match_by_domain(conn: sqlite3.Connection, email_addresses: list[str]) -> di
 
     if len(matched_clients) > 1:
         # Ambiguous — return None, caller will route to inbox
-        logger.debug("Domain match ambiguous: %d clients matched for domains %s", len(matched_clients), domains)
+        logger.debug(
+            "Domain match ambiguous: %d clients matched for domains %s",
+            len(matched_clients), domains,
+        )
         return None
 
     return None
@@ -204,6 +264,14 @@ def _capture_unknown_contacts(
     # (Internal domains ARE filtered in _match_by_domain() for client matching.)
     subject = email.get("subject", "")
 
+    # Skip capture entirely if the resolved client is archived
+    if client_id:
+        archived_row = conn.execute(
+            "SELECT archived FROM clients WHERE id = ?", (client_id,),
+        ).fetchone()
+        if archived_row and archived_row["archived"]:
+            return
+
     for addr, display in addresses:
         addr_lower = addr.lower().strip()
         if not addr_lower or "@" not in addr_lower:
@@ -211,6 +279,10 @@ def _capture_unknown_contacts(
 
         domain = addr_lower.rsplit("@", 1)[1]
         if domain in skip_domains:
+            continue
+
+        # Skip noreply / bounce / mailer-daemon / notifications / etc.
+        if _is_automated_sender(addr_lower):
             continue
 
         # Skip if already a known contact
@@ -448,16 +520,28 @@ def _create_or_enrich_activity(
     # Can't create activity without a client
     if not client_id:
         return {"action": "skipped", "activity_id": 0, "reason": "no_client"}
-    folder = email.get("folder", "")
-    subject = email.get("subject", "")
-    sender = email.get("sender", "")
-    recipients = ", ".join(email.get("recipients", [])[:5])
+    # Defensive `or ""` on every field that goes through string ops — the
+    # AppleScript bridge always emits strings in practice, but a malformed
+    # JSON parse fallback or future change could surface None and crash.
+    folder = email.get("folder") or ""
+    subject = email.get("subject") or ""
+    sender = email.get("sender") or ""
+    recipients = ", ".join((email.get("recipients") or [])[:5])
     # Clean and store readable text snippet
-    snippet = _clean_email_text(email.get("body_snippet", ""))[:5000]
-    email_date = email.get("date", "")[:10]  # ISO date portion
+    snippet = _clean_email_text(email.get("body_snippet") or "")[:5000]
+    email_date = (email.get("date") or "")[:10]  # ISO date portion
     flag_due = email.get("flag_due_date")
 
     is_sent = folder.lower() in ("sent items", "sent")
+    # Flagged items (from get_flagged_emails) are action items — leave follow_up_done=0.
+    # Regular sent/received imports are records, not action items.
+    is_flagged = "flag_due_date" in email  # Only flagged emails have this key
+    if is_flagged:
+        email_direction = "flagged"
+    elif is_sent:
+        email_direction = "sent"
+    else:
+        email_direction = "received"
 
     # Check if there's an existing same-day email activity for this policy
     if is_sent and policy_id:
@@ -473,16 +557,16 @@ def _create_or_enrich_activity(
             conn.execute(
                 """UPDATE activity_log
                    SET outlook_message_id=?, email_snippet=?, source='outlook_sync',
-                       email_from=?, email_to=?
+                       email_from=?, email_to=?, email_direction=?
                    WHERE id=?""",
-                (message_id, snippet, sender, recipients, existing_activity["id"]),
+                (message_id, snippet, sender, recipients, email_direction,
+                 existing_activity["id"]),
             )
             conn.commit()
             return {"action": "enriched", "activity_id": existing_activity["id"]}
 
     # Create new activity
     disposition = "Sent Email" if is_sent else ""
-    subj_prefix = "" if is_sent else "Received: "
 
     # Resolve contact from sender email
     contact_id = None
@@ -496,24 +580,19 @@ def _create_or_enrich_activity(
             contact_id = contact["id"]
             contact_person = contact["name"] or sender
 
-    # Flagged items (from get_flagged_emails) are action items — leave follow_up_done=0.
-    # Regular sent/received imports are records, not action items — mark follow_up_done=1
-    # so they don't clutter the Action Center.
-    is_flagged = "flag_due_date" in email  # Only flagged emails have this key
-
     cursor = conn.execute(
         """INSERT INTO activity_log
            (activity_date, client_id, policy_id, program_id, activity_type, subject, details,
             contact_person, contact_id, disposition, source, outlook_message_id,
             email_snippet, issue_id, follow_up_date, follow_up_done,
-            email_from, email_to, duration_hours)
-           VALUES (?, ?, ?, ?, 'Email', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            email_from, email_to, email_direction, duration_hours)
+           VALUES (?, ?, ?, ?, 'Email', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             email_date,
             client_id,
             policy_id,
             program_id,
-            f"{subj_prefix}{subject}",
+            subject,
             f"Imported from Outlook ({folder})",
             contact_person,
             contact_id,
@@ -526,6 +605,7 @@ def _create_or_enrich_activity(
             0 if is_flagged else 1,  # Only open follow-up for flagged items
             sender,
             recipients,
+            email_direction,
             0.1,
         ),
     )
@@ -538,6 +618,7 @@ def _run_thread_inheritance(
     conn: sqlite3.Connection,
     current_batch_inbox: list[dict],
     results: dict,
+    domain_index: dict[str, set[int]] | None = None,
 ) -> None:
     """Propagate ref tag matches to unmatched emails in the same thread.
 
@@ -592,12 +673,16 @@ def _run_thread_inheritance(
         if inbox_row:
             inbox_candidates.append(dict(inbox_row))
 
+    # Bound the historical scan to the last 90 days so the inbox doesn't make
+    # every sync slower as items pile up. Same window as the matched_rows query
+    # above — anything older won't have a thread map entry anyway.
     historical = conn.execute("""
         SELECT id, content, outlook_message_id, email_subject, email_date,
                email_from, email_to
         FROM inbox
         WHERE outlook_message_id IS NOT NULL
           AND status = 'pending'
+          AND created_at >= datetime('now', '-90 days')
     """).fetchall()
     seen_ids = {c["id"] for c in inbox_candidates}
     for row in historical:
@@ -620,7 +705,7 @@ def _run_thread_inheritance(
         content = candidate.get("content", "")
         addresses = re.findall(r'[\w.+-]+@[\w-]+\.[\w.-]+', content)
 
-        domain_match = _match_by_domain(conn, addresses)
+        domain_match = _match_by_domain(conn, addresses, domain_index=domain_index)
         if not domain_match:
             continue
         candidate_client_id = domain_match.get("client_id")
@@ -687,8 +772,8 @@ def _run_thread_inheritance(
                (activity_date, client_id, policy_id, program_id, activity_type, subject,
                 details, contact_person, contact_id, source, outlook_message_id,
                 email_snippet, issue_id, follow_up_done,
-                email_from, email_to, duration_hours)
-               VALUES (?, ?, ?, ?, 'Email', ?, ?, ?, ?, 'thread_inherit', ?, ?, ?, 1, ?, ?, 0.1)""",
+                email_from, email_to, email_direction, duration_hours)
+               VALUES (?, ?, ?, ?, 'Email', ?, ?, ?, ?, 'thread_inherit', ?, ?, ?, 1, ?, ?, ?, 0.1)""",
             (
                 email_date,
                 inherited_match["client_id"],
@@ -703,6 +788,7 @@ def _run_thread_inheritance(
                 inherited_match.get("issue_id"),
                 sender,
                 email_to,
+                "received",
             ),
         )
 
@@ -733,6 +819,13 @@ def sync_outlook(conn: sqlite3.Connection) -> dict:
     else:
         since = datetime.now() - timedelta(days=cfg.get("outlook_sync_lookback_days", 7))
 
+    # Capture the start-of-sweep timestamp BEFORE invoking AppleScript so the
+    # next sync resumes from this instant. Storing datetime.now() at the END
+    # (legacy behavior) silently dropped any email that arrived during the
+    # scan. We subtract a 60s overlap as a safety margin — dedup on
+    # outlook_message_id will absorb the rescan.
+    sweep_start = datetime.now() - timedelta(seconds=60)
+
     results = {
         "auto_linked": {"sent": 0, "received": 0, "flagged": 0},
         "suggestions": [],
@@ -745,7 +838,10 @@ def sync_outlook(conn: sqlite3.Connection) -> dict:
     }
 
     skip_category = cfg.get("outlook_skip_category", "Personal")
-    capture_category = cfg.get("outlook_capture_category", "PDB")
+    capture_category = (cfg.get("outlook_capture_category", "PDB") or "").strip()
+
+    # ── Build domain index once for the whole sweep (perf) ───────────
+    domain_index = _build_domain_index(conn)
 
     # ── Scan Sent Items (default-in, skip "Personal" category) ───────
     sent_result = search_emails("Sent Items", since)
@@ -759,16 +855,25 @@ def sync_outlook(conn: sqlite3.Connection) -> dict:
             if skip_category and skip_category in cats:
                 results["skipped"] += 1
                 continue
-            _process_email(conn, email, results, "sent")
+            _process_email(conn, email, results, "sent", domain_index=domain_index)
 
     # ── Scan all folders for "PDB" category or [PDB:] ref tag ────────
-    received_result = search_all_folders(since, category_filter=capture_category)
-    if not received_result.get("ok"):
-        results["errors"].append(received_result.get("error", "Failed to scan received emails"))
+    # Refuse to scan when the capture category is empty: AppleScript would
+    # treat that as "no filter" and ingest every message in every folder.
+    if not capture_category:
+        results["errors"].append(
+            "Outlook capture category is empty — refusing to scan all folders. "
+            "Set 'outlook_capture_category' in Settings (default: PDB)."
+        )
+        logger.warning("Skipping all-folder scan: outlook_capture_category is empty")
     else:
-        for email in received_result.get("emails", []):
-            results["total_scanned"] += 1
-            _process_email(conn, email, results, "received")
+        received_result = search_all_folders(since, category_filter=capture_category)
+        if not received_result.get("ok"):
+            results["errors"].append(received_result.get("error", "Failed to scan received emails"))
+        else:
+            for email in received_result.get("emails", []):
+                results["total_scanned"] += 1
+                _process_email(conn, email, results, "received", domain_index=domain_index)
 
     # ── Scan Flagged across all folders → inbox ──────────────────────
     flagged_result = get_flagged_emails(since)
@@ -777,11 +882,13 @@ def sync_outlook(conn: sqlite3.Connection) -> dict:
     else:
         for email in flagged_result.get("emails", []):
             results["total_scanned"] += 1
-            _process_email(conn, email, results, "flagged")
+            _process_email(conn, email, results, "flagged", domain_index=domain_index)
 
     # ── Thread inheritance pass ─────────────────────────────────────
     try:
-        _run_thread_inheritance(conn, list(results["suggestions"]), results)
+        _run_thread_inheritance(
+            conn, list(results["suggestions"]), results, domain_index=domain_index,
+        )
     except Exception as e:
         logger.exception("Thread inheritance pass failed: %s", e)
         results["errors"].append(f"Thread inheritance error: {e}")
@@ -791,9 +898,11 @@ def sync_outlook(conn: sqlite3.Connection) -> dict:
         "SELECT COUNT(*) FROM suggested_contacts WHERE status='pending' AND blocked=0"
     ).fetchone()[0]
 
-    # ── Update last sync timestamp ───────────────────────────────────
+    # ── Update last sync timestamp (use sweep_start, NOT datetime.now()) ──
+    # Storing the moment the sweep BEGAN ensures emails that arrived during
+    # the sweep get picked up next time. Dedup absorbs the small overlap.
     config_data = dict(cfg.load_config())
-    config_data["last_outlook_sync"] = datetime.now().isoformat()
+    config_data["last_outlook_sync"] = sweep_start.isoformat()
     cfg.save_config(config_data)
     cfg.reload_config()
 
@@ -831,12 +940,15 @@ def _process_email(
     email: dict,
     results: dict,
     category: str,  # "sent", "received", "flagged"
+    domain_index: dict[str, set[int]] | None = None,
 ) -> None:
     """Process a single email: extract ref tags, match, create/enrich activity."""
     # Strip HTML tags from body before searching for ref tags
-    body = _HTML_TAG_RE.sub('', email.get("body_snippet", ""))
-    combined_text = email.get("subject", "") + " " + body
-    tags = _extract_ref_tags(combined_text)
+    body = _HTML_TAG_RE.sub('', email.get("body_snippet") or "")
+    combined_text = (email.get("subject") or "") + " " + body
+    # Dedup tags so we don't resolve the same tag twice when it appears in both
+    # subject and body.
+    tags = list(dict.fromkeys(_extract_ref_tags(combined_text)))
 
     # Resolve ALL tags — one activity per unique (client_id, policy_id) pair
     matches: list[dict] = []
@@ -849,6 +961,8 @@ def _process_email(
                 if pair not in seen_pairs:
                     seen_pairs.add(pair)
                     matches.append(match)
+            else:
+                logger.debug("Ref tag did not resolve: %s", tag)
 
     if not matches:
         # Tier 2: try domain-based matching
@@ -856,7 +970,7 @@ def _process_email(
         if email.get("sender"):
             all_addresses.append(email["sender"])
         all_addresses.extend(email.get("recipients", []))
-        domain_match = _match_by_domain(conn, all_addresses)
+        domain_match = _match_by_domain(conn, all_addresses, domain_index=domain_index)
         if domain_match:
             matches.append(domain_match)
 
@@ -884,23 +998,23 @@ def _process_email(
             if existing_inbox:
                 results["skipped"] += 1
                 return
-        subject = email.get("subject", "")
-        sender = email.get("sender", "")
-        folder = email.get("folder", "")
-        date_str = (email.get("date", "") or "")[:10]
-        snippet = _clean_email_text(email.get("body_snippet", ""))[:5000]
+        subject = email.get("subject") or ""
+        sender = email.get("sender") or ""
+        folder = email.get("folder") or ""
+        date_str = (email.get("date") or "")[:10]
+        snippet = _clean_email_text(email.get("body_snippet") or "")[:5000]
         label_map = {"flagged": "[Outlook Flagged]", "sent": "[Outlook Sent]", "received": "[Outlook Received]"}
         label = label_map.get(category, "[Outlook]")
-        recipients = ", ".join(email.get("recipients", [])[:3])
+        recipients = ", ".join((email.get("recipients") or [])[:3])
         content = f"{label} {subject}\nFrom: {sender}\nTo: {recipients}\nFolder: {folder}\nDate: {date_str}"
         if snippet:
             content += f"\n\n{snippet}"
         conn.execute(
             """INSERT INTO inbox (content, client_id, contact_id, inbox_uid,
                                   email_subject, email_date, outlook_message_id,
-                                  email_from, email_to)
-               VALUES (?, NULL, NULL, '', ?, ?, ?, ?, ?)""",
-            (content, subject, date_str, message_id, sender, recipients),
+                                  email_from, email_to, email_direction)
+               VALUES (?, NULL, NULL, '', ?, ?, ?, ?, ?, ?)""",
+            (content, subject, date_str, message_id, sender, recipients, category),
         )
         row_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
         conn.execute("UPDATE inbox SET inbox_uid = ? WHERE id = ?", (f"INB-{row_id}", row_id))

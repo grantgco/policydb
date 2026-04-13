@@ -290,13 +290,13 @@ def _rule_no_activity(conn, thresholds: dict) -> list[tuple]:
     findings = []
     for c in clients:
         # Any recent user-created activity? (exclude system-generated Milestones;
-        # outlook_sync emails count as real client contact)
+        # outlook_sync and thread_inherit emails count as real client contact)
         act_row = conn.execute(
             """SELECT MAX(DATE(activity_date)) AS last_act
                FROM activity_log
                WHERE client_id = ? AND DATE(activity_date) >= DATE(?)
                AND activity_type NOT IN ('Milestone')
-               AND (source IN ('manual', 'outlook_sync') OR source IS NULL)""",
+               AND (source IN ('manual', 'outlook_sync', 'thread_inherit') OR source IS NULL)""",
             (c["id"], cutoff),
         ).fetchone()
         if act_row and act_row["last_act"]:
@@ -313,12 +313,12 @@ def _rule_no_activity(conn, thresholds: dict) -> list[tuple]:
         if rev_row and rev_row["last_rev"]:
             continue
 
-        # How long since last user-created activity? (outlook_sync emails count)
+        # How long since last user-created activity? (outlook_sync + thread_inherit count)
         last_any = conn.execute(
             """SELECT MAX(DATE(activity_date)) AS last_act
                FROM activity_log WHERE client_id = ?
                AND activity_type NOT IN ('Milestone')
-               AND (source IN ('manual', 'outlook_sync') OR source IS NULL)""",
+               AND (source IN ('manual', 'outlook_sync', 'thread_inherit') OR source IS NULL)""",
             (c["id"],),
         ).fetchone()
         if last_any and last_any["last_act"]:
@@ -726,9 +726,9 @@ def get_review_gate_status(conn, record_type: str, record_id: int) -> dict:
         })
 
     # 2. Recent activity
-    # Count manual activities and outlook_sync emails (synced emails represent
-    # genuine client contact). Exclude system-generated Milestone auto-logs.
-    _user_act_filter = "AND activity_type NOT IN ('Milestone') AND (source IN ('manual', 'outlook_sync') OR source IS NULL)"
+    # Count manual activities, outlook_sync, and thread_inherit emails — all
+    # represent genuine client contact. Exclude system-generated Milestone auto-logs.
+    _user_act_filter = "AND activity_type NOT IN ('Milestone') AND (source IN ('manual', 'outlook_sync', 'thread_inherit') OR source IS NULL)"
     if record_type == "client":
         act_row = conn.execute(
             f"""SELECT COUNT(*) AS cnt FROM activity_log

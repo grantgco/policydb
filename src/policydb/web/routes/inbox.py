@@ -325,7 +325,9 @@ def inbox_process(
     act_date = activity_date or date.today().isoformat()
     # Carry over contact_id and email metadata from inbox item
     inbox_row = conn.execute(
-        "SELECT contact_id, outlook_message_id, content, email_from, email_to FROM inbox WHERE id=?", (inbox_id,),
+        """SELECT contact_id, outlook_message_id, content, email_from, email_to,
+                  email_direction
+           FROM inbox WHERE id=?""", (inbox_id,),
     ).fetchone()
     if not contact_id and inbox_row and inbox_row["contact_id"]:
         contact_id = inbox_row["contact_id"]
@@ -334,10 +336,12 @@ def inbox_process(
     outlook_msg_id = None
     email_from = None
     email_to = None
+    email_direction = None
     if inbox_row:
         outlook_msg_id = inbox_row["outlook_message_id"]
         email_from = inbox_row["email_from"]
         email_to = inbox_row["email_to"]
+        email_direction = inbox_row["email_direction"]
         if outlook_msg_id or (inbox_row["content"] or "").startswith("[Outlook"):
             email_snippet = inbox_row["content"]
     # Mark follow-up as done if no follow-up date (log-only)
@@ -347,15 +351,16 @@ def inbox_process(
            (activity_date, client_id, policy_id, activity_type, subject, details,
             follow_up_date, follow_up_done, disposition, account_exec,
             duration_hours, contact_id, issue_id,
-            email_snippet, outlook_message_id, source, email_from, email_to)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            email_snippet, outlook_message_id, source, email_from, email_to,
+            email_direction)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (act_date, client_id, policy_id or None, activity_type,
          subject or "Inbox item", details or None,
          follow_up_date or None, follow_up_done, disposition or None,
          account_exec, dur, contact_id or None,
          issue_id or None, email_snippet, outlook_msg_id,
          "outlook_sync" if outlook_msg_id else "manual",
-         email_from, email_to),
+         email_from, email_to, email_direction),
     )
     activity_id = cursor.lastrowid
     # Supersede follow-ups if needed
@@ -428,7 +433,7 @@ async def inbox_batch_process(request: Request, conn=Depends(get_db)):
     for iid in inbox_ids:
         inbox_row = conn.execute(
             """SELECT id, content, email_subject, email_date, contact_id,
-                      outlook_message_id, email_from, email_to
+                      outlook_message_id, email_from, email_to, email_direction
                FROM inbox WHERE id = ? AND status = 'pending'""",
             (iid,),
         ).fetchone()
@@ -447,13 +452,13 @@ async def inbox_batch_process(request: Request, conn=Depends(get_db)):
             """INSERT INTO activity_log
                (activity_date, client_id, policy_id, activity_type, subject, details,
                 account_exec, contact_id, issue_id, email_snippet, outlook_message_id,
-                source, email_from, email_to, follow_up_done, duration_hours)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0.1)""",
+                source, email_from, email_to, email_direction, follow_up_done, duration_hours)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0.1)""",
             (act_date, client_id, policy_id, activity_type, item_subject,
              f"Batch processed from inbox thread",
              account_exec, item_contact, issue_id, email_snippet,
              outlook_msg_id, "outlook_sync" if outlook_msg_id else "manual",
-             inbox_row["email_from"], inbox_row["email_to"]),
+             inbox_row["email_from"], inbox_row["email_to"], inbox_row["email_direction"]),
         )
         conn.execute(
             "UPDATE inbox SET status='processed', activity_id=?, processed_at=CURRENT_TIMESTAMP WHERE id=?",
@@ -468,7 +473,19 @@ async def inbox_batch_process(request: Request, conn=Depends(get_db)):
 
 @router.post("/inbox/{inbox_id}/dismiss")
 def inbox_dismiss(inbox_id: int, conn=Depends(get_db)):
-    """Dismiss inbox item without creating activity."""
+    """Dismiss inbox item without creating activity.
+
+    For Outlook-sourced items, also record the message_id in
+    `dismissed_outlook_messages` so the next sync sweep doesn't re-import it.
+    """
+    row = conn.execute(
+        "SELECT outlook_message_id FROM inbox WHERE id=?", (inbox_id,),
+    ).fetchone()
+    if row and row["outlook_message_id"]:
+        conn.execute(
+            "INSERT OR IGNORE INTO dismissed_outlook_messages (message_id) VALUES (?)",
+            (row["outlook_message_id"],),
+        )
     conn.execute(
         "UPDATE inbox SET status='processed', processed_at=CURRENT_TIMESTAMP WHERE id=?",
         (inbox_id,),
@@ -479,6 +496,120 @@ def inbox_dismiss(inbox_id: int, conn=Depends(get_db)):
     return HTMLResponse("", headers={
         "HX-Trigger": '{"activityLogged": "' + uid_str + ' dismissed"}'
     })
+
+
+# SQLite default SQLITE_MAX_VARIABLE_NUMBER is 999 on older builds, 32766 on
+# newer. Stay well below the lower bound to be safe with parameterized IN clauses.
+_BULK_CHUNK = 500
+
+
+@router.post("/inbox/bulk-dismiss")
+async def inbox_bulk_dismiss(request: Request, conn=Depends(get_db)):
+    """Bulk dismiss inbox items.
+
+    Body JSON:
+        {"inbox_ids": [1,2,3]}                  — dismiss exact ids
+        {"scope": "outlook_unmatched"}          — dismiss every pending Outlook
+                                                  item that has no client_id yet
+        {"scope": "outlook_all"}                — dismiss every pending Outlook
+                                                  item (matched or not)
+        {"scope": "all_pending"}                — dismiss every pending item
+
+    For any Outlook-sourced rows, message_ids are also written to
+    `dismissed_outlook_messages` so the next sync doesn't re-import them.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Invalid JSON body"}, status_code=400)
+
+    if not isinstance(body, dict):
+        return JSONResponse({"ok": False, "error": "Body must be a JSON object"}, status_code=400)
+
+    raw_ids = body.get("inbox_ids") or []
+    scope = (body.get("scope") or "").strip()
+
+    # Validate inbox_ids shape — must be a list of integers (or coercible)
+    inbox_ids: list[int] = []
+    if raw_ids:
+        if not isinstance(raw_ids, list):
+            return JSONResponse(
+                {"ok": False, "error": "inbox_ids must be a list of integers"},
+                status_code=400,
+            )
+        for x in raw_ids:
+            try:
+                inbox_ids.append(int(x))
+            except (TypeError, ValueError):
+                return JSONResponse(
+                    {"ok": False, "error": "inbox_ids must contain only integers"},
+                    status_code=400,
+                )
+
+    if not inbox_ids and not scope:
+        return JSONResponse({"ok": False, "error": "Provide inbox_ids or scope"}, status_code=400)
+
+    if scope == "outlook_unmatched":
+        rows = conn.execute(
+            """SELECT id, outlook_message_id FROM inbox
+               WHERE status = 'pending'
+                 AND outlook_message_id IS NOT NULL
+                 AND (client_id IS NULL OR client_id = 0)"""
+        ).fetchall()
+    elif scope == "outlook_all":
+        rows = conn.execute(
+            """SELECT id, outlook_message_id FROM inbox
+               WHERE status = 'pending'
+                 AND outlook_message_id IS NOT NULL"""
+        ).fetchall()
+    elif scope == "all_pending":
+        rows = conn.execute(
+            """SELECT id, outlook_message_id FROM inbox
+               WHERE status = 'pending'"""
+        ).fetchall()
+    elif inbox_ids:
+        # Chunk the IN-clause to avoid hitting SQLITE_MAX_VARIABLE_NUMBER on
+        # large lists. SELECT-then-aggregate so the bulk-dismiss numbers below
+        # operate on a single combined row set.
+        rows = []
+        for i in range(0, len(inbox_ids), _BULK_CHUNK):
+            chunk = inbox_ids[i:i + _BULK_CHUNK]
+            placeholders = ",".join("?" * len(chunk))
+            rows.extend(conn.execute(
+                f"""SELECT id, outlook_message_id FROM inbox
+                    WHERE status = 'pending' AND id IN ({placeholders})""",
+                chunk,
+            ).fetchall())
+    else:
+        return JSONResponse({"ok": False, "error": "Unknown scope"}, status_code=400)
+
+    if not rows:
+        return JSONResponse({"ok": True, "dismissed": 0})
+
+    target_ids = [r["id"] for r in rows]
+    msg_ids = [r["outlook_message_id"] for r in rows if r["outlook_message_id"]]
+
+    # Block re-import on next sync (executemany batches the inserts)
+    if msg_ids:
+        conn.executemany(
+            "INSERT OR IGNORE INTO dismissed_outlook_messages (message_id) VALUES (?)",
+            [(m,) for m in msg_ids],
+        )
+
+    # Chunk the UPDATE the same way as the SELECT to stay under the parameter
+    # limit on huge dismiss operations.
+    for i in range(0, len(target_ids), _BULK_CHUNK):
+        chunk = target_ids[i:i + _BULK_CHUNK]
+        placeholders = ",".join("?" * len(chunk))
+        conn.execute(
+            f"""UPDATE inbox
+                SET status='processed', processed_at=CURRENT_TIMESTAMP
+                WHERE id IN ({placeholders})""",
+            chunk,
+        )
+    conn.commit()
+    logger.info("Bulk-dismissed %d inbox items (scope=%s)", len(target_ids), scope or "explicit_ids")
+    return JSONResponse({"ok": True, "dismissed": len(target_ids)})
 
 
 @router.post("/inbox/{inbox_id}/schedule", response_class=HTMLResponse)

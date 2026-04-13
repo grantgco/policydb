@@ -182,34 +182,8 @@ if (sessionStorage.getItem('review-reminder-dismissed')) {
 
   <!-- Renewal Pipeline -->
   <div class="lg:col-span-2 card">
-    <div class="px-5 pt-3 pb-2 border-b border-gray-100">
-      <div class="flex items-center justify-between mb-3">
-        <h2 class="font-semibold text-gray-900">Renewal Pipeline</h2>
-        <a href="/renewals" class="text-xs text-marsh hover:underline">View all →</a>
-      </div>
-      <!-- Window + status filters (HTMX-driven) -->
-      <div id="dash-pipeline-controls" class="flex flex-wrap gap-1.5 items-center">
-        {% for w in [90, 120, 180] %}
-        <button
-          hx-get="/dashboard/pipeline?window={{ w }}&status={{ dash_status | urlencode }}"
-          hx-target="#dash-pipeline-body"
-          class="btn-filter {{ 'active' if dash_window == w else '' }}">{{ w }}d</button>
-        {% endfor %}
-        <span class="border-l border-gray-200 h-6 mx-1"></span>
-        <button
-          hx-get="/dashboard/pipeline?window={{ dash_window }}"
-          hx-target="#dash-pipeline-body"
-          class="btn-filter {{ 'active' if not dash_status else '' }}">All</button>
-        {% for s in renewal_statuses %}
-        <button
-          hx-get="/dashboard/pipeline?window={{ dash_window }}&status={{ s | urlencode }}"
-          hx-target="#dash-pipeline-body"
-          class="btn-filter {{ 'active' if dash_status == s else '' }}">{{ s }}</button>
-        {% endfor %}
-      </div>
-    </div>
-    <div id="dash-pipeline-body">
-      {% include "policies/_pipeline_table.html" %}
+    <div id="dash-pipeline-section">
+      {% include "dashboard/_pipeline_section.html" %}
     </div>
   </div>
 

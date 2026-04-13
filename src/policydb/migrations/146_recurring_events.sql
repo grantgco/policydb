@@ -1,4 +1,4 @@
--- 144: Recurring events — scheduled repeating touchpoints per client.
+-- 146: Recurring events — scheduled repeating touchpoints per client.
 --
 -- Stores cadence templates for repeating work (weekly open-items calls,
 -- monthly loss-run deliverables, quarterly stewardship reports, etc.).

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import threading
+
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, HTMLResponse
 from pydantic import BaseModel
@@ -21,6 +23,12 @@ from policydb.email_templates import (
 from policydb.outlook import is_outlook_available, create_draft
 
 router = APIRouter(prefix="/outlook", tags=["outlook"])
+
+# Module-level mutex so two browser tabs / two parallel POSTs to /outlook/sync
+# can't both spawn osascript subprocesses and race on last_outlook_sync.
+# `acquire(blocking=False)` lets us reject a second sync immediately with a
+# 409 instead of queuing it up.
+_sync_lock = threading.Lock()
 
 
 class ComposeRequest(BaseModel):
@@ -157,11 +165,36 @@ def outlook_compose(req: ComposeRequest, conn=Depends(get_db)):
 def outlook_sync(request: Request, conn=Depends(get_db)):
     """Run Outlook email sweep — scan Sent/Received/Flagged and create activities.
 
-    Returns an HTML partial with sync results.
+    Returns an HTML partial with sync results. If another sync is already in
+    progress (e.g. user clicked Sync in two tabs), returns a 409 with an
+    error banner instead of running a second sweep in parallel — parallel
+    runs would race on `last_outlook_sync`, spawn duplicate osascript
+    subprocesses, and contend for SQLite write locks.
     """
     from policydb.email_sync import sync_outlook
 
-    results = sync_outlook(conn)
+    # Non-blocking: reject the second caller immediately rather than queueing
+    if not _sync_lock.acquire(blocking=False):
+        return jinja_templates.TemplateResponse(
+            "outlook/_sync_results.html",
+            {
+                "request": request,
+                "auto_linked": {"sent": 0, "received": 0, "flagged": 0},
+                "suggestions": [],
+                "skipped": 0,
+                "errors": ["Another Outlook sync is already running. Please wait for it to finish."],
+                "total_scanned": 0,
+                "since": "",
+                "new_contacts_found": 0,
+                "thread_inherited": 0,
+            },
+            status_code=409,
+        )
+
+    try:
+        results = sync_outlook(conn)
+    finally:
+        _sync_lock.release()
 
     return jinja_templates.TemplateResponse("outlook/_sync_results.html", {
         "request": request,

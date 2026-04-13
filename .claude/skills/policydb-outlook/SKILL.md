@@ -56,6 +56,18 @@ class ComposeRequest(BaseModel):
 | **All other folders** | Only if has `outlook_capture_category` (default: "PDB") OR `[PDB:]` ref tag in content | Opt-in via category |
 | **Flagged (all folders)** | Always captured | N/A |
 
+> **Empty capture category is a hard error.** If `outlook_capture_category` is
+> blank, `sync_outlook` refuses to invoke `search_all_folders` (which would
+> otherwise ingest *every* message in *every* folder) and adds a warning to
+> the sync results banner. Sent + Flagged scans still proceed.
+
+### Resume window
+
+`last_outlook_sync` is captured **at the moment the sweep starts** (minus a 60s
+safety overlap), then written to config when the sweep completes. Storing the
+end-of-sweep timestamp would silently drop any email that arrived during the
+scan window. The 60s overlap is absorbed by the `outlook_message_id` dedup.
+
 ### Matching: Ref Tag + Thread Inheritance
 
 **Tier 1 — Ref tag matching:**
@@ -67,14 +79,24 @@ class ComposeRequest(BaseModel):
 **Tier 2 — Domain matching:**
 5. If no ref tag, match sender/recipient email domains against client websites and contact emails
 6. Skip domains in `freemail_domains` and `internal_email_domains` config (marsh.com, etc.)
-7. Requires unique client match — ambiguous (multiple clients) returns None
+7. **Archived clients are excluded** from the domain index — `_build_domain_index` filters `archived = 0`
+8. Requires unique client match — ambiguous (multiple clients) returns None
 
 **Tier 3 — Thread inheritance (post-sync pass):**
-8. After all emails processed, `_run_thread_inheritance()` propagates Tier 1 matches to unmatched inbox items in the same thread
-9. Thread = exact normalized subject match + same client via domain matching
-10. Only Tier 1 matches propagate (must have policy_id, issue_id, or program_id)
-11. Promoted items get `source='thread_inherit'`, `follow_up_done=1`
-12. Unmatched emails with no ref tag or thread match go to Inbox for manual triage
+9. After all emails processed, `_run_thread_inheritance()` propagates Tier 1 matches to unmatched inbox items in the same thread
+10. Thread = exact normalized subject match + same client via domain matching
+11. Only Tier 1 matches propagate (must have policy_id, issue_id, or program_id)
+12. Promoted items get `source='thread_inherit'`, `follow_up_done=1`
+13. Unmatched emails with no ref tag or thread match go to Inbox for manual triage
+14. **Historical scan is bounded to 90 days** (matches the matched-rows window) so the inbox doesn't slow every sync as items pile up
+
+### Performance: domain index
+
+`_build_domain_index(conn)` is called **once** at the top of `sync_outlook` and
+returns `{domain: {client_id, ...}}` covering both client websites and contact
+email domains for non-archived clients. The map is threaded into every
+`_match_by_domain` and `_run_thread_inheritance` call so a 500-email sweep does
+exactly one client/contact scan instead of N+1 queries per email.
 
 ### Resolution Priority (Most Specific Wins)
 
@@ -88,21 +110,50 @@ Each more-specific record's `client_id`/`policy_id` overwrites less-specific val
 
 | Scenario | Action |
 |----------|--------|
-| Ref tag match + existing same-day Email activity on same policy | Enrich: add `outlook_message_id`, `email_snippet` |
-| Ref tag match + no existing activity | Create: `activity_type='Email'`, `source='outlook_sync'` |
+| Ref tag match + existing same-day Email activity on same policy | Enrich: add `outlook_message_id`, `email_snippet`, `email_direction` |
+| Ref tag match + no existing activity | Create: `activity_type='Email'`, `source='outlook_sync'`, `email_direction` set |
 | Thread inheritance match (post-sync) | Create: `activity_type='Email'`, `source='thread_inherit'`, delete from inbox |
-| Sent, no match | Route to Inbox as `[Outlook Sent]` item |
+| Sent, no match | Route to Inbox as `[Outlook Sent]` item, `email_direction='sent'` |
 | Received/flagged, no match | Route to Inbox as `[Outlook Flagged]` / `[Outlook Received]` item |
+
+### Direction tracking (`email_direction` column)
+
+Migration **144** added `email_direction` (`'sent' | 'received' | 'flagged'`)
+to both `activity_log` and `inbox`. The pre-migration "Received: " subject
+prefix munging is gone — direction is read from the column. The migration
+backfills existing rows from the legacy prefix and the inbox `[Outlook Sent|
+Received|Flagged]` brackets, then strips the legacy prefix from
+`activity_log.subject`. `_normalize_subject` still tolerates a stray
+"Received: " for safety.
 
 ### Dedup
 
 Every imported email stores `outlook_message_id` on both `activity_log` and `inbox` tables. Checked before any creation — duplicates are counted as "skipped".
 
+When the user dismisses an Outlook-sourced activity OR an Outlook-sourced
+inbox row (single or bulk), the message_id is recorded in
+`dismissed_outlook_messages` so the next sync sweep won't re-import it.
+
+### Bulk dismiss (Inbox tab)
+
+The Action Center inbox tab exposes a "Bulk dismiss ▾" menu when there are
+pending Outlook items. Three scopes:
+
+| Scope | Behavior |
+|-------|----------|
+| `outlook_unmatched` | Dismiss every pending Outlook row with no `client_id` (i.e. true triage queue) |
+| `outlook_all` | Dismiss every pending Outlook row, matched or not |
+| `all_pending` | Dismiss every pending row including manual notes (red, confirm twice) |
+
+Endpoint: `POST /inbox/bulk-dismiss` with JSON body `{"scope": "outlook_unmatched"}`
+or `{"inbox_ids": [1,2,3]}`. All paths populate `dismissed_outlook_messages`
+for any rows that have an `outlook_message_id`.
+
 ## Subject Normalization (`_normalize_subject`)
 
 Used by thread inheritance to determine if two emails are in the same thread. Strips in order:
 
-1. `"Received: "` prefix (added by `_create_or_enrich_activity` for non-sent emails)
+1. Legacy `"Received: "` prefix from rows imported before migration 144 (modern rows store direction in `email_direction` column, no prefix)
 2. External sender warnings: `[EXTERNAL]`, `[EXT]`, `*External*`, `EXTERNAL:`, `[External Sender]` and variants
 3. Reply/forward prefixes: `Re:`, `RE:`, `Fwd:`, `FW:`, `Fw:` (repeated/nested)
 4. Collapse whitespace, strip, lowercase
@@ -111,17 +162,36 @@ Result: `"[EXTERNAL] RE: FW: Re: GL Renewal Discussion"` → `"gl renewal discus
 
 **Adding new prefix patterns:** If you encounter new corporate email prefixes (e.g., `[CAUTION]`, `[SPAM?]`), add them to `_EXTERNAL_RE` in `email_sync.py`.
 
+## Suggested contact capture
+
+`_capture_unknown_contacts` upserts unknown sender/recipient addresses into
+`suggested_contacts`. The filter cascade:
+
+1. Skip freemail domains (`gmail.com`, `outlook.com`, ...)
+2. Skip internal email domains (`marsh.com`, ...)
+3. Skip automated/noreply prefixes via `_is_automated_sender` — local part
+   matched against `automated_email_prefixes` config (default: `noreply`,
+   `no-reply`, `donotreply`, `mailer-daemon`, `postmaster`, `bounce`,
+   `bounces`, `notification`, `notifications`, `alert`, `alerts`,
+   `automated`, `system`). Also strips `+suffix` so
+   `bounces+abc123@list.com` → `bounces`.
+4. Skip if the resolved client is archived (whole capture is bypassed).
+5. Skip if already a known contact.
+
+`automated_email_prefixes` is editable in **Settings → Email & Contacts**.
+
 ## Config Keys
 
 | Key | Default | Purpose |
 |-----|---------|---------|
-| `last_outlook_sync` | null | ISO timestamp, cleared by Reset button in Settings |
+| `last_outlook_sync` | null | ISO timestamp **of the moment the sweep started** (minus 60s overlap), cleared by Reset button in Settings |
 | `outlook_sync_lookback_days` | 7 | First-sync lookback window |
-| `outlook_capture_category` | "PDB" | Outlook category for opt-in on received emails |
+| `outlook_capture_category` | "PDB" | Outlook category for opt-in on received emails. **Empty value triggers a sync error — refusing to scan all folders** |
 | `outlook_skip_category` | "Personal" | Outlook category to exclude sent emails |
 | `outlook_email_shell_header` | true | Navy header bar in formal HTML emails |
 | `freemail_domains` | gmail.com, etc. | Domains skipped during client matching (freemail providers) |
 | `internal_email_domains` | marsh.com, marshpm.com, mmc.com | Company domains skipped during client matching |
+| `automated_email_prefixes` | noreply, no-reply, donotreply, mailer-daemon, postmaster, bounce, bounces, notification, notifications, alert, alerts, automated, system | Local-part prefixes treated as automated senders and excluded from `_capture_unknown_contacts` |
 
 All editable in Settings > Email & Contacts tab. "Reset" button clears `last_outlook_sync` so next sync uses lookback window (safe — dedup prevents duplicates).
 
@@ -133,7 +203,7 @@ Emails almost always include multiple Marsh colleague addresses in CC/TO. Withou
 
 1. **`sender` property fails on sent messages** — wrap in `try/end try`, fall back to empty string
 2. **`content` returns HTML** — use `plain text content of msg` for ref tag matching, fall back to `content` if plain text fails
-3. **Body snippet truncation** — fetch 2000 chars from Outlook for matching, store only 500 chars (stripped of HTML) in `email_snippet`
+3. **Body snippet truncation** — AppleScript truncates at 100 000 chars per email (cap on subprocess stdout volume); `_create_or_enrich_activity` then runs `_clean_email_text(...)[:5000]` so only the first 5 000 cleaned chars land in `activity_log.email_snippet` / `inbox.content`
 4. **Flagged emails** — `todo flag of it is not not flagged` is the correct AppleScript syntax; `is flagged` does NOT work
 5. **Categories** — `categories of msg` returns a list of category objects; iterate and get `name of c`
 6. **Folder scanning** — `messages of inbox` only gets Inbox; use `every mail folder of default account` and iterate for cross-folder scans. Skip "Deleted Items", "Junk Email", "Drafts", "Trash", "Clutter", "Sent Items" (sent scanned separately)
@@ -155,13 +225,19 @@ Activities from sync show a "synced" badge (`source='outlook_sync'`). Thread-inh
 
 If an email auto-links to the wrong client/policy, the expandable detail row in the Activities table has Client and Policy dropdowns for reassignment. Changing client reloads the policy dropdown. Uses `PATCH /activities/{id}/field` with `client_id` or `policy_id`.
 
-## Migration 122
+## Migrations relevant to email sync
 
-```sql
-ALTER TABLE activity_log ADD COLUMN outlook_message_id TEXT;
-ALTER TABLE activity_log ADD COLUMN source TEXT NOT NULL DEFAULT 'manual';
-ALTER TABLE activity_log ADD COLUMN email_snippet TEXT;
-CREATE INDEX idx_activity_outlook_msgid ON activity_log(outlook_message_id) WHERE outlook_message_id IS NOT NULL;
-```
+- **122** `outlook_message_id`, `source`, `email_snippet` on `activity_log` + index
+- **123** `email_subject`, `email_date`, `outlook_message_id` on `inbox`
+- **125** `dismissed_outlook_messages` table — message_ids whose activities were intentionally deleted, so sync won't re-import
+- **129** `suggested_contacts` table — populated by `_capture_unknown_contacts`
+- **132** `email_from` / `email_to` on `activity_log` and `inbox`
+- **144** `email_direction` on `activity_log` and `inbox` (`'sent' | 'received' | 'flagged'`); backfills from legacy `Received: ` prefix and `[Outlook Sent|Received|Flagged]` brackets, then strips the legacy prefix from existing subjects
 
-Inbox table also has `outlook_message_id`, `email_subject`, `email_date` columns (added in same session).
+## Activity filter rule (anomaly engine + activity review)
+
+`anomaly_engine.py` and `activity_review.py` count **`source IN ('manual',
+'outlook_sync', 'thread_inherit') OR source IS NULL`** as user activity.
+Including `thread_inherit` is required so renewals where most correspondence
+was promoted via thread inheritance still register as "active" — leaving it
+out causes silent false-positive `no_activity` anomaly findings.

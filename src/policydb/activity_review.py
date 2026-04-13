@@ -216,14 +216,16 @@ def _has_covering_activity(
 
     # Check if any user-created activity was created within the session window
     # (±30 min).  Exclude system-generated activities (Milestone auto-logs).
-    # outlook_sync emails count as real work — synced emails represent genuine
-    # client contact and should satisfy the covering-activity check.
+    # outlook_sync and thread_inherit emails count as real work — they
+    # represent genuine client contact and satisfy the covering-activity check.
+    # Include `source IS NULL` for parity with anomaly_engine (pre-migration-122
+    # rows legitimately have no source).
     count = conn.execute(
         """SELECT COUNT(*) FROM activity_log
            WHERE client_id = ?
            AND created_at >= ? AND created_at <= ?
            AND activity_type NOT IN ('Milestone')
-           AND source IN ('manual', 'outlook_sync')""",
+           AND (source IN ('manual', 'outlook_sync', 'thread_inherit') OR source IS NULL)""",
         (client_id, window_start, window_end),
     ).fetchone()[0]
 

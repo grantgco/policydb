@@ -12,6 +12,7 @@
         {% elif t.deliverable_type == 'narrative' %}bg-green-50 text-green-700
         {% elif t.deliverable_type == 'memo' %}bg-red-50 text-red-700
         {% elif t.deliverable_type == 'submission' %}bg-cyan-50 text-cyan-700
+        {% elif t.deliverable_type == 'briefing' %}bg-indigo-50 text-indigo-700
         {% else %}bg-gray-50 text-gray-600{% endif %}">
         {{ t.deliverable_type }}
       </span>

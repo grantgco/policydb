@@ -19,7 +19,7 @@ router = APIRouter(prefix="/prompt-builder", tags=["prompt-builder"])
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 _DELIVERABLE_TYPES = [
-    "email", "report", "agenda", "narrative", "memo",
+    "briefing", "email", "report", "agenda", "narrative", "memo",
     "schedule", "submission", "other",
 ]
 
