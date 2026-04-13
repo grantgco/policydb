@@ -781,6 +781,49 @@ def _get_linked_policies(conn, issue_id: int, issue) -> list[dict]:
             seen_ids.add(d["id"])
             linked.append(d)
 
+    # Inherit from merged-in source issues (direct FK + program + junction)
+    merged_sources = conn.execute("""
+        SELECT id, policy_id, program_id FROM activity_log
+        WHERE merged_into_id = ? AND item_kind = 'issue'
+    """, (issue_id,)).fetchall()
+    for src in merged_sources:
+        if src["policy_id"]:
+            rows = conn.execute(f"""
+                SELECT {_pol_cols} FROM policies p {_pol_joins}
+                WHERE p.id = ? AND p.archived = 0
+            """, (src["policy_id"],)).fetchall()
+            for r in rows:
+                d = dict(r)
+                if d["id"] not in seen_ids:
+                    d["_from_merge"] = True
+                    seen_ids.add(d["id"])
+                    linked.append(d)
+        if src["program_id"]:
+            rows = conn.execute(f"""
+                SELECT {_pol_cols} FROM policies p {_pol_joins}
+                WHERE p.program_id = ? AND p.archived = 0
+                ORDER BY p.policy_type
+            """, (src["program_id"],)).fetchall()
+            for r in rows:
+                d = dict(r)
+                if d["id"] not in seen_ids:
+                    d["_from_merge"] = True
+                    seen_ids.add(d["id"])
+                    linked.append(d)
+        rows = conn.execute(f"""
+            SELECT {_pol_cols} FROM issue_policies ip
+            JOIN policies p ON p.id = ip.policy_id
+            {_pol_joins}
+            WHERE ip.issue_id = ? AND p.archived = 0
+            ORDER BY p.policy_uid
+        """, (src["id"],)).fetchall()
+        for r in rows:
+            d = dict(r)
+            if d["id"] not in seen_ids:
+                d["_from_merge"] = True
+                seen_ids.add(d["id"])
+                linked.append(d)
+
     return linked
 
 
