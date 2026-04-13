@@ -21,11 +21,12 @@
       <span class="border-l border-gray-200 h-6 mx-1"></span>
       <a href="/renewals/calendar" class="btn-filter">Calendar</a>
       <span class="border-l border-gray-200 h-6 mx-1"></span>
+      {%- set export_qs = 'window=' ~ window ~ '&urgency=' ~ urgency ~ '&status=' ~ (status | urlencode) ~ '&client_id=' ~ (client_id or 0) -%}
       <button type="button"
-        onclick="copyPolicyTable('/renewals/copy-table?window={{ window }}&status={{ status | urlencode }}&client_id={{ client_id or 0 }}', this)"
+        onclick="copyPolicyTable('/renewals/copy-table?{{ export_qs }}', this)"
         class="border border-gray-300 hover:border-marsh text-gray-700 hover:text-marsh text-sm font-medium px-3 py-1.5 rounded-lg transition-colors">Copy Table</button>
-      <a href="/renewals/export?window={{ window }}&fmt=csv" class="border border-gray-300 hover:border-marsh text-gray-700 hover:text-marsh text-sm font-medium px-3 py-1.5 rounded-lg transition-colors">CSV ↓</a>
-      <a href="/renewals/export?window={{ window }}&fmt=xlsx" class="border border-green-600 hover:bg-green-600 text-green-700 hover:text-white text-sm font-medium px-3 py-1.5 rounded-lg transition-colors">XLSX ↓</a>
+      <a href="/renewals/export?{{ export_qs }}&fmt=csv" class="border border-gray-300 hover:border-marsh text-gray-700 hover:text-marsh text-sm font-medium px-3 py-1.5 rounded-lg transition-colors">CSV ↓</a>
+      <a href="/renewals/export?{{ export_qs }}&fmt=xlsx" class="border border-green-600 hover:bg-green-600 text-green-700 hover:text-white text-sm font-medium px-3 py-1.5 rounded-lg transition-colors">XLSX ↓</a>
     </div>
   </div>
   <!-- Urgency filter -->
@@ -182,6 +183,31 @@ function getCheckedRenewalUids() {
   return Array.from(document.querySelectorAll('.renewal-check:checked')).map(function(cb) { return cb.value; });
 }
 
+function getCheckedRenewalSubjects() {
+  // Returns a tokenized list like "policy:POL-001,program:PGM-001"
+  var tokens = [];
+  document.querySelectorAll('.renewal-check:checked').forEach(function(cb) {
+    var subjectType = cb.dataset.subjectType || 'policy';
+    tokens.push(subjectType + ':' + cb.value);
+  });
+  return tokens;
+}
+
+function refreshRenewalRows() {
+  // Refresh each checked row using the appropriate endpoint (policy vs program)
+  document.querySelectorAll('.renewal-check:checked').forEach(function(cb) {
+    var uid = cb.value;
+    var subjectType = cb.dataset.subjectType || 'policy';
+    if (subjectType === 'program') {
+      htmx.ajax('GET', '/programs/' + uid + '/renew/row',
+        { target: '#pgm-row-' + uid, swap: 'outerHTML' });
+    } else {
+      htmx.ajax('GET', '/policies/' + uid + '/renew/row',
+        { target: '#renew-row-' + uid, swap: 'outerHTML' });
+    }
+  });
+}
+
 function updateRenewalBulkBar() {
   var uids = getCheckedRenewalUids();
   var bar = document.getElementById('renewal-bulk-bar');
@@ -216,31 +242,29 @@ function toggleBulkLogPanel() {
 }
 
 function bulkMilestone(action) {
-  var uids = getCheckedRenewalUids();
+  var subjects = getCheckedRenewalSubjects();
   var milestone = document.getElementById('bulk-milestone').value;
-  if (!uids.length || !milestone) { showToast('Select policies and pick a milestone.', false); return; }
+  if (!subjects.length || !milestone) { showToast('Select rows and pick a milestone.', false); return; }
   htmx.ajax('POST', '/renewals/bulk-milestones', {
     target: 'body',
     swap: 'none',
-    values: { policy_uids: uids.join(','), milestone: milestone, action: action }
+    values: { subjects: subjects.join(','), milestone: milestone, action: action }
   }).then(function() {
-    uids.forEach(function(uid) {
-      htmx.ajax('GET', '/policies/' + uid + '/renew/row', { target: '#renew-row-' + uid, swap: 'outerHTML' });
-    });
+    refreshRenewalRows();
     clearRenewalChecks();
   });
 }
 
 function bulkLog() {
-  var uids = getCheckedRenewalUids();
+  var subjects = getCheckedRenewalSubjects();
   var subject = document.getElementById('bulk-log-subject').value.trim();
-  if (!uids.length) { showToast('Select at least one policy.', false); return; }
+  if (!subjects.length) { showToast('Select at least one row.', false); return; }
   if (!subject) { showToast('Subject is required.', false); return; }
   htmx.ajax('POST', '/renewals/bulk/log', {
     target: 'body',
     swap: 'none',
     values: {
-      policy_uids: uids.join(','),
+      subjects: subjects.join(','),
       activity_type: document.getElementById('bulk-log-type').value,
       subject: subject,
       contact_person: document.getElementById('bulk-log-contact').value,
@@ -249,9 +273,7 @@ function bulkLog() {
       duration_hours: document.getElementById('bulk-log-duration').value
     }
   }).then(function() {
-    uids.forEach(function(uid) {
-      htmx.ajax('GET', '/policies/' + uid + '/renew/row', { target: '#renew-row-' + uid, swap: 'outerHTML' });
-    });
+    refreshRenewalRows();
     // Reset form
     document.getElementById('bulk-log-subject').value = '';
     document.getElementById('bulk-log-contact').value = '';
@@ -271,36 +293,39 @@ document.addEventListener('click', function(e) {
 });
 
 function bulkSetStatus() {
-  var uids = getCheckedRenewalUids();
+  var checks = Array.from(document.querySelectorAll('.renewal-check:checked'));
   var status = document.getElementById('bulk-status').value;
-  if (!uids.length) { showToast('Select at least one policy.', false); return; }
+  if (!checks.length) { showToast('Select at least one row.', false); return; }
   if (!status) { showToast('Pick a status.', false); return; }
-  Promise.all(uids.map(function(uid) {
-    return htmx.ajax('POST', '/policies/' + uid + '/status', {
+  // Dispatch to the right endpoint per subject type — programs use
+  // /programs/{uid}/status, policies use /policies/{uid}/status
+  Promise.all(checks.map(function(cb) {
+    var uid = cb.value;
+    var subjectType = cb.dataset.subjectType || 'policy';
+    var url = subjectType === 'program'
+      ? '/programs/' + uid + '/status'
+      : '/policies/' + uid + '/status';
+    return htmx.ajax('POST', url, {
       target: 'body', swap: 'none',
-      values: { renewal_status: status }
+      values: subjectType === 'program' ? { status: status } : { renewal_status: status }
     });
   })).then(function() {
-    uids.forEach(function(uid) {
-      htmx.ajax('GET', '/policies/' + uid + '/renew/row', { target: '#renew-row-' + uid, swap: 'outerHTML' });
-    });
+    refreshRenewalRows();
     document.getElementById('bulk-status').value = '';
     clearRenewalChecks();
   });
 }
 
 function bulkSetFollowUp() {
-  var uids = getCheckedRenewalUids();
+  var subjects = getCheckedRenewalSubjects();
   var dt = document.getElementById('bulk-followup-date').value;
-  if (!uids.length) { showToast('Select at least one policy.', false); return; }
+  if (!subjects.length) { showToast('Select at least one row.', false); return; }
   if (!dt) { showToast('Pick a follow-up date.', false); return; }
   htmx.ajax('POST', '/renewals/bulk/follow-up', {
     target: 'body', swap: 'none',
-    values: { policy_uids: uids.join(','), follow_up_date: dt }
+    values: { subjects: subjects.join(','), follow_up_date: dt }
   }).then(function() {
-    uids.forEach(function(uid) {
-      htmx.ajax('GET', '/policies/' + uid + '/renew/row', { target: '#renew-row-' + uid, swap: 'outerHTML' });
-    });
+    refreshRenewalRows();
     document.getElementById('bulk-followup-date').value = '';
     clearRenewalChecks();
   });
