@@ -1272,6 +1272,8 @@ def get_open_tasks(
         return _open_tasks_for_client(conn, scope_id)
     if scope_type == "program":
         return _open_tasks_for_program(conn, scope_id)
+    if scope_type == "policy":
+        return _open_tasks_for_policy(conn, scope_id)
     raise ValueError(f"Unsupported scope_type: {scope_type}")
 
 
@@ -1664,6 +1666,61 @@ def _open_tasks_for_program(conn, program_id: int) -> dict:
             "rows": _sort_rows(loose_rows),
         })
 
+    return {"groups": groups, "total": total, "overdue": overdue, "waiting": waiting}
+
+
+def _open_tasks_for_policy(conn, policy_id: int) -> dict:
+    rows: list[dict] = []
+    total = 0
+    overdue = 0
+    waiting = 0
+
+    for r in conn.execute(
+        """SELECT a.id, a.subject, a.activity_type, a.follow_up_date,
+                  a.disposition, a.policy_id, a.client_id, a.issue_id,
+                  p.policy_uid, p.policy_type,
+                  c.name AS client_name,
+                  other.issue_uid AS other_issue_uid
+           FROM activity_log a
+           JOIN policies p ON p.id = a.policy_id
+           LEFT JOIN clients c ON c.id = a.client_id
+           LEFT JOIN activity_log other ON other.id = a.issue_id AND other.item_kind = 'issue'
+           WHERE a.policy_id = ?
+             AND a.follow_up_done = 0
+             AND a.follow_up_date IS NOT NULL
+             AND (a.item_kind = 'followup' OR a.item_kind IS NULL)""",
+        (policy_id,),
+    ).fetchall():
+        row = _open_task_row_from_activity(r)
+        row["linked_to_other_issue"] = r["other_issue_uid"]
+
+        # Attach target: policy's single open renewal issue if unique
+        tgt = conn.execute(
+            """SELECT id FROM activity_log
+               WHERE item_kind = 'issue'
+                 AND policy_id = ?
+                 AND issue_status NOT IN ('Resolved', 'Closed', 'Merged')
+                 AND merged_into_id IS NULL""",
+            (policy_id,),
+        ).fetchall()
+        if len(tgt) == 1:
+            row["attach_target_issue_id"] = tgt[0]["id"]
+
+        rows.append(row)
+        total += 1
+        if row["days_overdue"] > 0:
+            overdue += 1
+        if row["accountability"] == "waiting_external":
+            waiting += 1
+
+    groups = []
+    if rows:
+        groups.append({
+            "key": "on_policy",
+            "title": "Open tasks on this policy",
+            "subtitle": None,
+            "rows": _sort_rows(rows),
+        })
     return {"groups": groups, "total": total, "overdue": overdue, "waiting": waiting}
 
 

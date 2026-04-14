@@ -391,3 +391,20 @@ def test_get_open_tasks_program_scope(tmp_db):
     assert "on_program_issue" in keys
     assert "loose" in keys
     assert result["total"] == 2
+
+
+def test_get_open_tasks_policy_scope_single_group(tmp_db):
+    from policydb.queries import get_open_tasks
+    conn = get_connection()
+    cid = _seed_client(conn)
+    pid = _seed_policy(conn, cid, "POL-SOLO")
+    _insert_followup(conn, cid, pid, "task-a", "2026-04-10")
+    _insert_followup(conn, cid, pid, "task-b", "2026-04-20")
+    conn.commit()
+
+    result = get_open_tasks(conn, "policy", pid)
+    assert len(result["groups"]) == 1
+    assert result["groups"][0]["key"] == "on_policy"
+    assert result["total"] == 2
+    subjects = [r["subject"] for r in result["groups"][0]["rows"]]
+    assert subjects == ["task-a", "task-b"]  # sort: earlier date first
