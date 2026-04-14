@@ -272,3 +272,39 @@ def action_attach(
         request, conn, return_scope_type, return_scope_id,
         toast_message="Attached to issue",
     )
+
+
+@router.post("/{activity_id}/note", response_class=HTMLResponse)
+def action_note(
+    request: Request,
+    activity_id: str,
+    text: str = Form(...),
+    return_scope_type: str = Form(...),
+    return_scope_id: int = Form(...),
+    conn=Depends(get_db),
+):
+    kind, rid = _parse_activity_id(activity_id)
+    if kind != "activity":
+        raise HTTPException(400, "Note only supported on activity-source rows")
+    if not text.strip():
+        raise HTTPException(400, "Note text required")
+    act = _fetch_activity(conn, rid)
+    if not act:
+        raise HTTPException(404, "Parent activity not found")
+
+    create_followup_activity(
+        conn,
+        client_id=act["client_id"],
+        policy_id=act["policy_id"],
+        issue_id=act["issue_id"],
+        subject=text.strip(),
+        activity_type="Note",
+        follow_up_date=None,
+        follow_up_done=True,
+        disposition="",
+    )
+    conn.commit()
+    return _render_panel(
+        request, conn, return_scope_type, return_scope_id,
+        toast_message="Note saved",
+    )

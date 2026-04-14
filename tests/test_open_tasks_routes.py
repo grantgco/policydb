@@ -168,3 +168,34 @@ def test_attach_sets_issue_id(app_client, seeded):
         "SELECT issue_id FROM activity_log WHERE id=?", (loose_id,)
     ).fetchone()
     assert row["issue_id"] == iss_b
+
+
+def test_note_creates_sibling_activity(app_client, seeded):
+    r = app_client.post(
+        f"/open-tasks/{seeded['activity_id']}/note",
+        data={
+            "text": "Quick FYI",
+            "return_scope_type": "issue",
+            "return_scope_id": seeded["issue_id"],
+        },
+    )
+    assert r.status_code == 200
+
+    conn = get_connection()
+    # Original task should still be open
+    orig = conn.execute(
+        "SELECT follow_up_done FROM activity_log WHERE id=?",
+        (seeded["activity_id"],),
+    ).fetchone()
+    assert orig["follow_up_done"] == 0
+
+    # A new sibling note activity should exist
+    note = conn.execute(
+        """SELECT id, subject, activity_type, follow_up_done, follow_up_date, issue_id
+           FROM activity_log
+           WHERE subject = 'Quick FYI' AND activity_type = 'Note'"""
+    ).fetchone()
+    assert note is not None
+    assert note["follow_up_done"] == 1
+    assert note["follow_up_date"] is None
+    assert note["issue_id"] == seeded["issue_id"]
