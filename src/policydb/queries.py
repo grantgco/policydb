@@ -1270,6 +1270,8 @@ def get_open_tasks(
         return _open_tasks_for_issue(conn, scope_id)
     if scope_type == "client":
         return _open_tasks_for_client(conn, scope_id)
+    if scope_type == "program":
+        return _open_tasks_for_program(conn, scope_id)
     raise ValueError(f"Unsupported scope_type: {scope_type}")
 
 
@@ -1553,6 +1555,112 @@ def _open_tasks_for_client(conn, client_id: int) -> dict:
             "key": "loose_policies",
             "title": "Loose on other policies",
             "subtitle": "Not covered by any open issue",
+            "rows": _sort_rows(loose_rows),
+        })
+
+    return {"groups": groups, "total": total, "overdue": overdue, "waiting": waiting}
+
+
+def _open_tasks_for_program(conn, program_id: int) -> dict:
+    open_issues = conn.execute(
+        """SELECT id AS issue_id, issue_uid, subject
+           FROM activity_log
+           WHERE item_kind = 'issue'
+             AND program_id = ?
+             AND issue_status NOT IN ('Resolved', 'Closed', 'Merged')
+             AND merged_into_id IS NULL""",
+        (program_id,),
+    ).fetchall()
+    issue_ids = [r["issue_id"] for r in open_issues]
+
+    child_policies = conn.execute(
+        "SELECT id FROM policies WHERE program_id = ? AND archived = 0",
+        (program_id,),
+    ).fetchall()
+    child_policy_ids = [r["id"] for r in child_policies]
+
+    total = 0
+    overdue = 0
+    waiting = 0
+
+    def _count(row):
+        nonlocal total, overdue, waiting
+        total += 1
+        if row["days_overdue"] > 0:
+            overdue += 1
+        if row["accountability"] == "waiting_external":
+            waiting += 1
+
+    # Group 1: on_program_issue
+    on_issue_rows: list[dict] = []
+    if issue_ids:
+        ph = ",".join("?" * len(issue_ids))
+        for r in conn.execute(
+            f"""SELECT a.id, a.subject, a.activity_type, a.follow_up_date,
+                       a.disposition, a.policy_id, a.client_id, a.issue_id,
+                       p.policy_uid, p.policy_type,
+                       c.name AS client_name
+                FROM activity_log a
+                LEFT JOIN policies p ON p.id = a.policy_id
+                LEFT JOIN clients c ON c.id = a.client_id
+                WHERE a.issue_id IN ({ph})
+                  AND a.follow_up_done = 0
+                  AND a.follow_up_date IS NOT NULL
+                  AND (a.item_kind = 'followup' OR a.item_kind IS NULL)""",  # noqa: S608
+            issue_ids,
+        ).fetchall():
+            row = _open_task_row_from_activity(r)
+            row["is_on_issue"] = True
+            on_issue_rows.append(row)
+            _count(row)
+
+    # Group 2: loose on child policies
+    loose_rows: list[dict] = []
+    if child_policy_ids:
+        ph = ",".join("?" * len(child_policy_ids))
+        params: list = list(child_policy_ids)
+        if issue_ids:
+            iph = ",".join("?" * len(issue_ids))
+            exclude_clause = f" AND (a.issue_id IS NULL OR a.issue_id NOT IN ({iph}))"
+            params.extend(issue_ids)
+        else:
+            exclude_clause = " AND a.issue_id IS NULL"
+        for r in conn.execute(
+            f"""SELECT a.id, a.subject, a.activity_type, a.follow_up_date,
+                       a.disposition, a.policy_id, a.client_id, a.issue_id,
+                       p.policy_uid, p.policy_type,
+                       c.name AS client_name,
+                       other.issue_uid AS other_issue_uid
+                FROM activity_log a
+                JOIN policies p ON p.id = a.policy_id
+                LEFT JOIN clients c ON c.id = a.client_id
+                LEFT JOIN activity_log other ON other.id = a.issue_id AND other.item_kind = 'issue'
+                WHERE a.policy_id IN ({ph})
+                  AND a.follow_up_done = 0
+                  AND a.follow_up_date IS NOT NULL
+                  AND (a.item_kind = 'followup' OR a.item_kind IS NULL){exclude_clause}""",  # noqa: S608
+            params,
+        ).fetchall():
+            row = _open_task_row_from_activity(r)
+            row["linked_to_other_issue"] = r["other_issue_uid"]
+            if issue_ids and not row["linked_to_other_issue"]:
+                row["attach_target_issue_id"] = issue_ids[0] if len(issue_ids) == 1 else None
+            loose_rows.append(row)
+            _count(row)
+
+    groups = []
+    if on_issue_rows:
+        groups.append({
+            "key": "on_program_issue",
+            "title": "On program issue",
+            "subtitle": None,
+            "rows": _sort_rows(on_issue_rows),
+        })
+    if loose_rows:
+        groups.append({
+            "key": "loose",
+            "title": "Loose on child policies",
+            "subtitle": None,
             "rows": _sort_rows(loose_rows),
         })
 
