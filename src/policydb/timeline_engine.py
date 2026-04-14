@@ -314,9 +314,12 @@ def recalculate_downstream(
         original_gap = (curr_ideal - prev_ideal).days if (curr_ideal and prev_ideal) else minimum_gap_days
         new_gap = max(original_gap, minimum_gap_days)
 
-        prev_projected = _parse_date(rows[i - 1]["projected_date"])
+        # Anchor off prev_projected; if the previous row has an unparseable
+        # projected_date, fall back to prev_ideal so downstream milestones
+        # still shift instead of silently cascading skips.
+        prev_projected = _parse_date(rows[i - 1]["projected_date"]) or prev_ideal
         if not prev_projected:
-            continue  # Skip if previous projected date is unparseable
+            continue  # No ideal either — nothing we can anchor to
         new_proj = prev_projected + timedelta(days=new_gap)
 
         # Clamp to expiration_date

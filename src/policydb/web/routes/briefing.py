@@ -28,38 +28,58 @@ router = APIRouter()
 
 
 def _enrich_action_queue(conn, action_queue: list[dict]):
-    """Attach carrier, renewal_status, readiness, last activity, and contact info to action queue items."""
+    """Attach carrier, renewal_status, readiness, last activity, and contact info to action queue items.
+
+    Action queue items come from heterogeneous sources — escalation alerts carry
+    policies.id as ``item["id"]``, but follow-up rows from activity_log/projects
+    carry their own activity_log.id. Enrichment must key on ``policy_uid`` so
+    activity IDs don't collide with the policy ID space.
+    """
     today = date.today()
 
-    # Collect policy IDs for batch queries
-    policy_ids = [item["id"] for item in action_queue if item.get("id")]
+    # Collect policy UIDs for batch queries — only policy-scoped rows have a uid.
     policy_uids = [item["policy_uid"] for item in action_queue if item.get("policy_uid")]
 
-    # Batch-fetch last activity per policy
+    # Batch-fetch last activity per policy (keyed by policy_uid)
     last_activity_map: dict = {}
-    if policy_ids:
-        ph = ",".join("?" * len(policy_ids))
+    if policy_uids:
+        ph = ",".join("?" * len(policy_uids))
         rows = conn.execute(
-            f"SELECT policy_id, MAX(activity_date) AS last_date, "  # noqa: S608
-            f"(SELECT activity_type FROM activity_log a2 WHERE a2.policy_id = a1.policy_id ORDER BY activity_date DESC, id DESC LIMIT 1) AS last_type "
-            f"FROM activity_log a1 WHERE policy_id IN ({ph}) GROUP BY policy_id",
-            policy_ids,
+            f"""SELECT p.policy_uid,
+                       MAX(a.activity_date) AS last_date,
+                       (SELECT a2.activity_type FROM activity_log a2
+                        WHERE a2.policy_id = p.id
+                        ORDER BY a2.activity_date DESC, a2.id DESC LIMIT 1) AS last_type
+                FROM policies p
+                LEFT JOIN activity_log a ON a.policy_id = p.id
+                WHERE p.policy_uid IN ({ph})
+                GROUP BY p.policy_uid""",  # noqa: S608
+            policy_uids,
         ).fetchall()
-        last_activity_map = {r["policy_id"]: {"date": r["last_date"], "type": r["last_type"]} for r in rows}
+        last_activity_map = {
+            r["policy_uid"]: {"date": r["last_date"], "type": r["last_type"]} for r in rows
+        }
 
-    # Batch-fetch contact info (primary contact email) per policy
+    # Batch-fetch contact info (primary contact email) per policy (keyed by policy_uid)
     contact_map: dict = {}
-    if policy_ids:
-        ph = ",".join("?" * len(policy_ids))
+    if policy_uids:
+        ph = ",".join("?" * len(policy_uids))
         rows = conn.execute(
-            f"SELECT p.id AS policy_id, co.name AS contact_name, co.email AS contact_email "  # noqa: S608
-            f"FROM policies p "
-            f"JOIN contact_client_assignments cca ON cca.client_id = p.client_id AND cca.contact_type = 'client' AND cca.is_primary = 1 "
-            f"JOIN contacts co ON cca.contact_id = co.id "
-            f"WHERE p.id IN ({ph})",
-            policy_ids,
+            f"""SELECT p.policy_uid,
+                       co.name AS contact_name,
+                       co.email AS contact_email
+                FROM policies p
+                JOIN contact_client_assignments cca
+                  ON cca.client_id = p.client_id
+                 AND cca.contact_type = 'client'
+                 AND cca.is_primary = 1
+                JOIN contacts co ON cca.contact_id = co.id
+                WHERE p.policy_uid IN ({ph})""",  # noqa: S608
+            policy_uids,
         ).fetchall()
-        contact_map = {r["policy_id"]: {"name": r["contact_name"], "email": r["contact_email"]} for r in rows}
+        contact_map = {
+            r["policy_uid"]: {"name": r["contact_name"], "email": r["contact_email"]} for r in rows
+        }
 
     # Attach readiness scores to items with policy context
     policy_items = [item for item in action_queue if item.get("policy_uid") and item.get("days_to_renewal") is not None]
@@ -69,9 +89,9 @@ def _enrich_action_queue(conn, action_queue: list[dict]):
         _attach_readiness_score(conn, policy_items)
 
     for item in action_queue:
-        pid = item.get("id")
+        puid = item.get("policy_uid")
         # Last activity
-        la = last_activity_map.get(pid, {})
+        la = last_activity_map.get(puid, {}) if puid else {}
         item["last_activity_date"] = la.get("date")
         item["last_activity_type"] = la.get("type")
         if la.get("date"):
@@ -81,7 +101,7 @@ def _enrich_action_queue(conn, action_queue: list[dict]):
                 item["last_activity_days_ago"] = None
 
         # Contact info
-        ci = contact_map.get(pid, {})
+        ci = contact_map.get(puid, {}) if puid else {}
         if not item.get("contact_person"):
             item["contact_person"] = ci.get("name")
         if not item.get("contact_email"):

@@ -7,6 +7,7 @@ UI lives under the Recurring tab on the client detail page.
 
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime
 from typing import Optional
 
@@ -21,6 +22,8 @@ from policydb.recurring_events import (
     next_recurring_uid,
 )
 from policydb.web.app import get_db, templates
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/recurring-events")
 
@@ -192,7 +195,7 @@ def create_template(
     try:
         generate_due_recurring_instances(conn)
     except Exception:
-        pass
+        logger.exception("generate_due_recurring_instances failed after create_template")
 
     return _render_client_tab(request, conn, client_id)
 
@@ -288,7 +291,7 @@ def activate_template(recurring_id: int, request: Request, conn=Depends(get_db))
     try:
         generate_due_recurring_instances(conn)
     except Exception:
-        pass
+        logger.exception("generate_due_recurring_instances failed after activate_template")
     return _render_client_tab(request, conn, template["client_id"])
 
 
@@ -358,7 +361,7 @@ def skip_instance(issue_id: int, request: Request, conn=Depends(get_db)):
     try:
         advance_template_for_completion(conn, issue_id)
     except Exception:
-        pass
+        logger.exception("advance_template_for_completion failed for issue_id=%s", issue_id)
 
     conn.commit()
     return _render_client_tab(request, conn, row["client_id"])
