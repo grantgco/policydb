@@ -160,30 +160,37 @@
            data-policy-uid="{{ compare_policy.policy_uid }}">
         <div class="text-[10px] text-blue-600 uppercase tracking-wider mb-1">Proposed</div>
         {% set has_tower = tower_layers and (tower_layers | length) > 1 %}
-        {% set effective_limit = tower_total if has_tower else compare_policy.limit_amount %}
-        {# Touch-once: if limit is missing/zero on the primary policy (not a
-           tower, else tower total is the source of truth), show an inline
-           input that writes back to policies.limit_amount. #}
-        <div class="text-xs text-gray-800">
-          Limit:
-          {% if (not effective_limit or effective_limit == 0) and not has_tower %}
+        {% set effective_limit = tower_total if has_tower else (compare_policy.limit_amount or 0) %}
+        {% set current_limit = compare_policy.limit_amount or 0 %}
+        {% set current_ded = compare_policy.deductible if compare_policy.deductible is not none else 0 %}
+
+        {#
+          Touch-once: both limit and deductible on the proposed policy are
+          always editable. Click-to-edit inputs pre-filled with the current
+          value. Save-on-blur writes back via /policies/{uid}/cell. If the
+          policy is part of a multi-layer tower, the limit display shows the
+          tower total (derived) and becomes read-only; individual layers can
+          still be edited from their own policy pages.
+        #}
+        <div class="text-xs text-gray-800 flex items-center gap-1 flex-wrap">
+          <span class="text-gray-600">Limit:</span>
+          {% if has_tower %}
+            <span class="font-medium">{{ effective_limit | currency }}</span>
+            <span class="text-[10px] text-gray-500">({{ tower_layers | length }}-layer tower)</span>
+          {% else %}
             <input type="text" inputmode="numeric"
                    data-policy-field="limit_amount"
+                   value="{% if current_limit %}{{ current_limit | currency }}{% endif %}"
                    placeholder="enter limit"
-                   class="policy-writeback-input ml-1 border border-blue-300 rounded px-1.5 py-0.5 text-xs w-24 bg-white"
-                   onchange="savePolicyField(this)" />
-            <span class="text-[10px] text-gray-500 ml-1">Not set on policy — enter once</span>
-          {% else %}
-            <span class="font-medium">{{ effective_limit | currency }}</span>
-            {% if req.required_limit %}
-              {% if effective_limit >= req.required_limit %}
-              <span class="text-green-600 ml-1">&check;</span>
-              {% else %}
-              <span class="text-red-600 ml-1">&cross;</span>
-              {% endif %}
-            {% endif %}
-            {% if has_tower %}
-            <span class="text-[10px] text-gray-500 ml-1">({{ tower_layers | length }}-layer tower)</span>
+                   class="policy-writeback-input border border-blue-200 rounded px-1.5 py-0.5 text-xs w-32 bg-white font-medium focus:outline-none focus:ring-1 focus:ring-marsh-blue focus:border-marsh-blue"
+                   onblur="savePolicyField(this)"
+                   onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}" />
+          {% endif %}
+          {% if req.required_limit and effective_limit %}
+            {% if effective_limit >= req.required_limit %}
+            <span class="text-green-600">&check;</span>
+            {% else %}
+            <span class="text-red-600">&cross;</span>
             {% endif %}
           {% endif %}
         </div>
@@ -206,23 +213,31 @@
         </div>
         {% endif %}
         {% if req.max_deductible is not none and req.max_deductible > 0 %}
-        <div class="text-xs text-gray-800 mt-1">
-          Ded:
-          {% if compare_policy.deductible is none %}
-            <input type="text" inputmode="numeric"
-                   data-policy-field="deductible"
-                   placeholder="enter deductible"
-                   class="policy-writeback-input ml-1 border border-blue-300 rounded px-1.5 py-0.5 text-xs w-24 bg-white"
-                   onchange="savePolicyField(this)" />
-            <span class="text-[10px] text-gray-500 ml-1">Not set — enter once</span>
-          {% else %}
-            <span class="font-medium">{{ compare_policy.deductible | currency }}</span>
+        <div class="text-xs text-gray-800 mt-1 flex items-center gap-1 flex-wrap">
+          <span class="text-gray-600">Ded:</span>
+          <input type="text" inputmode="numeric"
+                 data-policy-field="deductible"
+                 value="{% if current_ded %}{{ current_ded | currency }}{% elif compare_policy.deductible == 0 %}$0{% endif %}"
+                 placeholder="enter deductible"
+                 class="policy-writeback-input border border-blue-200 rounded px-1.5 py-0.5 text-xs w-32 bg-white font-medium focus:outline-none focus:ring-1 focus:ring-marsh-blue focus:border-marsh-blue"
+                 onblur="savePolicyField(this)"
+                 onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}" />
+          {% if compare_policy.deductible is not none %}
             {% if compare_policy.deductible <= req.max_deductible %}
-            <span class="text-green-600 ml-1">&check;</span>
+            <span class="text-green-600">&check;</span>
             {% else %}
-            <span class="text-red-600 ml-1">&cross;</span>
+            <span class="text-red-600">&cross;</span>
             {% endif %}
           {% endif %}
+        </div>
+        {% endif %}
+        {% if primary_policy %}
+        <div class="mt-2 pt-2 border-t border-blue-100 flex items-center justify-between">
+          <span class="text-[10px] text-gray-500">Linked to this requirement</span>
+          <button type="button"
+                  class="text-[10px] text-red-500 hover:text-red-700 hover:underline"
+                  onclick="unlinkPrimaryPolicy()"
+                  title="Remove this policy link from the requirement">Unlink</button>
         </div>
         {% endif %}
       </div>
@@ -746,18 +761,42 @@ function linkAndMark(policyUid, status) {
     });
 }
 
-/* ── Touch-once write-back: fix a missing limit or deductible on the linked
-     /suggested policy directly from the slideover. Same principle as the
-     endorsement checkboxes — the fact lives on the policy record. After
-     saving, re-fetch the slideover so auto-compute picks up the new value
-     and the tower total refreshes. Accepts currency shorthand (1m, 500k). ── */
+/* ── Unlink the primary policy from this requirement. Clears both the
+     denormalized linked_policy_uid AND any requirement_policy_links row
+     for a clean slate. Usable whether there are additional non-primary
+     links or not (closes the "can't unlink the first one" gap). ── */
+function unlinkPrimaryPolicy() {
+    if (!confirm('Unlink this policy from the requirement?')) return;
+    var fd = new FormData();
+    fd.append('linked_policy_uid', '');
+    fetch('/compliance/client/{{ client_id }}/requirements/{{ req.id }}/link-policy', {
+        method: 'POST',
+        body: fd
+    }).then(function() {
+        htmx.ajax('GET', '/compliance/client/{{ client_id }}/requirements/{{ req.id }}/detail',
+                  {target: '#requirement-slideover-container', swap: 'innerHTML'});
+    });
+}
+
+/* ── Touch-once write-back: fix a missing or wrong limit or deductible on
+     the linked/suggested policy directly from the slideover. Same principle
+     as the endorsement checkboxes — the fact lives on the policy record.
+     After saving, re-fetch the slideover so auto-compute picks up the new
+     value and the tower total refreshes. Accepts currency shorthand (1m, 500k).
+     Skips the save if the value hasn't changed from what was loaded. ── */
 function savePolicyField(input) {
     var card = document.getElementById('proposed-card');
     if (!card) return;
     var policyUid = card.dataset.policyUid;
     var field = input.dataset.policyField;
     var value = (input.value || '').trim();
+    // Skip empty save AND skip no-op saves (value unchanged from load).
     if (!value) return;
+    if (!input.dataset.loaded) {
+        input.dataset.loaded = value;
+    } else if (input.dataset.loaded === value) {
+        return;
+    }
     fetch('/policies/' + policyUid + '/cell', {
         method: 'PATCH',
         headers: {'Content-Type': 'application/json'},
@@ -774,6 +813,13 @@ function savePolicyField(input) {
         input.classList.add('border-red-400');
     });
 }
+
+/* Stamp the initial value on each write-back input when the slideover
+   (re-)renders, so savePolicyField can detect no-op saves on blur. */
+(function () {
+    var inputs = document.querySelectorAll('#proposed-card .policy-writeback-input');
+    inputs.forEach(function (el) { el.dataset.loaded = (el.value || '').trim(); });
+})();
 
 /* ── Touch-once write-back: confirm an endorsement on the linked/suggested
      policy. Writes to policies.endorsements so the fact lives on the policy,
