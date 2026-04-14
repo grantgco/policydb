@@ -118,3 +118,61 @@ def action_done(
         request, conn, return_scope_type, return_scope_id,
         toast_message="Task marked done",
     )
+
+
+@router.post("/{activity_id}/snooze", response_class=HTMLResponse)
+def action_snooze(
+    request: Request,
+    activity_id: str,
+    days: int = Form(0),
+    new_date: Optional[str] = Form(None),
+    return_scope_type: str = Form(...),
+    return_scope_id: int = Form(...),
+    conn=Depends(get_db),
+):
+    def _compute_new_date(current: Optional[str]) -> Optional[str]:
+        if new_date:
+            return new_date
+        if not days:
+            return current
+        try:
+            base = date.fromisoformat(current) if current else date.today()
+        except (ValueError, TypeError):
+            base = date.today()
+        return (base + timedelta(days=days)).isoformat()
+
+    kind, rid = _parse_activity_id(activity_id)
+    if kind == "activity":
+        act = _fetch_activity(conn, rid)
+        if not act:
+            raise HTTPException(404, "Activity not found")
+        updated = _compute_new_date(act["follow_up_date"])
+        conn.execute(
+            "UPDATE activity_log SET follow_up_date = ? WHERE id = ?",
+            (updated, rid),
+        )
+        if act["policy_id"]:
+            sync_policy_follow_up_date(conn, act["policy_id"])
+        elif act["client_id"]:
+            sync_client_follow_up_date(conn, act["client_id"])
+    elif kind == "policy":
+        row = conn.execute(
+            "SELECT follow_up_date FROM policies WHERE id = ?", (rid,)
+        ).fetchone()
+        updated = _compute_new_date(row["follow_up_date"] if row else None)
+        conn.execute(
+            "UPDATE policies SET follow_up_date = ? WHERE id = ?", (updated, rid)
+        )
+    elif kind == "client":
+        row = conn.execute(
+            "SELECT follow_up_date FROM clients WHERE id = ?", (rid,)
+        ).fetchone()
+        updated = _compute_new_date(row["follow_up_date"] if row else None)
+        conn.execute(
+            "UPDATE clients SET follow_up_date = ? WHERE id = ?", (updated, rid)
+        )
+    conn.commit()
+    return _render_panel(
+        request, conn, return_scope_type, return_scope_id,
+        toast_message=f"Snoozed +{days}d" if days else "Snoozed",
+    )

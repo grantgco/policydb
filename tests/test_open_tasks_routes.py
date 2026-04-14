@@ -92,3 +92,18 @@ def test_mark_done_closes_activity_and_syncs_policy(app_client, seeded):
         "SELECT follow_up_date FROM policies WHERE id=?", (seeded["policy_id"],)
     ).fetchone()
     assert pol["follow_up_date"] is None  # synced after mark-done
+
+
+def test_snooze_shifts_date_by_days(app_client, seeded):
+    r = app_client.post(
+        f"/open-tasks/{seeded['activity_id']}/snooze",
+        data={"days": 7, "return_scope_type": "issue", "return_scope_id": seeded["issue_id"]},
+    )
+    assert r.status_code == 200
+
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT follow_up_date FROM activity_log WHERE id=?", (seeded["activity_id"],)
+    ).fetchone()
+    # Original date was 2026-04-15; +7 = 2026-04-22
+    assert row["follow_up_date"] == "2026-04-22"
