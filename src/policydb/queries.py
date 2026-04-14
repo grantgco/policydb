@@ -1206,6 +1206,164 @@ def filter_thread_for_history(rows: list) -> list:
     return out
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Open Tasks panel — aggregated follow-up rollup for issue/client/program/policy
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _open_task_row_from_activity(r) -> dict:
+    """Convert a sqlite row from activity_log (+ policy/client joins) into the
+    panel's TaskRow shape. Helper shared across scopes."""
+    from datetime import date as _date
+    today = _date.today()
+    fu = r["follow_up_date"]
+    days_overdue = 0
+    try:
+        days_overdue = (today - _date.fromisoformat(fu)).days
+    except (ValueError, TypeError):
+        pass
+
+    keys = r.keys() if hasattr(r, "keys") else []
+    disposition = (r["disposition"] or "") if "disposition" in keys else ""
+
+    # Resolve accountability from config
+    accountability = "my_action"
+    for d in cfg.get("follow_up_dispositions", []):
+        if d.get("label") == disposition:
+            accountability = d.get("accountability", "my_action")
+            break
+
+    return {
+        "activity_id": str(r["id"]),
+        "subject": r["subject"] or r["activity_type"] or "Follow-up",
+        "activity_type": r["activity_type"],
+        "follow_up_date": fu,
+        "days_overdue": days_overdue,
+        "disposition": disposition,
+        "accountability": accountability,
+        "policy_id": r["policy_id"] if "policy_id" in keys else None,
+        "policy_uid": r["policy_uid"] if "policy_uid" in keys else None,
+        "policy_type": r["policy_type"] if "policy_type" in keys else None,
+        "client_id": r["client_id"],
+        "client_name": r["client_name"] if "client_name" in keys else "",
+        "source": "activity",
+        "is_on_issue": False,          # caller sets
+        "linked_to_other_issue": None, # caller sets
+        "attach_target_issue_id": None, # caller sets
+    }
+
+
+def _sort_rows(rows: list[dict]) -> list[dict]:
+    return sorted(rows, key=lambda r: (-r["days_overdue"], r["follow_up_date"] or ""))
+
+
+def get_open_tasks(
+    conn,
+    scope_type: str,
+    scope_id: int,
+) -> dict:
+    """Unified open-tasks rollup for the Open Tasks panel.
+
+    scope_type: 'issue', 'client', 'program', or 'policy'.
+    Returns {groups: [GroupDict], total, overdue, waiting}.
+    """
+    if scope_type == "issue":
+        return _open_tasks_for_issue(conn, scope_id)
+    raise ValueError(f"Unsupported scope_type: {scope_type}")
+
+
+def _open_tasks_for_issue(conn, issue_id: int) -> dict:
+    # Resolve the issue's covered policies via v_issue_policy_coverage
+    covered = conn.execute(
+        """SELECT DISTINCT ipc.policy_id
+           FROM v_issue_policy_coverage ipc
+           WHERE ipc.issue_id = ?""",
+        (issue_id,),
+    ).fetchall()
+    policy_ids = [r["policy_id"] for r in covered if r["policy_id"] is not None]
+
+    on_issue_rows: list[dict] = []
+    loose_rows: list[dict] = []
+    total = 0
+    overdue = 0
+    waiting = 0
+
+    # On-issue: all open follow-ups linked to this issue (may include rows on
+    # non-covered policies too, e.g. client-level activities)
+    on_issue_raw = conn.execute(
+        """SELECT a.id, a.subject, a.activity_type, a.follow_up_date,
+                  a.disposition, a.policy_id, a.client_id, a.issue_id,
+                  p.policy_uid, p.policy_type,
+                  c.name AS client_name
+           FROM activity_log a
+           LEFT JOIN policies p ON p.id = a.policy_id
+           LEFT JOIN clients c ON c.id = a.client_id
+           WHERE a.issue_id = ?
+             AND a.follow_up_done = 0
+             AND a.follow_up_date IS NOT NULL
+             AND (a.item_kind = 'followup' OR a.item_kind IS NULL)""",
+        (issue_id,),
+    ).fetchall()
+    for r in on_issue_raw:
+        row = _open_task_row_from_activity(r)
+        row["is_on_issue"] = True
+        on_issue_rows.append(row)
+        total += 1
+        if row["days_overdue"] > 0:
+            overdue += 1
+        if row["accountability"] == "waiting_external":
+            waiting += 1
+
+    # Loose on scope: open follow-ups on covered policies whose issue_id is
+    # NULL or points at a different issue
+    if policy_ids:
+        placeholders = ",".join("?" * len(policy_ids))
+        loose_raw = conn.execute(
+            f"""SELECT a.id, a.subject, a.activity_type, a.follow_up_date,
+                       a.disposition, a.policy_id, a.client_id, a.issue_id,
+                       p.policy_uid, p.policy_type,
+                       c.name AS client_name,
+                       other.issue_uid AS other_issue_uid
+                FROM activity_log a
+                JOIN policies p ON p.id = a.policy_id
+                LEFT JOIN clients c ON c.id = a.client_id
+                LEFT JOIN activity_log other ON other.id = a.issue_id AND other.item_kind = 'issue'
+                WHERE a.policy_id IN ({placeholders})
+                  AND a.follow_up_done = 0
+                  AND a.follow_up_date IS NOT NULL
+                  AND (a.item_kind = 'followup' OR a.item_kind IS NULL)
+                  AND (a.issue_id IS NULL OR a.issue_id != ?)""",  # noqa: S608
+            (*policy_ids, issue_id),
+        ).fetchall()
+        for r in loose_raw:
+            row = _open_task_row_from_activity(r)
+            row["is_on_issue"] = False
+            row["linked_to_other_issue"] = r["other_issue_uid"]
+            loose_rows.append(row)
+            total += 1
+            if row["days_overdue"] > 0:
+                overdue += 1
+            if row["accountability"] == "waiting_external":
+                waiting += 1
+
+    groups = []
+    if on_issue_rows:
+        groups.append({
+            "key": "on_issue",
+            "title": "On this issue",
+            "subtitle": None,
+            "rows": _sort_rows(on_issue_rows),
+        })
+    if loose_rows:
+        groups.append({
+            "key": "loose",
+            "title": "Loose on scope",
+            "subtitle": "Not yet attached to this issue",
+            "rows": _sort_rows(loose_rows),
+        })
+
+    return {"groups": groups, "total": total, "overdue": overdue, "waiting": waiting}
+
+
 def get_all_followups(
     conn: sqlite3.Connection, window: int = 30, client_ids: list[int] | None = None
 ) -> tuple[list[dict], list[dict]]:

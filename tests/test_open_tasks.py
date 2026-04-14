@@ -246,3 +246,48 @@ def test_filter_thread_drops_open_followups():
     assert 2 in ids      # closed followup — history
     assert 3 in ids      # followup with no date — history (note-like)
     assert 4 in ids      # issue header — history
+
+
+# ── get_open_tasks (issue scope) ─────────────────────────────────────────────
+
+def test_get_open_tasks_issue_scope_splits_on_issue_and_loose(tmp_db):
+    from policydb.queries import get_open_tasks
+    conn = get_connection()
+    cid = _seed_client(conn)
+    pid = _seed_policy(conn, cid, "POL-100")
+
+    # Create an issue header
+    conn.execute(
+        "INSERT INTO activity_log (activity_date, client_id, policy_id, activity_type, "
+        "subject, item_kind, issue_uid, issue_status, issue_severity, account_exec) "
+        "VALUES (?, ?, ?, 'Note', 'Renewal POL-100', 'issue', 'ISS-1', 'Open', 'Normal', 'Grant')",
+        (date.today().isoformat(), cid, pid),
+    )
+    issue_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    # Open task attached to the issue
+    conn.execute(
+        "INSERT INTO activity_log (activity_date, client_id, policy_id, activity_type, "
+        "subject, follow_up_date, follow_up_done, item_kind, issue_id, account_exec) "
+        "VALUES (?, ?, ?, 'Call', 'on-issue task', '2026-04-15', 0, 'followup', ?, 'Grant')",
+        (date.today().isoformat(), cid, pid, issue_id),
+    )
+
+    # Loose task on same policy, no issue_id
+    conn.execute(
+        "INSERT INTO activity_log (activity_date, client_id, policy_id, activity_type, "
+        "subject, follow_up_date, follow_up_done, item_kind, account_exec) "
+        "VALUES (?, ?, ?, 'Call', 'loose task', '2026-04-20', 0, 'followup', 'Grant')",
+        (date.today().isoformat(), cid, pid),
+    )
+    conn.commit()
+
+    result = get_open_tasks(conn, "issue", issue_id)
+    groups = {g["key"]: g for g in result["groups"]}
+    assert "on_issue" in groups
+    assert "loose" in groups
+    assert len(groups["on_issue"]["rows"]) == 1
+    assert groups["on_issue"]["rows"][0]["subject"] == "on-issue task"
+    assert len(groups["loose"]["rows"]) == 1
+    assert groups["loose"]["rows"][0]["subject"] == "loose task"
+    assert result["total"] == 2
