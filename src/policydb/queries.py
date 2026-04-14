@@ -1034,6 +1034,56 @@ def supersede_followups(conn, policy_id: int, new_date: str) -> None:
     )
 
 
+def sync_policy_follow_up_date(conn, policy_id: int) -> None:
+    """Re-derive policies.follow_up_date from the earliest open activity follow-up.
+
+    The activity_log is the source of truth; policies.follow_up_date is a scalar
+    cache used by renewal pipeline views, Action Center, and policy pages.
+    This helper keeps the cache coherent after any mutation that could change
+    the outcome (mark done, snooze, log-close).
+
+    Behavior: picks the earliest follow_up_date across open activity follow-ups
+    on this policy; sets NULL if none exist.
+    """
+    row = conn.execute(
+        """SELECT MIN(follow_up_date) AS earliest
+           FROM activity_log
+           WHERE policy_id = ?
+             AND follow_up_done = 0
+             AND follow_up_date IS NOT NULL
+             AND item_kind = 'followup'""",
+        (policy_id,),
+    ).fetchone()
+    earliest = row["earliest"] if row else None
+    conn.execute(
+        "UPDATE policies SET follow_up_date = ? WHERE id = ?",
+        (earliest, policy_id),
+    )
+
+
+def sync_client_follow_up_date(conn, client_id: int) -> None:
+    """Re-derive clients.follow_up_date from earliest open client-level follow-up.
+
+    Client-level means activity_log rows with client_id set and policy_id NULL.
+    Same rule as sync_policy_follow_up_date: source of truth is activity_log.
+    """
+    row = conn.execute(
+        """SELECT MIN(follow_up_date) AS earliest
+           FROM activity_log
+           WHERE client_id = ?
+             AND policy_id IS NULL
+             AND follow_up_done = 0
+             AND follow_up_date IS NOT NULL
+             AND item_kind = 'followup'""",
+        (client_id,),
+    ).fetchone()
+    earliest = row["earliest"] if row else None
+    conn.execute(
+        "UPDATE clients SET follow_up_date = ? WHERE id = ?",
+        (earliest, client_id),
+    )
+
+
 def auto_close_stale_followups(conn) -> int:
     """Auto-close follow-ups overdue by more than stale_auto_close_days.
 
