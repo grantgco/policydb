@@ -100,3 +100,66 @@ def test_sync_client_fu_date_sets_earliest_open(tmp_db):
 
     row = conn.execute("SELECT follow_up_date FROM clients WHERE id=?", (cid,)).fetchone()
     assert row["follow_up_date"] == "2026-06-01"
+
+
+def test_sync_policy_fu_date_ignores_done_rows(tmp_db):
+    """Core invariant: a done row must not be picked as the earliest date
+    when an open row exists with a later date."""
+    from policydb.queries import sync_policy_follow_up_date
+    conn = get_connection()
+    cid = _seed_client(conn)
+    pid = _seed_policy(conn, cid)
+    _insert_followup(conn, cid, pid, "closed earlier", "2026-05-01", done=1)
+    _insert_followup(conn, cid, pid, "still open", "2026-05-10")
+    conn.commit()
+
+    sync_policy_follow_up_date(conn, pid)
+    conn.commit()
+
+    row = conn.execute("SELECT follow_up_date FROM policies WHERE id=?", (pid,)).fetchone()
+    assert row["follow_up_date"] == "2026-05-10"
+
+
+def test_sync_policy_fu_date_picks_up_null_item_kind(tmp_db):
+    """Pre-migration rows with item_kind IS NULL must still be synced.
+    Migration 104 added item_kind with DEFAULT 'followup' but did not
+    backfill existing rows — the helper must accept both forms."""
+    from policydb.queries import sync_policy_follow_up_date
+    conn = get_connection()
+    cid = _seed_client(conn)
+    pid = _seed_policy(conn, cid)
+    conn.execute(
+        "INSERT INTO activity_log (activity_date, client_id, policy_id, activity_type, "
+        "subject, follow_up_date, follow_up_done, item_kind, account_exec) "
+        "VALUES (?, ?, ?, 'Call', 'legacy row', '2026-04-15', 0, NULL, 'Grant')",
+        (date.today().isoformat(), cid, pid),
+    )
+    conn.commit()
+
+    sync_policy_follow_up_date(conn, pid)
+    conn.commit()
+
+    row = conn.execute("SELECT follow_up_date FROM policies WHERE id=?", (pid,)).fetchone()
+    assert row["follow_up_date"] == "2026-04-15"
+
+
+def test_sync_client_fu_date_clears_when_no_open(tmp_db):
+    """Parity with the policy helper: closing the only open client-level
+    follow-up should clear clients.follow_up_date."""
+    from policydb.queries import sync_client_follow_up_date
+    conn = get_connection()
+    cid = _seed_client(conn)
+    conn.execute(
+        "INSERT INTO activity_log (activity_date, client_id, policy_id, activity_type, "
+        "subject, follow_up_date, follow_up_done, item_kind, account_exec) "
+        "VALUES (?, ?, NULL, 'Call', 'already done', '2026-06-01', 1, 'followup', 'Grant')",
+        (date.today().isoformat(), cid),
+    )
+    conn.execute("UPDATE clients SET follow_up_date='2026-06-01' WHERE id=?", (cid,))
+    conn.commit()
+
+    sync_client_follow_up_date(conn, cid)
+    conn.commit()
+
+    row = conn.execute("SELECT follow_up_date FROM clients WHERE id=?", (cid,)).fetchone()
+    assert row["follow_up_date"] is None

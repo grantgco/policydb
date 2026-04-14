@@ -1051,7 +1051,7 @@ def sync_policy_follow_up_date(conn, policy_id: int) -> None:
            WHERE policy_id = ?
              AND follow_up_done = 0
              AND follow_up_date IS NOT NULL
-             AND item_kind = 'followup'""",
+             AND (item_kind = 'followup' OR item_kind IS NULL)""",
         (policy_id,),
     ).fetchone()
     earliest = row["earliest"] if row else None
@@ -1074,7 +1074,7 @@ def sync_client_follow_up_date(conn, client_id: int) -> None:
              AND policy_id IS NULL
              AND follow_up_done = 0
              AND follow_up_date IS NOT NULL
-             AND item_kind = 'followup'""",
+             AND (item_kind = 'followup' OR item_kind IS NULL)""",
         (client_id,),
     ).fetchone()
     earliest = row["earliest"] if row else None
