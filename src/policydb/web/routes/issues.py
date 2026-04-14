@@ -562,16 +562,22 @@ def search_issue_policies(issue_id: int, q: str = Query(""), conn=Depends(get_db
     results = []
 
     # ── Programs matching the search ──
-    # expiration_date is derived from child policies (programs no longer
-    # own the term) — see get_program_by_uid for the canonical helper.
+    # expiration_date is derived from in-force child policies (non-archived,
+    # non-opportunity, non-expired) — same filter that get_program_aggregates
+    # uses so the label matches what the program page displays.
     prog_rows = conn.execute("""
         SELECT pg.id, pg.program_uid, pg.name, pg.line_of_business,
                (SELECT MAX(p2.expiration_date) FROM policies p2
                 WHERE p2.program_id = pg.id AND p2.archived = 0
-                  AND (p2.is_opportunity = 0 OR p2.is_opportunity IS NULL)) AS expiration_date,
+                  AND (p2.is_opportunity = 0 OR p2.is_opportunity IS NULL)
+                  AND (p2.expiration_date IS NULL OR p2.expiration_date >= date('now'))
+               ) AS expiration_date,
                pg.renewal_status,
                (SELECT COUNT(*) FROM policies p2
-                WHERE p2.program_id = pg.id AND p2.archived = 0) AS policy_count
+                WHERE p2.program_id = pg.id AND p2.archived = 0
+                  AND (p2.is_opportunity = 0 OR p2.is_opportunity IS NULL)
+                  AND (p2.expiration_date IS NULL OR p2.expiration_date >= date('now'))
+               ) AS policy_count
         FROM programs pg
         WHERE pg.client_id = ? AND pg.archived = 0
           AND (pg.program_uid LIKE ? OR pg.name LIKE ? OR pg.line_of_business LIKE ?)

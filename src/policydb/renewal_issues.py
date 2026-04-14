@@ -146,31 +146,32 @@ def ensure_renewal_issues(conn, policy_uid: str | None = None) -> None:
         )
 
     # ── Programs ─────────────────────────────────────────────────────
-    # Program expiration is derived from the latest child-policy expiration
-    # (programs no longer own the term). Both the SELECT and the WHERE
-    # window go through the same subquery to stay consistent.
+    # Program expiration is derived from the latest in-force child policy
+    # (non-archived, non-opportunity, non-expired). A JOIN on a pre-computed
+    # GROUP BY gives us one row per program with the right expiration, which
+    # reads cleaner than four repeated correlated subqueries.
     if not policy_uid:
         program_rows = conn.execute("""
-            SELECT pg.id, pg.program_uid,
-                   (SELECT MAX(p.expiration_date) FROM policies p
-                    WHERE p.program_id = pg.id AND p.archived = 0
-                      AND (p.is_opportunity = 0 OR p.is_opportunity IS NULL)) AS expiration_date,
+            SELECT pg.id, pg.program_uid, d.expiration_date,
                    pg.line_of_business,
                    pg.name AS program_name, c.name AS client_name, pg.client_id,
                    pr.name AS location_name
             FROM programs pg
             JOIN clients c ON c.id = pg.client_id
             LEFT JOIN projects pr ON pr.id = pg.project_id
+            JOIN (
+                SELECT program_id, MAX(expiration_date) AS expiration_date
+                FROM policies
+                WHERE program_id IS NOT NULL
+                  AND archived = 0
+                  AND (is_opportunity = 0 OR is_opportunity IS NULL)
+                  AND (expiration_date IS NULL OR expiration_date >= date('now'))
+                GROUP BY program_id
+                HAVING MAX(expiration_date) IS NOT NULL
+            ) d ON d.program_id = pg.id
             WHERE (pg.archived = 0 OR pg.archived IS NULL)
-              AND (SELECT MAX(p.expiration_date) FROM policies p
-                   WHERE p.program_id = pg.id AND p.archived = 0
-                     AND (p.is_opportunity = 0 OR p.is_opportunity IS NULL)) IS NOT NULL
-              AND (SELECT MAX(p.expiration_date) FROM policies p
-                   WHERE p.program_id = pg.id AND p.archived = 0
-                     AND (p.is_opportunity = 0 OR p.is_opportunity IS NULL)) >= ?
-              AND (SELECT MAX(p.expiration_date) FROM policies p
-                   WHERE p.program_id = pg.id AND p.archived = 0
-                     AND (p.is_opportunity = 0 OR p.is_opportunity IS NULL)) <= ?
+              AND d.expiration_date >= ?
+              AND d.expiration_date <= ?
         """, (today.isoformat(), horizon.isoformat())).fetchall()
 
         for pgm in program_rows:
@@ -568,12 +569,14 @@ def refresh_renewal_titles(conn) -> int:
             )
             updated += 1
 
-    # Program renewal issues — expiration derived from child policies.
+    # Program renewal issues — expiration derived from in-force child policies.
     program_issues = conn.execute("""
         SELECT a.id, a.subject, a.renewal_term_key, a.program_id,
                (SELECT MAX(p.expiration_date) FROM policies p
                 WHERE p.program_id = pg.id AND p.archived = 0
-                  AND (p.is_opportunity = 0 OR p.is_opportunity IS NULL)) AS expiration_date,
+                  AND (p.is_opportunity = 0 OR p.is_opportunity IS NULL)
+                  AND (p.expiration_date IS NULL OR p.expiration_date >= date('now'))
+               ) AS expiration_date,
                pg.line_of_business, pg.name AS program_name,
                c.name AS client_name, pr.name AS location_name
         FROM activity_log a
