@@ -3,12 +3,16 @@
   <td class="px-3 py-2">
     <a href="/policies/{{ child.policy_uid }}/edit" class="text-marsh hover:underline font-medium text-xs">{{ child.policy_uid }}</a>
   </td>
-  <td class="px-3 py-2 text-sm text-gray-800 matrix-cell-combo relative"
+  <td class="px-3 py-2 text-sm text-gray-800 matrix-cell-combo relative cursor-pointer"
       data-field="policy_type" data-placeholder="type"
-      data-options='{{ policy_types | tojson }}' contenteditable="true">{{ child.policy_type or '' }}</td>
-  <td class="px-3 py-2 text-sm text-gray-800 matrix-cell-combo relative"
+      data-options='{{ policy_types | tojson }}'>
+    <span class="cell-display">{% if child.policy_type %}{{ child.policy_type }}{% else %}<span class="text-gray-300 text-xs">&mdash;</span>{% endif %}</span>
+  </td>
+  <td class="px-3 py-2 text-sm text-gray-800 matrix-cell-combo relative cursor-pointer"
       data-field="carrier" data-placeholder="carrier"
-      data-options='{{ carriers | tojson }}' contenteditable="true">{{ child.carrier or '' }}</td>
+      data-options='{{ carriers | tojson }}'>
+    <span class="cell-display">{% if child.carrier %}{{ child.carrier }}{% else %}<span class="text-gray-300 text-xs">&mdash;</span>{% endif %}</span>
+  </td>
   <td class="px-3 py-2 text-sm text-gray-800 matrix-cell-editable"
       data-field="policy_number" data-placeholder="policy #" contenteditable="true">{{ child.policy_number or '' }}</td>
   <td class="px-3 py-2 text-sm text-gray-800 text-right tabular-nums matrix-cell-editable"
@@ -29,12 +33,16 @@
            class="text-xs border border-gray-200 rounded px-1.5 py-1 w-[110px] focus:ring-1 focus:ring-marsh focus:border-marsh"
            onchange="patchChildCell({{ child.id }}, 'expiration_date', this.value)">
   </td>
-  <td class="px-3 py-2 text-sm text-gray-800 matrix-cell-combo relative"
+  <td class="px-3 py-2 text-sm text-gray-800 matrix-cell-combo relative cursor-pointer"
       data-field="renewal_status" data-placeholder="status"
-      data-options='{{ renewal_statuses | tojson }}' contenteditable="true">{{ child.renewal_status or '' }}</td>
-  <td class="px-3 py-2 text-sm text-gray-800 matrix-cell-combo relative"
+      data-options='{{ renewal_statuses | tojson }}'>
+    <span class="cell-display">{% if child.renewal_status %}{{ child.renewal_status }}{% else %}<span class="text-gray-300 text-xs">&mdash;</span>{% endif %}</span>
+  </td>
+  <td class="px-3 py-2 text-sm matrix-cell-combo relative cursor-pointer"
       data-field="layer_position" data-placeholder="layer"
-      data-options='["Primary", "Umbrella", "Excess"]' contenteditable="true">{{ child.layer_position or '' }}</td>
+      data-options='["Primary", "Umbrella", "Excess"]'>
+    <span class="cell-display">{% if child.layer_position == 'Umbrella' %}<span class="text-[11px] font-semibold px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">Umbrella</span>{% elif child.layer_position == 'Excess' %}<span class="text-[11px] font-semibold px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">Excess</span>{% elif child.layer_position == 'Primary' %}<span class="text-[11px] font-semibold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700">Primary</span>{% else %}<span class="text-gray-300 text-xs">&mdash;</span>{% endif %}</span>
+  </td>
   <td class="px-3 py-2 text-sm text-gray-800 text-right tabular-nums matrix-cell-editable"
       data-field="participation_of" data-placeholder="--" contenteditable="true">{% if child.participation_of %}{{ child.participation_of | currency }}{% endif %}</td>
   <td class="px-2 py-2 no-print">
