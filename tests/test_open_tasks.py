@@ -291,3 +291,52 @@ def test_get_open_tasks_issue_scope_splits_on_issue_and_loose(tmp_db):
     assert len(groups["loose"]["rows"]) == 1
     assert groups["loose"]["rows"][0]["subject"] == "loose task"
     assert result["total"] == 2
+
+
+# ── get_open_tasks (client scope) ────────────────────────────────────────────
+
+def test_get_open_tasks_client_scope_groups_by_issue(tmp_db):
+    from policydb.queries import get_open_tasks
+    conn = get_connection()
+    cid = _seed_client(conn)
+    pid1 = _seed_policy(conn, cid, "POL-200")
+    pid2 = _seed_policy(conn, cid, "POL-201")
+
+    # Issue touching POL-200 only
+    conn.execute(
+        "INSERT INTO activity_log (activity_date, client_id, policy_id, activity_type, "
+        "subject, item_kind, issue_uid, issue_status, issue_severity, account_exec) "
+        "VALUES (?, ?, ?, 'Note', 'POL-200 renewal', 'issue', 'ISS-200', 'Open', 'Normal', 'Grant')",
+        (date.today().isoformat(), cid, pid1),
+    )
+    issue_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    # Task on the issue
+    conn.execute(
+        "INSERT INTO activity_log (activity_date, client_id, policy_id, activity_type, "
+        "subject, follow_up_date, follow_up_done, item_kind, issue_id, account_exec) "
+        "VALUES (?, ?, ?, 'Call', 'iss-200 task', '2026-04-18', 0, 'followup', ?, 'Grant')",
+        (date.today().isoformat(), cid, pid1, issue_id),
+    )
+    # Task loose on POL-201 (not covered by any open issue)
+    conn.execute(
+        "INSERT INTO activity_log (activity_date, client_id, policy_id, activity_type, "
+        "subject, follow_up_date, follow_up_done, item_kind, account_exec) "
+        "VALUES (?, ?, ?, 'Call', 'loose on POL-201', '2026-04-22', 0, 'followup', 'Grant')",
+        (date.today().isoformat(), cid, pid2),
+    )
+    # Direct client follow-up (policy_id NULL)
+    conn.execute(
+        "INSERT INTO activity_log (activity_date, client_id, policy_id, activity_type, "
+        "subject, follow_up_date, follow_up_done, item_kind, account_exec) "
+        "VALUES (?, ?, NULL, 'Call', 'client-direct', '2026-04-25', 0, 'followup', 'Grant')",
+        (date.today().isoformat(), cid),
+    )
+    conn.commit()
+
+    result = get_open_tasks(conn, "client", cid)
+    keys = [g["key"] for g in result["groups"]]
+    assert "direct_client" in keys
+    assert f"issue:{issue_id}" in keys
+    assert "loose_policies" in keys
+    assert result["total"] == 3
