@@ -4408,15 +4408,28 @@ def auto_generate_sub_coverages(conn, policy_id: int, policy_type: str):
 
 # ─── PROGRAM QUERIES (v2 — standalone programs table) ────────────────────────
 
+# A child policy counts as "in-force" for program aggregation when it is not
+# archived, not an opportunity, and either has no known expiration or hasn't
+# expired yet. Expired rows used to bleed into the displayed premium and
+# stretch the derived term across last year's schedule; NULL expirations come
+# from brand-new policies being entered and still count. This predicate is
+# the single source of truth — every program rollup uses the same definition.
+_IN_FORCE_POLICY_FILTER = (
+    "archived = 0 "
+    "AND (is_opportunity = 0 OR is_opportunity IS NULL) "
+    "AND (expiration_date IS NULL OR expiration_date >= date('now'))"
+)
+
 
 def get_program_by_uid(conn: sqlite3.Connection, program_uid: str) -> dict | None:
     """Return a program dict by its UID, or None if not found.
 
     Program dates are derived on read: `effective_date` and `expiration_date`
-    come from MIN/MAX of the child policies (excluding archived and opportunity
-    rows), not from the stale columns on the programs row itself. This
-    enforces the Touch Once rule — the children own the term, the program
-    reflects it.
+    come from MIN/MAX of the child policies currently in force (see
+    `_IN_FORCE_POLICY_FILTER`). Expired rows are ignored so the displayed
+    term doesn't stretch across last year's schedule once the new term is
+    being assembled. This enforces the Touch Once rule — the children own
+    the term, the program reflects it.
     """
     row = conn.execute(
         """SELECT pg.*, pr.name AS project_name,
@@ -4431,11 +4444,10 @@ def get_program_by_uid(conn: sqlite3.Connection, program_uid: str) -> dict | Non
         return None
     pgm = dict(row)
     dates = conn.execute(
-        """SELECT MIN(effective_date) AS effective_date,
-                  MAX(expiration_date) AS expiration_date
-           FROM policies
-           WHERE program_id = ? AND archived = 0
-             AND (is_opportunity = 0 OR is_opportunity IS NULL)""",
+        f"""SELECT MIN(effective_date) AS effective_date,
+                   MAX(expiration_date) AS expiration_date
+            FROM policies
+            WHERE program_id = ? AND {_IN_FORCE_POLICY_FILTER}""",
         (pgm["id"],),
     ).fetchone()
     pgm["effective_date"] = dates["effective_date"] if dates else None
@@ -4462,26 +4474,27 @@ def get_program_child_policies(conn: sqlite3.Connection, program_id: int) -> lis
 
 
 def get_program_aggregates(conn: sqlite3.Connection, program_id: int) -> dict:
-    """Compute aggregate stats for a program from its child policies.
+    """Compute aggregate stats for a program from its in-force child policies.
 
-    A program's term is derived from its children (earliest effective,
-    latest expiration), not stored as source of truth on `programs`.
-    The returned `effective_date` and `expiration_date` keys are meant
-    to be merged into the program dict by callers so templates and
-    route handlers always see the derived values. When a program has
-    no non-archived non-opportunity children, both dates come back as
-    None.
+    Only rows that pass `_IN_FORCE_POLICY_FILTER` (not archived, not an
+    opportunity, and not yet expired) contribute to the totals. Expired
+    rows used to overstate premium and policy_count on programs where old
+    term rows hadn't been archived yet — that's the 'seems off' complaint.
+
+    The returned `effective_date` and `expiration_date` are derived from
+    the same in-force rows and are meant to be merged onto the program
+    dict by callers (get_programs_for_client, get_programs_for_project)
+    so templates see the derived term automatically.
     """
     row = conn.execute(
-        """SELECT COUNT(*) AS policy_count,
-                  COUNT(DISTINCT carrier) AS carrier_count,
-                  COALESCE(SUM(premium), 0) AS total_premium,
-                  COALESCE(MAX(limit_amount), 0) AS max_limit,
-                  MIN(effective_date) AS effective_date,
-                  MAX(expiration_date) AS expiration_date
-           FROM policies
-           WHERE program_id = ? AND archived = 0
-             AND (is_opportunity = 0 OR is_opportunity IS NULL)""",
+        f"""SELECT COUNT(*) AS policy_count,
+                   COUNT(DISTINCT carrier) AS carrier_count,
+                   COALESCE(SUM(premium), 0) AS total_premium,
+                   COALESCE(MAX(limit_amount), 0) AS max_limit,
+                   MIN(effective_date) AS effective_date,
+                   MAX(expiration_date) AS expiration_date
+            FROM policies
+            WHERE program_id = ? AND {_IN_FORCE_POLICY_FILTER}""",
         (program_id,),
     ).fetchone()
     return dict(row) if row else {
