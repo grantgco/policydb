@@ -1238,16 +1238,46 @@ async def reorder_underlying_v2(request: Request, program_uid: str,
     return JSONResponse({"ok": True})
 
 
+def _policy_has_real_data(row) -> bool:
+    """A program-layer row is 'real' if it has any business data beyond the
+    placeholder defaults created by + Add Underlying / + Add Excess /
+    + Add Umbrella. Real rows must be unassigned from the program on delete,
+    never dropped from the policies table."""
+    if row is None:
+        return False
+    keys = row.keys()
+    carrier = (row["carrier"] or "").strip() if "carrier" in keys else ""
+    number = (row["policy_number"] or "").strip() if "policy_number" in keys else ""
+    limit_amt = row["limit_amount"] if "limit_amount" in keys else 0
+    return bool(carrier) or bool(number) or (limit_amt and limit_amt > 0)
+
+
 @router.delete("/programs/{program_uid}/underlying/{policy_id}", response_class=HTMLResponse)
 async def delete_underlying_v2(request: Request, program_uid: str, policy_id: int,
                                conn: sqlite3.Connection = Depends(get_db)):
     pgm = _get_program_or_404(conn, program_uid)
-    conn.execute("DELETE FROM policies WHERE id = ?", (policy_id,))
+    row = conn.execute(
+        "SELECT carrier, policy_number, limit_amount FROM policies WHERE id = ?",
+        (policy_id,),
+    ).fetchone()
+    if _policy_has_real_data(row):
+        # Real pre-existing policy — unassign from the program, keep the record.
+        conn.execute(
+            "UPDATE policies SET program_id = NULL, tower_group = NULL, "
+            "layer_position = NULL, schematic_column = NULL, "
+            "updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (policy_id,),
+        )
+        logger.info("Unassigned underlying policy id=%s from program %s", policy_id, program_uid)
+    else:
+        # Blank placeholder created by + Add Underlying — safe to drop.
+        conn.execute("DELETE FROM policies WHERE id = ?", (policy_id,))
+        logger.info("Deleted placeholder underlying id=%s from program %s", policy_id, program_uid)
     remaining = conn.execute(
         "SELECT id FROM policies WHERE program_id = ? AND layer_position = 'Primary' AND archived = 0 ORDER BY schematic_column",
         (pgm["id"],)).fetchall()
-    for i, row in enumerate(remaining):
-        conn.execute("UPDATE policies SET schematic_column = ? WHERE id = ?", (i + 1, row["id"]))
+    for i, r in enumerate(remaining):
+        conn.execute("UPDATE policies SET schematic_column = ? WHERE id = ?", (i + 1, r["id"]))
     conn.commit()
     return HTMLResponse("")
 
@@ -1256,9 +1286,24 @@ async def delete_underlying_v2(request: Request, program_uid: str, policy_id: in
 async def delete_excess_v2(request: Request, program_uid: str, policy_id: int,
                            conn: sqlite3.Connection = Depends(get_db)):
     _get_program_or_404(conn, program_uid)
+    row = conn.execute(
+        "SELECT carrier, policy_number, limit_amount FROM policies WHERE id = ?",
+        (policy_id,),
+    ).fetchone()
+    # Tower mappings are program-scoped and go regardless of policy fate.
     conn.execute("DELETE FROM program_tower_coverage WHERE excess_policy_id = ?", (policy_id,))
     conn.execute("DELETE FROM program_tower_lines WHERE source_policy_id = ?", (policy_id,))
-    conn.execute("DELETE FROM policies WHERE id = ?", (policy_id,))
+    if _policy_has_real_data(row):
+        conn.execute(
+            "UPDATE policies SET program_id = NULL, tower_group = NULL, "
+            "layer_position = NULL, schematic_column = NULL, "
+            "updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (policy_id,),
+        )
+        logger.info("Unassigned excess policy id=%s from program %s", policy_id, program_uid)
+    else:
+        conn.execute("DELETE FROM policies WHERE id = ?", (policy_id,))
+        logger.info("Deleted placeholder excess id=%s from program %s", policy_id, program_uid)
     conn.commit()
     return HTMLResponse("")
 
