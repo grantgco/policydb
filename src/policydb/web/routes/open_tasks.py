@@ -77,6 +77,133 @@ def panel(
     return _render_panel(request, conn, scope_type, scope_id)
 
 
+# ── New task (create) ────────────────────────────────────────────────────────
+# IMPORTANT: these literal routes must be declared BEFORE /{activity_id}/...
+
+def _policy_options_for_scope(conn, scope_type: str, scope_id: int) -> list[tuple]:
+    """Return list of (policy_id, policy_uid, policy_type) for the form's
+    policy dropdown, scoped to the current context."""
+    if scope_type == "issue":
+        rows = conn.execute(
+            """SELECT DISTINCT p.id, p.policy_uid, p.policy_type
+               FROM v_issue_policy_coverage ipc
+               JOIN policies p ON p.id = ipc.policy_id
+               WHERE ipc.issue_id = ? AND p.archived = 0
+               ORDER BY p.policy_uid""",
+            (scope_id,),
+        ).fetchall()
+    elif scope_type == "client":
+        rows = conn.execute(
+            """SELECT id, policy_uid, policy_type FROM policies
+               WHERE client_id = ? AND archived = 0
+               ORDER BY policy_uid""",
+            (scope_id,),
+        ).fetchall()
+    elif scope_type == "program":
+        rows = conn.execute(
+            """SELECT id, policy_uid, policy_type FROM policies
+               WHERE program_id = ? AND archived = 0
+               ORDER BY policy_uid""",
+            (scope_id,),
+        ).fetchall()
+    elif scope_type == "policy":
+        rows = conn.execute(
+            "SELECT id, policy_uid, policy_type FROM policies WHERE id = ?",
+            (scope_id,),
+        ).fetchall()
+    else:
+        rows = []
+    return [(r["id"], r["policy_uid"], r["policy_type"]) for r in rows]
+
+
+def _resolve_scope_context(conn, scope_type: str, scope_id: int) -> dict:
+    """Returns {'client_id': int, 'issue_id': int|None, 'policy_id': int|None}
+    for creating a new activity under this scope when no policy is selected."""
+    if scope_type == "issue":
+        iss = conn.execute(
+            "SELECT client_id, program_id FROM activity_log WHERE id = ?",
+            (scope_id,),
+        ).fetchone()
+        return {"client_id": iss["client_id"] if iss else None, "issue_id": scope_id, "policy_id": None}
+    if scope_type == "client":
+        return {"client_id": scope_id, "issue_id": None, "policy_id": None}
+    if scope_type == "program":
+        pgm = conn.execute(
+            "SELECT client_id FROM programs WHERE id = ?", (scope_id,)
+        ).fetchone()
+        return {"client_id": pgm["client_id"] if pgm else None, "issue_id": None, "policy_id": None}
+    if scope_type == "policy":
+        pol = conn.execute(
+            "SELECT client_id FROM policies WHERE id = ?", (scope_id,)
+        ).fetchone()
+        return {"client_id": pol["client_id"] if pol else None, "issue_id": None, "policy_id": scope_id}
+    return {"client_id": None, "issue_id": None, "policy_id": None}
+
+
+@router.get("/new", response_class=HTMLResponse)
+def new_task_form(
+    request: Request,
+    scope_type: str,
+    scope_id: int,
+    conn=Depends(get_db),
+):
+    policy_options = _policy_options_for_scope(conn, scope_type, scope_id)
+    return templates.TemplateResponse(
+        "_open_tasks_new_form.html",
+        {
+            "request": request,
+            "scope_type": scope_type,
+            "scope_id": scope_id,
+            "policy_options": policy_options,
+        },
+    )
+
+
+@router.post("/new", response_class=HTMLResponse)
+def new_task_create(
+    request: Request,
+    scope_type: str = Form(...),
+    scope_id: int = Form(...),
+    subject: str = Form(...),
+    policy_id: Optional[int] = Form(None),
+    follow_up_date: str = Form(...),
+    disposition: str = Form(""),
+    conn=Depends(get_db),
+):
+    ctx = _resolve_scope_context(conn, scope_type, scope_id)
+    if not ctx["client_id"]:
+        raise HTTPException(400, "Could not resolve client for scope")
+
+    # Resolve disposition label
+    from policydb.config import get as cfg_get
+    disp_label = ""
+    if disposition == "waiting":
+        for d in cfg_get("follow_up_dispositions", []):
+            if d.get("accountability") == "waiting_external":
+                disp_label = d.get("label", "Waiting on Response")
+                break
+
+    # Pick policy: form value > scope default
+    effective_policy_id = policy_id if policy_id else ctx["policy_id"]
+
+    create_followup_activity(
+        conn,
+        client_id=ctx["client_id"],
+        policy_id=effective_policy_id,
+        issue_id=ctx["issue_id"],
+        subject=subject.strip(),
+        activity_type="Task",
+        follow_up_date=follow_up_date,
+        follow_up_done=False,
+        disposition=disp_label,
+    )
+    conn.commit()
+    return _render_panel(
+        request, conn, scope_type, scope_id,
+        toast_message="Task added",
+    )
+
+
 # ── Actions ──────────────────────────────────────────────────────────────────
 
 @router.post("/{activity_id}/done", response_class=HTMLResponse)

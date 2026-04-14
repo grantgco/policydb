@@ -199,3 +199,34 @@ def test_note_creates_sibling_activity(app_client, seeded):
     assert note["follow_up_done"] == 1
     assert note["follow_up_date"] is None
     assert note["issue_id"] == seeded["issue_id"]
+
+
+def test_new_task_create_issue_scope(app_client, seeded):
+    r = app_client.post(
+        "/open-tasks/new",
+        data={
+            "scope_type": "issue",
+            "scope_id": seeded["issue_id"],
+            "subject": "Net new task",
+            "policy_id": seeded["policy_id"],
+            "follow_up_date": "2026-05-30",
+            "disposition": "",
+        },
+    )
+    assert r.status_code == 200
+
+    conn = get_connection()
+    new = conn.execute(
+        "SELECT id, issue_id, subject FROM activity_log WHERE subject = 'Net new task'"
+    ).fetchone()
+    assert new is not None
+    assert new["issue_id"] == seeded["issue_id"]
+
+
+def test_new_task_form_get_renders(app_client, seeded):
+    r = app_client.get(
+        "/open-tasks/new",
+        params={"scope_type": "issue", "scope_id": seeded["issue_id"]},
+    )
+    assert r.status_code == 200
+    assert "hx-post=\"/open-tasks/new\"" in r.text
