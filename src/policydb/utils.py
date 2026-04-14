@@ -804,8 +804,8 @@ def clean_email(raw: str) -> str:
     # Final sanity: only return if it looks like an email
     if "@" in s and "." in s.split("@")[-1]:
         return s.lower()
-    # Fallback: return cleaned string as-is
-    return s.strip().lower() if s.strip() else raw
+    # Fallback: normalize the cleaned string (never leak original casing/whitespace)
+    return s.strip().lower()
 
 
 def format_phone(raw: str, default_region: str = "US") -> str:
