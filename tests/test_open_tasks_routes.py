@@ -136,3 +136,35 @@ def test_log_close_clears_date_and_marks_done(app_client, seeded):
     ).fetchone()
     assert row["follow_up_done"] == 1
     assert row["follow_up_date"] is None
+
+
+def test_attach_sets_issue_id(app_client, seeded):
+    # Create a second issue and a loose activity, then attach it
+    conn = get_connection()
+    conn.execute(
+        "INSERT INTO activity_log (activity_date, client_id, policy_id, activity_type, "
+        "subject, item_kind, issue_uid, issue_status, issue_severity, account_exec) "
+        "VALUES (?, ?, ?, 'Note', 'Second issue', 'issue', 'ISS-B', 'Open', 'Normal', 'Grant')",
+        (date.today().isoformat(), seeded["client_id"], seeded["policy_id"]),
+    )
+    iss_b = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    conn.execute(
+        "INSERT INTO activity_log (activity_date, client_id, policy_id, activity_type, "
+        "subject, follow_up_date, follow_up_done, item_kind, account_exec) "
+        "VALUES (?, ?, ?, 'Call', 'loose-one', '2026-05-01', 0, 'followup', 'Grant')",
+        (date.today().isoformat(), seeded["client_id"], seeded["policy_id"]),
+    )
+    loose_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    conn.commit()
+
+    r = app_client.post(
+        f"/open-tasks/{loose_id}/attach",
+        data={"target_issue_id": iss_b, "return_scope_type": "issue", "return_scope_id": iss_b},
+    )
+    assert r.status_code == 200
+
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT issue_id FROM activity_log WHERE id=?", (loose_id,)
+    ).fetchone()
+    assert row["issue_id"] == iss_b

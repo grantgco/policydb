@@ -242,3 +242,33 @@ def action_log_close(
         request, conn, return_scope_type, return_scope_id,
         toast_message="Logged & closed",
     )
+
+
+@router.post("/{activity_id}/attach", response_class=HTMLResponse)
+def action_attach(
+    request: Request,
+    activity_id: str,
+    target_issue_id: int = Form(...),
+    return_scope_type: str = Form(...),
+    return_scope_id: int = Form(...),
+    conn=Depends(get_db),
+):
+    kind, rid = _parse_activity_id(activity_id)
+    if kind != "activity":
+        raise HTTPException(400, "Attach only supported on activity-source rows")
+    # Verify target is a valid issue row
+    iss = conn.execute(
+        "SELECT id FROM activity_log WHERE id = ? AND item_kind = 'issue'",
+        (target_issue_id,),
+    ).fetchone()
+    if not iss:
+        raise HTTPException(404, "Target issue not found")
+    conn.execute(
+        "UPDATE activity_log SET issue_id = ? WHERE id = ?",
+        (target_issue_id, rid),
+    )
+    conn.commit()
+    return _render_panel(
+        request, conn, return_scope_type, return_scope_id,
+        toast_message="Attached to issue",
+    )
