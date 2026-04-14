@@ -88,7 +88,7 @@
       {% set _d = item.days_until_deadline %}
       {% set _show_overdue = _d is not none and _d < 0 %}
       {% set _show_due_in = _d is not none and _d >= 0 and _d <= 30 %}
-      {% set _show_fu_expiry = item.days_fu_to_expiry is not none and item.days_fu_to_expiry <= 14 %}
+      {% set _show_fu_expiry = item.days_fu_to_expiry is defined and item.days_fu_to_expiry is not none and item.days_fu_to_expiry <= 14 %}
       {% set _show_hours = item.policy_hours_30d and item.policy_hours_30d > 0 %}
       {% set _show_nudge = item.nudge_count and item.nudge_count >= 2 %}
       {% set _show_cadence = item.cadence %}
