@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}{{ bundle.rfi_uid or bundle.title or 'RFI' }} — {{ client.name }}{% endblock %}
+
+{% block content %}
+<div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+
+  {# ── Breadcrumb ── #}
+  <div class="flex items-center gap-2 text-xs text-gray-500 mb-2">
+    <a href="/clients/{{ client.id }}" class="hover:text-marsh">&larr; {{ client.name }}</a>
+    <span class="text-gray-300">|</span>
+    <a href="/clients/{{ client.id }}?tab=requests" class="hover:text-marsh">Information Requests</a>
+    <span class="text-gray-300">|</span>
+    <span class="text-gray-700">{{ bundle.rfi_uid or ('Bundle #' ~ bundle.id) }}</span>
+  </div>
+
+  <h1 class="font-serif text-2xl text-gray-900 mb-4">{{ bundle.title or 'Information Request' }}</h1>
+
+  <div class="card">
+    {% include "clients/_request_bundle.html" %}
+  </div>
+
+</div>
+{% endblock %}
