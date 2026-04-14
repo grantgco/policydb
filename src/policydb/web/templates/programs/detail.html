@@ -53,15 +53,15 @@
           </select>
         {% endif %}
       </div>
-      <div class="flex items-center gap-1.5">
+      <div class="flex items-center gap-1.5" title="Term is derived from the program's policies — edit policy dates on the Schematic or Overview tab.">
         <span class="text-gray-400 text-xs">Term:</span>
-        <input type="date" value="{{ program.effective_date or '' }}"
-               class="border-0 border-b border-gray-200 text-sm text-gray-700 bg-transparent px-1 py-0.5 focus:border-marsh focus:ring-0"
-               onchange="patchProgramHeader('effective_date', this.value)">
-        <span class="text-gray-300">–</span>
-        <input type="date" value="{{ program.expiration_date or '' }}"
-               class="border-0 border-b border-gray-200 text-sm text-gray-700 bg-transparent px-1 py-0.5 focus:border-marsh focus:ring-0"
-               onchange="patchProgramHeader('expiration_date', this.value)">
+        {% if program.effective_date and program.expiration_date %}
+          <span class="text-sm text-gray-700 tabular-nums">{{ program.effective_date }}</span>
+          <span class="text-gray-300">–</span>
+          <span class="text-sm text-gray-700 tabular-nums">{{ program.expiration_date }}</span>
+        {% else %}
+          <span class="text-sm text-gray-400 italic">no policies yet</span>
+        {% endif %}
       </div>
       <div class="flex items-center gap-1.5">
         <span class="text-gray-400 text-xs">Status:</span>
