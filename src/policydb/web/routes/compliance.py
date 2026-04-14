@@ -17,6 +17,7 @@ from policydb import config as cfg
 from policydb.compliance import (
     compute_auto_status,
     compute_compliance_summary,
+    compute_tower_total_limit,
     get_client_compliance_data,
     get_linkable_policies,
     get_location_requirements,
@@ -782,14 +783,19 @@ def compliance_copy_table(client_id: int, conn=Depends(get_db)):
     for loc in data["locations"]:
         loc_name = loc["project"].get("name", "")
         for line, gov in loc["governing"].items():
+            reviewed_at = gov.get("reviewed_at") or ""
+            # Trim timestamp to date for a cleaner column
+            reviewed_date = reviewed_at.split("T")[0] if reviewed_at else ""
             rows.append({
                 "location": loc_name,
                 "coverage_line": gov.get("coverage_line") or line,
                 "required_limit": gov.get("required_limit"),
+                "max_deductible": gov.get("max_deductible"),
                 "status": gov.get("compliance_status") or "Needs Review",
                 "linked_policy": gov.get("linked_policy_uid") or "",
                 "source": gov.get("source_name") or "",
-                "max_deductible": gov.get("max_deductible"),
+                "reviewed": reviewed_date,
+                "reviewer": gov.get("reviewed_by") or "",
             })
     columns = [
         ("location", "Location", False),
@@ -799,6 +805,8 @@ def compliance_copy_table(client_id: int, conn=Depends(get_db)):
         ("status", "Status", False),
         ("linked_policy", "Linked Policy", False),
         ("source", "Source", False),
+        ("reviewed", "Reviewed", False),
+        ("reviewer", "By", False),
     ]
     return JSONResponse(build_generic_table(rows, columns))
 
@@ -1046,8 +1054,21 @@ def requirement_detail(
     # Policy used for comparison display (either linked primary or suggested)
     compare_policy = primary_policy or suggested_policy
 
-    # Compute auto-status for display (Compliant/Partial/Gap)
-    auto_status = compute_auto_status(req_dict, compare_policy) if compare_policy else "Gap"
+    # Tower-aware limit computation. When the compare_policy is part of a
+    # stacked tower (primary GL + excess layers), the total limit is the
+    # sum of layers — a $3M requirement is met by $1M primary + $2M xs.
+    tower_total: float | None = None
+    tower_layers: list[dict] = []
+    if compare_policy:
+        tower_total, tower_layers = compute_tower_total_limit(conn, compare_policy["policy_uid"])
+
+    # Compute auto-status for display (Compliant/Partial/Gap) with the
+    # tower-aware effective limit.
+    auto_status = (
+        compute_auto_status(req_dict, compare_policy, effective_limit=tower_total)
+        if compare_policy
+        else "Gap"
+    )
     missing_endos = missing_endorsements(req_dict, compare_policy) if compare_policy else req_dict.get("_endorsements_list", [])
 
     return templates.TemplateResponse("compliance/_requirement_slideover.html", {
@@ -1064,6 +1085,8 @@ def requirement_detail(
         "compare_policy": compare_policy,
         "auto_status": auto_status,
         "missing_endorsements": missing_endos,
+        "tower_total": tower_total,
+        "tower_layers": tower_layers,
         "compliance_statuses": cfg.get("compliance_statuses", []),
         "deductible_types": cfg.get("deductible_types", []),
         "policy_types": cfg.get("policy_types", []),
@@ -1997,14 +2020,18 @@ def _recompute_auto_status(conn, req_id: int):
         return
 
     primary = conn.execute(
-        """SELECT p.limit_amount, p.deductible, p.endorsements
+        """SELECT p.policy_uid, p.limit_amount, p.deductible, p.endorsements
            FROM requirement_policy_links rpl
            JOIN policies p ON p.policy_uid = rpl.policy_uid AND p.archived = 0
            WHERE rpl.requirement_id = ? AND rpl.is_primary = 1""",
         (req_id,),
     ).fetchone()
 
-    new_status = compute_auto_status(req_dict, dict(primary) if primary else None)
+    effective_limit = None
+    primary_dict = dict(primary) if primary else None
+    if primary_dict:
+        effective_limit, _ = compute_tower_total_limit(conn, primary_dict["policy_uid"])
+    new_status = compute_auto_status(req_dict, primary_dict, effective_limit=effective_limit)
     if new_status != status:
         conn.execute(
             "UPDATE coverage_requirements SET compliance_status = ? WHERE id = ?",

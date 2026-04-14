@@ -232,7 +232,8 @@ def propose_bulk_matches(conn, source_id: int, program_id: int | None = None) ->
             })
             continue
 
-        status = compute_auto_status(req, suggestion)
+        tower_total, tower_layers = compute_tower_total_limit(conn, suggestion["policy_uid"])
+        status = compute_auto_status(req, suggestion, effective_limit=tower_total)
         proposals.append({
             "requirement_id": req["id"],
             "coverage_line": req["coverage_line"],
@@ -240,6 +241,8 @@ def propose_bulk_matches(conn, source_id: int, program_id: int | None = None) ->
             "suggested_policy_uid": suggestion["policy_uid"],
             "suggested_policy_number": suggestion.get("policy_number"),
             "suggested_limit": suggestion.get("limit_amount"),
+            "tower_total": tower_total if len(tower_layers) > 1 else None,
+            "tower_layer_count": len(tower_layers),
             "computed_status": status,
             "missing_endorsements": missing_endorsements(req, suggestion),
         })
@@ -289,22 +292,106 @@ def compute_compliance_summary(governing: dict[str, dict]) -> dict:
     return {"total": total, "reviewed": reviewed, **counts, "compliance_pct": pct}
 
 
-def compute_auto_status(requirement: dict, policy: dict | None) -> str:
+def compute_tower_total_limit(conn, policy_uid: str) -> tuple[float, list[dict]]:
+    """Walk the tower containing the given policy and return (total, layers).
+
+    For insurance compliance purposes, a tower of stacked policies provides
+    combined limits:  primary $1M + 1st excess $2M over = $3M total. So a
+    $3M requirement is satisfied if the tower's top reaches $3M, regardless
+    of which layer was linked.
+
+    Returns:
+        (total_limit, layers) where total_limit is the max "ground-up" of
+        any layer (the top of the tower) and layers is the ordered list of
+        policy dicts with an added 'ground_up' field. If the policy has no
+        tower_group it's treated as a single-layer tower.
+    """
+    pol_row = conn.execute(
+        """SELECT policy_uid, policy_number, carrier, policy_type, tower_group,
+                  layer_position, limit_amount, attachment_point, participation_of
+             FROM policies
+            WHERE policy_uid = ? AND archived = 0""",
+        (policy_uid,),
+    ).fetchone()
+    if not pol_row:
+        return 0.0, []
+
+    pol = dict(pol_row)
+    tg = (pol.get("tower_group") or "").strip()
+    if not tg:
+        lim = float(pol.get("limit_amount") or 0)
+        pol["ground_up"] = lim
+        return lim, [pol]
+
+    rows = [dict(r) for r in conn.execute(
+        """SELECT policy_uid, policy_number, carrier, policy_type, tower_group,
+                  layer_position, limit_amount, attachment_point, participation_of
+             FROM policies
+            WHERE LOWER(TRIM(tower_group)) = LOWER(TRIM(?)) AND archived = 0""",
+        (tg,),
+    ).fetchall()]
+
+    # Sort: explicit attachment points ascending, then primary/no-attachment
+    # by layer_position. Mirrors the logic in policies._tab_details.
+    def _sort_key(r):
+        att = r.get("attachment_point")
+        if att is not None:
+            return (float(att), 0)
+        lp = r.get("layer_position") or "Primary"
+        try:
+            return (-1, int(lp))
+        except (ValueError, TypeError):
+            return (-1, 0)
+    rows.sort(key=_sort_key)
+
+    running = 0.0
+    layers: list[dict] = []
+    for r in rows:
+        lim = float(r.get("limit_amount") or 0)
+        att = r.get("attachment_point")
+        part = r.get("participation_of")
+        if att is not None and float(att) >= 0:
+            layer_size = float(part) if part else lim
+            ground_up = float(att) + layer_size
+        else:
+            running += lim
+            ground_up = running
+        r["ground_up"] = ground_up
+        layers.append(r)
+
+    total = max((l["ground_up"] for l in layers), default=0.0)
+    return total, layers
+
+
+def compute_auto_status(
+    requirement: dict,
+    policy: dict | None,
+    effective_limit: float | None = None,
+) -> str:
     """Auto-compute compliance status from requirement vs. linked policy.
 
     Returns "Compliant", "Partial", or "Gap".
     - No policy → Gap
-    - Policy limit < required limit → Gap
+    - Effective limit (tower total, if provided; else policy limit)
+      < required limit → Gap
     - Policy deductible > max deductible → Gap
     - Required endorsements: all present on policy → Compliant
     - Required endorsements: some missing → Partial
     - No required endorsements → Compliant
+
+    Pass ``effective_limit`` to make the comparison tower-aware when the
+    linked policy is part of a stacked program. The primary policy's
+    deductible and endorsements are still what we compare at the bottom
+    of the tower — limits are the only thing that stack.
     """
     if policy is None:
         return "Gap"
 
     req_limit = float(requirement.get("required_limit") or 0)
-    pol_limit = float(policy.get("limit_amount") or 0)
+    if effective_limit is not None:
+        pol_limit = float(effective_limit)
+    else:
+        pol_limit = float(policy.get("limit_amount") or 0)
     if req_limit > 0 and pol_limit < req_limit:
         return "Gap"
 
@@ -383,7 +470,8 @@ def detect_stale_compliance(conn, client_id: int) -> int:
             elif pol.get("expiration_date") and pol["expiration_date"] < today:
                 reason = f"{pol['policy_uid']} expired {pol['expiration_date']}"
             else:
-                new_status = compute_auto_status(req, pol)
+                tower_total, _ = compute_tower_total_limit(conn, pol["policy_uid"])
+                new_status = compute_auto_status(req, pol, effective_limit=tower_total)
                 if new_status == "Gap" and req["compliance_status"] in ("Compliant", "Partial"):
                     reason = f"{pol['policy_uid']} no longer meets requirement ({new_status})"
 
@@ -694,12 +782,14 @@ def get_client_compliance_data(conn, client_id: int) -> dict:
             if status != "Needs Review" or not gov_req.get("linked_policy_uid"):
                 continue
             pol = conn.execute(
-                "SELECT limit_amount, deductible, endorsements FROM policies "
+                "SELECT policy_uid, limit_amount, deductible, endorsements FROM policies "
                 "WHERE policy_uid = ? AND archived = 0",
                 (gov_req["linked_policy_uid"],),
             ).fetchone()
             if pol:
-                new_status = compute_auto_status(gov_req, dict(pol))
+                pol_dict = dict(pol)
+                tower_total, _ = compute_tower_total_limit(conn, pol_dict["policy_uid"])
+                new_status = compute_auto_status(gov_req, pol_dict, effective_limit=tower_total)
                 if new_status != status:
                     conn.execute(
                         "UPDATE coverage_requirements SET compliance_status = ? WHERE id = ?",

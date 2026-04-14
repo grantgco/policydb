@@ -14,6 +14,52 @@
 {% set effective_status = req.compliance_status if req.reviewed_at else (auto_status or 'Needs Review') %}
 {% set stored_status = req.compliance_status or 'Needs Review' %}
 
+{# Macro: render one linkable policy row inside the search dropdown with
+   enough context that a reviewer can tell similar policies apart —
+   carrier's policy_number, coverage type, program/location, limit, and
+   expiration year. `style` controls left-border accent. `tag` renders as
+   a small pill on the right (program/child/location). #}
+{% macro linkable_row(pol, style='default', tag='', tag_cls='') -%}
+  {% set searchable = ((pol.policy_uid or '') ~ ' ' ~ (pol.policy_number or '') ~ ' ' ~ (pol.policy_type or '') ~ ' ' ~ (pol.carrier or '') ~ ' ' ~ (pol.get('_project_name') or '')) | lower %}
+  {% set hover_bg = {'this': 'hover:bg-green-50', 'other': 'hover:bg-gray-50', 'program': 'hover:bg-indigo-50', 'child': 'hover:bg-purple-50', 'default': 'hover:bg-green-50'}.get(style, 'hover:bg-gray-50') %}
+  {% set border_left = 'border-l-2 border-l-green-400' if style == 'this' else '' %}
+  {% set muted = 'opacity-60' if style == 'other' else '' %}
+  {% set indent = 'pl-8 pr-3' if style == 'child' else 'px-3' %}
+  <button type="button"
+          data-search="{{ searchable }}"
+          class="w-full text-left {{ indent }} py-1.5 {{ hover_bg }} text-xs flex flex-col gap-0.5 border-b border-gray-50 {{ border_left }} {{ muted }}"
+          onclick="addPolicyLink('{{ pol.policy_uid }}'); document.getElementById('slideover-link-dropdown').classList.add('hidden'); document.getElementById('slideover-link-search').value = '';">
+    {# Row 1: UID · carrier policy # · coverage type · pill #}
+    <div class="flex items-center gap-2 w-full">
+      {% if style == 'child' %}<span class="text-gray-300">&#8627;</span>{% endif %}
+      <span class="font-mono text-gray-400">{{ pol.policy_uid }}</span>
+      {% if pol.policy_number %}
+        <span class="font-mono text-[10px] text-gray-400" title="Carrier policy number">{{ pol.policy_number }}</span>
+      {% endif %}
+      <span class="font-medium text-gray-900">{{ pol.policy_type or '' }}</span>
+      {% if tag %}
+      <span class="ml-auto {{ tag_cls }} px-1 py-0.5 rounded text-[10px]">{{ tag }}</span>
+      {% endif %}
+    </div>
+    {# Row 2: carrier · program/location · limit · exp #}
+    <div class="flex items-center gap-2 text-[10px] text-gray-500 w-full pl-1">
+      {% if pol.carrier %}<span>{{ pol.carrier }}</span>{% endif %}
+      {% if pol.get('_project_name') %}
+        {% if pol.carrier %}<span class="text-gray-300">·</span>{% endif %}
+        <span class="truncate max-w-[140px]" title="{{ pol._project_name }}">@ {{ pol._project_name }}</span>
+      {% endif %}
+      {% if pol.limit_amount %}
+        <span class="text-gray-300">·</span>
+        <span>{{ pol.limit_amount | currency_short }}</span>
+      {% endif %}
+      {% if pol.expiration_date %}
+        <span class="text-gray-300">·</span>
+        <span title="Expires {{ pol.expiration_date }}">exp {{ pol.expiration_date | string | truncate(7, True, '', 0) }}</span>
+      {% endif %}
+    </div>
+  </button>
+{%- endmacro %}
+
 {# ── Backdrop ── #}
 <div id="req-detail-backdrop"
      class="fixed inset-0 bg-black/30 z-40"
@@ -110,22 +156,67 @@
         <div class="text-[11px] text-gray-500 mt-1">{{ req._endorsements_list | join(', ') }}</div>
         {% endif %}
       </div>
-      <div class="bg-blue-50 border border-blue-200 rounded p-2.5">
+      <div class="bg-blue-50 border border-blue-200 rounded p-2.5" id="proposed-card"
+           data-policy-uid="{{ compare_policy.policy_uid }}">
         <div class="text-[10px] text-blue-600 uppercase tracking-wider mb-1">Proposed</div>
+        {% set has_tower = tower_layers and (tower_layers | length) > 1 %}
+        {% set effective_limit = tower_total if has_tower else compare_policy.limit_amount %}
+        {# Touch-once: if limit is missing/zero on the primary policy (not a
+           tower, else tower total is the source of truth), show an inline
+           input that writes back to policies.limit_amount. #}
         <div class="text-xs text-gray-800">
-          Limit: <span class="font-medium">{{ compare_policy.limit_amount | currency if compare_policy.limit_amount else 'Not set' }}</span>
-          {% if req.required_limit and compare_policy.limit_amount %}
-            {% if compare_policy.limit_amount >= req.required_limit %}
-            <span class="text-green-600 ml-1">&check;</span>
-            {% else %}
-            <span class="text-red-600 ml-1">&cross;</span>
+          Limit:
+          {% if (not effective_limit or effective_limit == 0) and not has_tower %}
+            <input type="text" inputmode="numeric"
+                   data-policy-field="limit_amount"
+                   placeholder="enter limit"
+                   class="policy-writeback-input ml-1 border border-blue-300 rounded px-1.5 py-0.5 text-xs w-24 bg-white"
+                   onchange="savePolicyField(this)" />
+            <span class="text-[10px] text-gray-500 ml-1">Not set on policy — enter once</span>
+          {% else %}
+            <span class="font-medium">{{ effective_limit | currency }}</span>
+            {% if req.required_limit %}
+              {% if effective_limit >= req.required_limit %}
+              <span class="text-green-600 ml-1">&check;</span>
+              {% else %}
+              <span class="text-red-600 ml-1">&cross;</span>
+              {% endif %}
+            {% endif %}
+            {% if has_tower %}
+            <span class="text-[10px] text-gray-500 ml-1">({{ tower_layers | length }}-layer tower)</span>
             {% endif %}
           {% endif %}
         </div>
+        {% if has_tower %}
+        <div class="mt-1 pl-2 border-l-2 border-blue-200 space-y-0.5">
+          {% for layer in tower_layers %}
+          <div class="text-[11px] text-gray-700">
+            <span class="font-mono text-gray-500">{{ layer.policy_number or layer.policy_uid }}</span>
+            <span class="text-gray-400">·</span>
+            <span>{{ layer.carrier or '' }}</span>
+            <span class="text-gray-500">
+              {% if layer.attachment_point is not none and layer.attachment_point|float > 0 %}
+                {{ ((layer.participation_of or layer.limit_amount) or 0) | currency }} xs {{ layer.attachment_point | currency }}
+              {% else %}
+                {{ (layer.limit_amount or 0) | currency }}
+              {% endif %}
+            </span>
+          </div>
+          {% endfor %}
+        </div>
+        {% endif %}
         {% if req.max_deductible is not none and req.max_deductible > 0 %}
-        <div class="text-xs text-gray-800 mt-0.5">
-          Ded: <span class="font-medium">{{ compare_policy.deductible | currency if compare_policy.deductible else 'Not set' }}</span>
-          {% if compare_policy.deductible is not none %}
+        <div class="text-xs text-gray-800 mt-1">
+          Ded:
+          {% if compare_policy.deductible is none %}
+            <input type="text" inputmode="numeric"
+                   data-policy-field="deductible"
+                   placeholder="enter deductible"
+                   class="policy-writeback-input ml-1 border border-blue-300 rounded px-1.5 py-0.5 text-xs w-24 bg-white"
+                   onchange="savePolicyField(this)" />
+            <span class="text-[10px] text-gray-500 ml-1">Not set — enter once</span>
+          {% else %}
+            <span class="font-medium">{{ compare_policy.deductible | currency }}</span>
             {% if compare_policy.deductible <= req.max_deductible %}
             <span class="text-green-600 ml-1">&check;</span>
             {% else %}
@@ -446,40 +537,17 @@
              autocomplete="off"
              onfocus="document.getElementById('slideover-link-dropdown').classList.remove('hidden')"
              oninput="(function(el){var dd=document.getElementById('slideover-link-dropdown');dd.classList.remove('hidden');var q=el.value.toLowerCase();dd.querySelectorAll('[data-search]').forEach(function(r){r.style.display=r.dataset.search.includes(q)?'':'none'});dd.querySelectorAll('[data-section-header]').forEach(function(h){var sec=h.nextElementSibling;var anyVisible=false;while(sec&&!sec.hasAttribute('data-section-header')){if(sec.style.display!=='none'&&sec.hasAttribute('data-search'))anyVisible=true;sec=sec.nextElementSibling}h.style.display=anyVisible||!q?'':'none'})})(this)">
-      <div id="slideover-link-dropdown" class="hidden absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded shadow-lg max-h-48 overflow-y-auto">
+      <div id="slideover-link-dropdown" class="hidden absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded shadow-lg max-h-80 overflow-y-auto">
 
         {# ── Programs section ── #}
         {% if ns.has_programs %}
         <div data-section-header class="px-2 py-1 bg-gray-50 text-[10px] text-gray-400 uppercase tracking-wider font-semibold sticky top-0">Programs</div>
         {% for pol in linkable_policies %}
           {% if pol.get('children') is not none %}
-          <button type="button"
-                  data-search="{{ (pol.policy_uid + ' ' + (pol.policy_type or '') + ' ' + (pol.carrier or '')) | lower }}"
-                  class="w-full text-left px-3 py-1.5 hover:bg-indigo-50 text-xs flex items-center gap-2 border-b border-gray-50"
-                  onclick="addPolicyLink('{{ pol.policy_uid }}'); document.getElementById('slideover-link-dropdown').classList.add('hidden'); document.getElementById('slideover-link-search').value = '';">
-            <span class="font-mono text-gray-400">{{ pol.policy_uid }}</span>
-            <span class="font-medium">{{ pol.policy_type or '' }}</span>
-            {% if pol.get('program_carrier_names') %}
-              <span class="text-gray-400">&middot; {{ pol.program_carrier_names | join(', ') }}</span>
-            {% elif pol.carrier %}
-              <span class="text-gray-400">&middot; {{ pol.carrier }}</span>
-            {% endif %}
-            <span class="bg-indigo-100 text-indigo-600 px-1 py-0.5 rounded text-[10px] ml-auto">program</span>
-          </button>
-          {% for child in pol.get('children', []) %}
-          <button type="button"
-                  data-search="{{ (child.policy_uid + ' ' + (child.policy_type or '') + ' ' + (child.carrier or '')) | lower }}"
-                  class="w-full text-left pl-8 pr-3 py-1 hover:bg-purple-50 text-xs flex items-center gap-2 border-b border-gray-50"
-                  onclick="addPolicyLink('{{ child.policy_uid }}'); document.getElementById('slideover-link-dropdown').classList.add('hidden'); document.getElementById('slideover-link-search').value = '';">
-            <span class="text-gray-300">&#8627;</span>
-            <span class="font-mono text-gray-400">{{ child.policy_uid }}</span>
-            <span>{{ child.policy_type or '' }}</span>
-            {% if child.carrier %}
-              <span class="text-gray-400">&middot; {{ child.carrier }}</span>
-            {% endif %}
-            <span class="bg-purple-100 text-purple-600 px-1 py-0.5 rounded text-[10px] ml-auto">child</span>
-          </button>
-          {% endfor %}
+            {{ linkable_row(pol, style='program', tag='program', tag_cls='bg-indigo-100 text-indigo-600') }}
+            {% for child in pol.get('children', []) %}
+              {{ linkable_row(child, style='child', tag='child', tag_cls='bg-purple-100 text-purple-600') }}
+            {% endfor %}
           {% endif %}
         {% endfor %}
         {% endif %}
@@ -490,29 +558,12 @@
           <div data-section-header class="px-2 py-1 bg-green-50 text-[10px] text-green-700 uppercase tracking-wider font-semibold sticky top-0 border-t border-green-100">&#9679; This Location</div>
           {% for pol in linkable_policies %}
             {% if not pol.get('children') is not none and not pol.get('program_id') and pol.get('_location_match') == 'this' %}
-            <button type="button"
-                    data-search="{{ (pol.policy_uid + ' ' + (pol.policy_type or '') + ' ' + (pol.carrier or '')) | lower }}"
-                    class="w-full text-left px-3 py-1.5 hover:bg-green-50 text-xs flex items-center gap-2 border-b border-gray-50 border-l-2 border-l-green-400"
-                    onclick="addPolicyLink('{{ pol.policy_uid }}'); document.getElementById('slideover-link-dropdown').classList.add('hidden'); document.getElementById('slideover-link-search').value = '';">
-              <span class="font-mono text-gray-400">{{ pol.policy_uid }}</span>
-              <span class="font-medium text-gray-900">{{ pol.policy_type or '' }}</span>
-              {% if pol.carrier %}<span class="text-gray-400">&middot; {{ pol.carrier }}</span>{% endif %}
-              {% if pol.limit_amount %}<span class="text-gray-400 ml-auto">{{ pol.limit_amount | currency_short }}</span>{% endif %}
-              <span class="bg-green-100 text-green-700 px-1 py-0.5 rounded text-[10px]">location</span>
-            </button>
+              {{ linkable_row(pol, style='this', tag='location', tag_cls='bg-green-100 text-green-700') }}
             {% endif %}
           {% endfor %}
           {% for pol in linkable_policies %}
             {% if not pol.get('children') is not none and not pol.get('program_id') and pol.get('_location_match') == 'corporate' %}
-            <button type="button"
-                    data-search="{{ (pol.policy_uid + ' ' + (pol.policy_type or '') + ' ' + (pol.carrier or '')) | lower }}"
-                    class="w-full text-left px-3 py-1.5 hover:bg-green-50 text-xs flex items-center gap-2 border-b border-gray-50"
-                    onclick="addPolicyLink('{{ pol.policy_uid }}'); document.getElementById('slideover-link-dropdown').classList.add('hidden'); document.getElementById('slideover-link-search').value = '';">
-              <span class="font-mono text-gray-400">{{ pol.policy_uid }}</span>
-              <span class="font-medium text-gray-700">{{ pol.policy_type or '' }}</span>
-              {% if pol.carrier %}<span class="text-gray-400">&middot; {{ pol.carrier }}</span>{% endif %}
-              {% if pol.limit_amount %}<span class="text-gray-400 ml-auto">{{ pol.limit_amount | currency_short }}</span>{% endif %}
-            </button>
+              {{ linkable_row(pol, style='default', tag='corporate', tag_cls='bg-slate-100 text-slate-600') }}
             {% endif %}
           {% endfor %}
           {% endif %}
@@ -522,17 +573,7 @@
           <div data-section-header class="px-2 py-1 bg-gray-100 text-[10px] text-gray-400 uppercase tracking-wider font-semibold sticky top-0 border-t border-gray-200">Other Locations</div>
           {% for pol in linkable_policies %}
             {% if not pol.get('children') is not none and not pol.get('program_id') and pol.get('_location_match') == 'other' %}
-            <button type="button"
-                    data-search="{{ (pol.policy_uid + ' ' + (pol.policy_type or '') + ' ' + (pol.carrier or '') + ' ' + (pol.get('_project_name') or '')) | lower }}"
-                    class="w-full text-left px-3 py-1.5 hover:bg-gray-50 text-xs flex items-center gap-2 border-b border-gray-50 opacity-60"
-                    onclick="addPolicyLink('{{ pol.policy_uid }}'); document.getElementById('slideover-link-dropdown').classList.add('hidden'); document.getElementById('slideover-link-search').value = '';">
-              <span class="font-mono text-gray-400">{{ pol.policy_uid }}</span>
-              <span class="text-gray-500">{{ pol.policy_type or '' }}</span>
-              {% if pol.carrier %}<span class="text-gray-400">&middot; {{ pol.carrier }}</span>{% endif %}
-              {% if pol.get('_project_name') %}
-                <span class="text-gray-400 text-[10px] ml-auto truncate max-w-[120px]" title="{{ pol._project_name }}">@ {{ pol._project_name }}</span>
-              {% endif %}
-            </button>
+              {{ linkable_row(pol, style='other', tag='', tag_cls='') }}
             {% endif %}
           {% endfor %}
           {% endif %}
@@ -541,15 +582,7 @@
           <div data-section-header class="px-2 py-1 bg-gray-50 text-[10px] text-gray-400 uppercase tracking-wider font-semibold sticky top-0">Policies</div>
           {% for pol in linkable_policies %}
             {% if not pol.get('children') is not none and not pol.get('program_id') %}
-            <button type="button"
-                    data-search="{{ (pol.policy_uid + ' ' + (pol.policy_type or '') + ' ' + (pol.carrier or '')) | lower }}"
-                    class="w-full text-left px-3 py-1.5 hover:bg-green-50 text-xs flex items-center gap-2 border-b border-gray-50"
-                    onclick="addPolicyLink('{{ pol.policy_uid }}'); document.getElementById('slideover-link-dropdown').classList.add('hidden'); document.getElementById('slideover-link-search').value = '';">
-              <span class="font-mono text-gray-400">{{ pol.policy_uid }}</span>
-              <span class="font-medium">{{ pol.policy_type or '' }}</span>
-              {% if pol.carrier %}<span class="text-gray-400">&middot; {{ pol.carrier }}</span>{% endif %}
-              {% if pol.limit_amount %}<span class="text-gray-400 ml-auto">{{ pol.limit_amount | currency_short }}</span>{% endif %}
-            </button>
+              {{ linkable_row(pol, style='default', tag='', tag_cls='') }}
             {% endif %}
           {% endfor %}
         {% endif %}
@@ -710,6 +743,35 @@ function linkAndMark(policyUid, status) {
         });
     }).then(function() {
         closeRequirementDetail();
+    });
+}
+
+/* ── Touch-once write-back: fix a missing limit or deductible on the linked
+     /suggested policy directly from the slideover. Same principle as the
+     endorsement checkboxes — the fact lives on the policy record. After
+     saving, re-fetch the slideover so auto-compute picks up the new value
+     and the tower total refreshes. Accepts currency shorthand (1m, 500k). ── */
+function savePolicyField(input) {
+    var card = document.getElementById('proposed-card');
+    if (!card) return;
+    var policyUid = card.dataset.policyUid;
+    var field = input.dataset.policyField;
+    var value = (input.value || '').trim();
+    if (!value) return;
+    fetch('/policies/' + policyUid + '/cell', {
+        method: 'PATCH',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({field: field, value: value})
+    }).then(function(r) { return r.json(); }).then(function(d) {
+        if (d && d.ok) {
+            htmx.ajax('GET', '/compliance/client/{{ client_id }}/requirements/{{ req.id }}/detail',
+                      {target: '#requirement-slideover-container', swap: 'innerHTML'});
+        } else {
+            input.classList.add('border-red-400');
+            input.title = (d && d.error) || 'Save failed';
+        }
+    }).catch(function(){
+        input.classList.add('border-red-400');
     });
 }
 
