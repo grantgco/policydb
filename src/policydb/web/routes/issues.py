@@ -13,6 +13,7 @@ import policydb.config as cfg
 from policydb.db import generate_issue_uid
 from policydb.queries import (
     auto_close_followups,
+    filter_thread_for_history,
     get_issue_rollup,
     get_linked_policies_for_issue,
     get_open_tasks,
@@ -799,14 +800,15 @@ def issue_detail(
                 merged_into_issue = dict(row)
                 break
 
-    # Get linked activities (threaded into this issue)
-    activities = [dict(r) for r in conn.execute("""
+    # Get linked activities (threaded into this issue) — filter out open
+    # follow-ups owned by the Open Tasks panel to avoid duplicate display.
+    activities = filter_thread_for_history([dict(r) for r in conn.execute("""
         SELECT a.*, c.name AS contact_name
         FROM activity_log a
         LEFT JOIN contacts c ON c.id = a.contact_id
         WHERE a.issue_id = ?
         ORDER BY a.activity_date DESC, a.created_at DESC
-    """, (issue_id,)).fetchall()]
+    """, (issue_id,)).fetchall()])
 
     # Compute total hours across all linked activities
     total_hours = sum(a.get("duration_hours") or 0 for a in activities)

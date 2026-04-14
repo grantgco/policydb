@@ -23,7 +23,7 @@ from policydb.llm_schemas import (
     parse_contact_extraction_json,
     parse_llm_json,
 )
-from policydb.queries import REVIEW_CYCLE_LABELS, get_all_policies, get_client_by_id, get_opportunity_by_uid, get_policy_by_uid, get_policy_total_hours, get_saved_notes, save_note, delete_saved_note, renew_policy, get_or_create_contact, assign_contact_to_policy, remove_contact_from_policy, set_placement_colleague, get_policy_contacts, get_sub_coverages as _get_sub_coverages, auto_generate_sub_coverages as _auto_generate_sub_coverages, get_open_tasks
+from policydb.queries import REVIEW_CYCLE_LABELS, get_all_policies, get_client_by_id, get_opportunity_by_uid, get_policy_by_uid, get_policy_total_hours, get_saved_notes, save_note, delete_saved_note, renew_policy, get_or_create_contact, assign_contact_to_policy, remove_contact_from_policy, set_placement_colleague, get_policy_contacts, get_sub_coverages as _get_sub_coverages, auto_generate_sub_coverages as _auto_generate_sub_coverages, get_open_tasks, filter_thread_for_history
 from rapidfuzz import fuzz
 from policydb.utils import cap_followup_date, round_duration, normalize_carrier, normalize_coverage_type, normalize_policy_number, format_city, format_state, format_zip
 from policydb.web.app import get_db, templates
@@ -2719,7 +2719,7 @@ def policy_tab_activity(request: Request, policy_uid: str, conn=Depends(get_db))
 
     _today_iso = date.today().isoformat()
     _pid = policy_dict["id"]
-    activities = [dict(r) for r in conn.execute(
+    activities = filter_thread_for_history([dict(r) for r in conn.execute(
         """SELECT a.*, c.name AS client_name, c.cn_number, p.policy_uid,
                   COALESCE(a.project_id, p.project_id) AS project_id,
                   pr.name AS project_name,
@@ -2737,7 +2737,7 @@ def policy_tab_activity(request: Request, policy_uid: str, conn=Depends(get_db))
            ORDER BY a.activity_date DESC, a.id DESC
            LIMIT 200""",
         (_pid, _pid, _pid),
-    ).fetchall()]
+    ).fetchall()])
     # Tag issue-sourced activities (not directly on this policy)
     for act in activities:
         if act.get("policy_id") != _pid:

@@ -47,6 +47,7 @@ from policydb.queries import (
     get_exposure_observations,
     get_exposure_by_id,
     attach_open_issues,
+    filter_thread_for_history,
     get_open_tasks,
 )
 from policydb.web.app import get_db, templates
@@ -688,7 +689,7 @@ def client_tab_activity(request: Request, client_id: int, conn=Depends(get_db)):
     client = get_client_by_id(conn, client_id, include_archived=True)
     if not client:
         return HTMLResponse("Not found", status_code=404)
-    activities = [dict(a) for a in get_activities(conn, client_id=client_id, days=90)]
+    activities = filter_thread_for_history([dict(a) for a in get_activities(conn, client_id=client_id, days=90)])
     from policydb.web.routes.activities import _attach_pc_emails
     _attach_pc_emails(conn, activities)
     _today_iso = datetime.now().strftime("%Y-%m-%d")

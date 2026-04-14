@@ -26,6 +26,7 @@ from policydb.queries import (
     get_program_rollup,
     get_linked_policies_for_program,
     get_scoped_rfi_bundles,
+    filter_thread_for_history,
     get_open_tasks,
 )
 from policydb.web.app import get_db, templates
@@ -488,7 +489,7 @@ def program_tab_activity(
     if not program:
         return HTMLResponse("Not found", status_code=404)
 
-    activities = get_program_activities(conn, program["id"])
+    activities = filter_thread_for_history(get_program_activities(conn, program["id"]))
 
     # Client name for escalate → issue slideover
     client_row = conn.execute(
