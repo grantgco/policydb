@@ -1541,6 +1541,73 @@ def client_tab_issues(request: Request, client_id: int, conn=Depends(get_db)):
     })
 
 
+@router.get("/{client_id}/tab/recurring", response_class=HTMLResponse)
+def client_tab_recurring(request: Request, client_id: int, conn=Depends(get_db)):
+    """Recurring events tab — schedule templates + upcoming/resolved instances."""
+    client = get_client_by_id(conn, client_id, include_archived=True)
+    if not client:
+        return HTMLResponse("Not found", status_code=404)
+
+    templates_rows = [dict(r) for r in conn.execute(
+        """
+        SELECT re.*, p.policy_uid, p.policy_type,
+               (SELECT COUNT(*) FROM activity_log a
+                WHERE a.recurring_event_id = re.id
+                  AND a.item_kind = 'issue'
+                  AND a.issue_status NOT IN ('Resolved','Closed')) AS open_instance_count
+        FROM recurring_events re
+        LEFT JOIN policies p ON re.policy_id = p.id
+        WHERE re.client_id = ?
+        ORDER BY re.active DESC, re.next_occurrence ASC, re.id DESC
+        """,
+        (client_id,),
+    ).fetchall()]
+
+    upcoming = [dict(r) for r in conn.execute(
+        """
+        SELECT a.id, a.issue_uid, a.subject, a.due_date, a.issue_severity,
+               a.issue_status, a.recurring_event_id, a.recurring_instance_date,
+               re.name AS template_name, re.recurring_uid,
+               CAST(julianday(a.due_date) - julianday('now') AS INTEGER) AS days_until_due
+        FROM activity_log a
+        JOIN recurring_events re ON a.recurring_event_id = re.id
+        WHERE a.client_id = ?
+          AND a.item_kind = 'issue'
+          AND a.issue_status NOT IN ('Resolved','Closed')
+        ORDER BY a.due_date ASC, a.id ASC
+        LIMIT 25
+        """,
+        (client_id,),
+    ).fetchall()]
+
+    recent_resolved = [dict(r) for r in conn.execute(
+        """
+        SELECT a.id, a.issue_uid, a.subject, a.resolved_date, a.resolution_type,
+               a.recurring_instance_date, re.name AS template_name, re.recurring_uid
+        FROM activity_log a
+        JOIN recurring_events re ON a.recurring_event_id = re.id
+        WHERE a.client_id = ?
+          AND a.item_kind = 'issue'
+          AND a.issue_status IN ('Resolved','Closed')
+          AND a.resolved_date >= date('now','-60 days')
+        ORDER BY a.resolved_date DESC, a.id DESC
+        LIMIT 25
+        """,
+        (client_id,),
+    ).fetchall()]
+
+    return templates.TemplateResponse("clients/_tab_recurring.html", {
+        "request": request,
+        "client": dict(client),
+        "templates_rows": templates_rows,
+        "upcoming": upcoming,
+        "recent_resolved": recent_resolved,
+        "cadences": cfg.get("recurring_event_cadences", []),
+        "event_types": cfg.get("recurring_event_types", []),
+        "severities": cfg.get("issue_severities", []),
+    })
+
+
 @router.get("/{client_id}/tab/files", response_class=HTMLResponse)
 def client_tab_files(
     request: Request,
@@ -2230,6 +2297,12 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
         (client_id,),
     ).fetchall()]
 
+    recurring_count_row = conn.execute(
+        "SELECT COUNT(*) AS n FROM recurring_events WHERE client_id = ? AND active = 1",
+        (client_id,),
+    ).fetchone()
+    recurring_count = recurring_count_row["n"] if recurring_count_row else 0
+
     return templates.TemplateResponse("clients/detail.html", {
         "request": request,
         "active": "clients",
@@ -2329,6 +2402,7 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
         "health_threshold": cfg.get("data_health_threshold", 85),
         "sidebar_issues": sidebar_issues,
         "attachment_count": _att_count,
+        "recurring_count": recurring_count,
         "pinned_notes": _pinned_notes_for_page(conn, "client", client_id),
         "pinned_scope": "client",
         "pinned_scope_id": str(client_id),

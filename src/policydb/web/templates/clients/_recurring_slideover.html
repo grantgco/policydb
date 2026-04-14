@@ -1,0 +1,190 @@
+{# Create / edit recurring event schedule — rendered inside #recurring-slideover-content #}
+{% set is_edit = template is not none %}
+{% set t = template or {} %}
+<div>
+  <div class="flex items-center justify-between mb-4">
+    <h2 class="text-base font-semibold text-gray-900">
+      {% if is_edit %}Edit Recurring Schedule{% else %}New Recurring Schedule{% endif %}
+    </h2>
+    <button type="button" onclick="closeRecurringSlideover()" class="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+  </div>
+
+  <div class="text-xs text-gray-500 mb-4">
+    Schedule a repeating touchpoint for
+    <span class="font-medium text-gray-700">{{ client.name }}</span>.
+    Each occurrence is materialized as an issue on its due date.
+  </div>
+
+  <form
+    {% if is_edit %}
+      hx-post="/recurring-events/{{ t.id }}"
+    {% else %}
+      hx-post="/recurring-events/"
+    {% endif %}
+    hx-target="#client-recurring-tab"
+    hx-swap="outerHTML"
+    onsubmit="setTimeout(closeRecurringSlideover, 100);"
+    class="space-y-4">
+
+    {% if not is_edit %}
+    <input type="hidden" name="client_id" value="{{ client.id }}">
+    {% endif %}
+
+    {# Name #}
+    <div>
+      <label class="block text-xs font-medium text-gray-600 mb-1">Name <span class="text-red-500">*</span></label>
+      <input type="text" name="name" required
+        value="{{ t.name or '' }}"
+        placeholder="e.g. Weekly open items call"
+        class="w-full rounded border-gray-300 text-sm px-3 py-1.5">
+    </div>
+
+    {# Event type + severity #}
+    <div class="grid grid-cols-2 gap-3">
+      <div>
+        <label class="block text-xs font-medium text-gray-600 mb-1">Type</label>
+        <select name="event_type" class="w-full rounded border-gray-300 text-sm px-2 py-1.5">
+          <option value="">—</option>
+          {% for opt in event_types %}
+          <option value="{{ opt }}" {% if t.event_type == opt %}selected{% endif %}>{{ opt }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-gray-600 mb-1">Severity</label>
+        <select name="default_severity" class="w-full rounded border-gray-300 text-sm px-2 py-1.5">
+          {% for sev in severities %}
+          <option value="{{ sev.label }}" {% if t.default_severity == sev.label or (not t.default_severity and sev.label == 'Normal') %}selected{% endif %}>
+            {{ sev.label }} ({{ sev.sla_days }}d SLA)
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    {# Cadence + interval #}
+    <div class="grid grid-cols-3 gap-3">
+      <div class="col-span-2">
+        <label class="block text-xs font-medium text-gray-600 mb-1">Cadence <span class="text-red-500">*</span></label>
+        <select name="cadence" required class="w-full rounded border-gray-300 text-sm px-2 py-1.5">
+          {% for c in cadences %}
+          <option value="{{ c }}" {% if t.cadence == c %}selected{% endif %}>{{ c }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-gray-600 mb-1">Every</label>
+        <input type="number" name="interval_n" min="1" max="52"
+          value="{{ t.interval_n or 1 }}"
+          class="w-full rounded border-gray-300 text-sm px-2 py-1.5">
+      </div>
+    </div>
+
+    {# Day of week / day of month (both always shown; relevant one used based on cadence) #}
+    <div class="grid grid-cols-2 gap-3">
+      <div>
+        <label class="block text-xs font-medium text-gray-600 mb-1">Day of week (Weekly/Biweekly)</label>
+        <select name="day_of_week" class="w-full rounded border-gray-300 text-sm px-2 py-1.5">
+          <option value="">Any</option>
+          {% set dows = [('0','Monday'),('1','Tuesday'),('2','Wednesday'),('3','Thursday'),('4','Friday'),('5','Saturday'),('6','Sunday')] %}
+          {% for v, label in dows %}
+          <option value="{{ v }}" {% if t.day_of_week is not none and t.day_of_week|string == v %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-gray-600 mb-1">Day of month (Monthly+)</label>
+        <input type="number" name="day_of_month" min="1" max="31"
+          value="{{ t.day_of_month or '' }}"
+          placeholder="e.g. 15"
+          class="w-full rounded border-gray-300 text-sm px-3 py-1.5">
+      </div>
+    </div>
+
+    {# Start / end date #}
+    <div class="grid grid-cols-2 gap-3">
+      <div>
+        <label class="block text-xs font-medium text-gray-600 mb-1">Start date <span class="text-red-500">*</span></label>
+        <input type="date" name="start_date" required
+          value="{{ t.start_date or today_iso }}"
+          class="w-full rounded border-gray-300 text-sm px-3 py-1.5">
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-gray-600 mb-1">End date (optional)</label>
+        <input type="date" name="end_date"
+          value="{{ t.end_date or '' }}"
+          class="w-full rounded border-gray-300 text-sm px-3 py-1.5">
+      </div>
+    </div>
+
+    {# Lead days + catch-up mode #}
+    <div class="grid grid-cols-2 gap-3">
+      <div>
+        <label class="block text-xs font-medium text-gray-600 mb-1">Lead days</label>
+        <input type="number" name="lead_days" min="0" max="60"
+          value="{{ t.lead_days or 0 }}"
+          class="w-full rounded border-gray-300 text-sm px-3 py-1.5"
+          title="Materialize the issue N days before its due date">
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-gray-600 mb-1">If missed</label>
+        <select name="catch_up_mode" class="w-full rounded border-gray-300 text-sm px-2 py-1.5">
+          <option value="collapse" {% if (t.catch_up_mode or 'collapse') == 'collapse' %}selected{% endif %}>Collapse (1 catch-up)</option>
+          <option value="materialize_all" {% if t.catch_up_mode == 'materialize_all' %}selected{% endif %}>Fire every missed</option>
+        </select>
+      </div>
+    </div>
+
+    {# Optional policy scoping #}
+    <div>
+      <label class="block text-xs font-medium text-gray-600 mb-1">Link to policy (optional)</label>
+      <select name="policy_id" class="w-full rounded border-gray-300 text-sm px-2 py-1.5">
+        <option value="0">— Client-level only —</option>
+        {% for p in policies %}
+        <option value="{{ p.id }}" {% if t.policy_id == p.id %}selected{% endif %}>
+          {{ p.policy_uid }} &middot; {{ p.policy_type }}{% if p.carrier %} &middot; {{ p.carrier }}{% endif %}
+        </option>
+        {% endfor %}
+      </select>
+    </div>
+
+    {# Subject + details templates #}
+    <div>
+      <label class="block text-xs font-medium text-gray-600 mb-1">Subject template</label>
+      <input type="text" name="subject_template"
+        value="{{ t.subject_template or '' }}"
+        placeholder="Leave blank to use the name above"
+        class="w-full rounded border-gray-300 text-sm px-3 py-1.5">
+    </div>
+    <div>
+      <label class="block text-xs font-medium text-gray-600 mb-1">Details template</label>
+      <textarea name="details_template" rows="3"
+        placeholder="Optional — copied to each instance"
+        class="w-full rounded border-gray-300 text-sm px-3 py-1.5">{{ t.details_template or '' }}</textarea>
+    </div>
+
+    {# Account exec #}
+    <div>
+      <label class="block text-xs font-medium text-gray-600 mb-1">Account exec (optional)</label>
+      <input type="text" name="account_exec"
+        value="{{ t.account_exec or '' }}"
+        class="w-full rounded border-gray-300 text-sm px-3 py-1.5">
+    </div>
+
+    {# Notes #}
+    <div>
+      <label class="block text-xs font-medium text-gray-600 mb-1">Internal notes</label>
+      <textarea name="notes" rows="2" class="w-full rounded border-gray-300 text-sm px-3 py-1.5">{{ t.notes or '' }}</textarea>
+    </div>
+
+    {# Buttons #}
+    <div class="flex items-center justify-end gap-2 pt-2 border-t">
+      <button type="button" onclick="closeRecurringSlideover()"
+        class="text-xs text-gray-500 hover:text-gray-700 px-3 py-1.5">Cancel</button>
+      <button type="submit"
+        class="text-xs bg-marsh text-white px-4 py-1.5 rounded font-medium hover:bg-marsh-light transition-colors">
+        {% if is_edit %}Save changes{% else %}Create schedule{% endif %}
+      </button>
+    </div>
+  </form>
+</div>

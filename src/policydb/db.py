@@ -364,7 +364,7 @@ def _init_db_inner(conn: sqlite3.Connection, db_path: Path) -> None:
     # Back up the database once before running any pending migrations.
     # This gives a clean restore point regardless of which migration fails.
 
-    _KNOWN_MIGRATIONS = set(range(1, 146))  # update upper bound when adding new migrations
+    _KNOWN_MIGRATIONS = set(range(1, 147))  # update upper bound when adding new migrations
 
     if _KNOWN_MIGRATIONS - applied:
         _backup_db(conn, db_path)
@@ -1904,6 +1904,15 @@ def _init_db_inner(conn: sqlite3.Connection, db_path: Path) -> None:
         conn.commit()
         logger.info("Migration 145: seeded briefing prompt templates")
 
+    if 146 not in applied:
+        conn.executescript((_MIGRATIONS_DIR / "146_recurring_events.sql").read_text())
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (146, "Add recurring_events table for scheduled repeating issue instances"),
+        )
+        conn.commit()
+        logger.info("Migration 146: added recurring_events table + activity_log link columns")
+
     # Data hygiene: fix 'None' string corruption in text fields (runs every startup, fast no-op if clean)
     conn.execute("UPDATE clients SET cn_number = NULL WHERE cn_number = 'None'")
 
@@ -2024,6 +2033,13 @@ def _init_db_inner(conn: sqlite3.Connection, db_path: Path) -> None:
     # Generate policy timelines for all active policies with milestone profiles
     from policydb.timeline_engine import generate_policy_timelines
     generate_policy_timelines(conn)
+
+    # Materialize any due recurring event instances as issue rows
+    try:
+        from policydb.recurring_events import generate_due_recurring_instances
+        generate_due_recurring_instances(conn)
+    except Exception:
+        logger.exception("generate_due_recurring_instances failed during init_db")
 
     # Create/update renewal issues for policies/programs in the renewal window
     from policydb.renewal_issues import ensure_renewal_issues
