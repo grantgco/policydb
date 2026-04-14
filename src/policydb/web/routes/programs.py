@@ -891,12 +891,14 @@ async def patch_program_header(
 
 
 @router.post("/programs/{program_uid}/assign/{policy_uid}")
-def assign_to_program_v2(
+async def assign_to_program_v2(
+    request: Request,
     program_uid: str,
     policy_uid: str,
     conn: sqlite3.Connection = Depends(get_db),
 ):
-    """Assign a policy to a program (sets tower_group for schematic compat)."""
+    """Assign a policy to a program. Optional JSON body {"layer_position": ...}
+    lets callers put the policy directly on the Primary/Umbrella/Excess layer."""
     program = get_program_by_uid(conn, program_uid)
     if not program:
         return JSONResponse({"ok": False, "error": "Program not found"}, status_code=404)
@@ -907,17 +909,33 @@ def assign_to_program_v2(
     if not policy:
         return JSONResponse({"ok": False, "error": "Policy not found"}, status_code=404)
 
-    # Set program_id FK + tower_group; force layer_position to Primary unless already Umbrella/Excess
-    conn.execute(
-        """UPDATE policies SET program_id = ?, tower_group = ?,
-           layer_position = CASE WHEN layer_position IN ('Umbrella', 'Excess') THEN layer_position ELSE 'Primary' END
-           WHERE policy_uid = ?""",
-        (program["id"], program["name"], policy_uid),
-    )
+    requested_layer: str | None = None
+    try:
+        body = await request.json()
+        if isinstance(body, dict):
+            raw = body.get("layer_position")
+            if isinstance(raw, str) and raw.strip() in {"Primary", "Umbrella", "Excess"}:
+                requested_layer = raw.strip()
+    except Exception:
+        pass
+
+    if requested_layer:
+        conn.execute(
+            "UPDATE policies SET program_id = ?, tower_group = ?, layer_position = ? WHERE policy_uid = ?",
+            (program["id"], program["name"], requested_layer, policy_uid),
+        )
+    else:
+        # Default: keep existing Umbrella/Excess or fall back to Primary
+        conn.execute(
+            """UPDATE policies SET program_id = ?, tower_group = ?,
+               layer_position = CASE WHEN layer_position IN ('Umbrella', 'Excess') THEN layer_position ELSE 'Primary' END
+               WHERE policy_uid = ?""",
+            (program["id"], program["name"], policy_uid),
+        )
     # Auto-sync location if program is scoped to a project/location
     _sync_policy_to_program_location(conn, policy_uid, program)
     conn.commit()
-    logger.info("Assigned %s to program %s", policy_uid, program_uid)
+    logger.info("Assigned %s to program %s as %s", policy_uid, program_uid, requested_layer or "Primary")
 
     return JSONResponse({"ok": True})
 
