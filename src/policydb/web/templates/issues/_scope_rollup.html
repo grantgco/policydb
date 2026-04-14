@@ -32,7 +32,6 @@
 {% set _check = rollup.checklist %}
 {% set _wait = rollup.timeline_accountability.waiting %}
 {% set _rstat = rollup.renewal_status %}
-{% set _fu = rollup.open_followups %}
 {% set _contacts = rollup.contacts %}
 {% set _notes = rollup.working_notes %}
 {% set _nested = rollup.nested_issues %}
@@ -128,7 +127,6 @@
           <th class="text-right px-3 py-1.5 font-medium">RFI</th>
           <th class="text-right px-3 py-1.5 font-medium">Checklist</th>
           <th class="text-left px-3 py-1.5 font-medium">Status</th>
-          <th class="text-right px-3 py-1.5 font-medium">F/U</th>
           <th class="text-left px-3 py-1.5 font-medium">Health</th>
         </tr>
       </thead>
@@ -136,8 +134,6 @@
         {% for p in rollup.policies %}
         {% set _pr = _check.by_policy[p.policy_uid] if p.policy_uid in _check.by_policy else {'done':0,'total':0} %}
         {% set _rfi_p = _rfi.by_policy.get(p.policy_uid, {'open':0,'received':0,'total':0,'overdue':0}) %}
-        {% set _fu_count = namespace(n=0, overdue=0) %}
-        {% for f in _fu.by_policy %}{% if f.policy_uid == p.policy_uid %}{% set _fu_count.n = _fu_count.n + 1 %}{% if f.days_overdue > 0 %}{% set _fu_count.overdue = _fu_count.overdue + 1 %}{% endif %}{% endif %}{% endfor %}
         <tr class="border-t border-gray-100 hover:bg-gray-50">
           <td class="px-3 py-1.5">
             <a href="/policies/{{ p.policy_uid }}/edit" class="font-mono text-marsh hover:underline">{{ p.policy_uid }}</a>
@@ -157,15 +153,6 @@
               {% if p.renewal_status == 'Bound' %}bg-green-100 text-green-700
               {% elif p.renewal_status == 'In Progress' %}bg-blue-100 text-blue-700
               {% else %}bg-gray-100 text-gray-600{% endif %}">{{ p.renewal_status }}</span>
-            {% endif %}
-          </td>
-          <td class="px-3 py-1.5 text-right tabular-nums">
-            {% if _fu_count.n %}
-              <span class="{% if _fu_count.overdue %}text-red-600 font-medium{% else %}text-gray-600{% endif %}">
-                {{ _fu_count.n }}{% if _fu_count.overdue %} <span class="text-[9px]">({{ _fu_count.overdue }} od)</span>{% endif %}
-              </span>
-            {% else %}
-              <span class="text-gray-300">—</span>
             {% endif %}
           </td>
           <td class="px-3 py-1.5">
@@ -189,31 +176,6 @@
   </div>
   {% endif %}
 
-  {# ── Open Follow-ups sub-section ── #}
-  {% if _fu.total %}
-  <div class="px-4 py-3 border-b border-gray-100">
-    <div class="flex items-center justify-between mb-2">
-      <span class="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Open Follow-ups</span>
-      <span class="text-[10px] text-gray-400">
-        {{ _fu.total }} total{% if _fu.overdue %} &middot; <span class="text-red-600 font-medium">{{ _fu.overdue }} overdue</span>{% endif %}
-      </span>
-    </div>
-    <div class="space-y-1">
-      {% for f in _fu.by_policy %}
-      <div class="flex items-center gap-2 text-xs">
-        <a href="/policies/{{ f.policy_uid }}/edit" class="font-mono text-[10px] text-marsh hover:underline shrink-0">{{ f.policy_uid }}</a>
-        <span class="text-[9px] text-gray-400 uppercase tracking-wide shrink-0">{{ f.source }}</span>
-        <span class="text-gray-700 truncate flex-1">{{ f.subject }}</span>
-        {% if f.days_overdue > 0 %}
-        <span class="text-red-600 font-medium text-[10px] shrink-0">⚠ {{ f.days_overdue }}d overdue</span>
-        {% else %}
-        <span class="text-gray-500 text-[10px] shrink-0">Due {{ f.follow_up_date }}</span>
-        {% endif %}
-      </div>
-      {% endfor %}
-    </div>
-  </div>
-  {% endif %}
 
   {# ── Contacts sub-section ── #}
   {% if _contacts.placement_colleagues or _contacts.underwriters %}

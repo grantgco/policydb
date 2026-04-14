@@ -15,6 +15,7 @@ from policydb.queries import (
     auto_close_followups,
     get_issue_rollup,
     get_linked_policies_for_issue,
+    get_open_tasks,
     get_scoped_rfi_bundles,
 )
 from policydb.utils import round_duration
@@ -873,6 +874,8 @@ def issue_detail(
                 _bind_tokens.append(f"policy:{pol_uid}")
     bind_subjects_csv = ",".join(_bind_tokens)
 
+    open_tasks_data = get_open_tasks(conn, "issue", issue_id)
+
     ctx = {
         "request": request,
         "active": "action-center",
@@ -894,6 +897,9 @@ def issue_detail(
         "merged_into_issue": merged_into_issue,
         "today": date.today().isoformat(),
         "checklist_items": _get_issue_checklist(conn, issue_id),
+        "scope_type": "issue",
+        "scope_id": issue_id,
+        "data": open_tasks_data,
     }
     return templates.TemplateResponse("issues/detail.html", ctx)
 
