@@ -1084,6 +1084,91 @@ def sync_client_follow_up_date(conn, client_id: int) -> None:
     )
 
 
+def create_followup_activity(
+    conn,
+    *,
+    client_id: int,
+    policy_id: int | None,
+    issue_id: int | None,
+    subject: str,
+    activity_type: str = "Task",
+    follow_up_date: str | None,
+    follow_up_done: bool = False,
+    disposition: str = "",
+    contact_person: str | None = None,
+    contact_id: int | None = None,
+    details: str | None = None,
+    duration_hours: float | None = None,
+) -> int:
+    """Single creation path for any follow-up activity. All quick-log endpoints
+    and the Open Tasks panel's + Add task button call this helper.
+
+    Behavior:
+    - Inserts into activity_log with item_kind='followup'
+    - If follow_up_date is set and follow_up_done is False (new open follow-up
+      on a policy), runs supersede_followups() to close older siblings and
+      sync policies.follow_up_date
+    - If issue_id is None and policy_id is set, runs auto_link_to_renewal_issue
+      to attach to an open renewal issue if one exists
+    - If policy_id is None but client_id is set, syncs clients.follow_up_date
+
+    Returns the new activity_log.id.
+    """
+    from datetime import date as _date
+
+    account_exec = cfg.get("default_account_exec", "Grant")
+    cursor = conn.execute(
+        """INSERT INTO activity_log
+           (activity_date, client_id, policy_id, activity_type, contact_person,
+            contact_id, subject, details, follow_up_date, follow_up_done,
+            account_exec, duration_hours, disposition, issue_id, item_kind)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'followup')""",
+        (
+            _date.today().isoformat(), client_id, policy_id, activity_type,
+            contact_person, contact_id, subject, details,
+            follow_up_date, 1 if follow_up_done else 0,
+            account_exec, duration_hours,
+            disposition or None, issue_id,
+        ),
+    )
+    new_id = cursor.lastrowid
+
+    # Auto-link to renewal issue if not explicitly set
+    if issue_id is None and policy_id is not None:
+        from policydb.renewal_issues import auto_link_to_renewal_issue
+        auto_link_to_renewal_issue(conn, policy_id, new_id)
+
+    # Supersede older open follow-ups when this is a new open follow-up.
+    # We close only rows OTHER than the newly inserted row so the new row
+    # retains follow_up_done=0 as set during the INSERT above.
+    if follow_up_date and not follow_up_done and policy_id is not None:
+        conn.execute(
+            """UPDATE activity_log
+               SET follow_up_done = 1,
+                   auto_close_reason = 'superseded',
+                   auto_closed_at = datetime('now'),
+                   auto_closed_by = 'supersede_followups'
+               WHERE policy_id = ?
+                 AND id != ?
+                 AND follow_up_done = 0
+                 AND follow_up_date IS NOT NULL""",
+            (policy_id, new_id),
+        )
+        conn.execute(
+            "UPDATE policies SET follow_up_date = ? WHERE id = ?",
+            (follow_up_date, policy_id),
+        )
+    elif policy_id is not None:
+        # Done-at-creation or no date — still re-sync the cache
+        sync_policy_follow_up_date(conn, policy_id)
+
+    # Client-level sync for direct client follow-ups
+    if policy_id is None and client_id is not None:
+        sync_client_follow_up_date(conn, client_id)
+
+    return new_id
+
+
 def auto_close_stale_followups(conn) -> int:
     """Auto-close follow-ups overdue by more than stale_auto_close_days.
 

@@ -163,3 +163,68 @@ def test_sync_client_fu_date_clears_when_no_open(tmp_db):
 
     row = conn.execute("SELECT follow_up_date FROM clients WHERE id=?", (cid,)).fetchone()
     assert row["follow_up_date"] is None
+
+
+# ── create_followup_activity ─────────────────────────────────────────────────
+
+def test_create_followup_activity_inserts_and_supersedes(tmp_db):
+    from policydb.queries import create_followup_activity
+    conn = get_connection()
+    cid = _seed_client(conn)
+    pid = _seed_policy(conn, cid)
+    # Pre-existing older follow-up that should be superseded
+    old_id = _insert_followup(conn, cid, pid, "old", "2026-03-01")
+    conn.commit()
+
+    new_id = create_followup_activity(
+        conn,
+        client_id=cid,
+        policy_id=pid,
+        issue_id=None,
+        subject="New task",
+        activity_type="Task",
+        follow_up_date="2026-04-20",
+        follow_up_done=False,
+        disposition="",
+    )
+    conn.commit()
+
+    assert new_id is not None and new_id != old_id
+    row = conn.execute("SELECT subject, follow_up_done FROM activity_log WHERE id=?", (new_id,)).fetchone()
+    assert row["subject"] == "New task"
+    assert row["follow_up_done"] == 0
+
+    # Supersession fired: old row should be closed
+    old_row = conn.execute("SELECT follow_up_done, auto_close_reason FROM activity_log WHERE id=?", (old_id,)).fetchone()
+    assert old_row["follow_up_done"] == 1
+    assert old_row["auto_close_reason"] == "superseded"
+
+    # policies.follow_up_date should be synced to the new date
+    pol = conn.execute("SELECT follow_up_date FROM policies WHERE id=?", (pid,)).fetchone()
+    assert pol["follow_up_date"] == "2026-04-20"
+
+
+def test_create_followup_activity_note_mode_no_supersede(tmp_db):
+    from policydb.queries import create_followup_activity
+    conn = get_connection()
+    cid = _seed_client(conn)
+    pid = _seed_policy(conn, cid)
+    old_id = _insert_followup(conn, cid, pid, "still open", "2026-03-01")
+    conn.commit()
+
+    # A note: done=True, date=None → should NOT trigger supersede
+    create_followup_activity(
+        conn,
+        client_id=cid,
+        policy_id=pid,
+        issue_id=None,
+        subject="FYI note",
+        activity_type="Note",
+        follow_up_date=None,
+        follow_up_done=True,
+        disposition="",
+    )
+    conn.commit()
+
+    old_row = conn.execute("SELECT follow_up_done FROM activity_log WHERE id=?", (old_id,)).fetchone()
+    assert old_row["follow_up_done"] == 0  # untouched
