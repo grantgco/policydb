@@ -23,6 +23,7 @@ The user wants a unified, interactive **Open Tasks panel** that rolls up outstan
 - `+ Add task` button to create a new follow-up attached to the current scope without leaving the page.
 - Shared component (one template, one backend helper) parameterized by scope type.
 - Small shared toast library so every action gives explicit confirmation feedback.
+- **Touch-once compliance.** Per `CLAUDE.md` Golden Rule: one action in one place propagates to every surface that displays the same fact. No stale scalar denormalizations, no duplicate creation paths, no redundant displays that force the user to act twice. Enforced by §7.2 (scalar sync helpers), §7.3 (single creation helper), §7.4 (duplicate display removal), §7.5 (shared thread filter).
 
 ## 3. Non-goals (v1)
 
@@ -252,7 +253,88 @@ Kinds: `success` (green), `info` (blue), `warning` (amber), `error` (red). All a
 - **Client page:** Same rule, keyed off the row's policy.
 - **Program page:** `attach_target_issue_id` = the program's own renewal issue.
 
-### 7.2 Issue-scoped merge handling
+### 7.2 Scalar-date sync (touch once)
+
+`policies.follow_up_date` and `clients.follow_up_date` are scalar denormalizations of the true state in `activity_log`. If the panel mutates an activity without re-syncing these, other surfaces (policy edit page inline date, sticky sidebar, Action Center bulk ops, renewal pipeline views) show stale dates — forcing the user to fix them in a second place. That violates touch-once.
+
+Two new helper functions in `queries.py`:
+
+```python
+def sync_policy_follow_up_date(conn, policy_id: int) -> None:
+    """Re-derive policies.follow_up_date from the earliest open activity
+    follow-up on this policy. Sets NULL if no open activity rows exist.
+    The activity_log is the source of truth; the scalar field is a cache."""
+
+def sync_client_follow_up_date(conn, client_id: int) -> None:
+    """Same for client-level activities (policy_id IS NULL)."""
+```
+
+**When each handler calls the sync helpers:**
+
+| Action | Sync call |
+|---|---|
+| Mark done (activity-source) | `sync_policy_follow_up_date(policy_id)` if row had a policy, else `sync_client_follow_up_date(client_id)` |
+| Snooze (activity-source) | Same — the activity's new date may or may not still match the scalar |
+| Log & close | Same as mark done |
+| Waiting toggle | No sync — disposition changes don't affect dates |
+| Attach to issue | No sync — `issue_id` change, dates unchanged |
+| Note | No sync — note is a new sibling activity, parent is untouched |
+| + Add task | Existing `supersede_followups()` already syncs — no additional call |
+
+**Policy-source and client-source rows:** These directly mutate `policies.follow_up_date` / `clients.follow_up_date`, so no sync helper is needed — they ARE the scalar.
+
+### 7.3 Activity creation — single code path
+
+`+ Add task` must not duplicate the existing quick-log logic on policy/client pages. Factor out a shared helper:
+
+```python
+def create_followup_activity(
+    conn,
+    *,
+    client_id: int,
+    policy_id: int | None,
+    issue_id: int | None,
+    subject: str,
+    activity_type: str,
+    follow_up_date: str | None,
+    follow_up_done: bool,
+    disposition: str,
+) -> int:
+    """Single creation path for any follow-up activity. Inserts into
+    activity_log, calls supersede_followups() when a new open follow-up
+    is created on a policy, runs auto_link_to_renewal_issue() if issue_id
+    is not provided, and returns the new activity_log.id."""
+```
+
+All existing quick-log endpoints on policy edit, client activity tab, inbox process, and the new `+ Add task` endpoint call this helper. One place for creation → user edits once → propagates to every surface.
+
+Existing quick-log endpoints are **refactored** to call this helper as part of v1, not left as parallel paths. This is scope creep, but it's the touch-once rule: if two code paths exist, behavior diverges and the user ends up "fixing" the same data in two places.
+
+### 7.4 Duplicate display removal
+
+Beyond the Scope Rollup "Open Follow-ups" subsection removal already in §8.2, the following redundant displays are reconciled as part of v1:
+
+- **Client sticky sidebar follow-up list** (`clients/_sticky_sidebar.html`) — if it currently lists open follow-ups, those entries are removed and replaced with a single link/count: "3 open tasks →" that scrolls to the panel. Rationale: the panel is the canonical interaction surface on the client page; a duplicate list invites the user to click done in two places.
+- **Policy edit page `follow_up_date` inline field** — kept, because a direct edit of this field (without an activity) is a valid "I'm just reminding myself" action. But the field is labeled "Next follow-up (auto-synced)" to signal that the panel's `+ Add task` is the richer path. When a panel action clears the date via sync helper, the field clears on next render.
+- **Program page follow-up listing** — same treatment as client sidebar: collapsed to a link into the panel.
+
+This reconciliation is scoped narrowly — audit these three surfaces only, fix duplicates where found, don't restructure the pages.
+
+### 7.5 Thread history filter — one helper
+
+Every activity thread (issue detail, client activity tab, program activity tab, policy activity section) must filter out rows owned by the panel. One shared helper:
+
+```python
+def filter_thread_for_history(rows: list[dict]) -> list[dict]:
+    """Removes rows where item_kind='followup' AND follow_up_done=0
+    AND follow_up_date IS NOT NULL — these belong to the Open Tasks
+    panel, not the history view. Keeps notes, closed activities, and
+    non-followup items."""
+```
+
+All four thread templates call this through their route handler. One rule, one place. When the rule changes, it changes everywhere.
+
+### 7.6 Issue-scoped merge handling
 
 - If current issue is merged into another (has `merged_into_id`), panel redirects to the target issue's panel with a banner "Merged into ISS-YYY."
 - Closed / Resolved issues: panel renders but all action buttons disabled; banner "Issue resolved — reopen to triage tasks."
