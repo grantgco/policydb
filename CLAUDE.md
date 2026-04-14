@@ -5,6 +5,20 @@ PolicyDB is a local FastAPI + SQLite insurance book-of-business management tool.
 
 ---
 
+## Golden Rule — Touch Once
+
+**The user should never have to enter the same fact twice.** When designing or modifying any feature that touches data, ask: *"Where else could this information be used, and does our design let it flow there?"*
+
+- Every new input field must be checked against existing data — is this fact already captured somewhere? If so, reuse it (derive, lookup, read from the canonical source).
+- Every edit screen must be checked against other records — what *other* tables could benefit from what the user just told us? Write-back is as important as read-side lookup.
+- Discovered facts flow to the canonical record, not just a local note. Example: if a user confirms an endorsement on a policy while reviewing a contract, the fact is written to `policies.endorsements`, not just the compliance requirement's notes field.
+- Derived views pull from canonical sources, not copy them. One source of truth per fact.
+- If you catch yourself about to add a second storage location for something that already exists, stop and consolidate instead.
+
+This is non-negotiable. Duplicated data entry is friction the user notices every day, and parallel storage locations drift out of sync and become bugs.
+
+---
+
 ## Workflow Guidance
 
 Not every task needs a full brainstorm cycle. Use this to calibrate:

@@ -1,10 +1,18 @@
 {# ── Requirement Detail Slideover ── #}
 {# Context: req, client_id, sources, projects, links, linkable_policies,
-            primary_policy, auto_status, compliance_statuses,
-            deductible_types, policy_types, endorsement_types #}
+            primary_policy, suggested_policy, compare_policy, auto_status,
+            missing_endorsements, compliance_statuses, deductible_types,
+            policy_types, endorsement_types #}
 
-{# Determine effective display status: manual override wins, else auto_status #}
-{% set effective_status = req.compliance_status if req.status_manual_override else auto_status %}
+{#
+  Effective display status:
+  - If the user has explicitly reviewed (reviewed_at set), show their stored
+    compliance_status.
+  - Otherwise show the auto-computed status derived from the linked/suggested
+    policy comparison.
+#}
+{% set effective_status = req.compliance_status if req.reviewed_at else (auto_status or 'Needs Review') %}
+{% set stored_status = req.compliance_status or 'Needs Review' %}
 
 {# ── Backdrop ── #}
 <div id="req-detail-backdrop"
@@ -42,26 +50,164 @@
   <div class="{{ banner_bg }} {{ banner_border }} {{ banner_text }} border-b px-4 py-3 flex items-center justify-between">
     <div class="flex items-center gap-2">
       <span class="w-2 h-2 rounded-full {{ dot_bg }}"></span>
-      <span class="font-semibold text-sm">{{ effective_status or 'Gap' }}</span>
-      {% if req.status_manual_override %}
-        <span class="text-[10px] bg-white/60 px-1.5 py-0.5 rounded">manual override</span>
+      <span class="font-semibold text-sm">{{ effective_status or 'Needs Review' }}</span>
+      {% if req.reviewed_at %}
+        <span class="text-[10px] bg-white/60 px-1.5 py-0.5 rounded"
+              title="Reviewed {{ req.reviewed_at }}{% if req.reviewed_by %} by {{ req.reviewed_by }}{% endif %}">
+          reviewed
+        </span>
       {% endif %}
     </div>
     <div class="flex items-center gap-2">
-      {% if status_lower == 'partial' %}
-        <button type="button"
-                class="text-xs bg-green-600 text-white px-2 py-1 rounded hover:bg-green-700 transition-colors"
-                onclick="confirmCompliant()">Confirm Compliant</button>
-      {% endif %}
       <select class="text-xs border border-current/20 rounded px-1.5 py-1 bg-white/80 {{ banner_text }} cursor-pointer focus:outline-none focus:ring-1 focus:ring-marsh"
               onchange="overrideStatus(this.value)">
-        <option value="">Override &#9662;</option>
+        <option value="">Set status &#9662;</option>
         {% for cs in compliance_statuses %}
-        <option value="{{ cs }}" {{ 'selected' if effective_status == cs else '' }}>{{ cs }}</option>
+        <option value="{{ cs }}" {{ 'selected' if stored_status == cs else '' }}>{{ cs }}</option>
         {% endfor %}
       </select>
     </div>
   </div>
+
+  {# ── Guided Review Section — side-by-side comparison + primary CTA ── #}
+  {#
+     Rendered above the editor so the reviewer's first action is a single
+     confirm-or-override click. Uses compare_policy (linked primary or
+     auto-suggested match) for the comparison. When a requirement has
+     missing endorsements, renders write-back checkboxes — ticking one
+     writes to policies.endorsements (touch once).
+  #}
+  {% if compare_policy %}
+  <div class="px-4 py-4 border-b bg-white">
+    <div class="flex items-start justify-between mb-3">
+      <div>
+        <div class="text-[10px] text-gray-400 uppercase tracking-wider">
+          {% if primary_policy %}Linked policy{% else %}Suggested match{% endif %}
+        </div>
+        <div class="flex items-center gap-2 mt-0.5">
+          <span class="font-mono text-sm text-gray-700 font-medium">{{ compare_policy.policy_number or compare_policy.policy_uid }}</span>
+          {% if compare_policy.carrier %}
+          <span class="text-xs text-gray-500">· {{ compare_policy.carrier }}</span>
+          {% endif %}
+        </div>
+      </div>
+      {% if not primary_policy and suggested_policy %}
+      <span class="text-[10px] px-1.5 py-0.5 bg-indigo-100 text-indigo-700 rounded">auto-suggested</span>
+      {% endif %}
+    </div>
+
+    {# Required vs Proposed side-by-side #}
+    <div class="grid grid-cols-2 gap-3 mb-3">
+      <div class="bg-gray-50 border border-gray-200 rounded p-2.5">
+        <div class="text-[10px] text-gray-400 uppercase tracking-wider mb-1">Required</div>
+        <div class="text-xs text-gray-800">
+          Limit: <span class="font-medium">{{ req.required_limit | currency if req.required_limit else '—' }}</span>
+        </div>
+        {% if req.max_deductible is not none and req.max_deductible > 0 %}
+        <div class="text-xs text-gray-800 mt-0.5">Max ded: <span class="font-medium">{{ req.max_deductible | currency }}</span></div>
+        {% endif %}
+        {% if req._endorsements_list %}
+        <div class="text-[11px] text-gray-500 mt-1">{{ req._endorsements_list | join(', ') }}</div>
+        {% endif %}
+      </div>
+      <div class="bg-blue-50 border border-blue-200 rounded p-2.5">
+        <div class="text-[10px] text-blue-600 uppercase tracking-wider mb-1">Proposed</div>
+        <div class="text-xs text-gray-800">
+          Limit: <span class="font-medium">{{ compare_policy.limit_amount | currency if compare_policy.limit_amount else 'Not set' }}</span>
+          {% if req.required_limit and compare_policy.limit_amount %}
+            {% if compare_policy.limit_amount >= req.required_limit %}
+            <span class="text-green-600 ml-1">&check;</span>
+            {% else %}
+            <span class="text-red-600 ml-1">&cross;</span>
+            {% endif %}
+          {% endif %}
+        </div>
+        {% if req.max_deductible is not none and req.max_deductible > 0 %}
+        <div class="text-xs text-gray-800 mt-0.5">
+          Ded: <span class="font-medium">{{ compare_policy.deductible | currency if compare_policy.deductible else 'Not set' }}</span>
+          {% if compare_policy.deductible is not none %}
+            {% if compare_policy.deductible <= req.max_deductible %}
+            <span class="text-green-600 ml-1">&check;</span>
+            {% else %}
+            <span class="text-red-600 ml-1">&cross;</span>
+            {% endif %}
+          {% endif %}
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+    {# Missing endorsements — touch-once write-back to the policy #}
+    {% if missing_endorsements %}
+    <div class="bg-amber-50 border border-amber-200 rounded p-2.5 mb-3" id="missing-endo-section"
+         data-policy-uid="{{ compare_policy.policy_uid }}" data-req-id="{{ req.id }}">
+      <div class="text-[10px] text-amber-700 uppercase tracking-wider mb-1.5">
+        Missing on policy — confirm and we'll add to the record
+      </div>
+      {% for e in missing_endorsements %}
+      <label class="flex items-center gap-2 text-xs text-gray-800 py-0.5 cursor-pointer">
+        <input type="checkbox" class="missing-endo-check" value="{{ e }}"
+               onchange="confirmEndorsementOnPolicy(this)">
+        <span>{{ e }}</span>
+      </label>
+      {% endfor %}
+      <div class="text-[10px] text-gray-500 mt-1.5">
+        Checking writes to POL-{{ compare_policy.policy_uid.split('-')[-1] if compare_policy.policy_uid else '' }} endorsements
+        — touch once, updated everywhere.
+      </div>
+    </div>
+    {% endif %}
+
+    {# Primary CTA + secondary outcome buttons #}
+    <div class="space-y-2">
+      {% if not primary_policy and suggested_policy %}
+      <button type="button"
+              class="w-full px-3 py-2 text-sm font-semibold rounded bg-marsh-blue text-white hover:bg-marsh-blue-dark"
+              onclick="linkAndMark('{{ suggested_policy.policy_uid }}', '{{ auto_status }}')">
+        Link {{ suggested_policy.policy_number or suggested_policy.policy_uid }} · Mark {{ auto_status }}
+      </button>
+      {% elif primary_policy %}
+      <button type="button"
+              class="w-full px-3 py-2 text-sm font-semibold rounded bg-marsh-blue text-white hover:bg-marsh-blue-dark"
+              onclick="overrideStatus('{{ auto_status }}')">
+        Mark {{ auto_status }}
+      </button>
+      {% endif %}
+
+      <div class="grid grid-cols-3 gap-1.5">
+        <button type="button"
+                class="px-2 py-1.5 text-xs rounded border border-slate-300 text-slate-700 hover:bg-slate-50"
+                onclick="overrideStatus('External')">→ External</button>
+        <button type="button"
+                class="px-2 py-1.5 text-xs rounded border border-red-200 text-red-700 hover:bg-red-50"
+                onclick="overrideStatus('Gap')">✕ Gap</button>
+        <button type="button"
+                class="px-2 py-1.5 text-xs rounded border border-blue-200 text-blue-700 hover:bg-blue-50"
+                onclick="overrideStatus('Pending Info')">⏱ Pending</button>
+      </div>
+    </div>
+  </div>
+  {% else %}
+  {# No policy linked and no suggestion — surface the problem directly #}
+  <div class="px-4 py-4 border-b bg-red-50">
+    <div class="text-sm text-red-800 font-medium mb-1">No matching policy found</div>
+    <div class="text-xs text-red-700 mb-3">
+      No policy in this client's book matches this coverage line. Options: mark as Gap (need to place),
+      mark as External (another broker has it), or use the policy search below to link manually.
+    </div>
+    <div class="grid grid-cols-3 gap-1.5">
+      <button type="button"
+              class="px-2 py-1.5 text-xs rounded border border-red-300 text-red-700 hover:bg-red-100 bg-white"
+              onclick="overrideStatus('Gap')">✕ Gap</button>
+      <button type="button"
+              class="px-2 py-1.5 text-xs rounded border border-slate-300 text-slate-700 hover:bg-slate-100 bg-white"
+              onclick="overrideStatus('External')">→ External</button>
+      <button type="button"
+              class="px-2 py-1.5 text-xs rounded border border-blue-300 text-blue-700 hover:bg-blue-100 bg-white"
+              onclick="overrideStatus('Pending Info')">⏱ Pending</button>
+    </div>
+  </div>
+  {% endif %}
 
   {# ── Section B: Header + Close ── #}
   <div class="flex items-center justify-between p-4 border-b">
@@ -458,10 +604,16 @@
 function closeRequirementDetail() {
     var container = document.getElementById('requirement-slideover-container');
     if (container) container.innerHTML = '';
-    /* Refresh the active location tab to update rows + summary */
+    /* Refresh the active location tab (Matrix) if visible */
     var activeTab = document.querySelector('#location-tab-bar button.border-marsh');
-    if (activeTab) {
+    if (activeTab && activeTab.getAttribute('hx-get')) {
         htmx.ajax('GET', activeTab.getAttribute('hx-get'), {target: '#location-tab-content', swap: 'innerHTML'});
+    }
+    /* Refresh the active contract workspace (Contracts tab) if visible */
+    var activeSource = document.querySelector('#contract-source-list .source-entry.border-marsh');
+    if (activeSource && activeSource.getAttribute('hx-get')) {
+        htmx.ajax('GET', activeSource.getAttribute('hx-get'),
+                  {target: '#contract-workspace-body', swap: 'innerHTML'});
     }
 }
 
@@ -527,16 +679,62 @@ function confirmCompliant() {
 }
 
 /* ── Override status ── */
+/* Uses the /status endpoint (which stamps reviewed_at/reviewed_by for audit)
+   instead of /cell (which bypasses audit wiring). */
 function overrideStatus(value) {
     if (!value) return;
-    fetch('/compliance/client/{{ client_id }}/review-mode/{{ req.id }}/cell', {
-        method: 'PATCH',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({field: 'compliance_status', value: value})
+    var fd = new FormData();
+    fd.append('compliance_status', value);
+    fetch('/compliance/client/{{ client_id }}/requirements/{{ req.id }}/status', {
+        method: 'POST',
+        body: fd
     }).then(function() {
         htmx.ajax('GET', '/compliance/client/{{ client_id }}/requirements/{{ req.id }}/detail',
                   {target: '#requirement-slideover-container', swap: 'innerHTML'});
     });
+}
+
+/* ── Link suggested policy AND mark status in one action ── */
+function linkAndMark(policyUid, status) {
+    var fdLink = new FormData();
+    fdLink.append('linked_policy_uid', policyUid);
+    fetch('/compliance/client/{{ client_id }}/requirements/{{ req.id }}/link-policy', {
+        method: 'POST',
+        body: fdLink
+    }).then(function() {
+        var fdStatus = new FormData();
+        fdStatus.append('compliance_status', status);
+        return fetch('/compliance/client/{{ client_id }}/requirements/{{ req.id }}/status', {
+            method: 'POST',
+            body: fdStatus
+        });
+    }).then(function() {
+        closeRequirementDetail();
+    });
+}
+
+/* ── Touch-once write-back: confirm an endorsement on the linked/suggested
+     policy. Writes to policies.endorsements so the fact lives on the policy,
+     not just this requirement's notes. After writing, re-fetch the slideover
+     so the auto-computed status reflects the new endorsement. ── */
+function confirmEndorsementOnPolicy(checkbox) {
+    var section = document.getElementById('missing-endo-section');
+    if (!section) return;
+    var policyUid = section.dataset.policyUid;
+    var endorsement = checkbox.value;
+    var fd = new FormData();
+    fd.append('endorsement', endorsement);
+    fetch('/policies/' + policyUid + '/endorsements/add', {
+        method: 'POST',
+        body: fd
+    }).then(function(r) { return r.json(); }).then(function(d) {
+        if (d && d.ok) {
+            htmx.ajax('GET', '/compliance/client/{{ client_id }}/requirements/{{ req.id }}/detail',
+                      {target: '#requirement-slideover-container', swap: 'innerHTML'});
+        } else {
+            checkbox.checked = false;
+        }
+    }).catch(function(){ checkbox.checked = false; });
 }
 
 /* ── Add policy link ── */

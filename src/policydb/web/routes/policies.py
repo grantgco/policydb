@@ -1657,12 +1657,15 @@ def _ai_import_parse_inner(request: Request, conn, uid: str, result: dict):
         return HTMLResponse("Not found", status_code=404)
     logger.debug("AI import parse inner: policy loaded, client=%s", client_info.get("name"))
 
+    # Initialize warnings early so the endorsements auto-apply step can append.
+    ai_warnings: list[str] = list(result.get("warnings", []))
+
     # Merge parsed values onto existing policy, tracking changes (skip nested groups)
     merged = dict(policy_dict)
     import_changes: list[dict] = []
     _field_labels = {f["key"]: f["label"] for f in POLICY_EXTRACTION_SCHEMA.get("fields", [])}
     for k, v in result["parsed"].items():
-        if v is not None and k not in ("locations", "sub_coverages"):
+        if v is not None and k not in ("locations", "sub_coverages", "endorsements"):
             old_val = policy_dict.get(k)
             if str(v).strip() != str(old_val or "").strip():
                 import_changes.append({
@@ -1672,8 +1675,38 @@ def _ai_import_parse_inner(request: Request, conn, uid: str, result: dict):
                 })
             merged[k] = v
 
+    # Endorsements are an array field — auto-apply on parse instead of going
+    # through the scalar diff flow. Merges with any existing endorsements
+    # (case-insensitive dedupe) so a re-import is idempotent.
+    parsed_endorsements = result["parsed"].get("endorsements")
+    if isinstance(parsed_endorsements, list) and parsed_endorsements:
+        existing_raw = policy_dict.get("endorsements") or "[]"
+        try:
+            existing_list = json.loads(existing_raw) if isinstance(existing_raw, str) else list(existing_raw)
+        except (json.JSONDecodeError, TypeError):
+            existing_list = []
+        existing_norm = {str(e).strip().casefold() for e in existing_list if str(e).strip()}
+        merged_endorsements = [e for e in existing_list if str(e).strip()]
+        added: list[str] = []
+        for e in parsed_endorsements:
+            name = str(e).strip()
+            if name and name.casefold() not in existing_norm:
+                merged_endorsements.append(name)
+                existing_norm.add(name.casefold())
+                added.append(name)
+        if added:
+            conn.execute(
+                "UPDATE policies SET endorsements = ? WHERE policy_uid = ?",
+                (json.dumps(merged_endorsements), uid),
+            )
+            conn.commit()
+            merged["endorsements"] = json.dumps(merged_endorsements)
+            suffix = "s" if len(added) != 1 else ""
+            ai_warnings.append(
+                f"Added {len(added)} endorsement{suffix} to the policy: {', '.join(added)}"
+            )
+
     # FEIN cross-reference warning
-    ai_warnings: list[str] = list(result.get("warnings", []))
     parsed_fein = result["parsed"].get("fein")
     if parsed_fein:
         client_fein = conn.execute(
@@ -1716,7 +1749,7 @@ def _ai_import_parse_inner(request: Request, conn, uid: str, result: dict):
     _field_labels = {f["key"]: f["label"] for f in POLICY_EXTRACTION_SCHEMA["fields"]}
     ai_policy_diffs: list[dict] = []
     for k, v in result["parsed"].items():
-        if k in ("locations", "sub_coverages") or v is None:
+        if k in ("locations", "sub_coverages", "endorsements") or v is None:
             continue
         current = policy_dict.get(k)
         current_str = str(current) if current is not None else ""
@@ -2010,6 +2043,7 @@ def _ai_import_parse_inner(request: Request, conn, uid: str, result: dict):
         "program_linked_policies": [],
         "linkable_policies": [],
         "program_carrier_rows": [],
+        "endorsement_types": cfg.get("endorsement_types", []),
         "ai_warnings": ai_warnings,
         "ai_policy_diffs": ai_policy_diffs,
         "ai_location_data": ai_location_data,
@@ -2623,6 +2657,7 @@ def policy_tab_details(request: Request, policy_uid: str, conn=Depends(get_db)):
         "program_linked_policies": [],
         "linkable_policies": [],
         "program_carrier_rows": [],
+        "endorsement_types": cfg.get("endorsement_types", []),
     })
 
 
@@ -3870,6 +3905,81 @@ async def policy_cell_save(request: Request, policy_uid: str, conn=Depends(get_d
         recalc_exposure_rate(conn, policy_uid=uid)
 
     return JSONResponse({"ok": True, "formatted": formatted})
+
+
+# ── Policy endorsements (bidirectional with compliance review) ────────────────
+#
+# Endorsements live on the policies table as a JSON array. They are the
+# canonical home: the policy edit UI writes to it directly, and the compliance
+# review slideover *also* writes here when a reviewer confirms "POL-XXX has
+# Waiver of Subrogation." See the "touch once" golden rule in CLAUDE.md.
+
+def _parse_policy_endorsements(val) -> list[str]:
+    """Parse policies.endorsements JSON column into a clean list of strings."""
+    if val is None:
+        return []
+    if isinstance(val, list):
+        return [str(e).strip() for e in val if str(e).strip()]
+    try:
+        parsed = json.loads(val) if isinstance(val, str) else []
+        return [str(e).strip() for e in parsed if str(e).strip()] if isinstance(parsed, list) else []
+    except (json.JSONDecodeError, TypeError):
+        return []
+
+
+@router.post("/{policy_uid}/endorsements/add")
+def policy_endorsement_add(
+    policy_uid: str,
+    conn=Depends(get_db),
+    endorsement: str = Form(...),
+):
+    """Add an endorsement to a policy (idempotent, case-insensitive dedupe)."""
+    uid = policy_uid.upper()
+    value = endorsement.strip()
+    if not value:
+        return JSONResponse({"ok": False, "error": "Empty endorsement"}, status_code=400)
+
+    row = conn.execute(
+        "SELECT endorsements FROM policies WHERE policy_uid = ?", (uid,)
+    ).fetchone()
+    if not row:
+        return JSONResponse({"ok": False, "error": "Policy not found"}, status_code=404)
+
+    existing = _parse_policy_endorsements(row["endorsements"])
+    if value.casefold() not in {e.casefold() for e in existing}:
+        existing.append(value)
+        conn.execute(
+            "UPDATE policies SET endorsements = ? WHERE policy_uid = ?",
+            (json.dumps(existing), uid),
+        )
+        conn.commit()
+    return JSONResponse({"ok": True, "endorsements": existing})
+
+
+@router.post("/{policy_uid}/endorsements/remove")
+def policy_endorsement_remove(
+    policy_uid: str,
+    conn=Depends(get_db),
+    endorsement: str = Form(...),
+):
+    """Remove an endorsement from a policy (case-insensitive match)."""
+    uid = policy_uid.upper()
+    target = endorsement.strip().casefold()
+    row = conn.execute(
+        "SELECT endorsements FROM policies WHERE policy_uid = ?", (uid,)
+    ).fetchone()
+    if not row:
+        return JSONResponse({"ok": False, "error": "Policy not found"}, status_code=404)
+
+    existing = _parse_policy_endorsements(row["endorsements"])
+    filtered = [e for e in existing if e.casefold() != target]
+    if len(filtered) != len(existing):
+        conn.execute(
+            "UPDATE policies SET endorsements = ? WHERE policy_uid = ?",
+            (json.dumps(filtered), uid),
+        )
+        conn.commit()
+    return JSONResponse({"ok": True, "endorsements": filtered})
 
 
 @router.patch("/{policy_uid}/team/{contact_id}/cell")

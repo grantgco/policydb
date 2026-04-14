@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
+from datetime import datetime
+from typing import List
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Form, Query, Request
@@ -20,11 +22,22 @@ from policydb.compliance import (
     get_location_requirements,
     get_requirement_links,
     link_policy_to_requirement,
+    missing_endorsements,
+    propose_bulk_matches,
     resolve_governing_requirements,
     set_primary_link,
     unlink_policy_from_requirement,
     get_risk_review_prompts,
+    _parse_endorsements,
 )
+
+
+def _now_iso() -> str:
+    return datetime.now().isoformat(timespec="seconds")
+
+
+def _current_user() -> str:
+    return cfg.get("default_account_exec", "Grant")
 from policydb.llm_schemas import (
     COMPLIANCE_EXTRACTION_SCHEMA,
     COPE_FIELDS,
@@ -977,21 +990,65 @@ def requirement_detail(
     links = get_requirement_links(conn, req_id)
     linkable = get_linkable_policies(conn, client_id, req_project_id=effective_pid)
 
-    # Primary linked policy for comparison
+    # Primary linked policy for comparison. If denormalized linked_policy_uid
+    # is set (new Contracts-tab flow), use that; otherwise fall back to the
+    # requirement_policy_links.is_primary row.
     primary_policy = None
-    for link in links:
-        if link.get("is_primary"):
-            primary_policy = conn.execute(
-                "SELECT policy_uid, policy_type, carrier, limit_amount, deductible, "
-                "expiration_date FROM policies WHERE policy_uid = ? AND archived = 0",
-                (link["policy_uid"],),
-            ).fetchone()
-            if primary_policy:
-                primary_policy = dict(primary_policy)
-            break
+    denorm_uid = (req_dict.get("linked_policy_uid") or "").strip()
+    if denorm_uid:
+        pol_row = conn.execute(
+            "SELECT policy_uid, policy_type, carrier, policy_number, limit_amount, "
+            "deductible, expiration_date, endorsements FROM policies "
+            "WHERE policy_uid = ? AND archived = 0",
+            (denorm_uid,),
+        ).fetchone()
+        if pol_row:
+            primary_policy = dict(pol_row)
+    if primary_policy is None:
+        for link in links:
+            if link.get("is_primary"):
+                pol_row = conn.execute(
+                    "SELECT policy_uid, policy_type, carrier, policy_number, limit_amount, "
+                    "deductible, expiration_date, endorsements FROM policies "
+                    "WHERE policy_uid = ? AND archived = 0",
+                    (link["policy_uid"],),
+                ).fetchone()
+                if pol_row:
+                    primary_policy = dict(pol_row)
+                break
 
-    # Compute auto-status for display
-    auto_status = compute_auto_status(req_dict, primary_policy) if primary_policy else "Gap"
+    # If there's no linked policy yet, propose a suggestion scoped to the
+    # source's program (or the requirement's project_id). Surfacing the
+    # auto-suggestion in the slideover is what turns the flow from guesswork
+    # into a confirm-or-override experience.
+    suggested_policy = None
+    if primary_policy is None:
+        src_pid = None
+        if req_dict.get("source_id"):
+            src_row = conn.execute(
+                "SELECT project_id FROM requirement_sources WHERE id = ?",
+                (req_dict["source_id"],),
+            ).fetchone()
+            if src_row:
+                src_pid = src_row["project_id"]
+        scope_pid = src_pid or effective_pid
+        all_pols = [dict(r) for r in conn.execute(
+            "SELECT policy_uid, policy_type, carrier, policy_number, limit_amount, "
+            "deductible, project_id, endorsements FROM policies "
+            "WHERE client_id = ? AND archived = 0",
+            (client_id,),
+        ).fetchall()]
+        from policydb.compliance import suggest_policy_for_requirement
+        suggested_policy = suggest_policy_for_requirement(
+            req_dict, all_pols, location_project_id=scope_pid,
+        )
+
+    # Policy used for comparison display (either linked primary or suggested)
+    compare_policy = primary_policy or suggested_policy
+
+    # Compute auto-status for display (Compliant/Partial/Gap)
+    auto_status = compute_auto_status(req_dict, compare_policy) if compare_policy else "Gap"
+    missing_endos = missing_endorsements(req_dict, compare_policy) if compare_policy else req_dict.get("_endorsements_list", [])
 
     return templates.TemplateResponse("compliance/_requirement_slideover.html", {
         "request": request,
@@ -1003,7 +1060,10 @@ def requirement_detail(
         "linkable_policies": linkable,
         "location_project_id": effective_pid,
         "primary_policy": primary_policy,
+        "suggested_policy": suggested_policy,
+        "compare_policy": compare_policy,
         "auto_status": auto_status,
+        "missing_endorsements": missing_endos,
         "compliance_statuses": cfg.get("compliance_statuses", []),
         "deductible_types": cfg.get("deductible_types", []),
         "policy_types": cfg.get("policy_types", []),
@@ -1208,10 +1268,21 @@ def requirements_status(
     conn=Depends(get_db),
     compliance_status: str = Form(...),
 ):
-    conn.execute(
-        "UPDATE coverage_requirements SET compliance_status=? WHERE id=? AND client_id=?",
-        (compliance_status.strip(), req_id, client_id),
-    )
+    status = compliance_status.strip()
+    if status == "Needs Review":
+        conn.execute(
+            """UPDATE coverage_requirements
+                  SET compliance_status=?, reviewed_at=NULL, reviewed_by=NULL
+                WHERE id=? AND client_id=?""",
+            (status, req_id, client_id),
+        )
+    else:
+        conn.execute(
+            """UPDATE coverage_requirements
+                  SET compliance_status=?, reviewed_at=?, reviewed_by=?
+                WHERE id=? AND client_id=?""",
+            (status, _now_iso(), _current_user(), req_id, client_id),
+        )
     conn.commit()
     # Return updated matrix + OOB summary
     ctx = _compliance_context(conn, client_id, request)
@@ -1280,6 +1351,236 @@ def requirements_delete(
         html = _corporate_location_html(request, conn, client_id)
     oob = _oob_summary_and_matrix(request, conn, client_id)
     return HTMLResponse(html + oob)
+
+
+# ── Contracts Workspace (contract-first review flow) ─────────────────────────
+#
+# These routes power the new "Contracts" tab of the compliance page: a
+# contract-centric workspace where the reviewer picks a source, sees all of
+# its requirements in one table, and dispositions each one via a slideover or
+# a bulk "match all to program" action. Literal suffixes (/workspace,
+# /assign-program, /bulk-match) are registered before other source-id routes
+# so parameterized captures do not shadow them.
+
+def _contracts_tab_context(conn: sqlite3.Connection, client_id: int) -> dict:
+    """Build the context for the Contracts tab (left rail + selected source)."""
+    sources = [dict(r) for r in conn.execute(
+        """SELECT rs.*, p.name AS project_name
+             FROM requirement_sources rs
+             LEFT JOIN projects p ON rs.project_id = p.id
+            WHERE rs.client_id = ?
+            ORDER BY rs.updated_at DESC, rs.name""",
+        (client_id,),
+    ).fetchall()]
+
+    for src in sources:
+        counts = conn.execute(
+            """SELECT COUNT(*) AS total,
+                      SUM(CASE WHEN compliance_status != 'Needs Review' THEN 1 ELSE 0 END) AS reviewed
+                 FROM coverage_requirements WHERE source_id = ?""",
+            (src["id"],),
+        ).fetchone()
+        src["total_reqs"] = counts["total"] or 0
+        src["reviewed_reqs"] = counts["reviewed"] or 0
+
+    return {
+        "client_id": client_id,
+        "sources": sources,
+    }
+
+
+def _source_workspace_context(conn: sqlite3.Connection, client_id: int, source_id: int) -> dict:
+    """Build the context for the center workspace — one contract's review table."""
+    src_row = conn.execute(
+        """SELECT rs.*, p.name AS project_name
+             FROM requirement_sources rs
+             LEFT JOIN projects p ON rs.project_id = p.id
+            WHERE rs.id = ? AND rs.client_id = ?""",
+        (source_id, client_id),
+    ).fetchone()
+    if not src_row:
+        return {"client_id": client_id, "source": None, "rows": [], "programs": []}
+    src = dict(src_row)
+
+    rows = [dict(r) for r in conn.execute(
+        """SELECT cr.*, p.name AS project_name
+             FROM coverage_requirements cr
+             LEFT JOIN projects p ON cr.project_id = p.id
+            WHERE cr.source_id = ?
+            ORDER BY cr.coverage_line""",
+        (source_id,),
+    ).fetchall()]
+
+    all_policies = {p["policy_uid"]: dict(p) for p in conn.execute(
+        "SELECT policy_uid, policy_type, carrier, limit_amount, deductible, "
+        "project_id, policy_number, endorsements FROM policies "
+        "WHERE client_id=? AND archived=0",
+        (client_id,),
+    ).fetchall()}
+
+    for row in rows:
+        row["required_endorsements_list"] = _parse_endorsements(row.get("required_endorsements"))
+        row["has_note"] = bool((row.get("notes") or "").strip())
+        pol_uid = row.get("linked_policy_uid")
+        row["linked_policy"] = all_policies.get(pol_uid) if pol_uid else None
+
+    reviewed = sum(1 for r in rows if (r.get("compliance_status") or "Needs Review") != "Needs Review")
+    gaps = sum(1 for r in rows if r.get("compliance_status") == "Gap")
+
+    programs = [dict(p) for p in conn.execute(
+        "SELECT id, name FROM projects WHERE client_id = ? ORDER BY name",
+        (client_id,),
+    ).fetchall()]
+
+    return {
+        "client_id": client_id,
+        "source": src,
+        "rows": rows,
+        "total_reqs": len(rows),
+        "reviewed_reqs": reviewed,
+        "gap_count": gaps,
+        "programs": programs,
+    }
+
+
+@router.get("/client/{client_id}/contracts", response_class=HTMLResponse)
+def contracts_tab(client_id: int, request: Request, conn=Depends(get_db)):
+    """Return the Contracts tab body (left rail + empty center)."""
+    ctx = _contracts_tab_context(conn, client_id)
+    return templates.TemplateResponse("compliance/_contracts_tab.html", {
+        "request": request, **ctx,
+    })
+
+
+@router.get("/client/{client_id}/sources/{source_id}/workspace", response_class=HTMLResponse)
+def source_workspace(
+    client_id: int,
+    source_id: int,
+    request: Request,
+    conn=Depends(get_db),
+):
+    """Return the contract review table for one selected source."""
+    ctx = _source_workspace_context(conn, client_id, source_id)
+    return templates.TemplateResponse("compliance/_contract_review_table.html", {
+        "request": request, **ctx,
+    })
+
+
+@router.post("/client/{client_id}/sources/{source_id}/assign-program", response_class=HTMLResponse)
+def source_assign_program(
+    client_id: int,
+    source_id: int,
+    request: Request,
+    conn=Depends(get_db),
+    project_id: str = Form(""),
+):
+    """Set source.project_id to the chosen program (or NULL to unassign)."""
+    pid_val: int | None = None
+    if project_id.strip():
+        try:
+            pid_val = int(project_id.strip())
+        except ValueError:
+            pid_val = None
+    conn.execute(
+        "UPDATE requirement_sources SET project_id = ? WHERE id = ? AND client_id = ?",
+        (pid_val, source_id, client_id),
+    )
+    conn.commit()
+    ctx = _source_workspace_context(conn, client_id, source_id)
+    return templates.TemplateResponse("compliance/_contract_review_table.html", {
+        "request": request, **ctx,
+    })
+
+
+@router.get("/client/{client_id}/sources/{source_id}/bulk-match", response_class=HTMLResponse)
+def source_bulk_match_modal(
+    client_id: int,
+    source_id: int,
+    request: Request,
+    conn=Depends(get_db),
+):
+    """Return the bulk-match proposal modal for a source."""
+    src = conn.execute(
+        """SELECT rs.*, p.name AS project_name
+             FROM requirement_sources rs
+             LEFT JOIN projects p ON rs.project_id = p.id
+            WHERE rs.id = ? AND rs.client_id = ?""",
+        (source_id, client_id),
+    ).fetchone()
+    if not src:
+        return HTMLResponse("", status_code=404)
+
+    src_dict = dict(src)
+    proposals = propose_bulk_matches(conn, source_id, src_dict.get("project_id"))
+
+    return templates.TemplateResponse("compliance/_bulk_match_modal.html", {
+        "request": request,
+        "client_id": client_id,
+        "source": src_dict,
+        "proposals": proposals,
+    })
+
+
+@router.post("/client/{client_id}/sources/{source_id}/bulk-match", response_class=HTMLResponse)
+def source_bulk_match_apply(
+    client_id: int,
+    source_id: int,
+    request: Request,
+    conn=Depends(get_db),
+    requirement_ids: List[int] = Form(default=[]),
+):
+    """Apply the checked matches from the bulk-match modal.
+
+    For each requirement_id passed, re-runs the suggestion (so the final state
+    matches what the user saw in the modal), links the suggested policy, sets
+    the auto-computed status, and stamps reviewed_at/reviewed_by. Unchecked
+    requirements are untouched.
+    """
+    src = conn.execute(
+        "SELECT project_id FROM requirement_sources WHERE id = ? AND client_id = ?",
+        (source_id, client_id),
+    ).fetchone()
+    if not src:
+        return HTMLResponse("", status_code=404)
+
+    proposals = propose_bulk_matches(conn, source_id, dict(src).get("project_id"))
+    by_id = {p["requirement_id"]: p for p in proposals}
+
+    now_iso = _now_iso()
+    user = _current_user()
+    applied = 0
+    try:
+        for rid in requirement_ids:
+            prop = by_id.get(rid)
+            if not prop or not prop.get("suggested_policy_uid"):
+                continue
+            conn.execute(
+                """UPDATE coverage_requirements
+                      SET linked_policy_uid = ?,
+                          compliance_status = ?,
+                          reviewed_at = ?,
+                          reviewed_by = ?
+                    WHERE id = ? AND client_id = ?""",
+                (
+                    prop["suggested_policy_uid"],
+                    prop["computed_status"],
+                    now_iso,
+                    user,
+                    rid,
+                    client_id,
+                ),
+            )
+            applied += 1
+        conn.commit()
+    except sqlite3.Error:
+        conn.rollback()
+        raise
+
+    logger.info("bulk-match applied %d rows on source %d", applied, source_id)
+    ctx = _source_workspace_context(conn, client_id, source_id)
+    return templates.TemplateResponse("compliance/_contract_review_table.html", {
+        "request": request, **ctx,
+    })
 
 
 # ── Review Mode (rapid entry) ─────────────────────────────────────────────────
@@ -1678,7 +1979,10 @@ async def cope_cell(
 
 
 def _recompute_auto_status(conn, req_id: int):
-    """Recompute auto-status for a requirement based on its primary linked policy."""
+    """Recompute auto-status for a requirement based on its primary linked
+    policy. Skipped when the user has already reviewed (reviewed_at is set)
+    or when the status is an explicit informational outcome (Waived, N/A,
+    External, Pending Info)."""
     req = conn.execute(
         "SELECT * FROM coverage_requirements WHERE id = ?", (req_id,)
     ).fetchone()
@@ -1686,13 +1990,14 @@ def _recompute_auto_status(conn, req_id: int):
         return
     req_dict = dict(req)
     status = req_dict.get("compliance_status") or "Needs Review"
-    override = req_dict.get("status_manual_override", 0)
-    if status in ("Waived", "N/A") and override:
-        return  # Preserve manual Waived/N/A
+    # Preserve explicit user decisions
+    if req_dict.get("reviewed_at") and status in (
+        "Waived", "N/A", "External", "Pending Info"
+    ):
+        return
 
-    # Find primary linked policy
     primary = conn.execute(
-        """SELECT p.limit_amount, p.deductible
+        """SELECT p.limit_amount, p.deductible, p.endorsements
            FROM requirement_policy_links rpl
            JOIN policies p ON p.policy_uid = rpl.policy_uid AND p.archived = 0
            WHERE rpl.requirement_id = ? AND rpl.is_primary = 1""",

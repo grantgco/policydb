@@ -175,15 +175,90 @@ def suggest_policy_for_requirement(
     return None
 
 
+def propose_bulk_matches(conn, source_id: int, program_id: int | None = None) -> list[dict]:
+    """For each requirement in a source, propose a policy match scoped to the
+    given program (or corporate if program_id is None).
+
+    Returns a list of proposal dicts used to render the Match-all modal:
+        [
+            {
+                "requirement_id": int,
+                "coverage_line": str,
+                "required_limit": float | None,
+                "suggested_policy_uid": str | None,
+                "suggested_policy_number": str | None,
+                "suggested_limit": float | None,
+                "computed_status": "Compliant" | "Partial" | "Gap",
+                "missing_endorsements": list[str],
+            },
+            ...
+        ]
+    """
+    src = conn.execute(
+        "SELECT client_id FROM requirement_sources WHERE id = ?",
+        (source_id,),
+    ).fetchone()
+    if not src:
+        return []
+    client_id = src["client_id"]
+
+    policies = [dict(r) for r in conn.execute(
+        "SELECT policy_uid, policy_type, carrier, limit_amount, deductible, "
+        "project_id, policy_number, program_id, endorsements FROM policies "
+        "WHERE client_id=? AND archived=0",
+        (client_id,),
+    ).fetchall()]
+
+    requirements = [dict(r) for r in conn.execute(
+        "SELECT * FROM coverage_requirements WHERE source_id = ? ORDER BY coverage_line",
+        (source_id,),
+    ).fetchall()]
+
+    proposals: list[dict] = []
+    for req in requirements:
+        suggestion = suggest_policy_for_requirement(
+            req, policies, location_project_id=program_id,
+        )
+        if suggestion is None:
+            proposals.append({
+                "requirement_id": req["id"],
+                "coverage_line": req["coverage_line"],
+                "required_limit": req.get("required_limit"),
+                "suggested_policy_uid": None,
+                "suggested_policy_number": None,
+                "suggested_limit": None,
+                "computed_status": "Gap",
+                "missing_endorsements": _parse_endorsements(req.get("required_endorsements")),
+            })
+            continue
+
+        status = compute_auto_status(req, suggestion)
+        proposals.append({
+            "requirement_id": req["id"],
+            "coverage_line": req["coverage_line"],
+            "required_limit": req.get("required_limit"),
+            "suggested_policy_uid": suggestion["policy_uid"],
+            "suggested_policy_number": suggestion.get("policy_number"),
+            "suggested_limit": suggestion.get("limit_amount"),
+            "computed_status": status,
+            "missing_endorsements": missing_endorsements(req, suggestion),
+        })
+    return proposals
+
+
 def compute_compliance_summary(governing: dict[str, dict]) -> dict:
     """Compute aggregate compliance stats from governing requirements.
 
-    Returns dict with: total, compliant, gap, partial, waived, na,
-    needs_review, compliance_pct.
+    Returns dict with: total, compliant, gap, partial, external, pending_info,
+    waived, na, needs_review, reviewed, compliance_pct.
+
+    External counts as Compliant for percentage purposes — the coverage is in
+    force even though another broker placed it. Pending Info and Needs Review
+    are neutral (excluded from denominator). Waived/N/A are informational.
     """
     total = len(governing)
-    counts = {"compliant": 0, "gap": 0, "partial": 0, "waived": 0,
-              "na": 0, "needs_review": 0}
+    counts = {"compliant": 0, "gap": 0, "partial": 0, "external": 0,
+              "pending_info": 0, "waived": 0, "na": 0, "needs_review": 0}
 
     for gov in governing.values():
         status = (gov.get("compliance_status") or "Needs Review").lower().replace(" ", "_").replace("/", "")
@@ -193,6 +268,10 @@ def compute_compliance_summary(governing: dict[str, dict]) -> dict:
             counts["gap"] += 1
         elif status == "partial":
             counts["partial"] += 1
+        elif status == "external":
+            counts["external"] += 1
+        elif status == "pending_info":
+            counts["pending_info"] += 1
         elif status == "waived":
             counts["waived"] += 1
         elif status in ("na", "n/a", "n_a"):
@@ -200,11 +279,14 @@ def compute_compliance_summary(governing: dict[str, dict]) -> dict:
         else:
             counts["needs_review"] += 1
 
-    # Exclude Waived and N/A from the denominator — they don't represent
-    # active coverage needs, so they shouldn't drag down the percentage.
-    applicable = total - counts["waived"] - counts["na"]
-    pct = round(counts["compliant"] / applicable * 100) if applicable else (100 if total else 0)
-    return {"total": total, **counts, "compliance_pct": pct}
+    reviewed = total - counts["needs_review"]
+
+    # Exclude Waived, N/A, Pending Info, and Needs Review from the denominator.
+    # They don't represent decided coverage states.
+    applicable = total - counts["waived"] - counts["na"] - counts["pending_info"] - counts["needs_review"]
+    satisfied = counts["compliant"] + counts["external"]
+    pct = round(satisfied / applicable * 100) if applicable else (100 if total else 0)
+    return {"total": total, "reviewed": reviewed, **counts, "compliance_pct": pct}
 
 
 def compute_auto_status(requirement: dict, policy: dict | None) -> str:
@@ -214,8 +296,9 @@ def compute_auto_status(requirement: dict, policy: dict | None) -> str:
     - No policy → Gap
     - Policy limit < required limit → Gap
     - Policy deductible > max deductible → Gap
-    - Limits pass but endorsements required → Partial
-    - Limits pass and no endorsements → Compliant
+    - Required endorsements: all present on policy → Compliant
+    - Required endorsements: some missing → Partial
+    - No required endorsements → Compliant
     """
     if policy is None:
         return "Gap"
@@ -231,16 +314,96 @@ def compute_auto_status(requirement: dict, policy: dict | None) -> str:
         if pol_ded > float(max_ded):
             return "Gap"
 
-    # Check endorsements
-    endorsements_raw = requirement.get("required_endorsements") or "[]"
-    try:
-        endorsements = json.loads(endorsements_raw) if isinstance(endorsements_raw, str) else endorsements_raw
-    except (ValueError, TypeError):
-        endorsements = []
-    if endorsements:
-        return "Partial"
+    required = _parse_endorsements(requirement.get("required_endorsements"))
+    if not required:
+        return "Compliant"
 
-    return "Compliant"
+    present = _parse_endorsements(policy.get("endorsements"))
+    required_norm = {e.strip().casefold() for e in required if e and e.strip()}
+    present_norm = {e.strip().casefold() for e in present if e and e.strip()}
+    missing = required_norm - present_norm
+    return "Compliant" if not missing else "Partial"
+
+
+def missing_endorsements(requirement: dict, policy: dict | None) -> list[str]:
+    """Return the list of required endorsements missing from the linked policy.
+
+    Case-insensitive compare, preserves original requirement spelling in output.
+    Used by the review slideover to render write-back checkboxes.
+    """
+    if policy is None:
+        return []
+    required = _parse_endorsements(requirement.get("required_endorsements"))
+    if not required:
+        return []
+    present = _parse_endorsements(policy.get("endorsements"))
+    present_norm = {e.strip().casefold() for e in present if e and e.strip()}
+    return [e for e in required if e and e.strip() and e.strip().casefold() not in present_norm]
+
+
+def detect_stale_compliance(conn, client_id: int) -> int:
+    """Flip Compliant/Partial requirements back to Needs Review when the linked
+    policy no longer satisfies (unlinked, archived/expired, limit drop, etc.).
+
+    Appends an auto-note so the reviewer sees why it flipped. Clears reviewed_at
+    so the slideover re-prompts. Returns the count of rows flipped.
+
+    Called at the top of get_client_compliance_data() so page loads see fresh
+    state without needing a background job.
+    """
+    from datetime import date
+
+    rows = conn.execute(
+        """SELECT cr.id, cr.required_limit, cr.max_deductible, cr.required_endorsements,
+                  cr.compliance_status, cr.linked_policy_uid, cr.notes
+             FROM coverage_requirements cr
+            WHERE cr.client_id = ?
+              AND cr.compliance_status IN ('Compliant', 'Partial')
+              AND cr.linked_policy_uid IS NOT NULL""",
+        (client_id,),
+    ).fetchall()
+
+    flipped = 0
+    today = date.today().isoformat()
+    for r in rows:
+        req = dict(r)
+        pol_row = conn.execute(
+            "SELECT policy_uid, limit_amount, deductible, endorsements, expiration_date, archived "
+            "FROM policies WHERE policy_uid = ?",
+            (req["linked_policy_uid"],),
+        ).fetchone()
+
+        reason = None
+        if pol_row is None:
+            reason = f"linked policy {req['linked_policy_uid']} no longer exists"
+        else:
+            pol = dict(pol_row)
+            if pol.get("archived"):
+                reason = f"{pol['policy_uid']} archived"
+            elif pol.get("expiration_date") and pol["expiration_date"] < today:
+                reason = f"{pol['policy_uid']} expired {pol['expiration_date']}"
+            else:
+                new_status = compute_auto_status(req, pol)
+                if new_status == "Gap" and req["compliance_status"] in ("Compliant", "Partial"):
+                    reason = f"{pol['policy_uid']} no longer meets requirement ({new_status})"
+
+        if reason:
+            note_add = f"[Auto {today}] {reason}"
+            new_notes = (req.get("notes") + "\n" + note_add) if req.get("notes") else note_add
+            conn.execute(
+                """UPDATE coverage_requirements
+                      SET compliance_status = 'Needs Review',
+                          reviewed_at = NULL,
+                          reviewed_by = NULL,
+                          notes = ?
+                    WHERE id = ?""",
+                (new_notes, req["id"]),
+            )
+            flipped += 1
+
+    if flipped:
+        conn.commit()
+    return flipped
 
 
 def get_requirement_links(conn, requirement_id: int) -> list[dict]:
@@ -460,16 +623,21 @@ def get_client_compliance_data(conn, client_id: int) -> dict:
             "overall_summary": {total, compliant, gap, ...},
         }
     """
+    # Flip stale Compliant/Partial rows back to Needs Review before rendering.
+    # Runs on every page load so users see fresh state without a background job.
+    detect_stale_compliance(conn, client_id)
+
     # Get all locations for this client
     locations = [dict(r) for r in conn.execute(
         "SELECT * FROM projects WHERE client_id=? ORDER BY name",
         (client_id,),
     ).fetchall()]
 
-    # Get all policies for this client (non-archived)
+    # Get all policies for this client (non-archived). Endorsements included
+    # so the slideover and auto-status can compare sets properly.
     all_policies = [dict(r) for r in conn.execute(
         "SELECT policy_uid, policy_type, carrier, limit_amount, deductible, "
-        "project_id, policy_number, program_id FROM policies "
+        "project_id, policy_number, program_id, endorsements FROM policies "
         "WHERE client_id=? AND archived=0 ORDER BY policy_type",
         (client_id,),
     ).fetchall()]
@@ -516,24 +684,28 @@ def get_client_compliance_data(conn, client_id: int) -> dict:
                 if suggestion:
                     gov_req["suggested_policy"] = suggestion
 
-        # Auto-compute status for "Needs Review" governing requirements
+        # Auto-compute status for untouched rows (reviewed_at IS NULL).
+        # Once a user explicitly reviews (stamps reviewed_at), their choice
+        # sticks until detect_stale_compliance() flips it back.
         for line, gov_req in gov.items():
+            if gov_req.get("reviewed_at"):
+                continue
             status = (gov_req.get("compliance_status") or "Needs Review")
-            override = gov_req.get("status_manual_override", 0)
-            if status == "Needs Review" and not override and gov_req.get("linked_policy_uid"):
-                # Fetch primary linked policy data
-                pol = conn.execute(
-                    "SELECT limit_amount, deductible FROM policies WHERE policy_uid = ? AND archived = 0",
-                    (gov_req["linked_policy_uid"],),
-                ).fetchone()
-                if pol:
-                    new_status = compute_auto_status(gov_req, dict(pol))
-                    if new_status != status:
-                        conn.execute(
-                            "UPDATE coverage_requirements SET compliance_status = ? WHERE id = ?",
-                            (new_status, gov_req["id"]),
-                        )
-                        gov_req["compliance_status"] = new_status
+            if status != "Needs Review" or not gov_req.get("linked_policy_uid"):
+                continue
+            pol = conn.execute(
+                "SELECT limit_amount, deductible, endorsements FROM policies "
+                "WHERE policy_uid = ? AND archived = 0",
+                (gov_req["linked_policy_uid"],),
+            ).fetchone()
+            if pol:
+                new_status = compute_auto_status(gov_req, dict(pol))
+                if new_status != status:
+                    conn.execute(
+                        "UPDATE coverage_requirements SET compliance_status = ? WHERE id = ?",
+                        (new_status, gov_req["id"]),
+                    )
+                    gov_req["compliance_status"] = new_status
         conn.commit()
 
         summary = compute_compliance_summary(gov)

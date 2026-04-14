@@ -376,6 +376,110 @@ textarea.field-inline { resize: none; }
   </div>
 </div>
 
+<!-- ── Endorsements ── -->
+{% set policy_endorsements_list = (policy.endorsements | fromjson) if policy.endorsements is string else (policy.endorsements or []) %}
+<div class="card mb-4">
+  <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+    <span class="section-label">Endorsements
+      <span class="font-normal text-gray-400 normal-case tracking-normal">attached forms — used for compliance review</span>
+    </span>
+    <span class="text-xs text-gray-400">{{ policy_endorsements_list | length }} attached</span>
+  </div>
+  <div class="p-5">
+    <div id="policy-endorsements-pills" data-policy-uid="{{ policy.policy_uid }}"
+      class="flex flex-wrap gap-2 mb-3">
+      {% for e in policy_endorsements_list %}
+      <span class="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-full bg-blue-50 border border-blue-200 text-blue-900">
+        <span class="endorsement-name">{{ e }}</span>
+        <button type="button" class="endorsement-remove text-blue-500 hover:text-blue-800" title="Remove">×</button>
+      </span>
+      {% endfor %}
+    </div>
+    <div class="flex gap-2 items-center">
+      <input type="text" id="policy-endorsement-input" list="ac-endorsement-types"
+        placeholder="Add endorsement (Waiver of Subrogation, Additional Insured, …)"
+        class="form-input field-inline flex-1 text-sm" autocomplete="off">
+      <button type="button" id="policy-endorsement-add-btn"
+        class="px-3 py-1.5 text-xs font-medium bg-marsh-blue text-white rounded hover:bg-marsh-blue-dark">
+        Add
+      </button>
+    </div>
+    <datalist id="ac-endorsement-types">
+      {% for e in endorsement_types %}
+      <option value="{{ e }}"></option>
+      {% endfor %}
+    </datalist>
+    <p class="text-xs text-gray-400 mt-2">Changes save automatically. These values flow to compliance review — if this policy has Waiver of Subrogation, mark it here once and every contract that requires it will show Compliant.</p>
+  </div>
+</div>
+
+<script>
+(function(){
+  var container = document.getElementById('policy-endorsements-pills');
+  if (!container) return;
+  var uid = container.dataset.policyUid;
+  var input = document.getElementById('policy-endorsement-input');
+  var addBtn = document.getElementById('policy-endorsement-add-btn');
+
+  function pillHtml(name){
+    var span = document.createElement('span');
+    span.className = 'inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-full bg-blue-50 border border-blue-200 text-blue-900';
+    var nameSpan = document.createElement('span');
+    nameSpan.className = 'endorsement-name';
+    nameSpan.textContent = name;
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'endorsement-remove text-blue-500 hover:text-blue-800';
+    btn.title = 'Remove';
+    btn.textContent = '×';
+    span.appendChild(nameSpan);
+    span.appendChild(btn);
+    return span;
+  }
+
+  function addEndorsement(){
+    var val = (input.value || '').trim();
+    if (!val) return;
+    var existing = Array.from(container.querySelectorAll('.endorsement-name')).map(function(el){ return el.textContent.trim().toLowerCase(); });
+    if (existing.indexOf(val.toLowerCase()) !== -1) {
+      input.value = '';
+      return;
+    }
+    var fd = new FormData();
+    fd.append('endorsement', val);
+    fetch('/policies/' + uid + '/endorsements/add', { method: 'POST', body: fd })
+      .then(function(r){ return r.json(); })
+      .then(function(data){
+        if (data && data.ok) {
+          container.appendChild(pillHtml(val));
+          input.value = '';
+        }
+      });
+  }
+
+  addBtn.addEventListener('click', addEndorsement);
+  input.addEventListener('keydown', function(e){
+    if (e.key === 'Enter') { e.preventDefault(); addEndorsement(); }
+  });
+
+  container.addEventListener('click', function(e){
+    var btn = e.target.closest('.endorsement-remove');
+    if (!btn) return;
+    var pill = btn.closest('span');
+    var name = pill.querySelector('.endorsement-name').textContent.trim();
+    var fd = new FormData();
+    fd.append('endorsement', name);
+    fetch('/policies/' + uid + '/endorsements/remove', { method: 'POST', body: fd })
+      .then(function(r){ return r.json(); })
+      .then(function(data){
+        if (data && data.ok) {
+          pill.remove();
+        }
+      });
+  });
+})();
+</script>
+
 <!-- ── Program Structure ── -->
 <div class="card mb-4">
   <div class="px-5 py-3 border-b border-gray-100">
