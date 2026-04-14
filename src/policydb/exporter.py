@@ -2228,6 +2228,11 @@ _COMPLIANCE_FILLS = {
     "compliant": PatternFill("solid", fgColor="C6EFCE"),
     "gap": PatternFill("solid", fgColor="FFC7CE"),
     "partial": PatternFill("solid", fgColor="FFEB9C"),
+    # External = placed by another broker (satisfied but not our book)
+    "external": PatternFill("solid", fgColor="E2E8F0"),
+    # Pending Info = reviewer looked, can't decide yet
+    "pending info": PatternFill("solid", fgColor="DBEAFE"),
+    "pending_info": PatternFill("solid", fgColor="DBEAFE"),
     "n/a": PatternFill("solid", fgColor="D9D2E9"),
     "na": PatternFill("solid", fgColor="D9D2E9"),
     "needs review": PatternFill("solid", fgColor="D9D9D9"),
@@ -2310,6 +2315,8 @@ def _compliance_sheet_executive(wb: Workbook, data: dict, client_name: str) -> N
         ("Compliant", s["compliant"]),
         ("Gap", s["gap"]),
         ("Partial", s["partial"]),
+        ("External (placed by another broker)", s.get("external", 0)),
+        ("Pending Info", s.get("pending_info", 0)),
         ("Waived", s["waived"]),
         ("N/A", s["na"]),
         ("Needs Review", s["needs_review"]),
@@ -2400,13 +2407,19 @@ def _compliance_sheet_matrix(wb: Workbook, data: dict) -> None:
 
 
 def _compliance_sheet_gap_detail(wb: Workbook, data: dict) -> None:
-    """Sheet 3 — Gap Detail (non-compliant rows only)."""
+    """Sheet 3 — Gap Detail (non-compliant rows only).
+
+    Excludes External (placed by another broker — satisfied), Pending Info
+    (reviewer is waiting on info, not a gap yet), Waived, N/A, and Compliant.
+    """
     gap_rows: list[dict] = []
+    excluded = {"compliant", "external", "pending info", "pending_info",
+                "waived", "n/a", "na"}
     for loc in data["locations"]:
         loc_name = loc["project"].get("name", "Unknown")
         for line, gov in loc.get("governing", {}).items():
             status = (gov.get("compliance_status") or "Needs Review").lower()
-            if status not in ("compliant", "waived", "n/a", "na"):
+            if status not in excluded:
                 sources = gov.get("source_requirements", [])
                 source_names = ", ".join(
                     s.get("source_name", "") for s in sources if s.get("source_name")
@@ -2468,6 +2481,8 @@ def _compliance_sheet_all_requirements(wb: Workbook, data: dict) -> None:
                 "Deductible Type": req.get("deductible_type") or "",
                 "Required Endorsements": ", ".join(endorsements),
                 "Compliance Status": req.get("compliance_status") or "Needs Review",
+                "Reviewed At": req.get("reviewed_at") or "",
+                "Reviewed By": req.get("reviewed_by") or "",
                 "Linked Policies": linked_uids,
                 "Primary Policy": primary_uid,
                 "Link Types": link_types,
@@ -2573,6 +2588,8 @@ def export_compliance_md(
         f"| Compliant | {s['compliant']} |",
         f"| Gaps | {s['gap']} |",
         f"| Partial | {s['partial']} |",
+        f"| External (placed by another broker) | {s.get('external', 0)} |",
+        f"| Pending Info | {s.get('pending_info', 0)} |",
         f"| Waived | {s['waived']} |",
         f"| N/A | {s['na']} |",
         f"| Needs Review | {s['needs_review']} |",
@@ -2580,19 +2597,36 @@ def export_compliance_md(
     ]
 
     # ── Key Findings ──────────────────────────────────────────────────────────
+    # Only gaps and partials are actionable findings. External = satisfied
+    # by another broker, so we surface it separately. Pending Info is an
+    # in-progress state, not yet a finding.
     lines += ["## Key Findings", ""]
     findings: list[str] = []
+    external_items: list[str] = []
     for loc in locations:
         loc_name = loc["project"].get("name", "Unknown")
         for line_name, gov in loc.get("governing", {}).items():
             status = (gov.get("compliance_status") or "Needs Review").lower()
             if status in ("gap", "partial"):
                 findings.append(f"- **{status.capitalize()}:** {line_name} at {loc_name}")
+            elif status == "external":
+                external_items.append(f"- {line_name} at {loc_name}")
     if findings:
         lines += findings
     else:
         lines.append("No gaps or partial compliance issues found.")
     lines.append("")
+
+    # ── External Coverage (placed by another broker) ─────────────────────────
+    if external_items:
+        lines += [
+            "## Coverage Placed by Another Broker",
+            "",
+            "These coverages are in force but managed outside our book:",
+            "",
+        ]
+        lines += external_items
+        lines.append("")
 
     # ── Compliance Matrix ─────────────────────────────────────────────────────
     if locations:
@@ -2626,7 +2660,9 @@ def export_compliance_md(
         loc_name = loc["project"].get("name", "Unknown")
         for line_name, gov in loc.get("governing", {}).items():
             status = (gov.get("compliance_status") or "Needs Review").lower()
-            if status not in ("compliant", "waived", "n/a", "na"):
+            # External + Pending Info are not real gaps — see Key Findings.
+            if status not in ("compliant", "external", "pending info",
+                               "pending_info", "waived", "n/a", "na"):
                 sources = gov.get("source_requirements", [])
                 source_names = ", ".join(
                     src.get("source_name", "") for src in sources if src.get("source_name")
