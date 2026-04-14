@@ -1,5 +1,10 @@
 {# Program Overview Tab — editable child policies grid, assign/unassign #}
 
+{# Open Tasks panel — aggregates outstanding follow-ups across program's child policies + program issues #}
+<div class="mb-4">
+  {% include "_open_tasks_panel.html" with context %}
+</div>
+
 {# -- Summary Stats -- #}
 <div class="flex items-center gap-4 text-sm text-gray-500 mb-4">
   <span><strong class="text-gray-700">{{ aggregates.policy_count }}</strong> policies</span>

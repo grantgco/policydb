@@ -23,7 +23,7 @@ from policydb.llm_schemas import (
     parse_contact_extraction_json,
     parse_llm_json,
 )
-from policydb.queries import REVIEW_CYCLE_LABELS, get_all_policies, get_client_by_id, get_opportunity_by_uid, get_policy_by_uid, get_policy_total_hours, get_saved_notes, save_note, delete_saved_note, renew_policy, get_or_create_contact, assign_contact_to_policy, remove_contact_from_policy, set_placement_colleague, get_policy_contacts, get_sub_coverages as _get_sub_coverages, auto_generate_sub_coverages as _auto_generate_sub_coverages
+from policydb.queries import REVIEW_CYCLE_LABELS, get_all_policies, get_client_by_id, get_opportunity_by_uid, get_policy_by_uid, get_policy_total_hours, get_saved_notes, save_note, delete_saved_note, renew_policy, get_or_create_contact, assign_contact_to_policy, remove_contact_from_policy, set_placement_colleague, get_policy_contacts, get_sub_coverages as _get_sub_coverages, auto_generate_sub_coverages as _auto_generate_sub_coverages, get_open_tasks, filter_thread_for_history
 from rapidfuzz import fuzz
 from policydb.utils import cap_followup_date, round_duration, normalize_carrier, normalize_coverage_type, normalize_policy_number, format_city, format_state, format_zip
 from policydb.web.app import get_db, templates
@@ -647,30 +647,20 @@ def policy_row_log_post(
     conn=Depends(get_db),
 ):
     """HTMX: save activity log entry, restore the policy row."""
-    from datetime import date as _date
+    from policydb.queries import create_followup_activity
 
-    def _float(v):
-        try:
-            return float(v) if str(v).strip() else None
-        except ValueError:
-            return None
-
-    # Supersede old follow-ups BEFORE inserting the new one
-    if follow_up_date:
-        from policydb.queries import supersede_followups
-        supersede_followups(conn, policy_id, follow_up_date)
-
-    account_exec = cfg.get("default_account_exec", "Grant")
-    conn.execute(
-        """INSERT INTO activity_log
-           (activity_date, client_id, policy_id, activity_type, subject, details, follow_up_date, account_exec, duration_hours, issue_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (
-            _date.today().isoformat(), client_id, policy_id,
-            activity_type, subject, details or None,
-            follow_up_date or None, account_exec, round_duration(duration_hours),
-            issue_id or None,
-        ),
+    create_followup_activity(
+        conn,
+        client_id=client_id,
+        policy_id=policy_id,
+        issue_id=issue_id or None,
+        subject=subject,
+        activity_type=activity_type,
+        follow_up_date=follow_up_date or None,
+        follow_up_done=False,
+        disposition="",
+        details=details or None,
+        duration_hours=round_duration(duration_hours),
     )
     conn.commit()
 
@@ -730,29 +720,20 @@ def policy_dash_log_post(
     conn=Depends(get_db),
 ):
     """HTMX: save activity from dashboard, restore the dashboard pipeline row."""
-    from datetime import date as _date
+    from policydb.queries import create_followup_activity
 
-    def _float(v):
-        try:
-            return float(v) if str(v).strip() else None
-        except ValueError:
-            return None
-
-    # Supersede old follow-ups BEFORE inserting the new one
-    if follow_up_date:
-        from policydb.queries import supersede_followups
-        supersede_followups(conn, policy_id, follow_up_date)
-
-    account_exec = cfg.get("default_account_exec", "Grant")
-    conn.execute(
-        """INSERT INTO activity_log
-           (activity_date, client_id, policy_id, activity_type, subject, details, follow_up_date, account_exec, duration_hours)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (
-            _date.today().isoformat(), client_id, policy_id,
-            activity_type, subject, details or None,
-            follow_up_date or None, account_exec, round_duration(duration_hours),
-        ),
+    create_followup_activity(
+        conn,
+        client_id=client_id,
+        policy_id=policy_id,
+        issue_id=None,
+        subject=subject,
+        activity_type=activity_type,
+        follow_up_date=follow_up_date or None,
+        follow_up_done=False,
+        disposition="",
+        details=details or None,
+        duration_hours=round_duration(duration_hours),
     )
     conn.commit()
 
@@ -822,29 +803,20 @@ def policy_renew_log_post(
     conn=Depends(get_db),
 ):
     """HTMX: save activity from renewals page, restore the renewals pipeline row."""
-    from datetime import date as _date
+    from policydb.queries import create_followup_activity
 
-    def _float(v):
-        try:
-            return float(v) if str(v).strip() else None
-        except ValueError:
-            return None
-
-    # Supersede old follow-ups BEFORE inserting the new one
-    if follow_up_date:
-        from policydb.queries import supersede_followups
-        supersede_followups(conn, policy_id, follow_up_date)
-
-    account_exec = cfg.get("default_account_exec", "Grant")
-    conn.execute(
-        """INSERT INTO activity_log
-           (activity_date, client_id, policy_id, activity_type, subject, details, follow_up_date, account_exec, duration_hours)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (
-            _date.today().isoformat(), client_id, policy_id,
-            activity_type, subject, details or None,
-            follow_up_date or None, account_exec, round_duration(duration_hours),
-        ),
+    create_followup_activity(
+        conn,
+        client_id=client_id,
+        policy_id=policy_id,
+        issue_id=None,
+        subject=subject,
+        activity_type=activity_type,
+        follow_up_date=follow_up_date or None,
+        follow_up_done=False,
+        disposition="",
+        details=details or None,
+        duration_hours=round_duration(duration_hours),
     )
     conn.commit()
 
@@ -923,27 +895,21 @@ def opp_log_post(
     conn=Depends(get_db),
 ):
     """HTMX: save activity for an opportunity, restore the opportunity row."""
-    from datetime import date as _date
-    def _float(v):
-        try:
-            return float(v) if str(v).strip() else None
-        except ValueError:
-            return None
-    # Supersede old follow-ups BEFORE inserting the new one
-    if follow_up_date and policy_id:
-        from policydb.queries import supersede_followups
-        supersede_followups(conn, policy_id, follow_up_date)
+    from policydb.queries import create_followup_activity
 
-    account_exec = cfg.get("default_account_exec", "Grant")
-    conn.execute(
-        """INSERT INTO activity_log
-           (activity_date, client_id, policy_id, activity_type, contact_person, subject, details, follow_up_date, account_exec, duration_hours)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (
-            _date.today().isoformat(), client_id, policy_id,
-            activity_type, contact_person or None, subject, details or None,
-            follow_up_date or None, account_exec, round_duration(duration_hours),
-        ),
+    create_followup_activity(
+        conn,
+        client_id=client_id,
+        policy_id=policy_id or None,
+        issue_id=None,
+        subject=subject,
+        activity_type=activity_type,
+        follow_up_date=follow_up_date or None,
+        follow_up_done=False,
+        disposition="",
+        contact_person=contact_person or None,
+        details=details or None,
+        duration_hours=round_duration(duration_hours),
     )
     conn.commit()
     return _opp_row_response(request, policy_uid.upper(), conn)
@@ -2719,7 +2685,7 @@ def policy_tab_activity(request: Request, policy_uid: str, conn=Depends(get_db))
 
     _today_iso = date.today().isoformat()
     _pid = policy_dict["id"]
-    activities = [dict(r) for r in conn.execute(
+    activities = filter_thread_for_history([dict(r) for r in conn.execute(
         """SELECT a.*, c.name AS client_name, c.cn_number, p.policy_uid,
                   COALESCE(a.project_id, p.project_id) AS project_id,
                   pr.name AS project_name,
@@ -2737,7 +2703,7 @@ def policy_tab_activity(request: Request, policy_uid: str, conn=Depends(get_db))
            ORDER BY a.activity_date DESC, a.id DESC
            LIMIT 200""",
         (_pid, _pid, _pid),
-    ).fetchall()]
+    ).fetchall()])
     # Tag issue-sourced activities (not directly on this policy)
     for act in activities:
         if act.get("policy_id") != _pid:
@@ -3356,6 +3322,7 @@ def policy_edit_form(request: Request, policy_uid: str, add_contact: str = "", c
     ).fetchone()[0]
 
     from policydb.queries import REVIEW_CYCLE_LABELS as _REVIEW_CYCLE_LABELS
+    _ot = get_open_tasks(conn, "policy", policy_dict["id"])
     return templates.TemplateResponse("policies/edit.html", {
         "request": request,
         "active": "",
@@ -3409,6 +3376,9 @@ def policy_edit_form(request: Request, policy_uid: str, add_contact: str = "", c
         "pinned_scope": "policy",
         "pinned_scope_id": uid,
         "pinned_client_id": str(policy_dict["client_id"]),
+        "scope_type": "policy",
+        "scope_id": policy_dict["id"],
+        "data": _ot,
     })
 
 
