@@ -1341,11 +1341,11 @@ def build_focus_queue(
                     promote_reason = f"⚠ Expired {abs(exp_days)}d ago — still waiting"
                 else:
                     promote_reason = f"⚠ Expires in {exp_days}d — still waiting"
-            # Promote if follow-up date is overdue
-            elif days is not None and days <= 0:
-                promote = True
-                promote_reason = f"Overdue — still waiting"
-            # Promote if follow-up date falls within horizon
+            # Promote if follow-up date falls within horizon (horizon > 0 only).
+            # Overdue waiting items (days <= 0) intentionally stay in the
+            # Waiting Sidebar until `focus_auto_promote_days` (branch 1); the
+            # sidebar template handles escalating visual weight via
+            # `focus_nudge_alert_days`.
             elif days is not None and days <= promote_window and horizon_days > 0:
                 promote = True
                 promote_reason = f"Due in {days}d — still waiting"
