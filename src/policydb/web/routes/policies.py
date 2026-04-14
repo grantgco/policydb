@@ -647,30 +647,20 @@ def policy_row_log_post(
     conn=Depends(get_db),
 ):
     """HTMX: save activity log entry, restore the policy row."""
-    from datetime import date as _date
+    from policydb.queries import create_followup_activity
 
-    def _float(v):
-        try:
-            return float(v) if str(v).strip() else None
-        except ValueError:
-            return None
-
-    # Supersede old follow-ups BEFORE inserting the new one
-    if follow_up_date:
-        from policydb.queries import supersede_followups
-        supersede_followups(conn, policy_id, follow_up_date)
-
-    account_exec = cfg.get("default_account_exec", "Grant")
-    conn.execute(
-        """INSERT INTO activity_log
-           (activity_date, client_id, policy_id, activity_type, subject, details, follow_up_date, account_exec, duration_hours, issue_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (
-            _date.today().isoformat(), client_id, policy_id,
-            activity_type, subject, details or None,
-            follow_up_date or None, account_exec, round_duration(duration_hours),
-            issue_id or None,
-        ),
+    create_followup_activity(
+        conn,
+        client_id=client_id,
+        policy_id=policy_id,
+        issue_id=issue_id or None,
+        subject=subject,
+        activity_type=activity_type,
+        follow_up_date=follow_up_date or None,
+        follow_up_done=False,
+        disposition="",
+        details=details or None,
+        duration_hours=round_duration(duration_hours),
     )
     conn.commit()
 
@@ -730,29 +720,20 @@ def policy_dash_log_post(
     conn=Depends(get_db),
 ):
     """HTMX: save activity from dashboard, restore the dashboard pipeline row."""
-    from datetime import date as _date
+    from policydb.queries import create_followup_activity
 
-    def _float(v):
-        try:
-            return float(v) if str(v).strip() else None
-        except ValueError:
-            return None
-
-    # Supersede old follow-ups BEFORE inserting the new one
-    if follow_up_date:
-        from policydb.queries import supersede_followups
-        supersede_followups(conn, policy_id, follow_up_date)
-
-    account_exec = cfg.get("default_account_exec", "Grant")
-    conn.execute(
-        """INSERT INTO activity_log
-           (activity_date, client_id, policy_id, activity_type, subject, details, follow_up_date, account_exec, duration_hours)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (
-            _date.today().isoformat(), client_id, policy_id,
-            activity_type, subject, details or None,
-            follow_up_date or None, account_exec, round_duration(duration_hours),
-        ),
+    create_followup_activity(
+        conn,
+        client_id=client_id,
+        policy_id=policy_id,
+        issue_id=None,
+        subject=subject,
+        activity_type=activity_type,
+        follow_up_date=follow_up_date or None,
+        follow_up_done=False,
+        disposition="",
+        details=details or None,
+        duration_hours=round_duration(duration_hours),
     )
     conn.commit()
 
@@ -822,29 +803,20 @@ def policy_renew_log_post(
     conn=Depends(get_db),
 ):
     """HTMX: save activity from renewals page, restore the renewals pipeline row."""
-    from datetime import date as _date
+    from policydb.queries import create_followup_activity
 
-    def _float(v):
-        try:
-            return float(v) if str(v).strip() else None
-        except ValueError:
-            return None
-
-    # Supersede old follow-ups BEFORE inserting the new one
-    if follow_up_date:
-        from policydb.queries import supersede_followups
-        supersede_followups(conn, policy_id, follow_up_date)
-
-    account_exec = cfg.get("default_account_exec", "Grant")
-    conn.execute(
-        """INSERT INTO activity_log
-           (activity_date, client_id, policy_id, activity_type, subject, details, follow_up_date, account_exec, duration_hours)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (
-            _date.today().isoformat(), client_id, policy_id,
-            activity_type, subject, details or None,
-            follow_up_date or None, account_exec, round_duration(duration_hours),
-        ),
+    create_followup_activity(
+        conn,
+        client_id=client_id,
+        policy_id=policy_id,
+        issue_id=None,
+        subject=subject,
+        activity_type=activity_type,
+        follow_up_date=follow_up_date or None,
+        follow_up_done=False,
+        disposition="",
+        details=details or None,
+        duration_hours=round_duration(duration_hours),
     )
     conn.commit()
 
@@ -923,27 +895,21 @@ def opp_log_post(
     conn=Depends(get_db),
 ):
     """HTMX: save activity for an opportunity, restore the opportunity row."""
-    from datetime import date as _date
-    def _float(v):
-        try:
-            return float(v) if str(v).strip() else None
-        except ValueError:
-            return None
-    # Supersede old follow-ups BEFORE inserting the new one
-    if follow_up_date and policy_id:
-        from policydb.queries import supersede_followups
-        supersede_followups(conn, policy_id, follow_up_date)
+    from policydb.queries import create_followup_activity
 
-    account_exec = cfg.get("default_account_exec", "Grant")
-    conn.execute(
-        """INSERT INTO activity_log
-           (activity_date, client_id, policy_id, activity_type, contact_person, subject, details, follow_up_date, account_exec, duration_hours)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (
-            _date.today().isoformat(), client_id, policy_id,
-            activity_type, contact_person or None, subject, details or None,
-            follow_up_date or None, account_exec, round_duration(duration_hours),
-        ),
+    create_followup_activity(
+        conn,
+        client_id=client_id,
+        policy_id=policy_id or None,
+        issue_id=None,
+        subject=subject,
+        activity_type=activity_type,
+        follow_up_date=follow_up_date or None,
+        follow_up_done=False,
+        disposition="",
+        contact_person=contact_person or None,
+        details=details or None,
+        duration_hours=round_duration(duration_hours),
     )
     conn.commit()
     return _opp_row_response(request, policy_uid.upper(), conn)

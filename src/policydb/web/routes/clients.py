@@ -5074,19 +5074,15 @@ def create_request_bundle(
     bundle_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
     # If a send-by date is set, create an activity_log follow-up so it surfaces in follow-ups
     if send_by_date.strip():
-        from datetime import date as _date
-        account_exec = cfg.get("default_account_exec", "")
-        conn.execute(
-            """INSERT INTO activity_log
-               (activity_date, client_id, activity_type, subject, follow_up_date, account_exec)
-               VALUES (?, ?, 'Task', ?, ?, ?)""",
-            (
-                _date.today().isoformat(),
-                client_id,
-                f"Send RFI: {rfi_uid} {title}",
-                send_by_date.strip(),
-                account_exec,
-            ),
+        from policydb.queries import create_followup_activity
+        create_followup_activity(
+            conn,
+            client_id=client_id,
+            policy_id=None,
+            issue_id=None,
+            subject=f"Send RFI: {rfi_uid} {title}",
+            activity_type="Task",
+            follow_up_date=send_by_date.strip(),
         )
     conn.commit()
     return _requests_response(request, conn, client_id)
@@ -5479,13 +5475,16 @@ def update_request_bundle_status(
         total = counts["total"] or 0
         _rfi_tag = f"{bundle['rfi_uid']} " if bundle and bundle["rfi_uid"] else ""
         subject = f"Sent {_rfi_tag}{bundle['title'] if bundle else 'information request'} — {outstanding} of {total} items outstanding"
-        account_exec = cfg.get("default_account_exec", "Grant")
+        from policydb.queries import create_followup_activity
         fu = follow_up_date.strip() or None
-        conn.execute(
-            """INSERT INTO activity_log
-               (activity_date, client_id, policy_id, activity_type, subject, details, follow_up_date, account_exec)
-               VALUES (?, ?, NULL, 'Email', ?, ?, ?, ?)""",
-            (_date.today().isoformat(), client_id, subject, None, fu, account_exec),
+        create_followup_activity(
+            conn,
+            client_id=client_id,
+            policy_id=None,
+            issue_id=None,
+            subject=subject,
+            activity_type="Email",
+            follow_up_date=fu,
         )
     else:
         conn.execute(
@@ -5523,13 +5522,15 @@ def quick_add_request_item(
         bundle_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
         # Create follow-up activity so the send deadline surfaces in follow-ups
         if sbd:
-            from datetime import date as _date
-            account_exec = cfg.get("default_account_exec", "")
-            conn.execute(
-                """INSERT INTO activity_log
-                   (activity_date, client_id, activity_type, subject, follow_up_date, account_exec)
-                   VALUES (?, ?, 'Task', ?, ?, ?)""",
-                (_date.today().isoformat(), client_id, f"Send RFI: {rfi_uid}", sbd, account_exec),
+            from policydb.queries import create_followup_activity
+            create_followup_activity(
+                conn,
+                client_id=client_id,
+                policy_id=None,
+                issue_id=None,
+                subject=f"Send RFI: {rfi_uid}",
+                activity_type="Task",
+                follow_up_date=sbd,
             )
     else:
         bundle_id = bundle["id"]
@@ -5605,16 +5606,18 @@ def set_bundle_send_by(
         (sbd, bundle_id, client_id),
     )
     if sbd:
-        from datetime import date as _date
         bundle_row = conn.execute("SELECT title, rfi_uid FROM client_request_bundles WHERE id=?", (bundle_id,)).fetchone()
         title = bundle_row["title"] if bundle_row else "Information Request"
         rfi_uid = bundle_row["rfi_uid"] if bundle_row else ""
-        account_exec = cfg.get("default_account_exec", "")
-        conn.execute(
-            """INSERT INTO activity_log
-               (activity_date, client_id, activity_type, subject, follow_up_date, account_exec)
-               VALUES (?, ?, 'Task', ?, ?, ?)""",
-            (_date.today().isoformat(), client_id, f"Send RFI: {rfi_uid} {title}", sbd, account_exec),
+        from policydb.queries import create_followup_activity
+        create_followup_activity(
+            conn,
+            client_id=client_id,
+            policy_id=None,
+            issue_id=None,
+            subject=f"Send RFI: {rfi_uid} {title}",
+            activity_type="Task",
+            follow_up_date=sbd,
         )
     conn.commit()
     if policy_uid:

@@ -213,29 +213,24 @@ def activity_log(
         if _row:
             _contact_id = _row["id"]
 
-    # Supersede old follow-ups BEFORE inserting the new one
-    if follow_up_date and policy_id:
-        from policydb.queries import supersede_followups
-        supersede_followups(conn, policy_id, follow_up_date)
-
-    account_exec = cfg.get("default_account_exec", "Grant")
-    cursor = conn.execute(
-        """INSERT INTO activity_log
-           (activity_date, client_id, policy_id, activity_type, contact_person, contact_id, subject, details, follow_up_date, account_exec, duration_hours, disposition, issue_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (date.today().isoformat(), client_id, policy_id or None, activity_type,
-         contact_person or None, _contact_id, subject, details or None,
-         follow_up_date or None, account_exec, round_duration(duration_hours),
-         disposition.strip() or None, issue_id or None),
+    from policydb.queries import create_followup_activity
+    new_id = create_followup_activity(
+        conn,
+        client_id=client_id,
+        policy_id=policy_id or None,
+        issue_id=issue_id or None,
+        subject=subject,
+        activity_type=activity_type,
+        follow_up_date=follow_up_date or None,
+        follow_up_done=False,
+        disposition=disposition.strip() or "",
+        contact_person=contact_person or None,
+        contact_id=_contact_id,
+        details=details or None,
+        duration_hours=round_duration(duration_hours),
     )
-    new_id = cursor.lastrowid
 
-    # Auto-link to renewal issue if no explicit issue_id
-    if not issue_id and policy_id:
-        from policydb.renewal_issues import auto_link_to_renewal_issue
-        auto_link_to_renewal_issue(conn, policy_id, new_id)
-
-    # Supersede older follow-ups on the same issue
+    # Supersede older follow-ups on the same issue (not handled by helper)
     if issue_id:
         from policydb.queries import auto_close_followups
         auto_close_followups(
