@@ -376,8 +376,19 @@
     });
   };
 
-  // Wire up client autocomplete for the editable (non-locked) case
-  initClientAutocomplete('issue-create-client-search', 'issue-create-client-select');
+  // Wire up client autocomplete for the editable (non-locked) case.
+  // initClientAutocomplete is defined in base.html's footer script block, which
+  // renders AFTER this include, so wait for the DOM to finish parsing.
+  function _wireIssueCreateClientAutocomplete() {
+    if (typeof initClientAutocomplete === 'function') {
+      initClientAutocomplete('issue-create-client-search', 'issue-create-client-select');
+    }
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', _wireIssueCreateClientAutocomplete);
+  } else {
+    _wireIssueCreateClientAutocomplete();
+  }
 
 })();
 </script>

@@ -5115,7 +5115,32 @@ def request_export_all(client_id: int, conn=Depends(get_db)):
 def get_request_bundle(
     request: Request, client_id: int, bundle_id: int, conn=Depends(get_db)
 ):
-    return _bundle_response(request, conn, client_id, bundle_id)
+    if request.headers.get("HX-Request"):
+        return _bundle_response(request, conn, client_id, bundle_id)
+    bundle = conn.execute(
+        "SELECT * FROM client_request_bundles WHERE id=? AND client_id=?",
+        (bundle_id, client_id),
+    ).fetchone()
+    if not bundle:
+        return HTMLResponse("Bundle not found", status_code=404)
+    items = _enrich_request_items(conn, [dict(r) for r in conn.execute(
+        "SELECT * FROM client_request_items WHERE bundle_id=? ORDER BY received ASC, sort_order ASC, id ASC",
+        (bundle_id,),
+    ).fetchall()])
+    client = conn.execute("SELECT id, name FROM clients WHERE id=?", (client_id,)).fetchone()
+    policies = [dict(r) for r in conn.execute(
+        "SELECT policy_uid, policy_type, carrier, project_name, effective_date FROM policies WHERE client_id=? AND archived=0 ORDER BY policy_type, effective_date DESC",
+        (client_id,),
+    ).fetchall()]
+    return templates.TemplateResponse("clients/request_bundle_page.html", {
+        "request": request,
+        "active": "clients",
+        "client": dict(client) if client else {"id": client_id, "name": ""},
+        "bundle": dict(bundle),
+        "items": items,
+        "policies": policies,
+        "request_categories": cfg.get("request_categories", []),
+    })
 
 
 @router.post("/{client_id}/requests/{bundle_id}/items", response_class=HTMLResponse)

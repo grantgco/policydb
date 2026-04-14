@@ -61,7 +61,7 @@
   <div class="flex items-center justify-between mb-2">
     <span class="text-xs font-semibold text-gray-700">Issues ({{ open_issues|length }} open)</span>
     <button type="button"
-            onclick="openIssueCreateSlideover({client_id: {{ policy.client_id }}, policy_id: {{ policy.id }}})"
+            onclick="openIssueCreateSlideover({client_id:'{{ policy.client_id }}', client_name:'{{ client.name|e }}', policy_id:'{{ policy.id }}', policy_label:'{{ policy.policy_uid }} {{ policy.policy_type|default("",true)|e }}'})"
             class="text-[10px] text-marsh hover:underline font-semibold no-print">+ New Issue</button>
   </div>
   {% for issue in open_issues %}
