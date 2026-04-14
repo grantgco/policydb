@@ -1268,6 +1268,12 @@ def get_open_tasks(
     """
     if scope_type == "issue":
         return _open_tasks_for_issue(conn, scope_id)
+    if scope_type == "client":
+        return _open_tasks_for_client(conn, scope_id)
+    if scope_type == "program":
+        return _open_tasks_for_program(conn, scope_id)
+    if scope_type == "policy":
+        return _open_tasks_for_policy(conn, scope_id)
     raise ValueError(f"Unsupported scope_type: {scope_type}")
 
 
@@ -1361,6 +1367,360 @@ def _open_tasks_for_issue(conn, issue_id: int) -> dict:
             "rows": _sort_rows(loose_rows),
         })
 
+    return {"groups": groups, "total": total, "overdue": overdue, "waiting": waiting}
+
+
+def _open_tasks_for_client(conn, client_id: int) -> dict:
+    # 1. Find all open issues touching this client (direct client_id OR via
+    #    policies belonging to the client through v_issue_policy_coverage).
+    open_issues = conn.execute(
+        """SELECT DISTINCT a.id AS issue_id, a.issue_uid, a.subject, a.issue_severity,
+                  a.issue_status
+           FROM activity_log a
+           WHERE a.item_kind = 'issue'
+             AND a.issue_status NOT IN ('Resolved', 'Closed', 'Merged')
+             AND a.merged_into_id IS NULL
+             AND (a.client_id = ? OR a.id IN (
+                 SELECT DISTINCT ipc.issue_id
+                 FROM v_issue_policy_coverage ipc
+                 JOIN policies p ON p.id = ipc.policy_id
+                 WHERE p.client_id = ? AND p.archived = 0
+             ))
+           ORDER BY
+             CASE a.issue_severity
+               WHEN 'Critical' THEN 0
+               WHEN 'High' THEN 1
+               WHEN 'Normal' THEN 2
+               WHEN 'Low' THEN 3
+               ELSE 4 END,
+             a.id""",
+        (client_id, client_id),
+    ).fetchall()
+    issue_ids = [r["issue_id"] for r in open_issues]
+
+    # 2. Policies covered by any open issue (for loose_policies exclusion)
+    covered_policy_ids: set[int] = set()
+    if issue_ids:
+        placeholders = ",".join("?" * len(issue_ids))
+        cov = conn.execute(
+            f"""SELECT DISTINCT policy_id FROM v_issue_policy_coverage
+                WHERE issue_id IN ({placeholders})""",  # noqa: S608
+            issue_ids,
+        ).fetchall()
+        covered_policy_ids = {r["policy_id"] for r in cov if r["policy_id"] is not None}
+
+    total = 0
+    overdue = 0
+    waiting = 0
+
+    def _count(row):
+        nonlocal total, overdue, waiting
+        total += 1
+        if row["days_overdue"] > 0:
+            overdue += 1
+        if row["accountability"] == "waiting_external":
+            waiting += 1
+
+    # ── Group 1: direct_client
+    direct_rows: list[dict] = []
+    for r in conn.execute(
+        """SELECT a.id, a.subject, a.activity_type, a.follow_up_date,
+                  a.disposition, a.policy_id, a.client_id, a.issue_id,
+                  c.name AS client_name
+           FROM activity_log a
+           JOIN clients c ON c.id = a.client_id
+           WHERE a.client_id = ?
+             AND a.policy_id IS NULL
+             AND a.follow_up_done = 0
+             AND a.follow_up_date IS NOT NULL
+             AND (a.item_kind = 'followup' OR a.item_kind IS NULL)""",
+        (client_id,),
+    ).fetchall():
+        row = _open_task_row_from_activity(r)
+        direct_rows.append(row)
+        _count(row)
+
+    # clients.follow_up_date itself (synthetic row, source="client")
+    client_row = conn.execute(
+        "SELECT id, name, follow_up_date FROM clients WHERE id = ?", (client_id,)
+    ).fetchone()
+    if client_row and client_row["follow_up_date"]:
+        from datetime import date as _date
+        fu = client_row["follow_up_date"]
+        try:
+            days_od = (_date.today() - _date.fromisoformat(fu)).days
+        except (ValueError, TypeError):
+            days_od = 0
+        synth = {
+            "activity_id": f"C{client_row['id']}",
+            "subject": "Client-level follow-up",
+            "activity_type": None,
+            "follow_up_date": fu,
+            "days_overdue": days_od,
+            "disposition": "",
+            "accountability": "my_action",
+            "policy_id": None,
+            "policy_uid": None,
+            "policy_type": None,
+            "client_id": client_row["id"],
+            "client_name": client_row["name"],
+            "source": "client",
+            "is_on_issue": False,
+            "linked_to_other_issue": None,
+            "attach_target_issue_id": None,
+        }
+        direct_rows.append(synth)
+        _count(synth)
+
+    # ── Group 2..N: per open issue
+    issue_groups: list[dict] = []
+    for iss in open_issues:
+        iss_id = iss["issue_id"]
+        iss_rows: list[dict] = []
+        for r in conn.execute(
+            """SELECT a.id, a.subject, a.activity_type, a.follow_up_date,
+                      a.disposition, a.policy_id, a.client_id, a.issue_id,
+                      p.policy_uid, p.policy_type,
+                      c.name AS client_name
+               FROM activity_log a
+               LEFT JOIN policies p ON p.id = a.policy_id
+               LEFT JOIN clients c ON c.id = a.client_id
+               WHERE a.issue_id = ?
+                 AND a.follow_up_done = 0
+                 AND a.follow_up_date IS NOT NULL
+                 AND (a.item_kind = 'followup' OR a.item_kind IS NULL)""",
+            (iss_id,),
+        ).fetchall():
+            row = _open_task_row_from_activity(r)
+            row["is_on_issue"] = True
+            iss_rows.append(row)
+            _count(row)
+        if iss_rows:
+            issue_groups.append({
+                "key": f"issue:{iss_id}",
+                "title": f"On {iss['issue_uid']}",
+                "subtitle": iss["subject"],
+                "rows": _sort_rows(iss_rows),
+            })
+
+    # ── Group last: loose_policies
+    loose_rows: list[dict] = []
+    client_policy_ids = [
+        r["id"] for r in conn.execute(
+            "SELECT id FROM policies WHERE client_id = ? AND archived = 0",
+            (client_id,),
+        ).fetchall()
+    ]
+    uncovered = [pid for pid in client_policy_ids if pid not in covered_policy_ids]
+    if uncovered:
+        ph = ",".join("?" * len(uncovered))
+        for r in conn.execute(
+            f"""SELECT a.id, a.subject, a.activity_type, a.follow_up_date,
+                       a.disposition, a.policy_id, a.client_id, a.issue_id,
+                       p.policy_uid, p.policy_type,
+                       c.name AS client_name
+                FROM activity_log a
+                JOIN policies p ON p.id = a.policy_id
+                LEFT JOIN clients c ON c.id = a.client_id
+                WHERE a.policy_id IN ({ph})
+                  AND a.follow_up_done = 0
+                  AND a.follow_up_date IS NOT NULL
+                  AND (a.item_kind = 'followup' OR a.item_kind IS NULL)""",  # noqa: S608
+            uncovered,
+        ).fetchall():
+            row = _open_task_row_from_activity(r)
+            # Resolve attach target: policy's open renewal issue (if exactly one)
+            target = conn.execute(
+                """SELECT id FROM activity_log
+                   WHERE item_kind = 'issue'
+                     AND policy_id = ?
+                     AND issue_status NOT IN ('Resolved', 'Closed', 'Merged')
+                     AND merged_into_id IS NULL""",
+                (row["policy_id"],),
+            ).fetchall()
+            if len(target) == 1:
+                row["attach_target_issue_id"] = target[0]["id"]
+            loose_rows.append(row)
+            _count(row)
+
+    groups = []
+    if direct_rows:
+        groups.append({
+            "key": "direct_client",
+            "title": "Direct client follow-ups",
+            "subtitle": None,
+            "rows": _sort_rows(direct_rows),
+        })
+    groups.extend(issue_groups)
+    if loose_rows:
+        groups.append({
+            "key": "loose_policies",
+            "title": "Loose on other policies",
+            "subtitle": "Not covered by any open issue",
+            "rows": _sort_rows(loose_rows),
+        })
+
+    return {"groups": groups, "total": total, "overdue": overdue, "waiting": waiting}
+
+
+def _open_tasks_for_program(conn, program_id: int) -> dict:
+    open_issues = conn.execute(
+        """SELECT id AS issue_id, issue_uid, subject
+           FROM activity_log
+           WHERE item_kind = 'issue'
+             AND program_id = ?
+             AND issue_status NOT IN ('Resolved', 'Closed', 'Merged')
+             AND merged_into_id IS NULL""",
+        (program_id,),
+    ).fetchall()
+    issue_ids = [r["issue_id"] for r in open_issues]
+
+    child_policies = conn.execute(
+        "SELECT id FROM policies WHERE program_id = ? AND archived = 0",
+        (program_id,),
+    ).fetchall()
+    child_policy_ids = [r["id"] for r in child_policies]
+
+    total = 0
+    overdue = 0
+    waiting = 0
+
+    def _count(row):
+        nonlocal total, overdue, waiting
+        total += 1
+        if row["days_overdue"] > 0:
+            overdue += 1
+        if row["accountability"] == "waiting_external":
+            waiting += 1
+
+    # Group 1: on_program_issue
+    on_issue_rows: list[dict] = []
+    if issue_ids:
+        ph = ",".join("?" * len(issue_ids))
+        for r in conn.execute(
+            f"""SELECT a.id, a.subject, a.activity_type, a.follow_up_date,
+                       a.disposition, a.policy_id, a.client_id, a.issue_id,
+                       p.policy_uid, p.policy_type,
+                       c.name AS client_name
+                FROM activity_log a
+                LEFT JOIN policies p ON p.id = a.policy_id
+                LEFT JOIN clients c ON c.id = a.client_id
+                WHERE a.issue_id IN ({ph})
+                  AND a.follow_up_done = 0
+                  AND a.follow_up_date IS NOT NULL
+                  AND (a.item_kind = 'followup' OR a.item_kind IS NULL)""",  # noqa: S608
+            issue_ids,
+        ).fetchall():
+            row = _open_task_row_from_activity(r)
+            row["is_on_issue"] = True
+            on_issue_rows.append(row)
+            _count(row)
+
+    # Group 2: loose on child policies
+    loose_rows: list[dict] = []
+    if child_policy_ids:
+        ph = ",".join("?" * len(child_policy_ids))
+        params: list = list(child_policy_ids)
+        if issue_ids:
+            iph = ",".join("?" * len(issue_ids))
+            exclude_clause = f" AND (a.issue_id IS NULL OR a.issue_id NOT IN ({iph}))"
+            params.extend(issue_ids)
+        else:
+            exclude_clause = " AND a.issue_id IS NULL"
+        for r in conn.execute(
+            f"""SELECT a.id, a.subject, a.activity_type, a.follow_up_date,
+                       a.disposition, a.policy_id, a.client_id, a.issue_id,
+                       p.policy_uid, p.policy_type,
+                       c.name AS client_name,
+                       other.issue_uid AS other_issue_uid
+                FROM activity_log a
+                JOIN policies p ON p.id = a.policy_id
+                LEFT JOIN clients c ON c.id = a.client_id
+                LEFT JOIN activity_log other ON other.id = a.issue_id AND other.item_kind = 'issue'
+                WHERE a.policy_id IN ({ph})
+                  AND a.follow_up_done = 0
+                  AND a.follow_up_date IS NOT NULL
+                  AND (a.item_kind = 'followup' OR a.item_kind IS NULL){exclude_clause}""",  # noqa: S608
+            params,
+        ).fetchall():
+            row = _open_task_row_from_activity(r)
+            row["linked_to_other_issue"] = r["other_issue_uid"]
+            if issue_ids and not row["linked_to_other_issue"]:
+                row["attach_target_issue_id"] = issue_ids[0] if len(issue_ids) == 1 else None
+            loose_rows.append(row)
+            _count(row)
+
+    groups = []
+    if on_issue_rows:
+        groups.append({
+            "key": "on_program_issue",
+            "title": "On program issue",
+            "subtitle": None,
+            "rows": _sort_rows(on_issue_rows),
+        })
+    if loose_rows:
+        groups.append({
+            "key": "loose",
+            "title": "Loose on child policies",
+            "subtitle": None,
+            "rows": _sort_rows(loose_rows),
+        })
+
+    return {"groups": groups, "total": total, "overdue": overdue, "waiting": waiting}
+
+
+def _open_tasks_for_policy(conn, policy_id: int) -> dict:
+    rows: list[dict] = []
+    total = 0
+    overdue = 0
+    waiting = 0
+
+    for r in conn.execute(
+        """SELECT a.id, a.subject, a.activity_type, a.follow_up_date,
+                  a.disposition, a.policy_id, a.client_id, a.issue_id,
+                  p.policy_uid, p.policy_type,
+                  c.name AS client_name,
+                  other.issue_uid AS other_issue_uid
+           FROM activity_log a
+           JOIN policies p ON p.id = a.policy_id
+           LEFT JOIN clients c ON c.id = a.client_id
+           LEFT JOIN activity_log other ON other.id = a.issue_id AND other.item_kind = 'issue'
+           WHERE a.policy_id = ?
+             AND a.follow_up_done = 0
+             AND a.follow_up_date IS NOT NULL
+             AND (a.item_kind = 'followup' OR a.item_kind IS NULL)""",
+        (policy_id,),
+    ).fetchall():
+        row = _open_task_row_from_activity(r)
+        row["linked_to_other_issue"] = r["other_issue_uid"]
+
+        # Attach target: policy's single open renewal issue if unique
+        tgt = conn.execute(
+            """SELECT id FROM activity_log
+               WHERE item_kind = 'issue'
+                 AND policy_id = ?
+                 AND issue_status NOT IN ('Resolved', 'Closed', 'Merged')
+                 AND merged_into_id IS NULL""",
+            (policy_id,),
+        ).fetchall()
+        if len(tgt) == 1:
+            row["attach_target_issue_id"] = tgt[0]["id"]
+
+        rows.append(row)
+        total += 1
+        if row["days_overdue"] > 0:
+            overdue += 1
+        if row["accountability"] == "waiting_external":
+            waiting += 1
+
+    groups = []
+    if rows:
+        groups.append({
+            "key": "on_policy",
+            "title": "Open tasks on this policy",
+            "subtitle": None,
+            "rows": _sort_rows(rows),
+        })
     return {"groups": groups, "total": total, "overdue": overdue, "waiting": waiting}
 
 
@@ -4050,7 +4410,14 @@ def auto_generate_sub_coverages(conn, policy_id: int, policy_type: str):
 
 
 def get_program_by_uid(conn: sqlite3.Connection, program_uid: str) -> dict | None:
-    """Return a program dict by its UID, or None if not found."""
+    """Return a program dict by its UID, or None if not found.
+
+    Program dates are derived on read: `effective_date` and `expiration_date`
+    come from MIN/MAX of the child policies (excluding archived and opportunity
+    rows), not from the stale columns on the programs row itself. This
+    enforces the Touch Once rule — the children own the term, the program
+    reflects it.
+    """
     row = conn.execute(
         """SELECT pg.*, pr.name AS project_name,
                   pr.address AS project_address, pr.city AS project_city,
@@ -4060,7 +4427,20 @@ def get_program_by_uid(conn: sqlite3.Connection, program_uid: str) -> dict | Non
            WHERE pg.program_uid = ?""",
         (program_uid,),
     ).fetchone()
-    return dict(row) if row else None
+    if not row:
+        return None
+    pgm = dict(row)
+    dates = conn.execute(
+        """SELECT MIN(effective_date) AS effective_date,
+                  MAX(expiration_date) AS expiration_date
+           FROM policies
+           WHERE program_id = ? AND archived = 0
+             AND (is_opportunity = 0 OR is_opportunity IS NULL)""",
+        (pgm["id"],),
+    ).fetchone()
+    pgm["effective_date"] = dates["effective_date"] if dates else None
+    pgm["expiration_date"] = dates["expiration_date"] if dates else None
+    return pgm
 
 
 def get_program_child_policies(conn: sqlite3.Connection, program_id: int) -> list[dict]:
@@ -4082,19 +4462,31 @@ def get_program_child_policies(conn: sqlite3.Connection, program_id: int) -> lis
 
 
 def get_program_aggregates(conn: sqlite3.Connection, program_id: int) -> dict:
-    """Compute aggregate stats for a program from its child policies."""
+    """Compute aggregate stats for a program from its child policies.
+
+    A program's term is derived from its children (earliest effective,
+    latest expiration), not stored as source of truth on `programs`.
+    The returned `effective_date` and `expiration_date` keys are meant
+    to be merged into the program dict by callers so templates and
+    route handlers always see the derived values. When a program has
+    no non-archived non-opportunity children, both dates come back as
+    None.
+    """
     row = conn.execute(
         """SELECT COUNT(*) AS policy_count,
                   COUNT(DISTINCT carrier) AS carrier_count,
                   COALESCE(SUM(premium), 0) AS total_premium,
-                  COALESCE(MAX(limit_amount), 0) AS max_limit
+                  COALESCE(MAX(limit_amount), 0) AS max_limit,
+                  MIN(effective_date) AS effective_date,
+                  MAX(expiration_date) AS expiration_date
            FROM policies
            WHERE program_id = ? AND archived = 0
              AND (is_opportunity = 0 OR is_opportunity IS NULL)""",
         (program_id,),
     ).fetchone()
     return dict(row) if row else {
-        "policy_count": 0, "carrier_count": 0, "total_premium": 0, "max_limit": 0
+        "policy_count": 0, "carrier_count": 0, "total_premium": 0,
+        "max_limit": 0, "effective_date": None, "expiration_date": None,
     }
 
 

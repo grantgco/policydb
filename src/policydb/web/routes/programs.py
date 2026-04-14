@@ -852,10 +852,22 @@ async def patch_program_header(
         return JSONResponse({"ok": False, "error": "Not found"}, status_code=404)
 
     body = await request.json()
-    allowed = {"name", "effective_date", "expiration_date", "renewal_status",
+    # Program dates are derived from the child policies' dates on read; the
+    # stored programs.effective_date / programs.expiration_date columns are
+    # no longer the source of truth. Rejecting writes keeps the two from
+    # drifting and enforces the Touch Once rule — users edit dates on the
+    # individual policies, the program rolls them up.
+    allowed = {"name", "renewal_status",
                "line_of_business", "notes", "working_notes", "lead_broker",
                "placement_colleague", "account_exec", "milestone_profile",
                "project_id"}
+    if any(k in body for k in ("effective_date", "expiration_date")):
+        return JSONResponse(
+            {"ok": False, "error":
+             "Program dates are derived from its policies. "
+             "Edit the policy's effective/expiration dates instead."},
+            status_code=400,
+        )
     updates = {k: v for k, v in body.items() if k in allowed}
     if not updates:
         return JSONResponse({"ok": False, "error": "No valid fields"})
