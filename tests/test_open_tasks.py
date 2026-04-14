@@ -228,3 +228,21 @@ def test_create_followup_activity_note_mode_no_supersede(tmp_db):
 
     old_row = conn.execute("SELECT follow_up_done FROM activity_log WHERE id=?", (old_id,)).fetchone()
     assert old_row["follow_up_done"] == 0  # untouched
+
+
+# ── filter_thread_for_history ────────────────────────────────────────────────
+
+def test_filter_thread_drops_open_followups():
+    from policydb.queries import filter_thread_for_history
+    rows = [
+        {"id": 1, "item_kind": "followup", "follow_up_done": 0, "follow_up_date": "2026-05-01", "subject": "open"},
+        {"id": 2, "item_kind": "followup", "follow_up_done": 1, "follow_up_date": "2026-04-01", "subject": "closed"},
+        {"id": 3, "item_kind": "followup", "follow_up_done": 0, "follow_up_date": None, "subject": "note-ish"},
+        {"id": 4, "item_kind": "issue", "follow_up_done": 0, "follow_up_date": "2026-05-01", "subject": "issue header"},
+    ]
+    kept = filter_thread_for_history(rows)
+    ids = [r["id"] for r in kept]
+    assert 1 not in ids  # open followup with date — panel owns it
+    assert 2 in ids      # closed followup — history
+    assert 3 in ids      # followup with no date — history (note-like)
+    assert 4 in ids      # issue header — history

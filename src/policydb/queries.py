@@ -1178,6 +1178,34 @@ def auto_close_stale_followups(conn) -> int:
     return count
 
 
+def filter_thread_for_history(rows: list) -> list:
+    """Filter an activity thread to drop rows owned by the Open Tasks panel.
+
+    A row is panel-owned when all of: item_kind='followup', follow_up_done=0,
+    follow_up_date IS NOT NULL. Everything else (closed follow-ups, notes
+    with no follow-up, issue headers, non-followup item_kinds) stays in the
+    thread as history.
+
+    Accepts either sqlite3.Row or plain dict rows; reads fields via subscription.
+    """
+    def _get(r, key):
+        if isinstance(r, dict):
+            return r.get(key)
+        try:
+            return r[key]
+        except (KeyError, IndexError):
+            return None
+
+    out = []
+    for r in rows:
+        if (_get(r, "item_kind") == "followup"
+                and not _get(r, "follow_up_done")
+                and _get(r, "follow_up_date")):
+            continue
+        out.append(r)
+    return out
+
+
 def get_all_followups(
     conn: sqlite3.Connection, window: int = 30, client_ids: list[int] | None = None
 ) -> tuple[list[dict], list[dict]]:
