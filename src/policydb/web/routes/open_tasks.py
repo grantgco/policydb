@@ -75,3 +75,46 @@ def panel(
     if scope_type not in ("issue", "client", "program", "policy"):
         raise HTTPException(status_code=400, detail="Invalid scope_type")
     return _render_panel(request, conn, scope_type, scope_id)
+
+
+# ── Actions ──────────────────────────────────────────────────────────────────
+
+@router.post("/{activity_id}/done", response_class=HTMLResponse)
+def action_done(
+    request: Request,
+    activity_id: str,
+    return_scope_type: str = Form(...),
+    return_scope_id: int = Form(...),
+    conn=Depends(get_db),
+):
+    kind, rid = _parse_activity_id(activity_id)
+    if kind == "activity":
+        act = _fetch_activity(conn, rid)
+        if not act:
+            raise HTTPException(404, "Activity not found")
+        conn.execute(
+            """UPDATE activity_log
+               SET follow_up_done = 1,
+                   auto_close_reason = 'manual',
+                   auto_closed_at = datetime('now'),
+                   auto_closed_by = 'open_tasks_panel'
+               WHERE id = ?""",
+            (rid,),
+        )
+        if act["policy_id"]:
+            sync_policy_follow_up_date(conn, act["policy_id"])
+        elif act["client_id"]:
+            sync_client_follow_up_date(conn, act["client_id"])
+    elif kind == "policy":
+        conn.execute(
+            "UPDATE policies SET follow_up_date = NULL WHERE id = ?", (rid,)
+        )
+    elif kind == "client":
+        conn.execute(
+            "UPDATE clients SET follow_up_date = NULL WHERE id = ?", (rid,)
+        )
+    conn.commit()
+    return _render_panel(
+        request, conn, return_scope_type, return_scope_id,
+        toast_message="Task marked done",
+    )
