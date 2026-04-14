@@ -176,3 +176,69 @@ def action_snooze(
         request, conn, return_scope_type, return_scope_id,
         toast_message=f"Snoozed +{days}d" if days else "Snoozed",
     )
+
+
+@router.post("/{activity_id}/disposition", response_class=HTMLResponse)
+def action_disposition(
+    request: Request,
+    activity_id: str,
+    move: str = Form(...),  # "my" or "waiting"
+    return_scope_type: str = Form(...),
+    return_scope_id: int = Form(...),
+    conn=Depends(get_db),
+):
+    kind, rid = _parse_activity_id(activity_id)
+    if kind != "activity":
+        raise HTTPException(400, "Disposition only supported on activity-source rows")
+
+    from policydb.config import get as cfg_get
+    label = ""
+    if move == "waiting":
+        for d in cfg_get("follow_up_dispositions", []):
+            if d.get("accountability") == "waiting_external":
+                label = d.get("label", "Waiting on Response")
+                break
+    conn.execute(
+        "UPDATE activity_log SET disposition = ? WHERE id = ?",
+        (label or None, rid),
+    )
+    conn.commit()
+    return _render_panel(
+        request, conn, return_scope_type, return_scope_id,
+        toast_message="Marked waiting" if move == "waiting" else "Marked my move",
+    )
+
+
+@router.post("/{activity_id}/log-close", response_class=HTMLResponse)
+def action_log_close(
+    request: Request,
+    activity_id: str,
+    return_scope_type: str = Form(...),
+    return_scope_id: int = Form(...),
+    conn=Depends(get_db),
+):
+    kind, rid = _parse_activity_id(activity_id)
+    if kind != "activity":
+        raise HTTPException(400, "Log & close only supported on activity-source rows")
+    act = _fetch_activity(conn, rid)
+    if not act:
+        raise HTTPException(404, "Activity not found")
+    conn.execute(
+        """UPDATE activity_log
+           SET follow_up_done = 1,
+               follow_up_date = NULL,
+               auto_close_reason = 'manual',
+               auto_closed_at = datetime('now'),
+               auto_closed_by = 'open_tasks_panel'
+           WHERE id = ?""",
+        (rid,),
+    )
+    if act["policy_id"]:
+        sync_policy_follow_up_date(conn, act["policy_id"])
+    elif act["client_id"]:
+        sync_client_follow_up_date(conn, act["client_id"])
+    conn.commit()
+    return _render_panel(
+        request, conn, return_scope_type, return_scope_id,
+        toast_message="Logged & closed",
+    )

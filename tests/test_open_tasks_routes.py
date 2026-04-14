@@ -107,3 +107,32 @@ def test_snooze_shifts_date_by_days(app_client, seeded):
     ).fetchone()
     # Original date was 2026-04-15; +7 = 2026-04-22
     assert row["follow_up_date"] == "2026-04-22"
+
+
+def test_disposition_toggles_to_waiting(app_client, seeded):
+    r = app_client.post(
+        f"/open-tasks/{seeded['activity_id']}/disposition",
+        data={"move": "waiting", "return_scope_type": "issue", "return_scope_id": seeded["issue_id"]},
+    )
+    assert r.status_code == 200
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT disposition FROM activity_log WHERE id=?", (seeded["activity_id"],)
+    ).fetchone()
+    # First waiting_external disposition label from config should be set
+    assert row["disposition"]
+
+
+def test_log_close_clears_date_and_marks_done(app_client, seeded):
+    r = app_client.post(
+        f"/open-tasks/{seeded['activity_id']}/log-close",
+        data={"return_scope_type": "issue", "return_scope_id": seeded["issue_id"]},
+    )
+    assert r.status_code == 200
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT follow_up_done, follow_up_date FROM activity_log WHERE id=?",
+        (seeded["activity_id"],),
+    ).fetchone()
+    assert row["follow_up_done"] == 1
+    assert row["follow_up_date"] is None
