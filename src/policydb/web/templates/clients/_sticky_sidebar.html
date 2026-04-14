@@ -121,6 +121,18 @@
   </div>
   {% endif %}
 
+  {# Follow-ups summary — full list lives in the Open Tasks panel on Overview tab #}
+  {% if open_tasks_total and open_tasks_total > 0 %}
+  <div class="px-3 py-2 border-t border-gray-200">
+    <a href="#open-tasks-panel-client-{{ client.id }}" class="flex items-center justify-between text-xs hover:bg-gray-50 rounded px-1 py-1">
+      <span class="text-gray-600">Open tasks</span>
+      <span class="font-semibold {% if open_tasks_overdue %}text-red-600{% else %}text-gray-800{% endif %}">
+        {{ open_tasks_total }}{% if open_tasks_overdue %} &middot; {{ open_tasks_overdue }} overdue{% endif %}
+      </span>
+    </a>
+  </div>
+  {% endif %}
+
   {# ── Website ── #}
   {% if client.website %}
   <div class="py-3 border-b border-gray-100">

@@ -1,6 +1,11 @@
 {# Client Overview Tab — What's Next, Account Pulse, Activity, Linked Accounts, Working Notes #}
 <div id="tab-overview-content">
 
+{# Open Tasks panel — aggregates outstanding follow-ups across all client policies #}
+<div class="mb-4">
+  {% include "_open_tasks_panel.html" with context %}
+</div>
+
 <!-- What's Next -->
 {% include "clients/_whats_next.html" %}
 

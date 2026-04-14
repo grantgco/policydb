@@ -47,6 +47,7 @@ from policydb.queries import (
     get_exposure_observations,
     get_exposure_by_id,
     attach_open_issues,
+    get_open_tasks,
 )
 from policydb.web.app import get_db, templates
 
@@ -972,6 +973,9 @@ def client_tab_overview(request: Request, client_id: int, conn=Depends(get_db)):
         except (ValueError, TypeError):
             pass
 
+    # Open Tasks panel data
+    _ot = get_open_tasks(conn, "client", client_id)
+
     return templates.TemplateResponse("clients/_tab_overview.html", {
         "request": request,
         "client": dict(client),
@@ -1025,6 +1029,11 @@ def client_tab_overview(request: Request, client_id: int, conn=Depends(get_db)):
         "relationship_risk_levels": cfg.get("relationship_risk_levels", []),
         "service_model_options": cfg.get("service_model_options", []),
         "client_anomalies": client_anomalies,
+        "scope_type": "client",
+        "scope_id": client_id,
+        "data": _ot,
+        "open_tasks_total": _ot["total"],
+        "open_tasks_overdue": _ot["overdue"],
     })
 
 
@@ -2303,6 +2312,9 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
     ).fetchone()
     recurring_count = recurring_count_row["n"] if recurring_count_row else 0
 
+    # Open Tasks summary for sticky sidebar
+    _ot_sidebar = get_open_tasks(conn, "client", client_id)
+
     return templates.TemplateResponse("clients/detail.html", {
         "request": request,
         "active": "clients",
@@ -2407,6 +2419,8 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
         "pinned_scope": "client",
         "pinned_scope_id": str(client_id),
         "pinned_client_id": "",
+        "open_tasks_total": _ot_sidebar["total"],
+        "open_tasks_overdue": _ot_sidebar["overdue"],
     })
 
 
