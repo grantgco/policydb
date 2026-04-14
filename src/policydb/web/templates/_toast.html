@@ -1,0 +1,48 @@
+{# Shared toast container + JS. Include once from base.html near </body>.
+
+   Action handlers emit:
+     <div id="toast-trigger" hx-swap-oob="true"
+          data-message="Snoozed +7d" data-kind="success"></div>
+   in their response. An HTMX afterSwap listener reads the data-* attrs and
+   calls showToast(). Kinds: success, info, warning, error.
+#}
+<div id="toast-area"
+     class="fixed bottom-4 right-4 z-[9999] flex flex-col gap-2 pointer-events-none">
+</div>
+<div id="toast-trigger" hx-swap-oob="true" data-message="" data-kind=""></div>
+
+<script>
+(function() {
+  const COLORS = {
+    success: "bg-emerald-600 text-white",
+    info:    "bg-blue-600 text-white",
+    warning: "bg-amber-500 text-white",
+    error:   "bg-red-600 text-white",
+  };
+
+  window.showToast = function(message, kind) {
+    if (!message) return;
+    const area = document.getElementById("toast-area");
+    if (!area) return;
+    const color = COLORS[kind || "success"] || COLORS.success;
+    const pill = document.createElement("div");
+    pill.className = `pointer-events-auto ${color} rounded-lg px-4 py-2 text-sm shadow-lg transition-opacity duration-300`;
+    pill.textContent = message;
+    area.appendChild(pill);
+    setTimeout(() => { pill.style.opacity = "0"; }, 2200);
+    setTimeout(() => { pill.remove(); }, 2500);
+  };
+
+  document.body.addEventListener("htmx:afterSwap", function(evt) {
+    const trigger = document.getElementById("toast-trigger");
+    if (!trigger) return;
+    const msg = trigger.dataset.message;
+    const kind = trigger.dataset.kind;
+    if (msg) {
+      window.showToast(msg, kind);
+      trigger.dataset.message = "";
+      trigger.dataset.kind = "";
+    }
+  });
+})();
+</script>

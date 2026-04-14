@@ -72,12 +72,21 @@
             {% if line in loc.governing %}
               {% set gov = loc.governing[line] %}
               {% set status = (gov.compliance_status or 'Needs Review') | lower %}
+              {% set is_muted = status in ('waived', 'n/a', 'na') %}
               {% if status == 'compliant' %}
                 {% set bg = 'bg-green-50' %}{% set text_color = 'text-green-700' %}{% set dot = 'bg-green-500' %}
               {% elif status == 'gap' %}
                 {% set bg = 'bg-red-50' %}{% set text_color = 'text-red-700' %}{% set dot = 'bg-red-500' %}
               {% elif status == 'partial' %}
                 {% set bg = 'bg-amber-50' %}{% set text_color = 'text-amber-700' %}{% set dot = 'bg-amber-500' %}
+              {% elif status == 'external' %}
+                {% set bg = 'bg-slate-100' %}{% set text_color = 'text-slate-700' %}{% set dot = 'bg-slate-500' %}
+              {% elif status == 'pending info' or status == 'pending_info' %}
+                {% set bg = 'bg-blue-50' %}{% set text_color = 'text-blue-700' %}{% set dot = 'bg-blue-400' %}
+              {% elif is_muted %}
+                {# Waived / N/A are informational — reduced contrast so they
+                   don't compete with actionable statuses. #}
+                {% set bg = 'bg-gray-50' %}{% set text_color = 'text-gray-400' %}{% set dot = 'bg-gray-300' %}
               {% else %}
                 {% set bg = 'bg-gray-50' %}{% set text_color = 'text-gray-600' %}{% set dot = 'bg-gray-400' %}
               {% endif %}

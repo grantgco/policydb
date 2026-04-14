@@ -390,7 +390,8 @@ _DEFAULTS: dict[str, Any] = {
         "Adequate", "Inadequate", "Needs Review", "N/A",
     ],
     "compliance_statuses": [
-        "Compliant", "Gap", "Partial", "Waived", "N/A", "Needs Review",
+        "Needs Review", "Compliant", "Partial", "Gap",
+        "External", "Pending Info", "Waived", "N/A",
     ],
     "deductible_types": [
         "Per Occurrence", "Per Claim", "Aggregate", "Named Storm %",

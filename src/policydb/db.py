@@ -1913,6 +1913,15 @@ def _init_db_inner(conn: sqlite3.Connection, db_path: Path) -> None:
         conn.commit()
         logger.info("Migration 146: added recurring_events table + activity_log link columns")
 
+    if 147 not in applied:
+        conn.executescript((_MIGRATIONS_DIR / "147_compliance_review_ux.sql").read_text())
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (147, "Compliance review UX: audit stamps on coverage_requirements + policies.endorsements"),
+        )
+        conn.commit()
+        logger.info("Migration 147: added reviewed_at/reviewed_by + policies.endorsements")
+
     # Data hygiene: fix 'None' string corruption in text fields (runs every startup, fast no-op if clean)
     conn.execute("UPDATE clients SET cn_number = NULL WHERE cn_number = 'None'")
 

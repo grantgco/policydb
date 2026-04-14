@@ -309,6 +309,24 @@ POLICY_EXTRACTION_SCHEMA: dict = {
             "example": "Commercial general liability coverage",
         },
         {
+            "key": "endorsements",
+            "label": "Endorsements / Forms Attached",
+            "type": "array",
+            "required": False,
+            "description": (
+                "List of endorsements attached to the policy. Look in the 'Forms and "
+                "Endorsements' schedule, in CG/CA form numbers with their titles, or in "
+                "additional coverage notes. Return the canonical endorsement name only "
+                "(e.g., 'Waiver of Subrogation', 'Additional Insured - Blanket', "
+                "'Primary & Non-Contributory', 'Per Project Aggregate', 'Notice of "
+                "Cancellation'), not form numbers. Omit endorsements that are part of "
+                "the base coverage form (e.g., CG 00 01 itself)."
+            ),
+            "config_values": "endorsement_types",
+            "config_mode": "prefer",
+            "example": '["Waiver of Subrogation", "Additional Insured - Blanket", "Primary & Non-Contributory"]',
+        },
+        {
             "key": "layer_position",
             "label": "Layer Position",
             "type": "string",

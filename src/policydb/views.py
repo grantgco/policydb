@@ -95,6 +95,7 @@ SELECT
     p.last_reviewed_at,
     p.review_cycle,
     p.program_id,
+    p.endorsements,
     pg.program_uid,
     pg.name AS program_name
 FROM policies p

@@ -1034,6 +1034,126 @@ def supersede_followups(conn, policy_id: int, new_date: str) -> None:
     )
 
 
+def sync_policy_follow_up_date(conn, policy_id: int) -> None:
+    """Re-derive policies.follow_up_date from the earliest open activity follow-up.
+
+    The activity_log is the source of truth; policies.follow_up_date is a scalar
+    cache used by renewal pipeline views, Action Center, and policy pages.
+    This helper keeps the cache coherent after any mutation that could change
+    the outcome (mark done, snooze, log-close).
+
+    Behavior: picks the earliest follow_up_date across open activity follow-ups
+    on this policy; sets NULL if none exist.
+    """
+    row = conn.execute(
+        """SELECT MIN(follow_up_date) AS earliest
+           FROM activity_log
+           WHERE policy_id = ?
+             AND follow_up_done = 0
+             AND follow_up_date IS NOT NULL
+             AND (item_kind = 'followup' OR item_kind IS NULL)""",
+        (policy_id,),
+    ).fetchone()
+    earliest = row["earliest"] if row else None
+    conn.execute(
+        "UPDATE policies SET follow_up_date = ? WHERE id = ?",
+        (earliest, policy_id),
+    )
+
+
+def sync_client_follow_up_date(conn, client_id: int) -> None:
+    """Re-derive clients.follow_up_date from earliest open client-level follow-up.
+
+    Client-level means activity_log rows with client_id set and policy_id NULL.
+    Same rule as sync_policy_follow_up_date: source of truth is activity_log.
+    """
+    row = conn.execute(
+        """SELECT MIN(follow_up_date) AS earliest
+           FROM activity_log
+           WHERE client_id = ?
+             AND policy_id IS NULL
+             AND follow_up_done = 0
+             AND follow_up_date IS NOT NULL
+             AND (item_kind = 'followup' OR item_kind IS NULL)""",
+        (client_id,),
+    ).fetchone()
+    earliest = row["earliest"] if row else None
+    conn.execute(
+        "UPDATE clients SET follow_up_date = ? WHERE id = ?",
+        (earliest, client_id),
+    )
+
+
+def create_followup_activity(
+    conn,
+    *,
+    client_id: int,
+    policy_id: int | None,
+    issue_id: int | None,
+    subject: str,
+    activity_type: str = "Task",
+    follow_up_date: str | None,
+    follow_up_done: bool = False,
+    disposition: str = "",
+    contact_person: str | None = None,
+    contact_id: int | None = None,
+    details: str | None = None,
+    duration_hours: float | None = None,
+) -> int:
+    """Single creation path for any follow-up activity. All quick-log endpoints
+    and the Open Tasks panel's + Add task button call this helper.
+
+    Behavior:
+    - Calls supersede_followups() BEFORE the INSERT when a new open follow-up
+      lands on a policy — this closes older siblings and syncs
+      policies.follow_up_date without self-supersession.
+    - Inserts into activity_log with item_kind='followup'.
+    - If issue_id is None and policy_id is set, runs auto_link_to_renewal_issue.
+    - For done-at-creation or no-date rows, re-syncs policies.follow_up_date
+      so the scalar cache matches the new state of activity_log.
+    - If policy_id is None, syncs clients.follow_up_date.
+
+    Returns the new activity_log.id.
+    """
+    from datetime import date as _date
+
+    # Supersede BEFORE insert — avoids self-supersession
+    if follow_up_date and not follow_up_done and policy_id is not None:
+        supersede_followups(conn, policy_id, follow_up_date)
+
+    account_exec = cfg.get("default_account_exec", "Grant")
+    cursor = conn.execute(
+        """INSERT INTO activity_log
+           (activity_date, client_id, policy_id, activity_type, contact_person,
+            contact_id, subject, details, follow_up_date, follow_up_done,
+            account_exec, duration_hours, disposition, issue_id, item_kind)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'followup')""",
+        (
+            _date.today().isoformat(), client_id, policy_id, activity_type,
+            contact_person, contact_id, subject, details,
+            follow_up_date, 1 if follow_up_done else 0,
+            account_exec, duration_hours,
+            disposition or None, issue_id,
+        ),
+    )
+    new_id = cursor.lastrowid
+
+    # Auto-link to renewal issue if not explicitly set
+    if issue_id is None and policy_id is not None:
+        from policydb.renewal_issues import auto_link_to_renewal_issue
+        auto_link_to_renewal_issue(conn, policy_id, new_id)
+
+    # Done-at-creation or no-date path: re-sync the scalar cache
+    if not (follow_up_date and not follow_up_done) and policy_id is not None:
+        sync_policy_follow_up_date(conn, policy_id)
+
+    # Client-level sync for direct client follow-ups
+    if policy_id is None and client_id is not None:
+        sync_client_follow_up_date(conn, client_id)
+
+    return new_id
+
+
 def auto_close_stale_followups(conn) -> int:
     """Auto-close follow-ups overdue by more than stale_auto_close_days.
 
@@ -1056,6 +1176,192 @@ def auto_close_stale_followups(conn) -> int:
     if count > 0:
         conn.commit()
     return count
+
+
+def filter_thread_for_history(rows: list) -> list:
+    """Filter an activity thread to drop rows owned by the Open Tasks panel.
+
+    A row is panel-owned when all of: item_kind='followup', follow_up_done=0,
+    follow_up_date IS NOT NULL. Everything else (closed follow-ups, notes
+    with no follow-up, issue headers, non-followup item_kinds) stays in the
+    thread as history.
+
+    Accepts either sqlite3.Row or plain dict rows; reads fields via subscription.
+    """
+    def _get(r, key):
+        if isinstance(r, dict):
+            return r.get(key)
+        try:
+            return r[key]
+        except (KeyError, IndexError):
+            return None
+
+    out = []
+    for r in rows:
+        if (_get(r, "item_kind") == "followup"
+                and not _get(r, "follow_up_done")
+                and _get(r, "follow_up_date")):
+            continue
+        out.append(r)
+    return out
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Open Tasks panel — aggregated follow-up rollup for issue/client/program/policy
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _open_task_row_from_activity(r) -> dict:
+    """Convert a sqlite row from activity_log (+ policy/client joins) into the
+    panel's TaskRow shape. Helper shared across scopes."""
+    from datetime import date as _date
+    today = _date.today()
+    fu = r["follow_up_date"]
+    days_overdue = 0
+    try:
+        days_overdue = (today - _date.fromisoformat(fu)).days
+    except (ValueError, TypeError):
+        pass
+
+    keys = r.keys() if hasattr(r, "keys") else []
+    disposition = (r["disposition"] or "") if "disposition" in keys else ""
+
+    # Resolve accountability from config
+    accountability = "my_action"
+    for d in cfg.get("follow_up_dispositions", []):
+        if d.get("label") == disposition:
+            accountability = d.get("accountability", "my_action")
+            break
+
+    return {
+        "activity_id": str(r["id"]),
+        "subject": r["subject"] or r["activity_type"] or "Follow-up",
+        "activity_type": r["activity_type"],
+        "follow_up_date": fu,
+        "days_overdue": days_overdue,
+        "disposition": disposition,
+        "accountability": accountability,
+        "policy_id": r["policy_id"] if "policy_id" in keys else None,
+        "policy_uid": r["policy_uid"] if "policy_uid" in keys else None,
+        "policy_type": r["policy_type"] if "policy_type" in keys else None,
+        "client_id": r["client_id"],
+        "client_name": r["client_name"] if "client_name" in keys else "",
+        "source": "activity",
+        "is_on_issue": False,          # caller sets
+        "linked_to_other_issue": None, # caller sets
+        "attach_target_issue_id": None, # caller sets
+    }
+
+
+def _sort_rows(rows: list[dict]) -> list[dict]:
+    return sorted(rows, key=lambda r: (-r["days_overdue"], r["follow_up_date"] or ""))
+
+
+def get_open_tasks(
+    conn,
+    scope_type: str,
+    scope_id: int,
+) -> dict:
+    """Unified open-tasks rollup for the Open Tasks panel.
+
+    scope_type: 'issue', 'client', 'program', or 'policy'.
+    Returns {groups: [GroupDict], total, overdue, waiting}.
+    """
+    if scope_type == "issue":
+        return _open_tasks_for_issue(conn, scope_id)
+    raise ValueError(f"Unsupported scope_type: {scope_type}")
+
+
+def _open_tasks_for_issue(conn, issue_id: int) -> dict:
+    # Resolve the issue's covered policies via v_issue_policy_coverage
+    covered = conn.execute(
+        """SELECT DISTINCT ipc.policy_id
+           FROM v_issue_policy_coverage ipc
+           WHERE ipc.issue_id = ?""",
+        (issue_id,),
+    ).fetchall()
+    policy_ids = [r["policy_id"] for r in covered if r["policy_id"] is not None]
+
+    on_issue_rows: list[dict] = []
+    loose_rows: list[dict] = []
+    total = 0
+    overdue = 0
+    waiting = 0
+
+    # On-issue: all open follow-ups linked to this issue (may include rows on
+    # non-covered policies too, e.g. client-level activities)
+    on_issue_raw = conn.execute(
+        """SELECT a.id, a.subject, a.activity_type, a.follow_up_date,
+                  a.disposition, a.policy_id, a.client_id, a.issue_id,
+                  p.policy_uid, p.policy_type,
+                  c.name AS client_name
+           FROM activity_log a
+           LEFT JOIN policies p ON p.id = a.policy_id
+           LEFT JOIN clients c ON c.id = a.client_id
+           WHERE a.issue_id = ?
+             AND a.follow_up_done = 0
+             AND a.follow_up_date IS NOT NULL
+             AND (a.item_kind = 'followup' OR a.item_kind IS NULL)""",
+        (issue_id,),
+    ).fetchall()
+    for r in on_issue_raw:
+        row = _open_task_row_from_activity(r)
+        row["is_on_issue"] = True
+        on_issue_rows.append(row)
+        total += 1
+        if row["days_overdue"] > 0:
+            overdue += 1
+        if row["accountability"] == "waiting_external":
+            waiting += 1
+
+    # Loose on scope: open follow-ups on covered policies whose issue_id is
+    # NULL or points at a different issue
+    if policy_ids:
+        placeholders = ",".join("?" * len(policy_ids))
+        loose_raw = conn.execute(
+            f"""SELECT a.id, a.subject, a.activity_type, a.follow_up_date,
+                       a.disposition, a.policy_id, a.client_id, a.issue_id,
+                       p.policy_uid, p.policy_type,
+                       c.name AS client_name,
+                       other.issue_uid AS other_issue_uid
+                FROM activity_log a
+                JOIN policies p ON p.id = a.policy_id
+                LEFT JOIN clients c ON c.id = a.client_id
+                LEFT JOIN activity_log other ON other.id = a.issue_id AND other.item_kind = 'issue'
+                WHERE a.policy_id IN ({placeholders})
+                  AND a.follow_up_done = 0
+                  AND a.follow_up_date IS NOT NULL
+                  AND (a.item_kind = 'followup' OR a.item_kind IS NULL)
+                  AND (a.issue_id IS NULL OR a.issue_id != ?)""",  # noqa: S608
+            (*policy_ids, issue_id),
+        ).fetchall()
+        for r in loose_raw:
+            row = _open_task_row_from_activity(r)
+            row["is_on_issue"] = False
+            row["linked_to_other_issue"] = r["other_issue_uid"]
+            loose_rows.append(row)
+            total += 1
+            if row["days_overdue"] > 0:
+                overdue += 1
+            if row["accountability"] == "waiting_external":
+                waiting += 1
+
+    groups = []
+    if on_issue_rows:
+        groups.append({
+            "key": "on_issue",
+            "title": "On this issue",
+            "subtitle": None,
+            "rows": _sort_rows(on_issue_rows),
+        })
+    if loose_rows:
+        groups.append({
+            "key": "loose",
+            "title": "Loose on scope",
+            "subtitle": "Not yet attached to this issue",
+            "rows": _sort_rows(loose_rows),
+        })
+
+    return {"groups": groups, "total": total, "overdue": overdue, "waiting": waiting}
 
 
 def get_all_followups(

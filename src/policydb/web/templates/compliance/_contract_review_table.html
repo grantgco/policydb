@@ -1,0 +1,164 @@
+{#
+  Contract review table — one contract source, one row per requirement.
+  Context: client_id, source, rows, total_reqs, reviewed_reqs, gap_count, programs.
+#}
+{% if not source %}
+<div class="rounded-lg border border-dashed border-gray-300 p-8 text-center">
+  <p class="text-sm text-gray-500">Contract source not found.</p>
+</div>
+{% else %}
+
+{% set progress_pct = ((reviewed_reqs / total_reqs) * 100) if total_reqs else 0 %}
+
+<div class="bg-white rounded-lg border border-gray-200 shadow-sm">
+
+  {# ── Header: source metadata, program assignment, bulk action ───────── #}
+  <div class="p-5 border-b border-gray-100">
+    <div class="flex items-start justify-between gap-4">
+      <div class="min-w-0">
+        <h2 class="text-base font-semibold text-gray-900 truncate">{{ source.name }}</h2>
+        <div class="text-xs text-gray-500 mt-1 flex items-center gap-2 flex-wrap">
+          {% if source.counterparty %}
+          <span>{{ source.counterparty }}</span>
+          <span class="text-gray-300">·</span>
+          {% endif %}
+          {% if source.clause_ref %}
+          <span>§{{ source.clause_ref }}</span>
+          <span class="text-gray-300">·</span>
+          {% endif %}
+          <span>{{ total_reqs }} requirement{{ '' if total_reqs == 1 else 's' }}</span>
+          <span class="text-gray-300">·</span>
+          <span class="{% if reviewed_reqs == total_reqs and total_reqs %}text-emerald-600 font-medium{% endif %}">
+            {{ reviewed_reqs }} reviewed
+          </span>
+          {% if gap_count %}
+          <span class="text-gray-300">·</span>
+          <span class="text-red-600 font-medium">{{ gap_count }} gap{{ '' if gap_count == 1 else 's' }}</span>
+          {% endif %}
+        </div>
+        <div class="mt-2 h-1.5 rounded-full bg-gray-100 overflow-hidden max-w-md">
+          <div class="h-full {% if reviewed_reqs == total_reqs and total_reqs %}bg-emerald-500{% else %}bg-marsh-blue{% endif %}"
+               style="width: {{ progress_pct | round(0) }}%"></div>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-2 flex-shrink-0">
+        {# Program / Location assignment #}
+        <div>
+          <label class="block text-[10px] text-gray-400 uppercase tracking-wide mb-0.5">Program / Location</label>
+          <form hx-post="/compliance/client/{{ client_id }}/sources/{{ source.id }}/assign-program"
+                hx-target="#contract-workspace-body"
+                hx-swap="innerHTML">
+            <select name="project_id"
+                    class="border border-gray-300 rounded px-2 py-1 text-xs bg-white"
+                    onchange="this.form.requestSubmit()">
+              <option value="">— client-wide —</option>
+              {% for p in programs %}
+              <option value="{{ p.id }}" {% if source.project_id == p.id %}selected{% endif %}>{{ p.name }}</option>
+              {% endfor %}
+            </select>
+          </form>
+        </div>
+
+        {# Bulk match — only enabled when assigned to a program and there's at least 1 Needs Review row #}
+        {% set has_pending = false %}
+        {% for r in rows %}
+          {% if (r.compliance_status or 'Needs Review') == 'Needs Review' %}{% set has_pending = true %}{% endif %}
+        {% endfor %}
+        <button type="button"
+                {% if not has_pending %}disabled title="Nothing left to match"{% endif %}
+                class="px-3 py-1.5 text-xs font-medium rounded bg-marsh-blue text-white hover:bg-marsh-blue-dark disabled:opacity-40 disabled:cursor-not-allowed"
+                hx-get="/compliance/client/{{ client_id }}/sources/{{ source.id }}/bulk-match"
+                hx-target="#bulk-match-modal-host"
+                hx-swap="innerHTML">
+          Match all{% if source.project_name %} to {{ source.project_name }}{% endif %}
+        </button>
+      </div>
+    </div>
+  </div>
+
+  {# ── Rows ──────────────────────────────────────────────────────────── #}
+  {% if rows %}
+  <table class="w-full text-sm">
+    <thead>
+      <tr class="text-[11px] uppercase tracking-wide text-gray-400">
+        <th class="px-5 py-2 text-left">Coverage</th>
+        <th class="px-3 py-2 text-left">Required</th>
+        <th class="px-3 py-2 text-left">Linked policy</th>
+        <th class="px-3 py-2 text-left">Status</th>
+        <th class="px-5 py-2 text-right"></th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for r in rows %}
+      {% set status = r.compliance_status or 'Needs Review' %}
+      {% set is_informational = status in ('Waived', 'N/A') %}
+      {% set needs_note = status in ('Gap', 'Partial', 'External') and not r.has_note %}
+      <tr class="hover:bg-gray-50 {% if is_informational %}opacity-60{% endif %}">
+        <td class="px-5 py-3 align-top">
+          <div class="font-medium text-gray-900">{{ r.coverage_line }}</div>
+          {% if r.required_endorsements_list %}
+          <div class="text-[11px] text-gray-400 mt-0.5">
+            {{ r.required_endorsements_list | join(', ') }}
+          </div>
+          {% endif %}
+        </td>
+        <td class="px-3 py-3 align-top text-xs text-gray-600">
+          {% if r.required_limit %}{{ r.required_limit | currency }}{% else %}—{% endif %}
+          {% if r.max_deductible %}
+          <div class="text-[10px] text-gray-400">ded ≤ {{ r.max_deductible | currency }}</div>
+          {% endif %}
+        </td>
+        <td class="px-3 py-3 align-top text-xs">
+          {% if r.linked_policy %}
+          <div class="font-mono text-marsh-blue">{{ r.linked_policy.policy_number or r.linked_policy.policy_uid }}</div>
+          <div class="text-[10px] text-gray-400">{{ r.linked_policy.carrier or '' }}</div>
+          {% else %}
+          <span class="text-gray-400">—</span>
+          {% endif %}
+        </td>
+        <td class="px-3 py-3 align-top">
+          {% set pill_classes = {
+            'Compliant': 'bg-emerald-50 text-emerald-700 border-emerald-200',
+            'Gap': 'bg-red-50 text-red-700 border-red-200',
+            'Partial': 'bg-amber-50 text-amber-700 border-amber-200',
+            'External': 'bg-slate-100 text-slate-700 border-slate-300',
+            'Pending Info': 'bg-blue-50 text-blue-700 border-blue-200',
+            'Waived': 'bg-gray-100 text-gray-500 border-gray-200',
+            'N/A': 'bg-gray-100 text-gray-500 border-gray-200',
+            'Needs Review': 'bg-gray-50 text-gray-600 border-gray-300',
+          } %}
+          <span class="inline-block px-2 py-0.5 text-[11px] font-medium rounded border
+                       {{ pill_classes.get(status, 'bg-gray-50 text-gray-600 border-gray-300') }}
+                       {% if is_informational %}opacity-80{% endif %}">
+            {{ status }}
+          </span>
+          {% if needs_note %}
+          <span class="ml-1 text-amber-500" title="Missing rationale — add a note explaining this disposition">⚠</span>
+          {% endif %}
+        </td>
+        <td class="px-5 py-3 align-top text-right">
+          <button type="button"
+                  class="px-2.5 py-1 text-xs font-medium rounded {% if status == 'Needs Review' %}bg-marsh-blue text-white hover:bg-marsh-blue-dark{% else %}border border-gray-300 text-gray-600 hover:bg-gray-100{% endif %}"
+                  hx-get="/compliance/client/{{ client_id }}/requirements/{{ r.id }}/detail"
+                  hx-target="#requirement-slideover-container"
+                  hx-swap="innerHTML">
+            {{ 'Review →' if status == 'Needs Review' else 'Edit' }}
+          </button>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="p-8 text-center text-sm text-gray-400">
+    This contract has no requirements extracted yet. Use Review Mode or the AI import flow to add them.
+  </div>
+  {% endif %}
+</div>
+
+{# Modal host for the bulk match proposal #}
+<div id="bulk-match-modal-host"></div>
+{% endif %}
+
+{# ── format_number fallback: if not registered, use tojson-like display ── #}

@@ -12,6 +12,34 @@
     <span class="text-gray-700 font-medium">Compliance Review</span>
   </nav>
 
+  {# ── Top-level tab shell ─────────────────────────────────────────────── #}
+  {#
+     Contracts tab (default) = contract-first review workspace for disposition
+     Matrix tab = existing matrix dashboard for an at-a-glance overview
+     Tabs toggle visibility of inline content to avoid reloading large state.
+  #}
+  <div class="border-b border-gray-200 mb-5 no-print">
+    <div class="flex gap-1" id="compliance-top-tabs" data-client-id="{{ client_id }}">
+      <button data-tab="contracts" class="px-4 py-2 text-sm font-medium border-b-2 border-marsh text-marsh">
+        Contracts
+      </button>
+      <button data-tab="matrix" class="px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700">
+        Matrix
+      </button>
+    </div>
+  </div>
+
+  {# ── Contracts tab (default) ─────────────────────────────────────────── #}
+  <div id="tab-panel-contracts"
+       hx-get="/compliance/client/{{ client_id }}/contracts"
+       hx-trigger="load once"
+       hx-swap="innerHTML">
+    <p class="text-sm text-gray-400">Loading contracts workspace…</p>
+  </div>
+
+  {# ── Matrix tab (existing content) ───────────────────────────────────── #}
+  <div id="tab-panel-matrix" style="display:none;">
+
   {# ── Summary Banner ──────────────────────────────────────────────────── #}
   {% include "compliance/_summary_banner.html" %}
 
@@ -193,7 +221,45 @@
     </div>
   </details>
 
+  </div> {# /tab-panel-matrix #}
 </div>
+
+<script>
+/* Top-level tab toggle: Contracts vs. Matrix (persisted in sessionStorage) */
+(function(){
+  var tabBar = document.getElementById('compliance-top-tabs');
+  if (!tabBar) return;
+  var clientId = tabBar.dataset.clientId;
+  var storageKey = 'compliance_top_tab_' + clientId;
+
+  function show(tab) {
+    var panels = ['contracts', 'matrix'];
+    panels.forEach(function(p){
+      var el = document.getElementById('tab-panel-' + p);
+      if (el) el.style.display = (p === tab) ? '' : 'none';
+    });
+    tabBar.querySelectorAll('button').forEach(function(b){
+      var active = b.dataset.tab === tab;
+      b.classList.toggle('border-marsh', active);
+      b.classList.toggle('text-marsh', active);
+      b.classList.toggle('border-transparent', !active);
+      b.classList.toggle('text-gray-500', !active);
+    });
+    try { sessionStorage.setItem(storageKey, tab); } catch(_){}
+  }
+
+  tabBar.addEventListener('click', function(e){
+    var btn = e.target.closest('button[data-tab]');
+    if (!btn) return;
+    show(btn.dataset.tab);
+  });
+
+  // Restore persisted tab on first render (defaults to contracts)
+  var initial = 'contracts';
+  try { initial = sessionStorage.getItem(storageKey) || 'contracts'; } catch(_){}
+  if (initial !== 'contracts') show(initial);
+})();
+</script>
 
 <script>
 /* Endorsement pill toggle + hidden JSON field */

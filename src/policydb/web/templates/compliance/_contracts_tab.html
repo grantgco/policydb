@@ -1,0 +1,76 @@
+{#
+  Contracts tab — contract-first review workspace.
+  Context: client_id, sources (each with total_reqs, reviewed_reqs, project_name).
+  Left rail is the work queue, center holds the selected contract's review table.
+#}
+<div class="grid grid-cols-[260px_1fr] gap-5">
+
+  {# ── Left rail: contracts as work queue ──────────────────────────────── #}
+  <aside class="space-y-2">
+    <div class="flex items-center justify-between px-1 mb-2">
+      <h3 class="text-xs font-semibold uppercase tracking-wide text-gray-500">Contract sources</h3>
+      <span class="text-[11px] text-gray-400">{{ sources | length }}</span>
+    </div>
+
+    {% if sources %}
+    <div id="contract-source-list" class="space-y-1.5">
+      {% for src in sources %}
+      {% set total = src.total_reqs or 0 %}
+      {% set reviewed = src.reviewed_reqs or 0 %}
+      {% set pct = (reviewed / total * 100) if total else 0 %}
+      <button type="button"
+              class="w-full text-left px-3 py-2.5 rounded-md border border-gray-200 bg-white hover:border-marsh hover:bg-marsh/5 transition source-entry"
+              data-source-id="{{ src.id }}"
+              hx-get="/compliance/client/{{ client_id }}/sources/{{ src.id }}/workspace"
+              hx-target="#contract-workspace-body"
+              hx-swap="innerHTML">
+        <div class="text-sm font-medium text-gray-800 truncate">{{ src.name }}</div>
+        <div class="text-[11px] text-gray-500 mt-0.5 flex items-center gap-1.5">
+          {% if src.counterparty %}<span class="truncate">{{ src.counterparty }}</span>{% endif %}
+          {% if src.project_name %}
+          <span class="text-gray-300">·</span>
+          <span class="text-gray-600">{{ src.project_name }}</span>
+          {% endif %}
+        </div>
+        <div class="mt-2 h-1 rounded-full bg-gray-100 overflow-hidden">
+          <div class="h-full {% if reviewed == total and total %}bg-emerald-500{% else %}bg-marsh-blue{% endif %}"
+               style="width: {{ pct | round(0) }}%"></div>
+        </div>
+        <div class="text-[10px] text-gray-400 mt-1 flex justify-between">
+          <span>{{ reviewed }} / {{ total }} reviewed</span>
+          {% if total and reviewed == total %}<span class="text-emerald-600">✓ complete</span>{% endif %}
+        </div>
+      </button>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="text-sm text-gray-400 italic px-2">No contract sources yet.</div>
+    {% endif %}
+  </aside>
+
+  {# ── Center: selected contract workspace ─────────────────────────────── #}
+  <main>
+    <div id="contract-workspace-body">
+      <div class="rounded-lg border border-dashed border-gray-300 p-8 text-center">
+        <p class="text-sm text-gray-500">Pick a contract from the left to start reviewing.</p>
+        <p class="text-xs text-gray-400 mt-2">Each requirement opens a slideover with the suggested policy match — link a policy and mark the status in one click.</p>
+      </div>
+    </div>
+  </main>
+
+</div>
+
+<script>
+(function(){
+  var list = document.getElementById('contract-source-list');
+  if (!list) return;
+  list.addEventListener('click', function(e){
+    var btn = e.target.closest('.source-entry');
+    if (!btn) return;
+    list.querySelectorAll('.source-entry').forEach(function(el){
+      el.classList.remove('border-marsh', 'bg-marsh/5');
+    });
+    btn.classList.add('border-marsh', 'bg-marsh/5');
+  });
+})();
+</script>
