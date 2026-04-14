@@ -23,7 +23,7 @@ from policydb.llm_schemas import (
     parse_contact_extraction_json,
     parse_llm_json,
 )
-from policydb.queries import REVIEW_CYCLE_LABELS, get_all_policies, get_client_by_id, get_opportunity_by_uid, get_policy_by_uid, get_policy_total_hours, get_saved_notes, save_note, delete_saved_note, renew_policy, get_or_create_contact, assign_contact_to_policy, remove_contact_from_policy, set_placement_colleague, get_policy_contacts, get_sub_coverages as _get_sub_coverages, auto_generate_sub_coverages as _auto_generate_sub_coverages
+from policydb.queries import REVIEW_CYCLE_LABELS, get_all_policies, get_client_by_id, get_opportunity_by_uid, get_policy_by_uid, get_policy_total_hours, get_saved_notes, save_note, delete_saved_note, renew_policy, get_or_create_contact, assign_contact_to_policy, remove_contact_from_policy, set_placement_colleague, get_policy_contacts, get_sub_coverages as _get_sub_coverages, auto_generate_sub_coverages as _auto_generate_sub_coverages, get_open_tasks
 from rapidfuzz import fuzz
 from policydb.utils import cap_followup_date, round_duration, normalize_carrier, normalize_coverage_type, normalize_policy_number, format_city, format_state, format_zip
 from policydb.web.app import get_db, templates
@@ -3356,6 +3356,7 @@ def policy_edit_form(request: Request, policy_uid: str, add_contact: str = "", c
     ).fetchone()[0]
 
     from policydb.queries import REVIEW_CYCLE_LABELS as _REVIEW_CYCLE_LABELS
+    _ot = get_open_tasks(conn, "policy", policy_dict["id"])
     return templates.TemplateResponse("policies/edit.html", {
         "request": request,
         "active": "",
@@ -3409,6 +3410,9 @@ def policy_edit_form(request: Request, policy_uid: str, add_contact: str = "", c
         "pinned_scope": "policy",
         "pinned_scope_id": uid,
         "pinned_client_id": str(policy_dict["client_id"]),
+        "scope_type": "policy",
+        "scope_id": policy_dict["id"],
+        "data": _ot,
     })
 
 
