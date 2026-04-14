@@ -1007,12 +1007,23 @@ _EXCESS_ALLOWED = {"policy_type", "carrier", "policy_number", "limit_amount",
 
 
 def _parse_and_format_currency(raw: str):
-    """Parse currency input, return (db_value, formatted, error)."""
+    """Parse currency input, return (db_value, formatted, error).
+
+    Empty/whitespace input and parsed zero both return an EMPTY display
+    string so the row templates' `{% if value %}` guards stay consistent
+    with what the JS writes back into the cell. Returning "$0" here
+    caused a sticky-zero bug on fields like attachment_point: the cell
+    would display "$0" after clearing, `data-original` would cache "$0"
+    on the next focus, and subsequent clears would keep round-tripping
+    back to "$0" — the field felt unclearable.
+    """
     if not raw or not str(raw).strip():
-        return 0, "$0", None
+        return 0, "", None
     val = parse_currency_with_magnitude(str(raw).strip())
     if val is None:
         return None, None, f"Could not parse '{raw}'"
+    if val == 0:
+        return 0, "", None
     formatted = f"${val:,.0f}" if val == int(val) else f"${val:,.2f}"
     return val, formatted, None
 

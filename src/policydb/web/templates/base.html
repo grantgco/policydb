@@ -445,7 +445,11 @@
         var rowId = getRowId(row);
         var field = cell.dataset.field;
         saveCell(rowId, field, newVal, function(data) {
-          if (data.ok && data.formatted) {
+          // Check for 'formatted' key explicitly — an empty string is a
+          // valid "clear the cell" signal (e.g. a currency field parsed
+          // to zero). Using truthiness would skip that update and let a
+          // stale "$0" or user-typed value linger in the cell.
+          if (data.ok && data.formatted !== undefined && data.formatted !== null) {
             cell.textContent = data.formatted;
             if (data.formatted !== newVal) flashCell(cell);
           }
