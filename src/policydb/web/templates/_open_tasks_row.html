@@ -64,10 +64,11 @@
 
     {# Waiting toggle #}
     {% if row.source == 'activity' %}
+    {% set next_move = "my" if row.accountability == "waiting_external" else "waiting" %}
     <button type="button"
             title="Toggle My Move / Waiting"
             hx-post="/open-tasks/{{ row.activity_id }}/disposition"
-            hx-vals='{"move": "{{ 'my' if row.accountability == 'waiting_external' else 'waiting' }}", "return_scope_type": "{{ scope_type }}", "return_scope_id": {{ scope_id }}}'
+            hx-vals='{"move": "{{ next_move }}", "return_scope_type": "{{ scope_type }}", "return_scope_id": {{ scope_id }}}'
             hx-target="#open-tasks-panel-{{ scope_type }}-{{ scope_id }}"
             hx-swap="outerHTML"
             class="rounded p-1 text-xs {% if row.accountability == 'waiting_external' %}text-amber-600 hover:bg-amber-50{% else %}text-gray-500 hover:bg-gray-100{% endif %}">

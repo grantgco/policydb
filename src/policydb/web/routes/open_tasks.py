@@ -121,7 +121,7 @@ def _resolve_scope_context(conn, scope_type: str, scope_id: int) -> dict:
     for creating a new activity under this scope when no policy is selected."""
     if scope_type == "issue":
         iss = conn.execute(
-            "SELECT client_id, program_id FROM activity_log WHERE id = ?",
+            "SELECT client_id, program_id FROM activity_log WHERE id = ? AND item_kind = 'issue'",
             (scope_id,),
         ).fetchone()
         return {"client_id": iss["client_id"] if iss else None, "issue_id": scope_id, "policy_id": None}
@@ -236,10 +236,12 @@ def action_done(
         conn.execute(
             "UPDATE policies SET follow_up_date = NULL WHERE id = ?", (rid,)
         )
+        sync_policy_follow_up_date(conn, rid)
     elif kind == "client":
         conn.execute(
             "UPDATE clients SET follow_up_date = NULL WHERE id = ?", (rid,)
         )
+        sync_client_follow_up_date(conn, rid)
     conn.commit()
     return _render_panel(
         request, conn, return_scope_type, return_scope_id,
