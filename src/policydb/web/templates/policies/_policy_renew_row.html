@@ -71,8 +71,11 @@
       </div>
     </div>
     {% endif %}
-    {% if p.timeline_health and p.timeline_health in ('critical', 'at_risk') %}
-    <span class="block mt-0.5 text-[10px] text-red-500 font-medium" title="Timeline: {{ p.timeline_health }}">&#x25CF; {{ p.timeline_health | replace('_', ' ') | title }}</span>
+    {# Timeline health — always surfaced so green/healthy also reads at a glance #}
+    {% if p.timeline_health %}
+      {% set _th = p.timeline_health %}
+      {% set _th_color = 'text-red-500' if _th == 'critical' else 'text-amber-600' if _th == 'at_risk' else 'text-green-600' if _th == 'on_track' else 'text-gray-400' %}
+      <span class="block mt-0.5 text-[10px] {{ _th_color }} font-medium" title="Timeline: {{ _th }}">&#x25CF; {{ _th | replace('_', ' ') | title }}</span>
     {% endif %}
   </td>
   {# Status + Issues #}
@@ -100,8 +103,16 @@
   </td>
   {# Policy Team #}
   <td class="px-2 py-1.5 text-gray-500">
-    {{ p.placement_colleague or '' }}
-    {% if not p.placement_colleague %}<span class="text-amber-400" title="No placement colleague">&#9888;</span>{% endif %}
+    <span class="inline-flex items-center gap-1">
+      {{ p.placement_colleague or '' }}
+      {% if p.placement_colleague and p.placement_colleague_email %}
+      <button type="button"
+        onclick="event.stopPropagation();openComposeSlideover({context:'policy', policy_uid:'{{ p.policy_uid }}', client_id:{{ p.client_id }}, to_email:'{{ p.placement_colleague_email }}'})"
+        class="text-gray-300 hover:text-marsh transition-colors no-print"
+        title="Email {{ p.placement_colleague }}">&#9993;</button>
+      {% endif %}
+      {% if not p.placement_colleague %}<span class="text-amber-400" title="No placement colleague">&#9888;</span>{% endif %}
+    </span>
     {% if p.underwriter_name %}<span class="block text-gray-400">{{ p.underwriter_name }}</span>{% endif %}
   </td>
   {# Last Touch — clickable to trigger inline log #}

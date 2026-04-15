@@ -38,6 +38,20 @@
         <span class="text-[11px] font-semibold px-2 py-0.5 rounded {{ badge_color }} whitespace-nowrap">
           {% if is_overdue and item.is_synthetic_deadline %}NEEDS ATTENTION{% elif is_overdue %}OVERDUE{% else %}{{ category_labels.get(cat, 'ACTION') }}{% endif %}
         </span>
+        {# Always-visible deadline pill — density win so users don't hunt through
+           the metrics strip for urgency. Shows only when a real deadline exists. #}
+        {% if item.days_until_deadline is not none %}
+          {% set _dud = item.days_until_deadline %}
+          {% if _dud < 0 %}
+            <span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-600 text-white whitespace-nowrap" title="Days past follow-up date">OVERDUE {{ -_dud }}d</span>
+          {% elif _dud == 0 %}
+            <span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-500 text-white whitespace-nowrap">DUE TODAY</span>
+          {% elif _dud <= 7 %}
+            <span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300 whitespace-nowrap" title="Days until follow-up is due">DUE IN {{ _dud }}d</span>
+          {% elif _dud <= 30 %}
+            <span class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 whitespace-nowrap">in {{ _dud }}d</span>
+          {% endif %}
+        {% endif %}
         {% if item.source_label and item.source_label not in ('Follow-up',) %}
         <span class="text-[10px] text-[#9B9790]">{{ item.source_label }}</span>
         {% endif %}

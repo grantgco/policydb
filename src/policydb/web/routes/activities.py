@@ -1004,6 +1004,129 @@ def activity_edit_slideover(activity_id: int, request: Request, conn=Depends(get
 _ACTIVITY_EDITABLE_FIELDS = {"subject", "activity_type", "duration_hours", "disposition", "details", "contact_person", "contact_id", "follow_up_date", "activity_date", "follow_up_done", "client_id", "policy_id", "issue_id"}
 
 
+# Regex: grab a short window of text before any date token so we can judge
+# whether the date is preceded by a renewal-relevant keyword.
+_DATE_HINT_KEYWORDS = ("renewal", "effective", "expires", "expiration", "bound", "binds", "bind")
+
+
+def _detect_policy_date_suggestion(conn, activity_id: int, details: str) -> dict | None:
+    """Look for 'renewal/effective/expires <date>' patterns in activity details.
+
+    Returns a dict describing a one-click patch the user can confirm, or None
+    when nothing relevant is found. Uses the dateparser library (per CLAUDE.md),
+    so free-form dates like "July 15, 2026" and "7/15" both work.
+    """
+    if not details or not details.strip():
+        return None
+    row = conn.execute(
+        "SELECT policy_id FROM activity_log WHERE id = ?", (activity_id,),
+    ).fetchone()
+    if not row or not row["policy_id"]:
+        return None
+
+    lower = details.lower()
+    matched_keyword: str | None = None
+    keyword_idx = -1
+    for kw in _DATE_HINT_KEYWORDS:
+        idx = lower.find(kw)
+        if idx != -1:
+            matched_keyword = kw
+            keyword_idx = idx
+            break
+    if matched_keyword is None:
+        return None
+
+    # Scan the window after the keyword for a parseable date.
+    window = details[keyword_idx: keyword_idx + 120]
+    try:
+        import dateparser
+    except ImportError:
+        return None
+    from datetime import date as _date
+    parsed = dateparser.parse(
+        window,
+        settings={"PREFER_DATES_FROM": "future", "RETURN_AS_TIMEZONE_AWARE": False},
+    )
+    if not parsed:
+        # Retry on just the chunk after the keyword to avoid earlier dates.
+        parsed = dateparser.parse(
+            window[len(matched_keyword):],
+            settings={"PREFER_DATES_FROM": "future", "RETURN_AS_TIMEZONE_AWARE": False},
+        )
+    if not parsed:
+        return None
+
+    iso = parsed.date().isoformat()
+    # Only suggest dates that are plausibly useful (not in the distant past).
+    if (parsed.date() - _date.today()).days < -31:
+        return None
+
+    # Decide which policy column the keyword targets.
+    if matched_keyword in ("expires", "expiration"):
+        target_field = "expiration_date"
+        label = "expiration date"
+    elif matched_keyword in ("bound", "binds", "bind"):
+        target_field = "bound_date"
+        label = "bound date"
+    else:
+        target_field = "expiration_date"
+        label = "renewal date"
+
+    policy = conn.execute(
+        f"SELECT policy_uid, {target_field} FROM policies WHERE id = ?",  # noqa: S608
+        (row["policy_id"],),
+    ).fetchone()
+    if not policy:
+        return None
+    current = policy[target_field]
+    if current == iso:
+        return None
+
+    return {
+        "activity_id": activity_id,
+        "policy_uid": policy["policy_uid"],
+        "field": target_field,
+        "label": label,
+        "new_value": iso,
+        "current_value": current or "",
+        "keyword": matched_keyword,
+    }
+
+
+@router.post("/activities/{activity_id}/apply-date-suggestion")
+async def apply_activity_date_suggestion(
+    activity_id: int, request: Request, conn=Depends(get_db),
+):
+    """Apply a date suggestion surfaced by _detect_policy_date_suggestion.
+
+    Body: {"policy_uid": str, "field": "expiration_date|bound_date", "new_value": "YYYY-MM-DD"}
+    """
+    body = await request.json()
+    policy_uid = (body.get("policy_uid") or "").upper()
+    field = body.get("field", "")
+    new_value = (body.get("new_value") or "").strip()
+
+    if field not in ("expiration_date", "bound_date", "effective_date"):
+        return JSONResponse({"ok": False, "error": "Invalid field"}, status_code=400)
+    if not policy_uid or not new_value:
+        return JSONResponse({"ok": False, "error": "Missing args"}, status_code=400)
+
+    conn.execute(
+        f"UPDATE policies SET {field} = ? WHERE policy_uid = ?",  # noqa: S608
+        (new_value, policy_uid),
+    )
+    conn.commit()
+    # Regenerate timeline if applicable (mirrors the main cell endpoint).
+    if field in ("effective_date", "expiration_date"):
+        _regen = conn.execute(
+            "SELECT milestone_profile FROM policies WHERE policy_uid = ?", (policy_uid,),
+        ).fetchone()
+        if _regen and _regen["milestone_profile"]:
+            from policydb.timeline_engine import generate_policy_timelines
+            generate_policy_timelines(conn, policy_uid=policy_uid)
+    return JSONResponse({"ok": True, "policy_uid": policy_uid, "field": field, "value": new_value})
+
+
 @router.patch("/activities/{activity_id}/field")
 def patch_activity_field(activity_id: int, request_body: dict = None, conn=Depends(get_db)):
     """Update a single field on an activity (for inline editing)."""
@@ -1036,6 +1159,13 @@ def patch_activity_field(activity_id: int, request_body: dict = None, conn=Depen
 
     # Return enriched info for client/policy reassignment
     extra: dict = {}
+    # Touch-once: if the user just edited the activity details and the new text
+    # mentions a renewal/effective/expires date, surface a suggestion to patch
+    # the linked policy. Never auto-write — frontend shows a single-click toast.
+    if field == "details" and value:
+        suggestion = _detect_policy_date_suggestion(conn, activity_id, str(value))
+        if suggestion:
+            extra["date_suggestion"] = suggestion
     if field == "issue_id":
         if value:
             issue = conn.execute(

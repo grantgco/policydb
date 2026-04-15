@@ -244,10 +244,10 @@ if (sessionStorage.getItem('review-reminder-dismissed')) {
 
       <!-- Overdue -->
       {% if overdue %}
-      <p class="px-4 pt-3 text-xs font-semibold text-red-600 uppercase tracking-wide">Overdue</p>
+      <p class="px-4 pt-2 text-xs font-semibold text-red-600 uppercase tracking-wide">Overdue</p>
       <ul class="divide-y divide-gray-50">
-        {% for o in overdue[:5] %}
-        <li class="px-4 py-2.5 flex items-start justify-between gap-2" id="followup-{{ o.source }}-{{ o.id }}">
+        {% for o in overdue[:8] %}
+        <li class="px-4 py-1.5 flex items-start justify-between gap-2" id="followup-{{ o.source }}-{{ o.id }}">
           <div class="min-w-0">
             <div class="flex items-baseline gap-1.5 flex-wrap">
               <a href="/clients/{{ o.client_id }}" class="text-sm font-medium text-marsh hover:underline">{{ o.client_name }}</a>
@@ -306,8 +306,8 @@ if (sessionStorage.getItem('review-reminder-dismissed')) {
         </li>
         {% endfor %}
       </ul>
-      {% if overdue | length > 5 %}
-      <p class="px-4 py-2 text-center border-t border-gray-50">
+      {% if overdue | length > 8 %}
+      <p class="px-4 py-1.5 text-center border-t border-gray-50">
         <a href="/followups" class="text-xs text-marsh hover:underline">View all {{ overdue | length }} overdue →</a>
       </p>
       {% endif %}
@@ -315,10 +315,10 @@ if (sessionStorage.getItem('review-reminder-dismissed')) {
 
       <!-- Upcoming -->
       {% if upcoming %}
-      <p class="px-4 pt-3 text-xs font-semibold text-amber-600 uppercase tracking-wide {% if overdue %}border-t border-gray-100{% endif %}">Upcoming · next 30 days</p>
+      <p class="px-4 pt-2 text-xs font-semibold text-amber-600 uppercase tracking-wide {% if overdue %}border-t border-gray-100{% endif %}">Upcoming · next 30 days</p>
       <ul class="divide-y divide-gray-50">
-        {% for u in upcoming[:5] %}
-        <li class="px-4 py-2.5 flex items-start justify-between gap-2" id="followup-{{ u.source }}-{{ u.id }}">
+        {% for u in upcoming[:8] %}
+        <li class="px-4 py-1.5 flex items-start justify-between gap-2" id="followup-{{ u.source }}-{{ u.id }}">
           <div class="min-w-0">
             <div class="flex items-baseline gap-1.5 flex-wrap">
               <a href="/clients/{{ u.client_id }}" class="text-sm font-medium text-marsh hover:underline">{{ u.client_name }}</a>
@@ -377,8 +377,8 @@ if (sessionStorage.getItem('review-reminder-dismissed')) {
         </li>
         {% endfor %}
       </ul>
-      {% if upcoming | length > 5 %}
-      <p class="px-4 py-2 text-center border-t border-gray-50">
+      {% if upcoming | length > 8 %}
+      <p class="px-4 py-1.5 text-center border-t border-gray-50">
         <a href="/followups" class="text-xs text-marsh hover:underline">View all {{ upcoming | length }} upcoming →</a>
       </p>
       {% endif %}

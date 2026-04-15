@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, Request, Query
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from policydb import config as cfg
+from policydb.utils import clean_email, format_phone
 from policydb.web.app import get_db, templates as jinja_templates
 from policydb.email_templates import (
     render_tokens,
@@ -22,6 +23,26 @@ from policydb.email_templates import (
 )
 
 router = APIRouter(prefix="/compose", tags=["compose"])
+
+
+def _extract_phone_candidates(text: str) -> list[str]:
+    """Use the phonenumbers library to find US phone numbers in free text.
+
+    Returns formatted phones in order of appearance, deduped.
+    """
+    if not text:
+        return []
+    try:
+        import phonenumbers  # noqa: F401  — lazy import; keeps cold start fast
+        from phonenumbers import PhoneNumberMatcher
+    except ImportError:
+        return []
+    seen: list[str] = []
+    for match in PhoneNumberMatcher(text, "US"):
+        formatted = format_phone(match.raw_string)
+        if formatted and formatted not in seen:
+            seen.append(formatted)
+    return seen
 
 
 # ── Recipient loading ────────────────────────────────────────────────────────
@@ -582,3 +603,64 @@ def compose_copy_table(
         return JSONResponse(result)
 
     return JSONResponse({"html": "", "text": ""}, status_code=400)
+
+
+# ── Phone capture (touch-once contact enrichment) ────────────────────────────
+
+@router.post("/scan-body", response_class=JSONResponse)
+async def compose_scan_body(request: Request, conn=Depends(get_db)):
+    """Scan a composed body for phone numbers that aren't on file yet.
+
+    Touch-once: a compose body often contains a phone in the sender's signature
+    block. When the user finalizes the draft, scan the body and return any
+    candidate phones for contacts that don't have one on file. The frontend
+    shows a single-click "Add to <name>" toast for confirmation — never a
+    silent write.
+
+    Body: {"to_email": "...", "body": "..."}
+    Returns: {"contact_id": int, "contact_name": str, "candidate": str}
+             or {"candidate": None} if nothing to suggest.
+    """
+    body_json = await request.json()
+    to_email = clean_email(body_json.get("to_email", "")) or ""
+    text = body_json.get("body", "") or ""
+
+    if not to_email:
+        return JSONResponse({"candidate": None, "reason": "no_recipient"})
+
+    contact_row = conn.execute(
+        "SELECT id, name, phone FROM contacts WHERE LOWER(email) = LOWER(?) LIMIT 1",
+        (to_email,),
+    ).fetchone()
+    if not contact_row:
+        return JSONResponse({"candidate": None, "reason": "recipient_not_in_contacts"})
+    if contact_row["phone"]:
+        return JSONResponse({"candidate": None, "reason": "already_has_phone"})
+
+    candidates = _extract_phone_candidates(text)
+    if not candidates:
+        return JSONResponse({"candidate": None, "reason": "no_phone_found"})
+
+    return JSONResponse({
+        "contact_id": contact_row["id"],
+        "contact_name": contact_row["name"],
+        "candidate": candidates[0],
+    })
+
+
+@router.post("/contact/{contact_id}/phone", response_class=JSONResponse)
+async def compose_contact_phone_save(contact_id: int, request: Request, conn=Depends(get_db)):
+    """Save a confirmed phone number to a contact (invoked from compose toast)."""
+    body_json = await request.json()
+    phone = format_phone(body_json.get("phone", "")) or None
+    if not phone:
+        return JSONResponse({"ok": False, "error": "Invalid phone"}, status_code=400)
+    row = conn.execute("SELECT id FROM contacts WHERE id=?", (contact_id,)).fetchone()
+    if not row:
+        return JSONResponse({"ok": False, "error": "Contact not found"}, status_code=404)
+    conn.execute(
+        "UPDATE contacts SET phone=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+        (phone, contact_id),
+    )
+    conn.commit()
+    return JSONResponse({"ok": True, "phone": phone})

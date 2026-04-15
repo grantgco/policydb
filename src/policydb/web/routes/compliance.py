@@ -1283,6 +1283,79 @@ def requirements_edit(
     return HTMLResponse(html + oob)
 
 
+def _sync_required_endorsements_to_linked_policy(
+    conn, client_id: int, req_id: int,
+) -> None:
+    """Flow a requirement's required_endorsements into policies.endorsements.
+
+    Triggered when a reviewer marks the requirement Compliant — closes the
+    touch-once loop so the confirmed endorsements live on the policy record,
+    not just in this requirement's notes field. Idempotent and case-insensitive
+    via _parse_policy_endorsements on the policy side.
+
+    Looks at both the denormalized `linked_policy_uid` column and any rows in
+    the `requirement_policy_links` junction table so linked-to-many requirements
+    all propagate.
+    """
+    import json as _json
+    req_row = conn.execute(
+        """SELECT required_endorsements, linked_policy_uid
+             FROM coverage_requirements WHERE id = ? AND client_id = ?""",
+        (req_id, client_id),
+    ).fetchone()
+    if not req_row:
+        return
+    try:
+        required = _json.loads(req_row["required_endorsements"] or "[]")
+    except (ValueError, TypeError):
+        return
+    required = [str(e).strip() for e in required if str(e).strip()]
+    if not required:
+        return
+
+    target_uids: list[str] = []
+    if req_row["linked_policy_uid"]:
+        target_uids.append(req_row["linked_policy_uid"].upper())
+    try:
+        link_rows = conn.execute(
+            "SELECT policy_uid FROM requirement_policy_links WHERE requirement_id = ?",
+            (req_id,),
+        ).fetchall()
+        for r in link_rows:
+            if r["policy_uid"]:
+                uid = r["policy_uid"].upper()
+                if uid not in target_uids:
+                    target_uids.append(uid)
+    except sqlite3.OperationalError:
+        # Table may not exist on older schemas — primary link path still fires.
+        pass
+
+    if not target_uids:
+        return
+
+    from policydb.web.routes.policies import _parse_policy_endorsements
+    for uid in target_uids:
+        pol = conn.execute(
+            "SELECT endorsements FROM policies WHERE policy_uid = ?", (uid,),
+        ).fetchone()
+        if not pol:
+            continue
+        existing = _parse_policy_endorsements(pol["endorsements"])
+        existing_cf = {e.casefold() for e in existing}
+        updated = False
+        for endo in required:
+            if endo.casefold() not in existing_cf:
+                existing.append(endo)
+                existing_cf.add(endo.casefold())
+                updated = True
+        if updated:
+            conn.execute(
+                "UPDATE policies SET endorsements = ? WHERE policy_uid = ?",
+                (_json.dumps(existing), uid),
+            )
+    conn.commit()
+
+
 @router.post("/client/{client_id}/requirements/{req_id}/status", response_class=HTMLResponse)
 def requirements_status(
     client_id: int,
@@ -1307,6 +1380,14 @@ def requirements_status(
             (status, _now_iso(), _current_user(), req_id, client_id),
         )
     conn.commit()
+
+    # Touch-once: when a requirement is marked Compliant, any required endorsements
+    # on that requirement should automatically flow to the linked policy's
+    # endorsements array. This closes the loop so the fact lives on the policy
+    # record, not just this requirement's notes. Reuses the case-insensitive
+    # dedupe already baked into _parse_policy_endorsements on the policy side.
+    if status == "Compliant":
+        _sync_required_endorsements_to_linked_policy(conn, client_id, req_id)
     # Return updated matrix + OOB summary
     ctx = _compliance_context(conn, client_id, request)
     matrix_html = templates.TemplateResponse("compliance/_matrix.html", {

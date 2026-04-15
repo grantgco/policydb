@@ -290,6 +290,53 @@
       .catch(function() { if (typeof showToast === 'function') showToast('Copy failed', false); });
   };
 
+  // Touch-once: after a draft is created, ask the server if the body contains
+  // a phone number that belongs on the recipient's contact record. If yes,
+  // show a single-click toast so the user can confirm with no navigation.
+  window.maybeCapturePhoneFromBody = function(toEmail, body) {
+    if (!toEmail || !body) return;
+    fetch('/compose/scan-body', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({to_email: toEmail, body: body})
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (!data || !data.candidate) return;
+      var contactId = data.contact_id;
+      var name = data.contact_name || 'contact';
+      var candidate = data.candidate;
+      // Render a lightweight confirmation toast in the corner
+      var t = document.createElement('div');
+      t.style.cssText = 'position:fixed;bottom:24px;right:24px;z-index:99999;max-width:360px;background:#fff;border:1px solid #0B4BFF;border-radius:8px;box-shadow:0 10px 30px rgba(0,0,0,0.12);padding:12px 14px;font:13px/1.4 DM Sans,system-ui,sans-serif;color:#3D3C37;';
+      t.innerHTML = '<div style="margin-bottom:8px">Found <strong>' + candidate.replace(/</g,'&lt;') + '</strong> in the body. Save it to <strong>' + name.replace(/</g,'&lt;') + '</strong>?</div>' +
+        '<div style="display:flex;gap:8px;justify-content:flex-end">' +
+        '<button type="button" style="padding:4px 10px;font-size:12px;background:#f3f4f6;border-radius:4px;border:1px solid #e5e7eb;cursor:pointer">Ignore</button>' +
+        '<button type="button" style="padding:4px 10px;font-size:12px;background:#0B4BFF;color:#fff;border-radius:4px;border:none;cursor:pointer">Save</button>' +
+        '</div>';
+      document.body.appendChild(t);
+      var btns = t.querySelectorAll('button');
+      var dismiss = function() { if (t.parentNode) t.parentNode.removeChild(t); };
+      btns[0].onclick = dismiss;
+      btns[1].onclick = function() {
+        fetch('/compose/contact/' + contactId + '/phone', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({phone: candidate})
+        }).then(function(r) { return r.json(); }).then(function(d) {
+          if (d && d.ok) {
+            if (typeof showToast === 'function') showToast('Phone saved to ' + name, true);
+          } else {
+            if (typeof showToast === 'function') showToast('Could not save phone', false);
+          }
+          dismiss();
+        }).catch(function() { dismiss(); });
+      };
+      setTimeout(dismiss, 15000);
+    })
+    .catch(function() { /* silent — capture is best-effort */ });
+  };
+
   window.createOutlookDraft = function() {
     var toEl = document.getElementById('compose-to-email');
     var toEmail = toEl ? toEl.value : '';
@@ -332,6 +379,9 @@
     .then(function(data) {
       if (data.ok) {
         if (typeof showToast === 'function') showToast('Draft created in Outlook', true);
+        // Touch-once: offer to save any phone number found in the body to the
+        // recipient's contact record if they don't have one on file yet.
+        maybeCapturePhoneFromBody(toEmail, body);
         closeComposeSlideover();
       } else {
         // Outlook unavailable — fall back to mailto:
