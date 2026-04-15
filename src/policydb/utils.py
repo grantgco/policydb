@@ -788,15 +788,24 @@ def clean_email(raw: str) -> str:
     if not raw or not raw.strip():
         return ""
     s = raw.strip()
+    # Hard length cap before any regex runs — prevents ReDoS on pathological input
+    # from capture flows (compose body scan, inbox email_from, reconcile fills).
+    # RFC 5321 mandates 254 octets max for an address; we allow a generous
+    # wrapper for display-name + angle brackets.
+    if len(s) > 512:
+        s = s[:512]
     # Strip mailto: prefix
     if s.lower().startswith("mailto:"):
         s = s[7:]
     # Extract email from angle brackets: "Name <email>" or "<email>"
-    match = re.search(r'<([^>]+@[^>]+)>', s)
+    # Tightened character classes exclude '@', '<', '>' from repeated groups so
+    # the matcher can't backtrack across ambiguous splits.
+    match = re.search(r'<([^<>@]+@[^<>]+)>', s)
     if match:
         s = match.group(1)
     # Try to extract a bare email address from surrounding text like "(e) user@domain.com"
-    email_match = re.search(r'[\w.+-]+@[\w.-]+\.\w+', s)
+    # Unambiguous: local part, '@', host label(s) separated by literal dots.
+    email_match = re.search(r'[\w.+-]+@[\w-]+(?:\.[\w-]+)+', s)
     if email_match:
         return email_match.group(0).lower()
     # Strip surrounding quotes, semicolons, commas, whitespace
