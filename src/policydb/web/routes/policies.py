@@ -3813,8 +3813,12 @@ async def policy_cell_save(request: Request, policy_uid: str, conn=Depends(get_d
         "premium", "limit_amount", "deductible", "attachment_point",
         "participation_of", "prior_premium",
     }
+    # Note: follow_up_date is NOT editable via /cell. Migration 150 dropped
+    # policies.follow_up_date and made activity_log the sole source. Callers
+    # that need to write a follow-up date should PATCH /{uid}/followup-field,
+    # which routes through create_followup_activity / activity_log updates.
     date_fields = {
-        "effective_date", "expiration_date", "follow_up_date", "target_effective_date",
+        "effective_date", "expiration_date", "target_effective_date",
     }
     bool_fields = {"is_bor", "is_standalone", "flagged", "policy_number_unknown"}
     text_fields = {

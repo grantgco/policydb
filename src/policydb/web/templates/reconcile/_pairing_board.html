@@ -56,25 +56,10 @@
     <span class="text-xs text-green-600 font-medium">All program matches confirmed</span>
     {% endif %}
   </div>
-  <div class="space-y-2">
-    {% for uid, pgm in program_summary.items() %}
-    <div class="flex items-center gap-3 text-xs">
-      <span class="font-medium text-blue-900">{{ pgm.policy_type or 'Program' }}</span>
-      <span class="text-blue-500">&middot;</span>
-      <span class="text-blue-700">{{ pgm.matched_count }}/{{ pgm.carrier_count }} carriers matched</span>
-      <span class="text-blue-500">&middot;</span>
-      <span class="tabular-nums {% if pgm.fully_reconciled %}text-green-700{% else %}text-amber-700{% endif %}">
-        {{ pgm.matched_premium | currency }} of {{ pgm.total_premium | currency }}
-      </span>
-      {% if pgm.fully_reconciled %}
-      <span class="text-green-600 font-medium">&#10003; Reconciled</span>
-      {% elif pgm.new_carriers %}
-      <span class="text-amber-600 font-medium">{{ pgm.new_carriers | length }} new carrier{{ 's' if pgm.new_carriers | length != 1 else '' }}</span>
-      {% endif %}
-      <a href="/policies/{{ uid }}/edit" class="text-blue-500 hover:underline ml-auto font-mono">{{ uid }}</a>
-    </div>
-    {% endfor %}
-  </div>
+  {# Per-program stats loop removed in 8e59fc8e's simplification pass — child
+     policies are now ordinary 1:1 matches and appear as regular rows in the
+     pairing board. The "Okay All Program Matches" button above still bulk-
+     confirms every PAIRED row whose db.program_id is set. #}
 </div>
 {% endif %}
 

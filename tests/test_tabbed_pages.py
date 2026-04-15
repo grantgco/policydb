@@ -2,6 +2,7 @@
 
 import sqlite3
 import json
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -21,6 +22,13 @@ def app_client(tmp_path, monkeypatch):
     init_db(path=db_path)
 
     conn = get_connection(db_path)
+    # Derive dates relative to today so the seeded policy stays in-term no
+    # matter when the suite runs. test_db_persistence PATCHes renewal_status
+    # to "Bound", which fires the bind_order guard — an expired policy would
+    # be blocked by "This policy still needs to be renewed first".
+    _today = date.today()
+    _eff = (_today - timedelta(days=90)).isoformat()
+    _exp = (_today + timedelta(days=275)).isoformat()
     # Seed a client + policy for testing
     conn.execute(
         "INSERT INTO clients (id, name, industry_segment) VALUES (1, 'Test Client', 'Construction')"
@@ -30,8 +38,9 @@ def app_client(tmp_path, monkeypatch):
                    effective_date, expiration_date, premium, limit_amount, deductible,
                    renewal_status, is_opportunity, archived)
            VALUES (1, 'POL-001', 1, 'General Liability', 'Test Carrier',
-                   '2025-04-01', '2026-04-01', 50000, 1000000, 5000,
-                   'Not Started', 0, 0)"""
+                   ?, ?, 50000, 1000000, 5000,
+                   'Not Started', 0, 0)""",
+        (_eff, _exp),
     )
     conn.commit()
     conn.close()
@@ -82,21 +91,18 @@ class TestPolicyCellPatch:
         assert r.status_code == 200
         assert r.json()["formatted"] == "$45,000"
 
-    def test_date_field_follow_up(self, app_client):
+    def test_follow_up_date_rejected_on_cell_endpoint(self, app_client):
+        # Migration 150 dropped policies.follow_up_date; the /cell endpoint no
+        # longer accepts this field. Callers must use /{uid}/followup-field
+        # which routes through activity_log.
         r = self._patch(app_client, "follow_up_date", "2026-05-01")
-        assert r.status_code == 200
-        assert r.json()["ok"] is True
-        assert r.json()["formatted"] == "2026-05-01"
+        assert r.status_code == 400
+        assert "follow_up_date" in r.json().get("error", "")
 
     def test_date_field_effective(self, app_client):
         r = self._patch(app_client, "effective_date", "2025-07-01")
         assert r.status_code == 200
         assert r.json()["formatted"] == "2025-07-01"
-
-    def test_date_field_clear(self, app_client):
-        r = self._patch(app_client, "follow_up_date", "")
-        assert r.status_code == 200
-        assert r.json()["formatted"] == ""
 
     def test_bool_field_is_bor(self, app_client):
         r = self._patch(app_client, "is_bor", "true")
@@ -161,9 +167,12 @@ class TestPolicyCellPatch:
         assert r.json()["formatted"] == "General Liability"
 
     def test_commission_rate(self, app_client):
+        # Cell endpoint stores commission as a fraction in the DB but returns
+        # the percent-formatted string for display. "0.12" → stored 0.12,
+        # returned "12" (12% via Tabulator's _format: percent column).
         r = self._patch(app_client, "commission_rate", "0.12")
         assert r.status_code == 200
-        assert r.json()["formatted"] == "0.120"
+        assert r.json()["formatted"] == "12"
 
     def test_project_name(self, app_client):
         r = self._patch(app_client, "project_name", "Main St Condos")

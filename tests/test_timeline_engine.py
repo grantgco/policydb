@@ -173,6 +173,12 @@ def test_skip_child_policies_in_program(tmp_db):
     _insert_test_client(conn)
     _insert_test_policy(conn, 'PGM-001', 1, eff_date, exp_date,
                         id=1, is_program=1, milestone_profile='Full Renewal')
+    # Migration 103 repointed policies.program_id FK to programs(id) (was
+    # policies.id before). Tests that set program_id must insert the
+    # corresponding programs row first or the FK constraint fails.
+    conn.execute(
+        "INSERT INTO programs (id, program_uid, client_id, name) VALUES (1, 'PGM-001', 1, 'Test Program')"
+    )
     _insert_test_policy(conn, 'POL-002', 1, eff_date, exp_date,
                         id=2, program_id=1, milestone_profile='')
     conn.commit()
@@ -519,6 +525,10 @@ def test_review_queue_excludes_child_policies(tmp_db):
     # Program policy
     _insert_test_policy(conn, "PGM-001", 1, eff_date=eff, exp_date=exp,
                         id=1, is_program=1, review_cycle="1w", carrier="TestCo")
+    # Migration 103 repointed policies.program_id FK → programs(id).
+    conn.execute(
+        "INSERT INTO programs (id, program_uid, client_id, name) VALUES (1, 'PGM-001', 1, 'Test Program')"
+    )
     # Child policy in that program
     _insert_test_policy(conn, "POL-002", 1, eff_date=eff, exp_date=exp,
                         id=2, program_id=1, review_cycle="1w", carrier="TestCo")
@@ -539,6 +549,10 @@ def test_program_review_cascade_to_children(tmp_db):
     _insert_test_client(conn, 1, "Acme")
     _insert_test_policy(conn, "PGM-001", 1, eff_date=eff, exp_date=exp,
                         id=1, is_program=1, review_cycle="1w", carrier="TestCo")
+    # Migration 103 repointed policies.program_id FK → programs(id).
+    conn.execute(
+        "INSERT INTO programs (id, program_uid, client_id, name) VALUES (1, 'PGM-001', 1, 'Test Program')"
+    )
     _insert_test_policy(conn, "POL-002", 1, eff_date=eff, exp_date=exp,
                         id=2, program_id=1, review_cycle="1w", carrier="TestCo")
     conn.commit()
