@@ -279,7 +279,10 @@ def _load_db_policies(conn, client_id: int, scope: str) -> list[dict]:
                    p.policy_number, p.effective_date, p.expiration_date,
                    p.premium, p.limit_amount, p.deductible, p.client_id,
                    p.first_named_insured, p.placement_colleague, p.underwriter_name,
-                   p.exposure_address, p.project_name, p.project_id,
+                   -- Address comes from the linked location (legacy policy
+                   -- column dropped).
+                   pr.address AS exposure_address,
+                   p.project_name, p.project_id,
                    p.is_program, p.program_id,
                    pr.name AS location_name,
                    prog.policy_uid AS program_uid
@@ -1222,7 +1225,7 @@ async def reconcile_fill(
 
     _CURRENCY = {"premium", "limit_amount", "deductible"}
     _TEXT = {"carrier", "policy_number", "first_named_insured", "placement_colleague",
-             "underwriter_name", "exposure_address", "project_name"}
+             "underwriter_name", "project_name"}
     _DATE = {"effective_date", "expiration_date"}
     _ALLOWED = _CURRENCY | _TEXT | _DATE
 
@@ -1674,7 +1677,7 @@ _ALLOWED_FIELDS = {
     "effective_date", "expiration_date",
     "premium", "limit_amount", "deductible",
     "first_named_insured", "placement_colleague",
-    "underwriter_name", "exposure_address",
+    "underwriter_name",
 }
 
 _CURRENCY_FIELDS = {"premium", "limit_amount", "deductible"}
@@ -1691,7 +1694,6 @@ _FIELD_DISPLAY = {
     "first_named_insured": "First Named Insured",
     "placement_colleague": "Placement Colleague",
     "underwriter_name": "Underwriter",
-    "exposure_address": "Address",
     "project_name": "Location / Project",
 }
 

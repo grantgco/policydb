@@ -59,13 +59,6 @@ class Policy:
     underwriter_contact: Optional[str] = None
     commission_rate: Optional[float] = None
     prior_premium: Optional[float] = None
-    exposure_basis: Optional[str] = None
-    exposure_amount: Optional[float] = None
-    exposure_unit: Optional[str] = None
-    exposure_address: Optional[str] = None
-    exposure_city: Optional[str] = None
-    exposure_state: Optional[str] = None
-    exposure_zip: Optional[str] = None
     notes: Optional[str] = None
 
     @classmethod

@@ -451,7 +451,7 @@ def _score_pair(
 
     # ── Text field diff tracking (no scoring weight, just diff detection) ────
     for tf in ("first_named_insured", "placement_colleague",
-               "underwriter_name", "exposure_address", "project_name"):
+               "underwriter_name", "project_name"):
         ext_val = str(ext.get(tf) or "").strip()
         db_val = str(db.get(tf) or "").strip()
         if ext_val and not db_val:

@@ -359,24 +359,14 @@ def _sync_policy_to_program_location(
     ).fetchone()
     if not project:
         return
+    # Address fields live on the projects row directly now; just link the
+    # policy to the project.
     conn.execute(
         """UPDATE policies SET
               project_id = ?,
-              project_name = ?,
-              exposure_address = COALESCE(NULLIF(?, ''), exposure_address),
-              exposure_city = COALESCE(NULLIF(?, ''), exposure_city),
-              exposure_state = COALESCE(NULLIF(?, ''), exposure_state),
-              exposure_zip = COALESCE(NULLIF(?, ''), exposure_zip)
+              project_name = ?
            WHERE policy_uid = ?""",
-        (
-            project["id"],
-            project["name"],
-            project["address"] or "",
-            project["city"] or "",
-            project["state"] or "",
-            project["zip"] or "",
-            policy_uid,
-        ),
+        (project["id"], project["name"], policy_uid),
     )
 
 

@@ -37,10 +37,6 @@ _COMPARE_FIELDS = [
     "retention",
     "project_name",
     "first_named_insured",
-    "exposure_address",
-    "exposure_city",
-    "exposure_state",
-    "exposure_zip",
     "notes",
     "broker_fee",
 ]
@@ -58,10 +54,6 @@ _FIELD_LABELS = {
     "retention": "Retention",
     "project_name": "Project/Location",
     "first_named_insured": "First Named Insured",
-    "exposure_address": "Address",
-    "exposure_city": "City",
-    "exposure_state": "State",
-    "exposure_zip": "ZIP",
     "notes": "Notes",
     "broker_fee": "Broker Fee",
 }

@@ -426,14 +426,12 @@ def policy_add(client_name):
             default="Not Started",
         )
         commission_rate = click.prompt("Commission rate (0.12 = 12%, 0 if unknown)", type=float, default=0.0)
-        exposure_basis = click.prompt("Exposure basis (e.g. Payroll, Revenue, Sq Ft — optional)", default="", show_default=False)
-        exposure_amount = click.prompt("Exposure amount (0 if unknown)", type=float, default=0.0)
-        exposure_unit = click.prompt("Exposure unit (e.g. per $100, per $1,000, per unit, per sq ft)", default="", show_default=False)
         notes = click.prompt("Internal notes (optional)", default="", show_default=False)
+        click.echo("  (Link exposures after creation via `policydb exposure add`.)")
     else:
-        limit_amount = deductible = commission_rate = exposure_amount = 0.0
+        limit_amount = deductible = commission_rate = 0.0
         description = coverage_form = layer_position = "Primary"
-        colleague = uw_name = exposure_basis = exposure_unit = notes = ""
+        colleague = uw_name = notes = ""
         is_standalone = False
         status = "Not Started"
 
@@ -443,15 +441,14 @@ def policy_add(client_name):
             effective_date, expiration_date, premium, limit_amount, deductible,
             description, coverage_form, layer_position, is_standalone,
             underwriter_name, renewal_status, commission_rate,
-            exposure_basis, exposure_amount, exposure_unit, account_exec, notes)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            account_exec, notes)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             uid, client["id"], pol_type, carrier, policy_number or None,
             eff, exp, premium, limit_amount or None, deductible or None,
             description or None, coverage_form or None, layer_position or "Primary",
             1 if is_standalone else 0,
             uw_name or None, status, commission_rate or None,
-            exposure_basis or None, exposure_amount or None, exposure_unit or None,
             account_exec, notes or None,
         ),
     )
@@ -511,9 +508,6 @@ def policy_show(policy_uid, fmt):
         ("Renewal Status", row["renewal_status"]),
         ("Placement Colleague", row["placement_colleague"] or "—"),
         ("Underwriter", row["underwriter_name"] or "—"),
-        ("Exposure Basis", row["exposure_basis"] or "—"),
-        ("Exposure Amount", fmt_currency(row["exposure_amount"]) if row["exposure_amount"] else "—"),
-        ("Exposure Unit", row["exposure_unit"] or "—"),
         ("Internal Notes", row["notes"] or "—"),
     ]
     for label, value in fields:
@@ -550,9 +544,6 @@ def policy_edit(policy_uid):
         ("renewal_status", "Renewal status", row["renewal_status"]),
         ("commission_rate", "Commission rate", str(row["commission_rate"] or 0)),
         ("prior_premium", "Prior premium", str(row["prior_premium"] or "")),
-        ("exposure_basis", "Exposure basis", row["exposure_basis"] or ""),
-        ("exposure_amount", "Exposure amount", str(row["exposure_amount"] or "")),
-        ("exposure_unit", "Exposure unit", row["exposure_unit"] or ""),
         ("notes", "Internal notes", row["notes"] or ""),
     ]
     updates = {}
@@ -560,7 +551,7 @@ def policy_edit(policy_uid):
         val = click.prompt(f"  {label}", default=current, show_default=True)
         if val != current:
             # Type coercion for numeric fields
-            if col in ("premium", "limit_amount", "deductible", "commission_rate", "prior_premium", "exposure_amount"):
+            if col in ("premium", "limit_amount", "deductible", "commission_rate", "prior_premium"):
                 try:
                     updates[col] = float(val) if val else None
                 except ValueError:

@@ -262,24 +262,46 @@ def assemble_policy(conn: sqlite3.Connection, record_id: int, depth: int = DEPTH
     lines.append(_field("Description", r.get("description")))
     lines.append(_field("Notes", r.get("notes")))
 
-    # Exposure block
-    exp_parts = []
-    exp_parts.append(_field("Exposure Basis", r.get("exposure_basis")))
-    if r.get("exposure_amount") and r.get("exposure_unit"):
-        try:
-            exp_parts.append(_field("Exposure", f"{float(r['exposure_amount']):,.0f} {r['exposure_unit']}"))
-        except (TypeError, ValueError):
-            exp_parts.append(_field("Exposure Amount", r.get("exposure_amount")))
-    elif r.get("exposure_amount"):
-        exp_parts.append(_field("Exposure Amount", r.get("exposure_amount"), "currency"))
-    addr_parts = [r.get("exposure_address"), r.get("exposure_city"), r.get("exposure_state"), r.get("exposure_zip")]
-    addr_line = ", ".join(p for p in addr_parts if p)
-    if addr_line:
-        exp_parts.append(_field("Exposure Location", addr_line))
-    exp_block = "".join(exp_parts)
-    if exp_block:
+    # Exposure block — emits every linked exposure from client_exposures,
+    # primary first.  Address comes from the linked location (projects row).
+    exposure_rows = conn.execute(
+        """SELECT ce.exposure_type, ce.amount, ce.denominator, ce.unit,
+                  ce.year, pel.is_primary,
+                  COALESCE(pr_pol.address, pr_exp.address) AS addr,
+                  COALESCE(pr_pol.city,    pr_exp.city)    AS city,
+                  COALESCE(pr_pol.state,   pr_exp.state)   AS state,
+                  COALESCE(pr_pol.zip,     pr_exp.zip)     AS zip
+           FROM policy_exposure_links pel
+           JOIN client_exposures ce ON ce.id = pel.exposure_id
+           LEFT JOIN policies pol ON pol.policy_uid = pel.policy_uid
+           LEFT JOIN projects pr_pol ON pr_pol.id = pol.project_id
+           LEFT JOIN projects pr_exp ON pr_exp.id = ce.project_id
+           WHERE pel.policy_uid = ?
+           ORDER BY pel.is_primary DESC, ce.exposure_type""",
+        (r.get("policy_uid"),),
+    ).fetchall()
+    if exposure_rows:
         lines.append("\n### Exposure\n")
-        lines.append(exp_block)
+        for idx, er in enumerate(exposure_rows):
+            prefix = "- **Primary**: " if er["is_primary"] else "- "
+            amt_parts = []
+            if er["amount"] is not None:
+                try:
+                    amt_parts.append(f"{float(er['amount']):,.0f}")
+                except (TypeError, ValueError):
+                    amt_parts.append(str(er["amount"]))
+            if er["denominator"] and er["denominator"] != 1:
+                amt_parts.append(f"per {er['denominator']}")
+            if er["unit"]:
+                amt_parts.append(f"({er['unit']})")
+            amt_str = " ".join(amt_parts) if amt_parts else ""
+            lines.append(f"{prefix}{er['exposure_type']}: {amt_str}\n")
+            addr_parts = [er["addr"], er["city"], er["state"], er["zip"]]
+            addr_line = ", ".join(p for p in addr_parts if p)
+            if addr_line:
+                lines.append(f"    Location: {addr_line}\n")
+            if er["year"]:
+                lines.append(f"    Year: {er['year']}\n")
 
     # Opportunity block (only if this is an opportunity)
     if r.get("is_opportunity"):
