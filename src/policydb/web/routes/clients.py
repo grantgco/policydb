@@ -47,6 +47,8 @@ from policydb.queries import (
     get_exposure_observations,
     get_exposure_by_id,
     attach_open_issues,
+    filter_thread_for_history,
+    get_open_tasks,
 )
 from policydb.web.app import get_db, templates
 
@@ -687,7 +689,7 @@ def client_tab_activity(request: Request, client_id: int, conn=Depends(get_db)):
     client = get_client_by_id(conn, client_id, include_archived=True)
     if not client:
         return HTMLResponse("Not found", status_code=404)
-    activities = [dict(a) for a in get_activities(conn, client_id=client_id, days=90)]
+    activities = filter_thread_for_history([dict(a) for a in get_activities(conn, client_id=client_id, days=90)])
     from policydb.web.routes.activities import _attach_pc_emails
     _attach_pc_emails(conn, activities)
     _today_iso = datetime.now().strftime("%Y-%m-%d")
@@ -972,6 +974,9 @@ def client_tab_overview(request: Request, client_id: int, conn=Depends(get_db)):
         except (ValueError, TypeError):
             pass
 
+    # Open Tasks panel data
+    _ot = get_open_tasks(conn, "client", client_id)
+
     return templates.TemplateResponse("clients/_tab_overview.html", {
         "request": request,
         "client": dict(client),
@@ -1025,6 +1030,11 @@ def client_tab_overview(request: Request, client_id: int, conn=Depends(get_db)):
         "relationship_risk_levels": cfg.get("relationship_risk_levels", []),
         "service_model_options": cfg.get("service_model_options", []),
         "client_anomalies": client_anomalies,
+        "scope_type": "client",
+        "scope_id": client_id,
+        "data": _ot,
+        "open_tasks_total": _ot["total"],
+        "open_tasks_overdue": _ot["overdue"],
     })
 
 
@@ -2303,6 +2313,9 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
     ).fetchone()
     recurring_count = recurring_count_row["n"] if recurring_count_row else 0
 
+    # Open Tasks summary for sticky sidebar
+    _ot_sidebar = get_open_tasks(conn, "client", client_id)
+
     return templates.TemplateResponse("clients/detail.html", {
         "request": request,
         "active": "clients",
@@ -2407,6 +2420,8 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
         "pinned_scope": "client",
         "pinned_scope_id": str(client_id),
         "pinned_client_id": "",
+        "open_tasks_total": _ot_sidebar["total"],
+        "open_tasks_overdue": _ot_sidebar["overdue"],
     })
 
 
@@ -5059,19 +5074,15 @@ def create_request_bundle(
     bundle_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
     # If a send-by date is set, create an activity_log follow-up so it surfaces in follow-ups
     if send_by_date.strip():
-        from datetime import date as _date
-        account_exec = cfg.get("default_account_exec", "")
-        conn.execute(
-            """INSERT INTO activity_log
-               (activity_date, client_id, activity_type, subject, follow_up_date, account_exec)
-               VALUES (?, ?, 'Task', ?, ?, ?)""",
-            (
-                _date.today().isoformat(),
-                client_id,
-                f"Send RFI: {rfi_uid} {title}",
-                send_by_date.strip(),
-                account_exec,
-            ),
+        from policydb.queries import create_followup_activity
+        create_followup_activity(
+            conn,
+            client_id=client_id,
+            policy_id=None,
+            issue_id=None,
+            subject=f"Send RFI: {rfi_uid} {title}",
+            activity_type="Task",
+            follow_up_date=send_by_date.strip(),
         )
     conn.commit()
     return _requests_response(request, conn, client_id)
@@ -5464,13 +5475,16 @@ def update_request_bundle_status(
         total = counts["total"] or 0
         _rfi_tag = f"{bundle['rfi_uid']} " if bundle and bundle["rfi_uid"] else ""
         subject = f"Sent {_rfi_tag}{bundle['title'] if bundle else 'information request'} — {outstanding} of {total} items outstanding"
-        account_exec = cfg.get("default_account_exec", "Grant")
+        from policydb.queries import create_followup_activity
         fu = follow_up_date.strip() or None
-        conn.execute(
-            """INSERT INTO activity_log
-               (activity_date, client_id, policy_id, activity_type, subject, details, follow_up_date, account_exec)
-               VALUES (?, ?, NULL, 'Email', ?, ?, ?, ?)""",
-            (_date.today().isoformat(), client_id, subject, None, fu, account_exec),
+        create_followup_activity(
+            conn,
+            client_id=client_id,
+            policy_id=None,
+            issue_id=None,
+            subject=subject,
+            activity_type="Email",
+            follow_up_date=fu,
         )
     else:
         conn.execute(
@@ -5508,13 +5522,15 @@ def quick_add_request_item(
         bundle_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
         # Create follow-up activity so the send deadline surfaces in follow-ups
         if sbd:
-            from datetime import date as _date
-            account_exec = cfg.get("default_account_exec", "")
-            conn.execute(
-                """INSERT INTO activity_log
-                   (activity_date, client_id, activity_type, subject, follow_up_date, account_exec)
-                   VALUES (?, ?, 'Task', ?, ?, ?)""",
-                (_date.today().isoformat(), client_id, f"Send RFI: {rfi_uid}", sbd, account_exec),
+            from policydb.queries import create_followup_activity
+            create_followup_activity(
+                conn,
+                client_id=client_id,
+                policy_id=None,
+                issue_id=None,
+                subject=f"Send RFI: {rfi_uid}",
+                activity_type="Task",
+                follow_up_date=sbd,
             )
     else:
         bundle_id = bundle["id"]
@@ -5590,16 +5606,18 @@ def set_bundle_send_by(
         (sbd, bundle_id, client_id),
     )
     if sbd:
-        from datetime import date as _date
         bundle_row = conn.execute("SELECT title, rfi_uid FROM client_request_bundles WHERE id=?", (bundle_id,)).fetchone()
         title = bundle_row["title"] if bundle_row else "Information Request"
         rfi_uid = bundle_row["rfi_uid"] if bundle_row else ""
-        account_exec = cfg.get("default_account_exec", "")
-        conn.execute(
-            """INSERT INTO activity_log
-               (activity_date, client_id, activity_type, subject, follow_up_date, account_exec)
-               VALUES (?, ?, 'Task', ?, ?, ?)""",
-            (_date.today().isoformat(), client_id, f"Send RFI: {rfi_uid} {title}", sbd, account_exec),
+        from policydb.queries import create_followup_activity
+        create_followup_activity(
+            conn,
+            client_id=client_id,
+            policy_id=None,
+            issue_id=None,
+            subject=f"Send RFI: {rfi_uid} {title}",
+            activity_type="Task",
+            follow_up_date=sbd,
         )
     conn.commit()
     if policy_uid:

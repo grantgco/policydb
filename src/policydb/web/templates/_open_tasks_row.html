@@ -1,0 +1,133 @@
+{# Single row in the Open Tasks panel.
+
+   Expected context: row (a TaskRow dict), scope_type, scope_id.
+#}
+{% set grayed = row.linked_to_other_issue and not row.is_on_issue %}
+<div class="group flex items-start gap-2 px-3 py-2 border-b border-gray-100 hover:bg-gray-50 {% if grayed %}opacity-60{% endif %}"
+     data-activity-id="{{ row.activity_id }}">
+
+  {# Policy UID pill #}
+  <div class="shrink-0 pt-0.5">
+    {% if row.policy_uid %}
+    <a href="/policies/{{ row.policy_uid }}/edit"
+       class="font-mono text-[10px] text-marsh hover:underline bg-gray-100 px-1.5 py-0.5 rounded">
+      {{ row.policy_uid }}
+    </a>
+    {% else %}
+    <span class="font-mono text-[10px] text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded">—</span>
+    {% endif %}
+  </div>
+
+  {# Subject + meta #}
+  <div class="flex-1 min-w-0">
+    <div class="text-sm text-gray-800 truncate">{{ row.subject }}</div>
+    <div class="text-[10px] text-gray-400 mt-0.5 truncate">
+      {{ row.policy_type or '—' }} &middot; {{ row.client_name }}{% if row.activity_type %} &middot; {{ row.activity_type }}{% endif %}
+    </div>
+  </div>
+
+  {# Due date + overdue chip #}
+  <div class="shrink-0 text-right pt-0.5">
+    <div class="text-[11px] text-gray-600 tabular-nums">{{ row.follow_up_date }}</div>
+    {% if row.days_overdue > 0 %}
+    <div class="text-[10px] text-red-600 font-medium">{{ row.days_overdue }}d overdue</div>
+    {% endif %}
+  </div>
+
+  {# Action buttons — always visible to avoid hover-discoverability problem #}
+  <div class="shrink-0 flex items-center gap-1 pt-0.5">
+    {# Mark done #}
+    <button type="button"
+            title="Mark done"
+            hx-post="/open-tasks/{{ row.activity_id }}/done"
+            hx-vals='{"return_scope_type": "{{ scope_type }}", "return_scope_id": {{ scope_id }}}'
+            hx-target="#open-tasks-panel-{{ scope_type }}-{{ scope_id }}"
+            hx-swap="outerHTML"
+            class="text-green-600 hover:bg-green-50 rounded p-1 text-xs">✓</button>
+
+    {# Snooze #}
+    <div class="relative">
+      <button type="button" title="Snooze"
+              onclick="this.nextElementSibling.classList.toggle('hidden')"
+              class="text-blue-600 hover:bg-blue-50 rounded p-1 text-xs">💤</button>
+      <div class="hidden absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded shadow-lg z-10 text-xs">
+        {% for d in [1, 3, 7, 14] %}
+        <button type="button"
+                hx-post="/open-tasks/{{ row.activity_id }}/snooze"
+                hx-vals='{"days": {{ d }}, "return_scope_type": "{{ scope_type }}", "return_scope_id": {{ scope_id }}}'
+                hx-target="#open-tasks-panel-{{ scope_type }}-{{ scope_id }}"
+                hx-swap="outerHTML"
+                class="block px-3 py-1 hover:bg-gray-50 w-full text-left">+{{ d }}d</button>
+        {% endfor %}
+      </div>
+    </div>
+
+    {# Waiting toggle #}
+    {% if row.source == 'activity' %}
+    {% set next_move = "my" if row.accountability == "waiting_external" else "waiting" %}
+    <button type="button"
+            title="Toggle My Move / Waiting"
+            hx-post="/open-tasks/{{ row.activity_id }}/disposition"
+            hx-vals='{"move": "{{ next_move }}", "return_scope_type": "{{ scope_type }}", "return_scope_id": {{ scope_id }}}'
+            hx-target="#open-tasks-panel-{{ scope_type }}-{{ scope_id }}"
+            hx-swap="outerHTML"
+            class="rounded p-1 text-xs {% if row.accountability == 'waiting_external' %}text-amber-600 hover:bg-amber-50{% else %}text-gray-500 hover:bg-gray-100{% endif %}">
+      {% if row.accountability == 'waiting_external' %}⏳{% else %}🏃{% endif %}
+    </button>
+    {% endif %}
+
+    {# Log & close — activity-source only, on-issue rows only #}
+    {% if row.source == 'activity' and row.is_on_issue %}
+    <button type="button"
+            title="Log & close (no follow-up)"
+            hx-post="/open-tasks/{{ row.activity_id }}/log-close"
+            hx-vals='{"return_scope_type": "{{ scope_type }}", "return_scope_id": {{ scope_id }}}'
+            hx-target="#open-tasks-panel-{{ scope_type }}-{{ scope_id }}"
+            hx-swap="outerHTML"
+            class="text-gray-500 hover:bg-gray-100 rounded p-1 text-xs">⊗</button>
+    {% endif %}
+
+    {# Attach / linked-to-other-issue #}
+    {% if row.source == 'activity' and not row.is_on_issue %}
+      {% if grayed %}
+      <a href="/issues/{{ row.linked_to_other_issue }}"
+         class="text-[10px] text-marsh hover:underline px-1">{{ row.linked_to_other_issue }}</a>
+      {% elif row.attach_target_issue_id %}
+      <button type="button"
+              title="Attach to this issue"
+              hx-post="/open-tasks/{{ row.activity_id }}/attach"
+              hx-vals='{"target_issue_id": {{ row.attach_target_issue_id }}, "return_scope_type": "{{ scope_type }}", "return_scope_id": {{ scope_id }}}'
+              hx-target="#open-tasks-panel-{{ scope_type }}-{{ scope_id }}"
+              hx-swap="outerHTML"
+              class="text-marsh hover:bg-blue-50 rounded p-1 text-xs">🔗</button>
+      {% endif %}
+    {% endif %}
+
+    {# Note #}
+    {% if row.source == 'activity' %}
+    <button type="button"
+            title="Add note"
+            onclick="const box = this.parentElement.parentElement.nextElementSibling; box.classList.toggle('hidden'); if (!box.classList.contains('hidden')) box.querySelector('textarea').focus();"
+            class="text-gray-500 hover:bg-gray-100 rounded p-1 text-xs">💬</button>
+    {% endif %}
+  </div>
+</div>
+
+{# Note form (hidden until 💬 clicked) #}
+{% if row.source == 'activity' %}
+<div class="hidden px-3 py-2 bg-gray-50 border-b border-gray-100">
+  <form hx-post="/open-tasks/{{ row.activity_id }}/note"
+        hx-target="#open-tasks-panel-{{ scope_type }}-{{ scope_id }}"
+        hx-swap="outerHTML"
+        class="flex gap-2">
+    <input type="hidden" name="return_scope_type" value="{{ scope_type }}">
+    <input type="hidden" name="return_scope_id" value="{{ scope_id }}">
+    <textarea name="text" rows="2" required
+              placeholder="Quick note — saves as a new activity linked to this task"
+              class="flex-1 text-xs px-2 py-1 border border-gray-300 rounded"></textarea>
+    <button type="submit" class="text-xs bg-marsh text-white px-3 py-1 rounded hover:bg-marsh-dark">Save</button>
+    <button type="button" onclick="this.closest('div').classList.add('hidden')"
+            class="text-xs text-gray-500 px-2">Cancel</button>
+  </form>
+</div>
+{% endif %}

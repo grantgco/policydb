@@ -621,15 +621,16 @@ def inbox_schedule(
     conn=Depends(get_db),
 ):
     """Schedule inbox item as a Task follow-up."""
-    account_exec = cfg.get("default_account_exec", "Grant")
-    cursor = conn.execute(
-        """INSERT INTO activity_log
-           (activity_date, client_id, activity_type, subject, follow_up_date, account_exec)
-           VALUES (?, ?, 'Task', ?, ?, ?)""",
-        (date.today().isoformat(), client_id, subject or "Inbox item",
-         follow_up_date, account_exec),
+    from policydb.queries import create_followup_activity
+    activity_id = create_followup_activity(
+        conn,
+        client_id=client_id,
+        policy_id=None,
+        issue_id=None,
+        subject=subject or "Inbox item",
+        activity_type="Task",
+        follow_up_date=follow_up_date,
     )
-    activity_id = cursor.lastrowid
     conn.execute(
         "UPDATE inbox SET status='processed', activity_id=?, processed_at=CURRENT_TIMESTAMP WHERE id=?",
         (activity_id, inbox_id),

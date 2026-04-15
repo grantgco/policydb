@@ -1,0 +1,49 @@
+{# Shared Open Tasks panel.
+
+   Expected context:
+     scope_type: 'issue' | 'client' | 'program' | 'policy'
+     scope_id: int
+     data: dict from get_open_tasks()
+     toast_message, toast_kind: optional (for HX action responses)
+#}
+<div id="open-tasks-panel-{{ scope_type }}-{{ scope_id }}" class="card">
+  <div class="px-4 py-2.5 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <span class="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Open Tasks</span>
+      <span class="text-[10px] text-gray-400">
+        {{ data.total }} total{% if data.overdue %} &middot; <span class="text-red-600 font-medium">{{ data.overdue }} overdue</span>{% endif %}{% if data.waiting %} &middot; <span class="text-amber-600">{{ data.waiting }} waiting</span>{% endif %}
+      </span>
+    </div>
+    <button type="button"
+            hx-get="/open-tasks/new"
+            hx-vals='{"scope_type": "{{ scope_type }}", "scope_id": {{ scope_id }}}'
+            hx-target="#open-tasks-new-slot-{{ scope_type }}-{{ scope_id }}"
+            hx-swap="innerHTML"
+            class="text-xs bg-marsh text-white px-2 py-1 rounded hover:bg-marsh-dark">+ Add task</button>
+  </div>
+
+  <div id="open-tasks-new-slot-{{ scope_type }}-{{ scope_id }}"></div>
+
+  {% if data.groups %}
+    {% for group in data.groups %}
+    <div class="border-b border-gray-100">
+      <div class="px-4 py-1.5 bg-gray-25 text-[10px] font-semibold text-gray-500 uppercase tracking-wide">
+        {{ group.title }} ({{ group.rows | length }}){% if group.subtitle %} <span class="text-gray-400 normal-case">— {{ group.subtitle }}</span>{% endif %}
+      </div>
+      {% for row in group.rows %}
+        {% include "_open_tasks_row.html" %}
+      {% endfor %}
+    </div>
+    {% endfor %}
+  {% else %}
+  <div class="px-4 py-6 text-center text-sm text-gray-400">
+    ✓ Nothing outstanding — all tasks on this {{ scope_type }} are closed.
+  </div>
+  {% endif %}
+</div>
+
+{# Toast trigger — consumed by the global afterSwap listener in _toast.html #}
+{% if toast_message %}
+<div id="toast-trigger" hx-swap-oob="true"
+     data-message="{{ toast_message }}" data-kind="{{ toast_kind or 'success' }}"></div>
+{% endif %}

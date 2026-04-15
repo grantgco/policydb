@@ -389,6 +389,11 @@
         </div>
       </div>
 
+      {# Open Tasks panel — command center for this issue's outstanding work #}
+      <div class="mb-4">
+        {% include "_open_tasks_panel.html" with context %}
+      </div>
+
       {# ── Scope Rollup ── #}
       {% if issue_rollup and linked_policies %}
       {% set rollup_client_id = issue.client_id %}
