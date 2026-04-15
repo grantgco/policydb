@@ -45,12 +45,16 @@
           <span contenteditable="true" class="policy-cell text-gray-600" data-field="carrier" data-uid="{{ o.policy_uid }}" data-placeholder="TBD">{{ o.carrier or '' }}</span>
         </td>
         <td class="px-4 py-2.5">
+          {% set _opportunity_statuses = opportunity_statuses|default([]) %}
           <select
             onchange="policySaveDate(this, '{{ o.policy_uid }}', 'opportunity_status')"
             class="text-xs font-semibold px-2 py-0.5 rounded border border-transparent hover:border-gray-200 focus:border-marsh focus:outline-none bg-transparent cursor-pointer"
           >
             <option value="">—</option>
-            {% for s in opportunity_statuses|default([]) %}
+            {% if o.opportunity_status and o.opportunity_status not in _opportunity_statuses %}
+            <option value="{{ o.opportunity_status }}" selected>{{ o.opportunity_status }}</option>
+            {% endif %}
+            {% for s in _opportunity_statuses %}
             <option value="{{ s }}" {% if o.opportunity_status == s %}selected{% endif %}>{{ s }}</option>
             {% endfor %}
           </select>
