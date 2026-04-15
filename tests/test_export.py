@@ -190,12 +190,33 @@ def test_request_bundle_xlsx_column_widths(seeded_rfi_db):
     content = export_request_bundle_xlsx(conn, 1)
     wb = load_workbook(io.BytesIO(content))
     ws = wb.active
-    # Item column should be 45
-    assert ws.column_dimensions["A"].width == 45
-    # Notes / Response column (F) should be 45
-    assert ws.column_dimensions["F"].width == 45
-    # Coverage / Location (B) should be 35
-    assert ws.column_dimensions["B"].width == 35
+    # Column order is: Item, Coverage/Location, Category, Status,
+    # Received Date, Attached File(s), Notes / Response
+    assert ws.column_dimensions["A"].width == 45   # Item
+    assert ws.column_dimensions["B"].width == 35   # Coverage / Location
+    assert ws.column_dimensions["F"].width == 35   # Attached File(s)
+    assert ws.column_dimensions["G"].width == 45   # Notes / Response
+
+
+def test_request_bundle_xlsx_has_attached_files_column(seeded_rfi_db):
+    """RFI export includes an 'Attached File(s)' column so the workbook
+    doubles as a manifest when paired with a ZIP of files."""
+    from openpyxl import load_workbook
+    db_path, client_id, conn = seeded_rfi_db
+    content = export_request_bundle_xlsx(conn, 1)
+    wb = load_workbook(io.BytesIO(content))
+    ws = wb.active
+    # Header row — find the first row whose A cell contains "Item"
+    header_row = None
+    for r in range(1, ws.max_row + 1):
+        if (ws.cell(row=r, column=1).value or "") == "Item":
+            header_row = r
+            break
+    assert header_row is not None, "Item header not found"
+    headers = [ws.cell(row=header_row, column=c).value for c in range(1, ws.max_column + 1)]
+    assert "Attached File(s)" in headers
+    # Comes before Notes / Response
+    assert headers.index("Attached File(s)") < headers.index("Notes / Response")
 
 
 def test_client_requests_xlsx_valid(seeded_rfi_db):
@@ -220,3 +241,68 @@ def test_client_requests_xlsx_empty(seeded_db):
     content = export_client_requests_xlsx(conn, client_id)
     assert isinstance(content, bytes)
     assert content[:2] == b"PK"
+
+
+def test_build_client_rfi_zip_layout(seeded_rfi_db, tmp_path, monkeypatch):
+    """build_client_rfi_zip produces a client-friendly ZIP with the
+    workbook at root, per-bundle top folders, and no MANIFEST.txt."""
+    import zipfile
+    from policydb.web.routes.attachments import build_client_rfi_zip
+
+    db_path, client_id, conn = seeded_rfi_db
+
+    # Attach one local file to item 1 so the ZIP has at least one file
+    attachments_dir = tmp_path / ".policydb" / "files" / "attachments"
+    attachments_dir.mkdir(parents=True)
+    sample_path = attachments_dir / "loss_runs_2024.pdf"
+    sample_path.write_bytes(b"%PDF-1.4 dummy")
+
+    # Point the attachments dir override at our temp path
+    monkeypatch.setattr(
+        "policydb.web.routes.attachments._ATTACHMENTS_DIR",
+        attachments_dir,
+    )
+
+    conn.execute(
+        """INSERT INTO attachments (uid, title, source, file_path, filename, file_size, mime_type, category)
+           VALUES ('ATT-001', 'Loss Runs 2024', 'local', ?, 'loss_runs_2024.pdf', 14, 'application/pdf', 'Loss Data')""",
+        (str(sample_path),),
+    )
+    att_id = conn.execute("SELECT id FROM attachments WHERE uid='ATT-001'").fetchone()["id"]
+    item_id = conn.execute(
+        "SELECT id FROM client_request_items WHERE bundle_id=1 AND sort_order=1"
+    ).fetchone()["id"]
+    conn.execute(
+        "INSERT INTO record_attachments (attachment_id, record_type, record_id) VALUES (?, 'rfi_item', ?)",
+        (att_id, item_id),
+    )
+    conn.commit()
+
+    data, download_name, total_files = build_client_rfi_zip(conn, client_id)
+
+    assert download_name.endswith(".zip")
+    assert "Outstanding Requests" in download_name
+    assert total_files == 1
+
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        names = zf.namelist()
+
+    # No technical manifest
+    assert "MANIFEST.txt" not in names
+    # Client-friendly workbook at root
+    assert "Outstanding Requests.xlsx" in names
+    # Exactly one PDF inside a per-bundle top folder with friendly names
+    pdfs = [n for n in names if n.endswith(".pdf")]
+    assert len(pdfs) == 1
+    # Path has spaces (not underscores) and uses the bundle title
+    assert "Q1 Renewal Info/" in pdfs[0]
+    # Coverage line inherited from linked policy (General Liability)
+    assert "General Liability/" in pdfs[0]
+
+
+def test_build_client_rfi_zip_raises_when_no_bundles(seeded_db):
+    """Clients with no open bundles raise ValueError so the route can 404."""
+    from policydb.web.routes.attachments import build_client_rfi_zip
+    db_path, client_id, conn = seeded_db
+    with pytest.raises(ValueError):
+        build_client_rfi_zip(conn, client_id)
