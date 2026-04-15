@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import sqlite3
 from datetime import date, timedelta
 from typing import Optional
@@ -12,6 +13,94 @@ logger = logging.getLogger("policydb.queries")
 from rapidfuzz import process, fuzz
 
 import policydb.config as cfg
+
+
+def _normalize_address(raw: str | None) -> str:
+    """Lowercase + collapse whitespace for address matching."""
+    if not raw:
+        return ""
+    return re.sub(r"\s+", " ", raw.strip().lower())
+
+
+def find_or_create_project_from_address(
+    conn,
+    *,
+    client_id: int,
+    address: str | None = None,
+    city: str | None = None,
+    state: str | None = None,
+    zip_code: str | None = None,
+    label: str | None = None,
+) -> int | None:
+    """Upsert a `projects` (location) row for this client.
+
+    Matches on normalized street address when one is provided, otherwise
+    on project name (case-insensitive).  Returns the project_id.  Returns
+    ``None`` when there is no usable info to identify a location (no
+    address AND no label).
+
+    This is used by the AI policy import and the CSV importer to turn
+    extracted exposure/location address fields into real `projects` rows,
+    so exposure data can be rolled up to the location/project level
+    instead of stamped onto deprecated `policies.exposure_*` columns.
+    """
+    addr = (address or "").strip()
+    lbl = (label or "").strip()
+    if not addr and not lbl:
+        return None
+
+    norm_addr = _normalize_address(addr)
+    city_clean = (city or "").strip() or None
+    state_clean = (state or "").strip() or None
+    zip_clean = (zip_code or "").strip() or None
+
+    existing_id: int | None = None
+
+    # Prefer address-match: same client, same normalized street address.
+    if norm_addr:
+        for r in conn.execute(
+            """SELECT id, address FROM projects
+               WHERE client_id = ?
+                 AND address IS NOT NULL
+                 AND TRIM(address) != ''""",
+            (client_id,),
+        ).fetchall():
+            if _normalize_address(r["address"]) == norm_addr:
+                existing_id = r["id"]
+                break
+
+    # Fall back to name-match when there's no address.
+    if existing_id is None and lbl and not addr:
+        row = conn.execute(
+            """SELECT id FROM projects
+               WHERE client_id = ?
+                 AND LOWER(TRIM(name)) = LOWER(TRIM(?))""",
+            (client_id, lbl),
+        ).fetchone()
+        if row:
+            existing_id = row["id"]
+
+    if existing_id is not None:
+        return existing_id
+
+    # Create a new project.  Name defaults to the label, else the first
+    # line of the address.  Status is Active so it shows up in the
+    # location picker immediately.
+    if lbl:
+        name = lbl[:60]
+    elif addr:
+        name = addr.split(",")[0].strip()[:60] or "Location"
+    else:
+        name = "Location"
+
+    conn.execute(
+        """INSERT INTO projects
+             (client_id, name, address, city, state, zip, status)
+           VALUES (?, ?, ?, ?, ?, ?, 'Active')""",
+        (client_id, name, addr or None, city_clean, state_clean, zip_clean),
+    )
+    conn.commit()
+    return conn.execute("SELECT last_insert_rowid()").fetchone()[0]
 
 # ─── ISSUE COVERAGE HELPERS ──────────────────────────────────────────────────
 

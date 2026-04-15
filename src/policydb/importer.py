@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import sqlite3
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -201,7 +202,9 @@ class PolicyImporter:
         "company_name": "carrier",
         "writing_company": "carrier",
         "issuing_company": "carrier",
-        # Exposure fields
+        # Exposure fields (post-processed into client_exposures /
+        # policy_exposure_links after the policies INSERT; never written
+        # to the deprecated policies.exposure_* columns directly).
         "exposure_basis": "exposure_basis",
         "rating_basis": "exposure_basis",
         "exposure_type": "exposure_basis",
@@ -212,6 +215,17 @@ class PolicyImporter:
         "denominator": "exposure_denominator",
         "per": "exposure_denominator",
         "rating_unit": "exposure_denominator",
+        "exposure_unit": "exposure_unit",
+        # Exposure location fields — used to upsert a project (location).
+        "exposure_address": "exposure_address",
+        "location_address": "exposure_address",
+        "property_address": "exposure_address",
+        "exposure_city": "exposure_city",
+        "location_city": "exposure_city",
+        "exposure_state": "exposure_state",
+        "location_state": "exposure_state",
+        "exposure_zip": "exposure_zip",
+        "location_zip": "exposure_zip",
     }
 
     def __init__(self, conn: sqlite3.Connection):
@@ -392,6 +406,64 @@ class PolicyImporter:
                     _uw_email = (row.get("underwriter_contact") or "").strip() or None
                     _uw_cid = get_or_create_contact(self.conn, _uw_name, email=_uw_email)
                     assign_contact_to_policy(self.conn, _uw_cid, _pid, role="Underwriter")
+
+                # Route exposure data into client_exposures + policy_exposure_links
+                # instead of the deprecated policies.exposure_* columns.  If the
+                # row carries address fields, upsert a project (location) and
+                # attach the exposure to it.
+                _exp_basis = (row.get("exposure_basis") or "").strip()
+                _exp_amount_raw = row.get("exposure_amount")
+                try:
+                    _exp_amount = float(_parse_money(_exp_amount_raw) or 0) or None
+                except (TypeError, ValueError):
+                    _exp_amount = None
+                if _exp_basis and _exp_amount:
+                    from policydb.exposures import (
+                        find_or_create_exposure,
+                        create_exposure_link,
+                    )
+                    from policydb.queries import find_or_create_project_from_address
+
+                    try:
+                        _exp_denom = int(row.get("exposure_denominator") or 1) or 1
+                    except (TypeError, ValueError):
+                        _exp_denom = 1
+
+                    # Upsert location from address fields; re-use if one
+                    # with the same street already exists on the client.
+                    _exp_project_id = find_or_create_project_from_address(
+                        self.conn,
+                        client_id=client_id,
+                        address=row.get("exposure_address"),
+                        city=row.get("exposure_city"),
+                        state=row.get("exposure_state"),
+                        zip_code=row.get("exposure_zip"),
+                        label=row.get("project_name"),
+                    )
+                    # Stamp policies.project_id when previously unassigned.
+                    if _exp_project_id:
+                        _cur_pid = self.conn.execute(
+                            "SELECT project_id FROM policies WHERE id=?", (_pid,)
+                        ).fetchone()
+                        if not (_cur_pid and _cur_pid["project_id"]):
+                            self.conn.execute(
+                                "UPDATE policies SET project_id = ? WHERE id = ?",
+                                (_exp_project_id, _pid),
+                            )
+
+                    _year = int(eff[:4]) if eff and len(eff) >= 4 else datetime.now().year
+                    _exp_id = find_or_create_exposure(
+                        self.conn,
+                        client_id=client_id,
+                        project_id=_exp_project_id,
+                        exposure_type=_exp_basis,
+                        year=_year,
+                        amount=_exp_amount,
+                        denominator=_exp_denom,
+                    )
+                    create_exposure_link(
+                        self.conn, uid, _exp_id, is_primary=True,
+                    )
 
             if pol_number:
                 seen_policy_numbers[pol_number] = client_id

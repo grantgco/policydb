@@ -125,10 +125,13 @@ class TestPolicyCellPatch:
         assert r.status_code == 200
         assert r.json()["formatted"] == "Internal note here"
 
-    def test_text_field_exposure_address(self, app_client):
+    def test_exposure_fields_rejected(self, app_client):
+        # Exposure fields were retired from the policy cell PATCH endpoint —
+        # they now live on client_exposures and are edited via the client's
+        # Exposures grid.  Attempting to PATCH them should fail fast.
         r = self._patch(app_client, "exposure_address", "123 Main St")
-        assert r.status_code == 200
-        assert r.json()["formatted"] == "123 Main St"
+        assert r.status_code == 400
+        assert "Invalid field" in r.json().get("error", "")
 
     def test_combobox_renewal_status(self, app_client):
         r = self._patch(app_client, "renewal_status", "In Progress")
