@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import html
 import json
 import logging
-import traceback
 
 from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -192,13 +192,18 @@ def preview_prompt(
 
     try:
         result = assemble_prompt(conn, template, record_type, record_id)
-    except Exception as exc:
-        log.exception("Prompt assembly failed: template=%s record=%s/%s", template_id, record_type, record_id)
-        tb = traceback.format_exc()
+    except Exception:
+        # Log the full traceback server-side; show the user a generic error
+        # without leaking exception details or stack frames into the HTML.
+        log.exception(
+            "Prompt assembly failed: template=%s record=%s/%s",
+            template_id, record_type, record_id,
+        )
+        safe_name = html.escape(template.get("name") or "")
         return HTMLResponse(
             "<div class='rounded border border-red-300 bg-red-50 p-3 text-sm text-red-800'>"
-            f"<p class='font-semibold'>Failed to assemble prompt: {type(exc).__name__}: {exc}</p>"
-            f"<pre class='mt-2 overflow-auto text-xs text-red-700'>{tb}</pre>"
+            "<p class='font-semibold'>Failed to assemble prompt.</p>"
+            f"<p class='mt-1'>Template: {safe_name}. See server log for details.</p>"
             "</div>",
             status_code=200,
         )
