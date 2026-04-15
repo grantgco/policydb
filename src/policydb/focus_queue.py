@@ -538,7 +538,12 @@ def _score_item(item: dict) -> float:
             score += weights["staleness"] * 0.3
 
     # 3. Severity / source importance
-    severity = item.get("severity")
+    # For follow-up items, the item's own `severity` is always None — the
+    # meaningful signal lives on the linked issue (populated during post-dedup
+    # enrichment at the bottom of build_focus_queue). Fall through to
+    # linked_issue_severity so a follow-up attached to a Critical renewal
+    # issue actually scores higher than an unlinked one.
+    severity = item.get("severity") or item.get("linked_issue_severity")
     kind = item.get("kind")
     if severity == "Critical":
         score += weights["severity"]
@@ -1029,15 +1034,25 @@ def build_focus_queue(
 
     client_ids = [client_id] if client_id else None
 
+    # "All" horizon (-999) must actually mean all — previously the three
+    # window clamps below used `max(horizon_days, 30)` which evaluates to 30
+    # for any negative horizon, silently capping "All" at 30 days of upcoming
+    # work. Special-case -999 to a large sentinel so the label matches
+    # behavior.
+    def _effective_window(minimum: int) -> int:
+        if horizon_days == -999:
+            return 9999
+        return max(horizon_days, minimum)
+
     # --- Gather from all sources ---
-    overdue_raw, upcoming_raw = get_all_followups(conn, window=max(horizon_days, 30), client_ids=client_ids)
+    overdue_raw, upcoming_raw = get_all_followups(conn, window=_effective_window(30), client_ids=client_ids)
     suggested = get_suggested_followups(conn, excluded_statuses=excluded, client_ids=client_ids)
     insurance = get_insurance_deadline_suggestions(conn, client_ids=client_ids)
     inbox_items = get_pending_inbox(conn)
     issues = get_open_issues_with_due(conn)
     milestones = get_overdue_milestones(conn)
-    projects = get_approaching_projects(conn, window_days=max(horizon_days, 30))
-    opportunities = get_approaching_opportunities(conn, window_days=max(horizon_days, 90))
+    projects = get_approaching_projects(conn, window_days=_effective_window(30))
+    opportunities = get_approaching_opportunities(conn, window_days=_effective_window(90))
 
     # Filter by client if needed
     if client_id:
@@ -1325,6 +1340,7 @@ def build_focus_queue(
 
             promote = False
             promote_reason = ""
+            promote_via = ""  # which branch fired — needed for rescoring
 
             # Promotion window matches the time horizon you're looking at
             # Negative values (overdue, all) use 7d default
@@ -1333,10 +1349,12 @@ def build_focus_queue(
             # Promote if been waiting too long
             if days is not None and days <= -auto_promote_days:
                 promote = True
+                promote_via = "waited_too_long"
                 promote_reason = f"Waiting {abs(days)} days — consider nudging"
             # Promote if deadline/expiration within the horizon window
             elif exp_days is not None and exp_days <= promote_window:
                 promote = True
+                promote_via = "expiration"
                 if exp_days <= 0:
                     promote_reason = f"⚠ Expired {abs(exp_days)}d ago — still waiting"
                 else:
@@ -1348,9 +1366,23 @@ def build_focus_queue(
             # `focus_nudge_alert_days`.
             elif days is not None and days <= promote_window and horizon_days > 0:
                 promote = True
+                promote_via = "horizon"
                 promote_reason = f"Due in {days}d — still waiting"
 
             if promote:
+                # Rescore when promotion was driven by imminent expiration.
+                # The item's original score was based on follow_up_date
+                # (which can be weeks out), giving a misleadingly low
+                # number — so a just-promoted "⚠ Expires in 3d" item would
+                # sort below non-urgent work. Temporarily swap in exp_days
+                # as the effective deadline, recompute, then restore so
+                # downstream display logic still sees the real follow-up date.
+                if promote_via == "expiration":
+                    _saved_days = item.get("days_until_deadline")
+                    item["days_until_deadline"] = exp_days
+                    item["score"] = _score_item(item)
+                    item["days_until_deadline"] = _saved_days
+
                 item["context_line"] = promote_reason + (" · " + item["context_line"] if item["context_line"] else "")
                 if "Expires" in promote_reason or "Overdue" in promote_reason:
                     item["suggested_action"] = "Escalate"

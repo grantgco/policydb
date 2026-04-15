@@ -844,17 +844,20 @@ def activity_nudge(
         return HTMLResponse("Not found", status_code=404)
 
     row = dict(row)
-    # Create a new follow-up activity
+    # Create a new follow-up activity. Default compose time is 0.1h — small
+    # but non-zero so nudges don't silently drop out of hours reporting.
     conn.execute("""
         INSERT INTO activity_log (client_id, policy_id, activity_type, subject, details,
-                                  follow_up_date, activity_date, account_exec, disposition)
-        VALUES (?, ?, 'Email', ?, 'Nudge follow-up sent', ?, date('now'), ?, ?)
+                                  follow_up_date, activity_date, account_exec, disposition,
+                                  duration_hours)
+        VALUES (?, ?, 'Email', ?, 'Nudge follow-up sent', ?, date('now'), ?, ?, ?)
     """, (
         row["client_id"], row.get("policy_id"),
         f"Follow-up nudge: {row.get('subject', '')}",
         (date.today() + timedelta(days=7)).isoformat(),
         row.get("account_exec", cfg.get("default_account_exec", "Grant")),
         row.get("disposition", ""),
+        0.1,
     ))
     # Mark the old one as done
     conn.execute(
@@ -904,12 +907,15 @@ def convert_to_issue(
         if pol and pol["expiration_date"]:
             due_date = pol["expiration_date"]
 
+    # Issue headers are work containers, not work units: set duration_hours
+    # to explicit 0.0 (not NULL) so hour rollups across item_kind='issue' rows
+    # can't accidentally hit a NULL and drop the whole sum.
     conn.execute("""
         INSERT INTO activity_log (
             client_id, policy_id, program_id, activity_type, subject, details,
             activity_date, account_exec, item_kind, issue_uid, issue_status,
-            issue_severity, due_date, follow_up_date
-        ) VALUES (?, ?, ?, 'Note', ?, ?, date('now'), ?, 'issue', ?, 'Open', 'Normal', ?, ?)
+            issue_severity, due_date, follow_up_date, duration_hours
+        ) VALUES (?, ?, ?, 'Note', ?, ?, date('now'), ?, 'issue', ?, 'Open', 'Normal', ?, ?, 0.0)
     """, (
         row["client_id"], policy_id, row.get("program_id"),
         row.get("subject", ""),

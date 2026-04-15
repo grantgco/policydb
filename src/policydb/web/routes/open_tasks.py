@@ -207,20 +207,26 @@ def action_done(
     activity_id: str,
     return_scope_type: str = Form(...),
     return_scope_id: int = Form(...),
+    duration_hours: float = Form(0.1),
     conn=Depends(get_db),
 ):
     _kind, rid = _parse_activity_id(activity_id)
     act = _fetch_activity(conn, rid)
     if not act:
         raise HTTPException(404, "Activity not found")
+    # Populate duration_hours if the task has no logged time yet. COALESCE
+    # preserves any existing value the user already entered (e.g., via the
+    # Focus Queue completion form), so marking done from Open Tasks never
+    # overwrites a better number — but also never leaves NULL behind.
     conn.execute(
         """UPDATE activity_log
            SET follow_up_done = 1,
                auto_close_reason = 'manual',
                auto_closed_at = datetime('now'),
-               auto_closed_by = 'open_tasks_panel'
+               auto_closed_by = 'open_tasks_panel',
+               duration_hours = COALESCE(duration_hours, ?)
            WHERE id = ?""",
-        (rid,),
+        (duration_hours, rid),
     )
     conn.commit()
     return _render_panel(
