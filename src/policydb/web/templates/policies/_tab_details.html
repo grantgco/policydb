@@ -90,25 +90,21 @@ textarea.field-inline { resize: none; }
       </div>
 
       <div>
-        <label class="field-label">Follow-Up Date</label>
+        <label class="field-label">Next Follow-Up</label>
         <div class="flex items-center gap-2">
-          <input type="date" data-field="follow_up_date" id="policy-fu-date" value="{{ policy.follow_up_date or '' }}" class="form-input field-inline flex-1">
-          {% if policy.follow_up_date %}
-          <button type="button" onclick="var d=document.getElementById('policy-fu-date');d.value='';d.dispatchEvent(new Event('blur'))"
-            class="text-gray-300 hover:text-red-500 text-sm" title="Clear follow-up date">&times;</button>
-          {% endif %}
-          <span id="fu-badge" class="text-xs font-medium px-2 py-0.5 rounded-full whitespace-nowrap
-            {% if follow_up_delta is not none %}
-              {% if follow_up_overdue %}bg-red-100 text-red-700{% elif follow_up_delta <= 3 %}bg-amber-100 text-amber-700{% else %}bg-gray-100 text-gray-500{% endif %}
-            {% endif %}"
-            {% if follow_up_delta is none %}style="display:none"{% endif %}>
-            {%- if follow_up_delta is not none -%}
-              {%- if follow_up_overdue -%}{{ (-follow_up_delta) }}d overdue
-              {%- elif follow_up_delta == 0 -%}today
-              {%- else -%}in {{ follow_up_delta }}d{%- endif -%}
-            {%- endif -%}
+          <span class="text-sm {% if follow_up_overdue %}text-red-600 font-medium{% else %}text-gray-700{% endif %}">
+            {{ policy_next_followup or '—' }}
           </span>
+          {% if follow_up_delta is not none %}
+          <span class="text-xs font-medium px-2 py-0.5 rounded-full whitespace-nowrap
+            {% if follow_up_overdue %}bg-red-100 text-red-700{% elif follow_up_delta <= 3 %}bg-amber-100 text-amber-700{% else %}bg-gray-100 text-gray-500{% endif %}">
+            {%- if follow_up_overdue -%}{{ (-follow_up_delta) }}d overdue
+            {%- elif follow_up_delta == 0 -%}today
+            {%- else -%}in {{ follow_up_delta }}d{%- endif -%}
+          </span>
+          {% endif %}
         </div>
+        <p class="text-[11px] text-gray-400 mt-1">Set via activity log.</p>
       </div>
 
       <div class="sm:col-span-2 lg:col-span-3 border-t border-gray-100 pt-3 mt-1">
@@ -589,96 +585,11 @@ textarea.field-inline { resize: none; }
   </div>
 </div>
 
-<!-- ── Exposure ── -->
-<div class="card mb-4">
-  <div class="px-5 py-3 border-b border-gray-100">
-    <span class="section-label">Exposure</span>
-  </div>
-  <div class="p-5 space-y-4">
-    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-      <div>
-        <label class="field-label">Exposure Basis</label>
-        <input type="text" data-field="exposure_basis" value="{{ policy.exposure_basis or '' }}"
-          placeholder="e.g. Payroll, Revenue, Sq Ft" class="form-input field-inline w-full"
-          list="ac-exposure_basis" autocomplete="off">
-      </div>
-      <div>
-        <label class="field-label">Exposure Amount</label>
-        <input type="text" class="form-input field-inline w-full currency-input" autocomplete="off"
-          value="{% if policy.exposure_amount %}{{ policy.exposure_amount | float | currency }}{% endif %}"
-          placeholder="0" data-currency-field="exposure_amount">
-      </div>
-      <div>
-        <label class="field-label">Exposure Unit</label>
-        <input type="text" data-field="exposure_unit" value="{{ policy.exposure_unit or '' }}"
-          placeholder="e.g. per $100, per $1,000, per unit" class="form-input field-inline w-full"
-          list="ac-exposure_unit" autocomplete="off">
-      </div>
-    </div>
-
-    <div>
-      <p class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-3">Primary Exposure Address / Location</p>
-      {% if policy.project_id %}
-      {# Locked to location — read-only #}
-      <div class="mb-2">
-        <span class="text-xs text-gray-400">Address from:</span>
-        <a href="/clients/{{ policy.client_id }}/projects/{{ policy.project_id }}"
-           class="text-xs text-marsh hover:underline font-medium">{{ policy.project_name }}</a>
-        <span class="text-xs text-gray-400 ml-1">— edit location to change</span>
-      </div>
-      <div class="grid grid-cols-1 sm:grid-cols-6 gap-4">
-        <div class="sm:col-span-6">
-          <label class="field-label">Street Address</label>
-          <input type="text" value="{{ policy.exposure_address or '' }}" disabled
-            class="form-input w-full bg-gray-50 text-gray-500 cursor-not-allowed">
-        </div>
-        <div class="sm:col-span-3">
-          <label class="field-label">City</label>
-          <input type="text" value="{{ policy.exposure_city or '' }}" disabled
-            class="form-input w-full bg-gray-50 text-gray-500 cursor-not-allowed">
-        </div>
-        <div class="sm:col-span-2">
-          <label class="field-label">State</label>
-          <input type="text" value="{{ policy.exposure_state or '' }}" disabled
-            class="form-input w-full bg-gray-50 text-gray-500 cursor-not-allowed">
-        </div>
-        <div class="sm:col-span-1">
-          <label class="field-label">ZIP</label>
-          <input type="text" value="{{ policy.exposure_zip or '' }}" disabled
-            class="form-input w-full bg-gray-50 text-gray-500 cursor-not-allowed">
-        </div>
-      </div>
-      {% else %}
-      {# Editable — keep existing fields EXACTLY as they are #}
-      <div class="grid grid-cols-1 sm:grid-cols-6 gap-4">
-        <div class="sm:col-span-6 relative">
-          <label class="field-label">Street Address</label>
-          <input type="text" data-field="exposure_address" id="exposure-address-input" value="{{ policy.exposure_address or '' }}"
-            placeholder="123 Main St, Suite 100" class="form-input field-inline w-full"
-            data-1p-ignore data-lpignore="true" autocomplete="off">
-          <div id="exposure-address-suggestions" class="absolute left-0 right-0 top-full z-50 bg-white border border-gray-200 rounded-b-lg shadow-lg max-h-48 overflow-y-auto hidden"></div>
-        </div>
-        <div class="sm:col-span-3">
-          <label class="field-label">City</label>
-          <input type="text" data-field="exposure_city" value="{{ policy.exposure_city or '' }}"
-            class="form-input field-inline w-full" list="ac-exposure_city" autocomplete="off">
-        </div>
-        <div class="sm:col-span-2">
-          <label class="field-label">State</label>
-          <input type="text" data-field="exposure_state" value="{{ policy.exposure_state or '' }}"
-            class="form-input field-inline w-full" list="ac-exposure_state" autocomplete="off" placeholder="e.g. CA, NY">
-        </div>
-        <div class="sm:col-span-1">
-          <label class="field-label">ZIP</label>
-          <input type="text" data-field="exposure_zip" value="{{ policy.exposure_zip or '' }}"
-            placeholder="12345" maxlength="10" class="form-input field-inline w-full">
-        </div>
-      </div>
-      {% endif %}
-    </div>
-  </div>
-</div>
-
+{# The standalone "Exposure" input card that used to live here has been
+   retired — exposure rating data is now stored on client_exposures and
+   edited through the client's Exposures grid.  The read-only card below
+   shows whatever exposures the client has linked to this policy and
+   provides a "+ Link Exposure" button. #}
 {% include "policies/_exposure_card.html" %}
 
 <!-- ── Internal ── -->
@@ -801,19 +712,11 @@ textarea.field-inline { resize: none; }
 
 <!-- Datalists -->
 <datalist id="ac-carrier"></datalist>
-<datalist id="ac-exposure_basis"></datalist>
-<datalist id="ac-exposure_unit"></datalist>
 <datalist id="ac-project_name"></datalist>
-<datalist id="ac-exposure_city"></datalist>
 <datalist id="ac-access_point"></datalist>
 <datalist id="ac-first_named_insured"></datalist>
 <datalist id="ac-policy_type"></datalist>
 <datalist id="ac-coverage_form"></datalist>
-<datalist id="ac-exposure_state">
-  {% for abbr, name in us_states %}
-  <option value="{{ abbr }}">{{ abbr }} – {{ name }}</option>
-  {% endfor %}
-</datalist>
 
 <script>
 (function () {
@@ -938,8 +841,8 @@ textarea.field-inline { resize: none; }
   });
 
   /* ── Autocomplete loading ── */
-  var AC_FIELDS = ["carrier", "exposure_basis", "exposure_unit", "project_name", "exposure_city", "access_point", "first_named_insured", "policy_type", "coverage_form"];
-  var CLIENT_SCOPED = ["project_name", "exposure_city"];
+  var AC_FIELDS = ["carrier", "project_name", "access_point", "first_named_insured", "policy_type", "coverage_form"];
+  var CLIENT_SCOPED = ["project_name"];
 
   function loadList(field) {
     var clientParam = CLIENT_SCOPED.indexOf(field) !== -1 && CLIENT_ID ? '&client_id=' + CLIENT_ID : '';
@@ -952,60 +855,6 @@ textarea.field-inline { resize: none; }
       });
   }
   AC_FIELDS.forEach(loadList);
-
-  /* ── Google Places autocomplete for exposure address ── */
-  (function() {
-    var addrInput = document.getElementById('exposure-address-input');
-    var addrDropdown = document.getElementById('exposure-address-suggestions');
-    if (!addrInput || !addrDropdown) return;
-
-    var timer = null;
-    addrInput.addEventListener('input', function() {
-      clearTimeout(timer);
-      var q = addrInput.value.trim();
-      if (q.length < 4) { addrDropdown.classList.add('hidden'); return; }
-      timer = setTimeout(function() {
-        fetch('/api/address/autocomplete?q=' + encodeURIComponent(q))
-          .then(function(r) { return r.json(); })
-          .then(function(data) {
-            var predictions = data.predictions || [];
-            if (!predictions.length) { addrDropdown.classList.add('hidden'); return; }
-            addrDropdown.innerHTML = '';
-            predictions.forEach(function(p) {
-              var div = document.createElement('div');
-              div.className = 'px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 cursor-pointer border-b border-gray-50';
-              div.textContent = p.description;
-              div.addEventListener('mousedown', function(e) {
-                e.preventDefault();
-                addrDropdown.classList.add('hidden');
-
-                fetch('/api/address/details/' + encodeURIComponent(p.place_id))
-                  .then(function(r) { return r.json(); })
-                  .then(function(d) {
-                    if (d.error) return;
-                    addrInput.value = d.street || p.description;
-                    patchField('exposure_address', addrInput.value, addrInput);
-
-                    var cityEl = container.querySelector('[data-field="exposure_city"]');
-                    if (cityEl && d.city) { cityEl.value = d.city; patchField('exposure_city', d.city, cityEl); }
-
-                    var stateEl = container.querySelector('[data-field="exposure_state"]');
-                    if (stateEl && d.state) { stateEl.value = d.state; patchField('exposure_state', d.state, stateEl); }
-
-                    var zipEl = container.querySelector('[data-field="exposure_zip"]');
-                    if (zipEl && d.zip) { zipEl.value = d.zip; patchField('exposure_zip', d.zip, zipEl); }
-                  });
-              });
-              addrDropdown.appendChild(div);
-            });
-            addrDropdown.classList.remove('hidden');
-          }).catch(function() { addrDropdown.classList.add('hidden'); });
-      }, 400);
-    });
-    addrInput.addEventListener('blur', function() {
-      setTimeout(function() { addrDropdown.classList.add('hidden'); }, 200);
-    });
-  })();
 
   /* ── Live layer notation preview ── */
   (function () {

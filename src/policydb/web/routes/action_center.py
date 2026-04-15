@@ -727,6 +727,7 @@ def _issues_ctx(conn, q: str = "", client_id: int = 0, issue_type: str = "") -> 
     rows = conn.execute("""
         SELECT a.id, a.issue_uid, a.subject, a.details, a.client_id, a.policy_id,
                a.program_id, a.issue_status, a.issue_severity, a.issue_sla_days,
+               a.due_date,
                a.resolution_type, a.resolution_notes, a.root_cause_category,
                a.resolved_date, a.activity_date, a.created_at, a.is_renewal_issue,
                c.name AS client_name,
@@ -772,9 +773,11 @@ def _issues_ctx(conn, q: str = "", client_id: int = 0, issue_type: str = "") -> 
     elif issue_type == "manual":
         issues = [i for i in issues if not i.get("is_renewal_issue")]
 
-    # Bucket into sections
-    severities = cfg.get("issue_severities", [])
-    sla_map = {s["label"]: s.get("sla_days", 7) for s in severities}
+    # Bucket into sections.  attach_issue_sla_state stamps each row with
+    # sla_days / over_sla / deadline_source so a manual due_date correctly
+    # overrides the severity-derived deadline.
+    from policydb.queries import attach_issue_sla_state
+    attach_issue_sla_state(issues)
 
     critical_overdue = []
     active = []
@@ -784,10 +787,6 @@ def _issues_ctx(conn, q: str = "", client_id: int = 0, issue_type: str = "") -> 
     for issue in issues:
         status = issue.get("issue_status") or "Open"
         severity = issue.get("issue_severity") or "Normal"
-        days_open = issue.get("days_open") or 0
-        sla = issue.get("issue_sla_days") or sla_map.get(severity, 7)
-        issue["sla_days"] = sla
-        issue["over_sla"] = days_open > sla
 
         # List-view bucketing (existing logic)
         if status in ("Resolved", "Closed"):
@@ -800,7 +799,7 @@ def _issues_ctx(conn, q: str = "", client_id: int = 0, issue_type: str = "") -> 
                         recently_resolved.append(issue)
                 except Exception:
                     pass
-        elif severity == "Critical" or issue["over_sla"]:
+        elif severity == "Critical" or issue.get("over_sla"):
             critical_overdue.append(issue)
         elif status == "Waiting":
             waiting.append(issue)
@@ -815,10 +814,7 @@ def _issues_ctx(conn, q: str = "", client_id: int = 0, issue_type: str = "") -> 
     sla_breach_count = len(sla_breached)
     oldest_breach_days = 0
     if sla_breached:
-        oldest_breach_days = max(
-            int((i.get("days_open") or 0) - (i.get("sla_days") or 7))
-            for i in sla_breached
-        )
+        oldest_breach_days = max(int(i.get("days_past") or 0) for i in sla_breached)
 
     # All clients for filter dropdown
     all_clients = [dict(r) for r in conn.execute(

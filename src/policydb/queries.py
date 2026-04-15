@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import sqlite3
 from datetime import date, timedelta
 from typing import Optional
@@ -12,6 +13,94 @@ logger = logging.getLogger("policydb.queries")
 from rapidfuzz import process, fuzz
 
 import policydb.config as cfg
+
+
+def _normalize_address(raw: str | None) -> str:
+    """Lowercase + collapse whitespace for address matching."""
+    if not raw:
+        return ""
+    return re.sub(r"\s+", " ", raw.strip().lower())
+
+
+def find_or_create_project_from_address(
+    conn,
+    *,
+    client_id: int,
+    address: str | None = None,
+    city: str | None = None,
+    state: str | None = None,
+    zip_code: str | None = None,
+    label: str | None = None,
+) -> int | None:
+    """Upsert a `projects` (location) row for this client.
+
+    Matches on normalized street address when one is provided, otherwise
+    on project name (case-insensitive).  Returns the project_id.  Returns
+    ``None`` when there is no usable info to identify a location (no
+    address AND no label).
+
+    This is used by the AI policy import and the CSV importer to turn
+    extracted exposure/location address fields into real `projects` rows,
+    so exposure data can be rolled up to the location/project level
+    instead of stamped onto deprecated `policies.exposure_*` columns.
+    """
+    addr = (address or "").strip()
+    lbl = (label or "").strip()
+    if not addr and not lbl:
+        return None
+
+    norm_addr = _normalize_address(addr)
+    city_clean = (city or "").strip() or None
+    state_clean = (state or "").strip() or None
+    zip_clean = (zip_code or "").strip() or None
+
+    existing_id: int | None = None
+
+    # Prefer address-match: same client, same normalized street address.
+    if norm_addr:
+        for r in conn.execute(
+            """SELECT id, address FROM projects
+               WHERE client_id = ?
+                 AND address IS NOT NULL
+                 AND TRIM(address) != ''""",
+            (client_id,),
+        ).fetchall():
+            if _normalize_address(r["address"]) == norm_addr:
+                existing_id = r["id"]
+                break
+
+    # Fall back to name-match when there's no address.
+    if existing_id is None and lbl and not addr:
+        row = conn.execute(
+            """SELECT id FROM projects
+               WHERE client_id = ?
+                 AND LOWER(TRIM(name)) = LOWER(TRIM(?))""",
+            (client_id, lbl),
+        ).fetchone()
+        if row:
+            existing_id = row["id"]
+
+    if existing_id is not None:
+        return existing_id
+
+    # Create a new project.  Name defaults to the label, else the first
+    # line of the address.  Status is Active so it shows up in the
+    # location picker immediately.
+    if lbl:
+        name = lbl[:60]
+    elif addr:
+        name = addr.split(",")[0].strip()[:60] or "Location"
+    else:
+        name = "Location"
+
+    conn.execute(
+        """INSERT INTO projects
+             (client_id, name, address, city, state, zip, status)
+           VALUES (?, ?, ?, ?, ?, ?, 'Active')""",
+        (client_id, name, addr or None, city_clean, state_clean, zip_clean),
+    )
+    conn.commit()
+    return conn.execute("SELECT last_insert_rowid()").fetchone()[0]
 
 # ─── ISSUE COVERAGE HELPERS ──────────────────────────────────────────────────
 
@@ -349,11 +438,93 @@ def attach_issue_counts(
             r["max_issue_severity"] = None
 
 
+def compute_issue_sla_state(issue: dict, *, today: date | None = None) -> dict:
+    """Resolve an issue's effective SLA deadline.
+
+    A manually set ``due_date`` on the issue row wins over the synthetic
+    severity-derived deadline (``activity_date + issue_sla_days``).  This
+    keeps the SLA honest when a user has committed to a concrete date.
+
+    Expected keys on ``issue`` (all optional — helper is defensive):
+      due_date, activity_date (or created_at), issue_sla_days,
+      issue_severity, days_open.
+
+    Returns a dict with::
+
+        sla_days         int  — severity-derived budget (for "SLA Xd" display)
+        deadline_date    str|None — ISO date of the effective deadline
+        deadline_source  'manual' | 'severity'
+        days_to_deadline int  — negative when past due
+        days_past        int  — positive count of days overdue (0 if not over)
+        over_sla         bool — true when today is past the deadline
+    """
+    today = today or date.today()
+    severities = cfg.get("issue_severities", [])
+    sla_map = {s["label"]: s.get("sla_days", 7) for s in severities}
+    sla_days = (
+        issue.get("issue_sla_days")
+        or sla_map.get(issue.get("issue_severity", "Normal"), 7)
+    )
+
+    def _parse(raw) -> date | None:
+        if not raw:
+            return None
+        try:
+            return date.fromisoformat(str(raw)[:10])
+        except (ValueError, TypeError):
+            return None
+
+    manual = _parse(issue.get("due_date"))
+    if manual is not None:
+        deadline = manual
+        source = "manual"
+    else:
+        act_date = _parse(issue.get("activity_date") or issue.get("created_at"))
+        if act_date is not None:
+            deadline = act_date + timedelta(days=int(sla_days))
+            source = "severity"
+        else:
+            # Degenerate case — fall back to pre-computed days_open.  Happens
+            # when the helper is handed an issue dict that didn't hydrate an
+            # activity_date (rare; mostly test fixtures).
+            days_open = int(issue.get("days_open") or 0)
+            diff = int(sla_days) - days_open
+            return {
+                "sla_days": int(sla_days),
+                "deadline_date": None,
+                "deadline_source": "severity",
+                "days_to_deadline": diff,
+                "days_past": max(0, -diff),
+                "over_sla": days_open > int(sla_days),
+            }
+
+    days_to = (deadline - today).days
+    return {
+        "sla_days": int(sla_days),
+        "deadline_date": deadline.isoformat(),
+        "deadline_source": source,
+        "days_to_deadline": days_to,
+        "days_past": max(0, -days_to),
+        "over_sla": days_to < 0,
+    }
+
+
+def attach_issue_sla_state(issues: list[dict]) -> None:
+    """Stamp each issue dict with the keys returned by compute_issue_sla_state.
+
+    Mutates in place.  Convenience for route handlers that iterate over
+    issue rows before rendering a template.
+    """
+    for issue in issues:
+        issue.update(compute_issue_sla_state(issue))
+
+
 def get_dashboard_issues_widget(conn: sqlite3.Connection, limit: int = 3) -> dict:
     """Returns top N open issues by severity + counts for dashboard widget."""
     top = conn.execute(
         """SELECT a.issue_uid, a.subject, a.issue_severity, a.issue_status,
-                  a.issue_sla_days, c.name AS client_name,
+                  a.issue_sla_days, a.due_date, a.activity_date,
+                  c.name AS client_name,
                   CAST(julianday('now') - julianday(a.activity_date) AS INTEGER) AS days_open
            FROM activity_log a
            LEFT JOIN clients c ON c.id = a.client_id
@@ -370,15 +541,26 @@ def get_dashboard_issues_widget(conn: sqlite3.Connection, limit: int = 3) -> dic
     total = conn.execute(
         "SELECT COUNT(*) FROM activity_log WHERE item_kind='issue' AND merged_into_id IS NULL AND issue_status NOT IN ('Resolved','Closed')"
     ).fetchone()[0]
+    # SLA breach count — a manual due_date overrides the severity-derived
+    # age calculation.  An issue is over SLA when today is past whichever
+    # deadline actually applies.
     sla_count = conn.execute(
         """SELECT COUNT(*) FROM activity_log
            WHERE item_kind = 'issue'
              AND merged_into_id IS NULL
              AND issue_status NOT IN ('Resolved', 'Closed')
-             AND issue_sla_days IS NOT NULL
-             AND CAST(julianday('now') - julianday(activity_date) AS INTEGER) > issue_sla_days"""
+             AND (
+                 (due_date IS NOT NULL AND date('now') > due_date)
+                 OR (
+                     due_date IS NULL
+                     AND issue_sla_days IS NOT NULL
+                     AND CAST(julianday('now') - julianday(activity_date) AS INTEGER) > issue_sla_days
+                 )
+             )"""
     ).fetchone()[0]
-    return {"total": total, "sla_count": sla_count, "top_issues": [dict(r) for r in top]}
+    top_issues = [dict(r) for r in top]
+    attach_issue_sla_state(top_issues)
+    return {"total": total, "sla_count": sla_count, "top_issues": top_issues}
 
 
 def get_stale_renewals(
@@ -416,7 +598,10 @@ def get_program_pipeline(
     sql = """
     SELECT pg.id AS program_id, pg.program_uid, pg.name AS program_name,
            pg.client_id, pg.renewal_status, pg.project_id,
-           pg.follow_up_date, pg.bound_date, pg.placement_colleague,
+           (SELECT MIN(follow_up_date) FROM activity_log
+              WHERE program_id = pg.id AND follow_up_done = 0 AND follow_up_date IS NOT NULL
+                AND (item_kind = 'followup' OR item_kind IS NULL)) AS follow_up_date,
+           pg.bound_date, pg.placement_colleague,
            pg.milestone_profile,
            c.name AS client_name, c.cn_number,
            pr.name AS project_name,
@@ -775,15 +960,25 @@ def renew_policy(
         ),
     )
 
-    # Auto-schedule follow-up for the new term
+    # Auto-schedule follow-up for the new term via activity_log
     from policydb import config as _cfg
     auto_days = _cfg.get("auto_followup_days_before_expiry", 120)
     from datetime import timedelta as _td
     auto_fu_date = (new_exp - _td(days=auto_days)).isoformat()
-    conn.execute(
-        "UPDATE policies SET follow_up_date=? WHERE policy_uid=?",
-        (auto_fu_date, new_uid),
-    )
+    new_policy_row = conn.execute(
+        "SELECT id, client_id FROM policies WHERE policy_uid=?", (new_uid,)
+    ).fetchone()
+    if new_policy_row:
+        create_followup_activity(
+            conn,
+            client_id=new_policy_row["client_id"],
+            policy_id=new_policy_row["id"],
+            issue_id=None,
+            subject="Renewal term created — kick off",
+            activity_type="Task",
+            follow_up_date=auto_fu_date,
+            follow_up_done=False,
+        )
 
     # Archive the prior term
     conn.execute("UPDATE policies SET archived=1 WHERE policy_uid=?", (uid,))
@@ -1016,9 +1211,11 @@ def auto_close_followups(
 def supersede_followups(conn, policy_id: int, new_date: str) -> None:
     """When logging a new activity with a follow-up, supersede all older follow-ups.
 
-    1. Mark all pending activity follow-ups for this policy as done.
-    2. Sync the policy's own follow_up_date to the new date.
+    Marks all pending activity follow-ups for this policy as done. activity_log
+    is the sole source of truth for follow-up dates — the newly-inserted row
+    itself carries the new_date, so no separate write is needed.
     """
+    del new_date  # retained in signature for call-site compatibility
     conn.execute(
         """UPDATE activity_log
            SET follow_up_done = 1,
@@ -1027,60 +1224,6 @@ def supersede_followups(conn, policy_id: int, new_date: str) -> None:
                auto_closed_by = 'supersede_followups'
            WHERE policy_id = ? AND follow_up_done = 0 AND follow_up_date IS NOT NULL""",
         (policy_id,),
-    )
-    conn.execute(
-        "UPDATE policies SET follow_up_date = ? WHERE id = ?",
-        (new_date, policy_id),
-    )
-
-
-def sync_policy_follow_up_date(conn, policy_id: int) -> None:
-    """Re-derive policies.follow_up_date from the earliest open activity follow-up.
-
-    The activity_log is the source of truth; policies.follow_up_date is a scalar
-    cache used by renewal pipeline views, Action Center, and policy pages.
-    This helper keeps the cache coherent after any mutation that could change
-    the outcome (mark done, snooze, log-close).
-
-    Behavior: picks the earliest follow_up_date across open activity follow-ups
-    on this policy; sets NULL if none exist.
-    """
-    row = conn.execute(
-        """SELECT MIN(follow_up_date) AS earliest
-           FROM activity_log
-           WHERE policy_id = ?
-             AND follow_up_done = 0
-             AND follow_up_date IS NOT NULL
-             AND (item_kind = 'followup' OR item_kind IS NULL)""",
-        (policy_id,),
-    ).fetchone()
-    earliest = row["earliest"] if row else None
-    conn.execute(
-        "UPDATE policies SET follow_up_date = ? WHERE id = ?",
-        (earliest, policy_id),
-    )
-
-
-def sync_client_follow_up_date(conn, client_id: int) -> None:
-    """Re-derive clients.follow_up_date from earliest open client-level follow-up.
-
-    Client-level means activity_log rows with client_id set and policy_id NULL.
-    Same rule as sync_policy_follow_up_date: source of truth is activity_log.
-    """
-    row = conn.execute(
-        """SELECT MIN(follow_up_date) AS earliest
-           FROM activity_log
-           WHERE client_id = ?
-             AND policy_id IS NULL
-             AND follow_up_done = 0
-             AND follow_up_date IS NOT NULL
-             AND (item_kind = 'followup' OR item_kind IS NULL)""",
-        (client_id,),
-    ).fetchone()
-    earliest = row["earliest"] if row else None
-    conn.execute(
-        "UPDATE clients SET follow_up_date = ? WHERE id = ?",
-        (earliest, client_id),
     )
 
 
@@ -1105,13 +1248,11 @@ def create_followup_activity(
 
     Behavior:
     - Calls supersede_followups() BEFORE the INSERT when a new open follow-up
-      lands on a policy — this closes older siblings and syncs
-      policies.follow_up_date without self-supersession.
-    - Inserts into activity_log with item_kind='followup'.
+      lands on a policy — this closes older siblings so the new row is the
+      single open follow-up on the policy (avoids self-supersession).
+    - Inserts into activity_log with item_kind='followup'. activity_log is the
+      sole source of truth for a record's "next follow-up"; views derive it.
     - If issue_id is None and policy_id is set, runs auto_link_to_renewal_issue.
-    - For done-at-creation or no-date rows, re-syncs policies.follow_up_date
-      so the scalar cache matches the new state of activity_log.
-    - If policy_id is None, syncs clients.follow_up_date.
 
     Returns the new activity_log.id.
     """
@@ -1142,14 +1283,6 @@ def create_followup_activity(
     if issue_id is None and policy_id is not None:
         from policydb.renewal_issues import auto_link_to_renewal_issue
         auto_link_to_renewal_issue(conn, policy_id, new_id)
-
-    # Done-at-creation or no-date path: re-sync the scalar cache
-    if not (follow_up_date and not follow_up_done) and policy_id is not None:
-        sync_policy_follow_up_date(conn, policy_id)
-
-    # Client-level sync for direct client follow-ups
-    if policy_id is None and client_id is not None:
-        sync_client_follow_up_date(conn, client_id)
 
     return new_id
 
@@ -1210,6 +1343,26 @@ def filter_thread_for_history(rows: list) -> list:
 # Open Tasks panel — aggregated follow-up rollup for issue/client/program/policy
 # ─────────────────────────────────────────────────────────────────────────────
 
+# Shared SELECT projection used by every _open_tasks_for_* query.
+# The helper _open_task_row_from_activity() expects these column aliases.
+_OPEN_TASK_SELECT = """a.id, a.subject, a.activity_type, a.follow_up_date,
+    a.disposition, a.policy_id, a.client_id, a.issue_id, a.program_id, a.details,
+    p.policy_uid, p.policy_type, p.carrier,
+    c.name AS client_name,
+    iss.issue_uid AS issue_uid_joined,
+    iss.subject AS issue_subject_joined,
+    proj.id AS project_id_joined,
+    proj.name AS project_name_joined,
+    pg.program_uid AS program_uid_joined,
+    pg.name AS program_name_joined"""
+
+_OPEN_TASK_JOINS = """LEFT JOIN policies p ON p.id = a.policy_id
+    LEFT JOIN clients c ON c.id = a.client_id
+    LEFT JOIN activity_log iss ON iss.id = a.issue_id AND iss.item_kind = 'issue'
+    LEFT JOIN projects proj ON proj.id = COALESCE(a.project_id, p.project_id)
+    LEFT JOIN programs pg ON pg.id = COALESCE(a.program_id, p.program_id)"""
+
+
 def _open_task_row_from_activity(r) -> dict:
     """Convert a sqlite row from activity_log (+ policy/client joins) into the
     panel's TaskRow shape. Helper shared across scopes."""
@@ -1232,6 +1385,9 @@ def _open_task_row_from_activity(r) -> dict:
             accountability = d.get("accountability", "my_action")
             break
 
+    details_raw = (r["details"] or "") if "details" in keys else ""
+    details_preview = " ".join(details_raw.split())[:160] if details_raw else ""
+
     return {
         "activity_id": str(r["id"]),
         "subject": r["subject"] or r["activity_type"] or "Follow-up",
@@ -1243,9 +1399,19 @@ def _open_task_row_from_activity(r) -> dict:
         "policy_id": r["policy_id"] if "policy_id" in keys else None,
         "policy_uid": r["policy_uid"] if "policy_uid" in keys else None,
         "policy_type": r["policy_type"] if "policy_type" in keys else None,
+        "carrier": r["carrier"] if "carrier" in keys else None,
         "client_id": r["client_id"],
         "client_name": r["client_name"] if "client_name" in keys else "",
         "source": "activity",
+        "details_preview": details_preview,
+        "issue_id": r["issue_id"] if "issue_id" in keys else None,
+        "issue_uid": r["issue_uid_joined"] if "issue_uid_joined" in keys else None,
+        "issue_subject": r["issue_subject_joined"] if "issue_subject_joined" in keys else None,
+        "project_id": r["project_id_joined"] if "project_id_joined" in keys else None,
+        "project_name": r["project_name_joined"] if "project_name_joined" in keys else None,
+        "program_id": r["program_id"] if "program_id" in keys else None,
+        "program_uid": r["program_uid_joined"] if "program_uid_joined" in keys else None,
+        "program_name": r["program_name_joined"] if "program_name_joined" in keys else None,
         "is_on_issue": False,          # caller sets
         "linked_to_other_issue": None, # caller sets
         "attach_target_issue_id": None, # caller sets
@@ -1296,17 +1462,13 @@ def _open_tasks_for_issue(conn, issue_id: int) -> dict:
     # On-issue: all open follow-ups linked to this issue (may include rows on
     # non-covered policies too, e.g. client-level activities)
     on_issue_raw = conn.execute(
-        """SELECT a.id, a.subject, a.activity_type, a.follow_up_date,
-                  a.disposition, a.policy_id, a.client_id, a.issue_id,
-                  p.policy_uid, p.policy_type,
-                  c.name AS client_name
+        f"""SELECT {_OPEN_TASK_SELECT}
            FROM activity_log a
-           LEFT JOIN policies p ON p.id = a.policy_id
-           LEFT JOIN clients c ON c.id = a.client_id
+           {_OPEN_TASK_JOINS}
            WHERE a.issue_id = ?
              AND a.follow_up_done = 0
              AND a.follow_up_date IS NOT NULL
-             AND (a.item_kind = 'followup' OR a.item_kind IS NULL)""",
+             AND (a.item_kind = 'followup' OR a.item_kind IS NULL)""",  # noqa: S608
         (issue_id,),
     ).fetchall()
     for r in on_issue_raw:
@@ -1324,15 +1486,9 @@ def _open_tasks_for_issue(conn, issue_id: int) -> dict:
     if policy_ids:
         placeholders = ",".join("?" * len(policy_ids))
         loose_raw = conn.execute(
-            f"""SELECT a.id, a.subject, a.activity_type, a.follow_up_date,
-                       a.disposition, a.policy_id, a.client_id, a.issue_id,
-                       p.policy_uid, p.policy_type,
-                       c.name AS client_name,
-                       other.issue_uid AS other_issue_uid
+            f"""SELECT {_OPEN_TASK_SELECT}
                 FROM activity_log a
-                JOIN policies p ON p.id = a.policy_id
-                LEFT JOIN clients c ON c.id = a.client_id
-                LEFT JOIN activity_log other ON other.id = a.issue_id AND other.item_kind = 'issue'
+                {_OPEN_TASK_JOINS}
                 WHERE a.policy_id IN ({placeholders})
                   AND a.follow_up_done = 0
                   AND a.follow_up_date IS NOT NULL
@@ -1343,7 +1499,7 @@ def _open_tasks_for_issue(conn, issue_id: int) -> dict:
         for r in loose_raw:
             row = _open_task_row_from_activity(r)
             row["is_on_issue"] = False
-            row["linked_to_other_issue"] = r["other_issue_uid"]
+            row["linked_to_other_issue"] = row["issue_uid"]
             loose_rows.append(row)
             total += 1
             if row["days_overdue"] > 0:
@@ -1422,55 +1578,28 @@ def _open_tasks_for_client(conn, client_id: int) -> dict:
             waiting += 1
 
     # ── Group 1: direct_client
+    # Exclude follow-ups already attached to an issue — those surface in their
+    # own issue group below, so including them here would double-list them
+    # under "Direct client follow-ups".
     direct_rows: list[dict] = []
     for r in conn.execute(
-        """SELECT a.id, a.subject, a.activity_type, a.follow_up_date,
-                  a.disposition, a.policy_id, a.client_id, a.issue_id,
-                  c.name AS client_name
+        f"""SELECT {_OPEN_TASK_SELECT}
            FROM activity_log a
-           JOIN clients c ON c.id = a.client_id
+           {_OPEN_TASK_JOINS}
            WHERE a.client_id = ?
              AND a.policy_id IS NULL
+             AND a.issue_id IS NULL
              AND a.follow_up_done = 0
              AND a.follow_up_date IS NOT NULL
-             AND (a.item_kind = 'followup' OR a.item_kind IS NULL)""",
+             AND (a.item_kind = 'followup' OR a.item_kind IS NULL)""",  # noqa: S608
         (client_id,),
     ).fetchall():
         row = _open_task_row_from_activity(r)
         direct_rows.append(row)
         _count(row)
 
-    # clients.follow_up_date itself (synthetic row, source="client")
-    client_row = conn.execute(
-        "SELECT id, name, follow_up_date FROM clients WHERE id = ?", (client_id,)
-    ).fetchone()
-    if client_row and client_row["follow_up_date"]:
-        from datetime import date as _date
-        fu = client_row["follow_up_date"]
-        try:
-            days_od = (_date.today() - _date.fromisoformat(fu)).days
-        except (ValueError, TypeError):
-            days_od = 0
-        synth = {
-            "activity_id": f"C{client_row['id']}",
-            "subject": "Client-level follow-up",
-            "activity_type": None,
-            "follow_up_date": fu,
-            "days_overdue": days_od,
-            "disposition": "",
-            "accountability": "my_action",
-            "policy_id": None,
-            "policy_uid": None,
-            "policy_type": None,
-            "client_id": client_row["id"],
-            "client_name": client_row["name"],
-            "source": "client",
-            "is_on_issue": False,
-            "linked_to_other_issue": None,
-            "attach_target_issue_id": None,
-        }
-        direct_rows.append(synth)
-        _count(synth)
+    # (Legacy clients.follow_up_date synthetic row removed — all client-level
+    # follow-ups now live in activity_log and are picked up by the query above.)
 
     # ── Group 2..N: per open issue
     issue_groups: list[dict] = []
@@ -1478,17 +1607,13 @@ def _open_tasks_for_client(conn, client_id: int) -> dict:
         iss_id = iss["issue_id"]
         iss_rows: list[dict] = []
         for r in conn.execute(
-            """SELECT a.id, a.subject, a.activity_type, a.follow_up_date,
-                      a.disposition, a.policy_id, a.client_id, a.issue_id,
-                      p.policy_uid, p.policy_type,
-                      c.name AS client_name
+            f"""SELECT {_OPEN_TASK_SELECT}
                FROM activity_log a
-               LEFT JOIN policies p ON p.id = a.policy_id
-               LEFT JOIN clients c ON c.id = a.client_id
+               {_OPEN_TASK_JOINS}
                WHERE a.issue_id = ?
                  AND a.follow_up_done = 0
                  AND a.follow_up_date IS NOT NULL
-                 AND (a.item_kind = 'followup' OR a.item_kind IS NULL)""",
+                 AND (a.item_kind = 'followup' OR a.item_kind IS NULL)""",  # noqa: S608
             (iss_id,),
         ).fetchall():
             row = _open_task_row_from_activity(r)
@@ -1514,19 +1639,25 @@ def _open_tasks_for_client(conn, client_id: int) -> dict:
     uncovered = [pid for pid in client_policy_ids if pid not in covered_policy_ids]
     if uncovered:
         ph = ",".join("?" * len(uncovered))
+        params: list = list(uncovered)
+        # Exclude follow-ups already attached to one of this client's open
+        # issues (they're surfaced in the per-issue groups above).  Matches
+        # the pattern used by _open_tasks_for_program.
+        if issue_ids:
+            iph = ",".join("?" * len(issue_ids))
+            exclude_clause = f" AND (a.issue_id IS NULL OR a.issue_id NOT IN ({iph}))"
+            params.extend(issue_ids)
+        else:
+            exclude_clause = " AND a.issue_id IS NULL"
         for r in conn.execute(
-            f"""SELECT a.id, a.subject, a.activity_type, a.follow_up_date,
-                       a.disposition, a.policy_id, a.client_id, a.issue_id,
-                       p.policy_uid, p.policy_type,
-                       c.name AS client_name
+            f"""SELECT {_OPEN_TASK_SELECT}
                 FROM activity_log a
-                JOIN policies p ON p.id = a.policy_id
-                LEFT JOIN clients c ON c.id = a.client_id
+                {_OPEN_TASK_JOINS}
                 WHERE a.policy_id IN ({ph})
                   AND a.follow_up_done = 0
                   AND a.follow_up_date IS NOT NULL
-                  AND (a.item_kind = 'followup' OR a.item_kind IS NULL)""",  # noqa: S608
-            uncovered,
+                  AND (a.item_kind = 'followup' OR a.item_kind IS NULL){exclude_clause}""",  # noqa: S608
+            params,
         ).fetchall():
             row = _open_task_row_from_activity(r)
             # Resolve attach target: policy's open renewal issue (if exactly one)
@@ -1598,13 +1729,9 @@ def _open_tasks_for_program(conn, program_id: int) -> dict:
     if issue_ids:
         ph = ",".join("?" * len(issue_ids))
         for r in conn.execute(
-            f"""SELECT a.id, a.subject, a.activity_type, a.follow_up_date,
-                       a.disposition, a.policy_id, a.client_id, a.issue_id,
-                       p.policy_uid, p.policy_type,
-                       c.name AS client_name
+            f"""SELECT {_OPEN_TASK_SELECT}
                 FROM activity_log a
-                LEFT JOIN policies p ON p.id = a.policy_id
-                LEFT JOIN clients c ON c.id = a.client_id
+                {_OPEN_TASK_JOINS}
                 WHERE a.issue_id IN ({ph})
                   AND a.follow_up_done = 0
                   AND a.follow_up_date IS NOT NULL
@@ -1628,15 +1755,9 @@ def _open_tasks_for_program(conn, program_id: int) -> dict:
         else:
             exclude_clause = " AND a.issue_id IS NULL"
         for r in conn.execute(
-            f"""SELECT a.id, a.subject, a.activity_type, a.follow_up_date,
-                       a.disposition, a.policy_id, a.client_id, a.issue_id,
-                       p.policy_uid, p.policy_type,
-                       c.name AS client_name,
-                       other.issue_uid AS other_issue_uid
+            f"""SELECT {_OPEN_TASK_SELECT}
                 FROM activity_log a
-                JOIN policies p ON p.id = a.policy_id
-                LEFT JOIN clients c ON c.id = a.client_id
-                LEFT JOIN activity_log other ON other.id = a.issue_id AND other.item_kind = 'issue'
+                {_OPEN_TASK_JOINS}
                 WHERE a.policy_id IN ({ph})
                   AND a.follow_up_done = 0
                   AND a.follow_up_date IS NOT NULL
@@ -1644,7 +1765,7 @@ def _open_tasks_for_program(conn, program_id: int) -> dict:
             params,
         ).fetchall():
             row = _open_task_row_from_activity(r)
-            row["linked_to_other_issue"] = r["other_issue_uid"]
+            row["linked_to_other_issue"] = row["issue_uid"]
             if issue_ids and not row["linked_to_other_issue"]:
                 row["attach_target_issue_id"] = issue_ids[0] if len(issue_ids) == 1 else None
             loose_rows.append(row)
@@ -1676,23 +1797,17 @@ def _open_tasks_for_policy(conn, policy_id: int) -> dict:
     waiting = 0
 
     for r in conn.execute(
-        """SELECT a.id, a.subject, a.activity_type, a.follow_up_date,
-                  a.disposition, a.policy_id, a.client_id, a.issue_id,
-                  p.policy_uid, p.policy_type,
-                  c.name AS client_name,
-                  other.issue_uid AS other_issue_uid
+        f"""SELECT {_OPEN_TASK_SELECT}
            FROM activity_log a
-           JOIN policies p ON p.id = a.policy_id
-           LEFT JOIN clients c ON c.id = a.client_id
-           LEFT JOIN activity_log other ON other.id = a.issue_id AND other.item_kind = 'issue'
+           {_OPEN_TASK_JOINS}
            WHERE a.policy_id = ?
              AND a.follow_up_done = 0
              AND a.follow_up_date IS NOT NULL
-             AND (a.item_kind = 'followup' OR a.item_kind IS NULL)""",
+             AND (a.item_kind = 'followup' OR a.item_kind IS NULL)""",  # noqa: S608
         (policy_id,),
     ).fetchall():
         row = _open_task_row_from_activity(r)
-        row["linked_to_other_issue"] = r["other_issue_uid"]
+        row["linked_to_other_issue"] = row["issue_uid"]
 
         # Attach target: policy's single open renewal issue if unique
         tgt = conn.execute(
@@ -1727,7 +1842,7 @@ def _open_tasks_for_policy(conn, policy_id: int) -> dict:
 def get_all_followups(
     conn: sqlite3.Connection, window: int = 30, client_ids: list[int] | None = None
 ) -> tuple[list[dict], list[dict]]:
-    """Return (overdue, upcoming) follow-ups from both activity_log and policy records.
+    """Return (overdue, upcoming) follow-ups sourced from activity_log.
 
     Each item is a plain dict enriched with an 'accountability' key derived from
     the row's disposition value (via the follow_up_dispositions config list).
@@ -1802,83 +1917,6 @@ def get_all_followups(
     WHERE a.follow_up_done = 0 AND a.follow_up_date IS NOT NULL
       AND a.item_kind != 'issue'
       AND a.project_id IS NOT NULL AND a.policy_id IS NULL
-
-    UNION ALL
-
-    SELECT 'policy' AS source,
-           p.id,
-           COALESCE(p.carrier, p.policy_type) AS subject,
-           p.follow_up_date,
-           CASE WHEN p.is_opportunity = 1 THEN 'Opportunity' ELSE 'Policy Reminder' END AS activity_type,
-           (SELECT co_pc.name FROM contact_policy_assignments cpa_pc
-            JOIN contacts co_pc ON cpa_pc.contact_id = co_pc.id
-            WHERE cpa_pc.policy_id = p.id ORDER BY cpa_pc.id LIMIT 1) AS contact_person,
-           NULL AS disposition, NULL AS thread_id,
-           c.name AS client_name, c.id AS client_id, c.cn_number, c.industry_segment AS industry,
-           p.policy_uid, p.policy_type, p.carrier, p.project_name, p.project_id,
-           p.renewal_status, p.expiration_date,
-           p.is_opportunity,
-           CAST(julianday('now') - julianday(p.follow_up_date) AS INTEGER) AS days_overdue,
-           (SELECT co_pe.email FROM contact_policy_assignments cpa_pe
-            JOIN contacts co_pe ON cpa_pe.contact_id = co_pe.id
-            WHERE cpa_pe.policy_id = p.id AND co_pe.email IS NOT NULL ORDER BY cpa_pe.id LIMIT 1) AS contact_email,
-           (SELECT GROUP_CONCAT(co_i2.email, ',')
-            FROM contact_client_assignments cca_i2
-            JOIN contacts co_i2 ON cca_i2.contact_id = co_i2.id
-            WHERE cca_i2.client_id = c.id AND cca_i2.contact_type = 'internal' AND co_i2.email IS NOT NULL
-           ) AS internal_cc,
-           (SELECT a2.details FROM activity_log a2
-            WHERE a2.policy_id = p.id ORDER BY a2.activity_date DESC, a2.id DESC LIMIT 1) AS note_details,
-           (SELECT a2.subject FROM activity_log a2
-            WHERE a2.policy_id = p.id ORDER BY a2.activity_date DESC, a2.id DESC LIMIT 1) AS note_subject,
-           (SELECT a2.activity_date FROM activity_log a2
-            WHERE a2.policy_id = p.id ORDER BY a2.activity_date DESC, a2.id DESC LIMIT 1) AS note_date,
-           NULL AS program_id,
-           NULL AS program_name,
-           NULL AS program_uid,
-           NULL AS email_from, NULL AS email_to, NULL AS email_snippet
-    FROM policies p
-    JOIN clients c ON p.client_id = c.id
-    WHERE p.follow_up_date IS NOT NULL AND p.archived = 0
-      AND NOT EXISTS (
-          SELECT 1 FROM activity_log a
-          WHERE (a.policy_id = p.id
-                 OR (a.issue_id IN (SELECT ipc.issue_id FROM v_issue_policy_coverage ipc WHERE ipc.policy_id = p.id)
-                     AND a.item_kind != 'issue'))
-            AND a.follow_up_done = 0
-            AND a.follow_up_date IS NOT NULL
-      )
-
-    UNION ALL
-
-    SELECT 'client' AS source,
-           c.id,
-           'Client Follow-Up: ' || c.name AS subject,
-           c.follow_up_date,
-           'Client Reminder' AS activity_type,
-           NULL AS contact_person,
-           NULL AS disposition, NULL AS thread_id,
-           c.name AS client_name, c.id AS client_id, c.cn_number, c.industry_segment AS industry,
-           NULL AS policy_uid, NULL AS policy_type, NULL AS carrier,
-           NULL AS project_name, NULL AS project_id,
-           NULL AS renewal_status, NULL AS expiration_date,
-           0 AS is_opportunity,
-           CAST(julianday('now') - julianday(c.follow_up_date) AS INTEGER) AS days_overdue,
-           NULL AS contact_email,
-           (SELECT GROUP_CONCAT(co_i3.email, ',')
-            FROM contact_client_assignments cca_i3
-            JOIN contacts co_i3 ON cca_i3.contact_id = co_i3.id
-            WHERE cca_i3.client_id = c.id AND cca_i3.contact_type = 'internal' AND co_i3.email IS NOT NULL
-           ) AS internal_cc,
-           c.notes AS note_details,
-           NULL AS note_subject,
-           NULL AS note_date,
-           NULL AS program_id,
-           NULL AS program_name,
-           NULL AS program_uid,
-           NULL AS email_from, NULL AS email_to, NULL AS email_snippet
-    FROM clients c
-    WHERE c.follow_up_date IS NOT NULL AND c.archived = 0
 
     ORDER BY follow_up_date ASC
     """
@@ -2358,22 +2396,12 @@ def merge_contacts(conn: sqlite3.Connection, source_id: int, target_id: int) -> 
 
 
 def get_followup_count_for_date(conn: sqlite3.Connection, target_date: str) -> int:
-    """Count pending follow-ups on a specific date using the same dedup logic as get_all_followups."""
-    row = conn.execute("""
-        SELECT COUNT(*) AS n FROM (
-            SELECT a.id FROM activity_log a
-            WHERE a.follow_up_done = 0 AND a.follow_up_date = ?
-
-            UNION ALL
-
-            SELECT p.id FROM policies p
-            WHERE p.archived = 0 AND p.follow_up_date = ?
-              AND NOT EXISTS (
-                  SELECT 1 FROM activity_log a
-                  WHERE a.policy_id = p.id AND a.follow_up_done = 0 AND a.follow_up_date IS NOT NULL
-              )
-        )
-    """, (target_date, target_date)).fetchone()
+    """Count pending activity_log follow-ups on a specific date."""
+    row = conn.execute(
+        """SELECT COUNT(*) AS n FROM activity_log
+           WHERE follow_up_done = 0 AND follow_up_date = ?""",
+        (target_date,),
+    ).fetchone()
     return row["n"]
 
 
@@ -2384,7 +2412,7 @@ def get_suggested_followups(
 ) -> list[dict]:
     """Return policies that likely need a follow-up but have none scheduled.
 
-    Criteria: expiring within 90 days, no follow_up_date set, AND either:
+    Criteria: expiring within 90 days, no open activity follow-up, AND either:
     - renewal_status is 'Not Started', or
     - no activity logged in the last 30 days
     """
@@ -2418,7 +2446,6 @@ def get_suggested_followups(
     FROM policies p
     JOIN clients c ON p.client_id = c.id
     WHERE p.archived = 0
-      AND p.follow_up_date IS NULL
       AND julianday(p.expiration_date) - julianday('now') <= 90
       AND julianday(p.expiration_date) - julianday('now') > 0
       {excl_clause}
@@ -2530,7 +2557,10 @@ _OPPORTUNITY_SELECT = """SELECT p.id, p.policy_uid, p.policy_type, p.carrier, p.
                       ELSE NULL
                   END AS commission_amount,
                   p.project_name, p.project_id, p.description,
-                  p.follow_up_date, p.client_id,
+                  (SELECT MIN(follow_up_date) FROM activity_log
+                     WHERE policy_id = p.id AND follow_up_done = 0 AND follow_up_date IS NOT NULL
+                       AND (item_kind = 'followup' OR item_kind IS NULL)) AS follow_up_date,
+                  p.client_id,
                   c.name AS client_name, c.cn_number,
                   COALESCE(
                       (SELECT co_pc.name FROM contact_policy_assignments cpa_pc
@@ -2567,7 +2597,10 @@ def get_open_opportunities(conn: sqlite3.Connection) -> list[dict]:
                       ELSE NULL
                   END AS commission_amount,
                   p.project_name, p.description,
-                  p.follow_up_date, p.client_id,
+                  (SELECT MIN(follow_up_date) FROM activity_log
+                     WHERE policy_id = p.id AND follow_up_done = 0 AND follow_up_date IS NOT NULL
+                       AND (item_kind = 'followup' OR item_kind IS NULL)) AS follow_up_date,
+                  p.client_id,
                   c.name AS client_name,
                   COALESCE(
                       (SELECT co_pc2.name FROM contact_policy_assignments cpa_pc2
@@ -3832,62 +3865,8 @@ def get_week_followups(
         WHERE a.follow_up_done = 0 AND a.follow_up_date IS NOT NULL
           AND a.follow_up_date BETWEEN ? AND ?
 
-        UNION ALL
-
-        SELECT 'policy' AS source, p.id, ('Renewal: ' || p.policy_type) AS subject,
-               p.follow_up_date, 'Policy Reminder' AS activity_type,
-               p.client_id, p.id AS policy_id,
-               c.name AS client_name,
-               p.policy_type, p.carrier, p.expiration_date, p.renewal_status,
-               CAST(julianday(p.expiration_date) - julianday('now') AS INTEGER) AS days_to_renewal,
-               p.policy_uid,
-               NULL AS disposition,
-               COALESCE(th.timeline_health, '') AS timeline_health,
-               th.next_milestone AS milestone_name
-        FROM policies p
-        JOIN clients c ON p.client_id = c.id
-        LEFT JOIN (
-            SELECT policy_uid,
-                MIN(CASE health WHEN 'critical' THEN 1 WHEN 'at_risk' THEN 2
-                    WHEN 'compressed' THEN 3 WHEN 'drifting' THEN 4 ELSE 5 END) AS health_rank,
-                CASE MIN(CASE health WHEN 'critical' THEN 1 WHEN 'at_risk' THEN 2
-                    WHEN 'compressed' THEN 3 WHEN 'drifting' THEN 4 ELSE 5 END)
-                    WHEN 1 THEN 'critical' WHEN 2 THEN 'at_risk'
-                    WHEN 3 THEN 'compressed' WHEN 4 THEN 'drifting' ELSE 'on_track' END AS timeline_health,
-                (SELECT pt2.milestone_name FROM policy_timeline pt2
-                 WHERE pt2.policy_uid = policy_timeline.policy_uid AND pt2.completed_date IS NULL
-                 ORDER BY pt2.projected_date LIMIT 1) AS next_milestone
-            FROM policy_timeline
-            WHERE completed_date IS NULL
-            GROUP BY policy_uid
-        ) th ON th.policy_uid = p.policy_uid
-        WHERE p.follow_up_date IS NOT NULL
-          AND p.follow_up_date BETWEEN ? AND ?
-          AND p.archived = 0
-          AND NOT EXISTS (
-              SELECT 1 FROM activity_log a2
-              WHERE a2.policy_id = p.id AND a2.follow_up_done = 0
-              AND a2.follow_up_date IS NOT NULL
-              AND a2.follow_up_date BETWEEN ? AND ?
-              AND a2.follow_up_date <= p.follow_up_date
-          )
-
-        UNION ALL
-
-        SELECT 'client' AS source, c.id, ('Client Follow-Up: ' || c.name) AS subject,
-               c.follow_up_date, 'Client Reminder' AS activity_type,
-               c.id AS client_id, NULL AS policy_id,
-               c.name AS client_name,
-               NULL AS policy_type, NULL AS carrier, NULL AS expiration_date,
-               NULL AS renewal_status, NULL AS days_to_renewal,
-               NULL AS policy_uid, NULL AS disposition,
-               '' AS timeline_health, NULL AS milestone_name
-        FROM clients c
-        WHERE c.follow_up_date IS NOT NULL AND c.archived = 0
-          AND c.follow_up_date BETWEEN ? AND ?
-
         ORDER BY 4
-    """, (sat_before, fri, sat_before, fri, sat_before, fri, sat_before, fri)).fetchall()
+    """, (sat_before, fri)).fetchall()
 
     # Build accountability map from config dispositions
     disp_map = {
@@ -3960,42 +3939,8 @@ def get_overdue_for_plan_week(
         WHERE a.follow_up_done = 0 AND a.follow_up_date IS NOT NULL
           AND a.follow_up_date < ?
 
-        UNION ALL
-
-        SELECT 'policy' AS source, p.id, ('Renewal: ' || p.policy_type) AS subject,
-               p.follow_up_date, 'Policy Reminder' AS activity_type,
-               p.client_id, p.id AS policy_id,
-               c.name AS client_name,
-               p.policy_type, p.carrier, p.expiration_date, p.renewal_status,
-               CAST(julianday(p.expiration_date) - julianday('now') AS INTEGER) AS days_to_renewal,
-               p.policy_uid, NULL AS disposition
-        FROM policies p
-        JOIN clients c ON p.client_id = c.id
-        WHERE p.follow_up_date IS NOT NULL
-          AND p.follow_up_date < ?
-          AND p.archived = 0
-          AND NOT EXISTS (
-              SELECT 1 FROM activity_log a2
-              WHERE a2.policy_id = p.id AND a2.follow_up_done = 0
-              AND a2.follow_up_date IS NOT NULL
-              AND a2.follow_up_date <= p.follow_up_date
-          )
-
-        UNION ALL
-
-        SELECT 'client' AS source, c.id, ('Client Follow-Up: ' || c.name) AS subject,
-               c.follow_up_date, 'Client Reminder' AS activity_type,
-               c.id AS client_id, NULL AS policy_id,
-               c.name AS client_name,
-               NULL AS policy_type, NULL AS carrier, NULL AS expiration_date,
-               NULL AS renewal_status, NULL AS days_to_renewal,
-               NULL AS policy_uid, NULL AS disposition
-        FROM clients c
-        WHERE c.follow_up_date IS NOT NULL AND c.archived = 0
-          AND c.follow_up_date < ?
-
         ORDER BY 4 ASC
-    """, (cutoff, cutoff, cutoff)).fetchall()
+    """, (cutoff,)).fetchall()
 
     disp_map = {
         d["label"]: d.get("accountability", "my_action")
@@ -5019,7 +4964,9 @@ def get_all_policies_for_grid(conn: sqlite3.Connection) -> list[dict]:
         p.renewal_status,
         p.is_opportunity,
         p.opportunity_status,
-        p.follow_up_date,
+        (SELECT MIN(follow_up_date) FROM activity_log
+           WHERE policy_id = p.id AND follow_up_done = 0 AND follow_up_date IS NOT NULL
+             AND (item_kind = 'followup' OR item_kind IS NULL)) AS follow_up_date,
         p.coverage_form,
         p.layer_position,
         p.project_name,
@@ -5074,7 +5021,10 @@ def get_all_clients_for_grid(conn: sqlite3.Connection) -> list[dict]:
         c.fein,
         c.broker_fee,
         c.hourly_rate,
-        c.follow_up_date,
+        (SELECT MIN(follow_up_date) FROM activity_log
+           WHERE client_id = c.id AND policy_id IS NULL
+             AND follow_up_done = 0 AND follow_up_date IS NOT NULL
+             AND (item_kind = 'followup' OR item_kind IS NULL)) AS follow_up_date,
         c.relationship_risk,
         c.service_model,
         c.business_description,
@@ -5486,7 +5436,9 @@ _POL_ROLLUP_COLS = """
     p.id, p.policy_uid, p.policy_type, p.carrier, p.premium,
     p.exposure_amount, p.exposure_basis,
     p.expiration_date, p.renewal_status, p.is_opportunity,
-    p.follow_up_date AS policy_follow_up_date,
+    (SELECT MIN(follow_up_date) FROM activity_log
+       WHERE policy_id = p.id AND follow_up_done = 0 AND follow_up_date IS NOT NULL
+         AND (item_kind = 'followup' OR item_kind IS NULL)) AS policy_follow_up_date,
     p.placement_colleague, p.placement_colleague_email,
     p.underwriter_name, p.underwriter_contact,
     p.program_id, pr.name AS location_name,
@@ -5921,39 +5873,6 @@ def _rollup_open_followups(
         result["total"] += 1
         if days_overdue > 0:
             result["overdue"] += 1
-
-    # Policy-source follow-ups (suppressed where an activity-source row exists)
-    remaining = [pid for pid in policy_ids if pid not in seen_policy_ids]
-    if remaining:
-        ph = ",".join("?" * len(remaining))
-        policy_rows = conn.execute(
-            f"""SELECT p.policy_uid, p.policy_type, p.follow_up_date
-                FROM policies p
-                WHERE p.id IN ({ph})
-                  AND p.follow_up_date IS NOT NULL
-                ORDER BY p.follow_up_date""",  # noqa: S608
-            remaining,
-        ).fetchall()
-        for r in policy_rows:
-            fu = r["follow_up_date"]
-            days_overdue = 0
-            try:
-                days_overdue = (today - date.fromisoformat(fu)).days
-            except (ValueError, TypeError):
-                pass
-            entry = {
-                "policy_uid": r["policy_uid"],
-                "policy_type": r["policy_type"],
-                "follow_up_date": fu,
-                "days_overdue": days_overdue,
-                "source": "policy",
-                "subject": "Policy follow-up",
-                "disposition": "",
-            }
-            result["by_policy"].append(entry)
-            result["total"] += 1
-            if days_overdue > 0:
-                result["overdue"] += 1
 
     result["by_policy"].sort(key=lambda e: (-e["days_overdue"], e["follow_up_date"]))
     return result

@@ -393,68 +393,6 @@ POLICY_EXTRACTION_SCHEMA: dict = {
             "example": "Bob Jones",
         },
         {
-            "key": "exposure_address",
-            "label": "Property / Risk Address",
-            "type": "string",
-            "required": False,
-            "description": "Street address of the insured property or risk location",
-            "example": "123 Main St",
-        },
-        {
-            "key": "exposure_city",
-            "label": "City",
-            "type": "string",
-            "required": False,
-            "description": "City of the insured property or risk location",
-            "normalizer": "format_city",
-            "example": "Austin",
-        },
-        {
-            "key": "exposure_state",
-            "label": "State",
-            "type": "string",
-            "required": False,
-            "description": "State of the insured property or risk location",
-            "normalizer": "format_state",
-            "example": "TX",
-        },
-        {
-            "key": "exposure_zip",
-            "label": "ZIP Code",
-            "type": "string",
-            "required": False,
-            "description": "ZIP code of the insured property or risk location",
-            "normalizer": "format_zip",
-            "example": "78701",
-        },
-        {
-            "key": "exposure_basis",
-            "label": "Exposure Basis",
-            "type": "string",
-            "required": False,
-            "description": "Basis used for rating (e.g. Payroll, Revenue, Area)",
-            "config_values": "exposure_basis_options",
-            "config_mode": "prefer",
-            "example": "Payroll",
-        },
-        {
-            "key": "exposure_amount",
-            "label": "Exposure Amount",
-            "type": "number",
-            "required": False,
-            "description": "Exposure value used for premium calculation",
-            "normalizer": "parse_currency_with_magnitude",
-            "example": "12500000",
-        },
-        {
-            "key": "exposure_denominator",
-            "label": "Exposure Denominator",
-            "type": "number",
-            "required": False,
-            "description": "Rating unit denominator — the 'per X' value. For example, if the rate is 'per $100 of payroll', the denominator is 100. Common values: 1, 100, 1000.",
-            "example": "100",
-        },
-        {
             "key": "project_name",
             "label": "Location / Project Name",
             "type": "string",
@@ -504,6 +442,143 @@ POLICY_EXTRACTION_SCHEMA: dict = {
         },
     ],
     "nested_groups": {
+        "exposures": {
+            "type": "array",
+            "optional": True,
+            "description": (
+                "Exposure rating bases used to calculate premium.  Extract EVERY "
+                "rating basis the document lists, not just the primary one.  A "
+                "single policy commonly has multiple exposures — for example a "
+                "General Liability policy may be rated on both payroll and gross "
+                "sales, or a Workers Comp policy may list per-state payroll by "
+                "classification.  Create one list item per distinct rating row.  "
+                "If an exposure is tied to a specific location (building, site, "
+                "project), include the address fields so the importer can upsert "
+                "a location record and attach the exposure to it.  Mark the "
+                "principal rating basis with is_primary=true if the document "
+                "distinguishes one; otherwise the first list item becomes primary."
+            ),
+            "fields": [
+                {
+                    "key": "exposure_type",
+                    "label": "Exposure Type / Rating Basis",
+                    "type": "string",
+                    "required": True,
+                    "description": (
+                        "The rating basis this exposure uses (e.g., Payroll, "
+                        "Revenue, Gross Sales, Area, Units, TIV).  Prefer the "
+                        "configured list when applicable, but use whatever "
+                        "terminology the policy uses if it doesn't match."
+                    ),
+                    "config_values": "exposure_basis_options",
+                    "config_mode": "prefer",
+                    "example": "Payroll",
+                },
+                {
+                    "key": "amount",
+                    "label": "Exposure Amount",
+                    "type": "number",
+                    "required": True,
+                    "description": (
+                        "The exposure value used for premium calculation "
+                        "(e.g., total payroll dollars, total gross receipts, "
+                        "total square feet)."
+                    ),
+                    "normalizer": "parse_currency_with_magnitude",
+                    "example": "12500000",
+                },
+                {
+                    "key": "denominator",
+                    "label": "Rating Denominator",
+                    "type": "number",
+                    "required": False,
+                    "description": (
+                        "The 'per X' denominator used when quoting a rate. "
+                        "For example, 'per $100 of payroll' has denominator 100; "
+                        "'per $1,000 of revenue' has denominator 1000. "
+                        "Default to 1 when not specified."
+                    ),
+                    "example": "100",
+                },
+                {
+                    "key": "unit",
+                    "label": "Rating Unit Description",
+                    "type": "string",
+                    "required": False,
+                    "description": (
+                        "Human-readable rating unit string, e.g. "
+                        "'Per $100 Payroll', 'Per $1,000 Revenue', 'Flat'."
+                    ),
+                    "config_values": "exposure_unit_options",
+                    "config_mode": "prefer",
+                    "example": "Per $100 Payroll",
+                },
+                {
+                    "key": "is_primary",
+                    "label": "Is Primary Rating Basis",
+                    "type": "boolean",
+                    "required": False,
+                    "description": (
+                        "True when this is the dominant rating basis for the "
+                        "policy.  Only mark one entry primary; if unsure, leave "
+                        "all entries false and the importer will default the "
+                        "first to primary."
+                    ),
+                    "example": "true",
+                },
+                {
+                    "key": "location_label",
+                    "label": "Location / Project Name",
+                    "type": "string",
+                    "required": False,
+                    "description": (
+                        "Name of the location or project this exposure applies "
+                        "to, if the policy rates per-location (e.g., 'Main "
+                        "Office', 'Site B', 'Plant #3')."
+                    ),
+                    "example": "Main Office",
+                },
+                {
+                    "key": "address",
+                    "label": "Location Street Address",
+                    "type": "string",
+                    "required": False,
+                    "description": (
+                        "Street address of the exposure location.  When "
+                        "present, the importer will upsert a location/project "
+                        "record and attach this exposure to it."
+                    ),
+                    "example": "123 Main St",
+                },
+                {
+                    "key": "city",
+                    "label": "Location City",
+                    "type": "string",
+                    "required": False,
+                    "description": "City of the exposure location.",
+                    "normalizer": "format_city",
+                    "example": "Austin",
+                },
+                {
+                    "key": "state",
+                    "label": "Location State",
+                    "type": "string",
+                    "required": False,
+                    "description": "State abbreviation of the exposure location.",
+                    "normalizer": "format_state",
+                    "example": "TX",
+                },
+                {
+                    "key": "zip",
+                    "label": "Location ZIP",
+                    "type": "string",
+                    "required": False,
+                    "description": "ZIP code of the exposure location.",
+                    "normalizer": "format_zip",
+                    "example": "78701",
+                },
+            ],
+        },
         "locations": {
             "type": "array",
             "optional": True,

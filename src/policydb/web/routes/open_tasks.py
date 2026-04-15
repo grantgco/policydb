@@ -11,8 +11,6 @@ from fastapi.responses import HTMLResponse
 from policydb.queries import (
     create_followup_activity,
     get_open_tasks,
-    sync_client_follow_up_date,
-    sync_policy_follow_up_date,
 )
 from policydb.web.app import get_db, templates
 
@@ -44,11 +42,8 @@ def _render_panel(
 
 
 def _parse_activity_id(activity_id: str) -> tuple[str, int]:
-    """Returns (kind, id). kind: 'activity' | 'policy' | 'client'."""
-    if activity_id.startswith("P"):
-        return ("policy", int(activity_id[1:]))
-    if activity_id.startswith("C"):
-        return ("client", int(activity_id[1:]))
+    """Returns (kind, id). Only 'activity' is supported now — legacy
+    'policy'/'client' record-level synthetic IDs are no longer produced."""
     return ("activity", int(activity_id))
 
 
@@ -214,34 +209,19 @@ def action_done(
     return_scope_id: int = Form(...),
     conn=Depends(get_db),
 ):
-    kind, rid = _parse_activity_id(activity_id)
-    if kind == "activity":
-        act = _fetch_activity(conn, rid)
-        if not act:
-            raise HTTPException(404, "Activity not found")
-        conn.execute(
-            """UPDATE activity_log
-               SET follow_up_done = 1,
-                   auto_close_reason = 'manual',
-                   auto_closed_at = datetime('now'),
-                   auto_closed_by = 'open_tasks_panel'
-               WHERE id = ?""",
-            (rid,),
-        )
-        if act["policy_id"]:
-            sync_policy_follow_up_date(conn, act["policy_id"])
-        elif act["client_id"]:
-            sync_client_follow_up_date(conn, act["client_id"])
-    elif kind == "policy":
-        conn.execute(
-            "UPDATE policies SET follow_up_date = NULL WHERE id = ?", (rid,)
-        )
-        sync_policy_follow_up_date(conn, rid)
-    elif kind == "client":
-        conn.execute(
-            "UPDATE clients SET follow_up_date = NULL WHERE id = ?", (rid,)
-        )
-        sync_client_follow_up_date(conn, rid)
+    _kind, rid = _parse_activity_id(activity_id)
+    act = _fetch_activity(conn, rid)
+    if not act:
+        raise HTTPException(404, "Activity not found")
+    conn.execute(
+        """UPDATE activity_log
+           SET follow_up_done = 1,
+               auto_close_reason = 'manual',
+               auto_closed_at = datetime('now'),
+               auto_closed_by = 'open_tasks_panel'
+           WHERE id = ?""",
+        (rid,),
+    )
     conn.commit()
     return _render_panel(
         request, conn, return_scope_type, return_scope_id,
@@ -264,42 +244,25 @@ def action_snooze(
             return new_date
         if not days:
             return current
+        today = date.today()
         try:
-            base = date.fromisoformat(current) if current else date.today()
+            current_date = date.fromisoformat(current) if current else today
         except (ValueError, TypeError):
-            base = date.today()
+            current_date = today
+        # Overdue or undated tasks snooze from today; future-dated tasks snooze
+        # from their scheduled date so a "+3d" on a task 10 days out becomes +13d.
+        base = max(today, current_date)
         return (base + timedelta(days=days)).isoformat()
 
-    kind, rid = _parse_activity_id(activity_id)
-    if kind == "activity":
-        act = _fetch_activity(conn, rid)
-        if not act:
-            raise HTTPException(404, "Activity not found")
-        updated = _compute_new_date(act["follow_up_date"])
-        conn.execute(
-            "UPDATE activity_log SET follow_up_date = ? WHERE id = ?",
-            (updated, rid),
-        )
-        if act["policy_id"]:
-            sync_policy_follow_up_date(conn, act["policy_id"])
-        elif act["client_id"]:
-            sync_client_follow_up_date(conn, act["client_id"])
-    elif kind == "policy":
-        row = conn.execute(
-            "SELECT follow_up_date FROM policies WHERE id = ?", (rid,)
-        ).fetchone()
-        updated = _compute_new_date(row["follow_up_date"] if row else None)
-        conn.execute(
-            "UPDATE policies SET follow_up_date = ? WHERE id = ?", (updated, rid)
-        )
-    elif kind == "client":
-        row = conn.execute(
-            "SELECT follow_up_date FROM clients WHERE id = ?", (rid,)
-        ).fetchone()
-        updated = _compute_new_date(row["follow_up_date"] if row else None)
-        conn.execute(
-            "UPDATE clients SET follow_up_date = ? WHERE id = ?", (updated, rid)
-        )
+    _kind, rid = _parse_activity_id(activity_id)
+    act = _fetch_activity(conn, rid)
+    if not act:
+        raise HTTPException(404, "Activity not found")
+    updated = _compute_new_date(act["follow_up_date"])
+    conn.execute(
+        "UPDATE activity_log SET follow_up_date = ? WHERE id = ?",
+        (updated, rid),
+    )
     conn.commit()
     return _render_panel(
         request, conn, return_scope_type, return_scope_id,
@@ -316,9 +279,7 @@ def action_disposition(
     return_scope_id: int = Form(...),
     conn=Depends(get_db),
 ):
-    kind, rid = _parse_activity_id(activity_id)
-    if kind != "activity":
-        raise HTTPException(400, "Disposition only supported on activity-source rows")
+    _kind, rid = _parse_activity_id(activity_id)
     if move not in {"my", "waiting"}:
         raise HTTPException(400, "Invalid disposition move")
 
@@ -348,9 +309,7 @@ def action_log_close(
     return_scope_id: int = Form(...),
     conn=Depends(get_db),
 ):
-    kind, rid = _parse_activity_id(activity_id)
-    if kind != "activity":
-        raise HTTPException(400, "Log & close only supported on activity-source rows")
+    _kind, rid = _parse_activity_id(activity_id)
     act = _fetch_activity(conn, rid)
     if not act:
         raise HTTPException(404, "Activity not found")
@@ -364,10 +323,6 @@ def action_log_close(
            WHERE id = ?""",
         (rid,),
     )
-    if act["policy_id"]:
-        sync_policy_follow_up_date(conn, act["policy_id"])
-    elif act["client_id"]:
-        sync_client_follow_up_date(conn, act["client_id"])
     conn.commit()
     return _render_panel(
         request, conn, return_scope_type, return_scope_id,
@@ -384,9 +339,7 @@ def action_attach(
     return_scope_id: int = Form(...),
     conn=Depends(get_db),
 ):
-    kind, rid = _parse_activity_id(activity_id)
-    if kind != "activity":
-        raise HTTPException(400, "Attach only supported on activity-source rows")
+    _kind, rid = _parse_activity_id(activity_id)
     act = _fetch_activity(conn, rid)
     if not act:
         raise HTTPException(404, "Activity not found")
@@ -417,9 +370,7 @@ def action_note(
     return_scope_id: int = Form(...),
     conn=Depends(get_db),
 ):
-    kind, rid = _parse_activity_id(activity_id)
-    if kind != "activity":
-        raise HTTPException(400, "Note only supported on activity-source rows")
+    _kind, rid = _parse_activity_id(activity_id)
     if not text.strip():
         raise HTTPException(400, "Note text required")
     act = _fetch_activity(conn, rid)

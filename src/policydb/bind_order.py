@@ -4,9 +4,11 @@ This module provides the pure-logic core for the Bind Order action:
 
     Subject (program OR standalone policy)
             │
-            ├── For each CHECKED child:
-            │     - if needs_renew: renew_policy() → new term row
-            │     - then mark Bound (set bound_date, log activity, complete
+            ├── For each CHECKED child (not already bound):
+            │     - renew_policy() → archive old term, create new term row
+            │       with the panel-provided dates/premium
+            │     - generate renewal timeline milestones on the new row
+            │     - mark Bound (set bound_date, log activity, complete
             │       milestones, close follow-ups, cascade to program)
             │
             ├── For each UNCHECKED child with a disposition:
@@ -19,6 +21,11 @@ This module provides the pure-logic core for the Bind Order action:
             │     (program-scoped if program; policy-scoped if standalone)
             │
             └── auto_resolve_renewal_issue() for the subject
+
+Every bind commits a new policy term: the old row is archived and a new row
+is created regardless of whether the old row's expiration date has lapsed.
+This keeps one row per term, preserves historical term data on the archived
+row, and lets the new term start its own renewal cycle cleanly.
 
 The module is FastAPI-free. Routes live in web/routes/bind_order.py.
 """
@@ -153,26 +160,21 @@ class BindOrderResult:
 
 
 def resolve_child_state(conn: sqlite3.Connection, policy_uid: str) -> ChildState:
-    """Decide whether a policy needs to be renewed before binding, is ready to
-    bind directly, or has already been bound for its current term.
+    """Classify a policy for the bind panel UI.
 
     Logic:
-      - already_bound: bound_date IS NOT NULL on the current row (this term has
-        already had its bind event recorded)
-      - ready_to_bind: bound_date IS NULL AND there's no successor row (no
-        prior_policy_uid pointing to this row) — i.e., this row IS the new term
-        we want to bind. Either the user pre-renewed proactively, or this is the
-        natural in-place state if the row's expiration hasn't been rolled.
-      - needs_renew: bound_date IS NULL AND the row's expiration_date is in the
-        past or the user has explicitly asked us to renew it. In practice we
-        treat any non-bound row with no successor as ready_to_bind UNLESS the
-        expiration_date has already passed (meaning the row is the *expired*
-        term and we need to roll forward).
+      - already_bound: bound_date IS NOT NULL, row is archived, or a successor
+        row already points back at it. In all three cases binding this row
+        would be a double-bind, so the panel disables the checkbox.
+      - needs_renew: bound_date IS NULL and expiration_date has already lapsed.
+        The row is a stale/expired term that must be rolled forward.
+      - ready_to_bind: bound_date IS NULL and expiration_date is still in the
+        future. Normal unbound row ready to receive this bind event.
 
-    The needs_renew vs ready_to_bind distinction at panel-load time is
-    informational — the panel shows the user which rows will be touched by
-    renew_policy() before bind. Final routing happens in execute_bind_order()
-    so the user can change their mind by editing dates in the panel.
+    NOTE: This state is only a label used by the panel UI — execute_bind_order
+    always calls renew_policy() on every checked, non-already-bound child,
+    regardless of whether the label is needs_renew or ready_to_bind. Every
+    bind creates a new term row.
     """
     row = conn.execute(
         """SELECT policy_uid, bound_date, expiration_date, archived
@@ -504,9 +506,6 @@ def _handle_bound_transition(
            WHERE policy_id = ? AND follow_up_done = 0 AND follow_up_date IS NOT NULL""",
         (pol["id"],),
     )
-    conn.execute(
-        "UPDATE policies SET follow_up_date = NULL WHERE policy_uid = ?", (uid,)
-    )
 
     # 5. Cascade to program (if any) + auto-resolve renewal issue at policy scope
     if pol["program_id"]:
@@ -675,60 +674,73 @@ def execute_bind_order(
                     all_terminal = False
                 continue
 
-            # CHECKED path — bind it (renewing first if needed)
+            # CHECKED path — always create a new term row, archive the old.
+            # Every bind commits a new policy term: the old row is snapshotted
+            # and archived, the new row receives the bound dates/premium and
+            # kicks off its own renewal timeline.
             state = resolve_child_state(conn, old_uid)
-            renewed_inline = 0
-            new_uid = old_uid
-
-            if state == "needs_renew":
-                old_row = conn.execute(
-                    "SELECT id FROM policies WHERE policy_uid = ?", (old_uid,)
-                ).fetchone()
-                old_id = old_row["id"] if old_row else None
-                new_uid = renew_policy(
-                    conn,
+            if state == "already_bound":
+                # Defensive: the panel UI should disable already-bound rows,
+                # but if one slips through we log and skip rather than
+                # double-bind or silently duplicate.
+                logger.warning(
+                    "Skipping bind for %s: already bound or superseded",
                     old_uid,
-                    new_effective=sp.new_effective,
-                    new_expiration=sp.new_expiration,
-                    new_premium=ch.new_premium,
                 )
-                renewed_inline = 1
-                result.renewed_inline_count += 1
+                continue
 
-                # Re-link the new row to its program (renew_policy doesn't copy program_id)
-                if program:
-                    new_row = conn.execute(
-                        "SELECT id, schematic_column FROM policies WHERE policy_uid = ?",
-                        (new_uid,),
-                    ).fetchone()
-                    if new_row:
-                        # Look up the OLD row's program metadata to preserve schematic_column
-                        old_meta = conn.execute(
-                            """SELECT tower_group, schematic_column
-                               FROM policies WHERE id = ?""",
-                            (old_id,),
-                        ).fetchone() if old_id else None
-                        conn.execute(
-                            """UPDATE policies
-                               SET program_id = ?,
-                                   tower_group = ?,
-                                   schematic_column = ?
-                               WHERE id = ?""",
-                            (
-                                program["id"],
-                                program.get("name"),
-                                old_meta["schematic_column"] if old_meta else None,
-                                new_row["id"],
-                            ),
-                        )
-                        if old_id:
-                            old_to_new_id[old_id] = new_row["id"]
-                        _sync_policy_to_program_location(conn, new_uid, program)
-            elif ch.new_premium is not None:
-                # ready_to_bind but user edited premium in the panel — apply the override
-                conn.execute(
-                    "UPDATE policies SET premium = ? WHERE policy_uid = ?",
-                    (ch.new_premium, old_uid),
+            old_row = conn.execute(
+                "SELECT id FROM policies WHERE policy_uid = ?", (old_uid,)
+            ).fetchone()
+            old_id = old_row["id"] if old_row else None
+            new_uid = renew_policy(
+                conn,
+                old_uid,
+                new_effective=sp.new_effective,
+                new_expiration=sp.new_expiration,
+                new_premium=ch.new_premium,
+            )
+            renewed_inline = 1
+            result.renewed_inline_count += 1
+
+            # Re-link the new row to its program (renew_policy doesn't copy program_id)
+            if program:
+                new_row = conn.execute(
+                    "SELECT id, schematic_column FROM policies WHERE policy_uid = ?",
+                    (new_uid,),
+                ).fetchone()
+                if new_row:
+                    old_meta = conn.execute(
+                        """SELECT tower_group, schematic_column
+                           FROM policies WHERE id = ?""",
+                        (old_id,),
+                    ).fetchone() if old_id else None
+                    conn.execute(
+                        """UPDATE policies
+                           SET program_id = ?,
+                               tower_group = ?,
+                               schematic_column = ?
+                           WHERE id = ?""",
+                        (
+                            program["id"],
+                            program.get("name"),
+                            old_meta["schematic_column"] if old_meta else None,
+                            new_row["id"],
+                        ),
+                    )
+                    if old_id:
+                        old_to_new_id[old_id] = new_row["id"]
+                    _sync_policy_to_program_location(conn, new_uid, program)
+
+            # Generate a fresh renewal timeline on the new term so the
+            # next-cycle milestones (submission, quote, binder, etc.) are
+            # materialized and visible in the Action Center immediately.
+            try:
+                from policydb.timeline_engine import generate_policy_timelines
+                generate_policy_timelines(conn, new_uid)
+            except Exception as e:
+                logger.warning(
+                    "Failed to generate timeline for new term %s: %s", new_uid, e
                 )
 
             # Mark bound (single choke point)

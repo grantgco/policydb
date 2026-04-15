@@ -342,6 +342,115 @@ def test_get_open_tasks_client_scope_groups_by_issue(tmp_db):
     assert result["total"] == 3
 
 
+def test_get_open_tasks_client_scope_no_issue_task_duplication(tmp_db):
+    """Regression: issue-linked follow-ups must not also appear under
+    'Direct client follow-ups' (policy_id NULL) or 'Loose on other policies'
+    (policy_id set).  The task belongs to exactly one group — its issue.
+    """
+    from policydb.queries import get_open_tasks
+    conn = get_connection()
+    cid = _seed_client(conn)
+    pid = _seed_policy(conn, cid, "POL-300")
+
+    # Pure client-level issue (no policy)
+    conn.execute(
+        "INSERT INTO activity_log (activity_date, client_id, activity_type, "
+        "subject, item_kind, issue_uid, issue_status, issue_severity, account_exec) "
+        "VALUES (?, ?, 'Note', 'Client-level issue', 'issue', 'ISS-300', 'Open', 'Normal', 'Grant')",
+        (date.today().isoformat(), cid),
+    )
+    client_issue_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    # Policy-scoped issue
+    conn.execute(
+        "INSERT INTO activity_log (activity_date, client_id, policy_id, activity_type, "
+        "subject, item_kind, issue_uid, issue_status, issue_severity, account_exec) "
+        "VALUES (?, ?, ?, 'Note', 'Policy issue', 'issue', 'ISS-301', 'Open', 'Normal', 'Grant')",
+        (date.today().isoformat(), cid, pid),
+    )
+    policy_issue_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    # Follow-up on the client-level issue (policy_id NULL).  Without the fix
+    # this leaks into "Direct client follow-ups" because it has no policy.
+    conn.execute(
+        "INSERT INTO activity_log (activity_date, client_id, policy_id, activity_type, "
+        "subject, follow_up_date, follow_up_done, item_kind, issue_id, account_exec) "
+        "VALUES (?, ?, NULL, 'Call', 'client-issue task', '2026-04-20', 0, 'followup', ?, 'Grant')",
+        (date.today().isoformat(), cid, client_issue_id),
+    )
+    # Plus a genuine direct-client follow-up so the group isn't empty
+    conn.execute(
+        "INSERT INTO activity_log (activity_date, client_id, policy_id, activity_type, "
+        "subject, follow_up_date, follow_up_done, item_kind, account_exec) "
+        "VALUES (?, ?, NULL, 'Call', 'real direct task', '2026-04-25', 0, 'followup', 'Grant')",
+        (date.today().isoformat(), cid),
+    )
+    conn.commit()
+
+    result = get_open_tasks(conn, "client", cid)
+    groups = {g["key"]: g for g in result["groups"]}
+
+    # Direct client group shows only the task with no issue_id
+    direct_subjects = [r["subject"] for r in groups["direct_client"]["rows"]]
+    assert "real direct task" in direct_subjects
+    assert "client-issue task" not in direct_subjects
+
+    # Client-level issue group owns the issue-linked task
+    client_issue_subjects = [
+        r["subject"] for r in groups[f"issue:{client_issue_id}"]["rows"]
+    ]
+    assert "client-issue task" in client_issue_subjects
+
+    # Policy issue group is empty (no follow-ups seeded on it) so shouldn't
+    # exist at all — confirm no duplication into it
+    assert f"issue:{policy_issue_id}" not in groups
+
+    # Total = 2 (one direct + one on client issue), not 3 (no double-count)
+    assert result["total"] == 2
+
+
+def test_get_open_tasks_client_scope_no_loose_issue_duplication(tmp_db):
+    """Regression: a policy follow-up attached to one of the client's open
+    issues must not also surface in 'Loose on other policies'.
+    """
+    from policydb.queries import get_open_tasks
+    conn = get_connection()
+    cid = _seed_client(conn)
+    pid_covered = _seed_policy(conn, cid, "POL-400")
+    pid_loose = _seed_policy(conn, cid, "POL-401")
+
+    # Issue on POL-400 (covers it)
+    conn.execute(
+        "INSERT INTO activity_log (activity_date, client_id, policy_id, activity_type, "
+        "subject, item_kind, issue_uid, issue_status, issue_severity, account_exec) "
+        "VALUES (?, ?, ?, 'Note', 'POL-400 issue', 'issue', 'ISS-400', 'Open', 'Normal', 'Grant')",
+        (date.today().isoformat(), cid, pid_covered),
+    )
+    issue_400 = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    # Follow-up attached to issue_400 but pointing at the OTHER (uncovered)
+    # policy.  Without the fix it would show both in the issue group AND
+    # in loose_policies (since POL-401 is uncovered).
+    conn.execute(
+        "INSERT INTO activity_log (activity_date, client_id, policy_id, activity_type, "
+        "subject, follow_up_date, follow_up_done, item_kind, issue_id, account_exec) "
+        "VALUES (?, ?, ?, 'Call', 'cross-policy issue task', '2026-04-22', 0, 'followup', ?, 'Grant')",
+        (date.today().isoformat(), cid, pid_loose, issue_400),
+    )
+    conn.commit()
+
+    result = get_open_tasks(conn, "client", cid)
+    groups = {g["key"]: g for g in result["groups"]}
+
+    loose_subjects = [r["subject"] for r in groups.get("loose_policies", {}).get("rows", [])]
+    assert "cross-policy issue task" not in loose_subjects
+
+    on_issue_subjects = [r["subject"] for r in groups[f"issue:{issue_400}"]["rows"]]
+    assert "cross-policy issue task" in on_issue_subjects
+
+    assert result["total"] == 1
+
+
 def test_get_open_tasks_program_scope(tmp_db):
     from policydb.queries import get_open_tasks
     conn = get_connection()

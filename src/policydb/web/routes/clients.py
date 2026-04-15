@@ -610,7 +610,7 @@ def client_spreadsheet(request: Request, conn=Depends(get_db)):
          "editor": "number", "editorParams": {"selectContents": True},
          "_format": "currency"},
         {"field": "follow_up_date", "title": "Follow-Up", "width": 115,
-         "editor": "date", "_format": "date"},
+         "_format": "date"},
         {"field": "relationship_risk", "title": "Risk Level", "width": 110,
          "editor": "list", "editorParams": {"values": risk_levels, "autocomplete": True, "freetext": False, "listOnEmpty": True},
          "headerFilter": "list", "headerFilterParams": {"values": {s: s for s in risk_levels}, "clearable": True}},
@@ -704,7 +704,7 @@ async def client_quick_add(request: Request, conn=Depends(get_db)):
     row = conn.execute(
         """SELECT c.id, c.name, c.cn_number, c.industry_segment, c.account_exec,
                   c.date_onboarded, c.website, c.fein, c.broker_fee, c.hourly_rate,
-                  c.follow_up_date, c.relationship_risk, c.service_model,
+                  NULL AS follow_up_date, c.relationship_risk, c.service_model,
                   c.business_description, c.notes, c.stewardship_date,
                   c.renewal_strategy, c.growth_opportunities, c.account_priorities,
                   0 AS total_policies, 0 AS total_premium, 0 AS total_revenue,
@@ -804,23 +804,15 @@ def client_tab_overview(request: Request, client_id: int, conn=Depends(get_db)):
     pulse_milestone_done = sum(p.get("milestone_done", 0) for p in _active_policies)
     pulse_milestone_total = sum(p.get("milestone_total", 0) for p in _active_policies)
     pulse_overdue = conn.execute(
-        """SELECT COUNT(*) FROM (
-             SELECT 1 FROM activity_log WHERE client_id=? AND follow_up_done=0 AND follow_up_date < date('now')
-             UNION ALL
-             SELECT 1 FROM policies WHERE client_id=? AND archived=0 AND (is_opportunity=0 OR is_opportunity IS NULL)
-               AND follow_up_date IS NOT NULL AND follow_up_date < date('now')
-           )""", (client_id, client_id)
+        """SELECT COUNT(*) FROM activity_log
+           WHERE client_id=? AND follow_up_done=0 AND follow_up_date < date('now')""",
+        (client_id,),
     ).fetchone()[0]
-    # Next upcoming follow-up date (earliest pending across activities + policies)
+    # Next upcoming follow-up date (earliest pending activity follow-up)
     pulse_next_followup = conn.execute(
-        """SELECT MIN(fu) FROM (
-             SELECT MIN(follow_up_date) AS fu FROM activity_log
-             WHERE client_id=? AND follow_up_done=0 AND follow_up_date >= date('now')
-             UNION ALL
-             SELECT MIN(follow_up_date) AS fu FROM policies
-             WHERE client_id=? AND archived=0 AND (is_opportunity=0 OR is_opportunity IS NULL)
-               AND follow_up_date IS NOT NULL AND follow_up_date >= date('now')
-           )""", (client_id, client_id)
+        """SELECT MIN(follow_up_date) FROM activity_log
+           WHERE client_id=? AND follow_up_done=0 AND follow_up_date >= date('now')""",
+        (client_id,),
     ).fetchone()[0]
 
     _risks_for_pulse = conn.execute("SELECT severity FROM client_risks WHERE client_id=?", (client_id,)).fetchall()
@@ -865,20 +857,34 @@ def client_tab_overview(request: Request, client_id: int, conn=Depends(get_db)):
     _wn_tomorrow_str = (_wn_today + timedelta(days=1)).isoformat()
     whats_next = None
 
-    # Priority 1: Issues with breached SLA
+    # Priority 1: Issues with breached SLA — a manually set due_date wins
+    # over the severity-derived activity_date + issue_sla_days deadline.
     _sla_breached = conn.execute("""
-        SELECT id, subject, issue_uid, issue_severity, issue_status, issue_sla_days,
-               activity_date, client_id,
-               CAST(julianday('now') - julianday(activity_date) AS INTEGER) AS age_days
+        SELECT id, subject, issue_uid, issue_severity, issue_status,
+               issue_sla_days, due_date, activity_date, client_id,
+               CAST(julianday('now') - julianday(activity_date) AS INTEGER) AS age_days,
+               CASE
+                 WHEN due_date IS NOT NULL
+                   THEN CAST(julianday('now') - julianday(due_date) AS INTEGER)
+                 WHEN issue_sla_days IS NOT NULL
+                   THEN CAST(julianday('now') - julianday(activity_date) AS INTEGER) - issue_sla_days
+                 ELSE NULL
+               END AS overdue_days
         FROM activity_log
         WHERE client_id = ? AND item_kind = 'issue' AND issue_id IS NULL
           AND merged_into_id IS NULL
           AND (issue_status IS NULL OR issue_status NOT IN ('Resolved', 'Closed'))
-          AND issue_sla_days > 0
-          AND CAST(julianday('now') - julianday(activity_date) AS INTEGER) > issue_sla_days
+          AND (
+              (due_date IS NOT NULL AND date('now') > due_date)
+              OR (
+                  due_date IS NULL
+                  AND issue_sla_days > 0
+                  AND CAST(julianday('now') - julianday(activity_date) AS INTEGER) > issue_sla_days
+              )
+          )
         ORDER BY
           CASE issue_severity WHEN 'Critical' THEN 0 WHEN 'High' THEN 1 WHEN 'Normal' THEN 2 ELSE 3 END,
-          (CAST(julianday('now') - julianday(activity_date) AS INTEGER) - issue_sla_days) DESC
+          overdue_days DESC
         LIMIT 1
     """, [client_id]).fetchone()
     if _sla_breached:
@@ -890,7 +896,7 @@ def client_tab_overview(request: Request, client_id: int, conn=Depends(get_db)):
             "severity": _sla_breached["issue_severity"],
             "age_days": _sla_breached["age_days"],
             "sla_days": _sla_breached["issue_sla_days"],
-            "overdue_days": _sla_breached["age_days"] - _sla_breached["issue_sla_days"],
+            "overdue_days": _sla_breached["overdue_days"] or 0,
         }
 
     # Priority 2: Overdue follow-ups
@@ -915,20 +921,34 @@ def client_tab_overview(request: Request, client_id: int, conn=Depends(get_db)):
                 "contact": _overdue["contact_person"],
             }
 
-    # Priority 3: Issues approaching SLA (within 1 day)
+    # Priority 3: Issues approaching SLA (within 1 day) — honors manual due_date
     if not whats_next:
         _approaching = conn.execute("""
             SELECT id, subject, issue_uid, issue_severity, issue_sla_days,
-                   activity_date,
-                   CAST(julianday('now') - julianday(activity_date) AS INTEGER) AS age_days
+                   due_date, activity_date,
+                   CAST(julianday('now') - julianday(activity_date) AS INTEGER) AS age_days,
+                   CASE
+                     WHEN due_date IS NOT NULL
+                       THEN CAST(julianday(due_date) - julianday('now') AS INTEGER)
+                     ELSE issue_sla_days - CAST(julianday('now') - julianday(activity_date) AS INTEGER)
+                   END AS remaining_days
             FROM activity_log
             WHERE client_id = ? AND item_kind = 'issue' AND issue_id IS NULL
               AND merged_into_id IS NULL
               AND (issue_status IS NULL OR issue_status NOT IN ('Resolved', 'Closed'))
-              AND issue_sla_days > 0
-              AND CAST(julianday('now') - julianday(activity_date) AS INTEGER) >= (issue_sla_days - 1)
-              AND CAST(julianday('now') - julianday(activity_date) AS INTEGER) <= issue_sla_days
-            ORDER BY issue_sla_days - CAST(julianday('now') - julianday(activity_date) AS INTEGER)
+              AND (
+                (
+                  due_date IS NOT NULL
+                  AND CAST(julianday(due_date) - julianday('now') AS INTEGER) BETWEEN 0 AND 1
+                )
+                OR (
+                  due_date IS NULL
+                  AND issue_sla_days > 0
+                  AND CAST(julianday('now') - julianday(activity_date) AS INTEGER)
+                      BETWEEN (issue_sla_days - 1) AND issue_sla_days
+                )
+              )
+            ORDER BY remaining_days
             LIMIT 1
         """, [client_id]).fetchone()
         if _approaching:
@@ -938,7 +958,7 @@ def client_tab_overview(request: Request, client_id: int, conn=Depends(get_db)):
                 "uid": _approaching["issue_uid"],
                 "subject": _approaching["subject"],
                 "severity": _approaching["issue_severity"],
-                "remaining_days": _approaching["issue_sla_days"] - _approaching["age_days"],
+                "remaining_days": _approaching["remaining_days"] or 0,
             }
 
     # Priority 4: Follow-ups due today or tomorrow
@@ -1011,6 +1031,20 @@ def client_tab_overview(request: Request, client_id: int, conn=Depends(get_db)):
     # Open Tasks panel data
     _ot = get_open_tasks(conn, "client", client_id)
 
+    # Open issues for the summary card — hydrate SLA state so the template
+    # honors manual due_date overrides.
+    from policydb.queries import attach_issue_sla_state
+    _open_issues_for_overview = [dict(r) for r in conn.execute("""
+        SELECT a.id, a.issue_uid, a.subject, a.issue_status, a.issue_severity,
+               a.activity_date, a.issue_sla_days, a.due_date,
+               CAST(julianday('now') - julianday(a.activity_date) AS INTEGER) AS days_open
+        FROM activity_log a
+        WHERE a.client_id = ? AND a.item_kind = 'issue' AND a.issue_id IS NULL
+          AND a.merged_into_id IS NULL
+          AND (a.issue_status IS NULL OR a.issue_status NOT IN ('Resolved', 'Closed'))
+    """, (client_id,)).fetchall()]
+    attach_issue_sla_state(_open_issues_for_overview)
+
     return templates.TemplateResponse("clients/_tab_overview.html", {
         "request": request,
         "client": dict(client),
@@ -1039,15 +1073,7 @@ def client_tab_overview(request: Request, client_id: int, conn=Depends(get_db)):
         "pulse_milestone_total": pulse_milestone_total,
         "pulse_high_risks": pulse_high_risks,
         "pulse_recent": pulse_recent,
-        "open_issues": [dict(r) for r in conn.execute("""
-            SELECT a.id, a.issue_uid, a.subject, a.issue_status, a.issue_severity,
-                   a.activity_date, a.issue_sla_days,
-                   julianday(date('now')) - julianday(a.activity_date) AS days_open
-            FROM activity_log a
-            WHERE a.client_id = ? AND a.item_kind = 'issue' AND a.issue_id IS NULL
-              AND a.merged_into_id IS NULL
-              AND (a.issue_status IS NULL OR a.issue_status NOT IN ('Resolved', 'Closed'))
-        """, (client_id,)).fetchall()],
+        "open_issues": _open_issues_for_overview,
         "today": _today,
         "today_iso": _today,
         "locations": _get_project_locations(conn, client_id),
@@ -1331,6 +1357,7 @@ def client_tab_policies(request: Request, client_id: int, conn=Depends(get_db)):
         "project_addresses": project_addresses,
         "opportunities": opportunities,
         "bundles": _get_request_bundles(conn, client_id),
+        "open_attachment_count": _count_open_rfi_attachments(conn, client_id),
         "today_iso": datetime.now().strftime("%Y-%m-%d"),
         "pipeline_projects": _get_project_pipeline(conn, client_id),
         "location_projects": _get_project_locations(conn, client_id),
@@ -1544,6 +1571,7 @@ def client_tab_risk(request: Request, client_id: int, conn=Depends(get_db)):
         "policy_types": cfg.get("policy_types", []),
         "policy_uid_options": policy_uid_options,
         "bundles": _get_request_bundles(conn, client_id),
+        "open_attachment_count": _count_open_rfi_attachments(conn, client_id),
         "today_iso": datetime.now().strftime("%Y-%m-%d"),
         "risk_prompts": risk_prompts,
     })
@@ -1559,7 +1587,8 @@ def client_tab_issues(request: Request, client_id: int, conn=Depends(get_db)):
 
     all_issues = [dict(r) for r in conn.execute("""
         SELECT a.id, a.issue_uid, a.subject, a.issue_status, a.issue_severity,
-               a.issue_sla_days, a.resolution_type, a.resolved_date, a.activity_date,
+               a.issue_sla_days, a.due_date,
+               a.resolution_type, a.resolved_date, a.activity_date,
                a.is_renewal_issue,
                CAST(julianday('now') - julianday(a.activity_date) AS INTEGER) AS days_open,
                p.policy_uid, p.policy_type,
@@ -1574,6 +1603,9 @@ def client_tab_issues(request: Request, client_id: int, conn=Depends(get_db)):
                  CASE a.issue_severity WHEN 'Critical' THEN 0 WHEN 'High' THEN 1 WHEN 'Normal' THEN 2 ELSE 3 END,
                  a.activity_date DESC
     """, (client_id,)).fetchall()]
+
+    from policydb.queries import attach_issue_sla_state
+    attach_issue_sla_state(all_issues)
 
     open_issues = [i for i in all_issues if i.get("issue_status") not in ("Resolved", "Closed")]
     resolved_issues = [i for i in all_issues if i.get("issue_status") in ("Resolved", "Closed")]
@@ -1814,16 +1846,21 @@ def client_quick_brief(request: Request, client_id: int, conn=Depends(get_db)):
         LIMIT 1
     """, [client_id]).fetchone()
 
-    # Open issues
-    open_issues = conn.execute("""
-        SELECT subject, issue_severity, issue_uid, issue_sla_days,
-               CAST(julianday('now') - julianday(activity_date) AS INTEGER) AS age_days
+    # Open issues — hydrate SLA state so manual due_date overrides the
+    # severity-derived "SLA breached" badge in the slideover template.
+    from policydb.queries import attach_issue_sla_state
+    open_issues = [dict(r) for r in conn.execute("""
+        SELECT subject, issue_severity, issue_uid, issue_sla_days, due_date,
+               activity_date,
+               CAST(julianday('now') - julianday(activity_date) AS INTEGER) AS age_days,
+               CAST(julianday('now') - julianday(activity_date) AS INTEGER) AS days_open
         FROM activity_log
         WHERE client_id = ? AND item_kind = 'issue'
           AND issue_id IS NULL
           AND issue_status NOT IN ('Resolved', 'Closed')
         ORDER BY CASE issue_severity WHEN 'Critical' THEN 0 WHEN 'High' THEN 1 WHEN 'Normal' THEN 2 ELSE 3 END
-    """, [client_id]).fetchall()
+    """, [client_id]).fetchall()]
+    attach_issue_sla_state(open_issues)
 
     # Recent activities (last 3)
     recent = conn.execute("""
@@ -2233,11 +2270,6 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
            WHERE client_id = ? AND follow_up_date < ? AND follow_up_done = 0""",
         (client_id, _today),
     ).fetchone()["n"]
-    pulse_overdue += conn.execute(
-        """SELECT COUNT(*) AS n FROM policies
-           WHERE client_id = ? AND follow_up_date < ? AND follow_up_date IS NOT NULL AND archived = 0""",
-        (client_id, _today),
-    ).fetchone()["n"]
     # Milestone progress across all active policies
     _ms_rows = conn.execute(
         """SELECT pm.completed FROM policy_milestones pm
@@ -2356,6 +2388,24 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
     # Open Tasks summary for sticky sidebar
     _ot_sidebar = get_open_tasks(conn, "client", client_id)
 
+    # Open issues for the sidebar — hydrate SLA state so manual due_date
+    # overrides the severity-derived deadline on detail.html and related.
+    from policydb.queries import attach_issue_sla_state
+    _sidebar_open_issues = [dict(r) for r in conn.execute("""
+        SELECT a.id, a.issue_uid, a.subject, a.issue_status, a.issue_severity,
+               a.activity_date, a.issue_sla_days, a.due_date,
+               CAST(julianday('now') - julianday(a.activity_date) AS INTEGER) AS days_open,
+               (SELECT COUNT(*) FROM activity_log sub WHERE sub.issue_id = a.id) AS activity_count
+        FROM activity_log a
+        WHERE a.client_id = ? AND a.item_kind = 'issue' AND a.issue_id IS NULL
+          AND a.merged_into_id IS NULL
+          AND (a.issue_status IS NULL OR a.issue_status NOT IN ('Resolved', 'Closed'))
+        ORDER BY CASE a.issue_severity
+          WHEN 'Critical' THEN 0 WHEN 'High' THEN 1 WHEN 'Normal' THEN 2 ELSE 3
+        END, a.activity_date ASC
+    """, (client_id,)).fetchall()]
+    attach_issue_sla_state(_sidebar_open_issues)
+
     # Sidebar Key Contact — prefer unified contact assignment; fall back to
     # denormalized clients.primary_contact/contact_email/phone/mobile so the
     # block still renders while the migration is in-flight (touch-once).
@@ -2395,10 +2445,21 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
         (client_id,),
     ).fetchone()[0]
 
+    # Derive client-level "next follow-up" from activity_log (earliest open
+    # direct client follow-up — policy_id IS NULL).
+    _client_next_followup = conn.execute(
+        """SELECT MIN(follow_up_date) FROM activity_log
+           WHERE client_id = ? AND policy_id IS NULL
+             AND follow_up_done = 0 AND follow_up_date IS NOT NULL
+             AND (item_kind = 'followup' OR item_kind IS NULL)""",
+        (client_id,),
+    ).fetchone()[0]
+
     return templates.TemplateResponse("clients/detail.html", {
         "request": request,
         "active": "clients",
         "client": _client_dict,
+        "client_next_followup": _client_next_followup,
         "summary": dict(summary) if summary else {},
         "client_total_hours": client_total_hours,
         "policy_groups": policy_groups,
@@ -2476,19 +2537,7 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
         "project_stages": cfg.get("project_stages", []),
         "project_types": cfg.get("project_types", []),
         "timeline_data": _build_timeline_data(_get_project_pipeline(conn, client_id)),
-        "open_issues": [dict(r) for r in conn.execute("""
-            SELECT a.id, a.issue_uid, a.subject, a.issue_status, a.issue_severity,
-                   a.activity_date, a.issue_sla_days,
-                   julianday(date('now')) - julianday(a.activity_date) AS days_open,
-                   (SELECT COUNT(*) FROM activity_log sub WHERE sub.issue_id = a.id) AS activity_count
-            FROM activity_log a
-            WHERE a.client_id = ? AND a.item_kind = 'issue' AND a.issue_id IS NULL
-              AND a.merged_into_id IS NULL
-              AND (a.issue_status IS NULL OR a.issue_status NOT IN ('Resolved', 'Closed'))
-            ORDER BY CASE a.issue_severity
-              WHEN 'Critical' THEN 0 WHEN 'High' THEN 1 WHEN 'Normal' THEN 2 ELSE 3
-            END, a.activity_date ASC
-        """, (client_id,)).fetchall()],
+        "open_issues": _sidebar_open_issues,
         "health_score": _client_dict.get("health_score", 100),
         "health_missing": _client_dict.get("health_missing", []),
         "health_threshold": cfg.get("data_health_threshold", 85),
@@ -3101,20 +3150,22 @@ def _compute_client_health(conn, client_id: int) -> dict:
         score -= 10
         factors.append({"label": "1 overdue follow-up", "impact": -10, "color": "amber"})
 
-    # 3. Open issues (max deduction: 25)
-    issues = conn.execute(
-        """SELECT issue_severity, issue_sla_days, activity_date,
-                  CAST(julianday('now') - julianday(activity_date) AS INTEGER) AS age_days
+    # 3. Open issues (max deduction: 25) — "sla_breached" honors a manual
+    # due_date on the issue row when one is set, falling back to the
+    # severity-derived activity_date + issue_sla_days deadline.
+    issues = [dict(r) for r in conn.execute(
+        """SELECT issue_severity, issue_sla_days, due_date, activity_date,
+                  CAST(julianday('now') - julianday(activity_date) AS INTEGER) AS age_days,
+                  CAST(julianday('now') - julianday(activity_date) AS INTEGER) AS days_open
            FROM activity_log
            WHERE client_id = ? AND item_kind = 'issue'
              AND merged_into_id IS NULL
              AND (issue_status IS NULL OR issue_status NOT IN ('Resolved', 'Closed'))""",
         [client_id],
-    ).fetchall()
-
-    sla_breached = any(
-        r["issue_sla_days"] and r["age_days"] > r["issue_sla_days"] for r in issues
-    )
+    ).fetchall()]
+    from policydb.queries import attach_issue_sla_state as _attach_sla
+    _attach_sla(issues)
+    sla_breached = any(r.get("over_sla") for r in issues)
     critical_count = sum(1 for r in issues if r["issue_severity"] == "Critical")
     high_count = sum(1 for r in issues if r["issue_severity"] == "High")
     other_count = sum(1 for r in issues if r["issue_severity"] not in ("Critical", "High"))
@@ -3540,13 +3591,34 @@ def client_followup_set(
     follow_up_date: str = Form(""),
     conn=Depends(get_db),
 ):
-    """Set or clear the client-level follow-up date."""
-    conn.execute(
-        "UPDATE clients SET follow_up_date = ? WHERE id = ?",
-        (follow_up_date.strip() or None, client_id),
-    )
+    """Schedule a client-level follow-up via activity_log. An empty date
+    closes all open direct client-level follow-ups (policy_id IS NULL)."""
+    fu = follow_up_date.strip() or None
+    if fu:
+        from policydb.queries import create_followup_activity
+        create_followup_activity(
+            conn,
+            client_id=client_id,
+            policy_id=None,
+            issue_id=None,
+            subject="Client follow-up",
+            activity_type="Task",
+            follow_up_date=fu,
+            follow_up_done=False,
+        )
+    else:
+        conn.execute(
+            """UPDATE activity_log
+               SET follow_up_done = 1,
+                   auto_close_reason = 'manual',
+                   auto_closed_at = datetime('now'),
+                   auto_closed_by = 'client_followup_set'
+               WHERE client_id = ? AND policy_id IS NULL
+                 AND follow_up_done = 0 AND follow_up_date IS NOT NULL""",
+            (client_id,),
+        )
     conn.commit()
-    return JSONResponse({"ok": True, "follow_up_date": follow_up_date.strip() or None})
+    return JSONResponse({"ok": True, "follow_up_date": fu})
 
 
 _STRATEGY_FIELDS = {
@@ -5273,6 +5345,31 @@ def _get_request_bundles(conn, client_id: int) -> list[dict]:
     return bundles
 
 
+def _count_open_rfi_attachments(conn, client_id: int) -> int:
+    """Count every file attached to an open (non-complete) RFI bundle for a client.
+
+    Powers the "Download All Files" button on the Requests card so it only
+    renders when there's something to download. Must be passed to the
+    context of every endpoint that includes ``clients/_requests.html``.
+    """
+    return conn.execute(
+        """
+        SELECT
+          COALESCE((SELECT COUNT(*) FROM record_attachments ra
+                      JOIN client_request_bundles b ON b.id = ra.record_id
+                     WHERE ra.record_type='rfi_bundle'
+                       AND b.client_id = ? AND b.status != 'complete'), 0)
+        + COALESCE((SELECT COUNT(*) FROM record_attachments ra
+                      JOIN client_request_items i ON i.id = ra.record_id
+                      JOIN client_request_bundles b ON b.id = i.bundle_id
+                     WHERE ra.record_type='rfi_item'
+                       AND b.client_id = ? AND b.status != 'complete'), 0)
+          AS n
+        """,
+        (client_id, client_id),
+    ).fetchone()["n"]
+
+
 def _requests_response(request, conn, client_id: int):
     from datetime import date as _date
     bundles = _get_request_bundles(conn, client_id)
@@ -5282,6 +5379,7 @@ def _requests_response(request, conn, client_id: int):
         "client": dict(client) if client else {"id": client_id, "name": ""},
         "bundles": bundles,
         "today_iso": _date.today().isoformat(),
+        "open_attachment_count": _count_open_rfi_attachments(conn, client_id),
     })
 
 
@@ -5434,6 +5532,7 @@ def request_program_view(request: Request, client_id: int, program_uid: str = ""
                 f"SELECT * FROM client_request_items WHERE bundle_id=? AND policy_uid IN ({placeholders}) ORDER BY received ASC, sort_order ASC, id ASC",
                 [bundle_id] + child_uids,
             ).fetchall()])
+            _attach_item_attachment_counts(conn, items)
 
     client = conn.execute("SELECT id, name FROM clients WHERE id=?", (client_id,)).fetchone()
     return templates.TemplateResponse("clients/_request_policy_view.html", {
@@ -5463,6 +5562,7 @@ def request_policy_view(request: Request, client_id: int, policy_uid: str = "", 
             "SELECT * FROM client_request_items WHERE bundle_id=? AND policy_uid=? ORDER BY received ASC, sort_order ASC, id ASC",
             (bundle_id, policy_uid),
         ).fetchall()])
+        _attach_item_attachment_counts(conn, items)
 
     client = conn.execute("SELECT id, name FROM clients WHERE id=?", (client_id,)).fetchone()
     return templates.TemplateResponse("clients/_request_policy_view.html", {
@@ -5494,6 +5594,26 @@ def request_export_all(client_id: int, conn=Depends(get_db)):
     )
 
 
+@router.get("/{client_id}/requests/download-all-files")
+def request_download_all_files(client_id: int, conn=Depends(get_db)):
+    """Bundle every attached file across all open RFIs into a single
+    client-facing ZIP with an ``Outstanding Requests.xlsx`` manifest at
+    the root."""
+    from fastapi.responses import JSONResponse, StreamingResponse
+    from policydb.web.routes.attachments import build_client_rfi_zip
+
+    try:
+        data, download_name, total_files = build_client_rfi_zip(conn, client_id)
+    except ValueError as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=404)
+
+    return StreamingResponse(
+        iter([data]),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{download_name}"'},
+    )
+
+
 @router.get("/{client_id}/requests/{bundle_id}", response_class=HTMLResponse)
 def get_request_bundle(
     request: Request, client_id: int, bundle_id: int, conn=Depends(get_db)
@@ -5510,6 +5630,7 @@ def get_request_bundle(
         "SELECT * FROM client_request_items WHERE bundle_id=? ORDER BY received ASC, sort_order ASC, id ASC",
         (bundle_id,),
     ).fetchall()])
+    _attach_item_attachment_counts(conn, items)
     client = conn.execute("SELECT id, name FROM clients WHERE id=?", (client_id,)).fetchone()
     policies = [dict(r) for r in conn.execute(
         "SELECT policy_uid, policy_type, carrier, project_name, effective_date FROM policies WHERE client_id=? AND archived=0 ORDER BY policy_type, effective_date DESC",
@@ -5901,7 +6022,7 @@ async def client_field_patch(
     allowed = {
         "name", "cn_number", "industry_segment", "account_exec",
         "date_onboarded", "website", "fein", "broker_fee", "hourly_rate",
-        "follow_up_date", "relationship_risk", "service_model",
+        "relationship_risk", "service_model",
         "business_description", "notes", "stewardship_date",
         "renewal_strategy", "growth_opportunities", "account_priorities",
         "latitude", "longitude",
@@ -7747,7 +7868,12 @@ async def exposure_copy_forward(request: Request, client_id: int, conn=Depends(g
 def client_edit_followup_slideover(client_id: int, request: Request, conn=Depends(get_db)):
     """Return the edit slideover partial for a client follow-up."""
     row = conn.execute(
-        "SELECT id, name, follow_up_date, notes FROM clients WHERE id = ?",
+        """SELECT c.id, c.name, c.notes,
+                  (SELECT MIN(follow_up_date) FROM activity_log
+                     WHERE client_id = c.id AND policy_id IS NULL
+                       AND follow_up_done = 0 AND follow_up_date IS NOT NULL
+                       AND (item_kind = 'followup' OR item_kind IS NULL)) AS follow_up_date
+           FROM clients c WHERE c.id = ?""",
         (client_id,),
     ).fetchone()
     if not row:
@@ -7760,14 +7886,59 @@ def client_edit_followup_slideover(client_id: int, request: Request, conn=Depend
 
 @router.patch("/{client_id}/followup-field")
 def patch_client_followup_field(client_id: int, body: dict = None, conn=Depends(get_db)):
-    """Update follow_up_date or notes on a client (slideover inline edit)."""
+    """Update notes on a client, or reschedule / schedule the earliest open
+    client-level activity follow-up when field='follow_up_date'."""
     if not body:
         return JSONResponse({"ok": False, "error": "No body"}, status_code=400)
     field = body.get("field", "")
     value = body.get("value", "")
-    allowed = {"follow_up_date", "notes"}
+    allowed = {"notes", "follow_up_date"}
     if field not in allowed:
         return JSONResponse({"ok": False, "error": f"Field '{field}' not editable"}, status_code=400)
-    conn.execute(f"UPDATE clients SET {field} = ? WHERE id = ?", (value or None, client_id))
+
+    if field == "notes":
+        conn.execute("UPDATE clients SET notes = ? WHERE id = ?", (value or None, client_id))
+        conn.commit()
+        return {"ok": True, "formatted": value}
+
+    new_date = (value or "").strip() or None
+    current_fu = conn.execute(
+        """SELECT MIN(follow_up_date) FROM activity_log
+           WHERE client_id = ? AND policy_id IS NULL
+             AND follow_up_done = 0 AND follow_up_date IS NOT NULL
+             AND (item_kind = 'followup' OR item_kind IS NULL)""",
+        (client_id,),
+    ).fetchone()[0]
+    if new_date and current_fu:
+        conn.execute(
+            """UPDATE activity_log
+               SET follow_up_date = ?
+               WHERE client_id = ? AND policy_id IS NULL
+                 AND follow_up_done = 0 AND follow_up_date = ?""",
+            (new_date, client_id, current_fu),
+        )
+    elif new_date and not current_fu:
+        from policydb.queries import create_followup_activity
+        create_followup_activity(
+            conn,
+            client_id=client_id,
+            policy_id=None,
+            issue_id=None,
+            subject="Client follow-up",
+            activity_type="Task",
+            follow_up_date=new_date,
+            follow_up_done=False,
+        )
+    elif not new_date and current_fu:
+        conn.execute(
+            """UPDATE activity_log
+               SET follow_up_done = 1,
+                   auto_close_reason = 'manual',
+                   auto_closed_at = datetime('now'),
+                   auto_closed_by = 'followup_field_clear'
+               WHERE client_id = ? AND policy_id IS NULL
+                 AND follow_up_done = 0 AND follow_up_date IS NOT NULL""",
+            (client_id,),
+        )
     conn.commit()
-    return {"ok": True, "formatted": value}
+    return {"ok": True, "formatted": new_date or ""}

@@ -1442,8 +1442,56 @@ _RFI_COL_WIDTHS = {
     "Category": 18,
     "Status": 14,
     "Received Date": 16,
+    "Attached File(s)": 35,
     "Notes / Response": 45,
 }
+
+
+def _rfi_item_attachment_filenames(conn, item_ids: list[int]) -> dict[int, list[str]]:
+    """Return {item_id: [display filename, ...]} for each RFI item id.
+
+    Uses ``filename`` when present (local files); falls back to ``title``
+    (DevonThink links). Ordered by the record_attachments sort_order so the
+    filename list mirrors the order the client sees in the bundle.
+    """
+    if not item_ids:
+        return {}
+    placeholders = ",".join("?" * len(item_ids))
+    rows = conn.execute(
+        f"""SELECT ra.record_id AS item_id,
+                   COALESCE(NULLIF(a.filename, ''), a.title) AS name
+              FROM record_attachments ra
+              JOIN attachments a ON a.id = ra.attachment_id
+             WHERE ra.record_type = 'rfi_item'
+               AND ra.record_id IN ({placeholders})
+             ORDER BY ra.record_id, ra.sort_order, a.created_at""",
+        item_ids,
+    ).fetchall()
+    out: dict[int, list[str]] = {}
+    for r in rows:
+        out.setdefault(r["item_id"], []).append(r["name"] or "")
+    return out
+
+
+def _rfi_bundle_attachment_filenames(conn, bundle_ids: list[int]) -> dict[int, list[str]]:
+    """Return {bundle_id: [display filename, ...]} for bundle-level attachments."""
+    if not bundle_ids:
+        return {}
+    placeholders = ",".join("?" * len(bundle_ids))
+    rows = conn.execute(
+        f"""SELECT ra.record_id AS bundle_id,
+                   COALESCE(NULLIF(a.filename, ''), a.title) AS name
+              FROM record_attachments ra
+              JOIN attachments a ON a.id = ra.attachment_id
+             WHERE ra.record_type = 'rfi_bundle'
+               AND ra.record_id IN ({placeholders})
+             ORDER BY ra.record_id, ra.sort_order, a.created_at""",
+        bundle_ids,
+    ).fetchall()
+    out: dict[int, list[str]] = {}
+    for r in rows:
+        out.setdefault(r["bundle_id"], []).append(r["name"] or "")
+    return out
 
 
 def _bundle_request_date(bundle: dict) -> str:
@@ -1488,6 +1536,8 @@ def export_request_bundle_xlsx(conn, bundle_id: int) -> bytes:
         (bundle_id,),
     ).fetchall()
 
+    item_ids = [dict(i)["id"] for i in items]
+    att_by_item = _rfi_item_attachment_filenames(conn, item_ids)
     rows = []
     for item in items:
         i = dict(item)
@@ -1500,12 +1550,14 @@ def export_request_bundle_xlsx(conn, bundle_id: int) -> bytes:
         if i.get("pol_project") or i.get("project_name"):
             proj = i.get("pol_project") or i.get("project_name")
             ref_parts.append(proj)
+        files = att_by_item.get(i["id"], [])
         rows.append({
             "Item": i["description"],
             "Coverage / Location": " — ".join(ref_parts) if ref_parts else "",
             "Category": i.get("category") or "",
             "Status": "Received" if i["received"] else "Outstanding",
             "Received Date": (i.get("received_at") or "")[:10] if i["received"] else "",
+            "Attached File(s)": "\n".join(files),
             "Notes / Response": i.get("notes") or "",
         })
 
@@ -1585,7 +1637,12 @@ def render_request_compose_text(conn, bundle_id: int) -> str:
 
 
 def export_client_requests_xlsx(conn, client_id: int) -> bytes:
-    """Export all non-complete request bundles for a client as a multi-sheet XLSX."""
+    """Export all non-complete request bundles for a client as a multi-sheet XLSX.
+
+    Includes an "Attached File(s)" column that lists filenames already
+    uploaded for each item — so when the workbook is delivered alongside a
+    ZIP of files, the client can match every file to a row.
+    """
     bundles = conn.execute(
         "SELECT * FROM client_request_bundles WHERE client_id=? AND status != 'complete' ORDER BY updated_at DESC",
         (client_id,),
@@ -1605,6 +1662,8 @@ def export_client_requests_xlsx(conn, client_id: int) -> bytes:
                ORDER BY cri.received ASC, cri.sort_order ASC, cri.id ASC""",
             (b["id"],),
         ).fetchall()
+        item_ids = [dict(i)["id"] for i in items]
+        att_by_item = _rfi_item_attachment_filenames(conn, item_ids)
         rows = []
         for item in items:
             i = dict(item)
@@ -1616,12 +1675,14 @@ def export_client_requests_xlsx(conn, client_id: int) -> bytes:
             if i.get("pol_project") or i.get("project_name"):
                 proj = i.get("pol_project") or i.get("project_name")
                 ref_parts.append(proj)
+            files = att_by_item.get(i["id"], [])
             rows.append({
                 "Item": i["description"],
                 "Coverage / Location": " — ".join(ref_parts) if ref_parts else "",
                 "Category": i.get("category") or "",
                 "Status": "Received" if i["received"] else "Outstanding",
                 "Received Date": (i.get("received_at") or "")[:10] if i["received"] else "",
+                "Attached File(s)": "\n".join(files),
                 "Notes / Response": i.get("notes") or "",
             })
         if rows:

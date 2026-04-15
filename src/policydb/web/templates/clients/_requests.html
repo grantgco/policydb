@@ -20,7 +20,15 @@
     <button type="button" onclick="toggleUnifiedRequestCompose({{ client.id }})"
        class="text-xs text-marsh hover:text-marsh-light border border-marsh/30 hover:border-marsh rounded px-2 py-1 transition-colors">Compose All</button>
     <a href="/clients/{{ client.id }}/requests/export-all"
-       class="text-xs text-green-600 hover:text-green-700 border border-green-200 hover:border-green-300 rounded px-2 py-1 transition-colors">Export All</a>
+       class="text-xs text-green-600 hover:text-green-700 border border-green-200 hover:border-green-300 rounded px-2 py-1 transition-colors">Export All (.xlsx)</a>
+    {% if open_attachment_count and open_attachment_count > 0 %}
+    <a href="/clients/{{ client.id }}/requests/download-all-files"
+       class="text-xs text-marsh hover:text-marsh-light border border-marsh/30 hover:border-marsh rounded px-2 py-1 transition-colors inline-flex items-center gap-1"
+       title="Download all attached files across every open request as a single ZIP, with a summary workbook at the top">
+      <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3"/></svg>
+      Download All Files ({{ open_attachment_count }})
+    </a>
+    {% endif %}
     <span class="text-[10px] text-gray-400">{{ open_bundles | length }} open bundle{{ 's' if open_bundles | length != 1 else '' }}</span>
   </div>
   <div id="unified-request-compose-{{ client.id }}" class="hidden mb-3 border border-gray-200 rounded-lg bg-white">

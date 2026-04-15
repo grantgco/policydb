@@ -1992,6 +1992,36 @@ def _init_db_inner(conn: sqlite3.Connection, db_path: Path) -> None:
         conn.commit()
         logger.info("Migration 149: added carriers table + email_templates.purpose + seeded loss run template")
 
+    if 150 not in applied:
+        # Check which tables still have the cache column — migration is
+        # idempotent so it can re-run after a partial failure (the DROP VIEW
+        # and DROP TRIGGER statements are IF EXISTS, and we conditionally
+        # skip DROP COLUMN when the column is already gone).
+        def _has_col(table: str, col: str) -> bool:
+            return any(
+                r[1] == col for r in conn.execute(f"PRAGMA table_info({table})").fetchall()
+            )
+        _migration_sql = (_MIGRATIONS_DIR / "150_drop_legacy_followup_date.sql").read_text()
+        # Strip ALTER TABLE ... DROP COLUMN lines for tables that already
+        # lost the column — avoids "no such column" errors on partial re-runs.
+        _filtered_lines = []
+        for _line in _migration_sql.splitlines():
+            _stripped = _line.strip().rstrip(";")
+            if _stripped == "ALTER TABLE policies DROP COLUMN follow_up_date" and not _has_col("policies", "follow_up_date"):
+                continue
+            if _stripped == "ALTER TABLE clients DROP COLUMN follow_up_date" and not _has_col("clients", "follow_up_date"):
+                continue
+            if _stripped == "ALTER TABLE programs DROP COLUMN follow_up_date" and not _has_col("programs", "follow_up_date"):
+                continue
+            _filtered_lines.append(_line)
+        conn.executescript("\n".join(_filtered_lines))
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (150, "Drop legacy record-level follow_up_date cache columns on policies/clients/programs"),
+        )
+        conn.commit()
+        logger.info("Migration 150: dropped policies/clients/programs.follow_up_date (activity_log is sole source of truth)")
+
     # Data hygiene: fix 'None' string corruption in text fields (runs every startup, fast no-op if clean)
     conn.execute("UPDATE clients SET cn_number = NULL WHERE cn_number = 'None'")
 

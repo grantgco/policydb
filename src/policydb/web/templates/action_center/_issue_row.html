@@ -55,19 +55,30 @@
     {{ status }}
   </span>
 
-  {# Age + SLA badge #}
+  {# Age + SLA badge — honors manual due_date if one was set #}
   {% set days = (issue.days_open or 0)|int %}
   {% set sla = issue.sla_days or 7 %}
+  {% set _over = issue.over_sla %}
+  {% set _past = issue.days_past or 0 %}
   {% if issue.is_renewal_issue %}
   <span class="text-xs whitespace-nowrap text-gray-500">{{ days }}d</span>
+  {% elif issue.deadline_source == 'manual' %}
+  <span class="text-xs whitespace-nowrap
+    {% if _over %}text-red-600 font-semibold
+    {% elif issue.days_to_deadline is not none and issue.days_to_deadline <= 2 %}text-amber-600
+    {% else %}text-gray-500{% endif %}"
+    title="Due {{ issue.deadline_date }}">
+    {{ days }}d
+    {% if _over %}<span class="text-red-400">({{ _past }}d past due)</span>{% endif %}
+  </span>
   {% else %}
   <span class="text-xs whitespace-nowrap
-    {% if days > sla %}text-red-600 font-semibold
+    {% if _over %}text-red-600 font-semibold
     {% elif days > (sla * 0.7)|int %}text-amber-600
     {% else %}text-gray-500{% endif %}"
     title="SLA target: {{ sla }}d">
     {{ days }}d
-    {% if days > sla %}<span class="text-red-400">(SLA {{ sla }}d)</span>{% endif %}
+    {% if _over %}<span class="text-red-400">(SLA {{ sla }}d)</span>{% endif %}
   </span>
   {% endif %}
 

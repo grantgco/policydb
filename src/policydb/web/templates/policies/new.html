@@ -250,69 +250,10 @@
     </div>
   </div>
 
-  <!-- Exposure -->
-  <div class="card-section">
-    <div class="card-header">
-      <span class="section-title">Exposure</span>
-    </div>
-    <div class="p-6 space-y-4">
-      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-
-        <div>
-          <label class="field-label">Exposure Basis</label>
-          <input type="text" name="exposure_basis" placeholder="e.g. Payroll, Revenue, Sq Ft" class="form-input w-full"
-            list="ac-exposure_basis" autocomplete="off">
-        </div>
-
-        <div>
-          <label class="field-label">Exposure Amount</label>
-          <input type="text" class="form-input w-full currency-input" autocomplete="off" placeholder="0">
-          <input type="hidden" name="exposure_amount" value="">
-        </div>
-
-        <div>
-          <label class="field-label">Exposure Unit</label>
-          <input type="text" name="exposure_unit" placeholder="e.g. per $100, per $1,000, per unit" class="form-input w-full"
-            list="ac-exposure_unit" autocomplete="off">
-        </div>
-
-      </div>
-
-      <!-- Primary exposure address -->
-      <div>
-        <p class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-3">Primary Exposure Address / Location</p>
-        <div class="grid grid-cols-1 sm:grid-cols-6 gap-4">
-
-          <div class="sm:col-span-6">
-            <label class="field-label">Street Address</label>
-            <input type="text" name="exposure_address" placeholder="123 Main St, Suite 100" class="form-input w-full">
-          </div>
-
-          <div class="sm:col-span-3">
-            <label class="field-label">City</label>
-            <input type="text" name="exposure_city" class="form-input w-full"
-              list="ac-exposure_city" autocomplete="off">
-          </div>
-
-          <div class="sm:col-span-2">
-            <label class="field-label">State</label>
-            <select name="exposure_state" class="form-select w-full">
-              <option value="">—</option>
-              {% for abbr, name in us_states %}
-              <option value="{{ abbr }}">{{ abbr }} – {{ name }}</option>
-              {% endfor %}
-            </select>
-          </div>
-
-          <div class="sm:col-span-1">
-            <label class="field-label">ZIP</label>
-            <input type="text" name="exposure_zip" placeholder="12345" maxlength="10" class="form-input w-full">
-          </div>
-
-        </div>
-      </div>
-    </div>
-  </div>
+  {# The standalone "Exposure" input card has been retired — exposure
+     rating data is now stored on client_exposures and edited through the
+     client's Exposures grid after the policy is created.  Create the
+     policy first, then link exposures from the policy detail page. #}
 
   <!-- Internal -->
   <div class="card-section">
@@ -384,18 +325,15 @@ document.addEventListener('DOMContentLoaded', function() {
 </script>
 
 <datalist id="ac-carrier"></datalist>
-<datalist id="ac-exposure_basis"></datalist>
-<datalist id="ac-exposure_unit"></datalist>
 <datalist id="ac-project_name"></datalist>
-<datalist id="ac-exposure_city"></datalist>
 <datalist id="ac-first_named_insured"></datalist>
 <datalist id="ac-access_point"></datalist>
 
 
 <script>
 (function () {
-  const AC_FIELDS = ["carrier", "exposure_basis", "exposure_unit", "project_name", "exposure_city", "first_named_insured", "access_point"];
-  const CLIENT_SCOPED = new Set(["project_name", "exposure_city"]);
+  const AC_FIELDS = ["carrier", "project_name", "first_named_insured", "access_point"];
+  const CLIENT_SCOPED = new Set(["project_name"]);
 
   function getClientId() {
     var el = document.getElementById('new-pol-client-id');
@@ -419,37 +357,6 @@ document.addEventListener('DOMContentLoaded', function() {
   initClientAutocomplete('new-pol-client-name', 'new-pol-client-id', {
     onSelect: function() { CLIENT_SCOPED.forEach(loadAcField); }
   });
-
-  // Auto-populate location fields when a known project is selected
-  var projectInput = document.querySelector('input[name="project_name"]');
-  if (projectInput) {
-    projectInput.addEventListener('change', function () {
-      var name = this.value.trim();
-      if (!name) return;
-      var clientId = getClientId();
-      fetch('/policies/project-defaults?project_name=' + encodeURIComponent(name) + '&client_id=' + clientId)
-        .then(function (r) { return r.json(); })
-        .then(function (data) {
-          var fieldMap = {
-            exposure_address: 'input[name="exposure_address"]',
-            exposure_city:    'input[name="exposure_city"]',
-            exposure_state:   'select[name="exposure_state"]',
-            exposure_zip:     'input[name="exposure_zip"]',
-            exposure_basis:   'input[name="exposure_basis"]',
-            exposure_unit:    'input[name="exposure_unit"]'
-          };
-          Object.keys(data).forEach(function (field) {
-            if (!fieldMap[field]) return;
-            var el = document.querySelector(fieldMap[field]);
-            if (!el || el.value) return;
-            el.value = data[field];
-            el.style.transition = 'background-color 1s';
-            el.style.backgroundColor = '#fefce8';
-            setTimeout(function () { el.style.backgroundColor = ''; }, 1500);
-          });
-        });
-    });
-  }
 
   // Live tower notation preview
   (function () {

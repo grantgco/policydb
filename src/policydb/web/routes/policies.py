@@ -306,7 +306,7 @@ def policy_spreadsheet(request: Request, conn=Depends(get_db)):
          "editor": "list", "editorParams": {"values": opportunity_statuses, "autocomplete": True, "freetext": False, "listOnEmpty": True},
          "headerFilter": "list", "headerFilterParams": {"values": {s: s for s in opportunity_statuses}, "clearable": True}},
         {"field": "follow_up_date", "title": "Follow-Up", "width": 120,
-         "editor": "date", "headerFilter": "input", "_format": "date"},
+         "headerFilter": "input", "_format": "date"},
         {"field": "coverage_form", "title": "Form", "width": 110,
          "editor": "list", "editorParams": {"values": coverage_forms, "autocomplete": True, "freetext": True, "listOnEmpty": True},
          "headerFilter": "input"},
@@ -426,7 +426,7 @@ async def policy_quick_add(request: Request, conn=Depends(get_db)):
                   p.policy_type, p.carrier, p.access_point, p.policy_number,
                   p.effective_date, p.expiration_date, p.premium, p.limit_amount,
                   p.deductible, p.commission_rate, p.prior_premium, p.renewal_status,
-                  p.is_opportunity, p.opportunity_status, p.follow_up_date,
+                  p.is_opportunity, p.opportunity_status, NULL AS follow_up_date,
                   p.coverage_form, p.layer_position, p.project_name,
                   p.first_named_insured, p.description, p.notes,
                   p.placement_colleague, p.underwriter_name,
@@ -501,7 +501,6 @@ def policy_new_post(
     commission_rate: str = Form(""),
     prior_premium: str = Form(""),
     notes: str = Form(""),
-    follow_up_date: str = Form(""),
     attachment_point: str = Form(""),
     participation_of: str = Form(""),
     first_named_insured: str = Form(""),
@@ -547,9 +546,9 @@ def policy_new_post(
             account_exec, project_name,
             exposure_basis, exposure_amount, exposure_unit,
             exposure_address, exposure_city, exposure_state, exposure_zip,
-            commission_rate, prior_premium, notes, follow_up_date,
+            commission_rate, prior_premium, notes,
             attachment_point, participation_of, first_named_insured, access_point)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (uid, client_id, policy_type, carrier or None, policy_number or None,
          effective_date or None, expiration_date or None, _float(premium) or 0,
          _float(limit_amount), _float(deductible),
@@ -565,7 +564,6 @@ def policy_new_post(
          exposure_address or None, exposure_city or None,
          exposure_state or None, exposure_zip or None,
          _float(commission_rate), _float(prior_premium), notes or None,
-         follow_up_date or None,
          _float(attachment_point), _float(participation_of),
          first_named_insured or None, access_point or None),
     )
@@ -1632,12 +1630,15 @@ def _ai_import_parse_inner(request: Request, conn, uid: str, result: dict):
     # Initialize warnings early so the endorsements auto-apply step can append.
     ai_warnings: list[str] = list(result.get("warnings", []))
 
-    # Merge parsed values onto existing policy, tracking changes (skip nested groups)
+    # Merge parsed values onto existing policy, tracking changes (skip nested groups).
+    # `exposures` is a nested list that's routed through client_exposures /
+    # policy_exposure_links below — never merged onto the policies row.
+    _NESTED_KEYS = ("locations", "sub_coverages", "endorsements", "exposures")
     merged = dict(policy_dict)
     import_changes: list[dict] = []
     _field_labels = {f["key"]: f["label"] for f in POLICY_EXTRACTION_SCHEMA.get("fields", [])}
     for k, v in result["parsed"].items():
-        if v is not None and k not in ("locations", "sub_coverages", "endorsements"):
+        if v is not None and k not in _NESTED_KEYS:
             old_val = policy_dict.get(k)
             if str(v).strip() != str(old_val or "").strip():
                 import_changes.append({
@@ -1690,38 +1691,94 @@ def _ai_import_parse_inner(request: Request, conn, uid: str, result: dict):
                 f"client record has {client_fein['fein']}"
             )
 
-    # ── Route exposure data through client_exposures → policy_exposure_links ──
-    exposure_basis = result["parsed"].get("exposure_basis")
-    exposure_amount = result["parsed"].get("exposure_amount")
-    exposure_denom = result["parsed"].get("exposure_denominator", 1) or 1
-    if exposure_basis and exposure_amount:
+    # ── Route exposures through client_exposures / policy_exposure_links ──
+    # Each entry in the `exposures` list becomes a row in client_exposures
+    # plus a link in policy_exposure_links.  If an entry carries address
+    # fields, we also upsert a `projects` (location) row and attach the
+    # exposure to it.  The policy's own project_id is only stamped when it
+    # was previously unassigned — we never overwrite a user-picked location.
+    exposures_parsed = result["parsed"].get("exposures") or []
+    if exposures_parsed:
         from policydb.exposures import find_or_create_exposure, create_exposure_link
+        from policydb.queries import find_or_create_project_from_address
+
         eff_date = result["parsed"].get("effective_date") or policy_dict.get("effective_date", "")
         year = int(eff_date[:4]) if eff_date and len(eff_date) >= 4 else datetime.now().year
         client_id = policy_dict["client_id"]
-        project_id = policy_dict.get("project_id")
-        exp_id = find_or_create_exposure(
-            conn,
-            client_id=client_id,
-            project_id=project_id,
-            exposure_type=exposure_basis,
-            year=year,
-            amount=float(exposure_amount),
-            denominator=int(exposure_denom),
+        policy_uid = policy_dict["policy_uid"]
+        policy_project_id = policy_dict.get("project_id")
+
+        # Normalize and filter out empty/invalid entries up front so the
+        # primary-flag decision isn't skewed by rows that would be skipped.
+        valid_exposures: list[dict] = []
+        for exp in exposures_parsed:
+            if not isinstance(exp, dict):
+                continue
+            exposure_type = (exp.get("exposure_type") or "").strip()
+            try:
+                amount = float(exp.get("amount") or 0) or None
+            except (ValueError, TypeError):
+                amount = None
+            if not exposure_type or not amount:
+                continue
+            try:
+                denominator = int(exp.get("denominator") or 1) or 1
+            except (ValueError, TypeError):
+                denominator = 1
+            valid_exposures.append({
+                **exp,
+                "exposure_type": exposure_type,
+                "amount": amount,
+                "denominator": denominator,
+            })
+
+        # Decide which valid entry is primary: first LLM-flagged one, else
+        # the first in order.
+        primary_idx = next(
+            (i for i, e in enumerate(valid_exposures) if e.get("is_primary")),
+            0 if valid_exposures else -1,
         )
-        # Check for existing link
-        existing = conn.execute(
-            "SELECT id FROM policy_exposure_links WHERE policy_uid=? AND exposure_id=?",
-            (policy_dict["policy_uid"], exp_id),
-        ).fetchone()
-        if not existing:
-            create_exposure_link(conn, policy_dict["policy_uid"], exp_id, is_primary=True)
+
+        for idx, exp in enumerate(valid_exposures):
+            # Upsert a location/project from the exposure address when present.
+            exp_project_id = find_or_create_project_from_address(
+                conn,
+                client_id=client_id,
+                address=exp.get("address"),
+                city=exp.get("city"),
+                state=exp.get("state"),
+                zip_code=exp.get("zip"),
+                label=exp.get("location_label"),
+            )
+
+            # Stamp policies.project_id only when previously unassigned.
+            if exp_project_id and not policy_project_id:
+                conn.execute(
+                    "UPDATE policies SET project_id = ? WHERE policy_uid = ?",
+                    (exp_project_id, policy_uid),
+                )
+                policy_project_id = exp_project_id
+
+            exp_id = find_or_create_exposure(
+                conn,
+                client_id=client_id,
+                project_id=exp_project_id,
+                exposure_type=exp["exposure_type"],
+                year=year,
+                amount=exp["amount"],
+                denominator=exp["denominator"],
+            )
+            create_exposure_link(
+                conn, policy_uid, exp_id, is_primary=(idx == primary_idx),
+            )
+
+        conn.commit()
 
     # ── Build policy-level diffs ──
     _field_labels = {f["key"]: f["label"] for f in POLICY_EXTRACTION_SCHEMA["fields"]}
     ai_policy_diffs: list[dict] = []
     for k, v in result["parsed"].items():
-        if k in ("locations", "sub_coverages", "endorsements") or v is None:
+        if k in _NESTED_KEYS or v is None:
             continue
         current = policy_dict.get(k)
         current_str = str(current) if current is not None else ""
@@ -1984,12 +2041,18 @@ def _ai_import_parse_inner(request: Request, conn, uid: str, result: dict):
 
     logger.debug("AI import parse inner: rendering _tab_details.html template")
 
-    # Follow-up date contextual badge
+    # Follow-up date contextual badge — derive from earliest open activity follow-up
+    policy_next_followup = conn.execute(
+        """SELECT MIN(follow_up_date) FROM activity_log
+           WHERE policy_id = ? AND follow_up_done = 0 AND follow_up_date IS NOT NULL
+             AND (item_kind = 'followup' OR item_kind IS NULL)""",
+        (merged["id"],),
+    ).fetchone()[0]
     follow_up_delta = None
     follow_up_overdue = False
-    if merged.get("follow_up_date"):
+    if policy_next_followup:
         try:
-            fu = date.fromisoformat(merged["follow_up_date"])
+            fu = date.fromisoformat(policy_next_followup)
             follow_up_delta = (fu - date.today()).days
             follow_up_overdue = follow_up_delta < 0
         except (ValueError, TypeError):
@@ -2009,6 +2072,7 @@ def _ai_import_parse_inner(request: Request, conn, uid: str, result: dict):
         "tower_layers": _tower_layers,
         "cycle_labels": _RCL,
         "sub_coverages": _get_sub_coverages(conn, merged["id"]),
+        "policy_next_followup": policy_next_followup,
         "follow_up_delta": follow_up_delta,
         "follow_up_overdue": follow_up_overdue,
         **_exp_ctx,
@@ -2600,12 +2664,18 @@ def policy_tab_details(request: Request, policy_uid: str, conn=Depends(get_db)):
     _exp_ctx = _exposure_card_context(conn, policy_dict)
     sub_coverages = _get_sub_coverages(conn, policy_dict["id"])
 
-    # Follow-up date contextual badge
+    # Follow-up date contextual badge — derive from earliest open activity follow-up
+    policy_next_followup = conn.execute(
+        """SELECT MIN(follow_up_date) FROM activity_log
+           WHERE policy_id = ? AND follow_up_done = 0 AND follow_up_date IS NOT NULL
+             AND (item_kind = 'followup' OR item_kind IS NULL)""",
+        (policy_dict["id"],),
+    ).fetchone()[0]
     follow_up_delta = None
     follow_up_overdue = False
-    if policy_dict.get("follow_up_date"):
+    if policy_next_followup:
         try:
-            fu = date.fromisoformat(policy_dict["follow_up_date"])
+            fu = date.fromisoformat(policy_next_followup)
             follow_up_delta = (fu - date.today()).days
             follow_up_overdue = follow_up_delta < 0
         except (ValueError, TypeError):
@@ -2623,6 +2693,7 @@ def policy_tab_details(request: Request, policy_uid: str, conn=Depends(get_db)):
         "tower_layers": _tower_layers,
         "cycle_labels": _RCL,
         "sub_coverages": sub_coverages,
+        "policy_next_followup": policy_next_followup,
         "follow_up_delta": follow_up_delta,
         "follow_up_overdue": follow_up_overdue,
         **_exp_ctx,
@@ -2993,14 +3064,9 @@ def policy_tab_pulse(
         (p["id"], _today.isoformat()),
     ).fetchall()
 
-    # Overdue policy-level follow-up
+    # Legacy record-level overdue follow-up removed — activity_log is now the
+    # sole source. The activity-log query above already covers this case.
     overdue_policy_fu = None
-    if p.get("follow_up_date") and p["follow_up_date"] < _today.isoformat():
-        overdue_policy_fu = {
-            "subject": "Policy follow-up",
-            "follow_up_date": p["follow_up_date"],
-            "days_overdue": (_today - date.fromisoformat(p["follow_up_date"])).days,
-        }
 
     # Timeline + checklist
     from policydb.timeline_engine import get_policy_timeline
@@ -3509,13 +3575,6 @@ def policy_edit_post(
     prior_premium: str = Form(""),
     notes: str = Form(""),
     project_name: str = Form(""),
-    exposure_basis: str = Form(""),
-    exposure_amount: str = Form(""),
-    exposure_unit: str = Form(""),
-    exposure_address: str = Form(""),
-    exposure_city: str = Form(""),
-    exposure_state: str = Form(""),
-    exposure_zip: str = Form(""),
     follow_up_date: str = Form(""),
     attachment_point: str = Form(""),
     participation_of: str = Form(""),
@@ -3548,10 +3607,9 @@ def policy_edit_post(
         _ensure_carrier_row(conn, carrier, "carrier")
     if access_point and access_point.strip():
         _ensure_carrier_row(conn, access_point.strip(), "wholesaler")
-    exposure_address = exposure_address.strip() if exposure_address else ""
-    exposure_city = format_city(exposure_city) if exposure_city else ""
-    exposure_state = format_state(exposure_state) if exposure_state else ""
-    exposure_zip = format_zip(exposure_zip) if exposure_zip else ""
+    # Exposure fields (exposure_basis/amount/unit/address/city/state/zip) are
+    # intentionally NOT written here — they live on client_exposures /
+    # policy_exposure_links.  Edit them via the client's Exposures grid.
     conn.execute(
         """UPDATE policies SET
            policy_type=?, carrier=?, policy_number=?,
@@ -3560,8 +3618,7 @@ def policy_edit_post(
            coverage_form=?, layer_position=?, tower_group=?,
            is_standalone=?, is_bor=?, is_opportunity=?, opportunity_status=?, target_effective_date=?,
            renewal_status=?, commission_rate=?, prior_premium=?, notes=?,
-           project_name=?, exposure_basis=?, exposure_amount=?, exposure_unit=?,
-           exposure_address=?, exposure_city=?, exposure_state=?, exposure_zip=?,
+           project_name=?,
            follow_up_date=?, attachment_point=?, participation_of=?,
            first_named_insured=?, access_point=?
            WHERE policy_uid=?""",
@@ -3576,9 +3633,6 @@ def policy_edit_post(
             renewal_status,
             _float(commission_rate), _float(prior_premium), notes or None,
             project_name or None,
-            exposure_basis or None, _float(exposure_amount), exposure_unit or None,
-            exposure_address or None, exposure_city or None,
-            exposure_state or None, exposure_zip or None,
             follow_up_date or None,
             _float(attachment_point), _float(participation_of),
             first_named_insured or None, access_point or None,
@@ -3752,9 +3806,12 @@ async def policy_cell_save(request: Request, policy_uid: str, conn=Depends(get_d
     value = body.get("value", "")
 
     # -- Field allowlists by type --
+    # Exposure fields (exposure_basis/amount/unit/address/city/state/zip) are
+    # intentionally excluded — they now live on client_exposures and are
+    # edited through the client's Exposures grid, not cell-edited on policies.
     currency_fields = {
         "premium", "limit_amount", "deductible", "attachment_point",
-        "participation_of", "prior_premium", "exposure_amount",
+        "participation_of", "prior_premium",
     }
     date_fields = {
         "effective_date", "expiration_date", "follow_up_date", "target_effective_date",
@@ -3762,13 +3819,11 @@ async def policy_cell_save(request: Request, policy_uid: str, conn=Depends(get_d
     bool_fields = {"is_bor", "is_standalone", "flagged", "policy_number_unknown"}
     text_fields = {
         "policy_number", "first_named_insured", "access_point", "description",
-        "notes", "placement_notation", "exposure_address", "exposure_basis",
-        "exposure_unit", "tower_group", "exposure_zip",
+        "notes", "placement_notation", "tower_group",
     }
     combobox_fields = {
         "policy_type", "carrier", "renewal_status", "opportunity_status",
-        "coverage_form", "layer_position", "exposure_state", "exposure_city",
-        "review_cycle",
+        "coverage_form", "layer_position", "review_cycle",
     }
     # Team name fields: writing one of these upserts a contact in the unified
     # contacts table and creates/updates the contact_policy_assignments row.
@@ -4326,7 +4381,6 @@ def policy_update_status(
                 conn, policy_id=policy["id"], reason="policy_terminal",
                 closed_by="terminal_status_change",
             )
-            conn.execute("UPDATE policies SET follow_up_date=NULL WHERE policy_uid=?", (uid,))
             from policydb.renewal_issues import auto_resolve_renewal_issue
             auto_resolve_renewal_issue(conn, policy_uid=uid)
 
@@ -4456,23 +4510,17 @@ def policy_followup(
     subject = f"Follow-up: {p.get('policy_type', '')} — {p.get('carrier', '')}"
     account_exec = cfg.get("default_account_exec", "Grant")
 
-    # Create activity log entry
+    # Create activity log entry (item_kind='followup' — canonical follow-up)
     conn.execute(
         """INSERT INTO activity_log
            (activity_date, client_id, policy_id, activity_type, subject, details,
-            follow_up_date, account_exec, duration_hours)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            follow_up_date, account_exec, duration_hours, item_kind)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'followup')""",
         (
             _date.today().isoformat(), p["client_id"], p["id"],
             activity_type, subject, notes or None,
             new_follow_up_date or None, account_exec, round_duration(duration_hours),
         ),
-    )
-
-    # Update the policy's follow_up_date (reschedule or clear)
-    conn.execute(
-        "UPDATE policies SET follow_up_date = ? WHERE policy_uid = ?",
-        (new_follow_up_date or None, uid),
     )
     conn.commit()
 
@@ -4482,17 +4530,18 @@ def policy_followup(
 
     # Return updated followup row
     row = conn.execute(
-        """SELECT p.id, p.policy_uid, p.policy_type, p.carrier, p.follow_up_date,
+        """SELECT p.id, p.policy_uid, p.policy_type, p.carrier,
+                  ? AS follow_up_date,
                   p.project_name, p.project_id, p.client_id, p.is_opportunity,
                   c.name AS client_name, c.cn_number,
                   'policy' AS source,
                   CASE WHEN p.is_opportunity = 1 THEN 'Opportunity' ELSE 'Policy Reminder' END AS activity_type,
                   NULL AS contact_person, NULL AS contact_email, NULL AS internal_cc,
                   p.policy_type || ' — ' || COALESCE(p.carrier, '') AS subject,
-                  CAST(julianday('now') - julianday(p.follow_up_date) AS INTEGER) AS days_overdue
+                  CAST(julianday('now') - julianday(?) AS INTEGER) AS days_overdue
            FROM policies p JOIN clients c ON p.client_id = c.id
            WHERE p.policy_uid = ?""",
-        (uid,),
+        (new_follow_up_date, new_follow_up_date, uid),
     ).fetchone()
     if not row:
         return HTMLResponse("")
@@ -4521,21 +4570,30 @@ def policy_clear_followup(
     abandon: str = Form(""),
     conn=Depends(get_db),
 ):
-    """Clear a policy-level follow-up date. Optionally log time and a note."""
+    """Close any open follow-up activities for this policy. Optionally log
+    time and a note. Previously this also nulled a policies.follow_up_date
+    cache column; activity_log is now the sole source of truth."""
     from datetime import date as _date
     uid = policy_uid.upper()
     note = note.strip()
     if abandon and note:
         note = f"[Abandoned] {note}"
 
-    conn.execute("UPDATE policies SET follow_up_date=NULL WHERE policy_uid=?", (uid,))
-
-    # If time or note provided, create an activity log entry to record the work
-    if (duration_hours and duration_hours > 0) or note:
-        policy = conn.execute(
-            "SELECT id, client_id, policy_type, carrier FROM policies WHERE policy_uid=?", (uid,)
-        ).fetchone()
-        if policy:
+    policy = conn.execute(
+        "SELECT id, client_id, policy_type, carrier FROM policies WHERE policy_uid=?", (uid,)
+    ).fetchone()
+    if policy:
+        conn.execute(
+            """UPDATE activity_log
+               SET follow_up_done = 1,
+                   auto_close_reason = 'manual',
+                   auto_closed_at = datetime('now'),
+                   auto_closed_by = 'policy_clear_followup'
+               WHERE policy_id = ? AND follow_up_done = 0 AND follow_up_date IS NOT NULL""",
+            (policy["id"],),
+        )
+        # If time or note provided, create an activity log entry to record the work
+        if (duration_hours and duration_hours > 0) or note:
             subject = f"Cleared follow-up — {policy['policy_type']}"
             if abandon:
                 subject = f"[Abandoned] {subject}"
@@ -4564,42 +4622,54 @@ def policy_clear_followup(
 def policy_snooze_followup(
     request: Request, policy_uid: str, days: int = 7, conn=Depends(get_db)
 ):
-    """Reschedule a policy follow-up by +N days; returns updated row partial."""
+    """Reschedule the earliest open activity follow-up for this policy
+    by +N days; returns updated row partial."""
     from datetime import date as _date, timedelta as _td
     uid = policy_uid.upper()
-    # Compute in Python so we can cap against expiration
     pol = conn.execute(
-        "SELECT follow_up_date, expiration_date FROM policies WHERE policy_uid=?", (uid,)
+        """SELECT p.id, p.expiration_date,
+                  (SELECT MIN(follow_up_date) FROM activity_log
+                     WHERE policy_id = p.id AND follow_up_done = 0 AND follow_up_date IS NOT NULL
+                       AND (item_kind = 'followup' OR item_kind IS NULL)) AS follow_up_date
+           FROM policies p WHERE p.policy_uid = ?""",
+        (uid,),
     ).fetchone()
+    today = _date.today()
     if pol and pol["follow_up_date"]:
         try:
             old_date = _date.fromisoformat(pol["follow_up_date"])
         except (ValueError, TypeError):
-            old_date = _date.today()
+            old_date = today
     else:
-        old_date = _date.today()
-    new_date = (old_date + _td(days=days)).isoformat()
+        old_date = today
+    # Overdue tasks snooze from today; future tasks snooze from their own date.
+    base = max(today, old_date)
+    new_date = (base + _td(days=days)).isoformat()
     # Cap against expiration
     if pol and pol["expiration_date"]:
         buffer = cfg.get("followup_expiration_buffer_days", 3)
         new_date, _ = cap_followup_date(new_date, pol["expiration_date"], buffer)
-    conn.execute(
-        "UPDATE policies SET follow_up_date = ? WHERE policy_uid=?",
-        (new_date, uid),
-    )
+    if pol and pol["follow_up_date"]:
+        conn.execute(
+            """UPDATE activity_log
+               SET follow_up_date = ?
+               WHERE policy_id = ? AND follow_up_done = 0 AND follow_up_date = ?""",
+            (new_date, pol["id"], pol["follow_up_date"]),
+        )
     conn.commit()
     row = conn.execute(
-        """SELECT p.id, p.policy_uid, p.policy_type, p.carrier, p.follow_up_date,
+        """SELECT p.id, p.policy_uid, p.policy_type, p.carrier,
+                  ? AS follow_up_date,
                   p.project_name, p.client_id,
                   c.name AS client_name,
                   'policy' AS source,
                   'Policy Reminder' AS activity_type,
                   NULL AS contact_person, NULL AS contact_email, NULL AS internal_cc,
                   p.policy_type || ' – ' || p.carrier AS subject,
-                  CAST(julianday('now') - julianday(p.follow_up_date) AS INTEGER) AS days_overdue
+                  CAST(julianday('now') - julianday(?) AS INTEGER) AS days_overdue
            FROM policies p JOIN clients c ON p.client_id = c.id
            WHERE p.policy_uid = ?""",
-        (uid,),
+        (new_date, new_date, uid),
     ).fetchone()
     if not row:
         return HTMLResponse("")
@@ -4616,7 +4686,10 @@ def policy_edit_followup_slideover(policy_uid: str, request: Request, conn=Depen
     """Return the edit slideover partial for a policy follow-up."""
     uid = policy_uid.upper()
     row = conn.execute(
-        """SELECT p.id, p.policy_uid, p.policy_type, p.carrier, p.follow_up_date,
+        """SELECT p.id, p.policy_uid, p.policy_type, p.carrier,
+                  (SELECT MIN(follow_up_date) FROM activity_log
+                     WHERE policy_id = p.id AND follow_up_done = 0 AND follow_up_date IS NOT NULL
+                       AND (item_kind = 'followup' OR item_kind IS NULL)) AS follow_up_date,
                   p.renewal_status, p.expiration_date, p.project_name,
                   c.name AS client_name
            FROM policies p JOIN clients c ON p.client_id = c.id
@@ -4634,44 +4707,105 @@ def policy_edit_followup_slideover(policy_uid: str, request: Request, conn=Depen
 
 @router.patch("/{policy_uid}/followup-field")
 def patch_policy_followup_field(policy_uid: str, body: dict = None, conn=Depends(get_db)):
-    """Update follow_up_date or renewal_status on a policy (slideover inline edit)."""
+    """Update renewal_status on a policy, or reschedule / schedule the earliest
+    open activity follow-up when field='follow_up_date'."""
     if not body:
         return JSONResponse({"ok": False, "error": "No body"}, status_code=400)
     uid = policy_uid.upper()
     field = body.get("field", "")
     value = body.get("value", "")
-    allowed = {"follow_up_date", "renewal_status"}
+    allowed = {"renewal_status", "follow_up_date"}
     if field not in allowed:
         return JSONResponse({"ok": False, "error": f"Field '{field}' not editable"}, status_code=400)
-    conn.execute(f"UPDATE policies SET {field} = ? WHERE policy_uid = ?", (value or None, uid))
+
+    if field == "renewal_status":
+        conn.execute("UPDATE policies SET renewal_status = ? WHERE policy_uid = ?", (value or None, uid))
+        conn.commit()
+        return {"ok": True, "formatted": value}
+
+    # field == follow_up_date — route through activity_log
+    pol = conn.execute(
+        """SELECT p.id, p.client_id, p.policy_type,
+                  (SELECT MIN(follow_up_date) FROM activity_log
+                     WHERE policy_id = p.id AND follow_up_done = 0 AND follow_up_date IS NOT NULL
+                       AND (item_kind = 'followup' OR item_kind IS NULL)) AS current_fu
+           FROM policies p WHERE p.policy_uid = ?""",
+        (uid,),
+    ).fetchone()
+    if not pol:
+        return JSONResponse({"ok": False, "error": "Policy not found"}, status_code=404)
+
+    new_date = (value or "").strip() or None
+    if new_date and pol["current_fu"]:
+        conn.execute(
+            """UPDATE activity_log
+               SET follow_up_date = ?
+               WHERE policy_id = ? AND follow_up_done = 0 AND follow_up_date = ?""",
+            (new_date, pol["id"], pol["current_fu"]),
+        )
+    elif new_date and not pol["current_fu"]:
+        from policydb.queries import create_followup_activity
+        create_followup_activity(
+            conn,
+            client_id=pol["client_id"],
+            policy_id=pol["id"],
+            issue_id=None,
+            subject=f"Follow up: {pol['policy_type'] or 'policy'}",
+            activity_type="Task",
+            follow_up_date=new_date,
+            follow_up_done=False,
+        )
+    elif not new_date and pol["current_fu"]:
+        conn.execute(
+            """UPDATE activity_log
+               SET follow_up_done = 1,
+                   auto_close_reason = 'manual',
+                   auto_closed_at = datetime('now'),
+                   auto_closed_by = 'followup_field_clear'
+               WHERE policy_id = ? AND follow_up_done = 0 AND follow_up_date IS NOT NULL""",
+            (pol["id"],),
+        )
     conn.commit()
-    return {"ok": True, "formatted": value}
+    return {"ok": True, "formatted": new_date or ""}
 
 
 @router.post("/{policy_uid}/reschedule-followup", response_class=HTMLResponse)
 def policy_reschedule_followup(
     request: Request, policy_uid: str, new_date: str = Form(...), conn=Depends(get_db)
 ):
-    """Reschedule a policy follow-up to a specific date."""
+    """Reschedule the earliest open activity follow-up for this policy to a
+    specific date."""
     from datetime import date as _date
     uid = policy_uid.upper()
-    conn.execute(
-        "UPDATE policies SET follow_up_date = ? WHERE policy_uid=?",
-        (new_date, uid),
-    )
+    pol = conn.execute(
+        """SELECT p.id,
+                  (SELECT MIN(follow_up_date) FROM activity_log
+                     WHERE policy_id = p.id AND follow_up_done = 0 AND follow_up_date IS NOT NULL
+                       AND (item_kind = 'followup' OR item_kind IS NULL)) AS current_fu
+           FROM policies p WHERE p.policy_uid = ?""",
+        (uid,),
+    ).fetchone()
+    if pol and pol["current_fu"]:
+        conn.execute(
+            """UPDATE activity_log
+               SET follow_up_date = ?
+               WHERE policy_id = ? AND follow_up_done = 0 AND follow_up_date = ?""",
+            (new_date, pol["id"], pol["current_fu"]),
+        )
     conn.commit()
     row = conn.execute(
-        """SELECT p.id, p.policy_uid, p.policy_type, p.carrier, p.follow_up_date,
+        """SELECT p.id, p.policy_uid, p.policy_type, p.carrier,
+                  ? AS follow_up_date,
                   p.project_name, p.client_id,
                   c.name AS client_name,
                   'policy' AS source,
                   'Policy Reminder' AS activity_type,
                   NULL AS contact_person, NULL AS contact_email, NULL AS internal_cc,
                   p.policy_type || ' – ' || p.carrier AS subject,
-                  CAST(julianday('now') - julianday(p.follow_up_date) AS INTEGER) AS days_overdue
+                  CAST(julianday('now') - julianday(?) AS INTEGER) AS days_overdue
            FROM policies p JOIN clients c ON p.client_id = c.id
            WHERE p.policy_uid = ?""",
-        (uid,),
+        (new_date, new_date, uid),
     ).fetchone()
     if not row:
         return HTMLResponse("")
@@ -4721,13 +4855,26 @@ def policy_followup_form_cancel(request: Request, policy_uid: str):
 def policy_set_followup(
     request: Request, policy_uid: str, follow_up_date: str = Form(...), conn=Depends(get_db)
 ):
-    """Set (or update) a policy follow-up date from the suggested section."""
+    """Schedule a follow-up on a policy from the suggested section by creating
+    an activity_log row with item_kind='followup'."""
+    from datetime import date as _date
     uid = policy_uid.upper()
-    conn.execute(
-        "UPDATE policies SET follow_up_date=? WHERE policy_uid=?",
-        (follow_up_date, uid),
-    )
-    conn.commit()
+    policy = conn.execute(
+        "SELECT id, client_id, policy_type FROM policies WHERE policy_uid=?", (uid,)
+    ).fetchone()
+    if policy:
+        from policydb.queries import create_followup_activity
+        create_followup_activity(
+            conn,
+            client_id=policy["client_id"],
+            policy_id=policy["id"],
+            issue_id=None,
+            subject=f"Follow up: {policy['policy_type'] or 'policy'}",
+            activity_type="Task",
+            follow_up_date=follow_up_date,
+            follow_up_done=False,
+        )
+        conn.commit()
     # Return confirmation + edit link in place of the form
     return HTMLResponse(
         f'<span class="text-xs text-green-600 font-medium">✓ Set {follow_up_date}</span>'

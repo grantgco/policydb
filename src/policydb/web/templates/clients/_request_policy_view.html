@@ -71,6 +71,8 @@
   <a href="/clients/{{ client.id }}" class="text-[10px] text-marsh hover:underline mt-2 inline-block">View full request list on client page &rarr;</a>
 </div>
 
+{% include "clients/_request_item_attachments_js.html" %}
+
 {# Contenteditable save handler for item cards #}
 <script>
 (function() {

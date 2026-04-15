@@ -25,10 +25,16 @@
         {{ issue.subject }}
       </a>
 
-      {# Age badge #}
+      {# Age badge (honors manual due_date) #}
       {% set days = (issue.days_open or 0)|int %}
-      {% set sla = issue.issue_sla_days or 7 %}
-      <span class="flex-shrink-0 {% if days > sla %}text-red-600 font-semibold{% elif days > (sla * 0.7)|int %}text-amber-600{% else %}text-gray-400{% endif %}">
+      {% set sla = issue.sla_days or issue.issue_sla_days or 7 %}
+      {% set _over = issue.over_sla %}
+      <span class="flex-shrink-0
+        {% if _over %}text-red-600 font-semibold
+        {% elif issue.deadline_source == 'manual' and issue.days_to_deadline is not none and issue.days_to_deadline <= 2 %}text-amber-600
+        {% elif issue.deadline_source != 'manual' and days > (sla * 0.7)|int %}text-amber-600
+        {% else %}text-gray-400{% endif %}"
+        {% if issue.deadline_source == 'manual' %}title="Due {{ issue.deadline_date }}"{% else %}title="SLA target: {{ sla }}d"{% endif %}>
         {{ days }}d
       </span>
 

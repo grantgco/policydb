@@ -58,8 +58,8 @@ SELECT
     p.prior_premium,
     p.account_exec,
     p.notes,
-    p.follow_up_date,
-    CASE WHEN p.follow_up_date IS NOT NULL AND p.follow_up_date < date('now') THEN 1 ELSE 0 END AS followup_overdue,
+    fu.follow_up_date,
+    CASE WHEN fu.follow_up_date IS NOT NULL AND fu.follow_up_date < date('now') THEN 1 ELSE 0 END AS followup_overdue,
     p.attachment_point,
     p.participation_of,
     p.access_point,
@@ -101,6 +101,15 @@ SELECT
 FROM policies p
 JOIN clients c ON p.client_id = c.id
 LEFT JOIN programs pg ON pg.id = p.program_id
+LEFT JOIN (
+    SELECT policy_id, MIN(follow_up_date) AS follow_up_date
+    FROM activity_log
+    WHERE policy_id IS NOT NULL
+      AND follow_up_done = 0
+      AND follow_up_date IS NOT NULL
+      AND (item_kind = 'followup' OR item_kind IS NULL)
+    GROUP BY policy_id
+) fu ON fu.policy_id = p.id
 WHERE p.archived = 0
 """
 
@@ -257,8 +266,8 @@ SELECT
          WHERE cpa.policy_id = p.id AND cpa.is_placement_colleague = 1),
         p.placement_colleague
     ) AS placement_colleague,
-    p.follow_up_date,
-    CASE WHEN p.follow_up_date IS NOT NULL AND p.follow_up_date < date('now') THEN 1 ELSE 0 END AS followup_overdue,
+    fu.follow_up_date,
+    CASE WHEN fu.follow_up_date IS NOT NULL AND fu.follow_up_date < date('now') THEN 1 ELSE 0 END AS followup_overdue,
     p.project_name,
     p.project_id,
     p.access_point,
@@ -303,6 +312,15 @@ LEFT JOIN (
     WHERE completed_date IS NULL
     GROUP BY policy_uid
 ) th ON th.policy_uid = p.policy_uid
+LEFT JOIN (
+    SELECT policy_id, MIN(follow_up_date) AS follow_up_date
+    FROM activity_log
+    WHERE policy_id IS NOT NULL
+      AND follow_up_done = 0
+      AND follow_up_date IS NOT NULL
+      AND (item_kind = 'followup' OR item_kind IS NULL)
+    GROUP BY policy_id
+) fu ON fu.policy_id = p.id
 WHERE p.archived = 0
   AND (p.is_opportunity = 0 OR p.is_opportunity IS NULL)
   AND p.program_id IS NULL
@@ -381,8 +399,8 @@ SELECT
     p.is_opportunity,
     p.is_standalone,
     p.flagged,
-    p.follow_up_date,
-    CASE WHEN p.follow_up_date IS NOT NULL AND p.follow_up_date < date('now') THEN 1 ELSE 0 END AS followup_overdue,
+    fu.follow_up_date,
+    CASE WHEN fu.follow_up_date IS NOT NULL AND fu.follow_up_date < date('now') THEN 1 ELSE 0 END AS followup_overdue,
     p.project_name,
     p.project_id,
     p.description,
@@ -407,6 +425,15 @@ SELECT
     {_cycle_case('p.review_cycle')} AS review_cycle_days
 FROM policies p
 JOIN clients c ON c.id = p.client_id
+LEFT JOIN (
+    SELECT policy_id, MIN(follow_up_date) AS follow_up_date
+    FROM activity_log
+    WHERE policy_id IS NOT NULL
+      AND follow_up_done = 0
+      AND follow_up_date IS NOT NULL
+      AND (item_kind = 'followup' OR item_kind IS NULL)
+    GROUP BY policy_id
+) fu ON fu.policy_id = p.id
 WHERE p.archived = 0
   AND (p.program_id IS NULL)
   AND (
