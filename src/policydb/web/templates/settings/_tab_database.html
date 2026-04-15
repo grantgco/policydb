@@ -89,6 +89,38 @@
             <span>Include branded header in Outlook drafts</span>
           </label>
         </div>
+
+        {# ── Contact push sync ─────────────────────────────────────────── #}
+        <div class="border-t border-gray-100 pt-3 mt-3">
+          <div class="text-xs font-semibold text-gray-700 mb-1">Contact sync (PolicyDB → Outlook)</div>
+          <p class="text-[11px] text-gray-400 mb-2">
+            Pushes every PolicyDB contact with a non-archived client assignment into Outlook, tagged with the
+            category below. Untag a contact in Outlook to stop managing it. Runs alongside the email sweep.
+          </p>
+          <div class="grid grid-cols-2 lg:grid-cols-3 gap-4">
+            <div>
+              <label class="text-xs font-medium text-gray-600 block mb-0.5">Contact category</label>
+              <input type="text" name="contact_category" value="{{ outlook_contact_category }}"
+                     class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-marsh focus:border-marsh"
+                     placeholder="PDB">
+            </div>
+          </div>
+          <div class="flex items-center gap-4 mt-2">
+            <label class="flex items-center gap-1.5 cursor-pointer text-xs text-gray-600">
+              <input type="checkbox" name="contact_sync_enabled" value="1"
+                     {% if outlook_contact_sync_enabled %}checked{% endif %}
+                     class="rounded border-gray-300">
+              <span>Enable contact push</span>
+            </label>
+            <label class="flex items-center gap-1.5 cursor-pointer text-xs text-gray-600">
+              <input type="checkbox" name="contact_allow_deletes" value="1"
+                     {% if outlook_contact_allow_deletes %}checked{% endif %}
+                     class="rounded border-gray-300">
+              <span>Allow deletes (remove from Outlook when deleted in PolicyDB)</span>
+            </label>
+          </div>
+        </div>
+
         <div class="flex items-center gap-3">
           <button type="submit"
                   class="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-lg bg-marsh text-white hover:bg-marsh-light">Save</button>
@@ -99,10 +131,16 @@
                   hx-confirm="Reset sync history? Next sync will use the lookback window to scan older emails. Already-imported emails won't be duplicated."
                   hx-swap="none"
                   hx-on::after-request="if(event.detail.successful){location.reload()}else{if(typeof showToast==='function')showToast('Reset failed',false)}"
-                  class="text-[10px] text-red-500 hover:text-red-700 hover:underline">Reset</button>
+                  class="text-[10px] text-red-500 hover:text-red-700 hover:underline">Reset emails</button>
           {% else %}
           <span class="text-[10px] text-gray-400">No sync yet</span>
           {% endif %}
+          <button type="button"
+                  hx-post="/settings/config/outlook-reset-contact-sync"
+                  hx-confirm="Reset contact sync state? This clears the Outlook contact id tracked on every PolicyDB contact. The next sync will bootstrap-match by email and re-stamp ids — it does NOT delete anything in Outlook. Use this if the PDB contact category was renamed or deleted in Outlook."
+                  hx-swap="none"
+                  hx-on::after-request="if(event.detail.successful){if(typeof showToast==='function')showToast('Contact sync state reset',true)}else{if(typeof showToast==='function')showToast('Reset failed',false)}"
+                  class="text-[10px] text-red-500 hover:text-red-700 hover:underline">Reset contacts</button>
         </div>
       </form>
     </div>

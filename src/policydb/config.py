@@ -861,6 +861,9 @@ _DEFAULTS: dict[str, Any] = {
     "outlook_email_shell_header": True,
     "outlook_capture_category": "PDB",
     "outlook_skip_category": "Personal",
+    "outlook_contact_sync_enabled": True,
+    "outlook_contact_category": "PDB",
+    "outlook_contact_allow_deletes": True,
     "freemail_domains": [
         "gmail.com", "outlook.com", "yahoo.com", "hotmail.com",
         "aol.com", "icloud.com", "live.com", "msn.com", "me.com",

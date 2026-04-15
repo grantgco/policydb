@@ -187,17 +187,35 @@ def outlook_sync(request: Request, conn=Depends(get_db)):
                 "since": "",
                 "new_contacts_found": 0,
                 "thread_inherited": 0,
+                "contact_sync": None,
             },
             status_code=409,
         )
 
     try:
         results = sync_outlook(conn)
+        # Phase 2 — push PolicyDB contacts to Outlook (fenced by PDB category).
+        # Folds results into the same banner; errors don't block email phase.
+        try:
+            from policydb.contact_sync import sync_contacts_to_outlook
+            contact_results = sync_contacts_to_outlook(conn)
+        except Exception as e:
+            contact_results = {
+                "ok": False,
+                "created": 0,
+                "updated": 0,
+                "deleted": 0,
+                "errors": [f"Contact sync crashed: {e}"],
+                "skipped_unavailable": False,
+                "ambiguous_bootstrap": [],
+                "push_set_size": 0,
+            }
     finally:
         _sync_lock.release()
 
     return jinja_templates.TemplateResponse("outlook/_sync_results.html", {
         "request": request,
+        "contact_sync": contact_results,
         **results,
     })
 

@@ -326,6 +326,9 @@ def _build_tab_context(tab: str, conn) -> dict:
         ctx["outlook_capture_category"] = cfg.get("outlook_capture_category", "PDB")
         ctx["outlook_skip_category"] = cfg.get("outlook_skip_category", "Personal")
         ctx["outlook_email_shell_header"] = cfg.get("outlook_email_shell_header", True)
+        ctx["outlook_contact_sync_enabled"] = cfg.get("outlook_contact_sync_enabled", True)
+        ctx["outlook_contact_category"] = cfg.get("outlook_contact_category", "PDB")
+        ctx["outlook_contact_allow_deletes"] = cfg.get("outlook_contact_allow_deletes", True)
         ctx["last_outlook_sync"] = cfg.get("last_outlook_sync", "")
 
     return ctx
@@ -717,15 +720,34 @@ def update_outlook_config(
     capture_category: str = Form("PDB"),
     skip_category: str = Form("Personal"),
     email_shell_header: str = Form(""),
+    contact_sync_enabled: str = Form(""),
+    contact_category: str = Form("PDB"),
+    contact_allow_deletes: str = Form(""),
 ):
     full = dict(cfg.load_config())
     full["outlook_sync_lookback_days"] = max(1, min(lookback_days, 90))
     full["outlook_capture_category"] = capture_category.strip()
     full["outlook_skip_category"] = skip_category.strip()
     full["outlook_email_shell_header"] = email_shell_header == "1"
+    full["outlook_contact_sync_enabled"] = contact_sync_enabled == "1"
+    full["outlook_contact_category"] = (contact_category.strip() or "PDB")
+    full["outlook_contact_allow_deletes"] = contact_allow_deletes == "1"
     cfg.save_config(full)
     cfg.reload_config()
     return RedirectResponse("/settings?tab=database", status_code=303)
+
+
+@router.post("/config/outlook-reset-contact-sync")
+def reset_outlook_contact_sync(conn=Depends(get_db)):
+    """Clear outlook_contact_id from every contact.
+
+    Use this when the 'PDB' category has been renamed or deleted in Outlook
+    and the sweep is refusing to run. Next sync will bootstrap-match by
+    email and re-stamp ids.
+    """
+    conn.execute("UPDATE contacts SET outlook_contact_id = NULL")
+    conn.commit()
+    return JSONResponse({"ok": True})
 
 
 @router.post("/config/outlook-reset-sync")
