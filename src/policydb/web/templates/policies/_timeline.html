@@ -1,5 +1,31 @@
 {# Policy Timeline Partial — vertical milestone timeline visualization #}
+{% set _current_profile = policy.milestone_profile or '' %}
+{% set _selected_profile = _current_profile or suggested_profile or '' %}
 <div class="space-y-1">
+    {% if milestone_profiles %}
+    <form
+      hx-post="/policies/{{ policy.policy_uid }}/timeline/profile"
+      hx-target="#policy-timeline-{{ policy.policy_uid }}"
+      hx-swap="innerHTML"
+      class="flex items-center gap-2 pb-2 mb-2 border-b border-gray-100">
+      <label class="text-xs text-gray-500 uppercase tracking-wide">Profile</label>
+      <select name="milestone_profile"
+              class="text-sm border border-gray-200 rounded px-2 py-1 focus:border-marsh focus:outline-none bg-white">
+        <option value="" {% if not _selected_profile %}selected{% endif %}>— Select a profile —</option>
+        {% for prof in milestone_profiles %}
+        <option value="{{ prof.name }}" {% if _selected_profile == prof.name %}selected{% endif %}>{{ prof.name }}{% if not _current_profile and suggested_profile == prof.name %} (suggested){% endif %}</option>
+        {% endfor %}
+      </select>
+      <button type="submit"
+              class="text-xs font-medium bg-marsh text-white px-3 py-1 rounded hover:bg-marsh-light transition-colors">
+        Apply
+      </button>
+      {% if _current_profile %}
+      <span class="text-[10px] text-gray-400">Saved</span>
+      {% endif %}
+    </form>
+    {% endif %}
+
     {% for m in timeline %}
     <div class="flex items-start gap-3 py-2 px-3 rounded
         {% if m.completed_date %}bg-green-50
@@ -60,26 +86,14 @@
 
     {% if not timeline %}
     <div class="py-2">
-      <p class="text-sm text-gray-500 mb-2">No timeline milestones configured. Assign a milestone profile to enable timeline tracking.</p>
       {% if milestone_profiles %}
-      <form
-        hx-post="/policies/{{ policy.policy_uid }}/timeline/profile"
-        hx-target="#policy-timeline-{{ policy.policy_uid }}"
-        hx-swap="innerHTML"
-        class="flex items-center gap-2">
-        <label class="text-xs text-gray-500 uppercase tracking-wide">Profile</label>
-        <select name="milestone_profile"
-                class="text-sm border border-gray-200 rounded px-2 py-1 focus:border-marsh focus:outline-none bg-white">
-          <option value="">— Select a profile —</option>
-          {% for prof in milestone_profiles %}
-          <option value="{{ prof.name }}" {% if suggested_profile == prof.name %}selected{% endif %}>{{ prof.name }}{% if suggested_profile == prof.name %} (suggested){% endif %}</option>
-          {% endfor %}
-        </select>
-        <button type="submit"
-                class="text-xs font-medium bg-marsh text-white px-3 py-1 rounded hover:bg-marsh-light transition-colors">
-          Apply
-        </button>
-      </form>
+      <p class="text-sm text-gray-500">
+        {% if _current_profile %}
+        Profile <span class="font-medium text-gray-700">{{ _current_profile }}</span> is applied, but no milestones fall within the current horizon window.
+        {% else %}
+        No timeline milestones configured. Select a profile above and click Apply to enable timeline tracking.
+        {% endif %}
+      </p>
       {% else %}
       <p class="text-xs text-gray-400">
         No milestone profiles defined.
