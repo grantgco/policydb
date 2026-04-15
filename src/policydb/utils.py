@@ -773,6 +773,47 @@ def format_fein(raw: str) -> str:
     return digits
 
 
+_EMAIL_LOCAL_CHARS = frozenset(
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._+-"
+)
+_EMAIL_HOST_CHARS = frozenset(
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-"
+)
+
+
+def _scan_bare_email(s: str) -> str:
+    """Find the first valid bare email address in ``s`` via linear scanning.
+
+    No regex — walks outward from each '@' character, collecting valid local
+    and host characters, then sanity-checks the result. Guaranteed linear
+    time, which avoids the ReDoS surface of the previous regex-based approach
+    while still matching the same real-world inputs.
+    """
+    idx = 0
+    n = len(s)
+    while idx < n:
+        at_pos = s.find("@", idx)
+        if at_pos <= 0 or at_pos >= n - 1:
+            return ""
+        # Walk backward for the local part
+        start = at_pos
+        while start > 0 and s[start - 1] in _EMAIL_LOCAL_CHARS:
+            start -= 1
+        # Walk forward for the host part
+        end = at_pos + 1
+        while end < n and s[end] in _EMAIL_HOST_CHARS:
+            end += 1
+        local = s[start:at_pos]
+        host = s[at_pos + 1:end]
+        # Strip leading/trailing dots which aren't valid at label boundaries
+        local = local.strip(".")
+        host = host.strip(".")
+        if local and "." in host and ".." not in host:
+            return f"{local}@{host}"
+        idx = at_pos + 1
+    return ""
+
+
 def clean_email(raw: str) -> str:
     """
     Extract a clean email address from a pasted string.
@@ -788,17 +829,34 @@ def clean_email(raw: str) -> str:
     if not raw or not raw.strip():
         return ""
     s = raw.strip()
+    # Bound regex input to prevent ReDoS on pathological input while preserving
+    # the region most likely to contain the address. Long pasted content (email
+    # threads, forwarded messages with disclaimers) can easily exceed 512 chars
+    # with the real address anywhere inside — window around the last '@' so we
+    # still mitigate worst-case backtracking without losing extractability.
+    if len(s) > 512:
+        at_pos = s.rfind("@")
+        if at_pos != -1:
+            half = 256
+            start = max(0, at_pos - half)
+            end = min(len(s), at_pos + half)
+            s = s[start:end]
+        else:
+            s = s[-512:]
     # Strip mailto: prefix
     if s.lower().startswith("mailto:"):
         s = s[7:]
     # Extract email from angle brackets: "Name <email>" or "<email>"
-    match = re.search(r'<([^>]+@[^>]+)>', s)
+    # Tightened character classes exclude '@', '<', '>' from repeated groups so
+    # the matcher can't backtrack across ambiguous splits.
+    match = re.search(r'<([^<>@]+@[^<>]+)>', s)
     if match:
         s = match.group(1)
     # Try to extract a bare email address from surrounding text like "(e) user@domain.com"
-    email_match = re.search(r'[\w.+-]+@[\w.-]+\.\w+', s)
-    if email_match:
-        return email_match.group(0).lower()
+    # Pure linear scan — no regex backtracking surface.
+    bare = _scan_bare_email(s)
+    if bare:
+        return bare.lower()
     # Strip surrounding quotes, semicolons, commas, whitespace
     s = s.strip(' \t\n\r"\';,<>()')
     # Final sanity: only return if it looks like an email
