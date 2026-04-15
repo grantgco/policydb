@@ -5504,6 +5504,7 @@ def request_program_view(request: Request, client_id: int, program_uid: str = ""
                 f"SELECT * FROM client_request_items WHERE bundle_id=? AND policy_uid IN ({placeholders}) ORDER BY received ASC, sort_order ASC, id ASC",
                 [bundle_id] + child_uids,
             ).fetchall()])
+            _attach_item_attachment_counts(conn, items)
 
     client = conn.execute("SELECT id, name FROM clients WHERE id=?", (client_id,)).fetchone()
     return templates.TemplateResponse("clients/_request_policy_view.html", {
@@ -5533,6 +5534,7 @@ def request_policy_view(request: Request, client_id: int, policy_uid: str = "", 
             "SELECT * FROM client_request_items WHERE bundle_id=? AND policy_uid=? ORDER BY received ASC, sort_order ASC, id ASC",
             (bundle_id, policy_uid),
         ).fetchall()])
+        _attach_item_attachment_counts(conn, items)
 
     client = conn.execute("SELECT id, name FROM clients WHERE id=?", (client_id,)).fetchone()
     return templates.TemplateResponse("clients/_request_policy_view.html", {
@@ -5580,6 +5582,7 @@ def get_request_bundle(
         "SELECT * FROM client_request_items WHERE bundle_id=? ORDER BY received ASC, sort_order ASC, id ASC",
         (bundle_id,),
     ).fetchall()])
+    _attach_item_attachment_counts(conn, items)
     client = conn.execute("SELECT id, name FROM clients WHERE id=?", (client_id,)).fetchone()
     policies = [dict(r) for r in conn.execute(
         "SELECT policy_uid, policy_type, carrier, project_name, effective_date FROM policies WHERE client_id=? AND archived=0 ORDER BY policy_type, effective_date DESC",

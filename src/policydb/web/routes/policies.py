@@ -4586,14 +4586,17 @@ def policy_snooze_followup(
            FROM policies p WHERE p.policy_uid = ?""",
         (uid,),
     ).fetchone()
+    today = _date.today()
     if pol and pol["follow_up_date"]:
         try:
             old_date = _date.fromisoformat(pol["follow_up_date"])
         except (ValueError, TypeError):
-            old_date = _date.today()
+            old_date = today
     else:
-        old_date = _date.today()
-    new_date = (old_date + _td(days=days)).isoformat()
+        old_date = today
+    # Overdue tasks snooze from today; future tasks snooze from their own date.
+    base = max(today, old_date)
+    new_date = (base + _td(days=days)).isoformat()
     # Cap against expiration
     if pol and pol["expiration_date"]:
         buffer = cfg.get("followup_expiration_buffer_days", 3)

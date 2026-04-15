@@ -777,14 +777,17 @@ def activity_snooze(request: Request, activity_id: int, days: int = 7, conn=Depe
     row = conn.execute(
         "SELECT follow_up_date, policy_id FROM activity_log WHERE id=?", (activity_id,)
     ).fetchone()
+    today = date.today()
     if row and row["follow_up_date"]:
         try:
             old_date = date.fromisoformat(row["follow_up_date"])
         except (ValueError, TypeError):
-            old_date = date.today()
+            old_date = today
     else:
-        old_date = date.today()
-    new_date = (old_date + timedelta(days=days)).isoformat()
+        old_date = today
+    # Overdue tasks snooze from today; future tasks snooze from their own date.
+    base = max(today, old_date)
+    new_date = (base + timedelta(days=days)).isoformat()
     # Cap against policy expiration
     exp_date = _lookup_expiration(conn, "activity", str(activity_id))
     if exp_date:
