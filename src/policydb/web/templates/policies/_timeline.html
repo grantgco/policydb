@@ -59,6 +59,33 @@
     {% endfor %}
 
     {% if not timeline %}
-    <p class="text-sm text-gray-400 italic py-2">No timeline milestones configured. Assign a milestone profile to enable timeline tracking.</p>
+    <div class="py-2">
+      <p class="text-sm text-gray-500 mb-2">No timeline milestones configured. Assign a milestone profile to enable timeline tracking.</p>
+      {% if milestone_profiles %}
+      <form
+        hx-post="/policies/{{ policy.policy_uid }}/timeline/profile"
+        hx-target="#policy-timeline-{{ policy.policy_uid }}"
+        hx-swap="innerHTML"
+        class="flex items-center gap-2">
+        <label class="text-xs text-gray-500 uppercase tracking-wide">Profile</label>
+        <select name="milestone_profile"
+                class="text-sm border border-gray-200 rounded px-2 py-1 focus:border-marsh focus:outline-none bg-white">
+          <option value="">— Select a profile —</option>
+          {% for prof in milestone_profiles %}
+          <option value="{{ prof.name }}" {% if suggested_profile == prof.name %}selected{% endif %}>{{ prof.name }}{% if suggested_profile == prof.name %} (suggested){% endif %}</option>
+          {% endfor %}
+        </select>
+        <button type="submit"
+                class="text-xs font-medium bg-marsh text-white px-3 py-1 rounded hover:bg-marsh-light transition-colors">
+          Apply
+        </button>
+      </form>
+      {% else %}
+      <p class="text-xs text-gray-400">
+        No milestone profiles defined.
+        <a href="/settings?tab=workflow" class="text-marsh hover:underline">Configure profiles in Settings → Workflow</a>.
+      </p>
+      {% endif %}
+    </div>
     {% endif %}
 </div>

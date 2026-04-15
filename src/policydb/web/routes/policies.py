@@ -3094,13 +3094,49 @@ def policy_timeline_view(request: Request, policy_uid: str, conn=Depends(get_db)
     if not policy_dict:
         return HTMLResponse("Not found", status_code=404)
 
-    from policydb.timeline_engine import get_policy_timeline
+    from policydb.timeline_engine import get_policy_timeline, suggest_profile
     timeline = get_policy_timeline(conn, uid)
+    suggestions = suggest_profile(conn, policy_uid=uid) if not timeline else {}
 
     return templates.TemplateResponse("policies/_timeline.html", {
         "request": request,
         "policy": policy_dict,
         "timeline": timeline,
+        "milestone_profiles": cfg.get("milestone_profiles", []),
+        "suggested_profile": suggestions.get(uid, ""),
+    })
+
+
+@router.post("/{policy_uid}/timeline/profile", response_class=HTMLResponse)
+def policy_timeline_set_profile(
+    request: Request,
+    policy_uid: str,
+    milestone_profile: str = Form(""),
+    conn=Depends(get_db),
+):
+    """HTMX: assign a milestone profile to a policy and return the refreshed timeline."""
+    uid = policy_uid.upper()
+    policy_dict, _ = _policy_base(conn, uid)
+    if not policy_dict:
+        return HTMLResponse("Not found", status_code=404)
+
+    conn.execute(
+        "UPDATE policies SET milestone_profile = ? WHERE policy_uid = ?",
+        (milestone_profile.strip() or None, uid),
+    )
+    conn.commit()
+
+    from policydb.timeline_engine import generate_policy_timelines, get_policy_timeline, suggest_profile
+    generate_policy_timelines(conn, policy_uid=uid)
+    timeline = get_policy_timeline(conn, uid)
+    suggestions = suggest_profile(conn, policy_uid=uid) if not timeline else {}
+
+    return templates.TemplateResponse("policies/_timeline.html", {
+        "request": request,
+        "policy": policy_dict,
+        "timeline": timeline,
+        "milestone_profiles": cfg.get("milestone_profiles", []),
+        "suggested_profile": suggestions.get(uid, ""),
     })
 
 
