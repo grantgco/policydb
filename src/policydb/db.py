@@ -2053,6 +2053,15 @@ def _init_db_inner(conn: sqlite3.Connection, db_path: Path) -> None:
         conn.commit()
         logger.info("Migration 151: dropped 8 deprecated policies.exposure_* columns")
 
+    if 152 not in applied:
+        conn.executescript((_MIGRATIONS_DIR / "152_issue_scratchpad.sql").read_text())
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (152, "Add issue_scratchpad table for per-issue working notes"),
+        )
+        conn.commit()
+        logger.info("Migration 152: added issue_scratchpad table")
+
     # Data hygiene: fix 'None' string corruption in text fields (runs every startup, fast no-op if clean)
     conn.execute("UPDATE clients SET cn_number = NULL WHERE cn_number = 'None'")
 

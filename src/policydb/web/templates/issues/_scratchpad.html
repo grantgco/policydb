@@ -1,0 +1,85 @@
+{# Per-issue working notes scratchpad.
+   Mirrors policies/_scratchpad.html — auto-saves every 800ms, can be
+   logged as an activity or cleared. Rendered inside issues/detail.html.
+
+   Context:
+     issue                    — issue dict (uses issue.issue_uid + issue.id)
+     issue_scratchpad         — current text content
+     issue_scratchpad_updated — ISO timestamp string
+#}
+<div id="issue-scratchpad-{{ issue.issue_uid }}" class="card p-4">
+  <div class="flex items-center justify-between mb-2">
+    <h2 class="text-sm font-semibold text-gray-900">Working Notes</h2>
+    <span id="scratch-ts-{{ issue.issue_uid }}" class="text-xs text-gray-400 italic">
+      {% if issue_scratchpad_updated %}saved {{ issue_scratchpad_updated[:16] }}{% endif %}
+    </span>
+  </div>
+  <textarea
+    id="scratch-ta-{{ issue.issue_uid }}"
+    name="content"
+    rows="4"
+    placeholder="Working notes for this issue — type here, then Log as Activity to pin…"
+    class="w-full text-sm text-gray-800 bg-transparent resize-none focus:outline-none placeholder-gray-300 leading-relaxed">{{ issue_scratchpad }}</textarea>
+  <div class="flex justify-end gap-1 mt-1 no-print">
+    <button type="button" id="scratch-log-{{ issue.issue_uid }}"
+      onclick="logScratchCombined('issue', '{{ issue.issue_uid }}')"
+      {% if not issue_scratchpad or not issue_scratchpad.strip() %}disabled{% endif %}
+      class="text-xs bg-marsh text-white px-3 py-1 rounded hover:bg-marsh-light disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+      Log as Activity
+    </button>
+    <button type="button" id="scratch-clear-{{ issue.issue_uid }}"
+      onclick="clearScratch('issue', '{{ issue.issue_uid }}')"
+      {% if not issue_scratchpad or not issue_scratchpad.strip() %}disabled{% endif %}
+      class="text-xs text-gray-400 border border-gray-200 px-3 py-1 rounded hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+      Clear
+    </button>
+  </div>
+</div>
+
+<script>
+(function() {
+  var UID = "{{ issue.issue_uid }}";
+  var ta = document.getElementById('scratch-ta-' + UID);
+  var ts = document.getElementById('scratch-ts-' + UID);
+  var logBtn = document.getElementById('scratch-log-' + UID);
+  var clearBtn = document.getElementById('scratch-clear-' + UID);
+  if (!ta) return;
+
+  function updateBtns() {
+    var hasContent = (ta.value || '').trim().length > 0;
+    if (logBtn) logBtn.disabled = !hasContent;
+    if (clearBtn) clearBtn.disabled = !hasContent;
+  }
+
+  var mde = window.initMarkdownEditor ? window.initMarkdownEditor('scratch-ta-' + UID, {minHeight: '100px'}) : null;
+
+  var saveTimer = null;
+  var saving = false;
+  function autoSave() {
+    if (saving) return;
+    saving = true;
+    var fd = new FormData();
+    fd.set('content', ta.value);
+    fetch('/issues/' + UID + '/scratchpad', {
+      method: 'POST', body: fd,
+      headers: {'Accept': 'application/json'}
+    }).then(function(r) { return r.json(); }).then(function(data) {
+      if (data && data.ok && ts) ts.textContent = 'saved ' + data.saved_at;
+    }).catch(function() {}).finally(function() { saving = false; });
+  }
+
+  if (mde) {
+    mde.on('change', function() {
+      updateBtns();
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(autoSave, 800);
+    });
+  } else {
+    ta.addEventListener('input', function() {
+      updateBtns();
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(autoSave, 800);
+    });
+  }
+})();
+</script>
