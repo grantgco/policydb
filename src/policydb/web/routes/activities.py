@@ -2299,6 +2299,7 @@ def renewals(request: Request, window: int = 180, urgency: str = "", status: str
         "renewal_milestones": cfg.get("renewal_milestones", []),
         "activity_types": cfg.get("activity_types", ["Call", "Email", "Meeting", "Note", "Other"]),
         "open_opportunities": open_opportunities,
+        "opportunity_statuses": cfg.get("opportunity_statuses", []),
         "today": date.today().isoformat(),
     })
 

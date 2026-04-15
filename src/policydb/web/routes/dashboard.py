@@ -196,6 +196,7 @@ def dashboard(request: Request, conn=Depends(get_db)):
         "readiness_counts": readiness_counts,
         "suggested_uids": suggested_uids,
         "open_opportunities": open_opportunities,
+        "opportunity_statuses": cfg.get("opportunity_statuses", []),
         "issues_widget": issues_widget,
         "hours_this_month": hours_this_month,
         "show_review_reminder": show_review_reminder,
