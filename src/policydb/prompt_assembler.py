@@ -849,7 +849,7 @@ def assemble_contacts(conn: sqlite3.Connection, record_id: int, depth: int = DEP
     """Assemble contacts. record_id is client_id. Pass policy_id=N for policy contacts."""
     policy_id = kwargs.get("policy_id")
     if policy_id:
-        rows = conn.execute(
+        raw_rows = conn.execute(
             """SELECT co.name, co.email, co.phone, cpa.role, cpa.is_placement_colleague
                FROM contact_policy_assignments cpa
                JOIN contacts co ON cpa.contact_id = co.id
@@ -857,7 +857,7 @@ def assemble_contacts(conn: sqlite3.Connection, record_id: int, depth: int = DEP
             (policy_id,),
         ).fetchall()
     else:
-        rows = conn.execute(
+        raw_rows = conn.execute(
             """SELECT co.name, co.email, co.phone, cca.role, cca.contact_type, cca.is_primary
                FROM contact_client_assignments cca
                JOIN contacts co ON cca.contact_id = co.id
@@ -866,29 +866,34 @@ def assemble_contacts(conn: sqlite3.Connection, record_id: int, depth: int = DEP
             (record_id,),
         ).fetchall()
 
-    if not rows:
+    if not raw_rows:
         return ""
+
+    # Convert to dicts so .get() works and missing columns (which differ between
+    # the two branches above) return None instead of raising KeyError on Row.
+    rows = [dict(r) for r in raw_rows]
 
     lines = ["## Contacts\n"]
 
     if len(rows) <= 5:
         for c in rows:
-            role = c["role"] or ("Placement Colleague" if c.get("is_placement_colleague") else "Contact")
+            role = c.get("role") or ("Placement Colleague" if c.get("is_placement_colleague") else "Contact")
             line = f"- **{c['name']}** — {role}"
-            if c["email"]:
+            if c.get("email"):
                 line += f" ({c['email']})"
             lines.append(line + "\n")
     else:
         # Primary at tier 2, rest at tier 3
         primary = [c for c in rows if c.get("is_primary") or c.get("is_placement_colleague")]
-        others = [c for c in rows if c not in primary]
+        primary_ids = {id(c) for c in primary}
+        others = [c for c in rows if id(c) not in primary_ids]
         for c in primary:
-            role = c["role"] or "Primary Contact"
+            role = c.get("role") or "Primary Contact"
             line = f"- **{c['name']}** — {role}"
-            if c["email"]:
+            if c.get("email"):
                 line += f" ({c['email']})"
             lines.append(line + "\n")
-        ref_items = [f"- {c['name']} — {c['role'] or 'Contact'}\n" for c in others]
+        ref_items = [f"- {c['name']} — {c.get('role') or 'Contact'}\n" for c in others]
         ref_items = _truncated_list(ref_items, 5, "contacts")
         for item in ref_items:
             lines.append(item)
