@@ -143,11 +143,11 @@ def test_project_helper_name_match_when_no_address(tmp_db):
 
 
 def _run_ai_exposure_ingest(conn, policy_uid, client_id, exposures, eff_date):
-    """Mirror the exposure loop from _ai_import_parse_inner so we can
-    exercise the same code paths without wiring a Request object.
+    """Mirror the exposure chain from the /ai-import/apply-exposures route.
 
-    Keep this in lock-step with the loop in
-    ``src/policydb/web/routes/policies.py::_ai_import_parse_inner``.
+    This tests the project upsert → client_exposures upsert → link chain
+    without wiring an HTTP Request. Keep in lock-step with
+    ``src/policydb/web/routes/policies.py::policy_ai_import_apply_exposures``.
     """
     year = int(eff_date[:4])
 
@@ -522,3 +522,213 @@ def test_importer_without_exposure_columns_skips_exposure_flow(tmp_db, tmp_path)
     ).fetchone()
     assert pol is not None
     assert get_policy_exposures(conn, pol["policy_uid"]) == []
+
+
+# ── AI import parse route: exposure review (no eager write) ────────────────
+
+
+@pytest.fixture
+def client_and_policy(tmp_db):
+    """Seed a client + policy and yield (client_id, policy_uid)."""
+    conn = get_connection()
+    cid = _seed_client(conn, "Route Test Co")
+    _seed_policy(conn, cid, "POL-7001")
+    conn.commit()
+    return cid, "POL-7001"
+
+
+def _post_parse(policy_uid: str, extracted: dict):
+    """Drive the /ai-import/parse route and return (status, html_body)."""
+    from fastapi.testclient import TestClient
+    from policydb.web.app import app
+    import json
+
+    client = TestClient(app)
+    resp = client.post(
+        f"/policies/{policy_uid}/ai-import/parse",
+        data={"json_text": json.dumps(extracted)},
+    )
+    return resp.status_code, resp.text
+
+
+def _post_apply_exposures(policy_uid: str, year: int, rows: list[dict]):
+    from fastapi.testclient import TestClient
+    from policydb.web.app import app
+
+    client = TestClient(app)
+    resp = client.post(
+        f"/policies/{policy_uid}/ai-import/apply-exposures",
+        json={"year": year, "exposures": rows},
+    )
+    return resp.status_code, resp.json()
+
+
+def test_parse_route_does_not_eager_write_exposures(client_and_policy):
+    """AI parse must build diffs, not write client_exposures."""
+    cid, uid = client_and_policy
+    conn = get_connection()
+
+    status, body = _post_parse(uid, {
+        "effective_date": "2026-05-01",
+        "expiration_date": "2027-05-01",
+        "exposures": [
+            {
+                "exposure_type": "Payroll",
+                "amount": 7500000,
+                "denominator": 100,
+                "unit": "Per $100 Payroll",
+            }
+        ],
+    })
+    assert status == 200
+
+    # Nothing should be in client_exposures or policy_exposure_links yet.
+    exp_count = conn.execute(
+        "SELECT COUNT(*) FROM client_exposures WHERE client_id=?", (cid,)
+    ).fetchone()[0]
+    assert exp_count == 0
+
+    link_count = conn.execute(
+        "SELECT COUNT(*) FROM policy_exposure_links WHERE policy_uid=?", (uid,)
+    ).fetchone()[0]
+    assert link_count == 0
+
+    # The rendered review panel should mention the Exposures section.
+    assert "Exposures" in body
+    assert "Payroll" in body
+    assert "Apply Selected Exposures" in body
+
+
+def test_apply_route_creates_exposure_from_approved_row(client_and_policy):
+    cid, uid = client_and_policy
+
+    status, data = _post_apply_exposures(uid, 2026, [
+        {
+            "exposure_type": "Payroll",
+            "amount": 7500000,
+            "denominator": 100,
+            "unit": "Per $100 Payroll",
+            "is_primary": True,
+        }
+    ])
+    assert status == 200
+    assert data["ok"] is True
+    assert data["applied"] == 1
+
+    conn = get_connection()
+    links = get_policy_exposures(conn, uid)
+    assert len(links) == 1
+    assert links[0]["exposure_type"] == "Payroll"
+    assert links[0]["amount"] == 7500000
+    assert links[0]["year"] == 2026
+    assert links[0]["is_primary"] == 1
+
+
+def test_apply_route_honors_primary_flag_on_non_first_row(client_and_policy):
+    _, uid = client_and_policy
+
+    status, data = _post_apply_exposures(uid, 2026, [
+        {"exposure_type": "Payroll", "amount": 5000000, "denominator": 100,
+         "is_primary": False},
+        {"exposure_type": "Gross Sales", "amount": 25000000, "denominator": 1000,
+         "is_primary": True},
+    ])
+    assert status == 200
+    assert data["applied"] == 2
+
+    conn = get_connection()
+    links = {l["exposure_type"]: l for l in get_policy_exposures(conn, uid)}
+    assert links["Payroll"]["is_primary"] == 0
+    assert links["Gross Sales"]["is_primary"] == 1
+
+
+def test_apply_route_upserts_project_from_address(client_and_policy):
+    cid, uid = client_and_policy
+
+    status, data = _post_apply_exposures(uid, 2026, [
+        {
+            "exposure_type": "Building Value",
+            "amount": 10000000,
+            "denominator": 1,
+            "address": "500 Commerce St",
+            "city": "Dallas",
+            "state": "TX",
+            "zip": "75201",
+            "is_primary": True,
+        }
+    ])
+    assert status == 200
+    assert data["locations_created"] == 1
+
+    conn = get_connection()
+    project = conn.execute(
+        "SELECT id FROM projects WHERE client_id=? AND address='500 Commerce St'",
+        (cid,),
+    ).fetchone()
+    assert project is not None
+
+    # Policy.project_id was stamped because it was previously null.
+    pol = conn.execute(
+        "SELECT project_id FROM policies WHERE policy_uid=?", (uid,)
+    ).fetchone()
+    assert pol["project_id"] == project["id"]
+
+
+def test_apply_route_rejects_missing_year():
+    from fastapi.testclient import TestClient
+    from policydb.web.app import app
+
+    client = TestClient(app)
+    resp = client.post(
+        "/policies/POL-0001/ai-import/apply-exposures",
+        json={"exposures": [{"exposure_type": "Payroll", "amount": 1000}]},
+    )
+    assert resp.status_code == 400
+    assert "year" in resp.json()["error"].lower()
+
+
+def test_apply_route_skips_invalid_rows(client_and_policy):
+    _, uid = client_and_policy
+
+    status, data = _post_apply_exposures(uid, 2026, [
+        {"exposure_type": "", "amount": 1000},       # no type → skipped
+        {"exposure_type": "Payroll", "amount": 0},    # zero amount → skipped
+        {"exposure_type": "Sales", "amount": 500000, "denominator": 1000,
+         "is_primary": True},
+    ])
+    assert status == 200
+    assert data["applied"] == 1
+
+    conn = get_connection()
+    links = get_policy_exposures(conn, uid)
+    assert len(links) == 1
+    assert links[0]["exposure_type"] == "Sales"
+
+
+def test_apply_route_updates_existing_exposure_amount(client_and_policy):
+    """Re-apply with a different amount updates the client_exposures row."""
+    cid, uid = client_and_policy
+
+    # First apply
+    status, _ = _post_apply_exposures(uid, 2026, [
+        {"exposure_type": "Payroll", "amount": 5000000, "denominator": 100,
+         "is_primary": True},
+    ])
+    assert status == 200
+
+    # Second apply with a new amount for the same type/year
+    status, data = _post_apply_exposures(uid, 2026, [
+        {"exposure_type": "Payroll", "amount": 7500000, "denominator": 100,
+         "is_primary": True},
+    ])
+    assert status == 200
+    assert data["applied"] == 1
+
+    conn = get_connection()
+    # Still one row (idempotent on type/year), amount is updated
+    rows = conn.execute(
+        "SELECT amount FROM client_exposures WHERE client_id=? AND exposure_type='Payroll'",
+        (cid,),
+    ).fetchall()
+    assert len(rows) == 1
+    assert rows[0]["amount"] == 7500000

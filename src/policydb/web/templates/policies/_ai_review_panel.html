@@ -1,10 +1,14 @@
-{# AI Import Review Panel — shows diffs for policy fields, locations, and COPE data.
-   Rendered inside _tab_details.html when ai_policy_diffs or ai_location_data are present.
+{# AI Import Review Panel — shows diffs for policy fields, locations, COPE,
+   sub-coverages, and exposures. Rendered inside _tab_details.html when any of
+   those lists are populated.
    Context:
-     ai_policy_diffs   — list of {field, label, current, extracted, is_fill}
-     ai_location_data   — list of location dicts with diffs, cope_diffs, match info
-     ai_parsed_json     — JSON string of all parsed data (for apply endpoints)
-     policy             — current policy dict
+     ai_policy_diffs      — list of {field, label, current, extracted, is_fill}
+     ai_location_data      — list of location dicts with diffs, cope_diffs, match info
+     ai_sub_coverage_data  — list of sub-coverage dicts
+     ai_exposure_data      — list of exposure dicts (valid + invalid)
+     ai_exposure_year      — int year the exposures roll up to
+     ai_parsed_json        — JSON string of all parsed data (for apply endpoints)
+     policy                — current policy dict
 #}
 <div id="ai-review-panel" class="mb-6" data-parsed='{{ ai_parsed_json }}'>
 
@@ -228,6 +232,113 @@
   </div>
   {% endif %}
 
+  {# ══════════════════════════════════════════════════════════════════════════
+     SECTION D — Exposure Review
+     ══════════════════════════════════════════════════════════════════════════ #}
+  {% if ai_exposure_data is defined and ai_exposure_data %}
+  <div class="card border-amber-200 bg-amber-50/20 mb-4" id="ai-exposures-card"
+       data-exposure-year="{{ ai_exposure_year or '' }}">
+    <div class="px-5 py-3 border-b border-amber-100 flex items-center justify-between">
+      <div class="flex items-center gap-2">
+        <svg class="w-4 h-4 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m-6 4h6m-6 4h6M5 7h.01M5 11h.01M5 15h.01M4 19h16a1 1 0 001-1V6a1 1 0 00-1-1H4a1 1 0 00-1 1v12a1 1 0 001 1z"/>
+        </svg>
+        <span class="text-xs font-semibold text-amber-700 uppercase tracking-wide">Exposures</span>
+        {% if ai_exposure_year %}
+        <span class="text-[10px] text-amber-500 font-medium">Year {{ ai_exposure_year }}</span>
+        {% endif %}
+      </div>
+      <span class="text-xs text-gray-400">{{ ai_exposure_data | length }} found</span>
+    </div>
+
+    {% for exp in ai_exposure_data %}
+    {% if not exp.valid %}
+    {# Invalid entry — shown for transparency, can't be applied #}
+    <div class="border-b border-amber-50 last:border-b-0 px-5 py-2.5 flex items-center gap-3 bg-amber-50/10"
+         id="ai-exp-item-{{ exp.index }}">
+      <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+      </svg>
+      <span class="text-xs font-medium text-gray-500">
+        {{ exp.exposure_type or 'Entry ' ~ (exp.index + 1) }}
+      </span>
+      <span class="text-xs text-gray-400">Skipped — {{ exp.reason }}</span>
+    </div>
+    {% else %}
+    <div class="border-b border-amber-50 last:border-b-0" id="ai-exp-item-{{ exp.index }}"
+         data-exposure-type="{{ exp.exposure_type }}"
+         data-amount="{{ exp.amount }}"
+         data-denominator="{{ exp.denominator }}"
+         data-unit="{{ exp.unit }}"
+         data-location-label="{{ exp.location_label }}"
+         data-address="{{ exp.address }}"
+         data-city="{{ exp.city }}"
+         data-state="{{ exp.state }}"
+         data-zip="{{ exp.zip }}"
+         data-loc-action="{{ exp.loc_action }}"
+         data-matched-project-id="{{ exp.matched_project_id or '' }}">
+      {# Exposure header row #}
+      <div class="px-5 py-2.5 flex items-center gap-3 bg-amber-50/30">
+        <input type="checkbox" class="ai-exp-select rounded border-gray-300 text-amber-600 focus:ring-amber-500"
+               value="{{ exp.index }}" checked>
+        <span class="text-xs font-semibold text-amber-800">{{ exp.exposure_type }}</span>
+        <span class="text-xs text-gray-500">
+          {{ '{:,.0f}'.format(exp.amount) }}
+          {% if exp.unit %} {{ exp.unit }}{% endif %}
+          {% if exp.denominator and exp.denominator != 1 %} / {{ exp.denominator }}{% endif %}
+        </span>
+        {% if exp.match_type == 'update' %}
+        <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-700">
+          Update existing
+          {% if exp.existing and exp.existing.amount and exp.existing.amount != exp.amount %}
+          ({{ '{:,.0f}'.format(exp.existing.amount) }} → {{ '{:,.0f}'.format(exp.amount) }})
+          {% endif %}
+        </span>
+        {% else %}
+        <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-700">New</span>
+        {% endif %}
+        <label class="ml-auto flex items-center gap-1 text-[10px] text-amber-700 font-medium cursor-pointer">
+          <input type="radio" name="ai-exp-primary" value="{{ exp.index }}"
+                 class="ai-exp-primary text-amber-600 focus:ring-amber-500"
+                 {% if exp.is_primary_default %}checked{% endif %}>
+          Primary
+        </label>
+      </div>
+
+      {# Location disclosure row #}
+      {% if exp.loc_display %}
+      <div class="px-5 py-2 flex items-center gap-2 text-xs text-gray-500 border-t border-amber-50">
+        <svg class="w-3.5 h-3.5 text-amber-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/>
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/>
+        </svg>
+        {% if exp.loc_action == 'link_to_existing' %}
+        <span>Will attach to existing location: <span class="font-medium text-gray-700">{{ exp.loc_display }}</span></span>
+        {% elif exp.loc_action == 'create_new' %}
+        <span>Will create new location: <span class="font-medium text-gray-700">{{ exp.loc_display }}</span></span>
+        {% endif %}
+        {% if exp.would_stamp_policy_project %}
+        <span class="px-1.5 py-0.5 rounded-full bg-amber-100 text-[9px] text-amber-700 font-semibold">Sets policy location</span>
+        {% endif %}
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+    {% endfor %}
+
+    <div class="px-5 py-3 border-t border-amber-100 flex items-center gap-3">
+      <button type="button" onclick="applyExposures()"
+              class="px-4 py-1.5 rounded-lg text-xs font-medium bg-amber-600 text-white hover:bg-amber-700 transition-colors">
+        Apply Selected Exposures
+      </button>
+      <button type="button" onclick="document.querySelectorAll('.ai-exp-select').forEach(function(cb){cb.checked=true})"
+              class="text-xs text-amber-500 hover:text-amber-700">Select All</button>
+      <button type="button" onclick="document.querySelectorAll('.ai-exp-select').forEach(function(cb){cb.checked=false})"
+              class="text-xs text-gray-400 hover:text-gray-600">Clear All</button>
+    </div>
+  </div>
+  {% endif %}
+
 </div>
 
 <script>
@@ -399,6 +510,68 @@ function applySubCoverages() {
         applied + ' sub-coverage' + (applied !== 1 ? 's' : '') + ' applied</div>';
       card.className = 'card border-emerald-200 bg-emerald-50/20 mb-4';
     }
+  });
+}
+
+function applyExposures() {
+  var card = document.getElementById('ai-exposures-card');
+  if (!card) return;
+
+  var year = parseInt(card.dataset.exposureYear || '', 10);
+  if (!year) {
+    alert('Cannot apply exposures: no year resolved from policy effective date.');
+    return;
+  }
+
+  /* Primary radio — only one across the whole group, may be on an unchecked row */
+  var primaryEl = document.querySelector('.ai-exp-primary:checked');
+  var primaryIdx = primaryEl ? parseInt(primaryEl.value, 10) : null;
+
+  var rows = [];
+  document.querySelectorAll('.ai-exp-select:checked').forEach(function(cb) {
+    var idx = parseInt(cb.value, 10);
+    var item = document.getElementById('ai-exp-item-' + idx);
+    if (!item) return;
+    var ds = item.dataset;
+    rows.push({
+      index: idx,
+      exposure_type: ds.exposureType,
+      amount: parseFloat(ds.amount),
+      denominator: parseInt(ds.denominator || '1', 10) || 1,
+      unit: ds.unit || '',
+      location_label: ds.locationLabel || '',
+      address: ds.address || '',
+      city: ds.city || '',
+      state: ds.state || '',
+      zip: ds.zip || '',
+      loc_action: ds.locAction || 'none',
+      matched_project_id: ds.matchedProjectId ? parseInt(ds.matchedProjectId, 10) : null,
+      is_primary: (idx === primaryIdx)
+    });
+  });
+
+  if (!rows.length) return;
+
+  var uid = '{{ policy.policy_uid }}';
+  fetch('/policies/' + uid + '/ai-import/apply-exposures', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({year: year, exposures: rows})
+  }).then(function(resp) {
+    return resp.json();
+  }).then(function(data) {
+    if (!data.ok) {
+      alert('Failed to apply exposures: ' + (data.error || 'unknown error'));
+      return;
+    }
+    card.innerHTML = '<div class="px-5 py-4 text-sm text-emerald-600 font-medium flex items-center gap-2">' +
+      '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>' +
+      data.applied + ' exposure' + (data.applied !== 1 ? 's' : '') + ' applied' +
+      (data.locations_created ? ' (' + data.locations_created + ' location' + (data.locations_created !== 1 ? 's' : '') + ' created)' : '') +
+      '</div>';
+    card.className = 'card border-emerald-200 bg-emerald-50/20 mb-4';
+  }).catch(function(err) {
+    alert('Failed to apply exposures: ' + err);
   });
 }
 </script>
