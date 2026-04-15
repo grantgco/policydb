@@ -90,25 +90,21 @@ textarea.field-inline { resize: none; }
       </div>
 
       <div>
-        <label class="field-label">Follow-Up Date</label>
+        <label class="field-label">Next Follow-Up</label>
         <div class="flex items-center gap-2">
-          <input type="date" data-field="follow_up_date" id="policy-fu-date" value="{{ policy.follow_up_date or '' }}" class="form-input field-inline flex-1">
-          {% if policy.follow_up_date %}
-          <button type="button" onclick="var d=document.getElementById('policy-fu-date');d.value='';d.dispatchEvent(new Event('blur'))"
-            class="text-gray-300 hover:text-red-500 text-sm" title="Clear follow-up date">&times;</button>
-          {% endif %}
-          <span id="fu-badge" class="text-xs font-medium px-2 py-0.5 rounded-full whitespace-nowrap
-            {% if follow_up_delta is not none %}
-              {% if follow_up_overdue %}bg-red-100 text-red-700{% elif follow_up_delta <= 3 %}bg-amber-100 text-amber-700{% else %}bg-gray-100 text-gray-500{% endif %}
-            {% endif %}"
-            {% if follow_up_delta is none %}style="display:none"{% endif %}>
-            {%- if follow_up_delta is not none -%}
-              {%- if follow_up_overdue -%}{{ (-follow_up_delta) }}d overdue
-              {%- elif follow_up_delta == 0 -%}today
-              {%- else -%}in {{ follow_up_delta }}d{%- endif -%}
-            {%- endif -%}
+          <span class="text-sm {% if follow_up_overdue %}text-red-600 font-medium{% else %}text-gray-700{% endif %}">
+            {{ policy_next_followup or '—' }}
           </span>
+          {% if follow_up_delta is not none %}
+          <span class="text-xs font-medium px-2 py-0.5 rounded-full whitespace-nowrap
+            {% if follow_up_overdue %}bg-red-100 text-red-700{% elif follow_up_delta <= 3 %}bg-amber-100 text-amber-700{% else %}bg-gray-100 text-gray-500{% endif %}">
+            {%- if follow_up_overdue -%}{{ (-follow_up_delta) }}d overdue
+            {%- elif follow_up_delta == 0 -%}today
+            {%- else -%}in {{ follow_up_delta }}d{%- endif -%}
+          </span>
+          {% endif %}
         </div>
+        <p class="text-[11px] text-gray-400 mt-1">Set via activity log.</p>
       </div>
 
       <div class="sm:col-span-2 lg:col-span-3 border-t border-gray-100 pt-3 mt-1">

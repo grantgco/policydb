@@ -470,14 +470,10 @@ def cascade_program_renewal_close(conn, policy_uid: str) -> int:
                 reason="renewal_bound", closed_by="cascade_program_renewal_close",
             )
 
-        # Close direct policy follow-ups and clear follow_up_date on siblings
+        # Close direct policy follow-ups on siblings
         total_closed += auto_close_followups(
             conn, policy_id=child["id"],
             reason="renewal_bound", closed_by="cascade_program_renewal_close",
-        )
-        conn.execute(
-            "UPDATE policies SET follow_up_date = NULL WHERE id = ?",
-            (child["id"],),
         )
 
     logger.info("Cascaded renewal close for program %s (%d children, %d follow-ups closed)",

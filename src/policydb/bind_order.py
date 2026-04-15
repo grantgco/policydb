@@ -504,9 +504,6 @@ def _handle_bound_transition(
            WHERE policy_id = ? AND follow_up_done = 0 AND follow_up_date IS NOT NULL""",
         (pol["id"],),
     )
-    conn.execute(
-        "UPDATE policies SET follow_up_date = NULL WHERE policy_uid = ?", (uid,)
-    )
 
     # 5. Cascade to program (if any) + auto-resolve renewal issue at policy scope
     if pol["program_id"]:
