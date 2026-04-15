@@ -1,0 +1,180 @@
+{% extends "base.html" %}
+{% block title %}Carriers & Wholesalers — PolicyDB{% endblock %}
+{% block content %}
+
+<style>
+  [contenteditable]:empty:before { content: attr(data-placeholder); color: #cbd5e1; pointer-events: none; }
+  .carrier-cell:focus { outline: none; border-bottom: 2px solid var(--color-marsh, #000F47); margin-bottom: -2px; }
+  .carrier-type-select:focus { outline: none; border-color: #000F47; box-shadow: 0 0 0 1px #000F47; }
+  .chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 9999px; font-size: 11px; font-weight: 600; }
+  .chip-active { background: #000F47; color: white; }
+  .chip-inactive { background: #f3f4f6; color: #6b7280; }
+  .chip-inactive:hover { background: #e5e7eb; }
+</style>
+
+<div class="mb-5">
+  <div class="flex items-center justify-between">
+    <div>
+      <h1 class="text-2xl font-bold text-gray-900">Carriers & Wholesalers</h1>
+      <p class="text-sm text-gray-400 mt-0.5">
+        {{ count_total }} total ·
+        {{ count_by_type.carrier }} carrier{{ 's' if count_by_type.carrier != 1 }} ·
+        {{ count_by_type.wholesaler }} wholesaler{{ 's' if count_by_type.wholesaler != 1 }} ·
+        <span class="text-gray-600">{{ count_with_email }} with loss-run email on file</span>
+      </p>
+    </div>
+  </div>
+
+  <div class="mt-4 flex items-center gap-3 flex-wrap">
+    <form method="get" action="/carriers" class="flex items-center gap-2">
+      <input type="search" name="q" value="{{ q }}" placeholder="Search name, email, notes…"
+             class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-64 focus:outline-none focus:ring-2 focus:ring-marsh">
+      {% if type_filter != 'all' %}<input type="hidden" name="type" value="{{ type_filter }}">{% endif %}
+      <button type="submit" class="text-xs text-gray-500 hover:text-marsh">Search</button>
+      {% if q %}<a href="/carriers{% if type_filter != 'all' %}?type={{ type_filter }}{% endif %}" class="text-xs text-gray-400 hover:text-red-500">clear</a>{% endif %}
+    </form>
+
+    <div class="flex items-center gap-1.5 ml-auto">
+      <a href="/carriers{% if q %}?q={{ q }}{% endif %}" class="chip {% if type_filter == 'all' %}chip-active{% else %}chip-inactive{% endif %}">All</a>
+      <a href="/carriers?type=carrier{% if q %}&q={{ q }}{% endif %}" class="chip {% if type_filter == 'carrier' %}chip-active{% else %}chip-inactive{% endif %}">Carriers</a>
+      <a href="/carriers?type=wholesaler{% if q %}&q={{ q }}{% endif %}" class="chip {% if type_filter == 'wholesaler' %}chip-active{% else %}chip-inactive{% endif %}">Wholesalers</a>
+    </div>
+  </div>
+</div>
+
+<div class="card overflow-hidden">
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-500">
+      <tr>
+        <th class="px-3 py-2 text-left w-[22%]">Name</th>
+        <th class="px-3 py-2 text-left w-[12%]">Type</th>
+        <th class="px-3 py-2 text-left w-[25%]">Loss Run Email</th>
+        <th class="px-3 py-2 text-left w-[18%]">CC</th>
+        <th class="px-3 py-2 text-left">Notes</th>
+        <th class="px-3 py-2 w-10 no-print"></th>
+      </tr>
+    </thead>
+    <tbody id="carriers-tbody">
+      {% for c in carriers %}
+        {% include "carriers/_row.html" %}
+      {% else %}
+      <tr><td colspan="6" class="px-3 py-8 text-center text-sm text-gray-400 italic">
+        No carriers match. {% if q %}Try clearing the search,{% endif %} or add a new row below.
+      </td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="mt-3 flex items-center gap-2">
+  <button type="button" onclick="carrierAddRow()"
+          class="text-xs text-marsh hover:underline font-medium">+ Add carrier / wholesaler</button>
+  <span class="text-xs text-gray-400">Click any cell to edit — blur to save. Changes flow to every policy lookup.</span>
+</div>
+
+<script>
+(function() {
+  function postPatch(id, field, value) {
+    var fd = new FormData();
+    fd.append('field', field);
+    fd.append('value', value);
+    return fetch('/carriers/' + id, { method: 'PATCH', body: fd })
+      .then(function(r) { return r.json().then(function(j) { return { ok: r.ok, body: j }; }); });
+  }
+
+  // Cell blur save
+  document.addEventListener('blur', function(e) {
+    var el = e.target;
+    if (!el.classList || !el.classList.contains('carrier-cell')) return;
+    var id = el.getAttribute('data-id');
+    var field = el.getAttribute('data-field');
+    if (!id || !field) return;
+    var val = (el.textContent || '').trim();
+    postPatch(id, field, val).then(function(res) {
+      if (res.ok && res.body && res.body.ok) {
+        if (res.body.formatted !== undefined && res.body.formatted !== val) {
+          el.textContent = res.body.formatted;
+        }
+        if (window.flashCell) window.flashCell(el);
+      } else {
+        el.style.backgroundColor = '#fee2e2';
+        setTimeout(function() { el.style.backgroundColor = ''; }, 1200);
+        if (res.body && res.body.error) {
+          console.warn('Carrier save failed:', res.body.error);
+        }
+      }
+    });
+  }, true);
+
+  // Type select save
+  document.addEventListener('change', function(e) {
+    var el = e.target;
+    if (!el.classList || !el.classList.contains('carrier-type-select')) return;
+    var id = el.getAttribute('data-id');
+    if (!id) return;
+    postPatch(id, 'type', el.value).then(function(res) {
+      if (res.ok && res.body && res.body.ok) {
+        if (window.flashCell) window.flashCell(el);
+      }
+    });
+  });
+
+  // Keyboard: Enter commits, Escape cancels
+  document.addEventListener('keydown', function(e) {
+    var el = e.target;
+    if (!el.classList || !el.classList.contains('carrier-cell')) return;
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      el.blur();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      el.blur();
+    }
+  });
+
+  window.carrierAddRow = function() {
+    var fd = new FormData();
+    fd.append('name', 'New carrier');
+    fd.append('type', 'carrier');
+    fetch('/carriers', { method: 'POST', body: fd })
+      .then(function(r) { return r.text(); })
+      .then(function(html) {
+        var tbody = document.getElementById('carriers-tbody');
+        // Remove the empty-state row if present
+        var onlyRow = tbody.querySelector('tr td[colspan]');
+        if (onlyRow) onlyRow.parentElement.remove();
+        tbody.insertAdjacentHTML('afterbegin', html);
+        var firstCell = tbody.querySelector('.carrier-cell[data-field="name"]');
+        if (firstCell) {
+          firstCell.focus();
+          var range = document.createRange();
+          range.selectNodeContents(firstCell);
+          var sel = window.getSelection();
+          sel.removeAllRanges();
+          sel.addRange(range);
+        }
+      });
+  };
+
+  window.carrierDelete = function(id, btn) {
+    if (btn.dataset.confirming === '1') {
+      fetch('/carriers/' + id, { method: 'DELETE' }).then(function() {
+        var row = btn.closest('tr');
+        if (row) row.remove();
+      });
+      return;
+    }
+    btn.dataset.confirming = '1';
+    var origText = btn.textContent;
+    btn.textContent = 'confirm?';
+    btn.classList.add('text-red-500');
+    setTimeout(function() {
+      btn.dataset.confirming = '';
+      btn.textContent = origText;
+      btn.classList.remove('text-red-500');
+    }, 2500);
+  };
+})();
+</script>
+
+{% endblock %}

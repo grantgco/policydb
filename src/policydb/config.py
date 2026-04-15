@@ -690,6 +690,7 @@ _DEFAULTS: dict[str, Any] = {
     "service_model_options": ["Standard", "High-touch", "White-glove"],
     "daily_followup_target": 5,
     "pin_renewal_days": 14,
+    "loss_run_follow_up_days": 7,
     "backup_retention_count": 30,
     "migration_backup_retention_count": 10,
     "log_level": "INFO",

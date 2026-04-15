@@ -42,6 +42,14 @@ class ComposeRequest(BaseModel):
     project_name: str = ""
     include_policy_table: bool = False
     formal_format: bool = False
+    # Optional purpose tag for downstream tracking / attachment auto-categorization
+    purpose: str = ""
+    # Loss-run-request specific flags — only set by the loss-run flow
+    auto_log_activity: bool = False
+    follow_up_days: int | None = None
+    save_destination: bool = False
+    destination_name: str = ""
+    destination_type: str = ""
 
 
 @router.get("/status")
@@ -157,6 +165,69 @@ def outlook_compose(req: ComposeRequest, conn=Depends(get_db)):
         subject=subject,
         html_body=html_body,
     )
+
+    # ── Optional post-send side effects (loss-run flow) ──────────────────
+    # Only runs when the draft was actually created in Outlook. If the
+    # AppleScript bridge failed, skip the activity write and directory
+    # upsert so we don't leave orphan tracking rows for an email the user
+    # never saw.
+    if result.get("ok") and (req.auto_log_activity or req.save_destination):
+        from datetime import date, timedelta
+
+        policy_id = None
+        client_id = req.client_id or 0
+        if req.policy_uid:
+            _pol = conn.execute(
+                "SELECT id, client_id FROM policies WHERE policy_uid = ?",
+                (req.policy_uid.upper(),),
+            ).fetchone()
+            if _pol:
+                policy_id = _pol["id"]
+                if not client_id:
+                    client_id = _pol["client_id"] or 0
+
+        if req.auto_log_activity and (policy_id or client_id):
+            days = req.follow_up_days if req.follow_up_days is not None else int(
+                cfg.get("loss_run_follow_up_days", 7) or 7
+            )
+            follow_up_date = (date.today() + timedelta(days=days)).isoformat() if days else None
+            dest_label = (req.destination_name or req.to or "carrier").strip()
+            subject_note = subject or f"Loss Run Request — {req.policy_uid or ''}"
+            details_note = f"Loss run request sent to {dest_label} ({req.to})."
+            account_exec = cfg.get("default_account_exec", "Grant")
+            conn.execute(
+                """INSERT INTO activity_log
+                   (client_id, policy_id, activity_type, subject, details,
+                    activity_date, follow_up_date, account_exec, disposition,
+                    email_direction)
+                   VALUES (?, ?, 'Email', ?, ?, date('now'), ?, ?, 'Waiting on Carrier', 'outbound')""",
+                (
+                    client_id or None,
+                    policy_id,
+                    subject_note,
+                    details_note,
+                    follow_up_date,
+                    account_exec,
+                ),
+            )
+
+        if req.save_destination and req.destination_name and req.to:
+            from policydb.web.routes.carriers import upsert_loss_run_email
+            upsert_loss_run_email(
+                conn,
+                name=req.destination_name,
+                type_=(req.destination_type or "carrier"),
+                email=req.to,
+                cc=", ".join(req.cc) if req.cc else "",
+            )
+            # Refresh the alias map so normalize_carrier() picks up any new name.
+            try:
+                from policydb.utils import rebuild_carrier_aliases
+                rebuild_carrier_aliases()
+            except Exception:
+                pass
+
+        conn.commit()
 
     return JSONResponse(result)
 

@@ -292,6 +292,13 @@ class PolicyImporter:
                 self.warnings.append(f"Row {i}: missing policy_type or carrier, skipping")
                 self.skipped += 1
                 continue
+            # Touch-once: imported carriers/wholesalers auto-land in the directory
+            # so the loss-run email directory stays comprehensive.
+            from policydb.web.routes.carriers import ensure_carrier_row as _ensure_carrier_row
+            _ensure_carrier_row(self.conn, carrier, "carrier")
+            _ap = (row.get("access_point") or "").strip()
+            if _ap:
+                _ensure_carrier_row(self.conn, _ap, "wholesaler")
 
             eff = _parse_date(row.get("effective_date", ""))
             exp = _parse_date(row.get("expiration_date", ""))

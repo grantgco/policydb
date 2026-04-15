@@ -523,6 +523,12 @@ def policy_new_post(
     policy_type = normalize_coverage_type(policy_type)
     carrier = normalize_carrier(carrier) if carrier else ""
     policy_number = normalize_policy_number(policy_number) if policy_number else ""
+    # Touch-once: new carriers / wholesalers auto-land in the directory.
+    from policydb.web.routes.carriers import ensure_carrier_row as _ensure_carrier_row
+    if carrier:
+        _ensure_carrier_row(conn, carrier, "carrier")
+    if access_point and access_point.strip():
+        _ensure_carrier_row(conn, access_point.strip(), "wholesaler")
     # Parse currency shorthand (e.g., "$5M" → 5000000)
     premium = str(_parse_money(premium) or 0) if premium else premium
     limit_amount = str(_parse_money(limit_amount) or '') if limit_amount else limit_amount
@@ -3500,6 +3506,12 @@ def policy_edit_post(
     policy_type = normalize_coverage_type(policy_type)
     carrier = normalize_carrier(carrier) if carrier else ""
     policy_number = normalize_policy_number(policy_number) if policy_number else ""
+    # Touch-once: edited carriers / wholesalers auto-land in the directory.
+    from policydb.web.routes.carriers import ensure_carrier_row as _ensure_carrier_row
+    if carrier:
+        _ensure_carrier_row(conn, carrier, "carrier")
+    if access_point and access_point.strip():
+        _ensure_carrier_row(conn, access_point.strip(), "wholesaler")
     exposure_address = exposure_address.strip() if exposure_address else ""
     exposure_city = format_city(exposure_city) if exposure_city else ""
     exposure_state = format_state(exposure_state) if exposure_state else ""
@@ -3772,6 +3784,17 @@ async def policy_cell_save(request: Request, policy_uid: str, conn=Depends(get_d
     elif field == "carrier":
         formatted = normalize_carrier(value)
         conn.execute("UPDATE policies SET carrier = ? WHERE policy_uid = ?", (formatted or None, uid))
+        if formatted:
+            # Touch-once: carrier typed on any policy lands in the directory.
+            from policydb.web.routes.carriers import ensure_carrier_row
+            ensure_carrier_row(conn, formatted, "carrier")
+    elif field == "access_point":
+        formatted = value.strip()
+        conn.execute("UPDATE policies SET access_point = ? WHERE policy_uid = ?", (formatted or None, uid))
+        if formatted:
+            # Touch-once: wholesaler typed in access_point lands in the directory.
+            from policydb.web.routes.carriers import ensure_carrier_row
+            ensure_carrier_row(conn, formatted, "wholesaler")
     elif field == "renewal_status":
         val = value.strip()
         # Capture prior status for revert
