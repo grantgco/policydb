@@ -59,7 +59,7 @@
               {% elif iss.issue_severity == 'High' %}bg-amber-100 text-amber-800
               {% else %}bg-gray-100 text-gray-700{% endif %}">{{ iss.issue_severity }}</span>
             <span class="text-gray-900 truncate">{{ iss.subject }}</span>
-            {% if iss.issue_sla_days and iss.age_days > iss.issue_sla_days %}
+            {% if iss.over_sla %}
               <span class="text-xs text-red-600 flex-shrink-0">SLA breached</span>
             {% endif %}
           </div>

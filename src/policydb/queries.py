@@ -349,11 +349,93 @@ def attach_issue_counts(
             r["max_issue_severity"] = None
 
 
+def compute_issue_sla_state(issue: dict, *, today: date | None = None) -> dict:
+    """Resolve an issue's effective SLA deadline.
+
+    A manually set ``due_date`` on the issue row wins over the synthetic
+    severity-derived deadline (``activity_date + issue_sla_days``).  This
+    keeps the SLA honest when a user has committed to a concrete date.
+
+    Expected keys on ``issue`` (all optional — helper is defensive):
+      due_date, activity_date (or created_at), issue_sla_days,
+      issue_severity, days_open.
+
+    Returns a dict with::
+
+        sla_days         int  — severity-derived budget (for "SLA Xd" display)
+        deadline_date    str|None — ISO date of the effective deadline
+        deadline_source  'manual' | 'severity'
+        days_to_deadline int  — negative when past due
+        days_past        int  — positive count of days overdue (0 if not over)
+        over_sla         bool — true when today is past the deadline
+    """
+    today = today or date.today()
+    severities = cfg.get("issue_severities", [])
+    sla_map = {s["label"]: s.get("sla_days", 7) for s in severities}
+    sla_days = (
+        issue.get("issue_sla_days")
+        or sla_map.get(issue.get("issue_severity", "Normal"), 7)
+    )
+
+    def _parse(raw) -> date | None:
+        if not raw:
+            return None
+        try:
+            return date.fromisoformat(str(raw)[:10])
+        except (ValueError, TypeError):
+            return None
+
+    manual = _parse(issue.get("due_date"))
+    if manual is not None:
+        deadline = manual
+        source = "manual"
+    else:
+        act_date = _parse(issue.get("activity_date") or issue.get("created_at"))
+        if act_date is not None:
+            deadline = act_date + timedelta(days=int(sla_days))
+            source = "severity"
+        else:
+            # Degenerate case — fall back to pre-computed days_open.  Happens
+            # when the helper is handed an issue dict that didn't hydrate an
+            # activity_date (rare; mostly test fixtures).
+            days_open = int(issue.get("days_open") or 0)
+            diff = int(sla_days) - days_open
+            return {
+                "sla_days": int(sla_days),
+                "deadline_date": None,
+                "deadline_source": "severity",
+                "days_to_deadline": diff,
+                "days_past": max(0, -diff),
+                "over_sla": days_open > int(sla_days),
+            }
+
+    days_to = (deadline - today).days
+    return {
+        "sla_days": int(sla_days),
+        "deadline_date": deadline.isoformat(),
+        "deadline_source": source,
+        "days_to_deadline": days_to,
+        "days_past": max(0, -days_to),
+        "over_sla": days_to < 0,
+    }
+
+
+def attach_issue_sla_state(issues: list[dict]) -> None:
+    """Stamp each issue dict with the keys returned by compute_issue_sla_state.
+
+    Mutates in place.  Convenience for route handlers that iterate over
+    issue rows before rendering a template.
+    """
+    for issue in issues:
+        issue.update(compute_issue_sla_state(issue))
+
+
 def get_dashboard_issues_widget(conn: sqlite3.Connection, limit: int = 3) -> dict:
     """Returns top N open issues by severity + counts for dashboard widget."""
     top = conn.execute(
         """SELECT a.issue_uid, a.subject, a.issue_severity, a.issue_status,
-                  a.issue_sla_days, c.name AS client_name,
+                  a.issue_sla_days, a.due_date, a.activity_date,
+                  c.name AS client_name,
                   CAST(julianday('now') - julianday(a.activity_date) AS INTEGER) AS days_open
            FROM activity_log a
            LEFT JOIN clients c ON c.id = a.client_id
@@ -370,15 +452,26 @@ def get_dashboard_issues_widget(conn: sqlite3.Connection, limit: int = 3) -> dic
     total = conn.execute(
         "SELECT COUNT(*) FROM activity_log WHERE item_kind='issue' AND merged_into_id IS NULL AND issue_status NOT IN ('Resolved','Closed')"
     ).fetchone()[0]
+    # SLA breach count — a manual due_date overrides the severity-derived
+    # age calculation.  An issue is over SLA when today is past whichever
+    # deadline actually applies.
     sla_count = conn.execute(
         """SELECT COUNT(*) FROM activity_log
            WHERE item_kind = 'issue'
              AND merged_into_id IS NULL
              AND issue_status NOT IN ('Resolved', 'Closed')
-             AND issue_sla_days IS NOT NULL
-             AND CAST(julianday('now') - julianday(activity_date) AS INTEGER) > issue_sla_days"""
+             AND (
+                 (due_date IS NOT NULL AND date('now') > due_date)
+                 OR (
+                     due_date IS NULL
+                     AND issue_sla_days IS NOT NULL
+                     AND CAST(julianday('now') - julianday(activity_date) AS INTEGER) > issue_sla_days
+                 )
+             )"""
     ).fetchone()[0]
-    return {"total": total, "sla_count": sla_count, "top_issues": [dict(r) for r in top]}
+    top_issues = [dict(r) for r in top]
+    attach_issue_sla_state(top_issues)
+    return {"total": total, "sla_count": sla_count, "top_issues": top_issues}
 
 
 def get_stale_renewals(
@@ -1396,6 +1489,9 @@ def _open_tasks_for_client(conn, client_id: int) -> dict:
             waiting += 1
 
     # ── Group 1: direct_client
+    # Exclude follow-ups already attached to an issue — those surface in their
+    # own issue group below, so including them here would double-list them
+    # under "Direct client follow-ups".
     direct_rows: list[dict] = []
     for r in conn.execute(
         f"""SELECT {_OPEN_TASK_SELECT}
@@ -1403,6 +1499,7 @@ def _open_tasks_for_client(conn, client_id: int) -> dict:
            {_OPEN_TASK_JOINS}
            WHERE a.client_id = ?
              AND a.policy_id IS NULL
+             AND a.issue_id IS NULL
              AND a.follow_up_done = 0
              AND a.follow_up_date IS NOT NULL
              AND (a.item_kind = 'followup' OR a.item_kind IS NULL)""",  # noqa: S608
@@ -1453,6 +1550,16 @@ def _open_tasks_for_client(conn, client_id: int) -> dict:
     uncovered = [pid for pid in client_policy_ids if pid not in covered_policy_ids]
     if uncovered:
         ph = ",".join("?" * len(uncovered))
+        params: list = list(uncovered)
+        # Exclude follow-ups already attached to one of this client's open
+        # issues (they're surfaced in the per-issue groups above).  Matches
+        # the pattern used by _open_tasks_for_program.
+        if issue_ids:
+            iph = ",".join("?" * len(issue_ids))
+            exclude_clause = f" AND (a.issue_id IS NULL OR a.issue_id NOT IN ({iph}))"
+            params.extend(issue_ids)
+        else:
+            exclude_clause = " AND a.issue_id IS NULL"
         for r in conn.execute(
             f"""SELECT {_OPEN_TASK_SELECT}
                 FROM activity_log a
@@ -1460,8 +1567,8 @@ def _open_tasks_for_client(conn, client_id: int) -> dict:
                 WHERE a.policy_id IN ({ph})
                   AND a.follow_up_done = 0
                   AND a.follow_up_date IS NOT NULL
-                  AND (a.item_kind = 'followup' OR a.item_kind IS NULL)""",  # noqa: S608
-            uncovered,
+                  AND (a.item_kind = 'followup' OR a.item_kind IS NULL){exclude_clause}""",  # noqa: S608
+            params,
         ).fetchall():
             row = _open_task_row_from_activity(r)
             # Resolve attach target: policy's open renewal issue (if exactly one)

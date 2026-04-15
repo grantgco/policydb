@@ -290,6 +290,33 @@ def _slugify_folder(name: str, max_len: int = 40) -> str:
     return n[:max_len] or "Untitled"
 
 
+def _rfi_item_folder(item: dict) -> str:
+    """Build a nested folder path for an RFI item's attachments.
+
+    Layout: ``{Project}/{Coverage Line}/Item_NNN_{slug}/`` — mirrors the
+    structure a client sees in the tabbed worksheet so they can match each
+    attachment to its row.  Falls back to ``Shared`` / ``General`` when the
+    item has no project or coverage line.
+    """
+    project = (
+        item.get("project_name")
+        or item.get("policy_project_name")
+        or "Shared"
+    )
+    coverage = (
+        item.get("policy_coverage_line")
+        or item.get("category")
+        or "General"
+    )
+    slug = _slugify_folder(item.get("description") or "Item")
+    so = item.get("sort_order") or 0
+    return (
+        f"{_slugify_folder(project, max_len=50)}/"
+        f"{_slugify_folder(coverage, max_len=50)}/"
+        f"Item_{so:03d}_{slug}/"
+    )
+
+
 @router.get("/api/attachments/zip")
 def download_attachments_zip(
     record_type: str = Query(...),
@@ -300,7 +327,8 @@ def download_attachments_zip(
 
     For record_type='rfi_bundle', also includes attachments from every
     item in the bundle — bundle-level files go under ``Bundle/`` and
-    each item with attachments gets its own ``Item_NNN_<slug>/`` folder.
+    each item is nested as ``{Project}/{Coverage Line}/Item_NNN_<slug>/``
+    so the client can match files to rows in the worksheet they received.
     DevonThink files are resolved via ``fetch_item_metadata`` and pulled
     from their on-disk path; files that can't be resolved are listed in
     ``MANIFEST.txt`` as UNAVAILABLE so the user can retrieve them by hand.
@@ -318,7 +346,10 @@ def download_attachments_zip(
         (record_type, record_id),
     ).fetchall()
 
-    # For rfi_bundle, also pull item-level attachments keyed by item
+    # For rfi_bundle, also pull item-level attachments keyed by item.  Items
+    # are joined against policies (via policy_uid) so the ZIP can group files
+    # into {Project}/{Coverage Line}/ folders that mirror the tabbed worksheet
+    # the client received.
     item_groups: list[tuple[dict, list]] = []
     bundle_meta = None
     if record_type == "rfi_bundle":
@@ -327,10 +358,15 @@ def download_attachments_zip(
             (record_id,),
         ).fetchone()
         items = conn.execute(
-            """SELECT id, description, sort_order
-               FROM client_request_items
-               WHERE bundle_id = ?
-               ORDER BY sort_order, id""",
+            """SELECT i.id, i.description, i.sort_order, i.policy_uid,
+                      i.project_name, i.category,
+                      p.policy_type AS policy_coverage_line,
+                      p.project_name AS policy_project_name,
+                      p.carrier AS policy_carrier
+               FROM client_request_items i
+               LEFT JOIN policies p ON p.policy_uid = i.policy_uid
+               WHERE i.bundle_id = ?
+               ORDER BY i.sort_order, i.id""",
             (record_id,),
         ).fetchall()
         for item in items:
@@ -448,14 +484,25 @@ def download_attachments_zip(
                 _add_attachment(zf, folder, dict(r))
             manifest_lines.append("")
 
-        # Item-level files (rfi_bundle only)
+        # Item-level files (rfi_bundle only) — nested by project / coverage
         for item_info, att_rows in item_groups:
-            slug = _slugify_folder(item_info.get("description") or "Item")
-            so = item_info.get("sort_order") or 0
-            folder = f"Item_{so:03d}_{slug}/"
-            manifest_lines.append(
-                f"Item: {item_info.get('description') or '(no description)'}"
+            folder = _rfi_item_folder(item_info)
+            project_label = (
+                item_info.get("project_name")
+                or item_info.get("policy_project_name")
+                or "Shared"
             )
+            coverage_label = (
+                item_info.get("policy_coverage_line")
+                or item_info.get("category")
+                or "General"
+            )
+            header = f"Item: {item_info.get('description') or '(no description)'}"
+            header += f"  [{project_label} / {coverage_label}"
+            if item_info.get("policy_uid"):
+                header += f" / {item_info['policy_uid']}"
+            header += "]"
+            manifest_lines.append(header)
             for r in att_rows:
                 _add_attachment(zf, folder, dict(r))
             manifest_lines.append("")
