@@ -1210,6 +1210,26 @@ def filter_thread_for_history(rows: list) -> list:
 # Open Tasks panel — aggregated follow-up rollup for issue/client/program/policy
 # ─────────────────────────────────────────────────────────────────────────────
 
+# Shared SELECT projection used by every _open_tasks_for_* query.
+# The helper _open_task_row_from_activity() expects these column aliases.
+_OPEN_TASK_SELECT = """a.id, a.subject, a.activity_type, a.follow_up_date,
+    a.disposition, a.policy_id, a.client_id, a.issue_id, a.program_id, a.details,
+    p.policy_uid, p.policy_type, p.carrier,
+    c.name AS client_name,
+    iss.issue_uid AS issue_uid_joined,
+    iss.subject AS issue_subject_joined,
+    proj.id AS project_id_joined,
+    proj.name AS project_name_joined,
+    pg.program_uid AS program_uid_joined,
+    pg.name AS program_name_joined"""
+
+_OPEN_TASK_JOINS = """LEFT JOIN policies p ON p.id = a.policy_id
+    LEFT JOIN clients c ON c.id = a.client_id
+    LEFT JOIN activity_log iss ON iss.id = a.issue_id AND iss.item_kind = 'issue'
+    LEFT JOIN projects proj ON proj.id = COALESCE(a.project_id, p.project_id)
+    LEFT JOIN programs pg ON pg.id = COALESCE(a.program_id, p.program_id)"""
+
+
 def _open_task_row_from_activity(r) -> dict:
     """Convert a sqlite row from activity_log (+ policy/client joins) into the
     panel's TaskRow shape. Helper shared across scopes."""
@@ -1232,6 +1252,9 @@ def _open_task_row_from_activity(r) -> dict:
             accountability = d.get("accountability", "my_action")
             break
 
+    details_raw = (r["details"] or "") if "details" in keys else ""
+    details_preview = " ".join(details_raw.split())[:160] if details_raw else ""
+
     return {
         "activity_id": str(r["id"]),
         "subject": r["subject"] or r["activity_type"] or "Follow-up",
@@ -1243,9 +1266,19 @@ def _open_task_row_from_activity(r) -> dict:
         "policy_id": r["policy_id"] if "policy_id" in keys else None,
         "policy_uid": r["policy_uid"] if "policy_uid" in keys else None,
         "policy_type": r["policy_type"] if "policy_type" in keys else None,
+        "carrier": r["carrier"] if "carrier" in keys else None,
         "client_id": r["client_id"],
         "client_name": r["client_name"] if "client_name" in keys else "",
         "source": "activity",
+        "details_preview": details_preview,
+        "issue_id": r["issue_id"] if "issue_id" in keys else None,
+        "issue_uid": r["issue_uid_joined"] if "issue_uid_joined" in keys else None,
+        "issue_subject": r["issue_subject_joined"] if "issue_subject_joined" in keys else None,
+        "project_id": r["project_id_joined"] if "project_id_joined" in keys else None,
+        "project_name": r["project_name_joined"] if "project_name_joined" in keys else None,
+        "program_id": r["program_id"] if "program_id" in keys else None,
+        "program_uid": r["program_uid_joined"] if "program_uid_joined" in keys else None,
+        "program_name": r["program_name_joined"] if "program_name_joined" in keys else None,
         "is_on_issue": False,          # caller sets
         "linked_to_other_issue": None, # caller sets
         "attach_target_issue_id": None, # caller sets
@@ -1296,17 +1329,13 @@ def _open_tasks_for_issue(conn, issue_id: int) -> dict:
     # On-issue: all open follow-ups linked to this issue (may include rows on
     # non-covered policies too, e.g. client-level activities)
     on_issue_raw = conn.execute(
-        """SELECT a.id, a.subject, a.activity_type, a.follow_up_date,
-                  a.disposition, a.policy_id, a.client_id, a.issue_id,
-                  p.policy_uid, p.policy_type,
-                  c.name AS client_name
+        f"""SELECT {_OPEN_TASK_SELECT}
            FROM activity_log a
-           LEFT JOIN policies p ON p.id = a.policy_id
-           LEFT JOIN clients c ON c.id = a.client_id
+           {_OPEN_TASK_JOINS}
            WHERE a.issue_id = ?
              AND a.follow_up_done = 0
              AND a.follow_up_date IS NOT NULL
-             AND (a.item_kind = 'followup' OR a.item_kind IS NULL)""",
+             AND (a.item_kind = 'followup' OR a.item_kind IS NULL)""",  # noqa: S608
         (issue_id,),
     ).fetchall()
     for r in on_issue_raw:
@@ -1324,15 +1353,9 @@ def _open_tasks_for_issue(conn, issue_id: int) -> dict:
     if policy_ids:
         placeholders = ",".join("?" * len(policy_ids))
         loose_raw = conn.execute(
-            f"""SELECT a.id, a.subject, a.activity_type, a.follow_up_date,
-                       a.disposition, a.policy_id, a.client_id, a.issue_id,
-                       p.policy_uid, p.policy_type,
-                       c.name AS client_name,
-                       other.issue_uid AS other_issue_uid
+            f"""SELECT {_OPEN_TASK_SELECT}
                 FROM activity_log a
-                JOIN policies p ON p.id = a.policy_id
-                LEFT JOIN clients c ON c.id = a.client_id
-                LEFT JOIN activity_log other ON other.id = a.issue_id AND other.item_kind = 'issue'
+                {_OPEN_TASK_JOINS}
                 WHERE a.policy_id IN ({placeholders})
                   AND a.follow_up_done = 0
                   AND a.follow_up_date IS NOT NULL
@@ -1343,7 +1366,7 @@ def _open_tasks_for_issue(conn, issue_id: int) -> dict:
         for r in loose_raw:
             row = _open_task_row_from_activity(r)
             row["is_on_issue"] = False
-            row["linked_to_other_issue"] = r["other_issue_uid"]
+            row["linked_to_other_issue"] = row["issue_uid"]
             loose_rows.append(row)
             total += 1
             if row["days_overdue"] > 0:
@@ -1424,16 +1447,14 @@ def _open_tasks_for_client(conn, client_id: int) -> dict:
     # ── Group 1: direct_client
     direct_rows: list[dict] = []
     for r in conn.execute(
-        """SELECT a.id, a.subject, a.activity_type, a.follow_up_date,
-                  a.disposition, a.policy_id, a.client_id, a.issue_id,
-                  c.name AS client_name
+        f"""SELECT {_OPEN_TASK_SELECT}
            FROM activity_log a
-           JOIN clients c ON c.id = a.client_id
+           {_OPEN_TASK_JOINS}
            WHERE a.client_id = ?
              AND a.policy_id IS NULL
              AND a.follow_up_done = 0
              AND a.follow_up_date IS NOT NULL
-             AND (a.item_kind = 'followup' OR a.item_kind IS NULL)""",
+             AND (a.item_kind = 'followup' OR a.item_kind IS NULL)""",  # noqa: S608
         (client_id,),
     ).fetchall():
         row = _open_task_row_from_activity(r)
@@ -1478,17 +1499,13 @@ def _open_tasks_for_client(conn, client_id: int) -> dict:
         iss_id = iss["issue_id"]
         iss_rows: list[dict] = []
         for r in conn.execute(
-            """SELECT a.id, a.subject, a.activity_type, a.follow_up_date,
-                      a.disposition, a.policy_id, a.client_id, a.issue_id,
-                      p.policy_uid, p.policy_type,
-                      c.name AS client_name
+            f"""SELECT {_OPEN_TASK_SELECT}
                FROM activity_log a
-               LEFT JOIN policies p ON p.id = a.policy_id
-               LEFT JOIN clients c ON c.id = a.client_id
+               {_OPEN_TASK_JOINS}
                WHERE a.issue_id = ?
                  AND a.follow_up_done = 0
                  AND a.follow_up_date IS NOT NULL
-                 AND (a.item_kind = 'followup' OR a.item_kind IS NULL)""",
+                 AND (a.item_kind = 'followup' OR a.item_kind IS NULL)""",  # noqa: S608
             (iss_id,),
         ).fetchall():
             row = _open_task_row_from_activity(r)
@@ -1515,13 +1532,9 @@ def _open_tasks_for_client(conn, client_id: int) -> dict:
     if uncovered:
         ph = ",".join("?" * len(uncovered))
         for r in conn.execute(
-            f"""SELECT a.id, a.subject, a.activity_type, a.follow_up_date,
-                       a.disposition, a.policy_id, a.client_id, a.issue_id,
-                       p.policy_uid, p.policy_type,
-                       c.name AS client_name
+            f"""SELECT {_OPEN_TASK_SELECT}
                 FROM activity_log a
-                JOIN policies p ON p.id = a.policy_id
-                LEFT JOIN clients c ON c.id = a.client_id
+                {_OPEN_TASK_JOINS}
                 WHERE a.policy_id IN ({ph})
                   AND a.follow_up_done = 0
                   AND a.follow_up_date IS NOT NULL
@@ -1598,13 +1611,9 @@ def _open_tasks_for_program(conn, program_id: int) -> dict:
     if issue_ids:
         ph = ",".join("?" * len(issue_ids))
         for r in conn.execute(
-            f"""SELECT a.id, a.subject, a.activity_type, a.follow_up_date,
-                       a.disposition, a.policy_id, a.client_id, a.issue_id,
-                       p.policy_uid, p.policy_type,
-                       c.name AS client_name
+            f"""SELECT {_OPEN_TASK_SELECT}
                 FROM activity_log a
-                LEFT JOIN policies p ON p.id = a.policy_id
-                LEFT JOIN clients c ON c.id = a.client_id
+                {_OPEN_TASK_JOINS}
                 WHERE a.issue_id IN ({ph})
                   AND a.follow_up_done = 0
                   AND a.follow_up_date IS NOT NULL
@@ -1628,15 +1637,9 @@ def _open_tasks_for_program(conn, program_id: int) -> dict:
         else:
             exclude_clause = " AND a.issue_id IS NULL"
         for r in conn.execute(
-            f"""SELECT a.id, a.subject, a.activity_type, a.follow_up_date,
-                       a.disposition, a.policy_id, a.client_id, a.issue_id,
-                       p.policy_uid, p.policy_type,
-                       c.name AS client_name,
-                       other.issue_uid AS other_issue_uid
+            f"""SELECT {_OPEN_TASK_SELECT}
                 FROM activity_log a
-                JOIN policies p ON p.id = a.policy_id
-                LEFT JOIN clients c ON c.id = a.client_id
-                LEFT JOIN activity_log other ON other.id = a.issue_id AND other.item_kind = 'issue'
+                {_OPEN_TASK_JOINS}
                 WHERE a.policy_id IN ({ph})
                   AND a.follow_up_done = 0
                   AND a.follow_up_date IS NOT NULL
@@ -1644,7 +1647,7 @@ def _open_tasks_for_program(conn, program_id: int) -> dict:
             params,
         ).fetchall():
             row = _open_task_row_from_activity(r)
-            row["linked_to_other_issue"] = r["other_issue_uid"]
+            row["linked_to_other_issue"] = row["issue_uid"]
             if issue_ids and not row["linked_to_other_issue"]:
                 row["attach_target_issue_id"] = issue_ids[0] if len(issue_ids) == 1 else None
             loose_rows.append(row)
@@ -1676,23 +1679,17 @@ def _open_tasks_for_policy(conn, policy_id: int) -> dict:
     waiting = 0
 
     for r in conn.execute(
-        """SELECT a.id, a.subject, a.activity_type, a.follow_up_date,
-                  a.disposition, a.policy_id, a.client_id, a.issue_id,
-                  p.policy_uid, p.policy_type,
-                  c.name AS client_name,
-                  other.issue_uid AS other_issue_uid
+        f"""SELECT {_OPEN_TASK_SELECT}
            FROM activity_log a
-           JOIN policies p ON p.id = a.policy_id
-           LEFT JOIN clients c ON c.id = a.client_id
-           LEFT JOIN activity_log other ON other.id = a.issue_id AND other.item_kind = 'issue'
+           {_OPEN_TASK_JOINS}
            WHERE a.policy_id = ?
              AND a.follow_up_done = 0
              AND a.follow_up_date IS NOT NULL
-             AND (a.item_kind = 'followup' OR a.item_kind IS NULL)""",
+             AND (a.item_kind = 'followup' OR a.item_kind IS NULL)""",  # noqa: S608
         (policy_id,),
     ).fetchall():
         row = _open_task_row_from_activity(r)
-        row["linked_to_other_issue"] = r["other_issue_uid"]
+        row["linked_to_other_issue"] = row["issue_uid"]
 
         # Attach target: policy's single open renewal issue if unique
         tgt = conn.execute(

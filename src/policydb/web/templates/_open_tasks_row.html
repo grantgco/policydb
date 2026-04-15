@@ -3,7 +3,10 @@
    Expected context: row (a TaskRow dict), scope_type, scope_id.
 #}
 {% set grayed = row.linked_to_other_issue and not row.is_on_issue %}
-<div class="group flex items-start gap-2 px-3 py-2 border-b border-gray-100 hover:bg-gray-50 {% if grayed %}opacity-60{% endif %}"
+{# Suppress issue/program pills when they'd just repeat the group header. #}
+{% set show_issue_pill = row.issue_uid and scope_type != 'issue' %}
+{% set show_program_pill = row.program_uid and scope_type != 'program' %}
+<div class="group/row flex items-start gap-2 px-3 py-2 border-b border-gray-100 hover:bg-gray-50 {% if grayed %}opacity-60{% endif %}"
      data-activity-id="{{ row.activity_id }}">
 
   {# Policy UID pill #}
@@ -18,11 +21,52 @@
     {% endif %}
   </div>
 
-  {# Subject + meta #}
+  {# Subject + details preview + context pills + meta #}
   <div class="flex-1 min-w-0">
-    <div class="text-sm text-gray-800 truncate">{{ row.subject }}</div>
+    <div class="text-sm text-gray-800 truncate font-medium">{{ row.subject }}</div>
+
+    {% if row.details_preview %}
+    <div class="text-[11px] text-gray-500 italic mt-0.5 truncate group-hover/row:whitespace-normal group-hover/row:overflow-visible"
+         title="{{ row.details_preview }}">
+      {{ row.details_preview }}
+    </div>
+    {% endif %}
+
+    {# Context pills — issue, location/project, program #}
+    {% if show_issue_pill or row.project_name or show_program_pill %}
+    <div class="flex flex-wrap items-center gap-1 mt-1">
+      {% if show_issue_pill %}
+      <a href="/issues/{{ row.issue_id }}"
+         class="inline-flex items-center gap-1 text-[10px] font-mono text-amber-700 bg-amber-50 border border-amber-200 hover:bg-amber-100 px-1.5 py-0.5 rounded"
+         title="Linked issue: {{ row.issue_subject or '' }}">
+        <span>⚑</span>
+        <span>{{ row.issue_uid }}</span>
+        {% if row.issue_subject %}<span class="font-sans text-amber-900/70 truncate max-w-[14rem]">· {{ row.issue_subject }}</span>{% endif %}
+      </a>
+      {% endif %}
+
+      {% if row.project_name %}
+      <a href="/clients/{{ row.client_id }}/locations/{{ row.project_id }}"
+         class="inline-flex items-center gap-1 text-[10px] text-emerald-800 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 px-1.5 py-0.5 rounded"
+         title="Location / Project">
+        <span>📍</span>
+        <span class="truncate max-w-[12rem]">{{ row.project_name }}</span>
+      </a>
+      {% endif %}
+
+      {% if show_program_pill %}
+      <a href="/programs/{{ row.program_uid }}"
+         class="inline-flex items-center gap-1 text-[10px] font-mono text-indigo-800 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 px-1.5 py-0.5 rounded"
+         title="Program: {{ row.program_name or '' }}">
+        <span>◱</span>
+        <span>{{ row.program_uid }}</span>
+      </a>
+      {% endif %}
+    </div>
+    {% endif %}
+
     <div class="text-[10px] text-gray-400 mt-0.5 truncate">
-      {{ row.policy_type or '—' }} &middot; {{ row.client_name }}{% if row.activity_type %} &middot; {{ row.activity_type }}{% endif %}
+      {{ row.policy_type or '—' }}{% if row.carrier %} · {{ row.carrier }}{% endif %} &middot; {{ row.client_name }}{% if row.activity_type %} &middot; {{ row.activity_type }}{% endif %}
     </div>
   </div>
 
@@ -36,21 +80,50 @@
 
   {# Action buttons — always visible to avoid hover-discoverability problem #}
   <div class="shrink-0 flex items-center gap-1 pt-0.5">
-    {# Mark done #}
-    <button type="button"
-            title="Mark done"
-            hx-post="/open-tasks/{{ row.activity_id }}/done"
-            hx-vals='{"return_scope_type": "{{ scope_type }}", "return_scope_id": {{ scope_id }}}'
-            hx-target="#open-tasks-panel-{{ scope_type }}-{{ scope_id }}"
-            hx-swap="outerHTML"
-            class="text-green-600 hover:bg-green-50 rounded p-1 text-xs">✓</button>
+    {#-
+      Tooltip pattern: wrap button in a relative/group container so the tooltip
+      bubble can absolutely-position above the button and fade in on hover.
+      The native `title=""` is kept alongside for keyboard/screen-reader users.
+    -#}
+    {% macro task_btn(emoji, label, color_classes, extra_attrs='', wrapper_id='') %}
+    <div class="relative group/btn{% if wrapper_id %} {{ wrapper_id }}{% endif %}">
+      <button type="button"
+              title="{{ label }}"
+              aria-label="{{ label }}"
+              {{ extra_attrs | safe }}
+              class="{{ color_classes }} rounded p-1 text-xs">{{ emoji }}</button>
+      <span class="pointer-events-none absolute bottom-full right-0 mb-1 whitespace-nowrap
+                   rounded bg-gray-900 text-white text-[10px] font-medium px-2 py-1 shadow-lg
+                   opacity-0 group-hover/btn:opacity-100 transition z-30">
+        {{ label }}
+      </span>
+    </div>
+    {% endmacro %}
 
-    {# Snooze #}
-    <div class="relative">
-      <button type="button" title="Snooze"
-              onclick="this.nextElementSibling.classList.toggle('hidden')"
+    {# Mark done #}
+    {{ task_btn(
+      '✓',
+      'Mark done — closes this follow-up, no new activity logged',
+      'text-green-600 hover:bg-green-50',
+      'hx-post="/open-tasks/' ~ row.activity_id ~ '/done" ' ~
+      'hx-vals=\'{"return_scope_type": "' ~ scope_type ~ '", "return_scope_id": ' ~ scope_id ~ '}\' ' ~
+      'hx-target="#open-tasks-panel-' ~ scope_type ~ '-' ~ scope_id ~ '" ' ~
+      'hx-swap="outerHTML"'
+    ) }}
+
+    {# Snooze — dropdown #}
+    <div class="relative group/btn">
+      <button type="button"
+              title="Snooze — push the due date out 1/3/7/14 days"
+              aria-label="Snooze"
+              onclick="this.nextElementSibling.nextElementSibling.classList.toggle('hidden')"
               class="text-blue-600 hover:bg-blue-50 rounded p-1 text-xs">💤</button>
-      <div class="hidden absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded shadow-lg z-10 text-xs">
+      <span class="pointer-events-none absolute bottom-full right-0 mb-1 whitespace-nowrap
+                   rounded bg-gray-900 text-white text-[10px] font-medium px-2 py-1 shadow-lg
+                   opacity-0 group-hover/btn:opacity-100 transition z-30">
+        Snooze — push the due date out
+      </span>
+      <div class="hidden absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded shadow-lg z-20 text-xs">
         {% for d in [1, 3, 7, 14] %}
         <button type="button"
                 hx-post="/open-tasks/{{ row.activity_id }}/snooze"
@@ -65,50 +138,75 @@
     {# Waiting toggle #}
     {% if row.source == 'activity' %}
     {% set next_move = "my" if row.accountability == "waiting_external" else "waiting" %}
-    <button type="button"
-            title="Toggle My Move / Waiting"
-            hx-post="/open-tasks/{{ row.activity_id }}/disposition"
-            hx-vals='{"move": "{{ next_move }}", "return_scope_type": "{{ scope_type }}", "return_scope_id": {{ scope_id }}}'
-            hx-target="#open-tasks-panel-{{ scope_type }}-{{ scope_id }}"
-            hx-swap="outerHTML"
-            class="rounded p-1 text-xs {% if row.accountability == 'waiting_external' %}text-amber-600 hover:bg-amber-50{% else %}text-gray-500 hover:bg-gray-100{% endif %}">
-      {% if row.accountability == 'waiting_external' %}⏳{% else %}🏃{% endif %}
-    </button>
+    {% if row.accountability == "waiting_external" %}
+      {{ task_btn(
+        '⏳',
+        'Take back — switches accountability back to you',
+        'text-amber-600 hover:bg-amber-50',
+        'hx-post="/open-tasks/' ~ row.activity_id ~ '/disposition" ' ~
+        'hx-vals=\'{"move": "' ~ next_move ~ '", "return_scope_type": "' ~ scope_type ~ '", "return_scope_id": ' ~ scope_id ~ '}\' ' ~
+        'hx-target="#open-tasks-panel-' ~ scope_type ~ '-' ~ scope_id ~ '" ' ~
+        'hx-swap="outerHTML"'
+      ) }}
+    {% else %}
+      {{ task_btn(
+        '🏃',
+        'Mark as Waiting — switches accountability to the other party',
+        'text-gray-500 hover:bg-gray-100',
+        'hx-post="/open-tasks/' ~ row.activity_id ~ '/disposition" ' ~
+        'hx-vals=\'{"move": "' ~ next_move ~ '", "return_scope_type": "' ~ scope_type ~ '", "return_scope_id": ' ~ scope_id ~ '}\' ' ~
+        'hx-target="#open-tasks-panel-' ~ scope_type ~ '-' ~ scope_id ~ '" ' ~
+        'hx-swap="outerHTML"'
+      ) }}
+    {% endif %}
     {% endif %}
 
     {# Log & close — activity-source only, on-issue rows only #}
     {% if row.source == 'activity' and row.is_on_issue %}
-    <button type="button"
-            title="Log & close (no follow-up)"
-            hx-post="/open-tasks/{{ row.activity_id }}/log-close"
-            hx-vals='{"return_scope_type": "{{ scope_type }}", "return_scope_id": {{ scope_id }}}'
-            hx-target="#open-tasks-panel-{{ scope_type }}-{{ scope_id }}"
-            hx-swap="outerHTML"
-            class="text-gray-500 hover:bg-gray-100 rounded p-1 text-xs">⊗</button>
+    {{ task_btn(
+      '⊗',
+      'Log & close — log the activity and close it without a new follow-up',
+      'text-gray-500 hover:bg-gray-100',
+      'hx-post="/open-tasks/' ~ row.activity_id ~ '/log-close" ' ~
+      'hx-vals=\'{"return_scope_type": "' ~ scope_type ~ '", "return_scope_id": ' ~ scope_id ~ '}\' ' ~
+      'hx-target="#open-tasks-panel-' ~ scope_type ~ '-' ~ scope_id ~ '" ' ~
+      'hx-swap="outerHTML"'
+    ) }}
     {% endif %}
 
     {# Attach / linked-to-other-issue #}
     {% if row.source == 'activity' and not row.is_on_issue %}
       {% if grayed %}
       <a href="/issues/{{ row.linked_to_other_issue }}"
-         class="text-[10px] text-marsh hover:underline px-1">{{ row.linked_to_other_issue }}</a>
+         class="text-[10px] text-marsh hover:underline px-1"
+         title="Linked to {{ row.linked_to_other_issue }}">{{ row.linked_to_other_issue }}</a>
       {% elif row.attach_target_issue_id %}
-      <button type="button"
-              title="Attach to this issue"
-              hx-post="/open-tasks/{{ row.activity_id }}/attach"
-              hx-vals='{"target_issue_id": {{ row.attach_target_issue_id }}, "return_scope_type": "{{ scope_type }}", "return_scope_id": {{ scope_id }}}'
-              hx-target="#open-tasks-panel-{{ scope_type }}-{{ scope_id }}"
-              hx-swap="outerHTML"
-              class="text-marsh hover:bg-blue-50 rounded p-1 text-xs">🔗</button>
+      {{ task_btn(
+        '🔗',
+        'Attach to this issue — link this loose task to the open renewal issue',
+        'text-marsh hover:bg-blue-50',
+        'hx-post="/open-tasks/' ~ row.activity_id ~ '/attach" ' ~
+        'hx-vals=\'{"target_issue_id": ' ~ row.attach_target_issue_id ~ ', "return_scope_type": "' ~ scope_type ~ '", "return_scope_id": ' ~ scope_id ~ '}\' ' ~
+        'hx-target="#open-tasks-panel-' ~ scope_type ~ '-' ~ scope_id ~ '" ' ~
+        'hx-swap="outerHTML"'
+      ) }}
       {% endif %}
     {% endif %}
 
     {# Note #}
     {% if row.source == 'activity' %}
-    <button type="button"
-            title="Add note"
-            onclick="const box = this.parentElement.parentElement.nextElementSibling; box.classList.toggle('hidden'); if (!box.classList.contains('hidden')) box.querySelector('textarea').focus();"
-            class="text-gray-500 hover:bg-gray-100 rounded p-1 text-xs">💬</button>
+    <div class="relative group/btn">
+      <button type="button"
+              title="Add note — append a quick note to the task (saved as activity)"
+              aria-label="Add note"
+              onclick="const box = this.parentElement.parentElement.parentElement.nextElementSibling; box.classList.toggle('hidden'); if (!box.classList.contains('hidden')) box.querySelector('textarea').focus();"
+              class="text-gray-500 hover:bg-gray-100 rounded p-1 text-xs">💬</button>
+      <span class="pointer-events-none absolute bottom-full right-0 mb-1 whitespace-nowrap
+                   rounded bg-gray-900 text-white text-[10px] font-medium px-2 py-1 shadow-lg
+                   opacity-0 group-hover/btn:opacity-100 transition z-30">
+        Add note — append a quick note
+      </span>
+    </div>
     {% endif %}
   </div>
 </div>
