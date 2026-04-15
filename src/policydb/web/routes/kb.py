@@ -805,8 +805,36 @@ def _fetch_page_title(url: str) -> str:
         return ""
 
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=3) as resp:
+        parsed = urlparse(url)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            return ""
+
+        addr_info = socket.getaddrinfo(parsed.hostname, parsed.port or (443 if parsed.scheme == "https" else 80))
+        resolved_ips = [info[4][0] for info in addr_info if info and info[4]]
+        public_ips = [ip for ip in resolved_ips if _is_public_ip(ip)]
+        if not public_ips:
+            return ""
+
+        pinned_ip = public_ips[0]
+        host = parsed.hostname
+        netloc_ip = pinned_ip if not parsed.port else f"{pinned_ip}:{parsed.port}"
+        request_url = parsed._replace(netloc=netloc_ip).geturl()
+
+        host_header = host if not parsed.port else f"{host}:{parsed.port}"
+        req = urllib.request.Request(
+            request_url,
+            headers={
+                "User-Agent": "Mozilla/5.0",
+                "Host": host_header,
+            },
+        )
+
+        class _NoRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, req, fp, code, msg, headers, newurl):
+                return None
+
+        opener = urllib.request.build_opener(_NoRedirect())
+        with opener.open(req, timeout=3) as resp:
             # Read first 32KB only — enough for <title>
             chunk = resp.read(32768).decode("utf-8", errors="ignore")
             m = _re.search(r"<title[^>]*>(.*?)</title>", chunk, _re.IGNORECASE | _re.DOTALL)
