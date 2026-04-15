@@ -65,13 +65,18 @@ SELECT
     p.access_point,
     p.project_name,
     p.project_id,
-    p.exposure_basis,
-    p.exposure_amount,
-    p.exposure_unit,
-    p.exposure_address,
-    p.exposure_city,
-    p.exposure_state,
-    p.exposure_zip,
+    -- Primary exposure, pulled from the normalized client_exposures table
+    -- (deprecated policies.exposure_* columns were dropped in migration 151).
+    ce.exposure_type AS primary_exposure_type,
+    ce.amount       AS primary_exposure_amount,
+    ce.denominator  AS primary_exposure_denominator,
+    ce.unit         AS primary_exposure_unit,
+    -- Primary-exposure location: resolved via policies.project_id (the
+    -- canonical link) or via the primary exposure's own project.
+    COALESCE(pr.address, pr_ce.address) AS exposure_address,
+    COALESCE(pr.city,    pr_ce.city)    AS exposure_city,
+    COALESCE(pr.state,   pr_ce.state)   AS exposure_state,
+    COALESCE(pr.zip,     pr_ce.zip)     AS exposure_zip,
     -- Opportunities have no expiration date; NULL days/urgency keeps them out of renewal logic
     CASE WHEN p.is_opportunity = 1 THEN NULL
          ELSE CAST(julianday(p.expiration_date) - julianday('now') AS INTEGER)
@@ -101,6 +106,10 @@ SELECT
 FROM policies p
 JOIN clients c ON p.client_id = c.id
 LEFT JOIN programs pg ON pg.id = p.program_id
+LEFT JOIN projects pr ON pr.id = p.project_id
+LEFT JOIN policy_exposure_links pel ON pel.policy_uid = p.policy_uid AND pel.is_primary = 1
+LEFT JOIN client_exposures ce ON ce.id = pel.exposure_id
+LEFT JOIN projects pr_ce ON pr_ce.id = ce.project_id
 LEFT JOIN (
     SELECT policy_id, MIN(follow_up_date) AS follow_up_date
     FROM activity_log
@@ -185,11 +194,11 @@ SELECT
     p.coverage_form AS "Form",
     p.layer_position AS "Layer",
     p.project_name AS "Project",
-    COALESCE(CASE WHEN ce.exposure_type IS NOT NULL AND ce.denominator IS NOT NULL
-                  THEN ce.exposure_type || ' /' || ce.denominator
-                  ELSE ce.exposure_type END, p.exposure_basis) AS "Exposure Basis",
-    COALESCE(ce.amount, p.exposure_amount) AS "Exposure Amount",
-    COALESCE(CASE WHEN ce.denominator IS NOT NULL THEN 'per ' || ce.denominator END, p.exposure_unit) AS "Exposure Unit",
+    CASE WHEN ce.exposure_type IS NOT NULL AND ce.denominator IS NOT NULL
+         THEN ce.exposure_type || ' /' || ce.denominator
+         ELSE ce.exposure_type END AS "Exposure Basis",
+    ce.amount AS "Exposure Amount",
+    CASE WHEN ce.denominator IS NOT NULL THEN 'per ' || ce.denominator END AS "Exposure Unit",
     pel.rate AS "Rate",
     p.description AS "Comments"
 FROM policies p

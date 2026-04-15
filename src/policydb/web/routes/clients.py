@@ -1265,20 +1265,25 @@ def client_tab_policies(request: Request, client_id: int, conn=Depends(get_db)):
     programs = []
     _program_linked_ids = set()
 
-    # Project notes & addresses
-    notes_rows = conn.execute("SELECT id, LOWER(TRIM(name)) AS key, name, notes FROM projects WHERE client_id = ?", (client_id,)).fetchall()
+    # Project notes & addresses — addresses now live on the `projects` table
+    # (the deprecated policies.exposure_* columns were dropped).
+    notes_rows = conn.execute(
+        """SELECT id, LOWER(TRIM(name)) AS key, name, notes,
+                  address, city, state, zip
+           FROM projects WHERE client_id = ?""",
+        (client_id,),
+    ).fetchall()
     project_notes = {r["key"]: r["notes"] for r in notes_rows}
     project_ids = {r["key"]: r["id"] for r in notes_rows}
-    project_addresses: dict = {}
-    for p in sorted(policies, key=lambda x: x.get("id", 0), reverse=True):
-        key = _proj_key(p.get("project_name"))
-        if key and key not in project_addresses:
-            project_addresses[key] = {
-                "exposure_address": p.get("exposure_address") or "",
-                "exposure_city": p.get("exposure_city") or "",
-                "exposure_state": p.get("exposure_state") or "",
-                "exposure_zip": p.get("exposure_zip") or "",
-            }
+    project_addresses: dict = {
+        r["key"]: {
+            "exposure_address": r["address"] or "",
+            "exposure_city":    r["city"]    or "",
+            "exposure_state":   r["state"]   or "",
+            "exposure_zip":     r["zip"]     or "",
+        }
+        for r in notes_rows
+    }
 
     from policydb.queries import get_schematic_completeness
     schematic_completeness = get_schematic_completeness(conn, client_id)
@@ -2102,25 +2107,26 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
     programs = []
     _program_linked_ids = set()
 
-    # Load project notes keyed by normalized project name (from projects table)
+    # Load project notes + addresses keyed by normalized project name.
+    # Addresses live on the projects table (deprecated policies.exposure_*
+    # columns were dropped).
     notes_rows = conn.execute(
-        "SELECT id, LOWER(TRIM(name)) AS key, name, notes FROM projects WHERE client_id = ?",
+        """SELECT id, LOWER(TRIM(name)) AS key, name, notes,
+                  address, city, state, zip
+           FROM projects WHERE client_id = ?""",
         (client_id,),
     ).fetchall()
     project_notes = {r["key"]: r["notes"] for r in notes_rows}
     project_ids = {r["key"]: r["id"] for r in notes_rows}
-
-    # Build project address dict from most recent policy per project
-    project_addresses: dict = {}
-    for p in sorted(policies, key=lambda x: x.get("id", 0), reverse=True):
-        key = _proj_key(p.get("project_name"))
-        if key not in project_addresses:
-            project_addresses[key] = {
-                "exposure_address": p.get("exposure_address") or "",
-                "exposure_city":    p.get("exposure_city") or "",
-                "exposure_state":   p.get("exposure_state") or "",
-                "exposure_zip":     p.get("exposure_zip") or "",
-            }
+    project_addresses: dict = {
+        r["key"]: {
+            "exposure_address": r["address"] or "",
+            "exposure_city":    r["city"]    or "",
+            "exposure_state":   r["state"]   or "",
+            "exposure_zip":     r["zip"]     or "",
+        }
+        for r in notes_rows
+    }
 
     scratch_row = conn.execute(
         "SELECT content, updated_at FROM client_scratchpad WHERE client_id=?",
@@ -4380,7 +4386,9 @@ def export_followups_csv(client_id: int, conn=Depends(get_db)):
 def _project_note_ctx(conn, client_id: int, project_name: str) -> dict:
     """Shared context builder for project note partials."""
     row = conn.execute(
-        "SELECT id, notes FROM projects WHERE client_id = ? AND LOWER(TRIM(name)) = LOWER(TRIM(?))",
+        """SELECT id, notes, address, city, state, zip
+           FROM projects
+           WHERE client_id = ? AND LOWER(TRIM(name)) = LOWER(TRIM(?))""",
         (client_id, project_name),
     ).fetchone()
     policy_count = conn.execute(
@@ -4388,25 +4396,18 @@ def _project_note_ctx(conn, client_id: int, project_name: str) -> dict:
         (client_id, project_name),
     ).fetchone()[0]
     client = conn.execute("SELECT * FROM clients WHERE id = ?", (client_id,)).fetchone()
-    # Pull address from the most recent policy in this project
-    addr_row = conn.execute(
-        """SELECT exposure_address, exposure_city, exposure_state, exposure_zip
-           FROM policies
-           WHERE client_id = ? AND LOWER(TRIM(COALESCE(project_name,''))) = LOWER(TRIM(?))
-             AND archived = 0
-           ORDER BY id DESC LIMIT 1""",
-        (client_id, project_name),
-    ).fetchone()
+    # Address now lives on the projects row directly (the deprecated
+    # policies.exposure_* columns were dropped).
     return {
         "project_name": project_name,
         "project_id": row["id"] if row else None,
         "note": row["notes"] if row else "",
         "policy_count": policy_count,
         "client": dict(client) if client else {},
-        "exposure_address": addr_row["exposure_address"] if addr_row else "",
-        "exposure_city": addr_row["exposure_city"] if addr_row else "",
-        "exposure_state": addr_row["exposure_state"] if addr_row else "",
-        "exposure_zip": addr_row["exposure_zip"] if addr_row else "",
+        "exposure_address": row["address"] if row else "",
+        "exposure_city": row["city"] if row else "",
+        "exposure_state": row["state"] if row else "",
+        "exposure_zip": row["zip"] if row else "",
     }
 
 
@@ -4438,31 +4439,30 @@ def project_note_save(
     exposure_zip: str = Form(""),
     conn=Depends(get_db),
 ):
-    """HTMX: upsert project note and bulk-update location address on all policies in the project."""
-    exposure_address = exposure_address.strip() if exposure_address else ""
-    exposure_city = format_city(exposure_city) if exposure_city else ""
-    exposure_state = format_state(exposure_state) if exposure_state else ""
-    exposure_zip = format_zip(exposure_zip) if exposure_zip else ""
+    """HTMX: upsert the project note + address on the `projects` row.
+
+    Address fields are stored on the projects row directly — the
+    deprecated ``policies.exposure_*`` columns were dropped.  Any policy
+    that points at this project via ``policies.project_id`` automatically
+    picks up the new address via the joined views.
+    """
+    addr = exposure_address.strip() if exposure_address else ""
+    city = format_city(exposure_city) if exposure_city else ""
+    state = format_state(exposure_state) if exposure_state else ""
+    zip_code = format_zip(exposure_zip) if exposure_zip else ""
     conn.execute(
-        "INSERT INTO projects (client_id, name, notes) VALUES (?, ?, ?) "
-        "ON CONFLICT(client_id, name) DO UPDATE SET notes=excluded.notes",
-        (client_id, project_name, notes.strip()),
-    )
-    conn.execute(
-        """UPDATE policies SET
-               exposure_address = ?,
-               exposure_city    = ?,
-               exposure_state   = ?,
-               exposure_zip     = ?
-           WHERE client_id = ?
-             AND LOWER(TRIM(COALESCE(project_name,''))) = LOWER(TRIM(?))
-             AND archived = 0""",
+        """INSERT INTO projects
+             (client_id, name, notes, address, city, state, zip)
+           VALUES (?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(client_id, name) DO UPDATE SET
+             notes   = excluded.notes,
+             address = excluded.address,
+             city    = excluded.city,
+             state   = excluded.state,
+             zip     = excluded.zip""",
         (
-            exposure_address or None,
-            exposure_city or None,
-            exposure_state or None,
-            exposure_zip or None,
-            client_id, project_name,
+            client_id, project_name, notes.strip(),
+            addr or None, city or None, state or None, zip_code or None,
         ),
     )
     conn.commit()
@@ -4543,7 +4543,6 @@ def project_detail(
         """SELECT p.id, p.policy_uid, p.policy_type, p.carrier, p.renewal_status,
                   p.premium, p.expiration_date, p.effective_date, p.policy_number,
                   p.limit_amount, p.is_opportunity, p.client_id,
-                  p.exposure_address, p.exposure_city, p.exposure_state, p.exposure_zip,
                   CAST(julianday(p.expiration_date) - julianday('now') AS INTEGER) AS days_to_renewal
            FROM policies p
            WHERE p.project_id = ? AND p.archived = 0
@@ -4551,15 +4550,14 @@ def project_detail(
         (project_id,),
     ).fetchall()
     project = dict(project)
-    # Pull address from first policy that has one (fallback when project has no own address)
-    if not project.get("address"):
-        for pol in policies:
-            if pol["exposure_address"] or pol["exposure_city"]:
-                project["exposure_address"] = pol["exposure_address"] or ""
-                project["exposure_city"] = pol["exposure_city"] or ""
-                project["exposure_state"] = pol["exposure_state"] or ""
-                project["exposure_zip"] = pol["exposure_zip"] or ""
-                break
+    # Address lives on the projects row directly (the fallback-to-policy
+    # chain was retired along with the deprecated policies.exposure_*
+    # columns).  Just alias the project fields into the legacy template
+    # keys so existing markup keeps working.
+    project.setdefault("exposure_address", project.get("address") or "")
+    project.setdefault("exposure_city",    project.get("city")    or "")
+    project.setdefault("exposure_state",   project.get("state")   or "")
+    project.setdefault("exposure_zip",     project.get("zip")     or "")
     if project.get("updated_at"):
         try:
             dt = dateparser.parse(project["updated_at"])
@@ -4667,20 +4665,17 @@ def project_print(
     ).fetchone()
     policies = conn.execute(
         """SELECT policy_uid, policy_type, carrier, premium, limit_amount,
-                  effective_date, expiration_date, renewal_status,
-                  exposure_address, exposure_city, exposure_state, exposure_zip
+                  effective_date, expiration_date, renewal_status
            FROM policies WHERE project_id = ? AND archived = 0
            ORDER BY policy_type""",
         (project_id,),
     ).fetchall()
     project = dict(project)
-    for pol in policies:
-        if pol["exposure_address"] or pol["exposure_city"]:
-            project["exposure_address"] = pol["exposure_address"] or ""
-            project["exposure_city"] = pol["exposure_city"] or ""
-            project["exposure_state"] = pol["exposure_state"] or ""
-            project["exposure_zip"] = pol["exposure_zip"] or ""
-            break
+    # Legacy template keys — aliased from the projects row.
+    project.setdefault("exposure_address", project.get("address") or "")
+    project.setdefault("exposure_city",    project.get("city")    or "")
+    project.setdefault("exposure_state",   project.get("state")   or "")
+    project.setdefault("exposure_zip",     project.get("zip")     or "")
     return templates.TemplateResponse(
         "clients/project_print.html",
         {
@@ -6125,13 +6120,8 @@ async def project_pipeline_field(
         conn.execute(f"UPDATE projects SET {field} = ? WHERE id = ?",
                      (clean_value, project_id))
         formatted = value.strip()
-        # Sync address fields to linked policies
-        _address_to_exposure = {"address": "exposure_address", "city": "exposure_city",
-                                "state": "exposure_state", "zip": "exposure_zip"}
-        if field in _address_to_exposure:
-            exposure_field = _address_to_exposure[field]
-            conn.execute(f"UPDATE policies SET {exposure_field} = ? WHERE project_id = ? AND archived = 0",
-                         (clean_value, project_id))
+        # Address fields live on projects only now — the deprecated sync to
+        # policies.exposure_* has been removed since those columns were dropped.
 
     conn.commit()
     return JSONResponse({"ok": True, "formatted": formatted})
@@ -6740,28 +6730,15 @@ def client_locations(request: Request, client_id: int, conn=Depends(get_db)):
             "program_count": program_count,
         })
 
-    # Smart suggestions: group unassigned by shared exposure_address
-    suggestions = []
-    from collections import defaultdict
-    addr_groups: dict[str, list] = defaultdict(list)
-    for p in unassigned:
-        addr = (p.get("exposure_address") or "").strip()
-        if addr:
-            addr_groups[addr].append(p)
-    for addr, pols in addr_groups.items():
-        if len(pols) >= 2:
-            matching_loc = next(
-                (loc for loc in locations if addr.lower() in loc["address"].lower()),
-                None,
-            )
-            suggestions.append({
-                "address": addr, "policies": pols, "count": len(pols),
-                "matching_location": matching_loc,
-            })
-
+    # The "smart suggestions" flow previously grouped unassigned policies
+    # by shared policies.exposure_address.  That column was dropped along
+    # with the rest of the deprecated exposure_* set, so the signal no
+    # longer exists.  The board now just shows the unassigned list and
+    # the user picks a location manually via the existing drag-to-assign
+    # UI.
     return templates.TemplateResponse("clients/_location_board.html", {
         "request": request, "client_id": client_id, "client_name": client["name"],
-        "unassigned": unassigned, "locations": locations, "suggestions": suggestions,
+        "unassigned": unassigned, "locations": locations, "suggestions": [],
     })
 
 
@@ -6773,25 +6750,18 @@ def location_assign(
     project_id: int = Form(...),
     conn=Depends(get_db),
 ):
-    """Assign a policy to a location/project."""
+    """Assign a policy to a location/project.
+
+    Only ``policies.project_id`` / ``project_name`` need updating — the
+    address lives on the projects row itself and is joined back in via
+    the views (``v_policy_status``/``v_schedule``) or Python helpers.
+    """
     project = conn.execute("SELECT name FROM projects WHERE id=?", (project_id,)).fetchone()
     if project:
         conn.execute(
             "UPDATE policies SET project_id=?, project_name=? WHERE policy_uid=? AND client_id=?",
             (project_id, project["name"], policy_uid, client_id),
         )
-        loc = conn.execute(
-            "SELECT address, city, state, zip FROM projects WHERE id=?",
-            (project_id,),
-        ).fetchone()
-        if loc:
-            conn.execute(
-                """UPDATE policies SET exposure_address=?, exposure_city=?,
-                   exposure_state=?, exposure_zip=?
-                   WHERE policy_uid=? AND client_id=?""",
-                (loc["address"] or "", loc["city"] or "", loc["state"] or "", loc["zip"] or "",
-                 policy_uid, client_id),
-            )
         conn.commit()
     return HTMLResponse("", headers={"HX-Trigger": "locationChanged"})
 
@@ -6816,32 +6786,28 @@ def location_unassign(
 def location_bulk_assign(
     request: Request,
     client_id: int,
-    address: str = Form(...),
     project_id: int = Form(...),
+    policy_uids: str = Form(""),
     conn=Depends(get_db),
 ):
-    """Bulk-assign all unassigned policies sharing an exposure_address to a location."""
+    """Bulk-assign a comma-separated list of policy_uids to a location.
+
+    Previously this flow grouped by shared ``policies.exposure_address``.
+    That column was dropped, so the signal is gone — callers now pass
+    the explicit list of policy_uids to assign.  If ``policy_uids`` is
+    empty this is a no-op.
+    """
+    uids = [u.strip() for u in (policy_uids or "").split(",") if u.strip()]
+    if not uids:
+        return HTMLResponse("", headers={"HX-Trigger": "locationChanged"})
     project = conn.execute("SELECT name FROM projects WHERE id=?", (project_id,)).fetchone()
     if project:
+        ph = ",".join("?" * len(uids))
         conn.execute(
-            """UPDATE policies SET project_id=?, project_name=?
-               WHERE client_id=? AND archived=0
-               AND TRIM(exposure_address)=TRIM(?)
-               AND (project_id IS NULL OR project_id=0)""",
-            (project_id, project["name"], client_id, address),
+            f"""UPDATE policies SET project_id=?, project_name=?
+                WHERE client_id=? AND archived=0 AND policy_uid IN ({ph})""",  # noqa: S608
+            [project_id, project["name"], client_id, *uids],
         )
-        loc = conn.execute(
-            "SELECT address, city, state, zip FROM projects WHERE id=?",
-            (project_id,),
-        ).fetchone()
-        if loc:
-            conn.execute(
-                """UPDATE policies SET exposure_address=?, exposure_city=?,
-                   exposure_state=?, exposure_zip=?
-                   WHERE project_id=? AND client_id=? AND archived=0""",
-                (loc["address"] or "", loc["city"] or "", loc["state"] or "", loc["zip"] or "",
-                 project_id, client_id),
-            )
         conn.commit()
     return HTMLResponse("", headers={"HX-Trigger": "locationChanged"})
 
@@ -7097,7 +7063,7 @@ def client_ai_bulk_import_apply(
                               "effective_date", "expiration_date", "description", "layer_position",
                               "tower_group", "attachment_point", "participation_of",
                               "first_named_insured",
-                              "underwriter_name", "placement_colleague", "exposure_address",
+                              "underwriter_name", "placement_colleague",
                               "coverage_form", "notes"]:
                     val = d.get(field)
                     if val is not None and str(val).strip():
@@ -7138,9 +7104,9 @@ def client_ai_bulk_import_apply(
                         effective_date, expiration_date, premium, limit_amount, deductible,
                         description, layer_position, tower_group, attachment_point,
                         participation_of, first_named_insured, underwriter_name,
-                        placement_colleague, exposure_address, coverage_form, notes,
+                        placement_colleague, coverage_form, notes,
                         project_id, project_name, renewal_status
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Not Started')""",
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Not Started')""",
                     (
                         uid, client_id,
                         d.get("policy_type", ""), d.get("carrier", ""), d.get("policy_number", ""),
@@ -7151,7 +7117,7 @@ def client_ai_bulk_import_apply(
                         d.get("tower_group", ""), d.get("attachment_point"),
                         d.get("participation_of"),
                         d.get("first_named_insured", ""), d.get("underwriter_name", ""),
-                        d.get("placement_colleague", ""), d.get("exposure_address", ""),
+                        d.get("placement_colleague", ""),
                         d.get("coverage_form", ""), d.get("notes", ""),
                         entry["location_id"], entry.get("location_name") or d.get("project_name", ""),
                     ),

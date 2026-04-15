@@ -22,6 +22,83 @@ def _normalize_address(raw: str | None) -> str:
     return re.sub(r"\s+", " ", raw.strip().lower())
 
 
+def attach_primary_exposure(
+    conn: sqlite3.Connection, policies: list[dict]
+) -> None:
+    """Stamp each policy dict with primary-exposure + location fields.
+
+    Called by route handlers that hydrate policy rows from queries which
+    don't already join ``policy_exposure_links`` / ``client_exposures`` /
+    ``projects``.  After running, each policy dict carries:
+
+      primary_exposure_type, primary_exposure_amount,
+      primary_exposure_denominator, primary_exposure_unit,
+      exposure_location_address, exposure_location_city,
+      exposure_location_state, exposure_location_zip
+
+    Missing fields are set to ``None`` so templates can render safely.
+    Address fallback priority: ``policies.project_id`` > primary exposure's
+    own ``project_id`` > ``None``.
+    """
+    if not policies:
+        return
+
+    uids = [
+        p.get("policy_uid") for p in policies
+        if isinstance(p, dict) and p.get("policy_uid")
+    ]
+    if not uids:
+        for p in policies:
+            if isinstance(p, dict):
+                _stamp_exposure_defaults(p)
+        return
+
+    placeholders = ",".join("?" * len(uids))
+    rows = conn.execute(
+        f"""SELECT pel.policy_uid,
+                   ce.exposure_type, ce.amount, ce.denominator, ce.unit,
+                   ce.project_id AS exposure_project_id,
+                   pr_pol.address AS pol_address, pr_pol.city AS pol_city,
+                   pr_pol.state AS pol_state, pr_pol.zip AS pol_zip,
+                   pr_exp.address AS exp_address, pr_exp.city AS exp_city,
+                   pr_exp.state AS exp_state, pr_exp.zip AS exp_zip
+            FROM policies p
+            LEFT JOIN policy_exposure_links pel
+              ON pel.policy_uid = p.policy_uid AND pel.is_primary = 1
+            LEFT JOIN client_exposures ce ON ce.id = pel.exposure_id
+            LEFT JOIN projects pr_pol ON pr_pol.id = p.project_id
+            LEFT JOIN projects pr_exp ON pr_exp.id = ce.project_id
+            WHERE p.policy_uid IN ({placeholders})""",  # noqa: S608
+        uids,
+    ).fetchall()
+    by_uid = {r["policy_uid"]: r for r in rows}
+    for p in policies:
+        if not isinstance(p, dict):
+            continue
+        r = by_uid.get(p.get("policy_uid"))
+        if r is None:
+            _stamp_exposure_defaults(p)
+            continue
+        p["primary_exposure_type"] = r["exposure_type"]
+        p["primary_exposure_amount"] = r["amount"]
+        p["primary_exposure_denominator"] = r["denominator"]
+        p["primary_exposure_unit"] = r["unit"]
+        p["exposure_location_address"] = r["pol_address"] or r["exp_address"]
+        p["exposure_location_city"] = r["pol_city"] or r["exp_city"]
+        p["exposure_location_state"] = r["pol_state"] or r["exp_state"]
+        p["exposure_location_zip"] = r["pol_zip"] or r["exp_zip"]
+
+
+def _stamp_exposure_defaults(p: dict) -> None:
+    for k in (
+        "primary_exposure_type", "primary_exposure_amount",
+        "primary_exposure_denominator", "primary_exposure_unit",
+        "exposure_location_address", "exposure_location_city",
+        "exposure_location_state", "exposure_location_zip",
+    ):
+        p.setdefault(k, None)
+
+
 def find_or_create_project_from_address(
     conn,
     *,
@@ -913,10 +990,9 @@ def renew_policy(
             limit_amount, deductible, description, coverage_form,
             layer_position, tower_group, is_standalone,
             renewal_status, commission_rate, account_exec, notes,
-            project_name, project_id, exposure_basis, exposure_amount, exposure_unit,
-            exposure_address, exposure_city, exposure_state, exposure_zip,
+            project_name, project_id,
             prior_policy_uid)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (
             new_uid, old["client_id"], old["policy_type"], old["carrier"], None,
             new_eff.isoformat(), new_exp.isoformat(),
@@ -925,11 +1001,45 @@ def renew_policy(
             old["layer_position"] or "Primary", old["tower_group"], old["is_standalone"],
             "Not Started", old["commission_rate"], old["account_exec"], None,
             old["project_name"], old["project_id"],
-            old["exposure_basis"], old["exposure_amount"], old["exposure_unit"],
-            old["exposure_address"], old["exposure_city"], old["exposure_state"], old["exposure_zip"],
             uid,
         ),
     )
+
+    # Carry exposure links forward to the new term.  The underlying
+    # client_exposures rows stay shared across terms (they're year-scoped
+    # by the exposure itself); we just need fresh link rows for the new
+    # policy_uid.  If the new term's effective date rolls into a new year,
+    # reuse or create year-matched client_exposures rows so the rate
+    # calculation uses the right exposure amount.
+    from policydb.exposures import (
+        find_or_create_exposure as _find_or_create_exp,
+        create_exposure_link as _create_exp_link,
+    )
+    _old_links = conn.execute(
+        """SELECT ce.client_id, ce.project_id, ce.exposure_type,
+                  ce.amount, ce.denominator, pel.is_primary
+           FROM policy_exposure_links pel
+           JOIN client_exposures ce ON ce.id = pel.exposure_id
+           WHERE pel.policy_uid = ?""",
+        (uid,),
+    ).fetchall()
+    _new_year = new_eff.year
+    for _l in _old_links:
+        _new_exp_id = _find_or_create_exp(
+            conn,
+            client_id=_l["client_id"],
+            project_id=_l["project_id"],
+            exposure_type=_l["exposure_type"],
+            year=_new_year,
+            amount=_l["amount"],
+            denominator=_l["denominator"] or 1,
+        )
+        try:
+            _create_exp_link(
+                conn, new_uid, _new_exp_id, is_primary=bool(_l["is_primary"]),
+            )
+        except Exception as _e:
+            logger.warning("renew_policy: failed to link exposure %s: %s", _new_exp_id, _e)
 
     # Copy contact_policy_assignments from the expiring term to the new term
     new_policy_id = conn.execute(
@@ -4975,16 +5085,23 @@ def get_all_policies_for_grid(conn: sqlite3.Connection) -> list[dict]:
         p.notes,
         p.placement_colleague,
         p.underwriter_name,
-        p.exposure_basis,
-        p.exposure_amount,
-        p.exposure_address,
-        p.exposure_city,
-        p.exposure_state,
-        p.exposure_zip,
+        -- Primary exposure (from normalized client_exposures table)
+        ce.exposure_type AS exposure_basis,
+        ce.amount        AS exposure_amount,
+        -- Location-derived address fields (resolved via policies.project_id
+        -- first, then the primary exposure's own project_id fallback)
+        COALESCE(pr.address, pr_ce.address) AS exposure_address,
+        COALESCE(pr.city,    pr_ce.city)    AS exposure_city,
+        COALESCE(pr.state,   pr_ce.state)   AS exposure_state,
+        COALESCE(pr.zip,     pr_ce.zip)     AS exposure_zip,
         p.attachment_point,
         p.participation_of
     FROM policies p
     JOIN clients c ON p.client_id = c.id
+    LEFT JOIN projects pr ON pr.id = p.project_id
+    LEFT JOIN policy_exposure_links pel ON pel.policy_uid = p.policy_uid AND pel.is_primary = 1
+    LEFT JOIN client_exposures ce ON ce.id = pel.exposure_id
+    LEFT JOIN projects pr_ce ON pr_ce.id = ce.project_id
     WHERE p.archived = 0
     ORDER BY c.name, p.policy_type, p.layer_position
     """
@@ -5434,7 +5551,9 @@ def get_vacation_checklist(conn: sqlite3.Connection, return_date: str) -> dict:
 
 _POL_ROLLUP_COLS = """
     p.id, p.policy_uid, p.policy_type, p.carrier, p.premium,
-    p.exposure_amount, p.exposure_basis,
+    -- Primary exposure from the normalized client_exposures table.
+    ce.amount AS exposure_amount,
+    ce.exposure_type AS exposure_basis,
     p.expiration_date, p.renewal_status, p.is_opportunity,
     (SELECT MIN(follow_up_date) FROM activity_log
        WHERE policy_id = p.id AND follow_up_done = 0 AND follow_up_date IS NOT NULL
@@ -5447,6 +5566,8 @@ _POL_ROLLUP_COLS = """
 _POL_ROLLUP_JOINS = """
     LEFT JOIN projects pr ON pr.id = p.project_id
     LEFT JOIN programs pg ON pg.id = p.program_id
+    LEFT JOIN policy_exposure_links pel_roll ON pel_roll.policy_uid = p.policy_uid AND pel_roll.is_primary = 1
+    LEFT JOIN client_exposures ce ON ce.id = pel_roll.exposure_id
 """
 
 

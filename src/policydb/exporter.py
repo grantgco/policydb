@@ -197,16 +197,18 @@ def export_llm_client_md(conn: sqlite3.Connection, client_id: int) -> str:
     for pc in policy_contacts_rows:
         policy_contacts_map[pc["policy_id"]].append(dict(pc))
 
-    # Primary location address per project (from most recent policy)
+    # Primary location address per project — now read directly from the
+    # `projects` table (the deprecated policies.exposure_* columns were
+    # dropped).
     project_addresses: dict[str, str] = {}
-    for p in sorted([dict(r) for r in policies], key=lambda x: x.get("id", 0)):
-        proj = (p.get("project_name") or "").strip()
-        if proj not in project_addresses:
-            parts = [p.get("exposure_address"), p.get("exposure_city"),
-                     p.get("exposure_state"), p.get("exposure_zip")]
-            addr = ", ".join(x for x in parts if x)
-            if addr:
-                project_addresses[proj] = addr
+    for _pr in conn.execute(
+        "SELECT name, address, city, state, zip FROM projects WHERE client_id = ?",
+        (client["id"],),
+    ).fetchall():
+        parts = [_pr["address"], _pr["city"], _pr["state"], _pr["zip"]]
+        addr = ", ".join(x for x in parts if x)
+        if addr:
+            project_addresses[(_pr["name"] or "").strip()] = addr
 
     # Tower layers grouped by project then tower_group
     tower_by_project: dict = defaultdict(lambda: defaultdict(list))
@@ -1246,7 +1248,12 @@ def export_client_xlsx(conn: sqlite3.Connection, client_id: int) -> bytes:
 
 
 def export_full_xlsx(conn: sqlite3.Connection, client_id: int, client_name: str) -> bytes:
-    """Full internal data export: all policy fields + contacts + notes + activities."""
+    """Full internal data export: all policy fields + contacts + notes + activities.
+
+    The primary exposure + address come from the joined client_exposures
+    (via v_policy_status).  A separate ``Exposures`` sheet lists every
+    linked exposure for every policy, one row per link.
+    """
     policies = conn.execute(
         """SELECT policy_uid, policy_type, carrier, policy_number,
                   effective_date, expiration_date, premium, limit_amount, deductible,
@@ -1256,12 +1263,35 @@ def export_full_xlsx(conn: sqlite3.Connection, client_id: int, client_name: str)
                   placement_colleague, placement_colleague_email,
                   underwriter_name, underwriter_contact,
                   follow_up_date, attachment_point, participation_of,
-                  exposure_basis, exposure_amount, exposure_unit,
+                  primary_exposure_type AS exposure_basis,
+                  primary_exposure_amount AS exposure_amount,
+                  primary_exposure_unit AS exposure_unit,
                   exposure_address, exposure_city, exposure_state, exposure_zip,
                   notes, account_exec, urgency, days_to_renewal,
                   first_named_insured, access_point
            FROM v_policy_status WHERE client_id = ?
            ORDER BY project_name, policy_type, layer_position""",
+        (client_id,),
+    ).fetchall()
+
+    # Full exposure roll — one row per policy_exposure_links entry.
+    exposures = conn.execute(
+        """SELECT p.policy_uid, p.policy_type, p.carrier,
+                  ce.exposure_type, ce.amount, ce.denominator, ce.unit,
+                  ce.year,
+                  pel.is_primary, pel.rate,
+                  COALESCE(pr_pol.name, pr_exp.name) AS location_name,
+                  COALESCE(pr_pol.address, pr_exp.address) AS location_address,
+                  COALESCE(pr_pol.city,    pr_exp.city)    AS location_city,
+                  COALESCE(pr_pol.state,   pr_exp.state)   AS location_state,
+                  COALESCE(pr_pol.zip,     pr_exp.zip)     AS location_zip
+           FROM policies p
+           JOIN policy_exposure_links pel ON pel.policy_uid = p.policy_uid
+           JOIN client_exposures ce ON ce.id = pel.exposure_id
+           LEFT JOIN projects pr_pol ON pr_pol.id = p.project_id
+           LEFT JOIN projects pr_exp ON pr_exp.id = ce.project_id
+           WHERE p.client_id = ? AND p.archived = 0
+           ORDER BY p.policy_uid, pel.is_primary DESC, ce.exposure_type""",
         (client_id,),
     ).fetchall()
 
@@ -1356,6 +1386,8 @@ def export_full_xlsx(conn: sqlite3.Connection, client_id: int, client_name: str)
     wb = Workbook()
     wb.remove(wb.active)
     _write_sheet(wb, "Policies (Full)", [dict(r) for r in policies])
+    if exposures:
+        _write_sheet(wb, "Exposures", [dict(r) for r in exposures])
     _write_sheet(wb, "Contacts", [dict(r) for r in contacts])
     _write_sheet(wb, "Policy Team", [dict(r) for r in policy_team])
     _write_sheet(wb, "Project Notes", [dict(r) for r in project_notes])
@@ -2976,7 +3008,10 @@ def export_book_review_xlsx(conn: sqlite3.Connection, client_id: int, client_nam
                   p.deductible, p.description, p.coverage_form, p.layer_position,
                   p.tower_group, p.renewal_status, p.first_named_insured,
                   p.placement_colleague, p.underwriter_name,
-                  p.exposure_address, p.project_name, p.project_id,
+                  -- Address from the linked project (the legacy
+                  -- policies.exposure_address column was dropped).
+                  pr.address AS exposure_address,
+                  p.project_name, p.project_id,
                   p.program_id, p.is_opportunity,
                   p.flagged,
                   pr.name AS location_name,

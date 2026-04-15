@@ -122,7 +122,7 @@ def blitz_save(
         "first_named_insured", "limit_amount", "deductible",
         "attachment_point", "description", "access_point",
         "opportunity_status", "target_effective_date",
-        "prior_premium", "exposure_amount", "coverage_form",
+        "prior_premium", "coverage_form",
         "layer_position", "notes", "policy_number_unknown",
     }
     _CLIENT_COLUMNS = {
@@ -138,7 +138,7 @@ def blitz_save(
     save_value = value.strip()
     # Parse currency fields through the standard parser
     currency_fields = {"premium", "limit_amount", "deductible", "attachment_point",
-                       "prior_premium", "exposure_amount"}
+                       "prior_premium"}
     if field in currency_fields:
         from policydb.utils import parse_currency_with_magnitude
         parsed = parse_currency_with_magnitude(save_value)

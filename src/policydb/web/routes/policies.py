@@ -52,10 +52,12 @@ US_STATES = [
     ("WI", "Wisconsin"), ("WY", "Wyoming"), ("DC", "District of Columbia"),
 ]
 
-# Fields that can serve autocomplete suggestions from prior DB entries
+# Fields that can serve autocomplete suggestions from prior DB entries.
+# (The old exposure_* entries were retired when those columns were dropped;
+# exposure type/unit pickers now read from `client_exposures` directly.)
 _AUTOCOMPLETE_FIELDS = {
-    "carrier", "exposure_basis", "exposure_unit", "project_name",
-    "exposure_city", "exposure_state", "access_point", "first_named_insured",
+    "carrier", "project_name",
+    "access_point", "first_named_insured",
     "tower_group", "policy_type", "coverage_form",
 }
 
@@ -66,8 +68,6 @@ def _renewal_statuses() -> list[str]:
 
 _CONFIG_SEEDS: dict[str, str] = {
     "carrier": "carriers",
-    "exposure_basis": "exposure_basis_options",
-    "exposure_unit": "exposure_unit_options",
     "policy_type": "policy_types",
     "coverage_form": "coverage_forms",
 }
@@ -116,16 +116,20 @@ def get_status_color(status: str, all_statuses: list | None = None) -> tuple[str
 
 @router.get("/project-defaults", response_class=JSONResponse)
 def policy_project_defaults(project_name: str, client_id: int = 0, conn=Depends(get_db)):
-    """Return most recent exposure/location fields for a known project name."""
+    """Return address fields for a known project name (for UI pre-fill).
+
+    The deprecated ``policies.exposure_*`` columns were dropped; the
+    authoritative address lives on ``projects`` now.  This endpoint returns
+    the matching project's address so the new-policy form can mirror the
+    old pre-fill behavior.
+    """
     if not project_name.strip():
         return JSONResponse({})
     row = conn.execute(
-        """SELECT exposure_address, exposure_city, exposure_state, exposure_zip,
-                  exposure_basis, exposure_unit
-           FROM policies
-           WHERE LOWER(TRIM(project_name)) = LOWER(TRIM(?))
+        """SELECT address, city, state, zip
+           FROM projects
+           WHERE LOWER(TRIM(name)) = LOWER(TRIM(?))
              AND (? = 0 OR client_id = ?)
-             AND archived = 0
            ORDER BY id DESC LIMIT 1""",
         (project_name, client_id, client_id),
     ).fetchone()
@@ -135,7 +139,7 @@ def policy_project_defaults(project_name: str, client_id: int = 0, conn=Depends(
 
 
 # Fields where autocomplete should be scoped to the same client
-_CLIENT_SCOPED_AC_FIELDS = {"project_name", "exposure_city", "tower_group"}
+_CLIENT_SCOPED_AC_FIELDS = {"project_name", "tower_group"}
 
 
 def _sync_project_id(conn, policy_id: int, client_id: int, project_name: str | None) -> None:
@@ -326,20 +330,22 @@ def policy_spreadsheet(request: Request, conn=Depends(get_db)):
          "editor": "input", "headerFilter": "input"},
         {"field": "underwriter_name", "title": "Underwriter", "width": 140,
          "editor": "input", "headerFilter": "input"},
-        {"field": "exposure_basis", "title": "Exposure Basis", "width": 120,
-         "editor": "input"},
+        # Primary exposure (read-only; linked rows live on client_exposures
+        # and are edited through the client's Exposures grid).
+        {"field": "exposure_basis", "title": "Primary Exposure", "width": 130,
+         "editor": False},
         {"field": "exposure_amount", "title": "Exposure Amount", "width": 130,
-         "editor": "number", "editorParams": {"selectContents": True},
-         "_format": "currency"},
+         "editor": False, "_format": "currency"},
+        # Address fields are read-only mirrors of the linked location
+        # (policies.project_id → projects.*).  Edit on the location.
         {"field": "exposure_address", "title": "Address", "width": 160,
-         "editor": "input"},
+         "editor": False},
         {"field": "exposure_city", "title": "City", "width": 120,
-         "editor": "input"},
+         "editor": False},
         {"field": "exposure_state", "title": "State", "width": 80,
-         "editor": "list", "editorParams": {"values": states, "autocomplete": True, "freetext": True, "listOnEmpty": True},
-         "headerFilter": "list", "headerFilterParams": {"values": {s: s for s in states}, "clearable": True}},
+         "editor": False},
         {"field": "exposure_zip", "title": "ZIP", "width": 80,
-         "editor": "input"},
+         "editor": False},
         {"field": "attachment_point", "title": "Attachment Pt", "width": 120,
          "editor": "number", "editorParams": {"selectContents": True},
          "_format": "currency"},
@@ -420,7 +426,9 @@ async def policy_quick_add(request: Request, conn=Depends(get_db)):
     )
     conn.commit()
 
-    # Return the new row in the same shape as get_all_policies_for_grid
+    # Return the new row in the same shape as get_all_policies_for_grid —
+    # exposure fields are NULL for a freshly-added row since no exposure
+    # has been linked yet.
     row = conn.execute(
         """SELECT p.policy_uid, p.client_id, c.name AS client_name,
                   p.policy_type, p.carrier, p.access_point, p.policy_number,
@@ -430,8 +438,9 @@ async def policy_quick_add(request: Request, conn=Depends(get_db)):
                   p.coverage_form, p.layer_position, p.project_name,
                   p.first_named_insured, p.description, p.notes,
                   p.placement_colleague, p.underwriter_name,
-                  p.exposure_basis, p.exposure_amount, p.exposure_address,
-                  p.exposure_city, p.exposure_state, p.exposure_zip,
+                  NULL AS exposure_basis, NULL AS exposure_amount,
+                  NULL AS exposure_address, NULL AS exposure_city,
+                  NULL AS exposure_state, NULL AS exposure_zip,
                   p.attachment_point, p.participation_of
            FROM policies p JOIN clients c ON p.client_id = c.id
            WHERE p.policy_uid = ?""",
@@ -491,13 +500,6 @@ def policy_new_post(
     underwriter_name: str = Form(""),
     underwriter_contact: str = Form(""),
     project_name: str = Form(""),
-    exposure_basis: str = Form(""),
-    exposure_amount: str = Form(""),
-    exposure_unit: str = Form(""),
-    exposure_address: str = Form(""),
-    exposure_city: str = Form(""),
-    exposure_state: str = Form(""),
-    exposure_zip: str = Form(""),
     commission_rate: str = Form(""),
     prior_premium: str = Form(""),
     notes: str = Form(""),
@@ -532,10 +534,6 @@ def policy_new_post(
     premium = str(_parse_money(premium) or 0) if premium else premium
     limit_amount = str(_parse_money(limit_amount) or '') if limit_amount else limit_amount
     deductible = str(_parse_money(deductible) or '') if deductible else deductible
-    exposure_address = exposure_address.strip() if exposure_address else ""
-    exposure_city = format_city(exposure_city) if exposure_city else ""
-    exposure_state = format_state(exposure_state) if exposure_state else ""
-    exposure_zip = format_zip(exposure_zip) if exposure_zip else ""
     conn.execute(
         """INSERT INTO policies
            (policy_uid, client_id, policy_type, carrier, policy_number,
@@ -544,11 +542,9 @@ def policy_new_post(
             is_opportunity, opportunity_status, target_effective_date,
             renewal_status, underwriter_name, underwriter_contact,
             account_exec, project_name,
-            exposure_basis, exposure_amount, exposure_unit,
-            exposure_address, exposure_city, exposure_state, exposure_zip,
             commission_rate, prior_premium, notes,
             attachment_point, participation_of, first_named_insured, access_point)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (uid, client_id, policy_type, carrier or None, policy_number or None,
          effective_date or None, expiration_date or None, _float(premium) or 0,
          _float(limit_amount), _float(deductible),
@@ -560,9 +556,6 @@ def policy_new_post(
          renewal_status,
          underwriter_name or None, underwriter_contact or None,
          account_exec, project_name or None,
-         exposure_basis or None, _float(exposure_amount), exposure_unit or None,
-         exposure_address or None, exposure_city or None,
-         exposure_state or None, exposure_zip or None,
          _float(commission_rate), _float(prior_premium), notes or None,
          _float(attachment_point), _float(participation_of),
          first_named_insured or None, access_point or None),
@@ -1429,7 +1422,7 @@ def policy_provenance(request: Request, policy_uid: str, field: str = "", conn=D
         "policy_type": "Coverage Type", "carrier": "Carrier", "policy_number": "Policy #",
         "effective_date": "Effective", "expiration_date": "Expiration",
         "premium": "Premium", "limit_amount": "Limit", "deductible": "Deductible",
-        "project_name": "Location", "exposure_address": "Address",
+        "project_name": "Location",
         "first_named_insured": "First Named Insured",
         "placement_colleague": "Placement", "underwriter_name": "Underwriter",
         "description": "Description",
@@ -3037,7 +3030,18 @@ def policy_tab_pulse(
     rows = [dict(p)]
     _attach_milestone_progress(conn, rows)
     _attach_readiness_score(conn, rows)
+    # Stamp primary exposure + location fields (legacy policies.exposure_*
+    # columns were dropped — location address now comes from the linked
+    # projects row via the primary exposure link).
+    from policydb.queries import attach_primary_exposure
+    attach_primary_exposure(conn, rows)
     readiness = rows[0]
+    # Map the primary exposure's location fields back onto the `p` dict
+    # so existing templates that read `policy.exposure_city` etc. still
+    # work without rewiring every site.
+    p = dict(p)
+    p["exposure_city"]  = readiness.get("exposure_location_city")
+    p["exposure_state"] = readiness.get("exposure_location_state")
 
     # Computed metrics
     days_to_renewal = None
@@ -3948,12 +3952,6 @@ async def policy_cell_save(request: Request, policy_uid: str, conn=Depends(get_d
         val = value.strip()
         conn.execute("UPDATE policies SET layer_position = ? WHERE policy_uid = ?", (val or None, uid))
         formatted = val
-    elif field == "exposure_state":
-        formatted = format_state(value)
-        conn.execute("UPDATE policies SET exposure_state = ? WHERE policy_uid = ?", (formatted or None, uid))
-    elif field == "exposure_city":
-        formatted = format_city(value)
-        conn.execute("UPDATE policies SET exposure_city = ? WHERE policy_uid = ?", (formatted or None, uid))
     elif field == "review_cycle":
         val = value.strip()
         conn.execute("UPDATE policies SET review_cycle = ? WHERE policy_uid = ?", (val or None, uid))
@@ -3963,9 +3961,6 @@ async def policy_cell_save(request: Request, policy_uid: str, conn=Depends(get_d
     elif field == "policy_number":
         formatted = normalize_policy_number(value)
         conn.execute("UPDATE policies SET policy_number = ? WHERE policy_uid = ?", (formatted, uid))
-    elif field == "exposure_zip":
-        formatted = format_zip(value)
-        conn.execute("UPDATE policies SET exposure_zip = ? WHERE policy_uid = ?", (formatted or None, uid))
     elif field in text_fields:
         val = value.strip()
         conn.execute(f"UPDATE policies SET {field} = ? WHERE policy_uid = ?", (val or None, uid))  # noqa: S608

@@ -226,28 +226,31 @@ def _run_hygiene_062(conn: sqlite3.Connection) -> None:
             conn.execute("UPDATE clients SET name = ? WHERE id = ?", (n, r["id"]))
             changed["client_name"] += 1
 
+    # Normalize address fields on the `projects` table (authoritative now
+    # that the legacy policies.exposure_* columns have been dropped).
     for r in conn.execute(
-        "SELECT id, exposure_zip, exposure_state, exposure_city FROM policies WHERE exposure_zip IS NOT NULL OR exposure_state IS NOT NULL OR exposure_city IS NOT NULL"
+        """SELECT id, zip, state, city FROM projects
+           WHERE zip IS NOT NULL OR state IS NOT NULL OR city IS NOT NULL"""
     ).fetchall():
         updates = {}
-        if r["exposure_zip"]:
-            fmt = format_zip(r["exposure_zip"])
-            if fmt != r["exposure_zip"]:
-                updates["exposure_zip"] = fmt
+        if r["zip"]:
+            fmt = format_zip(r["zip"])
+            if fmt != r["zip"]:
+                updates["zip"] = fmt
                 changed["zip"] += 1
-        if r["exposure_state"]:
-            fmt = format_state(r["exposure_state"])
-            if fmt != r["exposure_state"]:
-                updates["exposure_state"] = fmt
+        if r["state"]:
+            fmt = format_state(r["state"])
+            if fmt != r["state"]:
+                updates["state"] = fmt
                 changed["state"] += 1
-        if r["exposure_city"]:
-            fmt = format_city(r["exposure_city"])
-            if fmt != r["exposure_city"]:
-                updates["exposure_city"] = fmt
+        if r["city"]:
+            fmt = format_city(r["city"])
+            if fmt != r["city"]:
+                updates["city"] = fmt
                 changed["city"] += 1
         if updates:
             set_clause = ", ".join(f"{k} = ?" for k in updates)
-            conn.execute(f"UPDATE policies SET {set_clause} WHERE id = ?", (*updates.values(), r["id"]))  # noqa: S608
+            conn.execute(f"UPDATE projects SET {set_clause} WHERE id = ?", (*updates.values(), r["id"]))  # noqa: S608
 
     conn.commit()
     total = sum(changed.values())
@@ -2022,6 +2025,34 @@ def _init_db_inner(conn: sqlite3.Connection, db_path: Path) -> None:
         conn.commit()
         logger.info("Migration 150: dropped policies/clients/programs.follow_up_date (activity_log is sole source of truth)")
 
+    if 151 not in applied:
+        # Idempotent: skip any DROP COLUMN line whose column is already gone.
+        def _has_policy_col(col: str) -> bool:
+            return any(
+                r[1] == col for r in conn.execute("PRAGMA table_info(policies)").fetchall()
+            )
+        _dropped_cols = {
+            "exposure_basis", "exposure_amount", "exposure_unit",
+            "exposure_denominator", "exposure_address", "exposure_city",
+            "exposure_state", "exposure_zip",
+        }
+        _migration_sql = (_MIGRATIONS_DIR / "151_drop_policy_exposure_columns.sql").read_text()
+        _filtered_lines = []
+        for _line in _migration_sql.splitlines():
+            _stripped = _line.strip().rstrip(";")
+            if _stripped.startswith("ALTER TABLE policies DROP COLUMN "):
+                _col = _stripped.split()[-1]
+                if _col in _dropped_cols and not _has_policy_col(_col):
+                    continue
+            _filtered_lines.append(_line)
+        conn.executescript("\n".join(_filtered_lines))
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (151, "Drop deprecated policies.exposure_* columns (data lives on client_exposures + projects)"),
+        )
+        conn.commit()
+        logger.info("Migration 151: dropped 8 deprecated policies.exposure_* columns")
+
     # Data hygiene: fix 'None' string corruption in text fields (runs every startup, fast no-op if clean)
     conn.execute("UPDATE clients SET cn_number = NULL WHERE cn_number = 'None'")
 
@@ -2070,17 +2101,10 @@ def _init_db_inner(conn: sqlite3.Connection, db_path: Path) -> None:
     except Exception:
         pass  # Table may not exist on older schemas
 
-    # Backfill project addresses from linked policies (idempotent — only fills empty project addresses)
-    conn.execute("""
-        UPDATE projects SET
-            address = (SELECT p.exposure_address FROM policies p WHERE p.project_id = projects.id AND p.exposure_address IS NOT NULL AND p.exposure_address != '' LIMIT 1),
-            city = (SELECT p.exposure_city FROM policies p WHERE p.project_id = projects.id AND p.exposure_city IS NOT NULL AND p.exposure_city != '' LIMIT 1),
-            state = (SELECT p.exposure_state FROM policies p WHERE p.project_id = projects.id AND p.exposure_state IS NOT NULL AND p.exposure_state != '' LIMIT 1),
-            zip = (SELECT p.exposure_zip FROM policies p WHERE p.project_id = projects.id AND p.exposure_zip IS NOT NULL AND p.exposure_zip != '' LIMIT 1)
-        WHERE (project_type = 'Location' OR project_type IS NULL)
-          AND (address IS NULL OR address = '')
-          AND EXISTS (SELECT 1 FROM policies p WHERE p.project_id = projects.id AND p.exposure_address IS NOT NULL AND p.exposure_address != '')
-    """)
+    # (The startup backfill of project addresses from legacy
+    # policies.exposure_* columns has been retired — those columns were
+    # dropped by migration 151.  Migration 151 itself runs one final
+    # backfill before the DROP so no data is lost.)
 
     # Normalize carrier names (idempotent)
     try:
