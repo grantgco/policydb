@@ -244,10 +244,14 @@ def action_snooze(
             return new_date
         if not days:
             return current
+        today = date.today()
         try:
-            base = date.fromisoformat(current) if current else date.today()
+            current_date = date.fromisoformat(current) if current else today
         except (ValueError, TypeError):
-            base = date.today()
+            current_date = today
+        # Overdue or undated tasks snooze from today; future-dated tasks snooze
+        # from their scheduled date so a "+3d" on a task 10 days out becomes +13d.
+        base = max(today, current_date)
         return (base + timedelta(days=days)).isoformat()
 
     _kind, rid = _parse_activity_id(activity_id)
