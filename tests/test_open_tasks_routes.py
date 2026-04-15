@@ -123,6 +123,14 @@ def test_disposition_toggles_to_waiting(app_client, seeded):
     assert row["disposition"]
 
 
+def test_disposition_rejects_invalid_move(app_client, seeded):
+    r = app_client.post(
+        f"/open-tasks/{seeded['activity_id']}/disposition",
+        data={"move": "invalid", "return_scope_type": "issue", "return_scope_id": seeded["issue_id"]},
+    )
+    assert r.status_code == 400
+
+
 def test_log_close_clears_date_and_marks_done(app_client, seeded):
     r = app_client.post(
         f"/open-tasks/{seeded['activity_id']}/log-close",
@@ -168,6 +176,14 @@ def test_attach_sets_issue_id(app_client, seeded):
         "SELECT issue_id FROM activity_log WHERE id=?", (loose_id,)
     ).fetchone()
     assert row["issue_id"] == iss_b
+
+
+def test_attach_returns_404_for_missing_activity(app_client, seeded):
+    r = app_client.post(
+        "/open-tasks/999999/attach",
+        data={"target_issue_id": seeded["issue_id"], "return_scope_type": "issue", "return_scope_id": seeded["issue_id"]},
+    )
+    assert r.status_code == 404
 
 
 def test_note_creates_sibling_activity(app_client, seeded):
@@ -230,3 +246,5 @@ def test_new_task_form_get_renders(app_client, seeded):
     )
     assert r.status_code == 200
     assert "hx-post=\"/open-tasks/new\"" in r.text
+    assert "data-disposition=\"waiting\"" in r.text
+    assert "name=\"disposition\"" in r.text

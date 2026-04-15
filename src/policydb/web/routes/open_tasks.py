@@ -319,6 +319,8 @@ def action_disposition(
     kind, rid = _parse_activity_id(activity_id)
     if kind != "activity":
         raise HTTPException(400, "Disposition only supported on activity-source rows")
+    if move not in {"my", "waiting"}:
+        raise HTTPException(400, "Invalid disposition move")
 
     from policydb.config import get as cfg_get
     label = ""
@@ -385,6 +387,9 @@ def action_attach(
     kind, rid = _parse_activity_id(activity_id)
     if kind != "activity":
         raise HTTPException(400, "Attach only supported on activity-source rows")
+    act = _fetch_activity(conn, rid)
+    if not act:
+        raise HTTPException(404, "Activity not found")
     # Verify target is a valid issue row
     iss = conn.execute(
         "SELECT id FROM activity_log WHERE id = ? AND item_kind = 'issue'",

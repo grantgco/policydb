@@ -36,12 +36,19 @@
              class="w-full text-xs px-2 py-1 border border-gray-300 rounded">
     </div>
 
-    <div>
-      <label class="text-[10px] text-gray-500 uppercase tracking-wide block">Disposition</label>
-      <select name="disposition" class="w-full text-xs px-2 py-1 border border-gray-300 rounded">
-        <option value="">My move</option>
-        <option value="waiting">Waiting</option>
-      </select>
+    <div data-disposition-group>
+      <label class="text-[10px] text-gray-500 uppercase tracking-wide block mb-1">Disposition</label>
+      <input type="hidden" name="disposition" value="">
+      <div class="flex rounded border border-gray-300 overflow-hidden">
+        <button type="button"
+                data-disposition=""
+                onclick="const root=this.closest('[data-disposition-group]'); const hidden=root.querySelector('input[name=disposition]'); hidden.value=this.dataset.disposition; root.querySelectorAll('[data-disposition]').forEach(b=>{b.classList.remove('bg-marsh','text-white'); b.classList.add('bg-white','text-gray-600');}); this.classList.remove('bg-white','text-gray-600'); this.classList.add('bg-marsh','text-white');"
+                class="flex-1 text-xs px-2 py-1 bg-marsh text-white">My move</button>
+        <button type="button"
+                data-disposition="waiting"
+                onclick="const root=this.closest('[data-disposition-group]'); const hidden=root.querySelector('input[name=disposition]'); hidden.value=this.dataset.disposition; root.querySelectorAll('[data-disposition]').forEach(b=>{b.classList.remove('bg-marsh','text-white'); b.classList.add('bg-white','text-gray-600');}); this.classList.remove('bg-white','text-gray-600'); this.classList.add('bg-marsh','text-white');"
+                class="flex-1 text-xs px-2 py-1 bg-white text-gray-600 border-l border-gray-300">Waiting</button>
+      </div>
     </div>
 
     <div class="flex gap-2">
