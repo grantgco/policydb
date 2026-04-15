@@ -804,8 +804,11 @@ def clean_email(raw: str) -> str:
     if match:
         s = match.group(1)
     # Try to extract a bare email address from surrounding text like "(e) user@domain.com"
-    # Unambiguous: local part, '@', host label(s) separated by literal dots.
-    email_match = re.search(r'[\w.+-]+@[\w-]+(?:\.[\w-]+)+', s)
+    # Unambiguous: each side of '@' is a sequence of labels separated by literal
+    # dots, with label chars drawn from a class that excludes '.'. This structure
+    # eliminates the overlap that allowed polynomial backtracking in the previous
+    # pattern `[\w.+-]+@[\w.-]+\.\w+`.
+    email_match = re.search(r'[\w+-]+(?:\.[\w+-]+)*@[\w-]+(?:\.[\w-]+)+', s)
     if email_match:
         return email_match.group(0).lower()
     # Strip surrounding quotes, semicolons, commas, whitespace
