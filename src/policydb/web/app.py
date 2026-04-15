@@ -327,7 +327,7 @@ def get_db() -> Generator[sqlite3.Connection, None, None]:
 
 
 # ── Register routers ──────────────────────────────────────────────────────────
-from policydb.web.routes import dashboard, clients, policies, activities, settings, reconcile, templates as tpl_routes, contacts, review, briefing, inbox, ref_lookup, compliance, action_center, logs, compose, import_history, geocoder as geocoder_routes, charts as charts_routes, programs as programs_routes, exports as exports_routes, issues as issues_routes, data_health as data_health_routes, anomalies as anomalies_routes, kb as kb_routes, attachments as attachments_routes, pinned_notes as pinned_notes_routes, outlook_routes, prompt_builder as prompt_builder_routes, bind_order as bind_order_routes, recurring_events as recurring_events_routes, open_tasks as open_tasks_routes  # noqa: E402
+from policydb.web.routes import dashboard, clients, policies, activities, settings, reconcile, templates as tpl_routes, contacts, review, briefing, inbox, ref_lookup, compliance, action_center, logs, compose, import_history, geocoder as geocoder_routes, charts as charts_routes, programs as programs_routes, exports as exports_routes, issues as issues_routes, data_health as data_health_routes, anomalies as anomalies_routes, kb as kb_routes, attachments as attachments_routes, pinned_notes as pinned_notes_routes, outlook_routes, prompt_builder as prompt_builder_routes, bind_order as bind_order_routes, recurring_events as recurring_events_routes, open_tasks as open_tasks_routes, carriers as carriers_routes  # noqa: E402
 
 app.include_router(dashboard.router)
 app.include_router(clients.router)
@@ -361,6 +361,7 @@ app.include_router(prompt_builder_routes.router)
 app.include_router(bind_order_routes.router)
 app.include_router(recurring_events_routes.router)
 app.include_router(open_tasks_routes.router)
+app.include_router(carriers_routes.router)
 
 # Static files (charts JS/CSS assets)
 STATIC_DIR = Path(__file__).parent / "static"

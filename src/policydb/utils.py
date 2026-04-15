@@ -49,12 +49,17 @@ _BASE_CARRIER_ALIASES: dict[str, str] = {}  # populated on first rebuild_carrier
 
 
 def rebuild_carrier_aliases() -> None:
-    """Rebuild _CARRIER_ALIASES from config with snapshot-then-merge pattern.
+    """Rebuild _CARRIER_ALIASES from config + the carriers directory table.
 
     Merge order (later overrides earlier):
     1. Base carrier aliases from config carrier_aliases (snapshotted on first call)
-    2. carriers config list — each entry self-references as canonical
-    3. carrier_aliases config — user-learned mappings layered on top
+    2. carriers config list — each entry self-references as canonical (legacy seed)
+    3. carriers directory table — source of truth for canonical carrier/wholesaler names
+    4. carrier_aliases config — user-learned mappings layered on top
+
+    The directory table becomes authoritative once migration 148 runs. Before that
+    (or during early test setup when the DB hasn't been initialized), the table
+    read fails silently and we fall back to the config-only behavior.
     """
     global _CARRIER_ALIASES, _BASE_CARRIER_ALIASES
     from policydb import config as cfg
@@ -72,6 +77,24 @@ def rebuild_carrier_aliases() -> None:
     # Layer carriers config list as self-referencing canonicals
     for entry in cfg.get("carriers", []):
         merged[entry.strip().lower()] = entry.strip()
+    # Layer directory table rows (carriers and wholesalers) on top of config seed
+    try:
+        from policydb.db import get_connection
+        _conn = get_connection()
+        try:
+            _rows = _conn.execute(
+                "SELECT name FROM carriers WHERE TRIM(name) != ''"
+            ).fetchall()
+            for _r in _rows:
+                _name = (_r["name"] or "").strip()
+                if _name:
+                    merged[_name.lower()] = _name
+        finally:
+            _conn.close()
+    except Exception:
+        # Table doesn't exist yet (pre-migration) or DB not initialized —
+        # fall through to config-only behavior.
+        pass
     # Layer user-learned aliases on top
     for canonical, variations in aliases.items():
         merged[canonical.lower()] = canonical

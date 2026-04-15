@@ -239,11 +239,55 @@ def compose_panel(
     template_id: int = Query(0),
     issue_uid: str = Query(""),
     program_uid: str = Query(""),
+    purpose: str = Query(""),
 ):
     """Return the compose slideover HTML partial."""
 
     # ── Build rendering context based on params ──────────────────────────
     ctx: dict = {}
+
+    # ── Loss-run purpose pre-resolution ──────────────────────────────────
+    # When opened via "Request Loss Run" button on a policy, look up the
+    # carrier/wholesaler in the directory, auto-select the seeded template,
+    # and enable the "Save destination" checkbox so unknown destinations
+    # compile the directory on send.
+    loss_run_mode = (purpose == "loss_run_request")
+    loss_run_hint = ""
+    loss_run_destination = {"name": "", "type": "carrier"}
+    if loss_run_mode and policy_uid:
+        from policydb.web.routes.carriers import lookup_destination
+        _pol = conn.execute(
+            "SELECT carrier, access_point FROM policies WHERE policy_uid = ?",
+            (policy_uid.upper(),),
+        ).fetchone()
+        if _pol:
+            _carrier = (_pol["carrier"] or "").strip()
+            _wholesaler = (_pol["access_point"] or "").strip()
+            # Wholesaler wins when present (matches lookup_destination precedence)
+            if _wholesaler:
+                loss_run_destination = {"name": _wholesaler, "type": "wholesaler"}
+            elif _carrier:
+                loss_run_destination = {"name": _carrier, "type": "carrier"}
+            _dest = lookup_destination(conn, carrier_name=_carrier, wholesaler_name=_wholesaler)
+            if _dest and _dest.get("loss_run_email"):
+                to_email = _dest["loss_run_email"]
+                # Use the canonical directory name for save-destination upsert
+                loss_run_destination = {
+                    "name": _dest["name"],
+                    "type": _dest["type"],
+                }
+            else:
+                loss_run_hint = (
+                    f"No loss run email on file for {loss_run_destination['name'] or 'this policy'}. "
+                    "Fill in the To field — leave 'Save destination' checked and it'll be added to the directory."
+                )
+        # Auto-select the loss-run template if one isn't already requested
+        if not template_id:
+            _tpl_row = conn.execute(
+                "SELECT id FROM email_templates WHERE purpose = 'loss_run_request' ORDER BY id LIMIT 1"
+            ).fetchone()
+            if _tpl_row:
+                template_id = _tpl_row["id"]
 
     if issue_uid:
         ctx = issue_context(conn, issue_uid)
@@ -323,12 +367,17 @@ def compose_panel(
     primary_to = {}
     if to_email:
         # Explicit To address passed from per-contact email button
+        # or from loss-run directory lookup
         for r in recipients:
             if r["email"].strip().lower() == to_email.strip().lower():
                 primary_to = r
                 break
         if not primary_to:
             primary_to = {"name": "", "email": to_email, "role": "", "badge": "", "source": "manual"}
+    elif loss_run_mode:
+        # Loss run with no directory match — leave To blank so the user
+        # types the carrier's email. Never default to a client contact.
+        primary_to = {}
     elif mode != "rfi_notify":
         # Default: first CLIENT badge contact only — never default to
         # placement colleagues or underwriters in the To field
@@ -418,21 +467,24 @@ def compose_panel(
             body = rendered_body
 
     # ── Load available templates for dropdown ────────────────────────────
+    # Exclude purpose-tagged templates (e.g. loss_run_request) — those only
+    # surface via their dedicated flows, not the generic template picker.
+    _purpose_filter = "(purpose IS NULL OR purpose = '')"
     if program_uid:
         tpl_rows = conn.execute(
-            "SELECT * FROM email_templates WHERE context IN ('policy','general') ORDER BY context, name"
+            f"SELECT * FROM email_templates WHERE context IN ('policy','general') AND {_purpose_filter} ORDER BY context, name"
         ).fetchall()
     elif policy_uid or project_name:
         tpl_rows = conn.execute(
-            "SELECT * FROM email_templates WHERE context IN ('policy','general') ORDER BY context, name"
+            f"SELECT * FROM email_templates WHERE context IN ('policy','general') AND {_purpose_filter} ORDER BY context, name"
         ).fetchall()
     elif client_id:
         tpl_rows = conn.execute(
-            "SELECT * FROM email_templates WHERE context IN ('client','general') ORDER BY context, name"
+            f"SELECT * FROM email_templates WHERE context IN ('client','general') AND {_purpose_filter} ORDER BY context, name"
         ).fetchall()
     else:
         tpl_rows = conn.execute(
-            "SELECT * FROM email_templates WHERE context='general' ORDER BY name"
+            f"SELECT * FROM email_templates WHERE context='general' AND {_purpose_filter} ORDER BY name"
         ).fetchall()
     available_templates = [dict(r) for r in tpl_rows]
 
@@ -455,6 +507,10 @@ def compose_panel(
         "available_templates": available_templates,
         "template_id": template_id,
         "ctx": ctx,
+        "purpose": purpose,
+        "loss_run_mode": loss_run_mode,
+        "loss_run_hint": loss_run_hint,
+        "loss_run_destination": loss_run_destination,
     })
 
 

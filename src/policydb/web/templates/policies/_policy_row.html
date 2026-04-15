@@ -64,6 +64,10 @@
       hx-target="#row-{{ p.policy_uid }}"
       hx-swap="outerHTML"
       class="text-xs text-amber-600 hover:underline no-print ml-1" title="Log activity">Log</button>
+    <button type="button"
+      hx-get="/compose?policy_uid={{ p.policy_uid }}&purpose=loss_run_request"
+      hx-target="body" hx-swap="beforeend"
+      class="text-xs text-blue-600 hover:underline no-print ml-1" title="Request loss run from carrier / wholesaler">LR</button>
     <button type="button" onclick="copyRefTag(this, '{{ build_ref_tag(cn_number=p.cn_number|default(''), client_id=p.client_id, policy_uid=p.policy_uid, project_id=p.project_id|default(0)) }}')"
       class="text-gray-300 hover:text-marsh text-xs no-print ml-1" title="Copy ref tag">&#10697;</button>
   </td>

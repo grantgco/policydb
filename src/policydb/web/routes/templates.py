@@ -53,15 +53,16 @@ def template_create(
     description: str = Form(""),
     subject_template: str = Form(""),
     body_template: str = Form(""),
+    purpose: str = Form(""),
     conn=Depends(get_db),
 ):
     from fastapi.responses import RedirectResponse
     context = context if context in _CONTEXT_LABELS else "policy"
     conn.execute(
-        """INSERT INTO email_templates (name, context, description, subject_template, body_template)
-           VALUES (?, ?, ?, ?, ?)""",
+        """INSERT INTO email_templates (name, context, description, subject_template, body_template, purpose)
+           VALUES (?, ?, ?, ?, ?, ?)""",
         (name.strip(), context, description.strip() or None,
-         subject_template, body_template),
+         subject_template, body_template, (purpose or "").strip()),
     )
     conn.commit()
     return RedirectResponse("/templates", status_code=303)
@@ -112,16 +113,17 @@ def template_edit_save(
     description: str = Form(""),
     subject_template: str = Form(""),
     body_template: str = Form(""),
+    purpose: str = Form(""),
     conn=Depends(get_db),
 ):
     context = context if context in _CONTEXT_LABELS else "policy"
     conn.execute(
         """UPDATE email_templates
            SET name=?, context=?, description=?, subject_template=?, body_template=?,
-               updated_at=CURRENT_TIMESTAMP
+               purpose=?, updated_at=CURRENT_TIMESTAMP
            WHERE id=?""",
         (name.strip(), context, description.strip() or None,
-         subject_template, body_template, template_id),
+         subject_template, body_template, (purpose or "").strip(), template_id),
     )
     conn.commit()
     row = conn.execute(

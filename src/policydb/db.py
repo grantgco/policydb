@@ -364,7 +364,7 @@ def _init_db_inner(conn: sqlite3.Connection, db_path: Path) -> None:
     # Back up the database once before running any pending migrations.
     # This gives a clean restore point regardless of which migration fails.
 
-    _KNOWN_MIGRATIONS = set(range(1, 147))  # update upper bound when adding new migrations
+    _KNOWN_MIGRATIONS = set(range(1, 150))  # update upper bound when adding new migrations
 
     if _KNOWN_MIGRATIONS - applied:
         _backup_db(conn, db_path)
@@ -1930,6 +1930,67 @@ def _init_db_inner(conn: sqlite3.Connection, db_path: Path) -> None:
         )
         conn.commit()
         logger.info("Migration 148: added outlook_contact_id column")
+
+    if 149 not in applied:
+        conn.executescript((_MIGRATIONS_DIR / "149_carriers_table.sql").read_text())
+        # Add email_templates.purpose if not already present. SQLite lacks
+        # `ADD COLUMN IF NOT EXISTS`, so we guard with pragma_table_info.
+        _et_cols = {r[1] for r in conn.execute("PRAGMA table_info(email_templates)").fetchall()}
+        if "purpose" not in _et_cols:
+            conn.execute(
+                "ALTER TABLE email_templates ADD COLUMN purpose TEXT NOT NULL DEFAULT ''"
+            )
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (149, "Carriers table + email_templates.purpose column for loss run request automation"),
+        )
+        # Seed carriers table from the existing config list (one-time). Names only —
+        # the user fills in loss-run email addresses via /carriers or inline from
+        # the compose slideover's "Save destination" checkbox.
+        from policydb import config as _cfg_seed
+        existing_count = conn.execute("SELECT COUNT(*) FROM carriers").fetchone()[0]
+        if existing_count == 0:
+            for _name in _cfg_seed.get("carriers", []) or []:
+                _name = (_name or "").strip()
+                if not _name:
+                    continue
+                conn.execute(
+                    "INSERT OR IGNORE INTO carriers (name, type) VALUES (?, 'carrier')",
+                    (_name,),
+                )
+        # Seed the Loss Run Request email template if absent. Uses existing
+        # policy_context() tokens — no new token plumbing needed.
+        already_tpl = conn.execute(
+            "SELECT COUNT(*) FROM email_templates WHERE purpose='loss_run_request'"
+        ).fetchone()[0]
+        if already_tpl == 0:
+            conn.execute(
+                """INSERT INTO email_templates
+                   (name, context, description, subject_template, body_template, purpose)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (
+                    "Loss Run Request",
+                    "policy",
+                    "Loss run request to carrier or wholesaler — 5 years of claim history.",
+                    "Loss Run Request — {{first_named_insured}} — {{policy_number}}",
+                    (
+                        "Hello,\n\n"
+                        "Please provide a current loss run for the policy below, including "
+                        "5 years of history.\n\n"
+                        "- Named Insured: {{first_named_insured}}\n"
+                        "- Policy Number: {{policy_number}}\n"
+                        "- Coverage Line: {{policy_type}}\n"
+                        "- Effective Date: {{effective_date}}\n"
+                        "- Expiration Date: {{expiration_date}}\n\n"
+                        "Please reply all with the loss run attached. Let me know if you need "
+                        "any additional information.\n\n"
+                        "Thank you"
+                    ),
+                    "loss_run_request",
+                ),
+            )
+        conn.commit()
+        logger.info("Migration 149: added carriers table + email_templates.purpose + seeded loss run template")
 
     # Data hygiene: fix 'None' string corruption in text fields (runs every startup, fast no-op if clean)
     conn.execute("UPDATE clients SET cn_number = NULL WHERE cn_number = 'None'")

@@ -41,13 +41,19 @@
           title="More actions">
           <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><circle cx="10" cy="4" r="1.5"/><circle cx="10" cy="10" r="1.5"/><circle cx="10" cy="16" r="1.5"/></svg>
         </button>
-        <div id="more-actions-menu" class="hidden absolute right-0 top-full mt-1 w-48 bg-white border border-gray-200 rounded-lg shadow-lg z-50 py-1">
+        <div id="more-actions-menu" class="hidden absolute right-0 top-full mt-1 w-56 bg-white border border-gray-200 rounded-lg shadow-lg z-50 py-1">
           <form method="post" action="/policies/{{ policy.policy_uid }}/renew">
             <button type="button" onclick="confirmAction(this, 'Renew this policy?')"
               class="w-full text-left px-4 py-2 text-sm text-blue-600 hover:bg-blue-50 transition-colors">
               Renew Policy
             </button>
           </form>
+          <button type="button"
+            hx-get="/compose?policy_uid={{ policy.policy_uid }}&purpose=loss_run_request"
+            hx-target="body" hx-swap="beforeend"
+            class="w-full text-left px-4 py-2 text-sm text-blue-600 hover:bg-blue-50 transition-colors">
+            Request Loss Run
+          </button>
           <div class="border-t border-gray-100 my-1"></div>
           <form method="post" action="/policies/{{ policy.policy_uid }}/archive">
             <button type="button" onclick="confirmAction(this, 'Archive this policy?')"

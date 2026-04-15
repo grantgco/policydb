@@ -1,0 +1,48 @@
+{#
+  Single carrier row for the directory table. Used as the initial render
+  target by POST /carriers (new row) and by PATCH /carriers/{id} after
+  cell saves. Fields blur-save via JS in carriers/index.html.
+#}
+<tr data-carrier-id="{{ c.id }}" class="border-t border-gray-100 hover:bg-gray-50/60">
+  <td class="px-3 py-2">
+    <span contenteditable="true"
+          class="carrier-cell font-medium text-gray-800"
+          data-field="name"
+          data-id="{{ c.id }}"
+          data-placeholder="Carrier name">{{ c.name }}</span>
+  </td>
+  <td class="px-3 py-2 text-xs">
+    <select class="carrier-type-select text-xs border border-gray-200 rounded px-2 py-1 bg-white"
+            data-id="{{ c.id }}">
+      <option value="carrier" {% if c.type == 'carrier' %}selected{% endif %}>Carrier</option>
+      <option value="wholesaler" {% if c.type == 'wholesaler' %}selected{% endif %}>Wholesaler</option>
+    </select>
+  </td>
+  <td class="px-3 py-2">
+    <span contenteditable="true"
+          class="carrier-cell text-gray-700 font-mono text-xs"
+          data-field="loss_run_email"
+          data-id="{{ c.id }}"
+          data-placeholder="lossruns@…">{{ c.loss_run_email }}</span>
+  </td>
+  <td class="px-3 py-2">
+    <span contenteditable="true"
+          class="carrier-cell text-gray-500 font-mono text-xs"
+          data-field="loss_run_cc"
+          data-id="{{ c.id }}"
+          data-placeholder="(optional cc)">{{ c.loss_run_cc }}</span>
+  </td>
+  <td class="px-3 py-2">
+    <span contenteditable="true"
+          class="carrier-cell text-gray-500 text-xs"
+          data-field="notes"
+          data-id="{{ c.id }}"
+          data-placeholder="Notes">{{ c.notes }}</span>
+  </td>
+  <td class="px-3 py-2 whitespace-nowrap text-right no-print">
+    <button type="button"
+            onclick="carrierDelete({{ c.id }}, this)"
+            class="text-xs text-gray-300 hover:text-red-500"
+            title="Delete">&times;</button>
+  </td>
+</tr>

@@ -31,7 +31,8 @@
 
     {# ── Context label ── #}
     {% set _ctx_label %}
-      {% if mode == 'rfi_notify' %}RFI Notification
+      {% if loss_run_mode %}Loss Run Request: {{ loss_run_destination.name or ctx.get('policy_uid', policy_uid) }}
+      {% elif mode == 'rfi_notify' %}RFI Notification
       {% elif policy_uid %}Policy: {{ ctx.get('policy_uid', policy_uid) }}
       {% elif project_name %}Location: {{ project_name }}
       {% elif client_id %}Client: {{ ctx.get('client_name', '') }}
@@ -39,13 +40,33 @@
       {% endif %}
     {% endset %}
     <div>
-      <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
+      <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium {% if loss_run_mode %}bg-blue-100 text-blue-700{% else %}bg-gray-100 text-gray-600{% endif %}">
         {{ _ctx_label | trim }}
       </span>
     </div>
 
+    {% if loss_run_mode and loss_run_hint %}
+    <div class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+      {{ loss_run_hint }}
+    </div>
+    {% endif %}
+
     {# ── Recipient picker ── #}
     {% include "_recipient_picker.html" %}
+
+    {% if loss_run_mode and loss_run_destination.name %}
+    <label class="flex items-start gap-2 cursor-pointer text-xs text-gray-600 -mt-1">
+      <input type="checkbox" id="compose-save-destination"
+             class="rounded border-gray-300 mt-0.5" checked>
+      <span>
+        Save the To address as
+        <span class="font-semibold">{{ loss_run_destination.name }}</span>'s
+        loss run email in the
+        <span class="italic">{{ loss_run_destination.type }}s</span>
+        directory on send.
+      </span>
+    </label>
+    {% endif %}
 
     {# ── Separator ── #}
     <hr class="border-gray-100">
@@ -150,7 +171,11 @@
     bundle_id: {{ bundle_id | tojson }},
     mode: {{ mode | tojson }},
     ref_tag: {{ ref_tag | tojson }},
-    issue_uid: {{ (issue_uid | default('')) | tojson }}
+    issue_uid: {{ (issue_uid | default('')) | tojson }},
+    purpose: {{ (purpose | default('')) | tojson }},
+    loss_run_mode: {{ (loss_run_mode | default(false)) | tojson }},
+    destination_name: {{ (loss_run_destination.name if loss_run_destination else '') | tojson }},
+    destination_type: {{ (loss_run_destination.type if loss_run_destination else '') | tojson }}
   };
 
   window.markComposeEdited = function() {
@@ -359,21 +384,37 @@
     var formalCheck = document.getElementById('compose-formal');
     if (formalCheck) formalFormat = formalCheck.checked;
 
+    var saveDestination = false;
+    var saveCheck = document.getElementById('compose-save-destination');
+    if (saveCheck) saveDestination = saveCheck.checked;
+
+    var requestBody = {
+      to: toEmail,
+      cc: ccEmails,
+      subject: subject,
+      body: body,
+      policy_uid: composeParams.policy_uid,
+      client_id: composeParams.client_id,
+      project_name: composeParams.project_name,
+      issue_uid: composeParams.issue_uid || '',
+      include_policy_table: includeTable,
+      formal_format: formalFormat,
+      purpose: composeParams.purpose || ''
+    };
+    // Loss-run-specific flags — auto-log activity, schedule follow-up,
+    // and optionally compile the destination directory.
+    if (composeParams.loss_run_mode) {
+      requestBody.auto_log_activity = true;
+      requestBody.follow_up_days = 7;
+      requestBody.save_destination = saveDestination;
+      requestBody.destination_name = composeParams.destination_name || '';
+      requestBody.destination_type = composeParams.destination_type || 'carrier';
+    }
+
     fetch('/outlook/compose', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        to: toEmail,
-        cc: ccEmails,
-        subject: subject,
-        body: body,
-        policy_uid: composeParams.policy_uid,
-        client_id: composeParams.client_id,
-        project_name: composeParams.project_name,
-        issue_uid: composeParams.issue_uid || '',
-        include_policy_table: includeTable,
-        formal_format: formalFormat
-      })
+      body: JSON.stringify(requestBody)
     })
     .then(function(r) { return r.json(); })
     .then(function(data) {
