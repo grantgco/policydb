@@ -2775,8 +2775,20 @@ def contact_add(
     conn=Depends(get_db),
 ):
     from policydb.web.routes.contacts import _find_similar_contacts
-    # Run duplicate check before creating — warn but don't block
-    dupes = _find_similar_contacts(conn, name.strip(), source="client") if name.strip() else []
+    # Many-to-many: an existing contact can legitimately be attached to a
+    # new client. Only run the similarity check when the submitted name is
+    # NOT already an exact match for a contact row — otherwise reusing a
+    # contact from the autocomplete fires a false-positive duplicate warning.
+    trimmed = name.strip()
+    existing_exact = conn.execute(
+        "SELECT 1 FROM contacts WHERE LOWER(TRIM(name)) = LOWER(TRIM(?))",
+        (trimmed,),
+    ).fetchone() if trimmed else None
+    dupes = (
+        _find_similar_contacts(conn, trimmed, source="client")
+        if trimmed and not existing_exact
+        else []
+    )
     cid = get_or_create_contact(conn, name,
                                 email=clean_email(email) or None,
                                 phone=format_phone(phone) or None,

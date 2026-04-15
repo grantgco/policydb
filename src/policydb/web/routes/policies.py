@@ -1684,88 +1684,150 @@ def _ai_import_parse_inner(request: Request, conn, uid: str, result: dict):
                 f"client record has {client_fein['fein']}"
             )
 
-    # ── Route exposures through client_exposures / policy_exposure_links ──
-    # Each entry in the `exposures` list becomes a row in client_exposures
-    # plus a link in policy_exposure_links.  If an entry carries address
-    # fields, we also upsert a `projects` (location) row and attach the
-    # exposure to it.  The policy's own project_id is only stamped when it
-    # was previously unassigned — we never overwrite a user-picked location.
+    # ── Build exposure diffs for the AI Review panel ──
+    # Each entry in the `exposures` list becomes a row the user can
+    # approve individually.  Nothing is written to client_exposures /
+    # policy_exposure_links / projects here — that happens in the
+    # /ai-import/apply-exposures endpoint after the user clicks Apply.
+    # For each valid entry we try to match an existing client_exposures
+    # row on (client_id, project_id, exposure_type, year) so the UI can
+    # show "update existing" vs "new" and surface the amount diff.
     exposures_parsed = result["parsed"].get("exposures") or []
+    ai_exposure_data: list[dict] = []
+    ai_exposure_year: int | None = None
     if exposures_parsed:
-        from policydb.exposures import find_or_create_exposure, create_exposure_link
-        from policydb.queries import find_or_create_project_from_address
-
         eff_date = result["parsed"].get("effective_date") or policy_dict.get("effective_date", "")
         year = int(eff_date[:4]) if eff_date and len(eff_date) >= 4 else datetime.now().year
+        ai_exposure_year = year
         client_id = policy_dict["client_id"]
-        policy_uid = policy_dict["policy_uid"]
         policy_project_id = policy_dict.get("project_id")
 
-        # Normalize and filter out empty/invalid entries up front so the
-        # primary-flag decision isn't skewed by rows that would be skipped.
-        valid_exposures: list[dict] = []
-        for exp in exposures_parsed:
+        # Normalize and filter entries; non-valid ones still appear in the
+        # panel as "invalid" so the user knows the LLM returned them.
+        valid_indices: list[int] = []
+        for idx, exp in enumerate(exposures_parsed):
             if not isinstance(exp, dict):
+                ai_exposure_data.append({
+                    "index": idx, "valid": False, "reason": "Not an object",
+                    "raw": str(exp)[:80],
+                })
                 continue
             exposure_type = (exp.get("exposure_type") or "").strip()
             try:
                 amount = float(exp.get("amount") or 0) or None
             except (ValueError, TypeError):
                 amount = None
-            if not exposure_type or not amount:
-                continue
             try:
                 denominator = int(exp.get("denominator") or 1) or 1
             except (ValueError, TypeError):
                 denominator = 1
-            valid_exposures.append({
-                **exp,
+            unit = (exp.get("unit") or "").strip()
+            label = (exp.get("location_label") or "").strip()
+
+            if not exposure_type:
+                ai_exposure_data.append({
+                    "index": idx, "valid": False, "reason": "Missing exposure_type",
+                    "raw": json.dumps(exp)[:120],
+                })
+                continue
+            if not amount:
+                ai_exposure_data.append({
+                    "index": idx, "valid": False,
+                    "reason": "Missing or zero amount",
+                    "exposure_type": exposure_type,
+                    "raw": json.dumps(exp)[:120],
+                })
+                continue
+
+            # Try to resolve an existing project for the diff (read-only —
+            # we do not insert anything here).
+            addr = (exp.get("address") or "").strip()
+            city = (exp.get("city") or "").strip()
+            state = (exp.get("state") or "").strip()
+            zip_code = (exp.get("zip") or "").strip()
+            has_address = bool(addr or city or state or zip_code or label)
+
+            matched_project = None
+            if addr:
+                from policydb.queries import _normalize_address
+                norm = _normalize_address(addr)
+                if norm:
+                    for r in conn.execute(
+                        """SELECT id, name, address FROM projects
+                           WHERE client_id = ? AND address IS NOT NULL AND TRIM(address) != ''""",
+                        (client_id,),
+                    ).fetchall():
+                        if _normalize_address(r["address"] or "") == norm:
+                            matched_project = dict(r)
+                            break
+            if not matched_project and label:
+                r = conn.execute(
+                    """SELECT id, name, address FROM projects
+                       WHERE client_id = ? AND LOWER(TRIM(name)) = LOWER(TRIM(?))""",
+                    (client_id, label),
+                ).fetchone()
+                if r:
+                    matched_project = dict(r)
+
+            # Look up existing client_exposures row for the match decision.
+            match_project_id = matched_project["id"] if matched_project else None
+            existing_row = conn.execute(
+                """SELECT id, amount, denominator, unit, project_id
+                   FROM client_exposures
+                   WHERE client_id = ? AND COALESCE(project_id, 0) = COALESCE(?, 0)
+                     AND exposure_type = ? AND year = ?""",
+                (client_id, match_project_id, exposure_type, year),
+            ).fetchone()
+            existing_dict = dict(existing_row) if existing_row else None
+
+            # Resolve a display name for the location decision.
+            if matched_project:
+                loc_display = matched_project.get("name") or matched_project.get("address") or "Matched location"
+                loc_action = "link_to_existing"
+            elif has_address:
+                parts = [p for p in [label, addr, city, state] if p]
+                loc_display = ", ".join(parts) if parts else "New location"
+                loc_action = "create_new"
+            else:
+                loc_display = None
+                loc_action = "none"  # attach to client root
+
+            valid_indices.append(len(ai_exposure_data))
+            ai_exposure_data.append({
+                "index": idx,
+                "valid": True,
                 "exposure_type": exposure_type,
                 "amount": amount,
                 "denominator": denominator,
+                "unit": unit,
+                "location_label": label,
+                "address": addr,
+                "city": city,
+                "state": state,
+                "zip": zip_code,
+                "has_address": has_address,
+                "loc_display": loc_display,
+                "loc_action": loc_action,
+                "matched_project_id": match_project_id,
+                "existing": existing_dict,
+                "match_type": "update" if existing_dict else "new",
+                "llm_is_primary": bool(exp.get("is_primary")),
+                "would_stamp_policy_project": bool(
+                    match_project_id and not policy_project_id
+                ),
             })
 
-        # Decide which valid entry is primary: first LLM-flagged one, else
-        # the first in order.
-        primary_idx = next(
-            (i for i, e in enumerate(valid_exposures) if e.get("is_primary")),
-            0 if valid_exposures else -1,
-        )
-
-        for idx, exp in enumerate(valid_exposures):
-            # Upsert a location/project from the exposure address when present.
-            exp_project_id = find_or_create_project_from_address(
-                conn,
-                client_id=client_id,
-                address=exp.get("address"),
-                city=exp.get("city"),
-                state=exp.get("state"),
-                zip_code=exp.get("zip"),
-                label=exp.get("location_label"),
-            )
-
-            # Stamp policies.project_id only when previously unassigned.
-            if exp_project_id and not policy_project_id:
-                conn.execute(
-                    "UPDATE policies SET project_id = ? WHERE policy_uid = ?",
-                    (exp_project_id, policy_uid),
-                )
-                policy_project_id = exp_project_id
-
-            exp_id = find_or_create_exposure(
-                conn,
-                client_id=client_id,
-                project_id=exp_project_id,
-                exposure_type=exp["exposure_type"],
-                year=year,
-                amount=exp["amount"],
-                denominator=exp["denominator"],
-            )
-            create_exposure_link(
-                conn, policy_uid, exp_id, is_primary=(idx == primary_idx),
-            )
-
-        conn.commit()
+        # Decide which valid entry should default to primary: first
+        # LLM-flagged one among valid entries, else the first valid one.
+        primary_panel_idx = -1
+        for list_idx in valid_indices:
+            if ai_exposure_data[list_idx].get("llm_is_primary"):
+                primary_panel_idx = list_idx
+                break
+        if primary_panel_idx == -1 and valid_indices:
+            primary_panel_idx = valid_indices[0]
+        for list_idx in valid_indices:
+            ai_exposure_data[list_idx]["is_primary_default"] = (list_idx == primary_panel_idx)
 
     # ── Build policy-level diffs ──
     _field_labels = {f["key"]: f["label"] for f in POLICY_EXTRACTION_SCHEMA["fields"]}
@@ -1990,8 +2052,10 @@ def _ai_import_parse_inner(request: Request, conn, uid: str, result: dict):
             ai_sub_coverage_data.append(sc_entry)
 
     logger.debug(
-        "AI import parse inner: diffs built — %d policy diffs, %d locations, %d sub-coverages",
+        "AI import parse inner: diffs built — %d policy diffs, %d locations, "
+        "%d sub-coverages, %d exposures",
         len(ai_policy_diffs), len(ai_location_data), len(ai_sub_coverage_data),
+        len(ai_exposure_data),
     )
 
     # Build the same context as policy_tab_details
@@ -2077,6 +2141,8 @@ def _ai_import_parse_inner(request: Request, conn, uid: str, result: dict):
         "ai_policy_diffs": ai_policy_diffs,
         "ai_location_data": ai_location_data,
         "ai_sub_coverage_data": ai_sub_coverage_data,
+        "ai_exposure_data": ai_exposure_data,
+        "ai_exposure_year": ai_exposure_year,
         "ai_parsed_json": json.dumps(result["parsed"], default=str),
     })
 
@@ -2258,6 +2324,144 @@ async def policy_ai_import_apply_location(
             loc_name = loc_row["name"] or loc_name
 
     return JSONResponse({"ok": True, "location_name": loc_name, "created": created, "project_id": project_id})
+
+
+@router.post("/{policy_uid}/ai-import/apply-exposures")
+async def policy_ai_import_apply_exposures(
+    request: Request,
+    policy_uid: str,
+    conn=Depends(get_db),
+):
+    """Apply user-approved exposures from AI import.
+
+    Body: {"year": int, "exposures": [{exposure_type, amount, denominator,
+    unit, location_label, address, city, state, zip, loc_action,
+    matched_project_id, is_primary}, ...]}
+
+    For each row:
+      1. Upsert a location (project) if the entry has address fields and no
+         matched_project_id was provided.
+      2. Upsert the client_exposures row.
+      3. Create / refresh the policy_exposure_links row.
+      4. Stamp policies.project_id to the first upserted project_id IFF the
+         policy has no project_id yet (never overwrites user-picked location).
+    """
+    uid = policy_uid.upper()
+    body = await request.json()
+    year = body.get("year")
+    rows = body.get("exposures") or []
+
+    if not isinstance(year, int) or year <= 0:
+        return JSONResponse({"ok": False, "error": "Missing or invalid year"}, status_code=400)
+    if not rows:
+        return JSONResponse({"ok": False, "error": "No exposures supplied"}, status_code=400)
+
+    policy = get_policy_by_uid(conn, uid)
+    if not policy:
+        return JSONResponse({"ok": False, "error": "Policy not found"}, status_code=404)
+
+    from policydb.exposures import find_or_create_exposure, create_exposure_link
+    from policydb.queries import find_or_create_project_from_address
+
+    client_id = policy["client_id"]
+    policy_project_id = policy["project_id"]
+    applied = 0
+    locations_created = 0
+
+    # Primary flag: at most one should be true in the request body.  Find it.
+    primary_requested = next(
+        (i for i, r in enumerate(rows) if r.get("is_primary")),
+        None,
+    )
+
+    for idx, r in enumerate(rows):
+        exposure_type = (r.get("exposure_type") or "").strip()
+        try:
+            amount = float(r.get("amount") or 0) or None
+        except (ValueError, TypeError):
+            amount = None
+        if not exposure_type or not amount:
+            continue
+        try:
+            denominator = int(r.get("denominator") or 1) or 1
+        except (ValueError, TypeError):
+            denominator = 1
+
+        # Resolve project: either a pre-matched id from the diff, or upsert
+        # from address fields.
+        matched_id = r.get("matched_project_id")
+        if matched_id:
+            exp_project_id = int(matched_id)
+        else:
+            before_count = conn.execute(
+                "SELECT COUNT(*) FROM projects WHERE client_id = ?", (client_id,)
+            ).fetchone()[0]
+            exp_project_id = find_or_create_project_from_address(
+                conn,
+                client_id=client_id,
+                address=r.get("address"),
+                city=r.get("city"),
+                state=r.get("state"),
+                zip_code=r.get("zip"),
+                label=r.get("location_label"),
+            )
+            if exp_project_id:
+                after_count = conn.execute(
+                    "SELECT COUNT(*) FROM projects WHERE client_id = ?", (client_id,)
+                ).fetchone()[0]
+                if after_count > before_count:
+                    locations_created += 1
+
+        # Stamp policies.project_id when previously unassigned.
+        if exp_project_id and not policy_project_id:
+            conn.execute(
+                "UPDATE policies SET project_id = ?, updated_at = datetime('now') "
+                "WHERE policy_uid = ?",
+                (exp_project_id, uid),
+            )
+            policy_project_id = exp_project_id
+
+        exp_id = find_or_create_exposure(
+            conn,
+            client_id=client_id,
+            project_id=exp_project_id,
+            exposure_type=exposure_type,
+            year=year,
+            amount=amount,
+            denominator=denominator,
+        )
+
+        # If the extracted amount differs from the stored amount for an
+        # existing row, update it (find_or_create_exposure only inserts).
+        stored = conn.execute(
+            "SELECT amount, denominator FROM client_exposures WHERE id = ?",
+            (exp_id,),
+        ).fetchone()
+        if stored and (
+            (stored["amount"] or 0) != amount
+            or (stored["denominator"] or 1) != denominator
+        ):
+            conn.execute(
+                "UPDATE client_exposures SET amount = ?, denominator = ?, "
+                "updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (amount, denominator, exp_id),
+            )
+
+        create_exposure_link(
+            conn, uid, exp_id, is_primary=(idx == primary_requested),
+        )
+        applied += 1
+
+    conn.commit()
+    logger.info(
+        "AI import: applied %d exposures (year=%s, created %d locations) for policy %s",
+        applied, year, locations_created, uid,
+    )
+    return JSONResponse({
+        "ok": True,
+        "applied": applied,
+        "locations_created": locations_created,
+    })
 
 
 # ── AI Contact Extraction (email chain → policy contacts) ──

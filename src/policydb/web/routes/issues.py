@@ -895,11 +895,21 @@ def issue_detail(
 
     open_tasks_data = get_open_tasks(conn, "issue", issue_id)
 
+    # Working notes (scratchpad) for this issue — migration 152
+    scratch_row = conn.execute(
+        "SELECT content, updated_at FROM issue_scratchpad WHERE issue_id = ?",
+        (issue_id,),
+    ).fetchone()
+    issue_scratchpad = scratch_row["content"] if scratch_row else ""
+    issue_scratchpad_updated = scratch_row["updated_at"] if scratch_row else ""
+
     ctx = {
         "request": request,
         "active": "action-center",
         "issue": issue,
         "activities": activities,
+        "issue_scratchpad": issue_scratchpad,
+        "issue_scratchpad_updated": issue_scratchpad_updated,
         "total_hours": round(total_hours, 1),
         "merged_from_issues": merged_from_issues,
         "merged_from_flash": merged_from or "",
@@ -921,6 +931,65 @@ def issue_detail(
         "data": open_tasks_data,
     }
     return templates.TemplateResponse("issues/detail.html", ctx)
+
+
+def _issue_scratchpad_ctx(request, conn, issue_uid: str, content: str | None = None) -> dict:
+    """Build context for the issues/_scratchpad.html partial."""
+    issue_row = conn.execute(
+        "SELECT id, issue_uid FROM activity_log WHERE issue_uid = ? AND item_kind = 'issue'",
+        (issue_uid,),
+    ).fetchone()
+    issue = dict(issue_row) if issue_row else {"id": 0, "issue_uid": issue_uid}
+    if content is None:
+        row = conn.execute(
+            "SELECT content, updated_at FROM issue_scratchpad WHERE issue_id=?",
+            (issue["id"],),
+        ).fetchone()
+        content = row["content"] if row else ""
+        updated = row["updated_at"] if row else ""
+    else:
+        row = conn.execute(
+            "SELECT updated_at FROM issue_scratchpad WHERE issue_id=?",
+            (issue["id"],),
+        ).fetchone()
+        updated = row["updated_at"] if row else ""
+    return {
+        "request": request,
+        "issue": issue,
+        "issue_scratchpad": content,
+        "issue_scratchpad_updated": updated,
+    }
+
+
+@router.post("/issues/{issue_uid}/scratchpad")
+def issue_scratchpad_save(
+    request: Request,
+    issue_uid: str,
+    content: str = Form(""),
+    conn=Depends(get_db),
+):
+    """Auto-save per-issue working notes. Returns JSON when Accept requests it."""
+    from datetime import datetime, timezone
+    issue_row = conn.execute(
+        "SELECT id FROM activity_log WHERE issue_uid = ? AND item_kind = 'issue'",
+        (issue_uid,),
+    ).fetchone()
+    if not issue_row:
+        return HTMLResponse("Issue not found", status_code=404)
+    issue_id = issue_row["id"]
+    conn.execute(
+        "INSERT INTO issue_scratchpad (issue_id, content) VALUES (?, ?) "
+        "ON CONFLICT(issue_id) DO UPDATE SET content = excluded.content",
+        (issue_id, content),
+    )
+    conn.commit()
+    if "application/json" in (request.headers.get("accept") or ""):
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
+        return JSONResponse({"ok": True, "saved_at": now})
+    return templates.TemplateResponse(
+        "issues/_scratchpad.html",
+        _issue_scratchpad_ctx(request, conn, issue_uid, content),
+    )
 
 
 # ── Scoped RFI view: filtered to the issue's linked policies ────────────────

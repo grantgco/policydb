@@ -19,7 +19,7 @@ textarea.field-inline { resize: none; }
 </style>
 <div id="tab-details-content">
 
-{% if ai_policy_diffs is defined and (ai_policy_diffs or ai_location_data or ai_sub_coverage_data) %}
+{% if ai_policy_diffs is defined and (ai_policy_diffs or ai_location_data or ai_sub_coverage_data or ai_exposure_data) %}
 {% include 'policies/_ai_review_panel.html' %}
 {% endif %}
 
