@@ -225,7 +225,14 @@ def test_suggest_no_location_project_id_uses_corporate():
 # ── Summary computation ─────────────────────────────────────────────────────
 
 def test_compliance_summary():
-    """Summary computes correct totals and percentages."""
+    """Summary computes correct totals and percentages.
+
+    compute_compliance_summary excludes Needs Review / Waived / N/A /
+    Pending Info from the denominator (see compliance.py:289 — they
+    don't represent decided coverage states), so the denominator here
+    is 3 applicable requirements (GL, Umbrella, Property) with 2
+    satisfied → 67%.
+    """
     governing = {
         "GL": {"compliance_status": "Compliant", "coverage_line": "GL"},
         "Umbrella": {"compliance_status": "Compliant", "coverage_line": "Umbrella"},
@@ -237,7 +244,7 @@ def test_compliance_summary():
     assert summary["compliant"] == 2
     assert summary["gap"] == 1
     assert summary["needs_review"] == 1
-    assert summary["compliance_pct"] == 50  # 2/4 * 100
+    assert summary["compliance_pct"] == 67  # 2 / (4 - 1 needs_review) * 100, rounded
 
 
 def test_compliance_summary_empty():
@@ -259,7 +266,11 @@ def test_compliance_summary_all_compliant():
 
 
 def test_compliance_summary_waived_and_na():
-    """Waived and N/A statuses are tracked but not counted as compliant."""
+    """Waived and N/A statuses are tracked but excluded from the denominator.
+
+    With 1 Compliant, 1 Waived, 1 N/A, 1 Partial, the applicable denominator
+    is 2 (Compliant + Partial), and satisfied is 1 → 50%.
+    """
     governing = {
         "GL": {"compliance_status": "Compliant"},
         "D&O": {"compliance_status": "Waived"},
@@ -272,7 +283,7 @@ def test_compliance_summary_waived_and_na():
     assert summary["waived"] == 1
     assert summary["na"] == 1
     assert summary["partial"] == 1
-    assert summary["compliance_pct"] == 25
+    assert summary["compliance_pct"] == 50  # 1 / (4 - 1 waived - 1 na) * 100
 
 
 def test_compliance_summary_none_status_treated_as_needs_review():
@@ -416,7 +427,12 @@ def _make_db() -> sqlite3.Connection:
             program_id    INTEGER,
             expiration_date DATE,
             is_program    INTEGER DEFAULT 0,
-            is_opportunity INTEGER DEFAULT 0
+            is_opportunity INTEGER DEFAULT 0,
+            -- Added in migration 147 (compliance review UX redesign):
+            -- endorsements is the policy-side source of truth for Waiver of
+            -- Subrogation / Additional Insured / Primary & Non-contributory
+            -- and feeds the compliance matching in compliance.py:726.
+            endorsements  TEXT DEFAULT '[]'
         );
         CREATE TABLE client_risks (
             id        INTEGER PRIMARY KEY,

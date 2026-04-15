@@ -38,12 +38,15 @@ def test_policy_schema_has_required_metadata():
     from policydb.llm_schemas import POLICY_EXTRACTION_SCHEMA
 
     assert POLICY_EXTRACTION_SCHEMA["name"] == "policy_extraction"
-    assert POLICY_EXTRACTION_SCHEMA["version"] == 1
+    # Schema was bumped to version 2 when follow_up_date / exposure fields
+    # were factored out to client_exposures and activity_log (PRs #244 / #248).
+    assert POLICY_EXTRACTION_SCHEMA["version"] == 2
     assert "description" in POLICY_EXTRACTION_SCHEMA
     assert POLICY_EXTRACTION_SCHEMA["context_fields"] == ["client_name", "industry"]
     assert "fields" in POLICY_EXTRACTION_SCHEMA
     assert isinstance(POLICY_EXTRACTION_SCHEMA["fields"], list)
-    assert len(POLICY_EXTRACTION_SCHEMA["fields"]) == 28
+    # Field count dropped from 28 → 25 after factoring out deprecated columns.
+    assert len(POLICY_EXTRACTION_SCHEMA["fields"]) == 25
 
 
 def test_policy_schema_date_fields_have_no_normalizer():
