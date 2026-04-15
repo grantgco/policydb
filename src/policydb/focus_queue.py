@@ -34,7 +34,8 @@ def _normalize_followup(item: dict, today: date) -> dict:
             d = datetime.strptime(deadline, "%Y-%m-%d").date()
             days_until = (d - today).days
         except ValueError:
-            pass
+            logger.warning("followup item %s: unparseable deadline=%r (fu=%r, exp=%r)",
+                           item.get("id"), deadline, fu_date, exp_date)
 
     # Days since last activity
     last_act = item.get("last_activity_date") or item.get("activity_date") or ""
@@ -44,7 +45,8 @@ def _normalize_followup(item: dict, today: date) -> dict:
             d = datetime.strptime(last_act[:10], "%Y-%m-%d").date()
             days_since_activity = max(0, (today - d).days)
         except ValueError:
-            pass
+            logger.warning("followup item %s: unparseable last_activity_date=%r",
+                           item.get("id"), last_act)
 
     # Map disposition to accountability.  Use the raw DB value (may be None/empty),
     # then fall back to _resolve_accountability if not already set.
@@ -127,6 +129,18 @@ def _normalize_followup(item: dict, today: date) -> dict:
 def _normalize_inbox(item: dict, today: date) -> dict:
     """Normalize an inbox item for the Focus Queue."""
     is_matched = bool(item.get("client_id"))
+    # Inbox items don't have a traditional "last activity" signal, but we
+    # still want old items to age into higher urgency. Reuse `created_at`
+    # as the staleness anchor so a three-week-old pending email scores
+    # higher than one that just arrived.
+    created_at = item.get("created_at", "") or ""
+    days_since = None
+    if created_at:
+        try:
+            d = datetime.strptime(created_at[:10], "%Y-%m-%d").date()
+            days_since = max(0, (today - d).days)
+        except ValueError:
+            logger.warning("inbox item %s has unparseable created_at=%r", item.get("id"), created_at)
     return {
         "id": item["id"],
         "kind": "inbox",
@@ -141,9 +155,9 @@ def _normalize_inbox(item: dict, today: date) -> dict:
         "subject": item.get("email_subject") or item.get("content", "")[:120],
         "follow_up_date": None,
         "expiration_date": None,
-        "deadline_date": item.get("created_at", "")[:10],
+        "deadline_date": created_at[:10] if created_at else "",
         "days_until_deadline": 0,  # Inbox items are always "now"
-        "days_since_activity": None,
+        "days_since_activity": days_since,
         "accountability": "my_action",
         "disposition": None,
         "severity": None,
@@ -195,7 +209,26 @@ def _normalize_suggested(item: dict, today: date) -> dict:
             d = datetime.strptime(last_act[:10], "%Y-%m-%d").date()
             days_since = (today - d).days
         except ValueError:
-            pass
+            logger.warning("suggested policy %s: unparseable last_activity_date=%r",
+                           item.get("policy_uid"), last_act)
+
+    # Turn the SQL-side reason code into a user-facing explanation.
+    # `get_suggested_followups` returns suggestion_reason in each row —
+    # without this, every suggested item rendered the same generic
+    # "needs follow-up scheduled" subject and the user had no way to tell
+    # why a given policy got surfaced.
+    _reason_code = item.get("suggestion_reason") or ""
+    if _reason_code == "not_started":
+        reason_line = "Renewal status: Not Started"
+    elif _reason_code == "expiring_soon":
+        reason_line = f"Expires in {days_to}d — no follow-up scheduled"
+    elif _reason_code == "stale_no_activity":
+        if days_since is not None:
+            reason_line = f"No activity in {days_since}d"
+        else:
+            reason_line = "No recent activity"
+    else:
+        reason_line = ""
 
     return {
         "id": item.get("policy_uid"),  # Use policy_uid as ID
@@ -236,7 +269,7 @@ def _normalize_suggested(item: dict, today: date) -> dict:
         "prev_days_ago": None,
         "contact_person": None,
         "contact_email": None,
-        "reason_line": "",
+        "reason_line": reason_line,
         "details": "",
         "inbox_id": None,
         "is_matched": None,
@@ -326,7 +359,8 @@ def _normalize_milestone(item: dict, today: date) -> dict:
             d = datetime.strptime(proj_date, "%Y-%m-%d").date()
             days_until = (d - today).days
         except ValueError:
-            pass
+            logger.warning("milestone %s: unparseable projected_date=%r",
+                           item.get("id"), proj_date)
 
     return {
         "id": item.get("id"),
@@ -402,7 +436,8 @@ def _normalize_issue(item: dict, today: date) -> dict:
             d = datetime.strptime(due, "%Y-%m-%d").date()
             days_until = (d - today).days
         except ValueError:
-            pass
+            logger.warning("issue %s: unparseable due_date=%r",
+                           item.get("issue_uid") or item.get("id"), due)
     else:
         # Synthetic deadline from SLA: created_at + sla_days
         is_synthetic = True
@@ -418,7 +453,8 @@ def _normalize_issue(item: dict, today: date) -> dict:
                 days_until = (synthetic_due - today).days
                 due = synthetic_due.isoformat()
             except ValueError:
-                pass
+                logger.warning("issue %s: unparseable created_at=%r for synthetic SLA deadline",
+                               item.get("issue_uid") or item.get("id"), created)
 
     return {
         "id": item.get("id"),
@@ -513,9 +549,14 @@ def _score_item(item: dict) -> float:
     # 1. Deadline proximity: closer deadline = higher score
     if days is not None:
         if days <= 0:
-            # Past due: base 100 + escalating overdue bonus
+            # Past due: base weight + escalating overdue bonus.
+            # Cap at 30 days (was 60) so extreme-overdue items can't
+            # crowd out fresh urgent work. Beyond 30d overdue the item
+            # is almost certainly either abandoned or a data issue —
+            # surfacing it via the slippage report (Phase 6) is a better
+            # fit than letting it dominate the Focus Queue forever.
             score += weights["deadline_proximity"]
-            score += weights["overdue_multiplier"] * min(abs(days), 60) / 10
+            score += weights["overdue_multiplier"] * min(abs(days), 30) / 10
         elif days <= 3:
             score += weights["deadline_proximity"] * 0.9
         elif days <= 7:
@@ -556,6 +597,19 @@ def _score_item(item: dict) -> float:
     elif kind in ("suggested", "insurance_deadline"):
         score += weights["severity"] * 0.3
 
+    # 4. Milestone health — timeline engine already computes a health
+    # tier per milestone; reflect that in the score so a milestone flagged
+    # 'critical' or 'at_risk' sorts above a healthy one with the same
+    # deadline. Additive, separate from severity, so linked-issue severity
+    # and milestone health can stack.
+    health = item.get("health")
+    if health == "critical":
+        score += 10
+    elif health == "at_risk":
+        score += 7
+    elif health == "compressed":
+        score += 4
+
     return round(score, 1)
 
 
@@ -577,7 +631,18 @@ def _build_context_line(item: dict) -> str:
             parts.append(f"Auto-matched to {item.get('client_name', 'client')}")
         else:
             parts.append("Needs client assignment")
+        # Age signal if item is not brand new
+        days_since = item.get("days_since_activity")
+        if days_since and days_since >= 3:
+            parts.append(f"Arrived {days_since}d ago")
         return " · ".join(parts)
+
+    # For suggested items, the reason is the primary signal — lead with it
+    # so users can tell *why* a policy got surfaced (not_started vs
+    # expiring_soon vs stale_no_activity), instead of reading a generic
+    # "Due in Nd" that doesn't explain the actual suggestion trigger.
+    if kind == "suggested" and item.get("reason_line"):
+        parts.append(item["reason_line"])
 
     # Urgency signal
     if days is not None:
@@ -601,7 +666,8 @@ def _build_context_line(item: dict) -> str:
             elif exp_days <= 0:
                 parts.append(f"Expired {abs(exp_days)}d ago")
         except ValueError:
-            pass
+            logger.warning("%s %s: unparseable expiration_date=%r in context line",
+                           kind, item.get("policy_uid") or item.get("id"), exp)
 
     # Staleness
     days_since = item.get("days_since_activity")
@@ -869,7 +935,8 @@ def _normalize_opportunity(item: dict, today: date) -> dict:
             d = datetime.strptime(last_act[:10], "%Y-%m-%d").date()
             days_since = (today - d).days
         except ValueError:
-            pass
+            logger.warning("opportunity %s: unparseable last_activity_date=%r",
+                           item.get("policy_uid"), last_act)
 
     # Synthetic deadline for dateless opportunities
     is_synthetic = False
@@ -884,7 +951,8 @@ def _normalize_opportunity(item: dict, today: date) -> dict:
                 deadline = synthetic_due.isoformat()
                 days_remaining = (synthetic_due - today).days
             except ValueError:
-                pass
+                logger.warning("opportunity %s: unparseable anchor=%r for synthetic deadline",
+                               item.get("policy_uid"), anchor)
 
     return {
         "id": item.get("id"),
@@ -1134,23 +1202,41 @@ def build_focus_queue(
         )
 
     # --- Auto-suggest contacts from policy team for items missing a contact ---
+    # Batch-fetch in a single query keyed by every unique policy_uid that
+    # needs a contact. Previously this ran one SELECT per policy (N round
+    # trips). Results are ordered to prefer placement colleagues, and we
+    # take the first row per policy_uid — matching the LIMIT 1 behavior of
+    # the old per-policy query while collapsing into one network call.
     _contact_cache: dict[str, tuple[str, str]] = {}  # policy_uid -> (name, email)
+    _policy_uids_needing_contact = sorted({
+        item.get("policy_uid") for item in all_items
+        if item.get("policy_uid")
+        and not item.get("contact_person")
+        and not item.get("contact_email")
+    })
+    if _policy_uids_needing_contact:
+        ph = ",".join("?" * len(_policy_uids_needing_contact))
+        rows = conn.execute(f"""
+            SELECT p.policy_uid, co.name, co.email
+            FROM policies p
+            JOIN contact_policy_assignments cpa ON cpa.policy_id = p.id
+            JOIN contacts co ON cpa.contact_id = co.id
+            WHERE p.policy_uid IN ({ph})
+            ORDER BY cpa.is_placement_colleague DESC, cpa.id ASC
+        """, _policy_uids_needing_contact).fetchall()
+        # First row wins per policy_uid (ORDER BY above preserves preference)
+        for row in rows:
+            puid = row["policy_uid"]
+            if puid not in _contact_cache:
+                _contact_cache[puid] = (row["name"] or "", row["email"] or "")
+
     for item in all_items:
         if item.get("contact_person") or item.get("contact_email"):
             continue
         puid = item.get("policy_uid")
         if not puid:
             continue
-        if puid not in _contact_cache:
-            row = conn.execute("""
-                SELECT co.name, co.email FROM contact_policy_assignments cpa
-                JOIN contacts co ON cpa.contact_id = co.id
-                WHERE cpa.policy_id = (SELECT id FROM policies WHERE policy_uid = ?)
-                ORDER BY cpa.is_placement_colleague DESC, cpa.id ASC
-                LIMIT 1
-            """, (puid,)).fetchone()
-            _contact_cache[puid] = (row["name"], row["email"]) if row else ("", "")
-        name, email = _contact_cache[puid]
+        name, email = _contact_cache.get(puid, ("", ""))
         if name:
             item["contact_person"] = name
         if email:
@@ -1212,7 +1298,8 @@ def build_focus_queue(
                 _exp_d = datetime.strptime(exp[:10], "%Y-%m-%d").date()
                 item["days_fu_to_expiry"] = (_exp_d - _fu_d).days
             except ValueError:
-                pass
+                logger.warning("item %s: unparseable fu=%r or exp=%r for days_fu_to_expiry",
+                               item.get("policy_uid") or item.get("id"), fu, exp)
 
         # Nudge tier for waiting items (activity follow-ups only)
         if (item.get("kind") == "followup"
@@ -1324,6 +1411,13 @@ def build_focus_queue(
     focus_items: list[dict] = []
     waiting_items: list[dict] = []
 
+    # Promotion window matches the time horizon you're looking at.
+    # Negative values (overdue, all) use 7d default. Hoisted out of the
+    # per-item loop because it's constant for the whole build — and so
+    # the scheduled branch below can use the same value without
+    # duplicating the expression.
+    promote_window = max(horizon_days, 7) if horizon_days > 0 else 7
+
     for item in all_items:
         acc = item.get("accountability", "my_action")
         days = item.get("days_until_deadline")
@@ -1336,15 +1430,11 @@ def build_focus_queue(
                 try:
                     exp_days = (datetime.strptime(exp, "%Y-%m-%d").date() - today).days
                 except ValueError:
-                    pass
+                    logger.warning("waiting item has unparseable expiration_date=%r", exp)
 
             promote = False
             promote_reason = ""
             promote_via = ""  # which branch fired — needed for rescoring
-
-            # Promotion window matches the time horizon you're looking at
-            # Negative values (overdue, all) use 7d default
-            promote_window = max(horizon_days, 7) if horizon_days > 0 else 7
 
             # Promote if been waiting too long
             if days is not None and days <= -auto_promote_days:
@@ -1392,8 +1482,19 @@ def build_focus_queue(
             else:
                 waiting_items.append(item)
         elif acc == "scheduled":
-            # Scheduled items go to waiting sidebar unless overdue
+            # Scheduled items go to waiting sidebar unless:
+            #   (a) already overdue (past the meeting/call date), OR
+            #   (b) the meeting falls within the current horizon window.
+            # Without (b), a scheduled call tomorrow stayed invisible when
+            # viewing "Today" — you had to widen the horizon to notice it,
+            # which defeats the purpose of having a scheduled accountability.
             if days is not None and days <= 0:
+                focus_items.append(item)
+            elif days is not None and days <= promote_window and horizon_days >= 0:
+                # Within-horizon scheduled item — surface with a clear label
+                # so it's visually distinct from a "my move" item.
+                reason = f"Scheduled in {days}d" if days > 0 else "Scheduled today"
+                item["context_line"] = reason + (" · " + item["context_line"] if item["context_line"] else "")
                 focus_items.append(item)
             else:
                 waiting_items.append(item)

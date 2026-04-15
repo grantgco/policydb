@@ -2547,12 +2547,21 @@ def get_suggested_followups(
     ]
     waiting_ph = ",".join("?" * len(waiting_labels)) if waiting_labels else "'__none__'"
 
+    # Reason code lets the Focus Queue explain *why* a policy was suggested.
+    # Priority: not_started > expiring_soon (<=30d) > stale_no_activity.
+    # The Focus Queue reads this and renders a context line like
+    # "Renewal Not Started" instead of a generic "needs follow-up scheduled".
     sql = f"""
     SELECT p.policy_uid, p.policy_type, p.carrier, p.expiration_date,
            p.renewal_status, p.client_id, p.project_name,
            c.name AS client_name,
            CAST(julianday(p.expiration_date) - julianday('now') AS INTEGER) AS days_to_renewal,
-           (SELECT MAX(a.activity_date) FROM activity_log a WHERE a.policy_id = p.id OR (a.issue_id IN (SELECT ipc.issue_id FROM v_issue_policy_coverage ipc WHERE ipc.policy_id = p.id) AND a.item_kind != 'issue')) AS last_activity_date
+           (SELECT MAX(a.activity_date) FROM activity_log a WHERE a.policy_id = p.id OR (a.issue_id IN (SELECT ipc.issue_id FROM v_issue_policy_coverage ipc WHERE ipc.policy_id = p.id) AND a.item_kind != 'issue')) AS last_activity_date,
+           CASE
+             WHEN p.renewal_status = 'Not Started' THEN 'not_started'
+             WHEN julianday(p.expiration_date) - julianday('now') <= 30 THEN 'expiring_soon'
+             ELSE 'stale_no_activity'
+           END AS suggestion_reason
     FROM policies p
     JOIN clients c ON p.client_id = c.id
     WHERE p.archived = 0
