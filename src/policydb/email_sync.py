@@ -21,6 +21,45 @@ logger = logging.getLogger(__name__)
 _REF_TAG_RE = re.compile(r'\[PDB:([^\]]+)\]')
 _HTML_TAG_RE = re.compile(r'<[^>]+>')
 
+# Subject keywords that signal formal template emails. These flows involve
+# more prep/review than a plain reply — a loss run request, binding
+# instructions, or a submission letter legitimately takes 15+ minutes to
+# compose, review, and send. Kept lowercase and matched via `in` after
+# lowercasing the subject.
+_FORMAL_EMAIL_KEYWORDS = (
+    "loss run", "loss runs", "lossrun",
+    "binding", "bind order", "bind instructions",
+    "submission", "quote request", "quote requested",
+    "application", "renewal application",
+    "marketing letter", "broker of record",
+)
+
+
+def _tiered_email_hours(direction: str, subject: str | None = None) -> float:
+    """Return a realistic default duration_hours estimate for an imported email.
+
+    These are heuristic anchors — they'll be wrong sometimes, but they're
+    always more honest than the flat 0.1h we used to assign to every email
+    regardless of direction or content. Users review and correct via the
+    upcoming Timesheet Review page.
+
+    Tiers:
+      0.25h — formal templates (loss run, submission, binding, etc.).
+              These involve meaningful prep and review work.
+      0.15h — outbound compose. Writing an email takes real time.
+      0.10h — flagged inbound. User explicitly flagged = worth thinking about.
+      0.05h — routine inbound. Quick read, no reply required.
+    """
+    subj = (subject or "").lower()
+    if any(kw in subj for kw in _FORMAL_EMAIL_KEYWORDS):
+        return 0.25
+    if direction == "sent":
+        return 0.15
+    if direction == "flagged":
+        return 0.10
+    # Default: plain received email
+    return 0.05
+
 # Default automated/noreply local-part prefixes — overridable via
 # cfg.get("automated_email_prefixes"). Match is anchored on local part.
 _DEFAULT_AUTOMATED_PREFIXES = (
@@ -606,7 +645,7 @@ def _create_or_enrich_activity(
             sender,
             recipients,
             email_direction,
-            0.1,
+            _tiered_email_hours(email_direction, subject),
         ),
     )
     conn.commit()
@@ -767,13 +806,16 @@ def _run_thread_inheritance(
         snippet_lines = [l for l in content_lines[4:] if l.strip()]
         snippet = "\n".join(snippet_lines)[:5000]
 
+        # Thread-inherited emails are always inbound (received). Tiered
+        # hours apply the same way — a thread full of "loss run" replies
+        # still represents real work, not 0.1h flat.
         conn.execute(
             """INSERT INTO activity_log
                (activity_date, client_id, policy_id, program_id, activity_type, subject,
                 details, contact_person, contact_id, source, outlook_message_id,
                 email_snippet, issue_id, follow_up_done,
                 email_from, email_to, email_direction, duration_hours)
-               VALUES (?, ?, ?, ?, 'Email', ?, ?, ?, ?, 'thread_inherit', ?, ?, ?, 1, ?, ?, ?, 0.1)""",
+               VALUES (?, ?, ?, ?, 'Email', ?, ?, ?, ?, 'thread_inherit', ?, ?, ?, 1, ?, ?, ?, ?)""",
             (
                 email_date,
                 inherited_match["client_id"],
@@ -789,6 +831,7 @@ def _run_thread_inheritance(
                 sender,
                 email_to,
                 "received",
+                _tiered_email_hours("received", subject),
             ),
         )
 
