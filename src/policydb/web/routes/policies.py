@@ -3196,11 +3196,13 @@ def policy_timeline_set_profile(
     if not policy_dict:
         return HTMLResponse("Not found", status_code=404)
 
+    new_profile = milestone_profile.strip() or None
     conn.execute(
         "UPDATE policies SET milestone_profile = ? WHERE policy_uid = ?",
-        (milestone_profile.strip() or None, uid),
+        (new_profile, uid),
     )
     conn.commit()
+    policy_dict["milestone_profile"] = new_profile or ""
 
     from policydb.timeline_engine import generate_policy_timelines, get_policy_timeline, suggest_profile
     generate_policy_timelines(conn, policy_uid=uid)
