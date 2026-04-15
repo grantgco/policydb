@@ -1630,12 +1630,15 @@ def _ai_import_parse_inner(request: Request, conn, uid: str, result: dict):
     # Initialize warnings early so the endorsements auto-apply step can append.
     ai_warnings: list[str] = list(result.get("warnings", []))
 
-    # Merge parsed values onto existing policy, tracking changes (skip nested groups)
+    # Merge parsed values onto existing policy, tracking changes (skip nested groups).
+    # `exposures` is a nested list that's routed through client_exposures /
+    # policy_exposure_links below — never merged onto the policies row.
+    _NESTED_KEYS = ("locations", "sub_coverages", "endorsements", "exposures")
     merged = dict(policy_dict)
     import_changes: list[dict] = []
     _field_labels = {f["key"]: f["label"] for f in POLICY_EXTRACTION_SCHEMA.get("fields", [])}
     for k, v in result["parsed"].items():
-        if v is not None and k not in ("locations", "sub_coverages", "endorsements"):
+        if v is not None and k not in _NESTED_KEYS:
             old_val = policy_dict.get(k)
             if str(v).strip() != str(old_val or "").strip():
                 import_changes.append({
@@ -1688,38 +1691,94 @@ def _ai_import_parse_inner(request: Request, conn, uid: str, result: dict):
                 f"client record has {client_fein['fein']}"
             )
 
-    # ── Route exposure data through client_exposures → policy_exposure_links ──
-    exposure_basis = result["parsed"].get("exposure_basis")
-    exposure_amount = result["parsed"].get("exposure_amount")
-    exposure_denom = result["parsed"].get("exposure_denominator", 1) or 1
-    if exposure_basis and exposure_amount:
+    # ── Route exposures through client_exposures / policy_exposure_links ──
+    # Each entry in the `exposures` list becomes a row in client_exposures
+    # plus a link in policy_exposure_links.  If an entry carries address
+    # fields, we also upsert a `projects` (location) row and attach the
+    # exposure to it.  The policy's own project_id is only stamped when it
+    # was previously unassigned — we never overwrite a user-picked location.
+    exposures_parsed = result["parsed"].get("exposures") or []
+    if exposures_parsed:
         from policydb.exposures import find_or_create_exposure, create_exposure_link
+        from policydb.queries import find_or_create_project_from_address
+
         eff_date = result["parsed"].get("effective_date") or policy_dict.get("effective_date", "")
         year = int(eff_date[:4]) if eff_date and len(eff_date) >= 4 else datetime.now().year
         client_id = policy_dict["client_id"]
-        project_id = policy_dict.get("project_id")
-        exp_id = find_or_create_exposure(
-            conn,
-            client_id=client_id,
-            project_id=project_id,
-            exposure_type=exposure_basis,
-            year=year,
-            amount=float(exposure_amount),
-            denominator=int(exposure_denom),
+        policy_uid = policy_dict["policy_uid"]
+        policy_project_id = policy_dict.get("project_id")
+
+        # Normalize and filter out empty/invalid entries up front so the
+        # primary-flag decision isn't skewed by rows that would be skipped.
+        valid_exposures: list[dict] = []
+        for exp in exposures_parsed:
+            if not isinstance(exp, dict):
+                continue
+            exposure_type = (exp.get("exposure_type") or "").strip()
+            try:
+                amount = float(exp.get("amount") or 0) or None
+            except (ValueError, TypeError):
+                amount = None
+            if not exposure_type or not amount:
+                continue
+            try:
+                denominator = int(exp.get("denominator") or 1) or 1
+            except (ValueError, TypeError):
+                denominator = 1
+            valid_exposures.append({
+                **exp,
+                "exposure_type": exposure_type,
+                "amount": amount,
+                "denominator": denominator,
+            })
+
+        # Decide which valid entry is primary: first LLM-flagged one, else
+        # the first in order.
+        primary_idx = next(
+            (i for i, e in enumerate(valid_exposures) if e.get("is_primary")),
+            0 if valid_exposures else -1,
         )
-        # Check for existing link
-        existing = conn.execute(
-            "SELECT id FROM policy_exposure_links WHERE policy_uid=? AND exposure_id=?",
-            (policy_dict["policy_uid"], exp_id),
-        ).fetchone()
-        if not existing:
-            create_exposure_link(conn, policy_dict["policy_uid"], exp_id, is_primary=True)
+
+        for idx, exp in enumerate(valid_exposures):
+            # Upsert a location/project from the exposure address when present.
+            exp_project_id = find_or_create_project_from_address(
+                conn,
+                client_id=client_id,
+                address=exp.get("address"),
+                city=exp.get("city"),
+                state=exp.get("state"),
+                zip_code=exp.get("zip"),
+                label=exp.get("location_label"),
+            )
+
+            # Stamp policies.project_id only when previously unassigned.
+            if exp_project_id and not policy_project_id:
+                conn.execute(
+                    "UPDATE policies SET project_id = ? WHERE policy_uid = ?",
+                    (exp_project_id, policy_uid),
+                )
+                policy_project_id = exp_project_id
+
+            exp_id = find_or_create_exposure(
+                conn,
+                client_id=client_id,
+                project_id=exp_project_id,
+                exposure_type=exp["exposure_type"],
+                year=year,
+                amount=exp["amount"],
+                denominator=exp["denominator"],
+            )
+            create_exposure_link(
+                conn, policy_uid, exp_id, is_primary=(idx == primary_idx),
+            )
+
+        conn.commit()
 
     # ── Build policy-level diffs ──
     _field_labels = {f["key"]: f["label"] for f in POLICY_EXTRACTION_SCHEMA["fields"]}
     ai_policy_diffs: list[dict] = []
     for k, v in result["parsed"].items():
-        if k in ("locations", "sub_coverages", "endorsements") or v is None:
+        if k in _NESTED_KEYS or v is None:
             continue
         current = policy_dict.get(k)
         current_str = str(current) if current is not None else ""
@@ -3516,13 +3575,6 @@ def policy_edit_post(
     prior_premium: str = Form(""),
     notes: str = Form(""),
     project_name: str = Form(""),
-    exposure_basis: str = Form(""),
-    exposure_amount: str = Form(""),
-    exposure_unit: str = Form(""),
-    exposure_address: str = Form(""),
-    exposure_city: str = Form(""),
-    exposure_state: str = Form(""),
-    exposure_zip: str = Form(""),
     follow_up_date: str = Form(""),
     attachment_point: str = Form(""),
     participation_of: str = Form(""),
@@ -3555,10 +3607,9 @@ def policy_edit_post(
         _ensure_carrier_row(conn, carrier, "carrier")
     if access_point and access_point.strip():
         _ensure_carrier_row(conn, access_point.strip(), "wholesaler")
-    exposure_address = exposure_address.strip() if exposure_address else ""
-    exposure_city = format_city(exposure_city) if exposure_city else ""
-    exposure_state = format_state(exposure_state) if exposure_state else ""
-    exposure_zip = format_zip(exposure_zip) if exposure_zip else ""
+    # Exposure fields (exposure_basis/amount/unit/address/city/state/zip) are
+    # intentionally NOT written here — they live on client_exposures /
+    # policy_exposure_links.  Edit them via the client's Exposures grid.
     conn.execute(
         """UPDATE policies SET
            policy_type=?, carrier=?, policy_number=?,
@@ -3567,8 +3618,7 @@ def policy_edit_post(
            coverage_form=?, layer_position=?, tower_group=?,
            is_standalone=?, is_bor=?, is_opportunity=?, opportunity_status=?, target_effective_date=?,
            renewal_status=?, commission_rate=?, prior_premium=?, notes=?,
-           project_name=?, exposure_basis=?, exposure_amount=?, exposure_unit=?,
-           exposure_address=?, exposure_city=?, exposure_state=?, exposure_zip=?,
+           project_name=?,
            follow_up_date=?, attachment_point=?, participation_of=?,
            first_named_insured=?, access_point=?
            WHERE policy_uid=?""",
@@ -3583,9 +3633,6 @@ def policy_edit_post(
             renewal_status,
             _float(commission_rate), _float(prior_premium), notes or None,
             project_name or None,
-            exposure_basis or None, _float(exposure_amount), exposure_unit or None,
-            exposure_address or None, exposure_city or None,
-            exposure_state or None, exposure_zip or None,
             follow_up_date or None,
             _float(attachment_point), _float(participation_of),
             first_named_insured or None, access_point or None,
@@ -3759,9 +3806,12 @@ async def policy_cell_save(request: Request, policy_uid: str, conn=Depends(get_d
     value = body.get("value", "")
 
     # -- Field allowlists by type --
+    # Exposure fields (exposure_basis/amount/unit/address/city/state/zip) are
+    # intentionally excluded — they now live on client_exposures and are
+    # edited through the client's Exposures grid, not cell-edited on policies.
     currency_fields = {
         "premium", "limit_amount", "deductible", "attachment_point",
-        "participation_of", "prior_premium", "exposure_amount",
+        "participation_of", "prior_premium",
     }
     date_fields = {
         "effective_date", "expiration_date", "follow_up_date", "target_effective_date",
@@ -3769,13 +3819,11 @@ async def policy_cell_save(request: Request, policy_uid: str, conn=Depends(get_d
     bool_fields = {"is_bor", "is_standalone", "flagged", "policy_number_unknown"}
     text_fields = {
         "policy_number", "first_named_insured", "access_point", "description",
-        "notes", "placement_notation", "exposure_address", "exposure_basis",
-        "exposure_unit", "tower_group", "exposure_zip",
+        "notes", "placement_notation", "tower_group",
     }
     combobox_fields = {
         "policy_type", "carrier", "renewal_status", "opportunity_status",
-        "coverage_form", "layer_position", "exposure_state", "exposure_city",
-        "review_cycle",
+        "coverage_form", "layer_position", "review_cycle",
     }
     # Team name fields: writing one of these upserts a contact in the unified
     # contacts table and creates/updates the contact_policy_assignments row.

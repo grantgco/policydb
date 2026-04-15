@@ -285,8 +285,7 @@ def test_parse_llm_json_normalizes_fields():
         "expiration_date": "April 1, 2027",
         "premium": "45k",
         "limit_amount": "1m",
-        "deductible": "$5,000",
-        "exposure_state": "texas"
+        "deductible": "$5,000"
     }'''
     result = parse_llm_json(raw, POLICY_EXTRACTION_SCHEMA)
     assert result["ok"] is True
@@ -296,7 +295,6 @@ def test_parse_llm_json_normalizes_fields():
     assert p["deductible"] == 5000.0
     assert p["effective_date"] == "2026-04-01"
     assert p["expiration_date"] == "2027-04-01"
-    assert p["exposure_state"] == "TX"
     assert p["policy_number"] == "TC-001"
 
 
