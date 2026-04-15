@@ -610,7 +610,7 @@ def client_spreadsheet(request: Request, conn=Depends(get_db)):
          "editor": "number", "editorParams": {"selectContents": True},
          "_format": "currency"},
         {"field": "follow_up_date", "title": "Follow-Up", "width": 115,
-         "editor": "date", "_format": "date"},
+         "_format": "date"},
         {"field": "relationship_risk", "title": "Risk Level", "width": 110,
          "editor": "list", "editorParams": {"values": risk_levels, "autocomplete": True, "freetext": False, "listOnEmpty": True},
          "headerFilter": "list", "headerFilterParams": {"values": {s: s for s in risk_levels}, "clearable": True}},
@@ -704,7 +704,7 @@ async def client_quick_add(request: Request, conn=Depends(get_db)):
     row = conn.execute(
         """SELECT c.id, c.name, c.cn_number, c.industry_segment, c.account_exec,
                   c.date_onboarded, c.website, c.fein, c.broker_fee, c.hourly_rate,
-                  c.follow_up_date, c.relationship_risk, c.service_model,
+                  NULL AS follow_up_date, c.relationship_risk, c.service_model,
                   c.business_description, c.notes, c.stewardship_date,
                   c.renewal_strategy, c.growth_opportunities, c.account_priorities,
                   0 AS total_policies, 0 AS total_premium, 0 AS total_revenue,
@@ -804,23 +804,15 @@ def client_tab_overview(request: Request, client_id: int, conn=Depends(get_db)):
     pulse_milestone_done = sum(p.get("milestone_done", 0) for p in _active_policies)
     pulse_milestone_total = sum(p.get("milestone_total", 0) for p in _active_policies)
     pulse_overdue = conn.execute(
-        """SELECT COUNT(*) FROM (
-             SELECT 1 FROM activity_log WHERE client_id=? AND follow_up_done=0 AND follow_up_date < date('now')
-             UNION ALL
-             SELECT 1 FROM policies WHERE client_id=? AND archived=0 AND (is_opportunity=0 OR is_opportunity IS NULL)
-               AND follow_up_date IS NOT NULL AND follow_up_date < date('now')
-           )""", (client_id, client_id)
+        """SELECT COUNT(*) FROM activity_log
+           WHERE client_id=? AND follow_up_done=0 AND follow_up_date < date('now')""",
+        (client_id,),
     ).fetchone()[0]
-    # Next upcoming follow-up date (earliest pending across activities + policies)
+    # Next upcoming follow-up date (earliest pending activity follow-up)
     pulse_next_followup = conn.execute(
-        """SELECT MIN(fu) FROM (
-             SELECT MIN(follow_up_date) AS fu FROM activity_log
-             WHERE client_id=? AND follow_up_done=0 AND follow_up_date >= date('now')
-             UNION ALL
-             SELECT MIN(follow_up_date) AS fu FROM policies
-             WHERE client_id=? AND archived=0 AND (is_opportunity=0 OR is_opportunity IS NULL)
-               AND follow_up_date IS NOT NULL AND follow_up_date >= date('now')
-           )""", (client_id, client_id)
+        """SELECT MIN(follow_up_date) FROM activity_log
+           WHERE client_id=? AND follow_up_done=0 AND follow_up_date >= date('now')""",
+        (client_id,),
     ).fetchone()[0]
 
     _risks_for_pulse = conn.execute("SELECT severity FROM client_risks WHERE client_id=?", (client_id,)).fetchall()
@@ -2233,11 +2225,6 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
            WHERE client_id = ? AND follow_up_date < ? AND follow_up_done = 0""",
         (client_id, _today),
     ).fetchone()["n"]
-    pulse_overdue += conn.execute(
-        """SELECT COUNT(*) AS n FROM policies
-           WHERE client_id = ? AND follow_up_date < ? AND follow_up_date IS NOT NULL AND archived = 0""",
-        (client_id, _today),
-    ).fetchone()["n"]
     # Milestone progress across all active policies
     _ms_rows = conn.execute(
         """SELECT pm.completed FROM policy_milestones pm
@@ -2395,10 +2382,21 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
         (client_id,),
     ).fetchone()[0]
 
+    # Derive client-level "next follow-up" from activity_log (earliest open
+    # direct client follow-up — policy_id IS NULL).
+    _client_next_followup = conn.execute(
+        """SELECT MIN(follow_up_date) FROM activity_log
+           WHERE client_id = ? AND policy_id IS NULL
+             AND follow_up_done = 0 AND follow_up_date IS NOT NULL
+             AND (item_kind = 'followup' OR item_kind IS NULL)""",
+        (client_id,),
+    ).fetchone()[0]
+
     return templates.TemplateResponse("clients/detail.html", {
         "request": request,
         "active": "clients",
         "client": _client_dict,
+        "client_next_followup": _client_next_followup,
         "summary": dict(summary) if summary else {},
         "client_total_hours": client_total_hours,
         "policy_groups": policy_groups,
@@ -3540,13 +3538,34 @@ def client_followup_set(
     follow_up_date: str = Form(""),
     conn=Depends(get_db),
 ):
-    """Set or clear the client-level follow-up date."""
-    conn.execute(
-        "UPDATE clients SET follow_up_date = ? WHERE id = ?",
-        (follow_up_date.strip() or None, client_id),
-    )
+    """Schedule a client-level follow-up via activity_log. An empty date
+    closes all open direct client-level follow-ups (policy_id IS NULL)."""
+    fu = follow_up_date.strip() or None
+    if fu:
+        from policydb.queries import create_followup_activity
+        create_followup_activity(
+            conn,
+            client_id=client_id,
+            policy_id=None,
+            issue_id=None,
+            subject="Client follow-up",
+            activity_type="Task",
+            follow_up_date=fu,
+            follow_up_done=False,
+        )
+    else:
+        conn.execute(
+            """UPDATE activity_log
+               SET follow_up_done = 1,
+                   auto_close_reason = 'manual',
+                   auto_closed_at = datetime('now'),
+                   auto_closed_by = 'client_followup_set'
+               WHERE client_id = ? AND policy_id IS NULL
+                 AND follow_up_done = 0 AND follow_up_date IS NOT NULL""",
+            (client_id,),
+        )
     conn.commit()
-    return JSONResponse({"ok": True, "follow_up_date": follow_up_date.strip() or None})
+    return JSONResponse({"ok": True, "follow_up_date": fu})
 
 
 _STRATEGY_FIELDS = {
@@ -5901,7 +5920,7 @@ async def client_field_patch(
     allowed = {
         "name", "cn_number", "industry_segment", "account_exec",
         "date_onboarded", "website", "fein", "broker_fee", "hourly_rate",
-        "follow_up_date", "relationship_risk", "service_model",
+        "relationship_risk", "service_model",
         "business_description", "notes", "stewardship_date",
         "renewal_strategy", "growth_opportunities", "account_priorities",
         "latitude", "longitude",
@@ -7747,7 +7766,12 @@ async def exposure_copy_forward(request: Request, client_id: int, conn=Depends(g
 def client_edit_followup_slideover(client_id: int, request: Request, conn=Depends(get_db)):
     """Return the edit slideover partial for a client follow-up."""
     row = conn.execute(
-        "SELECT id, name, follow_up_date, notes FROM clients WHERE id = ?",
+        """SELECT c.id, c.name, c.notes,
+                  (SELECT MIN(follow_up_date) FROM activity_log
+                     WHERE client_id = c.id AND policy_id IS NULL
+                       AND follow_up_done = 0 AND follow_up_date IS NOT NULL
+                       AND (item_kind = 'followup' OR item_kind IS NULL)) AS follow_up_date
+           FROM clients c WHERE c.id = ?""",
         (client_id,),
     ).fetchone()
     if not row:
@@ -7760,14 +7784,59 @@ def client_edit_followup_slideover(client_id: int, request: Request, conn=Depend
 
 @router.patch("/{client_id}/followup-field")
 def patch_client_followup_field(client_id: int, body: dict = None, conn=Depends(get_db)):
-    """Update follow_up_date or notes on a client (slideover inline edit)."""
+    """Update notes on a client, or reschedule / schedule the earliest open
+    client-level activity follow-up when field='follow_up_date'."""
     if not body:
         return JSONResponse({"ok": False, "error": "No body"}, status_code=400)
     field = body.get("field", "")
     value = body.get("value", "")
-    allowed = {"follow_up_date", "notes"}
+    allowed = {"notes", "follow_up_date"}
     if field not in allowed:
         return JSONResponse({"ok": False, "error": f"Field '{field}' not editable"}, status_code=400)
-    conn.execute(f"UPDATE clients SET {field} = ? WHERE id = ?", (value or None, client_id))
+
+    if field == "notes":
+        conn.execute("UPDATE clients SET notes = ? WHERE id = ?", (value or None, client_id))
+        conn.commit()
+        return {"ok": True, "formatted": value}
+
+    new_date = (value or "").strip() or None
+    current_fu = conn.execute(
+        """SELECT MIN(follow_up_date) FROM activity_log
+           WHERE client_id = ? AND policy_id IS NULL
+             AND follow_up_done = 0 AND follow_up_date IS NOT NULL
+             AND (item_kind = 'followup' OR item_kind IS NULL)""",
+        (client_id,),
+    ).fetchone()[0]
+    if new_date and current_fu:
+        conn.execute(
+            """UPDATE activity_log
+               SET follow_up_date = ?
+               WHERE client_id = ? AND policy_id IS NULL
+                 AND follow_up_done = 0 AND follow_up_date = ?""",
+            (new_date, client_id, current_fu),
+        )
+    elif new_date and not current_fu:
+        from policydb.queries import create_followup_activity
+        create_followup_activity(
+            conn,
+            client_id=client_id,
+            policy_id=None,
+            issue_id=None,
+            subject="Client follow-up",
+            activity_type="Task",
+            follow_up_date=new_date,
+            follow_up_done=False,
+        )
+    elif not new_date and current_fu:
+        conn.execute(
+            """UPDATE activity_log
+               SET follow_up_done = 1,
+                   auto_close_reason = 'manual',
+                   auto_closed_at = datetime('now'),
+                   auto_closed_by = 'followup_field_clear'
+               WHERE client_id = ? AND policy_id IS NULL
+                 AND follow_up_done = 0 AND follow_up_date IS NOT NULL""",
+            (client_id,),
+        )
     conn.commit()
-    return {"ok": True, "formatted": value}
+    return {"ok": True, "formatted": new_date or ""}

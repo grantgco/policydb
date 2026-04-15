@@ -768,7 +768,7 @@ def policy_slideover_field_save(
 ):
     """Per-field save from the review slideover."""
     allowed = {
-        "renewal_status", "follow_up_date", "description", "notes",
+        "renewal_status", "description", "notes",
         "premium", "limit_amount", "opportunity_status",
     }
     if field not in allowed:
@@ -777,15 +777,6 @@ def policy_slideover_field_save(
     if field in ("premium", "limit_amount"):
         parsed = parse_currency_with_magnitude(value)
         db_val = parsed if parsed is not None else None
-    elif field == "follow_up_date":
-        db_val = value or None
-        # Sync follow_up_date to policy table
-        conn.execute(
-            "UPDATE policies SET follow_up_date = ? WHERE policy_uid = ?",
-            (db_val, uid),
-        )
-        conn.commit()
-        return HTMLResponse(f'<span class="text-xs text-green-600">{value or "—"}</span>')
     else:
         db_val = value or None
 

@@ -1518,19 +1518,12 @@ def program_renew_log_save(
     conn.execute(
         """INSERT INTO activity_log
            (activity_date, client_id, program_id, activity_type, subject, details,
-            follow_up_date, duration_hours, contact_person)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            follow_up_date, duration_hours, contact_person, item_kind)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'followup')""",
         (date.today().isoformat(), pgm["client_id"], pgm["id"],
          activity_type, subject.strip(), details.strip() or None,
          follow_up_date or None, dur, contact_person.strip() or None),
     )
-
-    # Update program follow_up_date if provided
-    if follow_up_date:
-        conn.execute(
-            "UPDATE programs SET follow_up_date=? WHERE program_uid=?",
-            (follow_up_date, program_uid),
-        )
     conn.commit()
     logger.info("Program %s activity logged from renewal pipeline", program_uid)
 

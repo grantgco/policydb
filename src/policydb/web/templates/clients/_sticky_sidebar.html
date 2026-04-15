@@ -202,10 +202,10 @@
       {% endif %}
       <span class="text-gray-400">Client FU</span>
       <span class="flex items-center gap-1">
-        <input type="date" id="client-fu-date" value="{{ client.follow_up_date or '' }}"
+        <input type="date" id="client-fu-date" value="{{ client_next_followup or '' }}"
           class="text-xs border border-gray-200 rounded px-1.5 py-0.5 flex-1 focus:outline-none focus:ring-1 focus:ring-marsh bg-white"
           onchange="fetch('/clients/{{ client.id }}/follow-up',{method:'POST',body:new URLSearchParams({follow_up_date:this.value}),headers:{'Content-Type':'application/x-www-form-urlencoded'}}).then(function(r){if(!r.ok)throw r;if(typeof showToast==='function')showToast('Saved',true)}).catch(function(){if(typeof showToast==='function')showToast('Save failed',false)})">
-        {% if client.follow_up_date %}
+        {% if client_next_followup %}
         <button type="button" onclick="var d=document.getElementById('client-fu-date');d.value='';d.dispatchEvent(new Event('change'))"
           class="text-gray-300 hover:text-red-500 text-xs" title="Clear follow-up date">&times;</button>
         {% endif %}

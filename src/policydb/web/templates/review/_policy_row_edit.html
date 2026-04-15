@@ -38,9 +38,10 @@
               class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh">
           </div>
           <div>
-            <p class="text-xs text-gray-500 mb-0.5">Follow-Up</p>
-            <input type="date" name="follow_up_date" value="{{ p.follow_up_date or '' }}"
-              class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh">
+            <p class="text-xs text-gray-500 mb-0.5">Next Follow-Up</p>
+            <span class="block border border-gray-100 rounded px-2 py-1 text-xs bg-gray-50 text-gray-600">
+              {{ p.follow_up_date or '—' }}
+            </span>
           </div>
         </div>
 
@@ -142,9 +143,10 @@
               class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh">
           </div>
           <div>
-            <p class="text-xs text-gray-500 mb-0.5">Follow-Up</p>
-            <input type="date" name="follow_up_date" value="{{ p.follow_up_date or '' }}"
-              class="border border-gray-300 rounded px-2 py-1 text-xs w-full focus:outline-none focus:ring-1 focus:ring-marsh">
+            <p class="text-xs text-gray-500 mb-0.5">Next Follow-Up</p>
+            <span class="block border border-gray-100 rounded px-2 py-1 text-xs bg-gray-50 text-gray-600">
+              {{ p.follow_up_date or '—' }}
+            </span>
           </div>
         </div>
 

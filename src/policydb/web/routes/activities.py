@@ -1322,63 +1322,8 @@ def update_disposition(
                 except Exception:
                     pass  # timeline table may not exist
 
-    elif source == "policy":
-        # Auto-create activity_log row, then supersede old follow-ups
-        # item_id may be policy_uid (string like "POL-003") or integer PK
-        if item_id.isdigit():
-            pol = conn.execute(
-                "SELECT id, client_id, policy_type FROM policies WHERE id = ?",
-                (int(item_id),),
-            ).fetchone()
-        else:
-            pol = conn.execute(
-                "SELECT id, client_id, policy_type FROM policies WHERE policy_uid = ?",
-                (item_id,),
-            ).fetchone()
-        if pol:
-            conn.execute(
-                """INSERT INTO activity_log
-                   (activity_date, client_id, policy_id, activity_type, subject,
-                    details, follow_up_date, disposition, account_exec)
-                   VALUES (?, ?, ?, 'Follow-up', ?, ?, ?, ?, ?)""",
-                (
-                    date.today().isoformat(), pol["client_id"], pol["id"],
-                    f"{disposition} — {pol['policy_type']}",
-                    note or None, follow_up_date or None,
-                    disposition, account_exec,
-                ),
-            )
-            if follow_up_date:
-                supersede_followups(conn, pol["id"], follow_up_date)
-            else:
-                # Clear policy follow-up if no new date
-                conn.execute(
-                    "UPDATE policies SET follow_up_date = NULL WHERE id = ?",
-                    (pol["id"],),
-                )
-
-    elif source == "client":
-        # Auto-create activity_log row, clear client.follow_up_date
-        client = conn.execute(
-            "SELECT id, name FROM clients WHERE id = ?", (int(item_id),)
-        ).fetchone()
-        if client:
-            conn.execute(
-                """INSERT INTO activity_log
-                   (activity_date, client_id, activity_type, subject,
-                    details, follow_up_date, disposition, account_exec)
-                   VALUES (?, ?, 'Follow-up', ?, ?, ?, ?, ?)""",
-                (
-                    date.today().isoformat(), client["id"],
-                    f"{disposition} — {client['name']}",
-                    note or None, follow_up_date or None,
-                    disposition, account_exec,
-                ),
-            )
-            conn.execute(
-                "UPDATE clients SET follow_up_date = NULL WHERE id = ?",
-                (int(item_id),),
-            )
+    # Legacy source='policy' and source='client' synthetic rows no longer
+    # exist — all follow-ups now live in activity_log with source='activity'.
 
     conn.commit()
     logger.info("Disposition updated: %s → %s", composite_id, disposition)
@@ -1508,49 +1453,6 @@ def bulk_action(
                 conn.execute(
                     f"UPDATE activity_log SET {', '.join(updates)} WHERE id = ?", params
                 )
-            elif source == "policy":
-                if item_id.isdigit():
-                    pol = conn.execute(
-                        "SELECT id, client_id, policy_type FROM policies WHERE id = ?",
-                        (int(item_id),),
-                    ).fetchone()
-                else:
-                    pol = conn.execute(
-                        "SELECT id, client_id, policy_type FROM policies WHERE policy_uid = ?",
-                        (item_id,),
-                    ).fetchone()
-                if pol:
-                    conn.execute(
-                        """INSERT INTO activity_log
-                           (activity_date, client_id, policy_id, activity_type, subject,
-                            details, follow_up_date, disposition, account_exec)
-                           VALUES (?, ?, ?, 'Follow-up', ?, ?, ?, ?, ?)""",
-                        (
-                            date.today().isoformat(), pol["client_id"], pol["id"],
-                            f"{disposition} — {pol['policy_type']}",
-                            note or None, fu_date or None,
-                            disposition, account_exec,
-                        ),
-                    )
-                    if fu_date:
-                        supersede_followups(conn, pol["id"], fu_date)
-            elif source == "client":
-                client = conn.execute(
-                    "SELECT id, name FROM clients WHERE id = ?", (int(item_id),)
-                ).fetchone()
-                if client:
-                    conn.execute(
-                        """INSERT INTO activity_log
-                           (activity_date, client_id, activity_type, subject,
-                            details, follow_up_date, disposition, account_exec)
-                           VALUES (?, ?, 'Follow-up', ?, ?, ?, ?, ?)""",
-                        (
-                            date.today().isoformat(), client["id"],
-                            f"{disposition} — {client['name']}",
-                            note or None, fu_date or None,
-                            disposition, account_exec,
-                        ),
-                    )
 
         elif action == "snooze":
             new_date = (date.today() + timedelta(days=snooze_days)).isoformat()
@@ -1564,17 +1466,6 @@ def bulk_action(
                     "UPDATE activity_log SET follow_up_date = ? WHERE id = ?",
                     (new_date, int(item_id)),
                 )
-            elif source == "policy":
-                _pk = int(item_id) if item_id.isdigit() else None
-                if _pk:
-                    conn.execute("UPDATE policies SET follow_up_date = ? WHERE id = ?", (new_date, _pk))
-                else:
-                    conn.execute("UPDATE policies SET follow_up_date = ? WHERE policy_uid = ?", (new_date, item_id))
-            elif source == "client":
-                conn.execute(
-                    "UPDATE clients SET follow_up_date = ? WHERE id = ?",
-                    (new_date, int(item_id)),
-                )
 
         elif action == "mark_done":
             if source == "activity":
@@ -1583,17 +1474,6 @@ def bulk_action(
                     (int(item_id),),
                 )
                 _auto_send_rfi_bundle(conn, int(item_id))
-            elif source == "policy":
-                _pk = int(item_id) if item_id.isdigit() else None
-                if _pk:
-                    conn.execute("UPDATE policies SET follow_up_date = NULL WHERE id = ?", (_pk,))
-                else:
-                    conn.execute("UPDATE policies SET follow_up_date = NULL WHERE policy_uid = ?", (item_id,))
-            elif source == "client":
-                conn.execute(
-                    "UPDATE clients SET follow_up_date = NULL WHERE id = ?",
-                    (int(item_id),),
-                )
 
     conn.commit()
     logger.info("Bulk action '%s' on %d items", action, count)
@@ -1761,10 +1641,6 @@ async def followups_apply_spread(request: Request, conn=Depends(get_db)):
         source, item_id = cid.split("-", 1)
         if source == "activity":
             conn.execute("UPDATE activity_log SET follow_up_date=? WHERE id=?", (new_date, int(item_id)))
-        elif source == "policy":
-            conn.execute("UPDATE policies SET follow_up_date=? WHERE id=?", (new_date, int(item_id)))
-        elif source == "client":
-            conn.execute("UPDATE clients SET follow_up_date=? WHERE id=?", (new_date, int(item_id)))
         count += 1
     conn.commit()
     return JSONResponse({"ok": True, "count": count})
@@ -1781,10 +1657,6 @@ async def followups_plan_move(request: Request, conn=Depends(get_db)):
     source, item_id = cid.split("-", 1)
     if source == "activity":
         conn.execute("UPDATE activity_log SET follow_up_date=? WHERE id=?", (new_date, int(item_id)))
-    elif source == "policy":
-        conn.execute("UPDATE policies SET follow_up_date=? WHERE id=?", (new_date, int(item_id)))
-    elif source == "client":
-        conn.execute("UPDATE clients SET follow_up_date=? WHERE id=?", (new_date, int(item_id)))
     conn.commit()
     return JSONResponse({"ok": True})
 
@@ -2321,8 +2193,6 @@ def bulk_reschedule(
         source, item_id = item.split("-", 1)
         if source == "activity":
             conn.execute("UPDATE activity_log SET follow_up_date=? WHERE id=?", (new_date, int(item_id)))
-        elif source == "policy":
-            conn.execute("UPDATE policies SET follow_up_date=? WHERE policy_uid=?", (new_date, item_id))
     conn.commit()
     count = len([i for i in ids.split(",") if i.strip()])
     window = 30
@@ -2471,17 +2341,12 @@ def bulk_log(
         conn.execute(
             """INSERT INTO activity_log
                (activity_date, client_id, program_id, activity_type, contact_person,
-                subject, details, follow_up_date, duration_hours, account_exec)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                subject, details, follow_up_date, duration_hours, account_exec, item_kind)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'followup')""",
             (today, program["client_id"], program["id"], activity_type,
              contact_person.strip() or None, subject.strip(), details.strip() or None,
              fu, dur, account_exec),
         )
-        if fu:
-            conn.execute(
-                "UPDATE programs SET follow_up_date=? WHERE id=?",
-                (fu, program["id"]),
-            )
         count += 1
 
     conn.commit()
@@ -2498,32 +2363,44 @@ def bulk_follow_up(
     policy_uids: str = Form(""),
     conn=Depends(get_db),
 ):
-    """Set follow-up date for multiple selected renewal rows (policies + programs)."""
+    """Schedule a follow-up on multiple selected renewal rows by creating
+    activity_log rows with the given date."""
     fu = follow_up_date.strip()
     if not fu:
         return HTMLResponse("")
     pol_uids, pgm_uids = _parse_subject_tokens(subjects or policy_uids)
+    from policydb.queries import create_followup_activity
+    today = date.today().isoformat()
     count = 0
     for uid in pol_uids:
         policy = conn.execute(
-            "SELECT id FROM policies WHERE policy_uid = ?", (uid,)
+            "SELECT id, client_id, policy_type FROM policies WHERE policy_uid = ?", (uid,)
         ).fetchone()
         if not policy:
             continue
-        conn.execute(
-            "UPDATE policies SET follow_up_date = ? WHERE id = ?",
-            (fu, policy["id"]),
+        create_followup_activity(
+            conn,
+            client_id=policy["client_id"],
+            policy_id=policy["id"],
+            issue_id=None,
+            subject=f"Follow up: {policy['policy_type'] or 'policy'}",
+            activity_type="Task",
+            follow_up_date=fu,
+            follow_up_done=False,
         )
         count += 1
     for uid in pgm_uids:
         program = conn.execute(
-            "SELECT id FROM programs WHERE program_uid = ?", (uid,)
+            "SELECT id, client_id FROM programs WHERE program_uid = ?", (uid,)
         ).fetchone()
         if not program:
             continue
         conn.execute(
-            "UPDATE programs SET follow_up_date = ? WHERE id = ?",
-            (fu, program["id"]),
+            """INSERT INTO activity_log
+               (activity_date, client_id, program_id, activity_type, subject,
+                follow_up_date, item_kind)
+               VALUES (?, ?, ?, 'Task', 'Follow up', ?, 'followup')""",
+            (today, program["client_id"], program["id"], fu),
         )
         count += 1
     conn.commit()
@@ -2568,23 +2445,6 @@ def bulk_complete(
                 )
             # Auto-mark RFI bundle as sent when its "Send RFI" task is completed
             _auto_send_rfi_bundle(conn, int(item_id))
-        elif source == "policy":
-            conn.execute("UPDATE policies SET follow_up_date=NULL WHERE policy_uid=?", (item_id,))
-            if dur or note:
-                pol = conn.execute(
-                    "SELECT id, client_id, policy_type FROM policies WHERE policy_uid=?", (item_id,)
-                ).fetchone()
-                if pol:
-                    from datetime import date as _date
-                    account_exec = cfg.get("default_account_exec", "")
-                    conn.execute(
-                        """INSERT INTO activity_log
-                           (activity_date, client_id, policy_id, activity_type, subject, details,
-                            duration_hours, follow_up_done, account_exec)
-                           VALUES (?, ?, ?, 'Task', ?, ?, ?, 1, ?)""",
-                        (_date.today().isoformat(), pol["client_id"], pol["id"],
-                         f"Cleared follow-up — {pol['policy_type']}", note or None, dur, account_exec),
-                    )
     conn.commit()
     count = len([i for i in ids.split(",") if i.strip()])
     window = 30

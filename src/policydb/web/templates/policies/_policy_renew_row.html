@@ -136,11 +136,11 @@
     {% endif %}
     </button>
   </td>
-  {# Follow-Up — inline date picker #}
+  {# Follow-Up — derived from earliest open activity follow-up, read-only #}
   <td class="px-2 py-1.5 whitespace-nowrap">
-    <input type="date" value="{{ p.follow_up_date or '' }}"
-      onchange="policySaveDate(this, '{{ p.policy_uid }}', 'follow_up_date')"
-      class="text-xs tabular-nums bg-transparent border-none p-0 focus:outline-none focus:ring-0 cursor-pointer w-[100px] {{ 'text-red-500 font-medium' if p.followup_overdue else 'text-gray-500' }}">
+    <span class="text-xs tabular-nums w-[100px] inline-block {{ 'text-red-500 font-medium' if p.followup_overdue else 'text-gray-500' }}">
+      {{ p.follow_up_date or '—' }}
+    </span>
   </td>
   {# Actions #}
   <td class="px-2 py-1.5 whitespace-nowrap">
