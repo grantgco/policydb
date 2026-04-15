@@ -204,6 +204,11 @@
     });
   }
 
+  function sanitizeColor(color, fallback) {
+    var value = (color || '').trim();
+    return /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(value) ? value : fallback;
+  }
+
   // ── Build Card HTML ──────────────────────────────────────────────────
   function buildCard() {
     var superLabel  = document.getElementById('val-super').value;
@@ -213,7 +218,7 @@
     var desc        = document.getElementById('val-desc').value;
     var status      = document.getElementById('cfg-status').value || defaults.status;
     var progress    = parseInt(document.getElementById('cfg-progress').value, 10) || 0;
-    var accentColor = document.getElementById('cfg-accent-color').value || defaults.accentColor;
+    var accentColor = sanitizeColor(document.getElementById('cfg-accent-color').value, defaults.accentColor);
 
     var showProgress = ManualChart.isToggled('show-progress');
 
