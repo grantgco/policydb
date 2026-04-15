@@ -10,3 +10,4 @@ build/
 .worktrees/
 .claude/worktrees/
 .claude/projects/
+.playwright-mcp/
