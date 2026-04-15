@@ -84,6 +84,8 @@
   {# ── Metadata row ── #}
   {% set days = (issue.days_open or 0)|int %}
   {% set sla = issue.sla_days or 7 %}
+  {% set _over = issue.over_sla %}
+  {% set _days_to = issue.days_to_deadline %}
   <div class="flex items-center gap-2 text-xs text-gray-500 mb-4 flex-wrap">
     <a href="/clients/{{ issue.client_id }}" class="text-marsh hover:underline">{{ issue.client_name }}</a>
     {% if issue.policy_uid %}
@@ -106,11 +108,22 @@
     <span class="text-gray-300">&middot;</span>
     {% if issue.is_renewal_issue %}
     <span class="text-gray-500">{{ days }}d open</span>
+    {% elif issue.deadline_source == 'manual' %}
+      {# Manual due_date wins — show days-to-deadline instead of days-open vs severity budget #}
+      <span class="{% if _over %}text-red-600 font-semibold{% elif _days_to is not none and _days_to <= 2 %}text-amber-600{% else %}text-gray-500{% endif %}">
+        {{ days }}d open
+        <span class="text-gray-400">
+          (due {{ issue.deadline_date }}
+          {%- if _over %} · {{ issue.days_past }}d past{% elif _days_to == 0 %} · today
+          {%- elif _days_to is not none %} · in {{ _days_to }}d{% endif -%}
+          )
+        </span>
+      </span>
     {% else %}
-    <span class="{% if days > sla %}text-red-600 font-semibold{% elif days > (sla * 0.7)|int %}text-amber-600{% else %}text-gray-500{% endif %}">
-      {{ days }}d open
-      {% if sla %}<span class="text-gray-400">(SLA {{ sla }}d)</span>{% endif %}
-    </span>
+      <span class="{% if _over %}text-red-600 font-semibold{% elif days > (sla * 0.7)|int %}text-amber-600{% else %}text-gray-500{% endif %}">
+        {{ days }}d open
+        {% if sla %}<span class="text-gray-400">(SLA {{ sla }}d)</span>{% endif %}
+      </span>
     {% endif %}
     <span class="text-gray-300">&middot;</span>
     <span>{{ activities|length }} activit{{ 'y' if activities|length == 1 else 'ies' }}{% if total_hours %} &middot; {{ total_hours | format_hours }}{% endif %}</span>

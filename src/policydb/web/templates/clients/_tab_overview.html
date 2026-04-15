@@ -32,7 +32,8 @@
     {% for iss in open_issues %}
     {% set sev = iss.issue_severity or 'Normal' %}
     {% set days = (iss.days_open or 0)|int %}
-    {% set sla = iss.issue_sla_days or 7 %}
+    {% set sla = iss.sla_days or iss.issue_sla_days or 7 %}
+    {% set _over = iss.over_sla %}
     <a href="/issues/{{ iss.issue_uid }}" class="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 transition-colors group">
       {# Severity dot #}
       <span class="w-2.5 h-2.5 rounded-full flex-shrink-0
@@ -56,13 +57,18 @@
         </div>
       </div>
 
-      {# Age + SLA #}
+      {# Age + SLA (manual due_date overrides severity-derived budget) #}
       <span class="text-xs whitespace-nowrap
-        {% if days > sla %}text-red-600 font-semibold
-        {% elif days > (sla * 0.7)|int %}text-amber-600
-        {% else %}text-gray-400{% endif %}">
+        {% if _over %}text-red-600 font-semibold
+        {% elif iss.deadline_source == 'manual' and iss.days_to_deadline is not none and iss.days_to_deadline <= 2 %}text-amber-600
+        {% elif iss.deadline_source != 'manual' and days > (sla * 0.7)|int %}text-amber-600
+        {% else %}text-gray-400{% endif %}"
+        {% if iss.deadline_source == 'manual' %}title="Due {{ iss.deadline_date }}"{% else %}title="SLA target: {{ sla }}d"{% endif %}>
         {{ days }}d
-        {% if days > sla %}<span class="text-red-400">(SLA {{ sla }}d)</span>{% endif %}
+        {% if _over %}
+          {% if iss.deadline_source == 'manual' %}<span class="text-red-400">({{ iss.days_past or 0 }}d past due)</span>
+          {% else %}<span class="text-red-400">(SLA {{ sla }}d)</span>{% endif %}
+        {% endif %}
       </span>
     </a>
     {% endfor %}

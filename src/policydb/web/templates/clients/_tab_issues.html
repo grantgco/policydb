@@ -40,7 +40,8 @@
     {% for iss in open_issues %}
     {% set sev = iss.issue_severity or 'Normal' %}
     {% set days = (iss.days_open or 0)|int %}
-    {% set sla = iss.issue_sla_days or 7 %}
+    {% set sla = iss.sla_days or iss.issue_sla_days or 7 %}
+    {% set _over = iss.over_sla %}
     {% set ist = iss.issue_status or 'Open' %}
     <div class="card px-4 py-3 flex items-center gap-3 hover:bg-gray-50 transition-colors issue-card" data-issue-type="{{ 'renewal' if iss.is_renewal_issue else 'manual' }}">
       {# Severity dot #}
@@ -80,16 +81,23 @@
         {% endif %}
       </div>
 
-      {# Age + SLA #}
-      <div class="text-right flex-shrink-0">
+      {# Age + SLA (manual due_date overrides severity-derived budget) #}
+      <div class="text-right flex-shrink-0"
+           {% if iss.deadline_source == 'manual' %}title="Due {{ iss.deadline_date }}"
+           {% else %}title="SLA target: {{ sla }}d"{% endif %}>
         <span class="text-xs whitespace-nowrap
-          {% if days > sla %}text-red-600 font-semibold
-          {% elif days > (sla * 0.7)|int %}text-amber-600
+          {% if _over %}text-red-600 font-semibold
+          {% elif iss.deadline_source == 'manual' and iss.days_to_deadline is not none and iss.days_to_deadline <= 2 %}text-amber-600
+          {% elif iss.deadline_source != 'manual' and days > (sla * 0.7)|int %}text-amber-600
           {% else %}text-gray-400{% endif %}">
           {{ days }}d
         </span>
-        {% if days > sla %}
-        <div class="text-[10px] text-red-400">SLA {{ sla }}d</div>
+        {% if _over %}
+          {% if iss.deadline_source == 'manual' %}
+          <div class="text-[10px] text-red-400">{{ iss.days_past or 0 }}d past due</div>
+          {% else %}
+          <div class="text-[10px] text-red-400">SLA {{ sla }}d</div>
+          {% endif %}
         {% endif %}
       </div>
 

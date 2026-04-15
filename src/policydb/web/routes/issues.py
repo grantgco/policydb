@@ -382,6 +382,7 @@ def issues_for_client(
     """Return open issues for a client — used by the Quick Log issue widget."""
     rows = conn.execute("""
         SELECT id, issue_uid, subject, issue_severity, issue_sla_days,
+               due_date, activity_date,
                CAST(julianday('now') - julianday(activity_date) AS INTEGER) AS days_open
         FROM activity_log
         WHERE item_kind = 'issue'
@@ -390,6 +391,7 @@ def issues_for_client(
           AND (issue_status IS NULL OR issue_status NOT IN ('Resolved', 'Closed'))
     """, (client_id,)).fetchall()
 
+    from policydb.queries import attach_issue_sla_state
     issues = sorted(
         [dict(r) for r in rows],
         key=lambda r: (
@@ -397,6 +399,7 @@ def issues_for_client(
             r.get("days_open") or 0,
         ),
     )
+    attach_issue_sla_state(issues)
     return templates.TemplateResponse(
         "issues/_issue_widget.html",
         {"request": request, "issues": issues},
@@ -412,6 +415,7 @@ def issues_for_policy(
     """Return open issues for a specific policy — used by policy page issue widgets."""
     rows = conn.execute("""
         SELECT id, issue_uid, subject, issue_severity, issue_sla_days,
+               due_date, activity_date,
                CAST(julianday('now') - julianday(activity_date) AS INTEGER) AS days_open
         FROM activity_log
         WHERE item_kind = 'issue'
@@ -420,6 +424,7 @@ def issues_for_policy(
           AND (issue_status IS NULL OR issue_status NOT IN ('Resolved', 'Closed'))
     """, (policy_id,)).fetchall()
 
+    from policydb.queries import attach_issue_sla_state
     issues = sorted(
         [dict(r) for r in rows],
         key=lambda r: (
@@ -427,6 +432,7 @@ def issues_for_policy(
             r.get("days_open") or 0,
         ),
     )
+    attach_issue_sla_state(issues)
     return templates.TemplateResponse(
         "issues/_issue_widget.html",
         {"request": request, "issues": issues},
@@ -764,6 +770,8 @@ def issue_detail(
     """Full issue detail page with activity timeline."""
     # Pull location from the issue's policy OR its program (program-level
     # renewal issues have no policy_id but the program carries project_id).
+    # a.* already includes due_date; compute_issue_sla_state() uses it below
+    # to override the severity-derived deadline when a user has set one.
     issue = conn.execute("""
         SELECT a.*, c.name AS client_name,
                p.policy_uid, p.policy_type, p.carrier, p.expiration_date,
@@ -824,12 +832,10 @@ def issue_detail(
     # Compute total hours across all linked activities
     total_hours = sum(a.get("duration_hours") or 0 for a in activities)
 
-    # SLA info
-    severities = cfg.get("issue_severities", [])
-    sla_map = {s["label"]: s.get("sla_days", 7) for s in severities}
-    sla = issue.get("issue_sla_days") or sla_map.get(issue.get("issue_severity", "Normal"), 7)
-    issue["sla_days"] = sla
-    issue["over_sla"] = (issue.get("days_open") or 0) > sla
+    # SLA info — a manually-set due_date on the issue row wins over the
+    # severity-derived activity_date + issue_sla_days deadline.
+    from policydb.queries import compute_issue_sla_state
+    issue.update(compute_issue_sla_state(issue))
 
     # Query issues that were merged into this one
     merged_from_issues = [dict(r) for r in conn.execute("""

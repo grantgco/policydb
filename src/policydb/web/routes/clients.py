@@ -857,20 +857,34 @@ def client_tab_overview(request: Request, client_id: int, conn=Depends(get_db)):
     _wn_tomorrow_str = (_wn_today + timedelta(days=1)).isoformat()
     whats_next = None
 
-    # Priority 1: Issues with breached SLA
+    # Priority 1: Issues with breached SLA — a manually set due_date wins
+    # over the severity-derived activity_date + issue_sla_days deadline.
     _sla_breached = conn.execute("""
-        SELECT id, subject, issue_uid, issue_severity, issue_status, issue_sla_days,
-               activity_date, client_id,
-               CAST(julianday('now') - julianday(activity_date) AS INTEGER) AS age_days
+        SELECT id, subject, issue_uid, issue_severity, issue_status,
+               issue_sla_days, due_date, activity_date, client_id,
+               CAST(julianday('now') - julianday(activity_date) AS INTEGER) AS age_days,
+               CASE
+                 WHEN due_date IS NOT NULL
+                   THEN CAST(julianday('now') - julianday(due_date) AS INTEGER)
+                 WHEN issue_sla_days IS NOT NULL
+                   THEN CAST(julianday('now') - julianday(activity_date) AS INTEGER) - issue_sla_days
+                 ELSE NULL
+               END AS overdue_days
         FROM activity_log
         WHERE client_id = ? AND item_kind = 'issue' AND issue_id IS NULL
           AND merged_into_id IS NULL
           AND (issue_status IS NULL OR issue_status NOT IN ('Resolved', 'Closed'))
-          AND issue_sla_days > 0
-          AND CAST(julianday('now') - julianday(activity_date) AS INTEGER) > issue_sla_days
+          AND (
+              (due_date IS NOT NULL AND date('now') > due_date)
+              OR (
+                  due_date IS NULL
+                  AND issue_sla_days > 0
+                  AND CAST(julianday('now') - julianday(activity_date) AS INTEGER) > issue_sla_days
+              )
+          )
         ORDER BY
           CASE issue_severity WHEN 'Critical' THEN 0 WHEN 'High' THEN 1 WHEN 'Normal' THEN 2 ELSE 3 END,
-          (CAST(julianday('now') - julianday(activity_date) AS INTEGER) - issue_sla_days) DESC
+          overdue_days DESC
         LIMIT 1
     """, [client_id]).fetchone()
     if _sla_breached:
@@ -882,7 +896,7 @@ def client_tab_overview(request: Request, client_id: int, conn=Depends(get_db)):
             "severity": _sla_breached["issue_severity"],
             "age_days": _sla_breached["age_days"],
             "sla_days": _sla_breached["issue_sla_days"],
-            "overdue_days": _sla_breached["age_days"] - _sla_breached["issue_sla_days"],
+            "overdue_days": _sla_breached["overdue_days"] or 0,
         }
 
     # Priority 2: Overdue follow-ups
@@ -907,20 +921,34 @@ def client_tab_overview(request: Request, client_id: int, conn=Depends(get_db)):
                 "contact": _overdue["contact_person"],
             }
 
-    # Priority 3: Issues approaching SLA (within 1 day)
+    # Priority 3: Issues approaching SLA (within 1 day) — honors manual due_date
     if not whats_next:
         _approaching = conn.execute("""
             SELECT id, subject, issue_uid, issue_severity, issue_sla_days,
-                   activity_date,
-                   CAST(julianday('now') - julianday(activity_date) AS INTEGER) AS age_days
+                   due_date, activity_date,
+                   CAST(julianday('now') - julianday(activity_date) AS INTEGER) AS age_days,
+                   CASE
+                     WHEN due_date IS NOT NULL
+                       THEN CAST(julianday(due_date) - julianday('now') AS INTEGER)
+                     ELSE issue_sla_days - CAST(julianday('now') - julianday(activity_date) AS INTEGER)
+                   END AS remaining_days
             FROM activity_log
             WHERE client_id = ? AND item_kind = 'issue' AND issue_id IS NULL
               AND merged_into_id IS NULL
               AND (issue_status IS NULL OR issue_status NOT IN ('Resolved', 'Closed'))
-              AND issue_sla_days > 0
-              AND CAST(julianday('now') - julianday(activity_date) AS INTEGER) >= (issue_sla_days - 1)
-              AND CAST(julianday('now') - julianday(activity_date) AS INTEGER) <= issue_sla_days
-            ORDER BY issue_sla_days - CAST(julianday('now') - julianday(activity_date) AS INTEGER)
+              AND (
+                (
+                  due_date IS NOT NULL
+                  AND CAST(julianday(due_date) - julianday('now') AS INTEGER) BETWEEN 0 AND 1
+                )
+                OR (
+                  due_date IS NULL
+                  AND issue_sla_days > 0
+                  AND CAST(julianday('now') - julianday(activity_date) AS INTEGER)
+                      BETWEEN (issue_sla_days - 1) AND issue_sla_days
+                )
+              )
+            ORDER BY remaining_days
             LIMIT 1
         """, [client_id]).fetchone()
         if _approaching:
@@ -930,7 +958,7 @@ def client_tab_overview(request: Request, client_id: int, conn=Depends(get_db)):
                 "uid": _approaching["issue_uid"],
                 "subject": _approaching["subject"],
                 "severity": _approaching["issue_severity"],
-                "remaining_days": _approaching["issue_sla_days"] - _approaching["age_days"],
+                "remaining_days": _approaching["remaining_days"] or 0,
             }
 
     # Priority 4: Follow-ups due today or tomorrow
@@ -1003,6 +1031,20 @@ def client_tab_overview(request: Request, client_id: int, conn=Depends(get_db)):
     # Open Tasks panel data
     _ot = get_open_tasks(conn, "client", client_id)
 
+    # Open issues for the summary card — hydrate SLA state so the template
+    # honors manual due_date overrides.
+    from policydb.queries import attach_issue_sla_state
+    _open_issues_for_overview = [dict(r) for r in conn.execute("""
+        SELECT a.id, a.issue_uid, a.subject, a.issue_status, a.issue_severity,
+               a.activity_date, a.issue_sla_days, a.due_date,
+               CAST(julianday('now') - julianday(a.activity_date) AS INTEGER) AS days_open
+        FROM activity_log a
+        WHERE a.client_id = ? AND a.item_kind = 'issue' AND a.issue_id IS NULL
+          AND a.merged_into_id IS NULL
+          AND (a.issue_status IS NULL OR a.issue_status NOT IN ('Resolved', 'Closed'))
+    """, (client_id,)).fetchall()]
+    attach_issue_sla_state(_open_issues_for_overview)
+
     return templates.TemplateResponse("clients/_tab_overview.html", {
         "request": request,
         "client": dict(client),
@@ -1031,15 +1073,7 @@ def client_tab_overview(request: Request, client_id: int, conn=Depends(get_db)):
         "pulse_milestone_total": pulse_milestone_total,
         "pulse_high_risks": pulse_high_risks,
         "pulse_recent": pulse_recent,
-        "open_issues": [dict(r) for r in conn.execute("""
-            SELECT a.id, a.issue_uid, a.subject, a.issue_status, a.issue_severity,
-                   a.activity_date, a.issue_sla_days,
-                   julianday(date('now')) - julianday(a.activity_date) AS days_open
-            FROM activity_log a
-            WHERE a.client_id = ? AND a.item_kind = 'issue' AND a.issue_id IS NULL
-              AND a.merged_into_id IS NULL
-              AND (a.issue_status IS NULL OR a.issue_status NOT IN ('Resolved', 'Closed'))
-        """, (client_id,)).fetchall()],
+        "open_issues": _open_issues_for_overview,
         "today": _today,
         "today_iso": _today,
         "locations": _get_project_locations(conn, client_id),
@@ -1551,7 +1585,8 @@ def client_tab_issues(request: Request, client_id: int, conn=Depends(get_db)):
 
     all_issues = [dict(r) for r in conn.execute("""
         SELECT a.id, a.issue_uid, a.subject, a.issue_status, a.issue_severity,
-               a.issue_sla_days, a.resolution_type, a.resolved_date, a.activity_date,
+               a.issue_sla_days, a.due_date,
+               a.resolution_type, a.resolved_date, a.activity_date,
                a.is_renewal_issue,
                CAST(julianday('now') - julianday(a.activity_date) AS INTEGER) AS days_open,
                p.policy_uid, p.policy_type,
@@ -1566,6 +1601,9 @@ def client_tab_issues(request: Request, client_id: int, conn=Depends(get_db)):
                  CASE a.issue_severity WHEN 'Critical' THEN 0 WHEN 'High' THEN 1 WHEN 'Normal' THEN 2 ELSE 3 END,
                  a.activity_date DESC
     """, (client_id,)).fetchall()]
+
+    from policydb.queries import attach_issue_sla_state
+    attach_issue_sla_state(all_issues)
 
     open_issues = [i for i in all_issues if i.get("issue_status") not in ("Resolved", "Closed")]
     resolved_issues = [i for i in all_issues if i.get("issue_status") in ("Resolved", "Closed")]
@@ -1806,16 +1844,21 @@ def client_quick_brief(request: Request, client_id: int, conn=Depends(get_db)):
         LIMIT 1
     """, [client_id]).fetchone()
 
-    # Open issues
-    open_issues = conn.execute("""
-        SELECT subject, issue_severity, issue_uid, issue_sla_days,
-               CAST(julianday('now') - julianday(activity_date) AS INTEGER) AS age_days
+    # Open issues — hydrate SLA state so manual due_date overrides the
+    # severity-derived "SLA breached" badge in the slideover template.
+    from policydb.queries import attach_issue_sla_state
+    open_issues = [dict(r) for r in conn.execute("""
+        SELECT subject, issue_severity, issue_uid, issue_sla_days, due_date,
+               activity_date,
+               CAST(julianday('now') - julianday(activity_date) AS INTEGER) AS age_days,
+               CAST(julianday('now') - julianday(activity_date) AS INTEGER) AS days_open
         FROM activity_log
         WHERE client_id = ? AND item_kind = 'issue'
           AND issue_id IS NULL
           AND issue_status NOT IN ('Resolved', 'Closed')
         ORDER BY CASE issue_severity WHEN 'Critical' THEN 0 WHEN 'High' THEN 1 WHEN 'Normal' THEN 2 ELSE 3 END
-    """, [client_id]).fetchall()
+    """, [client_id]).fetchall()]
+    attach_issue_sla_state(open_issues)
 
     # Recent activities (last 3)
     recent = conn.execute("""
@@ -2343,6 +2386,24 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
     # Open Tasks summary for sticky sidebar
     _ot_sidebar = get_open_tasks(conn, "client", client_id)
 
+    # Open issues for the sidebar — hydrate SLA state so manual due_date
+    # overrides the severity-derived deadline on detail.html and related.
+    from policydb.queries import attach_issue_sla_state
+    _sidebar_open_issues = [dict(r) for r in conn.execute("""
+        SELECT a.id, a.issue_uid, a.subject, a.issue_status, a.issue_severity,
+               a.activity_date, a.issue_sla_days, a.due_date,
+               CAST(julianday('now') - julianday(a.activity_date) AS INTEGER) AS days_open,
+               (SELECT COUNT(*) FROM activity_log sub WHERE sub.issue_id = a.id) AS activity_count
+        FROM activity_log a
+        WHERE a.client_id = ? AND a.item_kind = 'issue' AND a.issue_id IS NULL
+          AND a.merged_into_id IS NULL
+          AND (a.issue_status IS NULL OR a.issue_status NOT IN ('Resolved', 'Closed'))
+        ORDER BY CASE a.issue_severity
+          WHEN 'Critical' THEN 0 WHEN 'High' THEN 1 WHEN 'Normal' THEN 2 ELSE 3
+        END, a.activity_date ASC
+    """, (client_id,)).fetchall()]
+    attach_issue_sla_state(_sidebar_open_issues)
+
     # Sidebar Key Contact — prefer unified contact assignment; fall back to
     # denormalized clients.primary_contact/contact_email/phone/mobile so the
     # block still renders while the migration is in-flight (touch-once).
@@ -2474,19 +2535,7 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
         "project_stages": cfg.get("project_stages", []),
         "project_types": cfg.get("project_types", []),
         "timeline_data": _build_timeline_data(_get_project_pipeline(conn, client_id)),
-        "open_issues": [dict(r) for r in conn.execute("""
-            SELECT a.id, a.issue_uid, a.subject, a.issue_status, a.issue_severity,
-                   a.activity_date, a.issue_sla_days,
-                   julianday(date('now')) - julianday(a.activity_date) AS days_open,
-                   (SELECT COUNT(*) FROM activity_log sub WHERE sub.issue_id = a.id) AS activity_count
-            FROM activity_log a
-            WHERE a.client_id = ? AND a.item_kind = 'issue' AND a.issue_id IS NULL
-              AND a.merged_into_id IS NULL
-              AND (a.issue_status IS NULL OR a.issue_status NOT IN ('Resolved', 'Closed'))
-            ORDER BY CASE a.issue_severity
-              WHEN 'Critical' THEN 0 WHEN 'High' THEN 1 WHEN 'Normal' THEN 2 ELSE 3
-            END, a.activity_date ASC
-        """, (client_id,)).fetchall()],
+        "open_issues": _sidebar_open_issues,
         "health_score": _client_dict.get("health_score", 100),
         "health_missing": _client_dict.get("health_missing", []),
         "health_threshold": cfg.get("data_health_threshold", 85),
@@ -3099,20 +3148,22 @@ def _compute_client_health(conn, client_id: int) -> dict:
         score -= 10
         factors.append({"label": "1 overdue follow-up", "impact": -10, "color": "amber"})
 
-    # 3. Open issues (max deduction: 25)
-    issues = conn.execute(
-        """SELECT issue_severity, issue_sla_days, activity_date,
-                  CAST(julianday('now') - julianday(activity_date) AS INTEGER) AS age_days
+    # 3. Open issues (max deduction: 25) — "sla_breached" honors a manual
+    # due_date on the issue row when one is set, falling back to the
+    # severity-derived activity_date + issue_sla_days deadline.
+    issues = [dict(r) for r in conn.execute(
+        """SELECT issue_severity, issue_sla_days, due_date, activity_date,
+                  CAST(julianday('now') - julianday(activity_date) AS INTEGER) AS age_days,
+                  CAST(julianday('now') - julianday(activity_date) AS INTEGER) AS days_open
            FROM activity_log
            WHERE client_id = ? AND item_kind = 'issue'
              AND merged_into_id IS NULL
              AND (issue_status IS NULL OR issue_status NOT IN ('Resolved', 'Closed'))""",
         [client_id],
-    ).fetchall()
-
-    sla_breached = any(
-        r["issue_sla_days"] and r["age_days"] > r["issue_sla_days"] for r in issues
-    )
+    ).fetchall()]
+    from policydb.queries import attach_issue_sla_state as _attach_sla
+    _attach_sla(issues)
+    sla_breached = any(r.get("over_sla") for r in issues)
     critical_count = sum(1 for r in issues if r["issue_severity"] == "Critical")
     high_count = sum(1 for r in issues if r["issue_severity"] == "High")
     other_count = sum(1 for r in issues if r["issue_severity"] not in ("Critical", "High"))
