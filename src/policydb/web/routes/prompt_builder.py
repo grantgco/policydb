@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import json
+import logging
+import traceback
 
 from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+
+log = logging.getLogger(__name__)
 
 from policydb.prompt_assembler import (
     PRIMARY_RECORD_TYPES,
@@ -186,7 +190,18 @@ def preview_prompt(
     if not template:
         return HTMLResponse("<p class='text-red-500'>Template not found.</p>")
 
-    result = assemble_prompt(conn, template, record_type, record_id)
+    try:
+        result = assemble_prompt(conn, template, record_type, record_id)
+    except Exception as exc:
+        log.exception("Prompt assembly failed: template=%s record=%s/%s", template_id, record_type, record_id)
+        tb = traceback.format_exc()
+        return HTMLResponse(
+            "<div class='rounded border border-red-300 bg-red-50 p-3 text-sm text-red-800'>"
+            f"<p class='font-semibold'>Failed to assemble prompt: {type(exc).__name__}: {exc}</p>"
+            f"<pre class='mt-2 overflow-auto text-xs text-red-700'>{tb}</pre>"
+            "</div>",
+            status_code=200,
+        )
 
     return templates.TemplateResponse("prompt_builder/_preview.html", {
         "request": request,
