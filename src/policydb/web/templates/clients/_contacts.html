@@ -13,8 +13,8 @@
   <div class="overflow-x-auto">
     <table class="w-full text-sm table-fixed">
       <colgroup>
-        <col style="width:14%"><col style="width:11%"><col style="width:10%">
-        <col style="width:17%"><col style="width:13%"><col style="width:13%"><col style="width:12%">
+        <col style="width:14%"><col style="width:10%"><col style="width:10%">
+        <col style="width:17%"><col style="width:12%"><col style="width:12%"><col style="width:9%"><col style="width:18%">
         <col style="width:28px"><col style="width:28px">
       </colgroup>
       <thead>
@@ -25,6 +25,7 @@
           <th class="px-3 py-2">Email</th>
           <th class="px-3 py-2">Phone</th>
           <th class="px-3 py-2">Mobile</th>
+          <th class="px-3 py-2" title="Last logged activity with this contact">Last Touch</th>
           <th class="px-3 py-2">Notes</th>
           <th class="px-3 py-2"></th>
           <th class="px-3 py-2"></th>
@@ -34,7 +35,7 @@
         {% for c in contacts %}
         {% include "clients/_contact_matrix_row.html" %}
         {% else %}
-        <tr id="contacts-empty-{{ client.id }}"><td colspan="9" class="px-4 py-6 text-center text-gray-400 text-xs">No contacts yet.</td></tr>
+        <tr id="contacts-empty-{{ client.id }}"><td colspan="10" class="px-4 py-6 text-center text-gray-400 text-xs">No contacts yet.</td></tr>
         {% endfor %}
       </tbody>
     </table>

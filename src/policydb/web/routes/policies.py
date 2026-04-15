@@ -3722,9 +3722,19 @@ async def policy_cell_save(request: Request, policy_uid: str, conn=Depends(get_d
         "coverage_form", "layer_position", "exposure_state", "exposure_city",
         "review_cycle",
     }
+    # Team name fields: writing one of these upserts a contact in the unified
+    # contacts table and creates/updates the contact_policy_assignments row.
+    # The denormalized policies.<field> column is still written for read-path
+    # compatibility (touch-once: single source of truth is contacts).
+    team_text_fields = {
+        "placement_colleague", "underwriter_name", "underwriter_contact",
+    }
     special_fields = {"project_name", "commission_rate"}
 
-    allowed = currency_fields | date_fields | bool_fields | text_fields | combobox_fields | special_fields
+    allowed = (
+        currency_fields | date_fields | bool_fields | text_fields
+        | combobox_fields | team_text_fields | special_fields
+    )
     if field not in allowed:
         return JSONResponse({"ok": False, "error": f"Invalid field: {field}"}, status_code=400)
 
@@ -3842,6 +3852,46 @@ async def policy_cell_save(request: Request, policy_uid: str, conn=Depends(get_d
         val = value.strip()
         conn.execute(f"UPDATE policies SET {field} = ? WHERE policy_uid = ?", (val or None, uid))  # noqa: S608
         formatted = val
+
+    # -- Team name fields (touch-once unified contacts sync) --
+    elif field == "placement_colleague":
+        val = value.strip()
+        conn.execute(
+            "UPDATE policies SET placement_colleague = ? WHERE policy_uid = ?",
+            (val or None, uid),
+        )
+        if val:
+            _pc_cid = get_or_create_contact(conn, val)
+            assign_contact_to_policy(conn, _pc_cid, policy["id"], is_placement_colleague=1)
+        formatted = val
+    elif field == "underwriter_name":
+        val = value.strip()
+        conn.execute(
+            "UPDATE policies SET underwriter_name = ? WHERE policy_uid = ?",
+            (val or None, uid),
+        )
+        if val:
+            # Pull current underwriter_contact to seed email on the upsert
+            _cur = conn.execute(
+                "SELECT underwriter_contact FROM policies WHERE policy_uid = ?", (uid,)
+            ).fetchone()
+            _uw_email = clean_email(_cur["underwriter_contact"]) if _cur and _cur["underwriter_contact"] else None
+            _uw_cid = get_or_create_contact(conn, val, email=_uw_email)
+            assign_contact_to_policy(conn, _uw_cid, policy["id"], role="Underwriter")
+        formatted = val
+    elif field == "underwriter_contact":
+        formatted = clean_email(value) or ""
+        conn.execute(
+            "UPDATE policies SET underwriter_contact = ? WHERE policy_uid = ?",
+            (formatted or None, uid),
+        )
+        # Backfill into the linked underwriter contact if one exists
+        _cur = conn.execute(
+            "SELECT underwriter_name FROM policies WHERE policy_uid = ?", (uid,)
+        ).fetchone()
+        if _cur and _cur["underwriter_name"] and formatted:
+            _uw_cid = get_or_create_contact(conn, _cur["underwriter_name"], email=formatted)
+            assign_contact_to_policy(conn, _uw_cid, policy["id"], role="Underwriter")
 
     # -- Special fields --
     elif field == "project_name":

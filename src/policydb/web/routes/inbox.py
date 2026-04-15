@@ -14,9 +14,52 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from policydb import config as cfg
 from policydb.email_sync import _normalize_subject
+from policydb.queries import (
+    assign_contact_to_client,
+    assign_contact_to_policy,
+    get_or_create_contact,
+)
+from policydb.utils import clean_email
 from policydb.web.app import get_db, templates
 
 router = APIRouter()
+
+
+def _upsert_contact_from_email_from(
+    conn, email_from: str | None, client_id: int | None = None,
+    policy_id: int | None = None,
+) -> int | None:
+    """Parse an email 'From' header into a unified contact record.
+
+    Accepts 'Name <addr@example.com>' or bare addresses and upserts the contact.
+    If client_id or policy_id is provided, attaches the contact to that record
+    via the existing junction-table helpers.
+
+    Returns the contact id, or None if the header couldn't be parsed into a name.
+    """
+    if not email_from:
+        return None
+    from email.utils import parseaddr
+
+    parsed_name, parsed_email = parseaddr(email_from)
+    parsed_email = clean_email(parsed_email) or None
+    # Prefer the display name; fall back to the local part of the address.
+    name = (parsed_name or "").strip()
+    if not name and parsed_email:
+        name = parsed_email.split("@")[0].replace(".", " ").replace("_", " ").strip().title()
+    if not name:
+        return None
+    try:
+        contact_id = get_or_create_contact(conn, name, email=parsed_email)
+    except ValueError:
+        return None
+    if client_id:
+        assign_contact_to_client(
+            conn, contact_id, client_id, contact_type="client", is_primary=0,
+        )
+    if policy_id:
+        assign_contact_to_policy(conn, contact_id, policy_id)
+    return contact_id
 
 
 def _find_thread_siblings(conn, inbox_id: int) -> list[dict]:
@@ -344,6 +387,16 @@ def inbox_process(
         email_direction = inbox_row["email_direction"]
         if outlook_msg_id or (inbox_row["content"] or "").startswith("[Outlook"):
             email_snippet = inbox_row["content"]
+    # Touch-once: if the email_from header has a name we don't yet have as a
+    # contact, upsert it into the unified contacts table and link it to the
+    # client/policy. Preserves any contact_id the user explicitly selected.
+    if not contact_id and email_from:
+        _new_cid = _upsert_contact_from_email_from(
+            conn, email_from, client_id=client_id or None,
+            policy_id=policy_id or None,
+        )
+        if _new_cid:
+            contact_id = _new_cid
     # Mark follow-up as done if no follow-up date (log-only)
     follow_up_done = 1 if not follow_up_date else 0
     cursor = conn.execute(
@@ -443,6 +496,14 @@ async def inbox_batch_process(request: Request, conn=Depends(get_db)):
         item_subject = subject_override or inbox_row["email_subject"] or (inbox_row["content"] or "")[:120]
         act_date = (inbox_row["email_date"] or "")[:10] or date.today().isoformat()
         item_contact = contact_id or inbox_row["contact_id"]
+        # Touch-once: upsert contact from email_from header when nothing was assigned.
+        if not item_contact and inbox_row["email_from"]:
+            _new_cid = _upsert_contact_from_email_from(
+                conn, inbox_row["email_from"], client_id=client_id or None,
+                policy_id=policy_id,
+            )
+            if _new_cid:
+                item_contact = _new_cid
         email_snippet = None
         outlook_msg_id = inbox_row["outlook_message_id"]
         if outlook_msg_id or (inbox_row["content"] or "").startswith("[Outlook"):

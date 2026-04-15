@@ -84,6 +84,36 @@ def _find_similar_clients(conn, name: str, threshold: int = 85) -> list[dict]:
     return sorted(matches, key=lambda x: -x["score"])
 
 
+def _sync_primary_contact_to_unified(
+    conn, client_id: int, primary_contact: str, contact_email: str,
+    contact_phone: str, contact_mobile: str,
+) -> None:
+    """Touch-once: route client primary contact fields through the unified contacts table.
+
+    When the user enters primary_contact / contact_email / phone / mobile on a client
+    form, upsert a row in `contacts` and create/update the primary assignment in
+    `contact_client_assignments`. The denormalized columns on `clients` still get written
+    by the caller for read-path compatibility — this function maintains the canonical
+    record alongside them.
+    """
+    name = (primary_contact or "").strip()
+    if not name:
+        return
+    email = clean_email(contact_email) or None
+    phone = format_phone(contact_phone) or None
+    mobile = format_phone(contact_mobile) or None
+    try:
+        contact_id = get_or_create_contact(
+            conn, name, email=email, phone=phone, mobile=mobile
+        )
+        assign_contact_to_client(
+            conn, contact_id, client_id, contact_type="client", is_primary=1,
+        )
+    except ValueError:
+        # Empty name after strip — nothing to do.
+        return
+
+
 _CLIENT_SORT_FIELDS = {
     "name", "industry_segment", "total_policies", "total_premium",
     "total_revenue", "next_renewal_days", "activity_last_90d",
@@ -534,9 +564,13 @@ def client_new_post(
          preferred_contact_method or None, referral_source or None,
          _float(latitude), _float(longitude)),
     )
+    new_client_id = cursor.lastrowid
+    _sync_primary_contact_to_unified(
+        conn, new_client_id, primary_contact, contact_email, contact_phone, contact_mobile,
+    )
     conn.commit()
-    logger.info("Client %d created: %s", cursor.lastrowid, name)
-    return RedirectResponse(f"/clients/{cursor.lastrowid}", status_code=303)
+    logger.info("Client %d created: %s", new_client_id, name)
+    return RedirectResponse(f"/clients/{new_client_id}", status_code=303)
 
 
 # ─── CLIENT SPREADSHEET VIEW ────────────────────────────────────────────────
@@ -1318,6 +1352,9 @@ def client_tab_contacts(request: Request, client_id: int, add_contact: str = "",
     contacts = get_client_contacts(conn, client_id, contact_type='client')
     team_contacts = get_client_contacts(conn, client_id, contact_type='internal')
     external_contacts = get_client_contacts(conn, client_id, contact_type='external')
+    _attach_contact_last_touch(conn, contacts, client_id)
+    _attach_contact_last_touch(conn, team_contacts, client_id)
+    _attach_contact_last_touch(conn, external_contacts, client_id)
 
     # Placement colleagues — include archived/lost policies, tagged accordingly
     _pc_rows = conn.execute(
@@ -2060,6 +2097,9 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
 
     team_contacts = get_client_contacts(conn, client_id, contact_type='internal')
     external_contacts = get_client_contacts(conn, client_id, contact_type='external')
+    _attach_contact_last_touch(conn, contacts, client_id)
+    _attach_contact_last_touch(conn, team_contacts, client_id)
+    _attach_contact_last_touch(conn, external_contacts, client_id)
 
     from policydb.email_templates import client_context as _client_ctx, render_tokens as _render_tokens
     _mail_ctx = _client_ctx(conn, client_id)
@@ -2316,6 +2356,45 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
     # Open Tasks summary for sticky sidebar
     _ot_sidebar = get_open_tasks(conn, "client", client_id)
 
+    # Sidebar Key Contact — prefer unified contact assignment; fall back to
+    # denormalized clients.primary_contact/contact_email/phone/mobile so the
+    # block still renders while the migration is in-flight (touch-once).
+    _sidebar_primary = conn.execute(
+        """SELECT co.id, co.name, co.email, co.phone, co.mobile, cca.title
+           FROM contact_client_assignments cca
+           JOIN contacts co ON cca.contact_id = co.id
+           WHERE cca.client_id = ? AND cca.contact_type = 'client' AND cca.is_primary = 1
+           LIMIT 1""",
+        (client_id,),
+    ).fetchone()
+    if _sidebar_primary:
+        sidebar_primary_contact = dict(_sidebar_primary)
+    elif _client_dict.get("primary_contact"):
+        sidebar_primary_contact = {
+            "id": None,
+            "name": _client_dict.get("primary_contact") or "",
+            "email": _client_dict.get("contact_email") or "",
+            "phone": _client_dict.get("contact_phone") or "",
+            "mobile": _client_dict.get("contact_mobile") or "",
+            "title": "",
+        }
+    else:
+        sidebar_primary_contact = None
+
+    # "At a Glance" counts — overdue follow-ups and open issues
+    _overdue_fu_count = conn.execute(
+        """SELECT COUNT(*) FROM activity_log
+           WHERE client_id = ? AND follow_up_done = 0
+             AND follow_up_date IS NOT NULL AND follow_up_date < date('now')""",
+        (client_id,),
+    ).fetchone()[0]
+    _open_issues_count = conn.execute(
+        """SELECT COUNT(*) FROM activity_log
+           WHERE client_id = ? AND item_kind = 'issue'
+             AND (issue_status IS NULL OR issue_status NOT IN ('Resolved', 'Closed'))""",
+        (client_id,),
+    ).fetchone()[0]
+
     return templates.TemplateResponse("clients/detail.html", {
         "request": request,
         "active": "clients",
@@ -2422,13 +2501,86 @@ def client_detail(request: Request, client_id: int, add_contact: str = "", conn=
         "pinned_client_id": "",
         "open_tasks_total": _ot_sidebar["total"],
         "open_tasks_overdue": _ot_sidebar["overdue"],
+        "sidebar_primary_contact": sidebar_primary_contact,
+        "sidebar_overdue_fu_count": _overdue_fu_count,
+        "sidebar_open_issues_count": _open_issues_count,
     })
+
+
+def _attach_contact_last_touch(conn, contacts: list[dict], client_id: int) -> None:
+    """Decorate each contact dict with last_touch (ISO) and last_touch_ago (relative).
+
+    Uses activity_log rows scoped to this client — a contact's "last touch" is
+    the most recent activity where they were the linked contact (contact_id or
+    contact_person name match). Runs one aggregate query per call, not per row.
+    """
+    if not contacts:
+        return
+    contact_ids = [c.get("contact_id") for c in contacts if c.get("contact_id")]
+    names = [c.get("name") for c in contacts if c.get("name")]
+    if not contact_ids and not names:
+        return
+    last_by_id: dict[int, str] = {}
+    last_by_name: dict[str, str] = {}
+    if contact_ids:
+        placeholders = ",".join("?" * len(contact_ids))
+        rows = conn.execute(
+            f"""SELECT contact_id, MAX(activity_date) AS dt
+                  FROM activity_log
+                 WHERE client_id = ? AND contact_id IN ({placeholders})
+                 GROUP BY contact_id""",  # noqa: S608 — placeholders interpolated by count
+            [client_id, *contact_ids],
+        ).fetchall()
+        for r in rows:
+            if r["dt"]:
+                last_by_id[r["contact_id"]] = r["dt"]
+    if names:
+        placeholders = ",".join("?" * len(names))
+        rows = conn.execute(
+            f"""SELECT contact_person, MAX(activity_date) AS dt
+                  FROM activity_log
+                 WHERE client_id = ?
+                   AND contact_person IS NOT NULL AND contact_person != ''
+                   AND contact_person IN ({placeholders})
+                 GROUP BY contact_person""",  # noqa: S608
+            [client_id, *names],
+        ).fetchall()
+        for r in rows:
+            if r["dt"]:
+                last_by_name[r["contact_person"]] = r["dt"]
+    try:
+        import dateparser as _dp
+        import humanize as _humanize
+    except ImportError:
+        _dp = None
+        _humanize = None
+    for c in contacts:
+        latest = None
+        if c.get("contact_id") and c["contact_id"] in last_by_id:
+            latest = last_by_id[c["contact_id"]]
+        if c.get("name") and c["name"] in last_by_name:
+            by_name = last_by_name[c["name"]]
+            if not latest or by_name > latest:
+                latest = by_name
+        c["last_touch"] = latest
+        if latest and _dp and _humanize:
+            try:
+                _dt = _dp.parse(latest)
+                if _dt:
+                    c["last_touch_ago"] = _humanize.naturaltime(datetime.now() - _dt)
+                else:
+                    c["last_touch_ago"] = latest
+            except Exception:
+                c["last_touch_ago"] = latest
+        else:
+            c["last_touch_ago"] = ""
 
 
 def _contacts_response(request, conn, client_id: int, duplicate_warning=None):
     """Shared helper: return the client contacts card partial with fresh data."""
     import json as _json
     contacts = get_client_contacts(conn, client_id, contact_type='client')
+    _attach_contact_last_touch(conn, contacts, client_id)
     client = conn.execute("SELECT * FROM clients WHERE id=?", (client_id,)).fetchone()
     from policydb.email_templates import client_context as _client_ctx, render_tokens as _render_tokens
     _mail_ctx = _client_ctx(conn, client_id)
@@ -2468,6 +2620,7 @@ def _internal_contacts_response(request, conn, client_id: int):
     """Shared helper: return the internal team contacts card partial with fresh data."""
     import json as _json
     team_contacts = get_client_contacts(conn, client_id, contact_type='internal')
+    _attach_contact_last_touch(conn, team_contacts, client_id)
     client = conn.execute("SELECT * FROM clients WHERE id=?", (client_id,)).fetchone()
     from policydb.email_templates import client_context as _client_ctx, render_tokens as _render_tokens
     _mail_ctx = _client_ctx(conn, client_id)
@@ -2765,6 +2918,7 @@ def team_contact_delete(
 def _external_contacts_response(request, conn, client_id: int):
     """Return rendered _external_contacts.html partial."""
     external_contacts = get_client_contacts(conn, client_id, contact_type='external')
+    _attach_contact_last_touch(conn, external_contacts, client_id)
     client = conn.execute("SELECT * FROM clients WHERE id=?", (client_id,)).fetchone()
     from policydb.email_templates import client_context as _client_ctx, render_tokens as _render_tokens
     _mail_ctx = _client_ctx(conn, client_id)
@@ -3417,6 +3571,82 @@ async def client_strategy_patch(client_id: int, request: Request, conn=Depends(g
     return JSONResponse({"ok": True, "field": field, "formatted": value.strip() if value else ""})
 
 
+_PRIMARY_CONTACT_FIELDS = {"name", "email", "phone", "mobile"}
+
+
+@router.patch("/{client_id}/primary-contact/cell")
+async def client_primary_contact_cell(client_id: int, request: Request, conn=Depends(get_db)):
+    """PATCH a single field on the client's primary contact (sidebar quick-edit).
+
+    Touch-once: upsert the contact in the unified contacts table and ensure a
+    primary assignment exists. Also keeps the denormalized clients.<field> columns
+    in sync so read paths that still reference them don't drift.
+
+    Accepts JSON body: {"field": "name|email|phone|mobile", "value": "..."}
+    """
+    body = await request.json()
+    field = body.get("field", "")
+    raw_value = body.get("value", "") or ""
+
+    if field not in _PRIMARY_CONTACT_FIELDS:
+        return JSONResponse({"ok": False, "error": f"Invalid field: {field}"}, status_code=400)
+
+    client_row = conn.execute("SELECT primary_contact FROM clients WHERE id=?", (client_id,)).fetchone()
+    if not client_row:
+        return JSONResponse({"ok": False, "error": "Client not found"}, status_code=404)
+
+    # Format based on field type
+    if field == "email":
+        formatted = clean_email(raw_value) or ""
+    elif field in ("phone", "mobile"):
+        formatted = format_phone(raw_value) or ""
+    else:
+        formatted = raw_value.strip()
+
+    # Resolve the contact to update/create
+    existing = conn.execute(
+        """SELECT co.id, co.name, co.email, co.phone, co.mobile
+           FROM contact_client_assignments cca
+           JOIN contacts co ON cca.contact_id = co.id
+           WHERE cca.client_id = ? AND cca.contact_type = 'client' AND cca.is_primary = 1
+           LIMIT 1""",
+        (client_id,),
+    ).fetchone()
+
+    if field == "name":
+        new_name = formatted
+        if not new_name:
+            return JSONResponse({"ok": False, "error": "Name cannot be empty"}, status_code=400)
+        # Reuse any existing contact info to avoid losing phone/email when renaming
+        seed = {
+            "email": existing["email"] if existing else None,
+            "phone": existing["phone"] if existing else None,
+            "mobile": existing["mobile"] if existing else None,
+        }
+        contact_id = get_or_create_contact(conn, new_name, **seed)
+        assign_contact_to_client(conn, contact_id, client_id, contact_type="client", is_primary=1)
+        conn.execute("UPDATE clients SET primary_contact=? WHERE id=?", (new_name, client_id))
+    else:
+        # Name is required to host a contact record
+        name = (existing["name"] if existing else client_row["primary_contact"]) or ""
+        if not name.strip():
+            return JSONResponse(
+                {"ok": False, "error": "Set a contact name first"}, status_code=400
+            )
+        kwargs = {field: formatted or None}
+        contact_id = get_or_create_contact(conn, name, **kwargs)
+        assign_contact_to_client(conn, contact_id, client_id, contact_type="client", is_primary=1)
+        # Keep denormalized column in sync
+        col = {"email": "contact_email", "phone": "contact_phone", "mobile": "contact_mobile"}[field]
+        conn.execute(
+            f"UPDATE clients SET {col}=? WHERE id=?",  # noqa: S608 — column mapped from allowlist
+            (formatted or None, client_id),
+        )
+
+    conn.commit()
+    return JSONResponse({"ok": True, "field": field, "formatted": formatted})
+
+
 @router.post("/{client_id}/edit")
 def client_edit_post(
     request: Request,
@@ -3477,6 +3707,9 @@ def client_edit_post(
          format_fein(fein) or None, _float(hourly_rate),
          _float(latitude), _float(longitude),
          client_id),
+    )
+    _sync_primary_contact_to_unified(
+        conn, client_id, primary_contact, contact_email, contact_phone, contact_mobile,
     )
     conn.commit()
 

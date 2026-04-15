@@ -1317,6 +1317,30 @@ async def reconcile_fill(
             except Exception:
                 logger.exception("Provenance recording failed on fill")
 
+        # Touch-once: if we just wrote placement_colleague or underwriter_name,
+        # also upsert a contact row and create the policy assignment so the team
+        # matrix, key contacts strip, and search all see the new person.
+        if policy_id:
+            from policydb.queries import get_or_create_contact, assign_contact_to_policy
+            _pc_name = form.get("placement_colleague", "").strip()
+            if _pc_name:
+                try:
+                    _pc_cid = get_or_create_contact(conn, _pc_name)
+                    assign_contact_to_policy(
+                        conn, _pc_cid, policy_id, is_placement_colleague=1,
+                    )
+                except ValueError:
+                    pass
+            _uw_name = form.get("underwriter_name", "").strip()
+            if _uw_name:
+                try:
+                    _uw_cid = get_or_create_contact(conn, _uw_name)
+                    assign_contact_to_policy(
+                        conn, _uw_cid, policy_id, role="Underwriter",
+                    )
+                except ValueError:
+                    pass
+
         conn.commit()
 
     label = ", ".join(filled_names) if filled_names else "No fields"
