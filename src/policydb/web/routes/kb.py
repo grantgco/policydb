@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import html
+import ipaddress
 import json
 import logging
 import os
 import re
 import shutil
+import socket
 from pathlib import Path
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
@@ -755,10 +758,51 @@ async def _render_attachments_partial(request, conn, uid, article_id):
 # ── Bookmarks CRUD ──────────────────────────────────────────────────────────
 
 
+def _is_public_ip(ip_str: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(ip_str)
+    except ValueError:
+        return False
+    return not (
+        ip.is_private
+        or ip.is_loopback
+        or ip.is_link_local
+        or ip.is_multicast
+        or ip.is_reserved
+        or ip.is_unspecified
+    )
+
+
+def _is_safe_fetch_url(url: str) -> bool:
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return False
+
+    if parsed.scheme not in {"http", "https"}:
+        return False
+    if not parsed.hostname:
+        return False
+
+    try:
+        addr_info = socket.getaddrinfo(parsed.hostname, None)
+    except socket.gaierror:
+        return False
+
+    resolved_ips = {info[4][0] for info in addr_info if info and info[4]}
+    if not resolved_ips:
+        return False
+
+    return all(_is_public_ip(ip) for ip in resolved_ips)
+
+
 def _fetch_page_title(url: str) -> str:
     """Try to fetch the <title> from a URL. Returns empty string on failure."""
     import re as _re
     import urllib.request
+
+    if not _is_safe_fetch_url(url):
+        return ""
 
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
