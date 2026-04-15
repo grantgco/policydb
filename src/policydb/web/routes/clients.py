@@ -1357,6 +1357,7 @@ def client_tab_policies(request: Request, client_id: int, conn=Depends(get_db)):
         "project_addresses": project_addresses,
         "opportunities": opportunities,
         "bundles": _get_request_bundles(conn, client_id),
+        "open_attachment_count": _count_open_rfi_attachments(conn, client_id),
         "today_iso": datetime.now().strftime("%Y-%m-%d"),
         "pipeline_projects": _get_project_pipeline(conn, client_id),
         "location_projects": _get_project_locations(conn, client_id),
@@ -1570,6 +1571,7 @@ def client_tab_risk(request: Request, client_id: int, conn=Depends(get_db)):
         "policy_types": cfg.get("policy_types", []),
         "policy_uid_options": policy_uid_options,
         "bundles": _get_request_bundles(conn, client_id),
+        "open_attachment_count": _count_open_rfi_attachments(conn, client_id),
         "today_iso": datetime.now().strftime("%Y-%m-%d"),
         "risk_prompts": risk_prompts,
     })
@@ -5343,6 +5345,31 @@ def _get_request_bundles(conn, client_id: int) -> list[dict]:
     return bundles
 
 
+def _count_open_rfi_attachments(conn, client_id: int) -> int:
+    """Count every file attached to an open (non-complete) RFI bundle for a client.
+
+    Powers the "Download All Files" button on the Requests card so it only
+    renders when there's something to download. Must be passed to the
+    context of every endpoint that includes ``clients/_requests.html``.
+    """
+    return conn.execute(
+        """
+        SELECT
+          COALESCE((SELECT COUNT(*) FROM record_attachments ra
+                      JOIN client_request_bundles b ON b.id = ra.record_id
+                     WHERE ra.record_type='rfi_bundle'
+                       AND b.client_id = ? AND b.status != 'complete'), 0)
+        + COALESCE((SELECT COUNT(*) FROM record_attachments ra
+                      JOIN client_request_items i ON i.id = ra.record_id
+                      JOIN client_request_bundles b ON b.id = i.bundle_id
+                     WHERE ra.record_type='rfi_item'
+                       AND b.client_id = ? AND b.status != 'complete'), 0)
+          AS n
+        """,
+        (client_id, client_id),
+    ).fetchone()["n"]
+
+
 def _requests_response(request, conn, client_id: int):
     from datetime import date as _date
     bundles = _get_request_bundles(conn, client_id)
@@ -5352,6 +5379,7 @@ def _requests_response(request, conn, client_id: int):
         "client": dict(client) if client else {"id": client_id, "name": ""},
         "bundles": bundles,
         "today_iso": _date.today().isoformat(),
+        "open_attachment_count": _count_open_rfi_attachments(conn, client_id),
     })
 
 
@@ -5563,6 +5591,26 @@ def request_export_all(client_id: int, conn=Depends(get_db)):
         content=content,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/{client_id}/requests/download-all-files")
+def request_download_all_files(client_id: int, conn=Depends(get_db)):
+    """Bundle every attached file across all open RFIs into a single
+    client-facing ZIP with an ``Outstanding Requests.xlsx`` manifest at
+    the root."""
+    from fastapi.responses import JSONResponse, StreamingResponse
+    from policydb.web.routes.attachments import build_client_rfi_zip
+
+    try:
+        data, download_name, total_files = build_client_rfi_zip(conn, client_id)
+    except ValueError as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=404)
+
+    return StreamingResponse(
+        iter([data]),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{download_name}"'},
     )
 
 

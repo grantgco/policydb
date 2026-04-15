@@ -283,8 +283,27 @@ async def attachment_panel_partial(
 # below, otherwise FastAPI matches the {uid} pattern first with uid="zip".
 
 
+_FORBIDDEN_FS_CHARS = re.compile(r'[/\\:*?"<>|]')
+
+
+def _friendly_folder_name(name: str, max_len: int = 60) -> str:
+    """Make a client-facing, human-readable folder name from free text.
+
+    Preserves spaces, capitalization, punctuation like ``-`` and ``&`` —
+    only strips characters that are forbidden on Windows/macOS filesystems,
+    then collapses whitespace and trims to ``max_len``.
+    """
+    n = _FORBIDDEN_FS_CHARS.sub("", name or "")
+    n = re.sub(r"\s+", " ", n).strip(" .")
+    if len(n) > max_len:
+        n = n[:max_len].rstrip(" .")
+    return n or "Untitled"
+
+
+# Kept as an alias so call sites that want filesystem-safe filenames
+# (e.g. the download filename in the Content-Disposition header) still work.
 def _slugify_folder(name: str, max_len: int = 40) -> str:
-    """Make a filesystem-safe, short folder name from free text."""
+    """Make a filesystem-safe, short folder/file name from free text (underscored)."""
     n = re.sub(r"[^\w\s-]", "", name or "").strip()
     n = re.sub(r"\s+", "_", n)
     return n[:max_len] or "Untitled"
@@ -293,9 +312,10 @@ def _slugify_folder(name: str, max_len: int = 40) -> str:
 def _rfi_item_folder(item: dict) -> str:
     """Build a nested folder path for an RFI item's attachments.
 
-    Layout: ``{Project}/{Coverage Line}/Item_NNN_{slug}/`` — mirrors the
-    structure a client sees in the tabbed worksheet so they can match each
-    attachment to its row.  Falls back to ``Shared`` / ``General`` when the
+    Layout: ``{Project}/{Coverage Line}/{NNN} - {description}/`` — mirrors
+    the tabbed worksheet the client receives so they can match each
+    attachment to its row.  Uses client-friendly folder names (spaces,
+    capitals preserved). Falls back to ``Shared`` / ``General`` when the
     item has no project or coverage line.
     """
     project = (
@@ -308,13 +328,152 @@ def _rfi_item_folder(item: dict) -> str:
         or item.get("category")
         or "General"
     )
-    slug = _slugify_folder(item.get("description") or "Item")
+    desc = _friendly_folder_name(item.get("description") or "Item", max_len=50)
     so = item.get("sort_order") or 0
     return (
-        f"{_slugify_folder(project, max_len=50)}/"
-        f"{_slugify_folder(coverage, max_len=50)}/"
-        f"Item_{so:03d}_{slug}/"
+        f"{_friendly_folder_name(project, max_len=50)}/"
+        f"{_friendly_folder_name(coverage, max_len=50)}/"
+        f"{so:03d} - {desc}/"
     )
+
+
+def _zip_name_allocator() -> tuple[dict, callable]:
+    """Return a ``(state, alloc)`` pair where ``alloc(folder, fname)``
+    returns a unique filename within ``folder``, de-duplicating collisions
+    by appending ``_2``, ``_3``, … before the extension.
+    """
+    used: dict[str, set[str]] = {}
+
+    def alloc(folder: str, fname: str) -> str:
+        bucket = used.setdefault(folder, set())
+        if fname not in bucket:
+            bucket.add(fname)
+            return fname
+        base, ext = os.path.splitext(fname)
+        i = 2
+        while True:
+            candidate = f"{base}_{i}{ext}"
+            if candidate not in bucket:
+                bucket.add(candidate)
+                return candidate
+            i += 1
+
+    return used, alloc
+
+
+def _add_attachment_to_zip(
+    zf: zipfile.ZipFile,
+    folder: str,
+    att: dict,
+    alloc,
+) -> None:
+    """Add one attachment to ``zf`` under ``folder``. Silently skips
+    files that are missing on disk or have an unknown source — the
+    companion xlsx still lists them, so the user's workbook remains
+    complete even when physical files are unavailable.
+    """
+    raw_name = att.get("filename") or att.get("title") or "file"
+    fname = _sanitize_filename(str(raw_name).strip() or "file")
+
+    if att.get("source") == "local":
+        fp = Path(att.get("file_path") or "")
+        try:
+            resolved = fp.resolve()
+            if not str(resolved).startswith(str(_ATTACHMENTS_DIR.resolve())):
+                return
+            if not resolved.exists() or not resolved.is_file():
+                return
+            uniq = alloc(folder, fname)
+            arcname = f"{folder}{uniq}" if folder else uniq
+            zf.write(str(resolved), arcname=arcname)
+        except Exception as exc:
+            logger.warning("Zip: failed to add local attachment %s: %s", att.get("uid"), exc)
+        return
+
+    if att.get("source") == "devonthink":
+        dt_uuid = att.get("dt_uuid")
+        meta = fetch_item_metadata(dt_uuid) if dt_uuid else None
+        dt_path = (meta or {}).get("path") if meta else None
+        if not dt_path:
+            return
+        try:
+            src = Path(dt_path)
+            if not src.exists() or not src.is_file():
+                return
+            dt_filename = _sanitize_filename((meta or {}).get("filename") or src.name or fname)
+            uniq = alloc(folder, dt_filename)
+            arcname = f"{folder}{uniq}" if folder else uniq
+            zf.write(str(src), arcname=arcname)
+        except Exception as exc:
+            logger.warning("Zip: failed to add DT attachment %s: %s", att.get("uid"), exc)
+
+
+def _add_rfi_bundle_to_zip(
+    conn,
+    zf: zipfile.ZipFile,
+    bundle_id: int,
+    top_folder: str,
+    alloc,
+) -> int:
+    """Write all files for an RFI bundle into ``zf`` under ``top_folder``.
+
+    Bundle-level files go under ``{top_folder}``; each item's files are
+    nested at ``{top_folder}{Project}/{Coverage}/{NNN - description}/``
+    so the folder tree mirrors the worksheet sent to the client.
+    Returns the total number of files actually written.
+    """
+    count = 0
+
+    # Bundle-level files (sit directly under the bundle folder)
+    direct_rows = conn.execute(
+        """SELECT a.*, ra.sort_order AS link_sort
+             FROM attachments a
+             JOIN record_attachments ra ON ra.attachment_id = a.id
+            WHERE ra.record_type = 'rfi_bundle' AND ra.record_id = ?
+            ORDER BY ra.sort_order, a.created_at""",
+        (bundle_id,),
+    ).fetchall()
+    for r in direct_rows:
+        _add_attachment_to_zip(zf, top_folder, dict(r), alloc)
+    count += len(direct_rows)
+
+    # Item-level files nested by project / coverage
+    items = conn.execute(
+        """SELECT i.id, i.description, i.sort_order, i.policy_uid,
+                  i.project_name, i.category,
+                  p.policy_type AS policy_coverage_line,
+                  p.project_name AS policy_project_name
+             FROM client_request_items i
+             LEFT JOIN policies p ON p.policy_uid = i.policy_uid
+            WHERE i.bundle_id = ?
+            ORDER BY i.sort_order, i.id""",
+        (bundle_id,),
+    ).fetchall()
+    for item in items:
+        item_folder = top_folder + _rfi_item_folder(dict(item))
+        att_rows = conn.execute(
+            """SELECT a.*, ra.sort_order AS link_sort
+                 FROM attachments a
+                 JOIN record_attachments ra ON ra.attachment_id = a.id
+                WHERE ra.record_type = 'rfi_item' AND ra.record_id = ?
+                ORDER BY ra.sort_order, a.created_at""",
+            (item["id"],),
+        ).fetchall()
+        for r in att_rows:
+            _add_attachment_to_zip(zf, item_folder, dict(r), alloc)
+        count += len(att_rows)
+
+    return count
+
+
+def _rfi_bundle_zip_base_name(bundle_meta) -> str:
+    """Friendly base filename for a single-bundle ZIP download."""
+    rfi_uid = bundle_meta["rfi_uid"] if bundle_meta else None
+    title = bundle_meta["title"] if bundle_meta else None
+    parts = [p for p in (rfi_uid, title) if p]
+    if not parts:
+        return "RFI Files"
+    return " - ".join(parts)
 
 
 @router.get("/api/attachments/zip")
@@ -325,216 +484,169 @@ def download_attachments_zip(
 ):
     """Download all attachments linked to a record as a single zip.
 
-    For record_type='rfi_bundle', also includes attachments from every
-    item in the bundle — bundle-level files go under ``Bundle/`` and
-    each item is nested as ``{Project}/{Coverage Line}/Item_NNN_<slug>/``
-    so the client can match files to rows in the worksheet they received.
-    DevonThink files are resolved via ``fetch_item_metadata`` and pulled
-    from their on-disk path; files that can't be resolved are listed in
-    ``MANIFEST.txt`` as UNAVAILABLE so the user can retrieve them by hand.
+    For ``record_type='rfi_bundle'`` the ZIP contains a client-facing
+    workbook (``Request Summary.xlsx``) at the root listing every item
+    alongside its attached filenames, then the files themselves nested
+    as ``{Project}/{Coverage Line}/{NNN - description}/`` so the client
+    can match each file to a row. Bundle-level files (files on the
+    bundle itself rather than an item) sit directly at the root. No
+    MANIFEST.txt is produced — the workbook is the manifest.
     """
     if record_type not in _VALID_RECORD_TYPES:
         return JSONResponse({"ok": False, "error": "Invalid record type"}, status_code=400)
 
-    # Direct attachments on this record
+    if record_type == "rfi_bundle":
+        return _download_rfi_bundle_zip(conn, record_id)
+
+    # Non-RFI record types — just bundle all direct attachments, flat.
     direct_rows = conn.execute(
         """SELECT a.*, ra.sort_order AS link_sort
-           FROM attachments a
-           JOIN record_attachments ra ON ra.attachment_id = a.id
-           WHERE ra.record_type = ? AND ra.record_id = ?
-           ORDER BY ra.sort_order, a.created_at""",
+             FROM attachments a
+             JOIN record_attachments ra ON ra.attachment_id = a.id
+            WHERE ra.record_type = ? AND ra.record_id = ?
+            ORDER BY ra.sort_order, a.created_at""",
         (record_type, record_id),
     ).fetchall()
-
-    # For rfi_bundle, also pull item-level attachments keyed by item.  Items
-    # are joined against policies (via policy_uid) so the ZIP can group files
-    # into {Project}/{Coverage Line}/ folders that mirror the tabbed worksheet
-    # the client received.
-    item_groups: list[tuple[dict, list]] = []
-    bundle_meta = None
-    if record_type == "rfi_bundle":
-        bundle_meta = conn.execute(
-            "SELECT rfi_uid, title FROM client_request_bundles WHERE id = ?",
-            (record_id,),
-        ).fetchone()
-        items = conn.execute(
-            """SELECT i.id, i.description, i.sort_order, i.policy_uid,
-                      i.project_name, i.category,
-                      p.policy_type AS policy_coverage_line,
-                      p.project_name AS policy_project_name,
-                      p.carrier AS policy_carrier
-               FROM client_request_items i
-               LEFT JOIN policies p ON p.policy_uid = i.policy_uid
-               WHERE i.bundle_id = ?
-               ORDER BY i.sort_order, i.id""",
-            (record_id,),
-        ).fetchall()
-        for item in items:
-            att_rows = conn.execute(
-                """SELECT a.*, ra.sort_order AS link_sort
-                   FROM attachments a
-                   JOIN record_attachments ra ON ra.attachment_id = a.id
-                   WHERE ra.record_type = 'rfi_item' AND ra.record_id = ?
-                   ORDER BY ra.sort_order, a.created_at""",
-                (item["id"],),
-            ).fetchall()
-            if att_rows:
-                item_groups.append((dict(item), att_rows))
-
-    if not direct_rows and not item_groups:
+    if not direct_rows:
         return JSONResponse({"ok": False, "error": "No attachments to download"}, status_code=404)
 
-    # Build zip in memory
     buf = io.BytesIO()
-    manifest_lines: list[str] = []
-    used_names_by_folder: dict[str, set[str]] = {}
-
-    def _uniq_name(folder: str, fname: str) -> str:
-        used = used_names_by_folder.setdefault(folder, set())
-        if fname not in used:
-            used.add(fname)
-            return fname
-        base, ext = os.path.splitext(fname)
-        i = 2
-        while True:
-            candidate = f"{base}_{i}{ext}"
-            if candidate not in used:
-                used.add(candidate)
-                return candidate
-            i += 1
-
-    def _add_attachment(zf: zipfile.ZipFile, folder: str, att: dict) -> None:
-        """Add one attachment to the zip and append a manifest line."""
-        raw_name = att.get("filename") or att.get("title") or "file"
-        fname = _sanitize_filename(str(raw_name).strip() or "file")
-
-        if att.get("source") == "local":
-            fp = Path(att.get("file_path") or "")
-            try:
-                resolved = fp.resolve()
-                if not str(resolved).startswith(str(_ATTACHMENTS_DIR.resolve())):
-                    manifest_lines.append(f"  SKIPPED (invalid path): {fname}")
-                    return
-                if not resolved.exists() or not resolved.is_file():
-                    manifest_lines.append(f"  SKIPPED (missing on disk): {fname}")
-                    return
-                uniq = _uniq_name(folder, fname)
-                arcname = f"{folder}{uniq}" if folder else uniq
-                zf.write(str(resolved), arcname=arcname)
-                sz = att.get("file_size") or resolved.stat().st_size
-                manifest_lines.append(f"  {arcname}  [Local, {_format_file_size(sz)}]")
-            except Exception as exc:
-                logger.warning("Zip: failed to add local attachment %s: %s", att.get("uid"), exc)
-                manifest_lines.append(f"  SKIPPED (error): {fname}")
-            return
-
-        if att.get("source") == "devonthink":
-            dt_uuid = att.get("dt_uuid")
-            dt_url = att.get("dt_url") or ""
-            meta = fetch_item_metadata(dt_uuid) if dt_uuid else None
-            dt_path = (meta or {}).get("path") if meta else None
-            display_title = att.get("title") or fname
-            if not dt_path:
-                manifest_lines.append(
-                    f"  UNAVAILABLE: {display_title}  [DevonThink link: {dt_url}]"
-                )
-                return
-            try:
-                src = Path(dt_path)
-                if not src.exists() or not src.is_file():
-                    manifest_lines.append(
-                        f"  UNAVAILABLE: {display_title}  [DevonThink path missing, link: {dt_url}]"
-                    )
-                    return
-                dt_filename = _sanitize_filename((meta or {}).get("filename") or src.name or fname)
-                uniq = _uniq_name(folder, dt_filename)
-                arcname = f"{folder}{uniq}" if folder else uniq
-                zf.write(str(src), arcname=arcname)
-                sz = src.stat().st_size
-                manifest_lines.append(f"  {arcname}  [DevonThink, {_format_file_size(sz)}]")
-            except Exception as exc:
-                logger.warning("Zip: failed to add DT attachment %s: %s", att.get("uid"), exc)
-                manifest_lines.append(
-                    f"  UNAVAILABLE: {display_title}  [Error: {exc}, link: {dt_url}]"
-                )
-            return
-
-        # Unknown source — skip
-        manifest_lines.append(f"  SKIPPED (unknown source): {fname}")
-
+    _, alloc = _zip_name_allocator()
     with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
-        # Header
-        if record_type == "rfi_bundle" and bundle_meta:
-            parts = [p for p in (bundle_meta["rfi_uid"], bundle_meta["title"]) if p]
-            manifest_lines.append("RFI: " + (" — ".join(parts) if parts else f"Bundle #{record_id}"))
-        else:
-            manifest_lines.append(f"{record_type.upper()} #{record_id}")
-        manifest_lines.append("=" * 60)
-        manifest_lines.append("")
-
-        # Direct / bundle-level files
-        if direct_rows:
-            if record_type == "rfi_bundle":
-                manifest_lines.append("Bundle-level files:")
-                folder = "Bundle/"
-            else:
-                manifest_lines.append("Files:")
-                folder = ""
-            for r in direct_rows:
-                _add_attachment(zf, folder, dict(r))
-            manifest_lines.append("")
-
-        # Item-level files (rfi_bundle only) — nested by project / coverage
-        for item_info, att_rows in item_groups:
-            folder = _rfi_item_folder(item_info)
-            project_label = (
-                item_info.get("project_name")
-                or item_info.get("policy_project_name")
-                or "Shared"
-            )
-            coverage_label = (
-                item_info.get("policy_coverage_line")
-                or item_info.get("category")
-                or "General"
-            )
-            header = f"Item: {item_info.get('description') or '(no description)'}"
-            header += f"  [{project_label} / {coverage_label}"
-            if item_info.get("policy_uid"):
-                header += f" / {item_info['policy_uid']}"
-            header += "]"
-            manifest_lines.append(header)
-            for r in att_rows:
-                _add_attachment(zf, folder, dict(r))
-            manifest_lines.append("")
-
-        zf.writestr("MANIFEST.txt", "\n".join(manifest_lines).encode("utf-8"))
+        for r in direct_rows:
+            _add_attachment_to_zip(zf, "", dict(r), alloc)
 
     buf.seek(0)
     data = buf.getvalue()
-
-    # Download filename
-    if record_type == "rfi_bundle" and bundle_meta:
-        base_name = bundle_meta["rfi_uid"] or f"RFI_{record_id}"
-        if bundle_meta["title"]:
-            base_name = f"{base_name}_{_slugify_folder(bundle_meta['title'])}"
-    else:
-        base_name = f"{record_type}_{record_id}"
+    base_name = f"{record_type}_{record_id}"
     download_name = f"{_sanitize_filename(base_name)}_files.zip"
-
     logger.info(
-        "Zip download: %s/%s → %d bytes (%d direct, %d item groups)",
-        record_type,
-        record_id,
-        len(data),
-        len(direct_rows),
-        len(item_groups),
+        "Zip download: %s/%s → %d bytes (%d direct)",
+        record_type, record_id, len(data), len(direct_rows),
     )
-
     return StreamingResponse(
         iter([data]),
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="{download_name}"'},
     )
+
+
+def _download_rfi_bundle_zip(conn, bundle_id: int) -> StreamingResponse:
+    """Build and stream a single-bundle RFI ZIP with the friendly workbook
+    at the root (no MANIFEST.txt)."""
+    from policydb.exporter import export_request_bundle_xlsx
+
+    bundle_meta = conn.execute(
+        "SELECT rfi_uid, title FROM client_request_bundles WHERE id = ?",
+        (bundle_id,),
+    ).fetchone()
+    if not bundle_meta:
+        return JSONResponse({"ok": False, "error": "Bundle not found"}, status_code=404)
+
+    # Pre-flight: if the bundle has zero attached files, fall through to 404
+    # so the UI's "no attachments" handling still works.
+    has_bundle_files = conn.execute(
+        "SELECT 1 FROM record_attachments WHERE record_type='rfi_bundle' AND record_id=? LIMIT 1",
+        (bundle_id,),
+    ).fetchone()
+    has_item_files = conn.execute(
+        """SELECT 1 FROM record_attachments ra
+             JOIN client_request_items i ON i.id = ra.record_id
+            WHERE ra.record_type='rfi_item' AND i.bundle_id=? LIMIT 1""",
+        (bundle_id,),
+    ).fetchone()
+    if not has_bundle_files and not has_item_files:
+        return JSONResponse({"ok": False, "error": "No attachments to download"}, status_code=404)
+
+    buf = io.BytesIO()
+    _, alloc = _zip_name_allocator()
+    with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        # Workbook at the root — this is the client-facing "manifest"
+        try:
+            xlsx_bytes = export_request_bundle_xlsx(conn, bundle_id)
+            zf.writestr("Request Summary.xlsx", xlsx_bytes)
+        except Exception as exc:
+            logger.warning("Zip: failed to embed bundle xlsx for %s: %s", bundle_id, exc)
+
+        _add_rfi_bundle_to_zip(conn, zf, bundle_id, top_folder="", alloc=alloc)
+
+    buf.seek(0)
+    data = buf.getvalue()
+
+    base_name = _rfi_bundle_zip_base_name(bundle_meta)
+    download_name = f"{_friendly_folder_name(base_name, max_len=80)}.zip"
+    logger.info("Zip download: rfi_bundle/%s → %d bytes", bundle_id, len(data))
+    return StreamingResponse(
+        iter([data]),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{download_name}"'},
+    )
+
+
+def build_client_rfi_zip(conn, client_id: int) -> tuple[bytes, str, int]:
+    """Build a ZIP of every open (non-complete) RFI bundle for a client.
+
+    Layout:
+        Outstanding Requests.xlsx            ← multi-sheet workbook (one sheet per bundle)
+        {RFI title}/                         ← one top-level folder per open bundle
+            ...bundle-level files...
+            {Project}/{Coverage}/{NNN - description}/
+                ...item files...
+
+    Returns ``(zip_bytes, download_filename, total_files_written)``.
+    Raises ``ValueError`` with a user-facing message if the client has no
+    open bundles or no attached files to include.
+    """
+    from policydb.exporter import export_client_requests_xlsx
+
+    bundles = conn.execute(
+        """SELECT id, rfi_uid, title
+             FROM client_request_bundles
+            WHERE client_id = ? AND status != 'complete'
+            ORDER BY COALESCE(sent_at, created_at) DESC, id DESC""",
+        (client_id,),
+    ).fetchall()
+    if not bundles:
+        raise ValueError("No open requests to download")
+
+    buf = io.BytesIO()
+    _, alloc = _zip_name_allocator()
+    total_files = 0
+    with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        # Workbook at the root is the manifest
+        try:
+            xlsx_bytes = export_client_requests_xlsx(conn, client_id)
+            zf.writestr("Outstanding Requests.xlsx", xlsx_bytes)
+        except Exception as exc:
+            logger.warning("Zip: failed to embed client xlsx for %s: %s", client_id, exc)
+
+        # One top folder per bundle, deduped so identically-titled bundles
+        # still get unique folders.
+        used_folders: set[str] = set()
+        for b in bundles:
+            label_parts = [p for p in (b["rfi_uid"], b["title"]) if p]
+            raw_label = " - ".join(label_parts) if label_parts else f"Request {b['id']}"
+            base_label = _friendly_folder_name(raw_label, max_len=70)
+            label = base_label
+            n = 2
+            while label in used_folders:
+                label = f"{base_label} ({n})"
+                n += 1
+            used_folders.add(label)
+            top_folder = f"{label}/"
+            total_files += _add_rfi_bundle_to_zip(conn, zf, b["id"], top_folder, alloc)
+
+    buf.seek(0)
+    data = buf.getvalue()
+
+    client_row = conn.execute("SELECT name FROM clients WHERE id=?", (client_id,)).fetchone()
+    client_name = (client_row["name"] if client_row else "Client") or "Client"
+    from datetime import date
+    download_name = (
+        f"{_friendly_folder_name(client_name, max_len=60)}"
+        f" - Outstanding Requests - {date.today().isoformat()}.zip"
+    )
+    return data, download_name, total_files
 
 
 # ── Get / Update / Delete attachment ─────────────────────────────────────────
