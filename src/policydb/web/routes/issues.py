@@ -877,6 +877,11 @@ def issue_detail(
     # Build bind subjects from linked policies. Group policies that share a
     # program_uid into a single program: token (so program children render as
     # one section); emit standalone policies as their own policy: tokens.
+    # Filter out standalone policies whose state is 'already_bound' (bound_date
+    # set, or a successor row exists) — including them produces a panel with
+    # locked rows that silently no-op on Confirm. Programs pass through; their
+    # own children filter themselves inside preview_bind_panel.
+    from policydb.renew_policies import resolve_renewal_state
     _bind_tokens: list[str] = []
     _seen_programs: set[str] = set()
     _seen_standalone: set[str] = set()
@@ -888,9 +893,15 @@ def issue_detail(
                 _bind_tokens.append(f"program:{pgm_uid}")
         else:
             pol_uid = lp.get("policy_uid")
-            if pol_uid and pol_uid not in _seen_standalone:
-                _seen_standalone.add(pol_uid)
-                _bind_tokens.append(f"policy:{pol_uid}")
+            if not pol_uid or pol_uid in _seen_standalone:
+                continue
+            try:
+                if resolve_renewal_state(conn, pol_uid) == "already_renewed":
+                    continue
+            except ValueError:
+                continue
+            _seen_standalone.add(pol_uid)
+            _bind_tokens.append(f"policy:{pol_uid}")
     bind_subjects_csv = ",".join(_bind_tokens)
 
     open_tasks_data = get_open_tasks(conn, "issue", issue_id)

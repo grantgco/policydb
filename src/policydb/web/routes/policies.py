@@ -4130,33 +4130,24 @@ async def policy_cell_save(request: Request, policy_uid: str, conn=Depends(get_d
         is_opp = prior_row["is_opportunity"] if prior_row else 0
         resolve_statuses = cfg.get("renewal_issue_resolve_statuses", ["Bound"])
 
-        # Bound transition fires the full cascade through bind_order helper.
-        # Guard: if the row needs to be renewed before binding (expired term, etc.),
-        # block the silent-bound write and force the user through the Bind Order panel.
+        # Bound transition fires the full cascade through policy_bind.
+        # Guard: if the row needs to be renewed first (expired term, etc.), block
+        # the silent-bound write and force the user through Renew Policies.
         if val in resolve_statuses and not is_opp:
-            from policydb.bind_order import (
-                resolve_child_state,
-                _handle_bound_transition,
-                _generate_post_bind_followups,
-            )
+            from policydb.renew_policies import resolve_renewal_state
+            from policydb.policy_bind import mark_policy_bound
             from datetime import date as _date
             try:
-                state = resolve_child_state(conn, uid)
+                state = resolve_renewal_state(conn, uid)
             except ValueError:
-                state = "ready_to_bind"
+                state = "ready_to_renew"
             if state == "needs_renew":
                 return JSONResponse(
-                    {"ok": False, "error": "This policy still needs to be renewed first. Use the Bind Order action to roll the term forward and bind in one step."},
+                    {"ok": False, "error": "This policy still needs to be renewed first. Use the Renew Policies action to roll the term forward."},
                     status_code=400,
                 )
             today_iso = _date.today().isoformat()
-            _handle_bound_transition(conn, uid, today_iso, bind_note=None)
-            _generate_post_bind_followups(
-                conn,
-                client_id=policy["client_id"],
-                bind_date=today_iso,
-                policy_id=policy["id"],
-            )
+            mark_policy_bound(conn, uid, today_iso, note=None)
             conn.commit()
             return JSONResponse({"ok": True, "formatted": val})
 
@@ -4663,11 +4654,11 @@ def policy_bound_confirm(
 ):
     """Execute all bound automations after user confirms (status badge banner path).
 
-    Refactored to delegate to bind_order._handle_bound_transition() — the single
-    choke point shared with the Bind Order panel and the cell-edit fast path.
+    Delegates to policy_bind.mark_policy_bound() — the single choke point shared
+    with the Mark Bound modal and the cell-edit fast path.
     """
     from datetime import date as _date
-    from policydb.bind_order import _handle_bound_transition, _generate_post_bind_followups
+    from policydb.policy_bind import mark_policy_bound
 
     uid = policy_uid.upper()
     policy = conn.execute(
@@ -4677,18 +4668,11 @@ def policy_bound_confirm(
     if not policy:
         return HTMLResponse("", status_code=404)
 
-    # Guard: skip automations for opportunities (preserves prior behavior)
     if policy["is_opportunity"]:
         return HTMLResponse('<div id="bound-confirm-prompt" hx-swap-oob="innerHTML"></div>')
 
     today_iso = _date.today().isoformat()
-    _handle_bound_transition(conn, uid, today_iso, bind_note=None)
-    _generate_post_bind_followups(
-        conn,
-        client_id=policy["client_id"],
-        bind_date=today_iso,
-        policy_id=policy["id"],
-    )
+    mark_policy_bound(conn, uid, today_iso, note=None)
     conn.commit()
     logger.info("Policy %s bound automations complete (banner path)", uid)
 
@@ -4708,9 +4692,72 @@ def policy_bound_confirm(
 
 @router.post("/{policy_uid}/renew")
 def policy_renew(policy_uid: str, conn=Depends(get_db)):
-    """Create a new renewal term from an existing policy, archive the prior term."""
+    """Create a new renewal term from an existing policy, archive the prior term.
+
+    Legacy entry point kept for any external callers (bookmarks, scripts). The
+    preferred UI flow is /renew-policies/panel which offers per-field editing in
+    a batch edit grid afterwards.
+    """
     new_uid = renew_policy(conn, policy_uid.upper())
     return RedirectResponse(f"/policies/{new_uid}/edit", status_code=303)
+
+
+@router.post("/{policy_uid}/mark-bound")
+async def policy_mark_bound(
+    request: Request,
+    policy_uid: str,
+    conn=Depends(get_db),
+):
+    """Mark a single policy bound — the 'binder received' action.
+
+    Separate from the Renew Policies flow by design: renewing creates a Not-Started
+    term row that's edited in the batch grid; marking bound is the later transition
+    when the carrier has actually issued the binder.
+
+    Accepts form-encoded bind_date (ISO date) + optional note. Returns 303
+    redirect back to the policy edit page.
+    """
+    # Validate the policy_uid format before trusting it in a redirect target.
+    # Policy UIDs are always POL-<digits> — reject anything else to prevent an
+    # open-redirect vector via path traversal or scheme injection (e.g.
+    # "//evil.com"). Also gives us a clean canonical form to echo back.
+    import re
+    normalized = policy_uid.strip().upper()
+    if not re.fullmatch(r"POL-\d+", normalized):
+        raise HTTPException(status_code=404, detail="Invalid policy UID")
+
+    # Reject opportunities explicitly — the UI hides the Mark Bound button
+    # for is_opportunity=1, but a direct POST would otherwise 303 redirect
+    # with no state change (mark_policy_bound() silently skips them),
+    # creating a misleading "success" for the caller.
+    pol_row = conn.execute(
+        "SELECT is_opportunity FROM policies WHERE policy_uid = ?",
+        (normalized,),
+    ).fetchone()
+    if not pol_row:
+        raise HTTPException(status_code=404, detail=f"Policy {normalized} not found")
+    if pol_row["is_opportunity"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Opportunities must be converted to a policy before they can be marked bound.",
+        )
+
+    form = await request.form()
+    from datetime import date
+    bind_date = (form.get("bind_date") or date.today().isoformat()).strip()
+    note = (form.get("note") or "").strip() or None
+
+    from policydb.policy_bind import mark_policy_bound
+    try:
+        mark_policy_bound(conn, normalized, bind_date, note)
+        conn.commit()
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception:
+        conn.rollback()
+        raise
+
+    return RedirectResponse(f"/policies/{normalized}/edit", status_code=303)
 
 
 @router.post("/{policy_uid}/followup", response_class=HTMLResponse)
