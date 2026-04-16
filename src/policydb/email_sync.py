@@ -590,8 +590,13 @@ def _create_or_enrich_activity(
     Returns {"action": "created"|"enriched"|"skipped", "activity_id": ...}
     """
     message_id = email.get("message_id", "")
+    # RFC 5322 Message-ID header — stable across folder moves (unlike the
+    # Outlook numeric message id, which changes when a message is moved).
+    # Used as a secondary dedup key so a message that appears in both Inbox
+    # and an Archive folder during Phase 3D crawl isn't inserted twice.
+    internet_message_id = email.get("internet_message_id") or None
 
-    # Dedup check — per message_id + policy_id so multi-tag emails
+    # Dedup check — per message identity + policy_id so multi-tag emails
     # can create separate activities for different policies
     policy_id = match.get("policy_id")
     if message_id:
@@ -604,13 +609,19 @@ def _create_or_enrich_activity(
             return {"action": "skipped", "activity_id": 0, "reason": "dismissed"}
         if policy_id:
             existing = conn.execute(
-                "SELECT id FROM activity_log WHERE outlook_message_id=? AND policy_id=?",
-                (message_id, policy_id),
+                """SELECT id FROM activity_log
+                   WHERE (outlook_message_id = ?
+                          OR (? IS NOT NULL AND outlook_internet_message_id = ?))
+                     AND policy_id = ?""",
+                (message_id, internet_message_id, internet_message_id, policy_id),
             ).fetchone()
         else:
             existing = conn.execute(
-                "SELECT id FROM activity_log WHERE outlook_message_id=? AND policy_id IS NULL",
-                (message_id,),
+                """SELECT id FROM activity_log
+                   WHERE (outlook_message_id = ?
+                          OR (? IS NOT NULL AND outlook_internet_message_id = ?))
+                     AND policy_id IS NULL""",
+                (message_id, internet_message_id, internet_message_id),
             ).fetchone()
         if existing:
             return {"action": "skipped", "activity_id": existing["id"], "reason": "duplicate"}
@@ -836,6 +847,11 @@ def _run_thread_inheritance(
 
         # Dedup checks
         message_id = candidate.get("outlook_message_id", "")
+        # Migration 154: the inbox row may have captured the RFC 5322
+        # Message-ID when it was originally processed. Use it as a secondary
+        # key so a message that came in via Phase 3D's folder crawl isn't
+        # promoted a second time from the inbox.
+        candidate_internet_id = candidate.get("outlook_internet_message_id") or None
         if message_id:
             dismissed = conn.execute(
                 "SELECT 1 FROM dismissed_outlook_messages WHERE message_id=?",
@@ -844,8 +860,10 @@ def _run_thread_inheritance(
             if dismissed:
                 continue
             existing = conn.execute(
-                "SELECT 1 FROM activity_log WHERE outlook_message_id=?",
-                (message_id,),
+                """SELECT 1 FROM activity_log
+                   WHERE outlook_message_id = ?
+                      OR (? IS NOT NULL AND outlook_internet_message_id = ?)""",
+                (message_id, candidate_internet_id, candidate_internet_id),
             ).fetchone()
             if existing:
                 continue
@@ -999,6 +1017,13 @@ def sync_outlook(conn: sqlite3.Connection) -> dict:
         if not received_result.get("ok"):
             results["errors"].append(received_result.get("error", "Failed to scan received emails"))
         else:
+            if received_result.get("truncated"):
+                cap = received_result.get("cap", 500)
+                results["errors"].append(
+                    f"Received-email scan hit the {cap}-message cap — some emails "
+                    "were not synced. Shorten the Outlook lookback window or run "
+                    "sync more often."
+                )
             for email in received_result.get("emails", []):
                 results["total_scanned"] += 1
                 _process_email(conn, email, results, "received", domain_index=domain_index)
@@ -1008,6 +1033,13 @@ def sync_outlook(conn: sqlite3.Connection) -> dict:
     if not flagged_result.get("ok"):
         results["errors"].append(flagged_result.get("error", "Failed to scan Flagged items"))
     else:
+        if flagged_result.get("truncated"):
+            cap = flagged_result.get("cap", 200)
+            results["errors"].append(
+                f"Flagged-email scan hit the {cap}-message cap — some flagged "
+                "items were not imported. Clear old flags or shorten the "
+                "lookback window."
+            )
         for email in flagged_result.get("emails", []):
             results["total_scanned"] += 1
             _process_email(conn, email, results, "flagged", domain_index=domain_index)
@@ -1029,10 +1061,24 @@ def sync_outlook(conn: sqlite3.Connection) -> dict:
     # ── Update last sync timestamp (use sweep_start, NOT datetime.now()) ──
     # Storing the moment the sweep BEGAN ensures emails that arrived during
     # the sweep get picked up next time. Dedup absorbs the small overlap.
-    config_data = dict(cfg.load_config())
-    config_data["last_outlook_sync"] = sweep_start.isoformat()
-    cfg.save_config(config_data)
-    cfg.reload_config()
+    #
+    # IMPORTANT: only advance `last_outlook_sync` when every phase
+    # succeeded. If any scan errored (e.g., Outlook timeout on the all-
+    # folders pass), we risk skipping that window forever because next
+    # run would begin after `sweep_start`. Leaving the timestamp alone
+    # means a retry re-scans the same window, and dedup absorbs the
+    # overlap.
+    if not results["errors"]:
+        config_data = dict(cfg.load_config())
+        config_data["last_outlook_sync"] = sweep_start.isoformat()
+        cfg.save_config(config_data)
+        cfg.reload_config()
+    else:
+        logger.warning(
+            "Outlook sync completed with %d error(s); NOT advancing "
+            "last_outlook_sync so the next run re-scans the window.",
+            len(results["errors"]),
+        )
 
     logger.info(
         "Outlook sync complete: %d scanned, %d auto-linked (sent=%d recv=%d flag=%d), "
@@ -1070,13 +1116,24 @@ def _folder_sort_key(row: dict) -> tuple:
     return (2, path)
 
 
+# Sensible upper bound on the first-run horizon. Beyond a year, the
+# per-folder AppleScript `whose` predicate + 500-message cap trade off
+# poorly — you get a near-random slice of ancient mail and miss the
+# window in between. Users who genuinely need more history should run
+# discovery, confirm the folder list, then sync incrementally over
+# several runs rather than one giant first-run sweep.
+_MAX_FIRST_RUN_DAYS = 365
+
+
 def _compute_folder_since(folder_row: dict, first_run_days: int) -> datetime:
     """Compute the since_date for an incremental folder scan.
 
     If the folder has a ``last_synced_at`` we resume from there minus a
     60-second overlap (mirrors the global last_outlook_sync logic — the
     overlap is absorbed by outlook_message_id dedup). If it's never been
-    synced, fall back to the first-run window.
+    synced, fall back to the first-run window (clamped to a sane range
+    so a typo in config.yaml like ``1400`` doesn't silently degrade the
+    sync into a random ancient-email slice).
     """
     last = folder_row.get("last_synced_at")
     if last:
@@ -1087,7 +1144,17 @@ def _compute_folder_since(folder_row: dict, first_run_days: int) -> datetime:
                 "Folder %s has unparseable last_synced_at=%r; falling back to first-run window",
                 folder_row.get("folder_path"), last,
             )
-    return datetime.now() - timedelta(days=max(first_run_days, 1))
+    try:
+        days = int(first_run_days)
+    except (TypeError, ValueError):
+        days = 14
+    clamped = max(1, min(_MAX_FIRST_RUN_DAYS, days))
+    if clamped != days:
+        logger.warning(
+            "outlook_first_run_days=%r clamped to %d (allowed range: 1..%d)",
+            first_run_days, clamped, _MAX_FIRST_RUN_DAYS,
+        )
+    return datetime.now() - timedelta(days=clamped)
 
 
 def _walk_conversation(conn: sqlite3.Connection, conv_id: str) -> dict | None:
@@ -1355,6 +1422,7 @@ def _process_email(
         # No ref tag or domain match — send to inbox for triage
         # (all categories: sent, received, flagged — never silently drop)
         message_id = email.get("message_id", "")
+        internet_message_id = email.get("internet_message_id") or None
         # Dedup: check if already in activity_log, inbox, or previously dismissed
         if message_id:
             dismissed = conn.execute(
@@ -1364,13 +1432,19 @@ def _process_email(
                 results["skipped"] += 1
                 return
             existing = conn.execute(
-                "SELECT 1 FROM activity_log WHERE outlook_message_id=?", (message_id,),
+                """SELECT 1 FROM activity_log
+                   WHERE outlook_message_id = ?
+                      OR (? IS NOT NULL AND outlook_internet_message_id = ?)""",
+                (message_id, internet_message_id, internet_message_id),
             ).fetchone()
             if existing:
                 results["skipped"] += 1
                 return
             existing_inbox = conn.execute(
-                "SELECT 1 FROM inbox WHERE outlook_message_id=?", (message_id,),
+                """SELECT 1 FROM inbox
+                   WHERE outlook_message_id = ?
+                      OR (? IS NOT NULL AND outlook_internet_message_id = ?)""",
+                (message_id, internet_message_id, internet_message_id),
             ).fetchone()
             if existing_inbox:
                 results["skipped"] += 1
@@ -1386,12 +1460,19 @@ def _process_email(
         content = f"{label} {subject}\nFrom: {sender}\nTo: {recipients}\nFolder: {folder}\nDate: {date_str}"
         if snippet:
             content += f"\n\n{snippet}"
+        # Carry conversation_id + internet_message_id (Phase 3D) so the
+        # later _walk_conversation / _run_thread_inheritance paths can match
+        # via the native Outlook thread key instead of the fragile
+        # subject-normalization fallback.
+        conversation_id = email.get("conversation_id") or None
         conn.execute(
             """INSERT INTO inbox (content, client_id, contact_id, inbox_uid,
                                   email_subject, email_date, outlook_message_id,
-                                  email_from, email_to, email_direction)
-               VALUES (?, NULL, NULL, '', ?, ?, ?, ?, ?, ?)""",
-            (content, subject, date_str, message_id, sender, recipients, category),
+                                  email_from, email_to, email_direction,
+                                  outlook_conversation_id, outlook_internet_message_id)
+               VALUES (?, NULL, NULL, '', ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (content, subject, date_str, message_id, sender, recipients, category,
+             conversation_id, internet_message_id),
         )
         row_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
         conn.execute("UPDATE inbox SET inbox_uid = ? WHERE id = ?", (f"INB-{row_id}", row_id))

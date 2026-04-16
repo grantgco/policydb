@@ -536,27 +536,34 @@ def email_sync_toggle_comprehensive(enabled: int = Form(0)):
     When True, the /outlook/sync route runs crawl_folders() against
     every folder where include_in_crawl=1. When False (default), the
     legacy sync_outlook() runs the hardcoded Sent + PDB-categorized +
-    Flagged trio. Returns the matching ON/off badge HTML so the toggle
-    UI can swap in place.
+    Flagged trio. Returns the toggle-switch HTML so the UI can swap
+    in place with no full-card re-render.
     """
     new_val = bool(enabled)
     full = dict(cfg.load_config())
     full["outlook_use_comprehensive_crawl"] = new_val
     cfg.save_config(full)
     cfg.reload_config()
-    label = "ON" if new_val else "off"
-    color = "bg-green-100 text-green-700 hover:bg-green-200" if new_val else "bg-gray-100 text-gray-400 hover:bg-gray-200"
-    next_val = 0 if new_val else 1
-    title_verb = "disable" if new_val else "enable"
-    hx_vals = '{"enabled": ' + str(next_val) + '}'
+    checked = "checked" if new_val else ""
+    aria = (
+        "Disable comprehensive crawl"
+        if new_val
+        else "Enable comprehensive crawl"
+    )
+    title = (
+        "ON — comprehensive crawl active. Click to disable."
+        if new_val
+        else "OFF — legacy sync. Click to enable comprehensive crawl."
+    )
     return HTMLResponse(
-        f'<button type="button" '
+        f'<label class="toggle-switch align-middle" title="{title}">'
+        f'<input type="checkbox" {checked} '
         f'hx-post="/settings/email-sync/toggle-comprehensive" '
-        f'hx-vals=\'{hx_vals}\' '
-        f'hx-target="this" hx-swap="outerHTML" '
-        f'class="px-2 py-0.5 rounded text-xs font-medium transition-colors {color}" '
-        f'title="Click to {title_verb} comprehensive crawl">'
-        f'{label}</button>'
+        f'hx-vals=\'js:{{enabled: event.target.checked ? 1 : 0}}\' '
+        f'hx-target="closest label" hx-swap="outerHTML" '
+        f'hx-trigger="change" aria-label="{aria}">'
+        f'<span class="toggle-track"></span>'
+        f'</label>'
     )
 
 

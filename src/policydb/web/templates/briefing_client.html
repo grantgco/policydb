@@ -457,7 +457,8 @@ function toggleBqComplete(rowId) {
       </div>
       <textarea id="briefing-scratch-ta" name="content" rows="3"
         placeholder="Notes for this client…"
-        class="w-full text-sm text-gray-800 bg-transparent resize-none focus:outline-none placeholder-gray-300 leading-relaxed">{{ scratchpad_content }}</textarea>
+        class="w-full text-sm text-gray-800 bg-transparent resize-none focus:outline-none placeholder-gray-300 leading-relaxed">
+{{ scratchpad_content or '' }}</textarea>
     </div>
     {% if client_notes %}
     <div class="mb-3">

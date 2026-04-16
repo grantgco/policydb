@@ -25,7 +25,7 @@ from policydb.llm_schemas import (
 )
 from policydb.queries import REVIEW_CYCLE_LABELS, get_all_policies, get_client_by_id, get_opportunity_by_uid, get_policy_by_uid, get_policy_total_hours, get_saved_notes, save_note, delete_saved_note, renew_policy, get_or_create_contact, assign_contact_to_policy, remove_contact_from_policy, set_placement_colleague, get_policy_contacts, get_sub_coverages as _get_sub_coverages, auto_generate_sub_coverages as _auto_generate_sub_coverages, get_open_tasks, filter_thread_for_history
 from rapidfuzz import fuzz
-from policydb.utils import cap_followup_date, round_duration, normalize_carrier, normalize_coverage_type, normalize_policy_number, format_city, format_state, format_zip
+from policydb.utils import cap_followup_date, round_duration, normalize_carrier, normalize_coverage_type, normalize_policy_number, format_city, format_state, format_zip, parse_currency_with_magnitude
 from policydb.web.app import get_db, templates
 
 router = APIRouter(prefix="/policies")
@@ -1713,10 +1713,10 @@ def _ai_import_parse_inner(request: Request, conn, uid: str, result: dict):
                 })
                 continue
             exposure_type = (exp.get("exposure_type") or "").strip()
-            try:
-                amount = float(exp.get("amount") or 0) or None
-            except (ValueError, TypeError):
-                amount = None
+            # Exposures accept shorthand ("$5M", "500k") — use the project's
+            # canonical currency parser so the LLM's magnitude suffixes don't
+            # truncate to zero via raw float().
+            amount = parse_currency_with_magnitude(exp.get("amount")) or None
             try:
                 denominator = int(exp.get("denominator") or 1) or 1
             except (ValueError, TypeError):
@@ -2143,7 +2143,10 @@ def _ai_import_parse_inner(request: Request, conn, uid: str, result: dict):
         "ai_sub_coverage_data": ai_sub_coverage_data,
         "ai_exposure_data": ai_exposure_data,
         "ai_exposure_year": ai_exposure_year,
-        "ai_parsed_json": json.dumps(result["parsed"], default=str),
+        # Round-trip through json to coerce datetimes/Decimals to JSON-safe
+        # primitives, then let the template serialize via `| tojson` which
+        # escapes apostrophes and angle brackets for safe HTML-attribute use.
+        "ai_parsed": json.loads(json.dumps(result["parsed"], default=str)),
     })
 
     # Build OOB fragments and combine with rendered template body.
@@ -2374,85 +2377,102 @@ async def policy_ai_import_apply_exposures(
         None,
     )
 
-    for idx, r in enumerate(rows):
-        exposure_type = (r.get("exposure_type") or "").strip()
-        try:
-            amount = float(r.get("amount") or 0) or None
-        except (ValueError, TypeError):
-            amount = None
-        if not exposure_type or not amount:
-            continue
-        try:
-            denominator = int(r.get("denominator") or 1) or 1
-        except (ValueError, TypeError):
-            denominator = 1
+    # The whole loop is one atomic unit: either every selected row lands
+    # (project upserts + exposure upserts + link writes + policy.project_id
+    # stamp) or nothing does. `commit=False` on each helper defers the
+    # commit so a mid-loop failure rolls everything back, instead of
+    # leaving half the exposures linked and half unlinked.
+    try:
+        for idx, r in enumerate(rows):
+            if not isinstance(r, dict):
+                continue
+            exposure_type = (r.get("exposure_type") or "").strip()
+            amount = parse_currency_with_magnitude(r.get("amount")) or None
+            if not exposure_type or not amount:
+                continue
+            try:
+                denominator = int(r.get("denominator") or 1) or 1
+            except (ValueError, TypeError):
+                denominator = 1
 
-        # Resolve project: either a pre-matched id from the diff, or upsert
-        # from address fields.
-        matched_id = r.get("matched_project_id")
-        if matched_id:
-            exp_project_id = int(matched_id)
-        else:
-            before_count = conn.execute(
-                "SELECT COUNT(*) FROM projects WHERE client_id = ?", (client_id,)
-            ).fetchone()[0]
-            exp_project_id = find_or_create_project_from_address(
-                conn,
-                client_id=client_id,
-                address=r.get("address"),
-                city=r.get("city"),
-                state=r.get("state"),
-                zip_code=r.get("zip"),
-                label=r.get("location_label"),
-            )
-            if exp_project_id:
-                after_count = conn.execute(
+            # Resolve project: either a pre-matched id from the diff, or
+            # upsert from address fields. Detect creation via a COUNT(*)
+            # delta on this connection — safe because the whole loop runs
+            # in one transaction on a single connection.
+            matched_id = r.get("matched_project_id")
+            if matched_id:
+                exp_project_id = int(matched_id)
+            else:
+                before_count = conn.execute(
                     "SELECT COUNT(*) FROM projects WHERE client_id = ?", (client_id,)
                 ).fetchone()[0]
-                if after_count > before_count:
-                    locations_created += 1
+                exp_project_id = find_or_create_project_from_address(
+                    conn,
+                    client_id=client_id,
+                    address=r.get("address"),
+                    city=r.get("city"),
+                    state=r.get("state"),
+                    zip_code=r.get("zip"),
+                    label=r.get("location_label"),
+                    commit=False,
+                )
+                if exp_project_id:
+                    after_count = conn.execute(
+                        "SELECT COUNT(*) FROM projects WHERE client_id = ?", (client_id,)
+                    ).fetchone()[0]
+                    if after_count > before_count:
+                        locations_created += 1
 
-        # Stamp policies.project_id when previously unassigned.
-        if exp_project_id and not policy_project_id:
-            conn.execute(
-                "UPDATE policies SET project_id = ?, updated_at = datetime('now') "
-                "WHERE policy_uid = ?",
-                (exp_project_id, uid),
+            # Stamp policies.project_id when previously unassigned.
+            if exp_project_id and not policy_project_id:
+                conn.execute(
+                    "UPDATE policies SET project_id = ?, updated_at = datetime('now') "
+                    "WHERE policy_uid = ?",
+                    (exp_project_id, uid),
+                )
+                policy_project_id = exp_project_id
+
+            exp_id = find_or_create_exposure(
+                conn,
+                client_id=client_id,
+                project_id=exp_project_id,
+                exposure_type=exposure_type,
+                year=year,
+                amount=amount,
+                denominator=denominator,
+                commit=False,
             )
-            policy_project_id = exp_project_id
 
-        exp_id = find_or_create_exposure(
-            conn,
-            client_id=client_id,
-            project_id=exp_project_id,
-            exposure_type=exposure_type,
-            year=year,
-            amount=amount,
-            denominator=denominator,
-        )
+            # If the extracted amount differs from the stored amount for an
+            # existing row, update it (find_or_create_exposure only inserts).
+            stored = conn.execute(
+                "SELECT amount, denominator FROM client_exposures WHERE id = ?",
+                (exp_id,),
+            ).fetchone()
+            if stored and (
+                (stored["amount"] or 0) != amount
+                or (stored["denominator"] or 1) != denominator
+            ):
+                conn.execute(
+                    "UPDATE client_exposures SET amount = ?, denominator = ?, "
+                    "updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    (amount, denominator, exp_id),
+                )
 
-        # If the extracted amount differs from the stored amount for an
-        # existing row, update it (find_or_create_exposure only inserts).
-        stored = conn.execute(
-            "SELECT amount, denominator FROM client_exposures WHERE id = ?",
-            (exp_id,),
-        ).fetchone()
-        if stored and (
-            (stored["amount"] or 0) != amount
-            or (stored["denominator"] or 1) != denominator
-        ):
-            conn.execute(
-                "UPDATE client_exposures SET amount = ?, denominator = ?, "
-                "updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                (amount, denominator, exp_id),
+            create_exposure_link(
+                conn, uid, exp_id, is_primary=(idx == primary_requested),
+                commit=False,
             )
+            applied += 1
 
-        create_exposure_link(
-            conn, uid, exp_id, is_primary=(idx == primary_requested),
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        logger.exception("AI import: apply-exposures failed for policy %s", uid)
+        return JSONResponse(
+            {"ok": False, "error": f"Apply failed: {e}"},
+            status_code=500,
         )
-        applied += 1
-
-    conn.commit()
     logger.info(
         "AI import: applied %d exposures (year=%s, created %d locations) for policy %s",
         applied, year, locations_created, uid,

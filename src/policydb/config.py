@@ -917,6 +917,19 @@ _DEFAULTS: dict[str, Any] = {
     # the toggle on the Email Sync Folders settings card after running
     # discovery and confirming the folder list looks right.
     "outlook_use_comprehensive_crawl": False,
+    # Per-operation osascript subprocess timeouts (seconds). Folder crawls
+    # and discover runs build large `whose` predicates against Outlook and
+    # can genuinely take minutes on deep archives; a flat 30s ceiling causes
+    # silent per-folder sync loss. Override individual keys in config.yaml
+    # only when the defaults here are genuinely insufficient.
+    "outlook_script_timeout_seconds": {
+        "create_draft": 30,
+        "search_emails": 30,
+        "search_all_folders": 120,
+        "search_folder_since": 120,
+        "get_flagged_emails": 120,
+        "discover_folders": 300,
+    },
     "freemail_domains": [
         "gmail.com", "outlook.com", "yahoo.com", "hotmail.com",
         "aol.com", "icloud.com", "live.com", "msn.com", "me.com",

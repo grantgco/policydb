@@ -15,7 +15,38 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
-_TIMEOUT = 30  # seconds per osascript call
+_TIMEOUT = 30  # default seconds per osascript call — overridable per call
+
+# Per-function timeouts. Folder crawls and discover runs materialize large
+# `whose` predicates that can take minutes on big archives; a flat 30s budget
+# is too tight and causes silent folder-level sync loss. Values here are
+# overridable via the `outlook_script_timeout_seconds` config key (see
+# `_resolve_timeout` below).
+_DEFAULT_TIMEOUTS = {
+    "availability": 5,
+    "create_draft": 30,
+    "search_emails": 30,
+    "search_all_folders": 120,
+    "search_folder_since": 120,
+    "get_flagged_emails": 120,
+    "discover_folders": 300,
+}
+
+
+def _resolve_timeout(op: str) -> int:
+    """Look up a per-op timeout; defer config import to avoid cycles."""
+    base = _DEFAULT_TIMEOUTS.get(op, _TIMEOUT)
+    try:
+        from policydb.config import load_config
+        cfg = load_config()
+        overrides = cfg.get("outlook_script_timeout_seconds", {}) or {}
+        if isinstance(overrides, dict):
+            val = overrides.get(op)
+            if val is not None:
+                return max(5, int(val))
+    except Exception:
+        pass  # never let config lookup block a sync
+    return base
 
 
 def is_outlook_available() -> bool:
@@ -32,12 +63,18 @@ def is_outlook_available() -> bool:
         return False
 
 
-def _run_applescript(script: str) -> dict:
-    """Execute an AppleScript and return parsed JSON output."""
+def _run_applescript(script: str, timeout: int | None = None) -> dict:
+    """Execute an AppleScript and return parsed JSON output.
+
+    ``timeout`` overrides the default osascript subprocess budget. Callers
+    that scan many messages (folder crawl, discover) should pass a longer
+    value so large `whose` predicates don't time out silently.
+    """
+    effective_timeout = timeout if timeout is not None else _TIMEOUT
     try:
         result = subprocess.run(
             ["osascript", "-e", script],
-            capture_output=True, text=True, timeout=_TIMEOUT,
+            capture_output=True, text=True, timeout=effective_timeout,
         )
         if result.returncode != 0:
             err = result.stderr.strip()
@@ -61,7 +98,7 @@ def _run_applescript(script: str) -> dict:
             return {"ok": True, "raw": stdout}
 
     except subprocess.TimeoutExpired:
-        return {"ok": False, "error": "Outlook took too long to respond (30s timeout)"}
+        return {"ok": False, "error": f"Outlook took too long to respond ({effective_timeout}s timeout)"}
     except FileNotFoundError:
         return {"ok": False, "error": "osascript not found — are you on macOS?"}
     except Exception as e:
@@ -117,7 +154,7 @@ end tell
 return "{{\\"ok\\": true}}"
 '''
 
-    return _run_applescript(script)
+    return _run_applescript(script, timeout=_resolve_timeout("create_draft"))
 
 
 def search_all_folders(
@@ -250,7 +287,7 @@ on replaceText(txt, srch, repl)
 end replaceText
 '''
 
-    result = _run_applescript(script)
+    result = _run_applescript(script, timeout=_resolve_timeout("search_all_folders"))
     if not result.get("ok", True):
         return result
 
@@ -265,7 +302,15 @@ end replaceText
                 email["categories"] = [c.strip() for c in email["categories"].split(",") if c.strip()]
             else:
                 email["categories"] = []
-        return {"ok": True, "emails": emails}
+        # AppleScript caps the scan at 500 messages to keep the script
+        # responsive. Surface that to the caller so `sync_outlook` can
+        # warn the user instead of silently dropping the overflow — if
+        # hit, the lookback window should be shortened.
+        resp = {"ok": True, "emails": emails}
+        if len(emails) >= 500:
+            resp["truncated"] = True
+            resp["cap"] = 500
+        return resp
     except json.JSONDecodeError as e:
         logger.warning("Failed to parse all-folder results: %s", e)
         return {"ok": True, "emails": [], "parse_warning": str(e)}
@@ -391,7 +436,7 @@ on replaceText(txt, srch, repl)
 end replaceText
 '''
 
-    result = _run_applescript(script)
+    result = _run_applescript(script, timeout=_resolve_timeout("search_emails"))
     if not result.get("ok", True):
         return result
 
@@ -533,7 +578,7 @@ on replaceText(txt, srch, repl)
 end replaceText
 '''
 
-    result = _run_applescript(script)
+    result = _run_applescript(script, timeout=_resolve_timeout("discover_folders"))
     if not result.get("ok", True):
         return result
 
@@ -734,7 +779,7 @@ on replaceText(txt, srch, repl)
 end replaceText
 '''
 
-    result = _run_applescript(script)
+    result = _run_applescript(script, timeout=_resolve_timeout("search_folder_since"))
     if not result.get("ok", True):
         return result
 
@@ -865,7 +910,7 @@ on replaceText(txt, srch, repl)
 end replaceText
 '''
 
-    result = _run_applescript(script)
+    result = _run_applescript(script, timeout=_resolve_timeout("get_flagged_emails"))
     if not result.get("ok", True):
         return result
 
@@ -877,7 +922,13 @@ end replaceText
         for email in emails:
             if not email.get("flag_due_date"):
                 email["flag_due_date"] = None
-        return {"ok": True, "emails": emails}
+        # Cap is 200 for flagged scans. Surface truncation so callers
+        # can warn the user before silently dropping flagged items.
+        resp = {"ok": True, "emails": emails}
+        if len(emails) >= 200:
+            resp["truncated"] = True
+            resp["cap"] = 200
+        return resp
     except json.JSONDecodeError as e:
         logger.warning("Failed to parse flagged email results: %s", e)
         return {"ok": True, "emails": [], "parse_warning": str(e)}

@@ -570,7 +570,7 @@ def _ai_import_build_diffs(
         "ai_source_diffs": ai_source_diffs,
         "ai_requirement_data": ai_requirement_data,
         "ai_cope_diffs": ai_cope_diffs,
-        "ai_parsed_json": json.dumps(parsed, default=str),
+        "ai_parsed": json.loads(json.dumps(parsed, default=str)),
         "is_new_source": source_id is None,
         "existing_source_name": existing_source["name"] if existing_source else None,
     })

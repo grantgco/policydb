@@ -43,16 +43,22 @@
         {% if f.last_synced_at %}{{ f.last_synced_at[:16] }}{% else %}—{% endif %}
       </td>
       <td class="py-1 pl-2 text-center">
-        <button type="button"
-                hx-post="/settings/email-sync/folder-toggle"
-                hx-vals='{"folder_path": {{ f.folder_path | tojson }}, "include": {{ 0 if f.include_in_crawl else 1 }}}'
-                hx-target="#email-sync-folder-rows"
-                hx-swap="innerHTML"
-                class="px-2 py-0.5 rounded text-xs font-medium transition-colors
-                       {% if f.include_in_crawl %}bg-green-100 text-green-700 hover:bg-green-200{% else %}bg-gray-100 text-gray-400 hover:bg-gray-200{% endif %}"
-                title="{% if f.include_in_crawl %}Click to exclude{% else %}Click to include{% endif %}">
-          {% if f.include_in_crawl %}ON{% else %}off{% endif %}
-        </button>
+        {# CSS toggle-switch — standard project pattern for boolean state.
+           hx-vals uses `js:{}` mode so HTMX evaluates folder_path as a JS
+           expression (resistant to apostrophes in mailbox paths, which
+           would otherwise break a single-quoted attr). #}
+        <label class="toggle-switch align-middle"
+               title="{% if f.include_in_crawl %}Crawling — click to exclude{% else %}Excluded — click to include{% endif %}">
+          <input type="checkbox"
+                 {% if f.include_in_crawl %}checked{% endif %}
+                 hx-post="/settings/email-sync/folder-toggle"
+                 hx-vals='js:{folder_path: {{ f.folder_path | tojson }}, include: event.target.checked ? 1 : 0}'
+                 hx-target="#email-sync-folder-rows"
+                 hx-swap="innerHTML"
+                 hx-trigger="change"
+                 aria-label="{% if f.include_in_crawl %}Exclude folder from crawl{% else %}Include folder in crawl{% endif %}">
+          <span class="toggle-track"></span>
+        </label>
       </td>
     </tr>
     {% if f.last_error %}

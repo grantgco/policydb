@@ -10,7 +10,8 @@
     name="content"
     rows="4"
     placeholder="Working notes about this client — type here, then pin with Save Note…"
-    class="w-full text-sm text-gray-800 bg-transparent resize-none focus:outline-none placeholder-gray-300 leading-relaxed">{{ client_scratchpad }}</textarea>
+    class="w-full text-sm text-gray-800 bg-transparent resize-none focus:outline-none placeholder-gray-300 leading-relaxed">
+{{ client_scratchpad or '' }}</textarea>
   <div class="flex justify-end gap-1 mt-1">
     <button type="button" id="scratch-log-{{ client.id }}"
       onclick="logScratchCombined('client', '{{ client.id }}')"

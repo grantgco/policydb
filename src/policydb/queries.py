@@ -108,6 +108,7 @@ def find_or_create_project_from_address(
     state: str | None = None,
     zip_code: str | None = None,
     label: str | None = None,
+    commit: bool = True,
 ) -> int | None:
     """Upsert a `projects` (location) row for this client.
 
@@ -176,7 +177,8 @@ def find_or_create_project_from_address(
            VALUES (?, ?, ?, ?, ?, ?, 'Active')""",
         (client_id, name, addr or None, city_clean, state_clean, zip_clean),
     )
-    conn.commit()
+    if commit:
+        conn.commit()
     return conn.execute("SELECT last_insert_rowid()").fetchone()[0]
 
 # ─── ISSUE COVERAGE HELPERS ──────────────────────────────────────────────────
@@ -2554,6 +2556,7 @@ def get_suggested_followups(
     sql = f"""
     SELECT p.policy_uid, p.policy_type, p.carrier, p.expiration_date,
            p.renewal_status, p.client_id, p.project_name,
+           p.is_opportunity,
            c.name AS client_name,
            CAST(julianday(p.expiration_date) - julianday('now') AS INTEGER) AS days_to_renewal,
            (SELECT MAX(a.activity_date) FROM activity_log a WHERE a.policy_id = p.id OR (a.issue_id IN (SELECT ipc.issue_id FROM v_issue_policy_coverage ipc WHERE ipc.policy_id = p.id) AND a.item_kind != 'issue')) AS last_activity_date,
