@@ -17,55 +17,7 @@
   </thead>
   <tbody class="divide-y divide-gray-100">
     {% for f in outlook_folders %}
-    <tr class="{% if not f.include_in_crawl %}text-gray-400{% endif %}">
-      <td class="py-1 pr-2 font-mono" title="{{ f.folder_path }}">
-        {% set parts = f.folder_path.split('/') %}
-        {% if parts|length > 1 %}
-          <span class="text-gray-300">{{ parts[:-1] | join('/') }}/</span>{{ parts[-1] }}
-        {% else %}
-          {{ f.folder_path }}
-        {% endif %}
-      </td>
-      <td class="py-1 px-2">
-        {% set kind_color = {
-          'inbox': 'bg-blue-50 text-blue-700',
-          'sent': 'bg-green-50 text-green-700',
-          'archive': 'bg-amber-50 text-amber-700',
-          'drafts': 'bg-gray-100 text-gray-500',
-          'system': 'bg-gray-100 text-gray-500',
-          'custom': 'bg-slate-50 text-slate-600',
-        }.get(f.folder_kind, 'bg-gray-100 text-gray-500') %}
-        <span class="px-1.5 py-0.5 rounded {{ kind_color }} text-xs">{{ f.folder_kind or 'custom' }}</span>
-      </td>
-      <td class="py-1 px-2 text-right tabular-nums">{{ f.message_count or 0 }}</td>
-      <td class="py-1 px-2 text-right tabular-nums">{{ f.match_count or 0 }}</td>
-      <td class="py-1 px-2 text-gray-500">
-        {% if f.last_synced_at %}{{ f.last_synced_at[:16] }}{% else %}—{% endif %}
-      </td>
-      <td class="py-1 pl-2 text-center">
-        {# CSS toggle-switch — standard project pattern for boolean state.
-           hx-vals uses `js:{}` mode so HTMX evaluates folder_path as a JS
-           expression (resistant to apostrophes in mailbox paths, which
-           would otherwise break a single-quoted attr). #}
-        <label class="toggle-switch align-middle"
-               title="{% if f.include_in_crawl %}Crawling — click to exclude{% else %}Excluded — click to include{% endif %}">
-          <input type="checkbox"
-                 {% if f.include_in_crawl %}checked{% endif %}
-                 hx-post="/settings/email-sync/folder-toggle"
-                 hx-vals='js:{folder_path: {{ f.folder_path | tojson }}, include: event.target.checked ? 1 : 0}'
-                 hx-target="#email-sync-folder-rows"
-                 hx-swap="innerHTML"
-                 hx-trigger="change"
-                 aria-label="{% if f.include_in_crawl %}Exclude folder from crawl{% else %}Include folder in crawl{% endif %}">
-          <span class="toggle-track"></span>
-        </label>
-      </td>
-    </tr>
-    {% if f.last_error %}
-    <tr class="text-red-500">
-      <td colspan="6" class="py-0.5 px-2 text-xs italic">⚠ {{ f.last_error }}</td>
-    </tr>
-    {% endif %}
+      {% include "settings/_email_sync_folder_row.html" %}
     {% endfor %}
   </tbody>
 </table>

@@ -76,8 +76,9 @@ tell application "Microsoft Outlook"
     set catName to "{esc_name}"
     set foundCat to false
     try
-        repeat with c in categories
-            if name of c is catName then
+        set allCats to get categories
+        repeat with c in allCats
+            if (name of c) as text is catName then
                 set foundCat to true
                 exit repeat
             end if
@@ -85,7 +86,10 @@ tell application "Microsoft Outlook"
     end try
     if not foundCat then
         try
-            make new category with properties {{name:catName, color:category color 7}}
+            -- Outlook's color property is an RGB triple, not an enum.
+            -- Omitting it lets Outlook pick the default swatch; the user can
+            -- recolor the PDB category in Outlook if they want a specific hue.
+            make new category with properties {{name:catName}}
         on error errMsg
             return "{{\\"ok\\": false, \\"error\\": \\"" & my escJSON(errMsg) & "\\"}}"
         end try
@@ -127,83 +131,92 @@ tell application "Microsoft Outlook"
         if matchCount >= 500 then exit repeat
         set hasPdb to false
         try
-            repeat with cat in (categories of c)
-                if name of cat is "{esc_name}" then
+            -- `get ... of (contents of c)` forces reference resolution so the
+            -- inner repeat sees concrete category objects. Without the dual
+            -- dereference, `name of cat` silently returns empty strings when
+            -- iterating `every contact`.
+            set catList to get categories of (contents of c)
+            repeat with cat in catList
+                if (name of cat) as text is "{esc_name}" then
                     set hasPdb to true
                     exit repeat
                 end if
             end repeat
         end try
         if hasPdb then
-            set cId to ""
-            set firstName to ""
-            set lastName to ""
-            set displayName to ""
-            set company to ""
-            set jobTitle to ""
-            set emailAddr to ""
-            set bizPhone to ""
-            set mobPhone to ""
-            set notesText to ""
-            set addrStreet to ""
+            -- Local var names are prefixed `v` to avoid clashing with Outlook's
+            -- AppleScript vocabulary inside the `tell` block. Plain names like
+            -- `company` or `note` get resolved against the app's property
+            -- namespace and cause -10006 "Can't set X to ..." errors.
+            set vId to ""
+            set vFirst to ""
+            set vLast to ""
+            set vDisplay to ""
+            set vCompany to ""
+            set vTitle to ""
+            set vEmail to ""
+            set vBizPhone to ""
+            set vMobPhone to ""
+            set vNote to ""
+            set vStreet to ""
             try
-                set cId to (id of c) as text
+                set vId to (id of c) as text
             end try
             try
-                set firstName to first name of c
+                set vFirst to first name of c
             end try
             try
-                set lastName to last name of c
+                set vLast to last name of c
             end try
             try
-                set displayName to display name of c
+                set vDisplay to display name of c
             end try
             try
-                set company to company of c
+                set vCompany to company of c
             end try
             try
-                set jobTitle to job title of c
+                set vTitle to job title of c
             end try
             try
                 set emails to email addresses of c
                 if (count of emails) > 0 then
                     try
-                        set emailAddr to address of item 1 of emails
+                        set vEmail to address of item 1 of emails
                     end try
                 end if
             end try
             try
-                set bizPhone to business phone of c
+                set vBizPhone to business phone number of c
             end try
             try
-                set mobPhone to mobile phone of c
+                set vMobPhone to mobile number of c
             end try
             try
-                set notesText to plain text content of c
+                -- `note` preserves newlines; `plain text note` strips them.
+                -- Prefer `note` and fall back to `plain text note` if the
+                -- field holds rich formatting we can't round-trip.
+                set vNote to note of c
             on error
                 try
-                    set notesText to notes of c
+                    set vNote to plain text note of c
                 end try
             end try
             try
-                set ba to business address of c
-                try
-                    set addrStreet to street of ba
-                end try
+                set vStreet to business street address of c
             end try
-            set cId to my escJSON(cId)
-            set firstName to my escJSON(firstName)
-            set lastName to my escJSON(lastName)
-            set displayName to my escJSON(displayName)
-            set company to my escJSON(company)
-            set jobTitle to my escJSON(jobTitle)
-            set emailAddr to my escJSON(emailAddr)
-            set bizPhone to my escJSON(bizPhone)
-            set mobPhone to my escJSON(mobPhone)
-            set notesText to my escJSON(notesText)
-            set addrStreet to my escJSON(addrStreet)
+            set vId to my escJSON(vId)
+            set vFirst to my escJSON(vFirst)
+            set vLast to my escJSON(vLast)
+            set vDisplay to my escJSON(vDisplay)
+            set vCompany to my escJSON(vCompany)
+            set vTitle to my escJSON(vTitle)
+            set vEmail to my escJSON(vEmail)
+            set vBizPhone to my escJSON(vBizPhone)
+            set vMobPhone to my escJSON(vMobPhone)
+            set vNote to my escJSON(vNote)
+            set vStreet to my escJSON(vStreet)
             if matchCount > 0 then set output to output & ","
-            set output to output & "{{\\"outlook_id\\":\\"" & cId & "\\",\\"first_name\\":\\"" & firstName & "\\",\\"last_name\\":\\"" & lastName & "\\",\\"display_name\\":\\"" & displayName & "\\",\\"company\\":\\"" & company & "\\",\\"job_title\\":\\"" & jobTitle & "\\",\\"email\\":\\"" & emailAddr & "\\",\\"business_phone\\":\\"" & bizPhone & "\\",\\"mobile_phone\\":\\"" & mobPhone & "\\",\\"notes\\":\\"" & notesText & "\\",\\"business_address_street\\":\\"" & addrStreet & "\\"}}"
+            set output to output & "{{\\"outlook_id\\":\\"" & vId & "\\",\\"first_name\\":\\"" & vFirst & "\\",\\"last_name\\":\\"" & vLast & "\\",\\"display_name\\":\\"" & vDisplay & "\\",\\"company\\":\\"" & vCompany & "\\",\\"job_title\\":\\"" & vTitle & "\\",\\"email\\":\\"" & vEmail & "\\",\\"business_phone\\":\\"" & vBizPhone & "\\",\\"mobile_phone\\":\\"" & vMobPhone & "\\",\\"notes\\":\\"" & vNote & "\\",\\"business_address_street\\":\\"" & vStreet & "\\"}}"
             set matchCount to matchCount + 1
         end if
     end repeat
@@ -231,16 +244,18 @@ return output
 # ─── upsert_contact ─────────────────────────────────────────────────────────
 
 
-# Outlook's `notes` field accepts newlines but the AppleScript source cannot
-# contain a raw newline inside a quoted string. The bridge uses `return & `
-# concatenation for multi-line notes instead of embedding \n directly.
+# Outlook's `note` field accepts newlines but the AppleScript source cannot
+# contain a raw newline inside a quoted string. The bridge uses `linefeed &`
+# concatenation (LF, matching modern macOS line endings) for multi-line notes
+# instead of embedding \n directly. Using `return` (CR) here causes some mac
+# apps to render the whole note as one long line.
 _NOTES_TRUNCATE = 5000
 
 
 def _notes_to_applescript_expr(text: str) -> str:
-    """Build an AppleScript expression that concatenates quoted lines with `return`.
+    """Build an AppleScript expression that concatenates quoted lines with `linefeed`.
 
-    Example: "hello\nworld" -> "\"hello\" & return & \"world\""
+    Example: "hello\nworld" -> "\"hello\" & linefeed & \"world\""
     Empty text returns "\"\"" for safe assignment.
     """
     if not text:
@@ -248,7 +263,7 @@ def _notes_to_applescript_expr(text: str) -> str:
     text = text[:_NOTES_TRUNCATE]
     lines = text.splitlines() or [""]
     parts = [f'"{_escape_for_applescript(line)}"' for line in lines]
-    return " & return & ".join(parts)
+    return " & linefeed & ".join(parts)
 
 
 def upsert_contact(
@@ -286,27 +301,41 @@ def upsert_contact(
     esc_street = _escape_for_applescript(payload.get("business_address_street", "") or "")
     notes_expr = _notes_to_applescript_expr(payload.get("notes", "") or "")
 
-    # Locate or create
+    # Locate or create. When a tracked id is provided AND the contact still
+    # exists but no longer carries the category, honor the user's "untag to
+    # remove from sync" escape hatch: return {skipped_untagged: true} so the
+    # orchestrator can clear the DB pointer instead of creating a duplicate.
     if outlook_id:
         esc_id = _escape_for_applescript(str(outlook_id))
-        # Look up contact by stored id. If not found, fall through to create.
         locator = f'''
     set targetContact to missing value
-    try
-        repeat with c in (every contact)
-            try
-                if ((id of c) as text) is "{esc_id}" then
-                    set targetContact to c
+    set allContacts to every contact
+    repeat with c in allContacts
+        try
+            if ((id of (contents of c)) as text) is "{esc_id}" then
+                set targetContact to contents of c
+                exit repeat
+            end if
+        end try
+    end repeat
+    if targetContact is not missing value then
+        set hasPdbCat to false
+        try
+            set catList to get categories of (contents of targetContact)
+            repeat with cat in catList
+                if (name of cat) as text is "{esc_cat}" then
+                    set hasPdbCat to true
                     exit repeat
                 end if
-            end try
-        end repeat
-    end try
-    if targetContact is missing value then
+            end repeat
+        end try
+        if not hasPdbCat then
+            return "{{\\"ok\\":true,\\"outlook_id\\":\\"{esc_id}\\",\\"skipped_untagged\\":true}}"
+        end if
+        set wasCreated to false
+    else
         set targetContact to make new contact with properties {{first name:"{esc_first}", last name:"{esc_last}"}}
         set wasCreated to true
-    else
-        set wasCreated to false
     end if
 '''
     else:
@@ -337,11 +366,10 @@ tell application "Microsoft Outlook"
     end try
     if "{esc_email}" is not "" then
         try
-            set email addresses of targetContact to {{{{address:"{esc_email}"}}}}
-        on error
-            try
-                set email address of targetContact to "{esc_email}"
-            end try
+            -- Outlook requires both `address` and `type class` in the record;
+            -- providing only `address` fails with -1700 "Contact e-mail address
+            -- is incorrect (one or more fields may be missing)."
+            set email addresses of targetContact to {{{{address:"{esc_email}", type class:work}}}}
         end try
     else
         try
@@ -349,38 +377,41 @@ tell application "Microsoft Outlook"
         end try
     end if
     try
-        set business phone of targetContact to "{esc_biz_phone}"
+        set business phone number of targetContact to "{esc_biz_phone}"
     end try
     try
-        set mobile phone of targetContact to "{esc_mob_phone}"
+        set mobile number of targetContact to "{esc_mob_phone}"
     end try
     try
-        set notes of targetContact to ({notes_expr})
+        set note of targetContact to ({notes_expr})
     end try
     if "{esc_street}" is not "" then
         try
-            set business address of targetContact to {{{{street:"{esc_street}"}}}}
+            set business street address of targetContact to "{esc_street}"
         end try
     end if
     try
         set pdbCat to missing value
-        repeat with cat in categories
-            if name of cat is "{esc_cat}" then
-                set pdbCat to cat
+        set allCats to get categories
+        repeat with cat in allCats
+            if (name of cat) as text is "{esc_cat}" then
+                set pdbCat to contents of cat
                 exit repeat
             end if
         end repeat
         if pdbCat is not missing value then
-            set existingCats to categories of targetContact
+            set existingCats to get categories of (contents of targetContact)
             set alreadyTagged to false
             repeat with ec in existingCats
-                if name of ec is "{esc_cat}" then
+                if (name of ec) as text is "{esc_cat}" then
                     set alreadyTagged to true
                     exit repeat
                 end if
             end repeat
             if not alreadyTagged then
-                set categories of targetContact to (existingCats & pdbCat)
+                -- Concatenate as list-of-one; `existingCats & pdbCat` fails
+                -- with a coercion error when existingCats is empty.
+                set categories of targetContact to (existingCats & {{pdbCat}})
             end if
         end if
     end try
@@ -417,23 +448,23 @@ def delete_contact(outlook_id: str, category_name: str = DEFAULT_CATEGORY) -> di
     script = f'''
 tell application "Microsoft Outlook"
     set targetContact to missing value
-    try
-        repeat with c in (every contact)
-            try
-                if ((id of c) as text) is "{esc_id}" then
-                    set targetContact to c
-                    exit repeat
-                end if
-            end try
-        end repeat
-    end try
+    set allContacts to every contact
+    repeat with c in allContacts
+        try
+            if ((id of (contents of c)) as text) is "{esc_id}" then
+                set targetContact to contents of c
+                exit repeat
+            end if
+        end try
+    end repeat
     if targetContact is missing value then
         return "{{\\"ok\\":true,\\"deleted\\":false,\\"reason\\":\\"not_found\\"}}"
     end if
     set hasPdb to false
     try
-        repeat with cat in (categories of targetContact)
-            if name of cat is "{esc_cat}" then
+        set catList to get categories of targetContact
+        repeat with cat in catList
+            if (name of cat) as text is "{esc_cat}" then
                 set hasPdb to true
                 exit repeat
             end if
