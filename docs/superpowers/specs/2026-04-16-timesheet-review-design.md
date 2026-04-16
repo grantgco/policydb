@@ -76,13 +76,15 @@ The migration must be wired into `init_db()` in `db.py` with the standard `schem
 
 ## Config keys
 
-Add to BOTH `_DEFAULTS` in `config.py` AND `EDITABLE_LISTS` in `settings.py` (per `feedback_config_editable_lists`):
+Scalar thresholds live in a new `timesheet_thresholds` dict in `_DEFAULTS` (mirroring the existing `anomaly_thresholds` pattern). Three keys:
 
-- `timesheet_low_day_threshold_hours` — default `4.0`.
-- `timesheet_silence_renewal_window_days` — default `30`.
-- `timesheet_range_cap_days` — default `92`. Hard cap on Range toggle.
+- `low_day_threshold_hours` — default `4.0`.
+- `silence_renewal_window_days` — default `30`.
+- `range_cap_days` — default `92`. Hard cap on Range toggle.
 
-Reserved for later (not used in Phase 4): `timesheet_workday_start_hour`, `timesheet_workday_end_hour`.
+Accessed via `cfg.get("timesheet_thresholds", {}).get("low_day_threshold_hours", 4.0)` etc. A dedicated `POST /settings/timesheet-thresholds` form route (modelled on `save_anomaly_thresholds`) exposes these in the Settings UI on the existing "Data Health" tab (or new "Timesheet" subsection). `EDITABLE_LISTS` is NOT used — that dict is for list-valued config keys only.
+
+Reserved for later (not used in Phase 4): `workday_start_hour`, `workday_end_hour`.
 
 ## Module & queries
 
