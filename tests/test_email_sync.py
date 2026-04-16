@@ -21,10 +21,13 @@ from policydb.email_sync import (
     _create_or_enrich_activity,
     _extract_ref_tags,
     _is_automated_sender,
+    _link_activity_contacts,
+    _match_by_contact_email,
     _match_by_domain,
     _normalize_subject,
     _parse_ref_tag,
     _process_email,
+    _resolve_contacts_for_email,
     _resolve_ref_tag,
     _run_thread_inheritance,
     sync_outlook,
@@ -505,3 +508,275 @@ def test_sync_outlook_refuses_empty_capture_category(conn, monkeypatch):
     results = sync_outlook(conn)
     assert called["count"] == 0
     assert any("capture category is empty" in e.lower() for e in results["errors"])
+
+
+# ── Multi-party contact tagging (migration 159) ─────────────────────────────
+
+
+def _insert_policy(conn, client_id, policy_uid):
+    conn.execute(
+        """INSERT INTO policies (policy_uid, client_id, policy_type, carrier, archived)
+           VALUES (?, ?, 'GL', 'Travelers', 0)""",
+        (policy_uid, client_id),
+    )
+    conn.commit()
+
+
+def _insert_contact(conn, name, email, client_id=None, is_primary=0):
+    cur = conn.execute(
+        "INSERT INTO contacts (name, email) VALUES (?, ?)", (name, email),
+    )
+    cid = cur.lastrowid
+    if client_id:
+        conn.execute(
+            """INSERT INTO contact_client_assignments
+               (contact_id, client_id, role, is_primary)
+               VALUES (?, ?, 'Contact', ?)""",
+            (cid, client_id, is_primary),
+        )
+    conn.commit()
+    return cid
+
+
+def test_resolve_contacts_tags_sender_and_recipients(conn):
+    client_id = _insert_client(conn, "Acme", "111", "https://acme.com")
+    jane = _insert_contact(conn, "Jane", "jane@acme.com", client_id)
+    bob = _insert_contact(conn, "Bob", "bob@acme.com", client_id)
+    _insert_contact(conn, "Unknown", None)  # no email, shouldn't match
+
+    email = {
+        "sender": "jane@acme.com",
+        "recipients": ["bob@acme.com", "stranger@somewhere.com"],
+    }
+    resolved = _resolve_contacts_for_email(conn, email)
+
+    assert resolved["from_cid"] == jane
+    assert resolved["from_name"] == "Jane"
+    roles = {(cid, role) for cid, role in resolved["entries"]}
+    assert (jane, "from") in roles
+    assert (bob, "to") in roles
+    assert len(resolved["entries"]) == 2  # stranger not tagged
+
+
+def test_resolve_contacts_skips_sender_duplicated_in_recipients(conn):
+    client_id = _insert_client(conn, "Acme", "111", "https://acme.com")
+    jane = _insert_contact(conn, "Jane", "jane@acme.com", client_id)
+
+    email = {
+        "sender": "jane@acme.com",
+        "recipients": ["jane@acme.com", "JANE@acme.com"],
+    }
+    resolved = _resolve_contacts_for_email(conn, email)
+    # Sender tagged as 'from' only, never echoed as 'to'
+    assert resolved["entries"] == [(jane, "from")]
+
+
+def test_match_by_contact_email_resolves_shared_domain_ambiguity(conn):
+    # Two clients both use the same apex domain (e.g. shared law firm)
+    c1 = _insert_client(conn, "Acme", "111", "https://shared.com")
+    c2 = _insert_client(conn, "Globex", "222", "https://shared.com")
+    _insert_contact(conn, "Jane at Acme", "jane@shared.com", c1)
+    _insert_contact(conn, "Bob at Globex", "bob@shared.com", c2)
+
+    # Domain match alone returns None (ambiguous: 2 clients on same domain)
+    assert _match_by_domain(conn, ["jane@shared.com"]) is None
+
+    # Exact-email precision picks the right client
+    match = _match_by_contact_email(conn, ["jane@shared.com"])
+    assert match is not None
+    assert match["client_id"] == c1
+    assert match["tier"] == 2
+    assert match["confidence"] == 75
+
+
+def test_match_by_contact_email_skips_archived_clients(conn):
+    archived = _insert_client(conn, "Dead Co", "111", "https://dead.com", archived=1)
+    _insert_contact(conn, "Zombie", "zombie@dead.com", archived)
+
+    assert _match_by_contact_email(conn, ["zombie@dead.com"]) is None
+
+
+def test_match_by_contact_email_skips_freemail_and_internal(conn, monkeypatch):
+    client_id = _insert_client(conn, "Acme", "111", "https://acme.com")
+    _insert_contact(conn, "Jane", "jane@gmail.com", client_id)
+    _insert_contact(conn, "Colleague", "me@marsh.com", client_id)
+
+    real_get = cfg.get
+    def _get(k, default=None):
+        if k == "freemail_domains":
+            return ["gmail.com"]
+        if k == "internal_email_domains":
+            return ["marsh.com"]
+        return real_get(k, default)
+    monkeypatch.setattr(cfg, "get", _get)
+
+    assert _match_by_contact_email(conn, ["jane@gmail.com"]) is None
+    assert _match_by_contact_email(conn, ["me@marsh.com"]) is None
+
+
+def test_create_activity_links_junction_for_sender_and_recipients(conn):
+    client_id = _insert_client(conn, "Acme", "111", "https://acme.com")
+    jane = _insert_contact(conn, "Jane", "jane@acme.com", client_id)
+    bob = _insert_contact(conn, "Bob", "bob@acme.com", client_id)
+
+    email = {
+        "message_id": "msg-001",
+        "subject": "GL Renewal",
+        "sender": "jane@acme.com",
+        "recipients": ["bob@acme.com"],
+        "body_snippet": "text",
+        "date": "2026-04-15T10:00:00",
+        "folder": "Inbox",
+    }
+    result = _create_or_enrich_activity(conn, email, {"client_id": client_id})
+    assert result["action"] == "created"
+
+    rows = conn.execute(
+        "SELECT contact_id, role FROM activity_contacts WHERE activity_id=? ORDER BY role",
+        (result["activity_id"],),
+    ).fetchall()
+    tagged = {(r["contact_id"], r["role"]) for r in rows}
+    assert tagged == {(jane, "from"), (bob, "to")}
+
+
+def test_enrich_backfills_contact_id_when_manual_row_had_none(conn):
+    client_id = _insert_client(conn, "Acme", "111", "https://acme.com")
+    jane = _insert_contact(conn, "Jane", "jane@acme.com", client_id)
+
+    # Seed a same-day manual Email activity with NO contact_id
+    _insert_policy(conn, client_id, "POL-001")
+    pol = conn.execute("SELECT id FROM policies WHERE policy_uid='POL-001'").fetchone()["id"]
+    conn.execute(
+        """INSERT INTO activity_log (activity_date, client_id, policy_id, activity_type,
+                                     subject, source)
+           VALUES ('2026-04-15', ?, ?, 'Email', 'GL Renewal', 'manual')""",
+        (client_id, pol),
+    )
+    conn.commit()
+
+    email = {
+        "message_id": "msg-002",
+        "subject": "GL Renewal",
+        "sender": "jane@acme.com",
+        "recipients": [],
+        "body_snippet": "text",
+        "date": "2026-04-15T10:00:00",
+        "folder": "Sent Items",
+    }
+    result = _create_or_enrich_activity(
+        conn, email, {"client_id": client_id, "policy_id": pol},
+    )
+    assert result["action"] == "enriched"
+
+    row = conn.execute(
+        "SELECT contact_id FROM activity_log WHERE id=?", (result["activity_id"],),
+    ).fetchone()
+    assert row["contact_id"] == jane  # backfilled
+
+
+def test_enrich_preserves_user_chosen_contact_id(conn):
+    client_id = _insert_client(conn, "Acme", "111", "https://acme.com")
+    jane = _insert_contact(conn, "Jane", "jane@acme.com", client_id)
+    picked = _insert_contact(conn, "User-picked", "picked@acme.com", client_id)
+
+    _insert_policy(conn, client_id, "POL-001")
+    pol = conn.execute("SELECT id FROM policies WHERE policy_uid='POL-001'").fetchone()["id"]
+    conn.execute(
+        """INSERT INTO activity_log (activity_date, client_id, policy_id, activity_type,
+                                     subject, source, contact_id)
+           VALUES ('2026-04-15', ?, ?, 'Email', 'GL Renewal', 'manual', ?)""",
+        (client_id, pol, picked),
+    )
+    conn.commit()
+
+    email = {
+        "message_id": "msg-003",
+        "subject": "GL Renewal",
+        "sender": "jane@acme.com",
+        "recipients": [],
+        "body_snippet": "text",
+        "date": "2026-04-15T10:00:00",
+        "folder": "Sent Items",
+    }
+    result = _create_or_enrich_activity(
+        conn, email, {"client_id": client_id, "policy_id": pol},
+    )
+    row = conn.execute(
+        "SELECT contact_id FROM activity_log WHERE id=?", (result["activity_id"],),
+    ).fetchone()
+    assert row["contact_id"] == picked  # user's pick preserved, NOT overwritten
+
+
+def test_inbox_fallback_tags_known_sender_contact(conn, monkeypatch):
+    # Known contact on NO client — the domain is freemail so no client match
+    # will be found. But we should still tag the contact on the inbox row.
+    jane = _insert_contact(conn, "Jane", "jane@gmail.com")
+
+    real_get = cfg.get
+    def _get(k, default=None):
+        if k == "freemail_domains":
+            return ["gmail.com"]
+        return real_get(k, default)
+    monkeypatch.setattr(cfg, "get", _get)
+
+    results = {"auto_linked": {"sent": 0, "received": 0, "flagged": 0},
+               "suggestions": [], "skipped": 0, "errors": [], "total_scanned": 0}
+    email = {
+        "message_id": "inbox-001", "subject": "random thing",
+        "sender": "jane@gmail.com", "recipients": [],
+        "body_snippet": "", "date": "2026-04-15T10:00:00", "folder": "Inbox",
+    }
+    _process_email(conn, email, results, "received")
+
+    row = conn.execute(
+        "SELECT contact_id FROM inbox WHERE outlook_message_id='inbox-001'",
+    ).fetchone()
+    assert row is not None
+    assert row["contact_id"] == jane
+
+
+def test_link_activity_contacts_is_idempotent(conn):
+    client_id = _insert_client(conn, "Acme", "111", "https://acme.com")
+    jane = _insert_contact(conn, "Jane", "jane@acme.com", client_id)
+    conn.execute(
+        """INSERT INTO activity_log (activity_date, client_id, activity_type, subject)
+           VALUES ('2026-04-15', ?, 'Email', 'test')""",
+        (client_id,),
+    )
+    aid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    _link_activity_contacts(conn, aid, [(jane, "from"), (jane, "to")])
+    _link_activity_contacts(conn, aid, [(jane, "from"), (jane, "to")])  # re-run
+
+    count = conn.execute(
+        "SELECT COUNT(*) FROM activity_contacts WHERE activity_id=?", (aid,),
+    ).fetchone()[0]
+    assert count == 2  # 'from' and 'to' kept, duplicate ignored
+
+
+def test_migration_159_backfills_existing_contacts(conn):
+    # Simulates activities that existed before migration 159 — backfill seed.
+    client_id = _insert_client(conn, "Acme", "111", "https://acme.com")
+    jane = _insert_contact(conn, "Jane", "jane@acme.com", client_id)
+
+    # Rows inserted after migration ran are seeded already. To test backfill
+    # path, clear the junction then re-run just the seed INSERT from 159.
+    conn.execute(
+        """INSERT INTO activity_log (activity_date, client_id, activity_type,
+                                     subject, contact_id)
+           VALUES ('2026-04-15', ?, 'Email', 'old', ?)""",
+        (client_id, jane),
+    )
+    aid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    conn.execute("DELETE FROM activity_contacts WHERE activity_id = ?", (aid,))
+    # Re-apply the backfill statement from the migration
+    conn.execute(
+        """INSERT OR IGNORE INTO activity_contacts (activity_id, contact_id, role)
+           SELECT id, contact_id, 'from' FROM activity_log WHERE contact_id IS NOT NULL""",
+    )
+    conn.commit()
+
+    row = conn.execute(
+        "SELECT role FROM activity_contacts WHERE activity_id=?", (aid,),
+    ).fetchone()
+    assert row["role"] == "from"
