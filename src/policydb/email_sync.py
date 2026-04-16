@@ -688,13 +688,20 @@ def _create_or_enrich_activity(
             contact_id = contact["id"]
             contact_person = contact["name"] or sender
 
+    # Phase 3D: capture conversation_id + internet_message_id when the
+    # caller's email dict supplies them (search_folder_since does;
+    # legacy search_emails / search_all_folders / get_flagged_emails do
+    # not, in which case both fields land as NULL via the dict default).
+    conversation_id = email.get("conversation_id") or None
+    internet_message_id = email.get("internet_message_id") or None
     cursor = conn.execute(
         """INSERT INTO activity_log
            (activity_date, client_id, policy_id, program_id, activity_type, subject, details,
             contact_person, contact_id, disposition, source, outlook_message_id,
             email_snippet, issue_id, follow_up_date, follow_up_done,
-            email_from, email_to, email_direction, duration_hours)
-           VALUES (?, ?, ?, ?, 'Email', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            email_from, email_to, email_direction, duration_hours,
+            outlook_conversation_id, outlook_internet_message_id)
+           VALUES (?, ?, ?, ?, 'Email', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             email_date,
             client_id,
@@ -715,6 +722,8 @@ def _create_or_enrich_activity(
             recipients,
             email_direction,
             _tiered_email_hours(email_direction, subject),
+            conversation_id,
+            internet_message_id,
         ),
     )
     conn.commit()
@@ -878,13 +887,18 @@ def _run_thread_inheritance(
         # Thread-inherited emails are always inbound (received). Tiered
         # hours apply the same way — a thread full of "loss run" replies
         # still represents real work, not 0.1h flat.
+        # Carry conv-id + internet-msg-id when the upstream candidate dict
+        # supplies them (Phase 3D crawl) — older sync paths leave NULL.
+        thread_conv_id = candidate.get("conversation_id") or None
+        thread_internet_id = candidate.get("internet_message_id") or None
         conn.execute(
             """INSERT INTO activity_log
                (activity_date, client_id, policy_id, program_id, activity_type, subject,
                 details, contact_person, contact_id, source, outlook_message_id,
                 email_snippet, issue_id, follow_up_done,
-                email_from, email_to, email_direction, duration_hours)
-               VALUES (?, ?, ?, ?, 'Email', ?, ?, ?, ?, 'thread_inherit', ?, ?, ?, 1, ?, ?, ?, ?)""",
+                email_from, email_to, email_direction, duration_hours,
+                outlook_conversation_id, outlook_internet_message_id)
+               VALUES (?, ?, ?, ?, 'Email', ?, ?, ?, ?, 'thread_inherit', ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)""",
             (
                 email_date,
                 inherited_match["client_id"],
@@ -901,6 +915,8 @@ def _run_thread_inheritance(
                 email_to,
                 "received",
                 _tiered_email_hours("received", subject),
+                thread_conv_id,
+                thread_internet_id,
             ),
         )
 
@@ -1029,6 +1045,204 @@ def sync_outlook(conn: sqlite3.Connection) -> dict:
         results["thread_inherited"],
         len(results["suggestions"]),
         results["skipped"],
+    )
+
+    return results
+
+
+# ── Phase 3D: comprehensive folder crawl ──────────────────────────────────
+
+def _folder_sort_key(row: dict) -> tuple:
+    """Sort priority for the per-folder crawl loop.
+
+    Inbox tree first (freshest working material — both the literal Inbox
+    and any subfolders like ``Inbox/Clients/Acme`` which are filed-but-
+    still-active correspondence), then the Sent tree, then everything
+    else alphabetically. Path-prefix matching keeps nested folders
+    grouped with their parent.
+    """
+    path = row.get("folder_path", "")
+    kind = row.get("folder_kind") or "custom"
+    if kind == "inbox" or path == "Inbox" or path.startswith("Inbox/"):
+        return (0, path)
+    if kind == "sent" or path in ("Sent Items", "Sent") or path.startswith("Sent Items/") or path.startswith("Sent/"):
+        return (1, path)
+    return (2, path)
+
+
+def _compute_folder_since(folder_row: dict, first_run_days: int) -> datetime:
+    """Compute the since_date for an incremental folder scan.
+
+    If the folder has a ``last_synced_at`` we resume from there minus a
+    60-second overlap (mirrors the global last_outlook_sync logic — the
+    overlap is absorbed by outlook_message_id dedup). If it's never been
+    synced, fall back to the first-run window.
+    """
+    last = folder_row.get("last_synced_at")
+    if last:
+        try:
+            return datetime.fromisoformat(last) - timedelta(seconds=60)
+        except ValueError:
+            logger.warning(
+                "Folder %s has unparseable last_synced_at=%r; falling back to first-run window",
+                folder_row.get("folder_path"), last,
+            )
+    return datetime.now() - timedelta(days=max(first_run_days, 1))
+
+
+def crawl_folders(conn: sqlite3.Connection) -> dict:
+    """Phase 3D comprehensive crawl: iterate every included folder per
+    ``outlook_folder_sync`` and process its messages.
+
+    Replaces (when the feature flag in 3D.4 enables it) the hardcoded
+    Sent / All-folders / Flagged trio in :func:`sync_outlook`. Each
+    folder is scanned with its own incremental window via
+    ``last_synced_at``; one folder failing doesn't prevent the others
+    from running. Per-folder stats are written back to
+    ``outlook_folder_sync`` after each completion so the Settings UI
+    folder table reflects the latest state.
+
+    Returns a results dict shaped like ``sync_outlook()`` for template
+    compatibility, plus a ``per_folder`` list with each folder's
+    individual outcome for the future sync-status page (Phase 3E).
+    """
+    from policydb.outlook import search_folder_since
+
+    first_run_days = cfg.get("outlook_first_run_days", 14)
+    skip_category = cfg.get("outlook_skip_category", "Personal")
+
+    results = {
+        "auto_linked": {"sent": 0, "received": 0, "flagged": 0},
+        "suggestions": [],
+        "skipped": 0,
+        "errors": [],
+        "total_scanned": 0,
+        "since": "comprehensive crawl",  # human-readable label
+        "new_contacts_found": 0,
+        "thread_inherited": 0,
+        "per_folder": [],   # one entry per folder processed (3E will render this)
+    }
+
+    folder_rows = [
+        dict(r) for r in conn.execute(
+            """SELECT folder_path, folder_kind, include_in_crawl,
+                      last_synced_at, message_count, match_count
+               FROM outlook_folder_sync
+               WHERE include_in_crawl = 1
+               ORDER BY folder_path"""
+        ).fetchall()
+    ]
+    if not folder_rows:
+        results["errors"].append(
+            "No folders are configured for crawl. Run discovery in "
+            "Settings > Email & Contacts > Email Sync Folders."
+        )
+        return results
+
+    # Inbox-first ordering — freshest work bubbles up before archive sweeps
+    folder_rows.sort(key=_folder_sort_key)
+
+    domain_index = _build_domain_index(conn)
+
+    for folder_row in folder_rows:
+        path = folder_row["folder_path"]
+        kind = folder_row.get("folder_kind") or "custom"
+        since = _compute_folder_since(folder_row, first_run_days)
+        sweep_start = datetime.now() - timedelta(seconds=60)
+
+        # Sent folders use category="sent" so dedup-by-day enrichment runs;
+        # everything else is categorized "received" except where the legacy
+        # flagged scan would have flagged it (we don't fire that here — the
+        # legacy get_flagged_emails sweep stays in sync_outlook for the
+        # legacy path).
+        category = "sent" if kind == "sent" else "received"
+
+        folder_stats = {
+            "path": path,
+            "scanned": 0,
+            "matched": 0,
+            "skipped": 0,
+            "error": None,
+        }
+
+        scan = search_folder_since(path, since)
+        if not scan.get("ok"):
+            err = scan.get("error", "unknown")
+            folder_stats["error"] = err
+            results["errors"].append(f"{path}: {err}")
+            conn.execute(
+                """UPDATE outlook_folder_sync
+                   SET error_count = error_count + 1,
+                       last_error = ?,
+                       updated_at = datetime('now')
+                   WHERE folder_path = ?""",
+                (err[:500], path),
+            )
+            conn.commit()
+            results["per_folder"].append(folder_stats)
+            continue
+
+        before_linked = sum(results["auto_linked"].values())
+        for email in scan.get("emails", []):
+            results["total_scanned"] += 1
+            folder_stats["scanned"] += 1
+            cats = email.get("categories", [])
+            # Skip emails marked with the configured skip category — the
+            # category check is the same gate the legacy sent-items scan
+            # uses, applied here uniformly across all folders.
+            if skip_category and skip_category in cats:
+                results["skipped"] += 1
+                folder_stats["skipped"] += 1
+                continue
+            try:
+                _process_email(conn, email, results, category, domain_index=domain_index)
+            except Exception as e:
+                logger.exception("Failed to process %s/%s: %s", path, email.get("message_id", "?"), e)
+                results["errors"].append(f"{path}: process failed for {email.get('subject','?')[:80]}: {e}")
+
+        folder_stats["matched"] = sum(results["auto_linked"].values()) - before_linked
+
+        # Update folder state: bump cumulative counters, advance the
+        # last_synced_at anchor, and clear last_error (we got through).
+        conn.execute(
+            """UPDATE outlook_folder_sync
+               SET last_synced_at = ?,
+                   message_count = message_count + ?,
+                   match_count = match_count + ?,
+                   last_error = NULL,
+                   updated_at = datetime('now')
+               WHERE folder_path = ?""",
+            (sweep_start.isoformat(), folder_stats["scanned"], folder_stats["matched"], path),
+        )
+        conn.commit()
+
+        results["per_folder"].append(folder_stats)
+
+    # Thread inheritance pass — same legacy logic, runs once over the
+    # accumulated results. Phase 3D.3 will add a parallel conv-id-based
+    # walk; for now the subject-based pass still runs so we don't lose
+    # coverage during the transition.
+    try:
+        _run_thread_inheritance(
+            conn, list(results["suggestions"]), results, domain_index=domain_index,
+        )
+    except Exception as e:
+        logger.exception("Thread inheritance pass failed: %s", e)
+        results["errors"].append(f"Thread inheritance error: {e}")
+
+    results["new_contacts_found"] = conn.execute(
+        "SELECT COUNT(*) FROM suggested_contacts WHERE status='pending' AND blocked=0"
+    ).fetchone()[0]
+
+    logger.info(
+        "Comprehensive crawl complete: %d folders, %d scanned, %d auto-linked, "
+        "%d thread-inherited, %d skipped, %d errors",
+        len(folder_rows),
+        results["total_scanned"],
+        sum(results["auto_linked"].values()),
+        results["thread_inherited"],
+        results["skipped"],
+        len(results["errors"]),
     )
 
     return results
