@@ -2222,7 +2222,7 @@ def get_or_create_contact(conn: sqlite3.Connection, name: str, **fields) -> int:
         # Update non-null fields
         updates = []
         params = []
-        for field in ("email", "phone", "mobile", "organization"):
+        for field in ("email", "phone", "mobile", "organization", "title"):
             val = fields.get(field)
             if val:
                 updates.append(f"{field}=?")
@@ -2234,9 +2234,9 @@ def get_or_create_contact(conn: sqlite3.Connection, name: str, **fields) -> int:
         return contact_id
     else:
         cur = conn.execute(
-            "INSERT INTO contacts (name, email, phone, mobile, organization) VALUES (?,?,?,?,?)",
+            "INSERT INTO contacts (name, email, phone, mobile, organization, title) VALUES (?,?,?,?,?,?)",
             (name, fields.get("email"), fields.get("phone"),
-             fields.get("mobile"), fields.get("organization")),
+             fields.get("mobile"), fields.get("organization"), fields.get("title")),
         )
         return cur.lastrowid
 

@@ -2128,6 +2128,15 @@ def _init_db_inner(conn: sqlite3.Connection, db_path: Path) -> None:
         conn.commit()
         logger.info("Migration 158: set issues depth_overrides on 3 built-in templates")
 
+    if 159 not in applied:
+        conn.executescript((_MIGRATIONS_DIR / "159_contact_title.sql").read_text())
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (159, "Add title column to contacts (person-level job title)"),
+        )
+        conn.commit()
+        logger.info("Migration 159: added contacts.title column")
+
     # Data hygiene: fix 'None' string corruption in text fields (runs every startup, fast no-op if clean)
     conn.execute("UPDATE clients SET cn_number = NULL WHERE cn_number = 'None'")
 

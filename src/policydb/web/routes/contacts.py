@@ -662,6 +662,7 @@ def contacts_list(request: Request, q: str = "", org: str = "", role: str = "", 
     _all_people_rows = conn.execute("""
         SELECT co.id AS contact_id, co.name, co.email, co.phone, co.mobile, co.organization,
                COALESCE(
+                   co.title,
                    (SELECT cca_t.title FROM contact_client_assignments cca_t WHERE cca_t.contact_id = co.id AND cca_t.title IS NOT NULL LIMIT 1),
                    (SELECT cpa_t.title FROM contact_policy_assignments cpa_t WHERE cpa_t.contact_id = co.id AND cpa_t.title IS NOT NULL LIMIT 1)
                ) AS title,
@@ -1044,7 +1045,7 @@ def contact_detail(request: Request, contact_id: int, conn=Depends(get_db)):
 # ---------------------------------------------------------------------------
 
 # Shared fields live on the contacts table; assignment fields on the junction table.
-_CONTACTS_TABLE_FIELDS = {"email", "phone", "mobile", "organization"}
+_CONTACTS_TABLE_FIELDS = {"email", "phone", "mobile", "organization", "title"}
 _CLIENT_ASSIGNMENT_FIELDS = {"title", "role", "notes"}
 _POLICY_ASSIGNMENT_FIELDS = {"role", "title", "notes"}
 
@@ -1356,6 +1357,7 @@ def contact_create(
     request: Request,
     name: str = Form(...),
     organization: str = Form(""),
+    title: str = Form(""),
     role: str = Form(""),
     email: str = Form(""),
     phone: str = Form(""),
@@ -1370,6 +1372,7 @@ def contact_create(
         phone=format_phone(phone) if phone.strip() else None,
         mobile=format_phone(mobile) if mobile.strip() else None,
         organization=organization.strip() or None,
+        title=title.strip() or None,
     )
 
     policy_id = None
