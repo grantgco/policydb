@@ -1,0 +1,70 @@
+{#
+  Folder inventory rows partial — swapped into #email-sync-folder-rows after
+  discover or toggle. Kept as its own file so both the initial tab render
+  and the HTMX partial refresh use identical markup.
+#}
+{% if outlook_folders %}
+<table class="w-full text-xs">
+  <thead class="text-gray-500 border-b border-gray-200">
+    <tr>
+      <th class="text-left py-1 pr-2 font-medium">Folder</th>
+      <th class="text-left py-1 px-2 font-medium w-16">Kind</th>
+      <th class="text-right py-1 px-2 font-medium w-16">Messages</th>
+      <th class="text-right py-1 px-2 font-medium w-16">Matches</th>
+      <th class="text-left py-1 px-2 font-medium w-28">Last sync</th>
+      <th class="text-center py-1 pl-2 font-medium w-16">Crawl</th>
+    </tr>
+  </thead>
+  <tbody class="divide-y divide-gray-100">
+    {% for f in outlook_folders %}
+    <tr class="{% if not f.include_in_crawl %}text-gray-400{% endif %}">
+      <td class="py-1 pr-2 font-mono" title="{{ f.folder_path }}">
+        {% set parts = f.folder_path.split('/') %}
+        {% if parts|length > 1 %}
+          <span class="text-gray-300">{{ parts[:-1] | join('/') }}/</span>{{ parts[-1] }}
+        {% else %}
+          {{ f.folder_path }}
+        {% endif %}
+      </td>
+      <td class="py-1 px-2">
+        {% set kind_color = {
+          'inbox': 'bg-blue-50 text-blue-700',
+          'sent': 'bg-green-50 text-green-700',
+          'archive': 'bg-amber-50 text-amber-700',
+          'drafts': 'bg-gray-100 text-gray-500',
+          'system': 'bg-gray-100 text-gray-500',
+          'custom': 'bg-slate-50 text-slate-600',
+        }.get(f.folder_kind, 'bg-gray-100 text-gray-500') %}
+        <span class="px-1.5 py-0.5 rounded {{ kind_color }} text-xs">{{ f.folder_kind or 'custom' }}</span>
+      </td>
+      <td class="py-1 px-2 text-right tabular-nums">{{ f.message_count or 0 }}</td>
+      <td class="py-1 px-2 text-right tabular-nums">{{ f.match_count or 0 }}</td>
+      <td class="py-1 px-2 text-gray-500">
+        {% if f.last_synced_at %}{{ f.last_synced_at[:16] }}{% else %}—{% endif %}
+      </td>
+      <td class="py-1 pl-2 text-center">
+        <button type="button"
+                hx-post="/settings/email-sync/folder-toggle"
+                hx-vals='{"folder_path": {{ f.folder_path | tojson }}, "include": {{ 0 if f.include_in_crawl else 1 }}}'
+                hx-target="#email-sync-folder-rows"
+                hx-swap="innerHTML"
+                class="px-2 py-0.5 rounded text-xs font-medium transition-colors
+                       {% if f.include_in_crawl %}bg-green-100 text-green-700 hover:bg-green-200{% else %}bg-gray-100 text-gray-400 hover:bg-gray-200{% endif %}"
+                title="{% if f.include_in_crawl %}Click to exclude{% else %}Click to include{% endif %}">
+          {% if f.include_in_crawl %}ON{% else %}off{% endif %}
+        </button>
+      </td>
+    </tr>
+    {% if f.last_error %}
+    <tr class="text-red-500">
+      <td colspan="6" class="py-0.5 px-2 text-xs italic">⚠ {{ f.last_error }}</td>
+    </tr>
+    {% endif %}
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="text-xs text-gray-400 py-4 text-center">
+  No folders discovered yet. Click <strong>Run Discovery</strong> above to scan your Outlook folder tree.
+</div>
+{% endif %}

@@ -69,6 +69,75 @@ _DEFAULT_AUTOMATED_PREFIXES = (
 )
 
 
+def upsert_discovered_folders(
+    conn: sqlite3.Connection,
+    folders: list[dict],
+) -> dict:
+    """Persist a folder-discovery result into the outlook_folder_sync table.
+
+    Each entry in ``folders`` must have ``path`` and ``kind``. Rows are
+    upserted by ``folder_path``: newly discovered folders are inserted,
+    existing rows get their ``folder_kind`` refreshed but crawl state
+    (``last_synced_at``, ``last_message_seen``, counts) is preserved so
+    re-running discovery never loses incremental sync progress.
+
+    The ``include_in_crawl`` flag is computed from the current
+    ``outlook_excluded_folders`` config list — matching is done on the
+    leaf name (last segment of the slash-delimited path). System kinds
+    (``system``, ``drafts``) are always excluded regardless of config.
+
+    Returns stats dict:
+        {"discovered": N, "inserted": K, "updated": M, "excluded": X}
+    """
+    excluded_names = {n.strip() for n in cfg.get("outlook_excluded_folders", []) if n}
+    stats = {"discovered": len(folders), "inserted": 0, "updated": 0, "excluded": 0}
+
+    for f in folders:
+        path = (f.get("path") or "").strip()
+        kind = (f.get("kind") or "custom").strip()
+        if not path:
+            continue
+        leaf = path.rsplit("/", 1)[-1]
+        # Hard excludes: system-kind folders never crawl, drafts never crawl
+        if kind in ("system", "drafts"):
+            include = 0
+        elif leaf in excluded_names:
+            include = 0
+        else:
+            include = 1
+
+        if include == 0:
+            stats["excluded"] += 1
+
+        # Upsert: insert with default crawl state, or update kind + include
+        # flag while preserving counts and last_synced_at.
+        existing = conn.execute(
+            "SELECT 1 FROM outlook_folder_sync WHERE folder_path = ?",
+            (path,),
+        ).fetchone()
+        if existing:
+            conn.execute(
+                """UPDATE outlook_folder_sync
+                   SET folder_kind = ?,
+                       include_in_crawl = ?,
+                       updated_at = datetime('now')
+                   WHERE folder_path = ?""",
+                (kind, include, path),
+            )
+            stats["updated"] += 1
+        else:
+            conn.execute(
+                """INSERT INTO outlook_folder_sync
+                   (folder_path, folder_kind, include_in_crawl)
+                   VALUES (?, ?, ?)""",
+                (path, kind, include),
+            )
+            stats["inserted"] += 1
+
+    conn.commit()
+    return stats
+
+
 def _is_automated_sender(address: str) -> bool:
     """Return True if the email address looks like an automated/noreply sender.
 

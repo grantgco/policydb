@@ -421,6 +421,118 @@ end replaceText
         return {"ok": True, "emails": [], "parse_warning": str(e)}
 
 
+def discover_folders() -> dict:
+    """Walk the Outlook mail folder tree and return a flat list of folders.
+
+    Enumerates the default account's folder tree up to 3 levels deep
+    (account -> folder -> subfolder -> subsubfolder). Each entry has a
+    slash-delimited path like ``Inbox/Clients/Acme`` and an inferred
+    ``kind`` based on the leaf folder name:
+
+      - ``inbox``   — leaf name is "Inbox"
+      - ``sent``    — leaf name is "Sent Items" or "Sent"
+      - ``drafts``  — leaf name is "Drafts"
+      - ``archive`` — leaf name is "Archive"
+      - ``system``  — Deleted Items, Junk Email, Outbox, RSS Feeds, Sync Issues, Clutter
+      - ``custom``  — everything else
+
+    The caller is expected to persist this list into the
+    ``outlook_folder_sync`` table (migration 153). Folders matching the
+    user's ``outlook_excluded_folders`` config list get persisted with
+    ``include_in_crawl = 0`` so the crawler skips them.
+
+    Returns:
+        ``{"ok": True, "folders": [{"path": ..., "kind": ...}, ...]}`` or
+        ``{"ok": False, "error": "..."}``.
+
+    Depth limit: 3 levels. Deeper trees need manual folder entry in the
+    settings UI until we add configurable depth or a queue-based walk.
+    """
+    if not is_outlook_available():
+        return {"ok": False, "error": "Outlook is not running. Please open Legacy Outlook and try again."}
+
+    # AppleScript handler that emits a single folder JSON entry.
+    # The inferred kind is name-based rather than class-based because Outlook
+    # for Mac's `class of` returns are inconsistent across account types
+    # (Exchange vs IMAP). Name-based is pragmatic and the user can override
+    # in the Settings UI anyway.
+    script = r'''
+set output to "[" & return
+tell application "Microsoft Outlook"
+    try
+        set level1 to mail folders of default account
+    on error
+        return "[]"
+    end try
+    repeat with l1 in level1
+        set l1Name to name of l1
+        set output to output & my emitEntry(l1Name, l1Name) & "," & return
+        try
+            set level2 to mail folders of l1
+            repeat with l2 in level2
+                set l2Name to name of l2
+                set l2Path to l1Name & "/" & l2Name
+                set output to output & my emitEntry(l2Path, l2Name) & "," & return
+                try
+                    set level3 to mail folders of l2
+                    repeat with l3 in level3
+                        set l3Name to name of l3
+                        set l3Path to l2Path & "/" & l3Name
+                        set output to output & my emitEntry(l3Path, l3Name) & "," & return
+                    end repeat
+                end try
+            end repeat
+        end try
+    end repeat
+end tell
+set output to output & "]"
+return output
+
+on emitEntry(fullPath, leafName)
+    set fKind to "custom"
+    if leafName is "Inbox" then set fKind to "inbox"
+    if leafName is "Sent Items" or leafName is "Sent" then set fKind to "sent"
+    if leafName is "Drafts" then set fKind to "drafts"
+    if leafName is "Archive" then set fKind to "archive"
+    if leafName is "Deleted Items" or leafName is "Junk Email" or leafName is "Outbox" or leafName is "RSS Feeds" or leafName is "Clutter" or leafName is "Sync Issues" then set fKind to "system"
+    set escPath to my escJSON(fullPath)
+    return "  {\"path\": \"" & escPath & "\", \"kind\": \"" & fKind & "\"}"
+end emitEntry
+
+on escJSON(txt)
+    set txt to my replaceText(txt, "\\", "\\\\")
+    set txt to my replaceText(txt, "\"", "\\\"")
+    set txt to my replaceText(txt, return, "\\n")
+    set txt to my replaceText(txt, linefeed, "\\n")
+    set txt to my replaceText(txt, tab, "\\t")
+    return txt
+end escJSON
+
+on replaceText(txt, srch, repl)
+    set AppleScript's text item delimiters to srch
+    set parts to text items of txt
+    set AppleScript's text item delimiters to repl
+    set txt to parts as text
+    set AppleScript's text item delimiters to ""
+    return txt
+end replaceText
+'''
+
+    result = _run_applescript(script)
+    if not result.get("ok", True):
+        return result
+
+    raw = result.get("raw", "[]")
+    try:
+        # Strip trailing comma before closing bracket (AppleScript always emits one)
+        raw = re.sub(r',\s*\]', ']', raw)
+        folders = json.loads(raw)
+        return {"ok": True, "folders": folders}
+    except json.JSONDecodeError as e:
+        logger.warning("Failed to parse folder discovery results: %s", e)
+        return {"ok": False, "error": f"Could not parse folder list: {e}", "raw": raw[:500]}
+
+
 def get_flagged_emails(since_date: datetime) -> dict:
     """Get flagged emails from Outlook.
 
