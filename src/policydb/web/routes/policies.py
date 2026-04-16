@@ -4697,6 +4697,15 @@ async def policy_mark_bound(
     Accepts form-encoded bind_date (ISO date) + optional note. Returns 303
     redirect back to the policy edit page.
     """
+    # Validate the policy_uid format before trusting it in a redirect target.
+    # Policy UIDs are always POL-<digits> — reject anything else to prevent an
+    # open-redirect vector via path traversal or scheme injection (e.g.
+    # "//evil.com"). Also gives us a clean canonical form to echo back.
+    import re
+    normalized = policy_uid.strip().upper()
+    if not re.fullmatch(r"POL-\d+", normalized):
+        raise HTTPException(status_code=404, detail="Invalid policy UID")
+
     form = await request.form()
     from datetime import date
     bind_date = (form.get("bind_date") or date.today().isoformat()).strip()
@@ -4704,7 +4713,7 @@ async def policy_mark_bound(
 
     from policydb.policy_bind import mark_policy_bound
     try:
-        mark_policy_bound(conn, policy_uid.upper(), bind_date, note)
+        mark_policy_bound(conn, normalized, bind_date, note)
         conn.commit()
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -4712,7 +4721,7 @@ async def policy_mark_bound(
         conn.rollback()
         raise
 
-    return RedirectResponse(f"/policies/{policy_uid}/edit", status_code=303)
+    return RedirectResponse(f"/policies/{normalized}/edit", status_code=303)
 
 
 @router.post("/{policy_uid}/followup", response_class=HTMLResponse)
