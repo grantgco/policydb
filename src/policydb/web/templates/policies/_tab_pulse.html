@@ -438,11 +438,11 @@
     {% if scratchpad.get('updated_at') %}
     <div class="text-[10px] text-gray-400 mt-1">Updated {{ scratchpad.updated_at[:10] }}</div>
     {% endif %}
-    <a href="#" onclick="document.querySelector('[data-tab=workflow]') && document.querySelector('[data-tab=workflow]').click(); return false;"
+    <a href="#" onclick="document.getElementById('wn-collapsed').classList.add('hidden'); document.getElementById('wn-expanded').classList.remove('hidden'); document.getElementById('working-notes-float').style.width='50vw'; document.getElementById('working-notes-float').style.minWidth='400px'; return false;"
       class="text-[10px] text-marsh hover:underline mt-1 inline-block no-print">edit →</a>
     {% else %}
     <span class="text-xs text-gray-400 italic">No working notes</span>
-    <a href="#" onclick="document.querySelector('[data-tab=workflow]') && document.querySelector('[data-tab=workflow]').click(); return false;"
+    <a href="#" onclick="document.getElementById('wn-collapsed').classList.add('hidden'); document.getElementById('wn-expanded').classList.remove('hidden'); document.getElementById('working-notes-float').style.width='50vw'; document.getElementById('working-notes-float').style.minWidth='400px'; return false;"
       class="text-[10px] text-marsh hover:underline ml-2 no-print">add →</a>
     {% endif %}
   </div>

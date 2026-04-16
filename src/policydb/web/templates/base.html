@@ -1870,5 +1870,43 @@ window.openFollowupEdit = openFollowupEdit;
 window.closeFollowupEdit = closeFollowupEdit;
 </script>
 {% include "_toast.html" %}
+<script>
+/* ── Activity row shared helpers ──
+   Defined here (in base.html) so they are always available regardless of
+   whether _activity_row.html is loaded via HTMX swap or full page render.
+   The <script> block was previously emitted once per row inside <ul>, which
+   caused HTMX's settlement pass (Nt()) to clear entire <ul> contents. */
+window.setQuickDate = window.setQuickDate || function(btn, days) {
+  var d = new Date(); d.setDate(d.getDate() + days);
+  var input = btn.closest('form') ? btn.closest('form').querySelector('input[name="follow_up_date"], input[name="new_follow_up_date"]') : null;
+  if (!input) { var wrap = btn.closest('.flex'); if (wrap) input = wrap.querySelector('input[type="date"]'); }
+  if (input) input.value = d.toISOString().split('T')[0];
+  btn.closest('.flex').querySelectorAll('button').forEach(function(b) {
+    b.classList.remove('bg-blue-50', 'text-blue-700', 'font-semibold');
+    b.classList.add('text-gray-600');
+  });
+  btn.classList.add('bg-blue-50', 'text-blue-700', 'font-semibold');
+  btn.classList.remove('text-gray-600');
+};
+window.actMarkDoneOnly = window.actMarkDoneOnly || function(btn, actId) {
+  var form = btn.closest('form');
+  var disposition = form.querySelector('input[name="disposition"]').value;
+  var hours = form.querySelector('input[name="duration_hours"]').value;
+  var note = form.querySelector('input[name="notes"]').value;
+  htmx.ajax('POST', '/activities/' + actId + '/complete', {
+    target: '#activity-' + actId,
+    swap: 'outerHTML',
+    values: {disposition: disposition, duration_hours: hours || '0', note: note}
+  });
+  btn.closest('li').classList.add('hidden');
+};
+window.toggleActivityAttach = window.toggleActivityAttach || function(actId) {
+  var panel = document.getElementById('attach-panel-' + actId);
+  if (panel) {
+    panel.classList.toggle('hidden');
+    if (!panel.classList.contains('hidden')) { htmx.process(panel); }
+  }
+};
+</script>
 </body>
 </html>

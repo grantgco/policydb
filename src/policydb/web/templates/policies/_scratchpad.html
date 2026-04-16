@@ -98,6 +98,14 @@ if (!window.logScratchCombined) {
           if (lb) lb.disabled = true;
           if (cb) cb.disabled = true;
           if (typeof showToast === 'function') showToast('Note logged as activity + saved', true);
+          // Refresh Activity tab if it's currently active
+          if (source === 'policy' && typeof htmx !== 'undefined') {
+            var activeTabBtn = document.querySelector('.tab-btn.active');
+            var tabContent = document.querySelector('.tab-content');
+            if (activeTabBtn && activeTabBtn.dataset.tab === 'activity' && tabContent) {
+              htmx.ajax('GET', '/policies/' + scopeId + '/tab/activity', {target: tabContent, swap: 'innerHTML'});
+            }
+          }
         }
       })
       .catch(function() { if (typeof showToast === 'function') showToast('Failed to process', false); });

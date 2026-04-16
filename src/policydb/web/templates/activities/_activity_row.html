@@ -83,7 +83,12 @@
       </button>
       {% endif %}
     </div>
-    {% if a.details %}<p class="text-xs text-gray-500 mt-1 line-clamp-2">{{ a.details }}</p>{% endif %}
+    {% if a.details %}
+    <p id="detail-{{ a.id }}" class="text-xs text-gray-500 mt-1 line-clamp-2">{{ a.details }}</p>
+    <button type="button"
+      onclick="var p=document.getElementById('detail-{{ a.id }}'),clamped=p.classList.toggle('line-clamp-2');this.textContent=clamped?'· expand':'· collapse';"
+      class="text-[10px] text-gray-400 hover:text-marsh no-print">· expand</button>
+    {% endif %}
     {% if a.email_snippet is defined and a.email_snippet %}
     <details class="mt-1">
       <summary class="text-[10px] text-blue-500 cursor-pointer hover:text-blue-700">view email content</summary>
@@ -238,37 +243,4 @@
   </form>
 </li>
 {% endif %}
-<script>
-function setQuickDate(btn, days) {
-  var d = new Date(); d.setDate(d.getDate() + days);
-  var input = btn.closest('form') ? btn.closest('form').querySelector('input[name="follow_up_date"], input[name="new_follow_up_date"]') : null;
-  if (!input) { var wrap = btn.closest('.flex'); if (wrap) input = wrap.querySelector('input[type="date"]'); }
-  if (input) input.value = d.toISOString().split('T')[0];
-  btn.closest('.flex').querySelectorAll('button').forEach(function(b) {
-    b.classList.remove('bg-blue-50', 'text-blue-700', 'font-semibold');
-    b.classList.add('text-gray-600');
-  });
-  btn.classList.add('bg-blue-50', 'text-blue-700', 'font-semibold');
-  btn.classList.remove('text-gray-600');
-}
-function actMarkDoneOnly(btn, actId) {
-  var form = btn.closest('form');
-  var disposition = form.querySelector('input[name="disposition"]').value;
-  var hours = form.querySelector('input[name="duration_hours"]').value;
-  var note = form.querySelector('input[name="notes"]').value;
-  htmx.ajax('POST', '/activities/' + actId + '/complete', {
-    target: '#activity-' + actId,
-    swap: 'outerHTML',
-    values: {disposition: disposition, duration_hours: hours || '0', note: note}
-  });
-  btn.closest('li').classList.add('hidden');
-}
-function toggleActivityAttach(actId) {
-  var panel = document.getElementById('attach-panel-' + actId);
-  if (panel) {
-    panel.classList.toggle('hidden');
-    if (!panel.classList.contains('hidden')) { htmx.process(panel); }
-  }
-}
-</script>
 {% endif %}

@@ -85,7 +85,7 @@
   <div class="border-l-4 border-gray-300 bg-white px-4 py-2.5 rounded-r-lg">
     <div class="flex items-center gap-2 mb-2">
       <span class="text-gray-600 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-gray-200">History</span>
-      <span class="text-gray-400 text-[10px]">{{ history | length }} activit{{ 'ies' if history | length != 1 else 'y' }} in last 90 days</span>
+      <span class="text-gray-400 text-[10px]">{{ history | length }} activit{{ 'ies' if history | length != 1 else 'y' }}</span>
     </div>
     <ul class="divide-y divide-gray-50" id="{{ activity_list_id }}">
       {% for a in history[:history_limit] %}
