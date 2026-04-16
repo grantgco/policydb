@@ -2110,6 +2110,24 @@ def _init_db_inner(conn: sqlite3.Connection, db_path: Path) -> None:
         conn.commit()
         logger.info("Migration 156: added recurring_events month_pattern + nth_weekday_* columns")
 
+    if 157 not in applied:
+        conn.executescript((_MIGRATIONS_DIR / "157_open_items_template.sql").read_text())
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (157, "Add Client Open Items Report built-in prompt template"),
+        )
+        conn.commit()
+        logger.info("Migration 157: added Client Open Items Report prompt template")
+
+    if 158 not in applied:
+        conn.executescript((_MIGRATIONS_DIR / "158_issue_depth_overrides.sql").read_text())
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (158, "Set issues DEPTH_FULL on Renewal Status Email, Open Items Call Agenda, Stewardship Report Shell"),
+        )
+        conn.commit()
+        logger.info("Migration 158: set issues depth_overrides on 3 built-in templates")
+
     # Data hygiene: fix 'None' string corruption in text fields (runs every startup, fast no-op if clean)
     conn.execute("UPDATE clients SET cn_number = NULL WHERE cn_number = 'None'")
 

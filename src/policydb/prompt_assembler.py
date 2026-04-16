@@ -185,6 +185,22 @@ def assemble_client(conn: sqlite3.Connection, record_id: int, depth: int = DEPTH
         if sp_row["updated_at"]:
             lines.append(f"\n*Updated: {_fmt_date(sp_row['updated_at'][:10])}*\n")
 
+    # Location (project) scratchpads for this client
+    proj_sps = conn.execute(
+        """SELECT pr.name, ps.content, ps.updated_at
+           FROM project_scratchpad ps
+           JOIN projects pr ON pr.id = ps.project_id
+           WHERE pr.client_id = ?
+             AND ps.content IS NOT NULL AND TRIM(ps.content) != ''
+           ORDER BY pr.name""",
+        (record_id,),
+    ).fetchall()
+    if proj_sps:
+        lines.append("\n### Location Scratchpads\n")
+        for ps in proj_sps:
+            lines.append(f"\n**{ps['name']}:**\n")
+            lines.append(ps["content"].strip() + "\n")
+
     # Recent saved notes (scope='client'). scope_id is TEXT so bind as string.
     notes = conn.execute(
         """SELECT content, created_at FROM saved_notes
@@ -356,6 +372,18 @@ def assemble_policy(conn: sqlite3.Connection, record_id: int, depth: int = DEPTH
         lines.append(sp_row["content"].strip() + "\n")
         if sp_row["updated_at"]:
             lines.append(f"\n*Updated: {_fmt_date(sp_row['updated_at'][:10])}*\n")
+
+    # Project (location) scratchpad for this policy's linked location
+    if r.get("project_id"):
+        proj_sp = conn.execute(
+            "SELECT content, updated_at FROM project_scratchpad WHERE project_id = ?",
+            (r["project_id"],),
+        ).fetchone()
+        if proj_sp and (proj_sp["content"] or "").strip():
+            lines.append("\n### Location Scratchpad\n")
+            lines.append(proj_sp["content"].strip() + "\n")
+            if proj_sp["updated_at"]:
+                lines.append(f"\n*Updated: {_fmt_date(proj_sp['updated_at'][:10])}*\n")
 
     # Recent saved notes (scope='policy', scope_id=policy_uid)
     if r.get("policy_uid"):
@@ -613,6 +641,17 @@ def assemble_issue(conn: sqlite3.Connection, record_id: int, depth: int = DEPTH_
             mark = "x" if item["completed"] else " "
             lines.append(f"- [{mark}] {item['label']}\n")
 
+    # Issue scratchpad (working notes)
+    sp_row = conn.execute(
+        "SELECT content, updated_at FROM issue_scratchpad WHERE issue_id = ?",
+        (record_id,),
+    ).fetchone()
+    if sp_row and (sp_row["content"] or "").strip():
+        lines.append("\n### Issue Scratchpad\n")
+        lines.append(sp_row["content"].strip() + "\n")
+        if sp_row["updated_at"]:
+            lines.append(f"\n*Updated: {_fmt_date(sp_row['updated_at'][:10])}*\n")
+
     return "".join(lines)
 
 
@@ -732,17 +771,17 @@ def assemble_issues_for_record(conn: sqlite3.Connection, record_id: int, depth: 
 
     lines = ["## Issues\n"]
 
-    # Open issues at tier 2
+    # Open issues — full detail at DEPTH_FULL, one-liner otherwise
     for r in open_issues:
-        if depth <= DEPTH_SUMMARY:
+        if depth == DEPTH_FULL:
+            lines.append(assemble_issue(conn, r["id"], DEPTH_FULL))
+        else:
             line = f"- **{r['issue_uid']}:** {r['subject']} [{r['issue_status']}]"
             if r["issue_severity"]:
                 line += f" — {r['issue_severity']}"
             if r["due_date"]:
                 line += f" — Due: {_fmt_date(r['due_date'])}"
             lines.append(line + "\n")
-        elif depth == DEPTH_FULL:
-            lines.append(assemble_issue(conn, r["id"], DEPTH_SUMMARY))
 
     # Closed issues at tier 3 (reference only, capped)
     if closed_issues:
@@ -765,7 +804,7 @@ def assemble_followups(conn: sqlite3.Connection, record_id: int, depth: int = DE
     issue_id = kwargs.get("issue_id")
     if issue_id:
         rows = conn.execute(
-            """SELECT activity_date, subject, follow_up_date, follow_up_done, disposition,
+            """SELECT activity_date, subject, details, follow_up_date, follow_up_done, disposition,
                       activity_type, contact_person
                FROM activity_log
                WHERE issue_id = ? AND item_kind != 'issue' AND follow_up_date IS NOT NULL
@@ -774,7 +813,7 @@ def assemble_followups(conn: sqlite3.Connection, record_id: int, depth: int = DE
         ).fetchall()
     else:
         rows = conn.execute(
-            """SELECT activity_date, subject, follow_up_date, follow_up_done, disposition,
+            """SELECT activity_date, subject, details, follow_up_date, follow_up_done, disposition,
                       activity_type, contact_person
                FROM activity_log
                WHERE client_id = ? AND follow_up_date IS NOT NULL AND item_kind != 'issue'
@@ -792,6 +831,13 @@ def assemble_followups(conn: sqlite3.Connection, record_id: int, depth: int = DE
         line = f"- {_fmt_date(r['follow_up_date'])} — {r['subject']} [{status}]"
         if r["disposition"]:
             line += f" ({r['disposition']})"
+        if r.get("contact_person"):
+            line += f" — contact: {r['contact_person']}"
+        if r.get("details") and r["details"].strip():
+            details_text = r["details"].strip()
+            if len(details_text) > 300:
+                details_text = details_text[:300] + "…"
+            line += f"\n  > {details_text}"
         items.append(line + "\n")
 
     total = len(items)
@@ -872,7 +918,7 @@ def assemble_contacts(conn: sqlite3.Connection, record_id: int, depth: int = DEP
     policy_id = kwargs.get("policy_id")
     if policy_id:
         raw_rows = conn.execute(
-            """SELECT co.name, co.email, co.phone, cpa.role, cpa.is_placement_colleague
+            """SELECT co.name, co.email, co.phone, co.mobile, cpa.role, cpa.is_placement_colleague
                FROM contact_policy_assignments cpa
                JOIN contacts co ON cpa.contact_id = co.id
                WHERE cpa.policy_id = ?""",
@@ -880,7 +926,7 @@ def assemble_contacts(conn: sqlite3.Connection, record_id: int, depth: int = DEP
         ).fetchall()
     else:
         raw_rows = conn.execute(
-            """SELECT co.name, co.email, co.phone, cca.role, cca.contact_type, cca.is_primary
+            """SELECT co.name, co.email, co.phone, co.mobile, cca.role, cca.contact_type, cca.is_primary
                FROM contact_client_assignments cca
                JOIN contacts co ON cca.contact_id = co.id
                WHERE cca.client_id = ?
@@ -897,28 +943,74 @@ def assemble_contacts(conn: sqlite3.Connection, record_id: int, depth: int = DEP
 
     lines = ["## Contacts\n"]
 
+    def _contact_line(c: dict, bold: bool = True) -> str:
+        role = c.get("role") or ("Placement Colleague" if c.get("is_placement_colleague") else "Contact")
+        name = f"**{c['name']}**" if bold else c['name']
+        parts = []
+        if c.get("email"):
+            parts.append(c["email"])
+        if c.get("phone"):
+            parts.append(c["phone"])
+        if c.get("mobile") and c.get("mobile") != c.get("phone"):
+            parts.append(f"mobile: {c['mobile']}")
+        suffix = f" ({' | '.join(parts)})" if parts else ""
+        return f"- {name} — {role}{suffix}\n"
+
     if len(rows) <= 5:
         for c in rows:
-            role = c.get("role") or ("Placement Colleague" if c.get("is_placement_colleague") else "Contact")
-            line = f"- **{c['name']}** — {role}"
-            if c.get("email"):
-                line += f" ({c['email']})"
-            lines.append(line + "\n")
+            lines.append(_contact_line(c))
     else:
         # Primary at tier 2, rest at tier 3
         primary = [c for c in rows if c.get("is_primary") or c.get("is_placement_colleague")]
         primary_ids = {id(c) for c in primary}
         others = [c for c in rows if id(c) not in primary_ids]
         for c in primary:
-            role = c.get("role") or "Primary Contact"
-            line = f"- **{c['name']}** — {role}"
-            if c.get("email"):
-                line += f" ({c['email']})"
-            lines.append(line + "\n")
+            lines.append(_contact_line(c))
         ref_items = [f"- {c['name']} — {c.get('role') or 'Contact'}\n" for c in others]
         ref_items = _truncated_list(ref_items, 5, "contacts")
         for item in ref_items:
             lines.append(item)
+
+    return "".join(lines)
+
+
+@register("opportunities")
+def assemble_opportunities(conn: sqlite3.Connection, record_id: int, depth: int = DEPTH_SUMMARY) -> str:
+    """Assemble opportunity-flagged policies for a client. record_id is client_id."""
+    rows = conn.execute(
+        """SELECT id, policy_uid, policy_type, carrier, premium,
+                  target_effective_date, opportunity_status, description, notes
+           FROM policies
+           WHERE client_id = ? AND is_opportunity = 1 AND archived = 0
+           ORDER BY target_effective_date, policy_type""",
+        (record_id,),
+    ).fetchall()
+    if not rows:
+        return ""
+
+    lines = ["## Opportunities\n"]
+    for p in rows:
+        if depth == DEPTH_REFERENCE:
+            lines.append(f"- {p['policy_uid']} — {p['policy_type']} [{p['opportunity_status'] or 'Prospect'}]\n")
+            continue
+        line = f"- **{p['policy_uid']}** — {p['policy_type']}"
+        if p["carrier"]:
+            line += f" | {p['carrier']}"
+        if p["premium"]:
+            line += f" | {_fmt_currency(p['premium'])}"
+        if p["target_effective_date"]:
+            line += f" | Target: {_fmt_date(p['target_effective_date'])}"
+        if p["opportunity_status"]:
+            line += f" [{p['opportunity_status']}]"
+        lines.append(line + "\n")
+        if depth == DEPTH_FULL:
+            if p["description"]:
+                lines.append(f"  Description: {p['description']}\n")
+            if p["notes"] and p["notes"].strip():
+                notes_text = p["notes"].strip()
+                if len(notes_text) > 300:
+                    notes_text = notes_text[:300] + "…"
+                lines.append(f"  Notes: {notes_text}\n")
 
     return "".join(lines)
 
@@ -1327,14 +1419,14 @@ def assemble_recent_activity_log(
         return ""
 
     rows = conn.execute(
-        f"""SELECT a.activity_date, a.activity_type, a.subject, a.disposition,
+        f"""SELECT a.activity_date, a.activity_type, a.subject, a.details, a.disposition,
                    a.contact_person, a.email_from, a.email_to, a.email_snippet,
                    a.policy_id, p.policy_uid
             FROM activity_log a
             LEFT JOIN policies p ON p.id = a.policy_id
             WHERE a.item_kind != 'issue' AND {where}
             ORDER BY a.activity_date DESC, a.id DESC
-            LIMIT 10""",
+            LIMIT 15""",
         params,
     ).fetchall()
 
@@ -1351,6 +1443,11 @@ def assemble_recent_activity_log(
         if r["contact_person"]:
             line += f" (contact: {r['contact_person']})"
         line += "\n"
+        if r.get("details") and r["details"].strip():
+            details_text = r["details"].strip().replace("\r", " ")
+            if len(details_text) > 500:
+                details_text = details_text[:500] + "…"
+            line += f"  > Notes: {details_text}\n"
         if r["email_from"]:
             line += f"  > From {r['email_from']}"
             if r["email_to"]:
@@ -1358,8 +1455,8 @@ def assemble_recent_activity_log(
             line += "\n"
         if r["email_snippet"]:
             snippet = r["email_snippet"].strip().replace("\r", " ").replace("\n", " ")
-            if len(snippet) > 160:
-                snippet = snippet[:160] + "…"
+            if len(snippet) > 400:
+                snippet = snippet[:400] + "…"
             line += f"  > \"{snippet}\"\n"
         lines.append(line)
 
@@ -1474,7 +1571,7 @@ def _assemble_related_block(
         rid = keys.get("policy_id")
     elif record_type == "issue":
         rid = keys.get("issue_id")
-    elif record_type in ("policies", "renewals"):
+    elif record_type in ("policies", "renewals", "opportunities"):
         rid = keys.get("client_id")
     elif record_type == "issues":
         rid = keys.get("client_id")
