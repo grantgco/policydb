@@ -349,6 +349,125 @@ def _match_by_domain(
     return None
 
 
+def _resolve_contacts_for_email(
+    conn: sqlite3.Connection, email: dict,
+) -> dict:
+    """Resolve sender + every recipient to known contacts.
+
+    The AppleScript bridge collapses ``to`` and ``cc`` into one ``recipients``
+    list, so everyone who wasn't the sender is tagged as role ``'to'``. That's
+    good enough for "who was on this email" — we lose the TO/CC distinction
+    but keep the participant set.
+
+    Returns::
+
+        {
+          "from_cid":  int | None,   # primary contact for activity_log.contact_id
+          "from_name": str | None,   # primary display name
+          "entries":   [(contact_id, role), ...]   # dedup'd, includes 'from'
+        }
+    """
+    seen: set[tuple[int, str]] = set()
+    entries: list[tuple[int, str]] = []
+    from_cid: int | None = None
+    from_name: str | None = None
+
+    def lookup(addr: str):
+        s = (addr or "").strip().lower()
+        if not s or "@" not in s:
+            return None
+        return conn.execute(
+            "SELECT id, name FROM contacts WHERE LOWER(TRIM(email)) = ?",
+            (s,),
+        ).fetchone()
+
+    sender_row = lookup(email.get("sender") or "")
+    if sender_row:
+        from_cid = sender_row["id"]
+        from_name = sender_row["name"]
+        entries.append((from_cid, "from"))
+        seen.add((from_cid, "from"))
+
+    for addr in (email.get("recipients") or []):
+        row = lookup(addr)
+        if not row:
+            continue
+        key = (row["id"], "to")
+        if key in seen:
+            continue
+        # Don't re-tag the sender as 'to' if they appear in recipients too
+        if row["id"] == from_cid:
+            continue
+        entries.append(key)
+        seen.add(key)
+
+    return {"from_cid": from_cid, "from_name": from_name, "entries": entries}
+
+
+def _link_activity_contacts(
+    conn: sqlite3.Connection,
+    activity_id: int,
+    entries: list[tuple[int, str]],
+) -> None:
+    """Idempotently insert (activity_id, contact_id, role) rows.
+
+    The UNIQUE(activity_id, contact_id, role) constraint absorbs re-runs
+    (e.g. enrichment path re-linking an already-linked activity).
+    """
+    if not activity_id or not entries:
+        return
+    conn.executemany(
+        "INSERT OR IGNORE INTO activity_contacts (activity_id, contact_id, role) "
+        "VALUES (?, ?, ?)",
+        [(activity_id, cid, role) for cid, role in entries],
+    )
+
+
+def _match_by_contact_email(
+    conn: sqlite3.Connection,
+    email_addresses: list[str],
+) -> dict | None:
+    """Exact-email precision pass — runs before domain aggregation.
+
+    If any sender/recipient email matches a single known contact whose
+    primary (or only) client is non-archived, use that client. Resolves the
+    ambiguity case where two clients share a domain but only one employs
+    the specific person on the email.
+
+    Confidence 75 — higher than domain (70) because an exact email match on
+    a known contact is a stronger signal than "someone at that company".
+    """
+    skip_domains = set(cfg.get("freemail_domains", []))
+    skip_domains.update(cfg.get("internal_email_domains", []))
+
+    for addr in email_addresses:
+        s = (addr or "").strip().lower()
+        if not s or "@" not in s:
+            continue
+        domain = s.rsplit("@", 1)[1]
+        if domain in skip_domains:
+            continue
+        row = conn.execute(
+            """SELECT cca.client_id, co.id AS contact_id
+               FROM contacts co
+               JOIN contact_client_assignments cca ON co.id = cca.contact_id
+               JOIN clients cl ON cca.client_id = cl.id
+               WHERE LOWER(TRIM(co.email)) = ?
+                 AND cl.archived = 0
+               ORDER BY cca.is_primary DESC, cca.id ASC
+               LIMIT 1""",
+            (s,),
+        ).fetchone()
+        if row:
+            return {
+                "tier": 2,
+                "confidence": 75,
+                "client_id": row["client_id"],
+                "contact_id": row["contact_id"],
+            }
+    return None
+
+
 def _capture_unknown_contacts(
     conn: sqlite3.Connection,
     email: dict,
@@ -662,42 +781,55 @@ def _create_or_enrich_activity(
     else:
         email_direction = "received"
 
+    # Resolve all participants (sender + every recipient) — used for both
+    # the primary contact_id FK and the activity_contacts junction.
+    resolved = _resolve_contacts_for_email(conn, email)
+
     # Check if there's an existing same-day email activity for this policy
     if is_sent and policy_id:
         existing_activity = conn.execute(
-            """SELECT id FROM activity_log
+            """SELECT id, contact_id FROM activity_log
                WHERE activity_date=? AND policy_id=? AND activity_type='Email'
                  AND source='manual'
                ORDER BY id DESC LIMIT 1""",
             (email_date, policy_id),
         ).fetchone()
         if existing_activity:
-            # Enrich existing activity
-            conn.execute(
-                """UPDATE activity_log
-                   SET outlook_message_id=?, email_snippet=?, source='outlook_sync',
-                       email_from=?, email_to=?, email_direction=?
-                   WHERE id=?""",
-                (message_id, snippet, sender, recipients, email_direction,
-                 existing_activity["id"]),
-            )
+            # Enrich existing activity. Backfill contact_id only when the
+            # manual row didn't already name one — users who hand-picked a
+            # contact shouldn't have it silently overwritten by the sender.
+            if existing_activity["contact_id"] is None and resolved["from_cid"]:
+                conn.execute(
+                    """UPDATE activity_log
+                       SET outlook_message_id=?, email_snippet=?, source='outlook_sync',
+                           email_from=?, email_to=?, email_direction=?,
+                           contact_id=?, contact_person=COALESCE(NULLIF(contact_person,''), ?)
+                       WHERE id=?""",
+                    (message_id, snippet, sender, recipients, email_direction,
+                     resolved["from_cid"],
+                     resolved["from_name"] or sender,
+                     existing_activity["id"]),
+                )
+            else:
+                conn.execute(
+                    """UPDATE activity_log
+                       SET outlook_message_id=?, email_snippet=?, source='outlook_sync',
+                           email_from=?, email_to=?, email_direction=?
+                       WHERE id=?""",
+                    (message_id, snippet, sender, recipients, email_direction,
+                     existing_activity["id"]),
+                )
+            _link_activity_contacts(conn, existing_activity["id"], resolved["entries"])
             conn.commit()
             return {"action": "enriched", "activity_id": existing_activity["id"]}
 
     # Create new activity
     disposition = "Sent Email" if is_sent else ""
 
-    # Resolve contact from sender email
-    contact_id = None
-    contact_person = sender
-    if sender:
-        contact = conn.execute(
-            "SELECT id, name FROM contacts WHERE LOWER(TRIM(email))=?",
-            (sender.strip().lower(),),
-        ).fetchone()
-        if contact:
-            contact_id = contact["id"]
-            contact_person = contact["name"] or sender
+    # Primary contact: sender (unchanged behavior). Recipients are tagged
+    # via activity_contacts below.
+    contact_id = resolved["from_cid"]
+    contact_person = resolved["from_name"] or sender
 
     # Phase 3D: capture conversation_id + internet_message_id when the
     # caller's email dict supplies them (search_folder_since does;
@@ -737,9 +869,11 @@ def _create_or_enrich_activity(
             internet_message_id,
         ),
     )
+    new_id = cursor.lastrowid
+    _link_activity_contacts(conn, new_id, resolved["entries"])
     conn.commit()
 
-    return {"action": "created", "activity_id": cursor.lastrowid}
+    return {"action": "created", "activity_id": new_id}
 
 
 def _run_thread_inheritance(
@@ -887,16 +1021,15 @@ def _run_thread_inheritance(
                     email_to = line[4:].strip()
                     break
 
-        contact_id = None
-        contact_person = sender
-        if sender:
-            contact = conn.execute(
-                "SELECT id, name FROM contacts WHERE LOWER(TRIM(email))=?",
-                (sender.strip().lower(),),
-            ).fetchone()
-            if contact:
-                contact_id = contact["id"]
-                contact_person = contact["name"] or sender
+        # Resolve sender + recipients. The inbox row flattened recipients
+        # into the 'email_to' string, so re-split to feed the resolver.
+        inbox_email = {
+            "sender": sender,
+            "recipients": [r.strip() for r in (email_to or "").split(",") if r.strip()],
+        }
+        resolved = _resolve_contacts_for_email(conn, inbox_email)
+        contact_id = resolved["from_cid"]
+        contact_person = resolved["from_name"] or sender
 
         content_lines = (candidate.get("content") or "").split("\n")
         snippet_lines = [l for l in content_lines[4:] if l.strip()]
@@ -937,6 +1070,8 @@ def _run_thread_inheritance(
                 thread_internet_id,
             ),
         )
+        new_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        _link_activity_contacts(conn, new_id, resolved["entries"])
 
         conn.execute("DELETE FROM inbox WHERE id = ?", (candidate["id"],))
 
@@ -1409,6 +1544,19 @@ def _process_email(
                 matches.append(thread_match)
 
     if not matches:
+        # Tier 2a: exact-email precision pass BEFORE domain aggregation.
+        # Handles the case where two clients share a domain — `_match_by_domain`
+        # returns None there, but if a single email address matches exactly one
+        # known contact on one non-archived client, that's the answer.
+        all_addresses = []
+        if email.get("sender"):
+            all_addresses.append(email["sender"])
+        all_addresses.extend(email.get("recipients", []))
+        contact_match = _match_by_contact_email(conn, all_addresses)
+        if contact_match:
+            matches.append(contact_match)
+
+    if not matches:
         # Tier 3 (was Tier 2 pre-3D): domain-based matching
         all_addresses = []
         if email.get("sender"):
@@ -1465,13 +1613,17 @@ def _process_email(
         # via the native Outlook thread key instead of the fragile
         # subject-normalization fallback.
         conversation_id = email.get("conversation_id") or None
+        # Tag a known contact when the sender resolves — even with no client
+        # match, a known contact_id makes inbox triage easier.
+        inbox_resolved = _resolve_contacts_for_email(conn, email)
+        inbox_contact_id = inbox_resolved["from_cid"]
         conn.execute(
             """INSERT INTO inbox (content, client_id, contact_id, inbox_uid,
                                   email_subject, email_date, outlook_message_id,
                                   email_from, email_to, email_direction,
                                   outlook_conversation_id, outlook_internet_message_id)
-               VALUES (?, NULL, NULL, '', ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (content, subject, date_str, message_id, sender, recipients, category,
+               VALUES (?, NULL, ?, '', ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (content, inbox_contact_id, subject, date_str, message_id, sender, recipients, category,
              conversation_id, internet_message_id),
         )
         row_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
