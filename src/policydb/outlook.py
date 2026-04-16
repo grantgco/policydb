@@ -456,32 +456,47 @@ def discover_folders() -> dict:
     # for Mac's `class of` returns are inconsistent across account types
     # (Exchange vs IMAP). Name-based is pragmatic and the user can override
     # in the Settings UI anyway.
+    #
+    # Defensive try wraps at every level: a single bad folder (corrupt
+    # sync state, special folder type that doesn't respond to `name of`,
+    # access denied) is caught and skipped so the rest of the tree still
+    # gets discovered. Without these wraps one bad folder could kill the
+    # whole walk and we'd silently lose discovery for everything after it.
+    #
+    # Empty-account case returns a structured error JSON instead of "[]"
+    # so the UI can show a useful message (was: silent empty list).
     script = r'''
 set output to "[" & return
 tell application "Microsoft Outlook"
     try
         set level1 to mail folders of default account
-    on error
-        return "[]"
+    on error errMsg
+        return "{\"ok\": false, \"error\": \"Could not list folders from default account: " & my escJSON(errMsg) & "\"}"
     end try
     repeat with l1 in level1
-        set l1Name to name of l1
-        set output to output & my emitEntry(l1Name, l1Name) & "," & return
         try
-            set level2 to mail folders of l1
-            repeat with l2 in level2
-                set l2Name to name of l2
-                set l2Path to l1Name & "/" & l2Name
-                set output to output & my emitEntry(l2Path, l2Name) & "," & return
-                try
-                    set level3 to mail folders of l2
-                    repeat with l3 in level3
-                        set l3Name to name of l3
-                        set l3Path to l2Path & "/" & l3Name
-                        set output to output & my emitEntry(l3Path, l3Name) & "," & return
-                    end repeat
-                end try
-            end repeat
+            set l1Name to name of l1
+            set output to output & my emitEntry(l1Name, l1Name) & "," & return
+            try
+                set level2 to mail folders of l1
+                repeat with l2 in level2
+                    try
+                        set l2Name to name of l2
+                        set l2Path to l1Name & "/" & l2Name
+                        set output to output & my emitEntry(l2Path, l2Name) & "," & return
+                        try
+                            set level3 to mail folders of l2
+                            repeat with l3 in level3
+                                try
+                                    set l3Name to name of l3
+                                    set l3Path to l2Path & "/" & l3Name
+                                    set output to output & my emitEntry(l3Path, l3Name) & "," & return
+                                end try
+                            end repeat
+                        end try
+                    end try
+                end repeat
+            end try
         end try
     end repeat
 end tell
@@ -523,6 +538,18 @@ end replaceText
         return result
 
     raw = result.get("raw", "[]")
+    # Empty-account / list-failure case: AppleScript returns a structured
+    # error JSON object (Bug A fix). Detect and surface it before trying
+    # to parse the raw output as a folder array.
+    raw_stripped = raw.strip()
+    if raw_stripped.startswith("{"):
+        try:
+            err_obj = json.loads(raw_stripped)
+            if not err_obj.get("ok", True):
+                return err_obj
+        except json.JSONDecodeError:
+            pass
+
     try:
         # Strip trailing comma before closing bracket (AppleScript always emits one)
         raw = re.sub(r',\s*\]', ']', raw)
@@ -544,9 +571,20 @@ def search_folder_since(folder_path: str, since_date: datetime) -> dict:
       - ``conversation_id`` — Outlook's native thread key (string).
         Falls back to ``""`` if the AppleScript dictionary doesn't expose
         ``conversation id`` on this Outlook version.
-      - ``internet_message_id`` — RFC-822 Message-ID header. Falls back
-        to ``message_id`` if the header isn't readable, so callers can
-        always treat the field as a globally-unique anchor.
+      - ``internet_message_id`` — RFC-822 Message-ID header.
+
+    **Known limitation (Bug E):** Microsoft Outlook for Mac's AppleScript
+    dictionary doesn't expose ``internet message id`` as a direct
+    property on the ``incoming message`` / ``outgoing message`` classes.
+    The RFC-822 Message-ID lives inside the ``headers`` string blob and
+    has to be parsed out. Until we add header parsing, the
+    ``internet_message_id`` field falls back to Outlook's internal
+    numeric ``id`` (same value as ``message_id``). This means the new
+    ``outlook_internet_message_id`` column is effectively redundant
+    with ``outlook_message_id`` for now — true cross-mailbox dedup
+    (e.g. detecting that an email re-imported after archive moves is
+    the same one) won't work until the headers-parsing fix lands.
+    Within-mailbox dedup still works fine via ``outlook_message_id``.
 
     Path resolution walks ``mail folder "X" of Y`` segment by segment
     starting at the default account. Any segment that doesn't resolve

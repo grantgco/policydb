@@ -871,14 +871,38 @@ _DEFAULTS: dict[str, Any] = {
     # is case-sensitive on the *leaf* name (the last path segment), so
     # excluding "Archive" skips any folder whose leaf is "Archive"
     # regardless of where it lives in the tree.
+    #
+    # Default exclusions cover three categories:
+    #   - System folders that contain no actionable correspondence
+    #     (Deleted Items, Trash, Junk Email, Drafts, Outbox, etc.)
+    #   - Outlook for Mac native chrome (Conversation History from
+    #     Teams/Skype, Scheduled outbound queue, Other Users for
+    #     shared mailboxes — opt-in if you want shared inbox crawl)
+    #   - SaneBox auto-filing buckets (@SaneBlackHole through
+    #     @SaneTomorrow). These contain real emails Sanebox triaged
+    #     out of Inbox; users with active Sanebox workflows can
+    #     re-enable individual buckets via the per-folder toggle.
     "outlook_excluded_folders": [
+        # System folders
         "Deleted Items",
+        "Trash",
         "Junk Email",
         "Drafts",
         "Outbox",
         "RSS Feeds",
         "Sync Issues",
         "Clutter",
+        # Outlook for Mac chrome
+        "Conversation History",
+        "Scheduled",
+        "Other Users",
+        # SaneBox auto-filing (re-enable specific buckets via UI if you use them)
+        "@SaneBlackHole",
+        "@SaneLater",
+        "@SaneNews",
+        "@SaneNextWeek",
+        "@SaneThings",
+        "@SaneTomorrow",
     ],
     # First-run crawl horizon for Phase 3: how many days of history to
     # pull on the very first sync after folder discovery. Subsequent
