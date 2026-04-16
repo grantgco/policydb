@@ -161,9 +161,17 @@ def search_all_folders(
     since_date: datetime,
     category_filter: str = "",
 ) -> dict:
-    """Search ALL mail folders for emails with a specific category since a date.
+    """Search ALL mail folders (including subfolders) for emails since a date.
 
-    Returns {"ok": True, "emails": [...]} with folder name on each email.
+    Recursively walks the folder tree under the default account up to 8 levels
+    deep so emails filed in nested user folders like ``Inbox/Clients/Acme``
+    aren't silently dropped. The legacy implementation only iterated
+    ``every mail folder of default account`` (top level only) which meant a
+    reply filed into a subfolder would never be enumerated and never matched
+    against its ``[PDB:]`` ref tag.
+
+    Returns {"ok": True, "emails": [...]} with the slash-delimited folder
+    path on each email (e.g. ``"Inbox/Clients/Acme"``).
     """
     if not is_outlook_available():
         return {"ok": False, "error": "Outlook is not running."}
@@ -192,76 +200,129 @@ def search_all_folders(
                     if not hasRef then set skipMsg to true
                 end if'''
 
+    # Recursive walk: a script object carries the JSON accumulator and message
+    # counter across the recursion so we don't have to thread them through
+    # handler return values (AppleScript handlers can't return structured
+    # tuples cleanly). Depth cap of 8 prevents pathological folder trees from
+    # blowing the call stack; matches what most users would need (Phase 3D
+    # crawl is the path for genuinely deep archives). System folder names are
+    # checked at every level — Sent Items at any depth still routes through
+    # the dedicated Sent scan.
     script = f'''
-set output to "[" & return
-set totalCount to 0
+script acc
+    property out : ""
+    property cnt : 0
+end script
+
+set acc's out to "[" & return
+set acc's cnt to 0
 set myDate to date "{date_str}"
+set capLimit to 500
+
 tell application "Microsoft Outlook"
-    set allFolders to every mail folder of default account
-    repeat with f in allFolders
-        set folderName to name of f
-        -- Skip system folders we don't care about
-        if folderName is not "Deleted Items" and folderName is not "Junk Email" and folderName is not "Drafts" and folderName is not "Trash" and folderName is not "Clutter" and folderName is not "Sent Items" then
-            try
-                set folderMsgs to messages of f whose (time sent >= myDate)
-                repeat with msg in folderMsgs
-                    if totalCount >= 500 then exit repeat
-                    set skipMsg to false
-                    {cat_check}
-                    if not skipMsg then
-                        set totalCount to totalCount + 1
-                        set msgSubject to subject of msg
-                        set msgSender to ""
+    try
+        set rootFolders to mail folders of default account
+    on error
+        set rootFolders to {{}}
+    end try
+end tell
+
+repeat with rf in rootFolders
+    if acc's cnt >= capLimit then exit repeat
+    try
+        tell application "Microsoft Outlook" to set rfName to name of rf
+        my scanTree(contents of rf, rfName, myDate, capLimit, 0)
+    end try
+end repeat
+
+return (acc's out) & return & "]"
+
+on scanTree(f, folderPath, myDate, capLimit, depth)
+    if acc's cnt >= capLimit then return
+    if depth > 8 then return
+    set leafName to my leafOf(folderPath)
+    -- Skip system folders at every level (Sent Items handled separately)
+    if leafName is "Deleted Items" or leafName is "Junk Email" or leafName is "Drafts" or leafName is "Trash" or leafName is "Clutter" or leafName is "Sent Items" or leafName is "Outbox" then return
+
+    -- Scan messages in this folder
+    tell application "Microsoft Outlook"
+        try
+            set folderMsgs to (messages of f whose (time sent >= myDate))
+            repeat with msg in folderMsgs
+                if acc's cnt >= capLimit then exit repeat
+                set skipMsg to false
+                {cat_check}
+                if not skipMsg then
+                    set acc's cnt to (acc's cnt) + 1
+                    set msgSubject to subject of msg
+                    set msgSender to ""
+                    try
+                        set msgSender to address of sender of msg
+                    end try
+                    set msgDate to time sent of msg
+                    set msgId to id of msg as text
+                    set recipList to ""
+                    try
+                        repeat with r in to recipients of msg
+                            set recipList to recipList & address of email address of r & ","
+                        end repeat
+                    end try
+                    set catList to ""
+                    try
+                        set cats to categories of msg
+                        repeat with c in cats
+                            set catList to catList & (name of c) & ","
+                        end repeat
+                    end try
+                    set msgContent to ""
+                    try
+                        set msgContent to plain text content of msg
+                        if length of msgContent > 100000 then
+                            set msgContent to text 1 thru 100000 of msgContent
+                        end if
+                    on error
                         try
-                            set msgSender to address of sender of msg
-                        end try
-                        set msgDate to time sent of msg
-                        set msgId to id of msg as text
-                        set recipList to ""
-                        try
-                            repeat with r in to recipients of msg
-                                set recipList to recipList & address of email address of r & ","
-                            end repeat
-                        end try
-                        set catList to ""
-                        try
-                            set cats to categories of msg
-                            repeat with c in cats
-                                set catList to catList & (name of c) & ","
-                            end repeat
-                        end try
-                        set msgContent to ""
-                        try
-                            set msgContent to plain text content of msg
+                            set msgContent to content of msg
                             if length of msgContent > 100000 then
                                 set msgContent to text 1 thru 100000 of msgContent
                             end if
-                        on error
-                            try
-                                set msgContent to content of msg
-                                if length of msgContent > 100000 then
-                                    set msgContent to text 1 thru 100000 of msgContent
-                                end if
-                            end try
                         end try
-                        set msgSubject to my escJSON(msgSubject)
-                        set msgSender to my escJSON(msgSender)
-                        set msgContent to my escJSON(msgContent)
-                        set recipList to my escJSON(recipList)
-                        set msgId to my escJSON(msgId)
-                        set catList to my escJSON(catList)
-                        set escFolder to my escJSON(folderName)
-                        set dateStr to (year of msgDate as text) & "-" & my padNum(month of msgDate as integer) & "-" & my padNum(day of msgDate) & "T" & my padNum(hours of msgDate) & ":" & my padNum(minutes of msgDate) & ":00"
-                        set output to output & "  {{\\"message_id\\": \\"" & msgId & "\\", \\"subject\\": \\"" & msgSubject & "\\", \\"sender\\": \\"" & msgSender & "\\", \\"recipients\\": \\"" & recipList & "\\", \\"date\\": \\"" & dateStr & "\\", \\"body_snippet\\": \\"" & msgContent & "\\", \\"folder\\": \\"" & escFolder & "\\", \\"categories\\": \\"" & catList & "\\"}},"
-                    end if
-                end repeat
-            end try
-        end if
-        if totalCount >= 500 then exit repeat
+                    end try
+                    set msgSubject to my escJSON(msgSubject)
+                    set msgSender to my escJSON(msgSender)
+                    set msgContent to my escJSON(msgContent)
+                    set recipList to my escJSON(recipList)
+                    set msgId to my escJSON(msgId)
+                    set catList to my escJSON(catList)
+                    set escFolder to my escJSON(folderPath)
+                    set dateStr to (year of msgDate as text) & "-" & my padNum(month of msgDate as integer) & "-" & my padNum(day of msgDate) & "T" & my padNum(hours of msgDate) & ":" & my padNum(minutes of msgDate) & ":00"
+                    set acc's out to (acc's out) & "  {{\\"message_id\\": \\"" & msgId & "\\", \\"subject\\": \\"" & msgSubject & "\\", \\"sender\\": \\"" & msgSender & "\\", \\"recipients\\": \\"" & recipList & "\\", \\"date\\": \\"" & dateStr & "\\", \\"body_snippet\\": \\"" & msgContent & "\\", \\"folder\\": \\"" & escFolder & "\\", \\"categories\\": \\"" & catList & "\\"}},"
+                end if
+            end repeat
+        end try
+    end tell
+
+    -- Recurse into subfolders
+    set subList to {{}}
+    try
+        tell application "Microsoft Outlook" to set subList to mail folders of f
+    end try
+    repeat with sub in subList
+        if acc's cnt >= capLimit then return
+        try
+            tell application "Microsoft Outlook" to set subName to name of sub
+            my scanTree(contents of sub, folderPath & "/" & subName, myDate, capLimit, depth + 1)
+        end try
     end repeat
-end tell
-set output to output & return & "]"
-return output
+end scanTree
+
+on leafOf(p)
+    set AppleScript's text item delimiters to "/"
+    set parts to text items of p
+    set AppleScript's text item delimiters to ""
+    if (count of parts) is 0 then return p
+    return last item of parts
+end leafOf
 
 on escJSON(txt)
     set txt to my replaceText(txt, "\\\\", "\\\\\\\\")
@@ -821,30 +882,66 @@ end replaceText
 
 
 def get_flagged_emails(since_date: datetime) -> dict:
-    """Get flagged emails from Outlook.
+    """Get flagged emails from Outlook (recursive across all subfolders).
 
-    Returns {"ok": True, "emails": [...]} with flag_due_date field.
+    Walks the full folder tree under the default account up to 8 levels
+    deep so a flagged email filed into a nested user folder is still
+    captured. The legacy implementation only iterated top-level folders,
+    which silently dropped flags on emails the user had already filed.
+
+    Returns {"ok": True, "emails": [...]} with flag_due_date field and
+    slash-delimited folder path.
     """
     if not is_outlook_available():
         return {"ok": False, "error": "Outlook is not running."}
 
     date_str = since_date.strftime("%m/%d/%Y")
 
+    # Same recursive pattern as `search_all_folders`, with a smaller cap (200)
+    # because flagged scans should be tighter and the user's flag-list rarely
+    # gets that large in practice.
     script = f'''
-set output to ""
+script acc
+    property out : ""
+    property cnt : 0
+end script
+
+set acc's out to "[" & return
+set acc's cnt to 0
 set myDate to date "{date_str}"
+set capLimit to 200
+
 tell application "Microsoft Outlook"
-    -- Search all folders in default account for flagged items
-    set output to "[" & return
-    set totalCount to 0
-    set allFolders to every mail folder of default account
-    repeat with f in allFolders
+    try
+        set rootFolders to mail folders of default account
+    on error
+        set rootFolders to {{}}
+    end try
+end tell
+
+repeat with rf in rootFolders
+    if acc's cnt >= capLimit then exit repeat
+    try
+        tell application "Microsoft Outlook" to set rfName to name of rf
+        my scanFlaggedTree(contents of rf, rfName, myDate, capLimit, 0)
+    end try
+end repeat
+
+return (acc's out) & return & "]"
+
+on scanFlaggedTree(f, folderPath, myDate, capLimit, depth)
+    if acc's cnt >= capLimit then return
+    if depth > 8 then return
+    set leafName to my leafOf(folderPath)
+    if leafName is "Deleted Items" or leafName is "Junk Email" or leafName is "Drafts" or leafName is "Trash" or leafName is "Clutter" or leafName is "Outbox" then return
+
+    -- Scan flagged messages in this folder
+    tell application "Microsoft Outlook"
         try
-            set folderName to name of f
-            set folderMsgs to messages of f whose (time sent >= myDate and todo flag of it is not not flagged)
+            set folderMsgs to (messages of f whose (time sent >= myDate and todo flag of it is not not flagged))
             repeat with msg in folderMsgs
-                if totalCount >= 200 then exit repeat
-                set totalCount to totalCount + 1
+                if acc's cnt >= capLimit then exit repeat
+                set acc's cnt to (acc's cnt) + 1
                 set msgSubject to subject of msg
                 set msgSender to ""
                 try
@@ -875,16 +972,34 @@ tell application "Microsoft Outlook"
                 set msgSender to my escJSON(msgSender)
                 set msgContent to my escJSON(msgContent)
                 set msgId to my escJSON(msgId)
-                set escFolder to my escJSON(folderName)
+                set escFolder to my escJSON(folderPath)
                 set dateStr to (year of msgDate as text) & "-" & my padNum(month of msgDate as integer) & "-" & my padNum(day of msgDate) & "T" & my padNum(hours of msgDate) & ":" & my padNum(minutes of msgDate) & ":00"
-                set output to output & "  {{\\"message_id\\": \\"" & msgId & "\\", \\"subject\\": \\"" & msgSubject & "\\", \\"sender\\": \\"" & msgSender & "\\", \\"date\\": \\"" & dateStr & "\\", \\"body_snippet\\": \\"" & msgContent & "\\", \\"folder\\": \\"" & escFolder & "\\", \\"flag_due_date\\": \\"" & flagDate & "\\"}},"
+                set acc's out to (acc's out) & "  {{\\"message_id\\": \\"" & msgId & "\\", \\"subject\\": \\"" & msgSubject & "\\", \\"sender\\": \\"" & msgSender & "\\", \\"date\\": \\"" & dateStr & "\\", \\"body_snippet\\": \\"" & msgContent & "\\", \\"folder\\": \\"" & escFolder & "\\", \\"flag_due_date\\": \\"" & flagDate & "\\"}},"
             end repeat
         end try
-        if totalCount >= 200 then exit repeat
+    end tell
+
+    -- Recurse into subfolders
+    set subList to {{}}
+    try
+        tell application "Microsoft Outlook" to set subList to mail folders of f
+    end try
+    repeat with sub in subList
+        if acc's cnt >= capLimit then return
+        try
+            tell application "Microsoft Outlook" to set subName to name of sub
+            my scanFlaggedTree(contents of sub, folderPath & "/" & subName, myDate, capLimit, depth + 1)
+        end try
     end repeat
-    set output to output & return & "]"
-end tell
-return output
+end scanFlaggedTree
+
+on leafOf(p)
+    set AppleScript's text item delimiters to "/"
+    set parts to text items of p
+    set AppleScript's text item delimiters to ""
+    if (count of parts) is 0 then return p
+    return last item of parts
+end leafOf
 
 on escJSON(txt)
     set txt to my replaceText(txt, "\\\\", "\\\\\\\\")

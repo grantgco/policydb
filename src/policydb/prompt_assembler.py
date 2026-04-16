@@ -831,9 +831,9 @@ def assemble_followups(conn: sqlite3.Connection, record_id: int, depth: int = DE
         line = f"- {_fmt_date(r['follow_up_date'])} — {r['subject']} [{status}]"
         if r["disposition"]:
             line += f" ({r['disposition']})"
-        if r.get("contact_person"):
+        if r["contact_person"]:
             line += f" — contact: {r['contact_person']}"
-        if r.get("details") and r["details"].strip():
+        if r["details"] and r["details"].strip():
             details_text = r["details"].strip()
             if len(details_text) > 300:
                 details_text = details_text[:300] + "…"
@@ -1095,40 +1095,6 @@ def assemble_focus_items(
             "disposition": r["disposition"],
             "accountability": acct_map.get(r["disposition"] or "", "my_action"),
             "contact": r["contact_person"],
-        })
-
-    # 2. Policy-level follow-ups (only when the row has a native follow_up_date).
-    #    Skip at issue scope — follow-ups on every policy for this client are
-    #    off-topic when the user is triaging a single issue.
-    if issue_id:
-        pf_rows = []
-    elif policy_id:
-        pf_rows = conn.execute(
-            """SELECT id, policy_uid, carrier, policy_type, follow_up_date,
-                      CAST(julianday('now') - julianday(follow_up_date) AS INTEGER) AS days_overdue
-               FROM policies
-               WHERE follow_up_date IS NOT NULL AND archived = 0 AND id = ?""",
-            (policy_id,),
-        ).fetchall()
-    elif client_id:
-        pf_rows = conn.execute(
-            """SELECT id, policy_uid, carrier, policy_type, follow_up_date,
-                      CAST(julianday('now') - julianday(follow_up_date) AS INTEGER) AS days_overdue
-               FROM policies
-               WHERE follow_up_date IS NOT NULL AND archived = 0 AND client_id = ?""",
-            (client_id,),
-        ).fetchall()
-    else:
-        pf_rows = []
-    for r in pf_rows:
-        items.append({
-            "kind": "policy_followup",
-            "date": r["follow_up_date"],
-            "days_overdue": r["days_overdue"] or 0,
-            "subject": f"{r['policy_uid']} {r['policy_type'] or ''} — {r['carrier'] or ''}".strip(),
-            "disposition": None,
-            "accountability": "my_action",
-            "contact": None,
         })
 
     # 3. Open issues in scope (for policy scope, UNION direct + junction)
@@ -1443,7 +1409,7 @@ def assemble_recent_activity_log(
         if r["contact_person"]:
             line += f" (contact: {r['contact_person']})"
         line += "\n"
-        if r.get("details") and r["details"].strip():
+        if r["details"] and r["details"].strip():
             details_text = r["details"].strip().replace("\r", " ")
             if len(details_text) > 500:
                 details_text = details_text[:500] + "…"

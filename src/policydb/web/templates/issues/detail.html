@@ -213,10 +213,38 @@
           </div>
         </div>
 
+        {% set multi_policy = (linked_policies | length) > 1 %}
+        {% if multi_policy and activities %}
+        {# ── Per-policy filter chips (multi-policy issues only) ── #}
+        <div class="flex flex-wrap items-center gap-1.5 mb-3 no-print" id="timeline-filter-chips">
+          <span class="text-[10px] text-gray-400 uppercase tracking-wide mr-1">Filter:</span>
+          <button type="button" data-timeline-filter="__all__"
+                  class="timeline-filter-chip is-active text-[11px] px-2 py-0.5 rounded-full border border-marsh bg-marsh text-white transition-colors">
+            All ({{ activities | length }})
+          </button>
+          {% for p in linked_policies %}
+            {% set pcount = activities | selectattr('act_policy_uid', 'equalto', p.policy_uid) | list | length %}
+            {% if pcount > 0 %}
+            <button type="button" data-timeline-filter="{{ p.policy_uid }}"
+                    class="timeline-filter-chip text-[11px] px-2 py-0.5 rounded-full border border-gray-300 bg-white text-gray-700 hover:border-marsh hover:text-marsh transition-colors">
+              <span class="font-mono">{{ p.policy_uid }}</span>{% if p.policy_type %} · {{ p.policy_type }}{% endif %} ({{ pcount }})
+            </button>
+            {% endif %}
+          {% endfor %}
+          {% set unassigned = activities | rejectattr('act_policy_uid') | list | length %}
+          {% if unassigned > 0 %}
+          <button type="button" data-timeline-filter="__none__"
+                  class="timeline-filter-chip text-[11px] px-2 py-0.5 rounded-full border border-gray-300 bg-white text-gray-700 hover:border-marsh hover:text-marsh transition-colors">
+            Program-level ({{ unassigned }})
+          </button>
+          {% endif %}
+        </div>
+        {% endif %}
+
         {% if activities %}
-        <div class="border-l-2 border-gray-200 ml-1 pl-4 space-y-4">
+        <div class="border-l-2 border-gray-200 ml-1 pl-4 space-y-4" id="issue-activity-timeline">
           {% for act in activities %}
-          <div id="issue-activity-{{ act.id }}">
+          <div id="issue-activity-{{ act.id }}" class="timeline-activity" data-activity-policy-uid="{{ act.act_policy_uid or '' }}">
             <div class="flex items-start gap-2">
               <div class="flex-1 min-w-0">
               <span class="text-xs text-gray-400 w-12 flex-shrink-0">{{ act.activity_date[5:].replace('-', '/') if act.activity_date else '' }}</span>
@@ -227,6 +255,12 @@
                 {% elif atype == 'Meeting' %}bg-indigo-100 text-indigo-700
                 {% elif atype == 'Note' %}bg-pink-100 text-pink-700
                 {% else %}bg-gray-100 text-gray-600{% endif %}">{{ atype }}</span>
+              {% if multi_policy and act.act_policy_uid %}
+              <span class="text-[10px] px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-100"
+                    title="{{ act.act_policy_carrier or '' }}">
+                <span class="font-mono">{{ act.act_policy_uid }}</span>{% if act.act_policy_type %} · {{ act.act_policy_type }}{% endif %}
+              </span>
+              {% endif %}
               <span class="text-sm font-medium text-gray-800">
                 {{ act.subject or '' }}
               </span>
@@ -414,6 +448,18 @@
       {% if issue_rollup and linked_policies %}
       {% set rollup_client_id = issue.client_id %}
       {% include "issues/_scope_rollup.html" %}
+      {% endif %}
+
+      {# ── Per-Policy Activity — lazy-loaded check-in strip ── #}
+      {# Only shown when multiple policies are linked; single-policy issues return empty #}
+      {% if linked_policies | length > 1 %}
+      <div hx-get="/issues/{{ issue.id }}/per-policy-activity"
+           hx-trigger="load"
+           hx-swap="innerHTML">
+        <div class="card p-4">
+          <p class="text-xs text-gray-400 italic">Loading policy activity...</p>
+        </div>
+      </div>
       {% endif %}
 
       {# ── Files & Attachments ── #}
@@ -907,5 +953,34 @@ document.addEventListener('click', function(e) {
     document.getElementById('policy-link-results').classList.add('hidden');
   }
 });
+
+// ── Activity timeline per-policy filter chips ──
+(function() {
+  const chipContainer = document.getElementById('timeline-filter-chips');
+  if (!chipContainer) return;
+  const chips = chipContainer.querySelectorAll('.timeline-filter-chip');
+  const rows = document.querySelectorAll('#issue-activity-timeline .timeline-activity');
+  const activeCls = ['is-active', 'bg-marsh', 'text-white', 'border-marsh'];
+  const idleCls = ['bg-white', 'text-gray-700', 'border-gray-300'];
+  chips.forEach(function(chip) {
+    chip.addEventListener('click', function() {
+      const filter = chip.dataset.timelineFilter;
+      chips.forEach(function(c) {
+        c.classList.remove.apply(c.classList, activeCls);
+        c.classList.add.apply(c.classList, idleCls);
+      });
+      chip.classList.add.apply(chip.classList, activeCls);
+      chip.classList.remove.apply(chip.classList, idleCls);
+      rows.forEach(function(row) {
+        const uid = row.dataset.activityPolicyUid || '';
+        let show = false;
+        if (filter === '__all__') show = true;
+        else if (filter === '__none__') show = uid === '';
+        else show = uid === filter;
+        row.style.display = show ? '' : 'none';
+      });
+    });
+  });
+})();
 </script>
 {% endblock %}

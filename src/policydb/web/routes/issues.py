@@ -821,10 +821,16 @@ def issue_detail(
 
     # Get linked activities (threaded into this issue) — filter out open
     # follow-ups owned by the Open Tasks panel to avoid duplicate display.
+    # Join policies so each activity row carries its policy_uid / type / carrier
+    # for the multi-policy filter chips and per-row policy pill.
     activities = filter_thread_for_history([dict(r) for r in conn.execute("""
-        SELECT a.*, c.name AS contact_name
+        SELECT a.*, c.name AS contact_name,
+               p.policy_uid AS act_policy_uid,
+               p.policy_type AS act_policy_type,
+               p.carrier AS act_policy_carrier
         FROM activity_log a
         LEFT JOIN contacts c ON c.id = a.contact_id
+        LEFT JOIN policies p ON p.id = a.policy_id
         WHERE a.issue_id = ?
         ORDER BY a.activity_date DESC, a.created_at DESC
     """, (issue_id,)).fetchall()])
@@ -942,6 +948,83 @@ def issue_detail(
         "data": open_tasks_data,
     }
     return templates.TemplateResponse("issues/detail.html", ctx)
+
+
+@router.get("/issues/{issue_id}/per-policy-activity", response_class=HTMLResponse)
+def issue_per_policy_activity(issue_id: int, request: Request, conn=Depends(get_db)):
+    """Per-policy recent activity cards for the issue check-in view.
+
+    Returns one card per linked policy with its last 2 activities (subject +
+    truncated details/email snippet) and open follow-up status.  Loaded lazily
+    so the main issue page is not slowed down.
+    """
+    linked = get_linked_policies_for_issue(conn, issue_id)
+    if len(linked) < 2:
+        return HTMLResponse("")  # single-policy issues don't need the strip
+
+    policy_ids = [p["id"] for p in linked]
+    placeholders = ",".join("?" * len(policy_ids))
+    today = date.today().isoformat()
+
+    # Last 2 activities per policy (window function — SQLite 3.25+)
+    act_rows = conn.execute(
+        f"""SELECT * FROM (
+                SELECT a.id, a.policy_id, a.activity_date, a.activity_type,
+                       a.subject, a.details, a.email_snippet, a.email_from,
+                       a.email_to, a.disposition, a.contact_person,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY a.policy_id
+                           ORDER BY a.activity_date DESC, a.id DESC
+                       ) AS rn
+                FROM activity_log a
+                WHERE a.policy_id IN ({placeholders})
+                  AND a.item_kind = 'followup'
+            ) ranked WHERE rn <= 2
+            ORDER BY policy_id, rn""",  # noqa: S608
+        policy_ids,
+    ).fetchall()
+
+    # Nearest open follow-up per policy
+    fu_rows = conn.execute(
+        f"""SELECT a.policy_id, a.follow_up_date, a.disposition, a.subject
+            FROM activity_log a
+            WHERE a.policy_id IN ({placeholders})
+              AND a.follow_up_done = 0
+              AND a.follow_up_date IS NOT NULL
+              AND a.item_kind = 'followup'
+            ORDER BY a.policy_id, a.follow_up_date ASC""",  # noqa: S608
+        policy_ids,
+    ).fetchall()
+
+    # Index: policy_id → nearest open follow-up
+    open_fu_by_pid: dict[int, dict] = {}
+    for r in fu_rows:
+        pid = r["policy_id"]
+        if pid not in open_fu_by_pid:
+            fu = dict(r)
+            fu["is_overdue"] = fu["follow_up_date"] < today
+            open_fu_by_pid[pid] = fu
+
+    # Group activities by policy_id
+    acts_by_pid: dict[int, list] = {}
+    for r in act_rows:
+        acts_by_pid.setdefault(r["policy_id"], []).append(dict(r))
+
+    # Build card list preserving linked-policy order
+    cards = []
+    for pol in linked:
+        pid = pol["id"]
+        cards.append({
+            "policy": pol,
+            "activities": acts_by_pid.get(pid, []),
+            "open_followup": open_fu_by_pid.get(pid),
+        })
+
+    return templates.TemplateResponse("issues/_per_policy_activity.html", {
+        "request": request,
+        "cards": cards,
+        "today": today,
+    })
 
 
 def _issue_scratchpad_ctx(request, conn, issue_uid: str, content: str | None = None) -> dict:

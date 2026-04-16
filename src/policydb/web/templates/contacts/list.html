@@ -128,8 +128,8 @@
           </datalist>
         </div>
         <div>
-          <label class="text-[10px] font-semibold text-gray-400 uppercase tracking-wide block mb-1">Title / Role</label>
-          <input type="text" name="role" list="new-contact-roles" autocomplete="off" placeholder="e.g. Underwriter, CFO"
+          <label class="text-[10px] font-semibold text-gray-400 uppercase tracking-wide block mb-1">Title</label>
+          <input type="text" name="title" list="new-contact-roles" autocomplete="off" placeholder="e.g. Underwriter, CFO"
             class="border border-gray-200 rounded-lg px-3 py-2 text-sm w-full focus:outline-none focus:ring-1 focus:ring-marsh focus:border-marsh">
           <datalist id="new-contact-roles">
             {% for r in all_roles %}<option value="{{ r }}">{% endfor %}

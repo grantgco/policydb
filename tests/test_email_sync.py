@@ -510,7 +510,7 @@ def test_sync_outlook_refuses_empty_capture_category(conn, monkeypatch):
     assert any("capture category is empty" in e.lower() for e in results["errors"])
 
 
-# ── Multi-party contact tagging (migration 159) ─────────────────────────────
+# ── Multi-party contact tagging (migration 160) ─────────────────────────────
 
 
 def _insert_policy(conn, client_id, policy_uid):
@@ -780,3 +780,57 @@ def test_migration_159_backfills_existing_contacts(conn):
         "SELECT role FROM activity_contacts WHERE activity_id=?", (aid,),
     ).fetchone()
     assert row["role"] == "from"
+
+
+# ── Nested-subfolder regression ─────────────────────────────────────────────
+
+
+def test_process_email_handles_nested_subfolder_path(
+    conn, seed_client, seed_policy,
+):
+    """Reply filed in ``Inbox/Clients/XYZ`` must still match its [PDB:] tag.
+
+    Production bug: a placement-colleague reply quoted the original outbound
+    email's ``[PDB:CN...-POL...]`` tags but had been filed by an Outlook rule
+    into a nested user folder. The legacy ``search_all_folders`` AppleScript
+    only iterated top-level folders so the email was silently dropped despite
+    carrying a valid ref tag (fix: recursive ``scanTree`` handler — guarded
+    by tests in ``test_outlook_search_compile.py``).
+
+    This test guards the Python side of the contract: when the bridge does
+    return a nested folder path, ``_process_email`` correctly resolves the
+    ref tag, creates the activity against the right client/policy, and
+    preserves the slash-delimited source path in the details blurb.
+    """
+    results = {
+        "auto_linked": {"sent": 0, "received": 0, "flagged": 0},
+        "suggestions": [],
+        "skipped": 0,
+        "errors": [],
+    }
+    nested_email = {
+        "message_id": "MSG-NESTED-1",
+        "subject": "RE: GL renewal [PDB:CN999000111-POL042]",
+        "sender": "broker@placementco.example",
+        "recipients": ["me@marsh.com"],
+        "date": "2026-04-15T09:00:00",
+        "body_snippet": "Quoting earlier thread with [PDB:CN999000111-POL042]",
+        "folder": "Inbox/Clients/Acme Corp/2026 Renewal",
+        "categories": [],
+    }
+
+    _process_email(conn, nested_email, results, "received")
+
+    assert results["auto_linked"]["received"] == 1
+    row = conn.execute(
+        """SELECT client_id, policy_id, details, email_direction
+           FROM activity_log WHERE outlook_message_id = ?""",
+        ("MSG-NESTED-1",),
+    ).fetchone()
+    assert row is not None, "nested-folder email should produce an activity"
+    assert row["client_id"] == seed_client
+    assert row["policy_id"] == seed_policy
+    assert row["email_direction"] == "received"
+    # Source folder path (slash-delimited) is preserved so the user can see
+    # WHERE the email was filed.
+    assert "Inbox/Clients/Acme Corp/2026 Renewal" in row["details"]

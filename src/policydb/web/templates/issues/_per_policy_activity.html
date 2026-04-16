@@ -1,0 +1,160 @@
+{# Per-policy activity check-in strip.
+ # Rendered by GET /issues/{id}/per-policy-activity and injected lazily.
+ # Shows last 2 activities per policy with content + open follow-up status.
+ #}
+{% if cards %}
+<div class="card">
+  <div class="px-4 py-2.5 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
+    <span class="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Per-Policy Activity</span>
+    <span class="text-[10px] text-gray-400">{{ cards | length }} policies</span>
+  </div>
+
+  <div class="divide-y divide-gray-100">
+    {% for card in cards %}
+    {% set pol = card.policy %}
+    {% set acts = card.activities %}
+    {% set fu = card.open_followup %}
+
+    <div class="px-4 py-3">
+
+      {# ── Policy header ── #}
+      <div class="flex items-center gap-2 mb-2 flex-wrap">
+        <a href="/policies/{{ pol.policy_uid }}/edit"
+           class="font-mono text-xs font-semibold text-marsh hover:underline shrink-0">{{ pol.policy_uid }}</a>
+        {# Copy tag — pastes [PDB:POL-XXX] into email subject/body #}
+        <button type="button"
+                onclick="copyRefTag(this, '{{ pol.policy_uid }}')"
+                title="Copy [PDB:{{ pol.policy_uid }}] to clipboard"
+                class="inline-flex items-center gap-0.5 text-[9px] font-mono text-gray-400
+                       hover:text-marsh border border-gray-200 hover:border-marsh/40
+                       bg-gray-50 hover:bg-blue-50 rounded px-1.5 py-0.5
+                       transition-colors cursor-pointer shrink-0 no-print">
+          <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+          </svg>
+          copy tag
+        </button>
+        {% if pol.policy_type %}
+        <span class="text-xs text-gray-700 shrink-0">{{ pol.policy_type }}</span>
+        {% endif %}
+        {% if pol.carrier %}
+        <span class="text-xs text-gray-400 shrink-0">&middot; {{ pol.carrier }}</span>
+        {% endif %}
+        {% if pol.renewal_status %}
+        <span class="ml-auto text-[10px] px-2 py-0.5 rounded-full shrink-0
+          {% if pol.renewal_status == 'Bound' %}bg-green-100 text-green-700
+          {% elif pol.renewal_status == 'In Progress' %}bg-blue-100 text-blue-700
+          {% elif pol.renewal_status == 'Not Started' %}bg-gray-100 text-gray-500
+          {% else %}bg-gray-100 text-gray-600{% endif %}">
+          {{ pol.renewal_status }}
+        </span>
+        {% endif %}
+      </div>
+
+      {# ── Activities ── #}
+      {% if acts %}
+      <div class="space-y-3">
+        {% for act in acts %}
+        {% set atype = act.activity_type or '' %}
+        {% set is_first = loop.first %}
+        <div class="{% if not loop.first %}pt-3 border-t border-gray-50{% endif %}">
+          {# Type badge + date + subject #}
+          <div class="flex items-baseline gap-2 flex-wrap mb-1">
+            <span class="text-[10px] font-medium px-1.5 py-0.5 rounded shrink-0
+              {% if atype == 'Call' %}bg-blue-100 text-blue-700
+              {% elif atype == 'Email' %}bg-amber-100 text-amber-700
+              {% elif atype == 'Meeting' %}bg-indigo-100 text-indigo-700
+              {% elif atype == 'Note' %}bg-pink-100 text-pink-700
+              {% else %}bg-gray-100 text-gray-600{% endif %}">{{ atype or 'Activity' }}</span>
+            <span class="text-[10px] text-gray-400 shrink-0">
+              {{ (act.activity_date or '')[:10][5:].replace('-', '/') }}
+            </span>
+            {% if act.contact_person %}
+            <span class="text-[10px] text-gray-400 shrink-0">&middot; {{ act.contact_person }}</span>
+            {% elif act.email_from and atype == 'Email' %}
+            <span class="text-[10px] text-gray-400 shrink-0 truncate max-w-[180px]">&middot; {{ act.email_from }}</span>
+            {% endif %}
+            {% if not is_first %}
+            <span class="text-[9px] text-gray-300 shrink-0 ml-auto italic">previous</span>
+            {% endif %}
+          </div>
+
+          {# Subject #}
+          {% if act.subject %}
+          <div class="text-sm font-medium text-gray-800 mb-1">{{ act.subject }}</div>
+          {% endif %}
+
+          {# Email metadata (From/To) for email type #}
+          {% if atype == 'Email' and (act.email_from or act.email_to) %}
+          <div class="text-[10px] text-gray-400 mb-1 space-y-0.5">
+            {% if act.email_from %}
+            <div><span class="text-gray-300">From</span> {{ act.email_from }}</div>
+            {% endif %}
+            {% if act.email_to %}
+            <div><span class="text-gray-300">To</span> {{ act.email_to }}</div>
+            {% endif %}
+          </div>
+          {% endif %}
+
+          {# Content: prefer email_snippet, fall back to details #}
+          {% set content = act.email_snippet or act.details or '' %}
+          {% if content %}
+          <div class="text-xs text-gray-600 leading-relaxed bg-gray-50 rounded px-2.5 py-2 whitespace-pre-wrap">{{ content[:400] }}{% if content | length > 400 %}<span class="text-gray-400 italic"> …</span>{% endif %}</div>
+          {% endif %}
+
+          {# Disposition badge #}
+          {% if act.disposition and is_first %}
+          <div class="mt-1">
+            <span class="text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200">
+              &#9203; {{ act.disposition }}
+            </span>
+          </div>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+
+      {% else %}
+      {# No activity logged directly on this policy #}
+      <div class="flex items-center gap-1.5 text-xs text-gray-400 italic py-1">
+        <svg class="w-3.5 h-3.5 text-gray-300 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+        </svg>
+        No activity logged directly on this policy
+      </div>
+      {% endif %}
+
+      {# ── Open follow-up ── #}
+      <div class="flex items-center justify-between mt-2.5 pt-2 border-t border-gray-50">
+        {% if fu %}
+        <span class="text-[10px] flex items-center gap-1
+          {% if fu.is_overdue %}text-red-600 font-semibold{% else %}text-gray-500{% endif %}">
+          {% if fu.is_overdue %}
+          <svg class="w-3 h-3 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+            <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
+          </svg>
+          Overdue F/U {{ fu.follow_up_date[5:].replace('-', '/') }}
+          {% else %}
+          &#9203; F/U {{ fu.follow_up_date[5:].replace('-', '/') }}
+          {% endif %}
+          {% if fu.disposition %}
+          &middot; <span class="text-gray-400 font-normal">{{ fu.disposition }}</span>
+          {% endif %}
+        </span>
+        {% else %}
+        <span class="text-[10px] text-gray-300 italic">No open follow-up</span>
+        {% endif %}
+
+        <a href="/policies/{{ pol.policy_uid }}/edit?tab=activity"
+           class="text-[10px] text-marsh hover:underline shrink-0">
+          View all activity &rarr;
+        </a>
+      </div>
+
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
