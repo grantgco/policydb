@@ -983,22 +983,38 @@ def renew_policy(
 
     premium_value = new_premium if new_premium is not None else old["premium"]
 
+    # Per-term fields that must carry forward on renewal. Missing any of these
+    # silently drops data on the expiring term — see plan
+    # .claude/plans/snappy-strolling-fountain.md for the audit that produced
+    # this list. Keep this INSERT aligned with any new policies.* columns.
     conn.execute(
         """INSERT INTO policies
            (policy_uid, client_id, policy_type, carrier, policy_number,
             effective_date, expiration_date, premium, prior_premium,
             limit_amount, deductible, description, coverage_form,
             layer_position, tower_group, is_standalone,
+            placement_colleague, placement_colleague_email,
+            underwriter_name, underwriter_contact,
+            attachment_point, participation_of, access_point,
+            first_named_insured, is_bor, milestone_profile,
+            layer_notation, endorsements,
             renewal_status, commission_rate, account_exec, notes,
             project_name, project_id,
             prior_policy_uid)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,
+                   ?,?,?,?,?,?,?,?,?,?,?,?,
+                   ?,?,?,?,?,?,?)""",
         (
             new_uid, old["client_id"], old["policy_type"], old["carrier"], None,
             new_eff.isoformat(), new_exp.isoformat(),
             premium_value, old["premium"],  # prior_premium snapshot stays = old premium
             old["limit_amount"], old["deductible"], old["description"], old["coverage_form"],
             old["layer_position"] or "Primary", old["tower_group"], old["is_standalone"],
+            old["placement_colleague"], old["placement_colleague_email"],
+            old["underwriter_name"], old["underwriter_contact"],
+            old["attachment_point"], old["participation_of"], old["access_point"],
+            old["first_named_insured"], old["is_bor"], old["milestone_profile"],
+            old["layer_notation"], old["endorsements"],
             "Not Started", old["commission_rate"], old["account_exec"], None,
             old["project_name"], old["project_id"],
             uid,

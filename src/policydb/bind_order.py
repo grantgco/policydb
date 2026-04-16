@@ -563,6 +563,24 @@ def execute_bind_order(
     bind_note = (payload.bind_note or "").strip() or None
     terminal_for_program = set(cfg.get("renewal_terminal_statuses", ["Bound", "Lost", "Non-Renewed", "Declined"]))
 
+    # Guard against vacuous-truth zero-work submissions. When every child in a
+    # subject is already bound/archived, the panel locks them out — the JS may
+    # still enable Confirm, producing a submission with empty/all-Defer children.
+    # Without this check the request silently writes a bind_events row and does
+    # nothing visible, which is the top source of user-reported "silent failure".
+    actionable = 0
+    for sp in payload.subjects:
+        for ch in sp.children:
+            if ch.checked:
+                actionable += 1
+            elif (ch.disposition or "").strip() not in ("", "Defer"):
+                actionable += 1
+    if actionable == 0:
+        raise ValueError(
+            "Nothing to bind — all rows are already bound, renewed, or archived. "
+            "If a term has lapsed, renew it first from the expiring policy row."
+        )
+
     for sp in payload.subjects:
         # Resolve the subject row
         if sp.subject_type == "program":

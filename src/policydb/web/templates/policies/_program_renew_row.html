@@ -93,8 +93,8 @@
   <td class="px-2 py-1.5 whitespace-nowrap">
     <div class="flex items-center gap-2">
       <button type="button"
-        onclick="openBindOrderSlideover('program:{{ p.program_uid }}')"
-        class="text-marsh hover:underline font-medium">Bind</button>
+        onclick="openRenewPoliciesSlideover('program:{{ p.program_uid }}')"
+        class="text-marsh hover:underline font-medium">Renew</button>
       <button
         hx-get="/programs/{{ p.program_uid }}/renew/log"
         hx-target="#pgm-row-{{ p.program_uid }}"

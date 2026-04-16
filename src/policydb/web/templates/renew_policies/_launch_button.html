@@ -1,0 +1,36 @@
+{# Renew Policies launch button — shared partial used across the app.
+
+   Params:
+     subjects (str)        — comma-separated tokens: "policy:POL-017,program:PGM-042"
+     label    (str)        — button text. Defaults to "Renew Policies".
+     cls      (str)        — extra Tailwind classes for the button. Optional.
+     disabled (bool)       — force-disable with a tooltip explaining why.
+     disabled_reason (str) — tooltip text when disabled.
+     size     (str)        — "sm" for compact (default), "md" for larger.
+#}
+{% set _label   = label | default('Renew Policies') %}
+{% set _cls     = cls | default('') %}
+{% set _size    = size | default('sm') %}
+{% set _dsbl    = disabled | default(false) %}
+{% set _reason  = disabled_reason | default('') %}
+
+{% if _size == 'md' %}
+  {% set _pad = 'px-3 py-1.5 text-sm' %}
+{% else %}
+  {% set _pad = 'px-2.5 py-1 text-xs' %}
+{% endif %}
+
+{% if _dsbl %}
+<button type="button"
+        class="{{ _pad }} bg-gray-100 text-gray-400 rounded-md border border-gray-200 cursor-not-allowed {{ _cls }}"
+        title="{{ _reason }}"
+        disabled>
+  {{ _label }}
+</button>
+{% else %}
+<button type="button"
+        class="{{ _pad }} bg-marsh hover:bg-marsh/90 text-white rounded-md font-medium transition-colors {{ _cls }}"
+        onclick="openRenewPoliciesSlideover('{{ subjects }}')">
+  {{ _label }}
+</button>
+{% endif %}
