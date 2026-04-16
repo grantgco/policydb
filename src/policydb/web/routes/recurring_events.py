@@ -51,6 +51,36 @@ def _parse_int(value, default: Optional[int] = None) -> Optional[int]:
         return default
 
 
+_MONTHLY_CADENCES = {"Monthly", "Quarterly", "Semi-Annual", "Annual"}
+
+
+def _normalize_month_pattern(
+    cadence: str,
+    month_pattern: str,
+    nth_weekday_n: str,
+    nth_weekday_dow: str,
+) -> tuple[Optional[str], Optional[int], Optional[int]]:
+    """Validate + coerce the form's monthly-pattern fields.
+
+    Returns (pattern, nth_n, nth_dow). When the cadence isn't monthly, or the
+    nth-weekday fields are missing/invalid, all three are None — which
+    preserves the legacy day_of_month code path.
+    """
+    if (cadence or "").strip() not in _MONTHLY_CADENCES:
+        return None, None, None
+    if (month_pattern or "").strip() != "nth_weekday":
+        return None, None, None
+    nth_n = _parse_int(nth_weekday_n)
+    nth_dow = _parse_int(nth_weekday_dow)
+    if nth_n is None or nth_dow is None:
+        return None, None, None
+    if nth_n != -1 and (nth_n < 1 or nth_n > 4):
+        return None, None, None
+    if nth_dow < 0 or nth_dow > 6:
+        return None, None, None
+    return "nth_weekday", nth_n, nth_dow
+
+
 def _get_template(conn, recurring_id: int) -> Optional[dict]:
     row = conn.execute(
         "SELECT * FROM recurring_events WHERE id = ?", (recurring_id,)
@@ -139,6 +169,9 @@ def create_template(
     interval_n: int = Form(1),
     day_of_week: str = Form(""),
     day_of_month: str = Form(""),
+    month_pattern: str = Form(""),
+    nth_weekday_n: str = Form(""),
+    nth_weekday_dow: str = Form(""),
     lead_days: int = Form(0),
     end_date: str = Form(""),
     default_severity: str = Form("Normal"),
@@ -154,7 +187,12 @@ def create_template(
     end = _parse_date(end_date)
     dow = _parse_int(day_of_week)
     dom = _parse_int(day_of_month)
-    next_occ = compute_initial_next_occurrence(start, cadence, dow, dom)
+    pattern, nth_n, nth_dow = _normalize_month_pattern(
+        cadence, month_pattern, nth_weekday_n, nth_weekday_dow
+    )
+    next_occ = compute_initial_next_occurrence(
+        start, cadence, dow, dom, pattern, nth_n, nth_dow
+    )
 
     uid = next_recurring_uid(conn)
     conn.execute(
@@ -162,10 +200,11 @@ def create_template(
         INSERT INTO recurring_events (
             recurring_uid, client_id, policy_id, event_type, name,
             subject_template, details_template, default_severity,
-            cadence, interval_n, day_of_week, day_of_month, lead_days,
+            cadence, interval_n, day_of_week, day_of_month,
+            month_pattern, nth_weekday_n, nth_weekday_dow, lead_days,
             start_date, end_date, next_occurrence,
             account_exec, active, catch_up_mode, notes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
         """,
         (
             uid,
@@ -180,6 +219,9 @@ def create_template(
             max(1, int(interval_n or 1)),
             dow,
             dom,
+            pattern,
+            nth_n,
+            nth_dow,
             max(0, int(lead_days or 0)),
             start.isoformat(),
             end.isoformat() if end else None,
@@ -212,6 +254,9 @@ def update_template(
     interval_n: int = Form(1),
     day_of_week: str = Form(""),
     day_of_month: str = Form(""),
+    month_pattern: str = Form(""),
+    nth_weekday_n: str = Form(""),
+    nth_weekday_dow: str = Form(""),
     lead_days: int = Form(0),
     end_date: str = Form(""),
     default_severity: str = Form("Normal"),
@@ -233,12 +278,17 @@ def update_template(
     dom = _parse_int(day_of_month)
     end = _parse_date(end_date)
     start = _parse_date(start_date) or _parse_date(template.get("start_date")) or date.today()
+    pattern, nth_n, nth_dow = _normalize_month_pattern(
+        cadence, month_pattern, nth_weekday_n, nth_weekday_dow
+    )
 
     conn.execute(
         """
         UPDATE recurring_events
         SET name = ?, policy_id = ?, event_type = ?, cadence = ?, interval_n = ?,
-            day_of_week = ?, day_of_month = ?, lead_days = ?, start_date = ?,
+            day_of_week = ?, day_of_month = ?,
+            month_pattern = ?, nth_weekday_n = ?, nth_weekday_dow = ?,
+            lead_days = ?, start_date = ?,
             end_date = ?, default_severity = ?, subject_template = ?,
             details_template = ?, account_exec = ?, catch_up_mode = ?, notes = ?
         WHERE id = ?
@@ -251,6 +301,9 @@ def update_template(
             max(1, int(interval_n or 1)),
             dow,
             dom,
+            pattern,
+            nth_n,
+            nth_dow,
             max(0, int(lead_days or 0)),
             start.isoformat(),
             end.isoformat() if end else None,
@@ -321,6 +374,9 @@ def advance_template(recurring_id: int, request: Request, conn=Depends(get_db)):
         template.get("interval_n") or 1,
         template.get("day_of_week"),
         template.get("day_of_month"),
+        template.get("month_pattern"),
+        template.get("nth_weekday_n"),
+        template.get("nth_weekday_dow"),
     )
     conn.execute(
         "UPDATE recurring_events SET next_occurrence = ? WHERE id = ?",

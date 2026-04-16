@@ -554,7 +554,7 @@ function initClientAutocomplete(inputId, hiddenId, opts) {
   input.addEventListener('blur', function() { setTimeout(rmDD, 150); });
 
   function doSearch(q) {
-    fetch('/api/client-search?q=' + encodeURIComponent(q))
+    fetch('/charts/api/client-search?q=' + encodeURIComponent(q))
       .then(function(r) { return r.json(); })
       .then(function(results) {
         rmDD();

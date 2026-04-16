@@ -94,8 +94,16 @@ _DEFAULTS: dict[str, Any] = {
         "In Progress",
         "Pending Bind",
         "Bound",
+        "Lost",
+        "Non-Renewed",
+        "Declined",
+        "Not Tracked",
     ],
-    "renewal_statuses_excluded": [],
+    # Statuses silenced from alerts, renewal pipeline, suggested follow-ups,
+    # AND renewal-issue auto-create. The generator also hard-skips Lost /
+    # Non-Renewed / Declined / Not Tracked via renewal_issues._renewal_skip_statuses,
+    # so clearing this list does not re-enable those cases.
+    "renewal_statuses_excluded": ["Lost", "Non-Renewed", "Declined", "Not Tracked"],
     "opportunity_statuses": [
         "Prospecting",
         "Quoting",
