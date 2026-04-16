@@ -821,10 +821,16 @@ def issue_detail(
 
     # Get linked activities (threaded into this issue) — filter out open
     # follow-ups owned by the Open Tasks panel to avoid duplicate display.
+    # Join policies so each activity row carries its policy_uid / type / carrier
+    # for the multi-policy filter chips and per-row policy pill.
     activities = filter_thread_for_history([dict(r) for r in conn.execute("""
-        SELECT a.*, c.name AS contact_name
+        SELECT a.*, c.name AS contact_name,
+               p.policy_uid AS act_policy_uid,
+               p.policy_type AS act_policy_type,
+               p.carrier AS act_policy_carrier
         FROM activity_log a
         LEFT JOIN contacts c ON c.id = a.contact_id
+        LEFT JOIN policies p ON p.id = a.policy_id
         WHERE a.issue_id = ?
         ORDER BY a.activity_date DESC, a.created_at DESC
     """, (issue_id,)).fetchall()])
