@@ -4706,6 +4706,22 @@ async def policy_mark_bound(
     if not re.fullmatch(r"POL-\d+", normalized):
         raise HTTPException(status_code=404, detail="Invalid policy UID")
 
+    # Reject opportunities explicitly — the UI hides the Mark Bound button
+    # for is_opportunity=1, but a direct POST would otherwise 303 redirect
+    # with no state change (mark_policy_bound() silently skips them),
+    # creating a misleading "success" for the caller.
+    pol_row = conn.execute(
+        "SELECT is_opportunity FROM policies WHERE policy_uid = ?",
+        (normalized,),
+    ).fetchone()
+    if not pol_row:
+        raise HTTPException(status_code=404, detail=f"Policy {normalized} not found")
+    if pol_row["is_opportunity"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Opportunities must be converted to a policy before they can be marked bound.",
+        )
+
     form = await request.form()
     from datetime import date
     bind_date = (form.get("bind_date") or date.today().isoformat()).strip()

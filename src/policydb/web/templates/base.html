@@ -869,10 +869,19 @@ document.addEventListener('keydown', function(e) {
   }
 });
 
-// Back-compat shims: keep the old names aliased so anything that still calls
+// Back-compat shims: keep the old name aliased so anything that still calls
 // openBindOrderSlideover() routes to the new panel during the transition.
 window.openBindOrderSlideover = openRenewPoliciesSlideover;
-window.closeBindOrderSlideover = closeRenewPoliciesSlideover;
+// The legacy /bind-order/panel template renders its own dom ids, so the close
+// shim has to handle BOTH the new and legacy panel+backdrop. Removing only the
+// new-panel ids left the old one visible and body.style.overflow locked.
+window.closeBindOrderSlideover = function() {
+  var legacyBackdrop = document.getElementById('bind-order-backdrop');
+  var legacyPanel = document.getElementById('bind-order-panel');
+  if (legacyBackdrop) legacyBackdrop.remove();
+  if (legacyPanel) legacyPanel.remove();
+  closeRenewPoliciesSlideover();
+};
 </script>
 
 

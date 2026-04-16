@@ -231,10 +231,13 @@ function openMarkBoundModal(policyUid) {
     '  </form>',
     '</div>'
   ].join('\n');
-  var container = document.createElement('div');
-  container.id = 'mark-bound-container';
+  var container = document.getElementById('mark-bound-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'mark-bound-container';
+    document.body.appendChild(container);
+  }
   container.innerHTML = html;
-  document.body.appendChild(container);
 }
 
 function closeMarkBoundModal() {

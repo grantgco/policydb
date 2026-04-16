@@ -131,6 +131,7 @@ async def renew_policies_submit(
         "ok": True,
         "new_uids": result.new_uids,
         "excepted_count": result.excepted_count,
+        "skipped_already_renewed": result.skipped_already_renewed,
         "batch_ids": result.batch_ids,
         "edit_grid_url": edit_grid_url,
         "toast_message": result.toast_message,
@@ -146,17 +147,15 @@ def renew_policies_edit_grid(
 ):
     """Batch edit grid — Tabulator showing only the new term rows for inline editing."""
     from policydb.queries import get_all_policies_for_grid, get_projects_by_client
-    from policydb.web.routes.policies import US_STATES  # reuse the state list
 
     uid_list = [u.strip().upper() for u in uids.split(",") if u.strip()]
     if not uid_list:
         raise HTTPException(status_code=400, detail="No uids provided")
 
-    # Reuse the policies grid row builder, then filter in-memory. The helper is
-    # the canonical source for row shape + columns; filtering here keeps column
-    # + format logic in one place.
-    all_rows = get_all_policies_for_grid(conn)
-    rows = [r for r in all_rows if r.get("policy_uid") in uid_list]
+    # Query only the requested UIDs rather than fetching every row and
+    # filtering in Python — the edit grid will only ever display a handful
+    # of newly-created rows, so we shouldn't scale with total book size.
+    rows = get_all_policies_for_grid(conn, uids=uid_list)
 
     if not rows:
         raise HTTPException(status_code=404, detail="None of the requested uids exist (or they're archived)")

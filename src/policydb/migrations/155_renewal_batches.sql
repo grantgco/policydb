@@ -1,4 +1,4 @@
--- Migration 152: Record renewal batches (the Renew Policies workflow successor to Bind Order).
+-- Migration 155: Record renewal batches (the Renew Policies workflow successor to Bind Order).
 --
 -- Each row captures one invocation of execute_create_renewals for a single subject
 -- (program or standalone policy). The new_uids_json column stores the list of POL-NNN

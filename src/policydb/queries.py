@@ -940,6 +940,7 @@ def renew_policy(
     new_effective: str | date | None = None,
     new_expiration: str | date | None = None,
     new_premium: float | None = None,
+    commit: bool = True,
 ) -> str:
     """Create a new annual term from an existing policy.
 
@@ -953,6 +954,9 @@ def renew_policy(
         still auto-computed (effective = old.expiration; expiration = new_eff + term).
       new_premium: override the premium on the new term row. If None, the new
         row inherits the old row's premium (default behavior).
+      commit: set False when this call is part of a larger transaction (the
+        batch Renew Policies flow holds the commit until the whole batch is
+        applied so a mid-batch failure rolls back cleanly).
     """
     from policydb.db import next_policy_uid
 
@@ -1108,7 +1112,8 @@ def renew_policy(
 
     # Archive the prior term
     conn.execute("UPDATE policies SET archived=1 WHERE policy_uid=?", (uid,))
-    conn.commit()
+    if commit:
+        conn.commit()
 
     return new_uid
 
@@ -5077,10 +5082,24 @@ def get_escalation_suggestions(conn: sqlite3.Connection) -> list[dict]:
 # ─── SPREADSHEET GRID DATA ──────────────────────────────────────────────────
 
 
-def get_all_policies_for_grid(conn: sqlite3.Connection) -> list[dict]:
-    """Return all non-archived policies with all editable fields for the
-    spreadsheet grid view.  Includes opportunities."""
-    sql = """
+def get_all_policies_for_grid(
+    conn: sqlite3.Connection,
+    uids: list[str] | None = None,
+) -> list[dict]:
+    """Return non-archived policies with all editable fields for the
+    spreadsheet grid view. Includes opportunities.
+
+    Pass `uids` to filter to a specific set of policy_uids (used by the
+    Renew Policies edit grid, which only needs the N rows just created).
+    """
+    where_uid = ""
+    params: tuple = ()
+    if uids:
+        placeholders = ",".join("?" * len(uids))
+        where_uid = f" AND p.policy_uid IN ({placeholders})"  # noqa: S608
+        params = tuple(uids)
+
+    sql = f"""
     SELECT
         p.policy_uid,
         p.client_id,
@@ -5127,10 +5146,10 @@ def get_all_policies_for_grid(conn: sqlite3.Connection) -> list[dict]:
     LEFT JOIN policy_exposure_links pel ON pel.policy_uid = p.policy_uid AND pel.is_primary = 1
     LEFT JOIN client_exposures ce ON ce.id = pel.exposure_id
     LEFT JOIN projects pr_ce ON pr_ce.id = ce.project_id
-    WHERE p.archived = 0
+    WHERE p.archived = 0{where_uid}
     ORDER BY c.name, p.policy_type, p.layer_position
     """
-    rows = conn.execute(sql).fetchall()
+    rows = conn.execute(sql, params).fetchall()
     return [dict(r) for r in rows]
 
 

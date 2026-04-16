@@ -135,6 +135,7 @@ class RenewPayload:
 class CreateRenewalsResult:
     new_uids: list[str] = field(default_factory=list)
     excepted_count: int = 0
+    skipped_already_renewed: list[str] = field(default_factory=list)
     batch_ids: list[int] = field(default_factory=list)
     toast_message: str = ""
 
@@ -339,8 +340,11 @@ def _copy_tower_mappings(
                         cov["underlying_sub_coverage_id"],
                     ),
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning(
+                    "Tower coverage carry-forward failed for excess %s → %s: %s",
+                    cov["excess_policy_id"], new_excess, exc,
+                )
 
     lines = conn.execute(
         f"""SELECT * FROM program_tower_lines
@@ -364,8 +368,11 @@ def _copy_tower_mappings(
                         line["sort_order"],
                     ),
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning(
+                    "Tower line carry-forward failed for source %s → %s: %s",
+                    line["source_policy_id"], new_source, exc,
+                )
 
 
 # ─── Execution ──────────────────────────────────────────────────────────────
@@ -455,9 +462,14 @@ def execute_create_renewals(
                 continue
 
             # CHECKED — create a new term row via the canonical renew_policy().
+            # already_renewed rows normally can't be submitted (the panel
+            # disables their checkbox), but a stale DOM or direct API call
+            # could slip through. Track the skip so the response is explicit
+            # rather than a silent "success with zero new terms".
             state = resolve_renewal_state(conn, old_uid)
             if state == "already_renewed":
                 logger.warning("Skipping renewal for %s: already renewed", old_uid)
+                result.skipped_already_renewed.append(old_uid)
                 continue
 
             old_row = conn.execute(
@@ -465,12 +477,16 @@ def execute_create_renewals(
             ).fetchone()
             old_id = old_row["id"] if old_row else None
 
+            # commit=False so the whole batch lives in one transaction — if a
+            # later subject fails we roll back everything via the try/except
+            # in the route handler.
             new_uid = renew_policy(
                 conn,
                 old_uid,
                 new_effective=sp.new_effective,
                 new_expiration=sp.new_expiration,
                 new_premium=ch.new_premium,
+                commit=False,
             )
             subject_new_uids.append(new_uid)
 
@@ -546,11 +562,16 @@ def execute_create_renewals(
         )
     if result.excepted_count:
         parts.append(f"{result.excepted_count} excepted")
-    result.toast_message = (
-        " — ".join(parts) + " — now edit the new-term fields."
-        if parts
-        else "No renewals created."
-    )
+    if result.skipped_already_renewed:
+        parts.append(
+            f"{len(result.skipped_already_renewed)} skipped (already renewed)"
+        )
+    if result.new_uids:
+        result.toast_message = " — ".join(parts) + " — now edit the new-term fields."
+    elif parts:
+        result.toast_message = " — ".join(parts) + "."
+    else:
+        result.toast_message = "No renewals created."
 
     logger.info(
         "Renewal batch complete: %d new terms, %d excepted (batches=%s)",

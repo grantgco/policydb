@@ -42,16 +42,17 @@ def mark_policy_bound(
     *,
     generate_followups: bool = True,
 ) -> None:
-    """Mark a single policy bound. Idempotent-ish — callers should verify the
-    row is unbound first. Opportunity rows are skipped (they must be converted
-    before they can be bound).
+    """Mark a single policy bound. Idempotent — if the policy already has a
+    `bound_date`, returns early without duplicating the 'Renewal bound'
+    activity or regenerating post-bind follow-ups. Opportunity rows are
+    skipped (they must be converted before they can be bound).
 
     Raises:
         ValueError if the policy_uid doesn't exist.
     """
     uid = policy_uid.upper()
     pol = conn.execute(
-        """SELECT id, client_id, policy_uid, is_opportunity, program_id
+        """SELECT id, client_id, policy_uid, is_opportunity, program_id, bound_date
            FROM policies WHERE policy_uid = ?""",
         (uid,),
     ).fetchone()
@@ -59,6 +60,11 @@ def mark_policy_bound(
         raise ValueError(f"Policy {uid} not found")
     if pol["is_opportunity"]:
         logger.info("Skipping bind for %s: is_opportunity=1", uid)
+        return
+    if pol["bound_date"]:
+        # Already bound — don't duplicate the activity log row or regenerate
+        # post-bind follow-ups on a double-click, retry, or concurrent call.
+        logger.info("Skipping bind for %s: bound_date=%s already set", uid, pol["bound_date"])
         return
 
     # 1. Status + bound_date + updated_at
@@ -135,10 +141,9 @@ def generate_post_bind_followups(
     """Insert one follow-up activity_log row per item in
     config.post_bind_activities. Returns count inserted.
 
-    Exactly one of program_id / policy_id must be set — the follow-up anchors
-    to that record. If both are passed (policy has a program parent), the
-    follow-up is anchored on the policy so it shows up on the policy's
-    action center too.
+    At least one of program_id / policy_id must be set. Both may be passed
+    simultaneously — the follow-up row then carries both FKs, which puts the
+    item on both the program's and the policy's action centers.
     """
     if program_id is None and policy_id is None:
         raise ValueError("Must provide program_id or policy_id")

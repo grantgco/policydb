@@ -115,7 +115,7 @@
             <td class="py-1.5 pr-2 text-gray-600">{{ child.carrier or '—' }}</td>
             <td class="py-1.5 pr-2 text-right">
               <input type="text" class="rp-premium w-24 text-xs text-right border border-transparent hover:border-gray-200 focus:border-marsh focus:outline-none rounded px-1 py-0.5"
-                     value="{{ '${:,.0f}'.format(child.premium) if child.premium else '' }}"
+                     value="{{ '${:,.0f}'.format(child.premium) if child.premium is not none else '' }}"
                      placeholder="—"
                      {{ 'disabled' if is_locked else '' }}>
             </td>
