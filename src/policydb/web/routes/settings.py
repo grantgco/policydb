@@ -517,7 +517,13 @@ def email_sync_folder_toggle(
     include: int = Form(...),
     conn=Depends(get_db),
 ):
-    """Flip include_in_crawl for a single folder. Called from the settings UI toggle."""
+    """Flip include_in_crawl for a single folder.
+
+    Returns ONLY the affected row (outerHTML-swapped by HTMX) so the
+    surrounding table isn't re-rendered — that swap reset the browser's
+    scroll position and yanked the user away from the folder they were
+    working on.
+    """
     include_val = 1 if include else 0
     conn.execute(
         """UPDATE outlook_folder_sync
@@ -526,7 +532,20 @@ def email_sync_folder_toggle(
         (include_val, folder_path),
     )
     conn.commit()
-    return _render_folder_rows(request, conn)
+
+    row = conn.execute(
+        """SELECT folder_path, folder_kind, include_in_crawl,
+                  last_synced_at, message_count, match_count, last_error
+           FROM outlook_folder_sync WHERE folder_path = ?""",
+        (folder_path,),
+    ).fetchone()
+    if row is None:
+        # Row vanished between click and handler — fall back to full rebuild
+        return _render_folder_rows(request, conn)
+    return templates.TemplateResponse(
+        "settings/_email_sync_folder_row.html",
+        {"request": request, "f": dict(row)},
+    )
 
 
 @router.post("/email-sync/toggle-comprehensive", response_class=HTMLResponse)

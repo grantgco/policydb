@@ -17,6 +17,8 @@ Two-way integration with Legacy Outlook for Mac via `osascript` subprocess calls
 | File | Purpose |
 |------|---------|
 | `src/policydb/outlook.py` | AppleScript bridge — `create_draft()`, `search_emails()`, `search_all_folders()`, `get_flagged_emails()`, `is_outlook_available()` |
+| `src/policydb/outlook_contacts.py` | AppleScript bridge for contacts — `ensure_pdb_category()`, `list_pdb_contacts()`, `upsert_contact()`, `delete_contact()`, `split_name()` |
+| `src/policydb/contact_sync.py` | Contact push orchestrator — PolicyDB → Outlook, fenced by PDB category, one-way |
 | `src/policydb/email_sync.py` | Sweep orchestrator — ref tag extraction, resolution, activity creation/enrichment, inbox routing |
 | `src/policydb/web/routes/outlook_routes.py` | Routes: `POST /outlook/compose`, `POST /outlook/sync`, `GET /outlook/status` |
 | `src/policydb/web/templates/outlook/_sync_results.html` | Sync results banner (fixed bottom of viewport) |
@@ -210,6 +212,50 @@ Emails almost always include multiple Marsh colleague addresses in CC/TO. Withou
 7. **`mail folder of msg`** — NOT a valid property; track folder name during iteration instead
 8. **JSON output** — AppleScript has no native JSON; build JSON strings manually with escaping helpers (`escJSON`, `padNum`, `replaceText`)
 9. **Timeout** — 30s per `osascript` call; cap at 500 messages per folder scan
+10. **`try` does NOT catch compile errors.** Unknown property names (e.g. `business phone` instead of `business phone number`) fail the whole script at parse time with `-2741 "Expected end of line but found property"`, before any `try` block runs. Probe the real dictionary with `properties of (first X)` before writing any new bridge function. See `reference_outlook_contact_properties.md` memory for the verified Outlook `contact` property list.
+11. **Notes line endings** — use `linefeed` (LF), not `return` (CR) when building multi-line strings for Outlook note fields; mac apps render bare CRs as one long line.
+12. **Local var names collide with app vocabulary inside `tell` blocks.** `set company to ""` resolves as the app's `company` property and crashes with `-10006`. Prefix locals with `v` (`vCompany`, `vNote`) or pick non-reserved names.
+13. **Nested reference iteration returns empty property reads.** `repeat with cat in (categories of c)` when `c` came from `every contact` gives category refs whose `name of cat` silently returns `""`. Fix: `set catList to get categories of (contents of c)` then iterate `catList`.
+14. **`existingList & scalar` fails when `existingList` is empty.** AppleScript tries to coerce the scalar to type `vector` and errors with `-1700`. Always wrap: `existingList & {scalar}`.
+15. **`email addresses` records need BOTH `address` and `type class`.** Setting `{{address:"x"}}` alone fails `-1700`. Use `{{address:"x", type class:work}}`.
+16. **`plain text note` strips newlines on read**; `note` preserves them. Prefer `note` for round-tripping plain-text.
+17. **Outlook category colors are RGB triples, not `category color N` enum.** Omit the color arg (let Outlook pick) or supply `{r,g,b}` 16-bit ints.
+
+## Contact Sync (PolicyDB → Outlook)
+
+One-way push; PolicyDB is source of truth. Fenced by a user-configurable category (`outlook_contact_category`, default "PDB"). Orchestrated in `contact_sync.sync_contacts_to_outlook`, runs at the end of `/outlook/sync`.
+
+### Push set
+Every contact with at least one `contact_client_assignments` row on a non-archived client. Preferred client assignment (primary → oldest) drives `job_title` and `business_street_address`. Field mapping in `_row_to_payload`:
+
+| PolicyDB | Outlook | Notes |
+|---|---|---|
+| `contacts.name` | `first name` / `last name` / `display name` | Split via `split_name()` (honorifics + suffixes stripped) |
+| `contacts.email` | `email addresses[0].address` | Sanitized via `clean_email()` |
+| `contacts.phone` | `business phone number` | Normalized via `format_phone()` |
+| `contacts.mobile` | `mobile number` | Normalized via `format_phone()` |
+| `contacts.organization` | `company` | — |
+| `cca.title` | `job title` | From preferred assignment |
+| `contacts.expertise_notes` | `note` (truncated 5000 chars, LF line endings) | — |
+| `clients.address` | `business street address` (plain string) | From preferred assignment |
+
+### Safety fences
+- **PDB category is the escape hatch** — `list_pdb_contacts` only returns contacts carrying the category, and `delete_contact` refuses to delete a contact missing it. Untagging in Outlook removes a contact from sync scope.
+- **Empty push set + tracked ids → abort** — if DB has `outlook_contact_id` pointers but Outlook returns zero tagged contacts, the sync stops instead of recreating everything (category likely renamed/deleted).
+- **Archived clients excluded** — the push set query filters `archived = 0`.
+- **Delete phase is opt-in** — gated by `outlook_contact_allow_deletes` config; only deletes contacts that (a) carry PDB tag and (b) are tracked in `contacts.outlook_contact_id`.
+
+### Config keys
+| Key | Default | Purpose |
+|---|---|---|
+| `outlook_contact_sync_enabled` | `true` | Master toggle |
+| `outlook_contact_category` | `"PDB"` | Safety-fence category name |
+| `outlook_contact_allow_deletes` | `true` | Allow push-set orphans to be deleted |
+
+All editable in Settings → Email & Contacts. Reset button clears every `outlook_contact_id`.
+
+### Migration 148
+Adds `outlook_contact_id TEXT` to `contacts`.
 
 ## Email Snippet Display
 

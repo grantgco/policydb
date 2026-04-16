@@ -44,6 +44,7 @@ def _empty_result(**overrides) -> dict:
         "skipped_orphan": 0,
         "skipped_archived": 0,
         "skipped_email": 0,
+        "skipped_untagged": 0,
         "skipped_unavailable": False,
         "errors": [],
         "ambiguous_bootstrap": [],
@@ -258,6 +259,7 @@ def sync_contacts_to_outlook(conn: sqlite3.Connection) -> dict:
         remote = remote_by_id.get(tracked_id) if tracked_id else None
 
         # Bootstrap path — no tracked id yet
+        ambiguous = False
         if not tracked_id:
             candidates: list[dict] = []
             if email:
@@ -269,14 +271,39 @@ def sync_contacts_to_outlook(conn: sqlite3.Connection) -> dict:
                 result["ambiguous_bootstrap"].append(email)
                 remote = None
                 tracked_id = None
+                ambiguous = True
+
+        if ambiguous:
+            # Refuse to act when email matches multiple PDB contacts — creating
+            # a third row just compounds the mess. User must de-dup in Outlook
+            # or pick one in PolicyDB's outlook_contact_id.
+            continue
 
         try:
             if remote is None:
-                upsert = upsert_contact(payload, outlook_id=None, category_name=category_name)
+                # Either: truly new (no tracked id), or tracked id no longer
+                # appears under the PDB category (user untagged, deleted, or
+                # renamed the category). Passing tracked_id lets upsert_contact
+                # detect the "untagged" case and honor the escape hatch.
+                upsert = upsert_contact(
+                    payload,
+                    outlook_id=tracked_id,
+                    category_name=category_name,
+                )
                 if not upsert.get("ok"):
                     result["errors"].append(
                         f"Create failed for {row.get('name')}: {upsert.get('error', 'unknown')}"
                     )
+                    continue
+                if upsert.get("skipped_untagged"):
+                    # User untagged this contact in Outlook — clear pointer
+                    # and leave them alone.
+                    conn.execute(
+                        "UPDATE contacts SET outlook_contact_id=NULL WHERE id=?",
+                        (row["contact_id"],),
+                    )
+                    conn.commit()
+                    result["skipped_untagged"] += 1
                     continue
                 new_id = upsert.get("outlook_id") or upsert.get("raw")
                 if new_id:
@@ -298,6 +325,14 @@ def sync_contacts_to_outlook(conn: sqlite3.Connection) -> dict:
                         result["errors"].append(
                             f"Update failed for {row.get('name')}: {upsert.get('error', 'unknown')}"
                         )
+                        continue
+                    if upsert.get("skipped_untagged"):
+                        conn.execute(
+                            "UPDATE contacts SET outlook_contact_id=NULL WHERE id=?",
+                            (row["contact_id"],),
+                        )
+                        conn.commit()
+                        result["skipped_untagged"] += 1
                         continue
                     result["updated"] += 1
                 # Even if no update, adopt the id so delete phase doesn't
