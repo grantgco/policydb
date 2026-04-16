@@ -7642,12 +7642,10 @@ async def exposure_cell(request: Request, client_id: int, exposure_id: int, conn
         conn.commit()
         from policydb.exposures import recalc_exposure_rate
         recalc_exposure_rate(conn, exposure_id=exposure_id)
-        # Format and calculate YoY
+        # Format without currency symbols — the matrix uses plain number
+        # formatting regardless of unit, so long values don't wrap.
         row = get_exposure_by_id(conn, exposure_id)
-        if row and row.get("unit") == "currency":
-            formatted = "${:,.0f}".format(amount)
-        else:
-            formatted = "{:,.0f}".format(amount)
+        formatted = "{:,.0f}".format(amount)
         # Calculate YoY
         prior = conn.execute(
             """SELECT amount FROM client_exposures

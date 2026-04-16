@@ -42,9 +42,9 @@
   <div class="overflow-x-auto">
     <table class="w-full text-sm table-fixed">
       <colgroup>
-        <col style="width:12%"><col style="width:5%"><col style="width:11%"><col style="width:10%">
-        <col style="width:10%"><col style="width:6%"><col style="width:14%">
-        <col style="width:14%"><col style="width:3%"><col style="width:7%"><col style="width:28px">
+        <col style="width:12%"><col style="width:5%"><col style="width:10%"><col style="width:12%">
+        <col style="width:12%"><col style="width:6%"><col style="width:13%">
+        <col style="width:13%"><col style="width:3%"><col style="width:7%"><col style="width:28px">
       </colgroup>
       <thead>
         <tr class="text-left text-xs text-gray-400 uppercase tracking-wide border-b border-gray-100 bg-gray-50">
@@ -115,7 +115,8 @@
         var rateCell = rowEl.querySelector('[data-field="rate"]');
         if (rateCell) {
           var cls = resp.is_primary ? 'bg-green-50 text-green-700' : 'text-gray-400';
-          rateCell.innerHTML = '<span class="text-xs font-semibold px-2 py-0.5 rounded ' + cls + '">$' + parseFloat(resp.rate).toFixed(2) + '</span>';
+          var formattedRate = parseFloat(resp.rate).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          rateCell.innerHTML = '<span class="text-xs font-semibold tabular-nums px-2 py-0.5 rounded ' + cls + '">' + formattedRate + '</span>';
         }
       }
     }

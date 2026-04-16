@@ -18,6 +18,26 @@ logger = logging.getLogger("policydb.renewal_issues")
 
 # ── Health → Severity mapping ────────────────────────────────────────────────
 
+# Statuses that should never spawn a renewal issue, regardless of whether the
+# user has added them to `renewal_statuses_excluded`. "Bound" is intentionally
+# omitted — it's handled by auto_resolve_renewal_issue on the current term,
+# and a freshly-bound policy needs a new issue for the next cycle.
+_TERMINAL_SKIP_STATUSES = ("Lost", "Non-Renewed", "Declined", "Not Tracked")
+
+
+def _renewal_skip_statuses() -> set[str]:
+    """Merge configured terminal statuses with the hard-coded skip list.
+
+    Callers union this with ``renewal_statuses_excluded`` so policies marked
+    Lost / Not Tracked / Non-Renewed / Declined never produce a renewal issue.
+    """
+    configured = cfg.get("renewal_terminal_statuses", []) or []
+    # Bound is treated as terminal for the current cycle but should not block
+    # a future-term renewal issue, so drop it here even if the user included it
+    # in the terminal-statuses config.
+    return {s for s in configured if s and s != "Bound"} | set(_TERMINAL_SKIP_STATUSES)
+
+
 _HEALTH_SEVERITY = {
     "critical": "Critical",
     "at_risk": "High",
@@ -97,20 +117,39 @@ def ensure_renewal_issues(conn, policy_uid: str | None = None) -> None:
         policy_rows = conn.execute("""
             SELECT p.policy_uid, p.expiration_date, p.policy_type, p.id AS policy_id,
                    c.name AS client_name, p.client_id, p.program_id,
-                   pr.name AS location_name
+                   pr.name AS location_name, p.renewal_status, p.is_opportunity, p.archived
             FROM policies p
             JOIN clients c ON c.id = p.client_id
             LEFT JOIN projects pr ON pr.id = p.project_id
             WHERE p.policy_uid = ?
         """, (policy_uid,)).fetchall()
+        # Apply the same skip filter on single-policy triggers (e.g. inline
+        # status changes) so flipping a policy to Lost/Not Tracked doesn't
+        # immediately re-spawn the renewal issue.
+        skip_statuses = set(cfg.get("renewal_statuses_excluded", []) or [])
+        skip_statuses.update(_renewal_skip_statuses())
+        policy_rows = [
+            r for r in policy_rows
+            if (r["is_opportunity"] or 0) == 0
+            and (r["archived"] or 0) == 0
+            and r["expiration_date"]
+            and r["expiration_date"] >= today.isoformat()
+            and r["expiration_date"] <= horizon.isoformat()
+            and (r["renewal_status"] is None or r["renewal_status"] not in skip_statuses)
+        ]
     else:
-        excluded_statuses = cfg.get("renewal_statuses_excluded", [])
+        # Exclude any renewal_status the user has silenced for alerts/pipeline
+        # AND any terminal status (Lost / Non-Renewed / Declined / Not Tracked).
+        # Union so that terminal statuses are always blocked from spawning a
+        # fresh renewal issue even if the user has cleared the excluded list.
+        excluded_statuses = set(cfg.get("renewal_statuses_excluded", []) or [])
+        excluded_statuses.update(_renewal_skip_statuses())
         excl_sql = ""
         excl_params: list = [today.isoformat(), horizon.isoformat()]
         if excluded_statuses:
             ph = ",".join("?" * len(excluded_statuses))
             excl_sql = f" AND (p.renewal_status IS NULL OR p.renewal_status NOT IN ({ph}))"
-            excl_params.extend(excluded_statuses)
+            excl_params.extend(sorted(excluded_statuses))
         policy_rows = conn.execute(f"""
             SELECT p.policy_uid, p.expiration_date, p.policy_type, p.id AS policy_id,
                    c.name AS client_name, p.client_id, p.program_id,
@@ -151,7 +190,19 @@ def ensure_renewal_issues(conn, policy_uid: str | None = None) -> None:
     # GROUP BY gives us one row per program with the right expiration, which
     # reads cleaner than four repeated correlated subqueries.
     if not policy_uid:
-        program_rows = conn.execute("""
+        # Exclude terminal-status children from program expiration derivation —
+        # otherwise a program where every child is Lost/Not Tracked still
+        # produces a renewal issue for the program.
+        skip_statuses = set(cfg.get("renewal_statuses_excluded", []) or [])
+        skip_statuses.update(_renewal_skip_statuses())
+        child_excl_sql = ""
+        child_params: list = []
+        if skip_statuses:
+            ph = ",".join("?" * len(skip_statuses))
+            child_excl_sql = f" AND (renewal_status IS NULL OR renewal_status NOT IN ({ph}))"
+            child_params = sorted(skip_statuses)
+
+        program_rows = conn.execute(f"""
             SELECT pg.id, pg.program_uid, d.expiration_date,
                    pg.line_of_business,
                    pg.name AS program_name, c.name AS client_name, pg.client_id,
@@ -166,13 +217,14 @@ def ensure_renewal_issues(conn, policy_uid: str | None = None) -> None:
                   AND archived = 0
                   AND (is_opportunity = 0 OR is_opportunity IS NULL)
                   AND (expiration_date IS NULL OR expiration_date >= date('now'))
+                  {child_excl_sql}
                 GROUP BY program_id
                 HAVING MAX(expiration_date) IS NOT NULL
             ) d ON d.program_id = pg.id
             WHERE (pg.archived = 0 OR pg.archived IS NULL)
               AND d.expiration_date >= ?
               AND d.expiration_date <= ?
-        """, (today.isoformat(), horizon.isoformat())).fetchall()
+        """, (*child_params, today.isoformat(), horizon.isoformat())).fetchall()
 
         for pgm in program_rows:
             term_key = f"program:{pgm['program_uid']}"

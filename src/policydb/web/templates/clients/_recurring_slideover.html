@@ -1,18 +1,23 @@
 {# Create / edit recurring event schedule — rendered inside #recurring-slideover-content #}
 {% set is_edit = template is not none %}
 {% set t = template or {} %}
+{% set monthly_cadences = ['Monthly', 'Quarterly', 'Semi-Annual', 'Annual'] %}
+{% set weekly_cadences = ['Weekly', 'Biweekly'] %}
+{% set current_cadence = t.cadence if is_edit else 'Weekly' %}
+{% set current_pattern = (t.month_pattern if is_edit else '') or 'day_of_month' %}
 <div>
   <div class="flex items-center justify-between mb-4">
-    <h2 class="text-base font-semibold text-gray-900">
+    <h2 class="text-base font-semibold text-[#000F47]" style="font-family:'DM Serif Display',serif;">
       {% if is_edit %}Edit Recurring Schedule{% else %}New Recurring Schedule{% endif %}
     </h2>
-    <button type="button" onclick="closeRecurringSlideover()" class="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+    <button type="button" onclick="closeRecurringSlideover()"
+      class="text-[#8F8B83] hover:text-[#000F47] text-xl leading-none">&times;</button>
   </div>
 
-  <div class="text-xs text-gray-500 mb-4">
+  <div class="text-xs text-[#6B6860] mb-4">
     Schedule a repeating touchpoint for
-    <span class="font-medium text-gray-700">{{ client.name }}</span>.
-    Each occurrence is materialized as an issue on its due date.
+    <span class="font-medium text-[#3D3C37]">{{ client.name }}</span>.
+    Each occurrence is materialized as an issue on its due date and flows into the Focus Queue.
   </div>
 
   <form
@@ -23,7 +28,9 @@
     {% endif %}
     hx-target="#client-recurring-tab"
     hx-swap="outerHTML"
-    class="space-y-4">
+    class="space-y-4"
+    id="recurring-event-form"
+    data-current-cadence="{{ current_cadence }}">
 
     {% if not is_edit %}
     <input type="hidden" name="client_id" value="{{ client.id }}">
@@ -31,18 +38,18 @@
 
     {# Name #}
     <div>
-      <label class="block text-xs font-medium text-gray-600 mb-1">Name <span class="text-red-500">*</span></label>
+      <label class="field-label">Name <span class="text-red-500">*</span></label>
       <input type="text" name="name" required
         value="{{ t.name or '' }}"
-        placeholder="e.g. Weekly open items call"
-        class="w-full rounded border-gray-300 text-sm px-3 py-1.5">
+        placeholder="e.g. Monthly loss run review"
+        class="form-input">
     </div>
 
     {# Event type + severity #}
     <div class="grid grid-cols-2 gap-3">
       <div>
-        <label class="block text-xs font-medium text-gray-600 mb-1">Type</label>
-        <select name="event_type" class="w-full rounded border-gray-300 text-sm px-2 py-1.5">
+        <label class="field-label">Type</label>
+        <select name="event_type" class="form-select">
           <option value="">—</option>
           {% for opt in event_types %}
           <option value="{{ opt }}" {% if t.event_type == opt %}selected{% endif %}>{{ opt }}</option>
@@ -50,8 +57,8 @@
         </select>
       </div>
       <div>
-        <label class="block text-xs font-medium text-gray-600 mb-1">Severity</label>
-        <select name="default_severity" class="w-full rounded border-gray-300 text-sm px-2 py-1.5">
+        <label class="field-label">Severity</label>
+        <select name="default_severity" class="form-select">
           {% for sev in severities %}
           <option value="{{ sev.label }}" {% if t.default_severity == sev.label or (not t.default_severity and sev.label == 'Normal') %}selected{% endif %}>
             {{ sev.label }} ({{ sev.sla_days }}d SLA)
@@ -61,73 +68,135 @@
       </div>
     </div>
 
-    {# Cadence + interval #}
-    <div class="grid grid-cols-3 gap-3">
-      <div class="col-span-2">
-        <label class="block text-xs font-medium text-gray-600 mb-1">Cadence <span class="text-red-500">*</span></label>
-        <select name="cadence" required class="w-full rounded border-gray-300 text-sm px-2 py-1.5">
-          {% for c in cadences %}
-          <option value="{{ c }}" {% if t.cadence == c %}selected{% endif %}>{{ c }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div>
-        <label class="block text-xs font-medium text-gray-600 mb-1">Every</label>
-        <input type="number" name="interval_n" min="1" max="52"
-          value="{{ t.interval_n or 1 }}"
-          class="w-full rounded border-gray-300 text-sm px-2 py-1.5">
-      </div>
-    </div>
+    {# ── Repeat rule ─────────────────────────────────────────── #}
+    <div class="rounded-lg border border-[#E8E2D9] bg-[#FBF8F3] p-3 space-y-3">
+      <div class="text-[11px] uppercase tracking-wide text-[#8F8B83] font-semibold">Repeat rule</div>
 
-    {# Day of week / day of month (both always shown; relevant one used based on cadence) #}
-    <div class="grid grid-cols-2 gap-3">
-      <div>
-        <label class="block text-xs font-medium text-gray-600 mb-1">Day of week (Weekly/Biweekly)</label>
-        <select name="day_of_week" class="w-full rounded border-gray-300 text-sm px-2 py-1.5">
-          <option value="">Any</option>
+      {# Cadence + interval #}
+      <div class="grid grid-cols-3 gap-3">
+        <div class="col-span-2">
+          <label class="field-label">Cadence <span class="text-red-500">*</span></label>
+          <select name="cadence" id="re-cadence" required class="form-select" onchange="recurringRuleChanged()">
+            {% for c in cadences %}
+            <option value="{{ c }}" {% if t.cadence == c %}selected{% endif %}>{{ c }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="field-label">Every</label>
+          <input type="number" name="interval_n" min="1" max="52"
+            value="{{ t.interval_n or 1 }}"
+            oninput="recurringRuleChanged()"
+            class="form-input">
+        </div>
+      </div>
+
+      {# Weekly: day of week #}
+      <div id="re-weekly-group" class="hidden">
+        <label class="field-label">Day of week</label>
+        <select name="day_of_week" id="re-dow" class="form-select" onchange="recurringRuleChanged()">
+          <option value="">Any (same weekday as start)</option>
           {% set dows = [('0','Monday'),('1','Tuesday'),('2','Wednesday'),('3','Thursday'),('4','Friday'),('5','Saturday'),('6','Sunday')] %}
           {% for v, label in dows %}
           <option value="{{ v }}" {% if t.day_of_week is not none and t.day_of_week|string == v %}selected{% endif %}>{{ label }}</option>
           {% endfor %}
         </select>
       </div>
-      <div>
-        <label class="block text-xs font-medium text-gray-600 mb-1">Day of month (Monthly+)</label>
-        <input type="number" name="day_of_month" min="1" max="31"
-          value="{{ t.day_of_month or '' }}"
-          placeholder="e.g. 15"
-          class="w-full rounded border-gray-300 text-sm px-3 py-1.5">
+
+      {# Monthly+: pattern segmented control #}
+      <div id="re-monthly-group" class="hidden space-y-3">
+        <div>
+          <label class="field-label">Pattern</label>
+          <div class="flex bg-[#EDEAE4] rounded-lg overflow-hidden text-[13px] p-0.5" role="tablist">
+            <button type="button" id="re-pattern-dom"
+              class="flex-1 px-3 py-1.5 rounded-md transition-colors"
+              onclick="setMonthPattern('day_of_month')">
+              On day of month
+            </button>
+            <button type="button" id="re-pattern-nth"
+              class="flex-1 px-3 py-1.5 rounded-md transition-colors"
+              onclick="setMonthPattern('nth_weekday')">
+              On the Nth weekday
+            </button>
+          </div>
+          <input type="hidden" name="month_pattern" id="re-month-pattern" value="{{ current_pattern }}">
+        </div>
+
+        {# Day of month #}
+        <div id="re-dom-group">
+          <label class="field-label">Day of month</label>
+          <input type="number" name="day_of_month" id="re-dom" min="1" max="31"
+            value="{{ t.day_of_month or '' }}"
+            placeholder="e.g. 15"
+            oninput="recurringRuleChanged()"
+            class="form-input">
+          <p class="text-[11px] text-[#8F8B83] mt-1">
+            Days 29–31 clamp to month-end in shorter months (e.g. 31 becomes Feb 28).
+          </p>
+        </div>
+
+        {# Nth weekday #}
+        <div id="re-nth-group" class="hidden grid grid-cols-2 gap-3">
+          <div>
+            <label class="field-label">Which</label>
+            <select name="nth_weekday_n" id="re-nth-n" class="form-select" onchange="recurringRuleChanged()">
+              {% set nths = [('1','First'),('2','Second'),('3','Third'),('4','Fourth'),('-1','Last')] %}
+              {% for v, label in nths %}
+              <option value="{{ v }}"
+                {% if t.nth_weekday_n is not none and t.nth_weekday_n|string == v %}selected
+                {% elif t.nth_weekday_n is none and v == '-1' %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label class="field-label">Weekday</label>
+            <select name="nth_weekday_dow" id="re-nth-dow" class="form-select" onchange="recurringRuleChanged()">
+              {% for v, label in dows %}
+              <option value="{{ v }}"
+                {% if t.nth_weekday_dow is not none and t.nth_weekday_dow|string == v %}selected
+                {% elif t.nth_weekday_dow is none and v == '0' %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      {# Live preview #}
+      <div class="text-xs text-[#3D3C37] bg-white border border-[#E8E2D9] rounded px-2.5 py-1.5 font-medium">
+        <span class="text-[#8F8B83] font-normal">Summary:</span>
+        <span id="re-summary">—</span>
       </div>
     </div>
 
     {# Start / end date #}
     <div class="grid grid-cols-2 gap-3">
       <div>
-        <label class="block text-xs font-medium text-gray-600 mb-1">Start date <span class="text-red-500">*</span></label>
+        <label class="field-label">Start date <span class="text-red-500">*</span></label>
         <input type="date" name="start_date" required
           value="{{ t.start_date or today_iso }}"
-          class="w-full rounded border-gray-300 text-sm px-3 py-1.5">
+          oninput="recurringRuleChanged()"
+          class="form-input">
       </div>
       <div>
-        <label class="block text-xs font-medium text-gray-600 mb-1">End date (optional)</label>
+        <label class="field-label">End date (optional)</label>
         <input type="date" name="end_date"
           value="{{ t.end_date or '' }}"
-          class="w-full rounded border-gray-300 text-sm px-3 py-1.5">
+          class="form-input">
       </div>
     </div>
 
     {# Lead days + catch-up mode #}
     <div class="grid grid-cols-2 gap-3">
       <div>
-        <label class="block text-xs font-medium text-gray-600 mb-1">Lead days</label>
+        <label class="field-label">Lead days</label>
         <input type="number" name="lead_days" min="0" max="60"
           value="{{ t.lead_days or 0 }}"
-          class="w-full rounded border-gray-300 text-sm px-3 py-1.5"
+          class="form-input"
           title="Materialize the issue N days before its due date">
       </div>
       <div>
-        <label class="block text-xs font-medium text-gray-600 mb-1">If missed</label>
-        <select name="catch_up_mode" class="w-full rounded border-gray-300 text-sm px-2 py-1.5">
+        <label class="field-label">If missed</label>
+        <select name="catch_up_mode" class="form-select">
           <option value="collapse" {% if (t.catch_up_mode or 'collapse') == 'collapse' %}selected{% endif %}>Collapse (1 catch-up)</option>
           <option value="materialize_all" {% if t.catch_up_mode == 'materialize_all' %}selected{% endif %}>Fire every missed</option>
         </select>
@@ -136,8 +205,8 @@
 
     {# Optional policy scoping #}
     <div>
-      <label class="block text-xs font-medium text-gray-600 mb-1">Link to policy (optional)</label>
-      <select name="policy_id" class="w-full rounded border-gray-300 text-sm px-2 py-1.5">
+      <label class="field-label">Link to policy (optional)</label>
+      <select name="policy_id" class="form-select">
         <option value="0">— Client-level only —</option>
         {% for p in policies %}
         <option value="{{ p.id }}" {% if t.policy_id == p.id %}selected{% endif %}>
@@ -149,41 +218,125 @@
 
     {# Subject + details templates #}
     <div>
-      <label class="block text-xs font-medium text-gray-600 mb-1">Subject template</label>
+      <label class="field-label">Subject template</label>
       <input type="text" name="subject_template"
         value="{{ t.subject_template or '' }}"
         placeholder="Leave blank to use the name above"
-        class="w-full rounded border-gray-300 text-sm px-3 py-1.5">
+        class="form-input">
     </div>
     <div>
-      <label class="block text-xs font-medium text-gray-600 mb-1">Details template</label>
+      <label class="field-label">Details template</label>
       <textarea name="details_template" rows="3"
         placeholder="Optional — copied to each instance"
-        class="w-full rounded border-gray-300 text-sm px-3 py-1.5">{{ t.details_template or '' }}</textarea>
+        class="form-input">{{ t.details_template or '' }}</textarea>
     </div>
 
     {# Account exec #}
     <div>
-      <label class="block text-xs font-medium text-gray-600 mb-1">Account exec (optional)</label>
+      <label class="field-label">Account exec (optional)</label>
       <input type="text" name="account_exec"
         value="{{ t.account_exec or '' }}"
-        class="w-full rounded border-gray-300 text-sm px-3 py-1.5">
+        class="form-input">
     </div>
 
     {# Notes #}
     <div>
-      <label class="block text-xs font-medium text-gray-600 mb-1">Internal notes</label>
-      <textarea name="notes" rows="2" class="w-full rounded border-gray-300 text-sm px-3 py-1.5">{{ t.notes or '' }}</textarea>
+      <label class="field-label">Internal notes</label>
+      <textarea name="notes" rows="2" class="form-input">{{ t.notes or '' }}</textarea>
     </div>
 
     {# Buttons #}
-    <div class="flex items-center justify-end gap-2 pt-2 border-t">
+    <div class="flex items-center justify-end gap-2 pt-3 border-t border-[#E8E2D9]">
       <button type="button" onclick="closeRecurringSlideover()"
-        class="text-xs text-gray-500 hover:text-gray-700 px-3 py-1.5">Cancel</button>
+        class="text-xs text-[#6B6860] hover:text-[#3D3C37] px-3 py-1.5">Cancel</button>
       <button type="submit"
-        class="text-xs bg-marsh text-white px-4 py-1.5 rounded font-medium hover:bg-marsh-light transition-colors">
+        class="btn-primary text-xs px-4 py-1.5">
         {% if is_edit %}Save changes{% else %}Create schedule{% endif %}
       </button>
     </div>
   </form>
 </div>
+
+<script>
+(function () {
+  const MONTHLY = new Set(['Monthly', 'Quarterly', 'Semi-Annual', 'Annual']);
+  const WEEKLY = new Set(['Weekly', 'Biweekly']);
+  const DOW_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+  const NTH_NAMES = {'1': 'first', '2': 'second', '3': 'third', '4': 'fourth', '-1': 'last'};
+
+  function byId(id) { return document.getElementById(id); }
+
+  function visibleCadenceGroups() {
+    const cad = (byId('re-cadence') || {}).value || '';
+    const weekly = byId('re-weekly-group');
+    const monthly = byId('re-monthly-group');
+    if (WEEKLY.has(cad)) { weekly.classList.remove('hidden'); } else { weekly.classList.add('hidden'); }
+    if (MONTHLY.has(cad)) { monthly.classList.remove('hidden'); } else { monthly.classList.add('hidden'); }
+  }
+
+  window.setMonthPattern = function (pattern) {
+    byId('re-month-pattern').value = pattern;
+    const domGroup = byId('re-dom-group');
+    const nthGroup = byId('re-nth-group');
+    const dom = byId('re-pattern-dom');
+    const nth = byId('re-pattern-nth');
+    if (pattern === 'nth_weekday') {
+      domGroup.classList.add('hidden');
+      nthGroup.classList.remove('hidden');
+      nthGroup.classList.add('grid');
+      dom.className = 'flex-1 px-3 py-1.5 rounded-md transition-colors text-[#6B6860] hover:bg-[#E0DBD3]';
+      nth.className = 'flex-1 px-3 py-1.5 rounded-md transition-colors bg-[#000F47] text-white font-semibold';
+    } else {
+      domGroup.classList.remove('hidden');
+      nthGroup.classList.add('hidden');
+      nthGroup.classList.remove('grid');
+      dom.className = 'flex-1 px-3 py-1.5 rounded-md transition-colors bg-[#000F47] text-white font-semibold';
+      nth.className = 'flex-1 px-3 py-1.5 rounded-md transition-colors text-[#6B6860] hover:bg-[#E0DBD3]';
+    }
+    renderSummary();
+  };
+
+  function renderSummary() {
+    const form = byId('recurring-event-form');
+    if (!form) return;
+    const cad = (byId('re-cadence') || {}).value || '';
+    const n = parseInt((form.elements['interval_n'] || {}).value || '1', 10) || 1;
+    const every = n > 1 ? `every ${n}` : 'every';
+    let text = '—';
+
+    if (cad === 'Daily') {
+      text = n > 1 ? `Repeats every ${n} days` : 'Repeats every day';
+    } else if (WEEKLY.has(cad)) {
+      const dowRaw = (byId('re-dow') || {}).value;
+      const dowLabel = dowRaw === '' ? 'same weekday as the start date' : DOW_NAMES[parseInt(dowRaw, 10)];
+      const unit = cad === 'Weekly' ? (n > 1 ? `every ${n} weeks` : 'every week') : (n > 1 ? `every ${n * 2} weeks` : 'every other week');
+      text = `Repeats ${unit} on ${dowLabel}`;
+    } else if (MONTHLY.has(cad)) {
+      const cadenceWord = { 'Monthly': 'month', 'Quarterly': 'quarter', 'Semi-Annual': 'half year', 'Annual': 'year' }[cad];
+      const unit = n > 1 ? `${every} ${n} ${cadenceWord}s` : `every ${cadenceWord}`;
+      const pattern = byId('re-month-pattern').value;
+      if (pattern === 'nth_weekday') {
+        const nthN = (byId('re-nth-n') || {}).value || '-1';
+        const nthDow = (byId('re-nth-dow') || {}).value || '0';
+        text = `Repeats ${unit} on the ${NTH_NAMES[nthN]} ${DOW_NAMES[parseInt(nthDow, 10)]}`;
+      } else {
+        const dom = (form.elements['day_of_month'] || {}).value;
+        text = dom
+          ? `Repeats ${unit} on day ${dom} (clamped to month-end)`
+          : `Repeats ${unit} on the start date's day`;
+      }
+    }
+    byId('re-summary').textContent = text;
+  }
+
+  window.recurringRuleChanged = function () {
+    visibleCadenceGroups();
+    renderSummary();
+  };
+
+  // Initial render
+  visibleCadenceGroups();
+  setMonthPattern(byId('re-month-pattern').value || 'day_of_month');
+  renderSummary();
+})();
+</script>

@@ -2090,6 +2090,26 @@ def _init_db_inner(conn: sqlite3.Connection, db_path: Path) -> None:
         conn.commit()
         logger.info("Migration 155: created renewal_batches table")
 
+    if 156 not in applied:
+        # Idempotent: ALTER TABLE ADD COLUMN is one-shot; skip columns already present.
+        _re_cols = {r[1] for r in conn.execute("PRAGMA table_info(recurring_events)").fetchall()}
+        _migration_sql = (_MIGRATIONS_DIR / "156_recurring_nth_weekday.sql").read_text()
+        _filtered_lines = []
+        for _line in _migration_sql.splitlines():
+            _stripped = _line.strip().rstrip(";")
+            if _stripped.startswith("ALTER TABLE recurring_events ADD COLUMN "):
+                _col = _stripped.split()[-2]  # "ADD COLUMN <name> <type>"
+                if _col in _re_cols:
+                    continue
+            _filtered_lines.append(_line)
+        conn.executescript("\n".join(_filtered_lines))
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (156, "Recurring events: add month_pattern + nth_weekday_n/dow for 'last Monday'-style rules"),
+        )
+        conn.commit()
+        logger.info("Migration 156: added recurring_events month_pattern + nth_weekday_* columns")
+
     # Data hygiene: fix 'None' string corruption in text fields (runs every startup, fast no-op if clean)
     conn.execute("UPDATE clients SET cn_number = NULL WHERE cn_number = 'None'")
 
