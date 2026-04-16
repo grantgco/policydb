@@ -416,6 +416,18 @@
       {% include "issues/_scope_rollup.html" %}
       {% endif %}
 
+      {# ── Per-Policy Activity — lazy-loaded check-in strip ── #}
+      {# Only shown when multiple policies are linked; single-policy issues return empty #}
+      {% if linked_policies | length > 1 %}
+      <div hx-get="/issues/{{ issue.id }}/per-policy-activity"
+           hx-trigger="load"
+           hx-swap="innerHTML">
+        <div class="card p-4">
+          <p class="text-xs text-gray-400 italic">Loading policy activity...</p>
+        </div>
+      </div>
+      {% endif %}
+
       {# ── Files & Attachments ── #}
       <div class="card p-4">
         <div class="text-[10px] text-gray-400 uppercase tracking-wide mb-2">Files & Attachments</div>

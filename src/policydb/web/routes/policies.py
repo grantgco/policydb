@@ -3033,6 +3033,12 @@ def policy_tab_activity(request: Request, policy_uid: str, conn=Depends(get_db))
         for xa in xrefs:
             xa["is_project_xref"] = True
         activities.extend(xrefs)
+        # Dedup — an activity can appear in both the main query (via issue coverage,
+        # policy_id IS NULL) and the xrefs query (via project_id, policy_id IS NULL).
+        # Keep the first occurrence, which preserves is_issue_xref / is_project_xref
+        # tags from whichever query found it first.
+        _seen: set[int] = set()
+        activities = [a for a in activities if not (a.get("id") in _seen or _seen.add(a["id"]))]
         # Re-sort to match original order: open follow-ups first (by fu date asc), then by activity_date desc
         def _sort_key(x):
             has_open_fu = bool(x.get("follow_up_date") and not x.get("follow_up_done"))
